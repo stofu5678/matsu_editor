@@ -21,6 +21,8 @@ use gpui_platform::application;
 
 mod memstat;
 mod menu_bar;
+#[cfg(feature = "self-check")]
+mod self_check;
 use menu_bar::MenuBar;
 
 #[global_allocator]
@@ -54,10 +56,21 @@ actions!(
         FontSmaller,
         Quit,
         NoOp,
+        // The macOS application and Window menus
+        Hide,
+        HideOthers,
+        ShowAll,
+        Minimize,
+        Zoom,
     ]
 );
 
+/// The fonts that F7 cycles through: Japanese fonts, a Latin monospace font, and the UI font.
+#[cfg(not(target_os = "macos"))]
 const FONTS: &[&str] = &["BIZ UDGothic", "MS Gothic", "Consolas", "Yu Gothic UI"];
+/// GPUI picks a font by family name, so Osaka is the proportional one, not Osaka−等幅.
+#[cfg(target_os = "macos")]
+const FONTS: &[&str] = &["BIZ UDGothic", "Osaka", "Menlo", "Hiragino Sans"];
 
 struct Editor {
     focus_handle: FocusHandle,
@@ -995,34 +1008,43 @@ impl Render for Workspace {
             .bg(rgb(0xffffff))
             .text_color(rgb(0x1e1e1e))
             .font_family(ui_font)
-            .on_modifiers_changed(
-                cx.listener(|this, event: &ModifiersChangedEvent, window, cx| {
-                    let m = event.modifiers;
-                    let alt_only = m.alt && !m.control && !m.shift && !m.platform && !m.function;
-                    if alt_only {
-                        this.alt_pending = true;
-                    } else if !m.modified() && this.alt_pending {
+            // The Windows way into the menu bar. A Mac has the system's menu bar, and Option
+            // types characters there.
+            .when(!cfg!(target_os = "macos"), |this| {
+                this.on_modifiers_changed(cx.listener(
+                    |this, event: &ModifiersChangedEvent, window, cx| {
+                        let m = event.modifiers;
+                        let alt_only =
+                            m.alt && !m.control && !m.shift && !m.platform && !m.function;
+                        if alt_only {
+                            this.alt_pending = true;
+                        } else if !m.modified() && this.alt_pending {
+                            this.alt_pending = false;
+                            this.menu_bar
+                                .update(cx, |bar, cx| bar.toggle_armed(window, cx));
+                        } else {
+                            this.alt_pending = false;
+                        }
+                    },
+                ))
+                .capture_key_down(cx.listener(
+                    |this, event: &KeyDownEvent, window, cx| {
                         this.alt_pending = false;
-                        this.menu_bar
-                            .update(cx, |bar, cx| bar.toggle_armed(window, cx));
-                    } else {
-                        this.alt_pending = false;
-                    }
-                }),
-            )
-            .capture_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                this.alt_pending = false;
-                let m = event.keystroke.modifiers;
-                if m.alt && !m.control && !m.shift && !m.platform {
-                    let key = event.keystroke.key.clone();
-                    let opened = this
-                        .menu_bar
-                        .update(cx, |bar, cx| bar.open_by_mnemonic(&key, window, cx));
-                    if opened {
-                        cx.stop_propagation();
-                    }
-                }
-            }))
+                        let m = event.keystroke.modifiers;
+                        if m.alt && !m.control && !m.shift && !m.platform {
+                            let key = event.keystroke.key.clone();
+                            let opened = this
+                                .menu_bar
+                                .update(cx, |bar, cx| bar.open_by_mnemonic(&key, window, cx));
+                            if opened {
+                                cx.stop_propagation();
+                            }
+                        }
+                    },
+                ))
+            })
+            .on_action(|_: &Minimize, window, _| window.minimize_window())
+            .on_action(|_: &Zoom, window, _| window.zoom_window())
             .on_action({
                 let f = forward(|e, w, cx| e.open_file(&OpenFile, w, cx));
                 move |_: &OpenFile, w, cx| f(w, cx)
@@ -1051,12 +1073,15 @@ impl Render for Workspace {
                 let f = forward(|e, w, cx| e.copy_line(&CopyLine, w, cx));
                 move |_: &CopyLine, w, cx| f(w, cx)
             })
-            .children((!flag("POC_NO_MENU")).then(|| {
-                div()
-                    .border_b_1()
-                    .border_color(rgb(0xd0d0d0))
-                    .child(self.menu_bar.clone())
-            }))
+            // macOS shows the menus in its own menu bar (`cx.set_menus`).
+            .children(
+                (!flag("POC_NO_MENU") && !cfg!(target_os = "macos")).then(|| {
+                    div()
+                        .border_b_1()
+                        .border_color(rgb(0xd0d0d0))
+                        .child(self.menu_bar.clone())
+                }),
+            )
             .child(div().flex_1().overflow_hidden().child(self.editor.clone()))
     }
 }
@@ -1066,31 +1091,68 @@ fn flag(name: &str) -> bool {
     std::env::var_os(name).is_some()
 }
 
+/// A label with its access key, as Windows shows it: "ファイル(F)". macOS menus have none.
+fn label(name: &str, key: char) -> String {
+    if cfg!(target_os = "macos") {
+        name.to_owned()
+    } else {
+        format!("{name}({key})")
+    }
+}
+
 fn set_menus(cx: &mut App) {
     // Sakura's top-level menus: File / Edit / Convert / Search / Tools / Settings / Window / Help.
     let todo = || MenuItem::action("(試作では未実装)", NoOp).disabled(true);
-    cx.set_menus([
-        Menu::new("ファイル(F)").items([
-            MenuItem::action("開く(O)...", OpenFile),
-            MenuItem::action("100万行のテキストを作る", GenerateLargeText),
+    let mac = cfg!(target_os = "macos");
+    let mut menus = Vec::new();
+    // On a Mac the first menu is the application menu, which has Quit.
+    if mac {
+        menus.push(Menu::new("ume_editor").items([
+            MenuItem::os_submenu("サービス", gpui::SystemMenuType::Services),
             MenuItem::separator(),
-            MenuItem::action("終了(X)", Quit),
-        ]),
-        Menu::new("編集(E)").items([
-            MenuItem::action("貼り付け(P)", Paste),
+            MenuItem::action("ume_editor を隠す", Hide),
+            MenuItem::action("ほかを隠す", HideOthers),
+            MenuItem::action("すべてを表示", ShowAll),
+            MenuItem::separator(),
+            MenuItem::action("ume_editor を終了", Quit),
+        ]));
+    }
+    let mut file = vec![
+        MenuItem::action(format!("{}...", label("開く", 'O')), OpenFile),
+        MenuItem::action("100万行のテキストを作る", GenerateLargeText),
+    ];
+    if !mac {
+        file.extend([
+            MenuItem::separator(),
+            MenuItem::action(label("終了", 'X'), Quit),
+        ]);
+    }
+    let window = if mac {
+        vec![
+            MenuItem::action("しまう", Minimize),
+            MenuItem::action("拡大／縮小", Zoom),
+        ]
+    } else {
+        vec![todo()]
+    };
+    menus.extend([
+        Menu::new(label("ファイル", 'F')).items(file),
+        Menu::new(label("編集", 'E')).items([
+            MenuItem::action(label("貼り付け", 'P'), Paste),
             MenuItem::action("行をコピー", CopyLine),
         ]),
-        Menu::new("変換(C)").items([todo()]),
-        Menu::new("検索(S)").items([todo()]),
-        Menu::new("ツール(T)").items([todo()]),
-        Menu::new("設定(O)").items([
+        Menu::new(label("変換", 'C')).items([todo()]),
+        Menu::new(label("検索", 'S')).items([todo()]),
+        Menu::new(label("ツール", 'T')).items([todo()]),
+        Menu::new(label("設定", 'O')).items([
             MenuItem::action("フォントを切り替える", CycleFont),
             MenuItem::action("文字を大きく", FontBigger),
             MenuItem::action("文字を小さく", FontSmaller),
         ]),
-        Menu::new("ウィンドウ(W)").items([todo()]),
-        Menu::new("ヘルプ(H)").items([todo()]),
+        Menu::new(label("ウィンドウ", 'W')).items(window),
+        Menu::new(label("ヘルプ", 'H')).items([todo()]),
     ]);
+    cx.set_menus(menus);
 }
 
 fn bind_keys(cx: &mut App) {
@@ -1113,10 +1175,27 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-c", CopyLine, None),
         KeyBinding::new("secondary-o", OpenFile, None),
         KeyBinding::new("secondary-=", FontBigger, None),
+        // + is Shift+= on a US keyboard and Shift+; on a JIS keyboard.
+        KeyBinding::new("secondary-+", FontBigger, None),
         KeyBinding::new("secondary--", FontSmaller, None),
         KeyBinding::new("f7", CycleFont, None),
         KeyBinding::new("f8", GenerateLargeText, None),
         KeyBinding::new("secondary-q", Quit, None),
+    ]);
+    // Secondary is Cmd on a Mac. These are the Mac's own keys, and the font size keys with
+    // Control as on Windows.
+    #[cfg(target_os = "macos")]
+    cx.bind_keys([
+        KeyBinding::new("cmd-h", Hide, None),
+        KeyBinding::new("alt-cmd-h", HideOthers, None),
+        KeyBinding::new("cmd-m", Minimize, None),
+        KeyBinding::new("cmd-left", Home, Some("Editor")),
+        KeyBinding::new("cmd-right", End, Some("Editor")),
+        KeyBinding::new("cmd-up", DocStart, Some("Editor")),
+        KeyBinding::new("cmd-down", DocEnd, Some("Editor")),
+        KeyBinding::new("ctrl-=", FontBigger, None),
+        KeyBinding::new("ctrl-+", FontBigger, None),
+        KeyBinding::new("ctrl--", FontSmaller, None),
     ]);
 }
 
@@ -1128,7 +1207,9 @@ fn main() {
         zlog::init();
         zlog::init_output_stderr();
     }
-    application().run(|cx: &mut App| {
+    #[cfg(feature = "self-check")]
+    let self_check = self_check::take_arg();
+    application().run(move |cx: &mut App| {
         gpui_component::init(cx);
         if std::env::var("POC_TEXT_MODE").as_deref() == Ok("grayscale") {
             cx.set_text_rendering_mode(gpui::TextRenderingMode::Grayscale);
@@ -1143,6 +1224,9 @@ fn main() {
         set_menus(cx);
         cx.on_action(|_: &Quit, cx| cx.quit());
         cx.on_action(|_: &NoOp, _| {});
+        cx.on_action(|_: &Hide, cx| cx.hide());
+        cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
+        cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
         cx.on_window_closed(|cx, _| {
             if cx.windows().is_empty() {
                 cx.quit();
@@ -1161,6 +1245,8 @@ fn main() {
         };
         let build = |window: &mut Window, cx: &mut App| {
             let editor = cx.new(Editor::new);
+            #[cfg(feature = "self-check")]
+            cx.set_global(self_check::Target(editor.downgrade()));
             window.focus(&editor.focus_handle(cx), cx);
             let menu_bar = MenuBar::new(cx.get_menus().unwrap_or_default(), cx);
             cx.new(|_| Workspace {
@@ -1180,5 +1266,9 @@ fn main() {
             .expect("failed to open window");
         }
         cx.activate(true);
+        #[cfg(feature = "self-check")]
+        if let Some(dir) = self_check {
+            self_check::run(dir, cx);
+        }
     });
 }
