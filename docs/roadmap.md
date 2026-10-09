@@ -39,5 +39,5 @@
 - [x] GitHub リポジトリを作る（https://github.com/stofu5678/ume_editor 、公開）
 - [ ] Onigmo を fork する（ユーザー）
 - [ ] UI を試作し、ADR-0004 を確定する（まず Windows ARM64 で行う。[ADR-0009](adr/0009-initial-development-target.md)、[試作の手順](poc/ui-framework.md)）
-  - GPUI の試作を Windows ARM64（[poc/gpui-textview](../poc/gpui-textview/README.md)）と Mac（[poc/gpui](../poc/gpui/README.md)）で作った（ブランチ `poc/gpui`、[途中の結果](poc/ui-framework-result.md)）。残りは、Windows x64 と Linux での確認、Mac での日本語入力などのユーザーによる確認、2 つの試作のまとめ方
+  - GPUI の試作（[poc/gpui-textview](../poc/gpui-textview/README.md)、ブランチ `poc/gpui`、[途中の結果](poc/ui-framework-result.md)）が Windows ARM64 と Mac で動き、Linux でも WSLg で起動した。残りは、Windows x64 と実機の Linux での確認と、Mac での日本語入力などのユーザーによる確認
 - [x] Cargo ワークスペースと CI（Windows x64・ARM64 / macOS / Linux x64・ARM64）

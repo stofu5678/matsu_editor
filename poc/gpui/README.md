@@ -1,6 +1,6 @@
 # UI の試作（GPUI、Mac）
 
-[UI フレームワークの試作](../../docs/poc/ui-framework.md)のうち、Mac で作ったもの。Windows ARM64 で作ったものは [poc/gpui-textview](../gpui-textview/README.md) にある。2 つは別のコードで、キーの割り当ても違う（Windows 版は F7 でフォントの切り替え、Ctrl+= / Ctrl+- で文字の大きさ）。[ADR-0004](../../docs/adr/0004-ui-framework.md) を確定するための使い捨てのコードで、本番のコードは Phase 1 で作り直す。
+[UI フレームワークの試作](../../docs/poc/ui-framework.md)のうち、Mac で別に作ったもの。試作は [poc/gpui-textview](../gpui-textview/README.md) にまとめることにし、Mac で要った設定や作りはそちらに移した（2026-10-10）。このコードを残すかはこれから決める。2 つはキーの割り当ても違う（poc/gpui-textview は F7 でフォントの切り替え、Ctrl+= / Ctrl+- で文字の大きさ）。[ADR-0004](../../docs/adr/0004-ui-framework.md) を確定するための使い捨てのコードで、本番のコードは Phase 1 で作り直す。
 
 - メインのワークスペースには入れていない（`poc/gpui` だけで 1 つのワークスペース）。CI の対象外
 - GPUI は crates.io の `gpui-pre` 0.3.8（Zed の週次スナップショット。gpui-component 0.7 が使っているもの）を版固定で使う。公式の `gpui` は crates.io では 0.2.2（2025-10）で止まっている

@@ -2,7 +2,7 @@
 
 サクラエディタの操作感を、macOS・Windows・Linux で使えるように作り直すテキストエディタです。
 
-> 開発を始めたばかりで、エディタとしてはまだ使えません。UI の試作だけ動かせます（Windows は [poc/gpui-textview](poc/gpui-textview/README.md)、Mac は [poc/gpui](poc/gpui/README.md)）。
+> 開発を始めたばかりで、エディタとしてはまだ使えません。UI の試作（[poc/gpui-textview](poc/gpui-textview/README.md)）だけ、Windows と Mac と Linux（WSLg で確認）で動かせます。
 
 サクラエディタとは別のプロジェクトです。サクラエディタのソースとヘルプ（zlib License）を仕様の参考にしています。
 

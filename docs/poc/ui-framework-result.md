@@ -2,8 +2,8 @@
 
 [試作の手順](ui-framework.md) に沿った結果。試作は次の 2 つで、どちらもブランチ `poc/gpui` にある。GPUI はどちらも crates.io の `gpui-pre` 0.3.8。
 
-- Windows ARM64 で作った `poc/gpui-textview/`（下の「Windows ARM64 での試作」）
-- Mac で作った `poc/gpui/`（下の「Mac での試作」）。Windows 版とは別に作ったコードで、キーの割り当ても違う（Windows 版は F7 でフォントの切り替え、Ctrl+= / Ctrl+- で文字の大きさ。Mac 版は、サクラの割り当ての Ctrl を ⌘ に読み替えたもの）。どちらにまとめるかはこれから決める
+- `poc/gpui-textview/`: Windows ARM64 で作った。2026-10-10 に Linux（WSLg）で起動し、Mac でも動くようにした（下の「Windows ARM64 での試作」と「poc/gpui-textview を Mac で動かした結果」）。試作はこれにまとめる
+- `poc/gpui/`: Mac で別に作ったもの（下の「Mac での試作」）。キーの割り当ても違う（Windows 版は F7 でフォントの切り替え、Ctrl+= / Ctrl+- で文字の大きさ。Mac 版は、サクラの割り当ての Ctrl を ⌘ に読み替えたもの）。Mac で要った設定や作りは `poc/gpui-textview` に移した。このコードを残すかはこれから決める
 
 ## Windows ARM64 での試作（`poc/gpui-textview`）
 
@@ -93,11 +93,35 @@ GPU ドライバー（Qualcomm Adreno X1-85、31.0.160.0）の振る舞いだっ
 - [x] 2. 文字の見え方（BIZ UDGothic / MS Gothic / Consolas / Yu Gothic UI を F7 で切り替え、12〜14pt）
 - [x] 4. 100 万行のスクロールの滑らかさ（ホイール、PageUp・PageDown の押し続け）
 - [x] 6. メニューとショートカット: メニューバーの操作感、Alt キーでメニューに入れるか、ファイルのドラッグ & ドロップ（Alt キーでの操作は指摘を受けて足した。直した版の操作感は、使いながら確かめる）
-- [ ] 7. Windows x64 の実機でビルドと起動、Mac と Linux でのビルドと起動（Linux は WSLg で起動できた。上を参照）。あわせて、`POC_MEMSTAT=6` を付けて起動し、メモリが 4 MB ずつ増える問題が起きるかを見る
+- [ ] 7. Windows x64 の実機でビルドと起動、Mac と Linux でのビルドと起動（Linux は WSLg で起動できた。上を参照）。あわせて、`POC_MEMSTAT=6` を付けて起動し、メモリが 4 MB ずつ増える問題が起きるかを見る（Mac の分は 2026-10-10 に確かめた。下の「poc/gpui-textview を Mac で動かした結果」）
+
+## poc/gpui-textview を Mac で動かした結果（2026-10-10）
+
+Windows 版と同じコードを、Mac（Apple M1、macOS 26.1、JIS キーボード）でビルドして動かした（確認項目 7 の Mac の分）。Mac 版（`poc/gpui`）で分かったことを移した。
+
+### 変えたこと
+
+- `Cargo.toml`: Mac のときだけ、GPUI の `font-kit`（ないと文字が 1 つも描かれない）と `runtime_shaders`（Metal Toolchain なしでビルドできる）を有効にした。どちらも、ほかの依存からは有効になっていなかった
+- メニュー: 画面上部のメニューバーに出し、先頭にアプリのメニュー（隠す、終了など）を置いた。「ファイル(F)」の (F) は Mac では付けない。ウィンドウメニューに「しまう」と「拡大／縮小」を入れた。ウィンドウの中のメニューバーと Alt キーの処理は、Mac では使わない（Option で文字を入力するため）
+- キー: Ctrl は ⌘ になる（GPUI の `secondary`）。⌘+ と、Mac でも Windows と同じ ⌃= / ⌃+ / ⌃- を足した。Mac の作法の ⌘H・⌥⌘H・⌘M・⌘←→↑↓ を足した
+- フォント: Mac にあるもの（BIZ UDゴシック、Osaka、Menlo、ヒラギノ角ゴシック）にした
+- 自己確認モード（`--features self-check`）を足した。キーを macOS のキーイベントとして押し、表示を PNG に保存する（[README](../../poc/gpui-textview/README.md)）
+
+Windows の動きは変えていない（Mac のときだけの分岐にした）。ただし、変えたあとのコードを Windows ではまだビルドしていない。
+
+### 結果
+
+| # | 項目 | 結果 |
+|---|---|---|
+| 1, 2 | 日本語入力、文字の見え方 | ユーザーが確かめる。IME と同じ呼び出しでの変換中の下線と確定、4 つのフォントでの表示は、自己確認モードの画像で確かめた |
+| 3 | 起動時間 | Release ビルドで、最初の描画まで 203〜233 ms（6 回）。基準の 0.3 秒以内。シェーダーは起動時にコンパイルしている |
+| 4 | スクロール | 100 万行を作り、⌘↓ で移った末尾を正しく描けた。滑らかさの体感はユーザーが確かめる |
+| 5 | メモリ | physical footprint（アクティビティモニタの「メモリ」）で、起動直後 36 MB、4 つのフォントを一巡した後 40 MB、100 万行を作って末尾に移った後 282 MB（うち 224 MB は 100 万行を持つ Rust のヒープ）。Windows で見つかった、文字を書き込むたびに 4 MB 増える問題は起きていない。自己確認モードを付けた Release ビルドで測った |
+| 6 | メニューとショートカット | F7・F8・⌘= / ⌘+ / ⌘-・⌃= / ⌃+ / ⌃-・⌘↓ を、JIS キーボードと同じ形の macOS のキーイベントで確かめた。メニューの操作感はユーザーが確かめる |
 
 ## Mac での試作（`poc/gpui`）
 
-動かし方と確認の手順は [poc/gpui/README.md](../../poc/gpui/README.md) にある。
+Mac で別に作った試作。Mac で要った設定や作りは `poc/gpui-textview` に移したので、試作は `poc/gpui-textview` にまとめる。このコードを残すかはこれから決める。動かし方と確認の手順は [poc/gpui/README.md](../../poc/gpui/README.md) にある。
 
 ### 環境
 
@@ -149,7 +173,7 @@ Release ビルド、シェーダーは起動時にコンパイルする設定で
 - GPUI はプラットフォームごとのクレート（`gpui_macos` など）に分かれた。アプリは `gpui_platform::application()` から起動する
 - macOS では `font-kit` 機能を有効にしないと、文字が 1 つも描かれない（何もしないテキストシステムになる）。エラーは出ない
 - Metal Toolchain がないとビルドできない。`runtime_shaders` 機能で、シェーダーを起動時にコンパイルするようにした
-- 上の 2 つ（`font-kit` と `runtime_shaders`）は、Windows 版の `poc/gpui-textview` を Mac でビルドするとき（確認項目 7）にも関わるはず（未確認）
+- 上の 2 つ（`font-kit` と `runtime_shaders`）は、`poc/gpui-textview` を Mac で動かすときにも有効にした（上の「poc/gpui-textview を Mac で動かした結果」）
 - コンパイルエラーでの手戻りは 2 回だけだった（関数の戻り値の型、`Context::spawn` の引数の数）。API は、依存先の examples（`input.rs` など）とソースを読めば分かった
 - ウィンドウの描画結果を画像にする `Window::render_to_image` は、`test-support` 機能を有効にしたときだけ使える。これで、macOS の画面収録の許可なしに表示を確かめる自己確認モードを作った
 - サクラの Ctrl+W（単語選択）、Ctrl+←→（単語単位の移動）は、Cmd に読み替えると macOS の閉じる・行頭・行末と重なる（[ADR-0008](../adr/0008-commands-and-keybindings.md) の読み替えの案で決める必要がある）。試作では Mac の意味にした
