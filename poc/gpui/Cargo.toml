@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.99"
 description = "Throwaway UI prototype of ume_editor on GPUI (docs/poc/ui-framework.md)"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/stofu1234/ume_editor"
+repository = "https://github.com/stofu5678/ume_editor"
 publish = false
 
 # The prototype is its own workspace, outside the main one: it is throwaway code

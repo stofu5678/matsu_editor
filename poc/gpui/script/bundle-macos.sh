@@ -29,7 +29,7 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 	<key>CFBundleDisplayName</key>
 	<string>ume_editor UI 試作</string>
 	<key>CFBundleIdentifier</key>
-	<string>io.github.stofu1234.ume-editor.poc-gpui</string>
+	<string>io.github.stofu5678.ume-editor.poc-gpui</string>
 	<key>CFBundleExecutable</key>
 	<string>ume-poc-gpui</string>
 	<key>CFBundlePackageType</key>
