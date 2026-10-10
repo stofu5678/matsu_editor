@@ -6,6 +6,7 @@
 
 - F7: フォントの切り替え、Ctrl+= / Ctrl+-: 文字の大きさ、F8: 100 万行のテキストを作る、Ctrl+O: 開く（Mac では Ctrl の代わりに ⌘）
 - 選択とクリップボード（サクラの既定の割り当て）: Shift+矢印・Home・End・PageUp・PageDown、Ctrl+Shift+Home / End、マウスのドラッグ、Shift+クリックで選ぶ。Ctrl+A: すべて選択、Ctrl+X / Shift+Del: 切り取り、Ctrl+C / Ctrl+Ins: コピー、Ctrl+V / Shift+Ins: 貼り付け。選んでいないときのコピーと切り取りは、カーソルの行を改行ごと扱い、それを貼り付けるとカーソルの行の上に入る（サクラの「選択なしでコピー」と「ラインモード貼り付け」）。元に戻す（Ctrl+Z）はまだない
+- 印刷（[ADR-0011](../../docs/adr/0011-printing.md)、[結果](../../docs/poc/printing.md)）: Ctrl+P で印刷、Ctrl+Shift+P で印刷プレビュー（Mac では Ctrl の代わりに ⌘。ファイル メニューにもある）。プレビューでは ← → / PageUp・PageDown でページ、Ctrl+= / Ctrl+- で拡大・縮小、Esc で戻る。プリンターに出せるのは Mac だけで、Windows と Linux はプレビューまで
 - `cargo run --release --bin minimal`: メモリを比べるための最小のウィンドウ
 - 環境変数 `POC_NO_MENU` / `POC_NO_ROOT` / `POC_NO_TEXT` / `POC_UI_FONT=<フォント名>`: メモリを測るための切り替え
 - 環境変数 `POC_MEMSTAT=<秒>`: 起動してその秒数が経ったら、メモリの内訳を `memstat-<プロセスID>.txt` に書き出す（Windows のみ。Rust のヒープ、Win32 のヒープ、領域の種類ごとの量、大きい確保の一覧）
@@ -142,6 +143,7 @@ cargo run --features self-check -- --self-check /tmp/textview-check
 3. 文字の大きさのキー（Windows では Ctrl+= など。Mac では ⌘= などと ⌃= など）
 4. IME と同じ呼び出しで「にほんご」を「日本語」に変換し（`composing.png`）、確定する
 5. Shift+Home・Shift+←・Shift+↑ で選び（複数行の選択を `selection.png` に保存）、Ctrl+C・Ctrl+X・Ctrl+V・Ctrl+A と、選んでいないときの行のコピー・切り取り・貼り付けを試す。システムのクリップボードを使うので、中身は書き換わる。Wayland では、GPUI が本物のキー入力なしにはクリップボードを持てないので、この確認は飛ばす（`WAYLAND_DISPLAY=` を付けて X11 で走らせると確かめられる）
-6. F8 で 100 万行を作り（`large.png`）、Mac では ⌘↓ で末尾へ移る（`large-end.png`）
+6. 印刷: 2 ページの文書に入れ替え、Ctrl+Shift+P でプレビューを開く（`preview-100.png`）。縮小して次のページへ移り（`preview-2.png`）、前のページに戻り（`preview.png`）、行番号と 2 段組にする（`preview-columns.png`）。Mac では、印刷パネルと同じ経路で PDF に出力し（A4 縦の `print.pdf` と A4 横の `print-landscape.pdf`。1 ページ目を `print-1.png` と `print-landscape-1.png` に）、Ctrl+P で印刷パネルを出して Esc で取り消す。最後に Esc でプレビューを閉じる
+7. F8 で 100 万行を作り（`large.png`）、Mac では ⌘↓ で末尾へ移る（`large-end.png`）
 
-Mac では、キーボードの種類（JIS など）を付けた macOS のキーイベントでキーを押すので、キーボード配列の読み方も確かめられる。それ以外では GPUI の `dispatch_keystroke` で押す。5 の選択のキーは、Mac でも `dispatch_keystroke` で押す。本物の日本語入力の確認の代わりにはならない。
+Mac では、キーボードの種類（JIS など）を付けた macOS のキーイベントでキーを押すので、キーボード配列の読み方も確かめられる。それ以外では GPUI の `dispatch_keystroke` で押す。5 の選択のキーと、6 のプレビューの中のキーは、Mac でも `dispatch_keystroke` で押す。本物の日本語入力の確認の代わりにはならない。Mac で画面がロックされていると、ウィンドウがキー入力を受け取れないので失敗する。

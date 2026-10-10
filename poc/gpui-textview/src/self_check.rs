@@ -18,10 +18,14 @@ use gpui::{
     AnyWindowHandle, App, AsyncApp, Bounds, Entity, EntityInputHandler, Global, WeakEntity,
 };
 
-use crate::{Editor, FONTS};
+use crate::print::preview::{ToggleColumns, ToggleLineNumber};
+use crate::{Editor, FONTS, Workspace};
 
-/// The window's editor, which the check looks at.
-pub struct Target(pub WeakEntity<Editor>);
+/// The window's editor and workspace, which the check looks at.
+pub struct Target {
+    pub editor: WeakEntity<Editor>,
+    pub workspace: WeakEntity<Workspace>,
+}
 
 impl Global for Target {}
 
@@ -52,8 +56,11 @@ async fn drive(dir: &Path, cx: &mut AsyncApp) -> Result<()> {
     let window = cx
         .update(|cx| cx.windows().first().copied())
         .context("no window")?;
-    let editor = cx
-        .update(|cx| cx.try_global::<Target>().and_then(|t| t.0.upgrade()))
+    let (editor, workspace) = cx
+        .update(|cx| {
+            let target = cx.try_global::<Target>()?;
+            Some((target.editor.upgrade()?, target.workspace.upgrade()?))
+        })
         .context("no editor")?;
     settle(cx).await;
     eprintln!("self-check: memory at start: {}", memory());
@@ -154,6 +161,8 @@ async fn drive(dir: &Path, cx: &mut AsyncApp) -> Result<()> {
 
     check_selection(window, &editor, dir, cx).await?;
     eprintln!("self-check:   selection keys = {}", seen());
+
+    check_print(window, &editor, &workspace, dir, &seen, cx).await?;
 
     // F8 makes a million lines.
     press(window, "f8", cx).await?;
@@ -295,6 +304,202 @@ async fn check_selection(
     Ok(())
 }
 
+/// Prints a text of two pages: opens the print preview with Sakura's key, pages through it, and
+/// tries the line numbers and the columns. On macOS, prints to PDF files through the print view
+/// of the print panel, and opens the print panel with Sakura's key and cancels it.
+async fn check_print(
+    window: AnyWindowHandle,
+    editor: &Entity<Editor>,
+    workspace: &Entity<Workspace>,
+    dir: &Path,
+    seen: &impl Fn() -> String,
+    cx: &mut AsyncApp,
+) -> Result<()> {
+    // With Sakura's default setting on A4: a header with the file name, a line that wraps, a tab,
+    // English words that wrap whole, and 120 lines in all.
+    let mut text = String::from("UME Editor の印刷の試作\n");
+    text.push_str(&"いろはにほへと ちりぬるを わかよたれそ つねならむ ".repeat(5));
+    text.push_str("\nタブ\tの位置\tに揃える\n");
+    text.push_str(&"The quick brown fox jumps over the lazy dog. ".repeat(4));
+    text.push('\n');
+    for i in 5..=120 {
+        text.push_str(&format!("{i}行目: 日本語の文と English words.\n"));
+    }
+    cx.update(|cx| {
+        editor.update(cx, |editor, cx| {
+            editor.set_text(&text, Some("print-check.txt".into()), cx);
+            editor.path = Some(dir.join("print-check.txt"));
+        })
+    });
+
+    press(window, "secondary-shift-p", cx).await?;
+    let preview = cx
+        .update(|cx| workspace.read(cx).preview.clone())
+        .context("Ctrl+Shift+P did not open the print preview")?;
+    let state = |cx: &mut AsyncApp| {
+        cx.update(|cx| {
+            let preview = preview.read(cx);
+            let (page, zoom, _) = preview.state();
+            (page, preview.page_count(), zoom)
+        })
+    };
+    eprintln!(
+        "self-check:   secondary-shift-p = {}: print preview (page, pages, zoom) = {:?}",
+        seen(),
+        state(cx)
+    );
+    ensure!(
+        state(cx) == (0, 2, 100),
+        "the preview is not on page 1 of 2 at 100 %"
+    );
+    save(window, &dir.join("preview-100.png"), cx)?;
+    for _ in 0..3 {
+        dispatch(window, "secondary--", cx).await?;
+    }
+    dispatch(window, "right", cx).await?;
+    settle(cx).await;
+    save(window, &dir.join("preview-2.png"), cx)?;
+    eprintln!(
+        "self-check:   zoom out x3, right = {}: {:?}",
+        seen(),
+        state(cx)
+    );
+    ensure!(
+        state(cx) == (1, 2, 70),
+        "the keys did not zoom out and go to page 2"
+    );
+    dispatch(window, "left", cx).await?;
+    settle(cx).await;
+    save(window, &dir.join("preview.png"), cx)?;
+
+    // Two columns of 82 lines take the text on one page.
+    window.update(cx, |_, window, cx| {
+        window.dispatch_action(Box::new(ToggleLineNumber), cx);
+        window.dispatch_action(Box::new(ToggleColumns), cx);
+    })?;
+    settle(cx).await;
+    save(window, &dir.join("preview-columns.png"), cx)?;
+    let (line_number, columns) = cx.update(|cx| {
+        let (_, _, setting) = preview.read(cx).state();
+        (setting.line_number, setting.columns)
+    });
+    eprintln!(
+        "self-check:   line numbers {line_number}, {columns} columns: {:?}",
+        state(cx)
+    );
+    ensure!(
+        state(cx).1 == 1,
+        "two columns did not take the text on one page"
+    );
+    window.update(cx, |_, window, cx| {
+        window.dispatch_action(Box::new(ToggleLineNumber), cx);
+        window.dispatch_action(Box::new(ToggleColumns), cx);
+    })?;
+
+    #[cfg(target_os = "macos")]
+    check_mac_print(window, &preview, dir, seen, cx).await?;
+
+    dispatch(window, "escape", cx).await?;
+    let open = cx.update(|cx| workspace.read(cx).preview.is_some());
+    eprintln!("self-check:   escape = {}: preview open {open}", seen());
+    ensure!(!open, "Esc did not close the print preview");
+    Ok(())
+}
+
+/// Prints to PDF files through the print view, on the app's paper and on A4 turned sideways,
+/// and opens the print panel with Sakura's key and cancels it.
+#[cfg(target_os = "macos")]
+async fn check_mac_print(
+    window: AnyWindowHandle,
+    preview: &Entity<crate::print::preview::PrintPreview>,
+    dir: &Path,
+    seen: &impl Fn() -> String,
+    cx: &mut AsyncApp,
+) -> Result<()> {
+    use crate::print::layout::Paper;
+    use crate::print::mac::{self as print_mac, check};
+
+    let job = |cx: &mut AsyncApp| {
+        cx.update(|cx| preview.read(cx).job(cx))
+            .map_err(|reason| anyhow::anyhow!("nothing to print: {reason}"))
+    };
+    let pdf = dir.join("print.pdf");
+    check::save_pdf(job(cx)?, None, &pdf)?;
+    let (pages, size) = check::pdf_pages(&pdf)?;
+    eprintln!(
+        "self-check: printed {pages} pages of {:.0} x {:.0} pt to {}",
+        size.0,
+        size.1,
+        pdf.display()
+    );
+    ensure!(
+        pages == cx.update(|cx| preview.read(cx).page_count()),
+        "the PDF has {pages} pages, not as many as the preview"
+    );
+    check::render_pdf_page(&pdf, 1, 2.)?.save(dir.join("print-1.png"))?;
+    eprintln!("self-check: saved {}", dir.join("print-1.png").display());
+
+    // The print view lays the text out again for the paper of the print operation.
+    let landscape = dir.join("print-landscape.pdf");
+    let a4_landscape = Paper {
+        width: 2970,
+        height: 2100,
+    };
+    check::save_pdf(job(cx)?, Some(a4_landscape), &landscape)?;
+    let (pages, size) = check::pdf_pages(&landscape)?;
+    eprintln!(
+        "self-check: printed {pages} pages of {:.0} x {:.0} pt to {}",
+        size.0,
+        size.1,
+        landscape.display()
+    );
+    ensure!(
+        pages == 3 && size.0 > size.1,
+        "the PDF on A4 turned sideways has {pages} pages"
+    );
+    check::render_pdf_page(&landscape, 1, 2.)?.save(dir.join("print-landscape-1.png"))?;
+
+    // Ctrl+P opens the print panel as a sheet; Esc cancels it, and the preview stays.
+    let paper = check::shared_paper();
+    let ns_window = window
+        .update(cx, |_, window, _| print_mac::ns_window(window))?
+        .context("no AppKit window")?;
+    press(window, "secondary-p", cx).await?;
+    let mut shown = false;
+    for _ in 0..20 {
+        if check::has_sheet(&ns_window) {
+            shown = true;
+            break;
+        }
+        settle(cx).await;
+    }
+    eprintln!(
+        "self-check:   secondary-p = {}: print panel shown {shown}",
+        seen()
+    );
+    ensure!(shown, "Ctrl+P did not show the print panel");
+    settle(cx).await;
+    press(window, "escape", cx).await?;
+    let mut notice = None;
+    for _ in 0..20 {
+        notice = cx.update(|cx| preview.read(cx).notice.clone());
+        if notice.is_some() && !check::has_sheet(&ns_window) {
+            break;
+        }
+        settle(cx).await;
+    }
+    eprintln!("self-check:   escape = {}: {notice:?}", seen());
+    ensure!(
+        notice.as_deref() == Some("印刷を取り消しました"),
+        "Esc did not cancel the print panel"
+    );
+    ensure!(
+        check::shared_paper() == paper,
+        "cancelling changed the paper"
+    );
+    Ok(())
+}
+
 /// Presses a key through GPUI on every platform. The macOS key events of `press` cover only
 /// the keys in its table.
 async fn dispatch(window: AnyWindowHandle, keystroke: &str, cx: &mut AsyncApp) -> Result<()> {
@@ -385,6 +590,8 @@ mod mac {
     const KEY_MINUS: u16 = 0x1b;
     /// Shift+; is + on a JIS keyboard.
     const KEY_SEMICOLON: u16 = 0x29;
+    const KEY_P: u16 = 0x23;
+    const KEY_ESCAPE: u16 = 0x35;
     const KEY_F7: u16 = 0x62;
     const KEY_F8: u16 = 0x64;
     const KEY_DOWN: u16 = 0x7d;
@@ -485,6 +692,9 @@ mod mac {
             "ctrl-+" => (plus, CTRL),
             "ctrl--" => ((KEY_MINUS, 0), CTRL),
             "cmd-down" => ((KEY_DOWN, 0), CMD | NUMPAD | FN),
+            "secondary-p" => ((KEY_P, 0), CMD),
+            "secondary-shift-p" => ((KEY_P, SHIFT), CMD),
+            "escape" => ((KEY_ESCAPE, 0), 0),
             _ => bail!("no macOS key event for {keystroke}"),
         };
         for down in [true, false] {

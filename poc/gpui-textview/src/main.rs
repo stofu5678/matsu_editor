@@ -1,7 +1,7 @@
 //! Throwaway PoC for ADR-0004 (see docs/poc/ui-framework.md).
 //!
 //! A self-drawn text view that shapes and paints only the visible lines,
-//! with IME support, a Sakura-style menu bar, and file opening.
+//! with IME support, a Sakura-style menu bar, file opening, and printing (ADR-0011).
 
 use std::ops::Range;
 use std::path::PathBuf;
@@ -22,9 +22,11 @@ use gpui_platform::application;
 
 mod memstat;
 mod menu_bar;
+mod print;
 #[cfg(feature = "self-check")]
 mod self_check;
 use menu_bar::MenuBar;
+use print::preview::PrintPreview;
 
 #[global_allocator]
 static ALLOC: memstat::CountingAlloc = memstat::CountingAlloc;
@@ -66,6 +68,9 @@ actions!(
         Paste,
         OpenFile,
         GenerateLargeText,
+        Print,
+        TogglePrintPreview,
+        ClosePreview,
         CycleFont,
         FontBigger,
         FontSmaller,
@@ -116,6 +121,10 @@ struct Editor {
     font_index: usize,
     font_size: f32,
     file_name: Option<String>,
+    /// The file that the text came from, for the header of the printed pages.
+    path: Option<PathBuf>,
+    /// A message for the status line, such as what became of a print.
+    notice: Option<String>,
     first_frame_ms: Option<f64>,
     layout: Option<LayoutCache>,
     /// Scrollbar thumb drag: (mouse y at start, scroll_y at start).
@@ -151,6 +160,8 @@ impl Editor {
             font_index: 0,
             font_size: 14.,
             file_name: None,
+            path: None,
+            notice: None,
             first_frame_ms: None,
             layout: None,
             scroll_drag: None,
@@ -180,8 +191,12 @@ impl Editor {
                 let text = String::from_utf8_lossy(&bytes).into_owned();
                 let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
                 self.set_text(&text, name, cx);
+                self.path = Some(path);
             }
-            Err(err) => self.set_text(&format!("開けませんでした: {err}"), None, cx),
+            Err(err) => {
+                self.set_text(&format!("開けませんでした: {err}"), None, cx);
+                self.path = None;
+            }
         }
     }
 
@@ -581,6 +596,7 @@ impl Editor {
             "100万行 (生成 {} ms)",
             started.elapsed().as_millis()
         ));
+        self.path = None;
         cx.notify();
     }
     fn cycle_font(&mut self, _: &CycleFont, _: &mut Window, cx: &mut Context<Self>) {
@@ -1192,7 +1208,7 @@ impl Focusable for Editor {
 
 impl Render for Editor {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let status = format!(
+        let mut status = format!(
             "{} 行 {} 桁 | 全 {} 行 | {} {}pt | 最初の描画まで {} | {}",
             self.cursor.0 + 1,
             self.line()[..self.cursor.1].chars().count() + 1,
@@ -1203,6 +1219,10 @@ impl Render for Editor {
                 .map_or("-".into(), |ms| format!("{ms:.0} ms")),
             self.file_name.as_deref().unwrap_or("(無題)"),
         );
+        if let Some(notice) = &self.notice {
+            status.push_str(" | ");
+            status.push_str(notice);
+        }
         div()
             .flex()
             .flex_col()
@@ -1272,8 +1292,117 @@ impl Render for Editor {
 struct Workspace {
     menu_bar: Entity<MenuBar>,
     editor: Entity<Editor>,
+    /// The print preview, which takes the place of the editor while it is open.
+    preview: Option<Entity<PrintPreview>>,
+    /// The print panel is open.
+    printing: bool,
     /// Alt went down with no other key or modifier; releasing it toggles the menu bar.
     alt_pending: bool,
+}
+
+impl Workspace {
+    /// Shows the print preview in place of the text (Sakura's F_PRINT_PREVIEW).
+    fn open_preview(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<PrintPreview> {
+        if let Some(preview) = &self.preview {
+            return preview.clone();
+        }
+        let editor = self.editor.clone();
+        let preview = cx.new(|cx| PrintPreview::new(editor, cx));
+        window.focus(&preview.focus_handle(cx), cx);
+        self.preview = Some(preview.clone());
+        cx.notify();
+        preview
+    }
+
+    fn close_preview(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.preview.take().is_some() {
+            window.focus(&self.editor.focus_handle(cx), cx);
+            cx.notify();
+        }
+    }
+
+    fn toggle_preview(
+        &mut self,
+        _: &TogglePrintPreview,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.preview.is_some() {
+            self.close_preview(window, cx);
+        } else {
+            self.open_preview(window, cx);
+        }
+    }
+
+    /// Prints as Sakura does (CViewCommander::Command_PRINT): the preview opens, then the print
+    /// panel. The preview closes after printing, and stays when the panel is cancelled.
+    fn print(&mut self, _: &Print, window: &mut Window, cx: &mut Context<Self>) {
+        let preview = self.open_preview(window, cx);
+        if self.printing {
+            return;
+        }
+        let job = preview.read(cx).job(cx);
+        preview.update(cx, |preview, cx| {
+            preview.notice = job.as_ref().err().cloned();
+            cx.notify();
+        });
+        if let Ok(job) = job {
+            self.print_job(job, preview, window, cx);
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn print_job(
+        &mut self,
+        job: print::PrintJob,
+        preview: Entity<PrintPreview>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(ns_window) = print::mac::ns_window(window) else {
+            return;
+        };
+        self.printing = true;
+        cx.spawn_in(window, async move |this, cx| {
+            // The print panel opens here, outside GPUI's update of the workspace.
+            let printed = print::mac::print(ns_window, job).await;
+            this.update_in(cx, |this, window, cx| {
+                this.printing = false;
+                if printed {
+                    this.close_preview(window, cx);
+                    this.editor.update(cx, |editor, cx| {
+                        editor.notice = Some("印刷しました".into());
+                        cx.notify();
+                    });
+                } else {
+                    preview.update(cx, |preview, cx| {
+                        preview.notice = Some("印刷を取り消しました".into());
+                        cx.notify();
+                    });
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn print_job(
+        &mut self,
+        _: print::PrintJob,
+        preview: Entity<PrintPreview>,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        preview.update(cx, |preview, cx| {
+            preview.notice = Some("この OS ではまだ印刷できません（プレビューだけ）".into());
+            cx.notify();
+        });
+    }
 }
 
 impl Render for Workspace {
@@ -1368,6 +1497,11 @@ impl Render for Workspace {
                 let f = forward(|e, w, cx| e.select_all(&SelectAll, w, cx));
                 move |_: &SelectAll, w, cx| f(w, cx)
             })
+            .on_action(cx.listener(Self::print))
+            .on_action(cx.listener(Self::toggle_preview))
+            .on_action(
+                cx.listener(|this, _: &ClosePreview, window, cx| this.close_preview(window, cx)),
+            )
             .when(client_decorated, |this| {
                 this.child(TitleBar::new().child(div().text_sm().child(WINDOW_TITLE)))
             })
@@ -1380,7 +1514,10 @@ impl Render for Workspace {
                         .child(self.menu_bar.clone())
                 }),
             )
-            .child(div().flex_1().overflow_hidden().child(self.editor.clone()))
+            .child(div().flex_1().overflow_hidden().child(match &self.preview {
+                Some(preview) => preview.clone().into_any_element(),
+                None => self.editor.clone().into_any_element(),
+            }))
     }
 }
 
@@ -1418,6 +1555,10 @@ fn set_menus(cx: &mut App) {
     let mut file = vec![
         MenuItem::action(format!("{}...", label("開く", 'O')), OpenFile),
         MenuItem::action("100万行のテキストを作る", GenerateLargeText),
+        // As in Sakura's File menu (MainMenu.ini).
+        MenuItem::separator(),
+        MenuItem::action(format!("{}...", label("印刷", 'P')), Print),
+        MenuItem::action(label("印刷プレビュー", 'V'), TogglePrintPreview),
     ];
     if !mac {
         file.extend([
@@ -1493,6 +1634,9 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("ctrl-insert", Copy, Some("Editor")),
         KeyBinding::new("shift-insert", Paste, Some("Editor")),
         KeyBinding::new("secondary-o", OpenFile, None),
+        // Sakura's Ctrl+P prints and Ctrl+Shift+P shows the print preview.
+        KeyBinding::new("secondary-p", Print, None),
+        KeyBinding::new("secondary-shift-p", TogglePrintPreview, None),
         KeyBinding::new("secondary-=", FontBigger, None),
         // + is Shift+= on a US keyboard and Shift+; on a JIS keyboard.
         KeyBinding::new("secondary-+", FontBigger, None),
@@ -1541,6 +1685,7 @@ fn main() {
             cx.set_text_rendering_mode(gpui::TextRenderingMode::Grayscale);
         }
         menu_bar::init(cx);
+        print::preview::init(cx);
         if let Ok(font) = std::env::var("POC_UI_FONT") {
             let theme = gpui_component::Theme::global_mut(cx);
             theme.font_family = font.clone().into();
@@ -1571,15 +1716,21 @@ fn main() {
         };
         let build = |window: &mut Window, cx: &mut App| {
             let editor = cx.new(Editor::new);
-            #[cfg(feature = "self-check")]
-            cx.set_global(self_check::Target(editor.downgrade()));
             window.focus(&editor.focus_handle(cx), cx);
             let menu_bar = MenuBar::new(cx.get_menus().unwrap_or_default(), cx);
-            cx.new(|_| Workspace {
+            let workspace = cx.new(|_| Workspace {
                 menu_bar,
-                editor,
+                editor: editor.clone(),
+                preview: None,
+                printing: false,
                 alt_pending: false,
-            })
+            });
+            #[cfg(feature = "self-check")]
+            cx.set_global(self_check::Target {
+                editor: editor.downgrade(),
+                workspace: workspace.downgrade(),
+            });
+            workspace
         };
         if flag("POC_NO_ROOT") {
             cx.open_window(options, build)
