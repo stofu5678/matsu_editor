@@ -32,7 +32,7 @@ Windows と同じコードで動く（2026-10-10 から）。Mac に合わせて
 
 ## 自己確認モード
 
-画面を見ずに、キーと表示を確かめるモード。キーを押し、ウィンドウの描画結果を PNG に保存して終了する。macOS の画面収録やアクセシビリティの許可は要らない。Mac で確かめた。Windows ではまだ試していない。
+画面を見ずに、キーと表示を確かめるモード。キーを押し、ウィンドウの描画結果を PNG に保存して終了する。macOS の画面収録やアクセシビリティの許可は要らない。Mac、Windows x64、Linux x64（WSLg）で確かめた。Linux では GPUI がウィンドウを画像にできないので、画像の保存だけ飛ばす。
 
 ```sh
 cargo run --features self-check -- --self-check /tmp/textview-check

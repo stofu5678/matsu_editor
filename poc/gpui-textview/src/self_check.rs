@@ -191,7 +191,16 @@ async fn settle(cx: &mut AsyncApp) {
         .await;
 }
 
+/// Saves what the window shows. GPUI 0.3.8 renders a window to an image on macOS and Windows
+/// only, so on Linux this just says that it skipped the image.
 fn save(window: AnyWindowHandle, path: &Path, cx: &mut AsyncApp) -> Result<()> {
+    if cfg!(target_os = "linux") {
+        eprintln!(
+            "self-check: skipped {} (no rendering to images on Linux)",
+            path.display()
+        );
+        return Ok(());
+    }
     let image = window.update(cx, |_, window, _| window.render_to_image())??;
     image.save(path)?;
     eprintln!("self-check: saved {}", path.display());
