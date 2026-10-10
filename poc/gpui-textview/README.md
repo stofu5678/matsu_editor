@@ -5,6 +5,7 @@
 本体のワークスペースには含めていない。このディレクトリで `cargo run --release` する。Windows では Visual Studio の C++ ツール（ARM64 なら ARM64 用）が必要。Mac でも動く（下の「Mac」）。
 
 - F7: フォントの切り替え、Ctrl+= / Ctrl+-: 文字の大きさ、F8: 100 万行のテキストを作る、Ctrl+O: 開く（Mac では Ctrl の代わりに ⌘）
+- 選択とクリップボード（サクラの既定の割り当て）: Shift+矢印・Home・End・PageUp・PageDown、Ctrl+Shift+Home / End、マウスのドラッグ、Shift+クリックで選ぶ。Ctrl+A: すべて選択、Ctrl+X / Shift+Del: 切り取り、Ctrl+C / Ctrl+Ins: コピー、Ctrl+V / Shift+Ins: 貼り付け。選んでいないときのコピーと切り取りは、カーソルの行を改行ごと扱い、それを貼り付けるとカーソルの行の上に入る（サクラの「選択なしでコピー」と「ラインモード貼り付け」）。元に戻す（Ctrl+Z）はまだない
 - `cargo run --release --bin minimal`: メモリを比べるための最小のウィンドウ
 - 環境変数 `POC_NO_MENU` / `POC_NO_ROOT` / `POC_NO_TEXT` / `POC_UI_FONT=<フォント名>`: メモリを測るための切り替え
 - 環境変数 `POC_MEMSTAT=<秒>`: 起動してその秒数が経ったら、メモリの内訳を `memstat-<プロセスID>.txt` に書き出す（Windows のみ。Rust のヒープ、Win32 のヒープ、領域の種類ごとの量、大きい確保の一覧）
@@ -58,6 +59,7 @@ cargo run --features self-check -- --self-check /tmp/textview-check
 2. F7 でフォントを一巡し、それぞれを `font-0.png`〜`font-3.png` に保存する
 3. 文字の大きさのキー（Windows では Ctrl+= など。Mac では ⌘= などと ⌃= など）
 4. IME と同じ呼び出しで「にほんご」を「日本語」に変換し（`composing.png`）、確定する
-5. F8 で 100 万行を作り（`large.png`）、Mac では ⌘↓ で末尾へ移る（`large-end.png`）
+5. Shift+Home・Shift+←・Shift+↑ で選び（複数行の選択を `selection.png` に保存）、Ctrl+C・Ctrl+X・Ctrl+V・Ctrl+A と、選んでいないときの行のコピー・切り取り・貼り付けを試す。システムのクリップボードを使うので、中身は書き換わる。Wayland では、GPUI が本物のキー入力なしにはクリップボードを持てないので、この確認は飛ばす（`WAYLAND_DISPLAY=` を付けて X11 で走らせると確かめられる）
+6. F8 で 100 万行を作り（`large.png`）、Mac では ⌘↓ で末尾へ移る（`large-end.png`）
 
-Mac では、キーボードの種類（JIS など）を付けた macOS のキーイベントでキーを押すので、キーボード配列の読み方も確かめられる。それ以外では GPUI の `dispatch_keystroke` で押す。本物の日本語入力の確認の代わりにはならない。
+Mac では、キーボードの種類（JIS など）を付けた macOS のキーイベントでキーを押すので、キーボード配列の読み方も確かめられる。それ以外では GPUI の `dispatch_keystroke` で押す。5 の選択のキーは、Mac でも `dispatch_keystroke` で押す。本物の日本語入力の確認の代わりにはならない。
