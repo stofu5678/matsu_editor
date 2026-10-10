@@ -2,7 +2,7 @@
 // (https://github.com/longbridge/gpui-kit), licensed under the Apache License 2.0.
 // Copyright (c) Longbridge and gpui-component contributors.
 //
-// Modified for the ume_editor PoC: added Windows-style keyboard access
+// Modified for the UME Editor PoC: added Windows-style keyboard access
 // (Alt alone highlights the bar, Alt+<mnemonic> opens a menu, arrow keys,
 // Enter/Down to open, Esc/Alt to cancel), built popups with the public
 // PopupMenu builder, and removed the tests.

@@ -1,4 +1,4 @@
-# ume_editor
+# UME Editor
 
 サクラエディタの操作感を、macOS・Windows・Linux で使えるように作り直すテキストエディタです。
 

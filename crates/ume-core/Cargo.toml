@@ -1,6 +1,6 @@
 [package]
 name = "ume-core"
-description = "UI-independent core of ume_editor: buffer, encodings, search, and editing commands"
+description = "UI-independent core of UME Editor: buffer, encodings, search, and editing commands"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
