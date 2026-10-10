@@ -24,6 +24,11 @@ cargo test --workspace --locked
 - クレートは `crates/` に置く。`ume-core` は UI に依存しないコア
 - `poc/` は捨てる前提の試作で、ワークスペースにも CI にも入れていない。試作のビルドとテストは、その試作のディレクトリで行う（例: [poc/gpui-textview](poc/gpui-textview/README.md)）
 
+## ブランチと PR
+
+- main は GitHub で保護していて、直接 push できない。作業はブランチで行い、main への PR を作る。PR は CI が通ってからマージする
+- 試作は、試作のブランチ（`poc/gpui` など）にそのまま push してよい
+
 ## 設計のルール
 
 - コア（バッファ・文字コード・検索・編集操作）は UI に依存させない。依存の向きは UI → コアの一方向にする
