@@ -12,15 +12,18 @@
 
 ## ビルドとテスト
 
-Rust のバージョンは `rust-toolchain.toml` で固定している。push の前に、次の 3 つを通す（CI と同じ内容）。
+Rust のバージョンは `rust-toolchain.toml` で固定している。push の前に、次を通す（CI と同じ内容）。
 
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
+cargo deny check        # cargo install --locked cargo-deny
+typos                   # cargo install --locked typos-cli
 ```
 
-- CI（`.github/workflows/ci.yml`）は Windows x64・ARM64、macOS ARM64、Linux x64・ARM64 で回す
+- CI（`.github/workflows/ci.yml`）は Windows x64・ARM64、macOS ARM64、Linux x64・ARM64 でテストする。ほかに、依存のライセンスと脆弱性（cargo-deny、設定は `deny.toml`）、綴り（typos）、`cargo doc` の警告、CI の設定（actionlint）を確かめる
+- 依存のライセンスは `deny.toml` の一覧にあるものだけ通る。一覧に足すときは、MIT / Apache-2.0 と両立するか確かめ、ユーザーに確認する
 - クレートは `crates/` に置く。`ume-core` は UI に依存しないコア
 - `poc/` は捨てる前提の試作で、ワークスペースにも CI にも入れていない。試作のビルドとテストは、その試作のディレクトリで行う（例: [poc/gpui-textview](poc/gpui-textview/README.md)）
 
@@ -28,6 +31,7 @@ cargo test --workspace --locked
 
 - main は GitHub で保護していて、直接 push できない。作業はブランチで行い、main への PR を作る。PR は CI が通ってからマージする
 - 試作は、試作のブランチ（`poc/gpui` など）にそのまま push してよい
+- PR は squash でマージする。PR のタイトルがそのまま main のコミットになり、バージョンの自動付与に使うので、[Conventional Commits](https://www.conventionalcommits.org/ja/v1.0.0/) の形で英語で書く（例: `feat(commands): add delete_line`、`fix: keep the BOM on save`、`docs: record the printing PoC`、`ci: add cargo-deny`、`chore(poc): ...`）。CI の「PR title」が確かめる
 
 ## 設計のルール
 
