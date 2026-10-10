@@ -4,6 +4,8 @@ version = "0.0.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 publish = false
+# `cargo run` starts the editor; src/bin/minimal.rs needs `--bin minimal`.
+default-run = "gpui-textview-poc"
 
 # Throwaway PoC for ADR-0004; kept out of the main workspace.
 [workspace]
