@@ -1,0 +1,20 @@
+name: PR title
+
+# PRs are squash-merged, so the PR title becomes the commit on main.
+# Release automation reads it as a Conventional Commit.
+# pull_request_target so the check also works for PRs from forks. It only
+# reads the PR title; never check out or run PR code in this workflow.
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  conventional:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: amannn/action-semantic-pull-request@v6.1.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
