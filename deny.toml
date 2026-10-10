@@ -20,6 +20,11 @@ allow = [
     "Zlib",
     "Unicode-3.0",
     "CC0-1.0",
+    "0BSD",
+    "bzip2-1.0.6",
+    # File-level copyleft: modified MPL files must be published, the rest of
+    # the app need not be. Used by GPUI's dependencies (dwrote, option-ext).
+    "MPL-2.0",
 ]
 confidence-threshold = 0.9
 # The list is the policy, not only what is in use today.
