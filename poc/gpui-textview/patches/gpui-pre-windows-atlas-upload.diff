@@ -1,6 +1,6 @@
 Patch for gpui-pre-windows 0.3.8 (src/directx_atlas.rs), which is derived from
 GPUI (https://github.com/zed-industries/zed, crates/gpui_windows) and licensed
-under the Apache License 2.0. Modified for the ume_editor PoC: glyph tiles are
+under the Apache License 2.0. Modified for the UME Editor PoC: glyph tiles are
 uploaded through a staging texture and CopySubresourceRegion instead of
 UpdateSubresource, to avoid the per-upload memory growth seen with the
 Qualcomm Adreno X1-85 driver. See docs/poc/ui-framework-result.md.

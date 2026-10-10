@@ -1,4 +1,4 @@
-//! UI-independent core of ume_editor.
+//! UI-independent core of UME Editor.
 //!
 //! The buffer, encodings, search, and editing commands live here. This crate
 //! must not depend on any UI crate (see `CLAUDE.md`).

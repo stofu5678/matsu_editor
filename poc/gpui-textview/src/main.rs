@@ -31,7 +31,7 @@ static ALLOC: memstat::CountingAlloc = memstat::CountingAlloc;
 
 static START: OnceLock<Instant> = OnceLock::new();
 
-const WINDOW_TITLE: &str = "ume_editor GPUI PoC";
+const WINDOW_TITLE: &str = "UME Editor GPUI PoC";
 
 actions!(
     editor,
@@ -1405,14 +1405,14 @@ fn set_menus(cx: &mut App) {
     let mut menus = Vec::new();
     // On a Mac the first menu is the application menu, which has Quit.
     if mac {
-        menus.push(Menu::new("ume_editor").items([
+        menus.push(Menu::new("UME Editor").items([
             MenuItem::os_submenu("サービス", gpui::SystemMenuType::Services),
             MenuItem::separator(),
-            MenuItem::action("ume_editor を隠す", Hide),
+            MenuItem::action("UME Editor を隠す", Hide),
             MenuItem::action("ほかを隠す", HideOthers),
             MenuItem::action("すべてを表示", ShowAll),
             MenuItem::separator(),
-            MenuItem::action("ume_editor を終了", Quit),
+            MenuItem::action("UME Editor を終了", Quit),
         ]));
     }
     let mut file = vec![
