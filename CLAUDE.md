@@ -22,6 +22,12 @@ cargo test --workspace --locked
 
 - CI（`.github/workflows/ci.yml`）は Windows x64・ARM64、macOS ARM64、Linux x64・ARM64 で回す
 - クレートは `crates/` に置く。`ume-core` は UI に依存しないコア
+- `poc/` は捨てる前提の試作で、ワークスペースにも CI にも入れていない。試作のビルドとテストは、その試作のディレクトリで行う（例: [poc/gpui-textview](poc/gpui-textview/README.md)）
+
+## ブランチと PR
+
+- main は GitHub で保護していて、直接 push できない。作業はブランチで行い、main への PR を作る。PR は CI が通ってからマージする
+- 試作は、試作のブランチ（`poc/gpui` など）にそのまま push してよい
 
 ## 設計のルール
 

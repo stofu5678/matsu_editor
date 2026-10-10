@@ -1,6 +1,6 @@
 # 開発の計画
 
-最終更新: 2026-10-08
+最終更新: 2026-10-09
 
 サクラエディタの仕様を一度に取り込むと破綻するので、メモ帳相当の基本機能から作り、あとでサクラの機能をまとめて実装する（[ADR-0001](adr/0001-project-approach.md)）。
 
@@ -39,4 +39,5 @@
 - [x] GitHub リポジトリを作る（https://github.com/stofu5678/ume_editor 、公開）
 - [ ] Onigmo を fork する（ユーザー）
 - [ ] UI を試作し、ADR-0004 を確定する（まず Windows ARM64 で行う。[ADR-0009](adr/0009-initial-development-target.md)、[試作の手順](poc/ui-framework.md)）
+  - GPUI の試作（[poc/gpui-textview](../poc/gpui-textview/README.md)、ブランチ `poc/gpui`、[途中の結果](poc/ui-framework-result.md)）が Windows ARM64 と Mac で動き、Linux でも WSLg で起動した。残りは、Windows x64 と実機の Linux での確認と、Mac での日本語入力などのユーザーによる確認
 - [x] Cargo ワークスペースと CI（Windows x64・ARM64 / macOS / Linux x64・ARM64）
