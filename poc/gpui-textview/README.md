@@ -33,17 +33,99 @@ Windows と同じコードで動く（2026-10-10 から）。Mac に合わせて
 
 ## Linux
 
-Ubuntu 24.04 で確かめた（WSL2 の WSLg を含む）。ビルドには次のパッケージが要る。
+Ubuntu 24.04 で確かめた。WSL2（WSLg）での準備は、下の「WSL2（WSLg）で動かす」に順にまとめた。
 
-```sh
-sudo apt install clang cmake libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev \
-  libx11-xcb-dev libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libzstd-dev fonts-noto-cjk
-```
-
-- ファイルを開くダイアログ（Ctrl+O）には xdg-desktop-portal が要る: `sudo apt install xdg-desktop-portal xdg-desktop-portal-gtk`。無いときは、下の行に理由を出す
 - F7 で切り替えるフォントは、Noto Sans Mono CJK JP、Noto Sans CJK JP、DejaVu Sans Mono、Noto Serif CJK JP
 - タイトルバーを描かない Wayland（WSLg など）では、タイトルとボタンを試作が描く（gpui-component の `TitleBar`）。ウィンドウの端での大きさの変更はできない
-- WSLg でウィンドウがタスクバーに出るだけで何も描かれないときは、`/mnt/wslg/weston.log` に `rdp_allocate_shared_memory: Failed` が出ていないか見る。出ていたら、Windows で `wsl --shutdown` と `wsl --update` をする（WSLg 1.0.66 で起き、1.0.79 で直った）
+- ファイルを開くダイアログ（Ctrl+O）には xdg-desktop-portal が要る。無いときは、下の行に理由を出す
+- 日本語入力は、X11 で起動して、XIM で IME（fcitx5）とつなぐ。Wayland では GPUI は text-input-v3 で IME とやり取りするが、WSLg は IME（fcitx5）が Wayland に入力方式としてつながることを許さないので、この経路は使えない（下の 5）
+
+### WSL2（WSLg）で動かす
+
+2026-10-10 に、Windows 11（x64）の WSL2 の Ubuntu 24.04 で、この順に準備して動いた。
+
+#### 1. WSL を新しくする
+
+Windows の PowerShell で次を実行する。`wsl --shutdown` で WSL が止まるので、WSL の中で動いているもの（ターミナルや Claude Code）は先に閉じる。
+
+```powershell
+wsl --update
+wsl --shutdown
+```
+
+WSL 2.6.1.0（WSLg 1.0.66）では、ウィンドウがタスクバーに出るだけで、中身が何も描かれなかった。`/mnt/wslg/weston.log` に `rdp_allocate_shared_memory: Failed to open "/mnt/shared_memory/{...}" with error: Input/output error` が出続けていた。WSL 3.0.1.0（WSLg 1.0.79）に更新すると直った。
+
+#### 2. Rust（asdf）
+
+Rust の版は、リポジトリの `rust-toolchain.toml` と `.tool-versions` で 1.99.0 に固定している。[asdf](https://asdf-vm.com/) で入れる場合は次のとおり。rustup で入れてもよい。
+
+```sh
+asdf plugin add rust https://github.com/code-lever/asdf-rust.git
+ASDF_RUST_PROFILE=minimal asdf install rust 1.99.0
+```
+
+rustfmt と clippy は、`rust-toolchain.toml` の `components` から入る。
+
+#### 3. ビルドに要るパッケージ
+
+```sh
+sudo apt install build-essential libfontconfig-dev libfreetype-dev libxcb1-dev \
+  libxkbcommon-dev libxkbcommon-x11-dev fonts-noto-cjk
+```
+
+x64 では、これでビルドでき、日本語も出た（`fonts-noto-cjk` がないと日本語が出ない）。ARM64 の WSL では、ほかに `clang cmake libasound2-dev libwayland-dev libx11-xcb-dev libzstd-dev` も入れて確かめている。
+
+#### 4. ファイルを開くダイアログ
+
+```sh
+sudo apt install xdg-desktop-portal xdg-desktop-portal-gtk
+```
+
+#### 5. 日本語入力（fcitx5 と Mozc）
+
+入れて、入力方式に Mozc を足す。US 配列のキーボードなら、`jp` を `us` にする。
+
+```sh
+sudo apt install fcitx5 fcitx5-mozc
+mkdir -p ~/.config/fcitx5
+cat > ~/.config/fcitx5/profile <<'PROFILE'
+[Groups/0]
+Name=Default
+Default Layout=jp
+DefaultIM=mozc
+
+[Groups/0/Items/0]
+Name=keyboard-jp
+Layout=
+
+[Groups/0/Items/1]
+Name=mozc
+Layout=
+
+[GroupOrder]
+0=Default
+PROFILE
+```
+
+fcitx5 は、Wayland の機能を外して起動する。WSL を起動するたびに要る。動いているかは `pgrep -a fcitx5` で見る。
+
+```sh
+WAYLAND_DISPLAY= fcitx5 -d --disable=wayland,waylandim
+```
+
+そのまま `fcitx5 -d` で起動すると、WSLg が IME 用の Wayland の接続を断り（`zwp_input_method_v1@10: error 0: permission to bind input_method denied`）、fcitx5 はそれをエラーとして終了してしまう。`-d` で裏で起動するので、このエラーは画面に出ない。
+
+#### 6. 起動
+
+```sh
+cd poc/gpui-textview
+cargo build --release
+XMODIFIERS=@im=fcitx WAYLAND_DISPLAY= ./target/release/gpui-textview-poc
+```
+
+- `WAYLAND_DISPLAY=` で X11 を使わせ、`XMODIFIERS=@im=fcitx` で XIM の相手を fcitx5 にする。`RUST_LOG=info` を付けると、`Try connect fcitx` と `XConnected server` の行で、つながったことが分かる
+- 日本語入力は「半角/全角」キーで切り替える
+- 日本語入力が要らなければ、`./target/release/gpui-textview-poc` だけで Wayland で動く
 
 ## 自己確認モード
 
