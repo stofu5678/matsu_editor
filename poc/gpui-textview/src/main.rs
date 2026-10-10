@@ -1413,9 +1413,17 @@ impl Render for Workspace {
         let client_decorated = cfg!(target_os = "linux")
             && matches!(window.window_decorations(), Decorations::Client { .. });
         let editor = self.editor.clone();
+        // The editor's commands do nothing while the print preview is open, as in Sakura, which
+        // refuses every command but the preview's (CViewCommander::HandleCommand in
+        // sakura_core/cmd/CViewCommander.cpp). Ctrl+V does not paste into the hidden text.
+        let previewing = self.preview.is_some();
         let forward = move |f: fn(&mut Editor, &mut Window, &mut Context<Editor>)| {
             let editor = editor.clone();
-            move |window: &mut Window, cx: &mut App| editor.update(cx, |e, cx| f(e, window, cx))
+            move |window: &mut Window, cx: &mut App| {
+                if !previewing {
+                    editor.update(cx, |e, cx| f(e, window, cx));
+                }
+            }
         };
         div()
             .flex()
@@ -1685,13 +1693,16 @@ fn main() {
             cx.set_text_rendering_mode(gpui::TextRenderingMode::Grayscale);
         }
         menu_bar::init(cx);
-        print::preview::init(cx);
         if let Ok(font) = std::env::var("POC_UI_FONT") {
             let theme = gpui_component::Theme::global_mut(cx);
             theme.font_family = font.clone().into();
             theme.mono_font_family = font.into();
         }
         bind_keys(cx);
+        // After the app's keys: GPUI ranks a key with no context as if it were in the deepest
+        // one, and the key added last wins a tie. So the preview's Ctrl+- wins over the font
+        // size's only if it comes later.
+        print::preview::init(cx);
         set_menus(cx);
         cx.on_action(|_: &Quit, cx| cx.quit());
         cx.on_action(|_: &NoOp, _| {});

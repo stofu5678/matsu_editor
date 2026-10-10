@@ -12,7 +12,7 @@ use std::ptr::NonNull;
 
 use futures_channel::oneshot;
 use objc2::rc::Retained;
-use objc2::runtime::{AnyObject, NSObject};
+use objc2::runtime::{AnyObject, NSObject, Sel};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSGraphicsContext, NSPaperOrientation, NSPrintInfo, NSPrintOperation, NSPrintPanelOptions,
@@ -186,11 +186,12 @@ define_class!(
         fn draw_rect(&self, dirty: NSRect) {
             let state = self.ivars();
             let layout = state.layout.borrow();
-            let (Some(layout), Some(context)) = (layout.as_ref(), NSGraphicsContext::currentContext())
-            else {
+            let (Some(layout), Some(context)) = (
+                layout.as_ref(),
+                NSGraphicsContext::currentContext().and_then(|context| cg_context(&context)),
+            ) else {
                 return;
             };
-            let context = context.CGContext();
             let height = points(layout.paper().height);
             let first = (dirty.origin.y / height).floor().max(0.) as usize;
             let last = ((dirty.origin.y + dirty.size.height) / height).ceil() as usize;
@@ -283,6 +284,21 @@ impl Fonts {
             zen: font(&setting.font_zen),
         }
     }
+}
+
+/// The Core Graphics context of an AppKit one. The print panel draws its preview through a
+/// proxy (NSPrintPreviewGraphicsContext, an NSProxy), which forwards `CGContext` to the context
+/// behind it. objc2's checks in debug builds look for the method on the proxy's class, don't
+/// find it and panic, so this sends the message as Objective-C does, without them.
+fn cg_context(context: &NSGraphicsContext) -> Option<CFRetained<CGContext>> {
+    type MsgSend = unsafe extern "C-unwind" fn(*const NSGraphicsContext, Sel) -> *mut CGContext;
+    // SAFETY: `CGContext` takes no arguments and returns a CGContextRef, or NULL.
+    let send = unsafe {
+        std::mem::transmute::<unsafe extern "C-unwind" fn(), MsgSend>(objc2::ffi::objc_msgSend)
+    };
+    let cg_context = NonNull::new(unsafe { send(context, sel!(CGContext)) })?;
+    // SAFETY: a valid CGContext, which the graphics context owns; this retains it.
+    Some(unsafe { CFRetained::retain(cg_context) })
 }
 
 /// Draws a page from the top-left corner of the paper, in a flipped context.

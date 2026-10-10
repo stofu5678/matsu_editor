@@ -15,7 +15,8 @@ use std::time::Duration;
 
 use anyhow::{Context as _, Result, ensure};
 use gpui::{
-    AnyWindowHandle, App, AsyncApp, Bounds, Entity, EntityInputHandler, Global, WeakEntity,
+    AnyWindowHandle, App, AsyncApp, Bounds, ClipboardItem, Entity, EntityInputHandler, Global,
+    WeakEntity,
 };
 
 use crate::print::preview::{ToggleColumns, ToggleLineNumber};
@@ -331,6 +332,13 @@ async fn check_print(
             editor.path = Some(dir.join("print-check.txt"));
         })
     });
+    let editor_state = |cx: &mut AsyncApp| {
+        cx.update(|cx| {
+            let editor = editor.read(cx);
+            (editor.font_size, editor.lines.clone())
+        })
+    };
+    let before = editor_state(cx);
 
     press(window, "secondary-shift-p", cx).await?;
     let preview = cx
@@ -353,8 +361,9 @@ async fn check_print(
         "the preview is not on page 1 of 2 at 100 %"
     );
     save(window, &dir.join("preview-100.png"), cx)?;
-    for _ in 0..3 {
-        dispatch(window, "secondary--", cx).await?;
+    // Ctrl+- zooms out. On a Mac, Cmd+- and Control+- both do, as for the font size.
+    for keystroke in ["secondary--", "ctrl--", "secondary--"] {
+        dispatch(window, keystroke, cx).await?;
     }
     dispatch(window, "right", cx).await?;
     settle(cx).await;
@@ -368,6 +377,16 @@ async fn check_print(
         state(cx) == (1, 2, 70),
         "the keys did not zoom out and go to page 2"
     );
+    // The editor's commands do nothing while the preview is open, as in Sakura: the zoom did not
+    // change the font size, and Ctrl+V does not paste into the hidden text.
+    cx.update(|cx| cx.write_to_clipboard(ClipboardItem::new_string("貼り付けない".into())));
+    dispatch(window, "secondary-v", cx).await?;
+    let kept = editor_state(cx) == before;
+    eprintln!(
+        "self-check:   secondary-v = {}: the text and its font size kept {kept}",
+        seen()
+    );
+    ensure!(kept, "the keys in the preview reached the editor");
     dispatch(window, "left", cx).await?;
     settle(cx).await;
     save(window, &dir.join("preview.png"), cx)?;

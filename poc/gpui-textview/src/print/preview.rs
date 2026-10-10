@@ -37,6 +37,7 @@ const ZOOM_MAX: i32 = 400;
 /// The space around the paper: 8 mm (m_nPreview_ViewMarginLeft and m_nPreview_ViewMarginTop).
 const VIEW_MARGIN: i32 = 80;
 
+/// Binds the preview's keys. Call it after the app's own keys, so that these win over them.
 pub fn init(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("left", PrevPage, Some(CONTEXT)),
@@ -54,6 +55,13 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("o", ZoomOut, Some(CONTEXT)),
         KeyBinding::new("i", ZoomIn, Some(CONTEXT)),
         KeyBinding::new("q", ClosePreview, Some(CONTEXT)),
+    ]);
+    // On a Mac, with Control as well as Cmd, as the font size keys.
+    #[cfg(target_os = "macos")]
+    cx.bind_keys([
+        KeyBinding::new("ctrl-=", ZoomIn, Some(CONTEXT)),
+        KeyBinding::new("ctrl-+", ZoomIn, Some(CONTEXT)),
+        KeyBinding::new("ctrl--", ZoomOut, Some(CONTEXT)),
     ]);
 }
 
