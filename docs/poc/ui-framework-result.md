@@ -1,9 +1,9 @@
 # UI フレームワークの試作の結果（GPUI、途中経過）
 
-[試作の手順](ui-framework.md) に沿った結果。試作は次の 2 つで、どちらもブランチ `poc/gpui` にある。GPUI はどちらも crates.io の `gpui-pre` 0.3.8。
+[試作の手順](ui-framework.md) に沿った結果。試作は次の 2 つで、どちらもブランチ `poc/gpui` で作った。GPUI はどちらも crates.io の `gpui-pre` 0.3.8。
 
 - `poc/gpui-textview/`: Windows ARM64 で作った。2026-10-10 に Linux（WSLg）で起動し、Mac でも動くようにした（下の「Windows ARM64 での試作」と「poc/gpui-textview を Mac で動かした結果」）。試作はこれにまとめる
-- `poc/gpui/`: Mac で別に作ったもの（下の「Mac での試作」）。キーの割り当ても違う（Windows 版は F7 でフォントの切り替え、Ctrl+= / Ctrl+- で文字の大きさ。Mac 版は、サクラの割り当ての Ctrl を ⌘ に読み替えたもの）。Mac で要った設定や作りは `poc/gpui-textview` に移した。このコードを残すかはこれから決める
+- `poc/gpui/`: Mac で別に作ったもの（下の「Mac での試作」）。キーの割り当ても違う（Windows 版は F7 でフォントの切り替え、Ctrl+= / Ctrl+- で文字の大きさ。Mac 版は、サクラの割り当ての Ctrl を ⌘ に読み替えたもの）。Mac で要った設定や作りは `poc/gpui-textview` に移し、2026-10-10 にコードを消した（git の履歴に残っている）
 
 ## Windows ARM64 での試作（`poc/gpui-textview`）
 
@@ -121,7 +121,7 @@ Windows の動きは変えていない（Mac のときだけの分岐にした�
 
 ## Mac での試作（`poc/gpui`）
 
-Mac で別に作った試作。Mac で要った設定や作りは `poc/gpui-textview` に移したので、試作は `poc/gpui-textview` にまとめる。このコードを残すかはこれから決める。動かし方と確認の手順は [poc/gpui/README.md](../../poc/gpui/README.md) にある。
+Mac で別に作った試作。Mac で要った設定や作りは `poc/gpui-textview` に移したので、試作は `poc/gpui-textview` にまとめ、このコードは 2026-10-10 に消した。コードと、動かし方と確認の手順（`poc/gpui/README.md`）は、git の履歴に残っている（`git log -- poc/gpui` で探せる）。
 
 ### 環境
 
