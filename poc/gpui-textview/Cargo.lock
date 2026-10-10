@@ -2845,6 +2845,7 @@ dependencies = [
  "cocoa 0.26.1",
  "gpui-base",
  "gpui-component",
+ "gpui-kit-assets",
  "gpui-pre",
  "gpui-pre-platform",
  "gpui-pre-zlog",

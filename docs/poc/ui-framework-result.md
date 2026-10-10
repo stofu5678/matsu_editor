@@ -2,7 +2,7 @@
 
 [試作の手順](ui-framework.md) に沿った結果。試作は次の 2 つで、どちらもブランチ `poc/gpui` で作った。GPUI はどちらも crates.io の `gpui-pre` 0.3.8。
 
-- `poc/gpui-textview/`: Windows ARM64 で作った。2026-10-10 に Linux（WSLg）で起動し、Mac でも動くようにした（下の「Windows ARM64 での試作」と「poc/gpui-textview を Mac で動かした結果」）。試作はこれにまとめる
+- `poc/gpui-textview/`: Windows ARM64 で作った。2026-10-10 に Linux（WSLg）で起動し、Mac でも動くようにした。同じ日に Windows x64 と Linux x64 でも確かめた（下の「Windows ARM64 での試作」「poc/gpui-textview を Mac で動かした結果」「poc/gpui-textview を Windows x64・Linux x64 で動かした結果」）。試作はこれにまとめる
 - `poc/gpui/`: Mac で別に作ったもの（下の「Mac での試作」）。キーの割り当ても違う（Windows 版は F7 でフォントの切り替え、Ctrl+= / Ctrl+- で文字の大きさ。Mac 版は、サクラの割り当ての Ctrl を ⌘ に読み替えたもの）。Mac で要った設定や作りは `poc/gpui-textview` に移し、2026-10-10 にコードを消した（git の履歴に残っている）
 
 ## Windows ARM64 での試作（`poc/gpui-textview`）
@@ -52,7 +52,7 @@ GPU ドライバー（Qualcomm Adreno X1-85、31.0.160.0）の振る舞いだっ
 - 文字をグレースケールで描くと（テクスチャは 1 枚 1 MB）、増え方が小さくなる（最小のウィンドウ＋日本語で 76 MB、試作で 204 MB）。サブピクセル（ClearType）で描くときは 4 MB のテクスチャを使うので、増え方が大きい。以前「システムの UI フォントで日本語を描くと約 65 MB 増える。代わりのフォントの読み込みのため」と書いたのは誤りで、日本語の文字を書き込む回数が増えたためだった
 - `UpdateSubresource1` の `D3D11_COPY_NO_OVERWRITE` も、書き込みのたびの `Flush` も効かなかった。小さな一時テクスチャ（`D3D11_USAGE_STAGING`）に書いてから `CopySubresourceRegion` で GPU 上でコピーすると、増えなくなった。この変更を `poc/gpui-textview/patches/gpui-pre-windows-atlas-upload.diff` に残した（GPUI の 1 つのファイルだけの変更）。画面の表示は変わらない
 - Zed にも同じ機種での報告がある（[zed-industries/zed#56349](https://github.com/zed-industries/zed/issues/56349)、2026-05、GPUI 0.2.2）。その報告では書き込みをまとめて回数を減らして回避している。「再現の確認待ち」のまま放置の印が付いている。最新の Zed（main）の GPUI でも、書き込みは `UpdateSubresource` のまま
-- 他の GPU（x64 の Windows の Intel・AMD・NVIDIA、Mac、Linux）で起きるかはまだ分からない。x64 の Windows で確かめる
+- 他の GPU（x64 の Windows の Intel・AMD・NVIDIA、Mac、Linux）で起きるかはまだ分からない。x64 の Windows で確かめる（2026-10-10 追記: Mac と、x64 の Windows の NVIDIA GeForce GTX 1650 では起きなかった。下の「poc/gpui-textview を Windows x64・Linux x64 で動かした結果」）
 
 ##### 評価
 
@@ -93,7 +93,7 @@ GPU ドライバー（Qualcomm Adreno X1-85、31.0.160.0）の振る舞いだっ
 - [x] 2. 文字の見え方（BIZ UDGothic / MS Gothic / Consolas / Yu Gothic UI を F7 で切り替え、12〜14pt）
 - [x] 4. 100 万行のスクロールの滑らかさ（ホイール、PageUp・PageDown の押し続け）
 - [x] 6. メニューとショートカット: メニューバーの操作感、Alt キーでメニューに入れるか、ファイルのドラッグ & ドロップ（Alt キーでの操作は指摘を受けて足した。直した版の操作感は、使いながら確かめる）
-- [ ] 7. Windows x64 の実機でビルドと起動、Mac と Linux でのビルドと起動（Linux は WSLg で起動できた。上を参照）。あわせて、`POC_MEMSTAT=6` を付けて起動し、メモリが 4 MB ずつ増える問題が起きるかを見る（Mac の分は 2026-10-10 に確かめた。下の「poc/gpui-textview を Mac で動かした結果」）
+- [ ] 7. Windows x64 の実機でビルドと起動、Mac と Linux でのビルドと起動（Linux は WSLg で起動できた。上を参照）。あわせて、`POC_MEMSTAT=6` を付けて起動し、メモリが 4 MB ずつ増える問題が起きるかを見る（Mac の分は 2026-10-10 に確かめた。下の「poc/gpui-textview を Mac で動かした結果」。Windows x64 と Linux x64 の分も、ビルドと自己確認モードまでは 2026-10-10 に AI が確かめた。下の「poc/gpui-textview を Windows x64・Linux x64 で動かした結果」。残りは、人が動かしての確認）
 
 ## poc/gpui-textview を Mac で動かした結果（2026-10-10）
 
@@ -107,7 +107,7 @@ Windows 版と同じコードを、Mac（Apple M1、macOS 26.1、JIS キーボ�
 - フォント: Mac にあるもの（BIZ UDゴシック、Osaka、Menlo、ヒラギノ角ゴシック）にした
 - 自己確認モード（`--features self-check`）を足した。キーを macOS のキーイベントとして押し、表示を PNG に保存する（[README](../../poc/gpui-textview/README.md)）
 
-Windows の動きは変えていない（Mac のときだけの分岐にした）。ただし、変えたあとのコードを Windows ではまだビルドしていない。
+Windows の動きは変えていない（Mac のときだけの分岐にした）。変えたあとのコードは、2026-10-10 に Windows x64 でビルドして確かめた（下の「poc/gpui-textview を Windows x64・Linux x64 で動かした結果」）。Windows ARM64 ではまだビルドしていない。
 
 ### 結果
 
@@ -118,6 +118,75 @@ Windows の動きは変えていない（Mac のときだけの分岐にした�
 | 4 | スクロール | 100 万行を作り、⌘↓ で移った末尾を正しく描けた。滑らかさの体感はユーザーが確かめる |
 | 5 | メモリ | physical footprint（アクティビティモニタの「メモリ」）で、起動直後 36 MB、4 つのフォントを一巡した後 40 MB、100 万行を作って末尾に移った後 282 MB（うち 224 MB は 100 万行を持つ Rust のヒープ）。Windows で見つかった、文字を書き込むたびに 4 MB 増える問題は起きていない。自己確認モードを付けた Release ビルドで測った。同じ日の夕方に測り直すと、58 MB・72 MB・313 MB だった。Linux 対応を入れる前のコードでも同じだったので、コードではなく環境の違い（このときのメインのディスプレイは 5K の外部ディスプレイ）とみられる |
 | 6 | メニューとショートカット | F7・F8・⌘= / ⌘+ / ⌘-・⌃= / ⌃+ / ⌃-・⌘↓ を、JIS キーボードと同じ形の macOS のキーイベントで確かめた。メニューの操作感はユーザーが確かめる |
+
+## poc/gpui-textview を Windows x64・Linux x64 で動かした結果（2026-10-10）
+
+Mac 対応を入れたあとのコードを、x64 の PC 1 台で、Windows とその上の WSL2 でビルドして動かした（確認項目 7 の x64 の分）。
+
+### 環境
+
+| | Windows x64 | Linux x64 |
+|---|---|---|
+| OS | Windows 11 Pro Insider Preview（10.0.26220） | WSL2 の Ubuntu 24.04.5。WSL 3.0.1.0、WSLg 1.0.79（下の「WSLg でウィンドウが描かれなかった件」で 2.6.1.0・1.0.66 から更新した） |
+| CPU | AMD Ryzen 7 3700X | 同じ |
+| GPU | NVIDIA GeForce GTX 1650（ドライバー 32.0.16.1088）。GPUI は Direct3D 11.1 で使う | WSLg では GPU を使えず、Vulkan のソフトウェア処理（llvmpipe） |
+| Rust | 1.99.0（rustup）、Visual Studio 2019 の C++ ツール | 1.99.0（asdf） |
+
+### 変えたこと
+
+- 自己確認モード: Linux ではウィンドウを画像にする処理（`render_to_image`）が GPUI 0.3.8 にないので、画像の保存だけ飛ばし、ほかの確認は続けるようにした
+- Linux のフォント: F7 で切り替える 4 つは Windows のフォントで、Linux にはないので、4 つとも同じ代わりのフォントで描かれていた（切り替わっていないように見えた）。Linux では、fonts-noto-cjk と Ubuntu にあるもの（Noto Sans Mono CJK JP、Noto Sans CJK JP、DejaVu Sans Mono、Noto Serif CJK JP）にした。日本向けのフォントを名前で選ぶので、字形も日本のものになる
+- Linux のタイトルバー: WSLg の Wayland（Weston）は、タイトルバーをサーバー側で描かない。GPUI は試作に描かせる（client-side decorations）が、試作は描いていなかったので、タイトルもボタンも出ず、ウィンドウを動かせなかった。この場合だけ、gpui-component の `TitleBar` でタイトル、最小化・最大化・閉じる、ドラッグでの移動を描くようにした。ボタンのアイコンのため、Linux だけ `gpui-kit-assets`（Apache-2.0、アイコンは Lucide の ISC）を足した。ウィンドウの端での大きさの変更は作っていない
+- ファイルを開く: Linux のダイアログは xdg-desktop-portal を通して出す。無いときに何も起きなかったので、理由を下の行に出すようにした
+
+Windows の動きは変えていない（フォントの一覧を Windows と Linux で分けただけ）。
+
+### 結果
+
+どちらでも、`cargo fmt --check`、`cargo clippy --all-targets --locked -- -D warnings`（`--features self-check` あり・なし）、`cargo test --locked`（テストは 0 件）、Release ビルドが通った。自己確認モードも最後まで通った（`self-check: ok`）。
+
+| # | 項目 | Windows x64 | Linux x64（WSLg） |
+|---|---|---|---|
+| 1, 2 | 日本語入力、文字の見え方 | IME と同じ呼び出しでの変換中の下線と確定、4 つのフォント、メニューバーを、自己確認モードの画像で確かめた。本物の IME はユーザーが確かめる | 画像を保存できないので、ユーザーが画面で確かめた（下の「ユーザーの確認」） |
+| 3 | 起動時間 | Release ビルドで、最初の描画まで 440〜542 ms（6 回）。基準の 0.3 秒を超えた。同じ PC で、消す前の `poc/gpui` も 439〜477 ms だったので、この PC の環境によるとみられる。中身はまだ調べていない | 158〜189 ms（4 回）。WSLg を更新する前に測った値 |
+| 4 | スクロール | 100 万行を作って正しく描けた。滑らかさの体感はユーザーが確かめる | 100 万行を作れた。滑らかさは、GPU のある実機の Linux で確かめる |
+| 5 | メモリ | 下の項 | RSS で約 173〜180 MB（起動して 6 秒後、WSLg を更新する前）。ソフトウェア描画の分を含むので、実機の値ではない |
+| 6 | メニューとショートカット | F7・F8・Ctrl+= / Ctrl++ / Ctrl+- を確かめた。メニューの操作感はユーザーが確かめる | 同じ |
+
+#### Windows x64 のメモリ
+
+ワーキングセット（タスクマネージャーと同じ値）。
+
+| 状態 | 値 |
+|---|---|
+| GPUI だけの最小のウィンドウ（`src/bin/minimal.rs`、起動して 6 秒後） | 約 58 MB |
+| 試作（起動して 6 秒後） | 約 62 MB |
+| 試作（自己確認モードの Release ビルドで、4 つのフォントを一巡した後） | 約 72 MB |
+| 同上（100 万行を作った後） | 約 309 MB（うち約 224 MB は 100 万行を持つ Rust のヒープ） |
+
+Qualcomm Adreno で見つかった、文字を書き込むたびに 4 MB 増える問題は、NVIDIA GeForce GTX 1650 では起きなかった。`POC_MEMSTAT=6` の内訳でも、約 4 MB の領域が並ぶことはなく、プロセス専用の領域のワーキングセットは約 13 MB だった。値は、Adreno で回避策を当てたとき（起動直後 約 54 MB、100 万行の後 約 284 MB）と同じくらい。Intel・AMD の GPU ではまだ確かめていない。
+
+#### Windows の Alt キー
+
+GPUI は、Windows でウィンドウを前面に出すとき（`WindowsWindow::activate`）に、Alt キーを押して離す入力を自分で送る。消した `poc/gpui` では、新しいウィンドウを開くたびにこれを受けてメニューバーが選ばれた状態になったので、前面に出してから 300 ms のあいだの Alt を無視していた。`poc/gpui-textview` は、起動時にウィンドウを 1 つ開くだけで、前面に出す処理を呼ばないので起きない。起動直後の画像でも、メニューバーは選ばれていなかった。ウィンドウを増やすときには、同じ対処が要る。
+
+### WSLg でウィンドウが描かれなかった件
+
+最初は、Linux でウィンドウがタスクバーに出るだけで、画面には何も描かれなかった（Wayland でも X11 でも同じ）。試作のログでは最初の描画まで進んでいて、自己確認モードも通っていた。自己確認モードはキーの処理と中の状態しか見ないので、画面に出ないことには気づけなかった。
+
+- WSLg の Weston のログ（`/mnt/wslg/weston.log`）に、`rdp_allocate_shared_memory: Failed to open "/mnt/shared_memory/{...}" with error: Input/output error` が出続けていた。ウィンドウの中身を Windows に送るための共有メモリが開けず、中身が届いていなかった。試作や GPUI の問題ではない
+- `wsl --shutdown` で WSL を止め、`wsl --update` で WSL 2.6.1.0・WSLg 1.0.66 から WSL 3.0.1.0・WSLg 1.0.79 に更新すると、描かれるようになった
+
+### ユーザーの確認（2026-10-10）
+
+- Windows x64: 試した操作はすべて問題なかった
+- Linux x64（WSLg 1.0.79）: 上の「変えたこと」を入れた版で、タイトルバー（移動とボタン）、F7 でのフォントの切り替え、Ctrl+C（行のコピー）と Ctrl+V での Windows との受け渡しを試し、ほぼ問題なかった。Ctrl+= / Ctrl+-、F8、Alt でのメニューは、変える前の版で動いた。Ctrl+O は、`sudo apt install xdg-desktop-portal xdg-desktop-portal-gtk` でダイアログが出るようになった
+- 文字列の選択と、選んだ部分のコピーはできない。試作にまだ作っていない（Windows・Mac も同じ）。PoC のうちに作ることにした
+
+### ユーザーに確かめてもらうこと（x64）
+
+- [x] Windows x64: 本物の IME での入力、文字の見え方、Alt キーでのメニュー操作、100 万行のスクロールの滑らかさ
+- [x] Linux x64: 表示（メニュー・日本語・行番号・スクロールバー）、ファイルを開くダイアログ
 
 ## Mac での試作（`poc/gpui`）
 

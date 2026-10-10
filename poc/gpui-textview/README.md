@@ -30,9 +30,23 @@ Windows と同じコードで動く（2026-10-10 から）。Mac に合わせて
 - `Cargo.toml` で、Mac のときだけ GPUI の `font-kit`（ないと文字が 1 つも描かれない）と `runtime_shaders`（シェーダーを起動時にコンパイルするので、Xcode の Metal Toolchain が要らない）を有効にしている。ビルドには Xcode か Command Line Tools が要る
 - `POC_MEMSTAT` は Rust のヒープだけを書き出す。メモリは、アクティビティモニタの「メモリ」か、自己確認モードの出力で見る
 
+## Linux
+
+Ubuntu 24.04 で確かめた（WSL2 の WSLg を含む）。ビルドには次のパッケージが要る。
+
+```sh
+sudo apt install clang cmake libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev \
+  libx11-xcb-dev libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libzstd-dev fonts-noto-cjk
+```
+
+- ファイルを開くダイアログ（Ctrl+O）には xdg-desktop-portal が要る: `sudo apt install xdg-desktop-portal xdg-desktop-portal-gtk`。無いときは、下の行に理由を出す
+- F7 で切り替えるフォントは、Noto Sans Mono CJK JP、Noto Sans CJK JP、DejaVu Sans Mono、Noto Serif CJK JP
+- タイトルバーを描かない Wayland（WSLg など）では、タイトルとボタンを試作が描く（gpui-component の `TitleBar`）。ウィンドウの端での大きさの変更はできない
+- WSLg でウィンドウがタスクバーに出るだけで何も描かれないときは、`/mnt/wslg/weston.log` に `rdp_allocate_shared_memory: Failed` が出ていないか見る。出ていたら、Windows で `wsl --shutdown` と `wsl --update` をする（WSLg 1.0.66 で起き、1.0.79 で直った）
+
 ## 自己確認モード
 
-画面を見ずに、キーと表示を確かめるモード。キーを押し、ウィンドウの描画結果を PNG に保存して終了する。macOS の画面収録やアクセシビリティの許可は要らない。Mac で確かめた。Windows ではまだ試していない。
+画面を見ずに、キーと表示を確かめるモード。キーを押し、ウィンドウの描画結果を PNG に保存して終了する。macOS の画面収録やアクセシビリティの許可は要らない。Mac、Windows x64、Linux x64（WSLg）で確かめた。Linux では GPUI がウィンドウを画像にできないので、画像の保存だけ飛ばす。
 
 ```sh
 cargo run --features self-check -- --self-check /tmp/textview-check
