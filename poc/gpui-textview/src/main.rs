@@ -9,14 +9,15 @@ use std::sync::OnceLock;
 use std::time::Instant;
 
 use gpui::{
-    App, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId, ElementInputHandler,
-    Entity, EntityInputHandler, ExternalPaths, FocusHandle, Focusable, GlobalElementId, KeyBinding,
-    KeyDownEvent, LayoutId, Menu, MenuItem, ModifiersChangedEvent, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, PathPromptOptions, Pixels, Point, ScrollWheelEvent, ShapedLine,
-    SharedString, Style, TextRun, UTF16Selection, UnderlineStyle, Window, WindowBounds,
-    WindowOptions, actions, div, fill, point, prelude::*, px, relative, rgb, size,
+    App, Bounds, ClipboardItem, Context, CursorStyle, Decorations, Element, ElementId,
+    ElementInputHandler, Entity, EntityInputHandler, ExternalPaths, FocusHandle, Focusable,
+    GlobalElementId, KeyBinding, KeyDownEvent, LayoutId, Menu, MenuItem, ModifiersChangedEvent,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PathPromptOptions, Pixels, Point,
+    ScrollWheelEvent, ShapedLine, SharedString, Style, TextRun, UTF16Selection, UnderlineStyle,
+    Window, WindowBounds, WindowOptions, actions, div, fill, point, prelude::*, px, relative, rgb,
+    size,
 };
-use gpui_component::Root;
+use gpui_component::{Root, TitleBar};
 use gpui_platform::application;
 
 mod memstat;
@@ -29,6 +30,8 @@ use menu_bar::MenuBar;
 static ALLOC: memstat::CountingAlloc = memstat::CountingAlloc;
 
 static START: OnceLock<Instant> = OnceLock::new();
+
+const WINDOW_TITLE: &str = "ume_editor GPUI PoC";
 
 actions!(
     editor,
@@ -66,11 +69,20 @@ actions!(
 );
 
 /// The fonts that F7 cycles through: Japanese fonts, a Latin monospace font, and the UI font.
-#[cfg(not(target_os = "macos"))]
+#[cfg(windows)]
 const FONTS: &[&str] = &["BIZ UDGothic", "MS Gothic", "Consolas", "Yu Gothic UI"];
 /// GPUI picks a font by family name, so Osaka is the proportional one, not Osaka−等幅.
 #[cfg(target_os = "macos")]
 const FONTS: &[&str] = &["BIZ UDGothic", "Osaka", "Menlo", "Hiragino Sans"];
+/// Fonts that Ubuntu has with fonts-noto-cjk. The JP fonts pick the Japanese glyph shapes, which
+/// a fallback to Noto Sans CJK may not.
+#[cfg(not(any(windows, target_os = "macos")))]
+const FONTS: &[&str] = &[
+    "Noto Sans Mono CJK JP",
+    "Noto Sans CJK JP",
+    "DejaVu Sans Mono",
+    "Noto Serif CJK JP",
+];
 
 struct Editor {
     focus_handle: FocusHandle,
@@ -362,12 +374,21 @@ impl Editor {
             multiple: false,
             prompt: Some("開く".into()),
         });
-        cx.spawn_in(window, async move |this, cx| {
-            if let Ok(Ok(Some(mut paths))) = paths.await
-                && let Some(path) = paths.pop()
-            {
-                this.update(cx, |this, cx| this.open_path(path, cx)).ok();
+        cx.spawn_in(window, async move |this, cx| match paths.await {
+            Ok(Ok(Some(mut paths))) => {
+                if let Some(path) = paths.pop() {
+                    this.update(cx, |this, cx| this.open_path(path, cx)).ok();
+                }
             }
+            // On Linux the dialog needs xdg-desktop-portal, which WSLg does not have.
+            Ok(Err(err)) => {
+                this.update(cx, |this, cx| {
+                    this.file_name = Some(format!("開けません: {err}"));
+                    cx.notify();
+                })
+                .ok();
+            }
+            _ => {}
         })
         .detach();
     }
@@ -994,8 +1015,12 @@ struct Workspace {
 }
 
 impl Render for Workspace {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let ui_font = gpui_component::Theme::global(cx).font_family.clone();
+        // A Wayland compositor without server-side decorations, such as WSLg's, leaves the title
+        // bar and its buttons to the app.
+        let client_decorated = cfg!(target_os = "linux")
+            && matches!(window.window_decorations(), Decorations::Client { .. });
         let editor = self.editor.clone();
         let forward = move |f: fn(&mut Editor, &mut Window, &mut Context<Editor>)| {
             let editor = editor.clone();
@@ -1072,6 +1097,9 @@ impl Render for Workspace {
             .on_action({
                 let f = forward(|e, w, cx| e.copy_line(&CopyLine, w, cx));
                 move |_: &CopyLine, w, cx| f(w, cx)
+            })
+            .when(client_decorated, |this| {
+                this.child(TitleBar::new().child(div().text_sm().child(WINDOW_TITLE)))
             })
             // macOS shows the menus in its own menu bar (`cx.set_menus`).
             .children(
@@ -1209,7 +1237,10 @@ fn main() {
     }
     #[cfg(feature = "self-check")]
     let self_check = self_check::take_arg();
-    application().run(move |cx: &mut App| {
+    let app = application();
+    #[cfg(target_os = "linux")]
+    let app = app.with_assets(gpui_kit_assets::Assets);
+    app.run(move |cx: &mut App| {
         gpui_component::init(cx);
         if std::env::var("POC_TEXT_MODE").as_deref() == Ok("grayscale") {
             cx.set_text_rendering_mode(gpui::TextRenderingMode::Grayscale);
@@ -1238,7 +1269,7 @@ fn main() {
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(gpui::TitlebarOptions {
-                title: Some("ume_editor GPUI PoC".into()),
+                title: Some(WINDOW_TITLE.into()),
                 ..Default::default()
             }),
             ..Default::default()

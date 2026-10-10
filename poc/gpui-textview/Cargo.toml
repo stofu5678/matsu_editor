@@ -40,5 +40,10 @@ cocoa = { version = "0.26", optional = true }
 objc = { version = "0.2", optional = true }
 raw-window-handle = { version = "0.6", optional = true }
 
+# Linux: the icons of the title bar buttons that the window draws itself on Wayland without
+# server-side decorations (WSLg).
+[target.'cfg(target_os = "linux")'.dependencies]
+gpui-kit-assets = "=0.7.1"
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_System_Memory", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
