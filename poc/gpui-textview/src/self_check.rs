@@ -14,7 +14,9 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, ensure};
-use gpui::{AnyWindowHandle, App, AsyncApp, Bounds, EntityInputHandler, Global, WeakEntity};
+use gpui::{
+    AnyWindowHandle, App, AsyncApp, Bounds, Entity, EntityInputHandler, Global, WeakEntity,
+};
 
 use crate::{Editor, FONTS};
 
@@ -150,6 +152,9 @@ async fn drive(dir: &Path, cx: &mut AsyncApp) -> Result<()> {
         "the composed text was not committed: {line:?}"
     );
 
+    check_selection(window, &editor, dir, cx).await?;
+    eprintln!("self-check:   selection keys = {}", seen());
+
     // F8 makes a million lines.
     press(window, "f8", cx).await?;
     let lines = cx.update(|cx| editor.read(cx).lines.len());
@@ -165,6 +170,139 @@ async fn drive(dir: &Path, cx: &mut AsyncApp) -> Result<()> {
         save(window, &dir.join("large-end.png"), cx)?;
     }
     eprintln!("self-check: memory at the end: {}", memory());
+    Ok(())
+}
+
+/// Selects with the keys, copies, cuts and pastes, starting with the cursor at the end of
+/// line 4, which holds "日本語". Uses the clipboard of the system.
+async fn check_selection(
+    window: AnyWindowHandle,
+    editor: &Entity<Editor>,
+    dir: &Path,
+    cx: &mut AsyncApp,
+) -> Result<()> {
+    // GPUI takes the Wayland clipboard only with the serial of a real key or mouse press.
+    if cfg!(target_os = "linux")
+        && std::env::var_os("WAYLAND_DISPLAY").is_some_and(|d| !d.is_empty())
+    {
+        eprintln!(
+            "self-check: skipped the selection check: the Wayland clipboard needs a real key \
+             press (run with WAYLAND_DISPLAY= to check through X11)"
+        );
+        return Ok(());
+    }
+    let line = |cx: &mut AsyncApp, row: usize| cx.update(|cx| editor.read(cx).lines[row].clone());
+    let clipboard = |cx: &mut AsyncApp| {
+        cx.update(|cx| cx.read_from_clipboard().and_then(|item| item.text()))
+            .unwrap_or_default()
+    };
+    let row = cx.update(|cx| editor.read(cx).cursor.0);
+
+    // Shift+Home selects to the line start; Ctrl+C copies it; End and Ctrl+V paste it.
+    dispatch(window, "shift-home", cx).await?;
+    dispatch(window, "secondary-c", cx).await?;
+    // The messages never show what the clipboard holds: it may be the user's.
+    ensure!(
+        clipboard(cx) == "日本語",
+        "Shift+Home and Ctrl+C did not copy the line"
+    );
+    dispatch(window, "end", cx).await?;
+    dispatch(window, "secondary-v", cx).await?;
+    ensure!(
+        line(cx, row) == "日本語日本語",
+        "Ctrl+V gave {:?}",
+        line(cx, row)
+    );
+
+    // Shift+Left twice and Shift+Up select across lines; typing replaces the selection.
+    dispatch(window, "shift-left", cx).await?;
+    dispatch(window, "shift-left", cx).await?;
+    window.update(cx, |_, window, cx| {
+        editor.update(cx, |editor, cx| {
+            editor.replace_text_in_range(None, "語", window, cx);
+        })
+    })?;
+    ensure!(
+        line(cx, row) == "日本語日語",
+        "typing gave {:?}",
+        line(cx, row)
+    );
+    dispatch(window, "shift-up", cx).await?;
+    save(window, &dir.join("selection.png"), cx)?;
+    let selected = cx.update(|cx| {
+        let editor = editor.read(cx);
+        editor
+            .selection()
+            .map(|(from, to)| editor.text_in(from, to))
+    });
+    ensure!(
+        selected
+            .as_deref()
+            .is_some_and(|s| s.ends_with("\n日本語日語")),
+        "Shift+Up selected {selected:?}"
+    );
+
+    // Ctrl+X cuts the selection; Ctrl+Z is not there yet, so Ctrl+V puts it back.
+    let lines = cx.update(|cx| editor.read(cx).lines.clone());
+    dispatch(window, "secondary-x", cx).await?;
+    ensure!(
+        cx.update(|cx| editor.read(cx).lines.len()) == lines.len() - 1,
+        "Ctrl+X did not cut the line break"
+    );
+    dispatch(window, "secondary-v", cx).await?;
+    ensure!(
+        cx.update(|cx| editor.read(cx).lines.clone()) == lines,
+        "Ctrl+V did not put the cut text back"
+    );
+
+    // Without a selection, Ctrl+C copies the line, and Ctrl+V puts it in above the line.
+    dispatch(window, "up", cx).await?;
+    dispatch(window, "secondary-c", cx).await?;
+    let copied = line(cx, row - 1);
+    ensure!(
+        clipboard(cx) == format!("{copied}\n"),
+        "Ctrl+C without a selection did not copy the line with its line break"
+    );
+    dispatch(window, "secondary-v", cx).await?;
+    ensure!(
+        line(cx, row - 1) == copied && line(cx, row) == copied,
+        "the line paste did not go above the line"
+    );
+    // Ctrl+X without a selection cuts it again.
+    dispatch(window, "secondary-x", cx).await?;
+    ensure!(
+        cx.update(|cx| editor.read(cx).lines.clone()) == lines,
+        "Ctrl+X without a selection did not cut the line"
+    );
+
+    // Ctrl+A selects everything, from wherever the selection started. The anchor here is where
+    // a mouse press in the middle of the text leaves it.
+    cx.update(|cx| {
+        editor.update(cx, |editor, _| {
+            editor.cursor = (1, 3);
+            editor.anchor = Some(editor.cursor);
+        })
+    });
+    dispatch(window, "secondary-a", cx).await?;
+    let all = cx.update(|cx| {
+        let editor = editor.read(cx);
+        editor
+            .selection()
+            .map(|(from, to)| editor.text_in(from, to))
+    });
+    ensure!(all == Some(lines.join("\n")), "Ctrl+A selected {all:?}");
+    dispatch(window, "secondary-end", cx).await?;
+    Ok(())
+}
+
+/// Presses a key through GPUI on every platform. The macOS key events of `press` cover only
+/// the keys in its table.
+async fn dispatch(window: AnyWindowHandle, keystroke: &str, cx: &mut AsyncApp) -> Result<()> {
+    let keystroke = gpui::Keystroke::parse(keystroke)?;
+    window.update(cx, |_, window, cx| window.dispatch_keystroke(keystroke, cx))?;
+    cx.background_executor()
+        .timer(Duration::from_millis(50))
+        .await;
     Ok(())
 }
 

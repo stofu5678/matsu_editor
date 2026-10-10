@@ -50,8 +50,20 @@ actions!(
         DocEnd,
         Enter,
         Tab,
+        SelectLeft,
+        SelectRight,
+        SelectUp,
+        SelectDown,
+        SelectHome,
+        SelectEnd,
+        SelectPageUp,
+        SelectPageDown,
+        SelectDocStart,
+        SelectDocEnd,
+        SelectAll,
+        Cut,
+        Copy,
         Paste,
-        CopyLine,
         OpenFile,
         GenerateLargeText,
         CycleFont,
@@ -89,6 +101,13 @@ struct Editor {
     lines: Vec<String>,
     /// Cursor as (line index, byte offset within the line).
     cursor: (usize, usize),
+    /// The other end of the selection, which runs from here to the cursor.
+    anchor: Option<(usize, usize)>,
+    /// The left button went down in the text and has not come up: dragging selects.
+    mouse_selecting: bool,
+    /// The text that the last Copy or Cut without a selection put on the clipboard. Pasting it
+    /// inserts whole lines above the cursor line, as Sakura's line-mode paste does.
+    line_copy: Option<String>,
     /// Desired x position kept across vertical moves.
     goal_x: Option<Pixels>,
     /// IME composition range within the cursor line (byte offsets).
@@ -123,6 +142,9 @@ impl Editor {
                 String::new(),
             ],
             cursor: (3, 0),
+            anchor: None,
+            mouse_selecting: false,
+            line_copy: None,
             goal_x: None,
             marked: None,
             scroll_y: px(0.),
@@ -145,6 +167,7 @@ impl Editor {
             .map(|l| l.trim_end_matches('\r').to_string())
             .collect();
         self.cursor = (0, 0);
+        self.anchor = None;
         self.marked = None;
         self.scroll_y = px(0.);
         self.file_name = name;
@@ -188,14 +211,65 @@ impl Editor {
         }
     }
 
-    fn move_to(&mut self, pos: (usize, usize), cx: &mut Context<Self>) {
+    /// Moves the cursor. `extend` keeps or starts the selection, as Shift does.
+    fn move_to(&mut self, pos: (usize, usize), extend: bool, cx: &mut Context<Self>) {
+        self.set_anchor(extend);
         self.cursor = pos;
         self.goal_x = None;
         self.ensure_cursor_visible();
         cx.notify();
     }
 
+    fn set_anchor(&mut self, extend: bool) {
+        if !extend {
+            self.anchor = None;
+        } else if self.anchor.is_none() {
+            self.anchor = Some(self.cursor);
+        }
+    }
+
+    /// The selected range, start first, if it is not empty.
+    fn selection(&self) -> Option<((usize, usize), (usize, usize))> {
+        let anchor = self.anchor?;
+        match anchor.cmp(&self.cursor) {
+            std::cmp::Ordering::Less => Some((anchor, self.cursor)),
+            std::cmp::Ordering::Greater => Some((self.cursor, anchor)),
+            std::cmp::Ordering::Equal => None,
+        }
+    }
+
+    fn text_in(&self, from: (usize, usize), to: (usize, usize)) -> String {
+        if from.0 == to.0 {
+            return self.lines[from.0][from.1..to.1].to_string();
+        }
+        let mut text = self.lines[from.0][from.1..].to_string();
+        for line in &self.lines[from.0 + 1..to.0] {
+            text.push('\n');
+            text.push_str(line);
+        }
+        text.push('\n');
+        text.push_str(&self.lines[to.0][..to.1]);
+        text
+    }
+
+    /// Deletes the selected text, if any, and drops the selection. Returns whether it deleted.
+    fn delete_selection(&mut self) -> bool {
+        let selection = self.selection();
+        self.anchor = None;
+        match selection {
+            Some((from, to)) => {
+                self.delete_range(from, to);
+                self.goal_x = None;
+                self.ensure_cursor_visible();
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Inserts text at the cursor, replacing the selection.
     fn insert(&mut self, text: &str, cx: &mut Context<Self>) {
+        self.delete_selection();
         let (row, col) = self.cursor;
         let mut parts = text.split('\n');
         let first = parts.next().unwrap_or_default().trim_end_matches('\r');
@@ -282,7 +356,8 @@ impl Editor {
         }
     }
 
-    fn vertical(&mut self, delta: isize, cx: &mut Context<Self>) {
+    fn vertical(&mut self, delta: isize, extend: bool, cx: &mut Context<Self>) {
+        self.set_anchor(extend);
         let goal = self
             .goal_x
             .or_else(|| self.x_for(self.cursor.0, self.cursor.1));
@@ -305,42 +380,90 @@ impl Editor {
     // --- actions -------------------------------------------------------
 
     fn left(&mut self, _: &Left, _: &mut Window, cx: &mut Context<Self>) {
-        if let Some(p) = self.prev_boundary() {
-            self.move_to(p, cx);
-        }
+        self.step_left(false, cx);
     }
     fn right(&mut self, _: &Right, _: &mut Window, cx: &mut Context<Self>) {
-        if let Some(p) = self.next_boundary() {
-            self.move_to(p, cx);
-        }
+        self.step_right(false, cx);
     }
     fn up(&mut self, _: &Up, _: &mut Window, cx: &mut Context<Self>) {
-        self.vertical(-1, cx);
+        self.vertical(-1, false, cx);
     }
     fn down(&mut self, _: &Down, _: &mut Window, cx: &mut Context<Self>) {
-        self.vertical(1, cx);
+        self.vertical(1, false, cx);
     }
     fn page_up(&mut self, _: &PageUp, _: &mut Window, cx: &mut Context<Self>) {
-        self.vertical(-(self.visible_rows() as isize), cx);
+        self.vertical(-(self.visible_rows() as isize), false, cx);
     }
     fn page_down(&mut self, _: &PageDown, _: &mut Window, cx: &mut Context<Self>) {
-        self.vertical(self.visible_rows() as isize, cx);
+        self.vertical(self.visible_rows() as isize, false, cx);
     }
     fn home(&mut self, _: &Home, _: &mut Window, cx: &mut Context<Self>) {
-        self.move_to((self.cursor.0, 0), cx);
+        self.move_to((self.cursor.0, 0), false, cx);
     }
     fn end(&mut self, _: &End, _: &mut Window, cx: &mut Context<Self>) {
-        self.move_to((self.cursor.0, self.line().len()), cx);
+        self.move_to((self.cursor.0, self.line().len()), false, cx);
     }
     fn doc_start(&mut self, _: &DocStart, _: &mut Window, cx: &mut Context<Self>) {
-        self.move_to((0, 0), cx);
+        self.move_to((0, 0), false, cx);
     }
     fn doc_end(&mut self, _: &DocEnd, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_to(self.end_of_doc(), false, cx);
+    }
+    fn select_left(&mut self, _: &SelectLeft, _: &mut Window, cx: &mut Context<Self>) {
+        self.step_left(true, cx);
+    }
+    fn select_right(&mut self, _: &SelectRight, _: &mut Window, cx: &mut Context<Self>) {
+        self.step_right(true, cx);
+    }
+    fn select_up(&mut self, _: &SelectUp, _: &mut Window, cx: &mut Context<Self>) {
+        self.vertical(-1, true, cx);
+    }
+    fn select_down(&mut self, _: &SelectDown, _: &mut Window, cx: &mut Context<Self>) {
+        self.vertical(1, true, cx);
+    }
+    fn select_page_up(&mut self, _: &SelectPageUp, _: &mut Window, cx: &mut Context<Self>) {
+        self.vertical(-(self.visible_rows() as isize), true, cx);
+    }
+    fn select_page_down(&mut self, _: &SelectPageDown, _: &mut Window, cx: &mut Context<Self>) {
+        self.vertical(self.visible_rows() as isize, true, cx);
+    }
+    fn select_home(&mut self, _: &SelectHome, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_to((self.cursor.0, 0), true, cx);
+    }
+    fn select_end(&mut self, _: &SelectEnd, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_to((self.cursor.0, self.line().len()), true, cx);
+    }
+    fn select_doc_start(&mut self, _: &SelectDocStart, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_to((0, 0), true, cx);
+    }
+    fn select_doc_end(&mut self, _: &SelectDocEnd, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_to(self.end_of_doc(), true, cx);
+    }
+    fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
+        self.anchor = Some((0, 0));
+        self.move_to(self.end_of_doc(), true, cx);
+    }
+
+    fn step_left(&mut self, extend: bool, cx: &mut Context<Self>) {
+        match self.prev_boundary() {
+            Some(p) => self.move_to(p, extend, cx),
+            None => self.move_to(self.cursor, extend, cx),
+        }
+    }
+    fn step_right(&mut self, extend: bool, cx: &mut Context<Self>) {
+        match self.next_boundary() {
+            Some(p) => self.move_to(p, extend, cx),
+            None => self.move_to(self.cursor, extend, cx),
+        }
+    }
+    fn end_of_doc(&self) -> (usize, usize) {
         let last = self.lines.len() - 1;
-        self.move_to((last, self.lines[last].len()), cx);
+        (last, self.lines[last].len())
     }
     fn backspace(&mut self, _: &Backspace, _: &mut Window, cx: &mut Context<Self>) {
-        if let Some(p) = self.prev_boundary() {
+        if self.delete_selection() {
+            cx.notify();
+        } else if let Some(p) = self.prev_boundary() {
             self.delete_range(p, self.cursor);
             self.goal_x = None;
             self.ensure_cursor_visible();
@@ -348,7 +471,9 @@ impl Editor {
         }
     }
     fn delete(&mut self, _: &Delete, _: &mut Window, cx: &mut Context<Self>) {
-        if let Some(p) = self.next_boundary() {
+        if self.delete_selection() {
+            cx.notify();
+        } else if let Some(p) = self.next_boundary() {
             self.delete_range(self.cursor, p);
             cx.notify();
         }
@@ -359,13 +484,64 @@ impl Editor {
     fn tab(&mut self, _: &Tab, _: &mut Window, cx: &mut Context<Self>) {
         self.insert("\t", cx);
     }
+    /// Pastes over the selection. Lines that Copy or Cut took without a selection go in above
+    /// the cursor line, wherever the cursor is in it (Sakura's line-mode paste:
+    /// sakura_core/cmd/CViewCommander_Clipboard.cpp, Command_PASTE).
     fn paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
-        if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+        let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) else {
+            return;
+        };
+        if self.selection().is_none() && self.line_copy.as_deref() == Some(text.as_str()) {
+            let (row, col) = self.cursor;
+            self.cursor = (row, 0);
+            self.insert(&text, cx);
+            self.cursor = (self.cursor.0, col);
+            cx.notify();
+        } else {
             self.insert(&text, cx);
         }
     }
-    fn copy_line(&mut self, _: &CopyLine, _: &mut Window, cx: &mut Context<Self>) {
-        cx.write_to_clipboard(ClipboardItem::new_string(self.line().to_string()));
+    /// Copies the selection; without one, the cursor line with its line break, as Sakura does
+    /// by default (Command_COPY and CEditView::CopyCurLine).
+    fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
+        let text = match self.selection() {
+            Some((from, to)) => {
+                self.line_copy = None;
+                self.text_in(from, to)
+            }
+            None => {
+                let text = self.cursor_line_with_break();
+                self.line_copy = Some(text.clone());
+                text
+            }
+        };
+        cx.write_to_clipboard(ClipboardItem::new_string(text));
+    }
+    /// Cuts the selection; without one, the cursor line (Command_CUT, Command_CUT_LINE).
+    fn cut(&mut self, _: &Cut, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some((from, to)) = self.selection() {
+            self.line_copy = None;
+            cx.write_to_clipboard(ClipboardItem::new_string(self.text_in(from, to)));
+            self.delete_selection();
+        } else {
+            let text = self.cursor_line_with_break();
+            self.line_copy = Some(text.clone());
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
+            let row = self.cursor.0;
+            if row + 1 < self.lines.len() {
+                self.lines.remove(row);
+            } else {
+                self.lines[row].clear();
+            }
+            self.cursor.1 = 0;
+            self.anchor = None;
+            self.goal_x = None;
+            self.ensure_cursor_visible();
+        }
+        cx.notify();
+    }
+    fn cursor_line_with_break(&self) -> String {
+        format!("{}\n", self.line())
     }
     fn open_file(&mut self, _: &OpenFile, window: &mut Window, cx: &mut Context<Self>) {
         let paths = cx.prompt_for_paths(PathPromptOptions {
@@ -398,6 +574,7 @@ impl Editor {
             .map(|i| format!("{i:07}: いろはにほへと ちりぬるを わかよたれそ The quick brown fox jumps over the lazy dog."))
             .collect();
         self.cursor = (0, 0);
+        self.anchor = None;
         self.marked = None;
         self.scroll_y = px(0.);
         self.file_name = Some(format!(
@@ -446,14 +623,41 @@ impl Editor {
             cx.notify();
             return;
         }
-        let rel_y = event.position.y - l.text_origin.y;
+        let pos = self.position_for(event.position);
+        self.mouse_selecting = true;
+        self.move_to(pos, event.modifiers.shift, cx);
+        if !event.modifiers.shift {
+            self.anchor = Some(pos);
+        }
+    }
+
+    /// The text position under a point in the window, clamped to the lines.
+    fn position_for(&self, p: Point<Pixels>) -> (usize, usize) {
+        let Some(l) = self.layout.as_ref() else {
+            return self.cursor;
+        };
+        let rel_y = p.y - l.text_origin.y;
         let row = ((rel_y + self.scroll_y) / l.line_height).floor().max(0.) as usize;
         let row = row.min(self.lines.len() - 1);
-        let col = self.col_for_x(row, event.position.x - l.text_origin.x);
-        self.move_to((row, col), cx);
+        (row, self.col_for_x(row, p.x - l.text_origin.x))
     }
 
     fn on_mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if self.mouse_selecting && self.scroll_drag.is_none() {
+            if event.pressed_button == Some(MouseButton::Left) {
+                // Above or below the view, the cursor goes past it, which scrolls.
+                let pos = self.position_for(event.position);
+                if pos != self.cursor {
+                    self.cursor = pos;
+                    self.goal_x = None;
+                    self.ensure_cursor_visible();
+                    cx.notify();
+                }
+            } else {
+                self.mouse_selecting = false;
+            }
+            return;
+        }
         let (Some((start_y, start_scroll)), Some(l)) = (self.scroll_drag, self.layout.as_ref())
         else {
             return;
@@ -469,6 +673,11 @@ impl Editor {
     }
 
     fn on_mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
+        self.mouse_selecting = false;
+        // A click without a drag leaves no selection behind to extend later.
+        if self.anchor == Some(self.cursor) {
+            self.anchor = None;
+        }
         if self.scroll_drag.take().is_some() {
             cx.notify();
         }
@@ -574,9 +783,17 @@ impl EntityInputHandler for Editor {
         _: &mut Context<Self>,
     ) -> Option<UTF16Selection> {
         let c = self.to_utf16(self.cursor.1);
-        Some(UTF16Selection {
-            range: c..c,
-            reversed: false,
+        // Only a selection within the cursor line can be told in its UTF-16 offsets.
+        let selection = self.selection().filter(|(from, to)| from.0 == to.0);
+        Some(match selection {
+            Some((from, to)) => UTF16Selection {
+                range: self.to_utf16(from.1)..self.to_utf16(to.1),
+                reversed: self.cursor == from,
+            },
+            None => UTF16Selection {
+                range: c..c,
+                reversed: false,
+            },
         })
     }
 
@@ -597,6 +814,13 @@ impl EntityInputHandler for Editor {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // Typing replaces the selection. The selection may span lines, which the UTF-16 range
+        // within the cursor line cannot say, so it goes first and the text lands at the cursor.
+        let range_utf16 = if self.marked.is_none() && self.delete_selection() {
+            None
+        } else {
+            range_utf16
+        };
         let range = range_utf16
             .map(|r| self.range_from_utf16(&r))
             .or(self.marked.clone())
@@ -616,6 +840,11 @@ impl EntityInputHandler for Editor {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let range_utf16 = if self.marked.is_none() && self.delete_selection() {
+            None
+        } else {
+            range_utf16
+        };
         let range = range_utf16
             .map(|r| self.range_from_utf16(&r))
             .or(self.marked.clone())
@@ -845,6 +1074,7 @@ impl Element for EditorElement {
 
         let editor = self.editor.read(cx);
         let (cursor_row, cursor_col) = editor.cursor;
+        let selection = editor.selection();
         let bar =
             ScrollbarGeometry::new(bounds, p.line_height, editor.lines.len(), editor.scroll_y);
         let dragging = editor.scroll_drag.is_some();
@@ -859,6 +1089,26 @@ impl Element for EditorElement {
             |window| {
                 for (i, (num, line)) in p.gutter.iter().zip(&p.shaped).enumerate() {
                     let y = bounds.top() + p.y_offset + p.line_height * i as f32;
+                    let row = p.first_line + i;
+                    if let Some((from, to)) = selection
+                        && (from.0..=to.0).contains(&row)
+                    {
+                        let start = if row == from.0 { from.1 } else { 0 };
+                        let x0 = line.x_for_index(start);
+                        let x1 = if row == to.0 {
+                            line.x_for_index(to.1)
+                        } else {
+                            // The line break is selected too: show it as a space.
+                            line.width() + p.line_height / 3.
+                        };
+                        window.paint_quad(fill(
+                            Bounds::from_corners(
+                                point(p.text_origin.x + x0, y),
+                                point(p.text_origin.x + x1, y + p.line_height),
+                            ),
+                            rgb(0xb4d5fe),
+                        ));
+                    }
                     num.paint(
                         point(bounds.left(), y),
                         p.line_height,
@@ -981,8 +1231,20 @@ impl Render for Editor {
                     .on_action(cx.listener(Self::delete))
                     .on_action(cx.listener(Self::enter))
                     .on_action(cx.listener(Self::tab))
+                    .on_action(cx.listener(Self::select_left))
+                    .on_action(cx.listener(Self::select_right))
+                    .on_action(cx.listener(Self::select_up))
+                    .on_action(cx.listener(Self::select_down))
+                    .on_action(cx.listener(Self::select_home))
+                    .on_action(cx.listener(Self::select_end))
+                    .on_action(cx.listener(Self::select_page_up))
+                    .on_action(cx.listener(Self::select_page_down))
+                    .on_action(cx.listener(Self::select_doc_start))
+                    .on_action(cx.listener(Self::select_doc_end))
+                    .on_action(cx.listener(Self::select_all))
+                    .on_action(cx.listener(Self::cut))
+                    .on_action(cx.listener(Self::copy))
                     .on_action(cx.listener(Self::paste))
-                    .on_action(cx.listener(Self::copy_line))
                     .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
                     .on_mouse_move(cx.listener(Self::on_mouse_move))
                     .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
@@ -1095,8 +1357,16 @@ impl Render for Workspace {
                 move |_: &Paste, w, cx| f(w, cx)
             })
             .on_action({
-                let f = forward(|e, w, cx| e.copy_line(&CopyLine, w, cx));
-                move |_: &CopyLine, w, cx| f(w, cx)
+                let f = forward(|e, w, cx| e.copy(&Copy, w, cx));
+                move |_: &Copy, w, cx| f(w, cx)
+            })
+            .on_action({
+                let f = forward(|e, w, cx| e.cut(&Cut, w, cx));
+                move |_: &Cut, w, cx| f(w, cx)
+            })
+            .on_action({
+                let f = forward(|e, w, cx| e.select_all(&SelectAll, w, cx));
+                move |_: &SelectAll, w, cx| f(w, cx)
             })
             .when(client_decorated, |this| {
                 this.child(TitleBar::new().child(div().text_sm().child(WINDOW_TITLE)))
@@ -1166,8 +1436,12 @@ fn set_menus(cx: &mut App) {
     menus.extend([
         Menu::new(label("ファイル", 'F')).items(file),
         Menu::new(label("編集", 'E')).items([
+            // Access keys from Sakura's MainMenu.ini.
+            MenuItem::action(label("切り取り", 'T'), Cut),
+            MenuItem::action(label("コピー", 'C'), Copy),
             MenuItem::action(label("貼り付け", 'P'), Paste),
-            MenuItem::action("行をコピー", CopyLine),
+            MenuItem::separator(),
+            MenuItem::action(label("すべて選択", 'A'), SelectAll),
         ]),
         Menu::new(label("変換", 'C')).items([todo()]),
         Menu::new(label("検索", 'S')).items([todo()]),
@@ -1199,8 +1473,25 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("delete", Delete, Some("Editor")),
         KeyBinding::new("enter", Enter, Some("Editor")),
         KeyBinding::new("tab", Tab, Some("Editor")),
+        KeyBinding::new("shift-left", SelectLeft, Some("Editor")),
+        KeyBinding::new("shift-right", SelectRight, Some("Editor")),
+        KeyBinding::new("shift-up", SelectUp, Some("Editor")),
+        KeyBinding::new("shift-down", SelectDown, Some("Editor")),
+        KeyBinding::new("shift-pageup", SelectPageUp, Some("Editor")),
+        KeyBinding::new("shift-pagedown", SelectPageDown, Some("Editor")),
+        KeyBinding::new("shift-home", SelectHome, Some("Editor")),
+        KeyBinding::new("shift-end", SelectEnd, Some("Editor")),
+        KeyBinding::new("secondary-shift-home", SelectDocStart, Some("Editor")),
+        KeyBinding::new("secondary-shift-end", SelectDocEnd, Some("Editor")),
+        // Sakura's defaults (sakura_core/func/CKeyBind.cpp): Ctrl+A/X/C/V, and Shift+Del,
+        // Ctrl+Ins and Shift+Ins.
+        KeyBinding::new("secondary-a", SelectAll, Some("Editor")),
+        KeyBinding::new("secondary-x", Cut, None),
+        KeyBinding::new("secondary-c", Copy, None),
         KeyBinding::new("secondary-v", Paste, None),
-        KeyBinding::new("secondary-c", CopyLine, None),
+        KeyBinding::new("shift-delete", Cut, Some("Editor")),
+        KeyBinding::new("ctrl-insert", Copy, Some("Editor")),
+        KeyBinding::new("shift-insert", Paste, Some("Editor")),
         KeyBinding::new("secondary-o", OpenFile, None),
         KeyBinding::new("secondary-=", FontBigger, None),
         // + is Shift+= on a US keyboard and Shift+; on a JIS keyboard.
@@ -1221,6 +1512,10 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("cmd-right", End, Some("Editor")),
         KeyBinding::new("cmd-up", DocStart, Some("Editor")),
         KeyBinding::new("cmd-down", DocEnd, Some("Editor")),
+        KeyBinding::new("cmd-shift-left", SelectHome, Some("Editor")),
+        KeyBinding::new("cmd-shift-right", SelectEnd, Some("Editor")),
+        KeyBinding::new("cmd-shift-up", SelectDocStart, Some("Editor")),
+        KeyBinding::new("cmd-shift-down", SelectDocEnd, Some("Editor")),
         KeyBinding::new("ctrl-=", FontBigger, None),
         KeyBinding::new("ctrl-+", FontBigger, None),
         KeyBinding::new("ctrl--", FontSmaller, None),
