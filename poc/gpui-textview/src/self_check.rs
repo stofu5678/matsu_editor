@@ -275,7 +275,14 @@ async fn check_selection(
         "Ctrl+X without a selection did not cut the line"
     );
 
-    // Ctrl+A selects everything.
+    // Ctrl+A selects everything, from wherever the selection started. The anchor here is where
+    // a mouse press in the middle of the text leaves it.
+    cx.update(|cx| {
+        editor.update(cx, |editor, _| {
+            editor.cursor = (1, 3);
+            editor.anchor = Some(editor.cursor);
+        })
+    });
     dispatch(window, "secondary-a", cx).await?;
     let all = cx.update(|cx| {
         let editor = editor.read(cx);

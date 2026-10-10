@@ -440,7 +440,7 @@ impl Editor {
         self.move_to(self.end_of_doc(), true, cx);
     }
     fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
-        self.cursor = (0, 0);
+        self.anchor = Some((0, 0));
         self.move_to(self.end_of_doc(), true, cx);
     }
 
@@ -674,6 +674,10 @@ impl Editor {
 
     fn on_mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
         self.mouse_selecting = false;
+        // A click without a drag leaves no selection behind to extend later.
+        if self.anchor == Some(self.cursor) {
+            self.anchor = None;
+        }
         if self.scroll_drag.take().is_some() {
             cx.notify();
         }
