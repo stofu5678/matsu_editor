@@ -25,4 +25,4 @@
   - Onigmo 自身のテスト（`testpy.py` の約 1,200 ケースを Rust に移植する）
   - bregonig との互換テスト（サクラのヘルプの構文一覧を元にケースを作り、期待値は Windows で bregonig.dll を実際に動かして作る）
   - ファジング（CI で回す）
-- 取り込み方（git submodule か、ソースのコピーか）は Phase 3 で決める
+- 取り込み方（git submodule か、ソースのコピーか）は Phase 2 で決める
