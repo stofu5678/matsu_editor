@@ -143,7 +143,7 @@ cargo run --features self-check -- --self-check /tmp/textview-check
 3. 文字の大きさのキー（Windows では Ctrl+= など。Mac では ⌘= などと ⌃= など）
 4. IME と同じ呼び出しで「にほんご」を「日本語」に変換し（`composing.png`）、確定する
 5. Shift+Home・Shift+←・Shift+↑ で選び（複数行の選択を `selection.png` に保存）、Ctrl+C・Ctrl+X・Ctrl+V・Ctrl+A と、選んでいないときの行のコピー・切り取り・貼り付けを試す。システムのクリップボードを使うので、中身は書き換わる。Wayland では、GPUI が本物のキー入力なしにはクリップボードを持てないので、この確認は飛ばす（`WAYLAND_DISPLAY=` を付けて X11 で走らせると確かめられる）
-6. 印刷: 2 ページの文書に入れ替え、Ctrl+Shift+P でプレビューを開く（`preview-100.png`）。縮小して次のページへ移り（`preview-2.png`）、前のページに戻り（`preview.png`）、行番号と 2 段組にする（`preview-columns.png`）。Mac では、印刷パネルと同じ経路で PDF に出力し（A4 縦の `print.pdf` と A4 横の `print-landscape.pdf`。1 ページ目を `print-1.png` と `print-landscape-1.png` に）、Ctrl+P で印刷パネルを出して Esc で取り消す。最後に Esc でプレビューを閉じる
+6. 印刷: 2 ページの文書に入れ替え、Ctrl+Shift+P でプレビューを開く（`preview-100.png`）。縮小して次のページへ移り（`preview-2.png`）、Ctrl+V が隠れた文書に貼り付けないことを確かめ、前のページに戻り（`preview.png`）、行番号と 2 段組にする（`preview-columns.png`）。Mac では、印刷パネルと同じ経路で PDF に出力し（A4 縦の `print.pdf` と A4 横の `print-landscape.pdf`。1 ページ目を `print-1.png` と `print-landscape-1.png` に）、Ctrl+P で印刷パネルを出して Esc で取り消す。最後に Esc でプレビューを閉じる
 7. F8 で 100 万行を作り（`large.png`）、Mac では ⌘↓ で末尾へ移る（`large-end.png`）
 
-Mac では、キーボードの種類（JIS など）を付けた macOS のキーイベントでキーを押すので、キーボード配列の読み方も確かめられる。それ以外では GPUI の `dispatch_keystroke` で押す。5 の選択のキーと、6 のプレビューの中のキーは、Mac でも `dispatch_keystroke` で押す。本物の日本語入力の確認の代わりにはならない。Mac で画面がロックされていると、ウィンドウがキー入力を受け取れないので失敗する。
+Mac では、キーボードの種類（JIS など）を付けた macOS のキーイベントでキーを押すので、キーボード配列の読み方も確かめられる。それ以外では GPUI の `dispatch_keystroke` で押す。5 の選択のキーと、6 のプレビューの中のキーは、Mac でも `dispatch_keystroke` で押す。本物の日本語入力の確認の代わりにはならない。Mac で画面がロックされていると、ウィンドウがキー入力を受け取れないので失敗する。ほかのアプリを使っていて、試作のウィンドウが前に出られないときも同じ（キーイベントは試作の中にだけ送るので、ほかのアプリには届かない）。
