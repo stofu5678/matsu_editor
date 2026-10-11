@@ -47,6 +47,8 @@ pub struct MacroState {
     /// The panel is shown.
     open: bool,
     scroll: ScrollHandle,
+    /// The column (in characters) that the macro's Up and Down keep.
+    goal_column: Option<usize>,
 }
 
 impl MacroState {
@@ -106,20 +108,37 @@ impl MacroDocument for EditorDoc<'_, '_> {
     }
 
     fn move_cursor(&mut self, pos: (usize, usize), extend: bool) {
+        self.editor.macros.goal_column = None;
         self.editor.move_to(pos, extend, self.cx);
     }
 
+    /// Moves by characters and not by pixels, as `Editor::vertical` does: that one reads the
+    /// lines as the last paint shaped them, which are stale after the macro's own edits.
     fn move_vertical(&mut self, delta: isize) {
-        self.editor.vertical(delta, false, self.cx);
+        let editor = &mut *self.editor;
+        let (row, byte) = editor.cursor;
+        let column = *editor
+            .macros
+            .goal_column
+            .get_or_insert_with(|| editor.lines[row][..byte].chars().count());
+        let target = (row as isize + delta).clamp(0, editor.lines.len() as isize - 1) as usize;
+        let line = &editor.lines[target];
+        let byte = line
+            .char_indices()
+            .nth(column)
+            .map_or(line.len(), |(offset, _)| offset);
+        editor.move_to((target, byte), false, self.cx);
     }
 
     fn select_all(&mut self) {
+        self.editor.macros.goal_column = None;
         self.editor.anchor = Some((0, 0));
         let end = self.editor.end_of_doc();
         self.editor.move_to(end, true, self.cx);
     }
 
     fn insert(&mut self, text: &str) {
+        self.editor.macros.goal_column = None;
         self.editor.insert(text, self.cx);
     }
 

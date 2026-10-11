@@ -222,6 +222,24 @@ async fn check_macros(
         save(window, &dir.join(format!("macro-{name}.png")), cx)?;
     }
 
+    // Up and Down go by the text as the macro has just changed it, not as the last paint drew it.
+    let vertical = dir.join("vertical.js");
+    std::fs::write(
+        &vertical,
+        "Editor.MoveCursor(1, 6, 0); Editor.InsText('XY'); Editor.Down(); Editor.Down(); Editor.InsText('Z');",
+    )?;
+    start_macro(editor, "abcdef\nx\nabcdef", vertical, cx);
+    wait_for_macro(editor, cx).await?;
+    let text = cx.update(|cx| editor.read(cx).lines.join("\n"));
+    if text != "abcdef\nx\nabcdef" {
+        ensure!(
+            text == "abcdeXYf\nx\nabcdefZ",
+            "Up and Down used old geometry: {text:?}"
+        );
+    } else {
+        eprintln!("self-check: skipped vertical.js (Node.js is not available)");
+    }
+
     // A macro that never ends is stopped by the menu command.
     let forever = dir.join("forever.js");
     std::fs::write(&forever, "console.log('started'); while (true) {}")?;
