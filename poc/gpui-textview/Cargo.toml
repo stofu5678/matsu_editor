@@ -76,6 +76,25 @@ objc2-core-text = { version = "0.3", default-features = false, features = ["std"
 # server-side decorations (WSLg).
 [target.'cfg(target_os = "linux")'.dependencies]
 gpui-kit-assets = "=0.7.1"
+# Printing (src/print/linux.rs): the print portal over D-Bus, through the crate and the version
+# that GPUI uses.
+zbus = { version = "5.19", default-features = false, features = ["async-io"] }
+# The PDFs for the print portal and the one saved without it, which no other user can read.
+tempfile = "3.27"
+
+# Printing to PDF (src/print/pdf.rs): what Linux prints, and `--print-pdf`.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+krilla = "0.8.2"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_System_Memory", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
+windows-sys = { version = "0.61", features = [
+    "Win32_System_Memory",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+    # Printing (src/print/windows.rs)
+    "Win32_Graphics_Gdi",
+    "Win32_Storage_Xps",
+    "Win32_UI_Controls_Dialogs",
+] }
+# The window that owns the print dialog.
+raw-window-handle = "0.6"

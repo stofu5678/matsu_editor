@@ -6,7 +6,9 @@
 
 - F7: フォントの切り替え、Ctrl+= / Ctrl+-: 文字の大きさ、F8: 100 万行のテキストを作る、Ctrl+O: 開く（Mac では Ctrl の代わりに ⌘）
 - 選択とクリップボード（サクラの既定の割り当て）: Shift+矢印・Home・End・PageUp・PageDown、Ctrl+Shift+Home / End、マウスのドラッグ、Shift+クリックで選ぶ。Ctrl+A: すべて選択、Ctrl+X / Shift+Del: 切り取り、Ctrl+C / Ctrl+Ins: コピー、Ctrl+V / Shift+Ins: 貼り付け。選んでいないときのコピーと切り取りは、カーソルの行を改行ごと扱い、それを貼り付けるとカーソルの行の上に入る（サクラの「選択なしでコピー」と「ラインモード貼り付け」）。元に戻す（Ctrl+Z）はまだない
-- 印刷（[ADR-0011](../../docs/adr/0011-printing.md)、[結果](../../docs/poc/printing.md)）: Ctrl+P で印刷、Ctrl+Shift+P で印刷プレビュー（Mac では Ctrl の代わりに ⌘。ファイル メニューにもある）。プレビューでは ← → / PageUp・PageDown でページ、Ctrl+= / Ctrl+- で拡大・縮小、Esc で戻る。プリンターに出せるのは Mac だけで、Windows と Linux はプレビューまで
+- 印刷（[ADR-0011](../../docs/adr/0011-printing.md)、[結果](../../docs/poc/printing.md)）: Ctrl+P で印刷、Ctrl+Shift+P で印刷プレビュー（Mac では Ctrl の代わりに ⌘。ファイル メニューにもある）。プレビューでは ← → / PageUp・PageDown でページ、Ctrl+= / Ctrl+- で拡大・縮小、Esc で戻る。Windows は印刷ダイアログと GDI で、Linux は印刷のポータル（xdg-desktop-portal。下の「Linux」の 4）に PDF を渡して印刷する。Linux でポータルが使えないときは、PDF を一時ディレクトリ（`/tmp` など）に `ume-print-<ランダムな文字>.pdf` として保存し、その場所をプレビューに出す
+- `--print-pdf <入力> <出力.pdf>`: サクラの既定の印刷設定と A4 で、PDF を作って終了する（Windows と Linux。Linux で印刷する PDF と同じもの）。`--print-test <入力> <出力.pdf>`: 印刷ダイアログを出さずに印刷して終了する。Windows では GDI で「Microsoft Print to PDF」（環境変数 `POC_PRINTER` で変えられる）に出し、Linux では PDF を作る
+- 環境変数 `POC_PRINT_FONT=<フォントのファイル>[:<番号>]`: PDF に使うフォント。既定では、Linux は fontconfig で印刷のフォント（Noto Serif CJK JP）を探し、Windows は MS Mincho の `msmincho.ttc` を使う
 - `cargo run --release --bin minimal`: メモリを比べるための最小のウィンドウ
 - 環境変数 `POC_NO_MENU` / `POC_NO_ROOT` / `POC_NO_TEXT` / `POC_UI_FONT=<フォント名>`: メモリを測るための切り替え
 - 環境変数 `POC_MEMSTAT=<秒>`: 起動してその秒数が経ったら、メモリの内訳を `memstat-<プロセスID>.txt` に書き出す（Windows のみ。Rust のヒープ、Win32 のヒープ、領域の種類ごとの量、大きい確保の一覧）
@@ -38,7 +40,7 @@ Ubuntu 24.04 で確かめた。WSL2（WSLg）での準備は、下の「WSL2（W
 
 - F7 で切り替えるフォントは、Noto Sans Mono CJK JP、Noto Sans CJK JP、DejaVu Sans Mono、Noto Serif CJK JP
 - タイトルバーを描かない Wayland（WSLg など）では、タイトルとボタンを試作が描く（gpui-component の `TitleBar`）。ウィンドウの端での大きさの変更はできない
-- ファイルを開くダイアログ（Ctrl+O）には xdg-desktop-portal が要る。無いときは、下の行に理由を出す
+- ファイルを開くダイアログ（Ctrl+O）と印刷ダイアログ（Ctrl+P）には xdg-desktop-portal が要る。無いときは、ファイルを開くダイアログは下の行に理由を出し、印刷は PDF を保存する
 - 日本語入力は、X11 で起動して、XIM で IME（fcitx5）とつなぐ。Wayland では GPUI は text-input-v3 で IME とやり取りするが、WSLg は IME（fcitx5）が Wayland に入力方式としてつながることを許さないので、この経路は使えない（下の 5）
 
 ### WSL2（WSLg）で動かす
@@ -76,7 +78,7 @@ sudo apt install build-essential libfontconfig-dev libfreetype-dev libxcb1-dev \
 
 x64 では、これでビルドでき、日本語も出た（`fonts-noto-cjk` がないと日本語が出ない）。ARM64 の WSL では、ほかに `clang cmake libasound2-dev libwayland-dev libx11-xcb-dev libzstd-dev` も入れて確かめている。
 
-#### 4. ファイルを開くダイアログ
+#### 4. ファイルを開くダイアログと印刷ダイアログ
 
 ```sh
 sudo apt install xdg-desktop-portal xdg-desktop-portal-gtk
@@ -143,7 +145,7 @@ cargo run --features self-check -- --self-check /tmp/textview-check
 3. 文字の大きさのキー（Windows では Ctrl+= など。Mac では ⌘= などと ⌃= など）
 4. IME と同じ呼び出しで「にほんご」を「日本語」に変換し（`composing.png`）、確定する
 5. Shift+Home・Shift+←・Shift+↑ で選び（複数行の選択を `selection.png` に保存）、Ctrl+C・Ctrl+X・Ctrl+V・Ctrl+A と、選んでいないときの行のコピー・切り取り・貼り付けを試す。システムのクリップボードを使うので、中身は書き換わる。Wayland では、GPUI が本物のキー入力なしにはクリップボードを持てないので、この確認は飛ばす（`WAYLAND_DISPLAY=` を付けて X11 で走らせると確かめられる）
-6. 印刷: 2 ページの文書に入れ替え、Ctrl+Shift+P でプレビューを開く（`preview-100.png`）。縮小して次のページへ移り（`preview-2.png`）、Ctrl+V が隠れた文書に貼り付けないことを確かめ、前のページに戻り（`preview.png`）、行番号と 2 段組にする（`preview-columns.png`）。Mac では、印刷パネルと同じ経路で PDF に出力し（A4 縦の `print.pdf` と A4 横の `print-landscape.pdf`。1 ページ目を `print-1.png` と `print-landscape-1.png` に）、Ctrl+P で印刷パネルを出して Esc で取り消す。最後に Esc でプレビューを閉じる
+6. 印刷: 2 ページの文書に入れ替え、Ctrl+Shift+P でプレビューを開く（`preview-100.png`）。縮小して次のページへ移り（`preview-2.png`）、Ctrl+V が隠れた文書に貼り付けないことを確かめ、前のページに戻り（`preview.png`）、行番号と 2 段組にする（`preview-columns.png`）。Mac では、印刷パネルと同じ経路で PDF に出力し（A4 縦の `print.pdf` と A4 横の `print-landscape.pdf`。1 ページ目を `print-1.png` と `print-landscape-1.png` に）、Ctrl+P で印刷パネルを出して Esc で取り消す。Windows と Linux では、同じ文書を PDF に出力する（Linux で印刷するものと同じ `print.pdf`。Windows では、GDI で「Microsoft Print to PDF」にも出す `print-gdi.pdf`）。印刷ダイアログは出さない（GPUI の中に送るキーは、OS の印刷ダイアログに届かないので、取り消せない）。最後に Esc でプレビューを閉じる
 7. F8 で 100 万行を作り（`large.png`）、Mac では ⌘↓ で末尾へ移る（`large-end.png`）
 
 Mac では、キーボードの種類（JIS など）を付けた macOS のキーイベントでキーを押すので、キーボード配列の読み方も確かめられる。それ以外では GPUI の `dispatch_keystroke` で押す。5 の選択のキーと、6 のプレビューの中のキーは、Mac でも `dispatch_keystroke` で押す。本物の日本語入力の確認の代わりにはならない。Mac で画面がロックされていると、ウィンドウがキー入力を受け取れないので失敗する。ほかのアプリを使っていて、試作のウィンドウが前に出られないときも同じ（キーイベントは試作の中にだけ送るので、ほかのアプリには届かない）。

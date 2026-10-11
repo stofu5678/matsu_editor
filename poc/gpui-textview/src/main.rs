@@ -1390,18 +1390,48 @@ impl Workspace {
         .detach();
     }
 
+    /// Windows shows the print dialog and Linux the print portal's, each off the UI thread: they
+    /// block until the dialog closes. The preview closes after printing, as on the Mac.
     #[cfg(not(target_os = "macos"))]
     fn print_job(
         &mut self,
-        _: print::PrintJob,
+        job: print::PrintJob,
         preview: Entity<PrintPreview>,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        preview.update(cx, |preview, cx| {
-            preview.notice = Some("この OS ではまだ印刷できません（プレビューだけ）".into());
-            cx.notify();
-        });
+        #[cfg(windows)]
+        let task = {
+            let owner = print::windows::owner(window);
+            cx.background_spawn(async move { print::windows::print(owner, job) })
+        };
+        #[cfg(not(windows))]
+        let task = cx.background_spawn(print::linux::print(job));
+        self.printing = true;
+        cx.spawn_in(window, async move |this, cx| {
+            let result = task.await;
+            this.update_in(cx, |this, window, cx| {
+                this.printing = false;
+                let notice = match result {
+                    Ok(true) => {
+                        this.close_preview(window, cx);
+                        this.editor.update(cx, |editor, cx| {
+                            editor.notice = Some("印刷しました".into());
+                            cx.notify();
+                        });
+                        return;
+                    }
+                    Ok(false) => "印刷を取り消しました".into(),
+                    Err(err) => err,
+                };
+                preview.update(cx, |preview, cx| {
+                    preview.notice = Some(notice.into());
+                    cx.notify();
+                });
+            })
+            .ok();
+        })
+        .detach();
     }
 }
 
@@ -1675,6 +1705,17 @@ fn bind_keys(cx: &mut App) {
 }
 
 fn main() {
+    #[cfg(not(target_os = "macos"))]
+    if let Some(result) = print::run_cli(&std::env::args().collect::<Vec<_>>()) {
+        match result {
+            Ok(message) => println!("{message}"),
+            Err(err) => {
+                eprintln!("{err}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     START.get_or_init(Instant::now);
     memstat::start_from_env();
     // RUST_LOG=info (or ZED_LOG) prints GPUI's logs to stderr.

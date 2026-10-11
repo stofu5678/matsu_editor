@@ -5,7 +5,8 @@
 // Modified for the UME Editor PoC: added Windows-style keyboard access
 // (Alt alone highlights the bar, Alt+<mnemonic> opens a menu, arrow keys,
 // Enter/Down to open, Esc/Alt to cancel), built popups with the public
-// PopupMenu builder, and removed the tests.
+// PopupMenu builder, left the focus where a menu action moves it, and removed
+// the tests.
 
 use gpui::{
     App, AppContext as _, ClickEvent, Context, DismissEvent, Entity, FocusHandle, Focusable,
@@ -166,8 +167,15 @@ impl MenuBar {
             }
             self.armed_index = None;
         } else {
+            // Give the focus back, unless something took it from the menu: an action of the menu
+            // that moves it (the print preview takes it) or a click elsewhere. PopupMenu::dismiss
+            // does the same.
             if let Some(action_context) = self.action_context.take() {
-                action_context.focus(window, cx);
+                let moved_away =
+                    window.focused(cx).is_some() && !self.focus_handle.contains_focused(window, cx);
+                if !moved_away {
+                    action_context.focus(window, cx);
+                }
             }
             self.armed_index = None;
         }

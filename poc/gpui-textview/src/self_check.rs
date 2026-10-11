@@ -417,11 +417,54 @@ async fn check_print(
 
     #[cfg(target_os = "macos")]
     check_mac_print(window, &preview, dir, seen, cx).await?;
+    #[cfg(not(target_os = "macos"))]
+    check_pdf_print(&preview, dir, cx)?;
 
     dispatch(window, "escape", cx).await?;
     let open = cx.update(|cx| workspace.read(cx).preview.is_some());
     eprintln!("self-check:   escape = {}: preview open {open}", seen());
     ensure!(!open, "Esc did not close the print preview");
+    Ok(())
+}
+
+/// Prints the preview's text to a PDF file as Linux prints it, and on Windows also through GDI
+/// to "Microsoft Print to PDF", without the print dialog: the keys of the check go to GPUI, and
+/// would not reach the OS's dialog to cancel it.
+#[cfg(not(target_os = "macos"))]
+fn check_pdf_print(
+    preview: &Entity<crate::print::preview::PrintPreview>,
+    dir: &Path,
+    cx: &mut AsyncApp,
+) -> Result<()> {
+    use crate::print::layout::Paper;
+
+    let (job, pages) = cx.update(|cx| {
+        let preview = preview.read(cx);
+        (preview.job(cx), preview.page_count())
+    });
+    let job = job.map_err(|reason| anyhow::anyhow!("nothing to print: {reason}"))?;
+    let pdf = dir.join("print.pdf");
+    let (bytes, printed) =
+        crate::print::pdf::render(&job, Paper::A4).map_err(anyhow::Error::msg)?;
+    std::fs::write(&pdf, bytes)?;
+    eprintln!("self-check: printed {printed} pages to {}", pdf.display());
+    ensure!(
+        printed == pages,
+        "the PDF has {printed} pages, not as many as the preview"
+    );
+    #[cfg(windows)]
+    {
+        // The printer's own paper, which may not be A4, so the pages are not counted.
+        let printer = "Microsoft Print to PDF";
+        let gdi = std::path::absolute(dir.join("print-gdi.pdf"))?;
+        match crate::print::windows::print_to_file(printer, &gdi, &job) {
+            Ok(printed) => eprintln!(
+                "self-check: printed {printed} pages through GDI to {}",
+                gdi.display()
+            ),
+            Err(err) => eprintln!("self-check: did not print to {printer}: {err}"),
+        }
+    }
     Ok(())
 }
 
