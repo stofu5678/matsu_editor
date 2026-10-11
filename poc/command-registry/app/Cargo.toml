@@ -1,0 +1,13 @@
+[package]
+name = "registry-app"
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# The app never names a command: it only depends on the crates, the way the real executable
+# depends on `ume-commands`. The link-time options (inventory, linkme) must survive that.
+[dependencies]
+cmds-inventory = { path = "../cmds-inventory" }
+cmds-linkme = { path = "../cmds-linkme" }
+cmds-buildrs = { path = "../cmds-buildrs" }

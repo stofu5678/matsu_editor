@@ -1,0 +1,9 @@
+[package]
+name = "cmds-linkme"
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+linkme = "0.3.37"
