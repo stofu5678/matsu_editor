@@ -558,8 +558,8 @@ mod tests {
         run(&mut doc, "Up", json!([])).unwrap();
         assert_eq!(doc.cursor(), (1, 3));
         run(&mut doc, "Down", json!([])).unwrap();
-        // The column (3 characters) is kept.
-        assert_eq!(doc.cursor(), (2, 3));
+        // The column that Up started from (5) is kept through the short line.
+        assert_eq!(doc.cursor(), (2, 5));
         run(&mut doc, "GoFileTop", json!([])).unwrap();
         assert_eq!(doc.cursor(), (0, 0));
         assert_eq!(run(&mut doc, "IsTextSelected", json!([])), Ok(json!(0)));
@@ -576,6 +576,21 @@ mod tests {
         // Moving without selecting drops the selection.
         run(&mut doc, "GoFileTop", json!([])).unwrap();
         assert_eq!(run(&mut doc, "IsTextSelected", json!([])), Ok(json!(0)));
+    }
+
+    #[test]
+    fn vertical_moves_keep_the_column_through_a_short_line() {
+        let mut doc = model("abcdef\nx\nabcdef");
+        run(&mut doc, "MoveCursor", json!([1, 6, 0])).unwrap();
+        run(&mut doc, "Down", json!([])).unwrap();
+        assert_eq!(doc.cursor(), (1, 1));
+        run(&mut doc, "Down", json!([])).unwrap();
+        assert_eq!(doc.cursor(), (2, 5));
+        // Any other move forgets the column.
+        run(&mut doc, "Up", json!([])).unwrap();
+        run(&mut doc, "GoFileTop", json!([])).unwrap();
+        run(&mut doc, "Down", json!([])).unwrap();
+        assert_eq!(doc.cursor(), (1, 0));
     }
 
     #[test]

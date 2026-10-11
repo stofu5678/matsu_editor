@@ -61,8 +61,9 @@ pub struct SplitLine<'a> {
 /// written without a line break just before the request.
 pub fn split_output_line(line: &str) -> SplitLine<'_> {
     match line.split_once(RS) {
+        // An empty line is the user's too (`print()`).
         None => SplitLine {
-            user: (!line.is_empty()).then_some(line),
+            user: Some(line),
             message: None,
         },
         Some((user, message)) => SplitLine {
@@ -222,7 +223,7 @@ mod tests {
         let split = split_output_line("plain output");
         assert_eq!((split.user, split.message), (Some("plain output"), None));
         let split = split_output_line("");
-        assert_eq!((split.user, split.message), (None, None));
+        assert_eq!((split.user, split.message), (Some(""), None));
         // A second RS belongs to the message.
         let line = format!("a{RS}b{RS}c");
         assert_eq!(split_output_line(&line).message, Some(&line[2..]));

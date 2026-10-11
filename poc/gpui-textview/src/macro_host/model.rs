@@ -9,6 +9,8 @@ pub struct TextModel {
     lines: Vec<String>,
     cursor: (usize, usize),
     anchor: Option<(usize, usize)>,
+    /// The column (in characters) that vertical moves keep, as the editor keeps its x position.
+    goal_column: Option<usize>,
     path: Option<String>,
 }
 
@@ -18,6 +20,7 @@ impl TextModel {
             lines: split_lines(text),
             cursor: (0, 0),
             anchor: None,
+            goal_column: None,
             path,
         }
     }
@@ -103,6 +106,7 @@ impl MacroDocument for TextModel {
     }
 
     fn move_cursor(&mut self, pos: (usize, usize), extend: bool) {
+        self.goal_column = None;
         if !extend {
             self.anchor = None;
         } else if self.anchor.is_none() {
@@ -114,8 +118,9 @@ impl MacroDocument for TextModel {
     fn move_vertical(&mut self, delta: isize) {
         self.anchor = None;
         let row = (self.cursor.0 as isize + delta).clamp(0, self.lines.len() as isize - 1) as usize;
-        // Keep the column in characters.
-        let column = self.lines[self.cursor.0][..self.cursor.1].chars().count();
+        let column = *self
+            .goal_column
+            .get_or_insert_with(|| self.lines[self.cursor.0][..self.cursor.1].chars().count());
         let line = &self.lines[row];
         let byte = line
             .char_indices()
@@ -125,12 +130,14 @@ impl MacroDocument for TextModel {
     }
 
     fn select_all(&mut self) {
+        self.goal_column = None;
         self.anchor = Some((0, 0));
         let last = self.lines.len() - 1;
         self.cursor = (last, self.lines[last].len());
     }
 
     fn insert(&mut self, text: &str) {
+        self.goal_column = None;
         self.delete_selection();
         let (row, col) = self.cursor;
         let mut parts = text.split('\n').map(|p| p.trim_end_matches('\r'));
