@@ -274,6 +274,21 @@ print('not reached')
 }
 
 #[test]
+fn a_trailing_undefined_or_unset_argument_is_left_out() {
+    // Jump(line, flag) with the flag missing means flag 1; an undefined flag must not be null.
+    let js =
+        "const flag = undefined; Editor.Jump(2, flag); process.stdout.write(Editor.GetLineStr(0));";
+    let py = "Editor.Jump(2); print(Editor.GetLineStr(0), end='')";
+    for (language, code) in [(JS, js), (PY, py)] {
+        let Some((report, _)) = run(language, code, "a\nb\nc") else {
+            continue;
+        };
+        assert_clean_exit(&report);
+        assert_eq!(stdout(&report), ["b"], "{language:?}");
+    }
+}
+
+#[test]
 fn an_infinite_loop_is_stopped_by_the_timeout() {
     for (language, code) in [(JS, "while (true) {}"), (PY, "while True:\n    pass")] {
         let started = Instant::now();

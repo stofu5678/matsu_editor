@@ -192,6 +192,13 @@ impl Session {
     }
 }
 
+impl Drop for Session {
+    /// A macro whose owner has gone (the window closed, for one) is stopped.
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::SeqCst);
+    }
+}
+
 pub type Sink = Arc<dyn Fn(HostEvent) + Send + Sync>;
 
 /// Starts the macro. The events go to `sink` from other threads, in order, ending with

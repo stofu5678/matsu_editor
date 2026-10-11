@@ -418,7 +418,8 @@ fn check_params(func: &Func, params: &[Value]) -> Result<(), RpcError> {
     }
     for (param, value) in func.params.iter().zip(params) {
         let fits = match param.ty {
-            Ty::Int => value.is_i64() || value.is_u64(),
+            // Only what fits an i64: a bigger number must not turn into 0 silently.
+            Ty::Int => value.is_i64(),
             Ty::Str => value.is_string(),
             Ty::Null => value.is_null(),
         };
@@ -648,6 +649,7 @@ mod tests {
             ("GetLineStr", json!(["1"])),
             ("GetLineStr", json!([1.5])),
             ("GetLineStr", json!([true])),
+            ("GetLineStr", json!([18446744073709551615u64])),
             ("InsText", json!([5])),
             ("InsText", json!([null])),
             ("GoFileTop", json!([1])),

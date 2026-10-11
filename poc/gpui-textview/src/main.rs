@@ -1515,9 +1515,12 @@ impl Render for Workspace {
                 let f = forward(|e, w, cx| e.run_macro_dialog(&RunMacro, w, cx));
                 move |_: &RunMacro, w, cx| f(w, cx)
             })
+            // Not through `forward`: stopping a macro has to work while the preview is open too.
             .on_action({
-                let f = forward(|e, w, cx| e.cancel_macro(&CancelMacro, w, cx));
-                move |_: &CancelMacro, w, cx| f(w, cx)
+                let editor = self.editor.clone();
+                move |_: &CancelMacro, w, cx| {
+                    editor.update(cx, |e, cx| e.cancel_macro(&CancelMacro, w, cx));
+                }
             })
             .on_action({
                 let f = forward(|e, w, cx| e.generate(&GenerateLargeText, w, cx));

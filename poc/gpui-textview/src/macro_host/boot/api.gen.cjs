@@ -10,7 +10,10 @@ module.exports = function install(call) {
      * break is not a line unless it is not empty. The argument is reserved and must be 0.
      */
     GetLineCount(reserved) {
-      return call('GetLineCount', Array.prototype.slice.call(arguments));
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GetLineCount', args);
     },
     /**
      * GetLineStr(line: int) -> string
@@ -20,7 +23,10 @@ module.exports = function install(call) {
      * string.
      */
     GetLineStr(line) {
-      return call('GetLineStr', Array.prototype.slice.call(arguments));
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GetLineStr', args);
     },
     /**
      * InsText(text: string) -> null
@@ -28,7 +34,10 @@ module.exports = function install(call) {
      * Inserts the text at the cursor, replacing the selection. The cursor ends after the text.
      */
     InsText(text) {
-      return call('InsText', Array.prototype.slice.call(arguments));
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('InsText', args);
     },
     /**
      * AddTail(text: string) -> null
@@ -36,7 +45,10 @@ module.exports = function install(call) {
      * Moves to the end of the file, drops the selection, and inserts the text there.
      */
     AddTail(text) {
-      return call('AddTail', Array.prototype.slice.call(arguments));
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('AddTail', args);
     },
     /**
      * GoFileTop() -> null
@@ -44,7 +56,10 @@ module.exports = function install(call) {
      * Moves the cursor to the start of the file and drops the selection.
      */
     GoFileTop() {
-      return call('GoFileTop', Array.prototype.slice.call(arguments));
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GoFileTop', args);
     },
     /**
      * GoFileEnd() -> null
@@ -52,7 +67,10 @@ module.exports = function install(call) {
      * Moves the cursor to the end of the file and drops the selection.
      */
     GoFileEnd() {
-      return call('GoFileEnd', Array.prototype.slice.call(arguments));
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GoFileEnd', args);
     },
     /**
      * Up() -> null
@@ -60,7 +78,10 @@ module.exports = function install(call) {
      * Moves the cursor up one line and drops the selection.
      */
     Up() {
-      return call('Up', Array.prototype.slice.call(arguments));
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('Up', args);
     },
     /**
      * Down() -> null
@@ -68,7 +89,10 @@ module.exports = function install(call) {
      * Moves the cursor down one line and drops the selection.
      */
     Down() {
-      return call('Down', Array.prototype.slice.call(arguments));
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('Down', args);
     },
     /**
      * SelectAll() -> null
@@ -76,7 +100,10 @@ module.exports = function install(call) {
      * Selects the whole text. The cursor goes to the end.
      */
     SelectAll() {
-      return call('SelectAll', Array.prototype.slice.call(arguments));
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('SelectAll', args);
     },
     /**
      * GetSelectedString(reserved: int) -> string
@@ -85,7 +112,10 @@ module.exports = function install(call) {
      * selected. The argument is reserved and ignored.
      */
     GetSelectedString(reserved) {
-      return call('GetSelectedString', Array.prototype.slice.call(arguments));
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GetSelectedString', args);
     },
     /**
      * IsTextSelected() -> int
@@ -94,7 +124,10 @@ module.exports = function install(call) {
      * selection, which the PoC does not have.)
      */
     IsTextSelected() {
-      return call('IsTextSelected', Array.prototype.slice.call(arguments));
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('IsTextSelected', args);
     },
     /**
      * MoveCursor(line: int, column: int, option: int) -> null
@@ -104,7 +137,10 @@ module.exports = function install(call) {
      * selection, is not supported.) Past the end of the text it goes to the end of the text.
      */
     MoveCursor(line, column, option) {
-      return call('MoveCursor', Array.prototype.slice.call(arguments));
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('MoveCursor', args);
     },
     /**
      * Jump(line: int, flag: int?) -> null
@@ -115,7 +151,10 @@ module.exports = function install(call) {
      * supported.
      */
     Jump(line, flag) {
-      return call('Jump', Array.prototype.slice.call(arguments));
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('Jump', args);
     },
     /**
      * GetFilename() -> string
@@ -123,7 +162,10 @@ module.exports = function install(call) {
      * The full path of the file, or an empty string when the text has no file.
      */
     GetFilename() {
-      return call('GetFilename', Array.prototype.slice.call(arguments));
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GetFilename', args);
     },
   };
 };

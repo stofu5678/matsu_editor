@@ -38,7 +38,7 @@ pub(super) fn generate_js() -> String {
         out.push_str("     */\n");
         let names: Vec<&str> = func.params.iter().map(|p| p.name).collect();
         out.push_str(&format!(
-            "    {}({}) {{\n      return call('{}', Array.prototype.slice.call(arguments));\n    }},\n",
+            "    {}({}) {{\n      // A trailing undefined is a missing argument, not a null.\n      const args = Array.prototype.slice.call(arguments);\n      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();\n      return call('{}', args);\n    }},\n",
             func.name,
             names.join(", "),
             func.name
