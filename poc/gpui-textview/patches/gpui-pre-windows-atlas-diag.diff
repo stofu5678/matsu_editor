@@ -1,0 +1,344 @@
+Diagnostic patch for gpui-pre-windows 0.3.8 (Cargo.toml and src/directx_atlas.rs),
+which is derived from GPUI (https://github.com/zed-industries/zed, crates/gpui_windows)
+and licensed under the Apache License 2.0. Modified for the UME Editor PoC, to check
+https://github.com/zed-industries/zed/issues/56349#issuecomment-6078561427 by hand.
+See docs/upstream/zed-56349.md. Do not use it for anything else.
+
+- Each atlas texture and each tile upload (glyphs and the like) is written to
+  atlas-<process ID>.txt in the current directory, with the process's private bytes
+  (PrivateUsage) right before and right after the call, the change in KiB, and the sum
+  of those changes so far ("?" and "without N unknown" when a query failed). The
+  measuring itself (two queries and a file write for each upload) takes time between
+  the uploads. With POC_ATLAS_UPLOAD=flush, "after" is after Flush returns, which does
+  not wait for the GPU.
+- POC_ATLAS_UPLOAD picks the call that uploads a tile. Unset: UpdateSubresource, as in
+  GPUI. update1: ID3D11DeviceContext1::UpdateSubresource1 with D3D11_COPY_NO_OVERWRITE.
+  flush: UpdateSubresource, then Flush. Each upload line names the call that was made.
+- POC_ATLAS_LOG=0 turns the measuring and the file off, to compare the calls without
+  that cost.
+- Cargo.toml enables the windows crate's Win32_System_ProcessStatus feature for
+  K32GetProcessMemoryInfo.
+
+Apply inside a copy of the crate with `git apply` or `patch -p1`.
+
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -190,6 +190,7 @@
+     "Win32_System_Performance",
+     "Win32_System_Pipes",
+     "Win32_System_Power",
++    "Win32_System_ProcessStatus",
+     "Win32_System_RestartManager",
+     "Win32_System_SystemInformation",
+     "Win32_System_SystemServices",
+--- a/src/directx_atlas.rs
++++ b/src/directx_atlas.rs
+@@ -2,11 +2,13 @@
+ use parking_lot::Mutex;
+ use windows::Win32::Graphics::{
+     Direct3D11::{
+-        D3D11_BIND_SHADER_RESOURCE, D3D11_BOX, D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT,
+-        ID3D11Device, ID3D11DeviceContext, ID3D11ShaderResourceView, ID3D11Texture2D,
++        D3D11_BIND_SHADER_RESOURCE, D3D11_BOX, D3D11_COPY_NO_OVERWRITE, D3D11_TEXTURE2D_DESC,
++        D3D11_USAGE_DEFAULT, ID3D11Device, ID3D11DeviceContext, ID3D11DeviceContext1,
++        ID3D11ShaderResourceView, ID3D11Texture2D,
+     },
+     Dxgi::Common::*,
+ };
++use windows::core::Interface;
+ 
+ use gpui::{
+     AtlasBackend, AtlasKey, AtlasState, AtlasTextureId, AtlasTextureKind, AtlasTextureList,
+@@ -208,6 +210,7 @@
+             MiscFlags: 0,
+         };
+         let mut texture: Option<ID3D11Texture2D> = None;
++        let private_before = diag::private_bytes();
+         unsafe {
+             // This only returns None if the device is lost, which we will recreate later.
+             // So it's ok to return None here.
+@@ -215,6 +218,7 @@
+                 .CreateTexture2D(&texture_desc, None, Some(&mut texture))
+                 .ok()?;
+         }
++        let private_after = diag::private_bytes();
+         let texture = texture.unwrap();
+ 
+         let texture_list = match kind {
+@@ -241,6 +245,14 @@
+             view,
+             live_atlas_keys: 0,
+         };
++        diag::log_texture(
++            atlas_texture.id,
++            size,
++            pixel_format,
++            bytes_per_pixel,
++            private_before,
++            private_after,
++        );
+         if let Some(ix) = index {
+             texture_list.textures[ix] = Some(atlas_texture);
+             texture_list.textures.get_mut(ix).unwrap().as_mut()
+@@ -300,23 +312,61 @@
+             );
+             return;
+         }
+-        unsafe {
+-            device_context.UpdateSubresource(
+-                &self.texture,
+-                0,
+-                Some(&D3D11_BOX {
+-                    left: bounds.left().0 as u32,
+-                    top: bounds.top().0 as u32,
+-                    front: 0,
+-                    right: bounds.right().0 as u32,
+-                    bottom: bounds.bottom().0 as u32,
+-                    back: 1,
+-                }),
+-                bytes.as_ptr() as _,
+-                bounds.size.width.to_bytes(self.bytes_per_pixel as u8),
+-                0,
+-            );
+-        }
++        let dst_box = D3D11_BOX {
++            left: bounds.left().0 as u32,
++            top: bounds.top().0 as u32,
++            front: 0,
++            right: bounds.right().0 as u32,
++            bottom: bounds.bottom().0 as u32,
++            back: 1,
++        };
++        let row_pitch = bounds.size.width.to_bytes(self.bytes_per_pixel as u8);
++        let method = diag::method();
++        let context1 = if method == diag::Method::UpdateSubresource1NoOverwrite {
++            match device_context.cast::<ID3D11DeviceContext1>() {
++                Ok(context1) => Some(context1),
++                Err(error) => {
++                    diag::log(format_args!(
++                        "no ID3D11DeviceContext1 ({error}), so UpdateSubresource is used"
++                    ));
++                    None
++                }
++            }
++        } else {
++            None
++        };
++        let private_before = diag::private_bytes();
++        let api = unsafe {
++            if let Some(context1) = &context1 {
++                context1.UpdateSubresource1(
++                    &self.texture,
++                    0,
++                    Some(&dst_box),
++                    bytes.as_ptr() as _,
++                    row_pitch,
++                    0,
++                    D3D11_COPY_NO_OVERWRITE.0 as u32,
++                );
++                "UpdateSubresource1 (D3D11_COPY_NO_OVERWRITE)"
++            } else {
++                device_context.UpdateSubresource(
++                    &self.texture,
++                    0,
++                    Some(&dst_box),
++                    bytes.as_ptr() as _,
++                    row_pitch,
++                    0,
++                );
++                if method == diag::Method::UpdateSubresourceThenFlush {
++                    device_context.Flush();
++                    "UpdateSubresource + Flush"
++                } else {
++                    "UpdateSubresource"
++                }
++            }
++        };
++        let private_after = diag::private_bytes();
++        diag::log_upload(self.id, bounds, api, private_before, private_after);
+     }
+ 
+     fn decrement_ref_count(&mut self) {
+@@ -339,6 +389,182 @@
+     }
+ }
+ 
++/// Diagnostics added for the UME Editor PoC (patches/gpui-pre-windows-atlas-diag.diff).
++///
++/// Writes each atlas texture and each upload to `atlas-<process ID>.txt` in the current
++/// directory, with the process's private bytes (`PrivateUsage`) right before and right after
++/// the call. `POC_ATLAS_UPLOAD` picks the call that uploads a tile, and `POC_ATLAS_LOG=0`
++/// turns the measuring and the file off, to compare the calls without their cost.
++mod diag {
++    use super::{AtlasTextureId, Bounds, DevicePixels, Size};
++    use std::fmt::Arguments;
++    use std::io::Write as _;
++    use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
++    use std::sync::{Mutex, OnceLock};
++    use std::time::Instant;
++    use windows::Win32::Graphics::Dxgi::Common::{
++        DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM,
++    };
++    use windows::Win32::System::ProcessStatus::{
++        K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX,
++    };
++    use windows::Win32::System::Threading::GetCurrentProcess;
++
++    #[derive(Clone, Copy, Debug, PartialEq)]
++    pub(super) enum Method {
++        /// What GPUI does: `UpdateSubresource`. `POC_ATLAS_UPLOAD` unset.
++        UpdateSubresource,
++        /// `ID3D11DeviceContext1::UpdateSubresource1` with `D3D11_COPY_NO_OVERWRITE`.
++        /// `POC_ATLAS_UPLOAD=update1`.
++        UpdateSubresource1NoOverwrite,
++        /// `UpdateSubresource`, then `Flush`. `POC_ATLAS_UPLOAD=flush`.
++        UpdateSubresourceThenFlush,
++    }
++
++    fn enabled() -> bool {
++        static ENABLED: OnceLock<bool> = OnceLock::new();
++        *ENABLED.get_or_init(|| std::env::var("POC_ATLAS_LOG").as_deref() != Ok("0"))
++    }
++
++    pub(super) fn method() -> Method {
++        static METHOD: OnceLock<Method> = OnceLock::new();
++        *METHOD.get_or_init(|| {
++            let method = match std::env::var("POC_ATLAS_UPLOAD").as_deref() {
++                Ok("update1") => Method::UpdateSubresource1NoOverwrite,
++                Ok("flush") => Method::UpdateSubresourceThenFlush,
++                _ => Method::UpdateSubresource,
++            };
++            log(format_args!("upload method: {method:?}"));
++            method
++        })
++    }
++
++    /// The process's private bytes, or `None` when the measuring is off or fails.
++    pub(super) fn private_bytes() -> Option<i64> {
++        if !enabled() {
++            return None;
++        }
++        let mut counters = PROCESS_MEMORY_COUNTERS_EX {
++            cb: size_of::<PROCESS_MEMORY_COUNTERS_EX>() as u32,
++            ..Default::default()
++        };
++        let ok = unsafe {
++            K32GetProcessMemoryInfo(
++                GetCurrentProcess(),
++                (&raw mut counters).cast::<PROCESS_MEMORY_COUNTERS>(),
++                counters.cb,
++            )
++        };
++        ok.as_bool().then_some(counters.PrivateUsage as i64)
++    }
++
++    pub(super) fn log_texture(
++        id: AtlasTextureId,
++        size: Size<DevicePixels>,
++        format: DXGI_FORMAT,
++        bytes_per_pixel: u32,
++        before: Option<i64>,
++        after: Option<i64>,
++    ) {
++        if !enabled() {
++            return;
++        }
++        let format = match format {
++            DXGI_FORMAT_R8_UNORM => "R8_UNORM",
++            DXGI_FORMAT_B8G8R8A8_UNORM => "B8G8R8A8_UNORM",
++            DXGI_FORMAT_R8G8B8A8_UNORM => "R8G8B8A8_UNORM",
++            _ => "other format",
++        };
++        let texture_bytes = size.width.0 as i64 * size.height.0 as i64 * bytes_per_pixel as i64;
++        log(format_args!(
++            "texture {:?}[{}] created: {}x{} {format}, {} KiB; private {} -> {} MB ({} KiB)",
++            id.kind,
++            id.index,
++            size.width.0,
++            size.height.0,
++            texture_bytes / 1024,
++            show_mb(before),
++            show_mb(after),
++            show_kib(change(before, after)),
++        ));
++    }
++
++    pub(super) fn log_upload(
++        id: AtlasTextureId,
++        bounds: Bounds<DevicePixels>,
++        api: &str,
++        before: Option<i64>,
++        after: Option<i64>,
++    ) {
++        static COUNT: AtomicU32 = AtomicU32::new(0);
++        static SUM: AtomicI64 = AtomicI64::new(0);
++        static UNKNOWN: AtomicU32 = AtomicU32::new(0);
++        if !enabled() {
++            return;
++        }
++        let count = COUNT.fetch_add(1, Ordering::Relaxed) + 1;
++        let delta = change(before, after);
++        let sum = SUM.fetch_add(delta.unwrap_or(0), Ordering::Relaxed) + delta.unwrap_or(0);
++        let unknowns = UNKNOWN.fetch_add(delta.is_none() as u32, Ordering::Relaxed)
++            + delta.is_none() as u32;
++        // A sum that leaves out an unknown change is not the whole sum, so say so.
++        let unknown = if unknowns > 0 {
++            format!(" without {unknowns} unknown")
++        } else {
++            String::new()
++        };
++        log(format_args!(
++            "upload {count} to {:?}[{}] with {api}: {}x{} at ({}, {}); \
++             private {} -> {} MB ({} KiB, sum {} MB{unknown})",
++            id.kind,
++            id.index,
++            bounds.size.width.0,
++            bounds.size.height.0,
++            bounds.origin.x.0,
++            bounds.origin.y.0,
++            show_mb(before),
++            show_mb(after),
++            show_kib(delta),
++            show_mb(Some(sum)),
++        ));
++    }
++
++    /// Appends a line, with the seconds since the first line.
++    pub(super) fn log(line: Arguments) {
++        static FILE: Mutex<Option<std::fs::File>> = Mutex::new(None);
++        static START: OnceLock<Instant> = OnceLock::new();
++        if !enabled() {
++            return;
++        }
++        let start = *START.get_or_init(Instant::now);
++        let mut file = FILE.lock().unwrap_or_else(|error| error.into_inner());
++        if file.is_none() {
++            let path = format!("atlas-{}.txt", std::process::id());
++            match std::fs::File::create(&path) {
++                Ok(created) => *file = Some(created),
++                Err(error) => eprintln!("atlas log: cannot create {path}: {error}"),
++            }
++        }
++        if let Some(file) = file.as_mut()
++            && let Err(error) = writeln!(file, "{:8.3} s  {line}", start.elapsed().as_secs_f64())
++        {
++            eprintln!("atlas log: cannot write: {error}");
++        }
++    }
++
++    fn change(before: Option<i64>, after: Option<i64>) -> Option<i64> {
++        Some(after? - before?)
++    }
++
++    fn show_mb(bytes: Option<i64>) -> String {
++        bytes.map_or_else(|| "?".to_string(), |bytes| format!("{:.1}", bytes as f64 / 1048576.0))
++    }
++
++    fn show_kib(bytes: Option<i64>) -> String {
++        bytes.map_or_else(|| "?".to_string(), |bytes| format!("{:+}", bytes / 1024))
++    }
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;

@@ -22,6 +22,8 @@ Qualcomm Adreno（Windows ARM64）では、GPUI が文字をテクスチャに�
 1. `~/.cargo/registry/src/*/gpui-pre-windows-0.3.8` を任意の場所に写し、そこで `patch -p1 < .../patches/gpui-pre-windows-atlas-upload.diff`
 2. `Cargo.toml` の末尾に `[patch.crates-io]` と `gpui-pre-windows = { path = "<写した場所>" }` を足してビルドする（コミットはしない）
 
+`patches/gpui-pre-windows-atlas-diag.diff` は、書き込みのたびのメモリの増え方を記録する、計測用のパッチ。Zed へのコメントを確かめる手順（[docs/upstream/zed-56349.md](../../docs/upstream/zed-56349.md)）で使う。
+
 ## Mac
 
 Windows と同じコードで動く（2026-10-10 から）。Mac に合わせて次のようにした。
