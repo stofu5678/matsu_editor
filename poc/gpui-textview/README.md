@@ -198,7 +198,7 @@ XMODIFIERS=@im=fcitx WAYLAND_DISPLAY= ./target/release/gpui-textview-poc
 - 単体テスト（`cargo test`）: 1 行の枠組み、RS での分割、行末の CR、ASCII へのエスケープ（サロゲートペアを含む）、要求の解析（-32700・-32600・-32602）、-32601、API の意味、生成物が古くなっていないこと、環境変数のタイムアウトの読み取り
 - 本物の Node.js と Python を走らせる統合テスト（処理系がなければ「SKIP」を出して通る。`cargo test -- --nocapture` で見える）: 日本語と絵文字の往復 / エディタが 1.5 秒遅れて応答する / 1 MB を超える行（片道 2 MB 超の 1 行）の往復 / 改行なしの出力の直後に来る要求 / 構文エラーと実行時エラー（標準エラーに利用者のファイルの行番号が出る）/ エラー応答が例外になる（JS も Python も `EditorError`。`code` にエラーコードが入る）/ 無限ループと応答が来ない待ちがタイムアウトで止まる / すぐ終わるマクロ（EOF）/ 終了コード / Python が `PYTHONUTF8=1` で日本語を UTF-8 で出す / 標準エラー / 中断 / 処理系がないときのメッセージ / 不正な行（Python が生の行を送る）
 - Linux（WSL2、aarch64、Node.js v25、Python 3.13）: `cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test`、`cargo build --release` が通った。`--features self-check` の自己確認に「マクロ」の段を足し、実際のウィンドウ（WSLg）で `sample.js`・`sample.py` の実行（文書の中身、出力パネルの内容、正常終了）と、終わらないマクロの中断を確かめた
-- Windows ARM64（Node.js v24。Python は入っていない）: `cargo test --release` が通った。Python のテストは飛ばした。Python のブート（`boot.py`）は Windows では動かしていない
+- Windows ARM64（Node.js v24。Python は入っていない）: `cargo test --release` が通った。Python のテストは飛ばした。`--features self-check` の自己確認（実際のウィンドウ）も通り、`sample.js` と、終わらないマクロの中断を確かめた。`sample.py` は、`python` がストアのスタブ（終了コード 9009）だったので飛ばし、その旨の案内が出力パネルに出た。Python のブート（`boot.py`）は Windows では動かしていない
 - 画面を見ての操作（メニュー、ファイルダイアログ、出力パネルの見た目）は人が確かめる
 - 参考: Linux で `--run-macro` に `sample.js` と `sample.py` を渡したときの、起動から終了までの時間は、どちらも約 35 ミリ秒（1 回ずつ測っただけ）
 
