@@ -80,6 +80,8 @@ struct EditorDoc<'a, 'b> {
     cx: &'a mut Context<'b, Editor>,
 }
 
+/// Calls that move the cursor or change the text drop the IME composition (`Editor::marked`),
+/// which would point into text that has changed. The calls that only read leave it alone.
 impl MacroDocument for EditorDoc<'_, '_> {
     fn line_count(&self) -> usize {
         self.editor.lines.len()
@@ -110,6 +112,7 @@ impl MacroDocument for EditorDoc<'_, '_> {
 
     fn move_cursor(&mut self, pos: (usize, usize), extend: bool) {
         self.editor.macros.goal_column = None;
+        self.editor.marked = None;
         self.editor.move_to(pos, extend, self.cx);
     }
 
@@ -117,6 +120,7 @@ impl MacroDocument for EditorDoc<'_, '_> {
     /// lines as the last paint shaped them, which are stale after the macro's own edits.
     fn move_vertical(&mut self, delta: isize) {
         let editor = &mut *self.editor;
+        editor.marked = None;
         let (row, byte) = editor.cursor;
         // The goal holds only while the cursor is where the last Up or Down left it.
         let column = match editor.macros.goal_column {
@@ -135,6 +139,7 @@ impl MacroDocument for EditorDoc<'_, '_> {
 
     fn select_all(&mut self) {
         self.editor.macros.goal_column = None;
+        self.editor.marked = None;
         self.editor.anchor = Some((0, 0));
         let end = self.editor.end_of_doc();
         self.editor.move_to(end, true, self.cx);
@@ -142,6 +147,7 @@ impl MacroDocument for EditorDoc<'_, '_> {
 
     fn insert(&mut self, text: &str) {
         self.editor.macros.goal_column = None;
+        self.editor.marked = None;
         self.editor.insert(text, self.cx);
     }
 
@@ -260,9 +266,7 @@ impl Editor {
                 self.macros.push(kind, text);
             }
             HostEvent::Message(text) => {
-                // One call at a time, on the UI thread, against the text on the screen. An IME
-                // composition would point into text that the call may change.
-                self.marked = None;
+                // One call at a time, on the UI thread, against the text on the screen.
                 let reply = api::handle_message(&mut EditorDoc { editor: self, cx }, &text);
                 if let (Some(reply), Some(running)) = (reply, &self.macros.running) {
                     running.session.send(reply);

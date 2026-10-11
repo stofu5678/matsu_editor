@@ -149,7 +149,7 @@ XMODIFIERS=@im=fcitx WAYLAND_DISPLAY= ./target/release/gpui-textview-poc
 - ウィンドウなしの実行: `gpui-textview-poc --run-macro <マクロ> <入力のテキスト> <結果のテキスト>`。マクロの出力は標準出力と標準エラーに出し、結果の文書を書き、マクロが正常に終わったときだけ終了コード 0 で終わる。文書は、ウィンドウなしの実行では `TextModel`（src/macro_host/model.rs）、ウィンドウでは `Editor` が持つ
 - 環境変数 `POC_NODE`（既定は `node`）、`POC_PYTHON`（既定は Linux・Mac で `python3`、Windows で `python`）: 処理系の場所。起動できないときは、その旨と環境変数の名前を出力パネルに出す。Windows の `python` がストアのスタブ（WindowsApps）だと終了コード 9009 で終わるので、その旨も添える
 - 環境変数 `POC_MACRO_TIMEOUT=<秒>`（既定 30、小数可）: これを超えたらマクロのプロセスを終わらせる。エディタが応答する時間も含む
-- マクロの起動: `node --require <boot.cjs> <マクロ>` と `python -u <boot.py> <マクロ>`（Python は環境変数 `PYTHONUTF8=1` つき）。Windows では `CREATE_NO_WINDOW` で起動する。ブートのファイルは実行ファイルに埋め込んであり、実行のたびに、利用者だけが使える一時ディレクトリ（`ume-macro-<ランダムな文字>`）に書き出し、終わったら消す。マクロの中に require や import を書く必要はない。`Editor`（と、エラー用の `EditorError`）がグローバルに置かれる
+- マクロの起動: `node --require <boot.cjs> <マクロ>` と `python -u <boot.py> <マクロ>`（Python は環境変数 `PYTHONUTF8=1` つき）。Windows では `CREATE_NO_WINDOW` で起動する。ブートのファイルは実行ファイルに埋め込んであり、実行のたびに、一時ディレクトリ（`ume-macro-<ランダムな文字>`。Unix ではモード 0700。Windows ではユーザーごとの一時フォルダーに作るだけで、アクセス権は設定していない）に書き出し、終わったら消す。マクロの中に require や import を書く必要はない。`Editor`（と、エラー用の `EditorError`）がグローバルに置かれる
 
 ### コードの場所
 
