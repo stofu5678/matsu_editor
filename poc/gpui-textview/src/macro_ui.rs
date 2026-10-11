@@ -47,8 +47,9 @@ pub struct MacroState {
     /// The panel is shown.
     open: bool,
     scroll: ScrollHandle,
-    /// The column (in characters) that the macro's Up and Down keep.
-    goal_column: Option<usize>,
+    /// The column (in characters) that the macro's Up and Down keep, and where the cursor was
+    /// when they left it.
+    goal_column: Option<(usize, (usize, usize))>,
 }
 
 impl MacroState {
@@ -117,10 +118,11 @@ impl MacroDocument for EditorDoc<'_, '_> {
     fn move_vertical(&mut self, delta: isize) {
         let editor = &mut *self.editor;
         let (row, byte) = editor.cursor;
-        let column = *editor
-            .macros
-            .goal_column
-            .get_or_insert_with(|| editor.lines[row][..byte].chars().count());
+        // The goal holds only while the cursor is where the last Up or Down left it.
+        let column = match editor.macros.goal_column {
+            Some((column, at)) if at == editor.cursor => column,
+            _ => editor.lines[row][..byte].chars().count(),
+        };
         let target = (row as isize + delta).clamp(0, editor.lines.len() as isize - 1) as usize;
         let line = &editor.lines[target];
         let byte = line
@@ -128,6 +130,7 @@ impl MacroDocument for EditorDoc<'_, '_> {
             .nth(column)
             .map_or(line.len(), |(offset, _)| offset);
         editor.move_to((target, byte), false, self.cx);
+        editor.macros.goal_column = Some((column, editor.cursor));
     }
 
     fn select_all(&mut self) {
@@ -257,7 +260,9 @@ impl Editor {
                 self.macros.push(kind, text);
             }
             HostEvent::Message(text) => {
-                // One call at a time, on the UI thread, against the text on the screen.
+                // One call at a time, on the UI thread, against the text on the screen. An IME
+                // composition would point into text that the call may change.
+                self.marked = None;
                 let reply = api::handle_message(&mut EditorDoc { editor: self, cx }, &text);
                 if let (Some(reply), Some(running)) = (reply, &self.macros.running) {
                     running.session.send(reply);
