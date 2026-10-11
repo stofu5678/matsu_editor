@@ -84,6 +84,13 @@ x64 では、これでビルドでき、日本語も出た（`fonts-noto-cjk` �
 sudo apt install xdg-desktop-portal xdg-desktop-portal-gtk
 ```
 
+これで、印刷ダイアログの「ファイルに出力」で PDF に印刷できる。紙に印刷するには、Linux の印刷の仕組み（CUPS）を入れて、プリンターを登録する。WSL の Linux には Windows のプリンターが見えず、WSL（NAT）からはネットワークのプリンターも自動では見つからないので、アドレスで登録する。次は、ドライバーなしの印刷（IPP Everywhere）に対応したネットワークのプリンターの場合（2026-10-11 に EPSON EW-M873T で確かめた）。
+
+```sh
+sudo apt install cups
+sudo lpadmin -p <名前> -E -v ipps://<プリンターのアドレス>:631/ipp/print -m everywhere
+```
+
 #### 5. 日本語入力（fcitx5 と Mozc）
 
 入れて、入力方式に Mozc を足す。US 配列のキーボードなら、`jp` を `us` にする。

@@ -12,7 +12,7 @@
 | [0008](0008-commands-and-keybindings.md) | コマンドとキー割り当て | 決定（macOS のキーの読み替えは提案中。キー割り当てのファイルは 0010） |
 | [0009](0009-initial-development-target.md) | 初期開発の対象（Windows ARM64 を優先） | 決定 |
 | [0010](0010-sakura-compatible-settings.md) | 設定ファイルをサクラと互換にする | 決定 |
-| [0011](0011-printing.md) | 印刷 | 提案中（PoC の結果で確定） |
+| [0011](0011-printing.md) | 印刷 | 決定（細部は Phase 4 で詰める） |
 | [0012](0012-file-size-limit.md) | 当面は 2GB までのファイルを扱う | 決定 |
 | [0013](0013-module-structure.md) | モジュールの構造 | 決定（細部は試作で詰める） |
 | [0014](0014-development-process.md) | 開発の進め方とバージョンの付け方 | 決定（ループのルールは Phase 5 の前に書く） |
