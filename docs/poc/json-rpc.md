@@ -1,0 +1,259 @@
+# JSON-RPC の試作
+
+[ADR-0007](../adr/0007-macros-and-plugins.md) の JSON-RPC の形を決めるための調査と、通信の仕様の案。2026-10-11 に、ユーザーが形を承認した。試作（PoC）そのものは別の PR（`poc/gpui-textview`）で作っていて、結果はできしだい、この文書に足す。
+
+## 目的
+
+- ADR-0007 の「別プロセスと JSON-RPC で通信する」の具体的な形を決める
+- その形で、サクラのマクロと同じことが書けるかを、PoC で確かめる
+
+## 方式
+
+### ユーザーの案
+
+- エディタのマクロで、`require` のようなライブラリの呼び出しを書かせるのはおかしい
+- スクリプトの言語では、次の 2 つを、利用者のスクリプトの先頭に差し込む
+  - (a) JSON-RPC を呼んだり呼ばれたりするブート
+  - (b) 基本 API
+- プロセス ID などは標準入力から受け取る
+- コンパイルする言語は、(a)(b) をライブラリとして自分で呼ぶ。標準入力の仕様は共有する
+- OS に入っている WSH・AppleScript・PowerShell でも使えると、採用しやすい
+
+### 結論
+
+- `require` を書かせない方針に賛成（Codex も賛成）
+- ただし、文字列として先頭に差し込むのではなく、言語ごとの起動の仕組みで先に読み込む。こうすると、エラーの行番号がずれず、利用者のファイルも書き換えない
+- 形は次の 5 点（2026-10-11 にユーザーが承認）
+  - 標準入出力を使う
+  - `initialize` で情報を渡す
+  - ASCII で 1 行 1 メッセージにする（改行は LF だけ）
+  - 基本 API を前もって作る
+  - マクロとプラグインを分ける
+
+## 通信の仕様（案）
+
+案 v0。この文書と、試作の PR（`poc/gpui-textview`）が、同じ仕様を使う。
+
+### 1. 起動のしかた
+
+利用者のスクリプトに `require` や `import` を書かせない。言語ごとの起動の仕組みで、ブート（JSON-RPC の読み書き）と基本 API を先に読み込む。利用者のファイルは書き換えない（エラーの行番号がずれないように）。
+
+| 言語 | 起動 | 備考 |
+|---|---|---|
+| JavaScript（Node.js） | `node --require <boot.cjs> <user.js>` | `Editor` をグローバルに置く |
+| Python | `python <boot.py> <user.py>` | boot.py が `runpy.run_path(user, init_globals={"Editor": ...}, run_name="__main__")` で実行する。行番号はずれない |
+| Emacs Lisp（第 2 弾） | `emacs -Q --batch -l boot.el --eval '(ume-run-user-file "<user.el>")'` | ブートが利用者のファイルを UTF-8 で 1 式ずつ読んで評価し、エラーの行番号を出す |
+| WSH（第 2 弾、VBScript・JScript） | .wsf に `<script src>` を並べる | スクリプトのファイルは UTF-16LE（BOM 付き）でないと日本語を読めない |
+| PowerShell 5.1（第 2 弾） | ブートで関数を定義し、利用者のスクリプトをフルパスでドットソースする | `-ExecutionPolicy Bypass` はグループポリシーを越えられない |
+
+- 処理系の場所は設定で変えられる（試作では環境変数）
+- コンパイルする言語は、ブートと基本 API をライブラリとして自分で呼ぶ。通信の仕様は同じ
+
+### 2. 1 行の形
+
+- 1 行に 1 メッセージ。行の終わりは LF（0x0A）だけ
+  - エディタは CR を送らない。Linux の Emacs は CR でも行を切るので、CRLF だと次の読み取りが空になって失敗した
+  - 受け取る側は、行末の CR を無視する
+- 送る JSON は ASCII だけにする
+  - ASCII 以外の文字は `\uXXXX` で書き、U+10000 以上はサロゲートペア（`\ud83d\ude00` など）にする
+  - WSH の標準入出力は CP932、PowerShell 5.1 の標準入力は shift_jis なので、生の UTF-8 は化ける。`\uXXXX` なら正しく往復した
+  - Python の `json.dumps` は既定で ASCII にする。Node.js の `JSON.stringify` はしないので、ブートで変換する（JS の文字列は UTF-16 なので、0x7F より大きいコード単位を 1 つずつ `\uXXXX` にすれば、サロゲートペアも正しくなる）
+- マクロからエディタへの行は、先頭に RS（0x1E）を付ける
+  - エディタは、行の中の最初の RS より前を利用者の出力、RS より後ろをメッセージとして扱う
+  - 利用者が改行なしで出力した直後に要求が来ても崩れない
+- RS のない行と、標準エラーの出力は、利用者の出力として出力ウィンドウに出す
+- エディタからマクロへの行（標準入力）には RS を付けない。標準入力に書くのはエディタだけ
+- 1 行の長さの上限は、試作では設けず、大きい行（1 MB 程度）が通るかを確かめる。上限は試作の結果で決める
+
+### 3. メッセージ（JSON-RPC 2.0）
+
+- 最初に、エディタが `initialize` を通知で送る（応答は要らない）
+
+  ```json
+  {"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":1,"processId":1234,"editor":{"name":"UME Editor","version":"0.0.0"},"apiVersion":1,"document":{"path":"C:\\work\\a.txt"}}}
+  ```
+
+  - `processId` はエディタのプロセス ID。`document.path` は、ファイルでなければ null
+- マクロの要求: `{"jsonrpc":"2.0","id":1,"method":"InsText","params":["\u3042"]}`
+  - 引数は、サクラのマクロ API と同じ順の配列
+  - id は 1 から増やす整数
+- エディタの応答: `{"jsonrpc":"2.0","id":1,"result":null}`。失敗なら `{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"..."}}`
+- エラーのコードは JSON-RPC の標準を使う
+  - -32700: 解析できない
+  - -32600: 要求の形が違う
+  - -32601: そのメソッドはない
+  - -32602: 引数が違う
+  - -32603: エディタの中のエラー
+  - エディタ独自のコード（-32000 から -32099）は後で決める
+- 応答が error のとき、ブートは例外を投げる（JavaScript は Error、Python は例外）。利用者は try で受けられる。受けなければ、マクロはエラーで終わり、言語のエラー表示（行番号つき）が標準エラーに出る
+- マクロの終わりは、プロセスの終了で知る。エディタは標準入力を閉じる。終了コードが 0 でなければ、標準エラーと合わせて失敗を出す
+- エディタは、いつでもマクロを止められる（プロセスを終わらせる）。試作では、タイムアウト（既定 30 秒、環境変数で変える）と「マクロの中断」のコマンドを用意する
+
+### 4. マクロとプラグインを分ける
+
+- この仕様はマクロ（1 回走って終わるもの）だけを扱う
+- マクロからエディタへの同期の要求だけを使い、エディタからマクロへの要求はしない
+- 理由: 応答を待っている間にエディタがイベントを処理すると、編集の途中に割り込んでしまう（Codex の指摘）
+- 常駐してイベントを受けるプラグインは、別の形で後で決める
+
+### 5. エディタの側の作り
+
+- 子プロセスの入出力は、UI とは別のスレッドで行う。UI は止めない
+- 要求は UI のスレッドで 1 つずつ実行して、応答を返す（マクロは同期なので、要求は 1 度に 1 つしか来ない）
+- Windows では、コンソールの窓が出ないように子プロセスを起動する（`CREATE_NO_WINDOW`）
+- 利用者の出力の文字コード
+  - Node.js は UTF-8
+  - Python は、環境変数 `PYTHONUTF8=1` を付けて起動し、UTF-8 にする（Windows でパイプにつながった Python の標準出力は、既定では CP932 になるため）
+  - WSH は CP932（第 2 弾で扱う）
+
+### 6. 基本 API
+
+- 名前と引数は、サクラのマクロ API に合わせる（[ADR-0007](../adr/0007-macros-and-plugins.md)）。出典は「出典」を参照
+- API の定義（名前、引数の型、戻り値の型）を 1 か所に書き、そこから言語ごとの関数を前もって作る（生成する）
+  - JavaScript の Proxy のような、どんな名前でも通す呼び出しにはしない（エディタの補完と、引数の確かめのため）
+- 型の対応（null、false、空の配列）は、定義の型から言語ごとに決める
+  - Lisp を試したとき、ライブラリの既定のままだと、JSON の false が Emacs Lisp・Common Lisp・Gauche で「真」と判定された
+  - null は Common Lisp・Gauche・Racket で「真」と判定された
+- 試作で作る API（サクラのヘルプの意味に合わせる）
+  - `GetLineCount`、`GetLineStr`、`InsText`、`AddTail`、`GoFileTop`、`GoFileEnd`、`Up`、`Down`、`SelectAll`、`GetSelectedString`、`IsTextSelected`、`MoveCursor`、`Jump`、`GetFilename`
+  - 例: `GetLineStr(0)` はカーソルの行、`GetLineStr(n)` は n 行目で、全行数より大きければ空文字列
+  - 例: `GetLineCount(0)` の引数は 0 以外ならエラー
+  - 例: `MoveCursor(行, 桁, オプション)` の行と桁は 1 から数え、オプションは 0 が未選択、1 が通常選択、2 が矩形選択
+  - 改行を含むか、桁の単位（文字か UTF-16 か）などの細部は、サクラのソース（`sakura_core/macro/CMacro.cpp` など）で確かめて、分かったことを記録する
+
+## 言語ごとに試した結果
+
+Claude が 2026-10-11 に試した事実。試した場所は、Windows 11 ARM64 の PC と、その上の WSL2（Ubuntu 24.04、aarch64）。Windows の処理系は、WSL から WSL の相互運用のパイプ越しに起動した。試作のエディタ（Rust）からの起動ではない。
+
+### JavaScript・Python・WSH・PowerShell
+
+| 言語 | 基本 API とブートを用意する方法 | エラーの行番号 | 日本語の受け渡し | 起動の時間 |
+|---|---|---|---|---|
+| Node.js | `node --require boot.cjs user.js` で `Editor` をグローバルに置く | ずれない | 問題なし | 測っていない |
+| Python | ブートから `runpy.run_path` で実行する | ずれない | 問題なし | 測っていない |
+| WSH（JScript） | .wsf にブートと利用者のスクリプトを並べる | 番号はずれない（ファイル名は .wsf の名前で出る） | 標準入出力が CP932 で、UTF-8 は化ける。`\uXXXX` なら正しく往復した | 約 40 ms |
+| PowerShell 5.1 | ブートで関数を定義し、利用者のスクリプトをドットソースする | ずれない（`user.ps1:5` と出る） | 標準入力が shift_jis。`\uXXXX` なら正しく往復した | 約 150 ms |
+| AppleScript | Mac がないので試していない | | | |
+
+- Node.js は Linux と Windows、Python は Linux、WSH と PowerShell は Windows ARM64 で試した
+- Node.js の `fs.readSync(0)` で、1.5 秒遅れて届いた応答も正しく待てた（Windows でも。EAGAIN は起きなかった）。WSL 経由のパイプでの結果なので、試作のエディタ（Rust）から起動した場合は PoC で確かめる
+- WSH は、スクリプトのファイルが UTF-16LE（BOM 付き）でないと日本語を読めない。UTF-8 は BOM があってもなくてもエラー。エディタが UTF-16 に変えて渡せば済む
+- WSH の `WScript.Echo` は、ほかの関数に差し替えられない
+- PowerShell 5.1 の `ConvertTo-Json` は、`-Depth`（既定は 2）と `-Compress` が要る。ASCII 以外の文字のエスケープは自分で書く必要がある。ドットソースはフルパスでないと失敗した。この PC に PowerShell 7 は入っていない
+- Windows の `python.exe` は、ストアへ案内するだけのもの（WindowsApps）で、Python は入っていない
+
+### Lisp
+
+Emacs の利用者を考えて調べた。6 つとも、次がすべて通った。
+
+- initialize で送った「あいう😀」（`\uXXXX`、サロゲートペアを含む）をそのまま送り返せる
+- 1.5 秒遅れた応答を待てる
+- 受け取った「日本語の行😀」に「!」を足して返せる
+- スクリプトに直接書いた「漢字かな😀」（UTF-8 のファイル）を正しく送れる
+- 通信の行が ASCII だけ
+
+| 処理系 | 言語 | 最新版 | Windows ARM64 | 起動＋1 往復（Linux / Windows） | エラーの行番号 | ライセンス |
+|---|---|---|---|---|---|---|
+| Emacs（`emacs -Q --batch`） | Emacs Lisp | 31.1（2026-08） | 公式は x64 だけ（エミュレーションで動いた）。MSYS2 に ARM64 版 | 28 ms / 127 ms | `-l` で読むと出ない。ブートで 1 式ずつ読めば出る | GPL-3.0 |
+| SBCL | Common Lisp | 2.6.9（2026-09） | ARM64 版あり（2.6.2 から） | 18 ms / 78 ms | 出る | パブリックドメイン（一部 BSD 系） |
+| Racket | Scheme 系 | 9.3（2026-08） | ARM64 版あり | 約 130 ms / 220 ms | `-f` で読むと出ない | MIT / Apache-2.0 |
+| Babashka | Clojure | 1.13.225（2026-09） | x64 だけ（エミュレーションで動いた） | 14 ms / 52 ms | 出る | EPL-1.0 |
+| Gauche | Scheme | 0.9.15（2024-04） | x64 だけ（エミュレーションで動いた） | 70 ms / 199 ms | 出る | BSD |
+| Hy | Python 上の Lisp | 1.3.1（2026-07） | Python 次第 | 43 ms / 試していない | 出る | MIT |
+
+- Linux の Emacs は 29.3、SBCL は 2.2.9（Ubuntu のパッケージ）で試した
+- 時間は 7 回の中央値で、この PC での目安。Windows の値は、WSL から起動した分を含む（cmd.exe を起動して終えるだけで 26 ms）
+- 起動のしかた（試した形。上の仕様案の起動とは別）
+  - Emacs: `emacs -Q --batch -l boot.el -l user.el`
+  - SBCL: `sbcl --noinform --non-interactive --no-sysinit --no-userinit --load boot.lisp --load user.lisp`
+  - Gauche: `gosh -l boot.scm user.scm`
+  - Babashka: `bb --init boot.clj user.clj`
+  - Racket: `racket -l racket/base -t boot.rkt -f user.rkt`
+  - Hy: Python のブートから `import hy` して `runpy.run_path`
+- Emacs
+  - batch モードの `read-from-minibuffer` は、読む前に標準出力を fflush するので、要求を書いて応答を待つ形で詰まらない（Emacs 31 の `src/minibuf.c` の `read_minibuf_noninteractive`）。`\n` でも `\r` でも行を終える
+  - JSON の関数は Emacs 30 から本体に入っている（29 以前は JSON を使えないビルドがある）。ASCII 以外をそのまま出すので、`\uXXXX` への変換をブートに書いた
+  - `-l user.el` だとエラーに行番号が出ず、バックトレースは標準出力、最後の 1 行だけ標準エラーに出た（Linux の 29.3、Windows の 31.1 とも）。Codex は「マニュアルでは標準エラー」と言ったが、分けて取り直しても標準出力だった。Emacs 31 は `lexical-binding` の指定がないと警告を出す
+  - ブートで利用者のファイルを UTF-8 で 1 式ずつ読んで評価すると、`user_err.el:3: Symbol's function definition is void: ...` と出て、警告も消えた。行番号は、エラーが起きた最上位の式の開始行
+  - 日本語の Windows では、Emacs の既定の文字コードは CP932。今回は UTF-8 と正しく判定されたが、ブートで UTF-8 に固定する
+  - Emacs のバッファーの関数（`insert` など）は UME Editor の文書には効かない。`ume-insert` のような関数を用意する
+- 利用者の設定を読まずに起動する: Emacs は `-Q`、Gauche は `-q`。Babashka はスクリプトの隣とカレントディレクトリの設定ファイル（名前は `bb` で、Clojure のデータ形式の拡張子が付く）を読む。環境変数 `BABASHKA_PRELOADS` にも注意（Codex の指摘）
+- 改行: Linux の Emacs に CRLF を送ると、次の読み取りが空になって失敗した（Windows の Emacs と SBCL は大丈夫だった）
+- 型: ライブラリの既定のままだと、JSON の false が Emacs Lisp・Common Lisp・Gauche で「真」、null が Common Lisp・Gauche・Racket で「真」と判定された
+- 調べた側の勧め: Emacs の利用者には Emacs Lisp（`emacs -Q --batch`）、一般の Lisp には SBCL、3 番手は Racket（すべての対象に公式の版がある）。Babashka・Gauche・Hy は要望が出てから
+- 後回しにするもの
+  - Steel: Rust の Scheme。Helix のプラグインの案はまだ下書き。1.0 前で、Windows ARM64 版の配布なし
+  - nbb: Node の上の Clojure。試していない
+  - ECL: 配布はソースだけ
+  - Guile: Windows でそのまま動く版がまだない
+  - Chez Scheme: Windows は Intel 向けだけ、JSON などの部品なし
+  - Clozure CL: 最後の正式版が 2024 年
+  - CLISP: 2010 年から正式版なし
+- 2026-10-11 にユーザーが決めた: Emacs Lisp を第 2 弾の言語に加える（[ADR-0007](../adr/0007-macros-and-plugins.md)）
+
+### Codex の指摘（1 回目）
+
+JSON-RPC の方式について、Codex が挙げた点。
+
+- 1 回走って終わるマクロと、常駐するプラグインを分ける。イベントの処理中に応答を待つと、編集の状態に割り込む。エディタは UI のスレッドを止めてはいけない
+- ASCII へのエスケープは自分で書く（`JSON.stringify`、json2、PowerShell 5.1 はしない）。サロゲートペア、CRLF、分割して届く読み取り、最大の長さを仕様に書く
+- RS の目印は、改行のない出力や子プロセスの出力で崩れうる。専用の通信路が一番堅い
+- API には、型・戻り値・エラー・版を含む定義と、機能のやり取りが要る。文書の ID、位置の単位、文書の版、まとめての編集、Undo の区切りも要る
+- `cscript //U` で、リダイレクトした入出力が UTF-16 になる
+- PowerShell は、コンソールのない GUI から起動した場合を試す
+- AppleScriptObjC の `availableData` は分割して返るので、ためる必要がある
+- Node.js の issue #35997 に、EOF と EAGAIN の問題の報告がある
+- VBScript は Windows 11 24H2 で「オプション機能」になり（既定で有効）、2027 年ごろに既定で無効になる予定。削除の時期は未定
+- `-ExecutionPolicy Bypass` は、グループポリシーを越えられない
+
+## 決まっていないこと
+
+- 1 行の長さの上限（PoC で 1 MB 程度の行が通るかを見て決める）
+- エディタ独自のエラーコード（-32000 から -32099）
+- 位置の単位（文字か UTF-16 か）。サクラのソースで確かめる
+- プラグインの形（イベントを受ける常駐の形。マクロとは分けて決める）
+- 型の対応（null、false、空の配列を、言語ごとにどう対応させるか）
+- RS の目印の堅さ（改行のない出力、子プロセスの出力で崩れないか。専用の通信路にするかも含めて）
+- Undo のまとまり（1 つのマクロを 1 回の Undo にするか）
+- 機能のやり取りと版（Codex の指摘。`initialize` の `protocolVersion`・`apiVersion` の扱いも含む）
+
+## PoC の順番
+
+1. 試作のエディタ（Rust）から Node.js と Python を起動し、同期の往復を確かめる。遅れた応答、分割して届くデータ、EOF、UI が止まらないこと、タイムアウト
+2. RS の目印が崩れる条件（改行のない出力、子プロセスの出力）
+3. WSH と PowerShell 5.1（文字コード、JSON の深さ）
+4. AppleScript（Mac のセッションで）
+5. エラーの位置、範囲の読み書きの速さ、Undo のまとまり
+
+PoC は別の PR（`poc/gpui-textview`）で作っている。結果はできしだい、この文書に足す。
+
+## 出典
+
+サクラエディタのマクロ API（上流 https://github.com/sakura-editor/sakura ）
+
+- <https://github.com/sakura-editor/sakura/blob/master/sakura_core/macro/CSMacroMgr.cpp>
+- <https://github.com/sakura-editor/sakura/tree/master/help/macro/source/reference>
+
+JSON-RPC と Node.js
+
+- JSON-RPC 2.0: <https://www.jsonrpc.org/specification>
+- Node.js の issue #35997（EOF と EAGAIN）: <https://github.com/nodejs/node/issues/35997>
+
+Lisp の調査
+
+- <https://www.sbcl.org/all-news.html>
+- <https://www.sbcl.org/platform-table.html>
+- <https://ftp.gnu.org/gnu/emacs/windows/emacs-31/>
+- <https://packages.msys2.org/base/mingw-w64-emacs>
+- <https://download.racket-lang.org/releases/9.3/>
+- <https://github.com/shirok/Gauche/releases>
+- <https://github.com/babashka/babashka/releases>
+- <https://github.com/hylang/hy/releases>
+- <https://github.com/mattwparas/steel>
+- <https://github.com/helix-editor/helix/pull/8675>
+- <https://www.gnu.org/software/guile/news/gnu-guile-3011-released.html>
+- <https://github.com/cisco/ChezScheme/releases>
+- <https://github.com/Clozure/ccl/releases>
+- <https://ecl.common-lisp.dev/>
+- <https://github.com/babashka/nbb>
+- <https://github.com/emacs-mirror/emacs/blob/emacs-31/src/minibuf.c>
