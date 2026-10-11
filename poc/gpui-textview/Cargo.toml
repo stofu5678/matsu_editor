@@ -4,6 +4,8 @@ version = "0.0.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 publish = false
+# `cargo run` starts the editor; src/bin/minimal.rs needs `--bin minimal`.
+default-run = "gpui-textview-poc"
 
 # Throwaway PoC for ADR-0004; kept out of the main workspace.
 [workspace]
@@ -18,7 +20,6 @@ self-check = [
     "dep:image",
     "dep:cocoa",
     "dep:objc",
-    "dep:raw-window-handle",
 ]
 
 [dependencies]
@@ -30,6 +31,8 @@ gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = 
 gpui-component = "=0.7.1"
 gpui-base = "=0.7.1"
 zlog = { package = "gpui-pre-zlog", version = "=0.3.8" }
+# The width of characters in the print layout (src/print/layout.rs).
+unicode-width = "0.2"
 
 # macOS: without font-kit, GPUI draws no text at all. runtime_shaders compiles the Metal
 # shaders when the app starts, so the build does not need Xcode's Metal Toolchain.
@@ -38,7 +41,36 @@ gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = 
 # For the self-check only, which posts macOS key events. GPUI uses the same crates.
 cocoa = { version = "0.26", optional = true }
 objc = { version = "0.2", optional = true }
-raw-window-handle = { version = "0.6", optional = true }
+# Printing (src/print/mac.rs): AppKit's print panel and Core Text, through the crates and the
+# versions that GPUI uses.
+raw-window-handle = "0.6"
+futures-channel = "0.3"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry", "NSObject", "NSRange", "NSString", "NSURL", "NSDictionary"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    "objc2-core-foundation",
+    "objc2-core-graphics",
+    "NSGraphicsContext",
+    "NSPrintInfo",
+    "NSPrintOperation",
+    "NSPrintPanel",
+    "NSResponder",
+    "NSView",
+    "NSWindow",
+] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFArray", "CFAttributedString", "CFCGTypes", "CFDictionary", "CFNumber", "CFString", "CFURL"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = [
+    "std",
+    "CGBitmapContext",
+    "CGColorSpace",
+    "CGContext",
+    "CGFont",
+    "CGImage",
+    "CGPDFDocument",
+    "CGPDFPage",
+] }
+objc2-core-text = { version = "0.3", default-features = false, features = ["std", "objc2-core-graphics", "CTFont", "CTLine", "CTRun", "CTStringAttributes"] }
 
 # Linux: the icons of the title bar buttons that the window draws itself on Wayland without
 # server-side decorations (WSLg).
