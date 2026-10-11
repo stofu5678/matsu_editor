@@ -9,7 +9,7 @@
 | [0005](0005-text-buffer-and-large-files.md) | テキストバッファと巨大ファイル | 決定（細部は Phase 1・6 で詰める。当面は 2GB まで: 0012） |
 | [0006](0006-regex-engine.md) | 正規表現エンジン | 決定 |
 | [0007](0007-macros-and-plugins.md) | マクロとプラグイン | 提案中（Phase 3 の前に確定。キーマクロ以外は JSON-RPC。初期は JavaScript と Python） |
-| [0008](0008-commands-and-keybindings.md) | コマンドとキー割り当て | 決定（macOS のキーの読み替えは提案中。キー割り当てのファイルは 0010） |
+| [0008](0008-commands-and-keybindings.md) | コマンドとキー割り当て | 決定（キー割り当てのファイルは 0010） |
 | [0009](0009-initial-development-target.md) | 初期開発の対象（Windows ARM64 を優先） | 決定 |
 | [0010](0010-sakura-compatible-settings.md) | 設定ファイルをサクラと互換にする | 決定 |
 | [0011](0011-printing.md) | 印刷 | 決定（細部は Phase 4 で詰める） |

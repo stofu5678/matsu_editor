@@ -1,7 +1,7 @@
 # ADR-0008: コマンドとキー割り当て
 
-- 状態: 決定（macOS のキーの読み替えは提案中。キー割り当てのファイルの形式は [0010](0010-sakura-compatible-settings.md) で置き換え）
-- 日付: 2026-10-08
+- 状態: 決定（キー割り当てのファイルの形式は [0010](0010-sakura-compatible-settings.md) で置き換え）
+- 日付: 2026-10-08（2026-10-11 に、macOS での読み替えを決めた）
 
 ## 決定
 
@@ -10,9 +10,20 @@
 - 既定のキー割り当ては、サクラエディタの表（`sakura_core/func/CKeyBind.cpp`。キーごとに修飾キーの組み合わせ 8 通り）から変換して作る
 - キー割り当ては、独自形式の設定ファイルで変更できる
 
-## 提案中: macOS での読み替え
+## macOS での読み替え
+
+2026-10-11 にユーザーが決めた。
 
 - Ctrl を Cmd に読み替える（Ctrl+S → Cmd+S）
 - Alt を Option に読み替える（矩形選択の Alt+ドラッグ → Option+ドラッグ）
 - Ctrl のままの配列も、切り替えられる設定として用意する
 - Windows と Linux では、サクラの割り当てをそのまま使う
+
+理由: Windows 用の JIS キーボードを Mac につなぐと、macOS は Windows キーを Cmd、Alt キーを Option として扱う。読み替えれば、Mac のほかのアプリと同じく Cmd で操作でき、Alt の割り当ては Windows と同じ Alt キーで押せる。
+
+Phase 1 で決めること:
+
+- Cmd に読み替えると macOS の決まったキーと重なるもの（Cmd+W で閉じる、Cmd+←→ で行頭・行末など）の扱い。UI の試作では Mac の意味にした（[UI の試作の結果](../poc/ui-framework-result.md)）
+- サクラが多く使う F キーの扱い（Mac のキーボードでは fn が要る）
+- Control キーの扱い（Ctrl の別名にするか、macOS の Emacs 風の操作（Control+A で行頭など）に使うか）
+- Option を押しながら打つ文字（JIS キーボードの Option+¥ でのバックスラッシュなど）と、Alt の割り当てがぶつかるときの扱い
