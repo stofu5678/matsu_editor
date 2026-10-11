@@ -1,2 +1,6 @@
 [files]
 extend-exclude = ["*.lock", "*.diff"]
+
+[default.extend-words]
+# bb.edn: Babashka's config file (EDN, the Extensible Data Notation of Clojure).
+edn = "edn"

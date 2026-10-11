@@ -177,7 +177,7 @@ Emacs の利用者を考えて調べた。6 つとも、次がすべて通った
   - ブートで利用者のファイルを UTF-8 で 1 式ずつ読んで評価すると、`user_err.el:3: Symbol's function definition is void: ...` と出て、警告も消えた。行番号は、エラーが起きた最上位の式の開始行
   - 日本語の Windows では、Emacs の既定の文字コードは CP932。今回は UTF-8 と正しく判定されたが、ブートで UTF-8 に固定する
   - Emacs のバッファーの関数（`insert` など）は UME Editor の文書には効かない。`ume-insert` のような関数を用意する
-- 利用者の設定を読まずに起動する: Emacs は `-Q`、Gauche は `-q`。Babashka はスクリプトの隣とカレントディレクトリの設定ファイル（名前は `bb` で、Clojure のデータ形式の拡張子が付く）を読む。環境変数 `BABASHKA_PRELOADS` にも注意（Codex の指摘）
+- 利用者の設定を読まずに起動する: Emacs は `-Q`、Gauche は `-q`。Babashka は、スクリプトの隣かカレントディレクトリにある `bb.edn` を読む。環境変数 `BABASHKA_PRELOADS` にも注意（Codex の指摘）
 - 改行: Linux の Emacs に CRLF を送ると、次の読み取りが空になって失敗した（Windows の Emacs と SBCL は大丈夫だった）
 - 型: ライブラリの既定のままだと、JSON の false が Emacs Lisp・Common Lisp・Gauche で「真」、null が Common Lisp・Gauche・Racket で「真」と判定された
 - 調べた側の勧め: Emacs の利用者には Emacs Lisp（`emacs -Q --batch`）、一般の Lisp には SBCL、3 番手は Racket（すべての対象に公式の版がある）。Babashka・Gauche・Hy は要望が出てから
