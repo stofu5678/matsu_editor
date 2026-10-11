@@ -107,7 +107,7 @@ Windows 版と同じコードを、Mac（Apple M1、macOS 26.1、JIS キーボ�
 - フォント: Mac にあるもの（BIZ UDゴシック、Osaka、Menlo、ヒラギノ角ゴシック）にした
 - 自己確認モード（`--features self-check`）を足した。キーを macOS のキーイベントとして押し、表示を PNG に保存する（[README](../../poc/gpui-textview/README.md)）
 
-Windows の動きは変えていない（Mac のときだけの分岐にした）。変えたあとのコードは、2026-10-10 に Windows x64 でビルドして確かめた（下の「poc/gpui-textview を Windows x64・Linux x64 で動かした結果」）。Windows ARM64 ではまだビルドしていない。
+Windows の動きは変えていない（Mac のときだけの分岐にした）。変えたあとのコードは、2026-10-10 に Windows x64 でビルドして確かめた（下の「poc/gpui-textview を Windows x64・Linux x64 で動かした結果」）。Windows ARM64 ではまだビルドしていない（2026-10-11 追記: 印刷の試作で、Windows ARM64 でもビルドして動かした。[印刷の試作の結果](printing.md)）。
 
 ### 結果
 

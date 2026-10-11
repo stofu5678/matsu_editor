@@ -41,11 +41,12 @@
 - [x] 決定事項の記録（docs/adr/）
 - [x] ライセンス、README、CLAUDE.md
 - [x] GitHub リポジトリを作る（https://github.com/stofu5678/ume_editor 、公開）
-- [ ] Onigmo を fork する（ユーザー）
+- [x] Onigmo の取り込み元を決める（当面は上流をそのまま使い、改修が要るときに fork する。2026-10-11、ユーザー。[ADR-0006](adr/0006-regex-engine.md)）
 - [ ] UI を試作し、ADR-0004 を確定する（まず Windows ARM64 で行う。[ADR-0009](adr/0009-initial-development-target.md)、[試作の手順](poc/ui-framework.md)）
-  - GPUI の試作（[poc/gpui-textview](../poc/gpui-textview/README.md)、[結果](poc/ui-framework-result.md)）が Windows ARM64・x64、Mac、Linux（WSLg）で動いた。文字を書き込むたびにメモリが 4 MB 増える問題は Qualcomm Adreno のドライバーだけで起き、NVIDIA と Mac では起きなかった。残りは、実機の Linux での確認と、Mac 対応を入れた後のコードの Windows ARM64 でのビルド
+  - GPUI の試作（[poc/gpui-textview](../poc/gpui-textview/README.md)、[結果](poc/ui-framework-result.md)）が Windows ARM64・x64、Mac、Linux（WSLg）で動いた。文字を書き込むたびにメモリが 4 MB 増える問題は Qualcomm Adreno のドライバーだけで起き、NVIDIA と Mac では起きなかった。Mac 対応を入れた後のコードも、2026-10-11 に印刷の試作で Windows ARM64 でビルドして動かした。残りは、実機の Linux での確認
 - [x] 印刷を試作する（3 OS でダイアログを出し、日本語の 1 ページを印刷する。共通の割り付けからプレビューも描く。[ADR-0011](adr/0011-printing.md)）
   - 3 OS の分を作った（[poc/gpui-textview](../poc/gpui-textview/README.md)、[結果](poc/printing.md)）。共通の割り付けから、GPUI のプレビューと、Mac（Core Graphics）・Windows（GDI）・Linux（PDF）の印刷を描けて、PDF に出力すると同じ位置に文字が出た。3 OS とも、印刷ダイアログから紙に印刷できた（2026-10-11）。この結果で ADR-0011 を決定にした
 - [ ] JSON-RPC を試作する（別プロセスの JavaScript（Node.js）と Python から、試作のコマンドを呼ぶ。[ADR-0007](adr/0007-macros-and-plugins.md)）
 - [ ] モジュールの構造を決める（[ADR-0013](adr/0013-module-structure.md)。上の試作で確かめ、Phase 1 の始めに確定する）
+  - 構造は ADR-0013 のままでよいと、ユーザーが判断した（2026-10-11）。JSON-RPC の試作で細部を詰める
 - [x] Cargo ワークスペースと CI（Windows x64・ARM64 / macOS / Linux x64・ARM64）
