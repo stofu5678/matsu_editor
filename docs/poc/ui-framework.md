@@ -1,6 +1,6 @@
 # UI フレームワークの試作
 
-[ADR-0004](../adr/0004-ui-framework.md) を確定するための試作。GPUI で作り、基準を満たさない項目があれば Iced でも同じものを作って比べる。
+[ADR-0004](../adr/0004-ui-framework.md) を決めるための試作（2026-10-11 に決定した。結果は [ui-framework-result.md](ui-framework-result.md)）。GPUI で作り、基準を満たさない項目があれば Iced でも同じものを作って比べる。
 
 ## 進め方
 
