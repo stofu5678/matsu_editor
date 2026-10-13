@@ -36,12 +36,12 @@ Windows と同じコードで動く（2026-10-10 から）。Mac に合わせて
 
 ## Linux
 
-Ubuntu 24.04 で確かめた。WSL2（WSLg）での準備は、下の「WSL2（WSLg）で動かす」に順にまとめた。
+Ubuntu 24.04（WSLg）と Ubuntu 26.04.1（Hyper-V の仮想マシンの GNOME の Wayland）で確かめた。WSL2（WSLg）での準備は、下の「WSL2（WSLg）で動かす」に順にまとめた。
 
 - F7 で切り替えるフォントは、Noto Sans Mono CJK JP、Noto Sans CJK JP、DejaVu Sans Mono、Noto Serif CJK JP
-- タイトルバーを描かない Wayland（WSLg など）では、タイトルとボタンを試作が描く（gpui-component の `TitleBar`）。ウィンドウの端での大きさの変更はできない
+- タイトルバーを描かない Wayland（WSLg、GNOME など）では、タイトルとボタンを試作が描く（gpui-component の `TitleBar`）。ウィンドウの端での大きさの変更は、GNOME ではできた（gpui-component の `Root` が付ける枠 `window_border` が受け持つ）が、WSLg ではできなかった
 - ファイルを開くダイアログ（Ctrl+O）と印刷ダイアログ（Ctrl+P）には xdg-desktop-portal が要る。無いときは、ファイルを開くダイアログは下の行に理由を出し、印刷は PDF を保存する
-- 日本語入力は、X11 で起動して、XIM で IME（fcitx5）とつなぐ。Wayland では GPUI は text-input-v3 で IME とやり取りするが、WSLg は IME（fcitx5）が Wayland に入力方式としてつながることを許さないので、この経路は使えない（下の 5）
+- 日本語入力: GNOME の Wayland では、GPUI が text-input-v3 で IME（IBus と Mozc）とつなぐ（[結果](../../docs/poc/ui-framework-result.md)の「Hyper-V の Ubuntu（Wayland）での確認」）。WSLg は IME（fcitx5）が Wayland に入力方式としてつながることを許さないので、X11 で起動して、XIM で IME とつなぐ（下の 5）
 
 ### WSL2（WSLg）で動かす
 

@@ -1,6 +1,6 @@
 # UI フレームワークの試作の結果（GPUI）
 
-この結果で [ADR-0004](../adr/0004-ui-framework.md) を決定にした（2026-10-11）。Linux の確認（Wayland での日本語入力、デスクトップとの統合、GPU での描画）は残っているが、ユーザーが Phase 0 の条件から外した。確かめ方は ADR-0004 の「残っている確認」。
+この結果で [ADR-0004](../adr/0004-ui-framework.md) を決定にした（2026-10-11）。Linux の確認は、ユーザーが Phase 0 の条件から外した。そのうち Wayland での日本語入力とデスクトップとの統合は、2026-10-14 に Hyper-V の Ubuntu で確かめた（下の「Hyper-V の Ubuntu（Wayland）での確認」）。GPU での描画は残っている。確かめ方は ADR-0004 の「残っている確認」。
 
 [試作の手順](ui-framework.md) に沿った結果。試作は次の 2 つで、どちらもブランチ `poc/gpui` で作った。GPUI はどちらも crates.io の `gpui-pre` 0.3.8。
 
@@ -202,13 +202,52 @@ WSLg の Linux のアプリには、Windows の IME（Microsoft IME など）は
 - IME: fcitx5 5.1.7 と Mozc 2.28（Ubuntu 24.04 のパッケージ）。「半角/全角」キーで日本語入力に切り替わった
 - そのまま `fcitx5 -d` で起動すると、すぐに終了していた。WSLg が IME 用の Wayland の接続（`zwp_input_method_v1`）を断り、fcitx5 がそれをエラーとして終了するため。`--disable=wayland,waylandim` を付け、`WAYLAND_DISPLAY` を空にして起動すると動いた
 - 試作は `WAYLAND_DISPLAY=` で X11 を使わせ、`XMODIFIERS=@im=fcitx` を付けて起動する。GPUI は X11 では XIM で IME とつなぐ（ログに `Try connect fcitx`、`XConnected server`）。Wayland では GPUI は text-input-v3 を使うが、WSLg は fcitx5 が Wayland に入力方式としてつながることを許さない（上の `zwp_input_method_v1` のエラー）ので、Wayland のままでは使えない
-- ユーザーの確認: 変換中の文字は入力位置に出た。確定で文字の重複や欠けはなかった。候補の窓は、起動して最初の変換だけウィンドウの左下に出て、2 回目からは入力位置の左下に出た（最初の 1 回だけ位置が IME に伝わっていないとみられる。原因はまだ調べていない）
-- 実機の Linux（GNOME や KDE の Wayland）では、text-input-v3 で Wayland のままつながるはず。まだ確かめていない
+- ユーザーの確認: 変換中の文字は入力位置に出た。確定で文字の重複や欠けはなかった。候補の窓は、起動して最初の変換だけウィンドウの左下に出て、2 回目からは入力位置の左下に出た（最初の 1 回だけ位置が IME に伝わっていないとみられる。原因はまだ調べていない。Wayland では起きなかった）
+- 実機の Linux（GNOME や KDE の Wayland）では、text-input-v3 で Wayland のままつながるはず。まだ確かめていない（2026-10-14 追記: GNOME の Wayland で確かめた。下の「Hyper-V の Ubuntu（Wayland）での確認」）
 
 ### ユーザーに確かめてもらうこと（x64）
 
 - [x] Windows x64: 本物の IME での入力、文字の見え方、Alt キーでのメニュー操作、100 万行のスクロールの滑らかさ
 - [x] Linux x64: 表示（メニュー・日本語・行番号・スクロールバー）、ファイルを開くダイアログ、日本語入力（fcitx5 と Mozc）
+
+## Hyper-V の Ubuntu（Wayland）での確認（2026-10-13〜14）
+
+ADR-0004 の「残っている確認」のうち、Wayland での日本語入力とデスクトップとの統合を確かめた。WSLg では、IME を Wayland の入力方式としてつなげず、タイトルバーもサーバー側で描かないので、試せなかった。開発用の PC の Hyper-V で Ubuntu のデスクトップを動かし、main の `poc/gpui-textview` を WSL2（Ubuntu 24.04 aarch64）で Release ビルドしたもの（機能なし）を写して動かした。
+
+### 環境
+
+- ホスト: Windows 11 Pro（10.0.26200）、Snapdragon X Elite（X1E80100）、メモリ 64 GB
+- 仮想マシン: Hyper-V の第 2 世代、仮想 CPU 4、メモリ 8 GB、セキュアブート（Microsoft UEFI CA のテンプレート）。vmconnect の基本のセッションで試した（拡張セッションは X11（xrdp）の画面になる）
+- ゲスト: Ubuntu 26.04.1 LTS（arm64）、カーネル 7.0.0-38、GNOME 50.1 の Wayland。画面は hyperv_drm で、1024×768 と 1920×1080 で試した
+- 日本語入力: IBus と Mozc 2.29（ibus-mozc）。入力ソースは「日本語 (Mozc)」と「日本語」
+- 描画: GPU は使えない。GPUI は Vulkan のソフトウェア処理（llvmpipe、Mesa 26.0.8）を選んだ
+
+### 結果
+
+ユーザーが確かめて、どれも問題なかった。
+
+- 日本語入力: 変換中の文字が入力位置に下線付きで出た。候補の窓は入力位置の近くに出た。確定、長い文の文節の移動と長さの変更、Esc での取り消し、変換中の BackSpace も正しく動いた
+- タイトルバー: GNOME はタイトルバーをサーバー側で描かない（xdg-decoration がない）ので、GPUI は試作に描かせる（ログ: `Server-side decorations requested, but the Wayland server does not support them. Falling back to client-side decorations.`）。WSLg のときに足した gpui-component の `TitleBar` で、ドラッグでの移動、ダブルクリックでの最大化、最小化・最大化・閉じるのボタンが動いた
+- ウィンドウの端での大きさの変更: できた（WSLg ではできなかった）。試作は作っていないが、gpui-component の `Root` が付ける枠（`window_border`）が端に当たり判定を置き、GPUI の `start_window_resize` を呼ぶ
+- 拡大率: 1920×1080 で 200% にして、文字はぼやけず、配置も崩れず、候補の窓の位置も合っていた
+- ファイルを開くダイアログ（Ctrl+O）と印刷ダイアログ（Ctrl+P）が、xdg-desktop-portal で出た。ほかのアプリとのコピーと貼り付けもできた
+- 最初の描画まで 133 ms（1 回。ソフトウェア描画）
+
+### Wayland での IME とのやり取り
+
+`WAYLAND_DEBUG=1` で起動して、text-input-v3 のやり取りを記録した。
+
+- GPUI は、フォーカスを得ると `enable` に続けて `set_cursor_rectangle` でカーソルの位置を送る（`gpui-pre-linux` の `enable_ime`）。最初の変換の前に位置が伝わるので、WSLg の X11（XIM）で見えた「起動して最初の変換だけ候補の窓がウィンドウの左下に出る」件は起きなかった
+- 変換中は、`preedit_string` が届くたびに GPUI が入力位置を求め、変わっていれば送り直す。確定（`commit_string`）の後は送り直さない
+- 試作は `Window::invalidate_character_coordinates()` を呼んでいない。本番のエディタでは、カーソルが動いたときに呼んで、IME に新しい位置を伝える
+
+### 仮想マシンで起きたことと対処
+
+どれも Hyper-V とゲストの環境の問題で、試作や GPUI の問題ではない。
+
+- ゲストの時計の遅れ: ホストがバッテリーで DRIPS（モダン スタンバイの一番深い状態）に入っている間、仮想マシンが止まり、復帰しても時計が戻らなかった。Windows のイベント（Kernel-Power 507）の `DripsResidencyInUs` の合計 1 時間 57 分と、遅れの約 1 時間 57 分が一致した。AC 電源のときは DRIPS に入らず、遅れなかった。時計が遅れていると、Ubuntu のインストーラーの apt が `Release file ... is not valid yet` で失敗する。Linux の hv_utils のモジュール引数 `timesync_implicit=1`（ゲストがホストより 5 秒以上遅れたら、ホストから届く時刻で合わせ直す。`drivers/hv/hv_util.c` の `hv_implicit_sync`）を `/etc/modprobe.d/` に置いた。時計を 120 秒戻す試験では、15 秒以内に戻った
+- 半角/全角キー: vmconnect は、JIS キーボードの半角/全角キーを押すと「離す」と「押す」を続けて送り、指を離したときは何も送らない。ゲストではキーが押されたままになり、GNOME のキーの繰り返しで Mozc の入力モードが切り替わり続けた。このキーだけ繰り返さない XKB のオプションを `~/.config/xkb` に作り、GNOME の `xkb-options` に入れて直した。gnome-shell 50.1 は、`xkb-options` を変えてもその場では反映しない（`keyboardManager.js` の `reapply()` が何もしない）ので、入力ソースを切り替えて反映させた
+- vmconnect の「クリップボードのテキストを入力」は、Linux のゲストでは使えなかった（空白が d に、`$` が j になるなど、文字の番号がキーの番号として届く）。コマンドは SSH で送った（Windows の `ssh.exe` を使う。WSL からは Hyper-V の Default Switch に届かない）
 
 ## Mac での試作（`poc/gpui`）
 

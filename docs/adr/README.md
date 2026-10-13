@@ -5,7 +5,7 @@
 | [0001](0001-project-approach.md) | プロジェクトの方針と進め方 | 決定（設定は 0010、順序は 0012 で置き換え） |
 | [0002](0002-target-platforms.md) | 対象プラットフォーム | 決定（初期開発の対象は 0009） |
 | [0003](0003-language-and-license.md) | 言語とライセンス | 決定 |
-| [0004](0004-ui-framework.md) | UI フレームワーク | 決定（Linux の Wayland と GPU での確認は残っている） |
+| [0004](0004-ui-framework.md) | UI フレームワーク | 決定（Linux の GPU での確認は残っている） |
 | [0005](0005-text-buffer-and-large-files.md) | テキストバッファと巨大ファイル | 決定（細部は Phase 1・6 で詰める。当面は 2GB まで: 0012） |
 | [0006](0006-regex-engine.md) | 正規表現エンジン | 決定 |
 | [0007](0007-macros-and-plugins.md) | マクロとプラグイン | 提案中（Phase 3 の前に確定。キーマクロ以外は JSON-RPC。初期は JavaScript と Python） |
