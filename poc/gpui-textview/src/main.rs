@@ -33,6 +33,18 @@ static ALLOC: memstat::CountingAlloc = memstat::CountingAlloc;
 
 static START: OnceLock<Instant> = OnceLock::new();
 
+static FIRST_FRAME_DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// `POC_TRACE_STARTUP` prints the time since `main()` at each startup step, until the first frame.
+fn trace(step: &str) {
+    if let Some(start) = START.get()
+        && !FIRST_FRAME_DONE.load(std::sync::atomic::Ordering::Relaxed)
+        && flag("POC_TRACE_STARTUP")
+    {
+        eprintln!("{:8.1} ms  {step}", start.elapsed().as_secs_f64() * 1000.);
+    }
+}
+
 const WINDOW_TITLE: &str = "UME Editor GPUI PoC";
 
 actions!(
@@ -981,6 +993,7 @@ impl Element for EditorElement {
         window: &mut Window,
         cx: &mut App,
     ) -> Prepaint {
+        trace("EditorElement::prepaint");
         let editor = self.editor.read(cx);
         let style = window.text_style();
         let font_size = style.font_size.to_pixels(window.rem_size());
@@ -1176,6 +1189,7 @@ impl Element for EditorElement {
             {
                 let ms = start.elapsed().as_secs_f64() * 1000.;
                 eprintln!("first frame: {ms:.1} ms");
+                FIRST_FRAME_DONE.store(true, std::sync::atomic::Ordering::Relaxed);
                 editor.first_frame_ms = Some(ms);
             }
             editor.layout = Some(LayoutCache {
@@ -1437,6 +1451,7 @@ impl Workspace {
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        trace("Workspace::render");
         let ui_font = gpui_component::Theme::global(cx).font_family.clone();
         // A Wayland compositor without server-side decorations, such as WSLg's, leaves the title
         // bar and its buttons to the app.
@@ -1725,11 +1740,15 @@ fn main() {
     }
     #[cfg(feature = "self-check")]
     let self_check = self_check::take_arg();
+    trace("main");
     let app = application();
+    trace("application() done");
     #[cfg(target_os = "linux")]
     let app = app.with_assets(gpui_kit_assets::Assets);
     app.run(move |cx: &mut App| {
+        trace("run callback");
         gpui_component::init(cx);
+        trace("gpui_component::init done");
         if std::env::var("POC_TEXT_MODE").as_deref() == Ok("grayscale") {
             cx.set_text_rendering_mode(gpui::TextRenderingMode::Grayscale);
         }
@@ -1757,6 +1776,7 @@ fn main() {
         })
         .detach();
 
+        trace("app setup done");
         let bounds = Bounds::centered(None, size(px(1000.), px(700.)), cx);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -1767,6 +1787,7 @@ fn main() {
             ..Default::default()
         };
         let build = |window: &mut Window, cx: &mut App| {
+            trace("window created, building views");
             let editor = cx.new(Editor::new);
             window.focus(&editor.focus_handle(cx), cx);
             let menu_bar = MenuBar::new(cx.get_menus().unwrap_or_default(), cx);
@@ -1794,6 +1815,7 @@ fn main() {
             })
             .expect("failed to open window");
         }
+        trace("open_window returned");
         cx.activate(true);
         #[cfg(feature = "self-check")]
         if let Some(dir) = self_check {

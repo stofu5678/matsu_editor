@@ -1,0 +1,233 @@
+Patch for gpui-pre-windows 0.3.8 (src/), which is derived from GPUI
+(https://github.com/zed-industries/zed, crates/gpui_windows) and licensed under
+the Apache License 2.0. Modified for the UME Editor PoC, to investigate issue #23
+(slow startup on Windows x64). It only adds measurements and switches:
+
+- POC_TRACE_STARTUP=1: prints the wall time and the thread's CPU time of each
+  startup step of the platform (DirectWrite, DXGI, D3D11 device).
+- POC_FONT_NO_UPDATE_CHECK=1: calls GetSystemFontCollection with
+  checkForUpdates = false at startup.
+- POC_D3D_TWICE=1: creates the D3D11 device a second time, to time it warm.
+- POC_PRELOAD=<driver dir>: loads the NVIDIA driver's DLLs before creating the
+  device, to time the loads.
+
+Apply in a copy of the crate with `patch -p1`.
+
+diff -ru a/src/direct_write.rs b/src/direct_write.rs
+--- a/src/direct_write.rs	2026-10-14 06:17:00.645823430 +0900
++++ b/src/direct_write.rs	2026-10-14 06:17:00.880483276 +0900
+@@ -167,7 +167,7 @@
+ impl DirectWriteTextSystem {
+     /// Creates the text system, able to rasterize color glyphs once it has `directx_devices`.
+     pub(crate) fn new(directx_devices: Option<&DirectXDevices>) -> Result<Self> {
+-        let factory: IDWriteFactory5 = unsafe { DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)? };
++        let factory: IDWriteFactory5 = tm!("DWriteCreateFactory", unsafe { DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)? });
+         // The `IDWriteInMemoryFontFileLoader` here is supported starting from
+         // Windows 10 Creators Update, which consequently requires the entire
+         // `DirectWriteTextSystem` to run on `win10 1703`+.
+@@ -181,8 +181,8 @@
+ 
+         let gpu_state = directx_devices.map(GPUState::new).transpose()?;
+ 
+-        let system_subpixel_rendering = get_system_subpixel_rendering();
+-        let system_ui_font_name = get_system_ui_font_name();
++        let system_subpixel_rendering = tm!("get_system_subpixel_rendering", get_system_subpixel_rendering());
++        let system_ui_font_name = tm!("get_system_ui_font_name", get_system_ui_font_name());
+         let components = DirectWriteComponents {
+             locale,
+             factory,
+@@ -193,13 +193,13 @@
+             system_subpixel_rendering,
+         };
+ 
+-        let system_font_collection = unsafe {
++        let system_font_collection = tm!("GetSystemFontCollection", unsafe {
+             let mut result = None;
+             components
+                 .factory
+-                .GetSystemFontCollection(false, &mut result, true)?;
++                .GetSystemFontCollection(false, &mut result, std::env::var_os("POC_FONT_NO_UPDATE_CHECK").is_none())?;
+             result.context("Failed to get system font collection")?
+-        };
++        });
+         let custom_font_set = unsafe { components.builder.CreateFontSet()? };
+         let custom_font_collection = unsafe {
+             components
+diff -ru a/src/directx_devices.rs b/src/directx_devices.rs
+--- a/src/directx_devices.rs	2026-10-14 06:17:00.664252299 +0900
++++ b/src/directx_devices.rs	2026-10-14 06:17:00.840412623 +0900
+@@ -47,9 +47,9 @@
+     pub(crate) fn new() -> Result<Self> {
+         let debug_layer_available = check_debug_layer_available();
+         let dxgi_factory =
+-            get_dxgi_factory(debug_layer_available).context("Creating DXGI factory")?;
++            tm!("CreateDXGIFactory2", get_dxgi_factory(debug_layer_available)).context("Creating DXGI factory")?;
+         let (adapter, device, device_context, feature_level) =
+-            get_adapter(&dxgi_factory, debug_layer_available).context("Getting DXGI adapter")?;
++            tm!("get_adapter (D3D11CreateDevice)", get_adapter(&dxgi_factory, debug_layer_available)).context("Getting DXGI adapter")?;
+         match feature_level {
+             D3D_FEATURE_LEVEL_11_1 => {
+                 log::info!("Created device with Direct3D 11.1 feature level.")
+@@ -113,7 +113,7 @@
+     D3D_FEATURE_LEVEL,
+ )> {
+     for adapter_index in 0.. {
+-        let adapter: IDXGIAdapter1 = unsafe { dxgi_factory.EnumAdapters(adapter_index)?.cast()? };
++        let adapter: IDXGIAdapter1 = tm!("EnumAdapters", unsafe { dxgi_factory.EnumAdapters(adapter_index)?.cast()? });
+         if let Ok(desc) = unsafe { adapter.GetDesc1() } {
+             let gpu_name = String::from_utf16_lossy(&desc.Description)
+                 .trim_matches(char::from(0))
+@@ -124,14 +124,27 @@
+         // the device if it does.
+         let mut context: Option<ID3D11DeviceContext> = None;
+         let mut feature_level = D3D_FEATURE_LEVEL::default();
+-        if let Some(device) = get_device(
++        // POC_PRELOAD=<dir>: load the driver's DLLs before creating the device, to time them.
++        if let Some(dir) = std::env::var_os("POC_PRELOAD") {
++            let dir = dir.to_string_lossy().into_owned();
++            for name in ["d3d11.dll", "nvldumdx.dll", "NvMemMapStoragex.dll", "nvgpucomp64.dll", "nvwgf2umx.dll", "nvppex.dll", "C:\\Windows\\System32\\nvspcap64.dll"] {
++                let path = if name.contains('\\') || name == "d3d11.dll" { name.to_string() } else { format!("{dir}\\{name}") };
++                let wide = windows::core::HSTRING::from(path.as_str());
++                let r = tm!(format!("LoadLibrary {name}"), unsafe { windows::Win32::System::LibraryLoader::LoadLibraryW(&wide) });
++                if let Err(e) = r { eprintln!("      failed: {e}"); }
++            }
++        }
++        if let Some(device) = tm!("get_device #1", get_device(
+             &adapter,
+             Some(&mut context),
+             Some(&mut feature_level),
+             debug_layer_available,
+-        )
++        ))
+         .log_err()
+         {
++            if std::env::var_os("POC_D3D_TWICE").is_some() {
++                let _ = tm!("get_device #2", get_device(&adapter, None, None, debug_layer_available));
++            }
+             return Ok((adapter, device, context.unwrap(), feature_level));
+         }
+     }
+diff -ru a/src/gpui_windows.rs b/src/gpui_windows.rs
+--- a/src/gpui_windows.rs	2026-10-14 06:17:00.706030671 +0900
++++ b/src/gpui_windows.rs	2026-10-14 06:17:00.853480546 +0900
+@@ -1,5 +1,24 @@
+ #![cfg(target_os = "windows")]
+ 
++fn thread_cpu_ms() -> (f64, f64) {
++    use windows::Win32::{Foundation::FILETIME, System::Threading::*};
++    let (mut a, mut b, mut k, mut u) = (FILETIME::default(), FILETIME::default(), FILETIME::default(), FILETIME::default());
++    unsafe { let _ = GetThreadTimes(GetCurrentThread(), &mut a, &mut b, &mut k, &mut u); }
++    let f = |t: FILETIME| ((t.dwHighDateTime as u64) << 32 | t.dwLowDateTime as u64) as f64 / 10_000.;
++    (f(u), f(k))
++}
++macro_rules! tm {
++    ($l:expr, $e:expr) => {{
++        let t = std::time::Instant::now();
++        let (u0, k0) = crate::thread_cpu_ms();
++        let r = $e;
++        if std::env::var_os("POC_TRACE_STARTUP").is_some() {
++            let (u1, k1) = crate::thread_cpu_ms();
++            eprintln!("    [gpui] {:7.1} ms  (cpu user {:5.1} kernel {:5.1})  {}", t.elapsed().as_secs_f64() * 1000., u1 - u0, k1 - k0, $l);
++        }
++        r
++    }};
++}
+ mod clipboard;
+ mod destination_list;
+ mod dialog;
+diff -ru a/src/platform.rs b/src/platform.rs
+--- a/src/platform.rs	2026-10-14 06:17:00.726148293 +0900
++++ b/src/platform.rs	2026-10-14 06:17:00.797030687 +0900
+@@ -179,13 +179,13 @@
+ impl WindowsPlatform {
+     pub fn new(headless: bool) -> Result<Self> {
+         unsafe {
+-            OleInitialize(None).context("unable to initialize Windows OLE")?;
++            tm!("OleInitialize", OleInitialize(None)).context("unable to initialize Windows OLE")?;
+         }
+         // A platform that can become windowed needs the real text system from the start: the app
+         // keeps the one it's created with. It gets DirectX devices when it becomes windowed.
+         let (text_system, direct_write_text_system) = if !headless {
+             let dw_text_system = Arc::new(
+-                DirectWriteTextSystem::new(None).context("Error creating DirectWriteTextSystem")?,
++                tm!("DirectWriteTextSystem::new", DirectWriteTextSystem::new(None)).context("Error creating DirectWriteTextSystem")?,
+             );
+             (
+                 dw_text_system.clone() as Arc<dyn PlatformTextSystem>,
+@@ -216,7 +216,7 @@
+             directx_devices: None,
+             dispatcher: None,
+         };
+-        let result = unsafe {
++        let result = tm!("CreateWindowExW(platform)", unsafe {
+             CreateWindowExW(
+                 WINDOW_EX_STYLE(0),
+                 PLATFORM_WINDOW_CLASS_NAME,
+@@ -231,7 +231,7 @@
+                 None,
+                 Some(&raw const context as *const _),
+             )
+-        };
++        });
+         let inner = context
+             .inner
+             .take()
+@@ -249,14 +249,14 @@
+ 
+         let drop_target_helper: Option<IDropTargetHelper> = if !headless {
+             Some(unsafe {
+-                CoCreateInstance(&CLSID_DragDropHelper, None, CLSCTX_INPROC_SERVER)
++                tm!("CoCreateInstance(DragDropHelper)", CoCreateInstance(&CLSID_DragDropHelper, None, CLSCTX_INPROC_SERVER))
+                     .context("Error creating drop target helper.")?
+             })
+         } else {
+             None
+         };
+         let icon = if !headless {
+-            load_icon().unwrap_or_default()
++            tm!("load_icon", load_icon()).unwrap_or_default()
+         } else {
+             HICON::default()
+         };
+@@ -275,7 +275,7 @@
+             direct_write_text_system,
+             suspend_resume_notification: RefCell::new(None),
+             disable_direct_composition,
+-            has_package_identity: has_package_identity(),
++            has_package_identity: tm!("has_package_identity", has_package_identity()),
+             drop_target_helper,
+             invalidate_devices: Arc::new(AtomicBool::new(false)),
+             app_identity: RefCell::new(None),
+@@ -394,26 +394,26 @@
+             .initial_windowing
+             .borrow_mut()
+             .take()
+-            .unwrap_or_else(|| WindowingRequest::Windowed(GraphicalEnvironment::detect()));
++            .unwrap_or_else(|| WindowingRequest::Windowed(tm!("GraphicalEnvironment::detect", GraphicalEnvironment::detect())));
+         let WindowingRequest::Windowed(environment) = request else {
+             return;
+         };
+-        if let Err(error) = check_can_show_windows(&environment) {
++        if let Err(error) = tm!("check_can_show_windows", check_can_show_windows(&environment)) {
+             log::info!("starting headless: {error:#}");
+             return;
+         }
+-        self.attach_gpu()
++        tm!("attach_gpu", self.attach_gpu())
+             .unwrap_or_else(|error| panic!("failed to initialize DirectX: {error:#}"));
+     }
+ 
+     /// Creates the DirectX devices that windows draw with, and starts vsync.
+     fn attach_gpu(&self) -> Result<()> {
+-        let devices = DirectXDevices::new().context("Creating DirectX devices")?;
++        let devices = tm!("DirectXDevices::new", DirectXDevices::new()).context("Creating DirectX devices")?;
+         if let Some(text_system) = &self.direct_write_text_system {
+-            text_system.handle_gpu_lost(&devices)?;
++            tm!("text_system.handle_gpu_lost", text_system.handle_gpu_lost(&devices))?;
+         }
+         *self.inner.state.directx_devices.borrow_mut() = Some(devices);
+-        self.begin_vsync_thread();
++        tm!("begin_vsync_thread", self.begin_vsync_thread());
+         Ok(())
+     }
+ 

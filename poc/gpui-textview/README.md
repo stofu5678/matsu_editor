@@ -13,6 +13,7 @@
 - 環境変数 `POC_NO_MENU` / `POC_NO_ROOT` / `POC_NO_TEXT` / `POC_UI_FONT=<フォント名>`: メモリを測るための切り替え
 - 環境変数 `POC_MEMSTAT=<秒>`: 起動してその秒数が経ったら、メモリの内訳を `memstat-<プロセスID>.txt` に書き出す（Windows のみ。Rust のヒープ、Win32 のヒープ、領域の種類ごとの量、大きい確保の一覧）
 - 環境変数 `RUST_LOG=info`: GPUI のログ（選ばれた GPU など）を標準エラーに出す
+- 環境変数 `POC_TRACE_STARTUP=1`: `main()` から最初の描画までの各段階の時刻を標準エラーに出す。Windows で GPUI の中の段階（DirectWrite のフォント一覧、Direct3D 11 のデバイスの作成など）まで分けるには、`patches/gpui-pre-windows-startup-trace.diff` を下の「GPU ドライバーでメモリが増える問題の回避」と同じ手順で当てる（#23）
 - 環境変数 `POC_TEXT_MODE=grayscale`: 文字をグレースケールで描く（既定は Windows の設定に従い、ClearType ならサブピクセル）
 
 ## GPU ドライバーでメモリが増える問題の回避
