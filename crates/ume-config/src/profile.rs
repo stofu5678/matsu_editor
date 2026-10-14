@@ -557,11 +557,12 @@ fn write_replacing(path: &Path, bytes: &[u8]) -> io::Result<()> {
             COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
         let tmp = std::path::PathBuf::from(name);
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&tmp)
-        {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        // Private from the first byte: the file may be made more open below, to match the file it replaces.
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        match options.open(&tmp) {
             Ok(file) => break (tmp, file),
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists && attempt < 100 => attempt += 1,
             Err(e) => return Err(e),

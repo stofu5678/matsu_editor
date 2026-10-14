@@ -156,21 +156,33 @@ impl<'a> Scanner<'a> {
         Some(value)
     }
 
-    /// `%06x`: skips white space, then reads at most 6 characters, which may start with `0x`.
+    /// `%06x`: skips white space, then reads at most 6 characters: an optional sign, an optional `0x` and hex
+    /// digits (a minus sign negates the unsigned value).
     fn hex6(&mut self) -> Option<u32> {
         let s = self.rest.trim_start_matches(is_space);
         let window: String = s.chars().take(6).collect();
-        let (digits, prefix) = match window.get(..2) {
-            Some("0x" | "0X") => (&window[2..], 2),
-            _ => (window.as_str(), 0),
+        let (negative, sign_len) = match window.chars().next() {
+            Some('-') => (true, 1),
+            Some('+') => (false, 1),
+            _ => (false, 0),
         };
+        let after_sign = &window[sign_len..];
+        let prefix = match after_sign.get(..2) {
+            Some("0x" | "0X") => 2,
+            _ => 0,
+        };
+        let digits = &after_sign[prefix..];
         let len = digits.chars().take_while(char::is_ascii_hexdigit).count();
         if len == 0 {
             return None;
         }
         let value = u32::from_str_radix(&digits[..len], 16).ok()?;
-        self.rest = &s[prefix + len..];
-        Some(value)
+        self.rest = &s[sign_len + prefix + len..];
+        Some(if negative {
+            value.wrapping_neg()
+        } else {
+            value
+        })
     }
 
     /// A literal character, which must follow directly (`scanf` does not skip white space before it).
@@ -358,6 +370,11 @@ mod tests {
             Some([1, 0, 0xff8000, 0xfffbf0, 1])
         );
         assert_eq!(scan_color("1,0,0,0,0"), Some([1, 0, 0, 0, 0]));
+        // Signs and a 0x prefix count inside the 6 characters of `%06x`.
+        assert_eq!(scan_color("1,0,+ff,0x10,0"), Some([1, 0, 0xff, 0x10, 0]));
+        assert_eq!(scan_color("1,0,-1,0,0"), Some([1, 0, u32::MAX, 0, 0]));
+        assert_eq!(scan_color("1,0,0x1234,0,0"), Some([1, 0, 0x1234, 0, 0]));
+        assert_eq!(scan_color("1,0,0x,0,0"), None);
         // %06x stops after 6 characters, so a longer number does not match the following comma.
         assert_eq!(scan_color("1,0,ff80000,0,0"), None);
         assert_eq!(scan_color("1,0,ff8000,fffbf0"), None);
