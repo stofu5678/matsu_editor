@@ -6,6 +6,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use super::*;
+use crate::encoding::Encoding;
+
+const UTF8: EncodingCodec = EncodingCodec(Encoding::Utf8);
 
 // ---- helpers ----
 
@@ -37,7 +40,7 @@ fn save(d: &Document) -> Vec<u8> {
     for c in d.chunks() {
         match c.unwrap() {
             Chunk::Original(b) => out.extend_from_slice(&b),
-            Chunk::Added(s) => Utf8Codec.encode(&s, &mut out).unwrap(),
+            Chunk::Added(s) => UTF8.encode(&s, &mut out).unwrap(),
         }
     }
     out
@@ -574,19 +577,19 @@ struct Stateful;
 
 impl Codec for Stateful {
     fn decode(&self, bytes: &[u8], out: &mut String) {
-        Utf8Codec.decode(bytes, out);
+        UTF8.decode(bytes, out);
     }
     fn find_eol(&self, bytes: &[u8], from: usize) -> Option<(usize, Eol)> {
-        Utf8Codec.find_eol(bytes, from)
+        UTF8.find_eol(bytes, from)
     }
     fn eol_bytes(&self, eol: Eol) -> Option<&'static [u8]> {
-        Utf8Codec.eol_bytes(eol)
+        UTF8.eol_bytes(eol)
     }
     fn char_len(&self, bytes: &[u8], i: usize) -> usize {
-        Utf8Codec.char_len(bytes, i)
+        UTF8.char_len(bytes, i)
     }
     fn encode(&self, text: &str, out: &mut Vec<u8>) -> std::result::Result<(), Unmappable> {
-        Utf8Codec.encode(text, out)
+        UTF8.encode(text, out)
     }
     fn is_stateless(&self) -> bool {
         false
@@ -608,14 +611,14 @@ fn a_stateful_encoding_is_converted_at_load_time() {
 
 #[test]
 fn a_source_over_the_limit_is_refused() {
-    let err = Document::with_limit(MemorySource::new(vec![b'a'; 10]), Arc::new(Utf8Codec), 5)
-        .unwrap_err();
+    let err =
+        Document::with_limit(MemorySource::new(vec![b'a'; 10]), Arc::new(UTF8), 5).unwrap_err();
     assert!(matches!(
         err,
         BufferError::SourceTooLarge { len: 10, max: 5 }
     ));
     assert!(err.to_string().contains("too large"));
-    assert!(Document::with_limit(MemorySource::new(vec![b'a'; 5]), Arc::new(Utf8Codec), 5).is_ok());
+    assert!(Document::with_limit(MemorySource::new(vec![b'a'; 5]), Arc::new(UTF8), 5).is_ok());
     assert_eq!(DEFAULT_MAX_SOURCE_LEN, 2_147_483_648);
 }
 
@@ -638,14 +641,14 @@ impl Source for Flaky {
 
 #[test]
 fn read_errors_are_reported() {
-    let mut d = Document::new(Flaky(b"abc\ndef".to_vec()), Arc::new(Utf8Codec)).unwrap();
+    let mut d = Document::new(Flaky(b"abc\ndef".to_vec()), Arc::new(UTF8)).unwrap();
     // The whole-file piece is readable; a part of it is not.
     assert!(matches!(d.line(0), Err(BufferError::Io(_))));
     // Positions that need a part of the original fail the same way, and do not change the document.
     assert!(d.insert(Pos::new(1, 2), "x").is_err());
     assert_eq!(d.piece_count(), 1);
     // The positions after the edit need a read that fails: the edit is not applied.
-    let mut d = Document::new(Flaky(b"abc".to_vec()), Arc::new(Utf8Codec)).unwrap();
+    let mut d = Document::new(Flaky(b"abc".to_vec()), Arc::new(UTF8)).unwrap();
     assert!(d.insert(Pos::new(0, 1), "x").is_err());
     assert_eq!(d.piece_count(), 1);
     assert_eq!(d.line_count(), 1);
@@ -747,4 +750,93 @@ fn smoke_test_20_mb() {
 #[ignore = "slow in debug builds; run with --release --ignored --nocapture to see the numbers"]
 fn smoke_test_100_mb() {
     smoke(100 << 20);
+}
+
+// ---- steps that decode to more than one char ----
+
+/// `char_len` can return 2 for a pair that decodes to two stand-ins (the NEC-selected IBM
+/// extension 0xED40 in Shift_JIS, a lone surrogate in UTF-16; see `encoding/mod.rs`). A column
+/// between those two chars cannot be a raw offset, so it is rounded down to the start of the pair.
+#[test]
+fn a_column_between_the_chars_of_one_step_rounds_down() {
+    let bytes = [b'a', 0xED, 0x40, b'b', b'\n', b'c'];
+    let mut text = String::new();
+    EncodingCodec(Encoding::ShiftJis).decode(&bytes[..4], &mut text);
+    let pair = stand_in_pair(&text);
+    // The test is only meaningful if the pair really is two chars of 4 bytes each.
+    assert_eq!(pair.chars().count(), 2, "{text:?}");
+    assert_eq!(text.len(), 1 + 4 + 4 + 1);
+
+    let d = Document::new(
+        MemorySource::new(bytes.to_vec()),
+        Arc::new(EncodingCodec(Encoding::ShiftJis)),
+    )
+    .unwrap();
+    assert_eq!(d.line_len(0).unwrap(), Some(10));
+    // Columns 1 (before the pair), 5 (between), 9 (after).
+    assert_eq!(d.clamp_pos(Pos::new(0, 1)).unwrap(), Pos::new(0, 1));
+    assert_eq!(d.clamp_pos(Pos::new(0, 5)).unwrap(), Pos::new(0, 1));
+    assert_eq!(d.clamp_pos(Pos::new(0, 3)).unwrap(), Pos::new(0, 1));
+    assert_eq!(d.clamp_pos(Pos::new(0, 9)).unwrap(), Pos::new(0, 9));
+    assert_eq!(d.text_between(Pos::new(0, 0), Pos::new(0, 5)).unwrap(), "a");
+    assert_eq!(
+        d.text_between(Pos::new(0, 1), Pos::new(0, 9)).unwrap(),
+        pair
+    );
+
+    // An edit at the middle column lands before the pair and keeps every byte.
+    let mut d = d;
+    let edit = d.insert(Pos::new(0, 5), "X").unwrap();
+    assert_eq!(edit.start, Pos::new(0, 1));
+    assert_eq!(edit.end, Pos::new(0, 2));
+    assert_eq!(save_with(&d, Encoding::ShiftJis), b"aX\xED\x40b\nc");
+    // Deleting up to the middle column deletes nothing of the pair.
+    let mut d2 = d.clone();
+    d2.delete(Pos::new(0, 0), Pos::new(0, 6)).unwrap();
+    assert_eq!(save_with(&d2, Encoding::ShiftJis), b"\xED\x40b\nc");
+    d.check_invariants();
+}
+
+fn stand_in_pair(text: &str) -> String {
+    text.chars()
+        .filter(|&c| c as u32 >= INVALID_BYTE_BASE)
+        .collect()
+}
+
+/// A lone surrogate in UTF-16 LE is one step of 2 bytes that decodes to 2 stand-ins.
+#[test]
+fn a_column_inside_a_lone_surrogate_rounds_down() {
+    let bytes = [b'a', 0, 0x00, 0xD8, b'b', 0];
+    let mut d = Document::new(
+        MemorySource::new(bytes.to_vec()),
+        Arc::new(EncodingCodec(Encoding::Utf16Le)),
+    )
+    .unwrap();
+    assert_eq!(d.line_len(0).unwrap(), Some(1 + 8 + 1));
+    assert_eq!(d.clamp_pos(Pos::new(0, 5)).unwrap(), Pos::new(0, 1));
+    assert_eq!(d.clamp_pos(Pos::new(0, 9)).unwrap(), Pos::new(0, 9));
+    d.insert(Pos::new(0, 5), "X").unwrap();
+    // The lone surrogate is still one unit in the original bytes.
+    let originals: Vec<u8> = d
+        .chunks()
+        .filter_map(|c| match c.unwrap() {
+            Chunk::Original(b) => Some(b.into_owned()),
+            Chunk::Added(_) => None,
+        })
+        .flatten()
+        .collect();
+    assert_eq!(originals, bytes);
+    assert_eq!(d.piece_count(), 3);
+}
+
+/// What a saver writes for a document read as `encoding`.
+fn save_with(d: &Document, encoding: Encoding) -> Vec<u8> {
+    let mut out = Vec::new();
+    for c in d.chunks() {
+        match c.unwrap() {
+            Chunk::Original(b) => out.extend_from_slice(&b),
+            Chunk::Added(s) => encoding.codec().encode(&s, &mut out).unwrap(),
+        }
+    }
+    out
 }

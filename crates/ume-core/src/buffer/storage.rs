@@ -5,7 +5,7 @@ use std::fmt;
 use std::io;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use super::codec::{Codec, Eol, Utf8Codec};
+use super::codec::{self, Codec, Eol};
 use super::error::{BufferError, Result};
 use super::tree::{Agg, Piece, Store};
 
@@ -234,7 +234,7 @@ impl AddBuf {
         }
         let before = self.index.len();
         self.data.extend_from_slice(text.as_bytes());
-        self.index.scan(&Utf8Codec, text.as_bytes(), start);
+        self.index.scan(codec::utf8(), text.as_bytes(), start);
         // A CR at the end of the old text and an LF at the start of the new text are one CRLF.
         if before > 0
             && self.index.len() > before
@@ -414,7 +414,7 @@ mod tests {
     #[test]
     fn index_clips_a_crlf_at_piece_edges() {
         let mut idx = LineIndex::default();
-        idx.scan(&Utf8Codec, b"ab\r\ncd", 0);
+        idx.scan(codec::utf8(), b"ab\r\ncd", 0);
         let head = idx.agg(0, 3);
         assert_eq!((head.breaks, head.last_cr), (1, true));
         let tail = idx.agg(3, 6);

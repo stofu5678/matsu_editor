@@ -1,0 +1,217 @@
+//! Opening and saving files in their own encoding.
+//!
+//! [`open_file`] reads a file, finds its encoding and BOM and builds a [`Document`] over the
+//! file's own bytes (ADR-0005). [`TextFile::save`] and [`TextFile::save_as`] write the document
+//! to a temporary file next to the target and replace the target with it. Saving is where user
+//! data can be lost, so the code is conservative; the risks are listed at the top of `save.rs`.
+//!
+//! # What Sakura does, and where we differ
+//!
+//! * **Size limit.** `CFileLoad::FileOpen` refuses a file that is too big (`CFileLoad::IsLoadableSize`,
+//!   `sakura_core/io/CFileLoad.cpp`). ADR-0012 sets the limit at 2 GiB; the size is checked before the
+//!   file is read ([`FileError::TooLarge`]).
+//! * **Encoding.** The caller may force an encoding ("文字コード指定" of the open dialog), else it is
+//!   detected ([`crate::encoding::detect`], `CCodeMediator::CheckKanjiCodeOfFile`,
+//!   `sakura_core/env/CReadManager.cpp`).
+//! * **BOM.** `CFileLoad::FileOpen` decodes the first bytes and looks for U+FEFF. The BOM is removed
+//!   from the text and remembered ([`TextFile::bom`]); saving writes it again only when asked and
+//!   only for encodings that have one (`CWriteManager::WriteFile_From_CDocLineMgr`).
+//! * **Line ending for new lines.** `CDocEditor::OnAfterLoad` takes the line ending of the first
+//!   line when it has one. Otherwise it is the default of the document type when the file has the
+//!   default encoding, and CR LF when not ([`OpenOptions::default_eol`]).
+//! * **Save.** Sakura writes straight into the target file. We write a temporary file and replace
+//!   the target (ADR-0005), so a failure or a cancel leaves the old file as it was.
+//! * **Characters the encoding cannot write.** Sakura checks before saving
+//!   (`CCodeChecker::OnCheckSave`) and asks "yes (save anyway) / no / cancel"; saving anyway writes
+//!   `?`. [`TextFile::check_save`] reports them and [`SaveOptions::allow_unmappable`] is "yes".
+//! * **Line ending conversion.** "名前を付けて保存" can convert every line ending
+//!   (`CDocVisitor::SetAllEol` called from `CSaveAgent::OnBeforeSave`); a plain save does not
+//!   (`CDocFileOperation::FileSave` sets `EEolType::none`). Sakura changes the document and puts
+//!   the change on the undo stack; we convert while writing and leave the document alone.
+//!   [`has_mixed_line_endings`] is `_CheckSavingEolcode`, the check that makes Sakura ask whether
+//!   to unify.
+
+mod error;
+mod save;
+mod source;
+#[cfg(test)]
+mod tests;
+
+use std::fs::File;
+use std::io::Read;
+use std::ops::ControlFlow;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+pub use error::{FileError, Result};
+pub use save::{
+    MAX_REPORTED, SaveOptions, SaveReport, UnmappableChar, UnmappableReport, has_mixed_line_endings,
+};
+
+use crate::buffer::{DEFAULT_MAX_SOURCE_LEN, Document, EncodingCodec, Eol};
+use crate::encoding::{DetectOptions, Detection, Encoding, detect};
+use source::FileBytes;
+
+/// The size of one read while loading, and the unit of progress and cancellation.
+const READ_CHUNK: usize = 1024 * 1024;
+
+/// Called with `(done, total)` while a long operation runs. Return `ControlFlow::Break(())` to
+/// cancel it. The operation then returns [`FileError::Cancelled`] and leaves nothing behind.
+pub type Progress<'a> = &'a mut dyn FnMut(u64, u64) -> ControlFlow<()>;
+
+/// A progress callback that never cancels.
+pub fn no_progress(_done: u64, _total: u64) -> ControlFlow<()> {
+    ControlFlow::Continue(())
+}
+
+/// How to open a file.
+#[derive(Clone, Debug)]
+pub struct OpenOptions {
+    /// Read the file in this encoding instead of detecting it.
+    pub encoding: Option<Encoding>,
+    /// The settings of the detection (`SEncodingConfig`).
+    pub detect: DetectOptions,
+    /// The line ending for new lines when the file has none and has the default encoding
+    /// (`m_eDefaultEoltype`; Sakura's default is CR LF).
+    pub default_eol: Eol,
+    /// Refuse files larger than this (ADR-0012: 2 GiB). Never more than 4 GiB - 1.
+    pub max_len: u64,
+}
+
+impl Default for OpenOptions {
+    fn default() -> Self {
+        Self {
+            encoding: None,
+            detect: DetectOptions::default(),
+            default_eol: Eol::CrLf,
+            max_len: DEFAULT_MAX_SOURCE_LEN,
+        }
+    }
+}
+
+/// A document together with what saving it needs.
+#[derive(Debug)]
+pub struct TextFile {
+    pub document: Document,
+    /// Where the file is, or `None` for a new document.
+    pub path: Option<PathBuf>,
+    /// The encoding a plain save writes.
+    pub encoding: Encoding,
+    /// Whether a plain save writes the BOM.
+    pub bom: bool,
+    /// The line ending for new lines the user types.
+    pub new_line: Eol,
+    /// The encoding of the original bytes behind the document. Unedited parts of them are copied
+    /// as they are when the target has the same encoding. It does not change when the file is
+    /// saved in another encoding, because the document still refers to the bytes it was read from.
+    source_encoding: Encoding,
+    /// What the encoding detection said (`None` when the encoding was given).
+    pub detection: Option<Detection>,
+}
+
+impl TextFile {
+    /// A new, empty document that has no file yet.
+    pub fn new_untitled(encoding: Encoding, bom: bool, new_line: Eol) -> Self {
+        Self {
+            document: Document::empty(),
+            path: None,
+            encoding,
+            bom,
+            new_line,
+            source_encoding: Encoding::Utf8,
+            detection: None,
+        }
+    }
+
+    /// The encoding of the bytes the document was read from.
+    pub fn source_encoding(&self) -> Encoding {
+        self.source_encoding
+    }
+}
+
+/// Opens a file. Same as [`open_file_with`] without progress.
+pub fn open_file(path: impl AsRef<Path>, options: &OpenOptions) -> Result<TextFile> {
+    open_file_with(path, options, &mut no_progress)
+}
+
+/// Opens a file and reports progress while it is read. The size is checked first, so a file over
+/// the limit is refused without reading it.
+pub fn open_file_with(
+    path: impl AsRef<Path>,
+    options: &OpenOptions,
+    progress: Progress<'_>,
+) -> Result<TextFile> {
+    let path = path.as_ref();
+    let max = options.max_len.min(u64::from(u32::MAX));
+    let mut file = File::open(path)?;
+    let meta = file.metadata()?;
+    if !meta.is_file() {
+        return Err(FileError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "not a regular file",
+        )));
+    }
+    let len = meta.len();
+    if len > max {
+        return Err(FileError::TooLarge { len, max });
+    }
+    let bytes = read_all(&mut file, len, max, progress)?;
+    drop(file);
+
+    let (encoding, bom, detection) = match options.encoding {
+        Some(encoding) => (encoding, encoding.bom_len(&bytes) > 0, None),
+        None => {
+            let d = detect(&bytes, &options.detect);
+            (d.encoding, d.bom, Some(d))
+        }
+    };
+    let bom_len = if bom { encoding.bom().len() } else { 0 };
+    let source = FileBytes::new(Arc::new(bytes), bom_len);
+    let document = Document::with_limit(source, Arc::new(EncodingCodec(encoding)), max)?;
+
+    // `CDocEditor::OnAfterLoad`: the first line's ending, else the default.
+    let fallback = if encoding == options.detect.default_encoding {
+        options.default_eol
+    } else {
+        Eol::CrLf
+    };
+    let new_line = document
+        .line(0)?
+        .and_then(|line| line.eol)
+        .unwrap_or(fallback);
+
+    Ok(TextFile {
+        document,
+        path: Some(path.to_path_buf()),
+        encoding,
+        bom,
+        new_line,
+        source_encoding: encoding,
+        detection,
+    })
+}
+
+/// Reads `len` bytes in chunks. A file that grows while it is read is refused when it passes `max`.
+fn read_all(file: &mut File, len: u64, max: u64, progress: Progress<'_>) -> Result<Vec<u8>> {
+    let mut bytes = Vec::with_capacity(len as usize);
+    let mut chunk = vec![0u8; READ_CHUNK.min(len.max(1) as usize)];
+    loop {
+        let n = match file.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e.into()),
+        };
+        bytes.extend_from_slice(&chunk[..n]);
+        if bytes.len() as u64 > max {
+            return Err(FileError::TooLarge {
+                len: bytes.len() as u64,
+                max,
+            });
+        }
+        if progress(bytes.len() as u64, len.max(bytes.len() as u64)).is_break() {
+            return Err(FileError::Cancelled);
+        }
+    }
+    Ok(bytes)
+}

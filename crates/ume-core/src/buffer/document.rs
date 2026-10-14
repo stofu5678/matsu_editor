@@ -4,11 +4,12 @@ use std::borrow::Cow;
 use std::ops::Range;
 use std::sync::Arc;
 
-use super::codec::{Codec, Eol, Utf8Codec};
+use super::codec::{Codec, EncodingCodec, Eol};
 use super::error::{BufferError, Result};
 use super::position::Pos;
 use super::storage::{LineIndex, MemorySource, Original, Source, Storages};
 use super::tree::{self, Store, Tree};
+use crate::encoding::Encoding;
 
 /// The default limit for the size of a source: 2 GiB (ADR-0012).
 pub const DEFAULT_MAX_SOURCE_LEN: u64 = 2 * 1024 * 1024 * 1024;
@@ -81,7 +82,10 @@ impl Document {
 
     /// A document over UTF-8 bytes (invalid bytes are shown as stand-ins and saved unchanged).
     pub fn from_utf8(bytes: impl Into<Arc<[u8]>>) -> Result<Self> {
-        Self::new(MemorySource::new(bytes), Arc::new(Utf8Codec))
+        Self::new(
+            MemorySource::new(bytes),
+            Arc::new(EncodingCodec(Encoding::Utf8)),
+        )
     }
 
     /// A document over `source`, read through `codec`. Refuses a source over
@@ -109,7 +113,7 @@ impl Document {
             codec.decode(&source.read(0, len)?, &mut text);
             let mut doc = Self::build(
                 MemorySource::new(Vec::new()),
-                Arc::new(Utf8Codec),
+                Arc::new(EncodingCodec(Encoding::Utf8)),
                 LineIndex::default(),
             );
             let (s, e) = doc.st.append_add(&text)?;

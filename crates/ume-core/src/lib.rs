@@ -6,6 +6,7 @@
 pub mod buffer;
 pub mod cursor;
 pub mod encoding;
+pub mod file;
 pub mod model;
 pub mod undo;
 
