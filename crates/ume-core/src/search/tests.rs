@@ -1181,6 +1181,7 @@ fn offsets_given_to_matcher_overrides_are_char_boundaries() {
     let d = doc("あい\n");
     let p = Pos::new;
     assert_eq!(prev(&d, &Slicing, 0, 1, false), None);
+    assert_eq!(prev(&d, &Slicing, 0, 99, false), None);
     let range = p(0, 1)..p(0, 5);
     assert_eq!(
         find_all(&d, &Slicing, Some(range), Control::new()).count(),

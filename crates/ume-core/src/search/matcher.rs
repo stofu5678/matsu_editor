@@ -402,8 +402,6 @@ impl Matcher for PlainMatcher {
         }
         let units = Units::new(line);
         let mut idx = match limit {
-            // Sakura gives up on the line when the caret is past its end.
-            Some(col) if col > line.len() => return Ok(None),
             Some(col) => units.unit_at_or_after(col),
             None => units.len(),
         };

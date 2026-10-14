@@ -303,9 +303,10 @@ fn backward(
         let Some(text) = doc.line(i)?.map(|l| l.text) else {
             continue;
         };
-        // A limit inside a char counts the same as the end of that char.
+        // A limit inside a char counts the same as the end of that char, and one past the end
+        // of the line is no limit, because every match begins before it.
         let limit = if i == line {
-            limit.map(|col| ceil_boundary(&text, col).unwrap_or(col))
+            limit.and_then(|col| ceil_boundary(&text, col))
         } else {
             None
         };
