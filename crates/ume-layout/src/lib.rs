@@ -24,6 +24,9 @@
 //!   indent of wrapped rows (折り返し行のインデント).
 //! - [`offset_to_position`] and [`position_to_offset`] convert like `LogicToLayout` and
 //!   `LayoutToLogicEx` (`sakura_core/doc/layout/CLayoutMgr.cpp`), for the caret and the mouse.
+//! - [`DocumentLayout`] lays out a whole `ume_core::buffer::Document`: the rows of every line, the
+//!   mapping between rows and lines, the EOF row, positions on the screen, updates after edits,
+//!   and a first layout in chunks.
 //!
 //! # The width rule and where it differs from Sakura
 //!
@@ -52,19 +55,20 @@
 //!
 //! # Not done here
 //!
-//! The layout of the whole document (rows per line, an index of rows, incremental updates), the
-//! scroll position, TSV/CSV mode (`TSV_MODE_*`), the character spacing (`m_nSpacing`) and the
+//! The scroll position, TSV/CSV mode (`TSV_MODE_*`), the character spacing (`m_nSpacing`) and the
 //! colouring. A line ending is the flag `has_eol`; the text of a line never holds it.
 //!
 //! [ADR-0013]: https://github.com/stofu5678/ume_editor/blob/main/docs/adr/0013-module-structure.md
 
 mod config;
+pub mod document;
 mod kinsoku;
 mod map;
 mod width;
 mod wrap;
 
 pub use config::{LayoutConfig, MAX_LINE_COLUMNS, MIN_LINE_COLUMNS, Wrap, WrapIndent};
+pub use document::{DocumentLayout, LineLayout, Progress, RowInfo, RowPos, RowRef, RowTarget};
 pub use kinsoku::{CharSet, DEFAULT_HEAD, DEFAULT_KUTO, DEFAULT_TAIL, Kinsoku};
 pub use map::{Located, Position, offset_to_position, position_to_offset};
 pub use width::{INVALID_BYTE_BASE, WidthRule};
