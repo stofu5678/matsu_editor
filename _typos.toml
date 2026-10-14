@@ -1,5 +1,11 @@
 [files]
-extend-exclude = ["*.lock", "*.diff"]
+extend-exclude = [
+    "*.lock",
+    "*.diff",
+    # Vendored Onigmo (C sources and Unicode tables) and the test table generated from its testpy.py.
+    "crates/ume-regex/onigmo/",
+    "crates/ume-regex/src/onigmo_suite/cases.rs",
+]
 
 [default.extend-words]
 # bb.edn: Babashka's config file (EDN, the Extensible Data Notation of Clojure).
