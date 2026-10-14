@@ -54,24 +54,31 @@ impl fmt::Display for Warning {
     }
 }
 
+fn strip_f_prefix(name: &str) -> &str {
+    match name.get(..2) {
+        Some(head) if head.eq_ignore_ascii_case("F_") => &name[2..],
+        _ => name,
+    }
+}
+
 /// Reads a function: a number, or a name (`F_FILESAVE`, `FileSave`, or our ID `file_save`; case
 /// does not matter). Sakura's `GetFunctionStrToFunctionCode` takes anything that starts with a
-/// digit as a number and the rest as macro names.
+/// digit as a number and the rest as macro names. Only the names that equal a function constant
+/// without `F_` are known here; Sakura's other macro names (`SearchNext` for `F_SEARCH_NEXT`,
+/// from `sakura_core/macro/CSMacroMgr.cpp`) need a table that the generator does not make yet,
+/// so `.key` files that were exported with names are a follow-up. Files with numbers (what
+/// `sakura.ini` has) are read in full.
 pub fn parse_function(token: &str) -> Option<u16> {
     let token = token.trim();
     if token.starts_with(|c: char| c.is_ascii_digit()) {
         return token.parse().ok();
     }
-    let bare = token.strip_prefix("F_").unwrap_or(token);
+    let bare = strip_f_prefix(token);
     FUNCTIONS
         .iter()
         .filter(|f| f.kind != FunctionKind::Reserved)
         .find(|f| {
-            f.name
-                .strip_prefix("F_")
-                .unwrap_or(f.name)
-                .eq_ignore_ascii_case(bare)
-                || f.id.eq_ignore_ascii_case(token)
+            strip_f_prefix(f.name).eq_ignore_ascii_case(bare) || f.id.eq_ignore_ascii_case(token)
         })
         .map(|f| f.code)
 }
@@ -151,6 +158,7 @@ mod tests {
         assert_eq!(parse_function("F_FILESAVE"), Some(30103));
         assert_eq!(parse_function("FileSave"), Some(30103));
         assert_eq!(parse_function("filesave"), Some(30103));
+        assert_eq!(parse_function("f_filesave"), Some(30103));
         assert_eq!(parse_function("word_cut"), Some(30232));
         assert_eq!(parse_function("Plugin/Command"), None);
         assert_eq!(parse_function("NoSuchThing"), None);

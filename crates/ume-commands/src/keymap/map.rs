@@ -119,13 +119,22 @@ impl KeyMap {
 
     /// Replaces the rows of the keys in `rows`, as Sakura does when it reads `KeyBind[...]`
     /// entries: the whole row of a key is replaced, an empty cell stays empty. The macOS rules
-    /// do not apply to the keys of replaced rows, so a user's table is used as written.
+    /// do not apply to the keys of rows that differ from the current one, so a user's table is
+    /// used as written. Rows equal to the current ones change nothing.
     pub fn apply_user_rows(&mut self, rows: &[UserRow]) {
         for row in rows {
-            if self.rows.insert(row.key, row.functions).is_none() {
-                self.order.push(row.key);
+            match self.rows.insert(row.key, row.functions) {
+                None => {
+                    self.order.push(row.key);
+                    self.user_keys.insert(row.key);
+                }
+                // Sakura writes the whole table, so a file that was never customized has the
+                // default row for every key. Those keys keep the macOS rules.
+                Some(previous) if previous != row.functions => {
+                    self.user_keys.insert(row.key);
+                }
+                Some(_) => {}
             }
-            self.user_keys.insert(row.key);
         }
     }
 

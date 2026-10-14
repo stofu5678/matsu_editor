@@ -338,3 +338,16 @@ fn shortcuts_for_menus() {
         }
     }
 }
+
+#[test]
+fn a_saved_default_table_keeps_the_mac_rules() {
+    // Sakura writes the whole table; reading back a table that was never customized must not
+    // switch the Mac rules off.
+    let saved = user::format_entries(&mac().rows());
+    let (rows, warnings) = user::parse_entries(saved.iter().map(|(k, v)| (k.as_str(), v.as_str())));
+    assert!(warnings.is_empty());
+    let mut map = mac();
+    map.apply_user_rows(&rows);
+    assert_eq!(code(&map, "Cmd+W"), Resolved::Code(31320));
+    assert_eq!(code(&map, "Control+A"), Resolved::Code(30332));
+}
