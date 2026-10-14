@@ -1,0 +1,5 @@
+# Throwaway PoC for ADR-0013 (how commands are collected); kept out of the main workspace.
+# This table makes the directory its own workspace root, so `cargo test` here runs all four.
+[workspace]
+resolver = "3"
+members = ["cmds-inventory", "cmds-linkme", "cmds-buildrs", "app"]
