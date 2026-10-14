@@ -37,6 +37,23 @@ pub struct TextChange {
     pub new_end: Pos,
 }
 
+/// The change that `replace(a, b, ..)` made, as a [`TextChange`]. The buffer reports positions in
+/// the new text, and a CR and an LF that end up next to each other become one CRLF, so the
+/// region that changed can start earlier than `a`: it is widened to start at the CR, and to
+/// end after the CRLF. `cr` is the position of a CR that an inserted LF joined, if any.
+fn widen(a: Pos, b: Pos, edit: Edit, cr: Option<Pos>) -> TextChange {
+    let start = edit.start.min(a).min(cr.unwrap_or(a));
+    let mut new_end = edit.end;
+    if start < a {
+        new_end = new_end.max(Pos::new(start.line + 1, 0));
+    }
+    TextChange {
+        start,
+        old_end: b,
+        new_end,
+    }
+}
+
 /// What a command changed. `ume-ui` reads it after the command: it drops the IME composition
 /// range when the text or the caret changed, scrolls the caret into view, repaints, and beeps.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -170,15 +187,24 @@ impl<'a> CommandContext<'a> {
     pub fn replace(&mut self, from: Pos, to: Pos, text: &str) -> Result<Edit> {
         let (a, b) = (self.doc().clamp_pos(from)?, self.doc().clamp_pos(to)?);
         let (a, b) = (a.min(b), a.max(b));
+        let cr = self.cr_joined_by(a, text)?;
         let edit = self.model.replace(a, b, text)?;
         if a != b || !text.is_empty() {
-            self.changes.edits.push(TextChange {
-                start: edit.start,
-                old_end: b,
-                new_end: edit.end,
-            });
+            self.changes.edits.push(widen(a, b, edit, cr));
         }
         Ok(edit)
+    }
+
+    /// The end of the text of the line before `a` if `text` starts with an LF that would join the
+    /// CR that ends that line into one CRLF (`a` is at the start of the line after it).
+    fn cr_joined_by(&self, a: Pos, text: &str) -> Result<Option<Pos>> {
+        if a.col != 0 || a.line == 0 || !text.starts_with('\n') {
+            return Ok(None);
+        }
+        let prev = self.doc().line(a.line - 1)?;
+        Ok(prev
+            .filter(|l| l.eol == Some(Eol::Cr))
+            .map(|l| Pos::new(a.line - 1, l.text.len())))
     }
 
     /// Inserts `text` at the caret, or in place of the selection, and puts the caret after it.
@@ -209,5 +235,80 @@ impl<'a> CommandContext<'a> {
     /// Tells the UI that the command could not do what was asked (Sakura: `ErrorBeep()`).
     pub fn beep(&mut self) {
         self.changes.beep = true;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ume_core::buffer::Document;
+
+    use super::*;
+    use crate::layout::PlainLayout;
+
+    /// Runs `f` on a context over `text` and returns the changes.
+    fn changes_of(text: &str, f: impl FnOnce(&mut CommandContext<'_>)) -> Changes {
+        let mut model = DocumentModel::new(Document::from_utf8(text.as_bytes().to_vec()).unwrap());
+        let mut cursor = Cursor::default();
+        let layout = PlainLayout::default();
+        let mut cx = CommandContext::new(&mut model, &mut cursor, &layout, None);
+        f(&mut cx);
+        cx.finish()
+    }
+
+    fn change(
+        start: (usize, usize),
+        old_end: (usize, usize),
+        new_end: (usize, usize),
+    ) -> TextChange {
+        TextChange {
+            start: Pos::new(start.0, start.1),
+            old_end: Pos::new(old_end.0, old_end.1),
+            new_end: Pos::new(new_end.0, new_end.1),
+        }
+    }
+
+    #[test]
+    fn an_edit_is_reported_with_the_old_and_the_new_end() {
+        let c = changes_of("abcd", |cx| {
+            cx.replace(Pos::new(0, 3), Pos::new(0, 1), "XYZ").unwrap();
+        });
+        assert_eq!(c.edits, [change((0, 1), (0, 3), (0, 4))]);
+        assert!(c.text_changed());
+    }
+
+    #[test]
+    fn an_edit_that_changes_nothing_is_not_reported() {
+        let c = changes_of("abcd", |cx| {
+            cx.replace(Pos::new(0, 1), Pos::new(0, 1), "").unwrap();
+        });
+        assert!(c.edits.is_empty());
+        assert!(!c.text_changed());
+    }
+
+    #[test]
+    fn a_deletion_that_joins_a_cr_and_an_lf_starts_at_the_cr() {
+        // "a\r" "b" "\nc": deleting b makes the CR and the LF one CRLF
+        let c = changes_of("a\rb\nc", |cx| {
+            cx.replace(Pos::new(1, 0), Pos::new(1, 1), "").unwrap();
+        });
+        assert_eq!(c.edits, [change((0, 1), (1, 1), (1, 0))]);
+    }
+
+    #[test]
+    fn an_inserted_lf_that_joins_a_cr_starts_at_the_cr() {
+        let c = changes_of("a\r", |cx| {
+            cx.replace(Pos::new(1, 0), Pos::new(1, 0), "\nb").unwrap();
+        });
+        assert_eq!(c.edits, [change((0, 1), (1, 0), (1, 1))]);
+    }
+
+    #[test]
+    fn edits_are_reported_in_order() {
+        let c = changes_of("abc", |cx| {
+            cx.replace(Pos::new(0, 0), Pos::new(0, 0), "X").unwrap();
+            cx.replace(Pos::new(0, 2), Pos::new(0, 3), "").unwrap();
+        });
+        assert_eq!(c.edits.len(), 2);
+        assert_eq!(c.edits[1], change((0, 2), (0, 3), (0, 2)));
     }
 }

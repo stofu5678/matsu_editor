@@ -117,8 +117,11 @@ impl History {
         self.open.as_ref().is_some_and(|o| o.edited) || self.saved != Some(self.pos)
     }
 
-    /// Records that the document is saved as it is now.
-    pub fn mark_saved(&mut self) {
+    /// Records that the document is saved as it is now. `doc` and `cursor` are the current state:
+    /// the edits of a running block so far are stored as a step first (as `undo` does), so the
+    /// saved version is a step that can be undone to and redone from.
+    pub fn mark_saved(&mut self, doc: &Document, cursor: &Cursor) {
+        self.store_open_edits(doc, cursor);
         self.saved = Some(self.pos);
     }
 
@@ -377,7 +380,7 @@ mod tests {
         assert!(!f.history.is_modified());
         f.type_text("a");
         assert!(f.history.is_modified());
-        f.history.mark_saved();
+        f.history.mark_saved(&f.doc, &f.cursor);
         assert!(!f.history.is_modified());
         f.type_text("b");
         assert!(f.history.is_modified());
@@ -392,6 +395,28 @@ mod tests {
         f.type_text("z");
         f.redo();
         f.undo();
+        f.undo();
+        assert!(f.history.is_modified());
+    }
+
+    #[test]
+    fn saving_inside_a_running_block() {
+        let mut f = Fixture::new();
+        f.history.begin(&f.doc, &f.cursor);
+        f.history.note_edit();
+        let e = f.doc.insert(f.cursor.caret(), "a").unwrap();
+        f.cursor.move_to(e.end, false);
+        f.history.mark_saved(&f.doc, &f.cursor);
+        assert!(!f.history.is_modified());
+        // an edit after the save, in the same block, is a step of its own
+        f.history.note_edit();
+        let e = f.doc.insert(f.cursor.caret(), "b").unwrap();
+        f.cursor.move_to(e.end, false);
+        f.history.end(&f.doc, &f.cursor);
+        assert!(f.history.is_modified());
+        f.undo();
+        assert_eq!(f.text(), "a");
+        assert!(!f.history.is_modified());
         f.undo();
         assert!(f.history.is_modified());
     }

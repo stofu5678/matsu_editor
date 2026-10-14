@@ -75,8 +75,10 @@ impl DocumentModel {
                 end: from,
             });
         }
+        // The document is left as it was when the replace fails, so the history is told after.
+        let edit = self.doc.replace(from, to, text)?;
         self.history.note_edit();
-        self.doc.replace(from, to, text)
+        Ok(edit)
     }
 
     /// Undoes one block, and puts the cursor back. `false` if there is nothing to undo.
@@ -93,9 +95,9 @@ impl DocumentModel {
         self.history.is_modified()
     }
 
-    /// Records that the document was saved as it is now.
-    pub fn mark_saved(&mut self) {
-        self.history.mark_saved();
+    /// Records that the document was saved as it is now. `cursor` is the current cursor.
+    pub fn mark_saved(&mut self, cursor: &Cursor) {
+        self.history.mark_saved(&self.doc, cursor);
     }
 }
 
