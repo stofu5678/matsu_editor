@@ -210,7 +210,10 @@ pub fn read_tables(sakura: &Path) -> Result<Tables> {
 fn read_text(path: &Path) -> Result<String> {
     let bytes = fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let text = if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
-        let (pairs, _) = rest.as_chunks::<2>();
+        let (pairs, tail) = rest.as_chunks::<2>();
+        if !tail.is_empty() {
+            return Err(format!("{}: odd UTF-16 byte count", path.display()));
+        }
         let units: Vec<u16> = pairs.iter().map(|c| u16::from_le_bytes(*c)).collect();
         String::from_utf16(&units).map_err(|e| format!("{}: {e}", path.display()))?
     } else {
