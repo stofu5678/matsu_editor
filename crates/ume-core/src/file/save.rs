@@ -289,12 +289,25 @@ static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Creates a new file in `dir` that did not exist (`create_new`, so another file is never
 /// overwritten by accident).
-fn create_temp(dir: &Path) -> io::Result<(File, TempFile)> {
+///
+/// On Unix `mode` (the mode of the file being replaced) is applied at creation, so that the new
+/// content is never readable by more users than the old content was, not even for a moment. The
+/// umask can only remove bits from it; the exact mode is set before the rename.
+fn create_temp(dir: &Path, mode: Option<&fs::Permissions>) -> io::Result<(File, TempFile)> {
     let mut last = None;
     for _ in 0..100 {
         let n = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
         let path = dir.join(format!(".ume-save-{}-{n}.tmp", std::process::id()));
-        match File::options().write(true).create_new(true).open(&path) {
+        let mut options = File::options();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        if let Some(mode) = mode {
+            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+            options.mode(mode.mode());
+        }
+        #[cfg(not(unix))]
+        let _ = mode;
+        match options.open(&path) {
             Ok(file) => return Ok((file, TempFile { path, keep: false })),
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => last = Some(e),
             Err(e) => return Err(e),
@@ -384,10 +397,23 @@ fn write_body(
     Ok(substituted)
 }
 
-/// Follows symbolic links so that the link itself is kept and its target is replaced. A path
-/// that does not exist is used as it is.
-fn resolve_target(path: &Path) -> PathBuf {
-    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+/// Follows symbolic links (also dangling ones) so that the link itself is kept and the file it
+/// points to is replaced. A path that does not exist is used as it is.
+fn resolve_target(path: &Path) -> io::Result<PathBuf> {
+    let mut current = path.to_path_buf();
+    for _ in 0..40 {
+        match fs::symlink_metadata(&current) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                let link = fs::read_link(&current)?;
+                current = match current.parent() {
+                    Some(parent) => parent.join(link),
+                    None => link,
+                };
+            }
+            _ => return Ok(current),
+        }
+    }
+    Err(io::Error::other("too many levels of symbolic links"))
 }
 
 fn write_file(
@@ -397,7 +423,7 @@ fn write_file(
     options: &SaveOptions,
     progress: Progress<'_>,
 ) -> Result<SaveReport> {
-    let real = resolve_target(target);
+    let real = resolve_target(target)?;
     let existing = fs::metadata(&real).ok();
     if let Some(meta) = &existing {
         if meta.is_dir() {
@@ -422,7 +448,8 @@ fn write_file(
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let (file, mut temp) = create_temp(dir)?;
+    let permissions = existing.as_ref().map(fs::Metadata::permissions);
+    let (file, mut temp) = create_temp(dir, permissions.as_ref())?;
     let mut out = Counting {
         inner: BufWriter::with_capacity(READ_CHUNK, file),
         written: 0,
@@ -433,6 +460,11 @@ fn write_file(
     let substituted = write_body(doc, source, options, &mut out, progress)?;
     out.flush()?;
     let written = out.written;
+    // The last chance to cancel, before the target is touched. (A short document may have
+    // reported no progress at all.)
+    if progress(written, written).is_break() {
+        return Err(FileError::Cancelled);
+    }
     let file = out
         .inner
         .into_inner()
@@ -460,4 +492,12 @@ fn sync_dir(dir: &Path) {
     }
     #[cfg(not(unix))]
     let _ = dir;
+}
+
+/// For the tests: creates a temporary file and leaves it to the caller (the folder is removed).
+#[cfg(all(test, unix))]
+pub(super) fn create_temp_for_test(dir: &Path, mode: Option<&fs::Permissions>) -> (File, PathBuf) {
+    let (file, mut temp) = create_temp(dir, mode).unwrap();
+    temp.keep = true;
+    (file, temp.path.clone())
 }

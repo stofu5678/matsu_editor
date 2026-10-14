@@ -681,6 +681,25 @@ fn a_cancelled_save_leaves_the_file_and_the_folder_as_they_were() {
 }
 
 #[test]
+fn a_short_document_can_be_cancelled_too() {
+    // Nothing but a little added text: no progress is reported while writing, but the cancel
+    // is still honored before the target is replaced.
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", b"old");
+    let mut file = TextFile::new_untitled(Encoding::Utf8, false, Eol::Lf);
+    file.document.insert(Pos::new(0, 0), "new").unwrap();
+    let err = file
+        .save_as(&path, &SaveOptions::keep(&file), &mut |_, _| {
+            ControlFlow::Break(())
+        })
+        .unwrap_err();
+    assert!(matches!(err, FileError::Cancelled));
+    assert_eq!(fs::read(&path).unwrap(), b"old");
+    assert_eq!(dir.names(), ["a.txt"]);
+    assert_eq!(file.path, None);
+}
+
+#[test]
 fn a_failure_while_creating_the_file_changes_nothing() {
     let dir = TempDir::new();
     let path = dir.write("a.txt", b"original");
@@ -754,6 +773,51 @@ fn permissions_are_kept_and_symlinks_are_followed() {
     assert_eq!(dir.names(), ["link.txt", "real.txt"]);
 }
 
+#[cfg(unix)]
+#[test]
+fn a_dangling_symlink_is_followed_not_replaced() {
+    use std::os::unix::fs::symlink;
+
+    let dir = TempDir::new();
+    let link = dir.path("link.txt");
+    symlink("real.txt", &link).unwrap(); // relative, and real.txt does not exist
+    let mut file = TextFile::new_untitled(Encoding::Utf8, false, Eol::Lf);
+    file.document.insert(Pos::new(0, 0), "data").unwrap();
+    let keep = SaveOptions::keep(&file);
+    file.save_as(&link, &keep, &mut no_progress).unwrap();
+    assert!(
+        fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(fs::read(dir.path("real.txt")).unwrap(), b"data");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_private_file_stays_private() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new();
+    let path = dir.write("secret.txt", b"x");
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+    let mut file = open_as(&path, Encoding::Utf8);
+    file.document.insert(Pos::new(0, 1), "y").unwrap();
+    save_keep(&mut file);
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    // The temporary file is created with that mode from the start.
+    let (_file, temp) =
+        super::save::create_temp_for_test(&dir.0, Some(&fs::Permissions::from_mode(0o600)));
+    assert_eq!(
+        fs::metadata(&temp).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+}
+
 #[test]
 fn a_new_file_is_created_and_an_old_one_replaced() {
     let dir = TempDir::new();
@@ -793,6 +857,8 @@ fn progress_is_reported_while_saving() {
         [
             (READ_CHUNK as u64, total),
             (2 * READ_CHUNK as u64, total),
+            (total, total),
+            // The last chance to cancel, before the target is replaced.
             (total, total)
         ]
     );
