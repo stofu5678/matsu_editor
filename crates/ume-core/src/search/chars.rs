@@ -1,3 +1,35 @@
+// This file is ported from Sakura Editor (zlib License) and was modified.
+//
+// Original files:
+//   sakura_core/parse/CWordParse.cpp (WhatKindOfChar, WhatKindOfTwoChars, WhereCurrentWord_2,
+//                                     SearchNextWordPosition, SearchPrevWordPosition)
+//   sakura_core/charset/charcode.h, charcode.cpp (gm_keyword_char, IsZenkakuKigou and friends)
+//   sakura_core/charset/codechecker.h (IsVariationSelector)
+//   sakura_core/util/string_ex.cpp (skr_towlower)
+//
+// Copyright (C) 2007, kobake
+// Copyright (C) 2018-2026, Sakura Editor Organization
+//
+// This software is provided 'as-is', without any express or implied
+// warranty.  In no event will the authors be held liable for any damages
+// arising from the use of this software.
+//
+// Permission is granted to anyone to use this software for any purpose,
+// including commercial applications, and to alter it and redistribute it
+// freely, subject to the following restrictions:
+//
+// 1. The origin of this software must not be misrepresented; you must not
+//    claim that you wrote the original software. If you use this software
+//    in a product, an acknowledgment in the product documentation would be
+//    appreciated but is not required.
+// 2. Altered source versions must be plainly marked as such, and must not be
+//    misrepresented as being the original software.
+// 3. This notice may not be removed or altered from any source distribution.
+//
+// Modifications: rewritten in Rust for UME Editor. The text is UTF-8 `char`s instead of
+// UTF-16 units, lines come without their line ending, and the font-dependent width test
+// is replaced by a fixed rule.
+
 //! Character rules of Sakura's search: case folding and word boundaries.
 //!
 //! Sakura works on UTF-16 text; this works on `char`s. Where the two differ the difference is

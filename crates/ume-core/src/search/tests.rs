@@ -1155,3 +1155,35 @@ fn deleting_the_line_of_an_empty_match_does_not_skip_the_next_line() {
     assert_eq!(text_of(&d), "b\nc\n");
     assert_eq!(next.unwrap().start, Pos::new(0, 0));
 }
+
+#[test]
+fn offsets_given_to_matcher_overrides_are_char_boundaries() {
+    #[derive(Debug)]
+    struct Slicing;
+    impl Matcher for Slicing {
+        fn find_at(&self, line: &str, start: usize) -> Result<Option<Match>, MatcherError> {
+            let _ = &line[start..];
+            Ok(None)
+        }
+        fn find_last_before(
+            &self,
+            line: &str,
+            limit: Option<usize>,
+        ) -> Result<Option<Match>, MatcherError> {
+            let _ = &line[..limit.unwrap_or(0)];
+            Ok(None)
+        }
+        fn find_all_from(&self, line: &str, start: usize) -> Result<Vec<Match>, MatcherError> {
+            let _ = &line[start..];
+            Ok(Vec::new())
+        }
+    }
+    let d = doc("あい\n");
+    let p = Pos::new;
+    assert_eq!(prev(&d, &Slicing, 0, 1, false), None);
+    let range = p(0, 1)..p(0, 5);
+    assert_eq!(
+        find_all(&d, &Slicing, Some(range), Control::new()).count(),
+        0
+    );
+}

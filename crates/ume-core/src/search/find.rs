@@ -303,7 +303,12 @@ fn backward(
         let Some(text) = doc.line(i)?.map(|l| l.text) else {
             continue;
         };
-        let limit = if i == line { limit } else { None };
+        // A limit inside a char counts the same as the end of that char.
+        let limit = if i == line {
+            limit.map(|col| ceil_boundary(&text, col).unwrap_or(col))
+        } else {
+            None
+        };
         if let Some(m) = matcher.find_last_before(&text, limit)? {
             return Ok(Some(Found::new(i, m, wrapped)));
         }
@@ -397,6 +402,9 @@ impl FindAll<'_> {
             self.first_col
         } else {
             0
+        };
+        let Some(start) = ceil_boundary(&text, start) else {
+            return Ok(());
         };
         for m in self.matcher.find_all_from(&text, start)? {
             // A whole-word match can begin before `start`, when `start` is inside a word;
