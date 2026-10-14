@@ -68,12 +68,13 @@ pub struct SaveOptions {
 }
 
 impl SaveOptions {
-    /// A plain save ("上書き保存"): the encoding and BOM of the file, line endings as they are.
+    /// A plain save ("上書き保存"): the encoding and BOM of the file. Line endings are kept as they
+    /// are, unless an earlier save converted them ([`TextFile::eol_on_save`]).
     pub fn keep(file: &TextFile) -> Self {
         Self {
             encoding: file.encoding,
             bom: file.bom,
-            eol: None,
+            eol: file.eol_on_save,
             allow_unmappable: false,
         }
     }
@@ -111,10 +112,12 @@ pub struct UnmappableReport {
 }
 
 impl UnmappableReport {
-    fn push(&mut self, c: UnmappableChar) {
+    /// Counts one more character. `make` builds the entry and only runs while the list is not
+    /// full, so a line with very many problems is not scanned again for each of them.
+    fn push_with(&mut self, make: impl FnOnce() -> UnmappableChar) {
         self.total += 1;
         if self.first.len() < MAX_REPORTED {
-            self.first.push(c);
+            self.first.push(make());
         }
     }
 }
@@ -166,7 +169,10 @@ impl TextFile {
         self.encoding = options.encoding;
         self.bom = options.bom;
         if let Some(eol) = options.eol {
+            // Sakura converts the lines of the document itself, so a later plain save keeps the
+            // converted endings. We only convert while writing, so remember to do it again.
             self.new_line = eol;
+            self.eol_on_save = Some(eol);
         }
         Ok(report)
     }
@@ -228,7 +234,7 @@ fn check(
         if let Err(e) = codec.encode(&line.text, &mut scratch) {
             for offset in e.offsets {
                 if let Some(ch) = line.text.get(offset..).and_then(|s| s.chars().next()) {
-                    report.push(UnmappableChar {
+                    report.push_with(|| UnmappableChar {
                         pos: Pos::new(i, offset),
                         col_utf16: col_to_utf16(&line.text, offset),
                         ch,
@@ -239,7 +245,7 @@ fn check(
         if let Some(eol) = line.eol.map(|e| options.eol.unwrap_or(e)) {
             scratch.clear();
             if codec.encode(eol.as_str(), &mut scratch).is_err() {
-                report.push(UnmappableChar {
+                report.push_with(|| UnmappableChar {
                     pos: Pos::new(i, line.text.len()),
                     col_utf16: utf16_len(&line.text),
                     ch: eol.as_str().chars().next().unwrap_or('\n'),
@@ -426,10 +432,11 @@ fn write_file(
     let real = resolve_target(target)?;
     let existing = fs::metadata(&real).ok();
     if let Some(meta) = &existing {
-        if meta.is_dir() {
+        // A folder, a pipe or a device must not be replaced by a regular file.
+        if !meta.is_file() {
             return Err(FileError::Io(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "the target is a directory",
+                "the target is not a regular file",
             )));
         }
         if meta.permissions().readonly() {

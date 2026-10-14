@@ -369,6 +369,9 @@ fn line_endings_are_kept_or_converted() {
     // The document itself was not changed.
     assert_eq!(text(&file), "a\r\nb\nc\rd");
 
+    // A later plain save does not bring the old endings back.
+    save_keep(&mut file);
+    assert_eq!(fs::read(&path).unwrap(), b"a\nb\nc\nd");
     options.eol = Some(Eol::CrLf);
     save(&mut file, &options);
     assert_eq!(fs::read(&path).unwrap(), b"a\r\nb\r\nc\r\nd");
@@ -723,6 +726,39 @@ fn a_failure_while_creating_the_file_changes_nothing() {
     assert!(matches!(err, FileError::Io(_)), "{err}");
     assert_eq!(dir.names(), ["a.txt", "sub"]);
     assert_eq!(fs::read_dir(&sub).unwrap().count(), 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_pipe_is_not_replaced() {
+    let dir = TempDir::new();
+    let fifo = dir.path("pipe");
+    let status = std::process::Command::new("mkfifo").arg(&fifo).status();
+    if !matches!(status, Ok(s) if s.success()) {
+        return; // no mkfifo on this machine
+    }
+    let mut file = TextFile::new_untitled(Encoding::Utf8, false, Eol::Lf);
+    let keep = SaveOptions::keep(&file);
+    let err = file.save_as(&fifo, &keep, &mut no_progress).unwrap_err();
+    assert!(matches!(err, FileError::Io(_)), "{err}");
+    assert_eq!(dir.names(), ["pipe"]);
+    assert!(!fs::metadata(&fifo).unwrap().is_file());
+}
+
+#[test]
+fn many_unmappable_characters_in_one_line_are_counted() {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "\u{1F600}".repeat(50_000).as_bytes());
+    let file = open_as(&path, Encoding::Utf8);
+    let report = file
+        .check_save(
+            &SaveOptions::for_encoding(Encoding::ShiftJis),
+            &mut no_progress,
+        )
+        .unwrap();
+    assert_eq!(report.total, 50_000);
+    assert_eq!(report.first.len(), MAX_REPORTED);
+    assert_eq!(report.first[1].col_utf16, 2);
 }
 
 #[test]

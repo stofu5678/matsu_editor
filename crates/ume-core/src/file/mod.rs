@@ -27,7 +27,9 @@
 //! * **Line ending conversion.** "名前を付けて保存" can convert every line ending
 //!   (`CDocVisitor::SetAllEol` called from `CSaveAgent::OnBeforeSave`); a plain save does not
 //!   (`CDocFileOperation::FileSave` sets `EEolType::none`). Sakura changes the document and puts
-//!   the change on the undo stack; we convert while writing and leave the document alone.
+//!   the change on the undo stack; we convert while writing and leave the document alone, and
+//!   remember the choice in [`TextFile::eol_on_save`] so that a later plain save does not undo it
+//!   (a line ending typed or pasted afterwards is converted too, which Sakura would not do).
 //!   [`has_mixed_line_endings`] is `_CheckSavingEolcode`, the check that makes Sakura ask whether
 //!   to unify.
 
@@ -101,6 +103,9 @@ pub struct TextFile {
     pub bom: bool,
     /// The line ending for new lines the user types.
     pub new_line: Eol,
+    /// Convert every line ending to this one on a plain save. Set by a save that converted them
+    /// (see the note on line ending conversion above); `None` keeps the endings as they are.
+    pub eol_on_save: Option<Eol>,
     /// The encoding of the original bytes behind the document. Unedited parts of them are copied
     /// as they are when the target has the same encoding. It does not change when the file is
     /// saved in another encoding, because the document still refers to the bytes it was read from.
@@ -118,6 +123,7 @@ impl TextFile {
             encoding,
             bom,
             new_line,
+            eol_on_save: None,
             source_encoding: Encoding::Utf8,
             detection: None,
         }
@@ -186,6 +192,7 @@ pub fn open_file_with(
         encoding,
         bom,
         new_line,
+        eol_on_save: None,
         source_encoding: encoding,
         detection,
     })
