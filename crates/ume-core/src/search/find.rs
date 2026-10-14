@@ -277,9 +277,9 @@ fn forward(
             break;
         };
         let start = if i == line { col } else { 0 };
-        if ceil_boundary(&text, start).is_none() {
+        let Some(start) = ceil_boundary(&text, start) else {
             continue;
-        }
+        };
         if let Some(m) = matcher.find_at(&text, start)? {
             return Ok(Some(Found::new(i, m, wrapped)));
         }
@@ -348,9 +348,10 @@ pub struct FindAll<'a> {
 
 /// Finds every match in `range` (the whole document for `None`), as an iterator.
 ///
-/// A match must lie inside the range, as in Sakura's replace-in-selection, which stops at the
-/// first match that ends after the selection (`Command_REPLACE_ALL`). Like it, a range that ends
-/// at column 0 does not take matches on that last line.
+/// A match must lie inside the range. Sakura's replace-in-selection stops at the first match
+/// that ends after the selection (`Command_REPLACE_ALL`), and a range that ends at column 0 does
+/// not take matches on that last line; this does the same. Sakura does not check the start, so
+/// a whole-word match that begins before the selection could be replaced; this leaves it out.
 pub fn find_all<'a>(
     doc: &'a Document,
     matcher: &'a dyn Matcher,
@@ -398,6 +399,11 @@ impl FindAll<'_> {
             0
         };
         for m in self.matcher.find_all_from(&text, start)? {
+            // A whole-word match can begin before `start`, when `start` is inside a word;
+            // that text is outside the range.
+            if i == self.first_line && m.start < start {
+                continue;
+            }
             if let Some((line, col)) = self.limit
                 && i == line
                 && m.end > col

@@ -9,7 +9,7 @@ use std::ops::Range;
 
 use crate::buffer::{BufferError, Document, Pos};
 
-use super::find::{Control, Direction, Found, SearchError, find, find_all};
+use super::find::{Control, Direction, Found, SearchError, find, find_all, start_after};
 use super::matcher::Matcher;
 
 /// What a replacement is done to (the replace dialog's 置換対象, `m_nReplaceTarget`).
@@ -45,7 +45,10 @@ pub struct AppliedEdit {
     pub start: Pos,
     /// Where the inserted text ends, in the same document.
     pub end: Pos,
-    /// The text that was there before.
+    /// The text that was there before. Undo with `replace(start, end, &removed)`, in the reverse
+    /// order of the edits. One case does not round-trip: if `inserted` ends with a CR and an LF
+    /// follows, the buffer joins them into one CRLF and `end` is placed before it
+    /// (`Document::replace`).
     pub removed: String,
     /// The text that is there now.
     pub inserted: String,
@@ -104,8 +107,10 @@ pub fn apply_replacements(
     let mut shift: Option<(Pos, Pos)> = None;
     let map = |shift: Option<(Pos, Pos)>, p: Pos| match shift {
         None => p,
-        Some((old, new)) if p.line == old.line => Pos::new(new.line, new.col + p.col - old.col),
-        Some((old, new)) => Pos::new(new.line + p.line - old.line, p.col),
+        Some((old, new)) if p.line == old.line => {
+            Pos::new(new.line, new.col + p.col.saturating_sub(old.col))
+        }
+        Some((old, new)) => Pos::new(new.line + p.line.saturating_sub(old.line), p.col),
     };
     for r in replacements {
         let (start, end) = (map(shift, r.start), map(shift, r.end));
@@ -146,7 +151,14 @@ pub fn replace_and_find_next(
     ctl: &mut Control<'_>,
 ) -> Result<(AppliedEdit, Option<Found>), SearchError> {
     let edit = replace_one(doc, found, text, target)?;
-    let next = find(doc, matcher, edit.resume, Direction::Forward, wrap, ctl)?;
+    // After an empty match the search starts one char later, or it would find the same place
+    // again (the guard of `start_after`).
+    let from = if found.start == found.end {
+        start_after(doc, &(edit.resume..edit.resume))?
+    } else {
+        edit.resume
+    };
+    let next = find(doc, matcher, from, Direction::Forward, wrap, ctl)?;
     Ok((edit, next))
 }
 

@@ -1017,3 +1017,79 @@ fn search_100mb() {
     let n = find_all(&d, &plain("lazy"), None, Control::new()).count();
     println!("find_all lazy: {:?} n={n}", t.elapsed());
 }
+
+// ---- found by review ----
+
+#[test]
+fn find_all_in_a_range_leaves_out_a_word_that_begins_before_it() {
+    let d = doc("foobar baz\n");
+    let p = Pos::new;
+    let m = word("foobar", true);
+    let run = |range| find_all(&d, &m, Some(range), Control::new()).count();
+    assert_eq!(run(p(0, 3)..p(0, 10)), 0);
+    assert_eq!(run(p(0, 0)..p(0, 10)), 1);
+}
+
+#[test]
+fn the_matcher_gets_a_char_boundary() {
+    #[derive(Debug)]
+    struct Slicing;
+    impl Matcher for Slicing {
+        fn find_at(&self, line: &str, start: usize) -> Result<Option<Match>, MatcherError> {
+            let rest = &line[start..]; // panics off a boundary
+            Ok(rest
+                .find('い')
+                .map(|i| Match::new(start + i, start + i + 3)))
+        }
+    }
+    let d = doc("あい\n");
+    assert_eq!(at(&next(&d, &Slicing, 0, 1, false)), Some(((0, 3), (0, 6))));
+}
+
+#[test]
+fn replace_and_find_next_steps_over_an_empty_match() {
+    let mut d = doc("ab\n");
+    let mut ctl = Control::new();
+    let found = Pos::new(0, 0)..Pos::new(0, 0);
+    let (edit, next) = replace_and_find_next(
+        &mut d,
+        &EmptyEverywhere,
+        &found,
+        "-",
+        ReplaceTarget::Match,
+        false,
+        &mut ctl,
+    )
+    .unwrap();
+    assert_eq!(text_of(&d), "-ab\n");
+    assert_eq!(edit.resume, Pos::new(0, 1));
+    // not the same place again: one char on
+    assert_eq!(next.unwrap().start, Pos::new(0, 2));
+}
+
+#[test]
+fn replace_all_with_empty_matches_inserts_between_chars() {
+    let mut d = doc("ab\n");
+    let r = replace_all(
+        &mut d,
+        &EmptyEverywhere,
+        "-",
+        ReplaceTarget::Match,
+        None,
+        Control::new(),
+    )
+    .unwrap();
+    assert_eq!(text_of(&d), "-a-b-\n");
+    assert_eq!(r.edits.len(), 3);
+}
+
+#[test]
+fn a_cr_inserted_before_an_lf_joins_it_and_does_not_undo_by_position() {
+    // The limit that `AppliedEdit::removed` documents.
+    let mut d = doc("a\nb");
+    let found = Pos::new(0, 0)..Pos::new(0, 1);
+    let e = replace_one(&mut d, &found, "x\r", ReplaceTarget::Match).unwrap();
+    assert_eq!(text_of(&d), "x\r\nb");
+    d.replace(e.start, e.end, &e.removed).unwrap();
+    assert_ne!(text_of(&d), "a\nb");
+}
