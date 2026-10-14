@@ -105,6 +105,14 @@ pub mod wrap_method {
     pub const WINDOW_WIDTH: i32 = 2;
 }
 
+/// Buffer sizes of the strings of a type (`sakura_core/config/maxdata.h`, `sakura_core/types/CType.h`), in
+/// UTF-16 units including the end mark.
+const MAX_TYPES_NAME: usize = 64;
+const MAX_TYPES_EXTS: usize = 64;
+const TAB_VIEW_STRING_SIZE: usize = 8 + 1;
+const INDENT_CHARS_SIZE: usize = 64;
+const KINSOKU_SIZE: usize = 200;
+
 /// The default kinsoku characters of every type but "テキスト" are empty; `szKinsokuKuto` has a default
 /// (`_DefaultConfig`, 2009.08.07 ryoji).
 const DEFAULT_KINSOKU_KUTO: &str = "、。，．､｡,.";
@@ -328,17 +336,41 @@ impl TypeSettings {
         if let Some(v) = profile.get_i32(s, "nLineNumWidth") {
             self.line_num_width = clamp_to(v, LINE_NUM_WIDTH_RANGE.0, LINE_NUM_WIDTH_RANGE.1);
         }
-        read_string(profile, s, "szTypeName", &mut self.type_name);
-        read_string(profile, s, "szTypeExts", &mut self.type_exts);
+        read_string(
+            profile,
+            s,
+            "szTypeName",
+            &mut self.type_name,
+            MAX_TYPES_NAME,
+        );
+        read_string(
+            profile,
+            s,
+            "szTypeExts",
+            &mut self.type_exts,
+            MAX_TYPES_EXTS,
+        );
         if let Some(v) = profile.get_i32(s, "id") {
             // ShareData_IO_TypeId
             self.id = v.wrapping_abs();
         }
-        read_string(profile, s, "szTabViewString", &mut self.tab_view_string);
+        read_string(
+            profile,
+            s,
+            "szTabViewString",
+            &mut self.tab_view_string,
+            TAB_VIEW_STRING_SIZE,
+        );
         read_i32(profile, s, "bTabArrow", &mut self.tab_arrow);
         read_bool(profile, s, "bInsSpace", &mut self.ins_space);
         read_i32(profile, s, "nTextWrapMethod", &mut self.text_wrap_method);
-        read_string(profile, s, "szIndentChars", &mut self.indent_chars);
+        read_string(
+            profile,
+            s,
+            "szIndentChars",
+            &mut self.indent_chars,
+            INDENT_CHARS_SIZE,
+        );
         if let Some(c) = profile.get_wchar(s, "cLineTermChar") {
             self.line_term_char = c;
         }
@@ -360,9 +392,27 @@ impl TypeSettings {
         read_bool(profile, s, "bKinsokuRet", &mut self.kinsoku_ret);
         read_bool(profile, s, "bKinsokuKuto", &mut self.kinsoku_kuto_enabled);
         read_bool(profile, s, "bKinsokuHide", &mut self.kinsoku_hide);
-        read_string(profile, s, "szKinsokuHead", &mut self.kinsoku_head);
-        read_string(profile, s, "szKinsokuTail", &mut self.kinsoku_tail);
-        read_string(profile, s, "szKinsokuKuto", &mut self.kinsoku_kuto);
+        read_string(
+            profile,
+            s,
+            "szKinsokuHead",
+            &mut self.kinsoku_head,
+            KINSOKU_SIZE,
+        );
+        read_string(
+            profile,
+            s,
+            "szKinsokuTail",
+            &mut self.kinsoku_tail,
+            KINSOKU_SIZE,
+        );
+        read_string(
+            profile,
+            s,
+            "szKinsokuKuto",
+            &mut self.kinsoku_kuto,
+            KINSOKU_SIZE,
+        );
         read_bool(profile, s, "bChkEnterAtEnd", &mut self.warn_mixed_eol);
         read_bool(profile, s, "bUseTypeFont", &mut self.use_type_font);
         self.font.read(profile, s, "lf", None, None);
@@ -483,8 +533,12 @@ pub fn types_count(profile: &Profile) -> i32 {
     clamp_to(n, 1, MAX_TYPES)
 }
 
-fn read_string(profile: &Profile, section: &str, key: &str, target: &mut String) {
-    if let Some(v) = profile.get(section, key) {
+/// Reads a string into a buffer of `capacity` UTF-16 units including the end mark. Sakura refuses a value that
+/// does not fit (`IOProfileData` for a `WritableBuffer`), and the setting keeps its value then.
+fn read_string(profile: &Profile, section: &str, key: &str, target: &mut String, capacity: usize) {
+    if let Some(v) = profile.get(section, key)
+        && v.encode_utf16().count() < capacity
+    {
         v.clone_into(target);
     }
 }
@@ -577,6 +631,22 @@ mod tests {
         let t = TypeSettings::read(&p, 1);
         assert_eq!(t.max_line_ketas, 10);
         assert_eq!(t.tab_space, 8);
+    }
+
+    #[test]
+    fn strings_that_do_not_fit_sakuras_buffers_are_refused() {
+        // `szTabViewString` holds 8 units, `szTypeName` 63.
+        let long_name = "あ".repeat(64);
+        let p = Profile::from_bytes(&utf8(&format!(
+            "[Types(0)]\r\nszTabViewString=12345678\r\nszTypeName={long_name}\r\nszTypeExts={}\r\n",
+            "x".repeat(63)
+        )));
+        let t = TypeSettings::read(&p, 0);
+        assert_eq!(t.tab_view_string, "12345678");
+        assert_eq!(t.type_name, "基本");
+        assert_eq!(t.type_exts, "x".repeat(63));
+        let p = Profile::from_bytes(&utf8("[Types(0)]\r\nszTabViewString=123456789\r\n"));
+        assert_eq!(TypeSettings::read(&p, 0).tab_view_string, "^       ");
     }
 
     #[test]
