@@ -7,6 +7,17 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
+# Crates that GPUI and gpui-component use and that their authors no longer maintain. They are
+# notices, not vulnerabilities (none of them has a RUSTSEC advisory about a flaw). Each entry
+# goes when GPUI or gpui-component stops using the crate. Ignored by ID, so a new advisory on any
+# of them still fails.
+ignore = [
+    { id = "RUSTSEC-2024-0384", reason = "instant: unmaintained, used by gpui-base (gpui-component)" },
+    { id = "RUSTSEC-2024-0436", reason = "paste: unmaintained, used by gpui-component and pulp (exr)" },
+    { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile: unmaintained, used by gpui-pre-reqwest (gpui-kit-assets)" },
+    { id = "RUSTSEC-2026-0206", reason = "rustybuzz: unmaintained, used by usvg (gpui-pre, gpui-component)" },
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser: unmaintained, used by GPUI's font stack (cosmic-text, usvg)" },
+]
 
 [licenses]
 version = 2
