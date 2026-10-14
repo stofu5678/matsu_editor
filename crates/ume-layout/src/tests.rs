@@ -511,6 +511,21 @@ fn the_end_of_a_line_with_its_ending_row() {
 }
 
 #[test]
+fn a_column_in_the_indent_of_an_empty_row_is_its_start() {
+    // The row of a line ending after an indented wrap is empty and starts at column 4.
+    let cfg = LayoutConfig {
+        indent: WrapIndent::AfterLastTab,
+        ..config(12)
+    };
+    let text = "\tabcdefgh";
+    let rows = lay(text, true, &cfg);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[1].start_column, 4);
+    let at = position_to_offset(text, &rows, &cfg, 1, 1);
+    assert_eq!((at.offset, at.extra_columns), (text.len(), 0));
+}
+
+#[test]
 fn empty_rows_map_to_zero() {
     let cfg = config(10);
     assert_eq!(

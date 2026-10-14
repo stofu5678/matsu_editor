@@ -114,6 +114,6 @@ pub fn position_to_offset(
     }
     Located {
         offset: r.range.end,
-        extra_columns: column - x,
+        extra_columns: column.saturating_sub(x),
     }
 }
