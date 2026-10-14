@@ -20,6 +20,8 @@ use gpui::{
 use gpui_component::{Root, TitleBar};
 use gpui_platform::application;
 
+mod macro_host;
+mod macro_ui;
 mod memstat;
 mod menu_bar;
 mod print;
@@ -68,6 +70,8 @@ actions!(
         Paste,
         OpenFile,
         GenerateLargeText,
+        RunMacro,
+        CancelMacro,
         Print,
         TogglePrintPreview,
         ClosePreview,
@@ -129,6 +133,8 @@ struct Editor {
     layout: Option<LayoutCache>,
     /// Scrollbar thumb drag: (mouse y at start, scroll_y at start).
     scroll_drag: Option<(Pixels, Pixels)>,
+    /// The macro that runs, and what it printed (src/macro_ui.rs).
+    macros: macro_ui::MacroState,
 }
 
 /// What the last paint produced, used for hit testing, IME placement, and scrolling.
@@ -165,6 +171,7 @@ impl Editor {
             first_frame_ms: None,
             layout: None,
             scroll_drag: None,
+            macros: macro_ui::MacroState::default(),
         }
     }
 
@@ -1275,6 +1282,7 @@ impl Render for Editor {
                         editor: cx.entity(),
                     })),
             )
+            .children(self.render_macro_panel(cx))
             .child(
                 div()
                     .px_2()
@@ -1504,6 +1512,17 @@ impl Render for Workspace {
                 move |_: &OpenFile, w, cx| f(w, cx)
             })
             .on_action({
+                let f = forward(|e, w, cx| e.run_macro_dialog(&RunMacro, w, cx));
+                move |_: &RunMacro, w, cx| f(w, cx)
+            })
+            // Not through `forward`: stopping a macro has to work while the preview is open too.
+            .on_action({
+                let editor = self.editor.clone();
+                move |_: &CancelMacro, w, cx| {
+                    editor.update(cx, |e, cx| e.cancel_macro(&CancelMacro, w, cx));
+                }
+            })
+            .on_action({
                 let f = forward(|e, w, cx| e.generate(&GenerateLargeText, w, cx));
                 move |_: &GenerateLargeText, w, cx| f(w, cx)
             })
@@ -1624,7 +1643,10 @@ fn set_menus(cx: &mut App) {
         ]),
         Menu::new(label("変換", 'C')).items([todo()]),
         Menu::new(label("検索", 'S')).items([todo()]),
-        Menu::new(label("ツール", 'T')).items([todo()]),
+        Menu::new(label("ツール", 'T')).items([
+            MenuItem::action("名前を指定してマクロ実行...", RunMacro),
+            MenuItem::action("マクロの中断", CancelMacro),
+        ]),
         Menu::new(label("設定", 'O')).items([
             MenuItem::action("フォントを切り替える", CycleFont),
             MenuItem::action("文字を大きく", FontBigger),
@@ -1705,6 +1727,16 @@ fn bind_keys(cx: &mut App) {
 }
 
 fn main() {
+    if let Some(result) = macro_host::run_cli(&std::env::args().collect::<Vec<_>>()) {
+        match result {
+            Ok(message) => println!("{message}"),
+            Err(err) => {
+                eprintln!("{err}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     #[cfg(not(target_os = "macos"))]
     if let Some(result) = print::run_cli(&std::env::args().collect::<Vec<_>>()) {
         match result {

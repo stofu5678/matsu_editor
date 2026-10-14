@@ -165,6 +165,8 @@ async fn drive(dir: &Path, cx: &mut AsyncApp) -> Result<()> {
 
     check_print(window, &editor, &workspace, dir, &seen, cx).await?;
 
+    check_macros(window, &editor, dir, cx).await?;
+
     // F8 makes a million lines.
     press(window, "f8", cx).await?;
     let lines = cx.update(|cx| editor.read(cx).lines.len());
@@ -181,6 +183,105 @@ async fn drive(dir: &Path, cx: &mut AsyncApp) -> Result<()> {
     }
     eprintln!("self-check: memory at the end: {}", memory());
     Ok(())
+}
+
+/// Runs the sample macros through the window (the process, the channel to the UI thread, the
+/// calls on the editor, the output panel), then stops a macro that never ends. A macro whose
+/// interpreter is not installed is skipped.
+async fn check_macros(
+    window: AnyWindowHandle,
+    editor: &Entity<Editor>,
+    dir: &Path,
+    cx: &mut AsyncApp,
+) -> Result<()> {
+    let samples = Path::new(env!("CARGO_MANIFEST_DIR")).join("macros");
+    for name in ["sample.js", "sample.py"] {
+        start_macro(editor, "りんご\nみかん😀\nぶどう\n", samples.join(name), cx);
+        wait_for_macro(editor, cx).await?;
+        let (text, output) = cx.update(|cx| {
+            let editor = editor.read(cx);
+            (editor.lines.join("\n"), editor.macros.output_text())
+        });
+        if output.contains("起動できませんでした") || output.contains("見つかりません")
+        {
+            eprintln!(
+                "self-check: skipped {name}: {}",
+                output.replace('\n', " / ")
+            );
+            continue;
+        }
+        eprintln!("self-check: {name}: {}", output.replace('\n', " / "));
+        ensure!(
+            text == "# サンプルマクロ 😀\nりんご\nみかん😀 (置き換えました)\nぶどう\n-- マクロの終わり --\n",
+            "{name} left the wrong text: {text:?}"
+        );
+        ensure!(
+            output.contains("正常に終了しました"),
+            "{name} did not end well"
+        );
+        save(window, &dir.join(format!("macro-{name}.png")), cx)?;
+    }
+
+    // Up and Down go by the text as the macro has just changed it, not as the last paint drew it.
+    let vertical = dir.join("vertical.js");
+    std::fs::write(
+        &vertical,
+        "Editor.MoveCursor(1, 6, 0); Editor.InsText('XY'); Editor.Down(); Editor.Down(); Editor.InsText('Z');",
+    )?;
+    start_macro(editor, "abcdef\nx\nabcdef", vertical, cx);
+    wait_for_macro(editor, cx).await?;
+    let text = cx.update(|cx| editor.read(cx).lines.join("\n"));
+    if text != "abcdef\nx\nabcdef" {
+        ensure!(
+            text == "abcdeXYf\nx\nabcdefZ",
+            "Up and Down used old geometry: {text:?}"
+        );
+    } else {
+        eprintln!("self-check: skipped vertical.js (Node.js is not available)");
+    }
+
+    // A macro that never ends is stopped by the menu command.
+    let forever = dir.join("forever.js");
+    std::fs::write(&forever, "console.log('started'); while (true) {}")?;
+    start_macro(editor, "", forever, cx);
+    settle(cx).await;
+    let running = cx.update(|cx| editor.read(cx).macros.is_running());
+    if running {
+        window.update(cx, |_, window, cx| {
+            editor.update(cx, |editor, cx| {
+                editor.cancel_macro(&crate::CancelMacro, window, cx)
+            })
+        })?;
+        wait_for_macro(editor, cx).await?;
+        let output = cx.update(|cx| editor.read(cx).macros.output_text());
+        eprintln!("self-check: cancel: {}", output.replace('\n', " / "));
+        ensure!(output.contains("中断しました"), "the macro was not stopped");
+    } else {
+        eprintln!("self-check: skipped forever.js (Node.js is not available)");
+    }
+    Ok(())
+}
+
+fn start_macro(editor: &Entity<Editor>, text: &str, script: PathBuf, cx: &mut AsyncApp) {
+    cx.update(|cx| {
+        editor.update(cx, |editor, cx| {
+            editor.set_text(text, None, cx);
+            editor.start_macro(script, cx);
+        })
+    });
+}
+
+/// Waits (up to 20 seconds) until no macro runs.
+async fn wait_for_macro(editor: &Entity<Editor>, cx: &mut AsyncApp) -> Result<()> {
+    for _ in 0..200 {
+        cx.background_executor()
+            .timer(Duration::from_millis(100))
+            .await;
+        if !cx.update(|cx| editor.read(cx).macros.is_running()) {
+            return Ok(());
+        }
+    }
+    anyhow::bail!("the macro did not end")
 }
 
 /// Selects with the keys, copies, cuts and pastes, starting with the cursor at the end of

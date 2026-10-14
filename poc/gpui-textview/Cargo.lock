@@ -2845,6 +2845,7 @@ name = "gpui-textview-poc"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "async-channel",
  "cocoa 0.26.1",
  "futures-channel",
  "gpui-base",
@@ -2863,6 +2864,7 @@ dependencies = [
  "objc2-core-text",
  "objc2-foundation 0.3.2",
  "raw-window-handle",
+ "serde_json",
  "tempfile",
  "unicode-width",
  "windows-sys 0.61.2",
