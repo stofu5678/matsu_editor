@@ -172,8 +172,9 @@ impl TextFile {
             // Sakura converts the lines of the document itself, so a later plain save keeps the
             // converted endings. We only convert while writing, so remember to do it again.
             self.new_line = eol;
-            self.eol_on_save = Some(eol);
         }
+        // The next plain save writes the endings as this one did.
+        self.eol_on_save = options.eol;
         Ok(report)
     }
 }

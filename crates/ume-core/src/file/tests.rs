@@ -372,6 +372,13 @@ fn line_endings_are_kept_or_converted() {
     // A later plain save does not bring the old endings back.
     save_keep(&mut file);
     assert_eq!(fs::read(&path).unwrap(), b"a\nb\nc\nd");
+    // A save that chose not to convert is what the next plain save repeats.
+    let mut no_conversion = SaveOptions::keep(&file);
+    no_conversion.eol = None;
+    save(&mut file, &no_conversion);
+    assert_eq!(fs::read(&path).unwrap(), b"a\r\nb\nc\rd");
+    save_keep(&mut file);
+    assert_eq!(fs::read(&path).unwrap(), b"a\r\nb\nc\rd");
     options.eol = Some(Eol::CrLf);
     save(&mut file, &options);
     assert_eq!(fs::read(&path).unwrap(), b"a\r\nb\r\nc\r\nd");
@@ -741,6 +748,11 @@ fn a_pipe_is_not_replaced() {
     let keep = SaveOptions::keep(&file);
     let err = file.save_as(&fifo, &keep, &mut no_progress).unwrap_err();
     assert!(matches!(err, FileError::Io(_)), "{err}");
+    // Opening it must not block either.
+    assert!(matches!(
+        open_file(&fifo, &OpenOptions::default()),
+        Err(FileError::Io(_))
+    ));
     assert_eq!(dir.names(), ["pipe"]);
     assert!(!fs::metadata(&fifo).unwrap().is_file());
 }

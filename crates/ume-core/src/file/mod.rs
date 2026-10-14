@@ -39,7 +39,7 @@ mod source;
 #[cfg(test)]
 mod tests;
 
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::Read;
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
@@ -149,13 +149,14 @@ pub fn open_file_with(
 ) -> Result<TextFile> {
     let path = path.as_ref();
     let max = options.max_len.min(u64::from(u32::MAX));
+    // Look before opening: opening a pipe can block for ever.
+    if !fs::metadata(path)?.is_file() {
+        return Err(not_regular());
+    }
     let mut file = File::open(path)?;
     let meta = file.metadata()?;
     if !meta.is_file() {
-        return Err(FileError::Io(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "not a regular file",
-        )));
+        return Err(not_regular());
     }
     let len = meta.len();
     if len > max {
@@ -221,4 +222,11 @@ fn read_all(file: &mut File, len: u64, max: u64, progress: Progress<'_>) -> Resu
         }
     }
     Ok(bytes)
+}
+
+fn not_regular() -> FileError {
+    FileError::Io(std::io::Error::new(
+        std::io::ErrorKind::InvalidInput,
+        "not a regular file",
+    ))
 }
