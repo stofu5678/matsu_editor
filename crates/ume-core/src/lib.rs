@@ -7,6 +7,7 @@ pub mod buffer;
 pub mod cursor;
 pub mod encoding;
 pub mod model;
+pub mod search;
 pub mod undo;
 
 /// Returns the crate version, so that the workspace has something to build
