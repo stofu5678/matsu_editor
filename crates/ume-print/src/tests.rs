@@ -404,6 +404,18 @@ fn line_number_terminators() {
         ("1:", base_x - 2 * 12)
     );
     assert!(p.rules.is_empty());
+    // A wrapped row has a blank in place of the number, and the character after it
+    // (DrawPageText: " " and then the terminator).
+    let src = ["aaaaaaaaaaaaaaaaaaaaaaaaa"];
+    let lay = Layout::new(&src, &s, paper_for(&s, 20, 3), &options).unwrap();
+    let p = page(&lay, 0, &src);
+    let seps: Vec<_> = p
+        .texts
+        .iter()
+        .filter(|t| t.text.ends_with(':'))
+        .map(|t| (t.x, t.text.as_str()))
+        .collect();
+    assert_eq!(seps, [(base_x - 2 * 12, "1:"), (base_x - 2 * 12, " :")]);
     // Nothing: no line either.
     let options = TypeOptions {
         line_term: LineTerm::None,
@@ -751,6 +763,15 @@ fn invalid_numbers_are_errors() {
             Err(PrintError::InvalidSetting(_))
         ));
     }
+    // A line spacing that cancels the font height would divide by zero.
+    let s = PrintSetting {
+        print_line_spacing: -100,
+        ..PrintSetting::default()
+    };
+    assert_eq!(
+        Layout::new(&src, &s, Paper::A4, &TypeOptions::default()).unwrap_err(),
+        PrintError::InvalidSetting("print_line_spacing")
+    );
     let options = TypeOptions {
         tab_width: 0,
         ..TypeOptions::default()
@@ -772,4 +793,23 @@ fn grid_positions() {
         .map(|(i, _, x)| (i, x))
         .collect();
     assert_eq!(xs, [(0, 100), (1, 112), (4, 136)]);
+}
+
+#[test]
+fn a_line_of_many_pages() {
+    // One line of 20 rows on pages of 3 rows: the pages go on with the same line, the same
+    // with and without the cache that `pages` keeps.
+    let (s, paper) = small(4, 3);
+    let src = ["あ".repeat(40)];
+    let lay = layout(&src, &s, paper);
+    assert_eq!((lay.row_count(), lay.page_count()), (20, 7));
+    let ctx = HeaderContext::default();
+    let all: Vec<_> = lay.pages(0..99, &src, &ctx).collect();
+    assert_eq!(all.len(), 7);
+    for (i, p) in all.iter().enumerate() {
+        assert_eq!(Some(p), lay.page(i, &src, &ctx).as_ref());
+    }
+    // 2 characters in each of 3 rows, then 2 rows of 2 characters on the last page.
+    assert_eq!(texts(&all[0]), ["ああ"; 3]);
+    assert_eq!(texts(&all[6]), ["ああ"; 2]);
 }

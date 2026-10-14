@@ -175,9 +175,30 @@ pub struct PageInfo<'a> {
 /// | `$V` `$h` `$S` `$I` `$M` `$<profile>` | the version, the Grep key (32 characters), the paths of the application, the settings file and the macro, the profile |
 /// | `${R?a$:b$:c$}` | the part chosen by the condition `R` (view mode, locked, other), `U` (changed, not), `M` (recording, not), `w` (Grep, output, other), `N` (new, not) or `I` (always the second part) |
 ///
-/// Other `$` sequences stay as they are. Sakura limits the result to 1024 characters; that does
-/// not matter for a part of at most 99.
+/// Other `$` sequences stay as they are. The result is cut at 1024 UTF-16 units, like Sakura's
+/// buffer (`DrawHeaderFooter` gives `nWorkLen` 1024), without splitting a character.
 pub fn expand_parameter(form: &str, ctx: &HeaderContext, page: Option<&PageInfo<'_>>) -> String {
+    let mut out = expand(form, ctx, page);
+    limit_units(&mut out, MAX_EXPANDED_UNITS);
+    out
+}
+
+/// The most UTF-16 units of an expanded text: the buffer of `DrawHeaderFooter` (`nWorkLen`).
+const MAX_EXPANDED_UNITS: usize = 1024;
+
+/// Cuts `text` after the last whole character within `max` UTF-16 units.
+fn limit_units(text: &mut String, max: usize) {
+    let mut units = 0;
+    for (i, ch) in text.char_indices() {
+        units += ch.len_utf16();
+        if units > max {
+            text.truncate(i);
+            return;
+        }
+    }
+}
+
+fn expand(form: &str, ctx: &HeaderContext, page: Option<&PageInfo<'_>>) -> String {
     let src: Vec<char> = form.chars().collect();
     let mut out = String::new();
     let mut p = 0;
@@ -554,6 +575,21 @@ mod tests {
             ..HeaderContext::default()
         };
         assert_eq!(ex("$h", &c), "short");
+    }
+
+    #[test]
+    fn the_result_is_cut_at_1024_units() {
+        let c = HeaderContext {
+            selected_text: "あ".repeat(2000),
+            ..HeaderContext::default()
+        };
+        assert_eq!(ex("$C", &c).chars().count(), 1024);
+        // A character of two units is not cut in two.
+        let c = HeaderContext {
+            selected_text: format!("{}{}", "a".repeat(1023), "𠮷"),
+            ..HeaderContext::default()
+        };
+        assert_eq!(ex("$C", &c), "a".repeat(1023));
     }
 
     #[test]

@@ -178,6 +178,10 @@ impl Layout {
         if s.print_dansuu <= 0 {
             return Err(PrintError::InvalidSetting("print_dansuu"));
         }
+        // The pitch of the rows must be positive (the rows are counted by dividing by it).
+        if s.print_font_height + s.print_font_height * s.print_line_spacing / 100 <= 0 {
+            return Err(PrintError::InvalidSetting("print_line_spacing"));
+        }
         if options.tab_width == 0 {
             return Err(PrintError::InvalidSetting("tab_width"));
         }
@@ -279,11 +283,25 @@ impl Layout {
     ///
     /// The order of the pages Sakura prints is that of the page numbers; the range of pages a
     /// user picks in the print dialog (`nFromPage`, `nToPage`) is a range of `index`.
+    ///
+    /// A page that begins in the middle of a line lays that whole line out again (`ume-layout`
+    /// cannot resume in a row), which is slow for a line of many pages; [`Layout::pages`] keeps
+    /// the line it laid out last for the page that follows.
     pub fn page<S: LineSource + ?Sized>(
         &self,
         index: usize,
         source: &S,
         ctx: &HeaderContext,
+    ) -> Option<Page> {
+        self.page_cached(index, source, ctx, &mut LineCache::default())
+    }
+
+    fn page_cached<S: LineSource + ?Sized>(
+        &self,
+        index: usize,
+        source: &S,
+        ctx: &HeaderContext,
+        cache: &mut LineCache,
     ) -> Option<Page> {
         let start = *self.starts.get(index)?;
         let s = &self.setting;
@@ -318,12 +336,10 @@ impl Layout {
         let mut at = 0;
         let mut line = start.line;
         let mut skip = start.row;
-        let mut text = String::new();
-        let mut rows = Vec::new();
         while at < per_page && line < self.line_count {
-            let has_eol = source.read_line(line, &mut text);
-            rows_of(&text, has_eol, &self.config, &mut rows);
-            for (n, row) in rows.iter().enumerate().skip(skip) {
+            cache.load(line, source, &self.config);
+            let text = &cache.text;
+            for (n, row) in cache.rows.iter().enumerate().skip(skip) {
                 let column = at / self.rows;
                 let row_in_column = at % self.rows;
                 // The left edge of the text; the line numbers go to the left of it.
@@ -341,11 +357,9 @@ impl Layout {
                     } else {
                         None
                     };
-                    if let Some(number) = number {
-                        self.place_line_number(number, base_x, baseline, &mut page.texts);
-                    }
+                    self.place_line_number(number, base_x, baseline, &mut page.texts);
                 }
-                let row_text = row.text(&text);
+                let row_text = row.text(text);
                 if !row_text.is_empty() {
                     place_runs(
                         row_text,
@@ -399,15 +413,17 @@ impl Layout {
         ctx: &'a HeaderContext,
     ) -> impl Iterator<Item = Page> + 'a {
         let end = range.end.min(self.page_count());
-        (range.start..end).filter_map(move |i| self.page(i, source, ctx))
+        let mut cache = LineCache::default();
+        (range.start..end).filter_map(move |i| self.page_cached(i, source, ctx, &mut cache))
     }
 
     /// The line number and what follows it (`DrawPageText`). The text ends where the text of the
     /// row begins, so its left edge is as many cells to the left as the text has UTF-16 units
-    /// (Sakura counts units, not widths). A space prints nothing, so a blank is left out.
+    /// (Sakura counts units, not widths). A space prints nothing, so a trailing one is left
+    /// out.
     fn place_line_number(
         &self,
-        number: usize,
+        number: Option<usize>,
         base_x: i32,
         baseline: i32,
         out: &mut Vec<PlacedText>,
@@ -416,7 +432,11 @@ impl Layout {
             LineTerm::Char(c) => c,
             LineTerm::None | LineTerm::Line => ' ',
         };
-        let label = format!("{number}{term}");
+        // A row without a number has a blank in its place, and still the character after it.
+        let label = match number {
+            Some(number) => format!("{number}{term}"),
+            None => format!(" {term}"),
+        };
         let cell = self.setting.print_font_width;
         let units: usize = label.chars().map(char::len_utf16).sum();
         let x = base_x - units as i32 * cell;
@@ -486,6 +506,25 @@ impl Layout {
                 };
                 place_runs(&text, 0, x, baseline, fw, &self.config, out);
             }
+        }
+    }
+}
+
+/// The line laid out last: the page after a page that ends in the middle of a line goes on
+/// with the same line.
+#[derive(Default)]
+struct LineCache {
+    line: Option<usize>,
+    text: String,
+    rows: Vec<Row>,
+}
+
+impl LineCache {
+    fn load<S: LineSource + ?Sized>(&mut self, line: usize, source: &S, config: &LayoutConfig) {
+        if self.line != Some(line) {
+            let has_eol = source.read_line(line, &mut self.text);
+            rows_of(&self.text, has_eol, config, &mut self.rows);
+            self.line = Some(line);
         }
     }
 }
