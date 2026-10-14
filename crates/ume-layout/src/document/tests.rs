@@ -396,6 +396,37 @@ fn the_first_layout_goes_in_chunks_and_the_done_part_is_exact() {
     assert_matches(&idx, &d, &cfg);
 }
 
+#[test]
+fn queries_agree_with_the_counts_before_the_layout_reaches_a_line() {
+    let d = doc("abcdefghijkl\nxy\nmnopqrstuvwx\n");
+    let cfg = wrap(4);
+    let mut idx = DocumentLayout::new(&d, cfg.clone()).unwrap();
+    // Nothing is laid out: one row a line, plus the EOF row.
+    assert_eq!(idx.row_count(), 4);
+    for row in 0..idx.row_count() {
+        let info = idx.row(&d, row).unwrap();
+        assert_eq!(info.row, row);
+        assert_eq!(idx.row_to_pos(&d, row, 0).unwrap().pos, info.start);
+        assert_eq!(idx.pos_to_row(&d, info.start).unwrap().row, row);
+    }
+    assert_eq!(idx.row(&d, 0).unwrap().text(), "abcd");
+    // The rows of the second line are made exact; the rows before it do not move.
+    idx.layout_rows(&d, 1, 1).unwrap();
+    assert_eq!(idx.rows_in_line(0), Some(1));
+    assert_eq!(idx.rows_in_line(1), Some(1));
+    // Line 0 has 4 rows (12 columns and the line ending on its own row); the window grows as the
+    // lines in it turn out to be longer.
+    idx.layout_rows(&d, 0, 7).unwrap();
+    assert_eq!(idx.rows_in_line(0), Some(4));
+    assert_eq!(idx.rows_in_line(1), Some(1));
+    assert_eq!(idx.rows_in_line(2), Some(4));
+    assert_eq!(idx.row(&d, 2).unwrap().text(), "ijkl");
+    assert_eq!(idx.row(&d, 3).unwrap().text(), "");
+    assert_eq!(idx.row(&d, 4).unwrap().text(), "xy");
+    idx.layout_all(&d).unwrap();
+    assert_matches(&idx, &d, &cfg);
+}
+
 // ---- random edits ----
 
 const PIECES: [&str; 14] = [

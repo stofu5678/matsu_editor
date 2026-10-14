@@ -64,9 +64,11 @@
 //! column), so the row count and the scroll bar are close at once and exact for the lines in front
 //! of the first long one. [`DocumentLayout::layout_chunk`] and [`DocumentLayout::layout_for`] lay
 //! out the next lines from the top; [`DocumentLayout::progress`] says how far they are. The lines
-//! that are done are exact, so the UI can show the top while the rest goes on. A query for a line
-//! that is not done yet still gives the right rows *inside the line* (it is laid out on demand);
-//! only the row numbers after a not yet counted long line are provisional.
+//! that are done are exact, so the UI can show the top while the rest goes on. Every query agrees
+//! with the counts, exact or not: a line that is not done shows the rows counted for it (one), so
+//! painting, clicking and moving use the same row numbers. To show a part that the layout has not
+//! reached (the scroll bar was dragged), call [`DocumentLayout::layout_rows`] for those rows
+//! first: it makes the lines there exact, and the row numbers after them move.
 //!
 //! With no wrapping, a line is one row unless it is longer than 10240 columns (Sakura's
 //! `MAXLINEKETAS`). Lines that cannot reach that many columns (the byte length times the widest
@@ -368,6 +370,31 @@ impl DocumentLayout {
         }
     }
 
+    /// Makes the lines on the rows `first_row..first_row + count` exact, wherever the layout of
+    /// the whole document is. The row numbers of the lines before are not changed; those after
+    /// them move when a line has more rows than were counted. Call it before painting a part
+    /// that [`layout_chunk`](Self::layout_chunk) has not reached.
+    pub fn layout_rows(&mut self, doc: &Document, first_row: usize, count: usize) -> Result<()> {
+        let first_row = first_row.min(self.row_count() - 1);
+        let at = self.locate_row(first_row);
+        let (mut line, mut row) = (at.line, first_row - at.row_in_line);
+        while row < first_row.saturating_add(count) && line < self.seq.len() {
+            let mut n = self.seq.get(line).map_or(1, |c| c as usize);
+            if line >= self.done {
+                let Some(layout) = self.line_layout(doc, line)? else {
+                    break;
+                };
+                if layout.rows.len() != n {
+                    n = layout.rows.len();
+                    self.seq.replace(line, 1, &[n as u32]);
+                }
+            }
+            row += n;
+            line += 1;
+        }
+        Ok(())
+    }
+
     /// Lays out everything that is left.
     pub fn layout_all(&mut self, doc: &Document) -> Result<()> {
         self.layout_chunk(doc, usize::MAX).map(|_| ())
@@ -429,7 +456,11 @@ impl DocumentLayout {
         } else {
             first + new_count
         };
-        self.trailing = trailing_row(doc)?;
+        if first + new_count >= self.seq.len() {
+            // Only an edit that reaches the last line can change how the document ends. (The
+            // end position of a document with a very long last line costs a read of the line.)
+            self.trailing = trailing_row(doc)?;
+        }
         if new_count == old_count {
             self.cache().forget(first, Some(first + new_count));
         } else {
@@ -553,7 +584,9 @@ impl DocumentLayout {
             let Some(layout) = self.line_layout(doc, line)? else {
                 break;
             };
-            while k < layout.rows.len() && out.len() < count {
+            // A line that is not laid out yet shows the rows that are counted for it.
+            let shown = self.seq.get(line).map_or(1, |c| c as usize);
+            while k < shown && out.len() < count {
                 out.push(self.info(row, line, k, &layout));
                 row += 1;
                 k += 1;
@@ -589,8 +622,10 @@ impl DocumentLayout {
             });
         };
         let p = offset_to_position(&layout.text, &layout.rows, &self.cfg, pos.col);
+        // On a line that is not laid out yet, stay on the rows that are counted for it.
+        let shown = self.seq.get(pos.line).map_or(1, |c| c as usize);
         Ok(RowPos {
-            row: self.first_row_of_line(pos.line) + p.row,
+            row: self.first_row_of_line(pos.line) + p.row.min(shown - 1),
             column: p.column,
         })
     }

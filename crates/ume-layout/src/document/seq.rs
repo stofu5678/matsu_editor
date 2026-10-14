@@ -79,10 +79,24 @@ impl Fenwick {
     }
 }
 
+/// Up to `2 * BLOCK` counts and their sum.
+#[derive(Clone, Debug)]
+struct Block {
+    counts: Vec<u32>,
+    rows: u64,
+}
+
+impl Block {
+    fn new(counts: Vec<u32>) -> Self {
+        let rows = sum(&counts);
+        Self { counts, rows }
+    }
+}
+
 /// The row count of every line.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct RowSeq {
-    blocks: Vec<Vec<u32>>,
+    blocks: Vec<Block>,
     fen_lines: Fenwick,
     fen_rows: Fenwick,
     lines: usize,
@@ -96,7 +110,7 @@ impl RowSeq {
         let mut left = lines;
         while left > 0 {
             let n = left.min(BLOCK);
-            blocks.push(vec![1; n]);
+            blocks.push(Block::new(vec![1; n]));
             left -= n;
         }
         Self::from_blocks(blocks)
@@ -104,10 +118,15 @@ impl RowSeq {
 
     #[cfg(test)]
     pub(crate) fn from_counts(counts: &[u32]) -> Self {
-        Self::from_blocks(counts.chunks(BLOCK).map(<[u32]>::to_vec).collect())
+        Self::from_blocks(
+            counts
+                .chunks(BLOCK)
+                .map(|c| Block::new(c.to_vec()))
+                .collect(),
+        )
     }
 
-    fn from_blocks(blocks: Vec<Vec<u32>>) -> Self {
+    fn from_blocks(blocks: Vec<Block>) -> Self {
         let mut seq = Self {
             blocks,
             ..Self::default()
@@ -116,11 +135,12 @@ impl RowSeq {
         seq
     }
 
+    /// Builds the trees and the totals from the blocks: O(blocks), the lines are not visited.
     fn rebuild(&mut self) {
-        self.fen_lines = Fenwick::build(self.blocks.iter().map(|b| b.len() as u64));
-        self.fen_rows = Fenwick::build(self.blocks.iter().map(|b| block_rows(b)));
-        self.lines = self.blocks.iter().map(Vec::len).sum();
-        self.rows = self.blocks.iter().map(|b| block_rows(b)).sum();
+        self.fen_lines = Fenwick::build(self.blocks.iter().map(|b| b.counts.len() as u64));
+        self.fen_rows = Fenwick::build(self.blocks.iter().map(|b| b.rows));
+        self.lines = self.blocks.iter().map(|b| b.counts.len()).sum();
+        self.rows = self.blocks.iter().map(|b| b.rows).sum();
     }
 
     pub(crate) fn len(&self) -> usize {
@@ -138,7 +158,7 @@ impl RowSeq {
         let (b, off) = self.fen_lines.find(line as u64);
         if b >= self.blocks.len() {
             let last = self.blocks.len().saturating_sub(1);
-            (last, self.blocks.get(last).map_or(0, Vec::len))
+            (last, self.blocks.get(last).map_or(0, |b| b.counts.len()))
         } else {
             (b, off as usize)
         }
@@ -149,7 +169,7 @@ impl RowSeq {
             return None;
         }
         let (b, off) = self.locate_line(line);
-        Some(self.blocks[b][off])
+        Some(self.blocks[b].counts[off])
     }
 
     /// The number of the first row of `line`; `total_rows()` for `line >= len()`.
@@ -158,7 +178,7 @@ impl RowSeq {
             return self.rows;
         }
         let (b, off) = self.locate_line(line);
-        self.fen_rows.prefix(b) + block_rows(&self.blocks[b][..off])
+        self.fen_rows.prefix(b) + sum(&self.blocks[b].counts[..off])
     }
 
     /// The line that holds `row` and the index of the row in it, or `None` past the last row.
@@ -168,7 +188,7 @@ impl RowSeq {
         }
         let (b, mut rest) = self.fen_rows.find(row);
         let first = self.fen_lines.prefix(b) as usize;
-        for (line, &c) in (first..).zip(&self.blocks[b]) {
+        for (line, &c) in (first..).zip(&self.blocks[b].counts) {
             if rest < u64::from(c) {
                 return Some((line, rest as usize));
             }
@@ -179,6 +199,11 @@ impl RowSeq {
 
     /// Replaces the counts of lines `first..first + old_count` with `new`. `first + old_count`
     /// must not pass `len()`.
+    ///
+    /// Three ways, from the cheapest: inside one block (two Fenwick updates); the same number of
+    /// lines over several blocks, as when a chunk of the first layout is stored (one Fenwick
+    /// update per block); and the general case, which cuts the blocks again and builds the trees
+    /// from the block sums.
     pub(crate) fn replace(&mut self, first: usize, old_count: usize, new: &[u32]) {
         assert!(first + old_count <= self.lines, "range past the lines");
         if old_count == 0 && new.is_empty() {
@@ -188,11 +213,14 @@ impl RowSeq {
         let (b1, off1) = self.locate_line(first + old_count);
         if !self.blocks.is_empty() && b0 == b1 {
             let block = &mut self.blocks[b0];
-            let new_len = block.len() - old_count + new.len();
+            let new_len = block.counts.len() - old_count + new.len();
             if (1..=2 * BLOCK).contains(&new_len) {
-                let removed = block_rows(&block[off0..off0 + old_count]);
-                block.splice(off0..off0 + old_count, new.iter().copied());
-                let delta_rows = block_rows(new) as i64 - removed as i64;
+                let removed = sum(&block.counts[off0..off0 + old_count]);
+                block
+                    .counts
+                    .splice(off0..off0 + old_count, new.iter().copied());
+                let delta_rows = sum(new) as i64 - removed as i64;
+                block.rows = block.rows.wrapping_add_signed(delta_rows);
                 self.fen_lines.add(b0, new.len() as i64 - old_count as i64);
                 self.fen_rows.add(b0, delta_rows);
                 self.lines = self.lines - old_count + new.len();
@@ -200,17 +228,35 @@ impl RowSeq {
                 return;
             }
         }
+        if new.len() == old_count {
+            // Overwrite in place, block by block.
+            let (mut b, mut off, mut done) = (b0, off0, 0);
+            while done < new.len() {
+                let block = &mut self.blocks[b];
+                let n = (block.counts.len() - off).min(new.len() - done);
+                let part = &new[done..done + n];
+                let delta_rows = sum(part) as i64 - sum(&block.counts[off..off + n]) as i64;
+                block.counts[off..off + n].copy_from_slice(part);
+                block.rows = block.rows.wrapping_add_signed(delta_rows);
+                self.fen_rows.add(b, delta_rows);
+                self.rows = self.rows.wrapping_add_signed(delta_rows);
+                done += n;
+                b += 1;
+                off = 0;
+            }
+            return;
+        }
         // The general case: cut the touched blocks again.
         let mut joined: Vec<u32> = Vec::new();
         if let Some(block) = self.blocks.get(b0) {
-            joined.extend_from_slice(&block[..off0]);
+            joined.extend_from_slice(&block.counts[..off0]);
         }
         joined.extend_from_slice(new);
         if let Some(block) = self.blocks.get(b1) {
-            joined.extend_from_slice(&block[off1..]);
+            joined.extend_from_slice(&block.counts[off1..]);
         }
         let end = (b1 + 1).min(self.blocks.len());
-        let pieces: Vec<Vec<u32>> = joined.chunks(BLOCK).map(<[u32]>::to_vec).collect();
+        let pieces = joined.chunks(BLOCK).map(|c| Block::new(c.to_vec()));
         self.blocks.splice(b0.min(end)..end, pieces);
         self.rebuild();
     }
@@ -218,11 +264,14 @@ impl RowSeq {
     /// The counts, one by one (for tests).
     #[cfg(test)]
     pub(crate) fn to_vec(&self) -> Vec<u32> {
-        self.blocks.iter().flatten().copied().collect()
+        self.blocks
+            .iter()
+            .flat_map(|b| b.counts.iter().copied())
+            .collect()
     }
 }
 
-fn block_rows(counts: &[u32]) -> u64 {
+fn sum(counts: &[u32]) -> u64 {
     counts.iter().map(|&c| u64::from(c)).sum()
 }
 
@@ -299,6 +348,20 @@ mod tests {
             }
             check(&seq, &model);
         }
+    }
+
+    #[test]
+    fn same_length_replacement_over_many_blocks() {
+        let mut model: Vec<u32> = (0..3000).map(|i| 1 + (i % 3) as u32).collect();
+        let mut seq = RowSeq::from_counts(&model);
+        let new = vec![5; 1000];
+        model.splice(100..1100, new.iter().copied());
+        seq.replace(100, 1000, &new);
+        check(&seq, &model);
+        let new = vec![2; 2900];
+        model.splice(100..3000, new.iter().copied());
+        seq.replace(100, 2900, &new);
+        check(&seq, &model);
     }
 
     #[test]
