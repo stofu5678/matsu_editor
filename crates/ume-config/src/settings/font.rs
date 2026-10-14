@@ -217,7 +217,8 @@ impl FontSetting {
     /// (`-DpiPointsToPixels(abs(nPointSize), 10)`), otherwise the height in the file is used.
     pub fn height_for_dpi(&self, dpi: i32) -> i32 {
         if self.point_size != 0 {
-            -(mul_div(i64::from(self.point_size.abs()), i64::from(dpi), 72 * 10) as i32)
+            let pixels = mul_div(i64::from(self.point_size).abs(), i64::from(dpi), 72 * 10);
+            i32::try_from(-pixels).unwrap_or(i32::MIN)
         } else {
             self.log_font.height
         }
@@ -229,11 +230,12 @@ impl FontSetting {
         if self.point_size != 0 {
             self.point_size
         } else {
-            mul_div(
-                i64::from(self.log_font.height.abs()) * 10,
+            let tenths = mul_div(
+                i64::from(self.log_font.height).abs() * 10,
                 72,
                 i64::from(dpi),
-            ) as i32
+            );
+            i32::try_from(tenths).unwrap_or(i32::MAX)
         }
     }
 }
@@ -360,5 +362,11 @@ mod tests {
         f.point_size = 0;
         assert_eq!(f.height_for_dpi(144), -13);
         assert_eq!(f.point_size_for_dpi(96), 98);
+        // Values at the limits of the integer type do not overflow.
+        f.point_size = i32::MIN;
+        assert_eq!(f.height_for_dpi(96), -286_331_153);
+        f.point_size = 0;
+        f.log_font.height = i32::MIN;
+        assert_eq!(f.point_size_for_dpi(96), i32::MAX);
     }
 }

@@ -571,6 +571,13 @@ fn write_replacing(path: &Path, bytes: &[u8]) -> io::Result<()> {
         .write_all(bytes)
         .and_then(|()| file.sync_all())
         .and_then(|()| {
+            // Keep the permissions of the file that is replaced (a user may have made it private).
+            match std::fs::metadata(path) {
+                Ok(meta) => file.set_permissions(meta.permissions()),
+                Err(_) => Ok(()),
+            }
+        })
+        .and_then(|()| {
             drop(file);
             std::fs::rename(&tmp, path)
         });
