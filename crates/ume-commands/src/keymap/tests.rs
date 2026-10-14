@@ -351,3 +351,21 @@ fn a_saved_default_table_keeps_the_mac_rules() {
     assert_eq!(code(&map, "Cmd+W"), Resolved::Code(31320));
     assert_eq!(code(&map, "Control+A"), Resolved::Code(30332));
 }
+
+#[test]
+fn restoring_a_default_row_restores_the_mac_rules() {
+    let mut map = mac();
+    let w = |functions| UserRow {
+        key: Key::Letter('W'),
+        functions,
+    };
+    map.apply_user_rows(&[w([0; 8])]);
+    assert_eq!(code(&map, "Cmd+W"), Resolved::Unbound);
+    let default = KEY_BINDINGS
+        .iter()
+        .find(|b| b.key_code == Key::Letter('W').code())
+        .unwrap()
+        .functions;
+    map.apply_user_rows(&[w(default)]);
+    assert_eq!(code(&map, "Cmd+W"), Resolved::Code(31320));
+}

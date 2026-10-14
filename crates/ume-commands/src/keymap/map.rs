@@ -63,6 +63,13 @@ fn code_of(name: &str) -> Option<u16> {
         .map(|f| f.code)
 }
 
+fn default_row(key: Key) -> Option<[u16; 8]> {
+    KEY_BINDINGS
+        .iter()
+        .find(|b| b.key_code == key.code())
+        .map(|b| b.functions)
+}
+
 fn function_of(code: u16) -> Option<&'static Function> {
     FUNCTIONS
         .iter()
@@ -119,21 +126,19 @@ impl KeyMap {
 
     /// Replaces the rows of the keys in `rows`, as Sakura does when it reads `KeyBind[...]`
     /// entries: the whole row of a key is replaced, an empty cell stays empty. The macOS rules
-    /// do not apply to the keys of rows that differ from the current one, so a user's table is
-    /// used as written. Rows equal to the current ones change nothing.
+    /// do not apply to the keys of rows that differ from Sakura's default row, so a user's
+    /// table is used as written.
     pub fn apply_user_rows(&mut self, rows: &[UserRow]) {
         for row in rows {
-            match self.rows.insert(row.key, row.functions) {
-                None => {
-                    self.order.push(row.key);
-                    self.user_keys.insert(row.key);
-                }
-                // Sakura writes the whole table, so a file that was never customized has the
-                // default row for every key. Those keys keep the macOS rules.
-                Some(previous) if previous != row.functions => {
-                    self.user_keys.insert(row.key);
-                }
-                Some(_) => {}
+            if self.rows.insert(row.key, row.functions).is_none() {
+                self.order.push(row.key);
+            }
+            // Sakura writes the whole table, so a file that was never customized has the
+            // default row for every key. Those keys keep the macOS rules.
+            if default_row(row.key) == Some(row.functions) {
+                self.user_keys.remove(&row.key);
+            } else {
+                self.user_keys.insert(row.key);
             }
         }
     }
