@@ -37,19 +37,34 @@ pub struct TextChange {
     pub new_end: Pos,
 }
 
-/// The change that `replace(a, b, ..)` made, as a [`TextChange`]. The buffer reports positions in
-/// the new text, and a CR and an LF that end up next to each other become one CRLF, so the
-/// region that changed can start earlier than `a`: it is widened to start at the CR, and to
-/// end after the CRLF. `cr` is the position of a CR that an inserted LF joined, if any.
-fn widen(a: Pos, b: Pos, edit: Edit, cr: Option<Pos>) -> TextChange {
-    let start = edit.start.min(a).min(cr.unwrap_or(a));
-    let mut new_end = edit.end;
+/// Line endings that an edit joins into one CRLF. The buffer reports positions in the new text,
+/// where the CR and the LF of a CRLF are one line ending, so the reported change has to be
+/// widened to the whole line ending.
+#[derive(Clone, Copy, Debug, Default)]
+struct Joined {
+    /// The end of the text of the line before the edit, if an inserted LF joins the CR that
+    /// ends that line.
+    cr_before: Option<Pos>,
+    /// Whether an inserted CR joins the LF that follows the edited range.
+    lf_after: bool,
+}
+
+/// The change that `replace(a, b, ..)` made, as a [`TextChange`]. A deletion can join a CR before
+/// it with an LF after it too; then the buffer's `edit.start` is already at the CR.
+fn widen(a: Pos, b: Pos, edit: Edit, joined: Joined) -> TextChange {
+    let start = edit.start.min(a).min(joined.cr_before.unwrap_or(a));
+    let (mut old_end, mut new_end) = (b, edit.end);
     if start < a {
+        // the CRLF ends at the start of the next line
         new_end = new_end.max(Pos::new(start.line + 1, 0));
+    }
+    if joined.lf_after {
+        old_end = Pos::new(b.line + 1, 0);
+        new_end = new_end.max(Pos::new(edit.end.line + 1, 0));
     }
     TextChange {
         start,
-        old_end: b,
+        old_end,
         new_end,
     }
 }
@@ -187,24 +202,31 @@ impl<'a> CommandContext<'a> {
     pub fn replace(&mut self, from: Pos, to: Pos, text: &str) -> Result<Edit> {
         let (a, b) = (self.doc().clamp_pos(from)?, self.doc().clamp_pos(to)?);
         let (a, b) = (a.min(b), a.max(b));
-        let cr = self.cr_joined_by(a, text)?;
+        let joined = self.joined_by(a, b, text)?;
         let edit = self.model.replace(a, b, text)?;
         if a != b || !text.is_empty() {
-            self.changes.edits.push(widen(a, b, edit, cr));
+            self.changes.edits.push(widen(a, b, edit, joined));
         }
         Ok(edit)
     }
 
-    /// The end of the text of the line before `a` if `text` starts with an LF that would join the
-    /// CR that ends that line into one CRLF (`a` is at the start of the line after it).
-    fn cr_joined_by(&self, a: Pos, text: &str) -> Result<Option<Pos>> {
-        if a.col != 0 || a.line == 0 || !text.starts_with('\n') {
-            return Ok(None);
+    /// Which line endings an edit that replaces `a..b` with `text` joins (see [`Joined`]).
+    fn joined_by(&self, a: Pos, b: Pos, text: &str) -> Result<Joined> {
+        let mut joined = Joined::default();
+        if a.col == 0 && a.line > 0 && text.starts_with('\n') {
+            joined.cr_before = self
+                .doc()
+                .line(a.line - 1)?
+                .filter(|l| l.eol == Some(Eol::Cr))
+                .map(|l| Pos::new(a.line - 1, l.text.len()));
         }
-        let prev = self.doc().line(a.line - 1)?;
-        Ok(prev
-            .filter(|l| l.eol == Some(Eol::Cr))
-            .map(|l| Pos::new(a.line - 1, l.text.len())))
+        if text.ends_with('\r') {
+            joined.lf_after = self
+                .doc()
+                .line(b.line)?
+                .is_some_and(|l| l.eol == Some(Eol::Lf) && l.text.len() == b.col);
+        }
+        Ok(joined)
     }
 
     /// Inserts `text` at the caret, or in place of the selection, and puts the caret after it.
@@ -300,6 +322,14 @@ mod tests {
             cx.replace(Pos::new(1, 0), Pos::new(1, 0), "\nb").unwrap();
         });
         assert_eq!(c.edits, [change((0, 1), (1, 0), (1, 1))]);
+    }
+
+    #[test]
+    fn an_inserted_cr_that_joins_an_lf_ends_after_the_crlf() {
+        let c = changes_of("a\nb", |cx| {
+            cx.replace(Pos::new(0, 1), Pos::new(0, 1), "\r").unwrap();
+        });
+        assert_eq!(c.edits, [change((0, 1), (1, 0), (1, 0))]);
     }
 
     #[test]

@@ -228,10 +228,17 @@ impl History {
     fn trim(&mut self) {
         let Some(max) = self.max_blocks else { return };
         while self.blocks.len() > max {
-            self.blocks.pop_front();
-            self.pos = self.pos.saturating_sub(1);
-            // A saved version that is forgotten can never be reached again.
-            self.saved = self.saved.and_then(|s| s.checked_sub(1));
+            if self.pos == 0 {
+                // Nothing applied is left to forget: drop what could be redone instead, so that
+                // every kept block still starts from the version before it.
+                self.blocks.pop_back();
+                self.saved = self.saved.filter(|&s| s <= self.blocks.len());
+            } else {
+                self.blocks.pop_front();
+                self.pos -= 1;
+                // A saved version that is forgotten can never be reached again.
+                self.saved = self.saved.and_then(|s| s.checked_sub(1));
+            }
         }
     }
 }
@@ -434,6 +441,23 @@ mod tests {
         assert_eq!(f.text(), "a");
         // the version that was saved (the empty document) is gone, so the document counts as modified
         assert!(f.history.is_modified());
+    }
+
+    #[test]
+    fn lowering_the_limit_after_undo_keeps_the_blocks_consistent() {
+        let mut f = Fixture::new();
+        for t in ["a", "b", "c"] {
+            f.type_text(t);
+        }
+        while f.undo() {}
+        f.history.set_max_blocks(Some(2));
+        assert!(f.redo());
+        assert!(f.redo());
+        assert!(!f.redo());
+        assert_eq!(f.text(), "ab");
+        assert!(f.undo());
+        assert!(f.undo());
+        assert_eq!(f.text(), "");
     }
 
     #[test]
