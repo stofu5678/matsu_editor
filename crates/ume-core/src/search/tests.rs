@@ -64,6 +64,20 @@ fn prev(doc: &Document, m: &dyn Matcher, line: usize, col: usize, wrap: bool) ->
     .unwrap()
 }
 
+/// `replace_and_find_next` with both results unwrapped.
+fn step(
+    doc: &mut Document,
+    m: &dyn Matcher,
+    found: &std::ops::Range<Pos>,
+    text: &str,
+    target: ReplaceTarget,
+    wrap: bool,
+    ctl: &mut Control<'_>,
+) -> Result<(AppliedEdit, Option<Found>), SearchError> {
+    let s = replace_and_find_next(doc, m, found, text, target, wrap, ctl)?;
+    Ok((s.edit, s.next?))
+}
+
 fn all(doc: &Document, m: &dyn Matcher) -> Vec<(Pos, Pos)> {
     find_all(doc, m, None, Control::new())
         .map(|f| f.unwrap())
@@ -930,7 +944,7 @@ fn replace_and_find_next_goes_on_after_the_new_text() {
     let m = plain("a");
     let mut ctl = Control::new();
     let first = next(&d, &m, 0, 0, false).unwrap();
-    let (edit, found) = replace_and_find_next(
+    let (edit, found) = step(
         &mut d,
         &m,
         &first.range(),
@@ -945,7 +959,7 @@ fn replace_and_find_next_goes_on_after_the_new_text() {
     // the "a"s of the new text are not found: the next hit is the second original "a"
     assert_eq!(found.unwrap().start, Pos::new(0, 4));
     let last = Pos::new(0, 6)..Pos::new(0, 7);
-    let (_, found) = replace_and_find_next(
+    let (_, found) = step(
         &mut d,
         &m,
         &last,
@@ -956,7 +970,7 @@ fn replace_and_find_next_goes_on_after_the_new_text() {
     )
     .unwrap();
     assert!(found.is_none());
-    let (_, found) = replace_and_find_next(
+    let (_, found) = step(
         &mut d,
         &m,
         &(Pos::new(0, 4)..Pos::new(0, 5)),
@@ -1051,7 +1065,7 @@ fn replace_and_find_next_steps_over_an_empty_match() {
     let mut d = doc("ab\n");
     let mut ctl = Control::new();
     let found = Pos::new(0, 0)..Pos::new(0, 0);
-    let (edit, next) = replace_and_find_next(
+    let (edit, next) = step(
         &mut d,
         &EmptyEverywhere,
         &found,
@@ -1092,4 +1106,52 @@ fn a_cr_inserted_before_an_lf_joins_it_and_does_not_undo_by_position() {
     assert_eq!(text_of(&d), "x\r\nb");
     d.replace(e.start, e.end, &e.removed).unwrap();
     assert_ne!(text_of(&d), "a\nb");
+}
+
+#[test]
+fn replace_and_find_next_keeps_the_edit_when_the_search_is_cancelled() {
+    let mut d = doc("a a\n");
+    let token = CancelToken::new();
+    token.cancel();
+    let mut ctl = Control::new().with_cancel(token);
+    let found = Pos::new(0, 0)..Pos::new(0, 1);
+    let s = replace_and_find_next(
+        &mut d,
+        &plain("a"),
+        &found,
+        "b",
+        ReplaceTarget::Match,
+        false,
+        &mut ctl,
+    )
+    .unwrap();
+    assert_eq!(text_of(&d), "b a\n");
+    assert_eq!(s.edit.removed, "a");
+    assert!(matches!(s.next, Err(SearchError::Cancelled)));
+}
+
+#[test]
+fn deleting_the_line_of_an_empty_match_does_not_skip_the_next_line() {
+    #[derive(Debug)]
+    struct LineStart;
+    impl Matcher for LineStart {
+        fn find_at(&self, _: &str, start: usize) -> Result<Option<Match>, MatcherError> {
+            Ok((start == 0).then(|| Match::new(0, 0)))
+        }
+    }
+    let mut d = doc("a\nb\nc\n");
+    let mut ctl = Control::new();
+    let found = Pos::new(0, 0)..Pos::new(0, 0);
+    let (_, next) = step(
+        &mut d,
+        &LineStart,
+        &found,
+        "",
+        ReplaceTarget::DeleteLine,
+        false,
+        &mut ctl,
+    )
+    .unwrap();
+    assert_eq!(text_of(&d), "b\nc\n");
+    assert_eq!(next.unwrap().start, Pos::new(0, 0));
 }

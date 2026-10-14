@@ -139,6 +139,16 @@ pub fn replace_one(
     Ok(apply_replacements(doc, std::slice::from_ref(&r))?.remove(0))
 }
 
+/// The result of [`replace_and_find_next`].
+#[derive(Debug)]
+pub struct ReplaceStep {
+    /// The replacement, which has been made whatever happened to the search after it. Record it
+    /// for undo.
+    pub edit: AppliedEdit,
+    /// The next match, or why the search stopped (cancelled, for example).
+    pub next: Result<Option<Found>, SearchError>,
+}
+
 /// What Sakura's 置換 button does: replace the match that is selected, then find the next one
 /// from there (with `wrap`, the option 先頭（末尾）から再検索).
 pub fn replace_and_find_next(
@@ -149,17 +159,17 @@ pub fn replace_and_find_next(
     target: ReplaceTarget,
     wrap: bool,
     ctl: &mut Control<'_>,
-) -> Result<(AppliedEdit, Option<Found>), SearchError> {
+) -> Result<ReplaceStep, BufferError> {
     let edit = replace_one(doc, found, text, target)?;
     // After an empty match the search starts one char later, or it would find the same place
-    // again (the guard of `start_after`).
-    let from = if found.start == found.end {
+    // again (the guard of `start_after`). A deleted line has moved the next text to `resume`.
+    let from = if found.start == found.end && target != ReplaceTarget::DeleteLine {
         start_after(doc, &(edit.resume..edit.resume))?
     } else {
         edit.resume
     };
-    let next = find(doc, matcher, from, Direction::Forward, wrap, ctl)?;
-    Ok((edit, next))
+    let next = find(doc, matcher, from, Direction::Forward, wrap, ctl);
+    Ok(ReplaceStep { edit, next })
 }
 
 /// The edits that "replace all" makes, found without changing the document.
