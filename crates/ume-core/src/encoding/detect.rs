@@ -1027,6 +1027,9 @@ fn detect_by_html(s: &[u8]) -> Option<Declared> {
                         i += 7;
                         attribute = 3;
                     } else {
+                        // Another attribute name. Like Sakura, this skips to the next space even
+                        // across `>` (so `<meta x><!-- charset=... -->` is read as a declaration).
+                        // Kept on purpose: the results for real files must be the same as Sakura's.
                         while i < n && !is_xml_space(at(i)) {
                             i += 1;
                         }

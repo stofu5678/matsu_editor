@@ -673,6 +673,32 @@ fn jis_char_len_follows_the_state() {
     assert_eq!(lens, vec![1, 3, 2, 3, 1]);
 }
 
+#[test]
+fn truncated_chars_at_the_end_are_invalid_bytes() {
+    // The lead byte alone at the end of the bytes.
+    assert_eq!(
+        decode(Encoding::ShiftJis, b"a\x82"),
+        format!("a{}", s(0x82))
+    );
+    assert_eq!(decode(Encoding::EucJp, b"a\xA4"), format!("a{}", s(0xA4)));
+    assert_eq!(decode(Encoding::EucJp, b"a\x8E"), format!("a{}", s(0x8E)));
+    assert_eq!(
+        decode(Encoding::EucJp, b"\x8F\xB0"),
+        format!("{}{}", s(0x8F), s(0xB0))
+    );
+    assert_eq!(
+        decode(Encoding::Cesu8, b"\xED\xA0\xBD"),
+        [0xED, 0xA0, 0xBD].map(s).concat()
+    );
+    assert_eq!(
+        decode(Encoding::Jis, b"\x1B$"),
+        format!("{}{}", s(0x1B), s(b'$'))
+    );
+    // The rest of the bytes decodes the same way whether or not the char is cut.
+    assert_eq!(decode(Encoding::ShiftJis, b"\x82\xA0"), "あ");
+    assert_eq!(decode(Encoding::EucJp, b"\xA4\xA2"), "あ");
+}
+
 // ---- Round trips of any bytes ----
 
 fn pseudo_random_bytes(seed: u32, len: usize, high: bool) -> Vec<u8> {
