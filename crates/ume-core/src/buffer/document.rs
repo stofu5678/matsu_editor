@@ -416,7 +416,7 @@ impl Document {
         };
         let (left, rest) = tree::split(&self.root, a, &self.st);
         let (_, right) = tree::split(&rest, b - a, &self.st);
-        self.root = match added {
+        let root = match added {
             None => tree::concat(left, right),
             Some((s, e)) => Some(match tree::last_piece(&left) {
                 // Typing continues the piece that ends where this text starts.
@@ -428,12 +428,19 @@ impl Document {
                 _ => tree::join(left, self.st.piece(Store::Add, s, e), right),
             }),
         };
-        let start = self.raw_to_pos(a)?;
+        // Build the new version and read the positions from it before replacing this one, so
+        // that a read error leaves the document as it was.
+        let next = Self {
+            root,
+            st: Arc::clone(&self.st),
+        };
+        let start = next.raw_to_pos(a)?;
         let end = if text.is_empty() {
             start
         } else {
-            self.raw_to_pos(a + text.len())?
+            next.raw_to_pos(a + text.len())?
         };
+        *self = next;
         Ok(Edit { start, end })
     }
 

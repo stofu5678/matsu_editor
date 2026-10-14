@@ -644,6 +644,11 @@ fn read_errors_are_reported() {
     // Positions that need a part of the original fail the same way, and do not change the document.
     assert!(d.insert(Pos::new(1, 2), "x").is_err());
     assert_eq!(d.piece_count(), 1);
+    // The positions after the edit need a read that fails: the edit is not applied.
+    let mut d = Document::new(Flaky(b"abc".to_vec()), Arc::new(Utf8Codec)).unwrap();
+    assert!(d.insert(Pos::new(0, 1), "x").is_err());
+    assert_eq!(d.piece_count(), 1);
+    assert_eq!(d.line_count(), 1);
 }
 
 #[test]
