@@ -32,6 +32,11 @@
 
 mod ffi;
 
+/// Tests take the read side; the Onigmo suite takes the write side while it
+/// changes Onigmo's process-wide limits.
+#[cfg(test)]
+static LIMITS_LOCK: std::sync::RwLock<()> = std::sync::RwLock::new(());
+
 #[cfg(test)]
 mod onigmo_suite;
 

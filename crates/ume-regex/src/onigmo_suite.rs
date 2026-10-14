@@ -136,6 +136,9 @@ fn run(c: &Case) -> Result<(), String> {
 /// process-wide and the cases change them in the middle.
 #[test]
 fn onigmo_testpy_utf8() {
+    let _exclusive = crate::LIMITS_LOCK
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut ran = 0usize;
     let mut failures = Vec::new();
     for item in cases::ITEMS {

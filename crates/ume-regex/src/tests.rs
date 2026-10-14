@@ -6,6 +6,15 @@ use std::sync::Arc;
 use std::thread;
 
 use super::*;
+use crate::LIMITS_LOCK;
+
+/// Shared by every test that uses the engine, so the Onigmo suite (which
+/// changes process-wide limits) never runs at the same time as another test.
+fn read_lock() -> std::sync::RwLockReadGuard<'static, ()> {
+    LIMITS_LOCK
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 fn compile(pattern: &str) -> Box<dyn Regex> {
     Onigmo
@@ -25,6 +34,7 @@ fn find(pattern: &str, text: &str) -> Option<Range<usize>> {
 
 #[test]
 fn finds_the_first_match_at_or_after_the_start_offset() {
+    let _limits = read_lock();
     let re = compile("ab");
     assert_eq!(re.find_at("abXab", 0).unwrap(), Some(0..2));
     assert_eq!(re.find_at("abXab", 1).unwrap(), Some(3..5));
@@ -37,6 +47,7 @@ fn finds_the_first_match_at_or_after_the_start_offset() {
 
 #[test]
 fn offsets_are_utf8_byte_offsets() {
+    let _limits = read_lock();
     let text = "あ世界x世";
     let re = compile("世");
     assert_eq!(re.find_at(text, 0).unwrap(), Some(3..6));
@@ -47,6 +58,7 @@ fn offsets_are_utf8_byte_offsets() {
 
 #[test]
 fn a_start_inside_a_character_or_past_the_end_is_an_error() {
+    let _limits = read_lock();
     let re = compile("a");
     assert_eq!(
         re.find_at("あa", 1),
@@ -66,6 +78,7 @@ fn a_start_inside_a_character_or_past_the_end_is_an_error() {
 
 #[test]
 fn context_before_the_start_offset_is_visible() {
+    let _limits = read_lock();
     // `^` matches at the start of the line, not at the start offset.
     assert_eq!(compile("^b").find_at("ab", 1).unwrap(), None);
     assert_eq!(compile("^b").find_at("a\nb", 1).unwrap(), Some(2..3));
@@ -80,6 +93,7 @@ fn context_before_the_start_offset_is_visible() {
 
 #[test]
 fn captures_report_each_group() {
+    let _limits = read_lock();
     let re = compile(r"(\w+)@(\w+)(\.com)?");
     assert_eq!(re.capture_count(), 3);
     let caps = re.captures_at("to: ume@sakura now", 0).unwrap().unwrap();
@@ -98,6 +112,7 @@ fn captures_report_each_group() {
 
 #[test]
 fn named_groups_are_numbered_like_plain_groups() {
+    let _limits = read_lock();
     // HLP000089.html: (?<name>...) is available (bregonig only).
     let re = compile(r"(?<year>\d+)年(?<month>\d+)月");
     assert_eq!(re.capture_count(), 2);
@@ -108,6 +123,7 @@ fn named_groups_are_numbered_like_plain_groups() {
 
 #[test]
 fn digits_and_word_characters_include_full_width() {
+    let _limits = read_lock();
     // HLP000089.html: `\d` is "2バイト文字=全角数字も含む"; `\w` includes 2-byte characters.
     assert_eq!(find(r"\d+", "価格２０２６円"), Some(6..18));
     assert_eq!(find(r"\w+", "、日本語のtext。"), Some(3..19));
@@ -117,6 +133,7 @@ fn digits_and_word_characters_include_full_width() {
 
 #[test]
 fn ascii_range_limits_the_character_classes() {
+    let _limits = read_lock();
     let ascii = Options {
         ascii_range: true,
         ..Options::default()
@@ -128,6 +145,7 @@ fn ascii_range_limits_the_character_classes() {
 
 #[test]
 fn case_is_sensitive_by_default_and_ignore_case_is_unicode_aware() {
+    let _limits = read_lock();
     assert_eq!(find("abc", "ABC"), None);
     let ignore = Options {
         ignore_case: true,
@@ -154,6 +172,7 @@ fn case_is_sensitive_by_default_and_ignore_case_is_unicode_aware() {
 
 #[test]
 fn extended_syntax_ignores_whitespace_and_comments() {
+    let _limits = read_lock();
     let extended = Options {
         extended: true,
         ..Options::default()
@@ -165,6 +184,7 @@ fn extended_syntax_ignores_whitespace_and_comments() {
 
 #[test]
 fn dollar_matches_before_the_line_terminator() {
+    let _limits = read_lock();
     // HLP000089.html, 改行の検索: `$` matches at the end of the line.
     assert_eq!(find("a$", "a"), Some(0..1));
     assert_eq!(find("a$", "a\n"), Some(0..1));
@@ -186,6 +206,7 @@ fn dollar_matches_before_the_line_terminator() {
 
 #[test]
 fn bregonig_extensions_are_enabled() {
+    let _limits = read_lock();
     // HLP000089.html marks these (鬼): set operations, nested sets, POSIX
     // brackets, \x{...}, \Q..\E, look-behind, atomic groups, \p{...}, \k, \g.
     assert_eq!(find("[a-z&&[^aeiou]]+", "aeibcdou"), Some(3..6));
@@ -211,6 +232,7 @@ fn bregonig_extensions_are_enabled() {
 
 #[test]
 fn greedy_and_lazy_quantifiers() {
+    let _limits = read_lock();
     // HLP000089.html, 量指定子: the SAKURA_COLLBACKPROC_BREXP_PROC example.
     let text = "SAKURA_COLLBACKPROC_BREXP_PROC";
     assert_eq!(find("[A-Z_]*PROC", text), Some(0..text.len()));
@@ -219,6 +241,7 @@ fn greedy_and_lazy_quantifiers() {
 
 #[test]
 fn text_with_nul_and_long_lines() {
+    let _limits = read_lock();
     assert_eq!(find("b", "a\0b"), Some(2..3));
     assert_eq!(find(r"\x00", "a\0b"), Some(1..2));
     let long = format!("{}x", "あ".repeat(100_000));
@@ -227,6 +250,7 @@ fn text_with_nul_and_long_lines() {
 
 #[test]
 fn bad_patterns_report_the_engine_message() {
+    let _limits = read_lock();
     for (pattern, expected) in [
         ("(", "end pattern with unmatched parenthesis"),
         (")", "unmatched close parenthesis"),
@@ -250,6 +274,7 @@ fn bad_patterns_report_the_engine_message() {
 
 #[test]
 fn a_failed_compile_leaves_the_engine_usable() {
+    let _limits = read_lock();
     for _ in 0..100 {
         assert!(Onigmo.compile("(", Options::default()).is_err());
     }
@@ -258,6 +283,7 @@ fn a_failed_compile_leaves_the_engine_usable() {
 
 #[test]
 fn a_compiled_regex_can_be_shared_between_threads() {
+    let _limits = read_lock();
     let re: Arc<dyn Regex> = Arc::from(compile(r"(\d+)-(\d+)"));
     let handles: Vec<_> = (0..8)
         .map(|i| {
@@ -281,6 +307,7 @@ fn a_compiled_regex_can_be_shared_between_threads() {
 
 #[test]
 fn compiling_from_many_threads_at_once() {
+    let _limits = read_lock();
     let handles: Vec<_> = (0..8)
         .map(|i| {
             thread::spawn(move || {
@@ -302,6 +329,7 @@ fn compiling_from_many_threads_at_once() {
 
 #[test]
 fn the_trait_is_object_safe_and_send() {
+    let _limits = read_lock();
     fn assert_send_sync<T: Send + Sync + ?Sized>() {}
     assert_send_sync::<dyn Regex>();
     let engine: &dyn RegexEngine = &Onigmo;

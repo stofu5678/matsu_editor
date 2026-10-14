@@ -31,6 +31,10 @@ fn main() {
     for source in ONIGMO_SOURCES {
         build.file(onigmo.join(source));
     }
+    if build.get_compiler().is_like_msvc() {
+        // MSVC spells the keyword __inline in C; Onigmo uses plain `inline`.
+        build.define("inline", "__inline");
+    }
     build.compile("onigmo");
 
     println!("cargo:rerun-if-changed=build.rs");
