@@ -1,6 +1,6 @@
 # UI フレームワークの試作
 
-[ADR-0004](../adr/0004-ui-framework.md) を確定するための試作。GPUI で作り、基準を満たさない項目があれば Iced でも同じものを作って比べる。
+[ADR-0004](../adr/0004-ui-framework.md) を決めるための試作（2026-10-11 に決定した。結果は [ui-framework-result.md](ui-framework-result.md)）。GPUI で作り、基準を満たさない項目があれば Iced でも同じものを作って比べる。
 
 ## 進め方
 
@@ -8,6 +8,7 @@
 - macOS に固有の項目（メニューバー、macOS の日本語入力、Finder との連携）は、Mac での作業を始めたときに確かめる
 - 2026-10-09: Windows ARM64 で GPUI の試作を作った（[poc/gpui-textview](../../poc/gpui-textview/README.md)）。同じ日に Mac での作業も始め、Mac の試作を別に作った（`poc/gpui`）。どちらもブランチ `poc/gpui` で作った
 - 2026-10-10: Linux（WSLg）で起動した。試作は `poc/gpui-textview` にまとめることにし、Mac でも動くようにした（Mac の試作から、Mac で要った設定や作りを移した）。Mac の試作は消した（git の履歴に残っている）
+- 2026-10-14: Hyper-V の Ubuntu 26.04.1（GNOME の Wayland）で、日本語入力とデスクトップとの統合を確かめた
 - 期間は数日に区切る。試作のコードは捨てる前提でよい（本番のコードは Phase 1 で作り直す）
 - 結果は `docs/poc/ui-framework-result.md` に書き、ADR-0004 を更新する
 
