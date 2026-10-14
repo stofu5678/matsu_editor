@@ -1188,3 +1188,155 @@ fn offsets_given_to_matcher_overrides_are_char_boundaries() {
         0
     );
 }
+
+// ---- replace all, one after the other ----
+
+#[test]
+fn whole_word_replace_all_searches_the_text_as_it_is_after_each_replacement() {
+    // Words of "a,": "a" and ",". Replacing "a" with "x" makes "x,a"; replacing "," makes "xxa",
+    // and "xxa" is not a word of the pattern, so the last "a" stays (Command_REPLACE_ALL searches
+    // again from the caret after every replacement).
+    let mut d = doc("a,a\n");
+    let r = replace_all(
+        &mut d,
+        &word("a,", true),
+        "x",
+        ReplaceTarget::Match,
+        None,
+        Control::new(),
+    )
+    .unwrap();
+    assert_eq!(text_of(&d), "xxa\n");
+    assert_eq!(r.edits.len(), 2);
+}
+
+/// A matcher that wraps another one but does not say it is context free, so that
+/// `replace_all` takes the one-after-the-other path.
+#[derive(Debug)]
+struct Sequential(PlainMatcher);
+
+impl Matcher for Sequential {
+    fn find_at(&self, line: &str, start: usize) -> Result<Option<Match>, MatcherError> {
+        self.0.find_at(line, start)
+    }
+}
+
+#[test]
+fn both_replace_all_paths_agree_for_plain_text() {
+    let text = "ab ab\nxabx\n\nab\r\nabab ab\nlast ab";
+    let p = Pos::new;
+    let ranges = [
+        None,
+        Some(p(0, 3)..p(4, 2)),
+        Some(p(1, 0)..p(4, 0)),
+        Some(p(0, 0)..p(0, 4)),
+    ];
+    let targets = [
+        ReplaceTarget::Match,
+        ReplaceTarget::InsertBefore,
+        ReplaceTarget::InsertAfter,
+        ReplaceTarget::DeleteLine,
+    ];
+    for pattern in ["ab", "b", "x", "zz"] {
+        for replacement in ["", "Q", "<\n>", "ababab"] {
+            for target in targets {
+                for range in &ranges {
+                    let fast = plain(pattern);
+                    let slow = Sequential(plain(pattern));
+                    let (mut a, mut b) = (doc(text), doc(text));
+                    let ra = replace_all(
+                        &mut a,
+                        &fast,
+                        replacement,
+                        target,
+                        range.clone(),
+                        Control::new(),
+                    )
+                    .unwrap();
+                    let rb = replace_all(
+                        &mut b,
+                        &slow,
+                        replacement,
+                        target,
+                        range.clone(),
+                        Control::new(),
+                    )
+                    .unwrap();
+                    let case = format!("{pattern:?} {replacement:?} {target:?} {range:?}");
+                    assert_eq!(text_of(&a), text_of(&b), "{case}");
+                    assert_eq!(ra, rb, "{case}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn replace_all_one_after_the_other_steps_over_empty_matches() {
+    let mut d = doc("ab\n");
+    let m = Sequential(plain("")); // never matches
+    let r = replace_all(&mut d, &m, "-", ReplaceTarget::Match, None, Control::new()).unwrap();
+    assert!(r.edits.is_empty());
+    #[derive(Debug)]
+    struct Empty;
+    impl Matcher for Empty {
+        fn find_at(&self, line: &str, start: usize) -> Result<Option<Match>, MatcherError> {
+            Ok((start <= line.len()).then(|| Match::new(start, start)))
+        }
+    }
+    let r = replace_all(
+        &mut d,
+        &Empty,
+        "-",
+        ReplaceTarget::Match,
+        None,
+        Control::new(),
+    )
+    .unwrap();
+    assert_eq!(text_of(&d), "-a-b-\n");
+    assert_eq!(r.edits.len(), 3);
+}
+
+#[test]
+fn replace_all_one_after_the_other_is_not_applied_when_cancelled() {
+    let mut d = numbered(100);
+    let before = text_of(&d);
+    let token = CancelToken::new();
+    let t = token.clone();
+    // cancel after some lines have been replaced
+    let ctl = Control::new()
+        .with_cancel(token)
+        .with_interval(10)
+        .with_progress(move |p| {
+            if p.lines_done >= 30 {
+                t.cancel();
+            }
+        });
+    let r = replace_all(
+        &mut d,
+        &word("line", true),
+        "x",
+        ReplaceTarget::Match,
+        None,
+        ctl,
+    );
+    assert!(matches!(r, Err(SearchError::Cancelled)));
+    assert_eq!(text_of(&d), before);
+}
+
+#[test]
+fn replace_all_one_after_the_other_in_a_selection() {
+    let mut d = doc("a a a\na a a\na a a\n");
+    let p = Pos::new;
+    let r = replace_all(
+        &mut d,
+        &word("a", true),
+        "bb",
+        ReplaceTarget::Match,
+        Some(p(0, 2)..p(1, 3)),
+        Control::new(),
+    )
+    .unwrap();
+    assert_eq!(text_of(&d), "a bb bb\nbb bb a\na a a\n");
+    assert_eq!(r.edits.len(), 4);
+}

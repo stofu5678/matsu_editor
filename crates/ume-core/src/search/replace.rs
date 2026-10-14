@@ -10,7 +10,7 @@ use std::ops::Range;
 use crate::buffer::{BufferError, Document, Pos};
 
 use super::find::{Control, Direction, Found, SearchError, find, find_all, start_after};
-use super::matcher::Matcher;
+use super::matcher::{Matcher, ceil_boundary};
 
 /// What a replacement is done to (the replace dialog's 置換対象, `m_nReplaceTarget`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -96,36 +96,56 @@ pub fn replacement_for(
     })
 }
 
+/// Where position `p` of the old document is after an edit, if `p` was at or after the old end
+/// of the edit (`old_end`) and the edit now ends at `new_end`.
+fn shift_pos(old_end: Pos, new_end: Pos, p: Pos) -> Pos {
+    if p < old_end {
+        new_end
+    } else if p.line == old_end.line {
+        Pos::new(new_end.line, new_end.col + p.col - old_end.col)
+    } else {
+        Pos::new(new_end.line + p.line - old_end.line, p.col)
+    }
+}
+
 /// Makes the edits one after the other. They must be in order and must not overlap, like the
-/// result of [`plan_replace_all`]. If one fails, the ones before it stay applied.
+/// result of a plan. If one fails, none is made.
 pub fn apply_replacements(
     doc: &mut Document,
     replacements: &[Replacement],
 ) -> Result<Vec<AppliedEdit>, BufferError> {
+    let mut work = doc.clone();
     let mut applied = Vec::with_capacity(replacements.len());
-    // The end of the previous edit, before (`old`) and after (`new`) it was made.
+    // The end of the previous edit, before and after it was made.
     let mut shift: Option<(Pos, Pos)> = None;
-    let map = |shift: Option<(Pos, Pos)>, p: Pos| match shift {
-        None => p,
-        Some((old, new)) if p.line == old.line => {
-            Pos::new(new.line, new.col + p.col.saturating_sub(old.col))
-        }
-        Some((old, new)) => Pos::new(new.line + p.line.saturating_sub(old.line), p.col),
-    };
     for r in replacements {
-        let (start, end) = (map(shift, r.start), map(shift, r.end));
-        let removed = doc.text_between(start, end)?;
-        let edit = doc.replace(start, end, &r.text)?;
-        applied.push(AppliedEdit {
-            start: edit.start,
-            end: edit.end,
-            removed,
-            inserted: r.text.clone(),
-            resume: Pos::new(edit.end.line, edit.end.col + r.skip),
-        });
-        shift = Some((r.end, edit.end));
+        let (start, end) = match shift {
+            Some((old, new)) => (shift_pos(old, new, r.start), shift_pos(old, new, r.end)),
+            None => (r.start, r.end),
+        };
+        applied.push(apply_one(&mut work, start, end, r)?);
+        shift = Some((r.end, applied[applied.len() - 1].end));
     }
+    *doc = work;
     Ok(applied)
+}
+
+/// Makes one edit at `start..end` (positions in `doc` as it is now).
+fn apply_one(
+    doc: &mut Document,
+    start: Pos,
+    end: Pos,
+    r: &Replacement,
+) -> Result<AppliedEdit, BufferError> {
+    let removed = doc.text_between(start, end)?;
+    let edit = doc.replace(start, end, &r.text)?;
+    Ok(AppliedEdit {
+        start: edit.start,
+        end: edit.end,
+        removed,
+        inserted: r.text.clone(),
+        resume: Pos::new(edit.end.line, edit.end.col + r.skip),
+    })
 }
 
 /// Replaces `found` once.
@@ -149,6 +169,22 @@ pub struct ReplaceStep {
     pub next: Result<Option<Found>, SearchError>,
 }
 
+/// Where the search goes on after `edit` replaced `found`: after the new text, and one char
+/// further after an empty match, or the same place would be found again (the guard of
+/// [`start_after`]). A deleted line has moved the next text to `resume`.
+fn resume_after(
+    doc: &Document,
+    found: &Range<Pos>,
+    edit: &AppliedEdit,
+    target: ReplaceTarget,
+) -> Result<Pos, BufferError> {
+    if found.start == found.end && target != ReplaceTarget::DeleteLine {
+        start_after(doc, &(edit.resume..edit.resume))
+    } else {
+        Ok(edit.resume)
+    }
+}
+
 /// What Sakura's 置換 button does: replace the match that is selected, then find the next one
 /// from there (with `wrap`, the option 先頭（末尾）から再検索).
 pub fn replace_and_find_next(
@@ -161,27 +197,20 @@ pub fn replace_and_find_next(
     ctl: &mut Control<'_>,
 ) -> Result<ReplaceStep, BufferError> {
     let edit = replace_one(doc, found, text, target)?;
-    // After an empty match the search starts one char later, or it would find the same place
-    // again (the guard of `start_after`). A deleted line has moved the next text to `resume`.
-    let from = if found.start == found.end && target != ReplaceTarget::DeleteLine {
-        start_after(doc, &(edit.resume..edit.resume))?
-    } else {
-        edit.resume
-    };
+    let from = resume_after(doc, found, &edit, target)?;
     let next = find(doc, matcher, from, Direction::Forward, wrap, ctl);
     Ok(ReplaceStep { edit, next })
 }
 
-/// The edits that "replace all" makes, found without changing the document.
+/// The edits that "replace all" makes, found without changing the document. This is the same as
+/// replacing one after the other only when a match does not depend on the text around it
+/// ([`Matcher::is_context_free`]); [`replace_all`] takes care of that.
 ///
 /// * The search goes from the start of the document, or of `range` (replace in the selection),
 ///   to its end without wrapping. A match must lie in the range; see [`find_all`].
-/// * The text that was inserted is not searched again: the next search starts after it. That is
-///   the same as searching the unchanged document, because matches do not overlap.
+/// * The text that was inserted is not searched again: the next search starts after it.
 /// * [`ReplaceTarget::DeleteLine`] deletes a line once, however many matches it holds.
-/// * If the search is cancelled, nothing has changed and the error is returned. (Sakura keeps
-///   what was replaced so far.)
-pub fn plan_replace_all(
+fn plan_replace_all(
     doc: &Document,
     matcher: &dyn Matcher,
     text: &str,
@@ -204,6 +233,66 @@ pub fn plan_replace_all(
     Ok(plan)
 }
 
+/// Replaces matches one after the other in `work`, searching the text as the earlier
+/// replacements left it, as Sakura does (`Command_REPLACE_ALL` searches again from the caret after
+/// every replacement). For a whole-word search that matters: a replacement can join or split
+/// words next to it.
+fn replace_in_sequence(
+    work: &mut Document,
+    matcher: &dyn Matcher,
+    text: &str,
+    target: ReplaceTarget,
+    range: Option<Range<Pos>>,
+    mut ctl: Control<'_>,
+) -> Result<Vec<AppliedEdit>, SearchError> {
+    let first = range.as_ref().map_or(Pos::new(0, 0), |r| r.start);
+    // Where the range ends now; it moves as the text before it changes.
+    let mut limit = range.map(|r| r.end);
+    ctl.begin(work.line_count());
+    let (mut line, mut col) = (first.line, first.col);
+    let mut edits = Vec::new();
+    loop {
+        ctl.tick(line)?;
+        if limit.is_some_and(|l| line > l.line || (line == l.line && l.col == 0)) {
+            break;
+        }
+        let Some(l) = work.line(line)? else { break };
+        let Some(start) = ceil_boundary(&l.text, col) else {
+            (line, col) = (line + 1, 0);
+            continue;
+        };
+        // A whole-word match can begin before `start` (see `Matcher::find_at`); text before the
+        // point where the search goes on (or the range starts) is not replaced.
+        let mut found = matcher.find_at(&l.text, start)?;
+        loop {
+            let next_from = match &found {
+                Some(m) if m.start < start => m.end.max(start + 1),
+                _ => break,
+            };
+            found = match ceil_boundary(&l.text, next_from) {
+                Some(next) => matcher.find_at(&l.text, next)?,
+                None => None,
+            };
+        }
+        let Some(m) = found else {
+            (line, col) = (line + 1, 0);
+            continue;
+        };
+        if limit.is_some_and(|l| line == l.line && m.end > l.col) {
+            break;
+        }
+        let range = Pos::new(line, m.start)..Pos::new(line, m.end);
+        let r = replacement_for(work, &range, text, target)?;
+        let edit = apply_one(work, r.start, r.end, &r)?;
+        limit = limit.map(|l| shift_pos(r.end, edit.end, l));
+        let from = resume_after(work, &range, &edit, target)?;
+        (line, col) = (from.line, from.col);
+        edits.push(edit);
+    }
+    ctl.report();
+    Ok(edits)
+}
+
 /// The result of [`replace_all`].
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ReplaceAllResult {
@@ -213,8 +302,20 @@ pub struct ReplaceAllResult {
     pub caret: Option<Pos>,
 }
 
-/// Replaces every match; see [`plan_replace_all`] for the rules. The caller records
+/// Replaces every match, from the start of the document or of `range` (replace in the
+/// selection), to its end, without wrapping around. The caller records
 /// `ReplaceAllResult::edits` as one undo step.
+///
+/// * A match must lie in the range. Sakura stops at the first match that ends after the
+///   selection, and a selection that ends at column 0 leaves that last line out
+///   (`Command_REPLACE_ALL`, `sakura_core/cmd/CViewCommander_Search.cpp`).
+/// * The text that was inserted is not searched again: the search goes on after it.
+/// * [`ReplaceTarget::DeleteLine`] deletes a line once, however many matches it holds.
+/// * Every replacement is searched for in the text as the earlier ones left it. A matcher that
+///   says [`Matcher::is_context_free`] is searched in the unchanged document instead, which gives
+///   the same result and is faster on long lines.
+/// * If the search is cancelled or fails, the document is not changed and the error is returned.
+///   (Sakura keeps what was replaced so far.)
 pub fn replace_all(
     doc: &mut Document,
     matcher: &dyn Matcher,
@@ -223,8 +324,14 @@ pub fn replace_all(
     range: Option<Range<Pos>>,
     ctl: Control<'_>,
 ) -> Result<ReplaceAllResult, SearchError> {
-    let plan = plan_replace_all(doc, matcher, text, target, range, ctl)?;
-    let edits = apply_replacements(doc, &plan)?;
+    let mut work = doc.clone();
+    let edits = if matcher.is_context_free() {
+        let plan = plan_replace_all(&work, matcher, text, target, range, ctl)?;
+        apply_replacements(&mut work, &plan)?
+    } else {
+        replace_in_sequence(&mut work, matcher, text, target, range, ctl)?
+    };
+    *doc = work;
     let caret = edits.last().map(|e| e.resume);
     Ok(ReplaceAllResult { edits, caret })
 }

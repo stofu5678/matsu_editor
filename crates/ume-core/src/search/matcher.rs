@@ -105,6 +105,14 @@ pub trait Matcher: Send + Sync + fmt::Debug {
     /// whole-word search does.
     fn find_at(&self, line: &str, start: usize) -> Result<Option<Match>, MatcherError>;
 
+    /// Whether a match depends only on its own text, not on the text around it. Plain text
+    /// search without whole words is; a whole-word or regex search (`\b`, look-behind) is not.
+    /// "Replace all" can then look for all matches in the unchanged document, which is the same
+    /// as looking after each replacement. The default is `false`, which is always correct.
+    fn is_context_free(&self) -> bool {
+        false
+    }
+
     /// The last match of the left-to-right scan from the start of the line that begins before
     /// byte `limit` (`None`: no limit). Sakura searches backward this way: it scans the line
     /// forward and keeps the last hit before the caret, so that matches do not overlap
@@ -368,6 +376,10 @@ impl PlainMatcher {
 }
 
 impl Matcher for PlainMatcher {
+    fn is_context_free(&self) -> bool {
+        !self.options.whole_word
+    }
+
     fn find_at(&self, line: &str, start: usize) -> Result<Option<Match>, MatcherError> {
         let Some(start) = ceil_boundary(line, start) else {
             return Ok(None);

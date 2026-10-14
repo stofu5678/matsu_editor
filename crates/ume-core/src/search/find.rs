@@ -140,7 +140,7 @@ impl<'a> Control<'a> {
         self
     }
 
-    fn begin(&mut self, total: usize) {
+    pub(crate) fn begin(&mut self, total: usize) {
         self.done = 0;
         self.total = total;
     }
@@ -157,7 +157,20 @@ impl<'a> Control<'a> {
         Ok(())
     }
 
-    fn report(&mut self) {
+    /// Called when the search has got to line `done` (a search that goes by lines of its own).
+    pub(crate) fn tick(&mut self, done: usize) -> Result<(), SearchError> {
+        if self.cancel.as_ref().is_some_and(CancelToken::is_cancelled) {
+            return Err(SearchError::Cancelled);
+        }
+        let before = self.done;
+        self.done = done;
+        if done / self.interval > before / self.interval {
+            self.report();
+        }
+        Ok(())
+    }
+
+    pub(crate) fn report(&mut self) {
         let progress = Progress {
             lines_done: self.done,
             lines_total: self.total,
