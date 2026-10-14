@@ -30,8 +30,13 @@ impl Command for InputChar {
     fn run(&self, cx: &mut CommandContext<'_>, args: &[Arg]) -> Result {
         let c = char_arg(args)?;
         if c == '\r' || c == '\n' {
-            cx.delete_selection()?;
-            let text = format!("{}{}", eol_text(cx.new_line()), indent_before_caret(cx)?);
+            // One edit replaces the selection: deleting it first could join the CR and the LF
+            // around it into a CRLF and move the place to insert.
+            let text = format!(
+                "{}{}",
+                eol_text(cx.new_line()),
+                indent_before_insertion(cx)?
+            );
             cx.insert_text(&text)?;
         } else {
             cx.insert_text(c.encode_utf8(&mut [0; 4]))?;
@@ -54,16 +59,13 @@ fn char_arg(args: &[Arg]) -> Result<char> {
     }
 }
 
-/// The indentation of the line, up to the caret (Sakura copies the indent chars that are before
-/// the caret, so Enter in the middle of the indentation does not copy all of it).
-fn indent_before_caret(cx: &CommandContext<'_>) -> Result<String> {
-    let caret = cx.caret();
-    let line = cx
-        .doc()
-        .line(caret.line)?
-        .map(|l| l.text)
-        .unwrap_or_default();
-    let before = line.get(..caret.col).unwrap_or(&line);
+/// The indentation of the line, up to where the text is inserted: the caret, or the start of the
+/// selection (Sakura copies the indent chars that are before that place, so Enter in the middle
+/// of the indentation does not copy all of it).
+fn indent_before_insertion(cx: &CommandContext<'_>) -> Result<String> {
+    let at = cx.selection().map_or(cx.caret(), |(start, _)| start);
+    let line = cx.doc().line(at.line)?.map(|l| l.text).unwrap_or_default();
+    let before = line.get(..at.col).unwrap_or(&line);
     Ok(before.chars().take_while(|&c| is_indent_char(c)).collect())
 }
 
@@ -126,6 +128,19 @@ mod tests {
     fn enter_replaces_the_selection() {
         let mut e = Editor::new("a[bc|d").with_new_line(Eol::Lf);
         e.run_with(ID, &[Arg::Char('\r')]).assert_marked("a\n|d");
+    }
+
+    #[test]
+    fn enter_over_a_selection_is_one_edit() {
+        // deleting the selection first would join the CR and the LF around it
+        let mut e = Editor::new("z\na\r[b|\nc").with_new_line(Eol::Lf);
+        e.run_with(ID, &[Arg::Char('\r')]);
+        e.assert_marked("z\na\r\n|\nc");
+        assert_eq!(e.changes().edits.len(), 1);
+        // the indentation is the one before the selection
+        let mut e = Editor::new("  a[b|c").with_new_line(Eol::Lf);
+        e.run_with(ID, &[Arg::Char('\r')])
+            .assert_marked("  a\n  |c");
     }
 
     #[test]
