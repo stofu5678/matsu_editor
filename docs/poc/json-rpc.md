@@ -1,6 +1,6 @@
 # JSON-RPC の試作
 
-[ADR-0007](../adr/0007-macros-and-plugins.md) の JSON-RPC の形を決めるための調査と、通信の仕様の案。2026-10-11 に、ユーザーが形を承認した。試作（PoC）そのものは別の PR（`poc/gpui-textview`）で作っていて、結果はできしだい、この文書に足す。
+[ADR-0007](../adr/0007-macros-and-plugins.md) の JSON-RPC の形を決めるための調査と、通信の仕様の案。2026-10-11 に、ユーザーが形を承認した。この形で試作（PoC）を作り（[poc/gpui-textview](../../poc/gpui-textview/README.md) の「マクロ（JSON-RPC）」）、結果を「試作の結果」に書いた（2026-10-14）。
 
 ## 目的
 
@@ -32,7 +32,7 @@
 
 ## 通信の仕様（案）
 
-案 v0。この文書と、試作の PR（`poc/gpui-textview`）が、同じ仕様を使う。
+案 v0。試作（`poc/gpui-textview`）は、この仕様で作った。
 
 ### 1. 起動のしかた
 
@@ -64,7 +64,7 @@
   - 利用者が改行なしで出力した直後に要求が来ても崩れない
 - RS のない行と、標準エラーの出力は、利用者の出力として出力ウィンドウに出す
 - エディタからマクロへの行（標準入力）には RS を付けない。標準入力に書くのはエディタだけ
-- 1 行の長さの上限は、試作では設けず、大きい行（1 MB 程度）が通るかを確かめる。上限は試作の結果で決める
+- 1 行の長さの上限は、試作では設けなかった。1 MB を超える行（片道 2 MB を超える 1 行）が、Node.js と Python で往復できた（「試作の結果」）。上限を設けるかは決めていない
 
 ### 3. メッセージ（JSON-RPC 2.0）
 
@@ -105,7 +105,7 @@
 - Windows では、コンソールの窓が出ないように子プロセスを起動する（`CREATE_NO_WINDOW`）
 - 利用者の出力の文字コード
   - Node.js は UTF-8
-  - Python は、環境変数 `PYTHONUTF8=1` を付けて起動し、UTF-8 にする（Windows でパイプにつながった Python の標準出力は、既定では CP932 になるため）
+  - Python は、環境変数 `PYTHONUTF8=1` を付けて起動し、UTF-8 にする（Windows でパイプにつながった Python の標準出力は、既定では CP932 になるため）。Python 3.15 からは、付けなくても UTF-8 になる（「試作の結果」）。3.14 以前のために付ける
   - WSH は CP932（第 2 弾で扱う）
 
 ### 6. 基本 API
@@ -121,7 +121,7 @@
   - 例: `GetLineStr(0)` はカーソルの行、`GetLineStr(n)` は n 行目で、全行数より大きければ空文字列
   - 例: `GetLineCount(0)` の引数は 0 以外ならエラー
   - 例: `MoveCursor(行, 桁, オプション)` の行と桁は 1 から数え、オプションは 0 が未選択、1 が通常選択、2 が矩形選択
-  - 改行を含むか、桁の単位（文字か UTF-16 か）などの細部は、サクラのソース（`sakura_core/macro/CMacro.cpp` など）で確かめて、分かったことを記録する
+  - 改行を含むか、桁の単位（文字か UTF-16 か）などの細部は、サクラのソース（`sakura_core/macro/CMacro.cpp` など）で確かめた（「試作の結果」の「サクラのソースで分かったこと」）
 
 ## 言語ごとに試した結果
 
@@ -138,11 +138,11 @@ Claude が 2026-10-11 に試した事実。試した場所は、Windows 11 ARM64
 | AppleScript | Mac がないので試していない | | | |
 
 - Node.js は Linux と Windows、Python は Linux、WSH と PowerShell は Windows ARM64 で試した
-- Node.js の `fs.readSync(0)` で、1.5 秒遅れて届いた応答も正しく待てた（Windows でも。EAGAIN は起きなかった）。WSL 経由のパイプでの結果なので、試作のエディタ（Rust）から起動した場合は PoC で確かめる
+- Node.js の `fs.readSync(0)` で、1.5 秒遅れて届いた応答も正しく待てた（Windows でも。EAGAIN は起きなかった）。WSL 経由のパイプでの結果。試作のエディタ（Rust）から起動しても待てた（「試作の結果」）
 - WSH は、スクリプトのファイルが UTF-16LE（BOM 付き）でないと日本語を読めない。UTF-8 は BOM があってもなくてもエラー。エディタが UTF-16 に変えて渡せば済む
 - WSH の `WScript.Echo` は、ほかの関数に差し替えられない
 - PowerShell 5.1 の `ConvertTo-Json` は、`-Depth`（既定は 2）と `-Compress` が要る。ASCII 以外の文字のエスケープは自分で書く必要がある。ドットソースはフルパスでないと失敗した。この PC に PowerShell 7 は入っていない
-- Windows の `python.exe` は、ストアへ案内するだけのもの（WindowsApps）で、Python は入っていない
+- このときの Windows の `python.exe` は、ストアへ案内するだけのもの（WindowsApps）で、Python は入っていなかった。2026-10-14 に Python を入れて、試作で確かめた（「試作の結果」）
 
 ### Lisp
 
@@ -230,39 +230,124 @@ JSON-RPC の方式について、Codex が挙げた点。
 - VBScript は Windows 11 24H2 で「オプション機能」になり（既定で有効）、2027 年ごろに既定で無効になる予定。削除の時期は未定
 - `-ExecutionPolicy Bypass` は、グループポリシーを越えられない
 
+## 試作の結果
+
+`poc/gpui-textview` で 2026-10-11 に作り、2026-10-14 に Windows の Python でも確かめた。コード、API の表、制約は [poc/gpui-textview](../../poc/gpui-textview/README.md) の「マクロ（JSON-RPC）」にある。
+
+### 作ったもの
+
+- 試作のエディタ（GPUI）の「ツール」メニューに、「名前を指定してマクロ実行...」（サクラのメニューの文言）と「マクロの中断」を足した。マクロの出力、標準エラー、終了の状態は、画面の下の出力パネルに出る
+- 通信の仕様（案 v0）は、変えずに使えた。Python は `-u`（出力をためない）を付けて起動した
+- 子プロセスの入出力は別のスレッドで行い、要求は UI のスレッドで 1 つずつ実行する。マクロの実行中も UI は止まらない
+- 基本 API は、サクラの関数 14 個（6. の一覧）。定義を Rust の 1 か所（名前、引数の型、戻り値の型）に書き、JavaScript と Python の関数を生成してコミットした。定義と生成物がずれると、テストが落ちる
+- ウィンドウなしでも走らせられる（`--run-macro <マクロ> <入力> <出力>`）
+
+### 確かめたこと
+
+- 本物の Node.js と Python を走らせる統合テストが、Linux（WSL2 の aarch64。Node.js v25、Python 3.13）と Windows ARM64（Node.js v24、Python 3.15.0）で通った。中身は次のとおり
+  - 日本語と絵文字の往復
+  - 1.5 秒遅れた応答を待てる
+  - 1 MB を超える行（片道 2 MB を超える 1 行）の往復
+  - 改行なしで出力した直後の要求（RS で分けられる）
+  - 構文エラーと実行時エラーで、利用者のファイルの行番号が出る
+  - エラーの応答が例外になる（JavaScript も Python も `EditorError`）
+  - 無限ループと、応答が来ない待ちが、タイムアウトで止まる
+  - すぐ終わるマクロ、終了コード、標準エラー、中断、処理系がないときの案内
+  - 不正な行に -32700・-32600・-32601・-32602 を返す
+- 実際のウィンドウ
+  - Linux（WSLg）と Windows ARM64 で、自己確認モード（試作が自分で操作して確かめる）を通した。サンプルのマクロ（`sample.js`。Linux では `sample.py` も）、マクロが編集した直後の上下の移動、終わらないマクロの中断を確かめた（2026-10-11、Claude）
+  - Windows ARM64 で、ユーザーがメニューから `sample.js` と `sample.py` を実行し、文書と出力パネルが正しいことを確かめた。終わらない Python のマクロを「マクロの中断」で止められ、`python.exe` が残らないこと、コンソールの窓が出ないことも確かめた（2026-10-14）
+- macOS では動かしていない
+
+### Windows の Python
+
+2026-10-14 に、python.org が勧める Python Install Manager（26.4。winget の `Python.PythonInstallManager`）を入れ、それで Python 3.15.0 の ARM64 版を入れた。
+
+- `python`・`python3`・`py` は、アプリ実行エイリアス（WindowsApps）で動く。PATH を変えなくても、試作の既定（`python`）で起動できた
+- エイリアスの `python` は Install Manager の起動用のプロセスで、それが Python の本体（`%LOCALAPPDATA%\Python\pythoncore-3.15-arm64\python.exe`）を子として起動する。起動用は x64 版で、この PC（ARM64）ではエミュレーションで動く
+- 起動用のプロセスを終わらせると、本体も終わった。試作の中断とタイムアウトは、この形でも効く
+- ただし、起動のたびに約 100 ms 余計にかかる。PowerShell から Windows の中で測った、9 回の中央値
+
+  | 測ったもの | `python`（エイリアス） | 本体を直接 |
+  |---|---|---|
+  | `python -c pass` | 117 ms | 19 ms |
+  | `--run-macro sample.py` | 174 ms | 72 ms |
+
+  参考: `--run-macro sample.js`（Node.js v24）は 103 ms
+- Python 3.15 は、`PYTHONUTF8=1` を付けなくても UTF-8 モードで動いた（PEP 686）。`-X utf8=0` を付けると、パイプにつながった標準出力は CP932 になった
+
+### サクラのソースで分かったこと
+
+API の意味を、サクラのソース（`sakura_core/macro/CMacro.cpp` と、そこから呼ばれるコマンド）とヘルプで確かめた。サクラ本体は動かしていない。
+
+- `GetLineStr` が返す行は、改行を含む。ヘルプには書かれておらず、`CMacro.cpp` の F_GETLINESTR が `GetDocLineStrWithEOL` を呼ぶことで分かった。0 はカーソルの行、全行数より大きい番号は空文字列（ヘルプ）
+- 行番号と桁は 1 から数える（ヘルプ）
+- 桁の単位は、論理位置の文字数（C++ の `wchar_t`。Windows では UTF-16 のコード単位）。U+10000 以上の文字（絵文字など）は 2 と数える。試作もこの単位にした
+- `GetLineCount` は、最後の改行の後ろを行として数えない（`"a\n"` は 1 行）。引数は予約で、0 以外はエラー。`GetSelectedString` の引数も予約で、無視される（ヘルプ）
+- `Jump` のフラグを省略すると 1（改行単位）になる（`CMacro.cpp` の F_JUMP）
+- `MoveCursor` で行末より大きい桁を指定したとき、行末に止めるのか、フリーカーソルのように保つのかは、ソースだけでは確かめきれなかった（「決まっていないこと」）
+
+### エディタの側の作りで分かったこと
+
+- コマンドに渡すもの（`CommandContext`）を、14 個の関数で要ったものから詰めた。[ADR-0013](../adr/0013-module-structure.md) の「4. `CommandContext` に何を渡すか」に書いた
+- マクロは描画の間に何度も呼び出すので、最後に描画したときの割り付けは、マクロ自身の編集の後では古い。試作の上下の移動は、割り付けを使わず、文字単位で動くようにした
+
+### 確かめていないこと
+
+- Undo のまとまり（試作のエディタに Undo がない）
+- プラグインとイベント（エディタからマクロへの要求）
+- 子プロセスの出力で、RS の目印が崩れないか
+- 範囲の読み書きの速さ
+- macOS、WSH、PowerShell、AppleScript
+- マクロの実行中の利用者の編集。試作は止めていないので、マクロの呼び出しの間に、キーボードでの編集が割り込むことがある
+
 ## 決まっていないこと
 
-- 1 行の長さの上限（PoC で 1 MB 程度の行が通るかを見て決める）
+- 1 行の長さの上限。試作では、1 MB を超える行（片道 2 MB を超える 1 行）が通った。上限を設けるか、設けるならいくつにするか
 - エディタ独自のエラーコード（-32000 から -32099）
-- 位置の単位（文字か UTF-16 か）。サクラのソースで確かめる
+- 位置の単位。サクラは UTF-16 のコード単位で、試作もそうした（「サクラのソースで分かったこと」）。本実装でもそうするか
 - プラグインの形（イベントを受ける常駐の形。マクロとは分けて決める）
 - 型の対応（null、false、空の配列を、言語ごとにどう対応させるか）
-- RS の目印の堅さ（改行のない出力、子プロセスの出力で崩れないか。専用の通信路にするかも含めて）
-- Undo のまとまり（1 つのマクロを 1 回の Undo にするか）
+- RS の目印の堅さ。改行なしの出力の直後の要求は、試作で崩れなかった。子プロセスの出力は試していない。専用の通信路にするかも含めて
+- Undo のまとまり（1 つのマクロを 1 回の Undo にするか）。試作のエディタに Undo がないので、確かめていない
 - 機能のやり取りと版（Codex の指摘。`initialize` の `protocolVersion`・`apiVersion` の扱いも含む）
-- Lua の処理系をエディタに同梱するか（2026-10-14 に案として挙げた。下の「Lua」）。lua.exe は約 0.5 MB で MIT なので、同梱すれば、利用者が何も入れなくてもマクロを書ける言語が 1 つできる。気になる点: ADR-0007 の「処理系は同梱しない」の例外になる。同梱した版と利用者が入れた版のどちらを使うか、同梱した版の更新（脆弱性の修正など）を引き受けることになる
+- 組み込み向けの小さな処理系（Lua、mruby、MicroPython、QuickJS など）をエディタに同梱するか。2026-10-14 にユーザーが、同梱の候補にすると決めた。呼び出しは、ほかの言語と同じく JSON-RPC の別プロセスにする（本体のプロセスに動的ライブラリとして読み込む案は見送った。[ADR-0007](../adr/0007-macros-and-plugins.md) の「見送った案」）。同梱すれば、利用者が何も入れなくてもマクロを書ける言語ができる。たとえば lua.exe は約 0.5 MB で MIT（上の「Lua」）。気になる点: ADR-0007 の「処理系は同梱しない」の例外になる。同梱した版と利用者が入れた版のどちらを使うか、同梱した版の更新（脆弱性の修正など）を引き受けることになる
+- Windows の Python の起動のしかた。Install Manager の `python` は、起動用のプロセスを通るので、毎回約 100 ms 遅い（「試作の結果」）。本体の場所を一度調べて覚えておくか、利用者が設定で本体を指すか
+- マクロの実行中に、利用者の編集を止めるか（試作は止めていない）
+- 試作のままにして、本実装で決めること（2026-10-14、ユーザー）
+  - 「マクロの中断」のメニューの名前と位置（サクラのメニューにない名前で、試作で付けた）
+  - `MoveCursor` で行末より大きい桁を指定したとき、行末に止めるか、フリーカーソルのように保つか（試作は行末に止める）。サクラの実機で確かめる
+  - 引数の型の厳しさ（試作は、整数でない数や真偽値を -32602 にした。サクラはもっと緩いかもしれない）
+  - Windows で、ブートを書き出す一時フォルダーのアクセス権（試作は、ユーザーごとの一時フォルダーに作るだけ。Unix ではモード 0700 にした）
 
 ## PoC の順番
 
-1. 試作のエディタ（Rust）から Node.js と Python を起動し、同期の往復を確かめる。遅れた応答、分割して届くデータ、EOF、UI が止まらないこと、タイムアウト
-2. RS の目印が崩れる条件（改行のない出力、子プロセスの出力）
+1. （済み）試作のエディタ（Rust）から Node.js と Python を起動し、同期の往復を確かめる。遅れた応答、分割して届くデータ、EOF、UI が止まらないこと、タイムアウト
+2. （一部）RS の目印が崩れる条件。改行のない出力は確かめた。子プロセスの出力は、まだ
 3. WSH と PowerShell 5.1（文字コード、JSON の深さ）
 4. AppleScript（Mac のセッションで）
-5. エラーの位置、範囲の読み書きの速さ、Undo のまとまり
+5. （一部）エラーの位置は確かめた。範囲の読み書きの速さと、Undo のまとまりは、まだ
 
-PoC は別の PR（`poc/gpui-textview`）で作っている。結果はできしだい、この文書に足す。
+1 と、2・5 の一部は、`poc/gpui-textview` で行った（「試作の結果」）。3 と 4 は、まだ行っていない。
 
 ## 出典
 
 サクラエディタのマクロ API（上流 https://github.com/sakura-editor/sakura ）
 
 - <https://github.com/sakura-editor/sakura/blob/master/sakura_core/macro/CSMacroMgr.cpp>
+- <https://github.com/sakura-editor/sakura/blob/master/sakura_core/macro/CMacro.cpp>
 - <https://github.com/sakura-editor/sakura/tree/master/help/macro/source/reference>
 
 JSON-RPC と Node.js
 
 - JSON-RPC 2.0: <https://www.jsonrpc.org/specification>
 - Node.js の issue #35997（EOF と EAGAIN）: <https://github.com/nodejs/node/issues/35997>
+
+Windows の Python
+
+- Python Install Manager: <https://docs.python.org/3/using/windows.html>
+- Python Install Manager 26.4: <https://github.com/python/pymanager/releases/tag/26.4>
+- PEP 686（UTF-8 モードを既定にする）: <https://peps.python.org/pep-0686/>
 
 Lisp の調査
 

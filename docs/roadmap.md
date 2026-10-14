@@ -1,6 +1,6 @@
 # 開発の計画
 
-最終更新: 2026-10-11
+最終更新: 2026-10-14
 
 サクラエディタの仕様を一度に取り込むと破綻するので、メモ帳相当の基本機能から作り、あとでサクラの機能をまとめて実装する（[ADR-0001](adr/0001-project-approach.md)）。
 
@@ -46,7 +46,8 @@
   - GPUI の試作（[poc/gpui-textview](../poc/gpui-textview/README.md)、[結果](poc/ui-framework-result.md)）が Windows ARM64・x64、Mac、Linux（WSLg）で動いた。文字を書き込むたびにメモリが 4 MB 増える問題は Qualcomm Adreno のドライバーだけで起き、NVIDIA と Mac では起きなかった。Mac 対応を入れた後のコードも、2026-10-11 に印刷の試作で Windows ARM64 でビルドして動かした。実機の Linux での確認は、ユーザーが Phase 0 の条件から外した（2026-10-11）。Wayland での日本語入力とデスクトップとの統合は、2026-10-14 に Hyper-V の仮想マシン（Ubuntu 26.04.1、GNOME の Wayland）で確かめて問題なかった。GPU での描画は Linux 版を出す前に実機で確かめる
 - [x] 印刷を試作する（3 OS でダイアログを出し、日本語の 1 ページを印刷する。共通の割り付けからプレビューも描く。[ADR-0011](adr/0011-printing.md)）
   - 3 OS の分を作った（[poc/gpui-textview](../poc/gpui-textview/README.md)、[結果](poc/printing.md)）。共通の割り付けから、GPUI のプレビューと、Mac（Core Graphics）・Windows（GDI）・Linux（PDF）の印刷を描けて、PDF に出力すると同じ位置に文字が出た。3 OS とも、印刷ダイアログから紙に印刷できた（2026-10-11）。この結果で ADR-0011 を決定にした
-- [ ] JSON-RPC を試作する（別プロセスの JavaScript（Node.js）と Python から、試作のコマンドを呼ぶ。[ADR-0007](adr/0007-macros-and-plugins.md)、[通信の仕様の案](poc/json-rpc.md)）
+- [x] JSON-RPC を試作する（別プロセスの JavaScript（Node.js）と Python から、試作のコマンドを呼ぶ。[ADR-0007](adr/0007-macros-and-plugins.md)、[通信の仕様の案](poc/json-rpc.md)）
+  - 試作のエディタから、別プロセスの Node.js と Python のマクロが、サクラの関数 14 個を JSON-RPC で呼べた（[poc/gpui-textview](../poc/gpui-textview/README.md)、[結果](poc/json-rpc.md)）。Linux と Windows ARM64 で、日本語と絵文字、遅れた応答、1 MB を超える行、エラーの行番号、タイムアウト、中断を確かめた。Windows では、ユーザーもウィンドウで確かめた（2026-10-14）。macOS では動かしていない
 - [ ] モジュールの構造を決める（[ADR-0013](adr/0013-module-structure.md)。上の試作で確かめ、Phase 1 の始めに確定する）
-  - 構造は ADR-0013 のままでよいと、ユーザーが判断した（2026-10-11）。JSON-RPC の試作で細部を詰める
+  - 構造は ADR-0013 のままでよいと、ユーザーが判断した（2026-10-11）。コマンドの集め方（`inventory`）など 3 つの確認の提案を、2026-10-14 にユーザーが採用した。`CommandContext` は、JSON-RPC の試作の結果で詰めた。Phase 1 の始めに確定する
 - [x] Cargo ワークスペースと CI（Windows x64・ARM64 / macOS / Linux x64・ARM64）

@@ -139,7 +139,7 @@ XMODIFIERS=@im=fcitx WAYLAND_DISPLAY= ./target/release/gpui-textview-poc
 
 ## マクロ（JSON-RPC）
 
-別プロセスの JavaScript（Node.js）か Python をマクロとして走らせ、マクロがエディタのコマンドを JSON-RPC で同期的に呼ぶ試作（Phase 0 の「JSON-RPC を試作する」）。通信の仕様は docs/poc/json-rpc.md にまとまる予定で、この試作はその案 v0 に沿う。
+別プロセスの JavaScript（Node.js）か Python をマクロとして走らせ、マクロがエディタのコマンドを JSON-RPC で同期的に呼ぶ試作（Phase 0 の「JSON-RPC を試作する」）。通信の仕様は [docs/poc/json-rpc.md](../../docs/poc/json-rpc.md) にあり、この試作はその案 v0 に沿う。試作の結果も、そこにまとめた。
 
 ### 動かし方
 
@@ -147,7 +147,7 @@ XMODIFIERS=@im=fcitx WAYLAND_DISPLAY= ./target/release/gpui-textview-poc
 - ツール メニュー > 「マクロの中断」: 実行中のマクロのプロセスを終わらせる（サクラのメニューにはない名前で、この試作で付けた）
 - `macros/sample.js` と `macros/sample.py`: 日本語と絵文字を使うサンプル
 - ウィンドウなしの実行: `gpui-textview-poc --run-macro <マクロ> <入力のテキスト> <結果のテキスト>`。マクロの出力は標準出力と標準エラーに出し、結果の文書を書き、マクロが正常に終わったときだけ終了コード 0 で終わる。文書は、ウィンドウなしの実行では `TextModel`（src/macro_host/model.rs）、ウィンドウでは `Editor` が持つ
-- 環境変数 `POC_NODE`（既定は `node`）、`POC_PYTHON`（既定は Linux・Mac で `python3`、Windows で `python`）: 処理系の場所。起動できないときは、その旨と環境変数の名前を出力パネルに出す。Windows の `python` がストアのスタブ（WindowsApps）だと終了コード 9009 で終わるので、その旨も添える
+- 環境変数 `POC_NODE`（既定は `node`）、`POC_PYTHON`（既定は Linux・Mac で `python3`、Windows で `python`）: 処理系の場所。起動できないときは、その旨と環境変数の名前を出力パネルに出す。Windows の `python` がストアのスタブ（WindowsApps）だと終了コード 9009 で終わるので、その旨も添える。Windows で Python Install Manager の `python`（アプリ実行エイリアス）を使うと、起動用のプロセスを通るので、起動が約 100 ms 遅い。`POC_PYTHON` に本体（例: `%LOCALAPPDATA%\Python\pythoncore-3.15-arm64\python.exe`）を指定すると避けられる
 - 環境変数 `POC_MACRO_TIMEOUT=<秒>`（既定 30、小数可）: これを超えたらマクロのプロセスを終わらせる。エディタが応答する時間も含む
 - マクロの起動: `node --require <boot.cjs> <マクロ>` と `python -u <boot.py> <マクロ>`（Python は環境変数 `PYTHONUTF8=1` つき）。Windows では `CREATE_NO_WINDOW` で起動する。ブートのファイルは実行ファイルに埋め込んであり、実行のたびに、一時ディレクトリ（`ume-macro-<ランダムな文字>`。Unix ではモード 0700。Windows ではユーザーごとの一時フォルダーに作るだけで、アクセス権は設定していない）に書き出し、終わったら消す。マクロの中に require や import を書く必要はない。`Editor`（と、エラー用の `EditorError`）がグローバルに置かれる
 
@@ -193,14 +193,15 @@ XMODIFIERS=@im=fcitx WAYLAND_DISPLAY= ./target/release/gpui-textview-poc
 
 ### 確かめたこと
 
-2026-10-11 の確認。
+2026-10-11 の確認（Windows の Python は 2026-10-14）。
 
 - 単体テスト（`cargo test`）: 1 行の枠組み、RS での分割、行末の CR、ASCII へのエスケープ（サロゲートペアを含む）、要求の解析（-32700・-32600・-32602）、-32601、API の意味、生成物が古くなっていないこと、環境変数のタイムアウトの読み取り
 - 本物の Node.js と Python を走らせる統合テスト（処理系がなければ「SKIP」を出して通る。`cargo test -- --nocapture` で見える）: 日本語と絵文字の往復 / エディタが 1.5 秒遅れて応答する / 1 MB を超える行（片道 2 MB 超の 1 行）の往復 / 改行なしの出力の直後に来る要求 / 構文エラーと実行時エラー（標準エラーに利用者のファイルの行番号が出る）/ エラー応答が例外になる（JS も Python も `EditorError`。`code` にエラーコードが入る）/ 無限ループと応答が来ない待ちがタイムアウトで止まる / すぐ終わるマクロ（EOF）/ 終了コード / Python が `PYTHONUTF8=1` で日本語を UTF-8 で出す / 標準エラー / 中断 / 処理系がないときのメッセージ / 不正な行（Python が生の行を送る）
 - Linux（WSL2、aarch64、Node.js v25、Python 3.13）: `cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test`、`cargo build --release` が通った。`--features self-check` の自己確認に「マクロ」の段を足し、実際のウィンドウ（WSLg）で `sample.js`・`sample.py` の実行（文書の中身、出力パネルの内容、正常終了）と、終わらないマクロの中断を確かめた
-- Windows ARM64（Node.js v24。Python は入っていない）: `cargo test --release` が通った。Python のテストは飛ばした。`--features self-check` の自己確認（実際のウィンドウ）も通り、`sample.js` と、終わらないマクロの中断を確かめた。`sample.py` は、`python` がストアのスタブ（終了コード 9009）だったので飛ばし、その旨の案内が出力パネルに出た。Python のブート（`boot.py`）は Windows では動かしていない
-- 画面を見ての操作（メニュー、ファイルダイアログ、出力パネルの見た目）は人が確かめる
-- 参考: Linux で `--run-macro` に `sample.js` と `sample.py` を渡したときの、起動から終了までの時間は、どちらも約 35 ミリ秒（1 回ずつ測っただけ）
+- Windows ARM64（Node.js v24。2026-10-11 は Python が入っていなかった）: `cargo test --release` が通った。Python のテストは飛ばした。`--features self-check` の自己確認（実際のウィンドウ）も通り、`sample.js` と、終わらないマクロの中断を確かめた。`sample.py` は、`python` がストアのスタブ（終了コード 9009）だったので飛ばし、その旨の案内が出力パネルに出た
+- Windows ARM64 の Python（2026-10-14）: Python Install Manager（26.4）で Python 3.15.0 の ARM64 版を入れた。`cargo test --release` の 56 件が通り、Python のテストも飛ばさずに通った。`--run-macro` の `sample.py` も正しかった。ユーザーが、メニューから `sample.js`・`sample.py` を実行し、文書と出力パネルが正しいこと、`Jump(1)` で 1 行目に戻ることを確かめた。終わらない Python のマクロを「マクロの中断」で止められ、`python.exe` が残らないこと、コンソールの窓が出ないことも確かめた
+- 画面を見ての操作（メニュー、ファイルダイアログ、出力パネル）は、Windows でユーザーが確かめた（2026-10-14）。Linux と Mac では、人は見ていない
+- 参考: Linux で `--run-macro` に `sample.js` と `sample.py` を渡したときの、起動から終了までの時間は、どちらも約 35 ミリ秒（1 回ずつ測っただけ）。Windows ARM64 では、`sample.js` が 103 ミリ秒、`sample.py` が 174 ミリ秒（Install Manager の `python` を通す）と 72 ミリ秒（本体を直接）だった（9 回の中央値、2026-10-14）
 
 ### 制約と、まだやっていないこと
 
@@ -208,7 +209,7 @@ XMODIFIERS=@im=fcitx WAYLAND_DISPLAY= ./target/release/gpui-textview-poc
 - プラグインとイベント（エディタからマクロへの要求）はない。マクロが 1 回走って終わる形だけ
 - 矩形選択、PL/SQL、折り返し単位の行番号、文書の版・複数の文書は扱わない。API はこの表の 14 個だけ
 - マクロの実行中も、キーボードなどでテキストを編集できる。マクロの呼び出しの間に編集が割り込むことがある（マクロの間は編集を止める仕組みは作っていない）
-- 中断とタイムアウトは、マクロのプロセスだけを終わらせる。マクロが起動した別のプロセスは残ることがある。出力パイプが開いたままの孫プロセスがあっても、終了から 1 秒でマクロの終了を表示する
+- 中断とタイムアウトは、マクロのプロセスだけを終わらせる。マクロが起動した別のプロセスは残ることがある。出力パイプが開いたままの孫プロセスがあっても、終了から 1 秒でマクロの終了を表示する。なお、Windows の Python Install Manager の `python` は、起動用のプロセスが本体を子として起動するが、起動用を終わらせると本体も終わった（2026-10-14）
 - マクロが大量に出力すると、出力の 1 行ごとに画面を更新する。UI が追いつかない分はメモリにたまる（行数の上限があるのは出力パネルの表示だけ）
 - 改行なしの出力は、改行が来るかマクロが終わるまで出力パネルに出ない（RS で区切るのは、要求の直前に出た分だけ）
 - Node.js のエラー応答の未処理の例外は、Node が最初に出す抜粋に `boot.cjs`（一時ディレクトリ）の行が出る。利用者のファイルの行は、続くスタックトレースに出る
