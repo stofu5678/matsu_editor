@@ -42,15 +42,16 @@ pub struct TextChange {
 /// widened to the whole line ending.
 #[derive(Clone, Copy, Debug, Default)]
 struct Joined {
-    /// The end of the text of the line before the edit, if an inserted LF joins the CR that
-    /// ends that line.
+    /// The end of the text of the line before the edit, if the CR that ends that line is joined
+    /// with an LF (an inserted one, or the one after the deleted range).
     cr_before: Option<Pos>,
-    /// Whether an inserted CR joins the LF that follows the edited range.
+    /// Whether the LF that follows the edited range is joined with a CR (an inserted one, or the
+    /// one before the deleted range).
     lf_after: bool,
 }
 
-/// The change that `replace(a, b, ..)` made, as a [`TextChange`]. A deletion can join a CR before
-/// it with an LF after it too; then the buffer's `edit.start` is already at the CR.
+/// The change that `replace(a, b, ..)` made, as a [`TextChange`], widened over the line endings
+/// that were joined.
 fn widen(a: Pos, b: Pos, edit: Edit, joined: Joined) -> TextChange {
     let start = edit.start.min(a).min(joined.cr_before.unwrap_or(a));
     let (mut old_end, mut new_end) = (b, edit.end);
@@ -212,21 +213,28 @@ impl<'a> CommandContext<'a> {
 
     /// Which line endings an edit that replaces `a..b` with `text` joins (see [`Joined`]).
     fn joined_by(&self, a: Pos, b: Pos, text: &str) -> Result<Joined> {
-        let mut joined = Joined::default();
-        if a.col == 0 && a.line > 0 && text.starts_with('\n') {
-            joined.cr_before = self
-                .doc()
+        // The CR that ends the line before `a` and the LF that ends the line of `b`, if `a` is at
+        // the start of a line and `b` at the end of the text of one.
+        let cr_before = if a.col == 0 && a.line > 0 {
+            self.doc()
                 .line(a.line - 1)?
                 .filter(|l| l.eol == Some(Eol::Cr))
-                .map(|l| Pos::new(a.line - 1, l.text.len()));
-        }
-        if text.ends_with('\r') {
-            joined.lf_after = self
-                .doc()
-                .line(b.line)?
-                .is_some_and(|l| l.eol == Some(Eol::Lf) && l.text.len() == b.col);
-        }
-        Ok(joined)
+                .map(|l| Pos::new(a.line - 1, l.text.len()))
+        } else {
+            None
+        };
+        let lf_after = self
+            .doc()
+            .line(b.line)?
+            .is_some_and(|l| l.eol == Some(Eol::Lf) && l.text.len() == b.col);
+        // They are joined by the new text if it starts with an LF or ends with a CR, and by each
+        // other if nothing is put between them.
+        Ok(Joined {
+            cr_before: cr_before
+                .filter(|_| text.starts_with('\n') || (text.is_empty() && lf_after)),
+            lf_after: lf_after
+                && (text.ends_with('\r') || (text.is_empty() && cr_before.is_some())),
+        })
     }
 
     /// Inserts `text` at the caret, or in place of the selection, and puts the caret after it.
@@ -313,7 +321,7 @@ mod tests {
         let c = changes_of("a\rb\nc", |cx| {
             cx.replace(Pos::new(1, 0), Pos::new(1, 1), "").unwrap();
         });
-        assert_eq!(c.edits, [change((0, 1), (1, 1), (1, 0))]);
+        assert_eq!(c.edits, [change((0, 1), (2, 0), (1, 0))]);
     }
 
     #[test]
