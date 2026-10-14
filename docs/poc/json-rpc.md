@@ -43,6 +43,7 @@
 | JavaScript（Node.js） | `node --require <boot.cjs> <user.js>` | `Editor` をグローバルに置く |
 | Python | `python <boot.py> <user.py>` | boot.py が `runpy.run_path(user, init_globals={"Editor": ...}, run_name="__main__")` で実行する。行番号はずれない |
 | Emacs Lisp（第 2 弾） | `emacs -Q --batch -l boot.el --eval '(ume-run-user-file "<user.el>")'` | ブートが利用者のファイルを UTF-8 で 1 式ずつ読んで評価し、エラーの行番号を出す |
+| Lua（第 2 弾） | `lua <boot.lua>`。利用者のスクリプトは、名前と中身を `initialize` の `params.script` で渡す | Windows の lua.exe はファイルを ANSI（日本語の Windows では CP932）の API で開くので、パスを引数で渡すと、CP932 にない文字のパスを開けない。ブートが `load(中身, "@" .. 名前)` で読むと、どのパスでも動き、行番号もずれない |
 | WSH（第 2 弾、VBScript・JScript） | .wsf に `<script src>` を並べる | スクリプトのファイルは UTF-16LE（BOM 付き）でないと日本語を読めない |
 | PowerShell 5.1（第 2 弾） | ブートで関数を定義し、利用者のスクリプトをフルパスでドットソースする | `-ExecutionPolicy Bypass` はグループポリシーを越えられない |
 
@@ -74,6 +75,7 @@
   ```
 
   - `processId` はエディタのプロセス ID。`document.path` は、ファイルでなければ null
+  - Lua では、`params.script` に利用者のスクリプトの `name`（エラーに出す名前）と `source`（中身）を入れる（1. を参照）
 - マクロの要求: `{"jsonrpc":"2.0","id":1,"method":"InsText","params":["\u3042"]}`
   - 引数は、サクラのマクロ API と同じ順の配列
   - id は 1 から増やす整数
@@ -191,6 +193,28 @@ Emacs の利用者を考えて調べた。6 つとも、次がすべて通った
   - CLISP: 2010 年から正式版なし
 - 2026-10-11 にユーザーが決めた: Emacs Lisp を第 2 弾の言語に加える（[ADR-0007](../adr/0007-macros-and-plugins.md)）
 
+### Lua
+
+2026-10-14 に、ユーザーの依頼で、第 2 弾の Lua を Lisp と同じ 5 つの確認で試した。Lua 5.5.1・5.4.9（lua.org のソースから作った）と LuaJIT 2.1（試したのは 2026-10-13 のコミット）の 3 つとも、すべて通った。LuaJIT は Linux だけで試した。ほかに、2.4 MB の 1 行（「あ😀」を 20 万回並べた文字列）の往復と、スクリプトの `print` の日本語も確かめた。
+
+| 処理系 | 最新版 | Windows ARM64 | 起動＋1 往復（Linux / Windows） | エラーの行番号 | ライセンス |
+|---|---|---|---|---|---|
+| Lua | 5.5.1（2026-07）。5.4 系は 5.4.9（2026-08） | lua.org の配布はソースだけ。Visual Studio の ARM64 用のコンパイラーで作れた。winget の DEVCOM.Lua（5.4.6）は x64 だけで、エミュレーションで動いた | 1.4 ms / 18〜20 ms | 出る | MIT |
+| LuaJIT | 2.1（ローリング リリース） | winget の DEVCOM.LuaJIT は x64 だけ。試していない | 1.3 ms / 試していない | 出る | MIT |
+
+- 時間は 7 回の中央値。Windows の値は、PowerShell から .NET の `Process` で起動して、Windows の中で測った。ほとんどがプロセスの起動の分で、スクリプトなしで lua.exe を起動して終えるだけで 21.3 ms だった。上の Lisp の表と同じく WSL から起動すると約 51 ms（cmd.exe を起動して終えるだけで 33 ms）。x64 版の lua.exe をエミュレーションで動かすと 25.5 ms
+- 起動のしかた（試した形）: `lua boot.lua user.lua`。または `lua boot.lua` だけにして、`initialize` の `params.script` で中身を渡す
+- エラーは `user_err.lua:3: attempt to call a nil value (global 'undefined_function')` と出た（LuaJIT は `attempt to call global 'undefined_function' (a nil value)`）。ブートは `xpcall` と `debug.traceback` で受けて、標準エラーに出す
+- ブートは、Lua 5.1（LuaJIT）から 5.5 まで同じものが動くように、ビット演算と utf8 ライブラリを使わずに書いた。標準ライブラリに JSON がないので、ASCII へのエスケープ（サロゲートペアを含む）と読み取りをブートに書いた（全体で約 200 行）
+- 型: JSON の false と null は、Lua でもそのまま偽になる（Lisp で起きた問題は起きない）。null は nil になるので、配列の途中の null は穴になる。困る場面が出たら、印の値を用意する
+- Windows の lua.exe
+  - 標準出力がテキストモードなので、`\n` が CRLF になって届いた。受け取る側が行末の CR を無視すれば済む（2. のとおり）
+  - ファイルを ANSI の API（`fopen`）で開くので、利用者のスクリプトのパスを引数で渡すと、CP932 にない文字（絵文字など）を含むパスは `??` になって開けなかった。CP932 で書けるパスは開けたが、エラーに出るファイル名が CP932 になり、UTF-8 として読むと化けた
+  - エディタがスクリプトの名前と中身を `initialize` で渡し、ブートが `load(中身, "@" .. 名前)` で読むと、絵文字を含む名前でも動き、エラーも `C:\…\マクロ\絵文字😀.lua:3: attempt to call a nil value ...` と UTF-8 で出た
+- 入手のしかた: Ubuntu 26.04 には lua5.5（5.5.0）・lua5.4（5.4.8）・lua5.1・luajit のパッケージがある。Mac は Homebrew（lua 5.5.1、luajit。ARM64 版あり）。Windows は上の表のとおり
+- Neovim の `vim.*` のような API は、UME Editor の文書には効かない。基本 API は、ほかの言語と同じく、生成した関数で用意する
+- 2026-10-14 にユーザーが決めた: Lua は第 2 弾のままにする。処理系を同梱する案は「決まっていないこと」に残した
+
 ### Codex の指摘（1 回目）
 
 JSON-RPC の方式について、Codex が挙げた点。
@@ -216,6 +240,7 @@ JSON-RPC の方式について、Codex が挙げた点。
 - RS の目印の堅さ（改行のない出力、子プロセスの出力で崩れないか。専用の通信路にするかも含めて）
 - Undo のまとまり（1 つのマクロを 1 回の Undo にするか）
 - 機能のやり取りと版（Codex の指摘。`initialize` の `protocolVersion`・`apiVersion` の扱いも含む）
+- Lua の処理系をエディタに同梱するか（2026-10-14 に案として挙げた。下の「Lua」）。lua.exe は約 0.5 MB で MIT なので、同梱すれば、利用者が何も入れなくてもマクロを書ける言語が 1 つできる。気になる点: ADR-0007 の「処理系は同梱しない」の例外になる。同梱した版と利用者が入れた版のどちらを使うか、同梱した版の更新（脆弱性の修正など）を引き受けることになる
 
 ## PoC の順番
 
