@@ -63,15 +63,25 @@ def _main():
         if message.get("method") == "initialize":
             info = message.get("params")
 
-    import api_gen
+    # Not through sys.path[0]: with PYTHONSAFEPATH or -P, Python does not put this directory
+    # first.
+    boot_dir = os.path.dirname(os.path.abspath(__file__))
+    sys.path.insert(0, boot_dir)
+    try:
+        import api_gen
+    finally:
+        sys.path.remove(boot_dir)
 
     editor = api_gen.install(_call)
     editor.info = info
 
     user_file = os.path.abspath(sys.argv[1])
-    # Python puts the script's directory first in the module search path; the script is the
-    # user's, so make it the user's directory (and not the boot directory).
-    sys.path[0] = os.path.dirname(user_file)
+    # Normally Python puts the script's directory (the boot directory) first in the module
+    # search path; the script is the user's, so make it the user's directory. In safe-path mode
+    # nothing was put there, and the user's directory is not added either (as for a script run
+    # with the same flag).
+    if sys.path and os.path.abspath(sys.path[0] or ".") == boot_dir:
+        sys.path[0] = os.path.dirname(user_file)
     sys.argv = sys.argv[1:]
     runpy.run_path(
         user_file,

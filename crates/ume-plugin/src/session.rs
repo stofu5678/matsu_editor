@@ -7,9 +7,9 @@ use std::io;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -67,6 +67,8 @@ impl Language {
         let output = Command::new(interpreter)
             .arg(flag)
             .arg(code)
+            // A pipe gets the ANSI code page on Windows by default (the same as in `start`).
+            .env("PYTHONUTF8", "1")
             .stdin(Stdio::null())
             .stderr(Stdio::null())
             .output()?;
@@ -283,9 +285,24 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
         // Dropping stdin closes it: the macro sees EOF.
     });
 
+    // `Finished` must be the last event. A grandchild that inherited the pipes can keep a reader
+    // running after the grace period, so the readers send through a gate that the supervisor
+    // closes (while it sends `Finished`) and that drops what comes later.
+    let ended = Arc::new(Mutex::new(false));
+    let gated: Sink = {
+        let sink = sink.clone();
+        let ended = ended.clone();
+        Arc::new(move |event| {
+            let ended = ended.lock().unwrap_or_else(PoisonError::into_inner);
+            if !*ended {
+                sink(event);
+            }
+        })
+    };
+
     let (done_tx, done_rx) = mpsc::channel::<()>();
     {
-        let sink = sink.clone();
+        let sink = gated.clone();
         let done = done_tx.clone();
         thread::spawn(move || {
             read_lines(stdout, |line| {
@@ -304,7 +321,7 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
         });
     }
     {
-        let sink = sink.clone();
+        let sink = gated;
         thread::spawn(move || {
             read_lines(stderr, |line| {
                 sink(HostEvent::Output {
@@ -351,6 +368,8 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
         // it has seen `Finished`, which would cut the removal short and leave the folder.
         // A folder that cannot be removed is tried once more when this thread drops it.
         let _ = boot_dir.remove();
+        let mut ended = ended.lock().unwrap_or_else(PoisonError::into_inner);
+        *ended = true;
         sink(HostEvent::Finished(Finished {
             reason,
             exit_code: status.and_then(|s| s.code()),
