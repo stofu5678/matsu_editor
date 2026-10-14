@@ -968,3 +968,14 @@ fn large_file_open_and_save_times() {
         );
     }
 }
+
+#[test]
+fn the_check_can_be_cancelled_too() {
+    let mut file = TextFile::new_untitled(Encoding::Utf8, false, Eol::Lf);
+    file.document.insert(Pos::new(0, 0), "added text").unwrap();
+    let keep = SaveOptions::keep(&file);
+    let err = file
+        .check_save(&keep, &mut |_, _| ControlFlow::Break(()))
+        .unwrap_err();
+    assert!(matches!(err, FileError::Cancelled));
+}

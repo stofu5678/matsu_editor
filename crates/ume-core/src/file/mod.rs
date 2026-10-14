@@ -173,6 +173,16 @@ pub fn open_file_with(
         }
     };
     let bom_len = if bom { encoding.bom().len() } else { 0 };
+    // The first line ending, read from the bytes: `Document::line` would decode the whole first
+    // line, which is the whole file when it has no line break.
+    let first_eol = if encoding.codec().is_stateless() {
+        encoding
+            .codec()
+            .find_eol(&bytes[bom_len..], 0)
+            .map(|(_, eol)| eol)
+    } else {
+        None
+    };
     let source = FileBytes::new(Arc::new(bytes), bom_len);
     let document = Document::with_limit(source, Arc::new(EncodingCodec(encoding)), max)?;
 
@@ -182,10 +192,13 @@ pub fn open_file_with(
     } else {
         Eol::CrLf
     };
-    let new_line = document
-        .line(0)?
-        .and_then(|line| line.eol)
-        .unwrap_or(fallback);
+    let first_eol = if encoding.codec().is_stateless() {
+        first_eol
+    } else {
+        // A stateful encoding was converted to text at load time.
+        document.line(0)?.and_then(|line| line.eol)
+    };
+    let new_line = first_eol.unwrap_or(fallback);
 
     Ok(TextFile {
         document,

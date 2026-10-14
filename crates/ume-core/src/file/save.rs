@@ -212,12 +212,20 @@ fn check(
         // Only added text is encoded, and the original is in the target encoding. If none of
         // the added text is a problem there is nothing to report and no need to decode the file.
         let mut clean = true;
-        for chunk in doc.chunks() {
+        let mut done = 0u64;
+        'scan: for chunk in doc.chunks() {
             if let Chunk::Added(text) = chunk? {
-                scratch.clear();
-                if codec.encode(&text, &mut scratch).is_err() {
-                    clean = false;
-                    break;
+                for part in slices(&text) {
+                    scratch.clear();
+                    if codec.encode(part, &mut scratch).is_err() {
+                        clean = false;
+                        break 'scan;
+                    }
+                    done += part.len() as u64;
+                    // The total is not known before the scan, so it is reported as the amount so far.
+                    if progress(done, done).is_break() {
+                        return Err(FileError::Cancelled);
+                    }
                 }
             }
         }
@@ -258,6 +266,23 @@ fn check(
         }
     }
     Ok(report)
+}
+
+/// Cuts `text` into slices of about `READ_CHUNK` bytes at char boundaries.
+fn slices(text: &str) -> impl Iterator<Item = &str> {
+    let mut rest = text;
+    std::iter::from_fn(move || {
+        if rest.is_empty() {
+            return None;
+        }
+        let mut n = rest.len().min(READ_CHUNK);
+        while !rest.is_char_boundary(n) {
+            n -= 1;
+        }
+        let (head, tail) = rest.split_at(n);
+        rest = tail;
+        Some(head)
+    })
 }
 
 /// Counts the bytes that pass through.
@@ -371,12 +396,16 @@ fn write_body(
                     }
                 }
                 Chunk::Added(text) => {
-                    done += text.len() as u64;
-                    pending.push_str(&text);
-                    if pending.len() >= READ_CHUNK {
-                        flush(&mut pending, out)?;
-                        if progress(done, total).is_break() {
-                            return Err(FileError::Cancelled);
+                    // One piece can be huge (a big paste, or a whole file of a stateful
+                    // encoding), so it is taken in slices to keep the buffers small.
+                    for part in slices(&text) {
+                        pending.push_str(part);
+                        done += part.len() as u64;
+                        if pending.len() >= READ_CHUNK {
+                            flush(&mut pending, out)?;
+                            if progress(done, total).is_break() {
+                                return Err(FileError::Cancelled);
+                            }
                         }
                     }
                 }
