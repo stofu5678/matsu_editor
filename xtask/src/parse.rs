@@ -30,8 +30,11 @@ pub enum Kind {
     Command,
     /// 32768-39999 in `Funccode_x.hsrc`: macro-only commands.
     MacroOnly,
-    /// 40000 and above: macro functions that return a value.
+    /// 40000-49151: macro functions that return a value.
     MacroFunction,
+    /// 0xC000 and above (`F_ISEARCH_*`): internal helpers of the incremental search. They are
+    /// not macro functions and have no menu entry (see `CEditView_Cmdisrch.cpp`).
+    Internal,
     /// 34000 and above in `sakura_rc.h`: string IDs for menu labels.
     MenuLabel,
 }
@@ -44,6 +47,7 @@ impl Kind {
             Kind::Command => "Command",
             Kind::MacroOnly => "MacroOnly",
             Kind::MacroFunction => "MacroFunction",
+            Kind::Internal => "Internal",
             Kind::MenuLabel => "MenuLabel",
         }
     }
@@ -347,7 +351,8 @@ fn classify(name: &str, code: u16, from_rc_h: bool) -> Result<Kind> {
         29001..=29006 => Kind::MenuSpecial,
         30000..=32767 => Kind::Command,
         32768..=39999 => Kind::MacroOnly,
-        40000.. => Kind::MacroFunction,
+        40000..=0xBFFF => Kind::MacroFunction,
+        0xC000.. => Kind::Internal,
         _ => return Err(format!("{name} = {code} is in no known range")),
     })
 }

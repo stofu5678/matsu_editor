@@ -44,9 +44,10 @@ fn kinds_match_sakura_ranges() {
     assert_eq!(count(FunctionKind::Reserved), 9);
     assert_eq!(count(FunctionKind::MenuSpecial), 6);
     assert_eq!(count(FunctionKind::MenuLabel), 63);
-    assert_eq!(count(FunctionKind::MacroFunction), 62);
+    assert_eq!(count(FunctionKind::MacroFunction), 59);
+    assert_eq!(count(FunctionKind::Internal), 3);
     assert_eq!(count(FunctionKind::MacroOnly), 23);
-    assert_eq!(count(FunctionKind::Command), 524 - 9 - 6 - 63 - 62 - 23);
+    assert_eq!(count(FunctionKind::Command), 524 - 9 - 6 - 63 - 59 - 3 - 23);
 }
 
 #[test]
@@ -98,6 +99,7 @@ fn function_spot_checks() {
     assert_eq!(function("F_GETFILENAME").code, 40001);
     assert_eq!(function("F_GETFILENAME").kind, FunctionKind::MacroFunction);
     assert_eq!(function("F_ISEARCH_ADD_CHAR").code, 0xC001);
+    assert_eq!(function("F_ISEARCH_ADD_CHAR").kind, FunctionKind::Internal);
     assert_eq!(function("F_SEPARATOR").code, 1);
     assert_eq!(function("F_FILE_TOPMENU").kind, FunctionKind::MenuLabel);
     // Labels from sakura_core/sakura_rc.rc.

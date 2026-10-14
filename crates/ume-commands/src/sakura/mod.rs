@@ -24,8 +24,11 @@ pub enum FunctionKind {
     Command,
     /// 32768-39999: commands that only macros call (they have no menu entry).
     MacroOnly,
-    /// 40000 and above: macro functions that return a value.
+    /// 40000-49151: macro functions that return a value.
     MacroFunction,
+    /// 0xC000 and above (`F_ISEARCH_*`): internal helpers of the incremental search. They are
+    /// not macro functions and have no menu entry.
+    Internal,
     /// Not a command: a string ID of a menu label (`sakura_rc.h`), such as "File" for the menu bar.
     MenuLabel,
 }
