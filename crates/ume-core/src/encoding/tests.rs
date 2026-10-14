@@ -690,10 +690,8 @@ fn truncated_chars_at_the_end_are_invalid_bytes() {
         decode(Encoding::Cesu8, b"\xED\xA0\xBD"),
         [0xED, 0xA0, 0xBD].map(s).concat()
     );
-    assert_eq!(
-        decode(Encoding::Jis, b"\x1B$"),
-        format!("{}{}", s(0x1B), s(b'$'))
-    );
+    // ESC with one byte after it is only the ESC; the `$` is read in the unknown mode.
+    assert_eq!(decode(Encoding::Jis, b"\x1B$"), format!("{}$", s(0x1B)));
     // The rest of the bytes decodes the same way whether or not the char is cut.
     assert_eq!(decode(Encoding::ShiftJis, b"\x82\xA0"), "あ");
     assert_eq!(decode(Encoding::EucJp, b"\xA4\xA2"), "あ");
