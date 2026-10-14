@@ -252,12 +252,10 @@ fn decode(bytes: &[u8], encoding: FileEncoding) -> String {
 
 /// Encodes text into Shift_JIS. `None` if some character cannot be written back as the same character.
 fn encode_sjis(text: &str) -> Option<Cow<'_, [u8]>> {
-    // The WHATWG encoder turns U+00A5 and U+203E into `\` and `~`, which is a different text.
-    if text.contains(['\u{a5}', '\u{203e}']) {
-        return None;
-    }
     let (bytes, _, had_errors) = encoding_rs::SHIFT_JIS.encode(text);
-    (!had_errors).then_some(bytes)
+    // The WHATWG encoder also maps some characters to bytes of another character without an error
+    // (U+00A5 and U+203E to `\` and `~`, U+2212 to the byte of U+FF0D), so check that it reads back.
+    (!had_errors && decode(&bytes, FileEncoding::ShiftJis) == text).then_some(bytes)
 }
 
 fn utf16_cmp(a: &str, b: &str) -> Ordering {
@@ -539,14 +537,43 @@ impl Profile {
 }
 
 /// `CProfile::WriteProfile`: create the folder, write to another file, then replace.
+///
+/// The other file has a name of its own for each call (`GetTempFilePath` does the same in Sakura), so two saves
+/// at the same time do not write into the same file.
 fn write_replacing(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    use std::io::Write;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)?;
     }
-    let mut tmp = path.as_os_str().to_owned();
-    tmp.push(".ume-tmp");
-    let tmp = std::path::PathBuf::from(tmp);
-    let result = std::fs::write(&tmp, bytes).and_then(|()| std::fs::rename(&tmp, path));
+    let mut attempt = 0;
+    let (tmp, mut file) = loop {
+        let mut name = path.as_os_str().to_owned();
+        name.push(format!(
+            ".{}-{}.ume-tmp",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        let tmp = std::path::PathBuf::from(name);
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+        {
+            Ok(file) => break (tmp, file),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists && attempt < 100 => attempt += 1,
+            Err(e) => return Err(e),
+        }
+    };
+    let result = file
+        .write_all(bytes)
+        .and_then(|()| file.sync_all())
+        .and_then(|()| {
+            drop(file);
+            std::fs::rename(&tmp, path)
+        });
     if result.is_err() {
         let _ = std::fs::remove_file(&tmp);
     }
@@ -722,6 +749,19 @@ mod tests {
     }
 
     #[test]
+    fn characters_that_do_not_read_back_move_the_file_to_utf8() {
+        // U+2212 encodes to the Shift_JIS byte of U+FF0D without an error; U+00A5 becomes `\`.
+        for text in ["\u{2212}", "\u{a5}", "\u{203e}"] {
+            let (src, _, _) = encoding_rs::SHIFT_JIS.encode("[A]\r\nk=あ\r\n");
+            let mut p = Profile::from_bytes(&src);
+            p.set("A", "e", text).unwrap();
+            let out = p.to_bytes();
+            assert!(out.starts_with(&UTF8_BOM), "{text:?}");
+            assert_eq!(Profile::from_bytes(&out).get("A", "e"), Some(text));
+        }
+    }
+
+    #[test]
     fn shift_jis_file_moves_to_utf8_when_a_character_does_not_fit() {
         let (src, _, _) = encoding_rs::SHIFT_JIS.encode("[A]\r\nk=あ\r\n");
         let mut p = Profile::from_bytes(&src);
@@ -776,7 +816,12 @@ mod tests {
         p.save(&path).unwrap();
         let back = Profile::load(&path).unwrap();
         assert_eq!(back.get("A", "k"), Some("2"));
-        assert!(!path.with_extension("ini.ume-tmp").exists());
+        // No temporary file is left behind.
+        let names: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["sakura.ini"]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -91,7 +91,10 @@ pub fn parse_ulong(s: &str) -> Option<u32> {
     if !any {
         return None;
     }
-    let value = u32::try_from(magnitude).unwrap_or(u32::MAX);
+    // On overflow `wcstoul` returns `ULONG_MAX` whatever the sign; only a representable value is negated.
+    let Ok(value) = u32::try_from(magnitude) else {
+        return Some(u32::MAX);
+    };
     Some(if negative {
         value.wrapping_neg()
     } else {
@@ -307,6 +310,8 @@ mod tests {
     fn ulong_follows_wcstoul() {
         assert_eq!(parse_ulong("42"), Some(42));
         assert_eq!(parse_ulong("-1"), Some(u32::MAX));
+        assert_eq!(parse_ulong("-4294967295"), Some(1));
+        assert_eq!(parse_ulong("-4294967296"), Some(u32::MAX));
         assert_eq!(parse_ulong("99999999999"), Some(u32::MAX));
         assert_eq!(parse_ulong("x"), None);
     }
