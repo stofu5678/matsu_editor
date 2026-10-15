@@ -23,7 +23,7 @@ work="$(wslpath -u "$work_win")"
 fw32=/mnt/c/Windows/Microsoft.NET/Framework/v4.0.30319/csc.exe
 fw64=/mnt/c/Windows/Microsoft.NET/Framework64/v4.0.30319/csc.exe
 
-rm -rf "$work"
+rm -rf "$work" || echo "could not remove $work_win; delete it by hand" >&2
 mkdir -p "$work/x86" "$work/x64"
 cp "$here/Harness.cs" "$work/Harness.cs"
 cp "$cases" "$work/cases.json"
@@ -48,5 +48,5 @@ for arch in x86 x64; do
 done
 
 cd /mnt/c
-rm -rf "$work"
+rm -rf "$work" || echo "could not remove $work_win; delete it by hand" >&2
 exit $status

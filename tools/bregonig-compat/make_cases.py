@@ -33,8 +33,7 @@ def add(id, kind, pattern, subject, replacement=None, start=0, end=None, match_c
         c["start"] = start
     if end is not None:
         c["end"] = end
-    if match_case is not True:
-        c["match_case"] = match_case
+    c["match_case"] = match_case
     if known:
         c["known_difference"] = known
     cases.append(c)

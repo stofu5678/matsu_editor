@@ -152,6 +152,7 @@ impl ReplacementTemplate {
             parts: Vec::new(),
             problems: Vec::new(),
             seek: [None, None, None],
+            index_failed_at: None,
         };
         parser.run();
         Ok(Self {
@@ -262,6 +263,9 @@ struct Parser<'a> {
     /// For each [`Close`], the index of the next such character at or after every position
     /// (`usize::MAX`: none). Built on first use, so that an unclosed form costs no scan.
     seek: [Option<Vec<usize>>; 3],
+    /// The `}` after which an index failed to parse. Every `$-{` before one `}` sees the same
+    /// text after it, so it is not read again.
+    index_failed_at: Option<usize>,
 }
 
 impl Parser<'_> {
@@ -466,8 +470,15 @@ impl Parser<'_> {
         self.pos += 2;
         let name_start = self.pos;
         let parsed = self.next_close(Close::Brace).and_then(|at| {
+            if self.index_failed_at == Some(at) {
+                return None;
+            }
             self.pos = at + 1;
-            self.index().map(|index| (at, index))
+            let index = self.index();
+            if index.is_none() {
+                self.index_failed_at = Some(at);
+            }
+            index.map(|index| (at, index))
         });
         let Some((at, index)) = parsed else {
             self.pos = start;
@@ -1032,7 +1043,8 @@ mod tests {
         for unit in [
             "${", "$+{", "$-{", "\\k<", "\\k'", "\\x{", "\\o{", "${a", "\\x{4",
         ] {
-            for close in ["}", ">", "'"] {
+            let spaces = format!("}}[{}x", " ".repeat(50_000));
+            for close in ["}", ">", "'", spaces.as_str()] {
                 let src = format!("{}{close}", unit.repeat(50_000));
                 let start = std::time::Instant::now();
                 assert!(ReplacementTemplate::parse(&src, &n, 0).is_ok());
