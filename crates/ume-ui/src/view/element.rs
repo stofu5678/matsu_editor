@@ -537,11 +537,9 @@ fn overwrite_caret_cells(
     if c == '\t' {
         return 1;
     }
-    let after = ume_core::buffer::Pos::new(caret.line, caret.col + c.len_utf8());
-    match (layout.pos_to_row(doc, caret), layout.pos_to_row(doc, after)) {
-        (Ok(a), Ok(b)) if a.row == b.row && b.column > a.column => b.column - a.column,
-        _ => 1,
-    }
+    // The width of the char itself, not the distance to the next position: at the end of a
+    // wrapped row the next position is on the next row.
+    layout.config().columns_of(c, 0).max(1)
 }
 
 #[cfg(test)]
@@ -581,5 +579,16 @@ mod tests {
         assert_eq!(cells("a\tb", Pos::new(0, 1)), 1);
         assert_eq!(cells("ab", Pos::new(0, 2)), 1);
         assert_eq!(cells("", Pos::new(0, 0)), 1);
+    }
+
+    #[test]
+    fn the_block_keeps_its_width_at_the_end_of_a_wrapped_row() {
+        let doc = Document::from_utf8("ab日c".as_bytes().to_vec()).unwrap();
+        let config = ume_layout::LayoutConfig {
+            wrap: ume_layout::Wrap::Columns(4),
+            ..Default::default()
+        };
+        let layout = DocumentLayout::laid_out(&doc, config).unwrap();
+        assert_eq!(overwrite_caret_cells(&doc, &layout, Pos::new(0, 2)), 2);
     }
 }

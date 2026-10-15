@@ -59,6 +59,35 @@ impl EditorView {
             .unwrap_or((self.cursor.caret(), self.cursor.caret()))
     }
 
+    /// In overwrite mode, a composition that stays in the document without a commit (an unmark,
+    /// or an interruption) overwrites the chars after it, as a commit does. Not when it started
+    /// over a selection. Runs inside the composition's undo block.
+    fn finish_overwrite(&mut self, cx: &mut Context<Self>) {
+        let Some(m) = self.marked.clone() else { return };
+        if !self.composing || self.composing_over_selection {
+            return;
+        }
+        let chars = self
+            .document
+            .read(cx)
+            .doc()
+            .line(m.line)
+            .ok()
+            .flatten()
+            .and_then(|l| l.text.get(m.range.clone()).map(|t| t.chars().count()))
+            .unwrap_or(0);
+        self.run_with(cx, |command_cx| {
+            if !command_cx.is_overwrite() {
+                return;
+            }
+            let end = Pos::new(m.line, m.range.end);
+            if let Ok(to) = command_cx.overwrite_end(end, chars) {
+                // the caret stays where the IME put it
+                command_cx.replace(end, to, "").ok();
+            }
+        });
+    }
+
     /// Ends the composition's undo block.
     fn end_composition(&mut self, cx: &mut Context<Self>) {
         if self.composing {
@@ -71,6 +100,7 @@ impl EditorView {
     /// an edit in another view): its text stays in the document, and its undo block closes, so
     /// that later edits are not undone with it.
     pub(super) fn interrupt_composition(&mut self, cx: &mut Context<Self>) {
+        self.finish_overwrite(cx);
         self.marked = None;
         self.end_composition(cx);
     }
@@ -143,6 +173,7 @@ impl EntityInputHandler for EditorView {
     }
 
     fn unmark_text(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        self.finish_overwrite(cx);
         self.marked = None;
         self.end_composition(cx);
         cx.notify();

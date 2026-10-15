@@ -494,3 +494,50 @@ fn another_view_of_the_document_repaints_when_the_mode_changes(cx: &mut TestAppC
     assert!(notified.get() > 0);
     view2.read_with(cx, |v, cx| assert!(v.status(cx).overwrite));
 }
+
+#[gpui::test]
+fn an_unmarked_composition_overwrites_like_a_commit(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abcde");
+    cx.simulate_keystrokes("right insert");
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_and_mark_text_in_range(None, "に", Some(3..3), window, cx);
+        v.unmark_text(window, cx);
+    });
+    assert_eq!(f.lines(cx), ["aにcde"]);
+    // the composition and its overwrite are one undo step
+    cx.simulate_keystrokes("secondary-z");
+    assert_eq!(f.lines(cx), ["abcde"]);
+}
+
+#[gpui::test]
+fn a_click_during_a_composition_overwrites_in_overwrite_mode(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abcde");
+    cx.simulate_keystrokes("right insert");
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_and_mark_text_in_range(None, "に", Some(3..3), window, cx);
+        v.interrupt_composition(cx);
+    });
+    assert_eq!(f.lines(cx), ["aにcde"]);
+}
+
+#[gpui::test]
+fn an_unmarked_composition_over_a_selection_overwrites_nothing_more(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abcde");
+    cx.simulate_keystrokes("right shift-right shift-right insert");
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_and_mark_text_in_range(None, "に", Some(3..3), window, cx);
+        v.unmark_text(window, cx);
+    });
+    assert_eq!(f.lines(cx), ["aにde"]);
+}
+
+#[gpui::test]
+fn an_unmarked_composition_inserts_in_insert_mode(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abcde");
+    cx.simulate_keystrokes("right");
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_and_mark_text_in_range(None, "に", Some(3..3), window, cx);
+        v.unmark_text(window, cx);
+    });
+    assert_eq!(f.lines(cx), ["aにbcde"]);
+}
