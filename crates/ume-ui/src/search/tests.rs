@@ -167,7 +167,7 @@ fn f3_without_a_pattern_opens_the_find_panel(cx: &mut TestAppContext) {
 fn the_find_panel_starts_with_the_word_at_the_caret_and_searches(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "foo bar\nbar");
     cx.simulate_keystrokes("right right right right right");
-    cx.simulate_keystrokes("secondary-f");
+    cx.simulate_keystrokes("ctrl-f");
     assert_eq!(f.panel_mode(cx), Some(PanelMode::Find));
     let pattern = f.view.read_with(cx, |v, _| v.search.pattern().to_owned());
     assert_eq!(pattern, "bar");
@@ -183,9 +183,9 @@ fn the_find_panel_starts_with_the_word_at_the_caret_and_searches(cx: &mut TestAp
 #[gpui::test]
 fn text_typed_in_the_panel_is_the_pattern(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "abc xyz");
-    cx.simulate_keystrokes("secondary-f");
+    cx.simulate_keystrokes("ctrl-f");
     // the caret is on "abc" so the panel starts with it; replace it
-    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_keystrokes("secondary-a"); // the input's own select all: Cmd+A on macOS
     cx.simulate_input("xyz");
     cx.simulate_keystrokes("enter");
     assert_eq!(f.selection(cx), Some((Pos::new(0, 4), Pos::new(0, 7))));
@@ -196,7 +196,7 @@ fn text_typed_in_the_panel_is_the_pattern(cx: &mut TestAppContext) {
 #[gpui::test]
 fn escape_closes_the_panel(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "abc");
-    cx.simulate_keystrokes("secondary-f");
+    cx.simulate_keystrokes("ctrl-f");
     assert!(f.panel_mode(cx).is_some());
     cx.simulate_keystrokes("escape");
     assert_eq!(f.panel_mode(cx), None);
@@ -208,7 +208,7 @@ fn escape_closes_the_panel(cx: &mut TestAppContext) {
 #[gpui::test]
 fn an_empty_pattern_in_the_panel_asks_for_one(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "");
-    cx.simulate_keystrokes("secondary-f enter");
+    cx.simulate_keystrokes("ctrl-f enter");
     let (_, detail) = cx.pending_prompt().expect("the box");
     assert_eq!(detail, "検索条件を指定してください。");
     assert!(f.panel_mode(cx).is_some());
@@ -217,7 +217,7 @@ fn an_empty_pattern_in_the_panel_asks_for_one(cx: &mut TestAppContext) {
 #[gpui::test]
 fn the_replace_panel_opens_on_ctrl_r(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "abc");
-    cx.simulate_keystrokes("secondary-r");
+    cx.simulate_keystrokes("ctrl-r");
     assert_eq!(f.panel_mode(cx), Some(PanelMode::Replace));
 }
 
@@ -239,9 +239,9 @@ fn replace_all_is_one_undo_step_and_reports_the_count(cx: &mut TestAppContext) {
     assert_eq!(detail, "4箇所を置換しました。");
     // the caret is after the last replacement
     assert_eq!(f.caret(cx), Pos::new(2, 2));
-    cx.simulate_keystrokes("secondary-z");
+    cx.simulate_keystrokes("ctrl-z");
     assert_eq!(f.text(cx), "ab ab\r\nab\r\nxab");
-    cx.simulate_keystrokes("secondary-y");
+    cx.simulate_keystrokes("ctrl-y");
     assert_eq!(f.text(cx), "Z Z\r\nZ\r\nxZ");
 }
 
@@ -268,7 +268,7 @@ fn replace_all_with_the_other_targets(cx: &mut TestAppContext) {
     });
     f.run(cx, "F_REPLACE_ALL");
     assert_eq!(f.text(cx), "<a1 <a2");
-    cx.simulate_keystrokes("secondary-z");
+    cx.simulate_keystrokes("ctrl-z");
     f.view.update(cx, |v, _| {
         v.search.replace.target = ReplaceTarget::DeleteLine
     });
@@ -284,7 +284,7 @@ fn replace_all_that_matches_nothing_changes_nothing(cx: &mut TestAppContext) {
     assert_eq!(f.text(cx), "abc");
     assert_eq!(f.notice(cx).as_deref(), Some("0箇所を置換しました。"));
     // and there is nothing to undo
-    cx.simulate_keystrokes("secondary-z");
+    cx.simulate_keystrokes("ctrl-z");
     assert_eq!(f.text(cx), "abc");
 }
 
@@ -315,9 +315,9 @@ fn each_replace_is_an_undo_step_of_its_own(cx: &mut TestAppContext) {
     f.run(cx, "F_REPLACE");
     f.run(cx, "F_REPLACE");
     assert_eq!(f.text(cx), "X X");
-    cx.simulate_keystrokes("secondary-z");
+    cx.simulate_keystrokes("ctrl-z");
     assert_eq!(f.text(cx), "X ab");
-    cx.simulate_keystrokes("secondary-z");
+    cx.simulate_keystrokes("ctrl-z");
     assert_eq!(f.text(cx), "ab ab");
 }
 
@@ -333,8 +333,8 @@ fn replace_without_a_match_says_not_found(cx: &mut TestAppContext) {
 #[gpui::test]
 fn the_replace_panel_replaces_all_from_its_inputs(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "aa");
-    cx.simulate_keystrokes("secondary-r");
-    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_keystrokes("ctrl-r");
+    cx.simulate_keystrokes("secondary-a"); // the input's own select all: Cmd+A on macOS
     cx.simulate_input("a");
     // the replacement input takes the focus next
     let panel = f.view.read_with(cx, |v, _| v.panel.clone().unwrap());
@@ -355,10 +355,10 @@ fn the_search_clearmark_command_toggles_the_marks(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("f3");
     assert!(f.view.read_with(cx, |v, _| v.search.mark()));
     // no selection: the marks go (Ctrl+F3)
-    cx.simulate_keystrokes("right secondary-f3");
+    cx.simulate_keystrokes("right ctrl-f3");
     assert!(!f.view.read_with(cx, |v, _| v.search.mark()));
     // with a selection: it becomes the pattern and is marked
-    cx.simulate_keystrokes("end shift-left shift-left shift-left secondary-f3");
+    cx.simulate_keystrokes("end shift-left shift-left shift-left ctrl-f3");
     f.view.read_with(cx, |v, _| {
         assert_eq!(v.search.pattern(), "foo");
         assert!(v.search.mark());
@@ -381,7 +381,7 @@ fn jump_to_the_search_start_without_one_says_so(cx: &mut TestAppContext) {
 #[gpui::test]
 fn the_jump_panel_goes_to_a_line(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "a\nb\nc\nd");
-    cx.simulate_keystrokes("secondary-j");
+    cx.simulate_keystrokes("ctrl-j");
     assert_eq!(f.panel_mode(cx), Some(PanelMode::Jump));
     cx.simulate_input("3");
     cx.simulate_keystrokes("enter");
@@ -398,7 +398,7 @@ fn the_jump_panel_goes_to_a_line(cx: &mut TestAppContext) {
 fn the_jump_panel_leaves_the_search_pattern_alone(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "foo\nbar");
     f.pattern(cx, "foo");
-    cx.simulate_keystrokes("down secondary-j");
+    cx.simulate_keystrokes("down ctrl-j");
     f.view
         .read_with(cx, |v, _| assert_eq!(v.search.pattern(), "foo"));
 }
@@ -422,7 +422,7 @@ fn replace_all_in_the_selection_with_line_delete_keeps_a_valid_selection(cx: &mu
 #[gpui::test]
 fn a_pattern_set_by_a_command_shows_in_the_open_panel(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "abc xyz");
-    cx.simulate_keystrokes("secondary-f escape");
+    cx.simulate_keystrokes("ctrl-f escape");
     f.run(cx, "F_SEARCH_DIALOG");
     f.view
         .update(cx, |v, _| v.cursor.select(Pos::new(0, 4), Pos::new(0, 7)));
