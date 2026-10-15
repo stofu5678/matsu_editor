@@ -224,6 +224,9 @@ fn saving_an_untitled_document_asks_for_a_name(cx: &mut TestAppContext) {
     let target = path.clone();
     cx.simulate_new_path_selection(move |_| Some(target));
     cx.run_until_parked();
+    // The options dialog of the Save As: Enter is OK.
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
     assert_eq!(read(&path), b"hello");
     assert_eq!(f.title(cx), "saved.txt - UME Editor");
     assert_eq!(f.format(cx), format!("UTF-8  {}", os_eol_name()));
@@ -663,6 +666,8 @@ fn win_close_and_save_close(cx: &mut TestAppContext) {
     let target = path.clone();
     cx.simulate_new_path_selection(move |_| Some(target));
     cx.run_until_parked();
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
     assert_eq!(read(&path), b"saved");
     assert!(!cx.windows().contains(&handle));
 }
@@ -878,4 +883,207 @@ fn a_window_that_is_reading_a_file_is_not_reused_for_another(cx: &mut TestAppCon
     f.open(cx, &other, None);
     assert_eq!(cx.windows().len(), 2, "B gets its own window");
     assert_eq!(f.lines(cx).len(), 0, "the busy window is untouched");
+}
+
+// ---- the options dialog of the Save As (save_as_dialog.rs) ----
+
+impl Fixture {
+    fn dialog_open(&self, cx: &mut VisualTestContext) -> bool {
+        self.view.read_with(cx, |v, _| v.save_as_dialog.is_some())
+    }
+
+    /// Runs a Save As and answers the path dialog, so that the options dialog is open.
+    fn save_as_to(&self, cx: &mut VisualTestContext, function: &str, args: &[Arg], to: &Path) {
+        self.run(cx, function, args);
+        let target = to.to_owned();
+        cx.simulate_new_path_selection(move |_| Some(target));
+        cx.run_until_parked();
+    }
+
+    fn keys(&self, cx: &mut VisualTestContext, keys: &str) {
+        cx.simulate_keystrokes(keys);
+        cx.run_until_parked();
+    }
+}
+
+/// A window with `bytes` read from `dir` as UTF-8.
+fn utf8_fixture<'a>(
+    cx: &'a mut TestAppContext,
+    dir: &TempDir,
+    bytes: &[u8],
+) -> (Fixture, &'a mut VisualTestContext) {
+    let path = dir.write("a.txt", bytes);
+    let (f, cx) = setup(cx);
+    f.open(cx, &path, Some(UTF8));
+    (f, cx)
+}
+
+const NIHONGO_UTF8: &[u8] = "日本語".as_bytes();
+
+#[gpui::test]
+fn the_options_open_after_the_path_and_ok_keeps_the_current_values(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let target = dir.path("b.txt");
+    let (f, cx) = utf8_fixture(cx, &dir, &[NIHONGO_UTF8, b"\r\nabc"].concat());
+    f.save_as_to(cx, "F_FILESAVEAS_DIALOG", &[], &target);
+    assert!(f.dialog_open(cx));
+    assert!(!target.exists(), "nothing is written before OK");
+    f.keys(cx, "enter");
+    assert!(!f.dialog_open(cx));
+    assert_eq!(read(&target), [NIHONGO_UTF8, b"\r\nabc"].concat());
+    assert_eq!(f.title(cx), "b.txt - UME Editor");
+}
+
+#[gpui::test]
+fn choosing_the_encoding_and_the_line_ending_with_the_keys(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let target = dir.path("b.txt");
+    let (f, cx) = utf8_fixture(cx, &dir, &[NIHONGO_UTF8, b"\r\nabc"].concat());
+    f.save_as_to(cx, "F_FILESAVEAS_DIALOG", &[], &target);
+    // The list has the focus, on UTF-8. Home goes to Shift_JIS, the first one.
+    f.keys(cx, "home");
+    // Tab skips the BOM box (disabled for SJIS) and reaches the line endings: Down is CR+LF,
+    // Down again is LF.
+    f.keys(cx, "tab down down");
+    f.keys(cx, "enter");
+    assert_eq!(read(&target), [SJIS_NIHONGO, b"\nabc"].concat());
+    assert_eq!(f.format(cx), "SJIS  LF");
+}
+
+#[gpui::test]
+fn the_bom_box_is_reached_with_tab_and_toggled_with_space(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let target = dir.path("b.txt");
+    let (f, cx) = utf8_fixture(cx, &dir, b"abc");
+    f.save_as_to(cx, "F_FILESAVEAS_DIALOG", &[], &target);
+    f.keys(cx, "tab space enter");
+    assert_eq!(read(&target), b"\xEF\xBB\xBFabc");
+    assert_eq!(f.format(cx), "UTF-8 BOM付  CRLF");
+}
+
+#[gpui::test]
+fn utf16_defaults_to_a_bom_and_a_line_ending_is_applied(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let target = dir.path("b.txt");
+    let (f, cx) = utf8_fixture(cx, &dir, b"a\r\nb");
+    f.save_as_to(cx, "F_FILESAVEAS_DIALOG", &[], &target);
+    // The order is SJIS, JIS, EUC, Latin1, UTF-16, UTF-16BE, UTF-8: two up from UTF-8.
+    f.keys(cx, "up up");
+    // Tab (BOM box), Tab (line endings), Right Right: LF.
+    f.keys(cx, "tab tab right right enter");
+    assert_eq!(read(&target), b"\xFF\xFEa\x00\n\x00b\x00");
+}
+
+#[gpui::test]
+fn space_on_the_ok_button_saves(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let target = dir.path("b.txt");
+    let (f, cx) = utf8_fixture(cx, &dir, b"abc");
+    f.save_as_to(cx, "F_FILESAVEAS_DIALOG", &[], &target);
+    // List, BOM box, line endings, OK.
+    f.keys(cx, "tab tab tab space");
+    assert!(!f.dialog_open(cx));
+    assert_eq!(read(&target), b"abc");
+}
+
+#[gpui::test]
+fn escape_and_the_cancel_button_stop_the_save(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let target = dir.path("b.txt");
+    let (f, cx) = utf8_fixture(cx, &dir, b"abc");
+    f.save_as_to(cx, "F_FILESAVEAS_DIALOG", &[], &target);
+    f.keys(cx, "escape");
+    assert!(!f.dialog_open(cx));
+    assert!(!target.exists());
+    assert_eq!(f.title(cx), "a.txt - UME Editor", "still the old file");
+
+    // Shift+Tab from the list wraps to Cancel; Enter on it cancels.
+    f.save_as_to(cx, "F_FILESAVEAS_DIALOG", &[], &target);
+    f.keys(cx, "shift-tab enter");
+    assert!(!f.dialog_open(cx));
+    assert!(!target.exists());
+
+    // The dialog can be opened again after cancelling.
+    f.save_as_to(cx, "F_FILESAVEAS_DIALOG", &[], &target);
+    assert!(f.dialog_open(cx));
+    f.keys(cx, "enter");
+    assert_eq!(read(&target), b"abc");
+}
+
+#[gpui::test]
+fn cancelling_the_path_dialog_never_shows_the_options(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let (f, cx) = utf8_fixture(cx, &dir, b"abc");
+    f.run(cx, "F_FILESAVEAS_DIALOG", &[]);
+    cx.simulate_new_path_selection(|_| None);
+    cx.run_until_parked();
+    assert!(!f.dialog_open(cx));
+}
+
+#[gpui::test]
+fn the_editor_takes_no_keys_while_the_options_are_open(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let target = dir.path("b.txt");
+    let (f, cx) = utf8_fixture(cx, &dir, b"abc");
+    f.save_as_to(cx, "F_FILESAVEAS_DIALOG", &[], &target);
+    cx.simulate_input("zzz");
+    assert_eq!(f.lines(cx), ["abc"]);
+    f.keys(cx, "escape");
+    cx.simulate_input("x");
+    assert_eq!(f.lines(cx), ["xabc"], "the view has the focus again");
+}
+
+#[gpui::test]
+fn the_existing_questions_come_after_the_options(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let target = dir.path("b.txt");
+    let (f, cx) = utf8_fixture(cx, &dir, "日本語😀\r\nabc\nx".as_bytes());
+    f.save_as_to(cx, "F_FILESAVEAS_DIALOG", &[], &target);
+    f.keys(cx, "home enter");
+    // The line endings are mixed, and Shift_JIS cannot write the emoji.
+    let (message, _) = cx.pending_prompt().unwrap();
+    assert!(message.contains("改行コードが混在"), "{message}");
+    answer(cx, KEEP_MIXED);
+    let (message, _) = cx.pending_prompt().unwrap();
+    assert!(message.contains("SJIS"), "{message}");
+    answer(cx, STOP);
+    assert!(!target.exists());
+}
+
+#[gpui::test]
+fn a_macro_with_arguments_skips_the_options(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let target = dir.path("b.txt");
+    let (f, cx) = utf8_fixture(cx, &dir, b"abc");
+    f.save_as_to(
+        cx,
+        "F_FILESAVEAS_DIALOG",
+        &[Arg::Text(String::new()), Arg::Int(SJIS)],
+        &target,
+    );
+    assert!(!f.dialog_open(cx));
+    assert_eq!(read(&target), b"abc");
+    assert_eq!(f.format(cx), "SJIS  CRLF");
+
+    // The Save As that takes a path never shows it either.
+    let target2 = dir.path("c.txt");
+    f.run(
+        cx,
+        "F_FILESAVEAS",
+        &[Arg::Text(target2.display().to_string())],
+    );
+    assert!(!f.dialog_open(cx));
+    assert!(target2.exists());
+}
+
+#[gpui::test]
+fn saving_an_untitled_document_shows_the_options_too(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let target = dir.path("n.txt");
+    let (f, cx) = setup(cx);
+    cx.simulate_input("hi");
+    f.save_as_to(cx, "F_FILESAVE", &[], &target);
+    assert!(f.dialog_open(cx));
+    f.keys(cx, "up up enter");
+    assert_eq!(read(&target), b"\xFF\xFEh\x00i\x00");
 }

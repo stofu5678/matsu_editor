@@ -4,6 +4,8 @@
 //!
 //! 1. Find the path: the file's own, an explicit one from a macro, or the save dialog (always for
 //!    a document without a file).
+//!    A path from the save dialog is followed by the options dialog (encoding, BOM, line ending),
+//!    unless a macro passed the encoding or the line ending (`save_as_dialog`).
 //! 2. A plain save of an unmodified document writes nothing (`DoSaveFlow`, when
 //!    `m_bEnableUnmodifiedOverwrite` is off, which is Sakura's default).
 //! 3. If the line endings are mixed and the save does not convert them, ask whether to unify them
@@ -22,6 +24,7 @@ use ume_core::file::{SaveOptions, no_progress};
 use super::ask::{
     Answer, ask, save_error_message, tell, unify_line_endings_message, unmappable_message,
 };
+use super::save_as_dialog::ask_options;
 use crate::view::EditorView;
 
 /// What to save and how. The default is a plain save (`F_FILESAVE`).
@@ -111,6 +114,7 @@ pub(crate) async fn save(
         && !request.dialog
         && request.encoding.is_none()
         && request.eol.is_none();
+    let mut from_dialog = false;
     let path = if let Some(path) = request.path.clone() {
         path
     } else if request.dialog || current.is_none() {
@@ -118,7 +122,10 @@ pub(crate) async fn save(
             return SaveOutcome::Cancelled;
         }
         match choose_path(cx, current.as_deref()).await {
-            Some(path) => path,
+            Some(path) => {
+                from_dialog = true;
+                path
+            }
             None => return SaveOutcome::Cancelled,
         }
     } else {
@@ -139,7 +146,7 @@ pub(crate) async fn save(
     }
 
     // The options: the document's own, then what the request changes.
-    let Ok(mut options) = view.read_with(cx, |view, app| {
+    let Ok((mut options, current_format)) = view.read_with(cx, |view, app| {
         let mut options = SaveOptions::keep(view.document().read(app).file());
         if let Some(encoding) = request.encoding.filter(|e| *e != options.encoding) {
             // The BOM follows the default of the new encoding (`CDocFileOperation::FileSaveAs`).
@@ -149,10 +156,22 @@ pub(crate) async fn save(
         if request.eol.is_some() {
             options.eol = request.eol;
         }
-        options
+        let file = view.document().read(app).file();
+        (options, (file.encoding, file.bom))
     }) else {
         return SaveOutcome::Cancelled;
     };
+
+    // The options Sakura's save dialog has next to the name. Not asked when a macro gave the
+    // encoding or the line ending.
+    if from_dialog && request.encoding.is_none() && request.eol.is_none() {
+        let Some(choice) = ask_options(view, cx, current_format, options.eol).await else {
+            return SaveOutcome::Cancelled;
+        };
+        options.encoding = choice.encoding;
+        options.bom = choice.bom;
+        options.eol = choice.eol;
+    }
 
     // 3. Mixed line endings.
     if options.eol.is_none() {
