@@ -15,6 +15,7 @@
 //! command file only says *which* of them to call (see `crate::commands`).
 
 mod motion;
+mod word;
 
 use std::path::Path;
 
