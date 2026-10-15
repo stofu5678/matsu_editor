@@ -126,7 +126,10 @@ pub(crate) async fn save(
     };
 
     // 2. Nothing to write.
-    if plain && current.is_some() && !modified {
+    // A document that was named but never written (a missing file that was opened) is saved
+    // even when it is empty, so that the file exists afterwards.
+    let on_disk = current.as_deref().is_some_and(std::path::Path::is_file);
+    if plain && on_disk && !modified {
         view.update(cx, |view, cx| {
             view.notice = Some("変更がないので保存しなかった".to_owned());
             cx.notify();

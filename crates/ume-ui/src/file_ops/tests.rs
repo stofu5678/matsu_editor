@@ -177,6 +177,39 @@ fn a_missing_file_opens_as_a_new_file_with_that_name(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn an_empty_named_file_is_created_by_save_even_when_unmodified(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.path("empty.txt");
+    let (f, cx) = setup(cx);
+    f.open(cx, &path, None);
+    assert!(!f.modified(cx));
+    f.run(cx, "F_FILESAVE", &[]);
+    assert!(path.is_file());
+    assert_eq!(read(&path), b"");
+}
+
+#[gpui::test]
+fn a_file_that_is_still_loading_is_not_opened_twice(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", b"abc");
+    cx.update(gpui_component::init);
+    let request = LoadRequest {
+        path: path.clone(),
+        encoding: None,
+    };
+    let handle = cx
+        .update(|cx| open_editor_window(cx, SharedDocument::empty(), Some(request)))
+        .unwrap();
+    // The read has not run yet: the document has no path.
+    let found = cx.update(|cx| super::windows::find_open(cx, &path).map(|(h, _)| h));
+    assert_eq!(found, Some(handle));
+    let cx = &mut VisualTestContext::from_window(handle, cx);
+    cx.run_until_parked();
+    let found = cx.update(|_, cx| super::windows::find_open(cx, &path).map(|(h, _)| h));
+    assert_eq!(found, Some(handle), "and after the read, by its path");
+}
+
+#[gpui::test]
 fn saving_an_untitled_document_asks_for_a_name(cx: &mut TestAppContext) {
     let dir = TempDir::new();
     let path = dir.path("saved.txt");

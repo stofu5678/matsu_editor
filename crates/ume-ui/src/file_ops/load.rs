@@ -92,11 +92,28 @@ pub(crate) async fn load_here(
     encoding: Option<Encoding>,
     restore: Option<Pos>,
 ) -> bool {
+    // The version of the document when the read starts. The window stays usable while a big file
+    // is read; if the document changed meanwhile (typing, or another load), the result is
+    // dropped instead of replacing what the user did.
+    let started = view
+        .read_with(cx, |view, app| view.document().read(app).version())
+        .ok();
     match read_file(view, cx, path, encoding).await {
         Ok(file) => {
             let shared = SharedDocument::from_text_file(file);
-            view.update(cx, |view, cx| view.load_document(shared, restore, cx))
-                .is_ok()
+            let replaced = view.update(cx, |view, cx| {
+                if Some(view.document().read(cx).version()) != started {
+                    view.notice = Some(format!(
+                        "読み込み中に文書が変更されたので、{} は開かなかった",
+                        path.display()
+                    ));
+                    cx.notify();
+                    return false;
+                }
+                view.load_document(shared, restore, cx);
+                true
+            });
+            replaced.unwrap_or(false)
         }
         Err(error) => {
             view.update(cx, |view, cx| {

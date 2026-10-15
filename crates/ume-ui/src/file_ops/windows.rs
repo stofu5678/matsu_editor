@@ -24,7 +24,12 @@ use super::close;
 
 /// The editor windows of the application, for the flows that look at more than one.
 #[derive(Default)]
-struct EditorWindows(Vec<(AnyWindowHandle, WeakEntity<EditorView>)>);
+struct EditorWindows {
+    windows: Vec<(AnyWindowHandle, WeakEntity<EditorView>)>,
+    /// Files that windows are still reading. Their documents have no path yet, but opening the
+    /// same file again must not make a second editable copy.
+    pending: Vec<(AnyWindowHandle, PathBuf)>,
+}
 
 impl Global for EditorWindows {}
 
@@ -68,6 +73,9 @@ pub(crate) fn open_editor_window(
             editor.update(cx, |view, cx| view.apply_user_settings(user, cx));
         }
         if let Some(load) = load {
+            cx.default_global::<EditorWindows>()
+                .pending
+                .push((window.window_handle(), load.path.clone()));
             editor.update(cx, |view, cx| {
                 view.load_path_here(load.path, load.encoding, window, cx);
             });
@@ -80,7 +88,7 @@ pub(crate) fn open_editor_window(
 /// Registers the window, and asks about unsaved changes when the user closes it.
 fn install(window: &mut Window, cx: &mut App, editor: &Entity<EditorView>) {
     cx.default_global::<EditorWindows>()
-        .0
+        .windows
         .push((window.window_handle(), editor.downgrade()));
     let view = editor.downgrade();
     let asking = Rc::new(Cell::new(false));
@@ -110,9 +118,10 @@ fn install(window: &mut Window, cx: &mut App, editor: &Entity<EditorView>) {
 pub(crate) fn editors(cx: &mut App) -> Vec<(AnyWindowHandle, Entity<EditorView>)> {
     let open = cx.windows();
     let list = cx.default_global::<EditorWindows>();
-    list.0
+    list.windows
         .retain(|(handle, view)| open.contains(handle) && view.upgrade().is_some());
-    list.0
+    list.pending.retain(|(handle, _)| open.contains(handle));
+    list.windows
         .iter()
         .filter_map(|(handle, view)| Some((*handle, view.upgrade()?)))
         .collect()
@@ -123,12 +132,23 @@ pub(crate) fn find_open(
     cx: &mut App,
     path: &Path,
 ) -> Option<(AnyWindowHandle, Entity<EditorView>)> {
-    editors(cx).into_iter().find(|(_, view)| {
+    let found = editors(cx).into_iter().find(|(_, view)| {
         view.read(cx)
             .document()
             .read(cx)
             .path()
             .is_some_and(|open| same_file(open, path))
+    });
+    found.or_else(|| {
+        let pending = cx
+            .default_global::<EditorWindows>()
+            .pending
+            .iter()
+            .find(|(_, open)| same_file(open, path))
+            .map(|(handle, _)| *handle)?;
+        editors(cx)
+            .into_iter()
+            .find(|(handle, _)| *handle == pending)
     })
 }
 
@@ -145,4 +165,11 @@ pub(crate) fn activate(cx: &mut App, handle: AnyWindowHandle) {
     handle
         .update(cx, |_, window, _| window.activate_window())
         .ok();
+}
+
+/// The window has finished reading its file (or failed): the file is no longer pending.
+pub(crate) fn finish_pending(cx: &mut App, handle: AnyWindowHandle) {
+    cx.default_global::<EditorWindows>()
+        .pending
+        .retain(|(h, _)| *h != handle);
 }
