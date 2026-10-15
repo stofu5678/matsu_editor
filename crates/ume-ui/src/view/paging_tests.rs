@@ -315,3 +315,23 @@ fn a_diagonal_trackpad_move_scrolls_both_ways(cx: &mut TestAppContext) {
         (20.0, 30.0)
     );
 }
+
+#[gpui::test]
+fn the_two_axes_of_the_wheel_keep_their_own_leftovers(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx);
+    view.update(cx, |v, _| v.widest_cols = 500);
+    // 0.6 notch down and 0.6 notch right: 1.8 rows (one row, 0.2 notch left) and 1.8 columns
+    // for each axis, the same on both; nothing leaks from one axis to the other.
+    let event = ScrollDelta::Lines(point(-0.6 * NOTCH, -0.6 * NOTCH));
+    wheel(&view, cx, event, Modifiers::default());
+    let cell = view.read_with(cx, |v, _| v.metrics().cell_width);
+    assert_eq!(top(&view, cx), 1);
+    assert_eq!(view.read_with(cx, |v, _| v.scroll_x), cell);
+    // Opposite signs: the horizontal leftover survives a vertical move the other way (0.27 + 0.6
+    // notch is two more columns).
+    view.update(cx, |v, _| v.widest_cols = 500); // the paint measured the short text again
+    let event = ScrollDelta::Lines(point(-0.6 * NOTCH, 0.6 * NOTCH));
+    wheel(&view, cx, event, Modifiers::default());
+    assert_eq!(top(&view, cx), 0);
+    assert_eq!(view.read_with(cx, |v, _| v.scroll_x), 3.0 * cell);
+}

@@ -207,7 +207,7 @@ impl EditorView {
         }
         if !(F_WHEEL_FIRST..=F_WHEEL_LAST).contains(&code) {
             // `bExecCmd`: one run of the function per notch.
-            let count = self.take_whole(notches, 1.0, 1.0);
+            let count = self.take_whole(vertical, notches, 1.0, 1.0);
             for _ in 0..count {
                 self.run_function(code, &[], window, cx);
             }
@@ -244,7 +244,7 @@ impl EditorView {
                 ((self.metrics.view_width / self.metrics.cell_width).floor() - 1.0).max(1.0)
             }
         };
-        let count = self.take_whole(notches, per_notch, sign as f32) as isize;
+        let count = self.take_whole(vertical, notches, per_notch, sign as f32) as isize;
         if count == 0 {
             return;
         }
@@ -260,13 +260,15 @@ impl EditorView {
     /// Adds `notches` of the wheel to what is left over from before and takes the whole rows
     /// (`per_notch` of them in a notch): Sakura's `m_nWheelDelta`, which keeps what does not make
     /// a row. A change of direction (`sign`) drops what was left.
-    fn take_whole(&mut self, notches: f32, per_notch: f32, sign: f32) -> usize {
-        if self.wheel_remainder * sign < 0.0 {
-            self.wheel_remainder = 0.0;
+    fn take_whole(&mut self, vertical: bool, notches: f32, per_notch: f32, sign: f32) -> usize {
+        // Each axis keeps its own leftover: a diagonal move must not feed one into the other.
+        let left = &mut self.wheel_remainder[usize::from(!vertical)];
+        if *left * sign < 0.0 {
+            *left = 0.0;
         }
-        let total = self.wheel_remainder.abs() + notches;
+        let total = left.abs() + notches;
         let whole = (total * per_notch).floor();
-        self.wheel_remainder = (total - whole / per_notch) * sign;
+        *left = (total - whole / per_notch) * sign;
         whole as usize
     }
 }

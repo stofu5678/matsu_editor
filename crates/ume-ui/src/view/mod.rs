@@ -122,8 +122,9 @@ pub struct EditorView {
     /// The top row may be past the end of the scroll range (Sakura's `MoveViewTopLine`, see
     /// `paging.rs`); any other scrolling clears this.
     pub(crate) scroll_past_end: bool,
-    /// The part of a wheel notch that has not made a whole row yet (`paging.rs`).
-    pub(crate) wheel_remainder: f32,
+    /// The part of a wheel notch that has not made a whole row yet, vertical and horizontal
+    /// (`paging.rs`).
+    pub(crate) wheel_remainder: [f32; 2],
     pub(crate) metrics: Metrics,
     pub(crate) paint: Option<PaintInfo>,
     /// The widest end column among the rows of the last paint, for the horizontal scroll range.
@@ -159,7 +160,7 @@ impl EditorView {
             scroll_x: 0.0,
             scroll_y: 0.0,
             scroll_past_end: false,
-            wheel_remainder: 0.0,
+            wheel_remainder: [0.0; 2],
             metrics: Metrics::default(),
             paint: None,
             widest_cols: 0,
