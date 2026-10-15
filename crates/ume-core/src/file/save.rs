@@ -15,9 +15,11 @@
 //!
 //! # What this does not do
 //!
-//! * The owner and group of the old file, its extended attributes, ACLs, alternate data streams
-//!   and hard links are not kept: the new file replaces the old one (a hard link to the old file
-//!   keeps the old content). A symbolic link is followed, so the link stays and its target is replaced.
+//! * By default only the permissions of the old file are kept. The owner and group can be kept
+//!   with [`Preserve::owner_and_group`] (Unix); the other things in [`Preserve`]'s list of future
+//!   choices (extended attributes, ACLs, alternate data streams, hard links) are not kept: the new
+//!   file replaces the old one (a hard link to the old file keeps the old content). A symbolic
+//!   link is followed, so the link stays and its target is replaced.
 //! * It does not lock the file or detect that another program changed it after it was opened.
 //! * It does not make a backup (Sakura's backup options are another feature).
 //! * The check and the replace are not atomic with each other: a file that becomes read-only
@@ -50,6 +52,66 @@ use crate::encoding::{Encoding, Eol};
 /// How many unmappable characters a report lists (the total is always counted).
 pub const MAX_REPORTED: usize = 100;
 
+/// What a save keeps of the file it replaces.
+///
+/// A save writes a temporary file and renames it over the target (ADR-0005), so the file that ends
+/// up on disk is a new file. Everything the old file had that is not copied is lost. The
+/// permissions (Unix mode, Windows read-only flag) are always copied. Sakura writes in place and so
+/// keeps everything; the choices below say what we can add, one by one, and what each costs. Adding
+/// one means a new field here, one function that applies it and one call in `write_file`.
+///
+/// `Preserve::default()` is the default of [`SaveOptions`]: the permissions only. The struct is
+/// `non_exhaustive`: start from `Preserve::default()` and use the `with_*` methods.
+///
+/// ```
+/// use ume_core::file::Preserve;
+/// assert!(!Preserve::default().owner_and_group);
+/// assert!(Preserve::default().with_owner_and_group(true).owner_and_group);
+/// ```
+///
+/// # Implemented
+///
+/// * `owner_and_group` (Unix): `chown` the new file to the owner and group of the old one. Only
+///   root can give a file to another owner, and a user can only choose a group they belong to, so
+///   this is best effort: what the OS refuses is skipped, and the save still succeeds.
+///   It does nothing on Windows.
+///
+/// # Future choices
+///
+/// * Extended attributes (Linux `xattr`, macOS; includes Finder tags and quarantine flags):
+///   needs `listxattr`/`setxattr`, not in the standard library, so a dependency or FFI. Not
+///   copying them loses tags and, on Linux, SELinux labels and file capabilities.
+/// * ACLs (POSIX ACLs, macOS ACLs, Windows security descriptors): needs OS calls beyond the standard
+///   library. On Windows the new file gets the ACL inherited from the folder, which is usually
+///   what is wanted, so copying is only needed for files with a hand-made ACL.
+/// * Alternate data streams (NTFS): they hold, for example, the "downloaded from the internet"
+///   mark. Copying needs `FindFirstStreamW` and a copy per stream; the cost grows with their size.
+/// * Writing in place (Sakura's way): keeps the inode, hard links, owner, xattrs, ACLs and streams
+///   at once, but a crash or a full disk during the write leaves a half-written file. It would be a
+///   different save strategy rather than another flag here, and is the one choice that gives up
+///   the safety that ADR-0005 chose.
+///
+/// # Settings
+///
+/// A `ume.ini` key comes with the settings work, in a UME-only section (ADR-0010) so that Sakura
+/// does not see it: `[UME] SavePreserveOwnerGroup=0|1`, and one more key per choice, named
+/// `SavePreserve<Choice>`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Preserve {
+    /// Give the new file the owner and group of the old one (Unix only; best effort).
+    pub owner_and_group: bool,
+}
+
+impl Preserve {
+    /// Sets [`Preserve::owner_and_group`].
+    #[must_use]
+    pub fn with_owner_and_group(mut self, on: bool) -> Self {
+        self.owner_and_group = on;
+        self
+    }
+}
+
 /// How to save.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SaveOptions {
@@ -62,6 +124,8 @@ pub struct SaveOptions {
     pub eol: Option<Eol>,
     /// Save even if characters cannot be written in `encoding`: they become `?` (Sakura's "yes").
     pub allow_unmappable: bool,
+    /// What to keep of the file that is replaced, besides its permissions.
+    pub preserve: Preserve,
 }
 
 impl SaveOptions {
@@ -73,6 +137,7 @@ impl SaveOptions {
             bom: file.bom,
             eol: file.eol_on_save,
             allow_unmappable: false,
+            preserve: Preserve::default(),
         }
     }
 
@@ -84,6 +149,7 @@ impl SaveOptions {
             bom: encoding.bom_default_on(),
             eol: None,
             allow_unmappable: false,
+            preserve: Preserve::default(),
         }
     }
 }
@@ -662,6 +728,10 @@ fn write_file(
     file.sync_all()?;
     drop(file);
     if let Some(meta) = &existing {
+        // Before the permissions: `chown` may clear the setuid and setgid bits.
+        if options.preserve.owner_and_group {
+            copy_owner_and_group(&temp.path, meta);
+        }
         fs::set_permissions(&temp.path, meta.permissions())?;
     }
     fs::rename(&temp.path, &real)?;
@@ -672,6 +742,21 @@ fn write_file(
         substituted,
     })
 }
+
+/// Gives `new` the owner and group of the old file. What the OS refuses is skipped: only root may
+/// change the owner, and a user may only pick a group they are in. If both cannot be set together,
+/// the group alone is tried, so a plain user still keeps the group.
+#[cfg(unix)]
+fn copy_owner_and_group(new: &Path, old: &fs::Metadata) {
+    use std::os::unix::fs::{MetadataExt, chown};
+    let (uid, gid) = (old.uid(), old.gid());
+    if chown(new, Some(uid), Some(gid)).is_err() {
+        let _ = chown(new, None, Some(gid));
+    }
+}
+
+#[cfg(not(unix))]
+fn copy_owner_and_group(_new: &Path, _old: &fs::Metadata) {}
 
 /// Asks the OS to record the rename. Best effort: the content is already safe, and not every OS
 /// lets a directory be opened.
