@@ -32,8 +32,9 @@ fn int_arg(args: &[Arg], i: usize) -> Result<Option<i64>, CommandError> {
 }
 
 /// The encoding in argument `i`: Sakura's `ECodeType` number (0 SJIS, 1 JIS, 2 EUC, 3 UTF-16,
-/// 4 UTF-8, 5 UTF-7, 6 UTF-16BE, 7 CESU-8, 8 Latin1). Missing, 99 (`CODE_AUTODETECT`) and
-/// the numbers we do not have mean "keep the current one" for saving and "detect" for opening.
+/// 4 UTF-8, 5 UTF-7, 6 UTF-16BE, 7 CESU-8, 8 Latin1) or a Windows code page number that
+/// `Encoding::from_sakura_code` knows (936 for GBK and so on). Missing and 99 (`CODE_AUTODETECT`)
+/// mean "keep the current one" for saving and "detect" for opening.
 pub(crate) fn encoding_arg(args: &[Arg], i: usize) -> Result<Option<Encoding>, CommandError> {
     let Some(code) = int_arg(args, i)? else {
         return Ok(None);
@@ -80,6 +81,11 @@ mod tests {
             encoding_arg(&[Arg::Int(0)], 0).unwrap(),
             Some(Encoding::ShiftJis)
         );
+        assert_eq!(
+            encoding_arg(&[Arg::Int(936)], 0).unwrap(),
+            Encoding::from_sakura_code(936)
+        );
+        assert!(encoding_arg(&[Arg::Int(936)], 0).unwrap().is_some());
         assert_eq!(encoding_arg(&[Arg::Int(99)], 0).unwrap(), None);
         assert_eq!(encoding_arg(&[], 0).unwrap(), None);
         assert!(encoding_arg(&[Arg::Int(42)], 0).is_err());
