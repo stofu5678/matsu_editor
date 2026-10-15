@@ -60,7 +60,7 @@ impl EditorView {
         let selected = self
             .cursor
             .selection()
-            .and_then(|(a, b)| doc.text_between(a, b).ok());
+            .and_then(|(a, b)| first_line_of_selection(doc, a, b));
         let line = doc
             .line(caret.line)
             .ok()
@@ -325,7 +325,7 @@ impl EditorView {
     /// The first line of the selection, if there is a selection.
     fn search_seed_selection(&self, cx: &gpui::App) -> Option<String> {
         let (a, b) = self.cursor.selection()?;
-        let text = self.document.read(cx).doc().text_between(a, b).ok()?;
+        let text = first_line_of_selection(self.document.read(cx).doc(), a, b)?;
         seed_text(Some(&text), "", 0)
     }
 
@@ -354,6 +354,19 @@ impl EditorView {
         self.run_with(cx, |c| c.move_caret(Pos::new(line, 0), false))
             .ok();
     }
+}
+
+/// The most that a pattern taken from the selection can be: a selection of a whole large document
+/// must not be read to use its first line.
+const MAX_SEED_BYTES: usize = 8 * 1024;
+
+/// The text of the selection `a..b` up to the end of its first line (and at most
+/// [`MAX_SEED_BYTES`]), which is all that [`seed_text`] uses.
+fn first_line_of_selection(doc: &Document, a: Pos, b: Pos) -> Option<String> {
+    let line_end = Pos::new(a.line, doc.line_len(a.line).ok().flatten()?);
+    let capped = Pos::new(a.line, a.col.saturating_add(MAX_SEED_BYTES));
+    let end = b.min(line_end).min(capped);
+    doc.text_between(a, end).ok()
 }
 
 /// Makes `edits` in the document, in order, and returns where each one's replaced text ended
@@ -431,6 +444,23 @@ fn shift_start(p: Pos, edits: &[AppliedEdit], old_ends: &[Pos]) -> Pos {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_first_line_of_a_selection_is_read() {
+        let doc = Document::from_utf8(b"abc def\r\nxyz".to_vec()).unwrap();
+        let first = |a, b| first_line_of_selection(&doc, a, b);
+        assert_eq!(
+            first(Pos::new(0, 4), Pos::new(1, 2)).as_deref(),
+            Some("def")
+        );
+        assert_eq!(
+            first(Pos::new(0, 0), Pos::new(0, 3)).as_deref(),
+            Some("abc")
+        );
+        let long = Document::from_utf8("a".repeat(MAX_SEED_BYTES * 2).into_bytes()).unwrap();
+        let text = first_line_of_selection(&long, Pos::new(0, 0), Pos::new(0, MAX_SEED_BYTES * 2));
+        assert_eq!(text.map(|t| t.len()), Some(MAX_SEED_BYTES));
+    }
 
     #[test]
     fn end_after_follows_the_line_breaks_of_the_text() {

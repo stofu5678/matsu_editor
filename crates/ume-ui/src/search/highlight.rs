@@ -91,12 +91,13 @@ impl<'a> ColumnWalk<'a> {
 /// The non-empty matches of one line, as byte ranges. A line that cannot be read, is too long, or
 /// makes the matcher fail has none.
 fn matches_of_line(doc: &Document, line: usize, matcher: &dyn Matcher) -> Vec<Range> {
+    // the length first: a huge line must not be decoded on every paint
+    if !matches!(doc.line_len(line), Ok(Some(len)) if len <= MAX_HIGHLIGHT_LINE_BYTES) {
+        return Vec::new();
+    }
     let Ok(Some(text)) = doc.line(line).map(|l| l.map(|l| l.text)) else {
         return Vec::new();
     };
-    if text.len() > MAX_HIGHLIGHT_LINE_BYTES {
-        return Vec::new();
-    }
     matcher
         .find_all_from(&text, 0)
         .unwrap_or_default()
