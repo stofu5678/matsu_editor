@@ -256,3 +256,27 @@ fn a_vertical_wheel_bound_to_a_horizontal_function_scrolls_sideways(cx: &mut Tes
     });
     assert!(view.read_with(cx, |v, _| v.scroll_x) > 0.0);
 }
+
+#[gpui::test]
+fn a_cleared_wheel_binding_does_not_scroll(cx: &mut TestAppContext) {
+    use gpui::{Modifiers, ScrollDelta, ScrollWheelEvent, TouchPhase, point, px};
+    let (view, cx) = setup(cx, &"line\n".repeat(200));
+    let settings = user("[KeyBind]\r\nKeyBind[000]=0107,0,0,0,0,0,0,0,0,x\r\n");
+    view.update(cx, |v, cx| v.apply_user_settings(&settings, cx));
+    cx.simulate_event(ScrollWheelEvent {
+        position: point(px(100.), px(100.)),
+        delta: ScrollDelta::Lines(point(0., -1.)),
+        modifiers: Modifiers::default(),
+        touch_phase: TouchPhase::Moved,
+    });
+    // Wheel down is still bound (0108), wheel up (0107) is cleared.
+    let down = view.read_with(cx, |v, _| v.scroll_y());
+    assert!(down > 0.0);
+    cx.simulate_event(ScrollWheelEvent {
+        position: point(px(100.), px(100.)),
+        delta: ScrollDelta::Lines(point(0., 1.)),
+        modifiers: Modifiers::default(),
+        touch_phase: TouchPhase::Moved,
+    });
+    assert_eq!(view.read_with(cx, |v, _| v.scroll_y()), down);
+}

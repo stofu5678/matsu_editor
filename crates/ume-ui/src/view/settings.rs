@@ -301,7 +301,10 @@ impl EditorView {
                 self.run_function(code, &[], window, cx);
                 true
             }
-            _ => false,
+            // A chord the table leaves empty does nothing, as in Sakura (a user may have
+            // cleared it on purpose).
+            Resolved::Unbound => true,
+            Resolved::PassThrough => false,
         }
     }
 
