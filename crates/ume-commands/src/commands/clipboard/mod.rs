@@ -2,12 +2,12 @@
 
 pub mod copy;
 pub mod copy_crlf;
-pub mod copyfname;
-pub mod copylines;
-pub mod copylinesaspassage;
-pub mod copylineswithlinenumber;
-pub mod copypath;
-pub mod copytag;
+pub mod copy_file_name;
+pub mod copy_lines;
+pub mod copy_lines_as_passage;
+pub mod copy_lines_with_line_number;
+pub mod copy_path;
+pub mod copy_tag;
 pub mod cut;
 pub mod cut_line;
 pub mod line_cut_to_end;

@@ -158,44 +158,44 @@ fn copy_then_paste_round_trips_through_the_clipboard() {
 }
 
 #[test]
-fn copylines_widens_the_selection_to_whole_rows() {
+fn copy_lines_widens_the_selection_to_whole_rows() {
     let mut e = Editor::new("a[b\r\ncd\r\ne|f\r\ngh");
-    e.run("copylines").assert_marked("[ab\r\ncd\r\nef\r\n|gh");
+    e.run("copy_lines").assert_marked("[ab\r\ncd\r\nef\r\n|gh");
     assert_eq!(clip(&e), normal("ab\r\ncd\r\nef\r\n"));
 }
 
 #[test]
-fn copylines_does_not_take_the_row_where_the_selection_ends_at_its_start() {
+fn copy_lines_does_not_take_the_row_where_the_selection_ends_at_its_start() {
     let mut e = Editor::new("a[b\r\n|cd");
-    e.run("copylines").assert_marked("[ab\r\n|cd");
+    e.run("copy_lines").assert_marked("[ab\r\n|cd");
     assert_eq!(clip(&e), normal("ab\r\n"));
 }
 
 #[test]
-fn copylines_without_a_selection_does_nothing() {
+fn copy_lines_without_a_selection_does_nothing() {
     let mut e = Editor::new("ab|c");
-    e.run("copylines");
+    e.run("copy_lines");
     assert!(e.clipboard().is_none());
     assert!(!e.changes().beep);
 }
 
 #[test]
-fn copylinesaspassage_quotes_each_row_and_ends_the_last_one() {
+fn copy_lines_as_passage_quotes_each_row_and_ends_the_last_one() {
     let mut e = Editor::new("[ab\r\ncd|");
-    e.run("copylinesaspassage");
+    e.run("copy_lines_as_passage");
     // the last row has no line ending, so it gets the document's (CRLF)
     assert_eq!(clip(&e), normal("> ab\r\n> cd\r\n"));
 }
 
 #[test]
-fn copylineswithlinenumber_numbers_the_lines() {
+fn copy_lines_with_line_number_numbers_the_lines() {
     let mut e = Editor::new("[ab\ncd|");
-    e.run("copylineswithlinenumber");
+    e.run("copy_lines_with_line_number");
     // width: max(2, digits of the line count) + 2
     assert_eq!(clip(&e), normal("  1:ab\n  2:cd\n"));
     let text = vec!["x"; 100].join("\n");
     let mut e = Editor::new(&format!("[{text}|"));
-    e.run("copylineswithlinenumber");
+    e.run("copy_lines_with_line_number");
     let (copied, _) = clip(&e);
     assert!(copied.starts_with("   1:x\n"), "{copied:?}");
     assert!(copied.contains("\n  99:x\n"), "{copied:?}");
@@ -205,18 +205,18 @@ fn copylineswithlinenumber_numbers_the_lines() {
 #[test]
 fn file_name_path_and_tag() {
     let mut e = Editor::new("ab\n日本|語").with_path("/dir/sub/file.txt");
-    e.run("copyfname");
+    e.run("copy_file_name");
     assert_eq!(clip(&e), normal("file.txt"));
-    e.run("copypath");
+    e.run("copy_path");
     assert_eq!(clip(&e), normal("/dir/sub/file.txt"));
     // line 2, column 3 (two UTF-16 units before the caret, counted from 1)
-    e.run("copytag");
+    e.run("copy_tag");
     assert_eq!(clip(&e), normal("/dir/sub/file.txt (2,3): "));
 }
 
 #[test]
 fn file_commands_beep_without_a_file() {
-    for id in ["copyfname", "copypath", "copytag"] {
+    for id in ["copy_file_name", "copy_path", "copy_tag"] {
         let mut e = Editor::new("a|b");
         e.run(id);
         assert!(e.changes().beep, "{id}");

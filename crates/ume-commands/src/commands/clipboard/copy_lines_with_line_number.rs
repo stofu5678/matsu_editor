@@ -1,4 +1,4 @@
-//! `F_COPYLINESWITHLINENUMBER`. Sakura: `CViewCommander::Command_COPYLINESWITHLINENUMBER` in `sakura_core/cmd/CViewCommander_Clipboard.cpp`. Like `copylines`, with the
+//! `F_COPYLINESWITHLINENUMBER`. Sakura: `CViewCommander::Command_COPYLINESWITHLINENUMBER` in `sakura_core/cmd/CViewCommander_Clipboard.cpp`. Like `copy_lines`, with the
 //! line number (` 12:`) at the start of each row. Difference: Sakura numbers the rows of the
 //! layout; this numbers the lines of the document (they differ only in wrapped text).
 
@@ -10,7 +10,7 @@ use crate::register_command;
 pub struct CopyLinesWithLineNumber;
 
 impl Command for CopyLinesWithLineNumber {
-    const ID: &'static str = "copylineswithlinenumber";
+    const ID: &'static str = "copy_lines_with_line_number";
     const SAKURA: &'static str = "F_COPYLINESWITHLINENUMBER";
 
     fn run(&self, cx: &mut CommandContext<'_>, _args: &[Arg]) -> Result {

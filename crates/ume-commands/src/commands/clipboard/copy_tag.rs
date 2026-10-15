@@ -13,7 +13,7 @@ use crate::register_command;
 pub struct CopyTag;
 
 impl Command for CopyTag {
-    const ID: &'static str = "copytag";
+    const ID: &'static str = "copy_tag";
     const SAKURA: &'static str = "F_COPYTAG";
 
     fn run(&self, cx: &mut CommandContext<'_>, _args: &[Arg]) -> Result {

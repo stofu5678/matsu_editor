@@ -9,7 +9,7 @@ use crate::register_command;
 pub struct CopyLines;
 
 impl Command for CopyLines {
-    const ID: &'static str = "copylines";
+    const ID: &'static str = "copy_lines";
     const SAKURA: &'static str = "F_COPYLINES";
 
     fn run(&self, cx: &mut CommandContext<'_>, _args: &[Arg]) -> Result {

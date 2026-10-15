@@ -10,7 +10,7 @@ use crate::register_command;
 pub struct CopyPath;
 
 impl Command for CopyPath {
-    const ID: &'static str = "copypath";
+    const ID: &'static str = "copy_path";
     const SAKURA: &'static str = "F_COPYPATH";
 
     fn run(&self, cx: &mut CommandContext<'_>, _args: &[Arg]) -> Result {

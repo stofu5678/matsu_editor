@@ -7,10 +7,10 @@ use crate::context::CommandContext;
 use crate::register_command;
 
 #[derive(Default)]
-pub struct CopyFname;
+pub struct CopyFileName;
 
-impl Command for CopyFname {
-    const ID: &'static str = "copyfname";
+impl Command for CopyFileName {
+    const ID: &'static str = "copy_file_name";
     const SAKURA: &'static str = "F_COPYFNAME";
 
     fn run(&self, cx: &mut CommandContext<'_>, _args: &[Arg]) -> Result {
@@ -28,4 +28,4 @@ impl Command for CopyFname {
     }
 }
 
-register_command!(CopyFname);
+register_command!(CopyFileName);
