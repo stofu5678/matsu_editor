@@ -4,6 +4,7 @@
 //! must not depend on any UI crate (see `CLAUDE.md`).
 
 pub mod buffer;
+pub mod encoding;
 
 /// Returns the crate version, so that the workspace has something to build
 /// and test until the real modules land in Phase 1.
