@@ -36,11 +36,11 @@ pub fn rgb_of(color: ColorRef) -> Rgb {
 /// How the text is wrapped (`m_nTextWrapMethod`, `WRAP_NO_TEXT_WRAP` and so on).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WrapMethod {
-    /// 折り返さない
+    /// Do not wrap (折り返さない).
     None,
-    /// 指定桁で折り返す
+    /// Wrap at the column of the setting (指定桁で折り返す).
     SettingWidth,
-    /// 右端で折り返す
+    /// Wrap at the right edge of the window (右端で折り返す).
     WindowWidth,
 }
 
