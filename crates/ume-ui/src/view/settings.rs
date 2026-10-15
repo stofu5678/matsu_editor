@@ -154,6 +154,8 @@ impl EditorView {
             self.scroll_x = 0.0;
         }
         self.clamp_scroll();
+        // The caret has moved to another row; keep it in view.
+        self.ensure_caret_visible(cx);
         true
     }
 

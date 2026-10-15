@@ -174,3 +174,17 @@ fn ctrl_wheel_zooms_and_the_plain_wheel_scrolls(cx: &mut TestAppContext) {
     assert_eq!(size, after);
     assert!(now < scrolled);
 }
+
+#[gpui::test]
+fn a_wrap_change_keeps_the_caret_in_view(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, &"x".repeat(3000));
+    view.update(cx, |v, cx| {
+        v.set_metrics(metrics(800.0));
+        v.run_command("go_line_end", &[], cx);
+    });
+    run(&view, cx, 31143); // F_TMPWRAPWINDOW: the caret moves to row 37 or so
+    view.read_with(cx, |v, cx| {
+        let row = v.caret_row(cx).row as f32 * v.metrics().line_height;
+        assert!(row >= v.scroll_y() && row < v.scroll_y() + v.metrics().view_height);
+    });
+}
