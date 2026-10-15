@@ -86,6 +86,12 @@ fn format_picture(t: &LocalTime, picture: &str, kind: Kind) -> String {
     let mut i = 0;
     while i < chars.len() {
         let c = chars[i];
+        if c == '\'' && chars.get(i + 1) == Some(&'\'') {
+            // two quotes outside quoted text are one quote
+            out.push('\'');
+            i += 2;
+            continue;
+        }
         if c == '\'' {
             // quoted text up to the closing quote; two quotes in it are one quote
             i += 1;
@@ -246,6 +252,8 @@ pub(crate) mod tests {
         assert_eq!(format_date(&t, "yyyy'-'MM'-'dd"), "2026-10-15");
         // letters in quotes are text, and two quotes are one quote
         assert_eq!(format_date(&t, "'yyyy it''s' d"), "yyyy it's 15");
+        // two quotes outside quoted text are a quote too
+        assert_eq!(format_time(&t, "HH''mm"), "09'05");
         // the letters of the other kind and unknown letters are copied
         assert_eq!(format_date(&t, "h:m g"), "h:m g");
         assert_eq!(format_time(&t, "d/M H:mm"), "d/M 9:05");
