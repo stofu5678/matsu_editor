@@ -66,10 +66,12 @@ impl CommandContext<'_> {
     ///
     /// The [`Layout`](crate::layout::Layout) trait has no tab width, so it is derived: a tab at
     /// display column `c` that ends at column `e` means the width `w` with `(c / w + 1) * w == e`.
-    /// The largest width that fits all the tabs seen is taken (a lone tab at column 3 that ends
-    /// at 4 fits 1, 2 and 4, and the answer is 4). With no tab in the text around the selection,
-    /// Sakura's default 4 is used. Only the lines near the selection are searched, because a
-    /// document may be huge.
+    /// The widths that fit all the tabs seen are the candidates (a lone tab at column 7 that ends
+    /// at 8 fits 1, 2, 4 and 8). Sakura's default 4 is taken if it is a candidate, else the
+    /// largest. With no tab in the text around the selection, 4 is used too. So the answer is a
+    /// guess when the tabs do not settle it; a `Layout::tab_width` would make it exact (the
+    /// layout trait is not changed by this module). Only the lines near the selection are
+    /// searched, because a document may be huge.
     pub fn tab_width(&self, from: Pos, to: Pos) -> Result<usize> {
         let first = from.line.saturating_sub(TAB_SEARCH_LINES);
         let last = (to.line + TAB_SEARCH_LINES + 1).min(self.doc().line_count());
@@ -91,10 +93,15 @@ impl CommandContext<'_> {
                 }
             }
         }
-        Ok((1..=MAX_TAB_WIDTH)
-            .rev()
-            .find(|&w| !seen.is_empty() && seen.iter().all(|&(c, e)| (c / w + 1) * w == e))
-            .unwrap_or(DEFAULT_TAB_WIDTH))
+        let fits = |w: usize| seen.iter().all(|&(c, e)| (c / w + 1) * w == e);
+        Ok(if fits(DEFAULT_TAB_WIDTH) {
+            DEFAULT_TAB_WIDTH
+        } else {
+            (1..=MAX_TAB_WIDTH)
+                .rev()
+                .find(|&w| fits(w))
+                .unwrap_or(DEFAULT_TAB_WIDTH)
+        })
     }
 }
 
@@ -122,7 +129,9 @@ mod tests {
         assert_eq!(tab_width_of("\tx", 8), 8);
         assert_eq!(tab_width_of("\tx", 2), 2);
         assert_eq!(tab_width_of("ab\tx", 4), 4);
-        // a tab at column 3 that ends at 4 fits 1, 2 and 4; the largest is taken
+        // a tab at column 7 that ends at 8 fits 1, 2, 4 and 8; Sakura's 4 is taken
+        assert_eq!(tab_width_of("abcdefg\tz", 8), 4);
+        // a tab at column 3 that ends at 4 fits 1, 2 and 4
         assert_eq!(tab_width_of("abc\tx", 4), 4);
         // two tabs settle what one cannot: columns 3 -> 6 and 6 -> 9 mean 3
         assert_eq!(tab_width_of("abc\t\tx", 3), 3);

@@ -39,6 +39,14 @@ mod tests {
     }
 
     #[test]
+    fn the_tab_width_is_guessed_from_nearby_tabs_and_defaults_to_4() {
+        // the only tab (column 7 to 8) fits 4 and 8; 4 is taken
+        check("space_to_tab", "[    |x\nabcdefg\tz", "[\t|x\nabcdefg\tz");
+        // a tab from column 0 to 4 settles it
+        check("space_to_tab", "\ty\n[    |x", "\ty\n[\t|x");
+    }
+
+    #[test]
     fn counts_from_the_column_of_the_selection() {
         check("space_to_tab", "ab[  c|", "ab[\tc|");
     }
