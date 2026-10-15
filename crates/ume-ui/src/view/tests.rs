@@ -466,3 +466,14 @@ fn the_ime_inserts_in_insert_mode(cx: &mut TestAppContext) {
     });
     assert_eq!(f.lines(cx), ["a日本bcde"]);
 }
+
+#[gpui::test]
+fn a_composition_over_a_selection_overwrites_nothing_more(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abcde");
+    cx.simulate_keystrokes("right shift-right shift-right insert");
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_and_mark_text_in_range(None, "に", Some(3..3), window, cx);
+        v.replace_text_in_range(None, "日", window, cx);
+    });
+    assert_eq!(f.lines(cx), ["a日de"]);
+}

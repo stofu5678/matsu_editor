@@ -118,6 +118,8 @@ pub struct EditorView {
     pub(crate) marked: Option<Marked>,
     /// An undo block for the composition is open (it closes when the text is committed).
     pub(crate) composing: bool,
+    /// The composition replaced a selection when it started: its commit overwrites nothing more.
+    pub(crate) composing_over_selection: bool,
     pub(crate) drag: Drag,
     pub(crate) notice: Option<String>,
     /// The settings of the file and the temporary changes (`view/settings.rs`).
@@ -150,6 +152,7 @@ impl EditorView {
             widest_cols: 0,
             marked: None,
             composing: false,
+            composing_over_selection: false,
             drag: Drag::None,
             notice: None,
             prefs: ViewPrefs::new(Default::default()),

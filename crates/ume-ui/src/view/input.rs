@@ -156,6 +156,7 @@ impl EntityInputHandler for EditorView {
         cx: &mut Context<Self>,
     ) {
         let was_composing = self.composing;
+        let over_selection = was_composing && self.composing_over_selection;
         let mut chars = text.chars();
         if let (false, None, Some(c), None) =
             (was_composing, &range_utf16, chars.next(), chars.next())
@@ -173,8 +174,11 @@ impl EntityInputHandler for EditorView {
             }
             // Overwrite mode: the committed text replaces as many chars after it as it has, as
             // Sakura does char by char (`WM_IME_CHAR` runs `F_IME_CHAR` there, and
-            // `Command_IME_CHAR` calls `DelCharForOverwrite`). A selection is only replaced.
-            let to = if command_cx.is_overwrite() && (was_composing || from == to) {
+            // `Command_IME_CHAR` calls `DelCharForOverwrite` only when nothing is selected), so a
+            // composition that started over a selection overwrites nothing more.
+            let to = if command_cx.is_overwrite()
+                && ((was_composing && !over_selection) || from == to)
+            {
                 command_cx
                     .overwrite_end(to, text.chars().count())
                     .unwrap_or(to)
@@ -200,6 +204,9 @@ impl EntityInputHandler for EditorView {
         // Text being composed has no line break.
         let text = text.replace(['\r', '\n'], "");
         let opened = !self.composing;
+        if opened {
+            self.composing_over_selection = from != to;
+        }
         self.composing = true;
         let edit = self.run_with(cx, |command_cx| {
             if opened {
