@@ -70,7 +70,7 @@ fn user_key_bindings_replace_sakuras(cx: &mut TestAppContext) {
     let settings = user("[KeyBind]\r\nKeyBind[000]=0041,0,0,30210,0,0,0,0,0,A\r\n");
     view.update(cx, |v, cx| v.apply_user_settings(&settings, cx));
     cx.simulate_input("x");
-    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_keystrokes("ctrl-a");
     let text = view.read_with(cx, |v, cx| {
         v.document.read(cx).doc().line(0).unwrap().unwrap().text
     });
@@ -163,7 +163,7 @@ fn ctrl_wheel_zooms_and_the_plain_wheel_scrolls(cx: &mut TestAppContext) {
         touch_phase: TouchPhase::Moved,
     };
     let before = view.read_with(cx, |v, _| v.font_px());
-    cx.simulate_event(wheel(Modifiers::secondary_key()));
+    cx.simulate_event(wheel(Modifiers::control()));
     let (after, scroll) = view.read_with(cx, |v, _| (v.font_px(), v.scroll_y()));
     assert!(after > before, "wheel up with Ctrl is F_SETFONTSIZEUP");
     assert_eq!(scroll, 0.0);
