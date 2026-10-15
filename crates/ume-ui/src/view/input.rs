@@ -100,6 +100,9 @@ impl EditorView {
     /// an edit in another view): its text stays in the document, and its undo block closes, so
     /// that later edits are not undone with it.
     pub(crate) fn interrupt_composition(&mut self, cx: &mut Context<Self>) {
+        if self.composing {
+            self.record_composition(cx);
+        }
         self.finish_overwrite(cx);
         self.marked = None;
         self.end_composition(cx);
@@ -180,6 +183,7 @@ impl EntityInputHandler for EditorView {
     }
 
     fn unmark_text(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        self.record_composition(cx);
         self.finish_overwrite(cx);
         self.marked = None;
         self.end_composition(cx);

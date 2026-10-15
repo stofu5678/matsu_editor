@@ -704,3 +704,41 @@ fn a_script_that_prints_a_lot_does_not_block_the_window(cx: &mut TestAppContext)
     );
     assert!(output.lines().count() <= 5000);
 }
+
+#[gpui::test]
+fn a_composition_that_stays_in_the_document_is_recorded(cx: &mut TestAppContext) {
+    use gpui::EntityInputHandler;
+    let (f, cx) = setup(cx, "");
+    // ended by the IME without a commit
+    cx.simulate_keystrokes(REC);
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_and_mark_text_in_range(None, "に", None, window, cx);
+        v.unmark_text(window, cx);
+    });
+    // ended by a key (Left): the text is recorded before the key
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_and_mark_text_in_range(None, "ほ", None, window, cx);
+    });
+    cx.simulate_keystrokes("left");
+    cx.simulate_keystrokes(REC);
+    assert_eq!(f.lines(cx), ["にほ"]);
+    cx.simulate_keystrokes("secondary-end");
+    cx.simulate_keystrokes(EXEC);
+    assert_eq!(f.lines(cx), ["にほにほ"]);
+}
+
+#[gpui::test]
+fn line_breaks_in_committed_text_are_recorded(cx: &mut TestAppContext) {
+    use gpui::EntityInputHandler;
+    let (f, cx) = setup(cx, "");
+    cx.simulate_keystrokes(REC);
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_text_in_range(None, "a\r\nb", window, cx);
+    });
+    cx.simulate_keystrokes(REC);
+    let first = f.lines(cx);
+    assert_eq!(first.len(), 2, "{first:?}");
+    cx.simulate_keystrokes("secondary-end");
+    cx.simulate_keystrokes(EXEC);
+    assert_eq!(f.lines(cx), ["a", "ba", "b"]);
+}

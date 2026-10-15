@@ -203,8 +203,32 @@ impl EditorView {
         if !self.macros.recorder.is_recording() {
             return;
         }
-        for c in text.chars().filter(|c| !matches!(c, '\r' | '\n')) {
+        // A line break is the Enter key (`'\r'`), and CR LF is one break.
+        let text = text.replace("\r\n", "\n").replace('\n', "\r");
+        for c in text.chars() {
             self.record_code(F_WCHAR, &[Arg::Char(c)]);
+        }
+    }
+
+    /// An IME composition ends with its text kept in the document (the IME unmarks it, or a key
+    /// or a click interrupts it): record that text as typed. Call before `marked` is cleared.
+    pub(crate) fn record_composition(&mut self, cx: &gpui::App) {
+        if !self.macros.recorder.is_recording() {
+            return;
+        }
+        let Some(marked) = self.marked.clone() else {
+            return;
+        };
+        let text = self
+            .document
+            .read(cx)
+            .doc()
+            .line(marked.line)
+            .ok()
+            .flatten()
+            .and_then(|line| line.text.get(marked.range.clone()).map(str::to_owned));
+        if let Some(text) = text {
+            self.record_typed_text(&text);
         }
     }
 

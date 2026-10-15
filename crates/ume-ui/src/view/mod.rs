@@ -262,8 +262,8 @@ impl EditorView {
         args: &[Arg],
         cx: &mut Context<Self>,
     ) -> bool {
-        self.record_call(reg.sakura, args);
         self.interrupt_composition(cx);
+        self.record_call(reg.sakura, args);
         let result = self.run_with(cx, |command_cx| reg.run(command_cx, args));
         let ok = result.is_ok();
         self.notice = result
@@ -320,8 +320,8 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        self.record_call(reg.sakura, args);
         self.interrupt_composition(cx);
+        self.record_call(reg.sakura, args);
         // The command may leave a message of its own (a search that wrapped around), so only a
         // failure replaces it.
         self.notice = None;
