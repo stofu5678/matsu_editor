@@ -1,7 +1,7 @@
 # ADR-0008: コマンドとキー割り当て
 
 - 状態: 決定（キー割り当てのファイルの形式は [0010](0010-sakura-compatible-settings.md) で置き換え）
-- 日付: 2026-10-08（2026-10-11 に、macOS での読み替えを決めた）
+- 日付: 2026-10-08（2026-10-11 に macOS での読み替えを決め、2026-10-15 に決め直した）
 
 ## 決定
 
@@ -10,20 +10,26 @@
 - 既定のキー割り当ては、サクラエディタの表（`sakura_core/func/CKeyBind.cpp`。キーごとに修飾キーの組み合わせ 8 通り）から変換して作る
 - キー割り当ては、独自形式の設定ファイルで変更できる
 
-## macOS での読み替え
+## macOS でのキー
 
-2026-10-11 にユーザーが決めた。
+2026-10-15 にユーザーが決めた（案 A）。2026-10-11 の決定は、ユーザーの答え（Mac に JIS キーボードをつなぐと Windows キーが Cmd に割り当てられる、ALT キーが Option キーになる）を取り違えていた。ユーザーが言ったのは、キーの物理的な対応（Windows キー = Cmd、Alt = Option）であって、サクラの Ctrl を Cmd に読み替えることではなかった。
 
-- Ctrl を Cmd に読み替える（Ctrl+S → Cmd+S）
-- Alt を Option に読み替える（矩形選択の Alt+ドラッグ → Option+ドラッグ）
-- Ctrl のままの配列も、切り替えられる設定として用意する
+- Control は、サクラの Ctrl（Control+S で保存、など。Windows と同じ割り当て）。Emacs 風のキーは既定では持たない
+- Option は、サクラの Alt（矩形選択の Option+ドラッグなど）
+- Cmd は Windows キーの位置で、サクラは何も割り当てていない。Mac のほぼすべてのアプリにあるショートカットだけを、同じ意味のサクラの関数に割り当てる
+  - アプリとウィンドウ: Cmd+Q（編集の全終了）、Cmd+W（閉じる）、Cmd+,（共通設定）。Cmd+H、Cmd+Option+H、Cmd+M は OS とメニューに任せる
+  - 編集: Cmd+C・V・X・Z・A、Cmd+Shift+Z（やり直し）
+  - ファイル: Cmd+S・O・N・P
+  - 検索: Cmd+F、Cmd+G（次を検索）、Cmd+Shift+G（前を検索）
+  - テキストの移動: Cmd+←→（行頭・行末）、Cmd+↑↓（ファイルの先頭・末尾）、Shift を足すと選択、Cmd+Backspace（行頭まで削除）
+  - ほかの Cmd の組み合わせは、コマンドにしない
+- Option+Backspace・Option+Delete は、サクラが Alt+BkSp・Alt+Del を空けているので、Mac の単語単位の削除にする
+- 以前の読み替え（サクラの Ctrl を Cmd にする。Ctrl+S → Cmd+S）は、設定（`ctrl_as_cmd`）で選べる。既定ではオフ。オンのときは、Cmd が macOS の標準キーと重なるもの（Cmd+W、Cmd+←→ など）を Mac の意味にし、Control は Emacs 風のキーにする（それぞれ設定で切り替えられる）
 - Windows と Linux では、サクラの割り当てをそのまま使う
-
-理由: Windows 用の JIS キーボードを Mac につなぐと、macOS は Windows キーを Cmd、Alt キーを Option として扱う。読み替えれば、Mac のほかのアプリと同じく Cmd で操作でき、Alt の割り当ては Windows と同じ Alt キーで押せる。
 
 Phase 1 で決めること:
 
-- Cmd に読み替えると macOS の決まったキーと重なるもの（Cmd+W で閉じる、Cmd+←→ で行頭・行末など）の扱い。UI の試作では Mac の意味にした（[UI の試作の結果](../poc/ui-framework-result.md)）
-- サクラが多く使う F キーの扱い（Mac のキーボードでは fn が要る）
-- Control キーの扱い（Ctrl の別名にするか、macOS の Emacs 風の操作（Control+A で行頭など）に使うか）
-- Option を押しながら打つ文字（JIS キーボードの Option+¥ でのバックスラッシュなど）と、Alt の割り当てがぶつかるときの扱い
+- サクラが多く使う F キーの扱い（Mac のキーボードでは fn が要る）。決まっていない
+- Option を押しながら打つ文字（JIS キーボードの Option+¥ でのバックスラッシュなど）は、既定ではサクラの Alt の割り当てを優先する。文字入力を優先する設定（`option_text_input`）を用意した。Alt+英字・数字・`;` `:` とぶつかる場合の既定は、使ってみて見直す
+
+2026-10-11 の決定で挙がっていた、Cmd に読み替えたときの標準キーとのぶつかり、Control キーの扱いは、既定では起きない（`ctrl_as_cmd` をオンにしたときだけの話）。
