@@ -239,72 +239,8 @@ impl EditorView {
         cx.notify();
     }
 
-    /// Ctrl+wheel and the other wheel chords of the key map (Sakura's table has the wheel as a
-    /// key: `VKEX_WHEEL_UP`, `sakura_core/func/CKeyBind.cpp`). Runs the function of the chord
-    /// and returns true. Returns false for a chord without a function (the caller scrolls).
-    pub(crate) fn run_wheel_function(
-        &mut self,
-        event: &gpui::ScrollWheelEvent,
-        window: &mut gpui::Window,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        use ume_commands::keymap::{Chord, Key, Modifiers, MouseAction, Resolved};
-        // The functions that scroll; they are done here, in the direction the function names.
-        const F_WHEELUP: u16 = 30385;
-        const F_WHEELDOWN: u16 = 30386;
-        const F_WHEELLEFT: u16 = 30387;
-        const F_WHEELRIGHT: u16 = 30388;
-        let delta = event.delta.pixel_delta(gpui::px(self.metrics.line_height));
-        let (dx, dy) = (f32::from(delta.x), f32::from(delta.y));
-        // The vertical wheel decides; a horizontal-only event uses the horizontal wheel keys.
-        let action = if dy > 0.0 {
-            MouseAction::WheelUp
-        } else if dy < 0.0 {
-            MouseAction::WheelDown
-        } else if dx > 0.0 {
-            MouseAction::WheelLeft
-        } else if dx < 0.0 {
-            MouseAction::WheelRight
-        } else {
-            return false;
-        };
-        let m = event.modifiers;
-        let chord = Chord::new(
-            Key::Mouse(action),
-            Modifiers {
-                shift: m.shift,
-                ctrl: m.control,
-                alt: m.alt,
-                meta: m.platform,
-            },
-        );
-        match self.keymap.resolve(chord) {
-            // The function decides the direction, not the wheel: a user may bind wheel up to
-            // F_WHEELDOWN.
-            Resolved::Code(code @ (F_WHEELUP | F_WHEELDOWN | F_WHEELLEFT | F_WHEELRIGHT)) => {
-                // The amount of the event, from whichever axis it has; the function gives the
-                // direction.
-                let n = if dy != 0.0 { dy.abs() } else { dx.abs() };
-                let (dx, dy) = match code {
-                    F_WHEELUP => (if dy != 0.0 { dx } else { 0.0 }, n),
-                    F_WHEELDOWN => (if dy != 0.0 { dx } else { 0.0 }, -n),
-                    F_WHEELLEFT => (n, 0.0),
-                    _ => (-n, 0.0),
-                };
-                self.scroll_by(dx, dy);
-                cx.notify();
-                true
-            }
-            Resolved::Code(code) => {
-                self.run_function(code, &[], window, cx);
-                true
-            }
-            // A chord the table leaves empty does nothing, as in Sakura (a user may have
-            // cleared it on purpose).
-            Resolved::Unbound => true,
-            Resolved::PassThrough => false,
-        }
-    }
+    // The wheel chords of the key map (Ctrl+wheel = font size, remapped wheels) are run by
+    // `EditorView::handle_wheel` in `paging.rs`.
 
     /// While a large document is still being laid out after a wrap change, the caret's row moves
     /// as the lines before it get exact counts; keep it in view until the layout is complete.

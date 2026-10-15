@@ -102,7 +102,12 @@ impl Scrollbar {
         let thumb_height = (track * (m.view_height / (max + m.view_height)))
             .max(24.0)
             .min(track);
-        let ratio = if max > 0.0 { scroll_y / max } else { 0.0 };
+        // The top may be past the range (`EditorView::move_view_top_line`).
+        let ratio = if max > 0.0 {
+            (scroll_y / max).min(1.0)
+        } else {
+            0.0
+        };
         Self {
             track_height: track,
             thumb_top: (track - thumb_height) * ratio,

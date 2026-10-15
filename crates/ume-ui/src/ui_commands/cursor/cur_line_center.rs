@@ -4,11 +4,8 @@
 //! `sakura_core/cmd/CViewCommander_Cursor.cpp`: the top row becomes the caret's row minus half of
 //! the rows of the view, and not less than the first row. The caret does not move.
 //!
-//! Not like Sakura yet: near the end of the document the view stops at its scroll range (the last
-//! row at the bottom, plus one blank row), so the caret's row may stay below the middle. Sakura's
-//! scroll bar has about the same range (`CEditView::AdjustScrollBars`: the rows plus 2), but
-//! `MoveViewTopLine` does not stop there. To do with the rest of Sakura's scrolling (page up and
-//! down, `F_WndScrollUp`/`Down`).
+//! Like Sakura's `MoveViewTopLine`, the top row can be past the scroll range, so near the end of
+//! the document the caret's row is still in the middle (`EditorView::move_view_top_line`).
 
 use gpui::{Context, Window};
 use ume_commands::command::{Arg, Result};
