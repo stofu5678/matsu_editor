@@ -234,6 +234,41 @@ fn a_full_line_puts_its_line_ending_on_its_own_row() {
     assert_matches(&idx, &d, &wrap(10));
 }
 
+#[test]
+fn rows_carry_the_line_ending_of_the_line_on_the_last_row_only() {
+    use ume_core::buffer::Eol;
+    let d = doc("abcdefghij\r\nk\nlm\rno");
+    let idx = DocumentLayout::laid_out(&d, wrap(4)).unwrap();
+    let eols: Vec<(String, Option<Eol>)> = idx
+        .rows(&d, 0, usize::MAX)
+        .unwrap()
+        .iter()
+        .map(|r| (r.text().to_string(), r.eol))
+        .collect();
+    let want: Vec<(&str, Option<Eol>)> = vec![
+        ("abcd", None),
+        ("efgh", None),
+        ("ij", Some(Eol::CrLf)),
+        ("k", Some(Eol::Lf)),
+        ("lm", Some(Eol::Cr)),
+        ("no", None),
+    ];
+    assert_eq!(
+        eols.iter()
+            .map(|(t, e)| (t.as_str(), *e))
+            .collect::<Vec<_>>(),
+        want
+    );
+    // The line ending on a row of its own (the line fills the wrap column).
+    let d = doc("abcd\n");
+    let idx = DocumentLayout::laid_out(&d, wrap(4)).unwrap();
+    let rows = idx.rows(&d, 0, 10).unwrap();
+    assert_eq!(rows.len(), 3);
+    assert_eq!((rows[0].eol, rows[1].eol), (None, Some(Eol::Lf)));
+    // The EOF row has none.
+    assert!(rows[2].is_eof_row && rows[2].eol.is_none());
+}
+
 // ---- rows, lines and positions ----
 
 #[test]

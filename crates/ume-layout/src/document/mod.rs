@@ -87,7 +87,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
-use ume_core::buffer::{Document, Edit, Pos, Result};
+use ume_core::buffer::{Document, Edit, Eol, Pos, Result};
 
 use crate::config::LayoutConfig;
 use crate::map::{offset_to_position, position_to_offset};
@@ -114,6 +114,8 @@ const STEP_LINES: usize = 512;
 pub struct LineLayout {
     pub text: String,
     pub has_eol: bool,
+    /// The kind of the line ending (`has_eol` is `eol.is_some()`).
+    pub eol: Option<Eol>,
     /// At least one row ([`layout_line`]).
     pub rows: Vec<Row>,
 }
@@ -174,6 +176,9 @@ pub struct RowInfo {
     pub end_column: u32,
     /// The row ends because the line wraps.
     pub wrapped: bool,
+    /// The line ending that ends this row: set only on the last row of a line that has one. `None`
+    /// on wrapped rows, on the last row of a last line without a line ending, and on the EOF row.
+    pub eol: Option<Eol>,
     /// The row is the EOF row below the last line.
     pub is_eof_row: bool,
     layout: Option<Arc<LineLayout>>,
@@ -530,6 +535,7 @@ impl DocumentLayout {
         let layout = Arc::new(LineLayout {
             text: l.text,
             has_eol,
+            eol: l.eol,
             rows,
         });
         self.cache().insert(line, Arc::clone(&layout));
@@ -547,6 +553,11 @@ impl DocumentLayout {
             start_column: r.start_column,
             end_column: r.end_column,
             wrapped: r.wrapped,
+            eol: if k + 1 >= layout.rows.len() {
+                layout.eol
+            } else {
+                None
+            },
             is_eof_row: false,
             layout: Some(Arc::clone(layout)),
         }
@@ -563,6 +574,7 @@ impl DocumentLayout {
             start_column: 0,
             end_column: 0,
             wrapped: false,
+            eol: None,
             is_eof_row: true,
             layout: None,
         }
