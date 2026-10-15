@@ -1,5 +1,5 @@
 //! What Sakura's settings mean for the editor view: font, tab width, wrap, what is shown, and the
-//! colors. [`ViewSettings::from_profile`] reads them from the text of a `sakura.ini` without a
+//! colors. [`ViewSettings::from_profile`] reads them from the text of a settings file (`ume.ini`, in the format of `sakura.ini`) without a
 //! window; a missing or broken value is Sakura's default (`ume-config` does that part).
 //!
 //! Where each value comes from (the keys are read by `ume-config`, `settings/types.rs` and
@@ -129,7 +129,7 @@ const WINDOWS_FONTS: [(&str, &str); 8] = [
     ("MS PMincho", "MS PMincho"),
 ];
 
-/// The family to ask GPUI for a face name of `sakura.ini`: the name itself, except that the
+/// The family to ask GPUI for a face name of the settings file: the name itself, except that the
 /// fonts that come with Windows only are renamed on Windows and left to the OS's default
 /// elsewhere. `None` is the default font of the program.
 pub fn font_family_for(face: &str, os: Os) -> Option<String> {
@@ -205,7 +205,7 @@ fn mix(a: ColorRef, b: ColorRef, alpha: u32) -> ColorRef {
 }
 
 impl Default for ViewSettings {
-    /// Sakura's defaults, as for a file without `sakura.ini`.
+    /// Sakura's defaults, as for a file without the settings file.
     fn default() -> Self {
         Self::from_profile(&Profile::new(), None, Os::current())
     }

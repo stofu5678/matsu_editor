@@ -79,7 +79,7 @@ impl EditorView {
         self.prefs.show_status_bar = self.prefs.settings.show_status_bar;
         if let Some(first) = user.warnings.first() {
             self.notice = Some(format!(
-                "sakura.ini: {first}{}",
+                "ume.ini: {first}{}",
                 if user.warnings.len() > 1 {
                     format!(" (ほか {} 件)", user.warnings.len() - 1)
                 } else {

@@ -73,7 +73,7 @@ pub fn run(path: Option<PathBuf>) -> Result<(), StartError> {
         cx.open_window(options, move |window, cx| {
             let document = cx.new(|_| shared);
             let workspace = cx.new(|cx| Workspace::new(document, window, cx));
-            // sakura.ini: the font, the layout, the colors and the key bindings.
+            // ume.ini: the font, the layout, the colors and the key bindings.
             workspace.update(cx, |workspace, cx| {
                 workspace
                     .editor

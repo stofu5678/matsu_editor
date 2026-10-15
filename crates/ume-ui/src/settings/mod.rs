@@ -1,4 +1,4 @@
-//! Sakura's settings file (`sakura.ini`) in the window (ADR-0010).
+//! UME Editor's settings file (`ume.ini`, in the format of Sakura's `sakura.ini`) in the window (ADR-0010).
 //!
 //! [`UserSettings`] is the file read through `ume-config`; [`ViewSettings`] is what the editor
 //! view takes from it for one file. Both are plain data, so they are tested without a window.
@@ -120,7 +120,7 @@ mod tests {
 
     #[test]
     fn no_file_means_the_defaults() {
-        let s = UserSettings::load_from(&[PathBuf::from("/no/such/dir/sakura.ini")]);
+        let s = UserSettings::load_from(&[PathBuf::from("/no/such/dir/ume.ini")]);
         assert!(s.path().is_none());
         assert!(s.warnings.is_empty());
         assert_eq!(s.view_settings(Some("a.txt")), ViewSettings::default());
@@ -131,7 +131,7 @@ mod tests {
     fn the_first_existing_candidate_is_read() {
         let dir = std::env::temp_dir().join(format!("ume-ui-settings-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("sakura.ini");
+        let path = dir.join("ume.ini");
         std::fs::write(
             &path,
             bom("[Types(0)]\r\nnInts=0,10240,0,2,-1,-1,0,1,1,0,0,0\r\n"),
