@@ -31,13 +31,14 @@ const TAB_MARK: &str = "→";
 /// The mark for an ideographic space: a box (`CFigure_ZenSpace.cpp`).
 const FULL_WIDTH_SPACE_MARK: &str = "□";
 /// The mark for a line break, by kind. Sakura draws an arrow bent to the lower left for CRLF, an
-/// arrow to the left for CR and an arrow down for LF; NEL, LS and PS look like LF for now
-/// (`_DrawEOL` in `sakura_core/view/figures/CFigure_Eol.cpp`).
+/// arrow to the left for CR, an arrow down for LF, and a straight arrow to the lower left for NEL,
+/// LS and PS (`_DrawEOL` in `sakura_core/view/figures/CFigure_Eol.cpp`).
 fn eol_mark(eol: Eol) -> &'static str {
     match eol {
         Eol::CrLf => "↵",
         Eol::Cr => "←",
-        Eol::Lf | Eol::Nel | Eol::Ls | Eol::Ps => "↓",
+        Eol::Lf => "↓",
+        Eol::Nel | Eol::Ls | Eol::Ps => "↙",
     }
 }
 
@@ -420,6 +421,8 @@ mod tests {
         assert_eq!(eol_mark(Eol::CrLf), "↵");
         assert_eq!(eol_mark(Eol::Cr), "←");
         assert_eq!(eol_mark(Eol::Lf), "↓");
-        assert_eq!(eol_mark(Eol::Ls), "↓");
+        assert_eq!(eol_mark(Eol::Nel), "↙");
+        assert_eq!(eol_mark(Eol::Ls), "↙");
+        assert_eq!(eol_mark(Eol::Ps), "↙");
     }
 }
