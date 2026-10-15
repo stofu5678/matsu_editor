@@ -65,10 +65,13 @@ impl NewDocumentDefaults {
                 .bom
                 .or(basic.bom)
                 .unwrap_or_else(|| encoding.bom_default_on());
+        // A value that is no line ending ("no conversion") counts as not set, so the basic
+        // type's still applies. (An encoding the type sets but we cannot use falls to UTF-8, not
+        // to the basic type's: the file asked for that encoding.)
         let eol = own
             .eoltype
-            .or(basic.eoltype)
             .and_then(eol_of)
+            .or(basic.eoltype.and_then(eol_of))
             .unwrap_or(fallback.eol);
         Self { encoding, bom, eol }
     }
@@ -156,6 +159,16 @@ mod tests {
         );
         let d = NewDocumentDefaults::from_profile(&p, Some("a.c"));
         assert_eq!(d.eol, Eol::Cr);
+    }
+
+    #[test]
+    fn an_unusable_line_ending_of_the_type_falls_to_the_basic_type() {
+        let p = profile(
+            "[Other]\r\nnTypesCount=2\r\n[Types(0)]\r\neDefaultEoltype=1\r\n\
+             [Types(1)]\r\nszTypeExts=c\r\neDefaultEoltype=0\r\n",
+        );
+        let d = NewDocumentDefaults::from_profile(&p, Some("a.c"));
+        assert_eq!(d.eol, Eol::CrLf);
     }
 
     #[test]

@@ -204,6 +204,27 @@ fn the_view_takes_the_type_of_the_file_it_loads(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn reopening_keeps_the_zoom_of_the_view(cx: &mut TestAppContext) {
+    let dir = temp_dir();
+    let path = dir.join("a.txt");
+    std::fs::write(&path, b"abc").unwrap();
+    let handle = window(cx, Some(user("[Types(0)]\r\nszTypeName=基本\r\n")));
+    let cx = &mut VisualTestContext::from_window(handle, cx);
+    let view = view_of(cx);
+    run(
+        &view,
+        cx,
+        "F_FILEOPEN",
+        &[Arg::Text(path.display().to_string())],
+    );
+    view.update(cx, |v, cx| v.zoom_font(2, cx));
+    let zoomed = view.read_with(cx, |v, _| v.font_px());
+    run(&view, cx, "F_FILE_REOPEN_UTF8", &[Arg::Int(1)]);
+    assert_eq!(view.read_with(cx, |v, _| v.font_px()), zoomed);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[gpui::test]
 fn the_type_of_a_new_file_name_decides(cx: &mut TestAppContext) {
     // A file that does not exist yet has the settings of its type.
     let dir = temp_dir();
