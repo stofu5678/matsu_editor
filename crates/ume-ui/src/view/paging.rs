@@ -187,7 +187,14 @@ impl EditorView {
             Resolved::Code(code) => code,
             _ => return,
         };
-        let notches = amount.abs() / line_height;
+        // GPUI's Windows backend already multiplies a notch by the system's lines per notch (3 by
+        // default) before it reports lines; the other backends report one line per notch.
+        let lines_per_notch = if event.delta.precise() || !cfg!(windows) {
+            1.0
+        } else {
+            WHEEL_ROWS_PER_NOTCH
+        };
+        let notches = amount.abs() / (line_height * lines_per_notch);
         if !(F_WHEEL_FIRST..=F_WHEEL_LAST).contains(&code) {
             // `bExecCmd`: one run of the function per notch.
             let count = self.take_whole(notches, 1.0, 1.0);

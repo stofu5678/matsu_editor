@@ -27,6 +27,10 @@ const F_WND_SCROLL_UP: u16 = 30381;
 
 const LINES: usize = 1000;
 
+/// The lines one notch of the wheel is reported as: GPUI's Windows backend multiplies a notch by
+/// the system's lines per notch (3 by default).
+const NOTCH: f32 = if cfg!(windows) { 3.0 } else { 1.0 };
+
 fn setup(cx: &mut TestAppContext) -> (Entity<EditorView>, &mut VisualTestContext) {
     let text = (0..LINES)
         .map(|i| format!("line {i}"))
@@ -228,8 +232,8 @@ fn wheel(
 fn a_wheel_notch_scrolls_three_rows_without_moving_the_caret(cx: &mut TestAppContext) {
     let (view, cx) = setup(cx);
     // Sakura's key table: the wheel without keys is F_WHEELDOWN / F_WHEELUP.
-    let down = ScrollDelta::Lines(point(0., -1.));
-    let up = ScrollDelta::Lines(point(0., 1.));
+    let down = ScrollDelta::Lines(point(0., -NOTCH));
+    let up = ScrollDelta::Lines(point(0., NOTCH));
     wheel(&view, cx, down, Modifiers::default());
     assert_eq!(at(&view, cx), (0, 3));
     wheel(&view, cx, down, Modifiers::default());
@@ -237,7 +241,7 @@ fn a_wheel_notch_scrolls_three_rows_without_moving_the_caret(cx: &mut TestAppCon
     wheel(&view, cx, up, Modifiers::default());
     assert_eq!(top(&view, cx), 3);
     // A part of a notch is kept until the next one makes a row (m_nWheelDelta).
-    let part = ScrollDelta::Lines(point(0., -0.4));
+    let part = ScrollDelta::Lines(point(0., -0.4 * NOTCH));
     wheel(&view, cx, part, Modifiers::default());
     assert_eq!(top(&view, cx), 4); // 1.2 rows
     wheel(&view, cx, part, Modifiers::default());
@@ -260,7 +264,7 @@ fn the_wheel_follows_the_key_table(cx: &mut TestAppContext) {
     } else {
         (Modifiers::control(), ume_commands::keymap::Modifiers::CTRL)
     };
-    wheel(&view, cx, ScrollDelta::Lines(point(0., -1.)), ctrl);
+    wheel(&view, cx, ScrollDelta::Lines(point(0., -NOTCH)), ctrl);
     assert_eq!(top(&view, cx), 0);
     view.read_with(cx, |v, _| {
         let chord = Chord::new(Key::Mouse(MouseAction::WheelDown), sakura_ctrl);

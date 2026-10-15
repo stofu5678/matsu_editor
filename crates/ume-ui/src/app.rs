@@ -20,7 +20,14 @@ use crate::status::status_text;
 use crate::view::{EditorView, RunFunction};
 use ume_commands::keymap::{DisplayStyle, KeyMap};
 
-actions!(ume, [Exit]);
+actions!(
+    ume,
+    [
+        Exit,
+        /// A menu item that cannot run: no one handles this action.
+        Unavailable
+    ]
+);
 
 /// Why the editor could not start.
 #[derive(Debug)]
@@ -126,11 +133,13 @@ fn gpui_items(entries: Vec<Entry>, style: DisplayStyle) -> Vec<MenuItem> {
                 match item.action {
                     MenuAction::Exit if cfg!(target_os = "macos") => None,
                     MenuAction::Exit => Some(MenuItem::action(label, Exit)),
-                    MenuAction::Function(code) => {
-                        Some(MenuItem::action(label, RunFunction { code }).disabled(!item.enabled))
+                    MenuAction::Function(code) if item.enabled => {
+                        Some(MenuItem::action(label, RunFunction { code }))
                     }
-                    MenuAction::Placeholder => {
-                        Some(MenuItem::action(label, RunFunction { code: 0 }).disabled(true))
+                    // Nobody handles `Unavailable`, so the native menu of macOS, which asks
+                    // whether the action can be handled, keeps the item gray.
+                    MenuAction::Function(_) | MenuAction::Placeholder => {
+                        Some(MenuItem::action(label, Unavailable).disabled(true))
                     }
                 }
             }
