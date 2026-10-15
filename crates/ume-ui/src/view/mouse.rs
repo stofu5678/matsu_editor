@@ -46,7 +46,7 @@ impl EditorView {
             if y >= bar.thumb_top && y <= bar.thumb_top + bar.thumb_height {
                 self.drag = Drag::Thumb {
                     start_y: f32::from(event.position.y),
-                    start_scroll: self.scroll_y,
+                    start_scroll: clamp_scroll_y(&self.metrics, rows, self.scroll_y),
                 };
             } else {
                 // Clicking the track pages up or down, as on Windows.

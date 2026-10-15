@@ -335,3 +335,35 @@ fn the_two_axes_of_the_wheel_keep_their_own_leftovers(cx: &mut TestAppContext) {
     assert_eq!(top(&view, cx), 0);
     assert_eq!(view.read_with(cx, |v, _| v.scroll_x), 3.0 * cell);
 }
+
+#[gpui::test]
+fn dragging_the_thumb_starts_from_where_it_is_drawn(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx);
+    place(&view, cx, LINES - 1, 0);
+    run(&view, cx, F_CURLINECENTER);
+    // The top is past the scroll range now; the thumb is drawn at the bottom of the track.
+    let (x, y, limit) = view.read_with(cx, |v, _| {
+        let paint = v.paint.expect("the window has been painted");
+        let bar =
+            crate::geometry::Scrollbar::new(v.metrics(), v.layout().row_count(), v.scroll_y());
+        (
+            paint.scrollbar_left + 1.0,
+            paint.origin_y + bar.thumb_top + 1.0,
+            max_scroll_y(v.metrics(), v.layout().row_count()),
+        )
+    });
+    let event = gpui::MouseDownEvent {
+        button: gpui::MouseButton::Left,
+        position: point(px(x), px(y)),
+        modifiers: Modifiers::default(),
+        click_count: 1,
+        first_mouse: false,
+    };
+    let v = view.clone();
+    cx.update(|window, cx| v.update(cx, |v, cx| v.on_mouse_down(&event, window, cx)));
+    let start = view.read_with(cx, |v, _| match v.drag {
+        super::Drag::Thumb { start_scroll, .. } => start_scroll,
+        other => panic!("not dragging the thumb: {other:?}"),
+    });
+    assert_eq!(start, limit);
+}
