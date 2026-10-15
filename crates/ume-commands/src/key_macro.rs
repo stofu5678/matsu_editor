@@ -165,8 +165,12 @@ impl KeyMacro {
     /// Sakura: `CKeyMacroMgr::ExecKeyMacro`, which stops at the first call that returns false.
     pub fn play(&self, registry: &Registry, cx: &mut CommandContext<'_>) -> Result<(), PlayError> {
         for (index, step) in self.steps.iter().enumerate() {
+            // A file may give more arguments than the function takes; Sakura passes only the
+            // declared ones (`CMacro::HandleCommand` reads `Argument[i]` for the ones it knows).
+            let declared = macro_names::by_code(step.code).map_or(usize::MAX, |f| f.args.len());
+            let args = &step.args[..step.args.len().min(declared)];
             registry
-                .run_code(step.code, cx, &step.args)
+                .run_code(step.code, cx, args)
                 .map_err(|error| PlayError { index, error })?;
         }
         Ok(())

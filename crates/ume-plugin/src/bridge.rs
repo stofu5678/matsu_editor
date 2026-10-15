@@ -221,7 +221,9 @@ impl MacroDocument for ContextDocument<'_, '_> {
             return String::new();
         };
         let text = self.cx.doc().text_between(start, end).unwrap_or_default();
-        text.replace("\r\n", "\n").replace('\r', "\n")
+        // Every line ending the document knows becomes "\n" (like the lines of `GetLineStr`).
+        text.replace("\r\n", "\n")
+            .replace(['\r', '\u{85}', '\u{2028}', '\u{2029}'], "\n")
     }
 
     fn move_cursor(&mut self, pos: (usize, usize), extend: bool) {

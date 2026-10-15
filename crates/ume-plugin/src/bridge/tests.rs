@@ -173,6 +173,17 @@ fn every_name_gets_an_answer_and_none_panics() {
 // ---- functions that return a value ----
 
 #[test]
+fn the_selected_text_has_only_lf_line_breaks() {
+    // CR LF, CR, NEL, LS and PS are line endings of the document.
+    let mut f = Fixture::new("a\r\nb\rc\u{85}d\u{2028}e\u{2029}f");
+    f.call("SelectAll", json!([])).unwrap();
+    assert_eq!(
+        f.call("GetSelectedString", json!([0])),
+        Ok(json!("a\nb\nc\nd\ne\nf"))
+    );
+}
+
+#[test]
 fn value_functions_are_answered_from_the_document() {
     let mut f = Fixture::new("あ😀\r\nb\nlast").with_path("/work/テスト.txt");
     assert_eq!(f.call("GetLineCount", json!([0])), Ok(json!(3)));

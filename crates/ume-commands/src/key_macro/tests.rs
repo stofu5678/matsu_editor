@@ -399,6 +399,14 @@ impl Doc {
 }
 
 #[test]
+fn arguments_beyond_the_declared_ones_are_not_passed() {
+    // The file may give four arguments to any function (see the loader); Char takes one.
+    let mut d = Doc::new();
+    d.play(&load("Char(97, 0);")).unwrap();
+    assert_eq!(d.marked(), "a|");
+}
+
+#[test]
 fn plays_through_the_registry() {
     let mut d = Doc::new();
     d.play(&load("Char(104);\nChar(105);\nLeft();\nDeleteBack();"))
