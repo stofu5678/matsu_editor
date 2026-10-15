@@ -469,7 +469,8 @@ impl Element for EditorElement {
             scrollbar_left: f32::from(track.left()),
         };
         let widest = p.widest;
-        self.editor.update(cx, |editor, cx| {
+        let redraw = self.editor.update(cx, |editor, cx| {
+            let mut redraw = false;
             let measured_before = editor.metrics;
             editor.metrics = metrics;
             if measured_before.line_height != metrics.line_height
@@ -477,14 +478,23 @@ impl Element for EditorElement {
             {
                 // A new font size: the caret may have left the view.
                 editor.ensure_caret_visible(cx);
+                redraw = true;
             }
             editor.paint = Some(paint_info);
             editor.widest_cols = widest;
             // Wrapping at the right edge: the width is known only now.
             if editor.wrap_is_stale() {
+                redraw = true;
+            }
+            if redraw {
                 cx.notify();
             }
+            redraw
         });
+        // `notify` during a paint does not draw again by itself.
+        if redraw {
+            window.request_animation_frame();
+        }
     }
 }
 

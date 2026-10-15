@@ -443,6 +443,7 @@ impl Render for EditorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.follow_window_width(cx);
         self.advance_layout(window, cx);
+        self.settle_caret(cx);
         div()
             .id("editor")
             .size_full()

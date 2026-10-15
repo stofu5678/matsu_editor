@@ -32,6 +32,9 @@ pub(crate) struct ViewPrefs {
     /// The zoom of the font size, 1.0 for the size of the file (`m_nCurrentZoom`).
     pub zoom: f64,
     pub show_status_bar: bool,
+    /// The layout was changed while some lines still have estimated row counts: bring the caret
+    /// into view again as the counts become exact.
+    pub reveal_caret: bool,
 }
 
 impl ViewPrefs {
@@ -41,6 +44,7 @@ impl ViewPrefs {
             wrap_columns: settings.wrap_columns,
             zoom: 1.0,
             show_status_bar: settings.show_status_bar,
+            reveal_caret: false,
             settings,
         }
     }
@@ -156,6 +160,7 @@ impl EditorView {
         self.clamp_scroll();
         // The caret has moved to another row; keep it in view.
         self.ensure_caret_visible(cx);
+        self.prefs.reveal_caret = !self.layout.is_complete();
         true
     }
 
@@ -246,18 +251,24 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) -> bool {
         use ume_commands::keymap::{Chord, Key, Modifiers, MouseAction, Resolved};
-        // F_WHEELUP / F_WHEELDOWN scroll; the caller does that.
+        // The functions that scroll; they are done here, in the direction the function names.
         const F_WHEELUP: u16 = 30385;
         const F_WHEELDOWN: u16 = 30386;
+        const F_WHEELLEFT: u16 = 30387;
+        const F_WHEELRIGHT: u16 = 30388;
         let delta = event.delta.pixel_delta(gpui::px(self.metrics.line_height));
-        let dy = f32::from(delta.y);
-        if dy == 0.0 {
-            return false;
-        }
+        let (dx, dy) = (f32::from(delta.x), f32::from(delta.y));
+        // The vertical wheel decides; a horizontal-only event uses the horizontal wheel keys.
         let action = if dy > 0.0 {
             MouseAction::WheelUp
-        } else {
+        } else if dy < 0.0 {
             MouseAction::WheelDown
+        } else if dx > 0.0 {
+            MouseAction::WheelLeft
+        } else if dx < 0.0 {
+            MouseAction::WheelRight
+        } else {
+            return false;
         };
         let m = event.modifiers;
         let chord = Chord::new(
@@ -272,13 +283,21 @@ impl EditorView {
         match self.keymap.resolve(chord) {
             // The function decides the direction, not the wheel: a user may bind wheel up to
             // F_WHEELDOWN.
-            Resolved::Code(code @ (F_WHEELUP | F_WHEELDOWN)) => {
-                let amount = if code == F_WHEELUP {
-                    dy.abs()
-                } else {
-                    -dy.abs()
+            Resolved::Code(code @ (F_WHEELUP | F_WHEELDOWN | F_WHEELLEFT | F_WHEELRIGHT)) => {
+                let (dx, dy) = match code {
+                    F_WHEELUP => (dx, dy.abs()),
+                    F_WHEELDOWN => (dx, -dy.abs()),
+                    F_WHEELLEFT => (dx.abs(), 0.0),
+                    _ => (-dx.abs(), 0.0),
                 };
-                self.scroll_by(f32::from(delta.x), amount);
+                // A vertical function given a horizontal-only event scrolls by the same amount.
+                let (dx, dy) = if matches!(code, F_WHEELUP | F_WHEELDOWN) && dy == 0.0 {
+                    let n = f32::from(delta.x).abs();
+                    (0.0, if code == F_WHEELUP { n } else { -n })
+                } else {
+                    (dx, dy)
+                };
+                self.scroll_by(dx, dy);
                 cx.notify();
                 true
             }
@@ -287,6 +306,15 @@ impl EditorView {
                 true
             }
             _ => false,
+        }
+    }
+
+    /// While a large document is still being laid out after a wrap change, the caret's row moves
+    /// as the lines before it get exact counts; keep it in view until the layout is complete.
+    pub(crate) fn settle_caret(&mut self, cx: &App) {
+        if self.prefs.reveal_caret {
+            self.ensure_caret_visible(cx);
+            self.prefs.reveal_caret = !self.layout.is_complete();
         }
     }
 

@@ -218,3 +218,23 @@ fn zooming_keeps_the_same_text_at_the_top(cx: &mut TestAppContext) {
     assert!(size > before.0);
     assert!(scroll > before.1, "{scroll} should follow the taller rows");
 }
+
+#[gpui::test]
+fn horizontal_wheel_bindings_are_resolved_too(cx: &mut TestAppContext) {
+    use gpui::{Modifiers, ScrollDelta, ScrollWheelEvent, TouchPhase, point, px};
+    let (view, cx) = setup(cx, &"x".repeat(1000));
+    // Wheel left (key 0x0109) with no modifier is F_WHEELRIGHT (30388) here.
+    let settings = user(
+        "[KeyBind]\r\nKeyBind[000]=0109,30388,30387,30387,30387,30387,30387,30387,30387,x\r\n",
+    );
+    view.update(cx, |v, cx| {
+        v.apply_user_settings(&settings, cx);
+    });
+    cx.simulate_event(ScrollWheelEvent {
+        position: point(px(100.), px(100.)),
+        delta: ScrollDelta::Lines(point(1., 0.)),
+        modifiers: Modifiers::default(),
+        touch_phase: TouchPhase::Moved,
+    });
+    assert!(view.read_with(cx, |v, _| v.scroll_x) > 0.0);
+}
