@@ -22,7 +22,10 @@ use crate::geometry::clamp_scroll_y;
 /// Sakura reads from the registry (`OnMOUSEWHEEL2`: `nRollLineNum = 3` when there is none).
 pub(crate) const WHEEL_ROWS_PER_NOTCH: f32 = 3.0;
 
-/// `F_WHEELUP` .. `F_WHEELPAGERIGHT` (`Funccode_x.hsrc`): the functions of the wheel that scroll.
+/// More notches than this in one event cannot be a real wheel; see `handle_wheel_axis`.
+const MAX_NOTCHES_PER_EVENT: f32 = 1000.0;
+
+/// `F_WHEELUP` ..`F_WHEELPAGERIGHT` (`Funccode_x.hsrc`): the functions of the wheel that scroll.
 const F_WHEEL_FIRST: u16 = 30385;
 const F_WHEEL_LAST: u16 = 30392;
 const F_WHEELUP: u16 = 30385;
@@ -187,14 +190,21 @@ impl EditorView {
             Resolved::Code(code) => code,
             _ => return,
         };
-        // GPUI's Windows backend already multiplies a notch by the system's lines per notch (3 by
-        // default) before it reports lines; the other backends report one line per notch.
-        let lines_per_notch = if event.delta.precise() || !cfg!(windows) {
+        // GPUI's Windows backend multiplies a notch by the system's lines per notch (3 by
+        // default) and its Linux backends by 3 before they report lines; macOS reports lines as
+        // they are.
+        let lines_per_notch = if event.delta.precise() || cfg!(target_os = "macos") {
             1.0
         } else {
             WHEEL_ROWS_PER_NOTCH
         };
-        let notches = amount.abs() / (line_height * lines_per_notch);
+        let mut notches = amount.abs() / (line_height * lines_per_notch);
+        // Windows' "one screen at a time" setting arrives as a huge number of lines (`u32::MAX`
+        // per notch). Sakura reads it as -1: a page per notch (`OnMOUSEWHEEL2`).
+        let page_setting = notches > MAX_NOTCHES_PER_EVENT;
+        if page_setting {
+            notches = 1.0;
+        }
         if !(F_WHEEL_FIRST..=F_WHEEL_LAST).contains(&code) {
             // `bExecCmd`: one run of the function per notch.
             let count = self.take_whole(notches, 1.0, 1.0);
@@ -214,6 +224,7 @@ impl EditorView {
             F_WHEELPAGERIGHT => (true, true, true),
             _ => return,
         };
+        let page = page || page_setting;
         let sign: isize = if forward { 1 } else { -1 };
         if event.delta.precise() && !page {
             // Smooth scrolling for a trackpad: the pixels as they come, in the function's direction.

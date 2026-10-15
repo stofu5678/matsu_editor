@@ -27,9 +27,9 @@ const F_WND_SCROLL_UP: u16 = 30381;
 
 const LINES: usize = 1000;
 
-/// The lines one notch of the wheel is reported as: GPUI's Windows backend multiplies a notch by
-/// the system's lines per notch (3 by default).
-const NOTCH: f32 = if cfg!(windows) { 3.0 } else { 1.0 };
+/// The lines one notch of the wheel is reported as: GPUI's Windows and Linux backends multiply a
+/// notch by the lines per notch (3 by default on Windows, 3 on Linux).
+const NOTCH: f32 = if cfg!(target_os = "macos") { 1.0 } else { 3.0 };
 
 fn setup(cx: &mut TestAppContext) -> (Entity<EditorView>, &mut VisualTestContext) {
     let text = (0..LINES)
@@ -282,6 +282,21 @@ fn a_trackpad_scrolls_by_pixels(cx: &mut TestAppContext) {
         Modifiers::default(),
     );
     assert_eq!(view.read_with(cx, |v, _| v.scroll_y()), 30.0);
+}
+
+#[gpui::test]
+fn the_page_at_a_time_setting_of_windows_scrolls_one_page(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx);
+    let n = rows(&view, cx);
+    // Windows reports "one screen at a time" as u32::MAX lines per notch.
+    let max_lines = u32::MAX as f32;
+    wheel(
+        &view,
+        cx,
+        ScrollDelta::Lines(point(0., -max_lines)),
+        Modifiers::default(),
+    );
+    assert_eq!(top(&view, cx), n - 1);
 }
 
 #[gpui::test]
