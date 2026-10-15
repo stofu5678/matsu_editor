@@ -811,3 +811,49 @@ fn a_file_being_read_into_a_window_counts_as_open(cx: &mut TestAppContext) {
     cx.update(|cx| super::windows::finish_pending(cx, handle));
     assert_eq!(found(cx), None);
 }
+
+#[gpui::test]
+fn exit_all_asks_again_when_a_checked_window_changed(cx: &mut TestAppContext) {
+    cx.update(gpui_component::init);
+    let a = cx
+        .update(|cx| open_editor_window(cx, SharedDocument::empty(), None))
+        .unwrap();
+    let b = cx
+        .update(|cx| open_editor_window(cx, SharedDocument::empty(), None))
+        .unwrap();
+    let cx_a = &mut VisualTestContext::from_window(a, cx);
+    cx_a.simulate_input("a");
+    let cx_b = &mut VisualTestContext::from_window(b, cx_a);
+    cx_b.simulate_input("b");
+    let editor_a = cx_b.update(|_, app| super::windows::editors(app)[0].1.clone());
+    let f = Fixture { view: editor_a };
+    f.run(cx_b, "F_EXITALL", &[]);
+    // The first window is checked and discarded; the second one is asked.
+    answer(cx_b, DONT_SAVE);
+    assert!(cx_b.has_pending_prompt());
+    // The first window is edited while the second question is open.
+    let cx_a = &mut VisualTestContext::from_window(a, cx_b);
+    cx_a.simulate_input("more");
+    answer(cx_a, DONT_SAVE);
+    // Quitting without a new question would lose "more": the first window is asked again.
+    assert!(cx_a.has_pending_prompt());
+    answer(cx_a, CANCEL);
+    assert!(cx_a.windows().contains(&a));
+    assert_eq!(f.lines(cx_a), ["amore"]);
+}
+
+#[gpui::test]
+fn the_same_file_on_the_command_line_gets_one_window(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", b"abc");
+    cx.update(gpui_component::init);
+    let same = dir.0.join(".").join("a.txt");
+    cx.update(|cx| super::windows::open_startup_windows(cx, vec![path, same]))
+        .unwrap();
+    assert_eq!(cx.windows().len(), 1);
+    let none: Vec<PathBuf> = Vec::new();
+    let cx2 = cx;
+    cx2.update(|cx| super::windows::open_startup_windows(cx, none))
+        .unwrap();
+    assert_eq!(cx2.windows().len(), 2, "no files: one untitled window");
+}

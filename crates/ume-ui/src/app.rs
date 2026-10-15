@@ -13,7 +13,7 @@ use gpui_component::{GlobalState, TitleBar};
 use gpui_platform::application;
 
 use crate::document::SharedDocument;
-use crate::file_ops::windows::{LoadRequest, open_editor_window};
+use crate::file_ops::windows::open_startup_windows;
 use crate::menu::{Entry, MenuAction, Registered, label_with_shortcut, main_menu};
 use crate::status::status_text;
 use crate::view::{EditorView, RunFunction};
@@ -50,18 +50,7 @@ pub fn run(paths: Vec<PathBuf>) {
 
         // Every window that `open_editor_window` makes applies ume.ini (read once, above).
         cx.set_global(user);
-        if paths.is_empty() {
-            open_editor_window(cx, SharedDocument::empty(), None)
-                .expect("failed to open the window");
-        }
-        for path in paths {
-            let load = LoadRequest {
-                path,
-                encoding: None,
-            };
-            open_editor_window(cx, SharedDocument::empty(), Some(load))
-                .expect("failed to open the window");
-        }
+        open_startup_windows(cx, paths).expect("failed to open the window");
         cx.activate(true);
     });
 }

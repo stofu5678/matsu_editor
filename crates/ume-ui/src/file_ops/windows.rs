@@ -181,3 +181,22 @@ pub(crate) fn finish_pending(cx: &mut App, handle: AnyWindowHandle) {
         .pending
         .retain(|(h, _)| *h != handle);
 }
+
+/// Opens the windows of the command line: one per file, or one untitled window without files.
+/// A file that is named twice (`a.txt ./a.txt`) gets one window, as in `open_paths`.
+pub(crate) fn open_startup_windows(cx: &mut App, paths: Vec<PathBuf>) -> gpui::Result<()> {
+    if paths.is_empty() {
+        open_editor_window(cx, SharedDocument::empty(), None)?;
+    }
+    for path in paths {
+        if find_open(cx, &path).is_some() {
+            continue;
+        }
+        let load = LoadRequest {
+            path,
+            encoding: None,
+        };
+        open_editor_window(cx, SharedDocument::empty(), Some(load))?;
+    }
+    Ok(())
+}

@@ -115,19 +115,47 @@ pub(crate) async fn close_and_open(
     ok
 }
 
+/// What `exit_all` checks again before it quits: each window and the version of its document.
+fn snapshot(cx: &mut AsyncWindowContext) -> Vec<(gpui::EntityId, u64)> {
+    cx.update(|_, app| {
+        super::windows::editors(app)
+            .into_iter()
+            .map(|(_, view)| {
+                let version = view.read(app).document().read(app).version();
+                (view.entity_id(), version)
+            })
+            .collect()
+    })
+    .unwrap_or_default()
+}
+
 /// `F_EXITALL`: asks about every window with changes, and quits if none of them is stopped.
+///
+/// A window that was checked stays editable while the later prompts are open. Before quitting the
+/// windows and their versions are compared with what was checked; if anything changed, the
+/// round starts again, so no change is thrown away without a question.
 pub(crate) async fn exit_all(cx: &mut AsyncWindowContext) {
-    let editors = cx
-        .update(|_, app| super::windows::editors(app))
-        .unwrap_or_default();
-    for (handle, view) in editors {
-        let weak = view.downgrade();
-        let Ok(mut window_cx) = handle.update(cx, |_, window, app| window.to_async(app)) else {
-            continue;
-        };
-        if !confirm_discard(&weak, &mut window_cx).await {
+    loop {
+        let editors = cx
+            .update(|_, app| super::windows::editors(app))
+            .unwrap_or_default();
+        let mut checked = Vec::new();
+        for (handle, view) in editors {
+            let weak = view.downgrade();
+            let Ok(mut window_cx) = handle.update(cx, |_, window, app| window.to_async(app)) else {
+                continue;
+            };
+            if !confirm_discard(&weak, &mut window_cx).await {
+                return;
+            }
+            let version = weak
+                .read_with(cx, |view, app| view.document().read(app).version())
+                .unwrap_or(0);
+            checked.push((view.entity_id(), version));
+        }
+        if snapshot(cx) == checked {
+            cx.update(|_, app| app.quit()).ok();
             return;
         }
     }
-    cx.update(|_, app| app.quit()).ok();
 }
