@@ -1,0 +1,78 @@
+name: Package
+
+# Reusable workflow: build `ume` in release mode on the five targets and package it.
+# It publishes nothing. The caller decides what to do with the artifacts
+# (docs/release.md). Archive names are `ume-<target>.zip` (Windows) or
+# `ume-<target>.tar.gz`; the caller adds the nightly or version label.
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  package:
+    name: package (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: windows-arm64, os: windows-11-arm }
+          - { name: windows-x64, os: windows-2025 }
+          - { name: macos-arm64, os: macos-15 }
+          - { name: linux-x64, os: ubuntu-24.04 }
+          - { name: linux-arm64, os: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.99.0
+      # Same list as ci.yml (GPUI links the system libraries of the Linux desktop).
+      - name: Install the packages that GPUI needs
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential clang cmake \
+            libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev libx11-xcb-dev \
+            libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libzstd-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release
+      - run: cargo build --release --locked -p ume
+      - name: Stage the files
+        env:
+          TARGET: ${{ matrix.name }}
+          EXE: ${{ runner.os == 'Windows' && 'ume.exe' || 'ume' }}
+        run: |
+          dir="ume-$TARGET"
+          mkdir -p "dist/$dir"
+          cp "target/release/$EXE" LICENSE-MIT LICENSE-APACHE "dist/$dir/"
+          {
+            echo "UME Editor ($TARGET)"
+            echo
+            echo "Run $EXE with a file path. Licensed under MIT OR Apache-2.0"
+            echo "(LICENSE-MIT, LICENSE-APACHE). https://github.com/${GITHUB_REPOSITORY}"
+          } > "dist/$dir/README.txt"
+      - name: Archive (zip)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: dist
+        run: Compress-Archive -Path "ume-${{ matrix.name }}" -DestinationPath "ume-${{ matrix.name }}.zip"
+      - name: Archive (tar.gz)
+        if: runner.os != 'Windows'
+        working-directory: dist
+        run: tar -czf "ume-${{ matrix.name }}.tar.gz" "ume-${{ matrix.name }}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: package-${{ matrix.name }}
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
