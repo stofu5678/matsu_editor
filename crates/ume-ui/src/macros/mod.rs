@@ -98,6 +98,24 @@ enum Item {
 /// The deepest nesting of macro files (a `.mac` that names a `.mac`). Sakura has no limit.
 const MAX_NESTING: usize = 16;
 
+/// How many events from the host wait for the window at most.
+const EVENT_BACKLOG: usize = 256;
+
+/// Returns to the executor once, so that other tasks (painting, input) run in between.
+async fn yield_now() {
+    let mut yielded = false;
+    std::future::poll_fn(|task| {
+        if yielded {
+            std::task::Poll::Ready(())
+        } else {
+            yielded = true;
+            task.waker().wake_by_ref();
+            std::task::Poll::Pending
+        }
+    })
+    .await;
+}
+
 struct Running {
     session: Session,
     name: String,
@@ -514,9 +532,12 @@ impl EditorView {
             .map(|p| p.display().to_string());
         let config = MacroConfig::for_script(path, document_path).map_err(|e| e.to_string())?;
         let timeout_text = format!("{} 秒", config.timeout.as_secs_f64());
-        let (tx, rx) = async_channel::unbounded::<HostEvent>();
+        // Bounded: a script that prints without end waits here (on the host's reader thread)
+        // for the window to catch up, instead of piling up in memory.
+        let (tx, rx) = async_channel::bounded::<HostEvent>(EVENT_BACKLOG);
         let sink: Sink = Arc::new(move |event| {
-            let _ = tx.try_send(event);
+            // Fails only when the window is gone.
+            let _ = tx.send_blocking(event);
         });
         let session = session::start(config, sink).map_err(|e| e.to_string())?;
         self.macros.output.begin();
@@ -540,6 +561,8 @@ impl EditorView {
                 {
                     break;
                 }
+                // Let the window paint and take clicks (the cancel button) between events.
+                yield_now().await;
             }
         })
         .detach();
@@ -558,6 +581,8 @@ impl EditorView {
             }
             HostEvent::Message(text) => {
                 // One call at a time, on the UI thread, against the document on the screen.
+                // An IME composition that the user started ends first, as for a key.
+                self.interrupt_composition(cx);
                 let reply = self.run_with(cx, |command_cx| {
                     bridge::handle_message(Registry::global(), command_cx, &text)
                 });

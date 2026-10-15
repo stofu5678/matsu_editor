@@ -666,3 +666,41 @@ fn a_failing_python_stops_the_key_macro_that_called_it(cx: &mut TestAppContext) 
         "raise RuntimeError('x')\n",
     );
 }
+
+#[gpui::test]
+fn a_call_from_a_script_ends_the_ime_composition_first(cx: &mut TestAppContext) {
+    use gpui::EntityInputHandler;
+    use ume_plugin::session::HostEvent;
+    let (f, cx) = setup(cx, "");
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_and_mark_text_in_range(None, "に", None, window, cx);
+        assert!(v.composing);
+        let call = r#"{"jsonrpc":"2.0","id":1,"method":"InsText","params":["x"]}"#;
+        v.on_host_event(HostEvent::Message(call.into()), window, cx);
+        assert!(!v.composing && v.marked.is_none());
+    });
+    assert_eq!(f.lines(cx), ["にx"]);
+}
+
+#[gpui::test]
+fn a_script_that_prints_a_lot_does_not_block_the_window(cx: &mut TestAppContext) {
+    if !available(Language::JavaScript) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let script = write(
+        dir.path(),
+        "flood.js",
+        "for (let i = 0; i < 30000; i++) console.log('line ' + i);\nEditor.InsText('end');\n",
+    );
+    let (f, cx) = setup(cx, "");
+    f.run(cx, F_EXECEXTMACRO, &[text_arg(&script)]);
+    f.wait_until_done(cx);
+    assert_eq!(f.lines(cx), ["end"]);
+    let output = f.output(cx);
+    assert!(
+        output.contains("line 29999") && output.contains("正常に終了"),
+        "output ends"
+    );
+    assert!(output.lines().count() <= 5000);
+}

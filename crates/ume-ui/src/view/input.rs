@@ -99,7 +99,7 @@ impl EditorView {
     /// Ends a composition that something other than the IME interrupts (a key, a click, a menu or
     /// an edit in another view): its text stays in the document, and its undo block closes, so
     /// that later edits are not undone with it.
-    pub(super) fn interrupt_composition(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn interrupt_composition(&mut self, cx: &mut Context<Self>) {
         self.finish_overwrite(cx);
         self.marked = None;
         self.end_composition(cx);
