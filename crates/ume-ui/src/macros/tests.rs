@@ -1,8 +1,8 @@
 //! Tests of key macros and macro files in GPUI's headless test window.
 //!
 //! The keys are Sakura's defaults (`sakura_core/func/CKeyBind.cpp`, key `M` and `L`): Ctrl+Shift+M
-//! records, Ctrl+L loads, Ctrl+Shift+L plays. `secondary-` is Ctrl on Windows and
-//! Linux and Cmd on macOS, where the key map lets Cmd stand for Ctrl (ADR-0008).
+//! records, Ctrl+M saves, Ctrl+L loads, Ctrl+Shift+L plays. They are pressed with `ctrl-` on every
+//! OS: Control is Sakura's Ctrl on macOS too (ADR-0008, plan A).
 //!
 //! The scripts run with the real Node.js and Python. A test whose interpreter is not installed
 //! prints "SKIP" and passes, as the tests of `ume-plugin` do.
@@ -90,11 +90,8 @@ fn text_arg(path: &Path) -> Arg {
     Arg::Text(path.to_string_lossy().into_owned())
 }
 
-/// Ctrl+M is Sakura's key for it, but on macOS Cmd+M is left to the OS (minimize), so the tests
-/// run the function the way a menu item does.
-const F_SAVEKEYMACRO: u16 = 31251;
-const REC: &str = "secondary-shift-m";
-const EXEC: &str = "secondary-shift-l";
+const REC: &str = "ctrl-shift-m";
+const EXEC: &str = "ctrl-shift-l";
 
 #[test]
 fn files_are_told_apart_by_their_extension() {
@@ -129,7 +126,7 @@ fn the_same_keys_give_the_same_text(cx: &mut TestAppContext) {
     cx.simulate_keystrokes(EXEC);
     assert_eq!(f.lines(cx), ["xyQQz"]);
     // every call is its own undo step
-    cx.simulate_keystrokes("secondary-z");
+    cx.simulate_keystrokes("ctrl-z");
     assert_eq!(f.lines(cx), ["xyQz"]);
 }
 
@@ -182,7 +179,7 @@ fn a_recorded_macro_is_saved_and_loaded_through_the_dialogs(cx: &mut TestAppCont
     cx.simulate_keystrokes("right");
     cx.simulate_input("A");
     // stops the recording and asks for the file
-    f.run(cx, F_SAVEKEYMACRO, &[]);
+    cx.simulate_keystrokes("ctrl-m");
     assert!(!f.view.read_with(cx, |v, _| v.is_recording_key_macro()));
     assert!(cx.did_prompt_for_new_path());
     let chosen = path.clone();
@@ -199,7 +196,7 @@ fn a_recorded_macro_is_saved_and_loaded_through_the_dialogs(cx: &mut TestAppCont
 
     // another window, another document: load, then play
     let (g, cx) = setup(cx, "xyz");
-    cx.simulate_keystrokes("secondary-l");
+    cx.simulate_keystrokes("ctrl-l");
     assert!(cx.did_prompt_for_paths());
     let chosen = path.clone();
     cx.simulate_path_prompt_response(move |_| Some(vec![chosen]));
@@ -211,7 +208,7 @@ fn a_recorded_macro_is_saved_and_loaded_through_the_dialogs(cx: &mut TestAppCont
 #[gpui::test]
 fn a_cancelled_dialog_changes_nothing(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "xyz");
-    cx.simulate_keystrokes("secondary-l");
+    cx.simulate_keystrokes("ctrl-l");
     cx.simulate_path_prompt_response(|_| None);
     cx.run_until_parked();
     cx.simulate_keystrokes(EXEC);
@@ -226,10 +223,10 @@ fn only_a_key_macro_can_be_saved(cx: &mut TestAppContext) {
     let target = dir.path().join("out.mac");
     let (f, cx) = setup(cx, "");
     // load a script as "the key macro", then try to save it (Sakura: STR_ERR_CEDITVIEW_CMD26)
-    cx.simulate_keystrokes("secondary-l");
+    cx.simulate_keystrokes("ctrl-l");
     cx.simulate_path_prompt_response(move |_| Some(vec![script]));
     cx.run_until_parked();
-    f.run(cx, F_SAVEKEYMACRO, &[]);
+    cx.simulate_keystrokes("ctrl-m");
     let chosen = target.clone();
     cx.simulate_new_path_selection(move |_| Some(chosen));
     cx.run_until_parked();
@@ -297,7 +294,7 @@ fn a_macro_file_run_while_recording_is_recorded_as_one_call(cx: &mut TestAppCont
     assert_eq!(f.lines(cx), ["B"]);
     // recording goes on after the macro; its own calls were not recorded
     cx.simulate_input("c");
-    f.run(cx, F_SAVEKEYMACRO, &[]);
+    cx.simulate_keystrokes("ctrl-m");
     let chosen = saved.clone();
     cx.simulate_new_path_selection(move |_| Some(chosen));
     cx.run_until_parked();
@@ -722,7 +719,7 @@ fn a_composition_that_stays_in_the_document_is_recorded(cx: &mut TestAppContext)
     cx.simulate_keystrokes("left");
     cx.simulate_keystrokes(REC);
     assert_eq!(f.lines(cx), ["にほ"]);
-    cx.simulate_keystrokes("secondary-end");
+    cx.simulate_keystrokes("ctrl-end");
     cx.simulate_keystrokes(EXEC);
     assert_eq!(f.lines(cx), ["にほにほ"]);
 }
@@ -738,7 +735,7 @@ fn line_breaks_in_committed_text_are_recorded(cx: &mut TestAppContext) {
     cx.simulate_keystrokes(REC);
     let first = f.lines(cx);
     assert_eq!(first.len(), 2, "{first:?}");
-    cx.simulate_keystrokes("secondary-end");
+    cx.simulate_keystrokes("ctrl-end");
     cx.simulate_keystrokes(EXEC);
     assert_eq!(f.lines(cx), ["p", "qp", "q"]);
 }
