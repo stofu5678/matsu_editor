@@ -11,7 +11,8 @@
 //! * "すべて置換" has two modes (the check box 「すべて置換」は置換の繰返し,
 //!   `m_bConsecutiveAll`, off by default): [`ReplaceAllMode::Batch`] is the `g` option of bregonig.html (5.2, "g: global
 //!   replacement"; Sakura passes it unless the check box is on), one
-//!   pass over each line that searches the line as it was before any replacement;
+//!   pass over each line that searches the line as it was before any replacement (that look-behind
+//!   sees the original text is not in bregonig.html; to check against the real bregonig.dll);
 //!   [`ReplaceAllMode::Repeat`] replaces one match, searches again from the caret and so on.
 //!   They differ when a replacement changes what a later match sees (look-behind, `\b`, `\G`).
 

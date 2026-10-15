@@ -626,9 +626,11 @@ fn replace_all_at_line_starts_and_ends() {
 
 #[test]
 fn batch_mode_searches_the_line_as_it_was() {
-    // `(?<=a)a`: the look-behind of the second match sees the original `a`. This is the `g` option
-    // of bregonig.html 5.2 (one pass over the line), which Sakura uses unless 「すべて置換」は置換の繰返し
-    // is on (sakura_core/cmd/CViewCommander_Search.cpp: optGlobal unless bConsecutiveAll).
+    // `(?<=a)a`: the look-behind of the second match sees the original `a`. Sakura uses the `g`
+    // option (bregonig.html 5.2, "global replacement") unless 「すべて置換」は置換の繰返し is on
+    // (sakura_core/cmd/CViewCommander_Search.cpp: optGlobal unless bConsecutiveAll). That a
+    // look-behind sees the original text is not in bregonig.html; to check against the real
+    // bregonig.dll.
     let (text, n) = replace_all_with(
         "(?<=a)a",
         "X",
