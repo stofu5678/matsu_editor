@@ -9,7 +9,7 @@ on:
   workflow_call:
     inputs:
       ref:
-        description: Commit to build (default: the commit of the calling run)
+        description: Commit to build (default is the commit of the calling run)
         type: string
         default: ''
       artifact-prefix:
