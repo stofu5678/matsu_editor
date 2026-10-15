@@ -535,3 +535,134 @@ fn run_function_says_whether_the_command_succeeded(cx: &mut TestAppContext) {
     assert!(!missing);
     assert_eq!(f.lines(cx), ["A"]);
 }
+
+fn call_line(path: &Path) -> String {
+    format!(
+        "ExecExternalMacro('{}');\n",
+        path.to_string_lossy().replace('\\', "\\\\")
+    )
+}
+
+#[gpui::test]
+fn a_macro_file_that_calls_itself_is_refused(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("loop.mac");
+    std::fs::write(&path, format!("Char(65);\n{}Char(66);\n", call_line(&path))).unwrap();
+    let (f, cx) = setup(cx, "");
+    f.run(cx, F_EXECEXTMACRO, &[text_arg(&path)]);
+    cx.run_until_parked();
+    // A ran, then the call to itself failed and stopped the macro
+    assert_eq!(f.lines(cx), ["A"]);
+    assert!(f.output(cx).contains("自分自身"), "{}", f.output(cx));
+    assert!(!f.running(cx));
+    // the guard is reset: the same file can be run again
+    f.run(cx, F_EXECEXTMACRO, &[text_arg(&path)]);
+    assert_eq!(f.lines(cx), ["AA"]);
+}
+
+#[gpui::test]
+fn two_macro_files_that_call_each_other_are_refused(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("a.mac");
+    let b = dir.path().join("b.mac");
+    std::fs::write(&a, format!("Char(65);\n{}", call_line(&b))).unwrap();
+    std::fs::write(&b, format!("Char(66);\n{}", call_line(&a))).unwrap();
+    let (f, cx) = setup(cx, "");
+    f.run(cx, F_EXECEXTMACRO, &[text_arg(&a)]);
+    cx.run_until_parked();
+    assert_eq!(f.lines(cx), ["AB"]);
+    assert!(f.output(cx).contains("自分自身"), "{}", f.output(cx));
+}
+
+#[gpui::test]
+fn the_same_file_may_be_called_twice_in_a_row(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let inner = write(dir.path(), "inner.mac", "Char(66);\n");
+    let outer = write(
+        dir.path(),
+        "outer.mac",
+        &format!("{}{}", call_line(&inner), call_line(&inner)),
+    );
+    let (f, cx) = setup(cx, "");
+    f.run(cx, F_EXECEXTMACRO, &[text_arg(&outer)]);
+    cx.run_until_parked();
+    assert_eq!(f.lines(cx), ["BB"]);
+}
+
+#[gpui::test]
+fn nesting_has_a_limit(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let count = super::MAX_NESTING + 2;
+    for i in 0..count {
+        let text = if i + 1 < count {
+            call_line(&dir.path().join(format!("n{}.mac", i + 1)))
+        } else {
+            "Char(65);\n".to_string()
+        };
+        std::fs::write(dir.path().join(format!("n{i}.mac")), text).unwrap();
+    }
+    let (f, cx) = setup(cx, "");
+    f.run(cx, F_EXECEXTMACRO, &[text_arg(&dir.path().join("n0.mac"))]);
+    cx.run_until_parked();
+    assert!(f.lines(cx).concat().is_empty());
+    assert!(
+        f.output(cx).contains("入れ子が深すぎます"),
+        "{}",
+        f.output(cx)
+    );
+}
+
+fn failing_script_stops_the_key_macro(
+    cx: &mut TestAppContext,
+    language: Language,
+    name: &str,
+    code: &str,
+) {
+    if !available(language) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let script = write(dir.path(), name, code);
+    let outer = write(
+        dir.path(),
+        "outer.mac",
+        &format!("Char(65);\n{}Char(66);\n", call_line(&script)),
+    );
+    let (f, cx) = setup(cx, "");
+    f.run(cx, F_EXECEXTMACRO, &[text_arg(&outer)]);
+    f.wait_until_done(cx);
+    assert_eq!(f.lines(cx), ["A"]);
+    assert!(
+        f.output(cx).contains("エラーで終了しました"),
+        "{}",
+        f.output(cx)
+    );
+    assert!(f.output(cx).contains("2 番目"), "{}", f.output(cx));
+    // nothing is left waiting: the next key macro runs
+    f.run(
+        cx,
+        F_EXECEXTMACRO,
+        &[text_arg(&write(dir.path(), "next.mac", "Char(67);\n"))],
+    );
+    assert_eq!(f.lines(cx), ["AC"]);
+}
+
+#[gpui::test]
+fn a_failing_javascript_stops_the_key_macro_that_called_it(cx: &mut TestAppContext) {
+    failing_script_stops_the_key_macro(
+        cx,
+        Language::JavaScript,
+        "fail.js",
+        "throw new Error('x');\n",
+    );
+}
+
+#[gpui::test]
+fn a_failing_python_stops_the_key_macro_that_called_it(cx: &mut TestAppContext) {
+    failing_script_stops_the_key_macro(
+        cx,
+        Language::Python,
+        "fail.py",
+        "raise RuntimeError('x')\n",
+    );
+}

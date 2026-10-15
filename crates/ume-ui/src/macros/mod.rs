@@ -42,7 +42,9 @@ use ume_commands::macro_names;
 use ume_commands::registry::Registry;
 use ume_commands::sakura::FUNCTIONS;
 use ume_plugin::bridge;
-use ume_plugin::session::{self, HostEvent, Language, MacroConfig, Session, Sink, Stream};
+use ume_plugin::session::{
+    self, EndReason, HostEvent, Language, MacroConfig, Session, Sink, Stream,
+};
 
 use crate::view::EditorView;
 use output::PanelActions;
@@ -86,6 +88,16 @@ pub(crate) fn file_kind(path: &Path) -> FileKind {
     }
 }
 
+/// What the queue of a playing key macro holds.
+enum Item {
+    Call(Step),
+    /// The macro file that began before this ends here.
+    Leave,
+}
+
+/// The deepest nesting of macro files (a `.mac` that names a `.mac`). Sakura has no limit.
+const MAX_NESTING: usize = 16;
+
 struct Running {
     session: Session,
     name: String,
@@ -98,7 +110,12 @@ pub(crate) struct MacroState {
     recorder: KeyMacroRecorder,
     current: Option<CurrentMacro>,
     /// The calls of a key macro that have not run yet. A call that starts a script waits for it.
-    queue: VecDeque<Step>,
+    queue: VecDeque<Item>,
+    /// The macro files that are being played, outermost first (for the cycle check).
+    active: Vec<PathBuf>,
+    /// `drain_key_macro` is on the stack: a macro file named by a call joins the queue and the
+    /// loop that is running goes on with it, so playback never recurses.
+    draining: bool,
     /// How many calls of the queue have run.
     played: usize,
     /// A macro is running: the commands it runs are not recorded.
@@ -307,8 +324,7 @@ impl EditorView {
             // Nothing to play; Sakura greys the item out.
             None => Ok(()),
             Some(CurrentMacro::Recorded(key_macro)) => {
-                self.start_key_macro(key_macro.steps().to_vec(), window, cx);
-                Ok(())
+                self.start_key_macro(key_macro.steps().to_vec(), None, window, cx)
             }
             Some(CurrentMacro::File(path)) => self.run_macro_file(&path, window, cx),
         };
@@ -376,8 +392,7 @@ impl EditorView {
             FileKind::KeyMacro => {
                 let key_macro =
                     KeyMacro::load(path).map_err(|e| format!("{}: {e}", path.display()))?;
-                self.start_key_macro(key_macro.steps().to_vec(), window, cx);
-                Ok(())
+                self.start_key_macro(key_macro.steps().to_vec(), Some(path), window, cx)
             }
             FileKind::Script(_) => self.start_script(path, window, cx),
             FileKind::Unknown => Err(format!(
@@ -389,25 +404,70 @@ impl EditorView {
 
     // ---- playing a key macro ----
 
-    fn start_key_macro(&mut self, steps: Vec<Step>, window: &mut Window, cx: &mut Context<Self>) {
+    /// Plays `steps`. `file` is the macro file they came from, if any: a file that is already
+    /// being played, or nesting deeper than [`MAX_NESTING`], is refused (Sakura would recurse
+    /// until the stack ends).
+    fn start_key_macro(
+        &mut self,
+        steps: Vec<Step>,
+        file: Option<&Path>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let mut items: Vec<Item> = Vec::with_capacity(steps.len() + 1);
+        if let Some(file) = file {
+            let id = std::fs::canonicalize(file).unwrap_or_else(|_| file.to_path_buf());
+            if self.macros.active.contains(&id) {
+                return Err(format!(
+                    "{}: マクロが自分自身を呼んでいます",
+                    file.display()
+                ));
+            }
+            if self.macros.active.len() >= MAX_NESTING {
+                return Err(format!(
+                    "{}: マクロの入れ子が深すぎます (最大 {MAX_NESTING})",
+                    file.display()
+                ));
+            }
+            self.macros.active.push(id);
+            items.extend(steps.into_iter().map(Item::Call));
+            items.push(Item::Leave);
+        } else {
+            items.extend(steps.into_iter().map(Item::Call));
+        }
         // A macro file named by a key macro that is playing runs in its place, and the rest of
         // the outer macro follows.
         if self.macros.queue.is_empty() {
             self.macros.played = 0;
         }
-        for step in steps.into_iter().rev() {
-            self.macros.queue.push_front(step);
+        for item in items.into_iter().rev() {
+            self.macros.queue.push_front(item);
         }
         self.macros.suspended = true;
-        self.drain_key_macro(window, cx);
+        if !self.macros.draining {
+            self.drain_key_macro(window, cx);
+        }
+        Ok(())
+    }
+
+    /// Drops what is left of the key macro that is playing.
+    fn clear_key_macro(&mut self) {
+        self.macros.queue.clear();
+        self.macros.active.clear();
     }
 
     /// Runs the calls of the key macro one after the other, as the keys would. It stops at the
     /// first call that fails (`CKeyMacroMgr::ExecKeyMacro`), and waits while a script runs.
     fn drain_key_macro(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.macros.draining = true;
         while self.macros.running.is_none() {
-            let Some(step) = self.macros.queue.pop_front() else {
-                break;
+            let step = match self.macros.queue.pop_front() {
+                None => break,
+                Some(Item::Leave) => {
+                    self.macros.active.pop();
+                    continue;
+                }
+                Some(Item::Call(step)) => step,
             };
             self.macros.played += 1;
             // Only the declared arguments are passed (as `KeyMacro::play` does).
@@ -417,7 +477,7 @@ impl EditorView {
             // The result says whether the call failed; a notice may also come with a success.
             if !self.run_function(step.code, args, window, cx) {
                 let notice = self.notice.clone().unwrap_or_default();
-                self.macros.queue.clear();
+                self.clear_key_macro();
                 let message = format!(
                     "キーマクロの {} 番目の呼び出し ({}) で止まりました: {notice}",
                     self.macros.played,
@@ -428,6 +488,7 @@ impl EditorView {
                 break;
             }
         }
+        self.macros.draining = false;
         if self.macros.running.is_none() && self.macros.queue.is_empty() {
             self.macros.suspended = false;
         }
@@ -515,7 +576,18 @@ impl EditorView {
                 }
                 self.macros.output.push(Kind::Note, message.clone());
                 self.notice = Some(format!("マクロ {name}: {message}"));
-                // A key macro that started this script goes on.
+                // A key macro that started this script goes on if the script succeeded, and
+                // stops there if it failed, timed out or was cancelled (like a call that fails).
+                let succeeded =
+                    finished.reason == EndReason::Exited && finished.exit_code == Some(0);
+                if !succeeded && !self.macros.queue.is_empty() {
+                    let played = self.macros.played;
+                    self.clear_key_macro();
+                    self.macros.output.push(
+                        Kind::Note,
+                        format!("キーマクロの {played} 番目の呼び出し ({name}) で止まりました"),
+                    );
+                }
                 self.drain_key_macro(window, cx);
             }
         }
@@ -524,7 +596,7 @@ impl EditorView {
 
     /// Stops the macro that is running, and drops the rest of a key macro that waits for it.
     pub fn cancel_macro(&mut self, cx: &mut Context<Self>) {
-        self.macros.queue.clear();
+        self.clear_key_macro();
         match &self.macros.running {
             // `Finished` follows with `Cancelled`.
             Some(running) => running.session.cancel(),
