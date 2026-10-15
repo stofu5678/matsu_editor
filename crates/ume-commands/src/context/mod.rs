@@ -14,6 +14,7 @@
 //! The methods that several commands share (moves, delete, insert at the caret) live here, so a
 //! command file only says *which* of them to call (see `crate::commands`).
 
+mod convert;
 mod indent;
 mod lines;
 mod motion;
