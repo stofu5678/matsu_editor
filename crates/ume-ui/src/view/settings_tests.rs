@@ -188,3 +188,33 @@ fn a_wrap_change_keeps_the_caret_in_view(cx: &mut TestAppContext) {
         assert!(row >= v.scroll_y() && row < v.scroll_y() + v.metrics().view_height);
     });
 }
+
+#[gpui::test]
+fn a_remapped_wheel_scrolls_the_way_its_function_says(cx: &mut TestAppContext) {
+    use gpui::{Modifiers, ScrollDelta, ScrollWheelEvent, TouchPhase, point, px};
+    let (view, cx) = setup(cx, &"line\n".repeat(200));
+    // Wheel up (key 0x0107) with no modifier is F_WHEELDOWN (30386) here.
+    let settings = user(
+        "[KeyBind]\r\nKeyBind[000]=0107,30386,30385,31122,30385,30385,30385,30385,30385,x\r\n",
+    );
+    view.update(cx, |v, cx| v.apply_user_settings(&settings, cx));
+    let wheel_up = ScrollWheelEvent {
+        position: point(px(100.), px(100.)),
+        delta: ScrollDelta::Lines(point(0., 1.)),
+        modifiers: Modifiers::default(),
+        touch_phase: TouchPhase::Moved,
+    };
+    cx.simulate_event(wheel_up);
+    assert!(view.read_with(cx, |v, _| v.scroll_y()) > 0.0);
+}
+
+#[gpui::test]
+fn zooming_keeps_the_same_text_at_the_top(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, &"line\n".repeat(200));
+    view.update(cx, |v, cx| v.run_command("go_file_end", &[], cx));
+    let before = view.read_with(cx, |v, _| (v.font_px(), v.scroll_y()));
+    run(&view, cx, 31122); // F_SETFONTSIZEUP
+    let (size, scroll) = view.read_with(cx, |v, _| (v.font_px(), v.scroll_y()));
+    assert!(size > before.0);
+    assert!(scroll > before.1, "{scroll} should follow the taller rows");
+}

@@ -219,7 +219,14 @@ impl EditorView {
             return;
         };
         self.prefs.zoom = zoom;
+        let old = self.font_size;
         self.font_size = points_to_px(tenths as i32);
+        // Keep the same text at the top left of the view: the scroll offsets are in pixels.
+        // The line height is the font size times 1.5, rounded (see `Render for EditorView`).
+        let line_height = |size: f32| (size * 1.5).round();
+        self.scroll_y *= line_height(self.font_size) / line_height(old);
+        self.scroll_x *= self.font_size / old;
+        // The metrics follow at the next paint, which brings the caret into view if it left.
         cx.notify();
     }
 
@@ -231,7 +238,7 @@ impl EditorView {
 
     /// Ctrl+wheel and the other wheel chords of the key map (Sakura's table has the wheel as a
     /// key: `VKEX_WHEEL_UP`, `sakura_core/func/CKeyBind.cpp`). Runs the function of the chord
-    /// and returns true, unless it is the plain scroll, which the caller does.
+    /// and returns true. Returns false for a chord without a function (the caller scrolls).
     pub(crate) fn run_wheel_function(
         &mut self,
         event: &gpui::ScrollWheelEvent,
@@ -263,7 +270,19 @@ impl EditorView {
             },
         );
         match self.keymap.resolve(chord) {
-            Resolved::Code(code) if code != F_WHEELUP && code != F_WHEELDOWN => {
+            // The function decides the direction, not the wheel: a user may bind wheel up to
+            // F_WHEELDOWN.
+            Resolved::Code(code @ (F_WHEELUP | F_WHEELDOWN)) => {
+                let amount = if code == F_WHEELUP {
+                    dy.abs()
+                } else {
+                    -dy.abs()
+                };
+                self.scroll_by(f32::from(delta.x), amount);
+                cx.notify();
+                true
+            }
+            Resolved::Code(code) => {
                 self.run_function(code, &[], window, cx);
                 true
             }

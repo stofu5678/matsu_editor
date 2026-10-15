@@ -71,8 +71,10 @@ pub struct Colors {
     pub line_number: Rgb,
     pub line_number_background: Rgb,
     pub caret: Rgb,
-    /// The background of the selection, mixed the way Sakura does (see [`selection_background`]).
+    /// The background of the selection (see [`selection_colors`]).
     pub selection: Rgb,
+    /// The color of selected text; the same as `text` when the selection leaves it alone.
+    pub selection_text: Rgb,
     pub tab: Rgb,
     pub full_width_space: Rgb,
     pub eol: Rgb,
@@ -159,6 +161,38 @@ pub fn selection_background(
         return under ^ 0x00ff_ffff;
     }
     mix(selection.back, under, 255 * 30 / 100)
+}
+
+/// `GetTextColorByColorInfo2`: the same rule for the text color of the selection.
+pub fn selection_text(
+    selection: &ColorEntry,
+    window_background: ColorRef,
+    under: ColorRef,
+) -> ColorRef {
+    if selection.text != selection.back {
+        return selection.text;
+    }
+    if selection.back == window_background {
+        return under ^ 0x00ff_ffff;
+    }
+    mix(selection.text, under, 255 * 30 / 100)
+}
+
+/// The text and background colors of selected text, given the entry `SEL`, the text entry
+/// `TXT` and the background that is under the selection.
+///
+/// With `SEL` shown (`disp`), Sakura paints the selection with its own colors by the two rules
+/// above (`CEditView::GetTextColorByColorInfo2` and `GetBackColorByColorInfo2`, applied over
+/// the colors of the text under it). With `SEL` not shown it inverts the screen area
+/// (`CViewSelect::DrawSelectArea`, `bDispText`); here both colors are inverted.
+pub fn selection_colors(selection: &ColorEntry, text: &ColorEntry) -> (ColorRef, ColorRef) {
+    if !selection.disp {
+        return (text.text ^ 0x00ff_ffff, text.back ^ 0x00ff_ffff);
+    }
+    (
+        selection_text(selection, text.back, text.text),
+        selection_background(selection, text.back, text.back),
+    )
 }
 
 /// `MakeColor2`: `(a * alpha + b * (256 - alpha)) / 256` for each of R, G and B.
@@ -268,7 +302,8 @@ impl ViewSettings {
                 line_number: rgb_of(line_number.text),
                 line_number_background: rgb_of(line_number.back),
                 caret: rgb_of(caret.text),
-                selection: rgb_of(selection_background(&selection, text.back, text.back)),
+                selection: rgb_of(selection_colors(&selection, &text).1),
+                selection_text: rgb_of(selection_colors(&selection, &text).0),
                 tab: rgb_of(tab.text),
                 full_width_space: rgb_of(zen.text),
                 eol: rgb_of(eol.text),
@@ -535,5 +570,41 @@ mod tests {
             selection_background(&same, under, under),
             under ^ 0x00ff_ffff
         );
+    }
+
+    fn entry(disp: bool, text: ColorRef, back: ColorRef) -> ColorEntry {
+        ColorEntry {
+            disp,
+            bold: false,
+            underline: false,
+            text,
+            back,
+        }
+    }
+
+    #[test]
+    fn a_selection_with_its_own_colors_keeps_both() {
+        // White on black over black text on white: the text must not stay black.
+        let (text, back) = selection_colors(
+            &entry(true, 0x00ff_ffff, 0x0000_0000),
+            &entry(true, 0x0000_0000, 0x00ff_ffff),
+        );
+        assert_eq!((text, back), (0x00ff_ffff, 0x0000_0000));
+    }
+
+    #[test]
+    fn a_selection_without_distinct_colors_mixes_the_text_color_too() {
+        let sel = entry(true, 0x00c5_6a31, 0x00c5_6a31);
+        let (text, _) = selection_colors(&sel, &entry(true, 0, 0x00f0_fbff));
+        // 30% of the selection color over black text: (49*76/256, ...).
+        assert_eq!(text & 0xff, 49 * 76 / 256);
+        assert_eq!((text >> 16) & 0xff, 197 * 76 / 256);
+    }
+
+    #[test]
+    fn a_hidden_selection_color_inverts() {
+        let (text, back) =
+            selection_colors(&entry(false, 1, 2), &entry(true, 0x0000_0000, 0x00ff_ffff));
+        assert_eq!((text, back), (0x00ff_ffff, 0x0000_0000));
     }
 }

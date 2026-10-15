@@ -58,6 +58,9 @@ struct RowPaint {
     selection: Option<(u32, u32)>,
     numbers: Option<ShapedLine>,
     text: Vec<Placed>,
+    /// The same pieces in the color of selected text, when that differs from the text color and
+    /// the row has a selection.
+    selected_text: Vec<Placed>,
     marks: Vec<Placed>,
     /// The columns of the IME composition on this row.
     marked: Option<(u32, u32)>,
@@ -181,14 +184,26 @@ impl Element for EditorElement {
                         colors.line_number,
                     )
                 });
+            let selected =
+                selection.and_then(|s| selected_columns(layout, doc, row, s).ok().flatten());
+            let own_selection_color = selected.is_some() && colors.selection_text != colors.text;
             let mut text = Vec::new();
+            let mut selected_text = Vec::new();
             let mut marks = Vec::new();
             for seg in row_segments(row.text(), row.start_column, layout.config()) {
                 match seg.kind {
-                    SegmentKind::Text => text.push(Placed {
-                        col: seg.col,
-                        line: shape(window, &seg.text, colors.text),
-                    }),
+                    SegmentKind::Text => {
+                        if own_selection_color {
+                            selected_text.push(Placed {
+                                col: seg.col,
+                                line: shape(window, &seg.text, colors.selection_text),
+                            });
+                        }
+                        text.push(Placed {
+                            col: seg.col,
+                            line: shape(window, &seg.text, colors.text),
+                        });
+                    }
                     SegmentKind::Tab if marks_shown.tab => marks.push(Placed {
                         col: seg.col,
                         line: shape(window, TAB_MARK, colors.tab),
@@ -222,8 +237,6 @@ impl Element for EditorElement {
                     line: shape(window, EOF_MARK, colors.eof),
                 });
             }
-            let selected =
-                selection.and_then(|s| selected_columns(layout, doc, row, s).ok().flatten());
             let marked_cols = marked
                 .as_ref()
                 .filter(|m| m.line == row.start.line)
@@ -240,6 +253,7 @@ impl Element for EditorElement {
                 selection: selected,
                 numbers,
                 text,
+                selected_text,
                 marks,
                 marked: marked_cols,
             });
@@ -361,18 +375,51 @@ impl Element for EditorElement {
                             )
                             .ok();
                     }
-                    for placed in &row.text {
-                        placed
-                            .line
-                            .paint(
-                                point(x_of(placed.col), y),
-                                lh,
-                                TextAlign::Left,
-                                None,
-                                window,
-                                cx,
-                            )
-                            .ok();
+                    // Selected text has its own color when the selection says so: the pieces in
+                    // that color are painted inside the selection, the others outside it.
+                    let inside = row.selection.map(|(from, to)| {
+                        Bounds::from_corners(point(x_of(from), y), point(x_of(to), y + lh))
+                    });
+                    let masks: Vec<(Bounds<Pixels>, &Vec<Placed>)> = match inside {
+                        Some(inside) if !row.selected_text.is_empty() => {
+                            let (left, right) = (text_bounds.left(), text_bounds.right());
+                            vec![
+                                (
+                                    Bounds::from_corners(
+                                        point(left, y),
+                                        point(inside.left().max(left), y + lh),
+                                    ),
+                                    &row.text,
+                                ),
+                                (inside, &row.selected_text),
+                                (
+                                    Bounds::from_corners(
+                                        point(inside.right().min(right), y),
+                                        point(right, y + lh),
+                                    ),
+                                    &row.text,
+                                ),
+                            ]
+                        }
+                        _ => vec![(text_bounds, &row.text)],
+                    };
+                    for (mask, pieces) in masks {
+                        let mask = mask.intersect(&text_bounds);
+                        window.with_content_mask(Some(ContentMask { bounds: mask }), |window| {
+                            for placed in pieces {
+                                placed
+                                    .line
+                                    .paint(
+                                        point(x_of(placed.col), y),
+                                        lh,
+                                        TextAlign::Left,
+                                        None,
+                                        window,
+                                        cx,
+                                    )
+                                    .ok();
+                            }
+                        });
                     }
                     if let Some((from, to)) = row.marked {
                         window.paint_quad(fill(
@@ -423,7 +470,14 @@ impl Element for EditorElement {
         };
         let widest = p.widest;
         self.editor.update(cx, |editor, cx| {
+            let measured_before = editor.metrics;
             editor.metrics = metrics;
+            if measured_before.line_height != metrics.line_height
+                || measured_before.cell_width != metrics.cell_width
+            {
+                // A new font size: the caret may have left the view.
+                editor.ensure_caret_visible(cx);
+            }
             editor.paint = Some(paint_info);
             editor.widest_cols = widest;
             // Wrapping at the right edge: the width is known only now.
