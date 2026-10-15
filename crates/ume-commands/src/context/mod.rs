@@ -14,6 +14,7 @@
 //! The methods that several commands share (moves, delete, insert at the caret) live here, so a
 //! command file only says *which* of them to call (see `crate::commands`).
 
+mod clipboard;
 mod convert;
 mod indent;
 mod lines;
@@ -26,9 +27,11 @@ use ume_core::buffer::{Document, Edit, Eol, Pos};
 use ume_core::cursor::Cursor;
 use ume_core::model::DocumentModel;
 
+use crate::clipboard::Clipboard;
 use crate::command::Result;
 use crate::layout::Layout;
 
+pub(crate) use clipboard::QUOTE;
 pub(crate) use motion::is_indent_char;
 
 /// One edit of the text, in the coordinates of the document before the edit for `old_end` and
@@ -104,6 +107,8 @@ pub struct CommandContext<'a> {
     cursor: &'a mut Cursor,
     layout: &'a mut dyn Layout,
     path: Option<&'a Path>,
+    /// The clipboard, if the caller attached one ([`with_clipboard`](Self::with_clipboard)).
+    clipboard: Option<&'a mut dyn Clipboard>,
     /// The cursor when the context was made, to tell what moved.
     start: Cursor,
     changes: Changes,
@@ -122,9 +127,18 @@ impl<'a> CommandContext<'a> {
             cursor,
             layout,
             path,
+            clipboard: None,
             start,
             changes: Changes::default(),
         }
+    }
+
+    /// Attaches the clipboard that the clipboard commands use. A context without one answers
+    /// those commands with [`CommandError::Unavailable`](crate::command::CommandError::Unavailable).
+    #[must_use]
+    pub fn with_clipboard(mut self, clipboard: &'a mut dyn Clipboard) -> Self {
+        self.clipboard = Some(clipboard);
+        self
     }
 
     /// Ends the context and returns what changed.

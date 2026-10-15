@@ -47,6 +47,7 @@ use ume_core::buffer::{Document, Eol, Pos};
 use ume_core::cursor::Cursor;
 use ume_core::model::{DocumentModel, eol_text};
 
+use crate::clipboard::{ClipData, ClipKind, MemoryClipboard};
 use crate::command::{Arg, CommandError};
 use crate::context::{Changes, CommandContext};
 use crate::layout::PlainLayout;
@@ -158,6 +159,7 @@ pub struct Editor {
     cursor: Cursor,
     layout: PlainLayout,
     path: Option<PathBuf>,
+    clipboard: MemoryClipboard,
     changes: Changes,
 }
 
@@ -179,6 +181,7 @@ impl Editor {
             cursor,
             layout: PlainLayout::default(),
             path: None,
+            clipboard: MemoryClipboard::default(),
             changes: Changes::default(),
         }
     }
@@ -188,6 +191,26 @@ impl Editor {
     pub fn with_new_line(mut self, eol: Eol) -> Self {
         self.model.set_new_line(eol);
         self
+    }
+
+    /// Sets the path of the document (for the commands that copy it).
+    #[must_use]
+    pub fn with_path(mut self, path: &str) -> Self {
+        self.path = Some(PathBuf::from(path));
+        self
+    }
+
+    /// Puts `text` on the clipboard as `kind`.
+    #[must_use]
+    pub fn with_clipboard(mut self, text: &str, kind: ClipKind) -> Self {
+        use crate::clipboard::Clipboard;
+        self.clipboard.set(ClipData::new(text, kind));
+        self
+    }
+
+    /// The content of the clipboard.
+    pub fn clipboard(&self) -> Option<&ClipData> {
+        self.clipboard.data()
     }
 
     /// Runs the command `id` with no arguments. Panics if the command fails.
@@ -209,7 +232,8 @@ impl Editor {
             &mut self.cursor,
             &mut self.layout,
             self.path.as_deref(),
-        );
+        )
+        .with_clipboard(&mut self.clipboard);
         let result = Registry::global().run(id, &mut cx, args);
         self.changes = cx.finish();
         result

@@ -196,10 +196,12 @@ impl EditorView {
         let document = self.document.clone();
         let layout = &mut self.layout;
         let cursor = &mut self.cursor;
-        let (result, changes) = document.update(cx, |shared, _| {
+        let (result, changes) = document.update(cx, |shared, cx| {
             let (model, path) = shared.parts_mut();
             let mut adapter = RowLayout(layout);
-            let mut command_cx = CommandContext::new(model, cursor, &mut adapter, path);
+            let mut clipboard = crate::clipboard::GpuiClipboard(cx);
+            let mut command_cx = CommandContext::new(model, cursor, &mut adapter, path)
+                .with_clipboard(&mut clipboard);
             let result = f(&mut command_cx);
             (result, command_cx.finish())
         });

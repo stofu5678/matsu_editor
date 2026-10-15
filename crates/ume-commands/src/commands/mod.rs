@@ -7,6 +7,7 @@
 //!
 //! The groups follow Sakura's: editing, cursor movement, selection, conversion, insertion.
 
+pub mod clipboard;
 pub mod convert;
 pub mod cursor;
 pub mod edit;

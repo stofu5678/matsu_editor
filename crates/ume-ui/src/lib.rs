@@ -16,6 +16,7 @@
 //!   rows and columns), [`segments`] (what to paint in a row), [`word`] and [`status`].
 
 pub mod app;
+mod clipboard;
 pub mod document;
 pub mod geometry;
 pub mod hit;
