@@ -284,18 +284,14 @@ impl EditorView {
             // The function decides the direction, not the wheel: a user may bind wheel up to
             // F_WHEELDOWN.
             Resolved::Code(code @ (F_WHEELUP | F_WHEELDOWN | F_WHEELLEFT | F_WHEELRIGHT)) => {
+                // The amount of the event, from whichever axis it has; the function gives the
+                // direction.
+                let n = if dy != 0.0 { dy.abs() } else { dx.abs() };
                 let (dx, dy) = match code {
-                    F_WHEELUP => (dx, dy.abs()),
-                    F_WHEELDOWN => (dx, -dy.abs()),
-                    F_WHEELLEFT => (dx.abs(), 0.0),
-                    _ => (-dx.abs(), 0.0),
-                };
-                // A vertical function given a horizontal-only event scrolls by the same amount.
-                let (dx, dy) = if matches!(code, F_WHEELUP | F_WHEELDOWN) && dy == 0.0 {
-                    let n = f32::from(delta.x).abs();
-                    (0.0, if code == F_WHEELUP { n } else { -n })
-                } else {
-                    (dx, dy)
+                    F_WHEELUP => (if dy != 0.0 { dx } else { 0.0 }, n),
+                    F_WHEELDOWN => (if dy != 0.0 { dx } else { 0.0 }, -n),
+                    F_WHEELLEFT => (n, 0.0),
+                    _ => (-n, 0.0),
                 };
                 self.scroll_by(dx, dy);
                 cx.notify();

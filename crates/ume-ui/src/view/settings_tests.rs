@@ -238,3 +238,21 @@ fn horizontal_wheel_bindings_are_resolved_too(cx: &mut TestAppContext) {
     });
     assert!(view.read_with(cx, |v, _| v.scroll_x) > 0.0);
 }
+
+#[gpui::test]
+fn a_vertical_wheel_bound_to_a_horizontal_function_scrolls_sideways(cx: &mut TestAppContext) {
+    use gpui::{Modifiers, ScrollDelta, ScrollWheelEvent, TouchPhase, point, px};
+    let (view, cx) = setup(cx, &"x".repeat(1000));
+    // Wheel down (key 0x0108) with no modifier is F_WHEELRIGHT (30388).
+    let settings = user(
+        "[KeyBind]\r\nKeyBind[000]=0108,30388,30386,30386,30386,30386,30386,30386,30386,x\r\n",
+    );
+    view.update(cx, |v, cx| v.apply_user_settings(&settings, cx));
+    cx.simulate_event(ScrollWheelEvent {
+        position: point(px(100.), px(100.)),
+        delta: ScrollDelta::Lines(point(0., -1.)),
+        modifiers: Modifiers::default(),
+        touch_phase: TouchPhase::Moved,
+    });
+    assert!(view.read_with(cx, |v, _| v.scroll_x) > 0.0);
+}
