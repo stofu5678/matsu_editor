@@ -280,6 +280,18 @@ fn clamp_to(value: i32, min: i32, max: i32) -> i32 {
     min.max(max.min(value))
 }
 
+/// The new-file values that one `Types(N)` section sets ([`TypeSettings::new_file_keys`]); `None`
+/// where the section has no (usable) value.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct NewFileKeys {
+    /// `eDefaultCodetype` ([`code_type`]).
+    pub codetype: Option<i32>,
+    /// `eDefaultEoltype` ([`eol_type`]).
+    pub eoltype: Option<i32>,
+    /// `bDefaultBom`.
+    pub bom: Option<bool>,
+}
+
 impl TypeSettings {
     /// The section name for a type index: `Types(0)`.
     pub fn section_name(index: i32) -> String {
@@ -424,6 +436,19 @@ impl TypeSettings {
         let mut t = TypeSettings::basic();
         t.read_over(profile, index);
         t
+    }
+
+    /// Which of the new-file values (`eDefaultCodetype`, `eDefaultEoltype`, `bDefaultBom`) the
+    /// `Types(N)` section of type `index` sets itself. [`read`](Self::read) cannot tell a value
+    /// the file sets from the built-in default; UME Editor needs to, because its default for the
+    /// line ending is not Sakura's (it follows the OS when the file does not say).
+    pub fn new_file_keys(profile: &Profile, index: i32) -> NewFileKeys {
+        let s = Self::section_name(index);
+        NewFileKeys {
+            codetype: profile.get_i32(&s, "eDefaultCodetype"),
+            eoltype: profile.get_i32(&s, "eDefaultEoltype"),
+            bom: profile.get_bool(&s, "bDefaultBom"),
+        }
     }
 
     /// Writes the settings to the `Types(N)` section of type `index`. Entries that already hold the same
@@ -647,6 +672,29 @@ mod tests {
         assert_eq!(t.type_exts, "x".repeat(63));
         let p = Profile::from_bytes(&utf8("[Types(0)]\r\nszTabViewString=123456789\r\n"));
         assert_eq!(TypeSettings::read(&p, 0).tab_view_string, "^       ");
+    }
+
+    #[test]
+    fn tells_which_new_file_values_the_section_sets() {
+        let p = Profile::from_bytes(&utf8(
+            "[Types(1)]\r\neDefaultEoltype=2\r\nbDefaultBom=0\r\n[Types(2)]\r\neDefaultCodetype=0\r\n",
+        ));
+        assert_eq!(
+            TypeSettings::new_file_keys(&p, 1),
+            NewFileKeys {
+                codetype: None,
+                eoltype: Some(eol_type::LF),
+                bom: Some(false),
+            }
+        );
+        assert_eq!(
+            TypeSettings::new_file_keys(&p, 2),
+            NewFileKeys {
+                codetype: Some(code_type::SJIS),
+                ..NewFileKeys::default()
+            }
+        );
+        assert_eq!(TypeSettings::new_file_keys(&p, 3), NewFileKeys::default());
     }
 
     #[test]

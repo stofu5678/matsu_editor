@@ -85,12 +85,14 @@ fn enter_and_tab_are_typed_as_characters(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "");
     cx.simulate_keystrokes("a enter tab b");
     assert_eq!(f.lines(cx), ["a", "\tb"]);
-    // the Enter key inserted the line ending of the document, CRLF for a new one
+    // the Enter key inserted the line ending of the document, that of the OS for a new one
     f.document.read_with(cx, |shared, _| {
-        assert_eq!(
-            shared.doc().line(0).unwrap().unwrap().eol,
-            Some(ume_core::buffer::Eol::CrLf)
-        );
+        let expected = if cfg!(windows) {
+            ume_core::buffer::Eol::CrLf
+        } else {
+            ume_core::buffer::Eol::Lf
+        };
+        assert_eq!(shared.doc().line(0).unwrap().unwrap().eol, Some(expected));
     });
 }
 

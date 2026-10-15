@@ -9,4 +9,4 @@ pub mod types;
 
 pub use color::{ColorEntry, ColorSet};
 pub use font::{FontSetting, LogFont, ViewFont};
-pub use types::{TypeSettings, types_count};
+pub use types::{NewFileKeys, TypeSettings, types_count};

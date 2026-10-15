@@ -166,8 +166,10 @@ mod tests {
         assert_eq!(enter("ab|cd\nef"), "ab\n|cd\nef");
         assert_eq!(enter("ab|cd\ref"), "ab\r|cd\ref");
         assert_eq!(enter("ab\r\n|"), "ab\r\n\r\n|");
-        // a document without a line ending gets CRLF, as a new document of Sakura on Windows
-        assert_eq!(enter("ab|cd"), "ab\r\n|cd");
+        // a document without a line ending gets the line ending of the OS (CRLF on Windows, as
+        // in Sakura; LF elsewhere)
+        let os = if cfg!(windows) { "\r\n" } else { "\n" };
+        assert_eq!(enter("ab|cd"), format!("ab{os}|cd"));
         // LF has the same effect as CR
         let mut e = Editor::new("ab|cd").with_new_line(Eol::Lf);
         e.run_with(ID, &[Arg::Char('\n')]).assert_marked("ab\n|cd");

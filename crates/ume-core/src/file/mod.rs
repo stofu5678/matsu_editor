@@ -18,7 +18,7 @@
 //!   only for encodings that have one (`CWriteManager::WriteFile_From_CDocLineMgr`).
 //! * **Line ending for new lines.** `CDocEditor::OnAfterLoad` takes the line ending of the first
 //!   line when it has one. Otherwise it is the default of the document type when the file has the
-//!   default encoding, and CR LF when not ([`OpenOptions::default_eol`]).
+//!   default encoding, and the line ending of the OS when not ([`OpenOptions::default_eol`]).
 //! * **Save.** Sakura writes straight into the target file. We write a temporary file and replace
 //!   the target (ADR-0005), so a failure or a cancel leaves the old file as it was.
 //! * **Characters the encoding cannot write.** Sakura checks before saving
@@ -72,7 +72,7 @@ pub struct OpenOptions {
     /// The settings of the detection (`SEncodingConfig`).
     pub detect: DetectOptions,
     /// The line ending for new lines when the file has none and has the default encoding
-    /// (`m_eDefaultEoltype`; Sakura's default is CR LF).
+    /// (`m_eDefaultEoltype`; Sakura's default is CR LF, here the line ending of the OS).
     pub default_eol: Eol,
     /// Refuse files larger than this (ADR-0012: 2 GiB). Never more than 4 GiB - 1.
     pub max_len: u64,
@@ -83,7 +83,7 @@ impl Default for OpenOptions {
         Self {
             encoding: None,
             detect: DetectOptions::default(),
-            default_eol: Eol::CrLf,
+            default_eol: Eol::platform_default(),
             max_len: DEFAULT_MAX_SOURCE_LEN,
         }
     }
@@ -188,7 +188,7 @@ pub fn open_file_with(
     let fallback = if encoding == options.detect.default_encoding {
         options.default_eol
     } else {
-        Eol::CrLf
+        Eol::platform_default()
     };
     let first_eol = if encoding.codec().is_stateless() {
         first_eol

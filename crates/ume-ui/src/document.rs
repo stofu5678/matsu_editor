@@ -19,6 +19,8 @@ use ume_core::encoding::Encoding;
 use ume_core::file::{Progress, SaveOptions, SaveReport, TextFile, UnmappableReport};
 use ume_core::model::DocumentModel;
 
+use crate::settings::NewDocumentDefaults;
+
 /// What the document tells its views.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DocumentEvent {
@@ -81,6 +83,14 @@ impl SharedDocument {
     /// The encoding, BOM and line ending of the file (its `document` is empty: use [`doc`](Self::doc)).
     pub fn file(&self) -> &TextFile {
         &self.file
+    }
+
+    /// Gives an untitled, empty document the encoding, BOM and line ending of a new document
+    /// ([`NewDocumentDefaults`]): what the status bar shows and what saving writes.
+    pub fn set_new_document_defaults(&mut self, defaults: &NewDocumentDefaults) {
+        self.set_format(defaults.encoding, defaults.bom);
+        self.file.new_line = defaults.eol;
+        self.model.set_new_line(defaults.eol);
     }
 
     /// Sets what a plain save writes (reopening or `F_FILE_REOPEN_*` of a file that is not there).

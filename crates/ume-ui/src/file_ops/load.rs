@@ -55,8 +55,13 @@ async fn read_file(
     let progress = Arc::new(Progress::default());
     let shared = progress.clone();
     let target = path.to_owned();
+    // The settings of the type of this file name: the encoding and the line ending to fall back on.
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
+    let defaults = cx
+        .update(|_, app| crate::settings::new_document_defaults(app, name.as_deref()))
+        .unwrap_or_default();
     let task = cx.background_executor().spawn(async move {
-        let result = open_text_file(&target, encoding, &mut |done, total| {
+        let result = open_text_file(&target, encoding, &defaults, &mut |done, total| {
             shared.done.store(done, Ordering::Relaxed);
             shared.total.store(total, Ordering::Relaxed);
             ControlFlow::Continue(())
