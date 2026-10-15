@@ -1,7 +1,33 @@
-use gpui as _;
-use gpui_component as _;
-use gpui_platform as _;
-use ume_commands as _;
-use ume_layout as _;
+//! The window of UME Editor, on GPUI (ADR-0004).
+//!
+//! This crate is the View of ADR-0013: it draws the text and takes keys, text, the IME and the
+//! mouse, and hands everything that changes the document to the named commands of
+//! `ume-commands`. The modules:
+//!
+//! * [`document`]: `Entity<SharedDocument>`, the document and its undo history, shared by views.
+//! * [`view`]: `Entity<EditorView>`, the layout, cursor, scroll position and input of one view.
+//! * [`app`]: the window, the menu and the status bar.
+//! * [`open`]: where a file is read into a document (the one place to switch for real encodings).
+//! * the rest is the arithmetic and the glue that need no window and are tested without one:
+//!   [`keys`] (GPUI keystroke to key map chord), [`layout_adapter`] (`ume-layout` as the commands'
+//!   `Layout`), [`layout_sync`] (the layout after a command), [`geometry`] and [`hit`] (pixels,
+//!   rows and columns), [`segments`] (what to paint in a row), [`word`] and [`status`].
 
-pub fn run() {}
+pub mod app;
+pub mod document;
+pub mod geometry;
+pub mod hit;
+pub mod keys;
+pub mod layout_adapter;
+pub mod layout_sync;
+pub mod open;
+pub mod segments;
+pub mod status;
+pub mod view;
+pub mod word;
+
+pub use app::{StartError, run};
+
+// The commands register themselves with `inventory` when the crate is linked; this makes sure
+// that the linker keeps it (ADR-0013, "守ること").
+use ume_commands as _;
