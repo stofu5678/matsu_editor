@@ -138,6 +138,10 @@ fn char_len_follows_the_lead_and_trail_bytes() {
     let bytes = hex("bcf295328236");
     assert_eq!(gb18030.char_len(&bytes, 0), 2);
     assert_eq!(gb18030.char_len(&bytes, 2), 4);
+    // 0x80 is the euro sign by itself, not a lead byte.
+    assert_eq!(gbk.char_len(b"\x80a", 0), 1);
+    assert_eq!(gb18030.char_len(b"\x803", 0), 1);
+    assert_eq!(decode(cp(936), b"\x80a"), "\u{20ac}a");
     // A lead byte at the end is one invalid byte.
     assert_eq!(gbk.char_len(b"\xB0", 0), 1);
     assert_eq!(cp(1251).codec().char_len(b"\xCF", 0), 1);
@@ -305,4 +309,18 @@ fn guessing_does_not_pick_a_code_page() {
     let bytes = hex("bcf2cce5d6d0cec4b2e2cad4");
     let found = detect(&bytes, &DetectOptions::default());
     assert!(!matches!(found.encoding, Encoding::CodePage(_)));
+}
+
+#[test]
+fn many_unmappable_characters_are_written_in_pieces() {
+    // More than one piece of the encoder, with unmappable characters at both sides of the border.
+    let text = "\u{44F}".repeat(3000);
+    let mut out = Vec::new();
+    let error = cp(874).codec().encode(&text, &mut out).unwrap_err();
+    assert_eq!(out, vec![b'?'; 3000]);
+    assert_eq!(error.offsets.len(), 3000);
+    assert_eq!(error.offsets[2999], 2999 * 2);
+    // Characters of several bytes are not cut at the border.
+    let text = "\u{4e2d}".repeat(1000);
+    assert_eq!(encode_ok(cp(936), &text), b"\xd6\xd0".repeat(1000));
 }

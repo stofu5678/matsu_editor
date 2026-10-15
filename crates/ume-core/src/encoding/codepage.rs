@@ -158,6 +158,9 @@ code_pages! {
     54936 GB18030 Gb "Chinese (GB18030)";
 }
 
+/// How many bytes of text one call of the encoder gets.
+const ENCODE_PIECE: usize = 1024;
+
 impl CodePageInfo {
     /// The info for a code page number, or None if it is not supported.
     pub(crate) fn find(number: u16) -> Option<&'static CodePageInfo> {
@@ -182,8 +185,11 @@ impl CodePageInfo {
         if bytes[i] < 0x80 {
             return (1, self.decode_strict(&bytes[i..=i]));
         }
+        // 0x80 (the euro sign in GBK and GB18030) and 0xFF are single bytes, not lead bytes.
+        let is_lead = (0x81..=0xFE).contains(&bytes[i]);
         let long = match self.shape {
             Shape::Single => None,
+            _ if !is_lead => None,
             Shape::Double => Some(2),
             Shape::Gb if matches!(bytes.get(i + 1), Some(0x30..=0x39)) => Some(4),
             Shape::Gb => Some(2),
@@ -209,7 +215,13 @@ impl CodePageInfo {
         let mut encoder = self.encoding.new_encoder();
         let mut pos = 0;
         while pos < segment.len() {
-            let rest = &segment[pos..];
+            // Encode a bounded piece: the encoder stops at every unmappable character, and the
+            // buffer is sized for the whole input of a call.
+            let mut end = (pos + ENCODE_PIECE).min(segment.len());
+            while !segment.is_char_boundary(end) {
+                end += 1;
+            }
+            let rest = &segment[pos..end];
             let capacity = encoder
                 .max_buffer_length_from_utf8_without_replacement(rest.len())
                 .unwrap_or(rest.len() * 4 + 16);
