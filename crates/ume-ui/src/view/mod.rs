@@ -7,13 +7,12 @@
 //! # Running a command
 //!
 //! Everything that changes the text or the cursor goes through `EditorView::run_with`: keys,
-//! typed text, the IME, the mouse and the menu. It opens a
-//! [`CommandContext`] over the document, the cursor and the
-//! layout, runs the closure, and then does what ADR-0013 section 4 asks: lays the layout out again
-//! for what changed (before anything else can read it), keeps the caret in view, and repaints.
+//! typed text, the IME, the mouse and the menu. It opens a [`CommandContext`] over the document,
+//! the cursor and the layout, runs the closure, and then does what ADR-0013 section 4 asks: the
+//! layout matches the text, the caret is in view, and the window repaints.
 //!
-//! The layout seen by a running command is the one from before the command. A command that edits
-//! and then moves vertically sees the old rows (see the PR notes).
+//! The context tells the layout about each edit as it happens (`RowLayout`), so a command that
+//! edits and then moves vertically sees the new rows.
 
 mod element;
 mod input;
@@ -213,6 +212,7 @@ impl EditorView {
         args: &[Arg],
         cx: &mut Context<Self>,
     ) {
+        self.interrupt_composition(cx);
         let result = self.run_with(cx, |command_cx| reg.run(command_cx, args));
         self.notice = result
             .err()
@@ -261,7 +261,7 @@ impl EditorView {
         let _ = self.layout.layout_for(doc, LAYOUT_BUDGET);
         let _ = self.cursor.clamp(doc);
         self.layout_version = version;
-        self.marked = None;
+        self.interrupt_composition(cx);
         self.clamp_scroll();
         cx.notify();
     }

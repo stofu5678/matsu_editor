@@ -67,6 +67,14 @@ impl EditorView {
         }
     }
 
+    /// Ends a composition that something other than the IME interrupts (a key, a click, a menu or
+    /// an edit in another view): its text stays in the document, and its undo block closes, so
+    /// that later edits are not undone with it.
+    pub(super) fn interrupt_composition(&mut self, cx: &mut Context<Self>) {
+        self.marked = None;
+        self.end_composition(cx);
+    }
+
     /// The pixel position of `pos` in the window, if the view has been painted.
     fn point_of(&self, pos: Pos, cx: &gpui::App) -> Option<Point<Pixels>> {
         let paint = self.paint?;
@@ -183,23 +191,26 @@ impl EntityInputHandler for EditorView {
         let text = text.replace(['\r', '\n'], "");
         let opened = !self.composing;
         self.composing = true;
-        self.run_with(cx, |command_cx| {
+        let edit = self.run_with(cx, |command_cx| {
             if opened {
                 command_cx.begin_block();
             }
-            if let Ok(edit) = command_cx.replace(from, to, &text) {
-                let units = new_selected_range_utf16
-                    .as_ref()
-                    .map_or(usize::MAX, |r| r.end);
-                let caret = Pos::new(from.line, from.col + col_from_utf16(&text, units));
-                let caret = if units == usize::MAX { edit.end } else { caret };
-                command_cx.move_caret(caret, false).ok();
-            }
+            let edit = command_cx.replace(from, to, &text).ok()?;
+            // The caret goes where the IME asks, else to the end of the composition.
+            let caret = new_selected_range_utf16.as_ref().map_or(edit.end, |r| {
+                Pos::new(
+                    edit.start.line,
+                    edit.start.col + col_from_utf16(&text, r.end),
+                )
+            });
+            command_cx.move_caret(caret, false).ok();
+            Some(edit)
         });
-        let start = from.col.min(to.col);
-        self.marked = (!text.is_empty()).then(|| Marked {
-            line: from.line,
-            range: start..start + text.len(),
+        // The composition starts where the replaced range started. `from` and `to` can be on
+        // different lines, so the smaller of their columns is not the start.
+        self.marked = edit.filter(|_| !text.is_empty()).map(|edit| Marked {
+            line: edit.start.line,
+            range: edit.start.col..edit.start.col + text.len(),
         });
         if text.is_empty() {
             self.end_composition(cx);

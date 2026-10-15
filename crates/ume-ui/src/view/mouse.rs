@@ -60,6 +60,7 @@ impl EditorView {
         let Some(pos) = self.position_for_point(event.position, cx) else {
             return;
         };
+        self.interrupt_composition(cx);
         let extend = event.modifiers.shift;
         let anchor = if extend {
             self.cursor.anchor().unwrap_or(self.cursor.caret())

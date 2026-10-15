@@ -288,6 +288,41 @@ fn an_ime_composition_is_one_undo_step(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn a_composition_over_lines_is_marked_where_it_starts(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abcdef\ngh");
+    f.view.update_in(cx, |v, window, cx| {
+        v.run_with(cx, |c| c.select_range(Pos::new(0, 5), Pos::new(1, 1)))
+            .unwrap();
+        v.replace_and_mark_text_in_range(None, "に", None, window, cx);
+        assert_eq!(v.marked_text_range(window, cx), Some(5..6));
+        v.replace_text_in_range(None, "日", window, cx);
+    });
+    assert_eq!(f.lines(cx), ["abcde日h"]);
+}
+
+#[gpui::test]
+fn a_click_during_a_composition_ends_its_undo_step(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "ab\ncd");
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_and_mark_text_in_range(None, "に", Some(1..1), window, cx);
+    });
+    // The click comes before the IME ends the composition.
+    let p = point_of(&f, cx, 1, 2);
+    cx.simulate_mouse_down(p, gpui::MouseButton::Left, Default::default());
+    cx.simulate_mouse_up(p, gpui::MouseButton::Left, Default::default());
+    f.view.update_in(cx, |v, window, cx| {
+        assert_eq!(v.marked_text_range(window, cx), None);
+    });
+    cx.simulate_keystrokes("x");
+    assert_eq!(f.lines(cx), ["にab", "cdx"]);
+    // The typed character is its own undo step, apart from the composition.
+    cx.simulate_keystrokes("secondary-z");
+    assert_eq!(f.lines(cx), ["にab", "cd"]);
+    cx.simulate_keystrokes("secondary-z");
+    assert_eq!(f.lines(cx), ["ab", "cd"]);
+}
+
+#[gpui::test]
 fn the_ime_sees_the_caret_line_in_utf16(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "x\n日本語😀a");
     cx.simulate_keystrokes("down end");

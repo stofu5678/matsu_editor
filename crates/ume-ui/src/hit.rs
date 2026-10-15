@@ -67,7 +67,9 @@ pub fn selected_columns(
     row: &RowInfo,
     (from, to): (Pos, Pos),
 ) -> Result<Option<(u32, u32)>> {
-    if to <= row.start || from > row.end || (from == to) {
+    // The end of a wrapped row is the start of the next row (`DocumentLayout::pos_to_row`), so a
+    // selection that starts there covers nothing on this row.
+    if to <= row.start || from > row.end || (row.wrapped && from == row.end) || from == to {
         return Ok(None);
     }
     let first = if from <= row.start {
@@ -170,6 +172,22 @@ mod tests {
         assert_eq!(none, None);
         let empty = selected_columns(&l, &d, &rows[0], (Pos::new(0, 1), Pos::new(0, 1))).unwrap();
         assert_eq!(empty, None);
+    }
+
+    #[test]
+    fn a_selection_from_the_end_of_a_wrapped_row_starts_on_the_next_row() {
+        let cfg = LayoutConfig {
+            wrap: Wrap::Columns(4),
+            ..LayoutConfig::default()
+        };
+        let (d, l, _) = setup("abcdefgh", cfg);
+        let rows = l.rows(&d, 0, 2).unwrap();
+        let sel = (Pos::new(0, 4), Pos::new(0, 6));
+        assert_eq!(selected_columns(&l, &d, &rows[0], sel).unwrap(), None);
+        assert_eq!(
+            selected_columns(&l, &d, &rows[1], sel).unwrap(),
+            Some((0, 2))
+        );
     }
 
     #[test]

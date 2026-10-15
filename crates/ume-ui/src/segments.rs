@@ -33,6 +33,8 @@ pub struct Segment {
 pub fn row_segments(text: &str, start_col: u32, cfg: &LayoutConfig) -> Vec<Segment> {
     let mut out: Vec<Segment> = Vec::new();
     let mut col = start_col;
+    // How wide each character of the last text segment is, so that a long row is cut in one pass.
+    let mut run_width = 0;
     for c in text.chars() {
         let cols = cfg.columns_of(c, col);
         let kind = match c {
@@ -46,17 +48,20 @@ pub fn row_segments(text: &str, start_col: u32, cfg: &LayoutConfig) -> Vec<Segme
                 Some(last)
                     if last.kind == SegmentKind::Text
                         && last.col + last.cols == col
-                        && last.cols / last.text.chars().count() as u32 == cols =>
+                        && run_width == cols =>
                 {
                     last.text.push(c);
                     last.cols += cols;
                 }
-                _ => out.push(Segment {
-                    kind: SegmentKind::Text,
-                    col,
-                    cols,
-                    text: c.to_string(),
-                }),
+                _ => {
+                    out.push(Segment {
+                        kind: SegmentKind::Text,
+                        col,
+                        cols,
+                        text: c.to_string(),
+                    });
+                    run_width = cols;
+                }
             },
             Some(kind) => out.push(Segment {
                 kind,
@@ -97,6 +102,16 @@ mod tests {
             ]
         );
         assert!(row_segments("", 0, &cfg).is_empty());
+    }
+
+    #[test]
+    fn a_long_row_of_one_width_is_one_segment() {
+        let cfg = LayoutConfig::default();
+        let text = "a".repeat(10_000);
+        assert_eq!(
+            row_segments(&text, 0, &cfg),
+            [seg(SegmentKind::Text, 0, 10_000, &text)]
+        );
     }
 
     #[test]
