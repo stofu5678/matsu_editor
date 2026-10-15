@@ -1,12 +1,17 @@
 //! Cursor movement commands, each with the variant that extends the selection (`*_sel`).
 
+pub mod bracket_pair;
 pub mod cursor_down;
+pub mod cursor_down2;
+pub mod cursor_down2_sel;
 pub mod cursor_down_sel;
 pub mod cursor_left;
 pub mod cursor_left_sel;
 pub mod cursor_right;
 pub mod cursor_right_sel;
 pub mod cursor_up;
+pub mod cursor_up2;
+pub mod cursor_up2_sel;
 pub mod cursor_up_sel;
 pub mod go_file_end;
 pub mod go_file_end_sel;
@@ -16,3 +21,7 @@ pub mod go_line_end;
 pub mod go_line_end_sel;
 pub mod go_line_top;
 pub mod go_line_top_sel;
+pub mod word_left;
+pub mod word_left_sel;
+pub mod word_right;
+pub mod word_right_sel;

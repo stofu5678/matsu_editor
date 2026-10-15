@@ -20,6 +20,7 @@ pub mod keymap;
 pub mod layout;
 pub mod registry;
 pub mod sakura;
+pub mod text;
 
 #[cfg(test)]
 pub(crate) mod testing;
