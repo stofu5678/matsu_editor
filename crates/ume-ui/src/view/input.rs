@@ -105,6 +105,13 @@ impl EditorView {
         self.end_composition(cx);
     }
 
+    /// Ends a composition after another view changed the document: its range is stale, so no
+    /// overwrite is finished (unlike [`interrupt_composition`](Self::interrupt_composition)).
+    pub(super) fn drop_composition(&mut self, cx: &mut Context<Self>) {
+        self.marked = None;
+        self.end_composition(cx);
+    }
+
     /// The pixel position of `pos` in the window, if the view has been painted.
     fn point_of(&self, pos: Pos, cx: &gpui::App) -> Option<Point<Pixels>> {
         let paint = self.paint?;

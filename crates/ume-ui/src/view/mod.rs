@@ -318,7 +318,7 @@ impl EditorView {
         let _ = self.layout.layout_for(doc, LAYOUT_BUDGET);
         let _ = self.cursor.clamp(doc);
         self.layout_version = version;
-        self.interrupt_composition(cx);
+        self.drop_composition(cx);
         self.clamp_scroll();
         cx.notify();
     }

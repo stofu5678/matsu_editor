@@ -541,3 +541,21 @@ fn an_unmarked_composition_inserts_in_insert_mode(cx: &mut TestAppContext) {
     });
     assert_eq!(f.lines(cx), ["aにbcde"]);
 }
+
+#[gpui::test]
+fn an_edit_in_another_view_ends_an_overwrite_composition_without_deleting(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abcde");
+    let second = f.document.clone();
+    let view2 = cx.update(|_, cx| cx.new(|cx| EditorView::new(second, cx)));
+    cx.simulate_keystrokes("right insert");
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_and_mark_text_in_range(None, "X", Some(1..1), window, cx);
+    });
+    view2.update(cx, |v, cx| {
+        v.run_command("input_char", &[ume_commands::command::Arg::Char('Z')], cx)
+    });
+    cx.run_until_parked();
+    // view 2 typed Z over the first char; the composition of view 1 is kept and nothing more is
+    // deleted (b stays)
+    assert_eq!(f.lines(cx), ["ZXbcde"]);
+}
