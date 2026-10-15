@@ -452,7 +452,7 @@ fn a_committed_ime_text_overwrites_in_overwrite_mode(cx: &mut TestAppContext) {
     // two chars committed replace two chars: b and c
     assert_eq!(f.lines(cx), ["a日本de"]);
     // one undo step brings back the text
-    cx.simulate_keystrokes("secondary-z");
+    cx.simulate_keystrokes("ctrl-z");
     assert_eq!(f.lines(cx), ["abcde"]);
 }
 
@@ -505,7 +505,7 @@ fn an_unmarked_composition_overwrites_like_a_commit(cx: &mut TestAppContext) {
     });
     assert_eq!(f.lines(cx), ["aにcde"]);
     // the composition and its overwrite are one undo step
-    cx.simulate_keystrokes("secondary-z");
+    cx.simulate_keystrokes("ctrl-z");
     assert_eq!(f.lines(cx), ["abcde"]);
 }
 
