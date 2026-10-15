@@ -53,12 +53,10 @@ actions!(
     ]
 );
 
-/// The text of the editor, by OS. GPUI picks a font by family name and falls back to its default
-/// when the font is missing. The Japanese fonts come first because the window must show Japanese
-/// with half-width and full-width characters in a 1:2 ratio.
-#[cfg(windows)]
-pub const FONT_FAMILY: &str = "BIZ UDGothic";
-#[cfg(target_os = "macos")]
+/// The font of the text, by OS: a Japanese monospaced font, so that full-width characters are
+/// twice as wide as half-width ones. GPUI picks a font by family name and falls back to its
+/// default when the font is missing (the PoC's list of fonts is in `poc/gpui-textview`).
+#[cfg(any(windows, target_os = "macos"))]
 pub const FONT_FAMILY: &str = "BIZ UDGothic";
 #[cfg(not(any(windows, target_os = "macos")))]
 pub const FONT_FAMILY: &str = "Noto Sans Mono CJK JP";
