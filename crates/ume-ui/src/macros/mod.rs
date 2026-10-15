@@ -203,6 +203,9 @@ impl EditorView {
         if !self.macros.recorder.is_recording() {
             return;
         }
+        // Known difference: the replay types the break as Enter, which copies the indentation
+        // of the line, while the text was inserted as it is. The exact form is `InsText`, which
+        // has no command yet (it runs through the bridge's fallback); switch to it then.
         // A line break is the Enter key (`'\r'`), and CR LF is one break.
         let text = text.replace("\r\n", "\n").replace('\n', "\r");
         for c in text.chars() {

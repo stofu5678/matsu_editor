@@ -733,12 +733,12 @@ fn line_breaks_in_committed_text_are_recorded(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "");
     cx.simulate_keystrokes(REC);
     f.view.update_in(cx, |v, window, cx| {
-        v.replace_text_in_range(None, "a\r\nb", window, cx);
+        v.replace_text_in_range(None, "p\r\nq", window, cx);
     });
     cx.simulate_keystrokes(REC);
     let first = f.lines(cx);
     assert_eq!(first.len(), 2, "{first:?}");
     cx.simulate_keystrokes("secondary-end");
     cx.simulate_keystrokes(EXEC);
-    assert_eq!(f.lines(cx), ["a", "ba", "b"]);
+    assert_eq!(f.lines(cx), ["p", "qp", "q"]);
 }
