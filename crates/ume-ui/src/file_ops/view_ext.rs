@@ -31,10 +31,9 @@ impl EditorView {
         restore: Option<Pos>,
         cx: &mut Context<Self>,
     ) {
-        let version = self.document.update(cx, |shared, cx| {
-            *shared = new;
-            shared.changed(cx)
-        });
+        let version = self
+            .document
+            .update(cx, |shared, cx| shared.replace_with(new, cx));
         let doc = self.document.read(cx).doc();
         let mut layout = DocumentLayout::new(doc, LayoutConfig::default()).unwrap_or_else(|_| {
             DocumentLayout::new(&Document::empty(), LayoutConfig::default())

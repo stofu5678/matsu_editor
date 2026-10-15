@@ -97,7 +97,18 @@ pub(crate) async fn close_and_open(
     };
     // The first file replaces this document; the others get new windows.
     let first = paths.remove(0);
-    let ok = load_here(view, cx, &first, None, None).await;
+    // A file that is open in a window is not opened again; that window comes to the front.
+    let existing = cx
+        .update(|_, app| super::windows::find_open(app, &first).map(|(h, _)| h))
+        .ok()
+        .flatten();
+    let ok = if let Some(handle) = existing {
+        cx.update(|_, app| super::windows::activate(app, handle))
+            .ok();
+        true
+    } else {
+        load_here(view, cx, &first, None, None).await
+    };
     if !paths.is_empty() {
         open_paths(view, cx, paths, None).await;
     }

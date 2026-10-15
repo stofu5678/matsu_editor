@@ -728,3 +728,86 @@ fn progress_text_names_the_file_and_the_percent() {
     assert_eq!(text, "big.log を読み込み中 25% (3 / 12 MB)");
     assert!(progress_text(Path::new("a"), 0, 0).contains("0%"));
 }
+
+#[gpui::test]
+fn the_version_keeps_counting_when_the_document_is_replaced(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let a = dir.write("a.txt", b"A");
+    let b = dir.write("b.txt", b"B");
+    let (f, cx) = setup(cx);
+    let version = |f: &Fixture, cx: &mut VisualTestContext| {
+        f.view
+            .read_with(cx, |v, app| v.document().read(app).version())
+    };
+    let mut seen = vec![version(&f, cx)];
+    for step in 0..3 {
+        match step {
+            0 => f.open(cx, &a, None),
+            1 => f.run(cx, "F_FILE_REOPEN", &[Arg::Int(1)]),
+            _ => f.run(cx, "F_FILECLOSE_OPEN", &[]),
+        }
+        if step == 2 {
+            let chosen = b.clone();
+            cx.simulate_path_prompt_response(move |_| Some(vec![chosen]));
+            cx.run_until_parked();
+        }
+        seen.push(version(&f, cx));
+    }
+    assert!(seen.windows(2).all(|w| w[0] < w[1]), "{seen:?}");
+}
+
+#[gpui::test]
+fn close_and_open_does_not_open_a_file_twice(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", b"abc");
+    cx.update(gpui_component::init);
+    let request = LoadRequest {
+        path: path.clone(),
+        encoding: None,
+    };
+    let first = cx
+        .update(|cx| open_editor_window(cx, SharedDocument::empty(), Some(request)))
+        .unwrap();
+    let second = cx
+        .update(|cx| open_editor_window(cx, SharedDocument::empty(), None))
+        .unwrap();
+    let cx = &mut VisualTestContext::from_window(second, cx);
+    cx.run_until_parked();
+    let editor = cx.update(|_, app| {
+        super::windows::editors(app)
+            .into_iter()
+            .find(|(h, _)| *h == second)
+            .unwrap()
+            .1
+    });
+    let f = Fixture { view: editor };
+    f.run(cx, "F_FILECLOSE_OPEN", &[]);
+    let chosen = path.clone();
+    cx.simulate_path_prompt_response(move |_| Some(vec![chosen]));
+    cx.run_until_parked();
+    assert_eq!(
+        f.title(cx),
+        "(無題) - UME Editor",
+        "this window is untouched"
+    );
+    assert!(cx.windows().contains(&first));
+    assert_eq!(cx.windows().len(), 2);
+}
+
+#[gpui::test]
+fn a_file_being_read_into_a_window_counts_as_open(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.path("a.txt");
+    cx.update(gpui_component::init);
+    let handle = cx
+        .update(|cx| open_editor_window(cx, SharedDocument::empty(), None))
+        .unwrap();
+    let found = |cx: &mut TestAppContext| {
+        cx.update(|cx| super::windows::find_open(cx, &path).map(|(h, _)| h))
+    };
+    assert_eq!(found(cx), None);
+    cx.update(|cx| super::windows::begin_pending(cx, handle, path.clone()));
+    assert_eq!(found(cx), Some(handle));
+    cx.update(|cx| super::windows::finish_pending(cx, handle));
+    assert_eq!(found(cx), None);
+}

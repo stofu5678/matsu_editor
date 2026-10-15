@@ -167,6 +167,14 @@ pub(crate) fn activate(cx: &mut App, handle: AnyWindowHandle) {
         .ok();
 }
 
+/// The window starts reading `path` into its document: until `finish_pending`, opening the same
+/// file again brings this window to the front instead of making a second copy.
+pub(crate) fn begin_pending(cx: &mut App, handle: AnyWindowHandle, path: PathBuf) {
+    cx.default_global::<EditorWindows>()
+        .pending
+        .push((handle, path));
+}
+
 /// The window has finished reading its file (or failed): the file is no longer pending.
 pub(crate) fn finish_pending(cx: &mut App, handle: AnyWindowHandle) {
     cx.default_global::<EditorWindows>()

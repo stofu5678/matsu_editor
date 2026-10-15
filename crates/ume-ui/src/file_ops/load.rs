@@ -98,7 +98,14 @@ pub(crate) async fn load_here(
     let started = view
         .read_with(cx, |view, app| view.document().read(app).version())
         .ok();
-    match read_file(view, cx, path, encoding).await {
+    let handle = cx.window_handle();
+    let reading = path.to_owned();
+    cx.update(|_, app| windows::begin_pending(app, handle, reading))
+        .ok();
+    let result = read_file(view, cx, path, encoding).await;
+    cx.update(|_, app| windows::finish_pending(app, handle))
+        .ok();
+    match result {
         Ok(file) => {
             let shared = SharedDocument::from_text_file(file);
             let replaced = view.update(cx, |view, cx| {

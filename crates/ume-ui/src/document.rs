@@ -68,6 +68,16 @@ impl SharedDocument {
         }
     }
 
+    /// Replaces the whole document (open, close, reopen) and tells the views. The version keeps
+    /// counting up across the replacement: a read that started before cannot mistake the new
+    /// document for the one it saw, and a view cannot skip the re-layout for a reused number.
+    pub fn replace_with(&mut self, new: SharedDocument, cx: &mut Context<Self>) -> u64 {
+        let version = self.version;
+        *self = new;
+        self.version = version;
+        self.changed(cx)
+    }
+
     /// The encoding, BOM and line ending of the file (its `document` is empty: use [`doc`](Self::doc)).
     pub fn file(&self) -> &TextFile {
         &self.file
