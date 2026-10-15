@@ -7,6 +7,8 @@
 //! * [`document`]: `Entity<SharedDocument>`, the document and its undo history, shared by views.
 //! * [`view`]: `Entity<EditorView>`, the layout, cursor, scroll position and input of one view.
 //! * [`app`]: the window, the menu and the status bar.
+//! * [`ui_command`]: the commands that need the window (the size of the view, dialogs), one per file
+//!   under `ui_commands/` like the core commands, found by the same Sakura function codes.
 //! * [`open`]: where a file is read into a document (the one place to switch for real encodings).
 //! * the rest is the arithmetic and the glue that need no window and are tested without one:
 //!   [`keys`] (GPUI keystroke to key map chord), [`layout_adapter`] (`ume-layout` as the commands'
@@ -22,6 +24,8 @@ pub mod layout_adapter;
 pub mod open;
 pub mod segments;
 pub mod status;
+pub mod ui_command;
+mod ui_commands;
 pub mod view;
 pub mod word;
 

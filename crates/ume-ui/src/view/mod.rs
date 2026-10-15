@@ -29,6 +29,7 @@ use ume_commands::command::{Arg, CommandError, Registration};
 use ume_commands::context::{Changes, CommandContext};
 use ume_commands::keymap::{Key, KeyMap, Lookup};
 use ume_commands::registry::Registry;
+use ume_commands::sakura::FUNCTIONS;
 use ume_core::buffer::{Document, Pos};
 use ume_core::cursor::Cursor;
 use ume_layout::{DocumentLayout, LayoutConfig, RowPos};
@@ -38,6 +39,7 @@ use crate::geometry::{Metrics, clamp_scroll_y, scroll_x_to_show, scroll_y_to_sho
 use crate::keys::chord_of;
 use crate::layout_adapter::{LAYOUT_BUDGET, RowLayout};
 use crate::status::StatusInfo;
+use crate::ui_command::{UiRegistration, UiRegistry};
 
 use element::EditorElement;
 
@@ -231,6 +233,44 @@ impl EditorView {
         }
     }
 
+    /// Runs Sakura's function `code` the way a key or a menu item does: the core command for it if
+    /// there is one, else the UI command ([`crate::ui_command`]), else a notice that it is not
+    /// there yet.
+    pub fn run_function(
+        &mut self,
+        code: u16,
+        args: &[Arg],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(reg) = Registry::global().get_by_code(code) {
+            self.run_registration(reg, args, cx);
+        } else if let Some(reg) = UiRegistry::global().get_by_code(code) {
+            self.run_ui_registration(reg, args, window, cx);
+        } else {
+            let name = FUNCTIONS
+                .iter()
+                .find(|f| f.code == code)
+                .map_or_else(|| code.to_string(), |f| f.name.to_owned());
+            self.notice = Some(format!("{name} はまだ使えない"));
+            cx.notify();
+        }
+    }
+
+    /// Runs the UI command `reg` with `args`. A failure goes to the status bar.
+    fn run_ui_registration(
+        &mut self,
+        reg: &'static UiRegistration,
+        args: &[Arg],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.interrupt_composition(cx);
+        let result = reg.run(self, args, window, cx);
+        self.notice = result.err().map(|e| format!("{}: {e}", reg.id));
+        cx.notify();
+    }
+
     /// Types one character the way the keyboard does (Enter is `'\r'`).
     pub(crate) fn type_char(&mut self, c: char, cx: &mut Context<Self>) {
         self.run_command("input_char", &[Arg::Char(c)], cx);
@@ -292,6 +332,16 @@ impl EditorView {
             .unwrap_or(RowPos { row: 0, column: 0 })
     }
 
+    /// Scrolls so that the caret's row is `offset` rows below the top of the view, as Sakura's
+    /// `MoveViewTopLine` does (`sakura_core/cmd/CViewCommander_Cursor.cpp`): the top is never above
+    /// the first row. The caret does not move.
+    pub fn scroll_caret_row_to(&mut self, offset: usize, cx: &mut Context<Self>) {
+        let top = self.caret_row(cx).row.saturating_sub(offset);
+        self.scroll_y = top as f32 * self.metrics.line_height;
+        self.clamp_scroll();
+        cx.notify();
+    }
+
     /// Scrolls so that the caret is in view.
     pub fn ensure_caret_visible(&mut self, cx: &App) {
         let at = self.caret_row(cx);
@@ -322,7 +372,7 @@ impl EditorView {
 
     // ---- keys ----
 
-    fn on_key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+    fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if event.prefer_character_input {
             return; // AltGr and the like: the character, not a command
         }
@@ -335,6 +385,12 @@ impl EditorView {
                 cx.stop_propagation();
             }
             Lookup::NotImplemented { code, function } => {
+                // A function that needs the window is not a core command.
+                if let Some(reg) = UiRegistry::global().get_by_code(code) {
+                    self.run_ui_registration(reg, &[], window, cx);
+                    cx.stop_propagation();
+                    return;
+                }
                 // Sakura's Tab key is `F_INDENT_TAB`, which types a tab when nothing is selected.
                 // The command comes later; until then the key types the tab.
                 if code == F_INDENT_TAB

@@ -213,6 +213,34 @@ fn the_caret_stays_in_view_while_moving_through_a_long_document(cx: &mut TestApp
 }
 
 #[gpui::test]
+fn ctrl_h_scrolls_the_caret_row_to_the_middle(cx: &mut TestAppContext) {
+    let text = (0..2000)
+        .map(|i| format!("line {i}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (f, cx) = setup(cx, &text);
+    f.view.update(cx, |v, cx| {
+        v.set_metrics(Metrics {
+            cell_width: 8.0,
+            line_height: 20.0,
+            view_width: 400.0,
+            view_height: 100.0,
+        });
+        v.run_with(cx, |c| c.move_caret(Pos::new(1000, 0), false))
+            .unwrap();
+    });
+    // F_CURLINECENTER is a UI command: there is no core command for Ctrl+H.
+    cx.simulate_keystrokes("secondary-h");
+    f.view.read_with(cx, |v, cx| {
+        let rows = v.metrics().visible_rows();
+        let top = (v.scroll_y() / v.metrics().line_height).round() as usize;
+        assert_eq!(v.caret_row(cx).row, 1000);
+        assert_eq!(top, 1000 - rows / 2);
+        assert_eq!(v.status(cx).notice, None);
+    });
+}
+
+#[gpui::test]
 fn the_wheel_scrolls_without_moving_the_caret(cx: &mut TestAppContext) {
     let text = (0..500)
         .map(|i| i.to_string())
