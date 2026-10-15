@@ -64,8 +64,10 @@ mod tests {
 
     #[test]
     fn the_last_row_gets_a_line_ending() {
-        // CRLF when the document has no line ending yet (Sakura on Windows)
-        check("duplicate_line", "ab|c", "abc\r\nab|c");
+        // the line ending of the OS when the document has none yet (CRLF on Windows, as in
+        // Sakura; LF elsewhere)
+        let os = if cfg!(windows) { "\r\n" } else { "\n" };
+        check("duplicate_line", "ab|c", &format!("abc{os}ab|c"));
         check("duplicate_line", "x\ny|", "x\ny\ny|");
         let mut e = Editor::new("ab|c").with_new_line(Eol::Lf);
         e.run("duplicate_line").assert_marked("abc\nab|c");
