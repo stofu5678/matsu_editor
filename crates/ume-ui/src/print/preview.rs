@@ -522,6 +522,8 @@ fn paint_text(
             } else {
                 at(text.x, text.baseline) + point(glyph.position.x, px(0.))
             };
+            // The vertical offset of shaping (combining marks), as GPUI's text painter adds it.
+            let origin = origin + point(px(0.), glyph.position.y);
             if glyph.is_emoji {
                 window
                     .paint_emoji(origin, run.font_id, glyph.id, font_size)

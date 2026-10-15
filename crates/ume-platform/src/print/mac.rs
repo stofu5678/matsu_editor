@@ -375,26 +375,24 @@ fn draw_text(context: &CGContext, text: &PlacedText, layout: &Layout, fonts: &Fo
                     NonNull::new_unchecked(indices.as_mut_ptr()),
                 );
             }
-            let mut origins: Vec<CGPoint> = if grid {
-                indices
-                    .iter()
-                    .map(|&i| CGPoint::new(xs.get(i as usize).copied().unwrap_or_default(), 0.))
-                    .collect()
-            } else {
-                let mut positions = vec![CGPoint::new(0., 0.); count];
-                // SAFETY: the buffer holds `count` items, and an empty range means all of them.
-                unsafe {
-                    run.positions(
-                        CFRange::new(0, 0),
-                        NonNull::new_unchecked(positions.as_mut_ptr()),
-                    );
-                }
-                let left = points(text.x);
-                positions
-                    .iter()
-                    .map(|p| CGPoint::new(left + p.x, 0.))
-                    .collect()
-            };
+            // The offsets that shaping gives each glyph (combining marks sit above the
+            // baseline), in text space where y is up. On the grid only the x is replaced.
+            let mut origins = vec![CGPoint::new(0., 0.); count];
+            // SAFETY: the buffer holds `count` items, and an empty range means all of them.
+            unsafe {
+                run.positions(
+                    CFRange::new(0, 0),
+                    NonNull::new_unchecked(origins.as_mut_ptr()),
+                );
+            }
+            let left = points(text.x);
+            for (origin, &i) in origins.iter_mut().zip(&indices) {
+                origin.x = if grid {
+                    xs.get(i as usize).copied().unwrap_or_default()
+                } else {
+                    left + origin.x
+                };
+            }
             let run_font = run_font(&run).unwrap_or_else(|| font.clone());
             // Text space has y up: flip back at the baseline.
             CGContext::save_g_state(Some(context));
