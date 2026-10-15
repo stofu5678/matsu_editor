@@ -484,6 +484,9 @@ impl Render for SearchPanel {
         div()
             .id("search-panel")
             .absolute()
+            // mouse events stop here: a click on the panel must not move the caret or the
+            // selection of the editor (a replace in the selection would lose it)
+            .occlude()
             .top(px(8.))
             .right(px(24.))
             .w(px(380.))
@@ -563,6 +566,17 @@ impl EditorView {
             cx.notify();
         });
         cx.notify();
+    }
+
+    /// Shows the pattern in the panel's input, after something other than the panel changed it.
+    pub(crate) fn show_pattern_in_panel(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let pattern = self.search.pattern().to_owned();
+        if let Some(panel) = &self.panel {
+            panel.update(cx, |p, cx| {
+                p.text
+                    .update(cx, |state, cx| state.set_value(pattern, window, cx));
+            });
+        }
     }
 
     /// Closes the panel and gives the focus back to the text.

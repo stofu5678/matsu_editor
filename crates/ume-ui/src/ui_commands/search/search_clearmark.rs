@@ -22,8 +22,7 @@ impl UiCommand for SearchClearmark {
         window: &mut Window,
         cx: &mut Context<EditorView>,
     ) -> Result {
-        let _ = window;
-        view.toggle_search_mark(cx);
+        view.toggle_search_mark(window, cx);
         Ok(())
     }
 }

@@ -418,3 +418,17 @@ fn replace_all_in_the_selection_with_line_delete_keeps_a_valid_selection(cx: &mu
     let (a, b) = f.selection(cx).unwrap_or((Pos::new(0, 0), Pos::new(0, 0)));
     assert!(a <= b, "{a:?} {b:?}");
 }
+
+#[gpui::test]
+fn a_pattern_set_by_a_command_shows_in_the_open_panel(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abc xyz");
+    cx.simulate_keystrokes("secondary-f escape");
+    f.run(cx, "F_SEARCH_DIALOG");
+    f.view
+        .update(cx, |v, _| v.cursor.select(Pos::new(0, 4), Pos::new(0, 7)));
+    f.run(cx, "F_SEARCH_CLEARMARK");
+    // the next search from the panel looks for the same text as F3
+    cx.simulate_keystrokes("enter");
+    f.view
+        .read_with(cx, |v, _| assert_eq!(v.search.pattern(), "xyz"));
+}

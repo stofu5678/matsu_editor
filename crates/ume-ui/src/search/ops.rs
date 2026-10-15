@@ -307,7 +307,7 @@ impl EditorView {
     /// `F_SEARCH_CLEARMARK`: with a selection, the selected text becomes the pattern and is
     /// marked; without one, the marks go (`Command_SEARCH_CLEARMARK`). The pattern stays, so
     /// 次を検索 still works.
-    pub fn toggle_search_mark(&mut self, cx: &mut Context<Self>) {
+    pub fn toggle_search_mark(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(text) = self.search_seed_selection(cx) {
             let mut options = self.search.options();
             // `m_sCurSearchOption.bRegularExp = false; bWordOnly = false;`
@@ -315,6 +315,7 @@ impl EditorView {
             self.search.set_options(options);
             self.search.set_pattern(&text);
             self.search.set_mark(true);
+            self.show_pattern_in_panel(window, cx);
         } else {
             self.search.set_mark(false);
         }
