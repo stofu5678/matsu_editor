@@ -8,6 +8,7 @@
 //! model (`TextModel`).
 //!
 //! - `protocol`: the lines, the escaping and the messages.
+//! - `bridge`: runs a macro's calls by Sakura's macro names on the commands (`ume-commands`).
 //! - `api`: the basic API (one table). `codegen` (tests only) generates the JS and Python parts
 //!   from it.
 //! - `session`: the child process, its threads, the timeout and the cancel.
@@ -16,6 +17,7 @@
 
 pub mod api;
 pub mod boot;
+pub mod bridge;
 pub mod model;
 pub mod protocol;
 pub mod session;

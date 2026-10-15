@@ -83,4 +83,18 @@ def install(call):
             """The full path of the file, or an empty string when the text has no file."""
             return call("GetFilename", _pack())
 
+    def _fallback(self, name):
+        # Any other name that starts like a Sakura macro name (an upper case letter or a digit)
+        # is sent to the editor as it is. The editor answers a name it does not know with an
+        # error (EditorError).
+        if not name[:1].isupper() and not name[:1].isdigit():
+            raise AttributeError(name)
+
+        def method(*args):
+            return call(name, _pack(*args))
+
+        return method
+
+    _Editor.__getattr__ = _fallback
+
     return _Editor()

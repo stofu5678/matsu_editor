@@ -10,3 +10,8 @@ extend-exclude = [
 [default.extend-words]
 # bb.edn: Babashka's config file (EDN, the Extensible Data Notation of Clojure).
 edn = "edn"
+
+[default.extend-identifiers]
+# Sakura's macro names (sakura_core/macro/CSMacroMgr.cpp): "UNICODE to SJIS" written as a word.
+CodeCnvUNICODEtoSJIS = "CodeCnvUNICODEtoSJIS"
+CodeCnvUNICODEBEtoSJIS = "CodeCnvUNICODEBEtoSJIS"
