@@ -9,7 +9,7 @@ UME Editor の名前付きコマンド（[ADR-0008](../../docs/adr/0008-commands
 | `src/command.rs` | `Command` トレイトと `register_command!`。`Arg`、`CommandError` |
 | `src/registry.rs` | 全コマンドの登録簿。ID と、サクラの関数コードで引く。登録の誤りの検査 |
 | `src/context/` | `CommandContext`。コマンドが走る間だけ使う借用の束（文書、カーソル、割り付け、パス）と、編集・移動のメソッド |
-| `src/layout.rs` | 上下の移動や表示の桁に使う `Layout` トレイトと、折り返しなしの `PlainLayout`（テスト用）。`ume-layout` ができたら、そちらが実装する |
+| `src/layout.rs` | 上下の移動や表示の桁に使う `Layout` トレイトと、折り返しなしの `PlainLayout`（テスト用）。`ume-layout` ができたら、そちらが実装する。編集のたびに `edited`、Undo / Redo のたびに `reset` で更新される |
 | `src/commands/<グループ>/<コマンド>.rs` | コマンド。1 コマンド 1 ファイル |
 | `src/testing.rs` | テストの書式（下）と、コマンドを走らせるテスト用の `Editor` |
 | `src/sakura/` | サクラの関数コード・キー割り当て・メニュー（`cargo xtask sakura-tables` で生成） |
@@ -105,6 +105,10 @@ assert!(e.changes().text_changed());
 - コマンドは登録簿を通して ID で走らせるので、テストは登録も確かめる。
 - Enter の改行コードは、文書の最初の改行（なければ CRLF）。`Editor::with_new_line(Eol::Lf)` で決める。
 - 失敗すると、期待と実際の両方を、改行を `\r\n` と見える形にして表示する。
+
+## 割り付けの更新
+
+`CommandContext` は `&mut dyn Layout` を持つ。バッファを編集した直後（`replace` の中）に `Layout::edited(doc, change)` を呼び、Undo / Redo のあとに `Layout::reset(doc)` を呼ぶ。コマンドの途中（編集してから上下に動く、マクロが続けて何度も呼ぶ）でも、割り付けは今の文書と合っている。`PlainLayout` のように状態を持たない実装は、両方とも何もしない。
 
 ## Undo の方式
 

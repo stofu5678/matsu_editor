@@ -12,9 +12,24 @@
 
 use ume_core::buffer::{Document, Pos, Result};
 
+use crate::context::TextChange;
+
 /// The layout of the document that the command runs on. The layout must match the document: the
 /// methods are given the current [`Document`] on every call and may read it.
+///
+/// The layout is told about every edit right after the buffer changed ([`edited`](Self::edited)),
+/// and about undo and redo ([`reset`](Self::reset)), so the methods below always see a layout
+/// that matches the document, even in the middle of a command or a macro (ADR-0013 section 4).
 pub trait Layout {
+    /// The text changed as described by `change`; `doc` is the document after the edit. Called
+    /// by [`CommandContext`](crate::context::CommandContext) after each edit, before the command
+    /// goes on. A layout that keeps no state of its own can ignore it.
+    fn edited(&mut self, doc: &Document, change: &TextChange);
+
+    /// The document was replaced by an older or newer version (undo, redo) and the edits are not
+    /// known: lay out `doc` again.
+    fn reset(&mut self, doc: &Document);
+
     /// The display column of `pos` counted from the start of its row, in cells.
     fn display_col(&self, doc: &Document, pos: Pos) -> Result<usize>;
 
@@ -93,6 +108,11 @@ impl PlainLayout {
 }
 
 impl Layout for PlainLayout {
+    // Rows are computed from the document on every call, so there is nothing to update.
+    fn edited(&mut self, _doc: &Document, _change: &TextChange) {}
+
+    fn reset(&mut self, _doc: &Document) {}
+
     fn display_col(&self, doc: &Document, pos: Pos) -> Result<usize> {
         let pos = doc.clamp_pos(pos)?;
         let text = Self::line_text(doc, pos.line)?;

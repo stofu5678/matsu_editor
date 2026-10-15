@@ -207,7 +207,7 @@ impl Editor {
         let mut cx = CommandContext::new(
             &mut self.model,
             &mut self.cursor,
-            &self.layout,
+            &mut self.layout,
             self.path.as_deref(),
         );
         let result = Registry::global().run(id, &mut cx, args);

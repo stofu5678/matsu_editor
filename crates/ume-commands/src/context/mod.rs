@@ -98,7 +98,7 @@ impl Changes {
 pub struct CommandContext<'a> {
     model: &'a mut DocumentModel,
     cursor: &'a mut Cursor,
-    layout: &'a dyn Layout,
+    layout: &'a mut dyn Layout,
     path: Option<&'a Path>,
     /// The cursor when the context was made, to tell what moved.
     start: Cursor,
@@ -109,7 +109,7 @@ impl<'a> CommandContext<'a> {
     pub fn new(
         model: &'a mut DocumentModel,
         cursor: &'a mut Cursor,
-        layout: &'a dyn Layout,
+        layout: &'a mut dyn Layout,
         path: Option<&'a Path>,
     ) -> Self {
         let start = cursor.clone();
@@ -152,7 +152,7 @@ impl<'a> CommandContext<'a> {
     }
 
     pub fn layout(&self) -> &dyn Layout {
-        self.layout
+        &*self.layout
     }
 
     /// The path of the document, or `None` if it has no file yet.
@@ -185,6 +185,9 @@ impl<'a> CommandContext<'a> {
     /// Undoes one block. Returns `false` if there is nothing to undo.
     pub fn undo(&mut self) -> bool {
         let done = self.model.undo(self.cursor);
+        if done {
+            self.layout.reset(self.model.doc());
+        }
         self.changes.replaced_all |= done;
         done
     }
@@ -192,6 +195,9 @@ impl<'a> CommandContext<'a> {
     /// Redoes one block. Returns `false` if there is nothing to redo.
     pub fn redo(&mut self) -> bool {
         let done = self.model.redo(self.cursor);
+        if done {
+            self.layout.reset(self.model.doc());
+        }
         self.changes.replaced_all |= done;
         done
     }
@@ -206,7 +212,11 @@ impl<'a> CommandContext<'a> {
         let joined = self.joined_by(a, b, text)?;
         let edit = self.model.replace(a, b, text)?;
         if a != b || !text.is_empty() {
-            self.changes.edits.push(widen(a, b, edit, joined));
+            let change = widen(a, b, edit, joined);
+            // The layout is updated now, not after the command: the command may move vertically
+            // next, or a macro may run more commands.
+            self.layout.edited(self.model.doc(), &change);
+            self.changes.edits.push(change);
         }
         Ok(edit)
     }
@@ -279,8 +289,8 @@ mod tests {
     fn changes_of(text: &str, f: impl FnOnce(&mut CommandContext<'_>)) -> Changes {
         let mut model = DocumentModel::new(Document::from_utf8(text.as_bytes().to_vec()).unwrap());
         let mut cursor = Cursor::default();
-        let layout = PlainLayout::default();
-        let mut cx = CommandContext::new(&mut model, &mut cursor, &layout, None);
+        let mut layout = PlainLayout::default();
+        let mut cx = CommandContext::new(&mut model, &mut cursor, &mut layout, None);
         f(&mut cx);
         cx.finish()
     }
@@ -338,6 +348,87 @@ mod tests {
             cx.replace(Pos::new(0, 1), Pos::new(0, 1), "\r").unwrap();
         });
         assert_eq!(c.edits, [change((0, 1), (1, 0), (1, 0))]);
+    }
+
+    /// A layout that keeps its own copy of the number of lines, as a real layout keeps rows.
+    /// Moving through it while the copy is stale panics.
+    struct CachedLayout {
+        inner: PlainLayout,
+        lines: usize,
+        edits: usize,
+        resets: usize,
+    }
+
+    impl Layout for CachedLayout {
+        fn edited(&mut self, doc: &Document, _change: &TextChange) {
+            self.lines = doc.line_count();
+            self.edits += 1;
+        }
+        fn reset(&mut self, doc: &Document) {
+            self.lines = doc.line_count();
+            self.resets += 1;
+        }
+        fn display_col(&self, doc: &Document, pos: Pos) -> ume_core::buffer::Result<usize> {
+            self.inner.display_col(doc, pos)
+        }
+        fn row_start(&self, doc: &Document, pos: Pos) -> ume_core::buffer::Result<Pos> {
+            self.inner.row_start(doc, pos)
+        }
+        fn row_end(&self, doc: &Document, pos: Pos) -> ume_core::buffer::Result<Pos> {
+            self.inner.row_end(doc, pos)
+        }
+        fn next_row_start(
+            &self,
+            doc: &Document,
+            pos: Pos,
+        ) -> ume_core::buffer::Result<Option<Pos>> {
+            self.inner.next_row_start(doc, pos)
+        }
+        fn pos_at_col(
+            &self,
+            doc: &Document,
+            row_pos: Pos,
+            col: usize,
+        ) -> ume_core::buffer::Result<Pos> {
+            self.inner.pos_at_col(doc, row_pos, col)
+        }
+        fn move_rows(
+            &self,
+            doc: &Document,
+            pos: Pos,
+            rows: isize,
+            goal_col: usize,
+        ) -> ume_core::buffer::Result<Pos> {
+            assert_eq!(self.lines, doc.line_count(), "the layout is stale");
+            self.inner.move_rows(doc, pos, rows, goal_col)
+        }
+    }
+
+    #[test]
+    fn the_layout_is_updated_right_after_each_edit() {
+        // one command: insert a line break, then move down through the layout
+        let mut model = DocumentModel::new(Document::from_utf8(b"ab".to_vec()).unwrap());
+        let mut cursor = Cursor::new(Pos::new(0, 1));
+        let mut layout = CachedLayout {
+            inner: PlainLayout::default(),
+            lines: 1,
+            edits: 0,
+            resets: 0,
+        };
+        {
+            let mut cx = CommandContext::new(&mut model, &mut cursor, &mut layout, None);
+            cx.begin_block();
+            cx.insert_text("\nxyz\n").unwrap();
+            cx.move_vertical(-1, false).unwrap();
+            cx.move_vertical(1, false).unwrap();
+            // undo resyncs the layout too
+            assert!(cx.undo());
+            cx.move_vertical(1, false).unwrap();
+            assert!(cx.redo());
+            cx.move_vertical(-1, false).unwrap();
+            cx.end_block();
+        }
+        assert_eq!((layout.edits, layout.resets), (1, 2));
     }
 
     #[test]
