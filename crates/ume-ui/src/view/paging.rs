@@ -149,14 +149,26 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let line_height = self.metrics.line_height;
-        let delta = event.delta.pixel_delta(gpui::px(line_height));
-        let (dx, dy) = (f32::from(delta.x), f32::from(delta.y));
-        let vertical = dy.abs() >= dx.abs();
-        let amount = if vertical { dy } else { dx };
-        if amount == 0.0 {
-            return;
+        let delta = event.delta.pixel_delta(gpui::px(self.metrics.line_height));
+        // Sakura gets the vertical and the horizontal wheel as separate messages; a trackpad
+        // reports both at once, and each axis is handled on its own.
+        for (vertical, amount) in [(true, f32::from(delta.y)), (false, f32::from(delta.x))] {
+            if amount != 0.0 {
+                self.handle_wheel_axis(event, vertical, amount, window, cx);
+            }
         }
+    }
+
+    /// One axis of the wheel: `amount` pixels, positive up (or left).
+    fn handle_wheel_axis(
+        &mut self,
+        event: &ScrollWheelEvent,
+        vertical: bool,
+        amount: f32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let line_height = self.metrics.line_height;
         // The text moves down (or right) when the wheel goes up (or left).
         let action = match (vertical, amount > 0.0) {
             (true, true) => MouseAction::WheelUp,

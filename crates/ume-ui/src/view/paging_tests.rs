@@ -255,17 +255,15 @@ fn a_wheel_notch_scrolls_three_rows_without_moving_the_caret(cx: &mut TestAppCon
 fn the_wheel_follows_the_key_table(cx: &mut TestAppContext) {
     let (view, cx) = setup(cx);
     // Ctrl+wheel is F_SETFONTSIZEUP/DOWN in Sakura's table, not a scroll.
-    let ctrl = Modifiers {
-        control: true,
-        ..Modifiers::default()
+    let (ctrl, sakura_ctrl) = if cfg!(target_os = "macos") {
+        (Modifiers::command(), ume_commands::keymap::Modifiers::META)
+    } else {
+        (Modifiers::control(), ume_commands::keymap::Modifiers::CTRL)
     };
     wheel(&view, cx, ScrollDelta::Lines(point(0., -1.)), ctrl);
     assert_eq!(top(&view, cx), 0);
     view.read_with(cx, |v, _| {
-        let chord = Chord::new(
-            Key::Mouse(MouseAction::WheelDown),
-            ume_commands::keymap::Modifiers::CTRL,
-        );
+        let chord = Chord::new(Key::Mouse(MouseAction::WheelDown), sakura_ctrl);
         assert_eq!(v.keymap.resolve(chord), Resolved::Code(31123));
     });
 }
@@ -280,4 +278,21 @@ fn a_trackpad_scrolls_by_pixels(cx: &mut TestAppContext) {
         Modifiers::default(),
     );
     assert_eq!(view.read_with(cx, |v, _| v.scroll_y()), 30.0);
+}
+
+#[gpui::test]
+fn a_diagonal_trackpad_move_scrolls_both_ways(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx);
+    // Some columns to scroll over.
+    view.update(cx, |v, _| v.widest_cols = 500);
+    wheel(
+        &view,
+        cx,
+        ScrollDelta::Pixels(point(px(-20.), px(-30.))),
+        Modifiers::default(),
+    );
+    assert_eq!(
+        view.read_with(cx, |v, _| (v.scroll_x, v.scroll_y())),
+        (20.0, 30.0)
+    );
 }
