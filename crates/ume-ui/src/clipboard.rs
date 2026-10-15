@@ -77,20 +77,20 @@ mod tests {
         })
     }
 
-    // Ctrl+C, Ctrl+X, Ctrl+V are `secondary-` keys: Ctrl on Windows and Linux, Cmd on macOS.
+    // Sakura's Ctrl+C, Ctrl+X and Ctrl+V; Ctrl is Ctrl on every OS (ADR-0008).
 
     #[gpui::test]
     fn copy_cut_and_paste_go_through_the_clipboard_of_gpui(cx: &mut TestAppContext) {
         let (_view, document, cx) = setup(cx, "abc\r\ndef");
-        cx.simulate_keystrokes("shift-right shift-right secondary-c");
+        cx.simulate_keystrokes("shift-right shift-right ctrl-c");
         assert_eq!(
             cx.read_from_clipboard().and_then(|i| i.text()).as_deref(),
             Some("ab")
         );
-        cx.simulate_keystrokes("secondary-end secondary-v");
+        cx.simulate_keystrokes("ctrl-end ctrl-v");
         assert_eq!(text_of(&document, cx), "abc\r\ndefab");
         // cut: the selection goes to the clipboard and out of the document
-        cx.simulate_keystrokes("secondary-home shift-right secondary-x");
+        cx.simulate_keystrokes("ctrl-home shift-right ctrl-x");
         assert_eq!(
             cx.read_from_clipboard().and_then(|i| i.text()).as_deref(),
             Some("a")
@@ -102,11 +102,11 @@ mod tests {
     fn a_row_copy_is_marked_and_pasted_at_the_start_of_the_row(cx: &mut TestAppContext) {
         let (_view, document, cx) = setup(cx, "abc\r\ndef");
         // no selection: the row is copied as a row
-        cx.simulate_keystrokes("right secondary-c");
+        cx.simulate_keystrokes("right ctrl-c");
         let item = cx.read_from_clipboard().expect("something was copied");
         assert_eq!(item.text().as_deref(), Some("abc\r\n"));
         assert_eq!(item.metadata().map(String::as_str), Some(super::LINE));
-        cx.simulate_keystrokes("down secondary-v");
+        cx.simulate_keystrokes("down ctrl-v");
         assert_eq!(text_of(&document, cx), "abc\r\nabc\r\ndef");
     }
 
@@ -121,7 +121,7 @@ mod tests {
     #[gpui::test]
     fn shift_delete_and_ctrl_insert_cut_and_copy(cx: &mut TestAppContext) {
         let (_view, document, cx) = setup(cx, "abcd");
-        cx.simulate_keystrokes("shift-right shift-right secondary-insert");
+        cx.simulate_keystrokes("shift-right shift-right ctrl-insert");
         assert_eq!(
             cx.read_from_clipboard().and_then(|i| i.text()).as_deref(),
             Some("ab")
