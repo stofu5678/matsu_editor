@@ -6,3 +6,4 @@
 
 pub mod cursor;
 pub mod settings;
+pub mod file;

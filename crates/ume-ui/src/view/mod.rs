@@ -122,6 +122,8 @@ pub struct EditorView {
     pub(crate) notice: Option<String>,
     /// The settings of the file and the temporary changes (`view/settings.rs`).
     pub(crate) prefs: ViewPrefs,
+    /// The print preview and the print dialog (`crate::print`).
+    pub(crate) print: crate::print::PrintState,
     font_family: SharedString,
     font_size: f32,
     _subscription: Subscription,
@@ -153,6 +155,7 @@ impl EditorView {
             drag: Drag::None,
             notice: None,
             prefs: ViewPrefs::new(Default::default()),
+            print: Default::default(),
             font_family: FONT_FAMILY.into(),
             font_size: crate::settings::ViewSettings::default().font_px(),
             _subscription: subscription,
@@ -446,6 +449,15 @@ impl Render for EditorView {
         self.follow_window_width(cx);
         self.advance_layout(window, cx);
         self.settle_caret(cx);
+        // The print preview takes the place of the text, and the keys of the text stay out of it.
+        if let Some(preview) = &self.print.preview {
+            return div()
+                .id("editor-print")
+                .size_full()
+                .overflow_hidden()
+                .child(preview.clone())
+                .into_any_element();
+        }
         div()
             .id("editor")
             .size_full()
@@ -465,6 +477,7 @@ impl Render for EditorView {
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_scroll_wheel(cx.listener(Self::on_scroll))
             .child(EditorElement::new(cx.entity()))
+            .into_any_element()
     }
 }
 
