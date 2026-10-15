@@ -202,13 +202,17 @@ impl EditorView {
         let layout = &mut self.layout;
         let cursor = &mut self.cursor;
         let (result, changes) = document.update(cx, |shared, cx| {
+            let overwrite = shared.overwrite();
             let (model, path) = shared.parts_mut();
             let mut adapter = RowLayout(layout);
             let mut clipboard = crate::clipboard::GpuiClipboard(cx);
             let mut command_cx = CommandContext::new(model, cursor, &mut adapter, path)
-                .with_clipboard(&mut clipboard);
+                .with_clipboard(&mut clipboard)
+                .with_overwrite(overwrite);
             let result = f(&mut command_cx);
-            (result, command_cx.finish())
+            let changes = command_cx.finish();
+            shared.set_overwrite(changes.overwrite, cx);
+            (result, changes)
         });
         self.after_command(&changes, cx);
         result
@@ -368,6 +372,7 @@ impl EditorView {
             column: self.caret_row(cx).column + 1,
             lines: shared.doc().line_count().max(1),
             modified: shared.model().is_modified(),
+            overwrite: shared.overwrite(),
             notice: self.notice.clone(),
         }
     }

@@ -5,12 +5,17 @@
 //! the window gets the char `\r` and runs `F_WCHAR` with it.
 //!
 //! * A selection is replaced by the char.
+//! * In overwrite mode (no selection), the char replaces the char at the caret: a tab, a
+//!   full-width char or a char of a surrogate pair is one char. At the end of the text of a line
+//!   it is inserted, because a line ending is not overwritten (`m_bNotOverWriteCRLF` is on by
+//!   default); the same at the end of the document. `DelCharForOverwrite` in the same file.
 //! * A line break char becomes the line ending of the document (`GetNewLineCode`), and the
 //!   indentation of the line before the caret is copied after it (auto indent,
 //!   `m_bAutoIndent`, on by default in `sakura_core/types/CType.cpp`).
 //!
-//! Not done yet: overwrite mode (`IsInsMode`), typing over a rectangular selection
-//! (`Command_INDENT`), the other indent chars and smart indent of the type settings, trimming
+//! Not done yet: the option to pad with spaces to the width of the replaced char
+//! (`m_bOverWriteFixMode`, off by default), the option to overwrite line endings, typing over a
+//! rectangular selection (`Command_INDENT`), the other indent chars and smart indent of the type settings, trimming
 //! the previous line (`m_bRTrimPrevLine`), and the extended line endings (`m_bEnableExtEol`).
 //!
 //! Argument: one char, as `Arg::Char`, or a code point as `Arg::Int`.
@@ -39,7 +44,7 @@ impl Command for InputChar {
             );
             cx.insert_text(&text)?;
         } else {
-            cx.insert_text(c.encode_utf8(&mut [0; 4]))?;
+            cx.type_text(c.encode_utf8(&mut [0; 4]))?;
         }
         Ok(())
     }
@@ -90,6 +95,52 @@ mod tests {
         typed('😀', "|a", "😀|a");
         typed('X', "ab|\r\ncd", "abX|\r\ncd");
         typed('X', "ab\r\n|", "ab\r\nX|");
+    }
+
+    fn overtyped(c: char, before: &str, after: &str) {
+        let mut e = Editor::new(before);
+        e.set_overwrite(true);
+        e.run_with(ID, &[Arg::Char(c)]).assert_marked(after);
+    }
+
+    #[test]
+    fn overwrite_mode_replaces_the_char_at_the_caret() {
+        // Sakura: DelCharForOverwrite, then the insertion (CViewCommander_Edit.cpp)
+        overtyped('X', "ab|cd", "abX|d");
+        overtyped('X', "|abc", "X|bc");
+        overtyped('X', "ab|c\ndef", "abX|\ndef");
+        // a full-width char, a char of two UTF-16 units, and a tab are one char each
+        overtyped('X', "a|日b", "aX|b");
+        overtyped('X', "a|😀b", "aX|b");
+        overtyped('X', "a|\tb", "aX|b");
+        // the typed char may be wider than the replaced one: the next char stays
+        overtyped('日', "a|bc", "a日|c");
+    }
+
+    #[test]
+    fn overwrite_mode_inserts_at_the_end_of_a_line_and_of_the_document() {
+        // m_bNotOverWriteCRLF is on by default: the line ending stays
+        overtyped('X', "ab|\r\ncd", "abX|\r\ncd");
+        overtyped('X', "ab|\ncd", "abX|\ncd");
+        overtyped('X', "ab\n|", "ab\nX|");
+        overtyped('X', "|", "X|");
+    }
+
+    #[test]
+    fn overwrite_mode_replaces_a_selection_and_enter_inserts() {
+        overtyped('X', "a[bc|de", "aX|de");
+        let mut e = Editor::new("ab|cd").with_new_line(Eol::Lf);
+        e.set_overwrite(true);
+        e.run_with(ID, &[Arg::Char('\r')]).assert_marked("ab\n|cd");
+    }
+
+    #[test]
+    fn overwrite_mode_is_one_edit_and_one_undo_step() {
+        let mut e = Editor::new("ab|cd");
+        e.set_overwrite(true);
+        e.run_with(ID, &[Arg::Char('X')]);
+        assert_eq!(e.changes().edits.len(), 1);
+        e.run("undo").assert_marked("ab|cd");
     }
 
     #[test]

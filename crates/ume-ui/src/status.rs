@@ -10,17 +10,22 @@ pub struct StatusInfo {
     /// The number of lines of the document.
     pub lines: usize,
     pub modified: bool,
+    /// Overwrite mode (the Insert key); else insert mode.
+    pub overwrite: bool,
     /// A message about the last command, such as "not implemented yet".
     pub notice: Option<String>,
 }
 
-/// Sakura's status bar shows the line and the column ("1 行 1 桁"). The rest is ours.
-/// (`sakura_core/window/CMainStatusBar.cpp` fills the parts; this keeps the line and column and
-/// the length of the document.)
+/// Sakura's status bar shows the line and the column ("1 行 1 桁") and the typing mode, "挿入" or
+/// "上書" (`STR_INS_MODE_INS` and `STR_INS_MODE_OVR` in `sakura_core/sakura_rc.rc`, shown by
+/// `CCaret::ShowCaretPosInfo`). The rest is ours.
 pub fn status_text(info: &StatusInfo) -> String {
     let mut text = format!(
-        "{} 行  {} 桁  |  全 {} 行",
-        info.line, info.column, info.lines
+        "{} 行  {} 桁  |  {}  |  全 {} 行",
+        info.line,
+        info.column,
+        if info.overwrite { "上書" } else { "挿入" },
+        info.lines
     );
     if info.modified {
         text.push_str("  |  変更あり");
@@ -53,9 +58,10 @@ mod tests {
             column: 12,
             lines: 100,
             modified: false,
+            overwrite: false,
             notice: None,
         };
-        assert_eq!(status_text(&info), "3 行  12 桁  |  全 100 行");
+        assert_eq!(status_text(&info), "3 行  12 桁  |  挿入  |  全 100 行");
         let info = StatusInfo {
             modified: true,
             notice: Some("未実装".into()),
@@ -63,8 +69,22 @@ mod tests {
         };
         assert_eq!(
             status_text(&info),
-            "3 行  12 桁  |  全 100 行  |  変更あり  |  未実装"
+            "3 行  12 桁  |  挿入  |  全 100 行  |  変更あり  |  未実装"
         );
+    }
+
+    #[test]
+    fn the_status_shows_the_typing_mode() {
+        // Sakura: STR_INS_MODE_OVR in sakura_core/sakura_rc.rc
+        let info = StatusInfo {
+            line: 1,
+            column: 1,
+            lines: 1,
+            modified: false,
+            overwrite: true,
+            notice: None,
+        };
+        assert_eq!(status_text(&info), "1 行  1 桁  |  上書  |  全 1 行");
     }
 
     #[test]

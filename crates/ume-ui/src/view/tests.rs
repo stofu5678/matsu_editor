@@ -401,3 +401,68 @@ fn the_title_and_the_status_follow_the_document(cx: &mut TestAppContext) {
         assert!(status.modified);
     });
 }
+
+#[gpui::test]
+fn the_insert_key_switches_to_overwrite_mode_and_back(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abcd");
+    let overwrite = |f: &Fixture, cx: &mut VisualTestContext| {
+        f.document.read_with(cx, |shared, _| shared.overwrite())
+    };
+    assert!(!overwrite(&f, cx));
+    cx.simulate_keystrokes("insert");
+    assert!(overwrite(&f, cx));
+    assert_eq!(f.lines(cx), ["abcd"]);
+    cx.simulate_keystrokes("x y");
+    assert_eq!(f.lines(cx), ["xycd"]);
+    assert_eq!(f.caret(cx), Pos::new(0, 2));
+    cx.simulate_keystrokes("insert z");
+    assert!(!overwrite(&f, cx));
+    assert_eq!(f.lines(cx), ["xyzcd"]);
+}
+
+#[gpui::test]
+fn the_status_bar_shows_the_mode(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "ab");
+    f.view
+        .read_with(cx, |v, cx| assert!(!v.status(cx).overwrite));
+    cx.simulate_keystrokes("insert");
+    f.view.read_with(cx, |v, cx| {
+        assert!(v.status(cx).overwrite);
+        assert!(crate::status::status_text(&v.status(cx)).contains("上書"));
+    });
+}
+
+#[gpui::test]
+fn the_mode_belongs_to_the_document(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "ab");
+    let second = f.document.clone();
+    let view2 = cx.update(|_, cx| cx.new(|cx| EditorView::new(second, cx)));
+    cx.simulate_keystrokes("insert");
+    view2.read_with(cx, |v, cx| assert!(v.status(cx).overwrite));
+}
+
+#[gpui::test]
+fn a_committed_ime_text_overwrites_in_overwrite_mode(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abcde");
+    cx.simulate_keystrokes("right insert");
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_and_mark_text_in_range(None, "にほん", Some(9..9), window, cx);
+        v.replace_text_in_range(None, "日本", window, cx);
+    });
+    // two chars committed replace two chars: b and c
+    assert_eq!(f.lines(cx), ["a日本de"]);
+    // one undo step brings back the text
+    cx.simulate_keystrokes("secondary-z");
+    assert_eq!(f.lines(cx), ["abcde"]);
+}
+
+#[gpui::test]
+fn the_ime_inserts_in_insert_mode(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abcde");
+    cx.simulate_keystrokes("right");
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_and_mark_text_in_range(None, "にほん", Some(9..9), window, cx);
+        v.replace_text_in_range(None, "日本", window, cx);
+    });
+    assert_eq!(f.lines(cx), ["a日本bcde"]);
+}

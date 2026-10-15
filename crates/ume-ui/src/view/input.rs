@@ -171,6 +171,16 @@ impl EntityInputHandler for EditorView {
             if !was_composing {
                 command_cx.begin_block();
             }
+            // Overwrite mode: the committed text replaces as many chars after it as it has, as
+            // Sakura does char by char (`WM_IME_CHAR` runs `F_IME_CHAR` there, and
+            // `Command_IME_CHAR` calls `DelCharForOverwrite`). A selection is only replaced.
+            let to = if command_cx.is_overwrite() && (was_composing || from == to) {
+                command_cx
+                    .overwrite_end(to, text.chars().count())
+                    .unwrap_or(to)
+            } else {
+                to
+            };
             if let Ok(edit) = command_cx.replace(from, to, text) {
                 command_cx.move_caret(edit.end, false).ok();
             }

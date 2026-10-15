@@ -15,6 +15,7 @@ pub mod redo;
 pub mod rtrim;
 pub mod sort_asc;
 pub mod sort_desc;
+pub mod toggle_overwrite_mode;
 pub mod undo;
 pub mod unindent_space;
 pub mod unindent_tab;
