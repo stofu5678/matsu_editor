@@ -1,8 +1,9 @@
 //! Settings for how Sakura's key table is read on each OS, and the macOS tables behind them.
 //!
-//! ADR-0008 decided that on macOS Ctrl is read as Cmd and Alt as Option, with a setting that
-//! keeps Ctrl, and left four points open. The defaults below are a proposal for them; each
-//! one can be switched off by a field of [`KeyMapOptions`].
+//! ADR-0008 (decided again on 2026-10-15): on macOS the keys keep their places. Control is
+//! Sakura's Ctrl, Option is Sakura's Alt, and Cmd (the Windows key's place) has no Sakura
+//! binding; it only gets the shortcuts that almost every Mac app has ([`CMD_KEYS`]
+//! below). The older reading, where Sakura's Ctrl is read as Cmd, is `ctrl_as_cmd`.
 
 use super::key::{Key, Modifiers};
 
@@ -39,17 +40,23 @@ pub enum ControlKey {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct KeyMapOptions {
     pub platform: Platform,
-    /// Read Ctrl of Sakura's table as Cmd (ADR-0008). Off keeps Ctrl: Sakura's table works as
-    /// on Windows, with Control as Ctrl. Option is Alt in both cases.
+    /// Off (the default): Control is Sakura's Ctrl and Option is Alt; Cmd has only the
+    /// shortcuts of `cmd_keys`. On: Sakura's Ctrl is read as Cmd (Ctrl+S is Cmd+S) and Control
+    /// is left for `control_key`; Option is Alt in both cases.
     pub ctrl_as_cmd: bool,
-    /// Give Cmd chords that clash with macOS's standard keys their Mac meaning
-    /// (`STANDARD_KEYS`): Cmd+W closes, Cmd+Left/Right go to the line start/end, and so on.
-    /// Needs a row of Sakura's table to be unchanged by the user (see [`super::KeyMap`]).
+    /// While `ctrl_as_cmd` is off: give Cmd the shortcuts that nearly every Mac app has
+    /// (`CMD_KEYS`: Cmd+C/V/X/Z/A/S/O/N/P/F/G/W/Q, Cmd+arrows, ...). Every other Cmd chord is
+    /// not a command. Also adds Option+Backspace / Option+Delete (word deletes), which Sakura
+    /// leaves free.
+    pub cmd_keys: bool,
+    /// While `ctrl_as_cmd` is on: give Cmd chords that clash with macOS's standard keys their
+    /// Mac meaning (`STANDARD_KEYS`): Cmd+W closes, Cmd+Left/Right go to the line start/end, and
+    /// so on. Needs a row of Sakura's table to be unchanged by the user (see [`super::KeyMap`]).
     pub standard_keys: bool,
     /// What Control does while `ctrl_as_cmd` is on. (Off: Control is Ctrl.)
     pub control_key: ControlKey,
     /// Option+Left/Right move by word, as in macOS (`OPTION_ARROWS`). Off keeps Sakura's
-    /// Alt+arrows (box selection), which ADR-0008 maps to Option.
+    /// Alt+arrows (box selection).
     pub option_arrows_by_word: bool,
     /// Never read Option+character as a command, so that the character is typed (for example
     /// Option+¥ for a backslash, or dead keys of other layouts). Off keeps Sakura's Alt
@@ -62,7 +69,8 @@ impl KeyMapOptions {
     pub fn for_platform(platform: Platform) -> Self {
         Self {
             platform,
-            ctrl_as_cmd: true,
+            ctrl_as_cmd: false,
+            cmd_keys: true,
             standard_keys: true,
             control_key: ControlKey::Emacs,
             option_arrows_by_word: false,
@@ -88,7 +96,44 @@ const OPT: Modifiers = Modifiers::ALT;
 const OPT_SHIFT: Modifiers = Modifiers::ALT.with_shift();
 const CTL: Modifiers = Modifiers::CTRL;
 
-/// Cmd chords where reading Ctrl as Cmd clashes with macOS's standard keys, and the keys that
+/// The Cmd shortcuts of the default mode (`cmd_keys`): the ones that nearly every Mac app has,
+/// each with the Sakura function of the same meaning. Sakura binds nothing on Cmd (the Windows
+/// key's place), so nothing is displaced. Cmd+H, Cmd+Option+H and Cmd+M belong to the app
+/// menu. Option+Backspace / Option+Delete are free in Sakura's Alt column.
+pub(super) static CMD_KEYS: &[OverlayEntry] = &[
+    (Key::Letter('Q'), CMD, Some("F_EXITALLEDITORS")),
+    (Key::Letter('W'), CMD, Some("F_WINCLOSE")),
+    (Key::Letter('H'), CMD, None),
+    (Key::Letter('H'), CMD.with_alt(), None),
+    (Key::Letter('M'), CMD, None),
+    (Key::Comma, CMD, Some("F_OPTION")),
+    (Key::Letter('C'), CMD, Some("F_COPY")),
+    (Key::Letter('V'), CMD, Some("F_PASTE")),
+    (Key::Letter('X'), CMD, Some("F_CUT")),
+    (Key::Letter('Z'), CMD, Some("F_UNDO")),
+    (Key::Letter('Z'), CMD_SHIFT, Some("F_REDO")),
+    (Key::Letter('A'), CMD, Some("F_SELECTALL")),
+    (Key::Letter('S'), CMD, Some("F_FILESAVE")),
+    (Key::Letter('O'), CMD, Some("F_FILEOPEN")),
+    (Key::Letter('N'), CMD, Some("F_FILENEW")),
+    (Key::Letter('P'), CMD, Some("F_PRINT")),
+    (Key::Letter('F'), CMD, Some("F_SEARCH_DIALOG")),
+    (Key::Letter('G'), CMD, Some("F_SEARCH_NEXT")),
+    (Key::Letter('G'), CMD_SHIFT, Some("F_SEARCH_PREV")),
+    (Key::Left, CMD, Some("F_GOLINETOP")),
+    (Key::Left, CMD_SHIFT, Some("F_GOLINETOP_SEL")),
+    (Key::Right, CMD, Some("F_GOLINEEND")),
+    (Key::Right, CMD_SHIFT, Some("F_GOLINEEND_SEL")),
+    (Key::Up, CMD, Some("F_GOFILETOP")),
+    (Key::Up, CMD_SHIFT, Some("F_GOFILETOP_SEL")),
+    (Key::Down, CMD, Some("F_GOFILEEND")),
+    (Key::Down, CMD_SHIFT, Some("F_GOFILEEND_SEL")),
+    (Key::Backspace, CMD, Some("F_LineDeleteToStart")),
+    (Key::Backspace, OPT, Some("F_WordDeleteToStart")),
+    (Key::Delete, OPT, Some("F_WordDeleteToEnd")),
+];
+
+/// Cmd chords where reading Ctrl as Cmd (`ctrl_as_cmd`) clashes with macOS's standard keys, and the keys that
 /// Sakura leaves free where macOS has a meaning. The UI PoC used the Mac meaning too
 /// (`docs/poc/ui-framework-result.md`).
 ///

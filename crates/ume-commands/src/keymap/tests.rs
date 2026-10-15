@@ -18,8 +18,21 @@ fn mac_with(f: impl FnOnce(&mut KeyMapOptions)) -> KeyMap {
     KeyMap::new(options)
 }
 
+/// The default on macOS: Control is Ctrl, Option is Alt, Cmd has the Mac shortcuts only.
 fn mac() -> KeyMap {
     mac_with(|_| {})
+}
+
+/// The older reading: Sakura's Ctrl is read as Cmd.
+fn mac_cmd_with(f: impl FnOnce(&mut KeyMapOptions)) -> KeyMap {
+    mac_with(|o| {
+        o.ctrl_as_cmd = true;
+        f(o);
+    })
+}
+
+fn mac_cmd() -> KeyMap {
+    mac_cmd_with(|_| {})
 }
 
 fn code(map: &KeyMap, s: &str) -> Resolved {
@@ -152,8 +165,8 @@ fn unimplemented_functions_stay_in_the_map() {
 }
 
 #[test]
-fn macos_reads_ctrl_as_cmd_and_alt_as_option() {
-    let map = mac();
+fn macos_can_read_ctrl_as_cmd() {
+    let map = mac_cmd();
     assert_eq!(code(&map, "Cmd+S"), Resolved::Code(30103));
     assert_eq!(code(&map, "Cmd+Z"), Resolved::Code(30210));
     assert_eq!(code(&map, "Cmd+Y"), Resolved::Code(30211));
@@ -170,22 +183,93 @@ fn macos_reads_ctrl_as_cmd_and_alt_as_option() {
 }
 
 #[test]
-fn macos_can_keep_ctrl() {
-    let map = mac_with(|o| o.ctrl_as_cmd = false);
+fn macos_keeps_the_keys_in_their_places_by_default() {
+    let map = mac();
+    // Control is Sakura's Ctrl, as on Windows.
     assert_eq!(code(&map, "Control+S"), Resolved::Code(30103));
+    assert_eq!(code(&map, "Control+Z"), Resolved::Code(30210));
+    assert_eq!(code(&map, "Control+Y"), Resolved::Code(30211));
     assert_eq!(code(&map, "Control+A"), Resolved::Code(30401));
-    assert_eq!(code(&map, "Cmd+S"), Resolved::Unbound);
-    assert_eq!(code(&map, "Option+D"), Resolved::Code(30283));
-    // The standard Mac keys on Cmd still work.
-    assert_eq!(code(&map, "Cmd+W"), Resolved::Code(31320));
-    assert_eq!(code(&map, "Cmd+Left"), Resolved::Code(30332));
-    // Control+K is Sakura's Ctrl+K here, not the Emacs key.
+    assert_eq!(code(&map, "Control+W"), Resolved::Code(30400));
+    assert_eq!(code(&map, "Control+G"), Resolved::Code(30910));
+    assert_eq!(code(&map, "Control+Left"), Resolved::Code(30320));
+    // No Emacs keys: Control+K is Sakura's Ctrl+K.
     assert_eq!(code(&map, "Control+K"), Resolved::Code(30241));
+    // Option is Alt; Option+arrows stay box selection.
+    assert_eq!(code(&map, "Option+D"), Resolved::Code(30283));
+    assert_eq!(code(&map, "Option+Left"), Resolved::Code(30513));
+    assert_eq!(code(&map, "Control+Option+L"), Resolved::Code(30800));
+    assert_eq!(code(&map, "F3"), Resolved::Code(30902));
+    // Sakura's Ctrl+wheel is Control+wheel.
+    let wheel = Chord::new(Key::Mouse(MouseAction::WheelUp), Modifiers::CTRL);
+    assert_eq!(map.resolve(wheel), Resolved::Code(31122));
+    // Option+Backspace / Option+Delete: free in Sakura, word deletes here.
+    assert_eq!(code(&map, "Option+Backspace"), Resolved::Code(30230));
+    assert_eq!(code(&map, "Option+Del"), Resolved::Code(30231));
+}
+
+#[test]
+fn macos_cmd_has_the_mac_shortcuts_only() {
+    let map = mac();
+    for (s, f) in [
+        ("Cmd+Q", 30194),
+        ("Cmd+W", 31320),
+        ("Cmd+,", 31112),
+        ("Cmd+C", 30602),
+        ("Cmd+V", 30604),
+        ("Cmd+X", 30601),
+        ("Cmd+Z", 30210),
+        ("Cmd+Shift+Z", 30211),
+        ("Cmd+A", 30401),
+        ("Cmd+S", 30103),
+        ("Cmd+O", 30102),
+        ("Cmd+N", 30101),
+        ("Cmd+P", 30150),
+        ("Cmd+F", 30901),
+        ("Cmd+G", 30902),
+        ("Cmd+Shift+G", 30903),
+        ("Cmd+Left", 30332),
+        ("Cmd+Shift+Left", 30432),
+        ("Cmd+Right", 30333),
+        ("Cmd+Shift+Right", 30433),
+        ("Cmd+Up", 30350),
+        ("Cmd+Shift+Up", 30450),
+        ("Cmd+Down", 30351),
+        ("Cmd+Shift+Down", 30451),
+        ("Cmd+Backspace", 30242),
+    ] {
+        assert_eq!(code(&map, s), Resolved::Code(f), "{s}");
+    }
+    assert_eq!(id(map.lookup(chord("Cmd+Left"))), "go_line_top");
+    assert_eq!(id(map.lookup(chord("Cmd+Z"))), "undo");
+    // Hide and minimize are left to the OS and the menu.
+    assert_eq!(code(&map, "Cmd+H"), Resolved::PassThrough);
+    assert_eq!(code(&map, "Cmd+Option+H"), Resolved::PassThrough);
+    assert_eq!(code(&map, "Cmd+M"), Resolved::PassThrough);
+    // Any other Cmd chord is not a command (Sakura binds nothing on the Windows key's place).
+    for s in [
+        "Cmd+B",
+        "Cmd+Y",
+        "Cmd+Shift+F",
+        "Cmd+Shift+S",
+        "Cmd+F3",
+        "Cmd+Option+L",
+        "Cmd+D",
+    ] {
+        assert_eq!(code(&map, s), Resolved::Unbound, "{s}");
+        assert!(matches!(map.lookup(chord(s)), Lookup::Unbound), "{s}");
+    }
+    // Cmd with Control is not Sakura's Ctrl+something either.
+    assert_eq!(code(&map, "Control+Cmd+S"), Resolved::Unbound);
+    // With the setting off, Cmd has nothing.
+    let none = mac_with(|o| o.cmd_keys = false);
+    assert_eq!(code(&none, "Cmd+C"), Resolved::Unbound);
+    assert_eq!(code(&none, "Control+C"), Resolved::Code(30602));
 }
 
 #[test]
 fn macos_standard_keys_win_over_the_clashes() {
-    let map = mac();
+    let map = mac_cmd();
     // Sakura: Ctrl+W selects the word, Ctrl+Left moves by word, Ctrl+H centers the line.
     assert_eq!(code(&map, "Cmd+W"), Resolved::Code(31320));
     assert_eq!(id(map.lookup(chord("Cmd+Left"))), "go_line_top");
@@ -203,7 +287,7 @@ fn macos_standard_keys_win_over_the_clashes() {
     assert_eq!(code(&map, "Cmd+M"), Resolved::PassThrough);
     assert!(matches!(map.lookup(chord("Cmd+H")), Lookup::PassThrough));
     // Without the setting, Sakura's table is read as it is.
-    let plain = mac_with(|o| o.standard_keys = false);
+    let plain = mac_cmd_with(|o| o.standard_keys = false);
     assert_eq!(code(&plain, "Cmd+W"), Resolved::Code(30400));
     assert_eq!(code(&plain, "Cmd+Left"), Resolved::Code(30320));
     assert_eq!(code(&plain, "Cmd+H"), Resolved::Code(30360));
@@ -212,7 +296,7 @@ fn macos_standard_keys_win_over_the_clashes() {
 
 #[test]
 fn macos_control_key_is_emacs_or_ignored() {
-    let map = mac();
+    let map = mac_cmd();
     assert_eq!(id(map.lookup(chord("Control+A"))), "go_line_top");
     assert_eq!(id(map.lookup(chord("Control+E"))), "go_line_end");
     assert_eq!(id(map.lookup(chord("Control+B"))), "cursor_left");
@@ -221,7 +305,7 @@ fn macos_control_key_is_emacs_or_ignored() {
     assert_eq!(code(&map, "Control+K"), Resolved::Code(30241));
     // Cmd+A is still select all.
     assert_eq!(code(&map, "Cmd+A"), Resolved::Code(30401));
-    let ignore = mac_with(|o| o.control_key = ControlKey::Ignore);
+    let ignore = mac_cmd_with(|o| o.control_key = ControlKey::Ignore);
     assert_eq!(code(&ignore, "Control+A"), Resolved::Unbound);
     assert_eq!(code(&ignore, "Cmd+A"), Resolved::Code(30401));
 }
@@ -229,8 +313,8 @@ fn macos_control_key_is_emacs_or_ignored() {
 #[test]
 fn macos_option_arrows_are_box_selection_unless_asked() {
     // ADR-0008 maps Sakura's Alt (box selection with Alt+drag, Alt+arrows) to Option.
-    assert_eq!(code(&mac(), "Option+Left"), Resolved::Code(30513));
-    let words = mac_with(|o| o.option_arrows_by_word = true);
+    assert_eq!(code(&mac_cmd(), "Option+Left"), Resolved::Code(30513));
+    let words = mac_cmd_with(|o| o.option_arrows_by_word = true);
     assert_eq!(code(&words, "Option+Left"), Resolved::Code(30320));
     assert_eq!(code(&words, "Option+Shift+Right"), Resolved::Code(30421));
 }
@@ -239,10 +323,10 @@ fn macos_option_arrows_are_box_selection_unless_asked() {
 fn macos_option_characters_can_be_left_to_text_input() {
     // Option+D is Sakura's Alt+D (sort descending); on a JIS keyboard Option+¥ types a backslash
     // and the Alt column of that key is empty, so there is nothing to clash with.
-    let map = mac();
+    let map = mac_cmd();
     assert_eq!(code(&map, "Option+D"), Resolved::Code(30283));
     assert_eq!(code(&map, "Option+\\"), Resolved::Unbound);
-    let text = mac_with(|o| o.option_text_input = true);
+    let text = mac_cmd_with(|o| o.option_text_input = true);
     assert_eq!(code(&text, "Option+D"), Resolved::PassThrough);
     assert_eq!(code(&text, "Option+Shift+1"), Resolved::PassThrough);
     // Keys that type nothing keep their bindings, and so do chords with Cmd.
@@ -265,7 +349,7 @@ fn the_mac_rules_do_nothing_on_other_systems() {
 
 #[test]
 fn every_name_in_the_mac_tables_is_a_sakura_function() {
-    let all = mac_with(|o| o.option_arrows_by_word = true);
+    let all = mac_cmd_with(|o| o.option_arrows_by_word = true);
     let expected = super::options::STANDARD_KEYS.len()
         + super::options::OPTION_ARROWS.len()
         + super::options::EMACS_KEYS.len();
@@ -274,7 +358,7 @@ fn every_name_in_the_mac_tables_is_a_sakura_function() {
 
 #[test]
 fn user_rows_are_used_as_written() {
-    let mut map = mac();
+    let mut map = mac_cmd();
     let (rows, warnings) = user::parse_entries([
         // Left: Cmd+Left (Ctrl+Left) goes to the end of the file.
         ("KeyBind[000]", "0025,0,0,F_GOFILEEND,0,0,0,0,0,←"),
@@ -317,7 +401,7 @@ fn shortcuts_for_menus() {
         ))
     );
 
-    let m = mac();
+    let m = mac_cmd();
     assert_eq!(m.shortcut_for(30103), Some(chord("Cmd+S")));
     assert_eq!(
         m.shortcut_for(30103).unwrap().display(DisplayStyle::Mac),
@@ -343,10 +427,10 @@ fn shortcuts_for_menus() {
 fn a_saved_default_table_keeps_the_mac_rules() {
     // Sakura writes the whole table; reading back a table that was never customized must not
     // switch the Mac rules off.
-    let saved = user::format_entries(&mac().rows());
+    let saved = user::format_entries(&mac_cmd().rows());
     let (rows, warnings) = user::parse_entries(saved.iter().map(|(k, v)| (k.as_str(), v.as_str())));
     assert!(warnings.is_empty());
-    let mut map = mac();
+    let mut map = mac_cmd();
     map.apply_user_rows(&rows);
     assert_eq!(code(&map, "Cmd+W"), Resolved::Code(31320));
     assert_eq!(code(&map, "Control+A"), Resolved::Code(30332));
@@ -354,7 +438,7 @@ fn a_saved_default_table_keeps_the_mac_rules() {
 
 #[test]
 fn restoring_a_default_row_restores_the_mac_rules() {
-    let mut map = mac();
+    let mut map = mac_cmd();
     let w = |functions| UserRow {
         key: Key::Letter('W'),
         functions,
@@ -368,4 +452,11 @@ fn restoring_a_default_row_restores_the_mac_rules() {
         .functions;
     map.apply_user_rows(&[w(default)]);
     assert_eq!(code(&map, "Cmd+W"), Resolved::Code(31320));
+}
+
+#[test]
+fn every_name_in_the_default_mac_table_is_a_sakura_function() {
+    let map = mac_with(|o| o.option_arrows_by_word = true);
+    let expected = super::options::CMD_KEYS.len() + super::options::OPTION_ARROWS.len();
+    assert_eq!(map.overlay_len(), expected);
 }

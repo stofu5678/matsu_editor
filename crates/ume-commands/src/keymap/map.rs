@@ -8,7 +8,8 @@ use std::collections::{HashMap, HashSet};
 
 use super::key::{Chord, Key, Modifiers};
 use super::options::{
-    ControlKey, EMACS_KEYS, KeyMapOptions, OPTION_ARROWS, OverlayEntry, Platform, STANDARD_KEYS,
+    CMD_KEYS, ControlKey, EMACS_KEYS, KeyMapOptions, OPTION_ARROWS, OverlayEntry, Platform,
+    STANDARD_KEYS,
 };
 use super::user::UserRow;
 use crate::command::Registration;
@@ -101,8 +102,12 @@ impl KeyMap {
                     overlay.insert(Chord::new(key, mods), value);
                 }
             };
-            if options.standard_keys {
-                add(STANDARD_KEYS);
+            if options.ctrl_as_cmd {
+                if options.standard_keys {
+                    add(STANDARD_KEYS);
+                }
+            } else if options.cmd_keys {
+                add(CMD_KEYS);
             }
             if options.option_arrows_by_word {
                 add(OPTION_ARROWS);
