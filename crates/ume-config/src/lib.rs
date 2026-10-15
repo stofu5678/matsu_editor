@@ -1,4 +1,5 @@
-//! Reads and writes the settings file of Sakura Editor (`sakura.ini`) the way Sakura does (ADR-0010).
+//! Reads and writes UME Editor's settings file `ume.ini`, in the format of Sakura Editor's `sakura.ini`
+//! (ADR-0010).
 //!
 //! - [`Profile`] is the file format (`sakura_core/env/CProfile.cpp`). It keeps every line, so reading a file and
 //!   writing it back gives the same bytes, and entries UME Editor does not know are never lost.

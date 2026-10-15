@@ -62,6 +62,11 @@ use std::fmt;
 use std::io;
 use std::path::Path;
 
+/// The first comment line of UME Editor's `ume.ini`. Sakura writes the same with `sakura.ini`
+/// (`CShareData_IO::ShareData_IO_2`); the format is unchanged. A file that is read and written back with
+/// [`Profile::save`] keeps whatever comment it has.
+pub const UME_HEADER_COMMENT: &str = " ume.ini テキストエディタ設定ファイル";
+
 const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
 
 /// Text encoding of a profile file.
@@ -483,7 +488,8 @@ impl Profile {
     /// CRLF, an optional first comment line and a blank line, then every section as `[name]`, its entries
     /// sorted by key and a blank line. Comments, blank lines, ignored lines and repeated keys are dropped.
     ///
-    /// Sakura passes `" sakura.ini テキストエディタ設定ファイル"` as the comment (`CShareData_IO::ShareData_IO_2`).
+    /// Sakura passes `" sakura.ini テキストエディタ設定ファイル"` as the comment (`CShareData_IO::ShareData_IO_2`);
+    /// UME Editor passes [`UME_HEADER_COMMENT`]. Only the name differs; the format is the same.
     pub fn to_sakura_bytes(&self, comment: Option<&str>) -> Vec<u8> {
         let mut text = String::new();
         if let Some(comment) = comment {
@@ -790,6 +796,13 @@ mod tests {
             parse("[A]\nk=1\n").to_sakura_bytes(None),
             b"\xEF\xBB\xBF[A]\r\nk=1\r\n\r\n"
         );
+    }
+
+    #[test]
+    fn ume_header_comment_differs_from_sakuras_only_in_the_name() {
+        let out = parse("[A]\nk=1\n").to_sakura_bytes(Some(UME_HEADER_COMMENT));
+        let want = "\u{feff}; ume.ini テキストエディタ設定ファイル\r\n\r\n[A]";
+        assert!(out.starts_with(want.as_bytes()));
     }
 
     #[test]

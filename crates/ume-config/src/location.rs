@@ -1,6 +1,6 @@
-//! Where `sakura.ini` is.
+//! Where UME Editor's settings file `ume.ini` is.
 //!
-//! Sakura looks for the file like this (`sakura_core/_main/CControlProcess.cpp`, `GetIniFileName` and
+//! Sakura keeps its own file like this (`sakura_core/_main/CControlProcess.cpp`, `GetIniFileName` and
 //! `GetPrivateIniFileName`; `sakura_core/env/CShareData_IO.cpp`, `GetIniFileNameForIO`):
 //!
 //! 1. Normally it is `sakura.ini` next to `sakura.exe` (in a sub folder with the profile name, if the
@@ -11,18 +11,25 @@
 //!    folder in the user's folder (3).
 //! 3. Reading prefers the multi-user file when it exists (`GetIniFileNameForIO`).
 //!
+//! UME Editor uses the same format but its own file name and folders, so that it never reads or overwrites
+//! Sakura's file (the user's decision, 2026-10-15). [`sakura_ini_path`] only says where Sakura's file usually
+//! is, for a later "import Sakura's settings" feature.
+//!
 //! The list below is UME Editor's proposal. It is plain data, so it is easy to change.
 
 use std::path::{Path, PathBuf};
 
-/// The name of the settings file.
-pub const FILE_NAME: &str = "sakura.ini";
+/// The name of UME Editor's settings file.
+pub const FILE_NAME: &str = "ume.ini";
 
-/// The folder name UME Editor uses under the user's configuration folder on macOS and Linux.
+/// The folder name UME Editor uses for its settings file on every OS.
 pub const APP_DIR: &str = "ume-editor";
 
 /// The folder name Sakura uses under `%APPDATA%`.
-pub const SAKURA_DIR: &str = "sakura";
+const SAKURA_DIR: &str = "sakura";
+
+/// The name of Sakura's own settings file.
+const SAKURA_FILE_NAME: &str = "sakura.ini";
 
 /// The operating system, as far as the location is concerned.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,10 +98,9 @@ fn with_profile(mut dir: PathBuf, env: &Environment) -> PathBuf {
 
 /// The places to look for the settings file on `os`, best first.
 ///
-/// - Windows: `<exe folder>\sakura.ini` (Sakura's default, so that a portable copy keeps working), then
-///   `%APPDATA%\sakura\sakura.ini` (Sakura's multi-user place).
-/// - macOS: `~/Library/Application Support/ume-editor/sakura.ini`.
-/// - Linux: `$XDG_CONFIG_HOME/ume-editor/sakura.ini`, or `~/.config/ume-editor/sakura.ini`.
+/// - Windows: `<exe folder>\ume.ini` (a portable copy), then `%APPDATA%\ume-editor\ume.ini`.
+/// - macOS: `~/Library/Application Support/ume-editor/ume.ini`.
+/// - Linux: `$XDG_CONFIG_HOME/ume-editor/ume.ini`, or `~/.config/ume-editor/ume.ini`.
 pub fn candidate_paths(os: Os, env: &Environment) -> Vec<PathBuf> {
     let mut out = Vec::new();
     match os {
@@ -103,7 +109,7 @@ pub fn candidate_paths(os: Os, env: &Environment) -> Vec<PathBuf> {
                 out.push(with_profile(dir.clone(), env));
             }
             if let Some(dir) = &env.app_data {
-                out.push(with_profile(dir.join(SAKURA_DIR), env));
+                out.push(with_profile(dir.join(APP_DIR), env));
             }
         }
         Os::MacOs => {
@@ -126,6 +132,19 @@ pub fn candidate_paths(os: Os, env: &Environment) -> Vec<PathBuf> {
         }
     }
     out
+}
+
+/// Where Sakura's own `sakura.ini` usually is, for a later import of Sakura's settings. Nothing reads or copies
+/// it yet. On Windows this is the multi-user place (`%APPDATA%\sakura\sakura.ini`); Sakura's default, next to
+/// `sakura.exe`, depends on where Sakura is installed and is not known here. Other systems have no Sakura.
+pub fn sakura_ini_path(os: Os, env: &Environment) -> Option<PathBuf> {
+    match os {
+        Os::Windows => env
+            .app_data
+            .as_ref()
+            .map(|d| d.join(SAKURA_DIR).join(SAKURA_FILE_NAME)),
+        Os::MacOs | Os::Linux => None,
+    }
 }
 
 /// The file to read: the first candidate that exists.
@@ -157,12 +176,30 @@ mod tests {
     }
 
     #[test]
+    fn sakuras_own_file_is_only_named() {
+        assert_eq!(
+            sakura_ini_path(Os::Windows, &env()),
+            Some(PathBuf::from("/appdata/sakura/sakura.ini"))
+        );
+        assert_eq!(sakura_ini_path(Os::Linux, &env()), None);
+        // UME Editor's candidates never include Sakura's file.
+        for os in [Os::Windows, Os::MacOs, Os::Linux] {
+            let sakura = sakura_ini_path(os, &env());
+            assert!(
+                candidate_paths(os, &env())
+                    .iter()
+                    .all(|p| Some(p) != sakura.as_ref())
+            );
+        }
+    }
+
+    #[test]
     fn windows_looks_next_to_the_exe_then_in_appdata() {
         assert_eq!(
             candidate_paths(Os::Windows, &env()),
             [
-                PathBuf::from("/app/sakura.ini"),
-                PathBuf::from("/appdata/sakura/sakura.ini")
+                PathBuf::from("/app/ume.ini"),
+                PathBuf::from("/appdata/ume-editor/ume.ini")
             ]
         );
     }
@@ -174,8 +211,8 @@ mod tests {
         assert_eq!(
             candidate_paths(Os::Windows, &e),
             [
-                PathBuf::from("/app/work/sakura.ini"),
-                PathBuf::from("/appdata/sakura/work/sakura.ini")
+                PathBuf::from("/app/work/ume.ini"),
+                PathBuf::from("/appdata/ume-editor/work/ume.ini")
             ]
         );
     }
@@ -185,18 +222,18 @@ mod tests {
         assert_eq!(
             candidate_paths(Os::MacOs, &env()),
             [PathBuf::from(
-                "/home/u/Library/Application Support/ume-editor/sakura.ini"
+                "/home/u/Library/Application Support/ume-editor/ume.ini"
             )]
         );
         assert_eq!(
             candidate_paths(Os::Linux, &env()),
-            [PathBuf::from("/home/u/.config/ume-editor/sakura.ini")]
+            [PathBuf::from("/home/u/.config/ume-editor/ume.ini")]
         );
         let mut e = env();
         e.xdg_config_home = Some(PathBuf::from("/xdg"));
         assert_eq!(
             candidate_paths(Os::Linux, &e),
-            [PathBuf::from("/xdg/ume-editor/sakura.ini")]
+            [PathBuf::from("/xdg/ume-editor/ume.ini")]
         );
     }
 
