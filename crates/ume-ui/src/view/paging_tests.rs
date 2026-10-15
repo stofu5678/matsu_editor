@@ -144,13 +144,13 @@ fn the_page_keys_and_their_selecting_variants(cx: &mut TestAppContext) {
 fn half_a_page_moves_only_the_caret(cx: &mut TestAppContext) {
     let (view, cx) = setup(cx);
     let n = rows(&view, cx);
-    cx.simulate_keystrokes("secondary-pagedown");
+    cx.simulate_keystrokes("ctrl-pagedown");
     // The caret is still in view, so the view stays.
     assert_eq!(at(&view, cx), (n / 2, 0));
-    cx.simulate_keystrokes("secondary-shift-pagedown");
+    cx.simulate_keystrokes("ctrl-shift-pagedown");
     assert_eq!(caret_line(&view, cx), 2 * (n / 2));
     assert!(view.read_with(cx, |v, _| v.cursor.has_selection()));
-    cx.simulate_keystrokes("secondary-pageup");
+    cx.simulate_keystrokes("ctrl-pageup");
     assert_eq!(caret_line(&view, cx), n / 2);
 }
 
@@ -259,11 +259,9 @@ fn a_wheel_notch_scrolls_three_rows_without_moving_the_caret(cx: &mut TestAppCon
 fn the_wheel_follows_the_key_table(cx: &mut TestAppContext) {
     let (view, cx) = setup(cx);
     // Ctrl+wheel is F_SETFONTSIZEUP/DOWN in Sakura's table, not a scroll.
-    let (ctrl, sakura_ctrl) = if cfg!(target_os = "macos") {
-        (Modifiers::command(), ume_commands::keymap::Modifiers::META)
-    } else {
-        (Modifiers::control(), ume_commands::keymap::Modifiers::CTRL)
-    };
+    // Plan A (ADR-0008): Control is Sakura's Ctrl on every OS.
+    let ctrl = Modifiers::control();
+    let sakura_ctrl = ume_commands::keymap::Modifiers::CTRL;
     wheel(&view, cx, ScrollDelta::Lines(point(0., -NOTCH)), ctrl);
     assert_eq!(top(&view, cx), 0);
     view.read_with(cx, |v, _| {

@@ -289,6 +289,20 @@ mod tests {
         );
     }
 
+    // Plan A (ADR-0008): on macOS the menu shows the Mac chord (Cmd+O) where the key map has one.
+    #[test]
+    fn the_shortcuts_follow_the_key_map_of_the_os() {
+        let mac = KeyMap::new(KeyMapOptions::for_platform(Platform::MacOs));
+        let menus = main_menu(&mac, &all);
+        let open = items(&top(&menus, "ファイル(F)").entries)
+            .into_iter()
+            .find(|i| i.label == "開く(O)...")
+            .unwrap()
+            .shortcut
+            .unwrap();
+        assert_eq!(open.display(DisplayStyle::Mac), "⌘O");
+    }
+
     #[test]
     fn the_edit_menu_runs_undo_and_redo_by_code() {
         let menus = main_menu(&keymap(), &all);
