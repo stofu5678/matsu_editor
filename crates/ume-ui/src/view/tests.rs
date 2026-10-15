@@ -1,6 +1,9 @@
 //! Tests of the editor view in GPUI's headless test window: keys go through the key map and the
 //! command registry, text goes through the input handler, and the layout follows each change.
 //!
+//! The shortcuts are written with `secondary-`, which GPUI reads as Ctrl on Windows and Linux and
+//! as Cmd on macOS, where the key map lets Cmd stand for Sakura's Ctrl (ADR-0008).
+//!
 //! The test platform has no fonts, so nothing here depends on how the text looks; the sizes of the
 //! text area are set by the tests (`set_metrics`), and the pure arithmetic of painting and
 //! hit-testing is tested in `geometry`, `hit` and `segments`.
@@ -108,9 +111,9 @@ fn keys_move_the_caret_and_delete(cx: &mut TestAppContext) {
     assert_eq!(f.caret(cx), Pos::new(0, 3));
     cx.simulate_keystrokes("backspace");
     assert_eq!(f.lines(cx), ["abef"]);
-    cx.simulate_keystrokes("ctrl-end");
+    cx.simulate_keystrokes("secondary-end");
     assert_eq!(f.caret(cx), Pos::new(0, 4));
-    cx.simulate_keystrokes("ctrl-home");
+    cx.simulate_keystrokes("secondary-home");
     assert_eq!(f.caret(cx), Pos::new(0, 0));
 }
 
@@ -123,7 +126,7 @@ fn shift_arrows_select_and_typing_replaces_the_selection(cx: &mut TestAppContext
     });
     cx.simulate_input("X");
     assert_eq!(f.lines(cx), ["aXd"]);
-    cx.simulate_keystrokes("ctrl-a");
+    cx.simulate_keystrokes("secondary-a");
     f.view.read_with(cx, |v, _| {
         assert_eq!(v.cursor.selection(), Some((Pos::new(0, 0), Pos::new(0, 3))));
     });
@@ -133,9 +136,9 @@ fn shift_arrows_select_and_typing_replaces_the_selection(cx: &mut TestAppContext
 fn undo_and_redo_by_key_and_by_menu_action(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "");
     cx.simulate_input("ab");
-    cx.simulate_keystrokes("ctrl-z");
+    cx.simulate_keystrokes("secondary-z");
     assert_eq!(f.lines(cx), ["a"]);
-    cx.simulate_keystrokes("ctrl-y");
+    cx.simulate_keystrokes("secondary-y");
     assert_eq!(f.lines(cx), ["ab"]);
     cx.dispatch_action(Undo);
     cx.dispatch_action(Undo);
@@ -148,7 +151,7 @@ fn undo_and_redo_by_key_and_by_menu_action(cx: &mut TestAppContext) {
 fn a_function_without_a_command_says_so(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "abc");
     // Ctrl+F is Sakura's search dialog, which has no command yet
-    cx.simulate_keystrokes("ctrl-f");
+    cx.simulate_keystrokes("secondary-f");
     let notice = f.view.read_with(cx, |v, _| v.notice.clone());
     assert!(notice.unwrap().contains("F_SEARCH_DIALOG"));
     // and the text is untouched
@@ -161,9 +164,9 @@ fn the_layout_follows_every_change(cx: &mut TestAppContext) {
     assert_eq!(f.rows(cx), 1);
     cx.simulate_keystrokes("enter enter");
     assert_eq!(f.rows(cx), 3); // "", "", "one"
-    cx.simulate_keystrokes("ctrl-z"); // each Enter is an undo step of its own
+    cx.simulate_keystrokes("secondary-z"); // each Enter is an undo step of its own
     assert_eq!(f.rows(cx), 2);
-    cx.simulate_keystrokes("ctrl-a delete");
+    cx.simulate_keystrokes("secondary-a delete");
     assert_eq!(f.rows(cx), 1);
 }
 
@@ -193,10 +196,10 @@ fn the_caret_stays_in_view_while_moving_through_a_long_document(cx: &mut TestApp
             );
         });
     };
-    cx.simulate_keystrokes("ctrl-end");
+    cx.simulate_keystrokes("secondary-end");
     assert_eq!(f.caret(cx).line, 1999);
     in_view(&f, cx);
-    cx.simulate_keystrokes("ctrl-home");
+    cx.simulate_keystrokes("secondary-home");
     assert_eq!(f.view.read_with(cx, |v, _| v.scroll_y()), 0.0);
     for _ in 0..30 {
         cx.simulate_keystrokes("down");
@@ -279,7 +282,7 @@ fn an_ime_composition_is_one_undo_step(cx: &mut TestAppContext) {
     });
     assert_eq!(f.lines(cx), ["a日本b"]);
     assert_eq!(f.caret(cx), Pos::new(0, 1 + "日本".len()));
-    cx.simulate_keystrokes("ctrl-z");
+    cx.simulate_keystrokes("secondary-z");
     assert_eq!(f.lines(cx), ["ab"]);
     assert_eq!(f.caret(cx), Pos::new(0, 1));
 }
@@ -307,7 +310,7 @@ fn two_views_of_one_document_stay_in_step(cx: &mut TestAppContext) {
     let other = f.document.clone();
     let second = cx.update(|_, cx| cx.new(|cx| EditorView::new(other, cx)));
     assert_eq!(second.read_with(cx, |v, _| v.layout.row_count()), 2);
-    cx.simulate_keystrokes("ctrl-end enter enter");
+    cx.simulate_keystrokes("secondary-end enter enter");
     assert_eq!(f.rows(cx), 4);
     cx.run_until_parked();
     // the second view heard the event and laid the document out again
