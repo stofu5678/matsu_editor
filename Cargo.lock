@@ -275,6 +275,7 @@ dependencies = [
 name = "ume-layout"
 version = "0.0.0"
 dependencies = [
+ "ume-core",
  "unicode-width",
 ]
 
