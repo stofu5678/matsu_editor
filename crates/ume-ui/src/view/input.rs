@@ -218,7 +218,11 @@ impl EntityInputHandler for EditorView {
                 && ((was_composing && !over_selection) || from == to)
             {
                 command_cx
-                    .overwrite_end(to, text.chars().count())
+                    // a line break is inserted, not overwritten (Enter in `Command_WCHAR`)
+                    .overwrite_end(
+                        to,
+                        text.chars().filter(|c| !matches!(c, '\r' | '\n')).count(),
+                    )
                     .unwrap_or(to)
             } else {
                 to

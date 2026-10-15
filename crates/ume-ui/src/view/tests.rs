@@ -559,3 +559,14 @@ fn an_edit_in_another_view_ends_an_overwrite_composition_without_deleting(cx: &m
     // deleted (b stays)
     assert_eq!(f.lines(cx), ["ZXbcde"]);
 }
+
+#[gpui::test]
+fn a_committed_line_break_is_not_overwritten_text(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abcdef");
+    cx.simulate_keystrokes("insert");
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_text_in_range(None, "X\nY", window, cx);
+    });
+    // as typed char by char: X over a, the line break inserted, Y over b
+    assert_eq!(f.lines(cx), ["X", "Ycdef"]);
+}
