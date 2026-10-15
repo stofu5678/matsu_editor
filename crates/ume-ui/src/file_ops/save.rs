@@ -121,6 +121,20 @@ pub(crate) async fn save(
         if current.is_none() && !request.ask_name {
             return SaveOutcome::Cancelled;
         }
+        // Another Save As is still asking for its options (a menu or a macro started this one).
+        let busy = view
+            .update(cx, |view, cx| {
+                let busy = view.save_as_dialog.is_some();
+                if busy {
+                    view.notice = Some("別の名前を付けて保存の設定を選んでいる途中".to_owned());
+                    cx.notify();
+                }
+                busy
+            })
+            .unwrap_or(true);
+        if busy {
+            return SaveOutcome::Cancelled;
+        }
         match choose_path(cx, current.as_deref()).await {
             Some(path) => {
                 from_dialog = true;

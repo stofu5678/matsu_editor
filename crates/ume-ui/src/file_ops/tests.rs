@@ -1087,3 +1087,17 @@ fn saving_an_untitled_document_shows_the_options_too(cx: &mut TestAppContext) {
     f.keys(cx, "up up enter");
     assert_eq!(read(&target), b"\xFF\xFEh\x00i\x00");
 }
+
+#[gpui::test]
+fn a_second_save_as_does_not_open_another_path_dialog(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let target = dir.path("b.txt");
+    let (f, cx) = utf8_fixture(cx, &dir, b"abc");
+    f.save_as_to(cx, "F_FILESAVEAS_DIALOG", &[], &target);
+    // A menu or a macro starts another one while the options are open: it says so and stops.
+    f.run(cx, "F_FILESAVEAS_DIALOG", &[]);
+    assert!(f.notice(cx).unwrap().contains("途中"));
+    assert!(f.dialog_open(cx), "the first dialog is still there");
+    f.keys(cx, "enter");
+    assert_eq!(read(&target), b"abc");
+}
