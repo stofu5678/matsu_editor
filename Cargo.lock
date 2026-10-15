@@ -7216,6 +7216,7 @@ dependencies = [
  "gpui-pre-platform",
  "inventory",
  "ume-commands",
+ "ume-config",
  "ume-core",
  "ume-layout",
 ]

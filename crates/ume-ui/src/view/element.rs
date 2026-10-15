@@ -18,13 +18,7 @@ use super::{EditorView, PaintInfo};
 use crate::geometry::{Metrics, SCROLLBAR_WIDTH, Scrollbar};
 use crate::hit::selected_columns;
 use crate::segments::{SegmentKind, row_segments};
-
-const TEXT: u32 = 0x1e1e1e;
-const LINE_NUMBER: u32 = 0x8a8a8a;
-const MARK: u32 = 0xb4b4b4;
-const SELECTION: u32 = 0xb4d5fe;
-const CARET: u32 = 0x0050c8;
-const GUTTER: u32 = 0xf0f0f0;
+use crate::settings::Colors;
 
 /// The mark for a tab: Sakura draws an arrow (`CFigure_Tab.cpp`, the default `TAB_ARROW`).
 const TAB_MARK: &str = "→";
@@ -73,6 +67,8 @@ pub(super) struct Prepaint {
     rows: Vec<RowPaint>,
     /// The index in `rows` and the column of the caret.
     caret: Option<(usize, u32)>,
+    colors: Colors,
+    show_line_numbers: bool,
     cell: f32,
     line_height: f32,
     gutter_width: f32,
@@ -140,6 +136,10 @@ impl Element for EditorElement {
         let font_size = style.font_size.to_pixels(window.rem_size());
         let line_height = f32::from(window.line_height());
         let font = style.font();
+        let settings = &editor.prefs.settings;
+        let colors = settings.colors;
+        let marks_shown = settings.marks;
+        let show_line_numbers = settings.show_line_numbers;
 
         let shape = |window: &mut Window, text: &str, color: u32| -> ShapedLine {
             let text: SharedString = text.to_owned().into();
@@ -150,7 +150,7 @@ impl Element for EditorElement {
         };
 
         // One column is the advance of a half-width character.
-        let cell = f32::from(shape(window, "0000000000", TEXT).width()) / 10.0;
+        let cell = f32::from(shape(window, "0000000000", colors.text).width()) / 10.0;
         let cell = if cell > 0.0 { cell } else { 8.0 };
 
         let first_row = (editor.scroll_y / line_height).floor().max(0.0) as usize;
@@ -159,7 +159,11 @@ impl Element for EditorElement {
         let rows: Vec<RowInfo> = layout.rows(doc, first_row, count).unwrap_or_default();
 
         let digits = doc.line_count().max(1).to_string().len().max(3);
-        let gutter_width = cell * (digits as f32 + 1.0) + 4.0;
+        let gutter_width = if show_line_numbers {
+            cell * (digits as f32 + 1.0) + 4.0
+        } else {
+            4.0
+        };
 
         let selection = editor.cursor.selection();
         let marked = editor.marked.clone();
@@ -169,45 +173,53 @@ impl Element for EditorElement {
         let mut painted = Vec::with_capacity(rows.len());
         for row in &rows {
             widest = widest.max(row.end_column);
-            let numbers = (row.row_in_line == 0 && !row.is_eof_row).then(|| {
-                shape(
-                    window,
-                    &format!("{:>width$}", row.line + 1, width = digits),
-                    LINE_NUMBER,
-                )
-            });
+            let numbers =
+                (show_line_numbers && row.row_in_line == 0 && !row.is_eof_row).then(|| {
+                    shape(
+                        window,
+                        &format!("{:>width$}", row.line + 1, width = digits),
+                        colors.line_number,
+                    )
+                });
             let mut text = Vec::new();
             let mut marks = Vec::new();
             for seg in row_segments(row.text(), row.start_column, layout.config()) {
                 match seg.kind {
                     SegmentKind::Text => text.push(Placed {
                         col: seg.col,
-                        line: shape(window, &seg.text, TEXT),
+                        line: shape(window, &seg.text, colors.text),
                     }),
-                    SegmentKind::Tab => marks.push(Placed {
+                    SegmentKind::Tab if marks_shown.tab => marks.push(Placed {
                         col: seg.col,
-                        line: shape(window, TAB_MARK, MARK),
+                        line: shape(window, TAB_MARK, colors.tab),
                     }),
-                    SegmentKind::FullWidthSpace => marks.push(Placed {
-                        col: seg.col,
-                        line: shape(window, FULL_WIDTH_SPACE_MARK, MARK),
-                    }),
+                    SegmentKind::FullWidthSpace if marks_shown.full_width_space => {
+                        marks.push(Placed {
+                            col: seg.col,
+                            line: shape(window, FULL_WIDTH_SPACE_MARK, colors.full_width_space),
+                        })
+                    }
+                    SegmentKind::Tab | SegmentKind::FullWidthSpace => {}
                 }
             }
             if row.is_eof_row {
-                marks.push(Placed {
-                    col: 0,
-                    line: shape(window, EOF_MARK, MARK),
-                });
+                if marks_shown.eof {
+                    marks.push(Placed {
+                        col: 0,
+                        line: shape(window, EOF_MARK, colors.eof),
+                    });
+                }
             } else if let Some(eol) = row.eol {
+                if marks_shown.eol {
+                    marks.push(Placed {
+                        col: row.end_column,
+                        line: shape(window, eol_mark(eol), colors.eol),
+                    });
+                }
+            } else if !row.wrapped && row.line == last_line && marks_shown.eof {
                 marks.push(Placed {
                     col: row.end_column,
-                    line: shape(window, eol_mark(eol), MARK),
-                });
-            } else if !row.wrapped && row.line == last_line {
-                marks.push(Placed {
-                    col: row.end_column,
-                    line: shape(window, EOF_MARK, MARK),
+                    line: shape(window, EOF_MARK, colors.eof),
                 });
             }
             let selected =
@@ -246,6 +258,8 @@ impl Element for EditorElement {
         Prepaint {
             rows: painted,
             caret,
+            colors,
+            show_line_numbers,
             cell,
             line_height,
             gutter_width,
@@ -295,10 +309,14 @@ impl Element for EditorElement {
         );
         let x_of = |col: u32| origin_x + px(col as f32 * p.cell - scroll_x);
 
-        window.paint_quad(fill(bounds, rgb(0xffffff)));
+        window.paint_quad(fill(bounds, rgb(p.colors.background)));
         window.paint_quad(fill(
             Bounds::new(bounds.origin, size(px(p.gutter_width), bounds.size.height)),
-            rgb(GUTTER),
+            rgb(if p.show_line_numbers {
+                p.colors.line_number_background
+            } else {
+                p.colors.background
+            }),
         ));
 
         for (i, row) in p.rows.iter().enumerate() {
@@ -327,7 +345,7 @@ impl Element for EditorElement {
                     if let Some((from, to)) = row.selection {
                         window.paint_quad(fill(
                             Bounds::from_corners(point(x_of(from), y), point(x_of(to), y + lh)),
-                            rgb(SELECTION),
+                            rgb(p.colors.selection),
                         ));
                     }
                     for placed in &row.marks {
@@ -362,7 +380,7 @@ impl Element for EditorElement {
                                 point(x_of(from), y + lh - px(2.)),
                                 point(x_of(to), y + lh - px(1.)),
                             ),
-                            rgb(TEXT),
+                            rgb(p.colors.text),
                         ));
                     }
                 }
@@ -372,7 +390,7 @@ impl Element for EditorElement {
                     let y = bounds.top() + px(p.y_offset) + lh * i as f32;
                     window.paint_quad(fill(
                         Bounds::new(point(x_of(col), y), size(px(2.), lh)),
-                        rgb(CARET),
+                        rgb(p.colors.caret),
                     ));
                 }
             },
@@ -404,10 +422,14 @@ impl Element for EditorElement {
             scrollbar_left: f32::from(track.left()),
         };
         let widest = p.widest;
-        self.editor.update(cx, |editor, _| {
+        self.editor.update(cx, |editor, cx| {
             editor.metrics = metrics;
             editor.paint = Some(paint_info);
             editor.widest_cols = widest;
+            // Wrapping at the right edge: the width is known only now.
+            if editor.wrap_is_stale() {
+                cx.notify();
+            }
         });
     }
 }

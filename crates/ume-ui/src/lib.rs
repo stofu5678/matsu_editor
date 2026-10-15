@@ -23,6 +23,7 @@ pub mod keys;
 pub mod layout_adapter;
 pub mod open;
 pub mod segments;
+pub mod settings;
 pub mod status;
 pub mod ui_command;
 mod ui_commands;

@@ -15,6 +15,7 @@ workspace = true
 ume-core = { path = "../ume-core" }
 ume-layout = { path = "../ume-layout" }
 ume-commands = { path = "../ume-commands" }
+ume-config = { path = "../ume-config" }
 # The UI commands register themselves like the core commands (ADR-0013 section 1).
 inventory = "0.3.25"
 gpui = { package = "gpui-pre", version = "=0.3.8" }
