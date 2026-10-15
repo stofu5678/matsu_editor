@@ -30,9 +30,7 @@ pub struct RegexSearchOptions {
 pub enum PatternError {
     /// The pattern ends with a backslash that is not escaped. It escapes the delimiter that Sakura
     /// puts after the pattern (`CBregexp::MakePatternSub` builds `m<D>pattern<D>...`), so the
-    /// pattern has no end for bregonig.dll. That a backslash escapes the delimiter is the Perl-style
-    /// reading; not in bregonig.html (which only says the delimiter may be any character, 5.0);
-    /// to check against the real bregonig.dll, including what it reports.
+    /// pattern has no end: bregonig.dll 4.20 refuses it ("unmatch separater").
     UnmatchedSeparator,
     /// Onigmo rejected the pattern.
     Compile(CompileError),
@@ -124,6 +122,34 @@ impl RegexMatcher {
     }
 }
 
+impl RegexMatcher {
+    /// Like `find_at`, with `\G` at `gpos` instead of `start` (see [`Regex::captures_from`]).
+    pub(crate) fn find_from(
+        &self,
+        line: &str,
+        start: usize,
+        gpos: usize,
+    ) -> Result<Option<Match>, MatcherError> {
+        if start > line.len() {
+            return Ok(None);
+        }
+        let found = self
+            .regex
+            .captures_from(line, start, gpos)
+            .map_err(|e| MatcherError::new(e.to_string()))?;
+        Ok(found.map(to_match))
+    }
+}
+
+fn to_match(caps: crate::Captures) -> Match {
+    let whole = caps.whole();
+    Match {
+        start: whole.start,
+        end: whole.end,
+        captures: caps.iter().skip(1).collect(),
+    }
+}
+
 impl Matcher for RegexMatcher {
     fn find_at(&self, line: &str, start: usize) -> Result<Option<Match>, MatcherError> {
         if start > line.len() {
@@ -133,13 +159,6 @@ impl Matcher for RegexMatcher {
             .regex
             .captures_at(line, start)
             .map_err(|e| MatcherError::new(e.to_string()))?;
-        Ok(found.map(|caps| {
-            let whole = caps.whole();
-            Match {
-                start: whole.start,
-                end: whole.end,
-                captures: caps.iter().skip(1).collect(),
-            }
-        }))
+        Ok(found.map(to_match))
     }
 }

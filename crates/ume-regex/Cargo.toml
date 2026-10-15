@@ -11,6 +11,9 @@ publish.workspace = true
 [dependencies]
 ume-core = { path = "../ume-core" }
 
+[dev-dependencies]
+serde_json = "1"
+
 [build-dependencies]
 cc = "1"
 

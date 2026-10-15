@@ -3,8 +3,9 @@
 //! Where an expectation comes from bregonig, the comment names its documentation (`bregonig.html`
 //! of https://github.com/k-takata/bregonig at `c65e85d`); for Sakura, the file under
 //! `sakura_core/` or `help/sakura/res/`. Expectations that the documentation does not settle say
-//! "not in bregonig.html" and are to be checked against the real bregonig.dll. bregonig's source
-//! code is under the GPL or the Artistic License and is not used here (ADR-0006).
+//! "not in bregonig.html"; those were measured on the real bregonig.dll 4.20 on 2026-10-16
+//! (`tools/bregonig-compat`, replayed by `tests/bregonig_compat.rs`). bregonig's source code is
+//! under the GPL or the Artistic License and is not used here (ADR-0006).
 
 use std::sync::Arc;
 
@@ -168,9 +169,8 @@ fn the_alternate_pattern_matches_the_same_lines() {
 
 #[test]
 fn a_trailing_backslash_loses_the_delimiter() {
-    // Sakura builds `m/pattern/k` (CBregexp.cpp). A single trailing backslash would escape the closing
-    // delimiter (Perl-style reading). Not in bregonig.html; to check against the real
-    // bregonig.dll.
+    // Sakura builds `m<D>pattern<D>k` (CBregexp.cpp). A single trailing backslash escapes the
+    // closing delimiter, so bregonig.dll 4.20 refuses the pattern ("unmatch separater").
     assert!(ends_with_escape("abc\\"));
     assert!(!ends_with_escape("abc\\\\"));
     assert!(ends_with_escape("abc\\\\\\"));
@@ -387,8 +387,11 @@ fn dollar_zero_and_unknown_dollars_are_plain_text() {
     assert_eq!(expand("b", "$x", "abc"), "$x");
     assert_eq!(expand("b", "a$", "abc"), "a$");
     assert_eq!(expand("b", "$", "abc"), "$");
-    // `$$` is two plain characters, so a reference after it still works.
-    assert_eq!(expand("(b)", "$$1", "abc"), "$b");
+    // bregonig.dll 4.20: a `$` that is not a reference takes the next character with it as text,
+    // so `$$1` is not `$` + group 1, and `$\n` is not a line feed.
+    assert_eq!(expand("(b)", "$$1", "abc"), "$$1");
+    assert_eq!(expand("(b)", "$$$1", "abc"), "$$b");
+    assert_eq!(expand("b", r"$\n", "abc"), r"$\n");
 }
 
 #[test]
@@ -491,21 +494,22 @@ fn case_conversion() {
 
 #[test]
 fn a_pending_upper_case_waits_for_the_next_char_when_a_group_is_empty() {
-    // Not in bregonig.html: a pending \u waits for the next written char, so an empty group does
-    // not use it up and the literal text after it takes it (to check against bregonig.dll).
+    // Not in bregonig.html; bregonig.dll 4.20: a pending \u waits for the next written char, so an
+    // empty group does not use it up and the literal text after it takes it.
     assert_eq!(expand("(x*)y", r"\u$1z", "y"), "Z");
 }
 
 #[test]
-fn quote_is_an_ordinary_letter() {
-    // Not in bregonig.html: an unlisted escape is the letter itself.
-    assert_eq!(expand("b", r"\Qa$&", "abc"), "Qab");
+fn quote_is_skipped() {
+    // Not in bregonig.html; bregonig.dll 4.20 skips `\Q` and quotes nothing.
+    assert_eq!(expand("b", r"\Qa$&", "abc"), "ab");
+    assert_eq!(expand("b", r"\Q$&\E", "abc"), "b");
 }
 
 #[test]
 fn malformed_references_keep_the_text() {
-    // Not in bregonig.html: a malformed reference keeps its text (the `$`, or the letter after the
-    // backslash) and scanning goes on after it (to check against bregonig.dll).
+    // Not in bregonig.html; bregonig.dll 4.20: a malformed reference keeps its text (the `$`, or
+    // the letter after the backslash) and scanning goes on after it.
     assert_eq!(expand("b", "${1", "abc"), "${1");
     assert_eq!(expand("b", "$+{x", "abc"), "$+{x");
     assert_eq!(expand("b", r"\k<x", "abc"), "k<x");
@@ -565,8 +569,7 @@ fn plain_text_is_constant() {
 #[test]
 fn a_replacement_ending_with_a_backslash_is_an_error() {
     // A single trailing backslash escapes the delimiter that Sakura puts after the replacement
-    // (`s/pattern/rep/`), so the replacement would have no end. Not in bregonig.html; to check
-    // against the real bregonig.dll.
+    // (`s/pattern/rep/`), so the replacement would have no end; bregonig.dll 4.20 refuses it.
     let _limits = read_lock();
     let m = matcher("a");
     assert_eq!(
@@ -594,8 +597,8 @@ fn replace_all_expands_per_match_and_counts() {
 #[test]
 fn replace_all_with_empty_matches() {
     // After an empty match the next search starts one char later, and the char in between is
-    // kept: "abc" with x* -> "-" gives "-a-b-c-", as Perl's s///g does (to check against
-    // bregonig.dll).
+    // kept: "abc" with x* -> "-" gives "-a-b-c-", as Perl's s///g does (bregonig.dll 4.20
+    // gives the same).
     assert_eq!(replace_all("x*", "-", "abc"), ("-a-b-c-".to_owned(), 4));
     // After a non-empty match an empty match right behind it is found (s != m).
     assert_eq!(replace_all("x*", "-", "xab"), ("--a-b-".to_owned(), 4));
@@ -629,8 +632,8 @@ fn batch_mode_searches_the_line_as_it_was() {
     // `(?<=a)a`: the look-behind of the second match sees the original `a`. Sakura uses the `g`
     // option (bregonig.html 5.2, "global replacement") unless 「すべて置換」は置換の繰返し is on
     // (sakura_core/cmd/CViewCommander_Search.cpp: optGlobal unless bConsecutiveAll). That a
-    // look-behind sees the original text is not in bregonig.html; to check against the real
-    // bregonig.dll.
+    // look-behind sees the original text is not in bregonig.html; bregonig.dll 4.20 does (`aaa`
+    // becomes `aXX`).
     let (text, n) = replace_all_with(
         "(?<=a)a",
         "X",

@@ -43,10 +43,10 @@
 //! 2. `MakePatternSub` wraps the result as `m<D>pattern<D>km` plus `i` when case is ignored, with
 //!    `D` = U+FFFF. [`Options`](crate::Options) already carries `m`, `i`, `x` and the others, so
 //!    nothing is built here. But a pattern (or replacement) that ends with an odd number of
-//!    backslashes escapes the delimiter `D` after it, so the pattern would have no end for bregonig.dll. This
-//!    is the Perl-style reading; bregonig.html only says that the delimiter may be any character
-//!    (the section on `m//` and `s///`), so it is not in bregonig.html; to check against the real
-//!    bregonig.dll. [`ends_with_escape`] tells that.
+//!    backslashes escapes the delimiter `D` after it, so the pattern would have no end for
+//!    bregonig.dll, which refuses it with "unmatch separater" (measured on bregonig.dll 4.20, see
+//!    `tools/bregonig-compat`). [`ends_with_escape`] tells that. A `D` (U+FFFF) typed in a
+//!    pattern ends it for the DLL; that is not reproduced.
 //! 3. `CheckPattern` and the `MakePattern` family (`^`/`$` special cases) are only used by
 //!    `MakePattern`, which `Compile` does not call any more, and by the fallback for a
 //!    bregonig.dll without `BMatchEx`. They are not needed.
@@ -146,19 +146,12 @@ pub fn make_pattern_alternate(pattern: &str) -> String {
     out
 }
 
-/// Whether `text` ends with a backslash that is not itself escaped, so that the delimiter
-/// Sakura puts after the text would be escaped (Perl-style reading).
-///
-/// `\\` and `\/` count as pairs, and a delimiter right after a single backslash does not count
-/// (not in bregonig.html; to check against the real bregonig.dll).
+/// Whether `text` ends with a backslash that is not itself escaped, that is, with an odd number of
+/// backslashes. Sakura puts a delimiter (U+FFFF) right after the pattern and after the
+/// replacement (`CBregexp::MakePatternSub`), and bregonig.dll 4.20 reads a backslash before the
+/// delimiter as escaping it, so the text has no end: it reports "unmatch separater". Measured
+/// with the DLL: `a\` is refused, `a\\` is fine, `a\\\` is refused.
 pub fn ends_with_escape(text: &str) -> bool {
-    let mut prev = None;
-    for c in text.chars() {
-        if (c == '\\' || c == '/') && prev == Some('\\') {
-            prev = None;
-        } else {
-            prev = Some(c);
-        }
-    }
-    prev == Some('\\')
+    let backslashes = text.chars().rev().take_while(|&c| c == '\\').count();
+    backslashes % 2 == 1
 }
