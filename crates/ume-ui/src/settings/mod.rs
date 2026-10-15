@@ -4,8 +4,14 @@
 //! view takes from it for one file. Both are plain data, so they are tested without a window.
 //!
 //! * [`view_settings`]: font, tab width, wrap, what is shown, colors: the meaning of Sakura's keys.
+//! * [`mac_key_layout`]: `[UME]` `nMacKeyLayout`, how the key table is read on macOS.
 //! * [`doc_type`]: which document type a file name has.
 //! * [`zoom`]: the steps of the font size (`F_SETFONTSIZEUP` / `F_SETFONTSIZEDOWN`).
+//!
+//! # Items that Sakura does not have
+//!
+//! They go in the section `[UME]`, which Sakura does not use, so that Sakura can still open the
+//! file (ADR-0010). Now: `nMacKeyLayout` (0 standard, 1 all Control, 2 Cmd as Ctrl; macOS only).
 //!
 //! # Where the file is
 //!
@@ -25,16 +31,18 @@
 //! an answer to "which window's state is the file's").
 
 pub mod doc_type;
+pub mod mac_key_layout;
 pub mod view_settings;
 pub mod zoom;
 
 use std::path::{Path, PathBuf};
 
-use ume_commands::keymap::UserRow;
 use ume_commands::keymap::user::parse_entries;
+use ume_commands::keymap::{KeyMap, Platform, UserRow};
 use ume_config::Profile;
 use ume_config::location::{Environment, Os, candidate_paths, find_existing};
 
+pub use mac_key_layout::MacKeyLayout;
 pub use view_settings::{Colors, Marks, ViewSettings, WrapMethod};
 
 /// The settings file, read once at startup.
@@ -97,6 +105,18 @@ impl UserSettings {
             Some(profile) => ViewSettings::from_profile(profile, file_name, Os::current()),
             None => ViewSettings::default(),
         }
+    }
+
+    /// The key map for `platform`: Sakura's table read the way `[UME]` `nMacKeyLayout` says
+    /// (macOS only), with the user's `[KeyBind]` rows over it.
+    pub fn key_map(&self, platform: Platform) -> KeyMap {
+        let layout = self
+            .profile
+            .as_ref()
+            .map_or_else(MacKeyLayout::default, MacKeyLayout::from_profile);
+        let mut map = KeyMap::new(layout.options(platform));
+        map.apply_user_rows(&self.key_rows());
+        map
     }
 
     /// The user's key bindings (`[KeyBind]`), to put over Sakura's table. Empty without a file.

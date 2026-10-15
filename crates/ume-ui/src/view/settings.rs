@@ -5,7 +5,6 @@
 //! written to the file (see the module documentation of [`crate::settings`]).
 
 use gpui::{App, Context};
-use ume_commands::keymap::UserRow;
 use ume_layout::Wrap;
 
 use super::EditorView;
@@ -71,8 +70,7 @@ impl EditorView {
     /// Reads the settings file for this view: the values for the file it shows, and the user's
     /// key bindings. The first problem in the file goes to the status bar.
     pub fn apply_user_settings(&mut self, user: &UserSettings, cx: &mut Context<Self>) {
-        let rows: Vec<UserRow> = user.key_rows();
-        self.keymap.apply_user_rows(&rows);
+        self.keymap = user.key_map(ume_commands::keymap::Platform::current());
         self.prefs.show_status_bar = true;
         self.apply_type_of_document(user, cx);
         // The status bar of the file is the start value of the window.

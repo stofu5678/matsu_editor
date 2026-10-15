@@ -24,7 +24,10 @@
   - テキストの移動: Cmd+←→（行頭・行末）、Cmd+↑↓（ファイルの先頭・末尾）、Shift を足すと選択、Cmd+Backspace（行頭まで削除）
   - ほかの Cmd の組み合わせは、コマンドにしない
 - Option+Backspace・Option+Delete は、サクラが Alt+BkSp・Alt+Del を空けているので、Mac の単語単位の削除にする
-- 以前の読み替え（サクラの Ctrl を Cmd にする。Ctrl+S → Cmd+S）は、設定（`ctrl_as_cmd`）で選べる。既定ではオフ。オンのときは、Cmd が macOS の標準キーと重なるもの（Cmd+W、Cmd+←→ など）を Mac の意味にし、Control は Emacs 風のキーにする（それぞれ設定で切り替えられる）
+- macOS のキー配置は、ume.ini の `[UME]` セクションの `nMacKeyLayout` で選ぶ（サクラにない項目なので、サクラが使わないセクションに置く。ADR-0010）。macOS 以外は、読んで保持するだけで使わない。
+  - `0`（既定。項目がないときや、知らない値のときも）: 上の標準。Control がサクラの Ctrl、Option が Alt、Cmd は Mac の標準ショートカットだけ
+  - `1`: すべて Control。Cmd は何もしない（Windows のサクラと同じ手の動き）
+  - `2`: 以前の読み替え（サクラの Ctrl を Cmd にする。Ctrl+S → Cmd+S）。内部では `ctrl_as_cmd` をオンにする。オンのときは、Cmd が macOS の標準キーと重なるもの（Cmd+W、Cmd+←→ など）を Mac の意味にし、Control は Emacs 風のキーにする（それぞれ設定で切り替えられる）
 - Windows と Linux では、サクラの割り当てをそのまま使う
 
 Phase 1 で決めること:
@@ -32,4 +35,4 @@ Phase 1 で決めること:
 - サクラが多く使う F キーの扱い（Mac のキーボードでは fn が要る）。決まっていない
 - Option を押しながら打つ文字（JIS キーボードの Option+¥ でのバックスラッシュなど）は、既定ではサクラの Alt の割り当てを優先する。文字入力を優先する設定（`option_text_input`）を用意した。Alt+英字・数字・`;` `:` とぶつかる場合の既定は、使ってみて見直す
 
-2026-10-11 の決定で挙がっていた、Cmd に読み替えたときの標準キーとのぶつかり、Control キーの扱いは、既定では起きない（`ctrl_as_cmd` をオンにしたときだけの話）。
+2026-10-11 の決定で挙がっていた、Cmd に読み替えたときの標準キーとのぶつかり、Control キーの扱いは、既定では起きない（`nMacKeyLayout=2` にしたときだけの話）。
