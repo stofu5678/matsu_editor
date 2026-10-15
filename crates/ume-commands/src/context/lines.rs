@@ -64,10 +64,15 @@ impl CommandContext<'_> {
         let new_text = new_lines.concat();
         // Sakura replaces the lines even when they are the same; no edit is made here then, so
         // that the document does not count as modified.
-        if self.doc().text_between(start, old_end)? != new_text {
-            self.replace(start, old_end, &new_text)?;
-        }
-        let new_end = Pos::new(first + new_lines.len(), 0);
+        let (start, new_end) = if self.doc().text_between(start, old_end)? == new_text {
+            (start, old_end)
+        } else {
+            // The positions come from the edit: with mixed line endings the new text can join a
+            // CR with an LF (a CRLF is one line ending), and then the lines are not counted by
+            // `new_lines`.
+            let edit = self.replace(start, old_end, &new_text)?;
+            (edit.start, edit.end)
+        };
         if caret_at_start {
             self.select_range(new_end, start)
         } else {
@@ -156,10 +161,12 @@ impl CommandContext<'_> {
             }
         }
         // Sakura replaces the text even when nothing changes; here no edit is made then.
-        let new_end = if self.doc().text_between(from, to)? == trimmed {
-            to
+        let (from, new_end) = if self.doc().text_between(from, to)? == trimmed {
+            (from, to)
         } else {
-            self.replace(from, to, &trimmed)?.end
+            // the positions come from the edit: the new text can join a CR before it with an LF
+            let edit = self.replace(from, to, &trimmed)?;
+            (edit.start, edit.end)
         };
         if selected.is_some() {
             self.select_range(from, new_end)

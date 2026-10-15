@@ -49,12 +49,16 @@ impl CommandContext<'_> {
     }
 
     /// Selects from the start of the first of `rows` to `limit`, with the caret at the end, after
-    /// edits that moved the starts of some lines (`shifts`).
+    /// edits that moved the starts of some lines (`shifts`) and, with mixed line endings, can have
+    /// joined a CR and an LF into one line ending, so that there are fewer lines than before
+    /// (`lines_before`). The lines after `limit` were not touched, so `limit` moves by the change
+    /// of the number of lines.
     fn select_indented_rows(
         &mut self,
         rows: &[Pos],
         limit: Option<Pos>,
         shifts: &Shifts,
+        lines_before: usize,
     ) -> Result<()> {
         let end = match limit {
             Some(limit) => {
@@ -62,7 +66,8 @@ impl CommandContext<'_> {
                     .iter()
                     .find(|&&(line, _)| line == limit.line && limit.col > 0)
                     .map_or(0, |&(_, shift)| shift);
-                Pos::new(limit.line, limit.col.saturating_add_signed(shift))
+                let line = (limit.line + self.doc().line_count()).saturating_sub(lines_before);
+                Pos::new(line, limit.col.saturating_add_signed(shift))
             }
             None => self.doc().end_pos()?,
         };
@@ -87,7 +92,7 @@ impl CommandContext<'_> {
             return Ok(());
         }
         let (rows, limit) = self.rows_of_selection(from, to)?;
-        let mut shifts = Shifts::new();
+        let (mut shifts, lines_before) = (Shifts::new(), self.doc().line_count());
         // from the bottom, so that the edits do not move the rows that are still to do
         for row in rows.iter().rev().filter(|row| row.col == 0) {
             if self.doc().line_len(row.line)?.is_some_and(|len| len > 0) {
@@ -96,7 +101,7 @@ impl CommandContext<'_> {
                 shifts.push((row.line, unit_text.len() as isize));
             }
         }
-        self.select_indented_rows(&rows, limit, &shifts)
+        self.select_indented_rows(&rows, limit, &shifts, lines_before)
     }
 
     /// `F_UNINDENT_TAB` (`unit` is a tab) and `F_UNINDENT_SPACE` (a space).
@@ -112,7 +117,7 @@ impl CommandContext<'_> {
             return Ok(());
         };
         let (rows, limit) = self.rows_of_selection(from, to)?;
-        let mut shifts = Shifts::new();
+        let (mut shifts, lines_before) = (Shifts::new(), self.doc().line_count());
         for row in rows.iter().rev().filter(|row| row.col == 0) {
             let Some(line) = self.doc().line(row.line)? else {
                 continue;
@@ -134,6 +139,6 @@ impl CommandContext<'_> {
                 shifts.push((row.line, -(count as isize)));
             }
         }
-        self.select_indented_rows(&rows, limit, &shifts)
+        self.select_indented_rows(&rows, limit, &shifts, lines_before)
     }
 }

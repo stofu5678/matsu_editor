@@ -76,6 +76,12 @@ mod tests {
     }
 
     #[test]
+    fn a_cr_before_the_selection_joins_the_lf_of_the_trimmed_text() {
+        // the trimmed text is the LF; with the CR before it, it is one CRLF
+        check("ltrim", "a\r[ \n|tail", "a[\r\n|tail");
+    }
+
+    #[test]
     fn is_one_undo_step() {
         let mut e = Editor::new("[ a\n b|");
         e.run("ltrim").assert_marked("[a\nb|");

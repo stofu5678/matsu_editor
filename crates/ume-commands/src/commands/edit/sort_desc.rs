@@ -52,6 +52,12 @@ mod tests {
     }
 
     #[test]
+    fn a_cr_and_an_lf_that_meet_are_one_line_ending() {
+        // "a\r" now comes before "\n" and the two make a CRLF: the selection ends before "tail"
+        check("sort_desc", "[\na\rb\n|tail\nkeep", "[b\na\r\n|tail\nkeep");
+    }
+
+    #[test]
     fn is_one_undo_step() {
         let mut e = Editor::new("[a\nb\n|");
         e.run("sort_desc").assert_marked("[b\na\n|");

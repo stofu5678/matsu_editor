@@ -43,6 +43,12 @@ mod tests {
     }
 
     #[test]
+    fn a_cr_and_an_lf_that_meet_are_one_line_ending() {
+        // the second line becomes empty, and its LF joins the CR of the first line
+        check("unindent_space", "[a\r \n|tail\nkeep", "[a\r\n|tail\nkeep");
+    }
+
+    #[test]
     fn tabs_and_rows_without_a_space_stay() {
         check("unindent_space", "[\tab\ncd|", "[\tab\ncd|");
     }
