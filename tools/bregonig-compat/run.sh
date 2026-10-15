@@ -7,12 +7,13 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-zip="${1:-${BRON_ZIP:-$HOME/project/ume_editor/.claude/upstream/sakura/installer/externals/bregonig/bron420.zip}}"
+zip="${1:-${BRON_ZIP:-$here/../../.claude/upstream/sakura/installer/externals/bregonig/bron420.zip}}"
 cases="${2:-$here/cases.json}"
 
 if [ ! -f "$zip" ]; then
     echo "bron420.zip not found: $zip" >&2
-    exit 1
+    echo "usage: run.sh path/to/bron420.zip [cases.json]  (or set BRON_ZIP)" >&2
+    exit 2
 fi
 
 # A Windows folder: cmd.exe refuses a UNC current directory.
