@@ -5,17 +5,16 @@
 use std::path::PathBuf;
 
 use gpui::{
-    App, AppContext as _, Bounds, Context, Decorations, Entity, Focusable, IntoElement, Menu,
-    MenuItem, ParentElement, Render, Styled, Window, WindowBounds, WindowOptions, actions, div,
-    prelude::FluentBuilder, px, rgb, size,
+    App, AppContext as _, Context, Decorations, Entity, Focusable, IntoElement, Menu, MenuItem,
+    ParentElement, Render, Styled, Window, actions, div, prelude::FluentBuilder, px, rgb,
 };
 use gpui_component::menu::AppMenuBar;
-use gpui_component::{GlobalState, Root, TitleBar};
+use gpui_component::{GlobalState, TitleBar};
 use gpui_platform::application;
 
 use crate::document::SharedDocument;
+use crate::file_ops::windows::{LoadRequest, open_editor_window};
 use crate::menu::{Entry, MenuAction, Registered, label_with_shortcut, main_menu};
-use crate::open::OpenError;
 use crate::status::status_text;
 use crate::view::{EditorView, RunFunction};
 use ume_commands::keymap::{DisplayStyle, KeyMap};
@@ -29,31 +28,10 @@ actions!(
     ]
 );
 
-/// Why the editor could not start.
-#[derive(Debug)]
-pub struct StartError {
-    pub path: PathBuf,
-    pub error: OpenError,
-}
-
-impl std::fmt::Display for StartError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "cannot open {}: {}", self.path.display(), self.error)
-    }
-}
-
-impl std::error::Error for StartError {}
-
-/// Opens the window and runs until it closes. `path` is the file to open (UTF-8 for now); without
-/// it the editor starts with an empty document.
-pub fn run(path: Option<PathBuf>) -> Result<(), StartError> {
-    let shared = match &path {
-        Some(path) => SharedDocument::open(path).map_err(|error| StartError {
-            path: path.clone(),
-            error,
-        })?,
-        None => SharedDocument::empty(),
-    };
+/// Opens a window for each of `paths` (or one untitled window without any) and runs until the
+/// last window closes. Each window reads its file itself, in the background, so a big file shows
+/// its progress and an unreadable one shows its error in its own window.
+pub fn run(paths: Vec<PathBuf>) {
     let user = crate::settings::UserSettings::load();
     let keymap = user.key_map(ume_commands::keymap::Platform::current());
     let app = application();
@@ -70,30 +48,22 @@ pub fn run(path: Option<PathBuf>) -> Result<(), StartError> {
         })
         .detach();
 
-        let bounds = Bounds::centered(None, size(px(1000.), px(700.)), cx);
-        let options = WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(bounds)),
-            titlebar: Some(gpui::TitlebarOptions {
-                title: Some("UME Editor".into()),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        cx.open_window(options, move |window, cx| {
-            let document = cx.new(|_| shared);
-            let workspace = cx.new(|cx| Workspace::new(document, window, cx));
-            // ume.ini: the font, the layout, the colors and the key bindings.
-            workspace.update(cx, |workspace, cx| {
-                workspace
-                    .editor
-                    .update(cx, |editor, cx| editor.apply_user_settings(&user, cx));
-            });
-            cx.new(|cx| Root::new(workspace, window, cx))
-        })
-        .expect("failed to open the window");
+        // Every window that `open_editor_window` makes applies ume.ini (read once, above).
+        cx.set_global(user);
+        if paths.is_empty() {
+            open_editor_window(cx, SharedDocument::empty(), None)
+                .expect("failed to open the window");
+        }
+        for path in paths {
+            let load = LoadRequest {
+                path,
+                encoding: None,
+            };
+            open_editor_window(cx, SharedDocument::empty(), Some(load))
+                .expect("failed to open the window");
+        }
         cx.activate(true);
     });
-    Ok(())
 }
 
 /// Sets the menus of the application: Sakura's main menu (`crate::menu`). macOS shows them in the
@@ -222,6 +192,7 @@ impl Render for Workspace {
 mod tests {
     use crate::view::{Redo, Undo};
     use gpui::TestAppContext;
+    use gpui_component::Root;
     use ume_core::buffer::Document;
     use ume_core::model::DocumentModel;
 

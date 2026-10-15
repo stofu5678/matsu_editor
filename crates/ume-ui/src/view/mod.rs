@@ -404,6 +404,11 @@ impl EditorView {
             lines: shared.doc().line_count().max(1),
             modified: shared.model().is_modified(),
             overwrite: shared.overwrite(),
+            file_format: crate::status::file_format_label(
+                shared.file().encoding,
+                shared.file().bom,
+                shared.new_line(),
+            ),
             notice: self.notice.clone(),
         }
     }
@@ -512,6 +517,7 @@ impl Render for EditorView {
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_scroll_wheel(cx.listener(Self::on_scroll))
+            .on_drop(cx.listener(Self::on_external_drop))
             .child(EditorElement::new(cx.entity()))
             .into_any_element()
     }

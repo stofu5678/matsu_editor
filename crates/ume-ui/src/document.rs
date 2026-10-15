@@ -14,7 +14,9 @@
 use std::path::{Path, PathBuf};
 
 use gpui::{Context, EventEmitter};
-use ume_core::buffer::Document;
+use ume_core::buffer::{Document, Eol};
+use ume_core::encoding::Encoding;
+use ume_core::file::{Progress, SaveOptions, SaveReport, TextFile, UnmappableReport};
 use ume_core::model::DocumentModel;
 
 /// What the document tells its views.
@@ -32,28 +34,99 @@ pub struct SharedDocument {
     /// Typing overwrites instead of inserting. Sakura keeps the mode per document
     /// (`CDocEditor::m_bInsMode`) and starts in insert mode.
     overwrite: bool,
+    /// What saving needs besides the text: the encoding, the BOM and the line ending. Its
+    /// `document` is a placeholder; the text is `model`'s (see [`with_file`](Self::with_file)).
+    file: TextFile,
 }
 
 impl EventEmitter<DocumentEvent> for SharedDocument {}
 
 impl SharedDocument {
     pub fn new(model: DocumentModel, path: Option<PathBuf>) -> Self {
+        let file = TextFile::new_untitled(Encoding::Utf8, false, model.new_line());
         Self {
             model,
             path,
             version: 0,
             overwrite: false,
+            file,
         }
+    }
+
+    /// A document from an opened file ([`crate::open::open_text_file`]): the text goes into the
+    /// model, and the encoding, BOM and line ending stay for the status bar and for saving.
+    pub fn from_text_file(mut file: TextFile) -> Self {
+        let doc = std::mem::take(&mut file.document);
+        let mut model = DocumentModel::new(doc);
+        model.set_new_line(file.new_line);
+        Self {
+            model,
+            path: file.path.clone(),
+            version: 0,
+            overwrite: false,
+            file,
+        }
+    }
+
+    /// The encoding, BOM and line ending of the file (its `document` is empty: use [`doc`](Self::doc)).
+    pub fn file(&self) -> &TextFile {
+        &self.file
+    }
+
+    /// Sets what a plain save writes (reopening or `F_FILE_REOPEN_*` of a file that is not there).
+    pub fn set_format(&mut self, encoding: Encoding, bom: bool) {
+        self.file.encoding = encoding;
+        self.file.bom = bom;
+    }
+
+    /// Runs `f` on the file with the current text in it. The text is a cheap copy (the buffer
+    /// shares its pieces), and the placeholder goes back afterwards.
+    fn with_file<R>(&mut self, f: impl FnOnce(&mut TextFile) -> R) -> R {
+        self.file.document = self.model.doc().clone();
+        self.file.path = self.path.clone();
+        let result = f(&mut self.file);
+        self.file.document = Document::empty();
+        result
+    }
+
+    /// Finds the characters that `options` cannot write ([`TextFile::check_save`]).
+    pub fn check_save(
+        &mut self,
+        options: &SaveOptions,
+        progress: Progress<'_>,
+    ) -> ume_core::file::Result<UnmappableReport> {
+        self.with_file(|file| file.check_save(options, progress))
+    }
+
+    /// Whether the line endings are mixed ([`TextFile::has_mixed_line_endings`]).
+    pub fn has_mixed_line_endings(&mut self) -> ume_core::file::Result<bool> {
+        self.with_file(|file| file.has_mixed_line_endings())
+    }
+
+    /// Writes the document to `path` ([`TextFile::save_as`]). On success the document takes the
+    /// path, the encoding, the BOM and the line ending of `options`. The caller marks the
+    /// undo history as saved, because the cursor is the view's.
+    pub fn save_as(
+        &mut self,
+        path: PathBuf,
+        options: &SaveOptions,
+        progress: Progress<'_>,
+    ) -> ume_core::file::Result<SaveReport> {
+        let report = self.with_file(|file| file.save_as(path, options, progress))?;
+        self.path = self.file.path.clone();
+        if let Some(eol) = options.eol {
+            self.model.set_new_line(eol);
+        }
+        Ok(report)
+    }
+
+    /// The line ending that Enter inserts, as the status bar names it.
+    pub fn new_line(&self) -> Eol {
+        self.model.new_line()
     }
 
     pub fn empty() -> Self {
         Self::new(DocumentModel::empty(), None)
-    }
-
-    /// Opens `path` ([`crate::open::open_document`]).
-    pub fn open(path: &Path) -> Result<Self, crate::open::OpenError> {
-        let doc = crate::open::open_document(path)?;
-        Ok(Self::new(DocumentModel::new(doc), Some(path.to_owned())))
     }
 
     pub fn model(&self) -> &DocumentModel {

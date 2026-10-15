@@ -1,0 +1,47 @@
+//! `F_FILESAVEAS_DIALOG`: saves under a name chosen in the save dialog.
+//!
+//! Sakura: `Command_FILESAVEAS_DIALOG` (`sakura_core/cmd/CViewCommander_File.cpp`). Arguments, as
+//! in the macro `S_FileSaveAsDialog`: the default file name (not used yet), the encoding number
+//! (99 or none: keep the document's), the line ending (0 or none: do not change, 1 CRLF, 2 LF,
+//! 3 CR). The native dialog has no place for the encoding and the line ending, which Sakura's
+//! dialog has, so the window keeps the current ones unless a macro passes them.
+
+use crate::file_ops::args::{encoding_arg, eol_arg};
+use crate::file_ops::save::{SaveRequest, save};
+use crate::file_ops::start;
+use crate::ui_command::{UiCommand, register_ui_command};
+use crate::view::EditorView;
+use gpui::{Context, Window};
+use ume_commands::command::{Arg, Result};
+
+#[derive(Default)]
+pub struct FileSaveAsDialog;
+
+impl UiCommand for FileSaveAsDialog {
+    const ID: &'static str = "file_save_as_dialog";
+    const SAKURA: &'static str = "F_FILESAVEAS_DIALOG";
+
+    fn run(
+        &self,
+        view: &mut EditorView,
+        args: &[Arg],
+        window: &mut Window,
+        cx: &mut Context<EditorView>,
+    ) -> Result {
+        let encoding = encoding_arg(args, 1)?;
+        let eol = eol_arg(args, 2)?;
+        let _ = view;
+        start(window, cx, async move |view, cx| {
+            let request = SaveRequest {
+                dialog: true,
+                encoding,
+                eol,
+                ..SaveRequest::default()
+            };
+            save(&view, cx, request).await;
+        });
+        Ok(())
+    }
+}
+
+register_ui_command!(FileSaveAsDialog);
