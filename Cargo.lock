@@ -7158,6 +7158,7 @@ dependencies = [
 name = "ume-commands"
 version = "0.0.0"
 dependencies = [
+ "chrono",
  "inventory",
  "ume-core",
 ]

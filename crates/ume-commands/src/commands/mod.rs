@@ -5,8 +5,10 @@
 //! write its tests in the same file. Nothing else lists commands: `register_command!` in the
 //! file registers it.
 //!
-//! The groups follow Sakura's: editing, cursor movement, selection.
+//! The groups follow Sakura's: editing, cursor movement, selection, conversion, insertion.
 
+pub mod convert;
 pub mod cursor;
 pub mod edit;
+pub mod insert;
 pub mod select;
