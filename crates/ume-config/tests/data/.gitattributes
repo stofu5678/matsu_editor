@@ -1,0 +1,2 @@
+# The fixtures are byte-exact copies of what Sakura writes (UTF-8 BOM, CRLF); git must not change them.
+* -text
