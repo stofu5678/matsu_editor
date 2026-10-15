@@ -37,8 +37,7 @@ use ume_layout::{DocumentLayout, LayoutConfig, RowPos};
 use crate::document::{DocumentEvent, SharedDocument};
 use crate::geometry::{Metrics, clamp_scroll_y, scroll_x_to_show, scroll_y_to_show_row};
 use crate::keys::chord_of;
-use crate::layout_adapter::RowLayout;
-use crate::layout_sync::{LAYOUT_BUDGET, apply_changes};
+use crate::layout_adapter::{LAYOUT_BUDGET, RowLayout};
 use crate::status::StatusInfo;
 
 use element::EditorElement;
@@ -194,12 +193,12 @@ impl EditorView {
         f: impl FnOnce(&mut CommandContext<'_>) -> R,
     ) -> R {
         let document = self.document.clone();
-        let layout = &self.layout;
+        let layout = &mut self.layout;
         let cursor = &mut self.cursor;
         let (result, changes) = document.update(cx, |shared, _| {
             let (model, path) = shared.parts_mut();
-            let adapter = RowLayout(layout);
-            let mut command_cx = CommandContext::new(model, cursor, &adapter, path);
+            let mut adapter = RowLayout(layout);
+            let mut command_cx = CommandContext::new(model, cursor, &mut adapter, path);
             let result = f(&mut command_cx);
             (result, command_cx.finish())
         });
@@ -241,13 +240,8 @@ impl EditorView {
     /// in view, and the window repaints.
     fn after_command(&mut self, changes: &Changes, cx: &mut Context<Self>) {
         if changes.text_changed() {
-            let version = self.document.update(cx, |shared, cx| shared.changed(cx));
-            let doc = self.document.read(cx).doc();
-            if apply_changes(&mut self.layout, doc, changes).is_err() {
-                // The layout lost track of the document; start it again.
-                let _ = self.layout.resync(doc);
-            }
-            self.layout_version = version;
+            // The context has already told the layout about every edit (`RowLayout`).
+            self.layout_version = self.document.update(cx, |shared, cx| shared.changed(cx));
         }
         if changes.text_changed() || changes.caret_moved || changes.selection_changed {
             self.marked = None;

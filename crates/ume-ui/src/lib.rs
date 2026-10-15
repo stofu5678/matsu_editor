@@ -10,7 +10,7 @@
 //! * [`open`]: where a file is read into a document (the one place to switch for real encodings).
 //! * the rest is the arithmetic and the glue that need no window and are tested without one:
 //!   [`keys`] (GPUI keystroke to key map chord), [`layout_adapter`] (`ume-layout` as the commands'
-//!   `Layout`), [`layout_sync`] (the layout after a command), [`geometry`] and [`hit`] (pixels,
+//!   `Layout`, kept up to date after every edit), [`geometry`] and [`hit`] (pixels,
 //!   rows and columns), [`segments`] (what to paint in a row), [`word`] and [`status`].
 
 pub mod app;
@@ -19,7 +19,6 @@ pub mod geometry;
 pub mod hit;
 pub mod keys;
 pub mod layout_adapter;
-pub mod layout_sync;
 pub mod open;
 pub mod segments;
 pub mod status;

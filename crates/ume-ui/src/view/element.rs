@@ -11,6 +11,7 @@ use gpui::{
     InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine, SharedString, Style, TextAlign,
     TextRun, Window, fill, point, px, relative, rgb, size,
 };
+use ume_core::buffer::Eol;
 use ume_layout::RowInfo;
 
 use super::{EditorView, PaintInfo};
@@ -29,9 +30,17 @@ const GUTTER: u32 = 0xf0f0f0;
 const TAB_MARK: &str = "→";
 /// The mark for an ideographic space: a box (`CFigure_ZenSpace.cpp`).
 const FULL_WIDTH_SPACE_MARK: &str = "□";
-/// The mark for a line break. Sakura draws a different arrow for CRLF, LF and CR
-/// (`CFigure_Eol.cpp`); the layout does not tell which one a line has, so all get the same.
-const EOL_MARK: &str = "↓";
+/// The mark for a line break, by kind. Sakura draws an arrow bent to the lower left for CRLF, an
+/// arrow to the left for CR and an arrow down for LF; NEL, LS and PS look like LF for now
+/// (`_DrawEOL` in `sakura_core/view/figures/CFigure_Eol.cpp`).
+fn eol_mark(eol: Eol) -> &'static str {
+    match eol {
+        Eol::CrLf => "↵",
+        Eol::Cr => "←",
+        Eol::Lf | Eol::Nel | Eol::Ls | Eol::Ps => "↓",
+    }
+}
+
 const EOF_MARK: &str = "[EOF]";
 
 pub(super) struct EditorElement {
@@ -159,13 +168,6 @@ impl Element for EditorElement {
         let mut painted = Vec::with_capacity(rows.len());
         for row in &rows {
             widest = widest.max(row.end_column);
-            let has_eol = !row.wrapped
-                && !row.is_eof_row
-                && layout
-                    .line_layout(doc, row.line)
-                    .ok()
-                    .flatten()
-                    .is_some_and(|l| l.has_eol);
             let numbers = (row.row_in_line == 0 && !row.is_eof_row).then(|| {
                 shape(
                     window,
@@ -196,12 +198,12 @@ impl Element for EditorElement {
                     col: 0,
                     line: shape(window, EOF_MARK, MARK),
                 });
-            } else if !row.wrapped && has_eol {
+            } else if let Some(eol) = row.eol {
                 marks.push(Placed {
                     col: row.end_column,
-                    line: shape(window, EOL_MARK, MARK),
+                    line: shape(window, eol_mark(eol), MARK),
                 });
-            } else if !row.wrapped && !has_eol && row.line == last_line {
+            } else if !row.wrapped && row.line == last_line {
                 marks.push(Placed {
                     col: row.end_column,
                     line: shape(window, EOF_MARK, MARK),
@@ -406,5 +408,18 @@ impl Element for EditorElement {
             editor.paint = Some(paint_info);
             editor.widest_cols = widest;
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_line_ending_has_its_own_mark() {
+        assert_eq!(eol_mark(Eol::CrLf), "↵");
+        assert_eq!(eol_mark(Eol::Cr), "←");
+        assert_eq!(eol_mark(Eol::Lf), "↓");
+        assert_eq!(eol_mark(Eol::Ls), "↓");
     }
 }
