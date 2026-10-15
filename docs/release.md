@@ -34,7 +34,7 @@
 - [release-please](https://github.com/googleapis/release-please) が、前のリリースからのコミットを見て、リリース PR（`chore: release x.y.z`）を作って更新し続ける。PR には `Cargo.toml` の `[workspace.package] version`、`CHANGELOG.md`、`version.txt` の変更が入る
 - 版を上げると `Cargo.lock` のワークスペースのクレートの版も変わる（変わらないと `--locked` のビルドが落ちる）ので、同じワークフローが `cargo update --workspace` を回して、リリース PR のブランチに足す
 - リリース PR をマージすると、release-please がタグ `vX.Y.Z` とリリースを作り、そのコミットから作った 5 つのパッケージを、同じ実行の中でリリースに添付する
-- 最初のリリースは、これまでの全コミットを拾うので、`CHANGELOG.md` が長くなる。`0.1.0` になる
+- 最初のリリースは、これまでの全コミットを拾うので、`CHANGELOG.md` が長くなる。`initial-version` で `0.1.0` にしてある（指定しないと release-please は最初を 1.0.0 にする。最初のリリース PR の版は、マージの前に確かめる）
 
 ### なぜ release-please か
 
