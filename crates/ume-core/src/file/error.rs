@@ -10,7 +10,8 @@ pub type Result<T> = std::result::Result<T, FileError>;
 
 #[derive(Debug)]
 pub enum FileError {
-    /// The file is larger than the limit (ADR-0012). Nothing was read.
+    /// The file is larger than the limit the caller set (or than the address space). Nothing was
+    /// read.
     TooLarge { len: u64, max: u64 },
     /// The progress callback asked to stop. A cancelled save leaves the target as it was.
     Cancelled,

@@ -27,7 +27,7 @@ mod tree;
 mod tests;
 
 pub use codec::{Codec, EncodingCodec, Eol, INVALID_BYTE_BASE, Unmappable};
-pub use document::{Chunk, Chunks, DEFAULT_MAX_SOURCE_LEN, Document, Edit, Line, Lines};
+pub use document::{Chunk, Chunks, Document, Edit, Line, Lines};
 pub use error::{BufferError, Result};
 pub use position::{Pos, col_from_utf16, col_to_utf16, utf16_len};
 pub use storage::{MemorySource, Source};
