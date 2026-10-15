@@ -229,6 +229,9 @@ fn read_all(file: &mut File, len: u64, max: u64, progress: Progress<'_>) -> Resu
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(e) => return Err(e.into()),
         };
+        bytes
+            .try_reserve(n)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::OutOfMemory, e))?;
         bytes.extend_from_slice(&chunk[..n]);
         if bytes.len() as u64 > max {
             return Err(FileError::TooLarge {
