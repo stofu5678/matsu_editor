@@ -131,6 +131,12 @@ fn paste_of_a_line_copy_over_a_selection_deletes_the_selection_first() {
 }
 
 #[test]
+fn a_line_copy_that_ends_with_an_extended_line_ending_gets_no_second_one() {
+    let mut e = Editor::new("a|b").with_clipboard("XY\u{2028}", ClipKind::Line);
+    e.run("paste").assert_marked("XY\u{2028}a|b");
+}
+
+#[test]
 fn paste_option_can_turn_line_mode_off() {
     let mut e = Editor::new("ab|cd").with_clipboard("XY\n", ClipKind::Line);
     e.run_with("paste", &[Arg::Int(0x08)])

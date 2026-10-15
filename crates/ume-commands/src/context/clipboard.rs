@@ -338,7 +338,7 @@ impl CommandContext<'_> {
         let mut text = clip.text;
         // A row copy of a wrapped row does not end with a line ending; add one.
         let by_line = line_mode && clip.kind == ClipKind::Line;
-        if by_line && !text.is_empty() && !text.ends_with(['\r', '\n']) {
+        if by_line && !text.is_empty() && !text.ends_with(is_eol_char) {
             text.push_str(new_line);
         }
         if convert {
