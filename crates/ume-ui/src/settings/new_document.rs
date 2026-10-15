@@ -59,10 +59,12 @@ impl NewDocumentDefaults {
             .or(basic.codetype)
             .and_then(encoding_of)
             .unwrap_or(fallback.encoding);
-        let bom = own
-            .bom
-            .or(basic.bom)
-            .unwrap_or_else(|| encoding.bom_default_on());
+        // A BOM only where the encoding can write one (Shift_JIS has none, whatever the file says).
+        let bom = encoding.can_have_bom()
+            && own
+                .bom
+                .or(basic.bom)
+                .unwrap_or_else(|| encoding.bom_default_on());
         let eol = own
             .eoltype
             .or(basic.eoltype)
@@ -164,6 +166,14 @@ mod tests {
         assert!(d.bom);
         let p = profile("[Types(0)]\r\neDefaultCodetype=3\r\nbDefaultBom=0\r\n");
         assert!(!NewDocumentDefaults::from_profile(&p, None).bom);
+    }
+
+    #[test]
+    fn an_encoding_without_a_bom_has_none() {
+        let p = profile("[Types(0)]\r\neDefaultCodetype=0\r\nbDefaultBom=1\r\n");
+        let d = NewDocumentDefaults::from_profile(&p, None);
+        assert_eq!(d.encoding, Encoding::ShiftJis);
+        assert!(!d.bom);
     }
 
     #[test]

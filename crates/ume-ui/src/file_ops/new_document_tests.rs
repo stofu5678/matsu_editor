@@ -184,6 +184,26 @@ fn a_file_with_line_endings_keeps_them(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn the_view_takes_the_type_of_the_file_it_loads(cx: &mut TestAppContext) {
+    let dir = temp_dir();
+    let path = dir.join("run.bat");
+    std::fs::write(&path, b"echo").unwrap();
+    let ini = "[Other]\r\nnTypesCount=2\r\n[Types(1)]\r\nszTypeExts=bat\r\n";
+    let handle = window(cx, Some(user(ini)));
+    let cx = &mut VisualTestContext::from_window(handle, cx);
+    let view = view_of(cx);
+    assert_eq!(view.read_with(cx, |v, _| v.view_settings().type_index), 0);
+    run(
+        &view,
+        cx,
+        "F_FILEOPEN",
+        &[Arg::Text(path.display().to_string())],
+    );
+    assert_eq!(view.read_with(cx, |v, _| v.view_settings().type_index), 1);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[gpui::test]
 fn the_type_of_a_new_file_name_decides(cx: &mut TestAppContext) {
     // A file that does not exist yet has the settings of its type.
     let dir = temp_dir();

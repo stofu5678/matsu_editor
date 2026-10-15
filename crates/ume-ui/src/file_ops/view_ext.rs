@@ -54,6 +54,11 @@ impl EditorView {
         self.scroll_x = 0.0;
         self.scroll_y = 0.0;
         self.notice = None;
+        // The new document may be of another type (ume.ini): its font, wrap and colors, and the
+        // layout that `LayoutConfig::default()` above did not have.
+        if let Some(user) = cx.try_global::<crate::settings::UserSettings>().cloned() {
+            self.apply_type_of_document(&user, cx);
+        }
         self.ensure_caret_visible(cx);
         cx.notify();
     }
