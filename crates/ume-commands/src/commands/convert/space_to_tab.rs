@@ -29,7 +29,7 @@ register_command!(SpaceToTab);
 
 #[cfg(test)]
 mod tests {
-    use crate::testing::check;
+    use crate::testing::{Editor, check};
 
     #[test]
     fn replaces_runs_of_spaces_by_tabs() {
@@ -39,11 +39,20 @@ mod tests {
     }
 
     #[test]
-    fn the_tab_width_is_guessed_from_nearby_tabs_and_defaults_to_4() {
-        // the only tab (column 7 to 8) fits 4 and 8; 4 is taken
-        check("space_to_tab", "[    |x\nabcdefg\tz", "[\t|x\nabcdefg\tz");
-        // a tab from column 0 to 4 settles it
-        check("space_to_tab", "\ty\n[    |x", "\ty\n[\t|x");
+    fn the_tab_width_comes_from_the_layout() {
+        let run = |before: &str, width: usize| {
+            Editor::new(before)
+                .with_tab_width(width)
+                .run("space_to_tab")
+                .marked()
+        };
+        // no tab in the document: 8 spaces make one tab when the layout's tab width is 8
+        assert_eq!(run("[        |x", 8), "[\t|x");
+        // 4 spaces do not reach a tab stop of 8 and stay
+        assert_eq!(run("[    |x", 8), "[    |x");
+        assert_eq!(run("[    |x", 4), "[\t|x");
+        // a tab in the text does not change what the layout says
+        assert_eq!(run("\ty\n[    |x", 8), "\ty\n[    |x");
     }
 
     #[test]

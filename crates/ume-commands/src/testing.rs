@@ -200,6 +200,13 @@ impl Editor {
         self.overwrite
     }
 
+    /// Sets the tab width of the layout (4 by default).
+    #[must_use]
+    pub fn with_tab_width(mut self, tab_width: usize) -> Self {
+        self.layout.tab_width = tab_width;
+        self
+    }
+
     /// Sets the line ending that Enter inserts.
     #[must_use]
     pub fn with_new_line(mut self, eol: Eol) -> Self {

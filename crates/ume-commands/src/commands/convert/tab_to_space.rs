@@ -29,7 +29,7 @@ register_command!(TabToSpace);
 
 #[cfg(test)]
 mod tests {
-    use crate::testing::check;
+    use crate::testing::{Editor, check};
 
     #[test]
     fn replaces_tabs_by_the_spaces_to_the_next_tab_stop() {
@@ -41,5 +41,18 @@ mod tests {
     #[test]
     fn only_the_first_line_starts_at_the_column_of_the_selection() {
         check("tab_to_space", "ab[\tx\r\n\ty|", "ab[  x\r\n    y|");
+    }
+
+    #[test]
+    fn the_tab_width_comes_from_the_layout() {
+        let run = |before: &str, width: usize| {
+            Editor::new(before)
+                .with_tab_width(width)
+                .run("tab_to_space")
+                .marked()
+        };
+        assert_eq!(run("[\tx|", 8), "[        x|");
+        assert_eq!(run("a[\tx|", 8), "a[       x|");
+        assert_eq!(run("[\tx|", 2), "[  x|");
     }
 }
