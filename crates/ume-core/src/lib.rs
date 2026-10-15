@@ -3,6 +3,8 @@
 //! The buffer, encodings, search, and editing commands live here. This crate
 //! must not depend on any UI crate (see `CLAUDE.md`).
 
+pub mod buffer;
+
 /// Returns the crate version, so that the workspace has something to build
 /// and test until the real modules land in Phase 1.
 pub fn version() -> &'static str {
