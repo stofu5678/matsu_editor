@@ -144,9 +144,16 @@ pub(crate) async fn open_paths(
     paths: Vec<PathBuf>,
     encoding: Option<Encoding>,
 ) {
-    let mut here = view
-        .read_with(cx, |view, app| view.accepts_load(app))
-        .unwrap_or(false);
+    // A window that is still reading a file is not free for another one: both reads would
+    // target the same document, and the slower one would be dropped.
+    let handle = cx.window_handle();
+    let reading = cx
+        .update(|_, app| windows::has_pending(app, handle))
+        .unwrap_or(true);
+    let mut here = !reading
+        && view
+            .read_with(cx, |view, app| view.accepts_load(app))
+            .unwrap_or(false);
     for path in paths {
         let existing = cx
             .update(|_, app| windows::find_open(app, &path).map(|(h, _)| h))

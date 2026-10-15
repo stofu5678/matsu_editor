@@ -857,3 +857,20 @@ fn the_same_file_on_the_command_line_gets_one_window(cx: &mut TestAppContext) {
         .unwrap();
     assert_eq!(cx2.windows().len(), 2, "no files: one untitled window");
 }
+
+#[gpui::test]
+fn a_window_that_is_reading_a_file_is_not_reused_for_another(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let other = dir.write("b.txt", b"B");
+    cx.update(gpui_component::init);
+    let handle = cx
+        .update(|cx| open_editor_window(cx, SharedDocument::empty(), None))
+        .unwrap();
+    let cx = &mut VisualTestContext::from_window(handle, cx);
+    cx.update(|_, app| super::windows::begin_pending(app, handle, dir.path("a.txt")));
+    let editor = cx.update(|_, app| super::windows::editors(app)[0].1.clone());
+    let f = Fixture { view: editor };
+    f.open(cx, &other, None);
+    assert_eq!(cx.windows().len(), 2, "B gets its own window");
+    assert_eq!(f.lines(cx).len(), 0, "the busy window is untouched");
+}

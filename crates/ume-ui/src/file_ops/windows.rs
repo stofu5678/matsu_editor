@@ -200,3 +200,11 @@ pub(crate) fn open_startup_windows(cx: &mut App, paths: Vec<PathBuf>) -> gpui::R
     }
     Ok(())
 }
+
+/// Whether the window is still reading a file into its document.
+pub(crate) fn has_pending(cx: &mut App, handle: AnyWindowHandle) -> bool {
+    cx.default_global::<EditorWindows>()
+        .pending
+        .iter()
+        .any(|(h, _)| *h == handle)
+}
