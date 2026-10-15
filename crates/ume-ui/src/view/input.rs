@@ -203,6 +203,7 @@ impl EntityInputHandler for EditorView {
             self.type_char(c, cx);
             return;
         }
+        self.record_typed_text(text);
         let (from, to) = self.input_target(range_utf16, cx);
         self.marked = None;
         self.composing = false;

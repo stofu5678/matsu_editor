@@ -138,6 +138,7 @@ impl Render for Workspace {
         window.set_window_title(&editor.title(cx));
         let status = status_text(&editor.status(cx));
         let show_status_bar = editor.status_bar_shown();
+        let macro_panel = editor.macro_panel(self.editor.clone());
         let ui_font = gpui_component::Theme::global(cx).font_family.clone();
         // A Wayland compositor without server-side decorations, such as WSLg's, leaves the title
         // bar and its buttons to the app.
@@ -163,6 +164,7 @@ impl Render for Workspace {
                 )
             })
             .child(div().flex_1().overflow_hidden().child(self.editor.clone()))
+            .children(macro_panel)
             .when(show_status_bar, |this| {
                 this.child(
                     div()

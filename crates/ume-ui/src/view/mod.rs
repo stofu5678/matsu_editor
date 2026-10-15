@@ -43,6 +43,7 @@ use crate::geometry::{Metrics, clamp_scroll_y, scroll_x_to_show, scroll_y_to_sho
 use crate::keys::chord_of;
 use crate::layout_adapter::{LAYOUT_BUDGET, RowLayout};
 use crate::search::{SearchPanel, SearchState};
+use crate::macros::MacroState;
 use crate::status::StatusInfo;
 use crate::ui_command::{UiRegistration, UiRegistry};
 
@@ -145,6 +146,8 @@ pub struct EditorView {
     pub(crate) search: SearchState,
     /// The find, replace or go-to-line panel, while it is open.
     pub(crate) panel: Option<Entity<SearchPanel>>,
+    /// Key macro recording and the macro that runs (`crate::macros`).
+    pub(crate) macros: MacroState,
     font_family: SharedString,
     font_size: f32,
     _subscription: Subscription,
@@ -185,6 +188,7 @@ impl EditorView {
             print: Default::default(),
             search: SearchState::default(),
             panel: None,
+            macros: MacroState::default(),
             font_family: FONT_FAMILY.into(),
             font_size: crate::settings::ViewSettings::default().font_px(),
             _subscription: subscription,
@@ -257,6 +261,7 @@ impl EditorView {
         args: &[Arg],
         cx: &mut Context<Self>,
     ) {
+        self.record_call(reg.sakura, args);
         self.interrupt_composition(cx);
         let result = self.run_with(cx, |command_cx| reg.run(command_cx, args));
         self.notice = result
@@ -308,6 +313,7 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.record_call(reg.sakura, args);
         self.interrupt_composition(cx);
         // The command may leave a message of its own (a search that wrapped around).
         self.notice = None;
@@ -425,7 +431,15 @@ impl EditorView {
 
     pub fn title(&self, cx: &App) -> String {
         let shared = self.document.read(cx);
-        crate::status::window_title(shared.file_name().as_deref(), shared.model().is_modified())
+        let mut title = crate::status::window_title(
+            shared.file_name().as_deref(),
+            shared.model().is_modified(),
+        );
+        if self.is_recording_key_macro() {
+            // `STR_ERR_CSHAREDATA17` in `sakura_core/sakura_rc.rc`: `${M?  【キーマクロの記録中】$}`.
+            title.push_str("  【キーマクロの記録中】");
+        }
+        title
     }
 
     // ---- keys ----
