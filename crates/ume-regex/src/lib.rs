@@ -28,9 +28,31 @@
 //! unless [`Options::ascii_range`] is set, so `\d` matches full-width digits
 //! (`help/sakura/res/HLP000089.html`).
 //!
+//! # Document search
+//!
+//! On top of the engine, this crate adapts it to the search of `ume-core`:
+//!
+//! * [`RegexMatcher`] implements `ume_core::search::Matcher` with Sakura's options and
+//!   pre-processing of the pattern ([`make_pattern_alternate`]).
+//! * [`ReplacementTemplate`] is bregonig's replacement syntax (`$1`, `${name}`, `\n`, `\U`...),
+//!   written from bregonig's documentation (`bregonig.html`) without its source code, which is
+//!   under the GPL or the Artistic License.
+//! * [`RegexReplacer`] replaces in a `Document` (one match, the next one, all) with it.
+//!
 //! [ADR-0006]: https://github.com/stofu5678/ume_editor/blob/main/docs/adr/0006-regex-engine.md
 
 mod ffi;
+mod matcher;
+mod names;
+mod prepare;
+mod replace;
+mod replacement;
+
+pub use matcher::{PatternError, RegexMatcher, RegexSearchOptions};
+pub use names::GroupNames;
+pub use prepare::{ends_with_escape, make_pattern_alternate};
+pub use replace::{RegexReplacer, ReplaceAllMode};
+pub use replacement::{ReplacementError, ReplacementProblem, ReplacementTemplate};
 
 /// Tests take the read side; the Onigmo suite takes the write side while it
 /// changes Onigmo's process-wide limits.
@@ -250,3 +272,6 @@ impl Regex for OnigmoRegex {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod search_tests;
