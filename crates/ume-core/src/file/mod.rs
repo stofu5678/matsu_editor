@@ -30,7 +30,7 @@
 //!   the change on the undo stack; we convert while writing and leave the document alone, and
 //!   remember the choice in [`TextFile::eol_on_save`] so that a later plain save does not undo it
 //!   (a line ending typed or pasted afterwards is converted too, which Sakura would not do).
-//!   [`has_mixed_line_endings`] is `_CheckSavingEolcode`, the check that makes Sakura ask whether
+//!   [`TextFile::has_mixed_line_endings`] is `_CheckSavingEolcode`, the check that makes Sakura ask whether
 //!   to unify.
 
 mod error;
@@ -46,9 +46,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub use error::{FileError, Result};
-pub use save::{
-    MAX_REPORTED, SaveOptions, SaveReport, UnmappableChar, UnmappableReport, has_mixed_line_endings,
-};
+pub use save::{MAX_REPORTED, SaveOptions, SaveReport, UnmappableChar, UnmappableReport};
 
 use crate::buffer::{DEFAULT_MAX_SOURCE_LEN, Document, EncodingCodec, Eol};
 use crate::encoding::{DetectOptions, Detection, Encoding, detect};

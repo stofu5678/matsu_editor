@@ -43,15 +43,12 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::error::{FileError, Result};
-use super::{Progress, READ_CHUNK, TextFile};
+use super::{Progress, READ_CHUNK, TextFile, no_progress};
 use crate::buffer::{Chunk, Document, Pos, col_to_utf16, utf16_len};
 use crate::encoding::{Encoding, Eol};
 
 /// How many unmappable characters a report lists (the total is always counted).
 pub const MAX_REPORTED: usize = 100;
-
-/// How lines are counted between two progress calls.
-const LINES_PER_PROGRESS: usize = 4096;
 
 /// How to save.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -179,20 +176,32 @@ impl TextFile {
     }
 }
 
-/// Whether the document has line endings of more than one kind (`_CheckSavingEolcode` in
-/// `sakura_core/env/CCodeChecker.cpp`). Sakura asks "unify the line endings?" when this is true and
-/// the save does not convert them. It compares every line ending with the first line's.
-pub fn has_mixed_line_endings(doc: &Document) -> Result<bool> {
-    let mut first = None;
-    for (i, line) in doc.lines(0..usize::MAX).enumerate() {
-        let eol = line?.eol;
-        if i == 0 {
-            first = eol;
-        } else if eol.is_some() && eol != first {
-            return Ok(true);
-        }
+impl TextFile {
+    /// Whether the document has line endings of more than one kind (`_CheckSavingEolcode` in
+    /// `sakura_core/env/CCodeChecker.cpp`). Sakura asks "unify the line endings?" when this is true
+    /// and the save does not convert them. It compares every line ending with the first line's.
+    pub fn has_mixed_line_endings(&self) -> Result<bool> {
+        let mut first = None;
+        let mut mixed = false;
+        walk_events(
+            &self.document,
+            self.source_encoding(),
+            0,
+            &mut no_progress,
+            &mut |event| {
+                if let Event::Eol(eol) = event
+                    && !mixed
+                {
+                    match first {
+                        None => first = Some(eol),
+                        Some(f) => mixed = f != eol,
+                    }
+                }
+                Ok(())
+            },
+        )?;
+        Ok(mixed)
     }
-    Ok(false)
 }
 
 /// Whether the unedited original bytes can be copied as they are.
@@ -234,38 +243,191 @@ fn check(
         }
     }
 
-    // Decode line by line to find where the problems are.
+    // Decode in bounded slices to find where the problems are. A line is never held whole, so a
+    // file without line breaks does not need memory for its whole text.
+    let total = total_len(doc)?;
     let mut report = UnmappableReport::default();
-    let line_count = doc.line_count();
-    for (i, line) in doc.lines(0..usize::MAX).enumerate() {
-        let line = line?;
+    let (mut line, mut col, mut col16) = (0usize, 0usize, 0usize);
+    walk_events(doc, source, total, progress, &mut |event| {
         scratch.clear();
-        if let Err(e) = codec.encode(&line.text, &mut scratch) {
-            for offset in e.offsets {
-                if let Some(ch) = line.text.get(offset..).and_then(|s| s.chars().next()) {
+        match event {
+            Event::Text(text) => {
+                if let Err(e) = codec.encode(text, &mut scratch) {
+                    for offset in e.offsets {
+                        if let Some(ch) = text.get(offset..).and_then(|s| s.chars().next()) {
+                            report.push_with(|| UnmappableChar {
+                                pos: Pos::new(line, col + offset),
+                                col_utf16: col16 + col_to_utf16(text, offset),
+                                ch,
+                            });
+                        }
+                    }
+                }
+                col += text.len();
+                col16 += utf16_len(text);
+            }
+            Event::Eol(kind) => {
+                let eol = options.eol.unwrap_or(kind);
+                if codec.encode(eol.as_str(), &mut scratch).is_err() {
                     report.push_with(|| UnmappableChar {
-                        pos: Pos::new(i, offset),
-                        col_utf16: col_to_utf16(&line.text, offset),
-                        ch,
+                        pos: Pos::new(line, col),
+                        col_utf16: col16,
+                        ch: eol.as_str().chars().next().unwrap_or('\n'),
                     });
+                }
+                line += 1;
+                col = 0;
+                col16 = 0;
+            }
+        }
+        Ok(())
+    })?;
+    Ok(report)
+}
+
+/// A piece of the text of the document: text without line endings, or one line ending.
+enum Event<'a> {
+    Text(&'a str),
+    Eol(Eol),
+}
+
+/// Finds line endings in text that arrives in slices (a CR at the end of a slice may be joined
+/// with an LF at the start of the next). All six kinds are recognized: the added text of a
+/// document is UTF-8 whatever the file's encoding is, and the codecs that cannot decode to the
+/// last three never produce them.
+#[derive(Default)]
+struct EolScanner {
+    pending_cr: bool,
+}
+
+impl EolScanner {
+    fn scan<'a>(
+        &mut self,
+        mut text: &'a str,
+        f: &mut dyn FnMut(Event<'a>) -> Result<()>,
+    ) -> Result<()> {
+        if text.is_empty() {
+            return Ok(());
+        }
+        if self.pending_cr {
+            self.pending_cr = false;
+            if let Some(rest) = text.strip_prefix('\n') {
+                f(Event::Eol(Eol::CrLf))?;
+                text = rest;
+            } else {
+                f(Event::Eol(Eol::Cr))?;
+            }
+        }
+        let bytes = text.as_bytes();
+        let (mut start, mut i) = (0, 0);
+        while i < bytes.len() {
+            let (kind, len) = match bytes[i] {
+                b'\n' => (Eol::Lf, 1),
+                b'\r' => match bytes.get(i + 1) {
+                    Some(b'\n') => (Eol::CrLf, 2),
+                    Some(_) => (Eol::Cr, 1),
+                    None => {
+                        // The last unit of the slice: the next slice decides.
+                        if i > start {
+                            f(Event::Text(&text[start..i]))?;
+                        }
+                        self.pending_cr = true;
+                        return Ok(());
+                    }
+                },
+                0xC2 if bytes.get(i + 1) == Some(&0x85) => (Eol::Nel, 2),
+                0xE2 if bytes.get(i + 1) == Some(&0x80) => match bytes.get(i + 2) {
+                    Some(0xA8) => (Eol::Ls, 3),
+                    Some(0xA9) => (Eol::Ps, 3),
+                    _ => {
+                        i += 1;
+                        continue;
+                    }
+                },
+                _ => {
+                    i += 1;
+                    continue;
+                }
+            };
+            if i > start {
+                f(Event::Text(&text[start..i]))?;
+            }
+            f(Event::Eol(kind))?;
+            i += len;
+            start = i;
+        }
+        if start < text.len() {
+            f(Event::Text(&text[start..]))?;
+        }
+        Ok(())
+    }
+
+    fn finish(&mut self, f: &mut dyn FnMut(Event<'_>) -> Result<()>) -> Result<()> {
+        if std::mem::take(&mut self.pending_cr) {
+            f(Event::Eol(Eol::Cr))?;
+        }
+        Ok(())
+    }
+}
+
+/// The number of bytes in the pieces of the document (the total for progress reports).
+fn total_len(doc: &Document) -> Result<u64> {
+    let mut total = 0u64;
+    for chunk in doc.chunks() {
+        total += match chunk? {
+            Chunk::Original(b) => b.len() as u64,
+            Chunk::Added(s) => s.len() as u64,
+        };
+    }
+    Ok(total)
+}
+
+/// Decodes the document in slices of about `READ_CHUNK` bytes (cut at the character boundaries of
+/// the original's encoding, so that decoding a slice gives what decoding the whole would) and
+/// hands them to `f` as text and line endings. Reports progress after each slice and stops when
+/// asked to, also in the middle of a very long line.
+fn walk_events(
+    doc: &Document,
+    source: Encoding,
+    total: u64,
+    progress: Progress<'_>,
+    f: &mut dyn FnMut(Event<'_>) -> Result<()>,
+) -> Result<()> {
+    let codec = source.codec();
+    let mut scanner = EolScanner::default();
+    let mut buf = String::new();
+    let mut done = 0u64;
+    for chunk in doc.chunks() {
+        match chunk? {
+            Chunk::Original(bytes) => {
+                let mut i = 0;
+                while i < bytes.len() {
+                    let mut j = i;
+                    while j < bytes.len() && (j == i || j - i < READ_CHUNK) {
+                        j += codec.char_len(&bytes, j).clamp(1, bytes.len() - j);
+                    }
+                    buf.clear();
+                    codec.decode(&bytes[i..j], &mut buf);
+                    scanner.scan(&buf, f)?;
+                    done += (j - i) as u64;
+                    if progress(done, total).is_break() {
+                        return Err(FileError::Cancelled);
+                    }
+                    i = j;
+                }
+            }
+            Chunk::Added(text) => {
+                for part in slices(&text) {
+                    scanner.scan(part, f)?;
+                    done += part.len() as u64;
+                    if progress(done, total).is_break() {
+                        return Err(FileError::Cancelled);
+                    }
                 }
             }
         }
-        if let Some(eol) = line.eol.map(|e| options.eol.unwrap_or(e)) {
-            scratch.clear();
-            if codec.encode(eol.as_str(), &mut scratch).is_err() {
-                report.push_with(|| UnmappableChar {
-                    pos: Pos::new(i, line.text.len()),
-                    col_utf16: utf16_len(&line.text),
-                    ch: eol.as_str().chars().next().unwrap_or('\n'),
-                });
-            }
-        }
-        if i % LINES_PER_PROGRESS == 0 && progress(i as u64, line_count as u64).is_break() {
-            return Err(FileError::Cancelled);
-        }
     }
-    Ok(report)
+    scanner.finish(f)
 }
 
 /// Cuts `text` into slices of about `READ_CHUNK` bytes at char boundaries.
@@ -374,13 +536,7 @@ fn write_body(
     };
 
     if copies_original(source, options) {
-        let mut total = 0u64;
-        for chunk in doc.chunks() {
-            total += match chunk? {
-                Chunk::Original(b) => b.len() as u64,
-                Chunk::Added(s) => s.len() as u64,
-            };
-        }
+        let total = total_len(doc)?;
         let mut done = 0u64;
         for chunk in doc.chunks() {
             match chunk? {
@@ -415,20 +571,17 @@ fn write_body(
         return Ok(substituted);
     }
 
-    let line_count = doc.line_count();
-    for (i, line) in doc.lines(0..usize::MAX).enumerate() {
-        let line = line?;
-        pending.push_str(&line.text);
-        if let Some(eol) = line.eol.map(|e| options.eol.unwrap_or(e)) {
-            pending.push_str(eol.as_str());
+    let total = total_len(doc)?;
+    walk_events(doc, source, total, progress, &mut |event| {
+        match event {
+            Event::Text(text) => pending.push_str(text),
+            Event::Eol(kind) => pending.push_str(options.eol.unwrap_or(kind).as_str()),
         }
         if pending.len() >= READ_CHUNK {
             flush(&mut pending, out)?;
         }
-        if i % LINES_PER_PROGRESS == 0 && progress(i as u64, line_count as u64).is_break() {
-            return Err(FileError::Cancelled);
-        }
-    }
+        Ok(())
+    })?;
     flush(&mut pending, out)?;
     Ok(substituted)
 }

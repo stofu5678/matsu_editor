@@ -354,7 +354,7 @@ fn line_endings_are_kept_or_converted() {
     let dir = TempDir::new();
     let path = dir.write("a.txt", b"a\r\nb\nc\rd");
     let mut file = open_file(&path, &OpenOptions::default()).unwrap();
-    assert!(has_mixed_line_endings(&file.document).unwrap());
+    assert!(file.has_mixed_line_endings().unwrap());
 
     // A plain save keeps them.
     save_keep(&mut file);
@@ -389,7 +389,7 @@ fn line_endings_are_kept_or_converted() {
     let same = TempDir::new();
     let path = same.write("b.txt", b"a\nb\nc\n");
     let file = open_file(&path, &OpenOptions::default()).unwrap();
-    assert!(!has_mixed_line_endings(&file.document).unwrap());
+    assert!(!file.has_mixed_line_endings().unwrap());
 }
 
 #[test]
@@ -417,7 +417,7 @@ fn a_file_with_one_kind_of_ending_round_trips() {
         let dir = TempDir::new();
         let path = dir.write(name, bytes);
         let mut file = open_file(&path, &OpenOptions::default()).unwrap();
-        assert!(!has_mixed_line_endings(&file.document).unwrap());
+        assert!(!file.has_mixed_line_endings().unwrap());
         file.document.insert(Pos::new(0, 1), "!").unwrap();
         save_keep(&mut file);
         let got = fs::read(&path).unwrap();
@@ -978,4 +978,126 @@ fn the_check_can_be_cancelled_too() {
         .check_save(&keep, &mut |_, _| ControlFlow::Break(()))
         .unwrap_err();
     assert!(matches!(err, FileError::Cancelled));
+}
+
+// ---- very long lines ----
+
+#[test]
+fn a_line_of_several_chunks_is_converted_piece_by_piece() {
+    let dir = TempDir::new();
+    let line = "abc\u{65e5}".repeat(READ_CHUNK); // about 6 MiB of UTF-8 in one line
+    let path = dir.write("a.txt", line.as_bytes());
+    let mut file = open_as(&path, Encoding::Utf8);
+    assert_eq!(file.document.line_count(), 1);
+    let target = dir.path("b.txt");
+    save_as(
+        &mut file,
+        &target,
+        &SaveOptions::for_encoding(Encoding::Utf16Le),
+    );
+    let mut expected = b"\xFF\xFE".to_vec();
+    expected.extend(encode(Encoding::Utf16Le, &line));
+    assert_eq!(fs::read(&target).unwrap(), expected);
+
+    // Shift_JIS source with multibyte characters cut into pieces.
+    let sjis = encode(Encoding::ShiftJis, &"\u{65e5}\u{672c}".repeat(READ_CHUNK));
+    let path = dir.write("c.txt", &sjis);
+    let mut file = open_as(&path, Encoding::ShiftJis);
+    let target = dir.path("d.txt");
+    let mut options = SaveOptions::for_encoding(Encoding::Utf8);
+    options.eol = Some(Eol::Lf);
+    save_as(&mut file, &target, &options);
+    assert_eq!(
+        fs::read(&target).unwrap(),
+        "\u{65e5}\u{672c}".repeat(READ_CHUNK).as_bytes()
+    );
+}
+
+#[test]
+fn line_endings_at_the_edge_of_a_piece_are_converted_once() {
+    // A CR LF whose CR is the last byte of the first 1 MiB piece.
+    let mut bytes = vec![b'a'; READ_CHUNK - 1];
+    bytes.extend_from_slice(b"\r\nb\r\nc");
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", &bytes);
+    let mut file = open_as(&path, Encoding::Utf8);
+    assert!(!file.has_mixed_line_endings().unwrap());
+    let mut options = SaveOptions::keep(&file);
+    options.eol = Some(Eol::Lf);
+    save(&mut file, &options);
+    let mut expected = vec![b'a'; READ_CHUNK - 1];
+    expected.extend_from_slice(b"\nb\nc");
+    assert_eq!(fs::read(&path).unwrap(), expected);
+}
+
+#[test]
+fn cancelling_works_inside_one_long_line() {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", &vec![b'a'; 4 * READ_CHUNK]);
+    let mut file = open_as(&path, Encoding::Utf8);
+    let mut calls = 0;
+    let err = file
+        .save(
+            &SaveOptions::for_encoding(Encoding::Utf16Le),
+            &mut |_, _| {
+                calls += 1;
+                if calls == 2 {
+                    ControlFlow::Break(())
+                } else {
+                    ControlFlow::Continue(())
+                }
+            },
+        )
+        .unwrap_err();
+    assert!(matches!(err, FileError::Cancelled));
+    // It stopped in the pre-save check, long before the end of the line.
+    assert_eq!(calls, 2);
+    assert_eq!(fs::read(&path).unwrap(), vec![b'a'; 4 * READ_CHUNK]);
+    assert_eq!(dir.names(), ["a.txt"]);
+
+    // And while writing (the check is skipped when the caller allows the loss).
+    let mut options = SaveOptions::for_encoding(Encoding::Utf16Le);
+    options.allow_unmappable = true;
+    let mut calls = 0;
+    let err = file
+        .save(&options, &mut |_, _| {
+            calls += 1;
+            if calls == 2 {
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            }
+        })
+        .unwrap_err();
+    assert!(matches!(err, FileError::Cancelled));
+    assert_eq!(calls, 2);
+    assert_eq!(dir.names(), ["a.txt"]);
+}
+
+#[test]
+fn an_unmappable_character_in_a_later_piece_has_the_right_columns() {
+    let dir = TempDir::new();
+    // 600,000 chars of 3 bytes: the emoji is in the second 1 MiB piece.
+    let n = 600_000;
+    let mut text = "\u{65e5}".repeat(n);
+    text.push('\u{1F600}');
+    text.push_str("\r\n\u{1F600}");
+    let path = dir.write("a.txt", text.as_bytes());
+    let file = open_as(&path, Encoding::Utf8);
+    let report = file
+        .check_save(
+            &SaveOptions::for_encoding(Encoding::ShiftJis),
+            &mut no_progress,
+        )
+        .unwrap();
+    assert_eq!(report.total, 2);
+    assert_eq!(
+        report.first[0],
+        UnmappableChar {
+            pos: Pos::new(0, 3 * n),
+            col_utf16: n,
+            ch: '\u{1F600}',
+        }
+    );
+    assert_eq!(report.first[1].pos, Pos::new(1, 0));
 }
