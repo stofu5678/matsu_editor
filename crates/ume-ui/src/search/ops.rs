@@ -280,8 +280,9 @@ impl EditorView {
                 let ends = apply_edits(c, &result.edits)?;
                 match (&range, result.caret) {
                     (Some(range), _) => {
+                        let start = shift_start(range.start, &result.edits, &ends);
                         let end = shift_through(range.end, &result.edits, &ends);
-                        c.select_range(range.start, end)?;
+                        c.select_range(start, end)?;
                     }
                     (None, Some(caret)) => c.move_caret(caret, false)?,
                     (None, None) => {}
@@ -408,6 +409,24 @@ fn shift_through(p: Pos, edits: &[AppliedEdit], old_ends: &[Pos]) -> Pos {
     p
 }
 
+/// Like [`shift_through`], for the start of a range: an edit that began at or before it and
+/// replaced text up to or past it leaves the start at the edit's start (a deleted line takes the
+/// start to the start of that line), not at the end of the new text.
+fn shift_start(p: Pos, edits: &[AppliedEdit], old_ends: &[Pos]) -> Pos {
+    let mut p = p;
+    for (e, &old_end) in edits.iter().zip(old_ends) {
+        if p <= e.start {
+            break; // this edit and the later ones are after the start
+        }
+        p = if p < old_end {
+            e.start
+        } else {
+            shift_through(p, std::slice::from_ref(e), &[old_end])
+        };
+    }
+    p
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -421,6 +440,31 @@ mod tests {
         assert_eq!(end_after(at, "ab\ncd"), Pos::new(3, 2));
         assert_eq!(end_after(at, "日本"), Pos::new(2, 9));
         assert_eq!(end_after(at, "a\r\nb\r\n"), Pos::new(4, 0));
+    }
+
+    #[test]
+    fn the_start_of_a_range_stays_before_an_edit_that_covers_it() {
+        // the line "xxa" is deleted from (0, 0) to (1, 0); the range started inside it
+        let delete = AppliedEdit {
+            start: Pos::new(0, 0),
+            end: Pos::new(0, 0),
+            removed: "xxa\n".into(),
+            inserted: String::new(),
+            resume: Pos::new(0, 0),
+        };
+        let moved = shift_start(
+            Pos::new(0, 2),
+            std::slice::from_ref(&delete),
+            &[Pos::new(1, 0)],
+        );
+        assert_eq!(moved, Pos::new(0, 0));
+        // an edit that starts exactly at the start does not move it
+        let moved = shift_start(
+            Pos::new(0, 0),
+            std::slice::from_ref(&delete),
+            &[Pos::new(1, 0)],
+        );
+        assert_eq!(moved, Pos::new(0, 0));
     }
 
     #[test]

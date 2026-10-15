@@ -518,9 +518,11 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let seed = self.search_seed(cx);
-        if let Some(seed) = &seed {
-            self.search.set_pattern(seed);
+        // Going to a line does not touch the search.
+        if mode != PanelMode::Jump
+            && let Some(seed) = self.search_seed(cx)
+        {
+            self.search.set_pattern(&seed);
         }
         // Sakura starts the replace dialog with the selection if it spans lines, and the whole
         // file otherwise (`bSelected` in `Command_REPLACE_DIALOG`).

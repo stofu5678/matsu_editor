@@ -2,11 +2,9 @@
 //! 強調表示, `sakura_core/view/CEditView_Search.cpp` and the search colour of
 //! `CTypeSupport`/`CColor_Found`). Pure arithmetic over the layout, tested without a window.
 
-use ume_core::buffer::{Document, Pos};
+use ume_core::buffer::Document;
 use ume_core::search::Matcher;
 use ume_layout::{DocumentLayout, RowInfo};
-
-use crate::hit::selected_columns;
 
 /// Lines longer than this are not searched for the highlight: the highlight is redone on every
 /// paint, and a line this long is searched whole (matchers see whole lines).
@@ -31,6 +29,7 @@ pub fn highlight_columns(
             cached = Some((row.line, matches_of_line(doc, row.line, matcher)));
         }
         let matches = cached.as_ref().map_or(&[][..], |(_, m)| m.as_slice());
+        let mut walk = ColumnWalk::new(layout, row);
         let mut cols = Vec::new();
         for m in matches {
             if m.end <= row.start.col {
@@ -39,14 +38,11 @@ pub fn highlight_columns(
             if m.start >= row.end.col {
                 break;
             }
-            let span = (Pos::new(row.line, m.start), Pos::new(row.line, m.end));
-            if let Ok(Some((from, to))) = selected_columns(layout, doc, row, span) {
-                // `selected_columns` adds the line break when the span runs past the row; a match
-                // never contains it.
-                let to = to.min(row.end_column);
-                if to > from {
-                    cols.push((from, to));
-                }
+            // the part of the match on this row, in columns
+            let from = walk.column_at(m.start.max(row.start.col));
+            let to = walk.column_at(m.end.min(row.end.col));
+            if to > from {
+                cols.push((from, to));
             }
         }
         out.push(cols);
@@ -55,6 +51,42 @@ pub fn highlight_columns(
 }
 
 type Range = std::ops::Range<usize>;
+
+/// Turns the byte offsets of a row, asked for in increasing order, into columns in one pass over
+/// the row's text (the matches of a long line must not each rescan the row).
+struct ColumnWalk<'a> {
+    layout: &'a DocumentLayout,
+    chars: std::str::CharIndices<'a>,
+    /// The line offset and the column at the start of the chars not yet read.
+    at: usize,
+    col: u32,
+    /// The offset of the row in its line.
+    base: usize,
+}
+
+impl<'a> ColumnWalk<'a> {
+    fn new(layout: &'a DocumentLayout, row: &'a RowInfo) -> Self {
+        Self {
+            layout,
+            chars: row.text().char_indices(),
+            at: row.start.col,
+            col: row.start_column,
+            base: row.start.col,
+        }
+    }
+
+    /// The column of the line offset `target` (at the row's end if it is past it).
+    fn column_at(&mut self, target: usize) -> u32 {
+        while self.at < target {
+            let Some((i, c)) = self.chars.next() else {
+                break;
+            };
+            self.col += self.layout.config().columns_of(c, self.col);
+            self.at = self.base + i + c.len_utf8();
+        }
+        self.col
+    }
+}
 
 /// The non-empty matches of one line, as byte ranges. A line that cannot be read, is too long, or
 /// makes the matcher fail has none.
@@ -120,6 +152,16 @@ mod tests {
     fn no_match_no_columns() {
         let rows = columns("abc\n", "zz", LayoutConfig::default());
         assert!(rows.iter().all(Vec::is_empty));
+    }
+
+    #[test]
+    fn many_matches_on_a_long_line_take_one_pass() {
+        // 60000 matches on one row; a rescan of the row per match would be 3.6 billion steps
+        let text = "a".repeat(MAX_HIGHLIGHT_LINE_BYTES - 4);
+        let rows = columns(&text, "a", LayoutConfig::default());
+        // Sakura breaks a line at 10240 columns even without wrapping
+        let total: usize = rows.iter().map(Vec::len).sum();
+        assert_eq!(total, text.len());
     }
 
     #[test]

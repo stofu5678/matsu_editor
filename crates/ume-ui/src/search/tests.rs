@@ -393,3 +393,28 @@ fn the_jump_panel_goes_to_a_line(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("enter");
     assert_eq!(f.caret(cx), Pos::new(3, 0));
 }
+
+#[gpui::test]
+fn the_jump_panel_leaves_the_search_pattern_alone(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "foo\nbar");
+    f.pattern(cx, "foo");
+    cx.simulate_keystrokes("down secondary-j");
+    f.view
+        .read_with(cx, |v, _| assert_eq!(v.search.pattern(), "foo"));
+}
+
+#[gpui::test]
+fn replace_all_in_the_selection_with_line_delete_keeps_a_valid_selection(cx: &mut TestAppContext) {
+    // a deleted line that began before the selection (Codex)
+    let (f, cx) = setup(cx, "xxa\nkeep");
+    set_replace(&f, cx, "a", "");
+    f.view.update(cx, |v, _| {
+        v.search.replace.in_selection = true;
+        v.search.replace.target = ReplaceTarget::DeleteLine;
+        v.cursor.select(Pos::new(0, 2), Pos::new(1, 0));
+    });
+    f.run(cx, "F_REPLACE_ALL");
+    assert_eq!(f.text(cx), "keep");
+    let (a, b) = f.selection(cx).unwrap_or((Pos::new(0, 0), Pos::new(0, 0)));
+    assert!(a <= b, "{a:?} {b:?}");
+}
