@@ -8,7 +8,6 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use serde_json::{Value, json};
-use ume_commands::command::Arg;
 use ume_commands::context::CommandContext;
 use ume_commands::layout::PlainLayout;
 use ume_commands::registry::Registry;
@@ -308,8 +307,6 @@ fn context_document_reports_the_first_error() {
     assert_eq!(doc.cursor(), (0, 1));
     assert_eq!(doc.line_len(5), 0);
     assert_eq!(doc.line_text(5), "");
-    // The argument types of the commands that the macro API names agree with `Arg`.
-    let _ = Arg::Int(0);
 }
 
 // ---- real macros ----

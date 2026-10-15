@@ -66,6 +66,8 @@ pub enum StepError {
     TooManyArguments { name: &'static str, max: usize },
     /// An argument of the wrong kind (a number where the function takes text, or the other way).
     WrongArgumentType { name: &'static str, position: usize },
+    /// A number that does not fit in 32 bits, which the file format cannot read back.
+    NumberOutOfRange { name: &'static str, position: usize },
 }
 
 impl fmt::Display for StepError {
@@ -77,6 +79,9 @@ impl fmt::Display for StepError {
             }
             Self::WrongArgumentType { name, position } => {
                 write!(f, "argument {position} of {name} has the wrong type")
+            }
+            Self::NumberOutOfRange { name, position } => {
+                write!(f, "argument {position} of {name} does not fit in 32 bits")
             }
         }
     }
@@ -95,7 +100,16 @@ fn checked_step(row: &'static MacroFunction, args: &[Arg]) -> Result<Step, StepE
     let mut kept = Vec::with_capacity(args.len());
     for (i, (arg, expected)) in args.iter().zip(row.args).enumerate() {
         let arg = match (arg, expected) {
-            (Arg::Int(n), ArgType::Int) => Arg::Int(*n),
+            (Arg::Int(n), ArgType::Int) => {
+                // The file format holds 32-bit numbers (`_wtoi`).
+                if i32::try_from(*n).is_err() {
+                    return Err(StepError::NumberOutOfRange {
+                        name: row.name,
+                        position: i + 1,
+                    });
+                }
+                Arg::Int(*n)
+            }
             (Arg::Char(c), ArgType::Int) => Arg::Int(i64::from(u32::from(*c))),
             (Arg::Text(s), ArgType::Str) => Arg::Text(s.clone()),
             _ => {

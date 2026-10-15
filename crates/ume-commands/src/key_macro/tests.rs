@@ -148,6 +148,17 @@ fn push_checks_the_function_and_the_arguments() {
         Err(StepError::WrongArgumentType { position: 1, .. })
     ));
     assert!(m.is_empty());
+    // The file format holds 32-bit numbers, so a recorded one must be readable again.
+    let too_big = Arg::Int(i64::from(i32::MAX) + 1);
+    assert!(matches!(
+        m.push(code("Char"), &[too_big]),
+        Err(StepError::NumberOutOfRange { position: 1, .. })
+    ));
+    m.push(code("Char"), &[Arg::Int(i64::from(i32::MAX))])
+        .unwrap();
+    m.push(code("Char"), &[Arg::Int(i64::from(i32::MIN))])
+        .unwrap();
+    assert_eq!(KeyMacro::from_text(&m.to_text()).unwrap(), m);
 }
 
 // ---- loading ----
