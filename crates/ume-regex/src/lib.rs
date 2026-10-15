@@ -21,7 +21,7 @@
 //!
 //! The syntax is bregonig's: `ONIG_SYNTAX_PERL` plus `(?~...)`, `\g<name>`,
 //! `[a&&b]` set operations and different-length alternatives in look-behind
-//! (`src/bregonig.cpp` of bregonig, `DllMain`). The options follow what
+//! (`bregonig.html`, sections 5.1, 5.1.6, 5.1.7 and 5.1.9). The options follow what
 //! Sakura passes in `CBregexp::MakePatternSub` (`sakura_core/extmodule/CBregexp.cpp`):
 //! the pattern is always compiled with the `m` modifier, which is
 //! `ONIG_OPTION_NEGATE_SINGLELINE`. `\w`, `\d` and `\s` are Unicode-aware

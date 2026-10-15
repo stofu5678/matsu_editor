@@ -27,8 +27,15 @@ int ume_onig_init(void)
   if (r != ONIG_NORMAL) return r;
 
   /*
-   * bregonig.dll (src/bregonig.cpp, DllMain and recompile_onig_ex): a copy of
-   * ONIG_SYNTAX_PERL with three extra op2 bits and one extra behavior bit.
+   * The syntax bregonig.html documents: ONIG_SYNTAX_PERL (section 5.1) plus
+   * the three exceptions that section names, and the absent operator:
+   * - ONIG_SYN_OP2_CCLASS_SET_OP: "&&" inside a character class (5.1, 5.1.6)
+   * - ONIG_SYN_OP2_ESC_G_SUBEXP_CALL: "\g<name>" and "\g<n>" calls (5.1, 5.1.9)
+   * - ONIG_SYN_DIFFERENT_LEN_ALT_LOOK_BEHIND: look-behind whose alternatives
+   *   differ in length (5.1)
+   * - ONIG_SYN_OP2_QMARK_TILDE_ABSENT: "(?~...)", since Ver.4.10 (5.1.7)
+   * Everything else the document lists (\K, \R, \X, conditions, "(?P<n>)",
+   * "(?&n)", "\g{n}") is already in ONIG_SYNTAX_PERL's bits (Onigmo regsyntax.c).
    */
   onig_copy_syntax(&syntax_bregonig, ONIG_SYNTAX_PERL);
   onig_set_syntax_op2(&syntax_bregonig,
@@ -57,7 +64,12 @@ static const OnigSyntaxType* syntax_of(int kind)
   }
 }
 
-/* Option bits Sakura passes through bregonig (src/bregonig.cpp, parse_option). */
+/*
+ * Option bits for the letters of bregonig.html section 5.2 that Sakura uses:
+ * i, x, m, a, R. Sakura builds the option string in CBregexp::MakePatternSub
+ * (sakura_core/extmodule/CBregexp.cpp): always k and m, plus i, g, x, a, u, d,
+ * l and R as the user's search options say.
+ */
 unsigned int ume_opt_ignorecase(void) { return ONIG_OPTION_IGNORECASE; }
 unsigned int ume_opt_extend(void) { return ONIG_OPTION_EXTEND; }
 unsigned int ume_opt_negate_singleline(void) { return ONIG_OPTION_NEGATE_SINGLELINE; }
