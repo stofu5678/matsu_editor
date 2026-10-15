@@ -29,7 +29,10 @@ pub struct RegexSearchOptions {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PatternError {
     /// The pattern ends with a backslash that is not escaped. It escapes the delimiter that Sakura
-    /// puts after the pattern, and bregonig.dll fails with its "unmatch ..." error.
+    /// puts after the pattern (`CBregexp::MakePatternSub` builds `m<D>pattern<D>...`), so the
+    /// pattern has no end for bregonig.dll. That a backslash escapes the delimiter is the Perl-style
+    /// reading; not in bregonig.html (which only says the delimiter may be any character, 5.0);
+    /// to check against the real bregonig.dll, including what it reports.
     UnmatchedSeparator,
     /// Onigmo rejected the pattern.
     Compile(CompileError),

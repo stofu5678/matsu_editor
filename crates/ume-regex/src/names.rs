@@ -7,10 +7,12 @@
 //! the engine counted; if the two disagree the names stay unresolved (and a replacement that
 //! uses a name reports it, see [`ReplacementProblem`](crate::ReplacementProblem)).
 //!
-//! Which groups count is the engine's rule, not ours. With ONIG_SYNTAX_PERL as bregonig builds it
-//! (`ONIG_OPTION_CAPTURE_GROUP` is in the syntax's options, `regsyntax.c`) every group captures,
-//! named or not, in the order of its `(`. A numbering in which only the named groups count (the
-//! Ruby rule) is tried as well, in case the engine is built differently.
+//! Which groups count is the engine's rule, not ours. With the syntax set up in `c/shim.c`
+//! (`ONIG_SYNTAX_PERL` plus extras, see `bregonig.html` 5.1) every group captures, named or
+//! not, in the order of its `(`: the version history of `bregonig.html` (Ver.1.40, Ver.2.00 beta4)
+//! says that named and unnamed captures can be used together, as in Perl 5.10. A numbering in
+//! which only the named groups count (the Ruby rule) is tried as well, in case the engine is
+//! built differently.
 
 /// Group name to the numbers of the groups that have it (in the order of the pattern; the same
 /// name may be used more than once, `ONIG_SYN_ALLOW_MULTIPLEX_DEFINITION_NAME`).

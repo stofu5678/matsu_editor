@@ -9,7 +9,8 @@
 //! * 選択始点に挿入 / 選択終点に挿入 are done by replacing the match with `rep$&` / `$&rep`
 //!   ("Nov. 9, 2005 かろと" in the source), so a `\U` in the replacement also changes `$&`.
 //! * "すべて置換" has two modes (the check box 「すべて置換」は置換の繰返し,
-//!   `m_bConsecutiveAll`, off by default): [`ReplaceAllMode::Batch`] is bregonig's `g` flag, one
+//!   `m_bConsecutiveAll`, off by default): [`ReplaceAllMode::Batch`] is the `g` option of bregonig.html (5.2, "g: global
+//!   replacement"; Sakura passes it unless the check box is on), one
 //!   pass over each line that searches the line as it was before any replacement;
 //!   [`ReplaceAllMode::Repeat`] replaces one match, searches again from the caret and so on.
 //!   They differ when a replacement changes what a later match sees (look-behind, `\b`, `\G`).
@@ -30,7 +31,7 @@ use crate::replacement::{ReplacementError, ReplacementProblem, ReplacementTempla
 /// How "replace all" goes through a line (`CDlgReplace::m_bConsecutiveAll`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ReplaceAllMode {
-    /// Every match is found in the line as it was; Sakura's default (一括置換, bregonig's `g`).
+    /// Every match is found in the line as it was; Sakura's default (一括置換, the `g` option of bregonig.html 5.2).
     #[default]
     Batch,
     /// One match is replaced, and the search goes on from there in the changed text

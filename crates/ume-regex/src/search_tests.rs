@@ -168,9 +168,9 @@ fn the_alternate_pattern_matches_the_same_lines() {
 
 #[test]
 fn a_trailing_backslash_loses_the_delimiter() {
-    // Sakura builds `m/pattern/k` (CBregexp.cpp). A single trailing backslash escapes the closing
-    // delimiter, so the pattern has no end and bregonig.dll fails with its "unmatch ..." error
-    // (to check against bregonig.dll).
+    // Sakura builds `m/pattern/k` (CBregexp.cpp). A single trailing backslash would escape the closing
+    // delimiter (Perl-style reading). Not in bregonig.html; to check against the real
+    // bregonig.dll.
     assert!(ends_with_escape("abc\\"));
     assert!(!ends_with_escape("abc\\\\"));
     assert!(ends_with_escape("abc\\\\\\"));
@@ -565,8 +565,8 @@ fn plain_text_is_constant() {
 #[test]
 fn a_replacement_ending_with_a_backslash_is_an_error() {
     // A single trailing backslash escapes the delimiter that Sakura puts after the replacement
-    // (`s/pattern/rep/`), so bregonig.dll fails with its "unmatch ..." error (to check against
-    // bregonig.dll).
+    // (`s/pattern/rep/`), so the replacement would have no end. Not in bregonig.html; to check
+    // against the real bregonig.dll.
     let _limits = read_lock();
     let m = matcher("a");
     assert_eq!(
@@ -626,8 +626,8 @@ fn replace_all_at_line_starts_and_ends() {
 
 #[test]
 fn batch_mode_searches_the_line_as_it_was() {
-    // `(?<=a)a`: the look-behind of the second match sees the original `a`. This is bregonig's
-    // `g` flag (one pass over the line), which Sakura uses unless 「すべて置換」は置換の繰返し
+    // `(?<=a)a`: the look-behind of the second match sees the original `a`. This is the `g` option
+    // of bregonig.html 5.2 (one pass over the line), which Sakura uses unless 「すべて置換」は置換の繰返し
     // is on (sakura_core/cmd/CViewCommander_Search.cpp: optGlobal unless bConsecutiveAll).
     let (text, n) = replace_all_with(
         "(?<=a)a",

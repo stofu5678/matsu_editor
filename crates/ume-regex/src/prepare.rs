@@ -43,8 +43,10 @@
 //! 2. `MakePatternSub` wraps the result as `m<D>pattern<D>km` plus `i` when case is ignored, with
 //!    `D` = U+FFFF. [`Options`](crate::Options) already carries `m`, `i`, `x` and the others, so
 //!    nothing is built here. But a pattern (or replacement) that ends with an odd number of
-//!    backslashes escapes the delimiter `D` after it, so bregonig.dll finds no end and fails with
-//!    its "unmatch ..." error (to check against bregonig.dll). [`ends_with_escape`] tells that.
+//!    backslashes escapes the delimiter `D` after it, so the pattern would have no end for bregonig.dll. This
+//!    is the Perl-style reading; bregonig.html only says that the delimiter may be any character
+//!    (the section on `m//` and `s///`), so it is not in bregonig.html; to check against the real
+//!    bregonig.dll. [`ends_with_escape`] tells that.
 //! 3. `CheckPattern` and the `MakePattern` family (`^`/`$` special cases) are only used by
 //!    `MakePattern`, which `Compile` does not call any more, and by the fallback for a
 //!    bregonig.dll without `BMatchEx`. They are not needed.
@@ -144,11 +146,11 @@ pub fn make_pattern_alternate(pattern: &str) -> String {
     out
 }
 
-/// Whether `text` ends with a backslash that is not itself escaped, so that bregonig would take
-/// the delimiter after it as part of the text and fail with its "unmatch ..." error.
+/// Whether `text` ends with a backslash that is not itself escaped, so that the delimiter
+/// Sakura puts after the text would be escaped (Perl-style reading).
 ///
 /// `\\` and `\/` count as pairs, and a delimiter right after a single backslash does not count
-/// (to check against bregonig.dll).
+/// (not in bregonig.html; to check against the real bregonig.dll).
 pub fn ends_with_escape(text: &str) -> bool {
     let mut prev = None;
     for c in text.chars() {
