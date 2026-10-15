@@ -183,8 +183,10 @@ impl EditorView {
 /// The window of the OS under a GPUI window, for the print dialog to belong to.
 #[cfg(any(windows, target_os = "macos"))]
 fn raw_handle(window: &Window) -> Option<raw_window_handle::RawWindowHandle> {
-    use raw_window_handle::HasWindowHandle as _;
-    window.window_handle().ok().map(|handle| handle.as_raw())
+    use raw_window_handle::HasWindowHandle;
+    HasWindowHandle::window_handle(window)
+        .ok()
+        .map(|handle| handle.as_raw())
 }
 
 /// Shows the print dialog of the OS and prints, off the UI thread where the OS blocks until the
