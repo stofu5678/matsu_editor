@@ -7,6 +7,15 @@ name: Package
 
 on:
   workflow_call:
+    inputs:
+      ref:
+        description: Commit to build (default: the commit of the calling run)
+        type: string
+        default: ''
+      artifact-prefix:
+        description: Prefix of the artifact names
+        type: string
+        default: package
 
 permissions:
   contents: read
@@ -32,6 +41,8 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
       - uses: dtolnay/rust-toolchain@1.99.0
       # Same list as ci.yml (GPUI links the system libraries of the Linux desktop).
       - name: Install the packages that GPUI needs
@@ -70,7 +81,7 @@ jobs:
         run: tar -czf "ume-${{ matrix.name }}.tar.gz" "ume-${{ matrix.name }}"
       - uses: actions/upload-artifact@v7
         with:
-          name: package-${{ matrix.name }}
+          name: ${{ inputs.artifact-prefix }}-${{ matrix.name }}
           path: |
             dist/*.zip
             dist/*.tar.gz

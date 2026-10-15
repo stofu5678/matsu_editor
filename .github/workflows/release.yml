@@ -33,6 +33,7 @@ jobs:
     outputs:
       release_created: ${{ steps.rp.outputs.release_created }}
       tag_name: ${{ steps.rp.outputs.tag_name }}
+      sha: ${{ steps.rp.outputs.sha }}
     steps:
       - uses: googleapis/release-please-action@v4.4.1
         id: rp
@@ -67,8 +68,19 @@ jobs:
           PR_NUMBER: ${{ fromJSON(steps.rp.outputs.pr).number }}
         run: gh pr merge "$PR_NUMBER" --auto --squash --repo "$GITHUB_REPOSITORY"
 
+  # The nightly build is of the commit that triggered this run.
   package:
     uses: ./.github/workflows/package.yml
+
+  # The version build is of the commit release-please tagged, which can differ from the
+  # triggering commit when pushes come close together (a newer run replaced this one).
+  package-release:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    uses: ./.github/workflows/package.yml
+    with:
+      ref: ${{ needs.release-please.outputs.sha }}
+      artifact-prefix: release
 
   nightly:
     needs: package
@@ -108,8 +120,7 @@ jobs:
           gh release upload nightly out/* --repo "$GITHUB_REPOSITORY" --clobber
 
   release:
-    needs: [release-please, package]
-    if: needs.release-please.outputs.release_created == 'true'
+    needs: [release-please, package-release]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -119,7 +130,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
-          pattern: package-*
+          pattern: release-*
           path: artifacts
           merge-multiple: true
       - name: Attach the packages to the release
