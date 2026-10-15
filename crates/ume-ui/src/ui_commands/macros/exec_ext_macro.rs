@@ -28,11 +28,13 @@ impl UiCommand for ExecExtMacro {
     ) -> Result {
         match args.first() {
             Some(Arg::Text(path)) if !path.is_empty() => {
-                view.exec_ext_macro(Path::new(path), window, cx);
+                view.exec_ext_macro(Path::new(path), window, cx)
             }
-            _ => view.ask_macro_to_run(window, cx),
+            _ => {
+                view.ask_macro_to_run(window, cx);
+                Ok(())
+            }
         }
-        Ok(())
     }
 }
 

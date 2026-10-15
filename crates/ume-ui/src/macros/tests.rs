@@ -489,3 +489,49 @@ fn a_key_macro_waits_for_a_script_it_started(cx: &mut TestAppContext) {
     f.wait_until_done(cx);
     assert_eq!(f.lines(cx), ["A-B"]);
 }
+
+#[gpui::test]
+fn a_nested_macro_file_with_a_mistake_stops_the_outer_macro(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let bad = write(dir.path(), "bad.mac", "Char(66);\nNoSuchFunction();\n");
+    let outer = write(
+        dir.path(),
+        "outer.mac",
+        &format!(
+            "Char(65);\nExecExternalMacro('{}');\nChar(67);\n",
+            bad.to_string_lossy().replace('\\', "\\\\")
+        ),
+    );
+    let (f, cx) = setup(cx, "");
+    f.run(cx, F_EXECEXTMACRO, &[text_arg(&outer)]);
+    cx.run_until_parked();
+    // the inner file is read as a whole first, so nothing of it ran, and the outer one stopped
+    assert_eq!(f.lines(cx), ["A"]);
+    let output = f.output(cx);
+    assert!(
+        output.contains("bad.mac") && output.contains("line 2"),
+        "{output}"
+    );
+    assert!(output.contains("2 番目"), "{output}");
+    assert!(!f.running(cx));
+}
+
+#[gpui::test]
+fn run_function_says_whether_the_command_succeeded(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "");
+    // `Char` with a number is a typed character
+    let ok = f.view.update_in(cx, |v, window, cx| {
+        v.run_function(30200, &[Arg::Int(65)], window, cx)
+    });
+    assert!(ok);
+    let failed = f
+        .view
+        .update_in(cx, |v, window, cx| v.run_function(30200, &[], window, cx));
+    assert!(!failed);
+    // a function that has no command here yet
+    let missing = f
+        .view
+        .update_in(cx, |v, window, cx| v.run_function(30795, &[], window, cx));
+    assert!(!missing);
+    assert_eq!(f.lines(cx), ["A"]);
+}

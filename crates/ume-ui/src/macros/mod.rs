@@ -36,7 +36,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use gpui::{AnyElement, Context, Entity, PathPromptOptions, Window};
-use ume_commands::command::Arg;
+use ume_commands::command::{Arg, CommandError};
 use ume_commands::key_macro::{KeyMacro, KeyMacroRecorder, Step};
 use ume_commands::macro_names;
 use ume_commands::registry::Registry;
@@ -192,6 +192,18 @@ impl EditorView {
 
     // ---- messages ----
 
+    /// For a UI command that fails at once: reports it like [`Self::macro_failed`] and gives the
+    /// error to return, so that `run_function` says `false` and a playing key macro stops.
+    pub(crate) fn macro_error(
+        &mut self,
+        message: String,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> CommandError {
+        self.macro_failed(message.clone(), window, cx);
+        CommandError::BadArgs(message)
+    }
+
     /// Tells the user about a failure: in the panel, and in the status bar.
     pub(crate) fn macro_failed(
         &mut self,
@@ -282,11 +294,14 @@ impl EditorView {
     }
 
     /// `F_EXECKEYMACRO`: stops a recording, then plays the key macro.
-    pub(crate) fn exec_key_macro(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn exec_key_macro(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), CommandError> {
         self.stop_key_macro_recording();
         if self.macros.busy() {
-            self.macro_failed("マクロを実行中です".into(), window, cx);
-            return;
+            return Err(self.macro_error("マクロを実行中です".into(), window, cx));
         }
         let result = match self.macros.current.clone() {
             // Nothing to play; Sakura greys the item out.
@@ -297,9 +312,7 @@ impl EditorView {
             }
             Some(CurrentMacro::File(path)) => self.run_macro_file(&path, window, cx),
         };
-        if let Err(message) = result {
-            self.macro_failed(message, window, cx);
-        }
+        result.map_err(|message| self.macro_error(message, window, cx))
     }
 
     // ---- macro files ----
@@ -317,7 +330,8 @@ impl EditorView {
             this.update_in(cx, |this, window, cx| match answer {
                 Ok(Ok(Some(mut paths))) => {
                     if let Some(path) = paths.pop() {
-                        this.exec_ext_macro(&path, window, cx);
+                        // The error is reported by `exec_ext_macro`.
+                        this.exec_ext_macro(&path, window, cx).ok();
                     }
                 }
                 Ok(Err(error)) => this.macro_failed(dialog_error(&error), window, cx),
@@ -335,11 +349,10 @@ impl EditorView {
         path: &Path,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) {
+    ) -> Result<(), CommandError> {
         // A key macro that is playing may name a macro file: its calls go on in the middle.
         if self.macros.running.is_some() {
-            self.macro_failed("マクロを実行中です".into(), window, cx);
-            return;
+            return Err(self.macro_error("マクロを実行中です".into(), window, cx));
         }
         if self.macros.recorder.is_recording() && !self.macros.suspended {
             self.macros.recorder.record(
@@ -347,9 +360,8 @@ impl EditorView {
                 &[Arg::Text(path.to_string_lossy().into_owned())],
             );
         }
-        if let Err(message) = self.run_macro_file(path, window, cx) {
-            self.macro_failed(message, window, cx);
-        }
+        self.run_macro_file(path, window, cx)
+            .map_err(|message| self.macro_error(message, window, cx))
     }
 
     /// Runs a macro file by its extension: `.mac` through the key macro player, `.js` and
@@ -402,9 +414,9 @@ impl EditorView {
             let declared = macro_names::by_code(step.code).map_or(usize::MAX, |f| f.args.len());
             let args = &step.args[..step.args.len().min(declared)];
             self.notice = None;
-            self.run_function(step.code, args, window, cx);
-            // A failed call leaves its message in the status bar.
-            if let Some(notice) = self.notice.clone() {
+            // The result says whether the call failed; a notice may also come with a success.
+            if !self.run_function(step.code, args, window, cx) {
+                let notice = self.notice.clone().unwrap_or_default();
                 self.macros.queue.clear();
                 let message = format!(
                     "キーマクロの {} 番目の呼び出し ({}) で止まりました: {notice}",

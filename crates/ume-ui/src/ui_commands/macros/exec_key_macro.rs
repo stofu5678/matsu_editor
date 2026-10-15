@@ -22,8 +22,7 @@ impl UiCommand for ExecKeyMacro {
         window: &mut Window,
         cx: &mut Context<EditorView>,
     ) -> Result {
-        view.exec_key_macro(window, cx);
-        Ok(())
+        view.exec_key_macro(window, cx)
     }
 }
 
