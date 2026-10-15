@@ -16,7 +16,7 @@ use std::ops::Range;
 use gpui::{Context, PromptLevel, Window};
 use ume_commands::command::CommandError;
 use ume_commands::context::CommandContext;
-use ume_core::buffer::{Document, Pos};
+use ume_core::buffer::{Document, Eol, Pos};
 use ume_core::search::{
     AppliedEdit, Control, Direction, Found, find, replace_all, replace_and_find_next,
     replacement_for,
@@ -378,12 +378,45 @@ fn apply_edits(
 ) -> Result<Vec<Pos>, CommandError> {
     let mut old_ends = Vec::with_capacity(edits.len());
     for e in edits {
-        let old_end = end_after(e.start, &e.removed);
-        let made = c.replace(e.start, old_end, &e.inserted)?;
+        let (start, old_end) = old_range(c.doc(), e);
+        let made = c.replace(start, old_end, &e.inserted)?;
         debug_assert_eq!((made.start, made.end), (e.start, e.end));
         old_ends.push(old_end);
     }
     Ok(old_ends)
+}
+
+/// Where `e` replaced text in the document as it was just before the edit.
+///
+/// `AppliedEdit::start` is a position after the edit. When the edit puts a CR and an LF side by
+/// side, the buffer joins them into one CRLF and moves the start back before the CR (`a\rX\nb`
+/// without `X`: the edit began at `(1, 0)` and `start` is `(0, 1)`). So when `start` is at the end
+/// of a line that ends with a CR, the edit may have begun at the start of the next line; the
+/// candidate that holds the removed text and gives the same edit again is the one.
+fn old_range(doc: &Document, e: &AppliedEdit) -> (Pos, Pos) {
+    let at_cr_end = doc
+        .line(e.start.line)
+        .ok()
+        .flatten()
+        .is_some_and(|l| l.eol == Some(Eol::Cr) && l.text.len() == e.start.col);
+    let direct = (e.start, end_after(e.start, &e.removed));
+    if !at_cr_end {
+        return direct;
+    }
+    let after_cr = Pos::new(e.start.line + 1, 0);
+    let moved = (after_cr, end_after(after_cr, &e.removed));
+    let fits = |&(start, end): &(Pos, Pos)| {
+        doc.text_between(start, end).is_ok_and(|t| t == e.removed)
+            && doc
+                .clone()
+                .replace(start, end, &e.inserted)
+                .is_ok_and(|made| (made.start, made.end) == (e.start, e.end))
+    };
+    if fits(&direct) || !fits(&moved) {
+        direct
+    } else {
+        moved
+    }
 }
 
 /// Where text that is `text` long ends when it starts at `start`.
@@ -444,6 +477,55 @@ fn shift_start(p: Pos, edits: &[AppliedEdit], old_ends: &[Pos]) -> Pos {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ume_core::search::ReplaceTarget;
+
+    /// Replaces `pattern` with `text` through the context, as the panel does, and returns the
+    /// text. The expected text is what the core makes of the same replacement.
+    fn replaced(text: &str, pattern: &str, with: &str, target: ReplaceTarget) -> (String, String) {
+        use ume_commands::layout::PlainLayout;
+        use ume_core::cursor::Cursor;
+        use ume_core::model::DocumentModel;
+        use ume_core::search::{Control, PlainMatcher, PlainOptions};
+
+        let matcher = PlainMatcher::new(pattern, PlainOptions::default());
+        let doc = Document::from_utf8(text.as_bytes().to_vec()).unwrap();
+        let mut expected = doc.clone();
+        let result = replace_all(&mut expected, &matcher, with, target, None, Control::new())
+            .expect("the core replaces");
+        let all = |d: &Document| {
+            d.text_between(Pos::new(0, 0), Pos::new(d.line_count(), 0))
+                .unwrap()
+        };
+
+        let mut model = DocumentModel::new(doc);
+        let mut cursor = Cursor::default();
+        let mut layout = PlainLayout::default();
+        let mut cx = CommandContext::new(&mut model, &mut cursor, &mut layout, None);
+        apply_edits(&mut cx, &result.edits).expect("the edits apply");
+        (all(model.doc()), all(&expected))
+    }
+
+    #[test]
+    fn a_cr_and_an_lf_that_meet_are_replayed_from_their_old_positions() {
+        for (text, pattern, with) in [
+            ("a\rX\nb", "X", ""),
+            ("a\rX\nb", "X", "Y"),
+            ("a\rb", "b", "\nc"),
+            ("a\rX\nX\rX\nX", "X", ""),
+            ("X\rX\nX\rX\nX", "X", ""),
+            ("a\rX\nb\rX\nc", "X", "Q"),
+            ("a\r\nX\r\nb", "X", ""),
+            ("\rX\n", "X", ""),
+            ("aX\r\nbX", "X", "\r"),
+        ] {
+            for target in [ReplaceTarget::Match, ReplaceTarget::InsertAfter] {
+                let (got, want) = replaced(text, pattern, with, target);
+                assert_eq!(got, want, "{text:?} {pattern:?} -> {with:?} ({target:?})");
+            }
+        }
+        let (got, _) = replaced("a\rX\nb", "X", "", ReplaceTarget::Match);
+        assert_eq!(got, "a\r\nb");
+    }
 
     #[test]
     fn only_the_first_line_of_a_selection_is_read() {
