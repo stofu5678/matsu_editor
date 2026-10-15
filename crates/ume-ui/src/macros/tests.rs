@@ -1,7 +1,7 @@
 //! Tests of key macros and macro files in GPUI's headless test window.
 //!
 //! The keys are Sakura's defaults (`sakura_core/func/CKeyBind.cpp`, key `M` and `L`): Ctrl+Shift+M
-//! records, Ctrl+M saves, Ctrl+L loads, Ctrl+Shift+L plays. `secondary-` is Ctrl on Windows and
+//! records, Ctrl+L loads, Ctrl+Shift+L plays. `secondary-` is Ctrl on Windows and
 //! Linux and Cmd on macOS, where the key map lets Cmd stand for Ctrl (ADR-0008).
 //!
 //! The scripts run with the real Node.js and Python. A test whose interpreter is not installed
@@ -90,6 +90,9 @@ fn text_arg(path: &Path) -> Arg {
     Arg::Text(path.to_string_lossy().into_owned())
 }
 
+/// Ctrl+M is Sakura's key for it, but on macOS Cmd+M is left to the OS (minimize), so the tests
+/// run the function the way a menu item does.
+const F_SAVEKEYMACRO: u16 = 31251;
 const REC: &str = "secondary-shift-m";
 const EXEC: &str = "secondary-shift-l";
 
@@ -178,8 +181,8 @@ fn a_recorded_macro_is_saved_and_loaded_through_the_dialogs(cx: &mut TestAppCont
     cx.simulate_keystrokes(REC);
     cx.simulate_keystrokes("right");
     cx.simulate_input("A");
-    // Ctrl+M stops the recording and asks for the file
-    cx.simulate_keystrokes("secondary-m");
+    // stops the recording and asks for the file
+    f.run(cx, F_SAVEKEYMACRO, &[]);
     assert!(!f.view.read_with(cx, |v, _| v.is_recording_key_macro()));
     assert!(cx.did_prompt_for_new_path());
     let chosen = path.clone();
@@ -226,7 +229,7 @@ fn only_a_key_macro_can_be_saved(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("secondary-l");
     cx.simulate_path_prompt_response(move |_| Some(vec![script]));
     cx.run_until_parked();
-    cx.simulate_keystrokes("secondary-m");
+    f.run(cx, F_SAVEKEYMACRO, &[]);
     let chosen = target.clone();
     cx.simulate_new_path_selection(move |_| Some(chosen));
     cx.run_until_parked();
@@ -294,7 +297,7 @@ fn a_macro_file_run_while_recording_is_recorded_as_one_call(cx: &mut TestAppCont
     assert_eq!(f.lines(cx), ["B"]);
     // recording goes on after the macro; its own calls were not recorded
     cx.simulate_input("c");
-    cx.simulate_keystrokes("secondary-m");
+    f.run(cx, F_SAVEKEYMACRO, &[]);
     let chosen = saved.clone();
     cx.simulate_new_path_selection(move |_| Some(chosen));
     cx.run_until_parked();
