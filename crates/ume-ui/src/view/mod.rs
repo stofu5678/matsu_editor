@@ -42,6 +42,7 @@ use crate::document::{DocumentEvent, SharedDocument};
 use crate::geometry::{Metrics, clamp_scroll_y, scroll_x_to_show, scroll_y_to_show_row};
 use crate::keys::chord_of;
 use crate::layout_adapter::{LAYOUT_BUDGET, RowLayout};
+use crate::search::{SearchPanel, SearchState};
 use crate::status::StatusInfo;
 use crate::ui_command::{UiRegistration, UiRegistry};
 
@@ -140,6 +141,10 @@ pub struct EditorView {
     pub(crate) prefs: ViewPrefs,
     /// The print preview and the print dialog (`crate::print`).
     pub(crate) print: crate::print::PrintState,
+    /// Find and replace: the pattern, the options and the marks (`crate::search`).
+    pub(crate) search: SearchState,
+    /// The find, replace or go-to-line panel, while it is open.
+    pub(crate) panel: Option<Entity<SearchPanel>>,
     font_family: SharedString,
     font_size: f32,
     _subscription: Subscription,
@@ -178,6 +183,8 @@ impl EditorView {
             notice: None,
             prefs: ViewPrefs::new(Default::default()),
             print: Default::default(),
+            search: SearchState::default(),
+            panel: None,
             font_family: FONT_FAMILY.into(),
             font_size: crate::settings::ViewSettings::default().font_px(),
             _subscription: subscription,
@@ -302,8 +309,11 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         self.interrupt_composition(cx);
-        let result = reg.run(self, args, window, cx);
-        self.notice = result.err().map(|e| format!("{}: {e}", reg.id));
+        // The command may leave a message of its own (a search that wrapped around).
+        self.notice = None;
+        if let Err(e) = reg.run(self, args, window, cx) {
+            self.notice = Some(format!("{}: {e}", reg.id));
+        }
         cx.notify();
     }
 
@@ -496,7 +506,7 @@ impl Render for EditorView {
                 .child(preview.clone())
                 .into_any_element();
         }
-        div()
+        let editor = div()
             .id("editor")
             .size_full()
             .overflow_hidden()
@@ -518,7 +528,13 @@ impl Render for EditorView {
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_scroll_wheel(cx.listener(Self::on_scroll))
             .on_drop(cx.listener(Self::on_external_drop))
-            .child(EditorElement::new(cx.entity()))
+            .child(EditorElement::new(cx.entity()));
+        // The panel is a sibling, so that keys typed in its inputs do not reach the editor's.
+        div()
+            .size_full()
+            .relative()
+            .child(editor)
+            .children(self.panel.clone())
             .into_any_element()
     }
 }

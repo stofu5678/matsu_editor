@@ -29,6 +29,7 @@ pub mod layout_adapter;
 pub mod menu;
 pub mod open;
 pub mod print;
+pub mod search;
 pub mod segments;
 pub mod settings;
 pub mod status;

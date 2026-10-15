@@ -17,11 +17,14 @@ use ume_layout::RowInfo;
 use super::{EditorView, PaintInfo};
 use crate::geometry::{Metrics, SCROLLBAR_WIDTH, Scrollbar};
 use crate::hit::selected_columns;
+use crate::search::highlight::highlight_columns;
 use crate::segments::{SegmentKind, row_segments};
 use crate::settings::Colors;
 
 /// The caret of overwrite mode: the caret color with some transparency.
 const CARET_BLOCK_ALPHA: u32 = 0x70;
+/// The background of the matches of the search pattern (the settings have no color for it yet).
+const FOUND: u32 = 0xffe680;
 
 /// The mark for a tab: Sakura draws an arrow (`CFigure_Tab.cpp`, the default `TAB_ARROW`).
 const TAB_MARK: &str = "→";
@@ -58,6 +61,8 @@ struct Placed {
 }
 
 struct RowPaint {
+    /// The columns of the matches of the search pattern on this row.
+    found: Vec<(u32, u32)>,
     selection: Option<(u32, u32)>,
     numbers: Option<ShapedLine>,
     text: Vec<Placed>,
@@ -176,6 +181,11 @@ impl Element for EditorElement {
         let marked = editor.marked.clone();
         let last_line = doc.line_count().saturating_sub(1);
 
+        let mut found = match editor.search.matcher().filter(|_| editor.search.mark()) {
+            Some(matcher) => highlight_columns(layout, doc, &rows, &**matcher),
+            None => Vec::new(),
+        }
+        .into_iter();
         let mut widest = 0;
         let mut painted = Vec::with_capacity(rows.len());
         for row in &rows {
@@ -254,6 +264,7 @@ impl Element for EditorElement {
                     (a.row == row.row && b.row == row.row).then_some((a.column, b.column))
                 });
             painted.push(RowPaint {
+                found: found.next().unwrap_or_default(),
                 selection: selected,
                 numbers,
                 text,
@@ -367,6 +378,12 @@ impl Element for EditorElement {
             |window| {
                 for (i, row) in p.rows.iter().enumerate() {
                     let y = bounds.top() + px(p.y_offset) + lh * i as f32;
+                    for &(from, to) in &row.found {
+                        window.paint_quad(fill(
+                            Bounds::from_corners(point(x_of(from), y), point(x_of(to), y + lh)),
+                            rgb(FOUND),
+                        ));
+                    }
                     if let Some((from, to)) = row.selection {
                         window.paint_quad(fill(
                             Bounds::from_corners(point(x_of(from), y), point(x_of(to), y + lh)),
