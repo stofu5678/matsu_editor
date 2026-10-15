@@ -432,3 +432,22 @@ fn a_pattern_set_by_a_command_shows_in_the_open_panel(cx: &mut TestAppContext) {
     f.view
         .read_with(cx, |v, _| assert_eq!(v.search.pattern(), "xyz"));
 }
+
+#[gpui::test]
+fn f3_works_while_the_panel_has_the_focus(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "ab ab");
+    f.pattern(cx, "ab");
+    f.run(cx, "F_SEARCH_DIALOG");
+    f.view.update(cx, |v, _| {
+        let mut o = v.search.options();
+        o.auto_close = false;
+        v.search.set_options(o);
+    });
+    cx.simulate_keystrokes("f3");
+    assert_eq!(f.selection(cx), Some((Pos::new(0, 0), Pos::new(0, 2))));
+    cx.simulate_keystrokes("f3");
+    assert_eq!(f.selection(cx), Some((Pos::new(0, 3), Pos::new(0, 5))));
+    cx.simulate_keystrokes("shift-f3");
+    assert_eq!(f.selection(cx), Some((Pos::new(0, 0), Pos::new(0, 2))));
+    assert!(f.panel_mode(cx).is_some());
+}

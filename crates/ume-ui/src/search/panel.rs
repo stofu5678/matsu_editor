@@ -502,9 +502,22 @@ impl Render for SearchPanel {
             .rounded_md()
             .shadow_md()
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                if event.keystroke.key == "escape" {
-                    this.close(window, cx);
-                    cx.stop_propagation();
+                match event.keystroke.key.as_str() {
+                    "escape" => {
+                        this.close(window, cx);
+                        cx.stop_propagation();
+                    }
+                    // F3 and Shift+F3 keep searching while the focus is in the panel
+                    "f3" if this.mode != PanelMode::Jump => {
+                        let direction = if event.keystroke.modifiers.shift {
+                            Direction::Backward
+                        } else {
+                            Direction::Forward
+                        };
+                        this.find(direction, window, cx);
+                        cx.stop_propagation();
+                    }
+                    _ => {}
                 }
             }))
             .child(div().font_weight(gpui::FontWeight::BOLD).child(title))
