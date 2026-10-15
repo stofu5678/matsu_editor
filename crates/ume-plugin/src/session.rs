@@ -1,0 +1,460 @@
+//! Runs a macro as a child process. All the I/O happens on threads of its own, so a caller that
+//! lives on a UI thread never blocks: it gets `HostEvent`s from a sink and answers a request
+//! with `Session::send`.
+
+use std::ffi::{OsStr, OsString};
+use std::io;
+use std::io::{BufRead, BufReader, Write};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex, PoisonError};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use crate::boot;
+use crate::protocol::{self, InitializeInfo};
+
+/// The time that a macro may run if the editor does not say otherwise.
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How long to wait for the rest of the output after the child has ended. A grandchild that
+/// inherited the pipes can hold them open for much longer.
+const OUTPUT_GRACE: Duration = Duration::from_millis(1000);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Language {
+    JavaScript,
+    Python,
+}
+
+impl Language {
+    /// The language of a macro file, by its extension.
+    pub fn of_file(path: &Path) -> Option<Self> {
+        match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
+            "js" | "cjs" => Some(Self::JavaScript),
+            "py" => Some(Self::Python),
+            _ => None,
+        }
+    }
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::JavaScript => "Node.js",
+            Self::Python => "Python",
+        }
+    }
+
+    /// The usual name of the interpreter on this OS, which the system finds on the `PATH`.
+    pub fn default_interpreter(self) -> OsString {
+        match self {
+            Self::JavaScript => "node".into(),
+            Self::Python if cfg!(windows) => "python".into(),
+            Self::Python => "python3".into(),
+        }
+    }
+
+    /// Asks the interpreter for the path of its real executable, once. On Windows the `python`
+    /// of the Install Manager starts through a launcher process and costs about 100 ms at every
+    /// start (docs/poc/json-rpc.md); the editor may call this once, keep the result and put it
+    /// in `MacroConfig::interpreter`. Nothing calls it by default.
+    pub fn real_interpreter_path(self, interpreter: &OsStr) -> io::Result<PathBuf> {
+        let (flag, code) = match self {
+            Self::JavaScript => ("-p", "process.execPath"),
+            Self::Python => ("-c", "import sys; print(sys.executable)"),
+        };
+        let output = Command::new(interpreter)
+            .arg(flag)
+            .arg(code)
+            // A pipe gets the ANSI code page on Windows by default (the same as in `start`).
+            .env("PYTHONUTF8", "1")
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()?;
+        let text = String::from_utf8_lossy(&output.stdout);
+        let line = protocol::trim_line_end(text.lines().next().unwrap_or_default());
+        if !output.status.success() || line.is_empty() {
+            return Err(io::Error::other(format!(
+                "the interpreter did not tell its path ({})",
+                output.status
+            )));
+        }
+        Ok(PathBuf::from(line))
+    }
+}
+
+/// What the editor tells the host about one run. `for_script` fills in the defaults; the
+/// editor then changes the fields it has settings for.
+pub struct MacroConfig {
+    pub script: PathBuf,
+    pub language: Language,
+    /// The interpreter to start: a name found on the `PATH`, or a path.
+    pub interpreter: OsString,
+    /// The longest time that the macro may run.
+    pub timeout: Duration,
+    /// The directory in which the boot files get their own folder. `None` is the user's
+    /// temporary directory.
+    pub temp_dir: Option<PathBuf>,
+    /// The path of the document for `initialize`, `None` when it is not a file.
+    pub document_path: Option<String>,
+}
+
+impl MacroConfig {
+    /// A configuration from the file's extension: the usual interpreter and the default timeout.
+    pub fn for_script(script: &Path, document_path: Option<String>) -> Result<Self, StartError> {
+        let language = Language::of_file(script).ok_or_else(|| StartError::UnknownLanguage {
+            script: script.to_path_buf(),
+        })?;
+        Ok(Self {
+            script: script.to_path_buf(),
+            language,
+            interpreter: language.default_interpreter(),
+            timeout: DEFAULT_TIMEOUT,
+            temp_dir: None,
+            document_path,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub enum StartError {
+    UnknownLanguage {
+        script: PathBuf,
+    },
+    Boot(std::io::Error),
+    Spawn {
+        language: Language,
+        interpreter: OsString,
+        source: std::io::Error,
+    },
+}
+
+impl std::fmt::Display for StartError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownLanguage { script } => write!(
+                f,
+                "{}: マクロの拡張子は .js か .py にしてください",
+                script.display()
+            ),
+            Self::Boot(err) => write!(f, "マクロの準備に失敗しました: {err}"),
+            Self::Spawn {
+                language,
+                interpreter,
+                source,
+            } => write!(
+                f,
+                "{} を起動できませんでした ({}): {source}。インストールされているか、場所の指定が合っているか確かめてください",
+                language.display_name(),
+                interpreter.to_string_lossy()
+            ),
+        }
+    }
+}
+
+impl std::error::Error for StartError {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stream {
+    Stdout,
+    Stderr,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EndReason {
+    /// The macro ended by itself (with any exit code).
+    Exited,
+    TimedOut,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Finished {
+    pub reason: EndReason,
+    /// `None` when the process was killed by a signal.
+    pub exit_code: Option<i32>,
+    /// The exit status in words, such as "exit status: 1".
+    pub status: String,
+}
+
+#[derive(Debug)]
+pub enum HostEvent {
+    /// A line of user output, without its line break. Output without a line break is held
+    /// until its line ends or the macro exits.
+    Output { stream: Stream, text: String },
+    /// A JSON-RPC message from the macro (the text after the RS).
+    Message(String),
+    /// The last event.
+    Finished(Finished),
+}
+
+/// A running macro: answer requests with `send` and stop it with `cancel`.
+pub struct Session {
+    writer: mpsc::Sender<String>,
+    cancel: Arc<AtomicBool>,
+}
+
+impl Session {
+    /// Queues a line for the macro's standard input. It does not block.
+    pub fn send(&self, line: String) {
+        let _ = self.writer.send(line);
+    }
+
+    /// Kills the macro. `Finished` follows with `EndReason::Cancelled`.
+    pub fn cancel(&self) {
+        self.cancel.store(true, Ordering::SeqCst);
+    }
+}
+
+impl Drop for Session {
+    /// A macro whose owner has gone (the window closed, for one) is stopped.
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::SeqCst);
+    }
+}
+
+pub type Sink = Arc<dyn Fn(HostEvent) + Send + Sync>;
+
+/// Starts the macro. The events go to `sink` from other threads, in order, ending with
+/// `Finished`.
+pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
+    let boot_dir = boot::write_boot_files(config.temp_dir.as_deref()).map_err(StartError::Boot)?;
+    let mut command = Command::new(&config.interpreter);
+    match config.language {
+        Language::JavaScript => {
+            command
+                .arg("--require")
+                .arg(boot_dir.path().join(boot::JS_BOOT))
+                .arg(&config.script);
+        }
+        Language::Python => {
+            // -u: no buffering, so the user's output and the requests stay in order.
+            command
+                .arg("-u")
+                .arg(boot_dir.path().join(boot::PY_BOOT))
+                .arg(&config.script);
+        }
+    }
+    command
+        // Python writes to a pipe in the ANSI code page of Windows by default.
+        .env("PYTHONUTF8", "1")
+        .env("PYTHONDONTWRITEBYTECODE", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW: no console window for the interpreter.
+        command.creation_flags(0x0800_0000);
+    }
+    let mut child = command.spawn().map_err(|source| StartError::Spawn {
+        language: config.language,
+        interpreter: config.interpreter.clone(),
+        source,
+    })?;
+    let stdin = child.stdin.take().expect("stdin is piped");
+    let stdout = child.stdout.take().expect("stdout is piped");
+    let stderr = child.stderr.take().expect("stderr is piped");
+
+    // The writer: the lines go out in order, and a macro that does not read never blocks the
+    // caller. When the child is gone the writes fail and the rest is dropped.
+    let (writer, lines) = mpsc::channel::<String>();
+    writer
+        .send(protocol::initialize_message(&InitializeInfo {
+            editor_name: "UME Editor".into(),
+            editor_version: env!("CARGO_PKG_VERSION").into(),
+            process_id: std::process::id(),
+            document_path: config.document_path.clone(),
+        }))
+        .expect("the receiver is alive");
+    thread::spawn(move || {
+        let mut stdin = stdin;
+        for line in lines {
+            // Only LF ends a line (Emacs on Linux reads a CR as a line end too).
+            if stdin
+                .write_all(line.as_bytes())
+                .and_then(|()| stdin.write_all(b"\n"))
+                .and_then(|()| stdin.flush())
+                .is_err()
+            {
+                break;
+            }
+        }
+        // Dropping stdin closes it: the macro sees EOF.
+    });
+
+    // `Finished` must be the last event. A grandchild that inherited the pipes can keep a reader
+    // running after the grace period, so the readers send through a gate that the supervisor
+    // closes (while it sends `Finished`) and that drops what comes later.
+    let ended = Arc::new(Mutex::new(false));
+    let gated: Sink = {
+        let sink = sink.clone();
+        let ended = ended.clone();
+        Arc::new(move |event| {
+            let ended = ended.lock().unwrap_or_else(PoisonError::into_inner);
+            if !*ended {
+                sink(event);
+            }
+        })
+    };
+
+    let (done_tx, done_rx) = mpsc::channel::<()>();
+    {
+        let sink = gated.clone();
+        let done = done_tx.clone();
+        thread::spawn(move || {
+            read_lines(stdout, |line| {
+                let split = protocol::split_output_line(line);
+                if let Some(text) = split.user {
+                    sink(HostEvent::Output {
+                        stream: Stream::Stdout,
+                        text: text.to_string(),
+                    });
+                }
+                if let Some(message) = split.message {
+                    sink(HostEvent::Message(message.to_string()));
+                }
+            });
+            let _ = done.send(());
+        });
+    }
+    {
+        let sink = gated;
+        thread::spawn(move || {
+            read_lines(stderr, |line| {
+                sink(HostEvent::Output {
+                    stream: Stream::Stderr,
+                    text: line.to_string(),
+                });
+            });
+            let _ = done_tx.send(());
+        });
+    }
+
+    let cancel = Arc::new(AtomicBool::new(false));
+    let supervisor_cancel = cancel.clone();
+    let deadline = Instant::now() + config.timeout;
+    thread::spawn(move || {
+        // The boot files live as long as the child.
+        let mut boot_dir = boot_dir;
+        let mut reason = EndReason::Exited;
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break Some(status),
+                Ok(None) => {}
+                Err(_) => break None,
+            }
+            if supervisor_cancel.load(Ordering::SeqCst) {
+                reason = EndReason::Cancelled;
+            } else if Instant::now() >= deadline {
+                reason = EndReason::TimedOut;
+            }
+            if reason != EndReason::Exited {
+                let _ = child.kill();
+                break child.wait().ok();
+            }
+            thread::sleep(Duration::from_millis(10));
+        };
+        // The readers end when the pipes close. Wait for the rest of the output, but not
+        // forever.
+        let grace_end = Instant::now() + OUTPUT_GRACE;
+        for _ in 0..2 {
+            let left = grace_end.saturating_duration_since(Instant::now());
+            let _ = done_rx.recv_timeout(left);
+        }
+        // The folder goes before the end is reported. The caller may exit the process as soon as
+        // it has seen `Finished`, which would cut the removal short and leave the folder.
+        // A folder that cannot be removed is tried once more when this thread drops it.
+        let _ = boot_dir.remove();
+        let mut ended = ended.lock().unwrap_or_else(PoisonError::into_inner);
+        *ended = true;
+        sink(HostEvent::Finished(Finished {
+            reason,
+            exit_code: status.and_then(|s| s.code()),
+            status: status.map_or_else(|| "unknown".into(), |s| s.to_string()),
+        }));
+    });
+
+    Ok(Session { writer, cancel })
+}
+
+/// Reads lines until the end of the stream. The bytes are read as UTF-8, and anything that is
+/// not (a console code page, for example) becomes U+FFFD. A line's CR LF or LF is dropped.
+fn read_lines(stream: impl std::io::Read, mut on_line: impl FnMut(&str)) {
+    let mut reader = BufReader::new(stream);
+    let mut buffer = Vec::new();
+    loop {
+        buffer.clear();
+        match reader.read_until(b'\n', &mut buffer) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {
+                let text = String::from_utf8_lossy(&buffer);
+                on_line(protocol::trim_line_end(&text));
+            }
+        }
+    }
+}
+
+/// What a finished macro left behind.
+#[derive(Debug)]
+pub struct Report {
+    pub output: Vec<(Stream, String)>,
+    pub finished: Finished,
+}
+
+impl Report {
+    /// The lines of one stream.
+    #[cfg(test)]
+    pub fn lines(&self, stream: Stream) -> Vec<&str> {
+        self.output
+            .iter()
+            .filter(|(s, _)| *s == stream)
+            .map(|(_, text)| text.as_str())
+            .collect()
+    }
+}
+
+/// Runs a macro and waits for it, answering each request with `handler` (which returns the
+/// response line, or `None` for a notification). This blocks the calling thread: the editor
+/// uses `start` instead. The tests and the command line mode use this.
+pub fn run_blocking(
+    config: MacroConfig,
+    mut handler: impl FnMut(&str) -> Option<String>,
+) -> Result<Report, StartError> {
+    let (tx, rx) = mpsc::channel();
+    let sink: Sink = Arc::new(move |event| {
+        let _ = tx.send(event);
+    });
+    let session = start(config, sink)?;
+    let mut output = Vec::new();
+    for event in rx {
+        match event {
+            HostEvent::Output { stream, text } => output.push((stream, text)),
+            HostEvent::Message(text) => {
+                if let Some(response) = handler(&text) {
+                    session.send(response);
+                }
+            }
+            HostEvent::Finished(finished) => return Ok(Report { output, finished }),
+        }
+    }
+    unreachable!("the supervisor always sends Finished")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn language_by_extension() {
+        assert_eq!(
+            Language::of_file(Path::new("a.js")),
+            Some(Language::JavaScript)
+        );
+        assert_eq!(Language::of_file(Path::new("a.PY")), Some(Language::Python));
+        assert_eq!(Language::of_file(Path::new("a.txt")), None);
+        assert_eq!(Language::of_file(Path::new("noext")), None);
+    }
+}

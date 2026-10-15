@@ -1,0 +1,16 @@
+[package]
+name = "ume-plugin"
+description = "JSON-RPC macro host of UME Editor: runs Node.js and Python macros as child processes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde_json = "1"
+tempfile = "3.27"
+
+[lints]
+workspace = true
