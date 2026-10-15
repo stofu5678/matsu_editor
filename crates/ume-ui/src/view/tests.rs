@@ -229,8 +229,19 @@ fn ctrl_h_scrolls_the_caret_row_to_the_middle(cx: &mut TestAppContext) {
         v.run_with(cx, |c| c.move_caret(Pos::new(1000, 0), false))
             .unwrap();
     });
-    // F_CURLINECENTER is a UI command: there is no core command for Ctrl+H.
-    cx.simulate_keystrokes("secondary-h");
+    // F_CURLINECENTER is a UI command: there is no core command for its key, Ctrl+H. On macOS
+    // Cmd+H is left to the OS (hide, ADR-0008), so there the test runs it by its function code.
+    if cfg!(target_os = "macos") {
+        let code = ume_commands::sakura::FUNCTIONS
+            .iter()
+            .find(|f| f.name == "F_CURLINECENTER")
+            .unwrap()
+            .code;
+        f.view
+            .update_in(cx, |v, window, cx| v.run_function(code, &[], window, cx));
+    } else {
+        cx.simulate_keystrokes("secondary-h");
+    }
     f.view.read_with(cx, |v, cx| {
         let rows = v.metrics().visible_rows();
         let top = (v.scroll_y() / v.metrics().line_height).round() as usize;
