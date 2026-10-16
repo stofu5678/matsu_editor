@@ -958,7 +958,8 @@ fn the_bom_box_is_reached_with_tab_and_toggled_with_space(cx: &mut TestAppContex
     f.save_as_to(cx, "F_FILESAVEAS_DIALOG", &[], &target);
     f.keys(cx, "tab space enter");
     assert_eq!(read(&target), b"\xEF\xBB\xBFabc");
-    assert_eq!(f.format(cx), "UTF-8 BOM付  CRLF");
+    // "abc" has no line ending, so the document has the one of the OS
+    assert_eq!(f.format(cx), format!("UTF-8 BOM付  {}", os_eol_name()));
 }
 
 #[gpui::test]
@@ -1063,7 +1064,7 @@ fn a_macro_with_arguments_skips_the_options(cx: &mut TestAppContext) {
     );
     assert!(!f.dialog_open(cx));
     assert_eq!(read(&target), b"abc");
-    assert_eq!(f.format(cx), "SJIS  CRLF");
+    assert_eq!(f.format(cx), format!("SJIS  {}", os_eol_name()));
 
     // The Save As that takes a path never shows it either.
     let target2 = dir.path("c.txt");
