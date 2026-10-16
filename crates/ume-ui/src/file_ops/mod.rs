@@ -30,6 +30,7 @@ pub(crate) mod property;
 pub(crate) mod save;
 pub(crate) mod save_as_dialog;
 pub(crate) mod save_decoded;
+pub(crate) mod tag_jump;
 mod view_ext;
 pub(crate) mod windows;
 
@@ -50,5 +51,7 @@ where
 mod file_group_tests;
 #[cfg(test)]
 mod new_document_tests;
+#[cfg(test)]
+mod tag_jump_tests;
 #[cfg(test)]
 mod tests;
