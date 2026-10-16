@@ -161,7 +161,11 @@ impl EditorView {
     /// Replaces the word before the caret with `word`, as one undo step (`CHokanMgr::DoHokan`:
     /// `F_WordDeleteToStart`, then `F_INSTEXT_W`).
     fn insert_completion(&mut self, word: &str, cx: &mut Context<Self>) {
-        // what a key macro records (`HandleCommand` records both commands in Sakura)
+        // A click can come while an IME composition is open: end it, as any command does.
+        self.interrupt_composition(cx);
+        // What a key macro records (`HandleCommand` records both commands in Sakura). The text
+        // is recorded as typed chars, with the known difference of `record_typed_text` (`InsText`
+        // has no command yet): in overwrite mode the replay overwrites where the insertion does not.
         self.record_call("F_WordDeleteToStart", &[]);
         self.record_typed_text(word);
         let delete = Registry::global().get("word_delete_to_start");
