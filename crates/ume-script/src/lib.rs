@@ -3,5 +3,7 @@
 
 pub mod engine;
 pub mod lua;
+pub mod micropython;
+pub mod mruby;
 pub mod quickjs;
 pub mod rpc;

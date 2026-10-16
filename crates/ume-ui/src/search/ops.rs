@@ -18,13 +18,15 @@ use ume_commands::command::CommandError;
 use ume_commands::context::CommandContext;
 use ume_core::buffer::{Document, Eol, Pos};
 use ume_core::search::{
-    AppliedEdit, Control, Direction, Found, find, replace_all, replace_and_find_next,
-    replacement_for,
+    AppliedEdit, Control, Direction, Found, ReplaceTarget, find, replace_all,
+    replace_and_find_next, replacement_for, start_after,
 };
+use ume_regex::{RegexReplacer, ReplaceAllMode};
 
 use super::state::{
-    REPLACED_TO_END_MESSAGE, SearchState, not_found_message, not_found_status,
-    replaced_count_message, search_origin, seed_text, wrapped_message,
+    REGEX_ERROR_TITLE, REPLACED_TO_END_MESSAGE, ReplaceSettings, SearchState, not_found_message,
+    not_found_status, regex_error_message, replaced_count_message, search_origin, seed_text,
+    wrapped_message,
 };
 use crate::view::EditorView;
 
@@ -37,6 +39,8 @@ pub enum SearchOutcome {
     NotFound,
     /// There is no pattern to look for.
     NoPattern,
+    /// The regular expression (or the replacement for it) cannot be used; the box said why.
+    InvalidPattern,
 }
 
 /// The title of the message boxes.
@@ -51,6 +55,53 @@ impl EditorView {
     pub(crate) fn info_box(&self, message: &str, window: &mut Window, cx: &mut Context<Self>) {
         let answer = window.prompt(PromptLevel::Info, BOX_TITLE, Some(message), &["OK"], cx);
         drop(answer);
+    }
+
+    /// Shows the box for a regular expression that does not compile (`CheckRegexpSyntax`,
+    /// `sakura_core/extmodule/CBregexp.cpp`) and returns `true`, or returns `false` if the pattern
+    /// is fine. A search with such a pattern does not run.
+    pub(crate) fn report_pattern_error(&self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some(error) = self.search.pattern_error() else {
+            return false;
+        };
+        let message = regex_error_message(error);
+        let answer = window.prompt(
+            PromptLevel::Warning,
+            REGEX_ERROR_TITLE,
+            Some(&message),
+            &["OK"],
+            cx,
+        );
+        drop(answer);
+        true
+    }
+
+    /// The replacement for the regular expression of the search, if the option is on. A
+    /// replacement that cannot be used (a trailing backslash) is reported like a bad pattern.
+    fn regex_replacer(
+        &self,
+        settings: &ReplaceSettings,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<Option<RegexReplacer>, ()> {
+        let Some(regex) = self.search.regex() else {
+            return Ok(None);
+        };
+        match RegexReplacer::new(regex.clone(), &settings.text, settings.target) {
+            Ok(replacer) => Ok(Some(replacer)),
+            Err(e) => {
+                let message = regex_error_message(&e);
+                let answer = window.prompt(
+                    PromptLevel::Warning,
+                    REGEX_ERROR_TITLE,
+                    Some(&message),
+                    &["OK"],
+                    cx,
+                );
+                drop(answer);
+                Err(())
+            }
+        }
     }
 
     /// The text that the find and replace panels start with (see [`seed_text`]).
@@ -84,22 +135,33 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> SearchOutcome {
+        if self.report_pattern_error(window, cx) {
+            return SearchOutcome::InvalidPattern;
+        }
         let Some(matcher) = self.search.matcher().cloned() else {
             return SearchOutcome::NoPattern;
         };
         self.search.set_mark(true);
-        let origin = search_origin(
-            direction,
-            self.cursor.caret(),
-            self.selection_range().as_ref(),
-        );
+        let selection = self.selection_range();
+        let mut origin = search_origin(direction, self.cursor.caret(), selection.as_ref());
         let wrap = self.search.options().wrap;
         let found = {
             let doc = self.document.read(cx).doc();
+            // An empty match is selected as nothing, so the caret stays on it; going on from
+            // there would find it again. Sakura steps one character over it (`b0Match` in
+            // `Command_SEARCH_NEXT`).
+            if direction == Direction::Forward
+                && selection.is_none()
+                && self.search.empty_match() == Some(origin)
+            {
+                origin = start_after(doc, &(origin..origin)).unwrap_or(origin);
+            }
             find(doc, &*matcher, origin, direction, wrap, &mut Control::new())
         };
         match found {
             Ok(Some(found)) => {
+                self.search
+                    .set_empty_match((found.start == found.end).then_some(found.start));
                 self.select_found(&found, cx);
                 self.notice = found.wrapped.then(|| wrapped_message(direction).to_owned());
                 cx.notify();
@@ -149,17 +211,24 @@ impl EditorView {
     /// and selects the next one. When there is no next match, the document ends with the
     /// replacement and the box says "最後まで置換しました。".
     pub fn replace_next(&mut self, window: &mut Window, cx: &mut Context<Self>) -> SearchOutcome {
+        if self.report_pattern_error(window, cx) {
+            return SearchOutcome::InvalidPattern;
+        }
         let Some(matcher) = self.search.matcher().cloned() else {
             return SearchOutcome::NoPattern;
         };
+        let settings = self.search.replace.clone();
+        let Ok(replacer) = self.regex_replacer(&settings, window, cx) else {
+            return SearchOutcome::InvalidPattern;
+        };
         self.search.set_mark(true);
+        self.search.set_empty_match(None);
         // Sakura moves the caret to the start of the selection and looks from there, so a match
         // that is selected is the one that gets replaced.
         let from = self
             .selection_range()
             .map_or(self.cursor.caret(), |s| s.start);
         let options = self.search.options();
-        let settings = self.search.replace.clone();
         let planned = {
             let doc = self.document.read(cx).doc();
             find(
@@ -175,15 +244,29 @@ impl EditorView {
                 // edit in the document through the command context.
                 found.map(|found| {
                     let mut copy = doc.clone();
-                    let step = replace_and_find_next(
-                        &mut copy,
-                        &*matcher,
-                        &found.range(),
-                        &settings.text,
-                        settings.target,
-                        options.wrap,
-                        &mut Control::new(),
-                    );
+                    let step = match &replacer {
+                        // The text of a regex replacement differs per match (`$1`), and
+                        // already holds the kept match for the insert targets.
+                        Some(r) => r.expand(doc, &found).and_then(|text| {
+                            let step = r.replace_and_find_next(
+                                &mut copy,
+                                &found,
+                                options.wrap,
+                                &mut Control::new(),
+                            )?;
+                            Ok((step, text, regex_core_target(settings.target)))
+                        }),
+                        None => replace_and_find_next(
+                            &mut copy,
+                            &*matcher,
+                            &found.range(),
+                            &settings.text,
+                            settings.target,
+                            options.wrap,
+                            &mut Control::new(),
+                        )
+                        .map(|step| (step, settings.text.clone(), settings.target)),
+                    };
                     (found, step)
                 })
             })
@@ -201,15 +284,14 @@ impl EditorView {
                 return SearchOutcome::NotFound;
             }
         };
-        let step = match step {
-            Ok(step) => step,
+        let (step, text, target) = match step {
+            Ok(done) => done,
             Err(e) => {
                 self.notice = Some(format!("置換できなかった: {e}"));
                 cx.notify();
                 return SearchOutcome::NotFound;
             }
         };
-        let (target, text) = (settings.target, settings.text);
         let range = found.range();
         let next = step.next.ok().flatten();
         let resume = step.edit.resume;
@@ -234,6 +316,8 @@ impl EditorView {
         }
         match next {
             Some(n) => {
+                self.search
+                    .set_empty_match((n.start == n.end).then_some(n.start));
                 self.notice = n
                     .wrapped
                     .then(|| wrapped_message(Direction::Forward).to_owned());
@@ -247,23 +331,38 @@ impl EditorView {
     /// `F_REPLACE_ALL`: the すべて置換 button, as one undo step. Returns the number of
     /// replacements, or `None` when there is no pattern or it failed.
     pub fn replace_all(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<usize> {
+        if self.report_pattern_error(window, cx) {
+            return None;
+        }
         let matcher = self.search.matcher().cloned()?;
-        self.search.set_mark(true);
         let settings = self.search.replace.clone();
+        let replacer = self.regex_replacer(&settings, window, cx).ok()?;
+        self.search.set_mark(true);
+        self.search.set_empty_match(None);
         // 選択範囲内 means the selection if there is one, else the whole file
         // (`bSelectedArea=FALSE` in `Command_REPLACE_ALL`).
         let range = self.selection_range().filter(|_| settings.in_selection);
         let done = {
             let doc = self.document.read(cx).doc();
             let mut copy = doc.clone();
-            replace_all(
-                &mut copy,
-                &*matcher,
-                &settings.text,
-                settings.target,
-                range.clone(),
-                Control::new(),
-            )
+            match &replacer {
+                Some(r) => {
+                    let mode = if settings.consecutive_all {
+                        ReplaceAllMode::Repeat
+                    } else {
+                        ReplaceAllMode::Batch
+                    };
+                    r.replace_all(&mut copy, mode, range.clone(), Control::new())
+                }
+                None => replace_all(
+                    &mut copy,
+                    &*matcher,
+                    &settings.text,
+                    settings.target,
+                    range.clone(),
+                    Control::new(),
+                ),
+            }
         };
         let result = match done {
             Ok(result) => result,
@@ -310,7 +409,8 @@ impl EditorView {
     pub fn toggle_search_mark(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(text) = self.search_seed_selection(cx) {
             let mut options = self.search.options();
-            // `m_sCurSearchOption.bRegularExp = false; bWordOnly = false;`
+            // Sakura: `m_sCurSearchOption.bRegularExp = false; bWordOnly = false;`
+            options.regex = false;
             options.whole_word = false;
             self.search.set_options(options);
             self.search.set_pattern(&text);
@@ -353,6 +453,15 @@ impl EditorView {
         let line = number.clamp(1, lines) - 1;
         self.run_with(cx, |c| c.move_caret(Pos::new(line, 0), false))
             .ok();
+    }
+}
+
+/// The target that the core functions see for a regex replacement: its text already holds the
+/// kept match (`rep$&`, `$&rep`), see `RegexReplacer`.
+fn regex_core_target(target: ReplaceTarget) -> ReplaceTarget {
+    match target {
+        ReplaceTarget::DeleteLine => ReplaceTarget::DeleteLine,
+        _ => ReplaceTarget::Match,
     }
 }
 
