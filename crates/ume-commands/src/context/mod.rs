@@ -277,6 +277,16 @@ impl<'a> CommandContext<'a> {
         self.model.bookmarks().contains(line)
     }
 
+    /// Whether line `line` differs from the saved version (Sakura: `CModifyVisitor::IsLineModified`).
+    pub fn is_line_modified(&self, line: usize) -> bool {
+        self.model.is_line_modified(line)
+    }
+
+    /// The modification sequence number of `line` (Sakura: `CDocLine::m_sMark.m_cModified.GetSeq`).
+    pub fn line_modify_seq(&self, line: usize) -> u64 {
+        self.model.history().marks().seq_of(line)
+    }
+
     /// Whether the document has changes that were not saved (Sakura: `CDocEditor::IsModified`).
     pub fn is_modified(&self) -> bool {
         self.model.is_modified()

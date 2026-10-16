@@ -313,10 +313,11 @@ final class Editor
     /**
      * GetLineAttribute(line: int, type: int) -> int
      *
-     * An attribute of a logical line (0 is the line of the cursor, 1 the first line). Type 2 is
-     * the bookmark (1 or 0). The other types (0 modified, 1 modification number, 3 diff mark, 4
-     * function list mark) answer the error -32001 until the editor keeps them. A negative line,
-     * a line past the end and any other type are errors.
+     * An attribute of a logical line (0 is the line of the cursor, 1 the first line). Type 0 is
+     * 1 when the line changed since the last save, type 1 the number of the undo step that last
+     * touched it, type 2 the bookmark (1 or 0). Types 3 (diff mark) and 4 (function list mark)
+     * answer the error -32001 until the editor has them. A negative line, a line past the end
+     * and any other type are errors.
      */
     public static function GetLineAttribute($line, $type)
     {

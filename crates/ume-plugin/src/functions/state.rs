@@ -123,10 +123,11 @@ fn is_text_selecting_lock(ed: &mut Editor, _: &Args) -> Result {
 }
 
 /// F_GETLINEATTRIBUTE: an attribute of a logical line (0 is the line of the caret; the lines
-/// count from 1). The types: 0 modified since the last save, 1 the modification sequence number,
-/// 2 bookmark, 3 diff mark, 4 function list mark. Only the bookmark (2) exists in this editor yet;
-/// the others answer "not implemented" instead of a made-up 0. A type outside 0 to 4, a negative
-/// line, and a line past the end of the text are errors (Sakura: the function fails).
+/// count from 1). The types: 0 modified since the last save, 1 the modification sequence number
+/// (the number of the undo block that last touched the line), 2 bookmark, 3 diff mark, 4 function
+/// list mark. The diff mark and the function list mark do not exist in this editor yet; they
+/// answer "not implemented" instead of a made-up 0. A type outside 0 to 4, a negative line, and a
+/// line past the end of the text are errors (Sakura: the function fails).
 fn get_line_attribute(ed: &mut Editor, args: &Args) -> Result {
     let (number, kind) = (args.int(0), args.int(1));
     if number < 0 {
@@ -147,16 +148,19 @@ fn get_line_attribute(ed: &mut Editor, args: &Args) -> Result {
         )));
     }
     match kind {
+        0 => Ok(i64::from(ed.cx.is_line_modified(line)).into()),
+        1 => Ok(i64::try_from(ed.cx.line_modify_seq(line))
+            .unwrap_or(i64::MAX)
+            .into()),
         2 => Ok(i64::from(ed.cx.is_bookmarked(line)).into()),
-        0 | 1 | 3 | 4 => Err(RpcError::new(
+        3 | 4 => Err(RpcError::new(
             NOT_IMPLEMENTED,
             format!(
-                "GetLineAttribute type {kind} ({}) is not supported yet: this editor does not keep it",
-                match kind {
-                    0 => "modified since the last save",
-                    1 => "modification sequence number",
-                    3 => "diff mark",
-                    _ => "function list mark",
+                "GetLineAttribute type {kind} ({}) is not supported yet: this editor does not have it",
+                if kind == 3 {
+                    "diff mark"
+                } else {
+                    "function list mark"
                 }
             ),
         )),
@@ -270,10 +274,10 @@ pub const FUNCS: &[EditorFunc] = &[
         params: &[req("line", Ty::Int), req("type", Ty::Int)],
         result: Ty::Int,
         doc: "An attribute of a logical line (0 is the line of the cursor, 1 the first line). \
-              Type 2 is the bookmark (1 or 0). The other types (0 modified, 1 modification \
-              number, 3 diff mark, 4 function list mark) answer the error -32001 until the \
-              editor keeps them. A negative line, a line past the end and any other type are \
-              errors.",
+              Type 0 is 1 when the line changed since the last save, type 1 the number of the \
+              undo step that last touched it, type 2 the bookmark (1 or 0). Types 3 (diff mark) \
+              and 4 (function list mark) answer the error -32001 until the editor has them. A \
+              negative line, a line past the end and any other type are errors.",
         run: get_line_attribute,
     },
     EditorFunc {
@@ -400,7 +404,7 @@ mod tests {
     }
 
     #[test]
-    fn line_attribute_knows_bookmarks_and_refuses_the_rest() {
+    fn line_attribute_knows_bookmarks_and_modified_lines_and_refuses_the_rest() {
         let mut f = Fixture::new("a\nb\nc\n");
         f.model.bookmarks_mut().set(1, true);
         assert_eq!(f.ok("GetLineAttribute", json!([2, 2])), json!(1));
@@ -412,10 +416,37 @@ mod tests {
         assert!(f.call("GetLineAttribute", json!([4, 2])).is_err());
         assert!(f.call("GetLineAttribute", json!([-1, 2])).is_err());
         assert!(f.call("GetLineAttribute", json!([1, 5])).is_err());
-        for kind in [0, 1, 3, 4] {
+        for kind in [3, 4] {
             let e = f.call("GetLineAttribute", json!([1, kind])).unwrap_err();
             assert_eq!(e.code, crate::bridge::NOT_IMPLEMENTED, "{kind}");
         }
+    }
+
+    #[test]
+    fn an_edited_line_is_modified_until_the_text_is_saved() {
+        let mut f = Fixture::new("a\nb\nc");
+        for line in 1..=3 {
+            assert_eq!(f.ok("GetLineAttribute", json!([line, 0])), json!(0));
+        }
+        let seq_before = f.ok("GetLineAttribute", json!([2, 1]));
+        f.model.begin_block(&f.cursor);
+        f.model
+            .replace(Pos::new(1, 1), Pos::new(1, 1), "x")
+            .unwrap();
+        f.model.end_block(&f.cursor);
+        assert_eq!(f.ok("GetLineAttribute", json!([1, 0])), json!(0));
+        assert_eq!(f.ok("GetLineAttribute", json!([2, 0])), json!(1));
+        assert_eq!(f.ok("GetLineAttribute", json!([3, 0])), json!(0));
+        // the number of the line is the number of the undo step, and the others kept theirs
+        let seq_after = f.ok("GetLineAttribute", json!([2, 1]));
+        assert!(
+            seq_after.as_i64() > seq_before.as_i64(),
+            "{seq_after} {seq_before}"
+        );
+        assert_eq!(f.ok("GetLineAttribute", json!([1, 1])), seq_before);
+        // undoing back to the saved version leaves no modified line
+        assert!(f.model.undo(&mut f.cursor));
+        assert_eq!(f.ok("GetLineAttribute", json!([2, 0])), json!(0));
     }
 
     #[test]
