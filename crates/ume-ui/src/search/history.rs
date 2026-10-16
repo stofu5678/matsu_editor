@@ -53,17 +53,37 @@ impl SearchHistory {
         &self.keys
     }
 
+    /// Changes where the strings are saved (a test makes a save fail, then work).
+    #[cfg(test)]
+    pub(super) fn set_store(&mut self, store: Option<PathBuf>) {
+        self.store = store;
+    }
+
+    #[cfg(test)]
+    pub(super) fn search_sequence(&self) -> u64 {
+        self.search_sequence
+    }
+
     /// Adds a string to the history in the settings file, leaving the rest of the file alone.
-    /// `add` is applied to the strings the file has *now*, under the lock that every writer of the
-    /// file takes (`ume_config::history::update_profile`), so what another window or process
-    /// saved at the same moment (a search string, a replacement, a recent file) is not lost; the
-    /// merged strings replace this copy. A file that cannot be read is not touched.
+    ///
+    /// Under the lock that every writer of the file takes (`ume_config::history::update_profile`)
+    /// the strings the file has *now* are merged into ours ([`SearchKeys::merge_from`]) and `add`
+    /// is applied, so what another window or process saved at the same moment is not lost. The
+    /// file is not the whole local history: strings that only we have (a save that failed
+    /// earlier, a string with a line break, which the file cannot hold) stay in memory, below the
+    /// file's strings, and a later save writes the ones the file can hold. A list that the merge
+    /// changed counts as news for the windows, so its sequence number advances. A file that
+    /// cannot be read is not touched.
     pub(super) fn persist(&mut self, add: impl FnOnce(&mut SearchKeys)) {
-        let Some(path) = &self.store else { return };
+        let Some(path) = self.store.clone() else {
+            return;
+        };
+        let local = self.keys.clone();
         let mut merged = None;
         // A history that cannot be saved is not worth stopping a search for.
-        let saved = update_profile(path, |profile| {
-            let mut keys = SearchKeys::from_profile(profile);
+        let saved = update_profile(&path, |profile| {
+            let mut keys = local.clone();
+            keys.merge_from(&SearchKeys::from_profile(profile));
             add(&mut keys);
             let written = keys.write_to(profile).is_ok();
             merged = Some(keys);
@@ -72,6 +92,12 @@ impl SearchHistory {
         if saved.is_ok()
             && let Some(keys) = merged
         {
+            if keys.search != local.search {
+                self.search_sequence += 1;
+            }
+            if keys.replace != local.replace {
+                self.replace_sequence += 1;
+            }
             self.keys = keys;
         }
     }

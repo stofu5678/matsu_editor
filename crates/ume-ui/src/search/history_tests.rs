@@ -164,6 +164,66 @@ fn two_processes_with_the_same_file_do_not_lose_each_others_strings(cx: &mut Tes
 }
 
 #[gpui::test]
+fn a_string_whose_save_failed_is_saved_with_the_next_one(cx: &mut TestAppContext) {
+    let (_f, cx) = setup(cx, "");
+    let path = temp_ini("failed");
+    // the first save cannot work: the place of the file is a folder
+    let folder = path.parent().unwrap().join("folder");
+    std::fs::create_dir_all(&folder).unwrap();
+    cx.update(|_, app| history::install(app, SearchHistory::load(None, Some(folder.clone()))));
+    other_window(cx, "first", None);
+    assert_eq!(search_keys(cx), ["first"]);
+    cx.update(|_, app| {
+        app.global_mut::<SearchHistory>()
+            .set_store(Some(path.clone()))
+    });
+    other_window(cx, "second", None);
+    assert_eq!(search_keys(cx), ["second", "first"]);
+    let file = SearchHistory::load(Some(&path), None);
+    assert_eq!(file.keys().search.items(), ["second", "first"]);
+    std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+}
+
+#[gpui::test]
+fn a_string_the_file_cannot_hold_stays_in_memory(cx: &mut TestAppContext) {
+    let (_f, cx) = setup(cx, "");
+    let path = temp_ini("multiline");
+    cx.update(|_, app| history::install(app, SearchHistory::load(None, Some(path.clone()))));
+    other_window(cx, "a\nb", None);
+    other_window(cx, "c", None);
+    assert_eq!(search_keys(cx), ["c", "a\nb"]);
+    let file = SearchHistory::load(Some(&path), None);
+    assert_eq!(file.keys().search.items(), ["c"]);
+    std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+}
+
+#[gpui::test]
+fn what_another_process_saved_is_news_to_the_windows(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "");
+    let path = temp_ini("news");
+    cx.update(|_, app| history::install(app, SearchHistory::load(None, Some(path.clone()))));
+    // this window searched, so nothing is news to it
+    f.view.update(cx, |v, cx| {
+        v.search.set_pattern("mine");
+        v.remember_search_key(cx);
+    });
+    // another process saves a search string
+    SearchHistory::load(None, Some(path.clone())).persist(|keys| {
+        keys.add_search("theirs");
+    });
+    let before = cx.update(|_, app| app.global::<SearchHistory>().search_sequence());
+    // this process then remembers a replacement: the file's search string comes in
+    other_window(cx, "mine", Some("r"));
+    let after = cx.update(|_, app| app.global::<SearchHistory>().search_sequence());
+    assert!(after > before + 1, "{before} {after}");
+    assert_eq!(search_keys(cx), ["theirs", "mine"]);
+    // and the window that had the old sequence takes it when Find opens
+    cx.simulate_keystrokes("ctrl-f");
+    assert_eq!(f.pattern(cx), "theirs");
+    std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+}
+
+#[gpui::test]
 fn a_file_that_does_not_exist_yet_is_made(cx: &mut TestAppContext) {
     let (_f, cx) = setup(cx, "");
     let path = temp_ini("new");

@@ -139,6 +139,19 @@ impl SearchKeys {
         self.replace.add(text)
     }
 
+    /// Takes in the strings of `other` (the file, as another window or process saved it): they go
+    /// on top of ours, in their order, and the strings only we have stay below them. Over the
+    /// limit the oldest (the bottom) goes. A string we have that `other` also has takes
+    /// `other`'s place, as it was used more recently there.
+    pub fn merge_from(&mut self, other: &SearchKeys) {
+        for text in other.search.items().iter().rev() {
+            self.search.add(text);
+        }
+        for text in other.replace.items().iter().rev() {
+            self.replace.add(text);
+        }
+    }
+
     /// Reads `[Keys]`. A missing section or entry means no strings.
     pub fn from_profile(profile: &Profile) -> Self {
         let mut keys = Self::default();
