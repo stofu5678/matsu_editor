@@ -152,6 +152,10 @@ impl EditorView {
         let _ = self.layout.set_config(doc, config);
         let _ = self.layout.layout_for(doc, LAYOUT_BUDGET);
         let _ = self.cursor.clamp(doc);
+        // The columns of the corners of a box are in the old layout and mean nothing in the new.
+        if self.cursor.is_box() {
+            self.cursor.clear_selection();
+        }
         if matches!(self.layout.config().wrap, Wrap::Columns(_)) {
             self.scroll_x = 0.0;
         }

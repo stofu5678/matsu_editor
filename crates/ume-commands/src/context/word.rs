@@ -94,6 +94,7 @@ impl CommandContext<'_> {
     /// (Sakura: `Command_WORDLEFT`). Without `extend` the selection is dropped first and the move
     /// starts from the caret, not from the start of the selection.
     pub fn move_word_left(&mut self, extend: bool) -> Result<()> {
+        let extend = self.extends(extend);
         if !extend {
             self.cursor.clear_selection();
         }
@@ -111,6 +112,7 @@ impl CommandContext<'_> {
     /// `Command_WORDRIGHT`). At the end of a line this goes to the start of the next line, and
     /// there on to the first word if the line starts with a space or a tab.
     pub fn move_word_right(&mut self, extend: bool) -> Result<()> {
+        let extend = self.extends(extend);
         if !extend {
             self.cursor.clear_selection();
         }

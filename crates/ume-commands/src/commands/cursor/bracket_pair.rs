@@ -14,8 +14,8 @@
 //!   (bit 0), and the char before the caret is checked too (bit 1). The limit by the screen is
 //!   used only when Sakura draws the highlight of a pair, so it is not needed here.
 //!
-//! Sakura moves with `MoveCursorSelecting(..., m_bSelectingLock)`; the selection lock
-//! (`F_BEGIN_SEL`) is not implemented yet, so this never extends the selection.
+//! Sakura moves with `MoveCursorSelecting(..., m_bSelectingLock)`: while the selection lock is on
+//! (after `F_BEGIN_BOX`; `F_BEGIN_SEL` is not implemented yet) the move extends the selection.
 
 use ume_core::buffer::{Document, Pos};
 
@@ -33,7 +33,8 @@ impl Command for BracketPair {
 
     fn run(&self, cx: &mut CommandContext<'_>, _args: &[Arg]) -> Result {
         if let Some(target) = find_pair(cx.doc(), cx.caret())? {
-            cx.move_caret(target, false)?;
+            let extend = cx.extends(false);
+            cx.move_caret(target, extend)?;
         }
         Ok(())
     }
@@ -132,6 +133,14 @@ mod tests {
         assert_eq!(e.cursor().caret(), Pos::new(0, 1));
         check("bracket_pair", "|{a}", "{a|}");
         check("bracket_pair", "|<a>", "<a|>");
+    }
+
+    #[test]
+    fn extends_the_box_while_it_is_locked() {
+        let mut e = Editor::new("|(ab)");
+        e.run("begin_box")
+            .run("bracket_pair")
+            .assert_box((0, 0), (0, 3));
     }
 
     #[test]

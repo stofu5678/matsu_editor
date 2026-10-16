@@ -82,6 +82,7 @@ impl CommandContext<'_> {
     ///   empty, then selects from the start of the first row to the start of the row after the
     ///   last, with the caret at the end.
     pub(crate) fn indent_selection(&mut self, unit: char) -> Result<()> {
+        self.refuse_box_selection()?;
         let unit_text = unit.encode_utf8(&mut [0; 4]).to_owned();
         let Some((from, to)) = self.selection() else {
             self.insert_text(&unit_text)?;
@@ -112,6 +113,7 @@ impl CommandContext<'_> {
     ///   a row that starts with spaces loses up to the tab width of them. Then selects the rows
     ///   as indent does.
     pub(crate) fn unindent_selection(&mut self, unit: char) -> Result<()> {
+        self.refuse_box_selection()?;
         let Some((from, to)) = self.selection() else {
             self.insert_text(unit.encode_utf8(&mut [0; 4]))?;
             return Ok(());

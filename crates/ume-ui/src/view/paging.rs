@@ -76,6 +76,15 @@ impl EditorView {
         self.run_with(cx, |command_cx| command_cx.move_vertical(rows, extend))
     }
 
+    /// As [`move_caret_rows`](Self::move_caret_rows) for the box moves: a box selection is begun
+    /// if there is none (`Sub_BoxSelectLock`) and the box grows.
+    fn move_caret_rows_box(&mut self, rows: isize, cx: &mut Context<Self>) -> Result {
+        self.run_with(cx, |command_cx| {
+            command_cx.ensure_box()?;
+            command_cx.move_vertical(rows, true)
+        })
+    }
+
     /// `Command_1PageUp/Down`: the caret moves a page less one row and the view scrolls by as many
     /// rows, so the caret keeps its place on the screen. The view scrolls even when the caret
     /// cannot move (2014.01.10 Moca in Sakura's comment).
@@ -85,9 +94,27 @@ impl EditorView {
         extend: bool,
         cx: &mut Context<Self>,
     ) -> Result {
+        self.page_with(direction, cx, |view, rows, cx| {
+            view.move_caret_rows(rows, extend, cx)
+        })
+    }
+
+    /// `F_1PageUp_BOX` and `F_1PageDown_BOX`: [`page_by`](Self::page_by) with the box selection.
+    pub(crate) fn page_by_box(&mut self, direction: isize, cx: &mut Context<Self>) -> Result {
+        self.page_with(direction, cx, |view, rows, cx| {
+            view.move_caret_rows_box(rows, cx)
+        })
+    }
+
+    fn page_with(
+        &mut self,
+        direction: isize,
+        cx: &mut Context<Self>,
+        move_caret: impl FnOnce(&mut Self, isize, &mut Context<Self>) -> Result,
+    ) -> Result {
         let rows = (self.metrics.visible_rows() as isize - 1).max(1);
         let top = self.top_row() as isize;
-        let moved = self.move_caret_rows(direction * rows, extend, cx);
+        let moved = move_caret(self, direction * rows, cx);
         self.scroll_top_to(top + direction * rows, cx);
         moved
     }
@@ -102,6 +129,13 @@ impl EditorView {
     ) -> Result {
         let rows = (self.metrics.visible_rows() / 2) as isize;
         self.move_caret_rows(direction * rows, extend, cx)
+    }
+
+    /// `F_HalfPageUp_BOX` and `F_HalfPageDown_BOX`: [`half_page_by`](Self::half_page_by) with the
+    /// box selection.
+    pub(crate) fn half_page_by_box(&mut self, direction: isize, cx: &mut Context<Self>) -> Result {
+        let rows = (self.metrics.visible_rows() / 2) as isize;
+        self.move_caret_rows_box(direction * rows, cx)
     }
 
     /// `Command_WndScrollUp` (`direction` 1: the text moves up, the top row grows) and

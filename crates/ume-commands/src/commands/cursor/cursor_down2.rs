@@ -5,8 +5,8 @@
 //! calls `CCaret::Cursor_UPDOWN(2)` (`sakura_core/view/CCaret.cpp`). Near the bottom it moves as
 //! far as it can; the empty row after a final line ending counts as a row.
 //!
-//! Sakura passes the selection lock (`F_BEGIN_SEL`) as `bSelect` here; that mode is not
-//! implemented yet.
+//! Sakura passes the selection lock (`m_bSelectingLock`) as `bSelect` here: while the lock is on
+//! (after `F_BEGIN_BOX`; `F_BEGIN_SEL` is not implemented yet) the move extends the selection.
 
 use crate::command::{Arg, Command, Result};
 use crate::context::CommandContext;

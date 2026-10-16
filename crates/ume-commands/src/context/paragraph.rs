@@ -137,6 +137,8 @@ impl CommandContext<'_> {
     }
 
     fn go_to_jump_history_current(&mut self, extend: bool) -> Result<()> {
+        // Sakura moves with `MoveCursorSelecting(pt, m_bSelectingLock)`.
+        let extend = self.extends(extend);
         match self.cursor.jump_history().current() {
             // The history does not follow edits, so the place may be gone: `move_caret` clamps.
             Some(pos) => self.move_caret(pos, extend),

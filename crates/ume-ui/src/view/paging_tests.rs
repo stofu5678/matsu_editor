@@ -24,6 +24,10 @@ use crate::geometry::max_scroll_y;
 
 const F_1PAGE_UP: u16 = 30342;
 const F_1PAGE_DOWN: u16 = 30343;
+const F_HALF_PAGE_UP_BOX: u16 = 30540;
+const F_HALF_PAGE_DOWN_BOX: u16 = 30541;
+const F_1PAGE_UP_BOX: u16 = 30542;
+const F_1PAGE_DOWN_BOX: u16 = 30543;
 const F_CURLINECENTER: u16 = 30360;
 const F_CURLINETOP: u16 = 30361;
 const F_CURLINEBOTTOM: u16 = 30362;
@@ -143,6 +147,59 @@ fn the_page_keys_and_their_selecting_variants(cx: &mut TestAppContext) {
     );
     cx.simulate_keystrokes("shift-pageup");
     assert_eq!(at(&view, cx), (n - 1, n - 1));
+}
+
+/// The corners of the box selection of the view as `(line, display column)`.
+fn box_corners(
+    view: &Entity<EditorView>,
+    cx: &mut VisualTestContext,
+) -> Option<((usize, usize), (usize, usize))> {
+    view.read_with(cx, |v, _| {
+        let ((a, ac), (c, cc)) = v.cursor.box_corners()?;
+        Some(((a.line, ac), (c.line, cc)))
+    })
+}
+
+#[gpui::test]
+fn the_box_pages_begin_a_box_and_move_the_view_like_the_others(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx);
+    let n = rows(&view, cx);
+    place(&view, cx, 100, 98);
+    view.update(cx, |v, cx| {
+        v.run_with(cx, |c| c.move_caret(Pos::new(100, 3), false))
+            .unwrap();
+    });
+    run(&view, cx, F_1PAGE_DOWN_BOX);
+    // The caret and the view move a page less one row, in the same column, and the box grows.
+    assert_eq!(at(&view, cx), (100 + n - 1, 98 + n - 1));
+    assert_eq!(box_corners(&view, cx), Some(((100, 3), (100 + n - 1, 3))));
+    assert!(view.read_with(cx, |v, _| v.cursor.is_box()));
+    run(&view, cx, F_1PAGE_UP_BOX);
+    // back at the corner of the box: the box is still there but covers nothing
+    assert_eq!(at(&view, cx), (100, 98));
+    assert!(view.read_with(cx, |v, _| v.cursor.is_box() && !v.cursor.has_selection()));
+    assert_eq!(view.read_with(cx, |v, cx| v.status(cx).notice), None);
+}
+
+#[gpui::test]
+fn the_box_half_pages_move_only_the_caret(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx);
+    let n = rows(&view, cx);
+    place(&view, cx, 10, 0);
+    view.update(cx, |v, cx| {
+        v.run_with(cx, |c| c.move_caret(Pos::new(10, 2), false))
+            .unwrap();
+    });
+    run(&view, cx, F_HALF_PAGE_DOWN_BOX);
+    assert_eq!(box_corners(&view, cx), Some(((10, 2), (10 + n / 2, 2))));
+    assert_eq!(top(&view, cx), 0);
+    // going back up passes the corner of the box and the box follows
+    run(&view, cx, F_HALF_PAGE_UP_BOX);
+    run(&view, cx, F_HALF_PAGE_UP_BOX);
+    assert_eq!(
+        box_corners(&view, cx),
+        Some(((10, 2), (10usize.saturating_sub(n / 2), 2)))
+    );
 }
 
 #[gpui::test]

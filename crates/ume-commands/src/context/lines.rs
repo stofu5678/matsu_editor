@@ -27,7 +27,8 @@ impl CommandContext<'_> {
     /// A last line without a line ending is never in the range, so it is never sorted or
     /// merged (Sakura: "the last line of the file is not a target", in the comments of
     /// `Command_SORT` and `Command_MERGE`).
-    pub(crate) fn selected_whole_lines(&self) -> Result<Option<(usize, usize)>> {
+    pub(crate) fn selected_whole_lines(&mut self) -> Result<Option<(usize, usize)>> {
+        self.refuse_box_selection()?;
         let Some((from, to)) = self.selection() else {
             return Ok(None);
         };
@@ -126,6 +127,7 @@ impl CommandContext<'_> {
     /// With a selection, the selection becomes the trimmed text, with the caret at its end.
     /// With no selection the row of the caret is trimmed and the caret goes to the end of it.
     pub(crate) fn trim_selection(&mut self, left: bool) -> Result<()> {
+        self.refuse_box_selection()?;
         let selected = self.selection();
         let (from, to) = match selected {
             Some(range) => range,

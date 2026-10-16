@@ -315,4 +315,96 @@ mod tests {
         run("goprevparagraph", &mut cursor);
         assert_eq!(cursor.caret(), Pos::new(0, 0));
     }
+
+    /// A box selection on wrapped rows: the box moves are by rows of the layout, columns count
+    /// from the left edge of the row, and the caret may stand right of the text of a row.
+    #[test]
+    fn a_box_moves_by_the_rows_of_the_layout() {
+        let cfg = LayoutConfig {
+            wrap: Wrap::Columns(4),
+            ..LayoutConfig::default()
+        };
+        // rows: "abcd" "ef" | "x" | "ghij"
+        let mut model = DocumentModel::new(doc("abcdef\nx\nghij"));
+        let mut cursor = Cursor::new(Pos::new(0, 1));
+        let mut layout = laid_out(model.doc(), cfg);
+        let mut run = |id: &str, cursor: &mut Cursor| {
+            let mut adapter = RowLayout(&mut layout);
+            let mut cx = CommandContext::new(&mut model, cursor, &mut adapter, None);
+            Registry::global().run(id, &mut cx, &[]).unwrap();
+            cx.finish();
+        };
+        let corners = |c: &Cursor| (c.caret(), c.box_anchor_col(), c.box_caret_col());
+        run("begin_box", &mut cursor);
+        // down over the wrap: the second row of the line, then the short line
+        run("cursor_down_box", &mut cursor);
+        assert_eq!(corners(&cursor), (Pos::new(0, 5), Some(1), Some(1)));
+        run("cursor_down_box", &mut cursor);
+        run("cursor_right_box", &mut cursor);
+        run("cursor_right_box", &mut cursor);
+        // "x" is one column wide; the caret is in the empty space at column 3
+        assert_eq!(corners(&cursor), (Pos::new(1, 1), Some(1), Some(3)));
+        // left does not leave the row, and stops at its first column
+        for _ in 0..8 {
+            run("cursor_left_box", &mut cursor);
+        }
+        assert_eq!(corners(&cursor), (Pos::new(1, 0), Some(1), Some(0)));
+        // down again: the goal column is the last one that was set by a horizontal move
+        run("cursor_right_box", &mut cursor);
+        run("cursor_down_box", &mut cursor);
+        assert_eq!(corners(&cursor), (Pos::new(2, 1), Some(1), Some(1)));
+        // the end of the file keeps the column
+        run("go_file_top_box", &mut cursor);
+        assert_eq!(corners(&cursor), (Pos::new(0, 1), Some(1), Some(1)));
+        run("go_file_end_box", &mut cursor);
+        assert_eq!(corners(&cursor), (Pos::new(2, 1), Some(1), Some(1)));
+    }
+
+    /// On a wrapped row the end of the row is the start of the next one: a box caret does not
+    /// rest there, and the empty space exists only after the last row of a line.
+    #[test]
+    fn a_box_caret_does_not_rest_at_the_end_of_a_wrapped_row() {
+        let cfg = LayoutConfig {
+            wrap: Wrap::Columns(4),
+            ..LayoutConfig::default()
+        };
+        // rows: "abcd" "ef"
+        let mut model = DocumentModel::new(doc("abcdef\n"));
+        let mut cursor = Cursor::new(Pos::new(0, 1));
+        let mut layout = laid_out(model.doc(), cfg);
+        let mut run = |id: &str, cursor: &mut Cursor| {
+            let mut adapter = RowLayout(&mut layout);
+            let mut cx = CommandContext::new(&mut model, cursor, &mut adapter, None);
+            Registry::global().run(id, &mut cx, &[]).unwrap();
+            cx.finish();
+        };
+        let at = |c: &Cursor| (c.caret(), c.box_caret_col());
+        run("begin_box", &mut cursor);
+        run("cursor_right_box", &mut cursor);
+        assert_eq!(at(&cursor), (Pos::new(0, 2), Some(2)));
+        run("cursor_right_box", &mut cursor);
+        assert_eq!(at(&cursor), (Pos::new(0, 3), Some(3)));
+        // the last char of the row is as far as it goes; it stays on the row
+        run("cursor_right_box", &mut cursor);
+        assert_eq!(at(&cursor), (Pos::new(0, 3), Some(3)));
+        run("cursor_left_box", &mut cursor);
+        assert_eq!(at(&cursor), (Pos::new(0, 2), Some(2)));
+        // down to the short row, and on to the end of the last row, where there is empty space
+        run("cursor_right_box", &mut cursor);
+        run("cursor_down_box", &mut cursor);
+        assert_eq!(at(&cursor), (Pos::new(0, 6), Some(3)));
+        for _ in 0..3 {
+            run("cursor_right_box", &mut cursor);
+        }
+        assert_eq!(at(&cursor), (Pos::new(0, 6), Some(6)));
+        run("cursor_left_box", &mut cursor);
+        assert_eq!(at(&cursor), (Pos::new(0, 6), Some(5)));
+        // the end of a row: the last char of a wrapped one, the end of the text of the last one
+        run("cursor_up_box", &mut cursor);
+        run("go_line_end_box", &mut cursor);
+        assert_eq!(at(&cursor), (Pos::new(0, 3), Some(3)));
+        run("cursor_down_box", &mut cursor);
+        run("go_line_end_box", &mut cursor);
+        assert_eq!(at(&cursor), (Pos::new(0, 6), Some(2)));
+    }
 }
