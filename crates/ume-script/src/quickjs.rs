@@ -35,6 +35,9 @@ const MAX_STACK: usize = 512 * 1024;
 /// argument ends here instead of in a stack overflow).
 const MAX_DEPTH: usize = 64;
 
+/// What the boot (`quickjs.js`) gives back to Rust, kept across `Context::with` calls.
+type Hooks = Persistent<Object<'static>>;
+
 impl Engine for QuickJs {
     fn run(&self, init: &Initialize, editor: Rc<RefCell<dyn Editor>>) -> Result<(), String> {
         let runtime = Runtime::new().map_err(|e| format!("cannot set up QuickJS: {e}"))?;
@@ -42,16 +45,24 @@ impl Engine for QuickJs {
         let context = Context::full(&runtime).map_err(|e| format!("cannot set up QuickJS: {e}"))?;
 
         // A promise that is rejected and that nothing handles ends the macro like an uncaught
-        // error, as Node.js does.
-        let unhandled: Rc<RefCell<Option<Persistent<Value<'static>>>>> = Rc::default();
-        let tracker = unhandled.clone();
+        // error, as Node.js does. The boot keeps the list (per promise); Rust only reports to it.
+        let hooks: Rc<RefCell<Option<Hooks>>> = Rc::default();
+        let tracker = hooks.clone();
         runtime.set_host_promise_rejection_tracker(Some(Box::new(
-            move |ctx, _promise, reason, is_handled| {
-                *tracker.borrow_mut() = (!is_handled).then(|| Persistent::save(&ctx, reason));
+            move |ctx, promise, reason, is_handled| {
+                let Some(saved) = tracker.borrow().clone() else {
+                    return;
+                };
+                if let Ok(track) = saved
+                    .restore(&ctx)
+                    .and_then(|hooks| hooks.get::<_, Function>("track"))
+                {
+                    let _ = track.call::<_, ()>((promise, reason, is_handled));
+                }
             },
         )));
 
-        let describe = context.with(|ctx| start(&ctx, init, editor))?;
+        context.with(|ctx| start(&ctx, init, editor, &hooks))?;
 
         // Promise callbacks (an `async` function, `.then`) run after the script, before the end.
         // This locks the runtime, so it cannot be inside `context.with`.
@@ -62,50 +73,47 @@ impl Engine for QuickJs {
                 Err(error) => return Err(format!("{error}")),
             }
         }
-        let reason = unhandled.borrow_mut().take();
-        match reason {
-            None => Ok(()),
-            Some(reason) => context.with(|ctx| {
-                let describe = describe.restore(&ctx).map_err(|e| e.to_string())?;
-                let reason = reason.restore(&ctx).map_err(|e| e.to_string())?;
-                Err(describe_value(&describe, reason))
-            }),
-        }
+        context.with(|ctx| {
+            let saved = hooks.borrow().clone().ok_or("the boot is gone")?;
+            let hooks = saved.restore(&ctx).map_err(|e| e.to_string())?;
+            let unhandled: Function = hooks.get("unhandled").map_err(|e| e.to_string())?;
+            let reasons: Array = unhandled.call(()).map_err(|e| e.to_string())?;
+            match reasons.get::<Value>(0) {
+                Ok(reason) if !reasons.is_empty() => Err(describe_value(&hooks, reason)),
+                _ => Ok(()),
+            }
+        })
     }
 }
 
-/// Binds the API and runs the script. Gives back the `describe` function of the boot for what
-/// comes after (an unhandled rejection).
+/// Binds the API and runs the script. The error is the text for the standard error.
 fn start(
     ctx: &Ctx<'_>,
     init: &Initialize,
     editor: Rc<RefCell<dyn Editor>>,
-) -> Result<Persistent<Function<'static>>, String> {
-    let describe = install(ctx, init, editor).map_err(|e| format!("cannot set up QuickJS: {e}"))?;
+    saved: &RefCell<Option<Hooks>>,
+) -> Result<(), String> {
+    let hooks = install(ctx, init, editor).map_err(|e| format!("cannot set up QuickJS: {e}"))?;
+    *saved.borrow_mut() = Some(Persistent::save(ctx, hooks.clone()));
 
     // The name is what the stack shows (`name:3:5`). A NUL cannot be in a C string.
     let options = named(&init.script.name.replace('\0', "?"));
     let result = ctx.eval_with_options::<Value, _>(init.script.source.as_str(), options);
-    if let Err(error) = result.catch(ctx) {
-        return Err(describe_caught(&describe, error));
-    }
-    Ok(Persistent::save(ctx, describe))
-}
-
-fn describe_caught<'js>(describe: &Function<'js>, error: rquickjs::CaughtError<'js>) -> String {
-    match error {
-        rquickjs::CaughtError::Exception(exception) => {
-            describe_value(describe, exception.into_value())
+    match result.catch(ctx) {
+        Ok(_) => Ok(()),
+        Err(rquickjs::CaughtError::Exception(exception)) => {
+            Err(describe_value(&hooks, exception.into_value()))
         }
-        rquickjs::CaughtError::Value(value) => describe_value(describe, value),
-        rquickjs::CaughtError::Error(error) => error.to_string(),
+        Err(rquickjs::CaughtError::Value(value)) => Err(describe_value(&hooks, value)),
+        Err(rquickjs::CaughtError::Error(error)) => Err(error.to_string()),
     }
 }
 
 /// The text for the standard error: what `describe` in `quickjs.js` makes of the value.
-fn describe_value<'js>(describe: &Function<'js>, value: Value<'js>) -> String {
-    describe
-        .call::<_, String>((value,))
+fn describe_value<'js>(hooks: &Object<'js>, value: Value<'js>) -> String {
+    hooks
+        .get::<_, Function>("describe")
+        .and_then(|describe| describe.call::<_, String>((value,)))
         .unwrap_or_else(|e| format!("an error that cannot be shown: {e}"))
 }
 
@@ -115,12 +123,12 @@ fn named(filename: &str) -> EvalOptions {
     options
 }
 
-/// Binds the macro API and returns the `describe` function of the boot.
+/// Binds the macro API and returns the object of the boot (`describe`, `track`, `unhandled`).
 fn install<'js>(
     ctx: &Ctx<'js>,
     init: &Initialize,
     editor: Rc<RefCell<dyn Editor>>,
-) -> rquickjs::Result<Function<'js>> {
+) -> rquickjs::Result<Object<'js>> {
     // The script's output goes through Rust and is flushed: the requests are written to the same
     // pipe by Rust and have to stay in order with it.
     let write = Function::new(ctx.clone(), |fd: i32, text: String| {

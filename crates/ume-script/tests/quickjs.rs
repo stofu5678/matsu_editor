@@ -319,6 +319,22 @@ fn promises_settle_after_the_script_and_an_unhandled_rejection_ends_the_macro() 
 }
 
 #[test]
+fn a_rejection_that_is_handled_does_not_hide_one_that_is_not() {
+    let code = "Promise.reject(new Error('lost A'));\nconst b = Promise.reject(new Error('B'));\nb.catch(() => console.log('B handled'));";
+    let (report, _) = run(code, "");
+    assert_eq!(stdout(&report), ["B handled"]);
+    assert_eq!(report.finished.exit_code, Some(1));
+    assert!(
+        stderr(&report).contains("Error: lost A"),
+        "{}",
+        stderr(&report)
+    );
+
+    let (report, _) = run("Promise.reject(new Error('B')).catch(() => {});", "");
+    assert_clean_exit(&report);
+}
+
+#[test]
 fn a_runaway_recursion_is_an_error_not_a_crash() {
     let code = "function f() { return f() + 1; }\ntry { f(); } catch (e) { console.log(e.name); }";
     let (report, _) = run(code, "");

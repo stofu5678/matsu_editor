@@ -8,7 +8,11 @@
 // - write(fd, text): writes to the standard output (1) or error (2) and flushes at once.
 //
 // It puts `Editor`, `EditorError` and `console` in the global scope, as boot.cjs does for Node.js,
-// and answers the function that describes an uncaught error for the standard error.
+// and answers an object for Rust:
+//   describe(value): the text for the standard error for an uncaught error or thrown value;
+//   track(promise, reason, handled): called when a promise is rejected unhandled (handled false)
+//     or when a handler is added later (true);
+//   unhandled(): [reason] of the first promise that is still rejected and unhandled, or [].
 (function (raw, names, info, write) {
   'use strict';
 
@@ -86,7 +90,18 @@
   globalThis.Editor = Editor;
   globalThis.EditorError = EditorError;
 
-  return function describe(value) {
-    return value instanceof Error ? stackOf(value) : 'Uncaught ' + show(value);
+  const rejected = new Map();
+  return {
+    describe(value) {
+      return value instanceof Error ? stackOf(value) : 'Uncaught ' + show(value);
+    },
+    track(promise, reason, handled) {
+      if (handled) rejected.delete(promise);
+      else rejected.set(promise, reason);
+    },
+    unhandled() {
+      for (const reason of rejected.values()) return [reason];
+      return [];
+    },
   };
 })
