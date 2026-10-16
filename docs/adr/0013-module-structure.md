@@ -37,12 +37,14 @@ ume（実行ファイル。組み立てるだけ）
     │  ├ ume-layout
     │  │  └ ume-core
     │  └ ume-config
+    ├ ume-coloring（構文の色分け。ume-core と ume-config に依存する）
     └ ume-platform（OS ごとの処理）
 ```
 
 - 依存は上から下への一方向にする。クレートに分けると、依存の循環をコンパイラが禁じるので、このルールが自動で守られる
 - `ume-core` と `ume-layout` は、GPUI にも OS にも依存しない。テストは GPUI なしで、すべての OS の CI で回す
 - `ume-layout` を UI から分けるのは、画面と印刷（[ADR-0011](0011-printing.md)）で同じ割り付けを使うため。試作では、タブを含む行で表示の位置とバッファの位置の変換が UI の中に埋もれていて、カーソルと選択がずれた。変換を UI の外に出してテストする
+- `ume-coloring` は、サクラの色分け（コメント・文字列・数値・強調キーワード・URL）を行う。1 行のテキストと行頭の状態から、色の区間と行末の状態を出す。行頭の状態の保持（`ColorStates`）も持つ。GPUI にも OS にも依存しないので、テストは GPUI なしで回り、印刷でも使える。サクラでは `view/colors/` と、状態を持つ `doc/layout/` にあたる。割り付けの `ume-layout` とは別に持つ（色の規則は `ume-config` の型の設定が元で、割り付けは色を知らないため）。2026-10-17 に足した
 - `ume-platform` は、GPUI が持っていない OS の機能（印刷など）だけを受け持つ。OS ごとの処理はトレイトで受け、実装をこのクレートに閉じ込める。OS の API を呼ぶ `unsafe` も、このクレートの中だけにする
 - C で書かれたライブラリを同梱して呼ぶクレートは、FFI の `unsafe` をそのクレートの中に閉じ込め、外には安全な関数だけを出す。`ume-regex`（Onigmo、[ADR-0006](0006-regex-engine.md)）がこの形で、同梱の処理系（[ADR-0007](0007-macros-and-plugins.md)）の MicroPython と mruby も、この形のクレート（`ume-micropython-sys`・`ume-mruby-sys`）にする。C のライブラリを足すときは、このようなクレートを 1 つ足して包む。ほかのクレートは `unsafe` を使わない（2026-10-16）
 - 後のフェーズで、次のクレートを足す: `ume-regex`（Onigmo、[ADR-0006](0006-regex-engine.md)）、`ume-macro`（キーマクロ）、`ume-plugin`（JSON-RPC、[ADR-0007](0007-macros-and-plugins.md)）、`ume-print`（ページの割り付け）
