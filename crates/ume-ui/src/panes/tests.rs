@@ -466,3 +466,22 @@ fn synchronized_scrolling_keeps_the_top_row_when_the_font_sizes_differ(cx: &mut 
     let y = f.pane(cx, 1).read_with(cx, |v, _| v.scroll_y());
     assert!((y - large * 10.0).abs() < 0.01, "{y} vs {}", large * 10.0);
 }
+
+#[gpui::test]
+fn a_click_in_the_panel_of_a_pane_activates_the_pane(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abc");
+    f.run(cx, F_SPLIT_H);
+    f.pane(cx, 0)
+        .update(cx, |v, _| v.search.set_pattern("needle"));
+    f.click(cx, 1);
+    f.pane(cx, 1)
+        .update(cx, |v, _| v.search.set_pattern("other"));
+    // the click handler of the pane (it sits around the panels) calls this
+    f.workspace.update(cx, |w, cx| w.activate(0, cx));
+    assert_eq!(f.active(cx), 0);
+    assert_eq!(
+        f.pane(cx, 0)
+            .read_with(cx, |v, _| v.search.pattern().to_owned()),
+        "other"
+    );
+}

@@ -166,6 +166,21 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // A macro that runs belongs to its pane: the pane stays until the macro ends.
+        let busy = (0..4).find(|&i| {
+            !plan.grid.shows(i)
+                && self.panes.slots[i]
+                    .as_ref()
+                    .is_some_and(|p| p.read(cx).is_macro_running())
+        });
+        if busy.is_some() {
+            let active = self.panes.active().clone();
+            active.update(cx, |view, cx| {
+                view.notice = Some("マクロの実行中は、その画面の分割を解除できない".into());
+                cx.notify();
+            });
+            return;
+        }
         let old_active = self.panes.active;
         // The panes that come to be shown start like the pane the user is in.
         for &i in plan.grid.panes() {
@@ -278,9 +293,13 @@ impl Workspace {
 
     /// The user went to another pane (a click, or a key that moves the focus).
     fn pane_got_focus(&mut self, pane: &Entity<EditorView>, cx: &mut Context<Self>) {
-        let Some(index) = self.panes.index_of(pane) else {
-            return;
-        };
+        if let Some(index) = self.panes.index_of(pane) {
+            self.activate(index, cx);
+        }
+    }
+
+    /// Makes the pane `index` the active one.
+    fn activate(&mut self, index: usize, cx: &mut Context<Self>) {
         if index == self.panes.active || !self.panes.grid.shows(index) {
             return;
         }
@@ -498,6 +517,9 @@ impl Workspace {
                     .w(relative(width))
                     .h(relative(height))
                     .overflow_hidden()
+                    // The panels of a pane (search, replace) are not under its focus handle: a
+                    // click anywhere in the pane makes it the active one.
+                    .capture_any_mouse_down(cx.listener(move |this, _, _, cx| this.activate(i, cx)))
                     .child(pane.clone()),
             );
         }
