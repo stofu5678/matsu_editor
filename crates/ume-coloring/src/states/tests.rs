@@ -340,8 +340,8 @@ fn a_paste_of_many_lines_is_scanned_within_the_budget() {
         Duration::ZERO,
     );
     // It stopped at the first look at the clock, with the states exact up to there.
-    assert_eq!(states.scanned_lines() - before, 64);
-    assert_eq!(states.known_lines(), 10 + 64);
+    assert_eq!(states.scanned_lines() - before, 1);
+    assert_eq!(states.known_lines(), 11);
     assert_eq!(
         states.state_at(&d, &rules, 40),
         (ColorState::Block(0), true)

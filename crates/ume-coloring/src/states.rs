@@ -65,12 +65,6 @@ use crate::scan::{ColorState, next_state};
 /// to it.
 pub const LOCAL_WINDOW: usize = 200;
 
-/// Lines per look at the clock in `advance`.
-const STEP_LINES: usize = 256;
-
-/// Lines per look at the clock in `edited`.
-const CLOCK_LINES: usize = 64;
-
 /// The edit of a document, in lines: lines `first..=old_last` of the old text were replaced by
 /// lines `first..=new_last` of the new text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -161,13 +155,10 @@ impl ColorStates {
         }
         let total = doc.line_count();
         let start = Instant::now();
+        // The clock is read after every line: a line can be as long as a megabyte (minified code,
+        // logs), and then a few lines are all that fits in the budget.
         while self.known < total {
-            for _ in 0..STEP_LINES {
-                if self.known >= total || !self.step(doc, rules) {
-                    break;
-                }
-            }
-            if start.elapsed() >= budget {
+            if !self.step(doc, rules) || start.elapsed() >= budget {
                 break;
             }
         }
@@ -235,7 +226,6 @@ impl ColorStates {
         let start = Instant::now();
         let mut line = s;
         let mut converged_at = None;
-        let mut since_check = 0;
         loop {
             if line >= new_after {
                 let old_line = line as isize - delta;
@@ -260,12 +250,8 @@ impl ColorStates {
             self.tail = state.clone();
             // A paste of many lines is not scanned at once either: `known` is where the scan got
             // to, and `advance` does the rest.
-            since_check += 1;
-            if since_check >= CLOCK_LINES {
-                since_check = 0;
-                if start.elapsed() >= budget {
-                    break;
-                }
+            if start.elapsed() >= budget {
+                break;
             }
         }
 
