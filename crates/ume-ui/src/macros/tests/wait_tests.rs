@@ -40,6 +40,19 @@ fn settle(cx: &mut VisualTestContext, rounds: usize) {
     }
 }
 
+/// Like [`settle`], until `ready` says yes: a script's process may take seconds to start and to
+/// make its first call on a slow machine.
+fn settle_until(cx: &mut VisualTestContext, mut ready: impl FnMut(&mut VisualTestContext) -> bool) {
+    cx.executor().allow_parking();
+    for _ in 0..1500 {
+        settle(cx, 1);
+        if ready(cx) {
+            return;
+        }
+    }
+    panic!("the macro never got there");
+}
+
 fn setup_with_ui<'a>(
     cx: &'a mut TestAppContext,
     text: &str,
@@ -148,9 +161,9 @@ fn a_script_gets_its_answer_when_the_dialog_is_closed(cx: &mut TestAppContext) {
         "Editor.InsText('a'); Editor.TypeList(); Editor.InsText('b'); console.log('r=end');",
     );
     let (f, cx) = setup_with_ui(cx, "");
-    run_file(&f, cx, &path);
+    f.run(cx, F_EXECEXTMACRO, &[text_arg(&path)]);
+    settle_until(cx, |cx| type_list_open(&f, cx));
     settle(cx, 20);
-    assert!(type_list_open(&f, cx));
     assert!(f.running(cx));
     assert_eq!(f.lines(cx), ["a"]);
     // The clock of the script stands still while the dialog is open (no timeout).
@@ -174,8 +187,9 @@ fn stopping_a_script_that_waits_leaves_nothing_behind(cx: &mut TestAppContext) {
         "Editor.TypeList(); Editor.InsText('late');",
     );
     let (f, cx) = setup_with_ui(cx, "");
-    run_file(&f, cx, &path);
-    settle(cx, 10);
+    f.run(cx, F_EXECEXTMACRO, &[text_arg(&path)]);
+    settle_until(cx, |cx| type_list_open(&f, cx));
+    settle(cx, 5);
     assert!(f.running(cx) && waiting(&f, cx));
     f.view.update(cx, |v, cx| v.cancel_macro(cx));
     f.wait_until_done_advancing(cx);
@@ -253,7 +267,8 @@ fn file_open_dialog(cx: &mut TestAppContext, choose: bool) {
     );
     let (f, cx) = setup_with_ui(cx, "");
     f.run(cx, F_EXECEXTMACRO, &[text_arg(&script)]);
-    settle(cx, 20);
+    settle_until(cx, |cx| cx.did_prompt_for_paths());
+    settle(cx, 10);
     assert!(cx.did_prompt_for_paths(), "the dialog is open");
     assert!(f.running(cx));
     assert!(results(&f.output(cx)).is_empty(), "the script waits");
