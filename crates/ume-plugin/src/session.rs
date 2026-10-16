@@ -40,6 +40,7 @@ pub enum Language {
 pub enum Engine {
     Lua,
     QuickJs,
+    Mruby,
 }
 
 impl Engine {
@@ -48,6 +49,7 @@ impl Engine {
         match self {
             Self::Lua => "lua",
             Self::QuickJs => "quickjs",
+            Self::Mruby => "mruby",
         }
     }
 
@@ -55,6 +57,7 @@ impl Engine {
         match self {
             Self::Lua => "Lua (ume-script)",
             Self::QuickJs => "QuickJS (ume-script)",
+            Self::Mruby => "mruby (ume-script)",
         }
     }
 }
@@ -76,6 +79,7 @@ impl Language {
             "php" => Some(Self::Php),
             "lua" => Some(Self::Bundled(Engine::Lua)),
             "js" => Some(Self::Bundled(Engine::QuickJs)),
+            "mruby" => Some(Self::Bundled(Engine::Mruby)),
             _ => None,
         }
     }
@@ -197,7 +201,7 @@ impl std::fmt::Display for StartError {
         match self {
             Self::UnknownLanguage { script } => write!(
                 f,
-                "{}: マクロの拡張子は .mjs、.js、.cjs、.py、.rb、.php、.lua のどれかにしてください",
+                "{}: マクロの拡張子は .mjs、.js、.cjs、.py、.rb、.php、.lua、.mruby のどれかにしてください",
                 script.display()
             ),
             Self::Boot(err) => write!(f, "マクロの準備に失敗しました: {err}"),

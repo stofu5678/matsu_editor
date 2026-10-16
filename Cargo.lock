@@ -7363,6 +7363,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ume-mruby-sys"
+version = "0.0.0"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "ume-platform"
 version = "0.0.0"
 dependencies = [
@@ -7415,6 +7422,7 @@ dependencies = [
  "rquickjs",
  "serde_json",
  "tempfile",
+ "ume-mruby-sys",
  "ume-plugin",
 ]
 
