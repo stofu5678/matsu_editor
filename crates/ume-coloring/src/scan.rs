@@ -64,6 +64,8 @@
 //! here-document id has to be followed by it, and a string looks for its closing quote through
 //! it. The positions are byte offsets.
 
+use std::cell::Cell;
+
 use ume_config::settings::type_rules::string_type;
 
 use crate::charkind::{
@@ -233,6 +235,9 @@ struct Scan<'a> {
     line: &'a str,
     bytes: &'a [u8],
     text_len: usize,
+    /// A byte offset and the UTF-16 units before it, so that the columns of a long line are
+    /// counted once (`utf16_column`).
+    utf16: Cell<(usize, usize)>,
 }
 
 impl<'a> Scan<'a> {
@@ -242,7 +247,18 @@ impl<'a> Scan<'a> {
             line,
             bytes: line.as_bytes(),
             text_len: text_len.min(line.len()),
+            utf16: Cell::new((0, 0)),
         }
+    }
+
+    /// The column of the byte offset `pos` in UTF-16 units, which is what Sakura's line comment
+    /// column counts. The scan asks in increasing order, so it counts on from the last answer.
+    fn utf16_column(&self, pos: usize) -> usize {
+        let (from, units) = self.utf16.get();
+        let (from, units) = if pos >= from { (from, units) } else { (0, 0) };
+        let column = units + self.line[from..pos].encode_utf16().count();
+        self.utf16.set((pos, column));
+        column
     }
 
     /// Whether `pos` is in the line ending (`WCODE::IsLineDelimiter`).
@@ -481,7 +497,7 @@ impl<'a> Scan<'a> {
         }
         // Columns are counted in UTF-16 units.
         let column = if self.rules.line_comment_columns {
-            self.line[..pos].encode_utf16().count()
+            self.utf16_column(pos)
         } else {
             0
         };

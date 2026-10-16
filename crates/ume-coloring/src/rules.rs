@@ -227,11 +227,14 @@ mod tests {
     }
 
     #[test]
-    fn the_basic_type_colors_comments_and_strings_but_has_no_keywords() {
-        // The basic type has no comment delimiters and no keyword set.
+    fn the_basic_type_colors_only_urls() {
+        // No comment delimiters, no string colors, no numbers and no keyword set; URLs are on.
         let basic = rules_of("基本");
-        assert!(!basic.has_range_based() || basic.single_quote || basic.double_quote);
+        assert!(!basic.has_range_based());
         assert!(basic.keywords.is_empty());
+        assert!(!basic.number);
+        assert!(basic.url);
+        assert!(!basic.colors_nothing());
     }
 
     #[test]

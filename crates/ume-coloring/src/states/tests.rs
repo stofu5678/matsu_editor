@@ -321,6 +321,41 @@ fn a_budget_that_runs_out_after_an_edit_leaves_the_rest_to_advance() {
 }
 
 #[test]
+fn a_paste_of_many_lines_is_scanned_within_the_budget() {
+    let rules = c_rules();
+    let mut d = doc(&"int a;\n".repeat(1_000));
+    let mut states = ColorStates::new();
+    states.advance(&d, &rules, FOREVER);
+    let before = states.scanned_lines();
+    let pasted = "x /* y\n".repeat(50_000);
+    let edit = d.insert(Pos::new(10, 0), &pasted).unwrap();
+    states.edited(
+        &d,
+        &rules,
+        LineEdit {
+            first: 10,
+            old_last: 10,
+            new_last: edit.end.line,
+        },
+        Duration::ZERO,
+    );
+    // It stopped at the first look at the clock, with the states exact up to there.
+    assert_eq!(states.scanned_lines() - before, 64);
+    assert_eq!(states.known_lines(), 10 + 64);
+    assert_eq!(
+        states.state_at(&d, &rules, 40),
+        (ColorState::Block(0), true)
+    );
+    // The rest comes from `advance`, and agrees with a scan from the top.
+    assert!(states.advance(&d, &rules, FOREVER));
+    let want = all_states(&d, &rules);
+    let got: Vec<ColorState> = (0..=d.line_count())
+        .map(|l| states.state_at(&d, &rules, l).0)
+        .collect();
+    assert_eq!(got, want);
+}
+
+#[test]
 fn a_far_line_is_scanned_from_a_window_above_it_when_the_states_are_not_known() {
     let rules = c_rules();
     // A comment that begins at line 50 and never ends, in 100 000 lines.

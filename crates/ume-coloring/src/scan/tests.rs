@@ -260,6 +260,30 @@ fn a_line_comment_that_must_start_in_a_column() {
 }
 
 #[test]
+fn a_long_line_with_a_comment_column_is_scanned_in_linear_time() {
+    // The columns of COBOL's line comment are counted in UTF-16 units; counting must not start
+    // again from the start of the line at every character.
+    let cobol = rules("COBOL");
+    let line = "日本語 abc ".repeat(20_000);
+    let started = std::time::Instant::now();
+    let runs = line_runs(
+        &cobol,
+        &line,
+        Some(Eol::Lf),
+        &ColorState::Normal,
+        line.len(),
+    );
+    assert!(!runs.is_empty());
+    let state = end_state(&cobol, &line, &ColorState::Normal);
+    assert_eq!(state, ColorState::Normal);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(5),
+        "{:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
 fn keywords_are_whole_words() {
     let c = rules("C/C++");
     assert_eq!(

@@ -201,7 +201,11 @@ pub(super) fn pieces(
     found: &[(u32, u32)],
 ) -> Vec<Piece> {
     let cuts: Vec<usize> = runs.iter().map(|r| r.0).collect();
-    let in_found = |col: u32| found.iter().any(|&(from, to)| from <= col && col < to);
+    // The ranges are in increasing order and do not overlap, so they are searched by bisection.
+    let in_found = |col: u32| {
+        let i = found.partition_point(|&(_, to)| to <= col);
+        found.get(i).is_some_and(|&(from, _)| from <= col)
+    };
     let mut out = Vec::new();
     for seg in row_segments_cut(text, start_col, cfg, &cuts) {
         let color = kind_at(runs, seg.byte);
@@ -256,8 +260,12 @@ fn split_text(
         return;
     }
     let width = (cols / chars).max(1);
-    let mut edges: Vec<u32> = found
+    // Only the ranges that touch the segment can cut it.
+    let first = found.partition_point(|&(_, to)| to <= col);
+    let touching = found[first..]
         .iter()
+        .take_while(|&&(from, _)| from < col + cols);
+    let mut edges: Vec<u32> = touching
         .flat_map(|&(from, to)| [from, to])
         .filter(|&e| e > col && e < col + cols && (e - col).is_multiple_of(width))
         .map(|e| (e - col) / width)
@@ -501,6 +509,18 @@ mod tests {
                 ("です", 6, 4, false)
             ]
         );
+    }
+
+    #[test]
+    fn thousands_of_matches_on_a_row_are_cut_in_a_short_time() {
+        // Every other character is a match: 10 000 matches on a row of 20 000 columns.
+        let text = "ab".repeat(10_000);
+        let found: Vec<(u32, u32)> = (0..10_000).map(|i| (2 * i, 2 * i + 1)).collect();
+        let started = std::time::Instant::now();
+        let pieces = pieces(&text, 0, &cfg(), &[], &found);
+        assert_eq!(pieces.len(), 20_000);
+        assert!(pieces[0].found && !pieces[1].found);
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
     }
 
     #[test]
