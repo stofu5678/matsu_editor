@@ -161,6 +161,9 @@ impl EditorView {
     /// Replaces the word before the caret with `word`, as one undo step (`CHokanMgr::DoHokan`:
     /// `F_WordDeleteToStart`, then `F_INSTEXT_W`).
     fn insert_completion(&mut self, word: &str, cx: &mut Context<Self>) {
+        // what a key macro records (`HandleCommand` records both commands in Sakura)
+        self.record_call("F_WordDeleteToStart", &[]);
+        self.record_typed_text(word);
         let delete = Registry::global().get("word_delete_to_start");
         self.run_with(cx, |command_cx| {
             command_cx.begin_block();

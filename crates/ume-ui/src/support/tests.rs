@@ -154,6 +154,20 @@ fn the_insertion_is_one_undo_step(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn a_completion_is_recorded_in_a_key_macro_as_what_it_does(cx: &mut TestAppContext) {
+    // Sakura's HandleCommand records the F_WordDeleteToStart and the F_INSTEXT_W of DoHokan, not
+    // F_HOKAN (a key macro replays the result, not the list)
+    let (f, cx) = setup(cx, "apple apricot\nap");
+    cx.simulate_keystrokes("ctrl-shift-m ctrl-space down enter ctrl-shift-m");
+    assert_eq!(f.text(cx), "apple apricot\napricot");
+    cx.simulate_keystrokes("enter");
+    cx.simulate_input("ap");
+    cx.simulate_keystrokes("ctrl-shift-l");
+    assert_eq!(f.text(cx), "apple apricot\napricot\napricot");
+    assert_eq!(f.list(cx), None);
+}
+
+#[gpui::test]
 fn escape_closes_the_list_and_leaves_the_text(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "apple apricot\nap");
     cx.simulate_keystrokes("ctrl-space escape");

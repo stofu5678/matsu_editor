@@ -28,6 +28,9 @@ use crate::view::EditorView;
 /// Sakura opens the list this far from the left edge of the edit window (`po.x = 540`).
 const LEFT: f32 = 540.0;
 
+/// The width of the two columns, to keep them inside the view.
+const LIST_WIDTH: f32 = 400.0;
+
 /// One function of the list.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Row {
@@ -297,7 +300,8 @@ impl Render for CommandList {
                     item
                 }
             });
-        let left = LEFT.min(self.view_width);
+        // 540 pixels from the left as in Sakura, but not so far right that the columns leave the view
+        let left = LEFT.min((self.view_width - LIST_WIDTH).max(0.0));
         let column = || {
             div()
                 .py_1()

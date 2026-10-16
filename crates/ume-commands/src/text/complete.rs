@@ -158,6 +158,8 @@ pub fn candidates(
             // the end of the word without the okurigana (the hiragana after a kanji are kept,
             // those after anything else cut off); `None` is "not set"
             let mut word_len_stop: Option<usize> = None;
+            // Whether the loop below stopped at a char that Sakura steps over (see after it).
+            let mut step_over = true;
             j += width;
             while j < len {
                 width = size_of_char(&line, j);
@@ -188,7 +190,7 @@ pub fn candidates(
                         merged = kind_cur;
                     } else {
                         // the kind changes: the word ends, and the next one starts here
-                        j -= width;
+                        step_over = false;
                         break;
                     }
                 }
@@ -198,7 +200,10 @@ pub fn candidates(
             }
             // Sakura's loops step over the char they stopped at (`for (...; j += nCharSize)`):
             // the char is a symbol or a space in the cases that matter, which starts no word.
-            j += width;
+            // Where the kind changed, Sakura steps back first, so the next word starts there.
+            if step_over {
+                j += width;
+            }
 
             if let Some(stop) = word_len_stop.filter(|&s| s > 0) {
                 word_len = stop;
@@ -380,6 +385,18 @@ mod tests {
         );
         assert_eq!(got.len(), MAX_CANDIDATES);
         assert_eq!(got[0], "w0");
+    }
+
+    #[test]
+    fn a_word_that_ends_before_a_char_with_a_variation_selector_does_not_underflow() {
+        // "漢" + IVS is one unit of two chars; the ASCII word before it ends at its start
+        let got = candidates(
+            |i| (i == 0).then(|| "a漢\u{E0100} ab".to_owned()),
+            "a",
+            false,
+            (1, 0),
+        );
+        assert_eq!(got, ["a", "ab"]);
     }
 
     #[test]
