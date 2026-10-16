@@ -10,3 +10,4 @@ pub mod file;
 pub mod macros;
 pub mod search;
 pub mod settings;
+pub mod support;

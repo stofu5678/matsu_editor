@@ -5,11 +5,13 @@
 //! types. Rows refer to commands by Sakura's numeric function code, which is unique among
 //! the entries of [`FUNCTIONS`] except for the `Reserved` placeholders.
 
+mod function_lists;
 mod functions;
 mod key_bindings;
 pub mod macro_functions;
 mod main_menu;
 
+pub use function_lists::FUNCTION_LISTS;
 pub use functions::{FUNCTION_GROUPS, FUNCTIONS};
 pub use key_bindings::KEY_BINDINGS;
 pub use main_menu::{KEY_PARENTHESES, MAIN_MENU};
