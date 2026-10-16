@@ -84,12 +84,11 @@ pub async fn show(owner: Owner, request: Request) -> Result<Option<Vec<PathBuf>>
     os::show(owner, request).await
 }
 
-/// The path of a `file://` URI that a portal returns: the percent-escapes are decoded. `None` for
-/// any other kind of URI, a host that is not local, or escapes that are not UTF-8.
-#[cfg_attr(
-    not(any(test, not(any(windows, target_os = "macos")))),
-    allow(dead_code)
-)]
+/// The path of a `file://` URI that a portal returns: the percent-escapes are decoded to bytes,
+/// which need not be UTF-8 (a file name is any bytes on Unix). `None` for any other kind of URI,
+/// or a host that is not local.
+#[cfg(unix)]
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 pub(crate) fn path_from_file_uri(uri: &str) -> Option<PathBuf> {
     let rest = uri.strip_prefix("file://")?;
     // `file://host/path`: only an empty host or `localhost` is this machine
