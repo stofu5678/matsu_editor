@@ -53,10 +53,12 @@ impl Key {
         let (canonical, existing) = canonical_path(path);
         // The case is asked of the nearest folder that exists, so that making the settings folder
         // later does not change the key.
-        if ignores_case(&existing) {
-            Key::from_bytes(canonical.to_string_lossy().to_lowercase().as_bytes())
-        } else {
-            Key::from_bytes(&native_bytes(&canonical))
+        match canonical.to_str() {
+            Some(text) if ignores_case(&existing) => {
+                Key::from_bytes(text.to_lowercase().as_bytes())
+            }
+            // A name that is not text cannot be lowered: it is taken as it is.
+            _ => Key::from_bytes(&native_bytes(&canonical)),
         }
     }
 
