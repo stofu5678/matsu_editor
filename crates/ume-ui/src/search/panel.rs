@@ -623,6 +623,11 @@ impl SearchPanel {
 /// replacement too (`AddToSearchKeyArr`, `AddToReplaceKeyArr` in `CDlgFind::GetData` and
 /// `CDlgReplace::GetData`).
 fn remember_keys(editor: &mut EditorView, mode: PanelMode, cx: &mut Context<EditorView>) {
+    // A pattern that does not compile ends the operation before anything is kept
+    // (`CheckRegexpSyntax` comes first in `GetData`).
+    if editor.search.pattern_error().is_some() {
+        return;
+    }
     editor.remember_search_key(cx);
     if mode == PanelMode::Replace {
         editor.remember_replace_key(cx);

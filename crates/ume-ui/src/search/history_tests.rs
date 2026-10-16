@@ -301,6 +301,19 @@ fn a_regular_expression_that_does_not_compile_is_not_kept(cx: &mut TestAppContex
 }
 
 #[gpui::test]
+fn a_replacement_is_not_kept_when_the_pattern_does_not_compile(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abc");
+    f.regex(cx);
+    cx.simulate_keystrokes("ctrl-r secondary-a");
+    cx.simulate_input("(");
+    let panel = f.view.read_with(cx, |v, _| v.panel.clone().unwrap());
+    panel.update_in(cx, |p, window, cx| p.focus_replacement(window, cx));
+    cx.simulate_input("zzz");
+    cx.simulate_keystrokes("enter");
+    assert!(search_keys(cx).is_empty() && replace_keys(cx).is_empty());
+}
+
+#[gpui::test]
 fn the_replace_dialog_keeps_both_strings(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "aa");
     cx.simulate_keystrokes("ctrl-r secondary-a");
