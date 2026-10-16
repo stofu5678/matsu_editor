@@ -1,5 +1,5 @@
 <?php
-// GENERATED from crates/ume-plugin/src/api.rs (FUNCS). Do not edit. Regenerate with: UME_UPDATE_GENERATED=1 cargo test -p ume-plugin generated_files
+// GENERATED from crates/ume-plugin/src/catalog.rs (api.rs FUNCS and Sakura's macro tables). Do not edit. Regenerate with: UME_UPDATE_GENERATED=1 cargo test -p ume-plugin generated_files
 
 /**
  * The editor's macro API (the names and the arguments of Sakura's macros).
@@ -180,6 +180,4694 @@ final class Editor
     {
         // func_get_args() holds only the arguments that were given.
         return (self::$call)('GetFilename', func_get_args());
+    }
+
+    /**
+     * FileNew() -> null
+     *
+     * Sakura's F_FILENEW (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function FileNew()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('FileNew', func_get_args());
+    }
+
+    /**
+     * FileOpen(arg1: string?, arg2: int?, arg3: int?, arg4: string?) -> null
+     *
+     * Sakura's F_FILEOPEN2 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function FileOpen($arg1 = null, $arg2 = null, $arg3 = null, $arg4 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('FileOpen', func_get_args());
+    }
+
+    /**
+     * FileSave() -> null
+     *
+     * Sakura's F_FILESAVE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function FileSave()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('FileSave', func_get_args());
+    }
+
+    /**
+     * FileSaveAll() -> null
+     *
+     * Sakura's F_FILESAVEALL (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function FileSaveAll()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('FileSaveAll', func_get_args());
+    }
+
+    /**
+     * FileSaveAsDialog(arg1: string?, arg2: int?, arg3: int?) -> null
+     *
+     * Sakura's F_FILESAVEAS_DIALOG (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function FileSaveAsDialog($arg1 = null, $arg2 = null, $arg3 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('FileSaveAsDialog', func_get_args());
+    }
+
+    /**
+     * FileSaveAs(arg1: string?, arg2: int?, arg3: int?) -> null
+     *
+     * Sakura's F_FILESAVEAS (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function FileSaveAs($arg1 = null, $arg2 = null, $arg3 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('FileSaveAs', func_get_args());
+    }
+
+    /**
+     * FileClose() -> null
+     *
+     * Sakura's F_FILECLOSE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function FileClose()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('FileClose', func_get_args());
+    }
+
+    /**
+     * FileCloseOpen() -> null
+     *
+     * Sakura's F_FILECLOSE_OPEN (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function FileCloseOpen()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('FileCloseOpen', func_get_args());
+    }
+
+    /**
+     * FileReopen(arg1: int?) -> null
+     *
+     * Sakura's F_FILE_REOPEN (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function FileReopen($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('FileReopen', func_get_args());
+    }
+
+    /**
+     * FileReopenSJIS(arg1: int?) -> null
+     *
+     * Sakura's F_FILE_REOPEN_SJIS (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function FileReopenSJIS($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('FileReopenSJIS', func_get_args());
+    }
+
+    /**
+     * FileReopenJIS(arg1: int?) -> null
+     *
+     * Sakura's F_FILE_REOPEN_JIS (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function FileReopenJIS($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('FileReopenJIS', func_get_args());
+    }
+
+    /**
+     * FileReopenEUC(arg1: int?) -> null
+     *
+     * Sakura's F_FILE_REOPEN_EUC (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function FileReopenEUC($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('FileReopenEUC', func_get_args());
+    }
+
+    /**
+     * FileReopenLatin1(arg1: int?) -> null
+     *
+     * Sakura's F_FILE_REOPEN_LATIN1 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function FileReopenLatin1($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('FileReopenLatin1', func_get_args());
+    }
+
+    /**
+     * FileReopenUNICODE(arg1: int?) -> null
+     *
+     * Sakura's F_FILE_REOPEN_UNICODE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function FileReopenUNICODE($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('FileReopenUNICODE', func_get_args());
+    }
+
+    /**
+     * FileReopenUNICODEBE(arg1: int?) -> null
+     *
+     * Sakura's F_FILE_REOPEN_UNICODEBE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that
+     * a key, the menu and a key macro run. The last arguments may be left out. A command that
+     * this editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function FileReopenUNICODEBE($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('FileReopenUNICODEBE', func_get_args());
+    }
+
+    /**
+     * FileReopenUTF8(arg1: int?) -> null
+     *
+     * Sakura's F_FILE_REOPEN_UTF8 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function FileReopenUTF8($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('FileReopenUTF8', func_get_args());
+    }
+
+    /**
+     * FileReopenCESU8(arg1: int?) -> null
+     *
+     * Sakura's F_FILE_REOPEN_CESU8 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function FileReopenCESU8($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('FileReopenCESU8', func_get_args());
+    }
+
+    /**
+     * FileReopenUTF7(arg1: int?) -> null
+     *
+     * Sakura's F_FILE_REOPEN_UTF7 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function FileReopenUTF7($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('FileReopenUTF7', func_get_args());
+    }
+
+    /**
+     * Print() -> null
+     *
+     * Sakura's F_PRINT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the menu
+     * and a key macro run. The last arguments may be left out. A command that this editor does
+     * not have yet answers the error -32001 (not implemented).
+     */
+    public static function Print()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Print', func_get_args());
+    }
+
+    /**
+     * PrintPreview() -> null
+     *
+     * Sakura's F_PRINT_PREVIEW (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function PrintPreview()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('PrintPreview', func_get_args());
+    }
+
+    /**
+     * PrintPageSetup() -> null
+     *
+     * Sakura's F_PRINT_PAGESETUP (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function PrintPageSetup()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('PrintPageSetup', func_get_args());
+    }
+
+    /**
+     * OpenHfromtoC() -> null
+     *
+     * Sakura's F_OPEN_HfromtoC (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function OpenHfromtoC()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OpenHfromtoC', func_get_args());
+    }
+
+    /**
+     * ActivateSQLPLUS() -> null
+     *
+     * Sakura's F_ACTIVATE_SQLPLUS (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ActivateSQLPLUS()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ActivateSQLPLUS', func_get_args());
+    }
+
+    /**
+     * ExecSQLPLUS() -> null
+     *
+     * Sakura's F_PLSQL_COMPILE_ON_SQLPLUS (sakura_core/macro/CSMacroMgr.cpp). Runs the command
+     * that a key, the menu and a key macro run. The last arguments may be left out. A command
+     * that this editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ExecSQLPLUS()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ExecSQLPLUS', func_get_args());
+    }
+
+    /**
+     * Browse() -> null
+     *
+     * Sakura's F_BROWSE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function Browse()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Browse', func_get_args());
+    }
+
+    /**
+     * ViewMode() -> null
+     *
+     * Sakura's F_VIEWMODE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ViewMode()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ViewMode', func_get_args());
+    }
+
+    /**
+     * ReadOnly() -> null
+     *
+     * Sakura's F_VIEWMODE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ReadOnly()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ReadOnly', func_get_args());
+    }
+
+    /**
+     * PropertyFile() -> null
+     *
+     * Sakura's F_PROPERTY_FILE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function PropertyFile()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('PropertyFile', func_get_args());
+    }
+
+    /**
+     * ExitAllEditors() -> null
+     *
+     * Sakura's F_EXITALLEDITORS (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ExitAllEditors()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ExitAllEditors', func_get_args());
+    }
+
+    /**
+     * ExitAll() -> null
+     *
+     * Sakura's F_EXITALL (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ExitAll()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ExitAll', func_get_args());
+    }
+
+    /**
+     * PutFile(arg1: string?, arg2: int?, arg3: int?) -> null
+     *
+     * Sakura's F_PUTFILE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function PutFile($arg1 = null, $arg2 = null, $arg3 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('PutFile', func_get_args());
+    }
+
+    /**
+     * InsFile(arg1: string?, arg2: int?, arg3: int?) -> null
+     *
+     * Sakura's F_INSFILE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function InsFile($arg1 = null, $arg2 = null, $arg3 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('InsFile', func_get_args());
+    }
+
+    /**
+     * Char(arg1: int?) -> null
+     *
+     * Sakura's F_WCHAR (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the menu
+     * and a key macro run. The last arguments may be left out. A command that this editor does
+     * not have yet answers the error -32001 (not implemented).
+     */
+    public static function Char($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Char', func_get_args());
+    }
+
+    /**
+     * CharIme(arg1: int?) -> null
+     *
+     * Sakura's F_IME_CHAR (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CharIme($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CharIme', func_get_args());
+    }
+
+    /**
+     * Undo() -> null
+     *
+     * Sakura's F_UNDO (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the menu
+     * and a key macro run. The last arguments may be left out. A command that this editor does
+     * not have yet answers the error -32001 (not implemented).
+     */
+    public static function Undo()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Undo', func_get_args());
+    }
+
+    /**
+     * Redo() -> null
+     *
+     * Sakura's F_REDO (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the menu
+     * and a key macro run. The last arguments may be left out. A command that this editor does
+     * not have yet answers the error -32001 (not implemented).
+     */
+    public static function Redo()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Redo', func_get_args());
+    }
+
+    /**
+     * Delete() -> null
+     *
+     * Sakura's F_DELETE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function Delete()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Delete', func_get_args());
+    }
+
+    /**
+     * DeleteBack() -> null
+     *
+     * Sakura's F_DELETE_BACK (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function DeleteBack()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('DeleteBack', func_get_args());
+    }
+
+    /**
+     * WordDeleteToStart() -> null
+     *
+     * Sakura's F_WordDeleteToStart (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function WordDeleteToStart()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WordDeleteToStart', func_get_args());
+    }
+
+    /**
+     * WordDeleteToEnd() -> null
+     *
+     * Sakura's F_WordDeleteToEnd (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function WordDeleteToEnd()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WordDeleteToEnd', func_get_args());
+    }
+
+    /**
+     * WordCut() -> null
+     *
+     * Sakura's F_WordCut (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function WordCut()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WordCut', func_get_args());
+    }
+
+    /**
+     * WordDelete() -> null
+     *
+     * Sakura's F_WordDelete (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function WordDelete()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WordDelete', func_get_args());
+    }
+
+    /**
+     * LineCutToStart() -> null
+     *
+     * Sakura's F_LineCutToStart (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function LineCutToStart()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('LineCutToStart', func_get_args());
+    }
+
+    /**
+     * LineCutToEnd() -> null
+     *
+     * Sakura's F_LineCutToEnd (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function LineCutToEnd()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('LineCutToEnd', func_get_args());
+    }
+
+    /**
+     * LineDeleteToStart() -> null
+     *
+     * Sakura's F_LineDeleteToStart (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function LineDeleteToStart()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('LineDeleteToStart', func_get_args());
+    }
+
+    /**
+     * LineDeleteToEnd() -> null
+     *
+     * Sakura's F_LineDeleteToEnd (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function LineDeleteToEnd()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('LineDeleteToEnd', func_get_args());
+    }
+
+    /**
+     * CutLine() -> null
+     *
+     * Sakura's F_CUT_LINE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CutLine()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CutLine', func_get_args());
+    }
+
+    /**
+     * DeleteLine() -> null
+     *
+     * Sakura's F_DELETE_LINE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function DeleteLine()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('DeleteLine', func_get_args());
+    }
+
+    /**
+     * DuplicateLine() -> null
+     *
+     * Sakura's F_DUPLICATELINE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function DuplicateLine()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('DuplicateLine', func_get_args());
+    }
+
+    /**
+     * IndentTab() -> null
+     *
+     * Sakura's F_INDENT_TAB (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function IndentTab()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('IndentTab', func_get_args());
+    }
+
+    /**
+     * UnindentTab() -> null
+     *
+     * Sakura's F_UNINDENT_TAB (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function UnindentTab()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('UnindentTab', func_get_args());
+    }
+
+    /**
+     * IndentSpace() -> null
+     *
+     * Sakura's F_INDENT_SPACE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function IndentSpace()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('IndentSpace', func_get_args());
+    }
+
+    /**
+     * UnindentSpace() -> null
+     *
+     * Sakura's F_UNINDENT_SPACE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function UnindentSpace()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('UnindentSpace', func_get_args());
+    }
+
+    /**
+     * LTrim() -> null
+     *
+     * Sakura's F_LTRIM (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the menu
+     * and a key macro run. The last arguments may be left out. A command that this editor does
+     * not have yet answers the error -32001 (not implemented).
+     */
+    public static function LTrim()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('LTrim', func_get_args());
+    }
+
+    /**
+     * RTrim() -> null
+     *
+     * Sakura's F_RTRIM (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the menu
+     * and a key macro run. The last arguments may be left out. A command that this editor does
+     * not have yet answers the error -32001 (not implemented).
+     */
+    public static function RTrim()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('RTrim', func_get_args());
+    }
+
+    /**
+     * SortAsc() -> null
+     *
+     * Sakura's F_SORT_ASC (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function SortAsc()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SortAsc', func_get_args());
+    }
+
+    /**
+     * SortDesc() -> null
+     *
+     * Sakura's F_SORT_DESC (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function SortDesc()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SortDesc', func_get_args());
+    }
+
+    /**
+     * Merge() -> null
+     *
+     * Sakura's F_MERGE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the menu
+     * and a key macro run. The last arguments may be left out. A command that this editor does
+     * not have yet answers the error -32001 (not implemented).
+     */
+    public static function Merge()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Merge', func_get_args());
+    }
+
+    /**
+     * Left() -> null
+     *
+     * Sakura's F_LEFT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the menu
+     * and a key macro run. The last arguments may be left out. A command that this editor does
+     * not have yet answers the error -32001 (not implemented).
+     */
+    public static function Left()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Left', func_get_args());
+    }
+
+    /**
+     * Right() -> null
+     *
+     * Sakura's F_RIGHT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the menu
+     * and a key macro run. The last arguments may be left out. A command that this editor does
+     * not have yet answers the error -32001 (not implemented).
+     */
+    public static function Right()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Right', func_get_args());
+    }
+
+    /**
+     * Up2() -> null
+     *
+     * Sakura's F_UP2 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the menu
+     * and a key macro run. The last arguments may be left out. A command that this editor does
+     * not have yet answers the error -32001 (not implemented).
+     */
+    public static function Up2()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Up2', func_get_args());
+    }
+
+    /**
+     * Down2() -> null
+     *
+     * Sakura's F_DOWN2 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the menu
+     * and a key macro run. The last arguments may be left out. A command that this editor does
+     * not have yet answers the error -32001 (not implemented).
+     */
+    public static function Down2()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Down2', func_get_args());
+    }
+
+    /**
+     * WordLeft() -> null
+     *
+     * Sakura's F_WORDLEFT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function WordLeft()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WordLeft', func_get_args());
+    }
+
+    /**
+     * WordRight() -> null
+     *
+     * Sakura's F_WORDRIGHT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function WordRight()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WordRight', func_get_args());
+    }
+
+    /**
+     * GoLineTop(arg1: int?) -> null
+     *
+     * Sakura's F_GOLINETOP (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function GoLineTop($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GoLineTop', func_get_args());
+    }
+
+    /**
+     * GoLineEnd(arg1: int?) -> null
+     *
+     * Sakura's F_GOLINEEND (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function GoLineEnd($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GoLineEnd', func_get_args());
+    }
+
+    /**
+     * HalfPageUp(arg1: int?) -> null
+     *
+     * Sakura's F_HalfPageUp (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function HalfPageUp($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('HalfPageUp', func_get_args());
+    }
+
+    /**
+     * HalfPageDown(arg1: int?) -> null
+     *
+     * Sakura's F_HalfPageDown (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function HalfPageDown($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('HalfPageDown', func_get_args());
+    }
+
+    /**
+     * PageUp(arg1: int?) -> null
+     *
+     * Sakura's F_1PageUp (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function PageUp($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('PageUp', func_get_args());
+    }
+
+    /**
+     * PageDown(arg1: int?) -> null
+     *
+     * Sakura's F_1PageDown (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function PageDown($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('PageDown', func_get_args());
+    }
+
+    /**
+     * CurLineCenter() -> null
+     *
+     * Sakura's F_CURLINECENTER (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CurLineCenter()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CurLineCenter', func_get_args());
+    }
+
+    /**
+     * CurLineTop() -> null
+     *
+     * Sakura's F_CURLINETOP (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CurLineTop()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CurLineTop', func_get_args());
+    }
+
+    /**
+     * CurLineBottom() -> null
+     *
+     * Sakura's F_CURLINEBOTTOM (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CurLineBottom()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CurLineBottom', func_get_args());
+    }
+
+    /**
+     * MoveHistPrev() -> null
+     *
+     * Sakura's F_JUMPHIST_PREV (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function MoveHistPrev()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('MoveHistPrev', func_get_args());
+    }
+
+    /**
+     * MoveHistNext() -> null
+     *
+     * Sakura's F_JUMPHIST_NEXT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function MoveHistNext()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('MoveHistNext', func_get_args());
+    }
+
+    /**
+     * MoveHistSet() -> null
+     *
+     * Sakura's F_JUMPHIST_SET (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function MoveHistSet()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('MoveHistSet', func_get_args());
+    }
+
+    /**
+     * F_WndScrollDown() -> null
+     *
+     * Sakura's F_WndScrollDown (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function F_WndScrollDown()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('F_WndScrollDown', func_get_args());
+    }
+
+    /**
+     * F_WndScrollUp() -> null
+     *
+     * Sakura's F_WndScrollUp (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function F_WndScrollUp()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('F_WndScrollUp', func_get_args());
+    }
+
+    /**
+     * GoNextParagraph() -> null
+     *
+     * Sakura's F_GONEXTPARAGRAPH (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function GoNextParagraph()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GoNextParagraph', func_get_args());
+    }
+
+    /**
+     * GoPrevParagraph() -> null
+     *
+     * Sakura's F_GOPREVPARAGRAPH (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function GoPrevParagraph()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GoPrevParagraph', func_get_args());
+    }
+
+    /**
+     * GoModifyLineNext() -> null
+     *
+     * Sakura's F_MODIFYLINE_NEXT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function GoModifyLineNext()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GoModifyLineNext', func_get_args());
+    }
+
+    /**
+     * GoModifyLinePrev() -> null
+     *
+     * Sakura's F_MODIFYLINE_PREV (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function GoModifyLinePrev()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GoModifyLinePrev', func_get_args());
+    }
+
+    /**
+     * MoveCursorLayout(arg1: int?, arg2: int?, arg3: int?) -> null
+     *
+     * Sakura's F_MOVECURSORLAYOUT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function MoveCursorLayout($arg1 = null, $arg2 = null, $arg3 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('MoveCursorLayout', func_get_args());
+    }
+
+    /**
+     * WheelUp(arg1: int?) -> null
+     *
+     * Sakura's F_WHEELUP (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function WheelUp($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WheelUp', func_get_args());
+    }
+
+    /**
+     * WheelDown(arg1: int?) -> null
+     *
+     * Sakura's F_WHEELDOWN (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function WheelDown($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WheelDown', func_get_args());
+    }
+
+    /**
+     * WheelLeft(arg1: int?) -> null
+     *
+     * Sakura's F_WHEELLEFT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function WheelLeft($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WheelLeft', func_get_args());
+    }
+
+    /**
+     * WheelRight(arg1: int?) -> null
+     *
+     * Sakura's F_WHEELRIGHT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function WheelRight($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WheelRight', func_get_args());
+    }
+
+    /**
+     * WheelPageUp(arg1: int?) -> null
+     *
+     * Sakura's F_WHEELPAGEUP (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function WheelPageUp($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WheelPageUp', func_get_args());
+    }
+
+    /**
+     * WheelPageDown(arg1: int?) -> null
+     *
+     * Sakura's F_WHEELPAGEDOWN (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function WheelPageDown($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WheelPageDown', func_get_args());
+    }
+
+    /**
+     * WheelPageLeft(arg1: int?) -> null
+     *
+     * Sakura's F_WHEELPAGELEFT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function WheelPageLeft($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WheelPageLeft', func_get_args());
+    }
+
+    /**
+     * WheelPageRight(arg1: int?) -> null
+     *
+     * Sakura's F_WHEELPAGERIGHT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function WheelPageRight($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WheelPageRight', func_get_args());
+    }
+
+    /**
+     * SelectWord() -> null
+     *
+     * Sakura's F_SELECTWORD (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function SelectWord()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SelectWord', func_get_args());
+    }
+
+    /**
+     * SelectLine(arg1: int?) -> null
+     *
+     * Sakura's F_SELECTLINE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function SelectLine($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SelectLine', func_get_args());
+    }
+
+    /**
+     * BeginSelect() -> null
+     *
+     * Sakura's F_BEGIN_SEL (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function BeginSelect()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('BeginSelect', func_get_args());
+    }
+
+    /**
+     * Up_Sel() -> null
+     *
+     * Sakura's F_UP_SEL (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function Up_Sel()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Up_Sel', func_get_args());
+    }
+
+    /**
+     * Down_Sel() -> null
+     *
+     * Sakura's F_DOWN_SEL (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function Down_Sel()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Down_Sel', func_get_args());
+    }
+
+    /**
+     * Left_Sel() -> null
+     *
+     * Sakura's F_LEFT_SEL (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function Left_Sel()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Left_Sel', func_get_args());
+    }
+
+    /**
+     * Right_Sel() -> null
+     *
+     * Sakura's F_RIGHT_SEL (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function Right_Sel()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Right_Sel', func_get_args());
+    }
+
+    /**
+     * Up2_Sel() -> null
+     *
+     * Sakura's F_UP2_SEL (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function Up2_Sel()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Up2_Sel', func_get_args());
+    }
+
+    /**
+     * Down2_Sel() -> null
+     *
+     * Sakura's F_DOWN2_SEL (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function Down2_Sel()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Down2_Sel', func_get_args());
+    }
+
+    /**
+     * WordLeft_Sel() -> null
+     *
+     * Sakura's F_WORDLEFT_SEL (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function WordLeft_Sel()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WordLeft_Sel', func_get_args());
+    }
+
+    /**
+     * WordRight_Sel() -> null
+     *
+     * Sakura's F_WORDRIGHT_SEL (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function WordRight_Sel()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WordRight_Sel', func_get_args());
+    }
+
+    /**
+     * GoLineTop_Sel(arg1: int?) -> null
+     *
+     * Sakura's F_GOLINETOP_SEL (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function GoLineTop_Sel($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GoLineTop_Sel', func_get_args());
+    }
+
+    /**
+     * GoLineEnd_Sel(arg1: int?) -> null
+     *
+     * Sakura's F_GOLINEEND_SEL (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function GoLineEnd_Sel($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GoLineEnd_Sel', func_get_args());
+    }
+
+    /**
+     * HalfPageUp_Sel(arg1: int?) -> null
+     *
+     * Sakura's F_HalfPageUp_Sel (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function HalfPageUp_Sel($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('HalfPageUp_Sel', func_get_args());
+    }
+
+    /**
+     * HalfPageDown_Sel(arg1: int?) -> null
+     *
+     * Sakura's F_HalfPageDown_Sel (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function HalfPageDown_Sel($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('HalfPageDown_Sel', func_get_args());
+    }
+
+    /**
+     * PageUp_Sel(arg1: int?) -> null
+     *
+     * Sakura's F_1PageUp_Sel (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function PageUp_Sel($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('PageUp_Sel', func_get_args());
+    }
+
+    /**
+     * PageDown_Sel(arg1: int?) -> null
+     *
+     * Sakura's F_1PageDown_Sel (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function PageDown_Sel($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('PageDown_Sel', func_get_args());
+    }
+
+    /**
+     * GoFileTop_Sel() -> null
+     *
+     * Sakura's F_GOFILETOP_SEL (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function GoFileTop_Sel()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GoFileTop_Sel', func_get_args());
+    }
+
+    /**
+     * GoFileEnd_Sel() -> null
+     *
+     * Sakura's F_GOFILEEND_SEL (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function GoFileEnd_Sel()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GoFileEnd_Sel', func_get_args());
+    }
+
+    /**
+     * GoNextParagraph_Sel() -> null
+     *
+     * Sakura's F_GONEXTPARAGRAPH_SEL (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function GoNextParagraph_Sel()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GoNextParagraph_Sel', func_get_args());
+    }
+
+    /**
+     * GoPrevParagraph_Sel() -> null
+     *
+     * Sakura's F_GOPREVPARAGRAPH_SEL (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function GoPrevParagraph_Sel()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GoPrevParagraph_Sel', func_get_args());
+    }
+
+    /**
+     * GoModifyLineNext_Sel() -> null
+     *
+     * Sakura's F_MODIFYLINE_NEXT_SEL (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function GoModifyLineNext_Sel()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GoModifyLineNext_Sel', func_get_args());
+    }
+
+    /**
+     * GoModifyLinePrev_Sel() -> null
+     *
+     * Sakura's F_MODIFYLINE_PREV_SEL (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function GoModifyLinePrev_Sel()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GoModifyLinePrev_Sel', func_get_args());
+    }
+
+    /**
+     * BeginBoxSelect() -> null
+     *
+     * Sakura's F_BEGIN_BOX (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function BeginBoxSelect()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('BeginBoxSelect', func_get_args());
+    }
+
+    /**
+     * Up_BoxSel(arg1: int?) -> null
+     *
+     * Sakura's F_UP_BOX (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function Up_BoxSel($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Up_BoxSel', func_get_args());
+    }
+
+    /**
+     * Down_BoxSel(arg1: int?) -> null
+     *
+     * Sakura's F_DOWN_BOX (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function Down_BoxSel($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Down_BoxSel', func_get_args());
+    }
+
+    /**
+     * Left_BoxSel(arg1: int?) -> null
+     *
+     * Sakura's F_LEFT_BOX (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function Left_BoxSel($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Left_BoxSel', func_get_args());
+    }
+
+    /**
+     * Right_BoxSel(arg1: int?) -> null
+     *
+     * Sakura's F_RIGHT_BOX (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function Right_BoxSel($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Right_BoxSel', func_get_args());
+    }
+
+    /**
+     * Up2_BoxSel(arg1: int?) -> null
+     *
+     * Sakura's F_UP2_BOX (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function Up2_BoxSel($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Up2_BoxSel', func_get_args());
+    }
+
+    /**
+     * Down2_BoxSel(arg1: int?) -> null
+     *
+     * Sakura's F_DOWN2_BOX (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function Down2_BoxSel($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Down2_BoxSel', func_get_args());
+    }
+
+    /**
+     * WordLeft_BoxSel(arg1: int?) -> null
+     *
+     * Sakura's F_WORDLEFT_BOX (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function WordLeft_BoxSel($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WordLeft_BoxSel', func_get_args());
+    }
+
+    /**
+     * WordRight_BoxSel(arg1: int?) -> null
+     *
+     * Sakura's F_WORDRIGHT_BOX (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function WordRight_BoxSel($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WordRight_BoxSel', func_get_args());
+    }
+
+    /**
+     * GoLogicalLineTop_BoxSel(arg1: int?, arg2: int?) -> null
+     *
+     * Sakura's F_GOLOGICALLINETOP_BOX (sakura_core/macro/CSMacroMgr.cpp). Runs the command that
+     * a key, the menu and a key macro run. The last arguments may be left out. A command that
+     * this editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function GoLogicalLineTop_BoxSel($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GoLogicalLineTop_BoxSel', func_get_args());
+    }
+
+    /**
+     * GoLineTop_BoxSel(arg1: int?, arg2: int?) -> null
+     *
+     * Sakura's F_GOLINETOP_BOX (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function GoLineTop_BoxSel($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GoLineTop_BoxSel', func_get_args());
+    }
+
+    /**
+     * GoLineEnd_BoxSel(arg1: int?, arg2: int?) -> null
+     *
+     * Sakura's F_GOLINEEND_BOX (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function GoLineEnd_BoxSel($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GoLineEnd_BoxSel', func_get_args());
+    }
+
+    /**
+     * HalfPageUp_BoxSel(arg1: int?, arg2: int?) -> null
+     *
+     * Sakura's F_HalfPageUp_BOX (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function HalfPageUp_BoxSel($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('HalfPageUp_BoxSel', func_get_args());
+    }
+
+    /**
+     * HalfPageDown_BoxSel(arg1: int?, arg2: int?) -> null
+     *
+     * Sakura's F_HalfPageDown_BOX (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function HalfPageDown_BoxSel($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('HalfPageDown_BoxSel', func_get_args());
+    }
+
+    /**
+     * PageUp_BoxSel(arg1: int?, arg2: int?) -> null
+     *
+     * Sakura's F_1PageUp_BOX (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function PageUp_BoxSel($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('PageUp_BoxSel', func_get_args());
+    }
+
+    /**
+     * PageDown_BoxSel(arg1: int?, arg2: int?) -> null
+     *
+     * Sakura's F_1PageDown_BOX (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function PageDown_BoxSel($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('PageDown_BoxSel', func_get_args());
+    }
+
+    /**
+     * GoFileTop_BoxSel(arg1: int?) -> null
+     *
+     * Sakura's F_GOFILETOP_BOX (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function GoFileTop_BoxSel($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GoFileTop_BoxSel', func_get_args());
+    }
+
+    /**
+     * GoFileEnd_BoxSel(arg1: int?) -> null
+     *
+     * Sakura's F_GOFILEEND_BOX (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function GoFileEnd_BoxSel($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GoFileEnd_BoxSel', func_get_args());
+    }
+
+    /**
+     * Cut() -> null
+     *
+     * Sakura's F_CUT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the menu
+     * and a key macro run. The last arguments may be left out. A command that this editor does
+     * not have yet answers the error -32001 (not implemented).
+     */
+    public static function Cut()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Cut', func_get_args());
+    }
+
+    /**
+     * Copy() -> null
+     *
+     * Sakura's F_COPY (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the menu
+     * and a key macro run. The last arguments may be left out. A command that this editor does
+     * not have yet answers the error -32001 (not implemented).
+     */
+    public static function Copy()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Copy', func_get_args());
+    }
+
+    /**
+     * Paste(arg1: int?) -> null
+     *
+     * Sakura's F_PASTE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the menu
+     * and a key macro run. The last arguments may be left out. A command that this editor does
+     * not have yet answers the error -32001 (not implemented).
+     */
+    public static function Paste($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Paste', func_get_args());
+    }
+
+    /**
+     * CopyAddCRLF() -> null
+     *
+     * Sakura's F_COPY_ADDCRLF (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CopyAddCRLF()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CopyAddCRLF', func_get_args());
+    }
+
+    /**
+     * CopyCRLF() -> null
+     *
+     * Sakura's F_COPY_CRLF (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CopyCRLF()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CopyCRLF', func_get_args());
+    }
+
+    /**
+     * PasteBox(arg1: int?) -> null
+     *
+     * Sakura's F_PASTEBOX (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function PasteBox($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('PasteBox', func_get_args());
+    }
+
+    /**
+     * InsBoxText(arg1: string?) -> null
+     *
+     * Sakura's F_INSBOXTEXT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function InsBoxText($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('InsBoxText', func_get_args());
+    }
+
+    /**
+     * CopyLines() -> null
+     *
+     * Sakura's F_COPYLINES (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CopyLines()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CopyLines', func_get_args());
+    }
+
+    /**
+     * CopyLinesAsPassage() -> null
+     *
+     * Sakura's F_COPYLINESASPASSAGE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CopyLinesAsPassage()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CopyLinesAsPassage', func_get_args());
+    }
+
+    /**
+     * CopyLinesWithLineNumber() -> null
+     *
+     * Sakura's F_COPYLINESWITHLINENUMBER (sakura_core/macro/CSMacroMgr.cpp). Runs the command
+     * that a key, the menu and a key macro run. The last arguments may be left out. A command
+     * that this editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CopyLinesWithLineNumber()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CopyLinesWithLineNumber', func_get_args());
+    }
+
+    /**
+     * CopyColorHtml() -> null
+     *
+     * Sakura's F_COPY_COLOR_HTML (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CopyColorHtml()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CopyColorHtml', func_get_args());
+    }
+
+    /**
+     * CopyColorHtmlWithLineNumber() -> null
+     *
+     * Sakura's F_COPY_COLOR_HTML_LINENUMBER (sakura_core/macro/CSMacroMgr.cpp). Runs the command
+     * that a key, the menu and a key macro run. The last arguments may be left out. A command
+     * that this editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CopyColorHtmlWithLineNumber()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CopyColorHtmlWithLineNumber', func_get_args());
+    }
+
+    /**
+     * CopyPath() -> null
+     *
+     * Sakura's F_COPYPATH (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CopyPath()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CopyPath', func_get_args());
+    }
+
+    /**
+     * CopyDirPath() -> null
+     *
+     * Sakura's F_COPYDIRPATH (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CopyDirPath()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CopyDirPath', func_get_args());
+    }
+
+    /**
+     * CopyFilename() -> null
+     *
+     * Sakura's F_COPYFNAME (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CopyFilename()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CopyFilename', func_get_args());
+    }
+
+    /**
+     * CopyTag() -> null
+     *
+     * Sakura's F_COPYTAG (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CopyTag()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CopyTag', func_get_args());
+    }
+
+    /**
+     * CopyKeyBindList() -> null
+     *
+     * Sakura's F_CREATEKEYBINDLIST (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CopyKeyBindList()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CopyKeyBindList', func_get_args());
+    }
+
+    /**
+     * InsertDate() -> null
+     *
+     * Sakura's F_INS_DATE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function InsertDate()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('InsertDate', func_get_args());
+    }
+
+    /**
+     * InsertTime() -> null
+     *
+     * Sakura's F_INS_TIME (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function InsertTime()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('InsertTime', func_get_args());
+    }
+
+    /**
+     * CtrlCodeDialog() -> null
+     *
+     * Sakura's F_CTRL_CODE_DIALOG (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CtrlCodeDialog()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CtrlCodeDialog', func_get_args());
+    }
+
+    /**
+     * CtrlCode(arg1: int?) -> null
+     *
+     * Sakura's F_CTRL_CODE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CtrlCode($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CtrlCode', func_get_args());
+    }
+
+    /**
+     * InsertFileUsedRecently() -> null
+     *
+     * Sakura's F_INS_FILE_USED_RECENTLY (sakura_core/macro/CSMacroMgr.cpp). Runs the command
+     * that a key, the menu and a key macro run. The last arguments may be left out. A command
+     * that this editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function InsertFileUsedRecently()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('InsertFileUsedRecently', func_get_args());
+    }
+
+    /**
+     * InsertFolderUsedRecently() -> null
+     *
+     * Sakura's F_INS_FOLDER_USED_RECENTLY (sakura_core/macro/CSMacroMgr.cpp). Runs the command
+     * that a key, the menu and a key macro run. The last arguments may be left out. A command
+     * that this editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function InsertFolderUsedRecently()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('InsertFolderUsedRecently', func_get_args());
+    }
+
+    /**
+     * ToLower() -> null
+     *
+     * Sakura's F_TOLOWER (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ToLower()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ToLower', func_get_args());
+    }
+
+    /**
+     * ToUpper() -> null
+     *
+     * Sakura's F_TOUPPER (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ToUpper()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ToUpper', func_get_args());
+    }
+
+    /**
+     * ToHankaku() -> null
+     *
+     * Sakura's F_TOHANKAKU (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ToHankaku()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ToHankaku', func_get_args());
+    }
+
+    /**
+     * ToHankata() -> null
+     *
+     * Sakura's F_TOHANKATA (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ToHankata()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ToHankata', func_get_args());
+    }
+
+    /**
+     * ToZenEi() -> null
+     *
+     * Sakura's F_TOZENEI (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ToZenEi()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ToZenEi', func_get_args());
+    }
+
+    /**
+     * ToHanEi() -> null
+     *
+     * Sakura's F_TOHANEI (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ToHanEi()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ToHanEi', func_get_args());
+    }
+
+    /**
+     * ToZenKata() -> null
+     *
+     * Sakura's F_TOZENKAKUKATA (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ToZenKata()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ToZenKata', func_get_args());
+    }
+
+    /**
+     * ToZenHira() -> null
+     *
+     * Sakura's F_TOZENKAKUHIRA (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ToZenHira()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ToZenHira', func_get_args());
+    }
+
+    /**
+     * HanKataToZenKata() -> null
+     *
+     * Sakura's F_HANKATATOZENKATA (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function HanKataToZenKata()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('HanKataToZenKata', func_get_args());
+    }
+
+    /**
+     * HanKataToZenHira() -> null
+     *
+     * Sakura's F_HANKATATOZENHIRA (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function HanKataToZenHira()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('HanKataToZenHira', func_get_args());
+    }
+
+    /**
+     * TABToSPACE() -> null
+     *
+     * Sakura's F_TABTOSPACE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function TABToSPACE()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('TABToSPACE', func_get_args());
+    }
+
+    /**
+     * SPACEToTAB() -> null
+     *
+     * Sakura's F_SPACETOTAB (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function SPACEToTAB()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SPACEToTAB', func_get_args());
+    }
+
+    /**
+     * AutoToSJIS() -> null
+     *
+     * Sakura's F_CODECNV_AUTO2SJIS (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AutoToSJIS()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AutoToSJIS', func_get_args());
+    }
+
+    /**
+     * JIStoSJIS() -> null
+     *
+     * Sakura's F_CODECNV_EMAIL (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function JIStoSJIS()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('JIStoSJIS', func_get_args());
+    }
+
+    /**
+     * EUCtoSJIS() -> null
+     *
+     * Sakura's F_CODECNV_EUC2SJIS (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function EUCtoSJIS()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('EUCtoSJIS', func_get_args());
+    }
+
+    /**
+     * CodeCnvUNICODEtoSJIS() -> null
+     *
+     * Sakura's F_CODECNV_UNICODE2SJIS (sakura_core/macro/CSMacroMgr.cpp). Runs the command that
+     * a key, the menu and a key macro run. The last arguments may be left out. A command that
+     * this editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CodeCnvUNICODEtoSJIS()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CodeCnvUNICODEtoSJIS', func_get_args());
+    }
+
+    /**
+     * CodeCnvUNICODEBEtoSJIS() -> null
+     *
+     * Sakura's F_CODECNV_UNICODEBE2SJIS (sakura_core/macro/CSMacroMgr.cpp). Runs the command
+     * that a key, the menu and a key macro run. The last arguments may be left out. A command
+     * that this editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CodeCnvUNICODEBEtoSJIS()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CodeCnvUNICODEBEtoSJIS', func_get_args());
+    }
+
+    /**
+     * UTF8toSJIS() -> null
+     *
+     * Sakura's F_CODECNV_UTF82SJIS (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function UTF8toSJIS()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('UTF8toSJIS', func_get_args());
+    }
+
+    /**
+     * UTF7toSJIS() -> null
+     *
+     * Sakura's F_CODECNV_UTF72SJIS (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function UTF7toSJIS()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('UTF7toSJIS', func_get_args());
+    }
+
+    /**
+     * SJIStoJIS() -> null
+     *
+     * Sakura's F_CODECNV_SJIS2JIS (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function SJIStoJIS()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SJIStoJIS', func_get_args());
+    }
+
+    /**
+     * SJIStoEUC() -> null
+     *
+     * Sakura's F_CODECNV_SJIS2EUC (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function SJIStoEUC()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SJIStoEUC', func_get_args());
+    }
+
+    /**
+     * SJIStoUTF8() -> null
+     *
+     * Sakura's F_CODECNV_SJIS2UTF8 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function SJIStoUTF8()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SJIStoUTF8', func_get_args());
+    }
+
+    /**
+     * SJIStoUTF7() -> null
+     *
+     * Sakura's F_CODECNV_SJIS2UTF7 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function SJIStoUTF7()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SJIStoUTF7', func_get_args());
+    }
+
+    /**
+     * Base64Decode() -> null
+     *
+     * Sakura's F_BASE64DECODE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function Base64Decode()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Base64Decode', func_get_args());
+    }
+
+    /**
+     * Uudecode() -> null
+     *
+     * Sakura's F_UUDECODE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function Uudecode()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Uudecode', func_get_args());
+    }
+
+    /**
+     * SearchDialog() -> null
+     *
+     * Sakura's F_SEARCH_DIALOG (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function SearchDialog()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SearchDialog', func_get_args());
+    }
+
+    /**
+     * SearchNext(arg1: string?, arg2: int?) -> null
+     *
+     * Sakura's F_SEARCH_NEXT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function SearchNext($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SearchNext', func_get_args());
+    }
+
+    /**
+     * SearchPrev(arg1: string?, arg2: int?) -> null
+     *
+     * Sakura's F_SEARCH_PREV (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function SearchPrev($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SearchPrev', func_get_args());
+    }
+
+    /**
+     * ReplaceDialog() -> null
+     *
+     * Sakura's F_REPLACE_DIALOG (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ReplaceDialog()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ReplaceDialog', func_get_args());
+    }
+
+    /**
+     * Replace(arg1: string?, arg2: string?, arg3: int?) -> null
+     *
+     * Sakura's F_REPLACE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function Replace($arg1 = null, $arg2 = null, $arg3 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Replace', func_get_args());
+    }
+
+    /**
+     * ReplaceAll(arg1: string?, arg2: string?, arg3: int?) -> null
+     *
+     * Sakura's F_REPLACE_ALL (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ReplaceAll($arg1 = null, $arg2 = null, $arg3 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ReplaceAll', func_get_args());
+    }
+
+    /**
+     * SearchClearMark() -> null
+     *
+     * Sakura's F_SEARCH_CLEARMARK (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function SearchClearMark()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SearchClearMark', func_get_args());
+    }
+
+    /**
+     * SearchStartPos() -> null
+     *
+     * Sakura's F_JUMP_SRCHSTARTPOS (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function SearchStartPos()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SearchStartPos', func_get_args());
+    }
+
+    /**
+     * Grep(arg1: string?, arg2: string?, arg3: string?, arg4: int?, arg5: int?) -> null
+     *
+     * Sakura's F_GREP (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the menu
+     * and a key macro run. The last arguments may be left out. A command that this editor does
+     * not have yet answers the error -32001 (not implemented).
+     */
+    public static function Grep($arg1 = null, $arg2 = null, $arg3 = null, $arg4 = null, $arg5 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Grep', func_get_args());
+    }
+
+    /**
+     * GrepReplace(arg1: string?, arg2: string?, arg3: string?, arg4: string?, arg5: int?, arg6: int?) -> null
+     *
+     * Sakura's F_GREP_REPLACE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function GrepReplace($arg1 = null, $arg2 = null, $arg3 = null, $arg4 = null, $arg5 = null, $arg6 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GrepReplace', func_get_args());
+    }
+
+    /**
+     * Outline(arg1: int?) -> null
+     *
+     * Sakura's F_OUTLINE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function Outline($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Outline', func_get_args());
+    }
+
+    /**
+     * TagJump() -> null
+     *
+     * Sakura's F_TAGJUMP (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function TagJump()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('TagJump', func_get_args());
+    }
+
+    /**
+     * TagJumpBack() -> null
+     *
+     * Sakura's F_TAGJUMPBACK (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function TagJumpBack()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('TagJumpBack', func_get_args());
+    }
+
+    /**
+     * TagMake() -> null
+     *
+     * Sakura's F_TAGS_MAKE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function TagMake()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('TagMake', func_get_args());
+    }
+
+    /**
+     * DirectTagJump() -> null
+     *
+     * Sakura's F_DIRECT_TAGJUMP (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function DirectTagJump()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('DirectTagJump', func_get_args());
+    }
+
+    /**
+     * KeywordTagJump(arg1: string?) -> null
+     *
+     * Sakura's F_TAGJUMP_KEYWORD (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function KeywordTagJump($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('KeywordTagJump', func_get_args());
+    }
+
+    /**
+     * Compare() -> null
+     *
+     * Sakura's F_COMPARE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function Compare()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Compare', func_get_args());
+    }
+
+    /**
+     * DiffDialog() -> null
+     *
+     * Sakura's F_DIFF_DIALOG (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function DiffDialog()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('DiffDialog', func_get_args());
+    }
+
+    /**
+     * Diff(arg1: string?, arg2: int?) -> null
+     *
+     * Sakura's F_DIFF (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the menu
+     * and a key macro run. The last arguments may be left out. A command that this editor does
+     * not have yet answers the error -32001 (not implemented).
+     */
+    public static function Diff($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Diff', func_get_args());
+    }
+
+    /**
+     * DiffNext() -> null
+     *
+     * Sakura's F_DIFF_NEXT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function DiffNext()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('DiffNext', func_get_args());
+    }
+
+    /**
+     * DiffPrev() -> null
+     *
+     * Sakura's F_DIFF_PREV (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function DiffPrev()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('DiffPrev', func_get_args());
+    }
+
+    /**
+     * DiffReset() -> null
+     *
+     * Sakura's F_DIFF_RESET (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function DiffReset()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('DiffReset', func_get_args());
+    }
+
+    /**
+     * BracketPair() -> null
+     *
+     * Sakura's F_BRACKETPAIR (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function BracketPair()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('BracketPair', func_get_args());
+    }
+
+    /**
+     * BookmarkSet() -> null
+     *
+     * Sakura's F_BOOKMARK_SET (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function BookmarkSet()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('BookmarkSet', func_get_args());
+    }
+
+    /**
+     * BookmarkNext() -> null
+     *
+     * Sakura's F_BOOKMARK_NEXT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function BookmarkNext()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('BookmarkNext', func_get_args());
+    }
+
+    /**
+     * BookmarkPrev() -> null
+     *
+     * Sakura's F_BOOKMARK_PREV (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function BookmarkPrev()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('BookmarkPrev', func_get_args());
+    }
+
+    /**
+     * BookmarkReset() -> null
+     *
+     * Sakura's F_BOOKMARK_RESET (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function BookmarkReset()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('BookmarkReset', func_get_args());
+    }
+
+    /**
+     * BookmarkView() -> null
+     *
+     * Sakura's F_BOOKMARK_VIEW (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function BookmarkView()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('BookmarkView', func_get_args());
+    }
+
+    /**
+     * BookmarkPattern(arg1: string?, arg2: int?) -> null
+     *
+     * Sakura's F_BOOKMARK_PATTERN (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function BookmarkPattern($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('BookmarkPattern', func_get_args());
+    }
+
+    /**
+     * FuncListNext() -> null
+     *
+     * Sakura's F_FUNCLIST_NEXT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function FuncListNext()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('FuncListNext', func_get_args());
+    }
+
+    /**
+     * FuncListPrev() -> null
+     *
+     * Sakura's F_FUNCLIST_PREV (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function FuncListPrev()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('FuncListPrev', func_get_args());
+    }
+
+    /**
+     * ChgmodINS() -> null
+     *
+     * Sakura's F_CHGMOD_INS (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ChgmodINS()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ChgmodINS', func_get_args());
+    }
+
+    /**
+     * ChgCharSet(arg1: int?, arg2: int?) -> null
+     *
+     * Sakura's F_CHG_CHARSET (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ChgCharSet($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ChgCharSet', func_get_args());
+    }
+
+    /**
+     * ChgmodEOL(arg1: int?) -> null
+     *
+     * Sakura's F_CHGMOD_EOL (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ChgmodEOL($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ChgmodEOL', func_get_args());
+    }
+
+    /**
+     * CancelMode() -> null
+     *
+     * Sakura's F_CANCEL_MODE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CancelMode()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CancelMode', func_get_args());
+    }
+
+    /**
+     * ExecExternalMacro(arg1: string?, arg2: string?) -> null
+     *
+     * Sakura's F_EXECEXTMACRO (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ExecExternalMacro($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ExecExternalMacro', func_get_args());
+    }
+
+    /**
+     * ShowToolbar() -> null
+     *
+     * Sakura's F_SHOWTOOLBAR (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ShowToolbar()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ShowToolbar', func_get_args());
+    }
+
+    /**
+     * ShowFunckey() -> null
+     *
+     * Sakura's F_SHOWFUNCKEY (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ShowFunckey()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ShowFunckey', func_get_args());
+    }
+
+    /**
+     * ShowTab() -> null
+     *
+     * Sakura's F_SHOWTAB (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ShowTab()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ShowTab', func_get_args());
+    }
+
+    /**
+     * ShowStatusbar() -> null
+     *
+     * Sakura's F_SHOWSTATUSBAR (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ShowStatusbar()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ShowStatusbar', func_get_args());
+    }
+
+    /**
+     * ShowMiniMap() -> null
+     *
+     * Sakura's F_SHOWMINIMAP (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ShowMiniMap()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ShowMiniMap', func_get_args());
+    }
+
+    /**
+     * TypeList() -> null
+     *
+     * Sakura's F_TYPE_LIST (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function TypeList()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('TypeList', func_get_args());
+    }
+
+    /**
+     * ChangeType(arg1: int?) -> null
+     *
+     * Sakura's F_CHANGETYPE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ChangeType($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ChangeType', func_get_args());
+    }
+
+    /**
+     * OptionType() -> null
+     *
+     * Sakura's F_OPTION_TYPE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function OptionType()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OptionType', func_get_args());
+    }
+
+    /**
+     * OptionCommon() -> null
+     *
+     * Sakura's F_OPTION (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function OptionCommon()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OptionCommon', func_get_args());
+    }
+
+    /**
+     * SelectFont() -> null
+     *
+     * Sakura's F_FONT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the menu
+     * and a key macro run. The last arguments may be left out. A command that this editor does
+     * not have yet answers the error -32001 (not implemented).
+     */
+    public static function SelectFont()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SelectFont', func_get_args());
+    }
+
+    /**
+     * SetFontSize(arg1: int?, arg2: int?, arg3: int?) -> null
+     *
+     * Sakura's F_SETFONTSIZE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function SetFontSize($arg1 = null, $arg2 = null, $arg3 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SetFontSize', func_get_args());
+    }
+
+    /**
+     * WrapWindowWidth() -> null
+     *
+     * Sakura's F_WRAPWINDOWWIDTH (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function WrapWindowWidth()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WrapWindowWidth', func_get_args());
+    }
+
+    /**
+     * OptionFavorite() -> null
+     *
+     * Sakura's F_FAVORITE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function OptionFavorite()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OptionFavorite', func_get_args());
+    }
+
+    /**
+     * SetMsgQuoteStr(arg1: string?) -> null
+     *
+     * Sakura's F_SET_QUOTESTRING (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function SetMsgQuoteStr($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SetMsgQuoteStr', func_get_args());
+    }
+
+    /**
+     * TextWrapMethod(arg1: int?) -> null
+     *
+     * Sakura's F_TEXTWRAPMETHOD (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function TextWrapMethod($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('TextWrapMethod', func_get_args());
+    }
+
+    /**
+     * SelectCountMode(arg1: int?) -> null
+     *
+     * Sakura's F_SELECT_COUNT_MODE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function SelectCountMode($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SelectCountMode', func_get_args());
+    }
+
+    /**
+     * ExecCommand(arg1: string?, arg2: int?, arg3: string?) -> null
+     *
+     * Sakura's F_EXECMD (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ExecCommand($arg1 = null, $arg2 = null, $arg3 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ExecCommand', func_get_args());
+    }
+
+    /**
+     * ExecCommandDialog() -> null
+     *
+     * Sakura's F_EXECMD_DIALOG (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ExecCommandDialog()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ExecCommandDialog', func_get_args());
+    }
+
+    /**
+     * RMenu() -> null
+     *
+     * Sakura's F_MENU_RBUTTON (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function RMenu()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('RMenu', func_get_args());
+    }
+
+    /**
+     * CustMenu1() -> null
+     *
+     * Sakura's F_CUSTMENU_1 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CustMenu1()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CustMenu1', func_get_args());
+    }
+
+    /**
+     * CustMenu2() -> null
+     *
+     * Sakura's F_CUSTMENU_2 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CustMenu2()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CustMenu2', func_get_args());
+    }
+
+    /**
+     * CustMenu3() -> null
+     *
+     * Sakura's F_CUSTMENU_3 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CustMenu3()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CustMenu3', func_get_args());
+    }
+
+    /**
+     * CustMenu4() -> null
+     *
+     * Sakura's F_CUSTMENU_4 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CustMenu4()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CustMenu4', func_get_args());
+    }
+
+    /**
+     * CustMenu5() -> null
+     *
+     * Sakura's F_CUSTMENU_5 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CustMenu5()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CustMenu5', func_get_args());
+    }
+
+    /**
+     * CustMenu6() -> null
+     *
+     * Sakura's F_CUSTMENU_6 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CustMenu6()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CustMenu6', func_get_args());
+    }
+
+    /**
+     * CustMenu7() -> null
+     *
+     * Sakura's F_CUSTMENU_7 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CustMenu7()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CustMenu7', func_get_args());
+    }
+
+    /**
+     * CustMenu8() -> null
+     *
+     * Sakura's F_CUSTMENU_8 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CustMenu8()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CustMenu8', func_get_args());
+    }
+
+    /**
+     * CustMenu9() -> null
+     *
+     * Sakura's F_CUSTMENU_9 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CustMenu9()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CustMenu9', func_get_args());
+    }
+
+    /**
+     * CustMenu10() -> null
+     *
+     * Sakura's F_CUSTMENU_10 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CustMenu10()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CustMenu10', func_get_args());
+    }
+
+    /**
+     * CustMenu11() -> null
+     *
+     * Sakura's F_CUSTMENU_11 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CustMenu11()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CustMenu11', func_get_args());
+    }
+
+    /**
+     * CustMenu12() -> null
+     *
+     * Sakura's F_CUSTMENU_12 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CustMenu12()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CustMenu12', func_get_args());
+    }
+
+    /**
+     * CustMenu13() -> null
+     *
+     * Sakura's F_CUSTMENU_13 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CustMenu13()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CustMenu13', func_get_args());
+    }
+
+    /**
+     * CustMenu14() -> null
+     *
+     * Sakura's F_CUSTMENU_14 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CustMenu14()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CustMenu14', func_get_args());
+    }
+
+    /**
+     * CustMenu15() -> null
+     *
+     * Sakura's F_CUSTMENU_15 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CustMenu15()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CustMenu15', func_get_args());
+    }
+
+    /**
+     * CustMenu16() -> null
+     *
+     * Sakura's F_CUSTMENU_16 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CustMenu16()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CustMenu16', func_get_args());
+    }
+
+    /**
+     * CustMenu17() -> null
+     *
+     * Sakura's F_CUSTMENU_17 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CustMenu17()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CustMenu17', func_get_args());
+    }
+
+    /**
+     * CustMenu18() -> null
+     *
+     * Sakura's F_CUSTMENU_18 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CustMenu18()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CustMenu18', func_get_args());
+    }
+
+    /**
+     * CustMenu19() -> null
+     *
+     * Sakura's F_CUSTMENU_19 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CustMenu19()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CustMenu19', func_get_args());
+    }
+
+    /**
+     * CustMenu20() -> null
+     *
+     * Sakura's F_CUSTMENU_20 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CustMenu20()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CustMenu20', func_get_args());
+    }
+
+    /**
+     * CustMenu21() -> null
+     *
+     * Sakura's F_CUSTMENU_21 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CustMenu21()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CustMenu21', func_get_args());
+    }
+
+    /**
+     * CustMenu22() -> null
+     *
+     * Sakura's F_CUSTMENU_22 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CustMenu22()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CustMenu22', func_get_args());
+    }
+
+    /**
+     * CustMenu23() -> null
+     *
+     * Sakura's F_CUSTMENU_23 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CustMenu23()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CustMenu23', func_get_args());
+    }
+
+    /**
+     * CustMenu24() -> null
+     *
+     * Sakura's F_CUSTMENU_24 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CustMenu24()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CustMenu24', func_get_args());
+    }
+
+    /**
+     * SplitWinV() -> null
+     *
+     * Sakura's F_SPLIT_V (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function SplitWinV()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SplitWinV', func_get_args());
+    }
+
+    /**
+     * SplitWinH() -> null
+     *
+     * Sakura's F_SPLIT_H (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function SplitWinH()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SplitWinH', func_get_args());
+    }
+
+    /**
+     * SplitWinVH() -> null
+     *
+     * Sakura's F_SPLIT_VH (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function SplitWinVH()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SplitWinVH', func_get_args());
+    }
+
+    /**
+     * WinMaximize() -> null
+     *
+     * Sakura's F_WINMAXIMIZE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function WinMaximize()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WinMaximize', func_get_args());
+    }
+
+    /**
+     * WinMinimize() -> null
+     *
+     * Sakura's F_WINMINIMIZE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function WinMinimize()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WinMinimize', func_get_args());
+    }
+
+    /**
+     * WinRestore() -> null
+     *
+     * Sakura's F_WINRESTORE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function WinRestore()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WinRestore', func_get_args());
+    }
+
+    /**
+     * WinClose() -> null
+     *
+     * Sakura's F_WINCLOSE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function WinClose()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WinClose', func_get_args());
+    }
+
+    /**
+     * WinCloseAll() -> null
+     *
+     * Sakura's F_WIN_CLOSEALL (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function WinCloseAll()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WinCloseAll', func_get_args());
+    }
+
+    /**
+     * CascadeWin() -> null
+     *
+     * Sakura's F_CASCADE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CascadeWin()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CascadeWin', func_get_args());
+    }
+
+    /**
+     * TileWinV() -> null
+     *
+     * Sakura's F_TILE_V (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function TileWinV()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('TileWinV', func_get_args());
+    }
+
+    /**
+     * TileWinH() -> null
+     *
+     * Sakura's F_TILE_H (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function TileWinH()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('TileWinH', func_get_args());
+    }
+
+    /**
+     * NextWindow() -> null
+     *
+     * Sakura's F_NEXTWINDOW (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function NextWindow()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('NextWindow', func_get_args());
+    }
+
+    /**
+     * PrevWindow() -> null
+     *
+     * Sakura's F_PREVWINDOW (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function PrevWindow()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('PrevWindow', func_get_args());
+    }
+
+    /**
+     * WindowList() -> null
+     *
+     * Sakura's F_WINLIST (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function WindowList()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WindowList', func_get_args());
+    }
+
+    /**
+     * MaximizeV() -> null
+     *
+     * Sakura's F_MAXIMIZE_V (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function MaximizeV()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('MaximizeV', func_get_args());
+    }
+
+    /**
+     * MaximizeH() -> null
+     *
+     * Sakura's F_MAXIMIZE_H (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function MaximizeH()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('MaximizeH', func_get_args());
+    }
+
+    /**
+     * MinimizeAll() -> null
+     *
+     * Sakura's F_MINIMIZE_ALL (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function MinimizeAll()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('MinimizeAll', func_get_args());
+    }
+
+    /**
+     * ReDraw() -> null
+     *
+     * Sakura's F_REDRAW (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ReDraw()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ReDraw', func_get_args());
+    }
+
+    /**
+     * ActivateWinOutput() -> null
+     *
+     * Sakura's F_WIN_OUTPUT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ActivateWinOutput()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ActivateWinOutput', func_get_args());
+    }
+
+    /**
+     * TraceOut(arg1: string?, arg2: int?) -> null
+     *
+     * Sakura's F_TRACEOUT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function TraceOut($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('TraceOut', func_get_args());
+    }
+
+    /**
+     * WindowTopMost(arg1: int?) -> null
+     *
+     * Sakura's F_TOPMOST (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function WindowTopMost($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WindowTopMost', func_get_args());
+    }
+
+    /**
+     * GroupClose() -> null
+     *
+     * Sakura's F_GROUPCLOSE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function GroupClose()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GroupClose', func_get_args());
+    }
+
+    /**
+     * NextGroup() -> null
+     *
+     * Sakura's F_NEXTGROUP (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function NextGroup()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('NextGroup', func_get_args());
+    }
+
+    /**
+     * PrevGroup() -> null
+     *
+     * Sakura's F_PREVGROUP (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function PrevGroup()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('PrevGroup', func_get_args());
+    }
+
+    /**
+     * TabMoveRight() -> null
+     *
+     * Sakura's F_TAB_MOVERIGHT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function TabMoveRight()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('TabMoveRight', func_get_args());
+    }
+
+    /**
+     * TabMoveLeft() -> null
+     *
+     * Sakura's F_TAB_MOVELEFT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function TabMoveLeft()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('TabMoveLeft', func_get_args());
+    }
+
+    /**
+     * TabSeparate() -> null
+     *
+     * Sakura's F_TAB_SEPARATE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function TabSeparate()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('TabSeparate', func_get_args());
+    }
+
+    /**
+     * TabJointNext() -> null
+     *
+     * Sakura's F_TAB_JOINTNEXT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function TabJointNext()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('TabJointNext', func_get_args());
+    }
+
+    /**
+     * TabJointPrev() -> null
+     *
+     * Sakura's F_TAB_JOINTPREV (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function TabJointPrev()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('TabJointPrev', func_get_args());
+    }
+
+    /**
+     * TabCloseOther() -> null
+     *
+     * Sakura's F_TAB_CLOSEOTHER (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function TabCloseOther()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('TabCloseOther', func_get_args());
+    }
+
+    /**
+     * TabCloseLeft() -> null
+     *
+     * Sakura's F_TAB_CLOSELEFT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function TabCloseLeft()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('TabCloseLeft', func_get_args());
+    }
+
+    /**
+     * TabCloseRight() -> null
+     *
+     * Sakura's F_TAB_CLOSERIGHT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function TabCloseRight()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('TabCloseRight', func_get_args());
+    }
+
+    /**
+     * Complete() -> null
+     *
+     * Sakura's F_HOKAN (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the menu
+     * and a key macro run. The last arguments may be left out. A command that this editor does
+     * not have yet answers the error -32001 (not implemented).
+     */
+    public static function Complete()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Complete', func_get_args());
+    }
+
+    /**
+     * ToggleKeyHelpSearch(arg1: int?) -> null
+     *
+     * Sakura's F_TOGGLE_KEY_SEARCH (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ToggleKeyHelpSearch($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ToggleKeyHelpSearch', func_get_args());
+    }
+
+    /**
+     * HelpContents() -> null
+     *
+     * Sakura's F_HELP_CONTENTS (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function HelpContents()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('HelpContents', func_get_args());
+    }
+
+    /**
+     * HelpSearch() -> null
+     *
+     * Sakura's F_HELP_SEARCH (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function HelpSearch()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('HelpSearch', func_get_args());
+    }
+
+    /**
+     * CommandList() -> null
+     *
+     * Sakura's F_MENU_ALLFUNC (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CommandList()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CommandList', func_get_args());
+    }
+
+    /**
+     * ExtHelp1() -> null
+     *
+     * Sakura's F_EXTHELP1 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ExtHelp1()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ExtHelp1', func_get_args());
+    }
+
+    /**
+     * ExtHtmlHelp(arg1: string?, arg2: string?) -> null
+     *
+     * Sakura's F_EXTHTMLHELP (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ExtHtmlHelp($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ExtHtmlHelp', func_get_args());
+    }
+
+    /**
+     * About() -> null
+     *
+     * Sakura's F_ABOUT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the menu
+     * and a key macro run. The last arguments may be left out. A command that this editor does
+     * not have yet answers the error -32001 (not implemented).
+     */
+    public static function About()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('About', func_get_args());
+    }
+
+    /**
+     * StatusMsg(arg1: string?, arg2: int?) -> null
+     *
+     * Sakura's F_STATUSMSG (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function StatusMsg($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('StatusMsg', func_get_args());
+    }
+
+    /**
+     * MsgBeep(arg1: int?) -> null
+     *
+     * Sakura's F_MSGBEEP (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function MsgBeep($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('MsgBeep', func_get_args());
+    }
+
+    /**
+     * CommitUndoBuffer() -> null
+     *
+     * Sakura's F_COMMITUNDOBUFFER (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function CommitUndoBuffer()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CommitUndoBuffer', func_get_args());
+    }
+
+    /**
+     * AddRefUndoBuffer() -> null
+     *
+     * Sakura's F_ADDREFUNDOBUFFER (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
+     * key, the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AddRefUndoBuffer()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AddRefUndoBuffer', func_get_args());
+    }
+
+    /**
+     * SetUndoBuffer() -> null
+     *
+     * Sakura's F_SETUNDOBUFFER (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function SetUndoBuffer()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SetUndoBuffer', func_get_args());
+    }
+
+    /**
+     * AppendUndoBufferCursor() -> null
+     *
+     * Sakura's F_APPENDUNDOBUFFERCURSOR (sakura_core/macro/CSMacroMgr.cpp). Runs the command
+     * that a key, the menu and a key macro run. The last arguments may be left out. A command
+     * that this editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function AppendUndoBufferCursor()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('AppendUndoBufferCursor', func_get_args());
+    }
+
+    /**
+     * ClipboardEmpty() -> null
+     *
+     * Sakura's F_CLIPBOARDEMPTY (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function ClipboardEmpty()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ClipboardEmpty', func_get_args());
+    }
+
+    /**
+     * SetViewTop(arg1: int?) -> null
+     *
+     * Sakura's F_SETVIEWTOP (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
+     * menu and a key macro run. The last arguments may be left out. A command that this editor
+     * does not have yet answers the error -32001 (not implemented).
+     */
+    public static function SetViewTop($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SetViewTop', func_get_args());
+    }
+
+    /**
+     * SetViewLeft(arg1: int?) -> null
+     *
+     * Sakura's F_SETVIEWLEFT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
+     * the menu and a key macro run. The last arguments may be left out. A command that this
+     * editor does not have yet answers the error -32001 (not implemented).
+     */
+    public static function SetViewLeft($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SetViewLeft', func_get_args());
+    }
+
+    /**
+     * GetSaveFilename() -> string
+     *
+     * Sakura's F_GETSAVEFILENAME (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
+     * This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function GetSaveFilename()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetSaveFilename', func_get_args());
+    }
+
+    /**
+     * ExpandParameter(arg1: string?) -> string
+     *
+     * Sakura's F_EXPANDPARAMETER (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
+     * This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function ExpandParameter($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ExpandParameter', func_get_args());
+    }
+
+    /**
+     * ChangeTabWidth(arg1: int?) -> int
+     *
+     * Sakura's F_CHGTABWIDTH (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
+     * editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function ChangeTabWidth($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ChangeTabWidth', func_get_args());
+    }
+
+    /**
+     * GetSelectLineFrom() -> int
+     *
+     * Sakura's F_GETSELLINEFROM (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
+     * This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function GetSelectLineFrom()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetSelectLineFrom', func_get_args());
+    }
+
+    /**
+     * GetSelectColmFrom() -> int
+     *
+     * Sakura's F_GETSELCOLUMNFROM (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
+     * This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function GetSelectColmFrom()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetSelectColmFrom', func_get_args());
+    }
+
+    /**
+     * GetSelectColumnFrom() -> int
+     *
+     * Sakura's F_GETSELCOLUMNFROM (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
+     * This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function GetSelectColumnFrom()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetSelectColumnFrom', func_get_args());
+    }
+
+    /**
+     * GetSelectLineTo() -> int
+     *
+     * Sakura's F_GETSELLINETO (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
+     * editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function GetSelectLineTo()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetSelectLineTo', func_get_args());
+    }
+
+    /**
+     * GetSelectColmTo() -> int
+     *
+     * Sakura's F_GETSELCOLUMNTO (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
+     * This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function GetSelectColmTo()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetSelectColmTo', func_get_args());
+    }
+
+    /**
+     * GetSelectColumnTo() -> int
+     *
+     * Sakura's F_GETSELCOLUMNTO (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
+     * This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function GetSelectColumnTo()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetSelectColumnTo', func_get_args());
+    }
+
+    /**
+     * IsInsMode() -> int
+     *
+     * Sakura's F_ISINSMODE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
+     * editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function IsInsMode()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('IsInsMode', func_get_args());
+    }
+
+    /**
+     * GetCharCode() -> int
+     *
+     * Sakura's F_GETCHARCODE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
+     * editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function GetCharCode()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetCharCode', func_get_args());
+    }
+
+    /**
+     * GetLineCode() -> int
+     *
+     * Sakura's F_GETLINECODE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
+     * editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function GetLineCode()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetLineCode', func_get_args());
+    }
+
+    /**
+     * IsPossibleUndo() -> int
+     *
+     * Sakura's F_ISPOSSIBLEUNDO (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
+     * This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function IsPossibleUndo()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('IsPossibleUndo', func_get_args());
+    }
+
+    /**
+     * IsPossibleRedo() -> int
+     *
+     * Sakura's F_ISPOSSIBLEREDO (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
+     * This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function IsPossibleRedo()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('IsPossibleRedo', func_get_args());
+    }
+
+    /**
+     * ChangeWrapColm(arg1: int?) -> int
+     *
+     * Sakura's F_CHGWRAPCOLUMN (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
+     * This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function ChangeWrapColm($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ChangeWrapColm', func_get_args());
+    }
+
+    /**
+     * ChangeWrapColumn(arg1: int?) -> int
+     *
+     * Sakura's F_CHGWRAPCOLUMN (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
+     * This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function ChangeWrapColumn($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ChangeWrapColumn', func_get_args());
+    }
+
+    /**
+     * IsCurTypeExt(arg1: string?) -> int
+     *
+     * Sakura's F_ISCURTYPEEXT (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
+     * editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function IsCurTypeExt($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('IsCurTypeExt', func_get_args());
+    }
+
+    /**
+     * IsSameTypeExt(arg1: string?, arg2: string?) -> int
+     *
+     * Sakura's F_ISSAMETYPEEXT (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
+     * This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function IsSameTypeExt($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('IsSameTypeExt', func_get_args());
+    }
+
+    /**
+     * InputBox(arg1: string?, arg2: string?, arg3: int?) -> string
+     *
+     * Sakura's F_INPUTBOX (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
+     * editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function InputBox($arg1 = null, $arg2 = null, $arg3 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('InputBox', func_get_args());
+    }
+
+    /**
+     * MessageBox(arg1: string?, arg2: int?) -> int
+     *
+     * Sakura's F_MESSAGEBOX (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
+     * editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function MessageBox($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('MessageBox', func_get_args());
+    }
+
+    /**
+     * ErrorMsg(arg1: string?) -> int
+     *
+     * Sakura's F_ERRORMSG (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
+     * editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function ErrorMsg($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ErrorMsg', func_get_args());
+    }
+
+    /**
+     * WarnMsg(arg1: string?) -> int
+     *
+     * Sakura's F_WARNMSG (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
+     * editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function WarnMsg($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WarnMsg', func_get_args());
+    }
+
+    /**
+     * InfoMsg(arg1: string?) -> int
+     *
+     * Sakura's F_INFOMSG (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
+     * editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function InfoMsg($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('InfoMsg', func_get_args());
+    }
+
+    /**
+     * OkCancelBox(arg1: string?) -> int
+     *
+     * Sakura's F_OKCANCELBOX (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
+     * editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function OkCancelBox($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OkCancelBox', func_get_args());
+    }
+
+    /**
+     * YesNoBox(arg1: string?) -> int
+     *
+     * Sakura's F_YESNOBOX (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
+     * editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function YesNoBox($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('YesNoBox', func_get_args());
+    }
+
+    /**
+     * CompareVersion(arg1: string?, arg2: string?) -> int
+     *
+     * Sakura's F_COMPAREVERSION (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
+     * This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function CompareVersion($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CompareVersion', func_get_args());
+    }
+
+    /**
+     * Sleep(arg1: int?) -> int
+     *
+     * Sakura's F_MACROSLEEP (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
+     * editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function Sleep($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Sleep', func_get_args());
+    }
+
+    /**
+     * FileOpenDialog(arg1: string?, arg2: string?) -> string
+     *
+     * Sakura's F_FILEOPENDIALOG (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
+     * This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function FileOpenDialog($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('FileOpenDialog', func_get_args());
+    }
+
+    /**
+     * FileSaveDialog(arg1: string?, arg2: string?) -> string
+     *
+     * Sakura's F_FILESAVEDIALOG (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
+     * This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function FileSaveDialog($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('FileSaveDialog', func_get_args());
+    }
+
+    /**
+     * FolderDialog(arg1: string?, arg2: string?) -> string
+     *
+     * Sakura's F_FOLDERDIALOG (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
+     * editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function FolderDialog($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('FolderDialog', func_get_args());
+    }
+
+    /**
+     * GetClipboard(arg1: int?) -> string
+     *
+     * Sakura's F_GETCLIPBOARD (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
+     * editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function GetClipboard($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetClipboard', func_get_args());
+    }
+
+    /**
+     * SetClipboard(arg1: int?, arg2: string?) -> int
+     *
+     * Sakura's F_SETCLIPBOARD (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
+     * editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function SetClipboard($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SetClipboard', func_get_args());
+    }
+
+    /**
+     * LayoutToLogicLineNum(arg1: int?) -> int
+     *
+     * Sakura's F_LAYOUTTOLOGICLINENUM (sakura_core/macro/CSMacroMgr.cpp). A function with a
+     * result. This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function LayoutToLogicLineNum($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('LayoutToLogicLineNum', func_get_args());
+    }
+
+    /**
+     * LogicToLayoutLineNum(arg1: int?, arg2: int?) -> int
+     *
+     * Sakura's F_LOGICTOLAYOUTLINENUM (sakura_core/macro/CSMacroMgr.cpp). A function with a
+     * result. This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function LogicToLayoutLineNum($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('LogicToLayoutLineNum', func_get_args());
+    }
+
+    /**
+     * LineColumnToIndex(arg1: int?, arg2: int?) -> int
+     *
+     * Sakura's F_LINECOLUMNTOINDEX (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
+     * This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function LineColumnToIndex($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('LineColumnToIndex', func_get_args());
+    }
+
+    /**
+     * LineIndexToColumn(arg1: int?, arg2: int?) -> int
+     *
+     * Sakura's F_LINEINDEXTOCOLUMN (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
+     * This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function LineIndexToColumn($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('LineIndexToColumn', func_get_args());
+    }
+
+    /**
+     * GetCookie(arg1: string?, arg2: string?) -> string
+     *
+     * Sakura's F_GETCOOKIE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
+     * editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function GetCookie($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetCookie', func_get_args());
+    }
+
+    /**
+     * GetCookieDefault(arg1: string?, arg2: string?, arg3: string?) -> string
+     *
+     * Sakura's F_GETCOOKIEDEFAULT (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
+     * This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function GetCookieDefault($arg1 = null, $arg2 = null, $arg3 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetCookieDefault', func_get_args());
+    }
+
+    /**
+     * SetCookie(arg1: string?, arg2: string?, arg3: string?) -> int
+     *
+     * Sakura's F_SETCOOKIE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
+     * editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function SetCookie($arg1 = null, $arg2 = null, $arg3 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SetCookie', func_get_args());
+    }
+
+    /**
+     * DeleteCookie(arg1: string?, arg2: string?) -> int
+     *
+     * Sakura's F_DELETECOOKIE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
+     * editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function DeleteCookie($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('DeleteCookie', func_get_args());
+    }
+
+    /**
+     * GetCookieNames(arg1: string?) -> string
+     *
+     * Sakura's F_GETCOOKIENAMES (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
+     * This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function GetCookieNames($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetCookieNames', func_get_args());
+    }
+
+    /**
+     * SetDrawSwitch(arg1: int?) -> int
+     *
+     * Sakura's F_SETDRAWSWITCH (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
+     * This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function SetDrawSwitch($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SetDrawSwitch', func_get_args());
+    }
+
+    /**
+     * GetDrawSwitch() -> int
+     *
+     * Sakura's F_GETDRAWSWITCH (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
+     * This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function GetDrawSwitch()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetDrawSwitch', func_get_args());
+    }
+
+    /**
+     * IsShownStatus() -> int
+     *
+     * Sakura's F_ISSHOWNSTATUS (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
+     * This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function IsShownStatus()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('IsShownStatus', func_get_args());
+    }
+
+    /**
+     * GetStrWidth(arg1: string?, arg2: int?) -> int
+     *
+     * Sakura's F_GETSTRWIDTH (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
+     * editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function GetStrWidth($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetStrWidth', func_get_args());
+    }
+
+    /**
+     * GetStrLayoutLength(arg1: string?, arg2: int?) -> int
+     *
+     * Sakura's F_GETSTRLAYOUTLENGTH (sakura_core/macro/CSMacroMgr.cpp). A function with a
+     * result. This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function GetStrLayoutLength($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetStrLayoutLength', func_get_args());
+    }
+
+    /**
+     * GetDefaultCharLength() -> int
+     *
+     * Sakura's F_GETDEFAULTCHARLENGTH (sakura_core/macro/CSMacroMgr.cpp). A function with a
+     * result. This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function GetDefaultCharLength()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetDefaultCharLength', func_get_args());
+    }
+
+    /**
+     * IsIncludeClipboardFormat(arg1: string?) -> int
+     *
+     * Sakura's F_ISINCLUDECLIPBOARDFORMAT (sakura_core/macro/CSMacroMgr.cpp). A function with a
+     * result. This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function IsIncludeClipboardFormat($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('IsIncludeClipboardFormat', func_get_args());
+    }
+
+    /**
+     * GetClipboardByFormat(arg1: string?, arg2: int?, arg3: int?) -> string
+     *
+     * Sakura's F_GETCLIPBOARDBYFORMAT (sakura_core/macro/CSMacroMgr.cpp). A function with a
+     * result. This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function GetClipboardByFormat($arg1 = null, $arg2 = null, $arg3 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetClipboardByFormat', func_get_args());
+    }
+
+    /**
+     * SetClipboardByFormat(arg1: string?, arg2: string?, arg3: int?, arg4: int?) -> int
+     *
+     * Sakura's F_SETCLIPBOARDBYFORMAT (sakura_core/macro/CSMacroMgr.cpp). A function with a
+     * result. This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function SetClipboardByFormat($arg1 = null, $arg2 = null, $arg3 = null, $arg4 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SetClipboardByFormat', func_get_args());
+    }
+
+    /**
+     * GetLineAttribute(arg1: int?, arg2: int?) -> int
+     *
+     * Sakura's F_GETLINEATTRIBUTE (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
+     * This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function GetLineAttribute($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetLineAttribute', func_get_args());
+    }
+
+    /**
+     * IsTextSelectingLock() -> int
+     *
+     * Sakura's F_ISTEXTSELECTINGLOCK (sakura_core/macro/CSMacroMgr.cpp). A function with a
+     * result. This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function IsTextSelectingLock()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('IsTextSelectingLock', func_get_args());
+    }
+
+    /**
+     * GetViewLines() -> int
+     *
+     * Sakura's F_GETVIEWLINES (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
+     * editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function GetViewLines()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetViewLines', func_get_args());
+    }
+
+    /**
+     * GetViewColumns() -> int
+     *
+     * Sakura's F_GETVIEWCOLUMNS (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
+     * This editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function GetViewColumns()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetViewColumns', func_get_args());
+    }
+
+    /**
+     * CreateMenu(arg1: int?, arg2: string?) -> int
+     *
+     * Sakura's F_CREATEMENU (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
+     * editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function CreateMenu($arg1 = null, $arg2 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CreateMenu', func_get_args());
+    }
+
+    /**
+     * GetViewTop() -> int
+     *
+     * Sakura's F_GETVIEWTOP (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
+     * editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function GetViewTop()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetViewTop', func_get_args());
+    }
+
+    /**
+     * ChangeInsertSpace(arg1: int?) -> int
+     *
+     * Sakura's F_CHGINSSPACE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
+     * editor answers the error -32001 (not implemented) while it cannot answer it.
+     */
+    public static function ChangeInsertSpace($arg1 = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ChangeInsertSpace', func_get_args());
     }
 
     /**

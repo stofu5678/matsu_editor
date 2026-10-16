@@ -771,6 +771,35 @@ fn generated_code_has_every_function() {
             func.name
         );
     }
+    // Every name of Sakura's macro tables is generated too, except the few that start with a
+    // digit (`1PageUp`): they are reached through the by-name fallback.
+    for entry in crate::catalog::entries() {
+        if !entry.is_identifier() {
+            assert!(entry.name.starts_with(|c: char| c.is_ascii_digit()));
+            assert!(!js.contains(&format!("{}(", entry.name)), "{}", entry.name);
+            continue;
+        }
+        assert!(
+            js.contains(&format!("    {}(", entry.name)),
+            "{}",
+            entry.name
+        );
+        assert!(
+            py.contains(&format!("def {}(", entry.name)),
+            "{}",
+            entry.name
+        );
+        assert!(
+            rb.contains(&format!("def {}", entry.name)),
+            "{}",
+            entry.name
+        );
+        assert!(
+            php.contains(&format!("function {}(", entry.name)),
+            "{}",
+            entry.name
+        );
+    }
     // The model answers every function of the table (no function without code).
     let mut doc = TextModel::new("a", None);
     for func in api::FUNCS {

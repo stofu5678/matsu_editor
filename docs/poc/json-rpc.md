@@ -123,6 +123,18 @@
   - 例: `MoveCursor(行, 桁, オプション)` の行と桁は 1 から数え、オプションは 0 が未選択、1 が通常選択、2 が矩形選択
   - 改行を含むか、桁の単位（文字か UTF-16 か）などの細部は、サクラのソース（`sakura_core/macro/CMacro.cpp` など）で確かめた（「試作の結果」の「サクラのソースで分かったこと」）
 
+#### サクラのマクロの全コマンドを呼べる（2026-10-16）
+
+サクラのマクロの表（`sakura_core/macro/CSMacroMgr.cpp` の `m_MacroFuncInfoCommandArr` と `m_MacroFuncInfoArr`。`ume_commands::sakura::macro_functions`）の名前は、すべて `Editor.<名前>(...)` で呼べる。
+
+- 呼べる名前の一覧は 1 か所にある。`ume_plugin::catalog::entries()` で、手書きの `api::FUNCS`（14 個。引数の名前と説明がある）と、表のそのほかの行（引数は `arg1`、`arg2`、…）を合わせる。名前は表の綴りのまま（大文字と小文字を区別する）。コードの生成（`api.gen.cjs`、`api_gen.py`、`api_gen.rb`、`api_gen.php`）と、同梱の処理系（Lua、QuickJS）は、この一覧から作る
+- 呼び出しの行き先は `ume_plugin::bridge` が決める。コマンド（結果のない行）は、キーマクロと同じく、関数コードでレジストリのコマンドを実行する（キー・メニュー・キーマクロと同じ動き）。1 回の呼び出しが取り消し（Undo）の 1 単位。コマンドがあれば、`FUNCS` の手書きより優先する（今は `Up`、`Down`、`GoFileTop`、`GoFileEnd`、`Char` などがコマンド。`InsText`、`AddTail`、`MoveCursor`、`Jump` はコマンドができるまで手書きの側）。結果のある関数（`GetLineCount`、`GetLineStr`、…）は `FUNCS` が答える
+- 引数は表の型（数か文字列）で確かめる。最後のいくつかは省ける（サクラは省いた引数にヌルを渡す。足りない分をコマンドが許すかはコマンドが決める）。型が違う、多すぎるときは `-32602`
+- まだコマンドのない名前（サクラの表にはあるが、このエディタが持っていない）は `-32001`（not implemented）で、関数の名前（`F_FILESAVE` など）が入る。窓やクリップボードがないときに動かせないコマンドは `-32002`。サクラの表にない名前は `-32601`。サクラにはこのような場合はない
+- 同じ関数コードを持つ古い綴り（`ViewMode` と `ReadOnly`）は、どちらも呼べる
+- `1PageUp` のように数字で始まる名前は、メソッド名にできない言語がある。生成したコードにはメソッドを作らず、名前で呼ぶ道（JavaScript は `Editor['1PageUp']()`、Python は `getattr(Editor, '1PageUp')()`、Ruby は `Editor.send(:'1PageUp')`、PHP は `Editor::__callStatic`、Lua と QuickJS の同梱の処理系は表のキー）を使う
+- 定義と生成物がずれると、テスト（`generated_files_are_up_to_date`）が落ちる。作り直しは `UME_UPDATE_GENERATED=1 cargo test -p ume-plugin generated_files`
+
 ## 言語ごとに試した結果
 
 Claude が 2026-10-11 に試した事実。試した場所は、Windows 11 ARM64 の PC と、その上の WSL2（Ubuntu 24.04、aarch64）。Windows の処理系は、WSL から WSL の相互運用のパイプ越しに起動した。試作のエディタ（Rust）からの起動ではない。
@@ -238,7 +250,7 @@ JSON-RPC の方式について、Codex が挙げた点。
 - 拡張子との対応は、`.lua` が Lua、`.js` が QuickJS（どちらも同梱）。Node.js で動かすのは `.mjs` と `.cjs`。エディタ（`ume-plugin` の `Language::Bundled(Engine::Lua / Engine::QuickJs)`）が、`ume` の実行ファイルの隣の `ume-script` を起動する。`MacroConfig::interpreter` で別の場所を指せる（テストが使う）。隣になければ `PATH` から探す
 - 利用者のスクリプトは、ファイルのパスを引数で渡さず、エディタが読んで `initialize` の `params.script`（`name` と `source`）で渡す（「Lua」の節の理由と同じ）。UTF-8 でなければエディタが読み込みの時点で断る。先頭の BOM は取る
 - ホストは `initialize` を読み、スクリプトを実行して、`Editor.InsText(...)` などの呼び出しを要求として送り、応答を待つ。やることは `boot.cjs`・`boot.py` と同じ
-  - `Editor` と、その関数、`EditorError` はグローバルにある。関数は `ume_plugin::api::FUNCS`（JavaScript と Python の生成元と同じ表）から、Rust の関数として束ねる。1 つずつ書いてはいない
+  - `Editor` と、その関数、`EditorError` はグローバルにある。関数は `ume_plugin::catalog::entries()`（JavaScript・Python・Ruby・PHP の生成元と同じ一覧）から、Rust の関数として束ねる。1 つずつ書いてはいない
   - 応答がエラーなら、`EditorError`（`code`・`message`・呼んだ場所 `where`）を投げる。`pcall` で受けられ、受けなければ `名前:行: EditorError -32602: ...` で終わる
   - 引数の最後の `nil` は省く。整数の値の浮動小数点数（`4 / 2`）は整数として送る。表や関数など JSON にできない値は、その場で `-32602` の `EditorError` にする
   - `print` は Rust で標準出力に書いて、すぐ流す。`io.write` と `io.stderr` は、バッファーを切って（`setvbuf("no")`）、要求との順番を保つ

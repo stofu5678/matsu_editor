@@ -1,5 +1,5 @@
 //! The script engines that the host can run. An engine takes the script and the connection to
-//! the editor, and binds the macro API (`ume_plugin::api::FUNCS`) into its language. The next
+//! the editor, and binds the macro API (`ume_plugin::catalog::entries()`) into its language. The next
 //! engines (QuickJS, MicroPython, mruby) add a module like `lua` and a line to `by_name`.
 
 use std::cell::RefCell;

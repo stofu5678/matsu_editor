@@ -9,6 +9,8 @@
 //!
 //! - `protocol`: the lines, the escaping and the messages.
 //! - `bridge`: runs a macro's calls by Sakura's macro names on the commands (`ume-commands`).
+//! - `catalog`: every callable name (the basic API and every row of Sakura's macro tables) in one
+//!   list, which the code generator and the bundled engines read.
 //! - `api`: the basic API (one table). `codegen` (tests only) generates the JS, Python, Ruby and PHP parts
 //!   from it.
 //! - `session`: the child process, its threads, the timeout and the cancel.
@@ -18,6 +20,7 @@
 pub mod api;
 pub mod boot;
 pub mod bridge;
+pub mod catalog;
 pub mod model;
 pub mod protocol;
 pub mod session;

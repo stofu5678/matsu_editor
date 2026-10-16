@@ -4,7 +4,7 @@
 //!
 //! The script runs as a classic script (not a module) with `Editor`, `EditorError` and `console`
 //! in the global scope, as `boot.cjs` gives them to a Node.js macro. Every function of `Editor`
-//! comes from `ume_plugin::api::FUNCS` and is bound as a Rust function. A small JavaScript part
+//! comes from `ume_plugin::catalog::entries()` (the basic API and every row of Sakura's macro tables) and is bound as a Rust function. A small JavaScript part
 //! (`quickjs.js`) turns the answer of a Rust function into a return value or a thrown
 //! `EditorError`, defines `console`, and describes an uncaught error.
 
@@ -17,7 +17,7 @@ use rquickjs::{
     Type, Value, context::EvalOptions,
 };
 use serde_json::{Number, Value as Json};
-use ume_plugin::api::{FUNCS, Func};
+use ume_plugin::catalog::{Entry, entries};
 use ume_plugin::protocol::RpcError;
 
 use crate::engine::Engine;
@@ -159,8 +159,8 @@ fn install<'js>(
     })?;
 
     let raw = Object::new(ctx.clone())?;
-    let mut names = Vec::with_capacity(FUNCS.len());
-    for func in FUNCS {
+    let mut names = Vec::with_capacity(entries().len());
+    for func in entries() {
         names.push(func.name);
         raw.set(func.name, bind(ctx, func, editor.clone())?)?;
     }
@@ -173,7 +173,7 @@ fn install<'js>(
 /// arguments and answers `[true, result]` or `[false, code, message]`.
 fn bind<'js>(
     ctx: &Ctx<'js>,
-    func: &'static Func,
+    func: &'static Entry,
     editor: Rc<RefCell<dyn Editor>>,
 ) -> rquickjs::Result<Function<'js>> {
     Function::new(ctx.clone(), move |ctx: Ctx<'js>, args: Array<'js>| {

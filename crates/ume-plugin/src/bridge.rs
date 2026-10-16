@@ -190,7 +190,8 @@ impl<'a, 'b> ContextDocument<'a, 'b> {
 
 impl MacroDocument for ContextDocument<'_, '_> {
     fn line_count(&self) -> usize {
-        self.cx.doc().line_count()
+        // The trait promises 1 or more; an empty document may report 0 lines.
+        self.cx.doc().line_count().max(1)
     }
 
     fn line_len(&self, row: usize) -> usize {
