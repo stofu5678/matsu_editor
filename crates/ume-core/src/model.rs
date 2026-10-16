@@ -119,9 +119,7 @@ impl DocumentModel {
     /// The number of rows of the text: its line breaks plus one, so the empty row after a final
     /// line break counts (which `line_count` leaves out).
     fn rows(&self) -> usize {
-        self.doc
-            .end_pos()
-            .map_or_else(|_| self.doc.line_count(), |p| p.line + 1)
+        self.doc.row_count()
     }
 
     /// Undoes one block, and puts the cursor back. `false` if there is nothing to undo.

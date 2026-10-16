@@ -118,7 +118,13 @@ impl LineEdit {
         let deleted = to.0.saturating_sub(from.0);
         // A CR at the end of one line and an LF at the start of the next make one line break
         // when they meet: lines that the numbers of breaks do not explain are gone.
-        let merged = (rows_before + ins.count).saturating_sub(deleted + rows_after);
+        // (When the inserted text has breaks itself, the merge happens at its edge and only
+        // means that it made fewer new lines.)
+        let merged = if ins.count == 0 {
+            rows_before.saturating_sub(deleted + rows_after)
+        } else {
+            0
+        };
         let removed = deleted + merged;
         let delete = (removed > 0).then(|| LineDelta {
             start: if from.1 == 0 { from.0 } else { from.0 + 1 },
@@ -333,6 +339,13 @@ mod tests {
         // "a\rb\nc": deleting "b" (line 1) makes "a\r\nc": the rows go from 3 to 2
         let d = forward((1, 0), (1, 1), "", 3, 2);
         assert_eq!(d, [Some(delta(1, 1, 0)), None]);
+    }
+
+    #[test]
+    fn an_inserted_cr_that_meets_an_lf_makes_no_new_line() {
+        // "a\nb": inserting "\r" after the "a" makes "a\r\nb": two rows before and after
+        let d = forward((0, 1), (0, 1), "\r", 2, 2);
+        assert_eq!(d, [None, None]);
     }
 
     #[test]
