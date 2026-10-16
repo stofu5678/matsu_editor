@@ -17,7 +17,7 @@
 mod element;
 mod input;
 mod mouse;
-mod paging;
+pub(crate) mod paging;
 mod settings;
 #[cfg(test)]
 mod settings_tests;

@@ -19,6 +19,7 @@ mod convert;
 mod indent;
 mod lines;
 mod motion;
+mod paragraph;
 mod word;
 
 use std::path::Path;

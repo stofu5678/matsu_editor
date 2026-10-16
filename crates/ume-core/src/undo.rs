@@ -206,7 +206,7 @@ impl History {
 
     fn restore(&mut self, snap: Snapshot, doc: &mut Document, cursor: &mut Cursor) {
         *doc = snap.doc;
-        *cursor = snap.cursor;
+        cursor.restore(snap.cursor);
         cursor.set_goal_col(None);
         // The rest of the running command starts from this version.
         if let Some(open) = &mut self.open {

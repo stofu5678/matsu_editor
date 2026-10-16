@@ -12,7 +12,7 @@
 //!   file, and `CEditView::OnMOUSEWHEEL2` (`view/CEditView_Mouse.cpp`) for the wheel.
 
 use gpui::{Context, ScrollWheelEvent, Window};
-use ume_commands::command::Result;
+use ume_commands::command::{Arg, Result};
 use ume_commands::keymap::{Chord, Key, Modifiers, MouseAction, Resolved};
 
 use super::EditorView;
@@ -28,14 +28,14 @@ const MAX_NOTCHES_PER_EVENT: f32 = 1000.0;
 /// `F_WHEELUP` ..`F_WHEELPAGERIGHT` (`Funccode_x.hsrc`): the functions of the wheel that scroll.
 const F_WHEEL_FIRST: u16 = 30385;
 const F_WHEEL_LAST: u16 = 30392;
-const F_WHEELUP: u16 = 30385;
-const F_WHEELDOWN: u16 = 30386;
-const F_WHEELLEFT: u16 = 30387;
-const F_WHEELRIGHT: u16 = 30388;
-const F_WHEELPAGEUP: u16 = 30389;
-const F_WHEELPAGEDOWN: u16 = 30390;
-const F_WHEELPAGELEFT: u16 = 30391;
-const F_WHEELPAGERIGHT: u16 = 30392;
+pub(crate) const F_WHEELUP: u16 = 30385;
+pub(crate) const F_WHEELDOWN: u16 = 30386;
+pub(crate) const F_WHEELLEFT: u16 = 30387;
+pub(crate) const F_WHEELRIGHT: u16 = 30388;
+pub(crate) const F_WHEELPAGEUP: u16 = 30389;
+pub(crate) const F_WHEELPAGEDOWN: u16 = 30390;
+pub(crate) const F_WHEELPAGELEFT: u16 = 30391;
+pub(crate) const F_WHEELPAGERIGHT: u16 = 30392;
 
 /// `_CARETMARGINRATE` (`view/CCaret.h`): the caret margin is 1/20 of the rows of the view.
 const CARET_MARGIN_RATE: usize = 20;
@@ -213,6 +213,40 @@ impl EditorView {
             }
             return;
         }
+        let pixels = event.delta.precise().then_some(amount.abs());
+        self.scroll_by_wheel_function(code, vertical, notches, page_setting, pixels, cx);
+    }
+
+    /// A wheel function run as a command (a key, a menu or a macro): `args` is `zDelta`, the
+    /// wheel rotation, 120 per notch, and the default 120 when it is missing or 0. Only its size
+    /// counts, because the function decides the direction (`Command_WHEELUP` .. in
+    /// `sakura_core/cmd/CViewCommander_Cursor.cpp`, which call `OnMOUSEWHEEL2` with the function).
+    pub(crate) fn run_wheel_function(&mut self, code: u16, args: &[Arg], cx: &mut Context<Self>) {
+        let z_delta = match args.first() {
+            Some(Arg::Int(z)) if *z != 0 => z.unsigned_abs() as f32,
+            _ => 120.0,
+        };
+        let horizontal = matches!(
+            code,
+            F_WHEELLEFT | F_WHEELRIGHT | F_WHEELPAGELEFT | F_WHEELPAGERIGHT
+        );
+        self.scroll_by_wheel_function(code, !horizontal, z_delta / 120.0, false, None, cx);
+    }
+
+    /// The scrolling functions of the wheel (`F_WHEELUP` .. `F_WHEELPAGERIGHT`): `notches` of the
+    /// wheel scroll in the direction of the function, whichever way the wheel went. `vertical`
+    /// is the axis whose leftover `notches` is added to. `pixels` is the distance of a trackpad,
+    /// which scrolls smoothly unless the function is a page. `page_setting` is Windows' "one
+    /// screen at a time", which makes any of them a page.
+    pub(crate) fn scroll_by_wheel_function(
+        &mut self,
+        code: u16,
+        vertical: bool,
+        notches: f32,
+        page_setting: bool,
+        pixels: Option<f32>,
+        cx: &mut Context<Self>,
+    ) {
         let (horizontal, page, forward) = match code {
             F_WHEELUP => (false, false, false),
             F_WHEELDOWN => (false, false, true),
@@ -226,9 +260,11 @@ impl EditorView {
         };
         let page = page || page_setting;
         let sign: isize = if forward { 1 } else { -1 };
-        if event.delta.precise() && !page {
+        if let Some(pixels) = pixels
+            && !page
+        {
             // Smooth scrolling for a trackpad: the pixels as they come, in the function's direction.
-            let amount = amount.abs() * sign as f32;
+            let amount = pixels * sign as f32;
             if horizontal {
                 self.scroll_by(-amount, 0.0);
             } else {

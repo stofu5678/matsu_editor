@@ -21,6 +21,7 @@
 //! clears it; the next vertical move then takes the column of the caret.
 
 use crate::buffer::{Document, Pos, Result};
+use crate::jump_history::JumpHistory;
 
 /// The kind of a selection. Only [`Normal`](Self::Normal) is implemented by the commands.
 ///
@@ -41,6 +42,7 @@ pub struct Cursor {
     anchor: Option<Pos>,
     mode: SelectionMode,
     goal_col: Option<usize>,
+    jump_history: JumpHistory,
 }
 
 impl Cursor {
@@ -108,6 +110,24 @@ impl Cursor {
     pub fn clear_selection(&mut self) {
         self.anchor = None;
         self.mode = SelectionMode::Normal;
+    }
+
+    /// The places this view jumped from (Sakura: `CEditView::m_cHistory`). It belongs to the
+    /// view like the caret does, and a new `Cursor` (a file opened) starts with an empty one.
+    pub fn jump_history(&self) -> &JumpHistory {
+        &self.jump_history
+    }
+
+    pub fn jump_history_mut(&mut self) -> &mut JumpHistory {
+        &mut self.jump_history
+    }
+
+    /// Becomes `other` (the caret and the selection of an older or newer version, for undo and
+    /// redo) but keeps this view's jump history: the history is not part of a version.
+    pub fn restore(&mut self, other: Cursor) {
+        let history = std::mem::take(&mut self.jump_history);
+        *self = other;
+        self.jump_history = history;
     }
 
     pub fn set_goal_col(&mut self, col: Option<usize>) {

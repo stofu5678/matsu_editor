@@ -9,11 +9,16 @@ use gpui::{
     AppContext as _, Entity, Modifiers, ScrollDelta, ScrollWheelEvent, TestAppContext, TouchPhase,
     VisualTestContext, point, px,
 };
+use ume_commands::command::Arg;
 use ume_commands::keymap::{Chord, Key, MouseAction, Resolved};
 use ume_core::buffer::{Document, Pos};
 use ume_core::model::DocumentModel;
 
 use super::EditorView;
+use super::paging::{
+    F_WHEELDOWN, F_WHEELLEFT, F_WHEELPAGEDOWN, F_WHEELPAGELEFT, F_WHEELPAGERIGHT, F_WHEELPAGEUP,
+    F_WHEELRIGHT, F_WHEELUP,
+};
 use crate::document::SharedDocument;
 use crate::geometry::max_scroll_y;
 
@@ -364,4 +369,52 @@ fn dragging_the_thumb_starts_from_where_it_is_drawn(cx: &mut TestAppContext) {
         other => panic!("not dragging the thumb: {other:?}"),
     });
     assert_eq!(start, limit);
+}
+
+fn run_with_args(view: &Entity<EditorView>, cx: &mut VisualTestContext, code: u16, args: &[Arg]) {
+    let view = view.clone();
+    cx.update(|window, cx| view.update(cx, |v, cx| v.run_function(code, args, window, cx)));
+}
+
+#[gpui::test]
+fn the_wheel_functions_run_as_commands(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx);
+    let n = rows(&view, cx);
+    // OnMOUSEWHEEL2 through Command_WHEELDOWN: one notch (zDelta 120) is three rows.
+    run(&view, cx, F_WHEELDOWN);
+    assert_eq!(top(&view, cx), 3);
+    run(&view, cx, F_WHEELUP);
+    assert_eq!(top(&view, cx), 0);
+    // zDelta 240 is two notches; the sign of zDelta does not matter, the function decides.
+    run_with_args(&view, cx, F_WHEELDOWN, &[Arg::Int(240)]);
+    assert_eq!(top(&view, cx), 6);
+    run_with_args(&view, cx, F_WHEELDOWN, &[Arg::Int(-120)]);
+    assert_eq!(top(&view, cx), 9);
+    // half a notch makes 1.5 rows: one now, the rest is kept for the next one
+    run_with_args(&view, cx, F_WHEELUP, &[Arg::Int(60)]);
+    assert_eq!(top(&view, cx), 8);
+    // the page functions scroll a page less one row per notch
+    run(&view, cx, F_WHEELPAGEDOWN);
+    assert_eq!(top(&view, cx), 8 + n - 1);
+    run(&view, cx, F_WHEELPAGEUP);
+    assert_eq!(top(&view, cx), 8);
+    // none of them moves the caret
+    assert_eq!(caret_line(&view, cx), 0);
+}
+
+#[gpui::test]
+fn the_horizontal_wheel_functions_run_as_commands(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx);
+    view.update(cx, |v, _| v.widest_cols = 500);
+    let cell = view.read_with(cx, |v, _| v.metrics().cell_width);
+    run(&view, cx, F_WHEELRIGHT);
+    assert_eq!(view.read_with(cx, |v, _| v.scroll_x), 3.0 * cell);
+    run(&view, cx, F_WHEELLEFT);
+    assert_eq!(view.read_with(cx, |v, _| v.scroll_x), 0.0);
+    view.update(cx, |v, _| v.widest_cols = 500);
+    run(&view, cx, F_WHEELPAGERIGHT);
+    let page = view.read_with(cx, |v, _| v.scroll_x / v.metrics().cell_width);
+    assert!(page > 3.0, "a page is more than a notch: {page}");
+    run(&view, cx, F_WHEELPAGELEFT);
+    assert_eq!(view.read_with(cx, |v, _| v.scroll_x), 0.0);
 }

@@ -290,4 +290,29 @@ mod tests {
         }
         assert_eq!(cursor.caret(), Pos::new(0, 4));
     }
+
+    /// The paragraph moves count lines of the document, not rows: a wrapped line is one line
+    /// (Sakura converts the distance with `LogicToLayout` before `Cursor_UPDOWN`).
+    #[test]
+    fn paragraph_moves_count_lines_and_not_wrapped_rows() {
+        let cfg = LayoutConfig {
+            wrap: Wrap::Columns(4),
+            ..LayoutConfig::default()
+        };
+        let mut model = DocumentModel::new(doc("abcdefghij\nkl\n\nmn"));
+        let mut cursor = Cursor::default();
+        let mut layout = laid_out(model.doc(), cfg);
+        let mut run = |id: &str, cursor: &mut Cursor| {
+            let mut adapter = RowLayout(&mut layout);
+            let mut cx = CommandContext::new(&mut model, cursor, &mut adapter, None);
+            Registry::global().run(id, &mut cx, &[]).unwrap();
+            cx.finish();
+        };
+        // the first line has three rows; the target is five rows down
+        run("gonextparagraph", &mut cursor);
+        assert_eq!(cursor.caret(), Pos::new(3, 0));
+        // from the last line, up to the first line of the paragraph above
+        run("goprevparagraph", &mut cursor);
+        assert_eq!(cursor.caret(), Pos::new(0, 0));
+    }
 }
