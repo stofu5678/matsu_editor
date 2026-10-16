@@ -14,4 +14,5 @@ pub mod convert;
 pub mod cursor;
 pub mod edit;
 pub mod insert;
+pub mod mode;
 pub mod select;
