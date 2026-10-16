@@ -859,14 +859,82 @@ fn the_same_file_on_the_command_line_gets_one_window(cx: &mut TestAppContext) {
     let path = dir.write("a.txt", b"abc");
     cx.update(gpui_component::init);
     let same = dir.0.join(".").join("a.txt");
-    cx.update(|cx| super::windows::open_startup_windows(cx, vec![path, same]))
+    cx.update(|cx| super::windows::open_from_outside(cx, vec![path, same]))
         .unwrap();
     assert_eq!(cx.windows().len(), 1);
     let none: Vec<PathBuf> = Vec::new();
     let cx2 = cx;
-    cx2.update(|cx| super::windows::open_startup_windows(cx, none))
+    cx2.update(|cx| super::windows::open_from_outside(cx, none))
         .unwrap();
     assert_eq!(cx2.windows().len(), 2, "no files: one untitled window");
+}
+
+/// A file handed over by a later launch (ADR-0016) that is open already brings its window to the
+/// front (`CNormalProcess::ActiveAlreadyOpenedWindow`), and no second window is made for it.
+#[gpui::test]
+fn a_forwarded_open_of_an_open_file_activates_its_window(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let a = dir.write("a.txt", b"abc");
+    cx.update(gpui_component::init);
+    cx.update(|cx| super::windows::open_from_outside(cx, vec![a.clone()]))
+        .unwrap();
+    cx.run_until_parked();
+    let first = cx.windows()[0];
+    // Another window is the active one now.
+    let other = cx
+        .update(|cx| open_editor_window(cx, SharedDocument::empty(), None))
+        .unwrap();
+    cx.update(|cx| super::windows::activate(cx, other));
+    assert_eq!(cx.update(|cx| cx.active_window()), Some(other));
+    // The launch named the file in another way (a longer path to the same file).
+    let same = dir.0.join(".").join("a.txt");
+    cx.update(|cx| super::windows::open_from_outside(cx, vec![same]))
+        .unwrap();
+    cx.run_until_parked();
+    assert_eq!(cx.windows().len(), 2, "no second window for the same file");
+    assert_eq!(cx.update(|cx| cx.active_window()), Some(first));
+}
+
+/// A file that is not open yet gets a window of its own and its contents.
+#[gpui::test]
+fn a_forwarded_open_of_a_new_file_opens_a_window(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let a = dir.write("a.txt", b"abc");
+    let b = dir.write("b.txt", "日本語".as_bytes());
+    cx.update(gpui_component::init);
+    cx.update(|cx| super::windows::open_from_outside(cx, vec![a]))
+        .unwrap();
+    cx.run_until_parked();
+    cx.update(|cx| super::windows::open_from_outside(cx, vec![b.clone()]))
+        .unwrap();
+    cx.run_until_parked();
+    assert_eq!(cx.windows().len(), 2);
+    let found = cx.update(|cx| {
+        super::windows::find_open(cx, &b).map(|(_, view)| {
+            let doc = view.read(cx).document().read(cx).doc();
+            doc.line(0).unwrap().unwrap().text
+        })
+    });
+    assert_eq!(found.as_deref(), Some("日本語"));
+}
+
+/// A launch without a file opens a new, empty window, also when windows are open already
+/// (`CControlTray::OpenNewEditor`).
+#[gpui::test]
+fn a_forwarded_open_without_a_file_opens_an_empty_window(cx: &mut TestAppContext) {
+    cx.update(gpui_component::init);
+    cx.update(|cx| super::windows::open_from_outside(cx, Vec::new()))
+        .unwrap();
+    cx.update(|cx| super::windows::open_from_outside(cx, Vec::new()))
+        .unwrap();
+    cx.run_until_parked();
+    assert_eq!(cx.windows().len(), 2);
+    let empty = cx.update(|cx| {
+        super::windows::editors(cx)
+            .iter()
+            .all(|(_, view)| view.read(cx).document().read(cx).path().is_none())
+    });
+    assert!(empty);
 }
 
 #[gpui::test]

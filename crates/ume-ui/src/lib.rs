@@ -7,6 +7,7 @@
 //! * [`document`]: `Entity<SharedDocument>`, the document and its undo history, shared by views.
 //! * [`view`]: `Entity<EditorView>`, the layout, cursor, scroll position and input of one view.
 //! * [`app`]: the window, the menu and the status bar.
+//! * [`mod@launch`]: starting, and handing a second launch over to the running process.
 //! * [`menu`]: Sakura's main menu as a model (labels, shortcuts, what is enabled).
 //! * [`ui_command`]: the commands that need the window (the size of the view, dialogs), one per file
 //!   under `ui_commands/` like the core commands, found by the same Sakura function codes.
@@ -31,6 +32,7 @@ pub mod grep;
 mod history;
 pub mod hit;
 pub mod keys;
+pub mod launch;
 pub mod layout_adapter;
 pub mod macros;
 pub mod menu;
@@ -50,7 +52,7 @@ pub mod view;
 mod window_ops;
 pub mod word;
 
-pub use app::run;
+pub use launch::launch;
 
 // The commands register themselves with `inventory` when the crate is linked; this makes sure
 // that the linker keeps it (ADR-0013, "守ること").
