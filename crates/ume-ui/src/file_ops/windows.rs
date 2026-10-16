@@ -78,14 +78,19 @@ pub(crate) fn open_editor_window(
 }
 
 /// Opens a window for a tab that comes from another window (`F_TAB_SEPARATE`, ungrouping): the
-/// panes keep their views, carets and everything else.
+/// panes keep their views, carets and everything else. If the window cannot be made, the panes
+/// come back so that the caller can put the tab where it was (it may hold unsaved changes).
 pub(crate) fn open_window_with_panes(
     cx: &mut App,
     panes: PaneSet,
-) -> gpui::Result<AnyWindowHandle> {
+) -> Result<AnyWindowHandle, Option<Box<PaneSet>>> {
+    let slot = Rc::new(std::cell::RefCell::new(Some(panes)));
+    let taken = slot.clone();
     open_window_with(cx, move |window, cx| {
+        let panes = taken.borrow_mut().take().expect("the panes are used once");
         cx.new(|cx| Workspace::with_panes(panes, window, cx))
     })
+    .map_err(|_| slot.borrow_mut().take().map(Box::new))
 }
 
 /// Opens a window whose content `build` makes, and registers it.

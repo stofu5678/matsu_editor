@@ -185,7 +185,23 @@ pub(crate) fn regroup(cx: &mut App, window: &mut Window) {
                     .unwrap_or_default()
             };
             for set in sets {
-                open_window_with_panes(cx, set).ok();
+                // A tab that cannot get a window stays where it was.
+                if let Err(Some(set)) = open_window_with_panes(cx, set) {
+                    let set = *set;
+                    if handle == current {
+                        ws.update(cx, |ws, wcx| {
+                            ws.insert_tab(set, usize::MAX, false, window, wcx)
+                        });
+                    } else {
+                        handle
+                            .update(cx, |_, other, app| {
+                                ws.update(app, |ws, wcx| {
+                                    ws.insert_tab(set, usize::MAX, false, other, wcx)
+                                })
+                            })
+                            .ok();
+                    }
+                }
             }
         }
     }
@@ -277,7 +293,18 @@ pub(crate) fn separate_tab(cx: &mut App, window: &mut Window) -> bool {
         ws.take_tab(active, window, wcx)
     });
     match set {
-        Some(set) => open_window_with_panes(cx, set).is_ok(),
+        Some(set) => match open_window_with_panes(cx, set) {
+            Ok(_) => true,
+            Err(back) => {
+                // The tab stays where it was.
+                if let Some(set) = back.map(|b| *b) {
+                    workspace.update(cx, |ws, wcx| {
+                        ws.insert_tab(set, usize::MAX, true, window, wcx)
+                    });
+                }
+                false
+            }
+        },
         None => false,
     }
 }

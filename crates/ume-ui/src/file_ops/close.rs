@@ -91,30 +91,45 @@ pub(crate) fn show_in_window(view: &Entity<EditorView>, window: &mut Window, app
     }
 }
 
-/// Closes the tab of `view` without a question, or the window when it is the only tab. The flow
-/// runs in the window of the view.
+/// Closes the tab of `view` without a question, or the window when it is the only tab. The tab
+/// may have moved to another window since the flow started, so the window of the view is looked
+/// up now, not taken from the flow.
 pub(crate) fn close_tab_or_window(
     view: &WeakEntity<EditorView>,
     cx: &mut AsyncWindowContext,
 ) -> bool {
-    let Some(view) = view.upgrade() else {
+    let Some(entity) = view.upgrade() else {
         return false;
     };
     cx.update(|window, app| {
-        let host = view.read(app).split_host.as_ref().and_then(|h| h.upgrade());
-        if let Some(workspace) = host {
-            let (count, index) = {
-                let w = workspace.read(app);
-                (w.tab_count(), w.tab_of(&view))
-            };
-            if let (true, Some(index)) = (count > 1, index) {
-                workspace.update(app, |w, cx| w.close_tab_now(index, window, cx));
-                return;
-            }
+        let Some((handle, _)) = super::windows::find_tab_of(app, view) else {
+            return;
+        };
+        if handle == window.window_handle() {
+            close_in(&entity, window, app);
+        } else {
+            handle
+                .update(app, |_, other, app| close_in(&entity, other, app))
+                .ok();
         }
-        window.remove_window();
     })
     .is_ok()
+}
+
+/// Closes the tab of `view` in `window`, which shows it, or the window if it has no other tab.
+fn close_in(view: &Entity<EditorView>, window: &mut Window, app: &mut App) {
+    let host = view.read(app).split_host.as_ref().and_then(|h| h.upgrade());
+    if let Some(workspace) = host {
+        let (count, index) = {
+            let w = workspace.read(app);
+            (w.tab_count(), w.tab_of(view))
+        };
+        if let (true, Some(index)) = (count > 1, index) {
+            workspace.update(app, |w, cx| w.close_tab_now(index, window, cx));
+            return;
+        }
+    }
+    window.remove_window();
 }
 
 /// `F_WINCLOSE`: closes the document after the question: its tab, or the window when it has no
