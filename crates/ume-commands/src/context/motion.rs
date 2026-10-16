@@ -34,6 +34,8 @@ impl CommandContext<'_> {
 
     /// Selects the whole document. The caret goes to the end.
     pub fn select_all(&mut self) -> Result<()> {
+        // Command_SELECTALL (sakura_core/cmd/CViewCommander_Select.cpp) records the place first.
+        self.add_to_jump_history();
         let end = self.doc().end_pos()?;
         self.select_range(Pos::new(0, 0), end)
     }
@@ -104,14 +106,17 @@ impl CommandContext<'_> {
         self.move_caret(target, extend)
     }
 
-    /// The start of the document (Sakura: `Command_GOFILETOP`).
+    /// The start of the document (Sakura: `Command_GOFILETOP`, which first adds the place to the
+    /// jump history).
     pub fn move_file_top(&mut self, extend: bool) -> Result<()> {
+        self.add_to_jump_history();
         self.move_caret(Pos::new(0, 0), extend)
     }
 
     /// The end of the document, which is on the empty line after a final line ending
     /// (Sakura: `Command_GOFILEEND`).
     pub fn move_file_end(&mut self, extend: bool) -> Result<()> {
+        self.add_to_jump_history();
         let end = self.doc().end_pos()?;
         self.move_caret(end, extend)
     }
