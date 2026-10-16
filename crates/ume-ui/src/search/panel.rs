@@ -192,6 +192,26 @@ impl SearchPanel {
         }
     }
 
+    /// 該当行マーク: bookmarks the lines that match. The find dialog closes itself after it
+    /// (`m_bAutoCloseDlgFind`), the replace dialog stays (`IDC_BUTTON_SETMARK` in
+    /// `sakura_core/dlg/CDlgFind.cpp` and `CDlgReplace.cpp`). With no pattern nothing happens.
+    fn mark_lines(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.sync(cx);
+        let Some(editor) = self.editor.upgrade() else {
+            return;
+        };
+        if self.text.read(cx).value().is_empty() {
+            return;
+        }
+        let auto_close = editor.update(cx, |editor, cx| {
+            editor.mark_matching_lines(cx);
+            editor.search.options().auto_close
+        });
+        if auto_close && self.mode == PanelMode::Find {
+            self.close(window, cx);
+        }
+    }
+
     fn replace_one(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.sync(cx);
         let Some(editor) = self.editor.upgrade() else {
@@ -420,6 +440,13 @@ impl Render for SearchPanel {
                                     this.find(Direction::Forward, window, cx);
                                 }),
                             ))
+                            .child(
+                                Button::new("search-mark")
+                                    .label("該当行マーク(M)")
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.mark_lines(window, cx)
+                                    })),
+                            )
                             .child(close),
                     )
                     .into_any_element(),
@@ -458,6 +485,13 @@ impl Render for SearchPanel {
                             .child(Button::new("replace-all").label("すべて置換(A)").on_click(
                                 cx.listener(|this, _, window, cx| this.replace_all(window, cx)),
                             ))
+                            .child(
+                                Button::new("search-mark")
+                                    .label("該当行マーク(M)")
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.mark_lines(window, cx)
+                                    })),
+                            )
                             .child(close),
                     )
                     .into_any_element(),

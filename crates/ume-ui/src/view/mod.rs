@@ -251,6 +251,10 @@ impl EditorView {
             let result = f(&mut command_cx);
             let changes = command_cx.finish();
             shared.set_overwrite(changes.overwrite, cx);
+            if changes.bookmarks_changed {
+                // the other views of the document draw the marks too
+                cx.notify();
+            }
             (result, changes)
         });
         self.after_command(&changes, cx);

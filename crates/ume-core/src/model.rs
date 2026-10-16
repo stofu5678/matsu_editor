@@ -4,6 +4,7 @@
 //! All edits go through [`DocumentModel::replace`], which tells the history, so that the
 //! document and the undo blocks cannot disagree.
 
+use crate::bookmarks::{Bookmarks, LineDelta};
 use crate::buffer::{Document, Edit, Eol, Pos, Result};
 use crate::cursor::Cursor;
 use crate::undo::History;
@@ -14,6 +15,7 @@ pub struct DocumentModel {
     doc: Document,
     history: History,
     new_line: Eol,
+    bookmarks: Bookmarks,
 }
 
 impl DocumentModel {
@@ -32,6 +34,7 @@ impl DocumentModel {
             doc,
             history: History::new(),
             new_line,
+            bookmarks: Bookmarks::new(),
         }
     }
 
@@ -45,6 +48,17 @@ impl DocumentModel {
 
     pub fn history(&self) -> &History {
         &self.history
+    }
+
+    /// The bookmarked lines. They follow the edits, also those of undo and redo (see
+    /// [`crate::bookmarks`]).
+    pub fn bookmarks(&self) -> &Bookmarks {
+        &self.bookmarks
+    }
+
+    /// The bookmarks, to set and clear them. Bookmarks are not part of the undo history.
+    pub fn bookmarks_mut(&mut self) -> &mut Bookmarks {
+        &mut self.bookmarks
     }
 
     /// The line ending that Enter inserts.
@@ -76,19 +90,50 @@ impl DocumentModel {
             });
         }
         // The document is left as it was when the replace fails, so the history is told after.
+        let lines_before = self.doc.line_count();
         let edit = self.doc.replace(from, to, text)?;
         self.history.note_edit();
+        let (a, b) = (from.min(to), from.max(to));
+        let deltas = LineDelta::of_edit(
+            (a.line, a.col),
+            (b.line, b.col),
+            text,
+            lines_before,
+            self.doc.line_count(),
+        );
+        for delta in deltas.into_iter().flatten() {
+            self.bookmarks.apply(delta);
+            self.history.note_lines(delta);
+        }
+        // A last line that lost all its text is gone (Sakura deletes the line object), and its
+        // bookmark with it.
+        self.bookmarks.truncate(self.doc.line_count());
         Ok(edit)
     }
 
     /// Undoes one block, and puts the cursor back. `false` if there is nothing to undo.
     pub fn undo(&mut self, cursor: &mut Cursor) -> bool {
-        self.history.undo(&mut self.doc, cursor)
+        let Some(lines) = self.history.undo_lines(&mut self.doc, cursor) else {
+            return false;
+        };
+        self.apply_lines(&lines);
+        true
     }
 
     /// Redoes one block, and puts the cursor back. `false` if there is nothing to redo.
     pub fn redo(&mut self, cursor: &mut Cursor) -> bool {
-        self.history.redo(&mut self.doc, cursor)
+        let Some(lines) = self.history.redo_lines(&mut self.doc, cursor) else {
+            return false;
+        };
+        self.apply_lines(&lines);
+        true
+    }
+
+    fn apply_lines(&mut self, lines: &[LineDelta]) {
+        for &delta in lines {
+            self.bookmarks.apply(delta);
+        }
+        self.bookmarks.truncate(self.doc.line_count());
     }
 
     pub fn is_modified(&self) -> bool {
@@ -168,5 +213,91 @@ mod tests {
             .unwrap();
             assert_eq!(m.doc().line(0).unwrap().unwrap().eol, Some(eol));
         }
+    }
+
+    /// Runs one edit as one undo block.
+    fn edit(m: &mut DocumentModel, from: (usize, usize), to: (usize, usize), text: &str) {
+        let cursor = Cursor::default();
+        m.begin_block(&cursor);
+        m.replace(Pos::new(from.0, from.1), Pos::new(to.0, to.1), text)
+            .unwrap();
+        m.end_block(&cursor);
+    }
+
+    fn marked(m: &DocumentModel) -> Vec<usize> {
+        m.bookmarks().iter().collect()
+    }
+
+    #[test]
+    fn bookmarks_follow_their_lines() {
+        let mut m = model(
+            "a
+b
+c
+d",
+        );
+        m.bookmarks_mut().set(2, true);
+        edit(
+            &mut m,
+            (0, 0),
+            (0, 0),
+            "x
+",
+        ); // a line above
+        assert_eq!(marked(&m), [3]);
+        edit(&mut m, (0, 0), (1, 0), ""); // and gone again
+        assert_eq!(marked(&m), [2]);
+        edit(&mut m, (2, 0), (3, 0), ""); // the bookmarked line itself
+        assert_eq!(marked(&m), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn undo_and_redo_move_bookmarks_like_the_inverse_edit() {
+        let mut m = model(
+            "a
+b
+c",
+        );
+        let mut cursor = Cursor::default();
+        m.bookmarks_mut().set(2, true);
+        edit(
+            &mut m,
+            (0, 0),
+            (0, 0),
+            "x
+y
+",
+        );
+        assert_eq!(marked(&m), [4]);
+        assert!(m.undo(&mut cursor));
+        assert_eq!(marked(&m), [2]);
+        assert!(m.redo(&mut cursor));
+        assert_eq!(marked(&m), [4]);
+        // a deleted line loses its bookmark for good: undo brings the text back without it
+        m.bookmarks_mut().set(1, true);
+        edit(&mut m, (1, 0), (2, 0), "");
+        assert_eq!(marked(&m), [3]);
+        assert!(m.undo(&mut cursor));
+        assert_eq!(marked(&m), [4]);
+    }
+
+    #[test]
+    fn enter_at_the_start_of_a_line_moves_its_bookmark_down() {
+        let mut m = model("abc");
+        m.bookmarks_mut().set(0, true);
+        edit(&mut m, (0, 0), (0, 0), "\n");
+        assert_eq!(marked(&m), [1]);
+        let mut m = model("abc");
+        m.bookmarks_mut().set(0, true);
+        edit(&mut m, (0, 1), (0, 1), "\n");
+        assert_eq!(marked(&m), [0]);
+    }
+
+    #[test]
+    fn crlf_lines_count_once() {
+        let mut m = model("a\r\nb\r\nc");
+        m.bookmarks_mut().set(2, true);
+        edit(&mut m, (0, 1), (1, 0), ""); // joins "a" and "b"
+        assert_eq!(marked(&m), [1]);
     }
 }

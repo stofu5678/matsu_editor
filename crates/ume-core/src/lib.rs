@@ -3,6 +3,7 @@
 //! The buffer, the cursor, undo, encodings, search, and editing commands live here. This crate
 //! must not depend on any UI crate (see `CLAUDE.md`).
 
+pub mod bookmarks;
 pub mod buffer;
 pub mod cursor;
 pub mod encoding;

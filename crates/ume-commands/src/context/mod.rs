@@ -14,6 +14,7 @@
 //! The methods that several commands share (moves, delete, insert at the caret) live here, so a
 //! command file only says *which* of them to call (see `crate::commands`).
 
+mod bookmarks;
 mod boxsel;
 mod clipboard;
 mod convert;
@@ -33,6 +34,7 @@ use crate::clipboard::Clipboard;
 use crate::command::{CommandError, Result};
 use crate::layout::Layout;
 
+pub use bookmarks::BookmarkJump;
 pub use boxsel::MAX_BOX_COL;
 pub(crate) use clipboard::QUOTE;
 pub(crate) use motion::is_indent_char;
@@ -95,6 +97,9 @@ pub struct Changes {
     pub selection_changed: bool,
     /// The command could not do what was asked in this state (Sakura: `ErrorBeep()`).
     pub beep: bool,
+    /// The bookmarks of the document changed (set, cleared, or marked by a search). Edits move
+    /// them too, but those are reported as edits. `ume-ui` repaints every view of the document.
+    pub bookmarks_changed: bool,
     /// Whether typing overwrites after the command (Sakura: not `IsInsMode`). `ume-ui` keeps the
     /// mode in the document and writes this back after every command.
     pub overwrite: bool,

@@ -1,5 +1,8 @@
 //! Sakura's search group (検索系): the find and replace panels and the jumps that go with them.
 
+pub mod bookmark_next;
+pub mod bookmark_pattern;
+pub mod bookmark_prev;
 pub mod jump_dialog;
 pub mod jump_srchstartpos;
 pub mod replace;
