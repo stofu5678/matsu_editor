@@ -200,10 +200,12 @@ impl EditorView {
             Outcome::Binary => self.warning_box(BINARY_FILE, window, cx),
             Outcome::Hunks(hunks) => {
                 let marked = self.run_with(cx, |c| c.set_diff_marks(&hunks, options.own_is_old));
-                // Sakura asks `nFlgOpt & 0x0040` here, but `ViewDiffInfo` has overwritten the
-                // flags with the ones of `ExecCmd` (which include 0x40) by then, so the message
-                // is shown whatever the dialog's check box says.
-                if !marked {
+                // Sakura's `ViewDiffInfo` asks `nFlgOpt & 0x0040` here, but has reused `nFlgOpt`
+                // for the flags of `ExecCmd` (0x40 always set) by then, so Sakura shows the
+                // message whenever nothing differs, whatever the check box 「DIFF差分がない
+                // ときにメッセージを表示」 or the bit 0x40 of the macro `Diff` says. UME Editor
+                // follows the check box and the bit on purpose (the user's decision, 2026-10-17).
+                if !marked && options.notify_no_diff {
                     self.info_box(NO_DIFFERENCE, window, cx);
                 }
             }

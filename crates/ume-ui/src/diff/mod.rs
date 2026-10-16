@@ -56,8 +56,11 @@ pub(crate) struct Remembered {
 impl Default for Remembered {
     fn default() -> Self {
         Self {
-            // `m_nDiffFlgOpt = 0` (`CShareData::InitShareData`), `m_bCompareAndTileHorz = TRUE`
-            flags: 0,
+            // Sakura starts with `m_nDiffFlgOpt = 0` (`CShareData::InitShareData`), but its users
+            // always saw the message "no difference" (see `finish_diff`), so the box starts
+            // checked (0x0040) and keeps that. A value that is read from a settings file, 0
+            // included, is used as it is. `m_bCompareAndTileHorz = TRUE`.
+            flags: ume_core::diff::DiffOptions::NOTIFY_NO_DIFF,
             tile: true,
         }
     }

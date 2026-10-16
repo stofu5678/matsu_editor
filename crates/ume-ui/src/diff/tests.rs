@@ -187,7 +187,7 @@ fn a_window_is_compared_as_it_is_on_the_screen(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn equal_texts_say_so(cx: &mut TestAppContext) {
-    remember_options(cx, 0, false);
+    remember_options(cx, 0x40, false);
     let w = window(cx, "a\r\nb\r\n", None);
     let other = window(cx, "a\r\nb\r\n", None);
     diff_with_window(cx, &w, &other);
@@ -202,7 +202,7 @@ fn equal_texts_say_so(cx: &mut TestAppContext) {
 #[gpui::test]
 fn the_options_of_the_dialog_reach_the_comparison(cx: &mut TestAppContext) {
     // 大文字小文字の同一視 and 空白無視
-    remember_options(cx, 0x0003, false);
+    remember_options(cx, 0x0043, false);
     let w = window(cx, "Hello World\nsame\n", None);
     let other = window(cx, "hello  world\nsame\n", None);
     diff_with_window(cx, &w, &other);
@@ -259,7 +259,7 @@ fn a_file_in_another_encoding_is_decoded_as_when_it_is_opened(cx: &mut TestAppCo
     }
     std::fs::write(&path, bytes).unwrap();
     let w = window(cx, text, None);
-    assert!(w.run_with(cx, "F_DIFF", &[text_arg(&path)]));
+    assert!(w.run_with(cx, "F_DIFF", &[text_arg(&path), Arg::Int(0x40)]));
     assert!(w.marks(cx).is_empty());
     assert!(w.take_box(cx).is_some());
     let other = window(cx, "日本語\nでした\n", None);
@@ -646,4 +646,60 @@ fn a_reset_while_the_difference_is_computed_wins(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert_eq!(w.marks(cx), [(0, DiffMark::Change)]);
     std::fs::remove_dir_all(dir).ok();
+}
+
+#[gpui::test]
+fn the_no_difference_message_follows_the_check_box(cx: &mut TestAppContext) {
+    // box off: no message, and the old marks are cleared as before
+    remember_options(cx, 0, false);
+    let w = window(cx, "a\nb\n", None);
+    let different = window(cx, "a\nX\n", None);
+    let same = window(cx, "a\nb\n", None);
+    diff_with_window(cx, &w, &different);
+    assert_eq!(w.marks(cx), [(1, DiffMark::Change)]);
+    diff_with_window(cx, &w, &same);
+    assert!(w.marks(cx).is_empty() && !w.in_use(cx));
+    assert_eq!(w.take_box(cx), None);
+    // box on: the message
+    remember_options(cx, 0x40, false);
+    diff_with_window(cx, &w, &same);
+    assert_eq!(
+        w.take_box(cx).as_deref(),
+        Some("DIFF差分は見つかりませんでした。")
+    );
+    // a difference needs no message either way
+    diff_with_window(cx, &w, &different);
+    assert_eq!(w.take_box(cx), None);
+}
+
+#[gpui::test]
+fn the_macro_asks_for_the_message_with_the_bit_0x40(cx: &mut TestAppContext) {
+    let dir = temp_dir("bit40");
+    let path = dir.join("same.txt");
+    std::fs::write(&path, "a\nb\n").unwrap();
+    let w = window(cx, "a\nb\n", None);
+    assert!(w.run_with(cx, "F_DIFF", &[text_arg(&path)]));
+    assert_eq!(w.take_box(cx), None);
+    assert!(w.run_with(cx, "F_DIFF", &[text_arg(&path), Arg::Int(0x01)]));
+    assert_eq!(w.take_box(cx), None);
+    assert!(w.run_with(cx, "F_DIFF", &[text_arg(&path), Arg::Int(0x41)]));
+    assert_eq!(
+        w.take_box(cx).as_deref(),
+        Some("DIFF差分は見つかりませんでした。")
+    );
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[gpui::test]
+fn the_box_starts_checked_unless_the_setting_says_otherwise(cx: &mut TestAppContext) {
+    // nothing remembered: on
+    assert_eq!(cx.update(|app| super::remembered(app)).flags, 0x40);
+    let w = window(cx, "a\n", None);
+    let same = window(cx, "a\n", None);
+    diff_with_window(cx, &w, &same);
+    assert!(w.take_box(cx).is_some());
+    // a value of 0 (a sakura.ini-style setting) is used as it is
+    remember_options(cx, 0, true);
+    diff_with_window(cx, &w, &same);
+    assert_eq!(w.take_box(cx), None);
 }
