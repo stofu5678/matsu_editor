@@ -30,17 +30,9 @@ mod tests {
     #[test]
     fn extends_the_selection_to_the_previous_paragraph() {
         // the line above has text: up to the first line of that block of text
-        check(
-            "goprevparagraph_sel",
-            "ab\n\n\ncd\n|ef",
-            "ab\n\n\n|cd\n[ef",
-        );
+        check("goprevparagraph_sel", "ab\n\n\ncd\n|ef", "ab\n\n\n|cd\n[ef");
         // the line above is empty: the empty lines and then the text above are skipped
-        check(
-            "goprevparagraph_sel",
-            "ab\ncd\n\n\n|ef",
-            "|ab\ncd\n\n\n[ef",
-        );
+        check("goprevparagraph_sel", "ab\ncd\n\n\n|ef", "|ab\ncd\n\n\n[ef");
     }
 
     #[test]

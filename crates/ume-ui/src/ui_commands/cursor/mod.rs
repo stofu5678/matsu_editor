@@ -7,6 +7,8 @@ pub mod half_page_down;
 pub mod half_page_down_sel;
 pub mod half_page_up;
 pub mod half_page_up_sel;
+pub mod modifyline_next;
+pub mod modifyline_prev;
 pub mod one_page_down;
 pub mod one_page_down_sel;
 pub mod one_page_up;

@@ -9,6 +9,7 @@
 
 pub mod bookmarks;
 pub mod highlight;
+pub mod modified_lines;
 pub mod ops;
 pub mod panel;
 pub mod state;
@@ -19,5 +20,7 @@ pub use state::{SearchOptions, SearchState};
 
 #[cfg(test)]
 mod bookmarks_tests;
+#[cfg(test)]
+mod modified_lines_tests;
 #[cfg(test)]
 mod tests;

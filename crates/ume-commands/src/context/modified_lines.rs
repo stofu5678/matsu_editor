@@ -28,7 +28,10 @@ impl CommandContext<'_> {
     /// The length of the text of `line` without its line ending (`GetLengthWithoutEOL`), and
     /// whether it has a line ending.
     fn line_shape(&self, line: usize) -> Result<Option<(usize, bool)>> {
-        Ok(self.doc().line(line)?.map(|l| (l.text.len(), l.eol.is_some())))
+        Ok(self
+            .doc()
+            .line(line)?
+            .map(|l| (l.text.len(), l.eol.is_some())))
     }
 
     /// `F_MODIFYLINE_NEXT` / `F_MODIFYLINE_PREV` (and the `_SEL` forms with `extend`): moves the

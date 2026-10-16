@@ -77,6 +77,8 @@ pub mod names {
     pub const WRAP: ColorName = "RAP";
     /// EOF mark.
     pub const EOF: ColorName = "EOF";
+    /// Line number of a modified line (`COLORIDX_GYOU_MOD`).
+    pub const LINE_NUMBER_MODIFIED: ColorName = "MOD";
     /// Bookmark (`COLORIDX_MARK`).
     pub const BOOKMARK: ColorName = "MRK";
     /// Single quote string.
