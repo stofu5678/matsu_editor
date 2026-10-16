@@ -50,19 +50,25 @@ impl Key {
     /// through a link, in another case on a file system that ignores case); another file gives
     /// another key, as Sakura's profiles do.
     pub fn for_settings_file(path: &Path) -> Key {
-        let canonical = canonical_path(path);
-        let mut text = canonical.to_string_lossy().into_owned();
-        if canonical.parent().is_some_and(ignores_case) {
-            text = text.to_lowercase();
+        let (canonical, existing) = canonical_path(path);
+        // The case is asked of the nearest folder that exists, so that making the settings folder
+        // later does not change the key.
+        if ignores_case(&existing) {
+            Key::from_bytes(canonical.to_string_lossy().to_lowercase().as_bytes())
+        } else {
+            Key::from_bytes(&native_bytes(&canonical))
         }
-        Key::from_name(&text)
     }
 
     /// A key from any text (tests use names of their own).
     pub fn from_name(name: &str) -> Key {
+        Key::from_bytes(name.as_bytes())
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Key {
         // FNV-1a, 64 bits: the key must not change between builds (`DefaultHasher` may).
         let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-        for byte in name.as_bytes() {
+        for byte in bytes {
             hash ^= u64::from(*byte);
             hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
         }
@@ -77,23 +83,41 @@ impl Key {
 
 /// The path with links and `..` resolved, also when the file or its folders do not exist yet: the
 /// nearest folder that exists is resolved and the rest is put after it. (The settings folder is made
-/// when the first file is written, and the key must not change then.)
-fn canonical_path(path: &Path) -> PathBuf {
+/// when the first file is written, and the key must not change then.) Also returns that nearest
+/// folder (or file) that exists.
+fn canonical_path(path: &Path) -> (PathBuf, PathBuf) {
     let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_owned());
     let mut rest = Vec::new();
     let mut existing = absolute.as_path();
     loop {
         if let Ok(resolved) = existing.canonicalize() {
-            return rest.iter().rev().fold(resolved, |p, name| p.join(name));
+            let full = rest
+                .iter()
+                .rev()
+                .fold(resolved.clone(), |p, name| p.join(name));
+            return (full, resolved);
         }
         match (existing.parent(), existing.file_name()) {
             (Some(parent), Some(name)) => {
                 rest.push(name);
                 existing = parent;
             }
-            _ => return absolute,
+            _ => return (absolute.clone(), absolute),
         }
     }
+}
+
+/// The path as the bytes the OS stores, so that names that are not text stay different.
+#[cfg(unix)]
+fn native_bytes(path: &Path) -> Vec<u8> {
+    use std::os::unix::ffi::OsStrExt;
+    path.as_os_str().as_bytes().to_vec()
+}
+
+/// Windows ignores case in every folder, so this is not used there.
+#[cfg(windows)]
+fn native_bytes(path: &Path) -> Vec<u8> {
+    path.to_string_lossy().into_owned().into_bytes()
 }
 
 /// Whether the file system of the folder `dir` ignores the case of names: Windows does in every

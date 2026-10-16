@@ -63,6 +63,16 @@ fn the_key_does_not_change_when_the_folders_of_the_file_are_made() {
     assert_eq!(Key::for_settings_file(&file), before);
 }
 
+#[cfg(unix)]
+#[test]
+fn paths_that_are_not_text_give_different_keys() {
+    use std::os::unix::ffi::OsStrExt;
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join(std::ffi::OsStr::from_bytes(b"x\xff"));
+    let b = dir.path().join(std::ffi::OsStr::from_bytes(b"x\xfe"));
+    assert_ne!(Key::for_settings_file(&a), Key::for_settings_file(&b));
+}
+
 #[test]
 fn another_settings_file_gives_another_key() {
     let dir = tempfile::tempdir().unwrap();
