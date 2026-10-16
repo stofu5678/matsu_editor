@@ -280,21 +280,6 @@ impl Editor {
         result
     }
 
-    /// Runs `f` on a context like the one of a command, outside any command (a window does this
-    /// at the end of a macro).
-    pub fn with_context<R>(&mut self, f: impl FnOnce(&mut CommandContext<'_>) -> R) -> R {
-        let mut cx = CommandContext::new(
-            &mut self.model,
-            &mut self.cursor,
-            &mut self.layout,
-            self.path.as_deref(),
-        )
-        .with_clipboard(&mut self.clipboard);
-        let result = f(&mut cx);
-        self.changes = cx.finish();
-        result
-    }
-
     /// Runs `f` on a context, for the methods that no command calls on its own (the ones that
     /// `ume-ui` uses). What it changed is in [`changes`](Self::changes) afterwards.
     pub fn with_context<R>(&mut self, f: impl FnOnce(&mut CommandContext<'_>) -> R) -> R {
@@ -311,6 +296,12 @@ impl Editor {
         self.changes = cx.finish();
         self.overwrite = self.changes.overwrite;
         result
+    }
+
+    /// Records that the document is saved as it is now (the window does it after a save).
+    pub fn mark_saved(&mut self) -> &mut Self {
+        self.model.mark_saved(&self.cursor);
+        self
     }
 
     /// What the last command changed.

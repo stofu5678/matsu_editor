@@ -70,7 +70,10 @@ struct Block {
 struct Open {
     depth: usize,
     before: Snapshot,
+    /// The block has something to store: an edit, or a caret step.
     edited: bool,
+    /// The block has an edit of the text (not only a caret step).
+    real: bool,
     lines: Vec<LineEdit>,
     marks: Vec<MarkEdit>,
 }
@@ -83,6 +86,11 @@ pub struct History {
     pos: usize,
     /// `pos` when the document was last saved (Sakura: `m_nNoModifiedIndex`).
     saved: Option<usize>,
+    /// The document is unmodified although `pos` is not `saved`: a step that only holds the caret
+    /// was stored while the document was unmodified (`F_APPENDUNDOBUFFERCURSOR`). Sakura's flag
+    /// of the modified state (`CDocEditor::m_bIsDocModified`) is set by the edits, not by the
+    /// position of the undo buffer; any edit, undo, redo or save clears this.
+    caret_step_clean: bool,
     open: Option<Open>,
     max_blocks: Option<usize>,
     /// How many blocks were forgotten from the front, so that the sequence numbers of the
@@ -105,6 +113,7 @@ impl History {
             blocks: VecDeque::new(),
             pos: 0,
             saved: Some(0),
+            caret_step_clean: false,
             open: None,
             max_blocks: None,
             origin: 0,
@@ -129,7 +138,13 @@ impl History {
 
     /// Whether the document differs from the last saved version.
     pub fn is_modified(&self) -> bool {
-        self.open.as_ref().is_some_and(|o| o.edited) || self.saved != Some(self.pos)
+        self.open.as_ref().is_some_and(|o| o.real) || self.is_stored_modified()
+    }
+
+    /// Whether the steps that are stored differ from the saved version, as far as the modified
+    /// flag goes (a step that holds only the caret does not make the document modified).
+    fn is_stored_modified(&self) -> bool {
+        !self.caret_step_clean && self.saved != Some(self.pos)
     }
 
     /// Records that the document is saved as it is now. `doc` and `cursor` are the current state:
@@ -139,6 +154,7 @@ impl History {
     pub fn mark_saved(&mut self, doc: &Document, cursor: &Cursor) {
         self.store_open_edits(doc, cursor);
         self.saved = Some(self.pos);
+        self.caret_step_clean = false;
         self.marks.reset(self.current_seq());
     }
 
@@ -193,6 +209,7 @@ impl History {
                     depth: 1,
                     before: Snapshot::of(doc, cursor),
                     edited: false,
+                    real: false,
                     lines: Vec::new(),
                     marks: Vec::new(),
                 });
@@ -204,8 +221,12 @@ impl History {
     /// be undone, and the older blocks would no longer match the document, so they are dropped.
     pub fn note_edit(&mut self) {
         match &mut self.open {
-            Some(open) => open.edited = true,
+            Some(open) => {
+                open.edited = true;
+                open.real = true;
+            }
             None => {
+                self.caret_step_clean = false;
                 self.blocks.clear();
                 self.pos = 0;
                 self.saved = None;
@@ -238,6 +259,7 @@ impl History {
                 Snapshot::of(doc, cursor),
                 open.lines,
                 open.marks,
+                !open.real,
             );
         }
     }
@@ -261,11 +283,19 @@ impl History {
         }
     }
 
-    /// Makes the open block count as an edit even if it has none, so that it is stored as a step
-    /// that undo goes back over (Sakura: `F_APPENDUNDOBUFFERCURSOR` appends a `CMoveCaretOpe`, an
-    /// operation that only holds a caret position, and a block with an operation is stored). The
-    /// document counts as modified after it, as in Sakura, where the step moves the pointer of
-    /// the undo buffer. Does nothing outside a block.
+    /// Makes the open block a step that undo goes back over even if it has no edit.
+    ///
+    /// Sakura: `F_APPENDUNDOBUFFERCURSOR` (`CMacro::HandleCommand`, `sakura_core/macro/CMacro.cpp`)
+    /// appends a `CMoveCaretOpe`, an operation that holds only a caret position, and calls
+    /// `CEditView::SetUndoBuffer` (`view/CEditView.cpp`), which stores the block with
+    /// `COpeBuf::AppendOpeBlk` (the pointer goes up by one). Neither calls
+    /// `CDocEditor::SetModified`. The modified flag (`m_bIsDocModified`) is set by the edit
+    /// commands, cleared by a save, and set again by undo and redo as `m_nCurrentPointer !=
+    /// m_nNoModifiedIndex` (`COpeBuf::DoUndo`/`DoRedo`, `cmd/COpeBuf.cpp`; used in
+    /// `cmd/CViewCommander_Edit.cpp`). So a document that is unmodified stays so after the step;
+    /// undoing the step is unmodified again, redoing it is modified (the pointer is not at the
+    /// saved one), and an edit after it is modified. A document that is modified stays so. The
+    /// marks of the modified lines are not touched. Does nothing outside a block.
     pub fn note_caret_step(&mut self) {
         if let Some(open) = &mut self.open {
             open.edited = true;
@@ -300,6 +330,7 @@ impl History {
             return None;
         }
         self.pos -= 1;
+        self.caret_step_clean = false;
         for edit in self.blocks[self.pos].marks.iter().rev() {
             edit.revert(&mut self.marks);
         }
@@ -333,6 +364,7 @@ impl History {
             edit.apply(&mut self.marks);
         }
         self.pos += 1;
+        self.caret_step_clean = false;
         self.restore(after, doc, cursor);
         Some(lines)
     }
@@ -348,7 +380,8 @@ impl History {
         open.edited = false;
         let lines = std::mem::take(&mut open.lines);
         let marks = std::mem::take(&mut open.marks);
-        self.push(before, Snapshot::of(doc, cursor), lines, marks);
+        let caret_only = !std::mem::replace(&mut open.real, false);
+        self.push(before, Snapshot::of(doc, cursor), lines, marks, caret_only);
     }
 
     fn restore(&mut self, snap: Snapshot, doc: &mut Document, cursor: &mut Cursor) {
@@ -367,7 +400,10 @@ impl History {
         after: Snapshot,
         lines: Vec<LineEdit>,
         marks: Vec<MarkEdit>,
+        caret_only: bool,
     ) {
+        // A caret step on a document that is unmodified leaves it so; any other step is an edit.
+        self.caret_step_clean = caret_only && !self.is_stored_modified();
         self.blocks.truncate(self.pos);
         // The saved version was in the redo tail that is gone now.
         if self.saved.is_some_and(|s| s > self.pos) {
