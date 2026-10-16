@@ -1,0 +1,202 @@
+# cargo-about: generates THIRD_PARTY_NOTICES.txt (template: about.hbs). See the section
+# "Third-party notices" in README.md.
+#
+# `accepted` is deny.toml's [licenses] allow list, in the same order. It is the policy: add nothing
+# here that deny.toml does not allow. cargo-about uses the first license of a crate's "A OR B"
+# expression that is in this list.
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "0BSD",
+    "bzip2-1.0.6",
+    "MPL-2.0",
+]
+
+# Every target that CI builds (.github/workflows/ci.yml). Crates that only a target we do not
+# build uses (Android, wasm, ...) are left out.
+targets = [
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+    "aarch64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+]
+
+# Dev-dependencies (test helpers) never reach the programs, so they are left out. Build-dependencies
+# are kept on purpose: most are tools that run on the build machine (cc, bindgen, pkg-config), but
+# some carry code that is compiled into the programs (lua-src is the C source of Lua, a
+# build-dependency of mlua-sys), and cargo-about cannot tell the two apart. The cost is a few extra
+# notices. Proc-macro crates are build-time only too and stay for the same reason.
+ignore-dev-dependencies = true
+ignore-build-dependencies = false
+
+# Clarifications. Each one names the license files by checksum, so a crate update that changes a
+# file makes cargo-about fall back to its own search (and the CI job shows the difference).
+# Crate-specific tables must stay below the global options.
+
+# The Rust crates of this repository: our own license (LICENSE-MIT, next to LICENSE-APACHE).
+[ume.clarify]
+license = "MIT"
+[[ume.clarify.files]]
+path = "../../LICENSE-MIT"
+checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
+
+[ume-commands.clarify]
+license = "MIT"
+[[ume-commands.clarify.files]]
+path = "../../LICENSE-MIT"
+checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
+
+[ume-config.clarify]
+license = "MIT"
+[[ume-config.clarify.files]]
+path = "../../LICENSE-MIT"
+checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
+
+[ume-core.clarify]
+license = "MIT"
+[[ume-core.clarify.files]]
+path = "../../LICENSE-MIT"
+checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
+
+[ume-layout.clarify]
+license = "MIT"
+[[ume-layout.clarify.files]]
+path = "../../LICENSE-MIT"
+checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
+
+[ume-platform.clarify]
+license = "MIT"
+[[ume-platform.clarify.files]]
+path = "../../LICENSE-MIT"
+checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
+
+[ume-plugin.clarify]
+license = "MIT"
+[[ume-plugin.clarify.files]]
+path = "../../LICENSE-MIT"
+checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
+
+[ume-print.clarify]
+license = "MIT"
+[[ume-print.clarify.files]]
+path = "../../LICENSE-MIT"
+checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
+
+[ume-script.clarify]
+license = "MIT"
+[[ume-script.clarify.files]]
+path = "../../LICENSE-MIT"
+checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
+
+[ume-ui.clarify]
+license = "MIT"
+[[ume-ui.clarify.files]]
+path = "../../LICENSE-MIT"
+checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
+
+# The crates that vendor C sources: our license plus the license files of the vendored code.
+# Onigmo (2-clause BSD, "Onigmo (Oniguruma-mod) LICENSE").
+[ume-regex.clarify]
+license = "MIT AND BSD-2-Clause"
+[[ume-regex.clarify.files]]
+path = "../../LICENSE-MIT"
+license = "MIT"
+checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
+[[ume-regex.clarify.files]]
+path = "onigmo/COPYING"
+license = "BSD-2-Clause"
+checksum = "3d157c160af394dab4a2b117f09bece2644f9d13965dfafdfba77f7423a9aec7"
+
+# MicroPython (MIT). Only the license text at the top of the file is used: the list below it
+# names the third-party parts of other MicroPython ports, none of which was taken (see
+# vendor/micropython/README.md).
+[ume-micropython-sys.clarify]
+license = "MIT"
+[[ume-micropython-sys.clarify.files]]
+path = "../../LICENSE-MIT"
+checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
+[[ume-micropython-sys.clarify.files]]
+path = "vendor/micropython/LICENSE"
+checksum = "cadd76d6b495a34c353543ecdf53465b1d375fa30996c577f827425bf035a3aa"
+end = "THE SOFTWARE."
+
+# mruby (MIT), the mruby-set gem (MIT), and the part of src/string.c that is 2-clause BSD (LEGAL).
+# LEGAL also names src/fmt_fp.c (public domain, no notice needed) and the Windows-only dirent.c
+# (not vendored).
+[ume-mruby-sys.clarify]
+license = "MIT AND BSD-2-Clause"
+[[ume-mruby-sys.clarify.files]]
+path = "../../LICENSE-MIT"
+license = "MIT"
+checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
+[[ume-mruby-sys.clarify.files]]
+path = "vendor/mruby/LICENSE"
+license = "MIT"
+checksum = "07dc3c033f3f0ee600f76ac52211a04cbb67e722f8da44767687e86151586170"
+[[ume-mruby-sys.clarify.files]]
+path = "vendor/mruby/gems/mruby-set/LICENSE"
+license = "MIT"
+checksum = "2c78d80cafa36acdd728d6a5ddd68aef42e603ae246b3d0c9ac85f09d87d7e17"
+[[ume-mruby-sys.clarify.files]]
+path = "vendor/mruby/LEGAL"
+license = "BSD-2-Clause"
+checksum = "7bb0747d2cf28d59b244f14f96a0ac90840a6966479f5a0c3ccfaa6685484178"
+start = "Copyright (c) 2008-2016, Wojciech"
+end = "SUCH DAMAGE."
+
+# subsetter adapted code from ttf-parser and fonttools; its NOTICE file holds their MIT notices
+# (the rest of NOTICE is about test fonts that are not part of the crate's code).
+[subsetter.clarify]
+license = "MIT"
+[[subsetter.clarify.files]]
+path = "LICENSE-MIT"
+checksum = "508a77d2e7b51d98adeed32648ad124b7b30241a8e70b2e72c99f92d8e5874d1"
+[[subsetter.clarify.files]]
+path = "NOTICE"
+checksum = "0b3a181cccee1c281218857e56a4bbb3709f795f1353150002db51a8704bc1c5"
+start = "Copyright (c) 2018 Yevhenii Reizner"
+end = "THE SOFTWARE."
+[[subsetter.clarify.files]]
+path = "NOTICE"
+checksum = "bcf9c4f3815a8ef8945325d6900169c034994e6f4a3c4ff11455cbcee43ff23f"
+start = "MIT License\n\nCopyright (c) 2017 Just van Rossum"
+end = "IN THE\nSOFTWARE."
+
+# gpui-kit-assets (Apache-2.0, no license file in the package) embeds the Lucide icons (ISC) and,
+# among them, the icons derived from Feather (MIT); LICENSE-LUCIDE holds both notices. The crate's
+# own Apache-2.0 text is the same standard text that the other Apache-2.0 crates carry below.
+[gpui-kit-assets.clarify]
+license = "ISC AND MIT"
+[[gpui-kit-assets.clarify.files]]
+path = "LICENSE-LUCIDE"
+license = "ISC"
+checksum = "542631f43ab6291ff527c45c3642a29a8569b49b4d32e790c169eb7ebe34bb49"
+start = "Copyright (c) 2026 Lucide Icons"
+end = "PERFORMANCE OF THIS SOFTWARE."
+[[gpui-kit-assets.clarify.files]]
+path = "LICENSE-LUCIDE"
+license = "MIT"
+checksum = "22b5efa1033c6d9dbf511ab9b7c4a53e8a7c3ee97d56369e06cae4d57ae9c879"
+start = "Copyright (c) 2013-present Cole Bemis"
+end = "SOFTWARE."
+
+# lua-src is the C source of Lua (MIT), which mlua-sys compiles for ume-script. Its LICENSE holds
+# the crate's own notice and Lua's, one after the other.
+[lua-src.clarify]
+license = "MIT"
+[[lua-src.clarify.files]]
+path = "LICENSE"
+checksum = "0bf6b79c0bd9dd384cc9b92057646c972c352b0d6a84590fb9c4b3097aa8c553"
+end = "SOFTWARE."
+[[lua-src.clarify.files]]
+path = "LICENSE"
+checksum = "20dcecd5d19f2cd0216b139b5b3b8be8e4294e97ca0dbf92ab1c4c836de65a4c"
+start = "Copyright © 1994–2017 Lua.org, PUC-Rio."

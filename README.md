@@ -27,6 +27,20 @@
 
 サクラエディタのコードを移植した部分には、そのファイルに元の著作権表示と zlib License を残します。
 
+### サードパーティの著作権表示（Third-party notices）
+
+プログラム（`ume`、`ume-script`）には、Rust のクレートや、クレートが同梱する C のソース（MicroPython、mruby、Onigmo、Lua、QuickJS など）、アイコンが入っています。これらのライセンスは、配布物に著作権表示とライセンス本文を添えることを求めています。その写しが [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt) です。プログラムを配布するときは、このファイルをプログラムの隣に置きます。
+
+- 形式はプレーンテキストにしました。どの OS の標準の道具でも開けて、梱包にもそのまま入れられるためです。
+- `Cargo.lock` から [cargo-about](https://github.com/EmbarkStudios/cargo-about)（0.9.2）で作る生成物なので、手で直しません。設定は [about.toml](about.toml)（受け入れるライセンスは `deny.toml` と同じ一覧、対象は CI が作る 5 つのターゲット、ライセンスファイルの検出が足りないクレートの補正）、テンプレートは [about.hbs](about.hbs) です。
+- 依存を更新したら、次のコマンドで作り直してコミットします。`cargo install --locked cargo-about --version 0.9.2 --features cli` で入れられます。
+
+  ```sh
+  cargo about generate --locked --all-features --workspace --fail about.hbs -o THIRD_PARTY_NOTICES.txt
+  ```
+
+- CI の `notices` ジョブが同じコマンドで作り直し、コミット済みのファイルと違えば失敗します。
+
 ### Contribution
 
 Unless you explicitly state otherwise, any contribution intentionally submitted
