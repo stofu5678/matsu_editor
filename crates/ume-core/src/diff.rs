@@ -247,6 +247,9 @@ pub struct DiffMarks {
     marks: BTreeMap<usize, DiffMark>,
     /// `CDiffManager::IsDiffUse`: a difference is shown (also when it has no mark).
     in_use: bool,
+    /// Counts the clearings, so that a comparison that is still being computed can tell that it
+    /// has been replaced or reset meanwhile.
+    epoch: u64,
 }
 
 impl DiffMarks {
@@ -257,6 +260,11 @@ impl DiffMarks {
     /// Whether a DIFF is shown (`CDiffManager::IsDiffUse`).
     pub fn in_use(&self) -> bool {
         self.in_use
+    }
+
+    /// How many times the marks were cleared (by a reset or by the start of a new comparison).
+    pub fn epoch(&self) -> u64 {
+        self.epoch
     }
 
     /// Whether any line has a mark.
@@ -281,6 +289,7 @@ impl DiffMarks {
     pub fn clear(&mut self) {
         self.marks.clear();
         self.in_use = false;
+        self.epoch = self.epoch.wrapping_add(1);
     }
 
     /// Marks the lines `start..=end` (`CDiffLineMgr::SetDiffMarkRange`; `start` may be -1 and

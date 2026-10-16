@@ -609,3 +609,41 @@ fn the_colors_of_the_marks_are_sakuras_defaults() {
         assert!(color.shown && !color.bold);
     }
 }
+
+#[gpui::test]
+fn a_reset_while_the_difference_is_computed_wins(cx: &mut TestAppContext) {
+    let dir = temp_dir("race");
+    let path = dir.join("other.txt");
+    std::fs::write(&path, "a\nX\n").unwrap();
+    let w = window(cx, "a\nb\n", None);
+    // start the comparison and reset before the task is done
+    let code = code_of("F_DIFF");
+    let reset = code_of("F_DIFF_RESET");
+    let args = [text_arg(&path)];
+    let view = w.view.clone();
+    w.handle
+        .update(cx, |_, window, app| {
+            view.update(app, |v, cx| {
+                v.run_function(code, &args, window, cx);
+                v.run_function(reset, &[], window, cx);
+            })
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert!(w.marks(cx).is_empty() && !w.in_use(cx));
+    // a newer comparison replaces an older one that is still running
+    let other = dir.join("o2.txt");
+    std::fs::write(&other, "Y\nb\n").unwrap();
+    let args2 = [text_arg(&other)];
+    w.handle
+        .update(cx, |_, window, app| {
+            view.update(app, |v, cx| {
+                v.run_function(code, &args, window, cx);
+                v.run_function(code, &args2, window, cx);
+            })
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert_eq!(w.marks(cx), [(0, DiffMark::Change)]);
+    std::fs::remove_dir_all(dir).ok();
+}

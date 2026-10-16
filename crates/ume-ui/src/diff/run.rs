@@ -106,6 +106,11 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         let version = self.document.read(cx).version();
+        // "今あるDIFF差分を消去する"; a reset or a newer comparison before this one is done
+        // clears again, which makes this one void (see `finish_diff`)
+        self.run_with(cx, |c| c.clear_diff_marks());
+        let epoch = self.document.read(cx).model().diff_marks().epoch();
+        let version = (version, epoch);
         match target {
             Target::Window(handle) => {
                 let other = editors(cx)
@@ -150,7 +155,7 @@ impl EditorView {
         &mut self,
         other: Vec<String>,
         flags: u32,
-        version: u64,
+        version: (u64, u64),
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -161,8 +166,6 @@ impl EditorView {
                 return;
             }
         };
-        // "今あるDIFF差分を消去する"
-        self.run_with(cx, |c| c.clear_diff_marks());
         let options = DiffOptions::from_flags(flags);
         cx.spawn_in(window, async move |this, cx| {
             let outcome = cx
@@ -181,10 +184,13 @@ impl EditorView {
         &mut self,
         outcome: Outcome,
         options: DiffOptions,
-        version: u64,
+        (version, epoch): (u64, u64),
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.document.read(cx).model().diff_marks().epoch() != epoch {
+            return;
+        }
         if self.document.read(cx).version() != version {
             self.notice = Some("DIFFの間に文書が変わったので、差分を表示しなかった".to_owned());
             cx.notify();
