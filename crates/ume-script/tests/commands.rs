@@ -195,3 +195,47 @@ begin; Editor.Char('a'); rescue EditorError => e; puts e.code; end
         ["\"two!\\n\"", "3", "-32001", "-32602"]
     );
 }
+
+#[test]
+fn micropython_calls_every_command_by_its_sakura_name() {
+    let code = r#"
+Editor.GoFileTop()
+Editor.WordRight_Sel()
+Editor.Delete()
+Editor.GoLineEnd(0)
+Editor.Char(33)
+Editor.Down()
+Editor.DuplicateLine()
+print(repr(Editor.GetLineStr(1)), Editor.GetLineCount(0))
+try:
+    Editor.FileSave()
+except EditorError as e:
+    print(e.code)
+try:
+    Editor.Char('a')
+except EditorError as e:
+    print(e.code)
+"#;
+    let (report, fixture) = run("macro.upy", code, "one two\nthree\n");
+    assert_clean_exit(&report);
+    assert_eq!(fixture.text(), "two!\nthree\nthree\n");
+    assert_eq!(
+        report.lines(Stream::Stdout),
+        ["'two!\\n' 3", "-32001", "-32602"]
+    );
+}
+
+#[test]
+fn micropython_has_every_name_of_the_catalog() {
+    let names: Vec<String> = ume_plugin::catalog::entries()
+        .iter()
+        .map(|e| format!("'{}'", e.name))
+        .collect();
+    let code = format!(
+        "print(len([n for n in [{}] if not hasattr(Editor, n)]))",
+        names.join(",")
+    );
+    let (report, _) = run("names.upy", &code, "");
+    assert_clean_exit(&report);
+    assert_eq!(report.lines(Stream::Stdout), ["0"]);
+}

@@ -3,7 +3,7 @@
 //! globals, as `boot.py` does for CPython.
 //!
 //! The macro API reaches the script through one native function, `_ume_call(name, args)`. A
-//! small Python part (`BOOT`) makes `Editor` out of the names in `ume_plugin::api::FUNCS` (so no
+//! small Python part (`BOOT`) makes `Editor` out of the names in `ume_plugin::catalog::entries()` (so no
 //! function is written by hand) and turns the answer into a return value or an `EditorError`.
 //! The arguments are written as JSON by the C glue, a result that is a string comes back as it
 //! is, and any other result is parsed by the `json` module of MicroPython (`json.dumps` and
@@ -19,7 +19,7 @@ use std::rc::Rc;
 
 use serde_json::{Number, Value};
 use ume_micropython_sys::{CallOutcome, Host, Source};
-use ume_plugin::api::FUNCS;
+use ume_plugin::catalog::entries;
 use ume_plugin::protocol::RpcError;
 
 use crate::engine::Engine;
@@ -76,7 +76,7 @@ del _install, _Editor, _ume_setup
 
 impl Engine for MicroPython {
     fn run(&self, init: &Initialize, editor: Rc<RefCell<dyn Editor>>) -> Result<(), String> {
-        let names: Vec<&str> = FUNCS.iter().map(|func| func.name).collect();
+        let names: Vec<&str> = entries().iter().map(|func| func.name).collect();
         let names_json = Value::from(names).to_string();
         let info_json = init.info.to_string();
         let mut bridge = Bridge { editor };
