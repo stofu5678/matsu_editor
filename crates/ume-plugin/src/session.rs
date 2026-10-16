@@ -27,14 +27,18 @@ const OUTPUT_GRACE: Duration = Duration::from_millis(1000);
 pub enum Language {
     JavaScript,
     Python,
+    Ruby,
+    Php,
 }
 
 impl Language {
     /// The language of a macro file, by its extension.
     pub fn of_file(path: &Path) -> Option<Self> {
         match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
-            "js" | "cjs" => Some(Self::JavaScript),
+            "mjs" | "js" | "cjs" => Some(Self::JavaScript),
             "py" => Some(Self::Python),
+            "rb" => Some(Self::Ruby),
+            "php" => Some(Self::Php),
             _ => None,
         }
     }
@@ -43,6 +47,8 @@ impl Language {
         match self {
             Self::JavaScript => "Node.js",
             Self::Python => "Python",
+            Self::Ruby => "Ruby",
+            Self::Php => "PHP",
         }
     }
 
@@ -52,6 +58,8 @@ impl Language {
             Self::JavaScript => "node".into(),
             Self::Python if cfg!(windows) => "python".into(),
             Self::Python => "python3".into(),
+            Self::Ruby => "ruby".into(),
+            Self::Php => "php".into(),
         }
     }
 
@@ -63,6 +71,9 @@ impl Language {
         let (flag, code) = match self {
             Self::JavaScript => ("-p", "process.execPath"),
             Self::Python => ("-c", "import sys; print(sys.executable)"),
+            // A version manager (asdf, rbenv) answers with a shim; this is the real one.
+            Self::Ruby => ("-e", "require 'rbconfig'; puts RbConfig.ruby"),
+            Self::Php => ("-r", "echo PHP_BINARY;"),
         };
         let output = Command::new(interpreter)
             .arg(flag)
@@ -135,7 +146,7 @@ impl std::fmt::Display for StartError {
         match self {
             Self::UnknownLanguage { script } => write!(
                 f,
-                "{}: マクロの拡張子は .js か .py にしてください",
+                "{}: マクロの拡張子は .mjs、.js、.cjs、.py、.rb、.php のどれかにしてください",
                 script.display()
             ),
             Self::Boot(err) => write!(f, "マクロの準備に失敗しました: {err}"),
@@ -233,6 +244,33 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
             command
                 .arg("-u")
                 .arg(boot_dir.path().join(boot::PY_BOOT))
+                .arg(&config.script);
+        }
+        Language::Ruby => {
+            // -E UTF-8: the user's strings and files are UTF-8 whatever the OS locale is.
+            command
+                .arg("-E")
+                .arg("UTF-8")
+                .arg(boot_dir.path().join(boot::RB_BOOT))
+                .arg(&config.script);
+        }
+        Language::Php => {
+            // The errors go to the standard error (the output panel shows them as the macro's
+            // output, with the line number), once, and as plain text.
+            command
+                .args([
+                    "-d",
+                    "display_errors=stderr",
+                    "-d",
+                    "log_errors=0",
+                    "-d",
+                    "html_errors=0",
+                    "-d",
+                    "error_reporting=E_ALL",
+                    "-d",
+                    "output_buffering=0",
+                ])
+                .arg(boot_dir.path().join(boot::PHP_BOOT))
                 .arg(&config.script);
         }
     }
@@ -454,6 +492,12 @@ mod tests {
             Some(Language::JavaScript)
         );
         assert_eq!(Language::of_file(Path::new("a.PY")), Some(Language::Python));
+        assert_eq!(
+            Language::of_file(Path::new("a.mjs")),
+            Some(Language::JavaScript)
+        );
+        assert_eq!(Language::of_file(Path::new("a.rb")), Some(Language::Ruby));
+        assert_eq!(Language::of_file(Path::new("a.PHP")), Some(Language::Php));
         assert_eq!(Language::of_file(Path::new("a.txt")), None);
         assert_eq!(Language::of_file(Path::new("noext")), None);
     }

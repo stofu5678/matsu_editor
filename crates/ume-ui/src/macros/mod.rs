@@ -1,7 +1,7 @@
 //! Macros in the window: recording and playing key macros, and running macro files.
 //!
 //! The pieces that do not need a window are in `ume-commands` (`key_macro`: the recorder, the
-//! `.mac` format) and `ume-plugin` (the host that runs a JavaScript or Python macro as a child
+//! `.mac` format) and `ume-plugin` (the host that runs a JavaScript, Python, Ruby or PHP macro as a child
 //! process, and the bridge that answers its calls with the commands). This module is the glue
 //! that needs the window: it hooks the recorder where commands run, asks for files with the
 //! native dialogs, and runs a macro's calls on the UI thread, one at a time.
@@ -425,8 +425,9 @@ impl EditorView {
             .map_err(|message| self.macro_error(message, window, cx))
     }
 
-    /// Runs a macro file by its extension: `.mac` through the key macro player, `.js` and
-    /// `.py` through the host. The `Err` says what to show.
+    /// Runs a macro file by its extension: `.mac` through the key macro player, the others
+    /// (`.mjs`, `.js`, `.cjs`, `.py`, `.rb`, `.php`) through the host. The `Err` says what to
+    /// show.
     fn run_macro_file(
         &mut self,
         path: &Path,
@@ -441,7 +442,7 @@ impl EditorView {
             }
             FileKind::Script(_) => self.start_script(path, window, cx),
             FileKind::Unknown => Err(format!(
-                "{}: マクロの拡張子は .mac、.js、.py のどれかにしてください",
+                "{}: マクロの拡張子は .mac、.mjs、.js、.cjs、.py、.rb、.php のどれかにしてください",
                 path.display()
             )),
         }

@@ -357,8 +357,16 @@ fn run_macro(language: Language, code: &str, f: &mut Fixture) -> Option<crate::s
     let name = match language {
         Language::JavaScript => "macro.js",
         Language::Python => "macro.py",
+        Language::Ruby => "macro.rb",
+        Language::Php => "macro.php",
     };
     let script = dir.path().join(name);
+    // A PHP file starts with `<?php`.
+    let code = if language == Language::Php {
+        format!("<?php {code}")
+    } else {
+        code.to_string()
+    };
     std::fs::write(&script, code).unwrap();
     let mut config = MacroConfig::for_script(&script, None).unwrap();
     config.temp_dir = Some(dir.path().to_path_buf());
@@ -402,7 +410,35 @@ try:
 except AttributeError:
     print('attribute error')
 "#;
-    for (language, code) in [(Language::JavaScript, js), (Language::Python, py)] {
+    let rb = r##"
+Editor.GoFileEnd
+Editor.Char(0x41)
+Editor.Left
+Editor.DeleteBack
+Editor.Down
+puts "#{Editor.GetLineCount(0)} #{Editor.GetLineStr(1).inspect}"
+begin; Editor.FileSave; rescue EditorError => e; puts "caught #{e.code}"; end
+begin; Editor.NoSuchMacro; rescue EditorError => e; puts "caught #{e.code}"; end
+begin; Editor.lower_case_name; rescue NoMethodError; puts 'no method'; end
+"##;
+    let php = r#"
+Editor::GoFileEnd();
+Editor::Char(0x41);
+Editor::Left();
+Editor::DeleteBack();
+Editor::Down();
+echo Editor::GetLineCount(0) . ' ' . json_encode(Editor::GetLineStr(1)) . "\n";
+try { Editor::FileSave(); } catch (EditorError $e) { echo 'caught ', $e->getCode(), "\n"; }
+try { Editor::NoSuchMacro(); } catch (EditorError $e) { echo 'caught ', $e->getCode(), "\n"; }
+try { Editor::lower_case_name(); } catch (BadMethodCallException $e) { echo "no method\n"; }
+"#;
+    let all = [
+        (Language::JavaScript, js),
+        (Language::Python, py),
+        (Language::Ruby, rb),
+        (Language::Php, php),
+    ];
+    for (language, code) in all {
         let mut f = Fixture::new("one\ntwo");
         let Some(report) = run_macro(language, code, &mut f) else {
             continue;
@@ -431,6 +467,24 @@ except AttributeError:
                     "attribute error"
                 ]
             ),
+            Language::Ruby => assert_eq!(
+                out,
+                [
+                    "2 \"one\\n\"",
+                    "caught -32001",
+                    "caught -32601",
+                    "no method"
+                ]
+            ),
+            Language::Php => assert_eq!(
+                out,
+                [
+                    "2 \"one\\n\"",
+                    "caught -32001",
+                    "caught -32601",
+                    "no method"
+                ]
+            ),
         }
     }
 }
@@ -440,7 +494,10 @@ fn the_sample_macros_run_on_the_commands() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("samples");
     for (language, name) in [
         (Language::JavaScript, "sample.js"),
+        (Language::JavaScript, "sample.mjs"),
         (Language::Python, "sample.py"),
+        (Language::Ruby, "sample.rb"),
+        (Language::Php, "sample.php"),
     ] {
         if !available(language) {
             continue;

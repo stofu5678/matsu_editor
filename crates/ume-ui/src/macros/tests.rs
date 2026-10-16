@@ -105,6 +105,18 @@ fn files_are_told_apart_by_their_extension() {
         file_kind(Path::new("a.py")),
         FileKind::Script(Language::Python)
     );
+    assert_eq!(
+        file_kind(Path::new("a.mjs")),
+        FileKind::Script(Language::JavaScript)
+    );
+    assert_eq!(
+        file_kind(Path::new("a.rb")),
+        FileKind::Script(Language::Ruby)
+    );
+    assert_eq!(
+        file_kind(Path::new("a.PHP")),
+        FileKind::Script(Language::Php)
+    );
     assert_eq!(file_kind(Path::new("a.vbs")), FileKind::Unknown);
     assert_eq!(file_kind(Path::new("macro")), FileKind::Unknown);
 }

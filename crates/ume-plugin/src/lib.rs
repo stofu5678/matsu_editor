@@ -1,4 +1,4 @@
-//! The macro host: runs a JavaScript (Node.js) or Python macro as a child process, and answers
+//! The macro host: runs a JavaScript (Node.js), Python, Ruby or PHP macro as a child process, and answers
 //! the macro's calls to the editor over JSON-RPC on the standard input and output
 //! (docs/poc/json-rpc.md, ADR-0007).
 //!
@@ -9,7 +9,7 @@
 //!
 //! - `protocol`: the lines, the escaping and the messages.
 //! - `bridge`: runs a macro's calls by Sakura's macro names on the commands (`ume-commands`).
-//! - `api`: the basic API (one table). `codegen` (tests only) generates the JS and Python parts
+//! - `api`: the basic API (one table). `codegen` (tests only) generates the JS, Python, Ruby and PHP parts
 //!   from it.
 //! - `session`: the child process, its threads, the timeout and the cancel.
 //! - `boot`: the boot libraries that the editor ships (`src/boot/`) and their private folder.
