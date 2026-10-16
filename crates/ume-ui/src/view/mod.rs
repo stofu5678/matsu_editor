@@ -132,6 +132,8 @@ pub struct EditorView {
     /// the version of the document it matches.
     pub(crate) color_states: ume_coloring::ColorStates,
     pub(crate) color_version: u64,
+    /// The colors of the last long line painted (`view/colors.rs`).
+    pub(crate) line_color_cache: colors::LineColorCache,
     pub(crate) cursor: Cursor,
     pub(crate) keymap: KeyMap,
     pub(crate) focus_handle: FocusHandle,
@@ -203,6 +205,7 @@ impl EditorView {
             layout_version,
             color_states: Default::default(),
             color_version: layout_version,
+            line_color_cache: Default::default(),
             cursor: Cursor::default(),
             keymap: KeyMap::default(),
             focus_handle: cx.focus_handle(),

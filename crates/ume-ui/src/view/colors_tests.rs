@@ -132,6 +132,47 @@ fn another_views_edit_starts_the_states_again(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn the_colors_of_a_long_line_are_kept_between_frames(cx: &mut TestAppContext) {
+    use std::sync::Arc;
+
+    use super::colors::LineColorRequest;
+
+    let text = format!("{} /* x */\nint b;\n", "int a; ".repeat(500));
+    let (view, cx) = setup(cx, &text, "a.c");
+    cx.run_until_parked();
+    let ask = |cx: &mut VisualTestContext, upto: usize, want_next: bool| {
+        view.read_with(cx, |v, cx| {
+            let shared = v.document.read(cx);
+            let ll = v.layout.line_layout(shared.doc(), 0).unwrap().unwrap();
+            v.colored_line(LineColorRequest {
+                rules: &v.prefs.settings.coloring,
+                version: shared.version(),
+                line: 0,
+                layout: &ll,
+                state: &ColorState::Normal,
+                upto,
+                want_next,
+                next_known: None,
+            })
+        })
+    };
+    let first = ask(cx, 100, false);
+    assert!(first.next.is_none());
+    // The same question is answered from the cache; the next line's state is added when asked.
+    let again = ask(cx, 100, true);
+    assert!(Arc::ptr_eq(&first.runs, &again.runs));
+    assert_eq!(again.next, Some(ColorState::Normal));
+    // Another end of the last row is another question.
+    let more = ask(cx, 200, false);
+    assert!(!Arc::ptr_eq(&first.runs, &more.runs));
+    // A change of the type forgets it.
+    let settings = UserSettings::none().view_settings(Some("a.c"));
+    view.update(cx, |v, cx| v.apply_settings(settings, cx));
+    let after = ask(cx, 200, false);
+    assert!(!Arc::ptr_eq(&more.runs, &after.runs));
+}
+
+#[gpui::test]
 fn a_colored_document_paints(cx: &mut TestAppContext) {
     let text = "#include <stdio.h>\n/* comment\n over lines */\nint main(void) {\n\tprintf(\"a // b %d\\n\", 0x1F); // http://example.com\n\treturn 0;\n}\n";
     let (view, cx) = setup(cx, text, "a.c");

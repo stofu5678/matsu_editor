@@ -15,10 +15,11 @@ use gpui::{
     InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine, SharedString, Style, TextAlign,
     TextRun, UnderlineStyle, Window, fill, point, px, relative, rgb, size,
 };
-use ume_coloring::{ColorState, line_end_state, line_runs};
+use ume_coloring::ColorState;
 use ume_core::buffer::Eol;
 use ume_layout::RowInfo;
 
+use super::colors::LineColorRequest;
 use super::syntax::{self, Label, Style as TextStyle};
 use super::{EditorView, PaintInfo, diff_mark};
 use crate::geometry::{Metrics, SCROLLBAR_WIDTH, Scrollbar};
@@ -370,7 +371,8 @@ impl Element for EditorElement {
             .map(|at| at.row);
         // The colors of the line the rows are in, and the state the next line starts in: lines
         // come one after the other, so the state of the first is asked for and the others follow.
-        let mut line_colors: Option<(usize, Vec<ume_coloring::ColorRun>)> = None;
+        let mut line_colors: Option<(usize, std::sync::Arc<Vec<ume_coloring::ColorRun>>)> = None;
+        let version = editor.document.read(cx).version();
         let mut carried: Option<(usize, ColorState)> = None;
         for (row_index, row) in rows.iter().enumerate() {
             widest = widest.max(row.end_column);
@@ -426,12 +428,25 @@ impl Element for EditorElement {
                         .map(|r| r.end.col)
                         .max()
                         .unwrap_or(0);
-                    let runs = line_runs(rules, &ll.text, ll.eol, &state, upto);
-                    carried = Some((
-                        row.line + 1,
-                        line_end_state(rules, &ll.text, ll.eol, &state),
-                    ));
-                    line_colors = Some((row.line, runs));
+                    // The state of the next line is only needed if a next line is on the screen,
+                    // and the states may have it already.
+                    let want_next = rows[row_index..]
+                        .iter()
+                        .any(|r| !r.is_eof_row && r.line > row.line);
+                    let next_known = (row.line < editor.color_states.known_lines())
+                        .then(|| editor.color_states.state_at(doc, rules, row.line + 1).0);
+                    let colored = editor.colored_line(LineColorRequest {
+                        rules,
+                        version,
+                        line: row.line,
+                        layout: &ll,
+                        state: &state,
+                        upto,
+                        want_next,
+                        next_known,
+                    });
+                    carried = colored.next.map(|next| (row.line + 1, next));
+                    line_colors = Some((row.line, colored.runs));
                 }
                 match &line_colors {
                     Some((line, runs)) if *line == row.line => {

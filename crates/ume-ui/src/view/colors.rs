@@ -15,18 +15,118 @@
 //!   above them (see [`ume_coloring::ColorStates::state_at`]), so the colors of the lines far
 //!   down may change once as the states arrive. Sakura makes all states before the first paint.
 
+use std::cell::RefCell;
+use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::{Context, Window};
-use ume_coloring::LineEdit;
+use ume_coloring::{ColorRules, ColorRun, ColorState, LineEdit, line_end_state, line_runs};
 use ume_commands::context::Changes;
+use ume_layout::LineLayout;
 
 use super::EditorView;
 
 /// How long one frame, or one edit, may spend on the states of the lines.
 const COLORS_BUDGET: Duration = Duration::from_millis(4);
 
+/// A line this long (in bytes) has its colors kept between frames: scanning it from its start
+/// takes long enough to be felt at every blink of the caret.
+const LONG_LINE: usize = 2048;
+
+/// The colors of the last long line that was painted, with what they were made from.
+#[derive(Default)]
+pub(crate) struct LineColorCache(RefCell<Option<CachedLine>>);
+
+struct CachedLine {
+    version: u64,
+    line: usize,
+    state: ColorState,
+    upto: usize,
+    runs: Arc<Vec<ColorRun>>,
+    /// The state the next line starts in, once it was asked for.
+    next: Option<ColorState>,
+}
+
+impl LineColorCache {
+    pub(crate) fn clear(&self) {
+        self.0.borrow_mut().take();
+    }
+}
+
+/// What [`EditorView::colored_line`] is asked for.
+pub(super) struct LineColorRequest<'a> {
+    pub rules: &'a ColorRules,
+    /// The version of the document.
+    pub version: u64,
+    pub line: usize,
+    pub layout: &'a LineLayout,
+    /// The state the line starts in.
+    pub state: &'a ColorState,
+    /// The end of the last row of the line on the screen, in bytes.
+    pub upto: usize,
+    /// The state of the next line is needed (a next line is on the screen).
+    pub want_next: bool,
+    /// The state of the next line, when the states have it already: it saves scanning the line a
+    /// second time.
+    pub next_known: Option<ColorState>,
+}
+
+/// The colors of a line for the painting.
+pub(super) struct ColoredLine {
+    /// The runs from the start of the line to the end of the last row on the screen.
+    pub runs: Arc<Vec<ColorRun>>,
+    /// The state the next line starts in, if it was asked for.
+    pub next: Option<ColorState>,
+}
+
 impl EditorView {
+    /// The runs of the colors of a line from its start up to the end of its last row on the
+    /// screen, and the state the next line starts in if that is wanted. The line is scanned from
+    /// its start, as Sakura paints a row; the result for a long line is kept for the next frame,
+    /// so that a blinking caret does not scan it again.
+    pub(super) fn colored_line(&self, request: LineColorRequest<'_>) -> ColoredLine {
+        let LineColorRequest {
+            rules,
+            version,
+            line,
+            layout: ll,
+            state,
+            upto,
+            want_next,
+            next_known,
+        } = request;
+        let long = ll.text.len() >= LONG_LINE;
+        if long
+            && let Some(hit) = self.line_color_cache.0.borrow_mut().as_mut().filter(|c| {
+                c.version == version && c.line == line && c.state == *state && c.upto == upto
+            })
+        {
+            if want_next && hit.next.is_none() {
+                hit.next = next_known
+                    .clone()
+                    .or_else(|| Some(line_end_state(rules, &ll.text, ll.eol, state)));
+            }
+            return ColoredLine {
+                runs: hit.runs.clone(),
+                next: hit.next.clone(),
+            };
+        }
+        let runs = Arc::new(line_runs(rules, &ll.text, ll.eol, state, upto));
+        let next = want_next
+            .then(|| next_known.unwrap_or_else(|| line_end_state(rules, &ll.text, ll.eol, state)));
+        if long {
+            *self.line_color_cache.0.borrow_mut() = Some(CachedLine {
+                version,
+                line,
+                state: state.clone(),
+                upto,
+                runs: runs.clone(),
+                next: next.clone(),
+            });
+        }
+        ColoredLine { runs, next }
+    }
+
     /// Makes sure the states match the document and the rules, and makes more of them for a
     /// large document. Called before each frame; asks for another frame while there is more to do.
     pub(crate) fn advance_colors(&mut self, window: &mut Window, cx: &mut Context<Self>) {
