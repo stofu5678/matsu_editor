@@ -11,3 +11,4 @@ pub mod macros;
 pub mod search;
 pub mod select;
 pub mod settings;
+pub mod support;

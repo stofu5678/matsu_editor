@@ -2,4 +2,5 @@
 //! ([`word`]) and which brackets pair ([`bracket`]).
 
 pub mod bracket;
+pub mod complete;
 pub mod word;

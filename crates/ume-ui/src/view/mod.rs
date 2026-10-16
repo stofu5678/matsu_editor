@@ -152,6 +152,8 @@ pub struct EditorView {
     pub(crate) macros: MacroState,
     /// The Save As options dialog that covers the view, while one is open.
     pub(crate) save_as_dialog: Option<Entity<crate::file_ops::save_as_dialog::SaveAsDialog>>,
+    /// The completion list, the command list and the version dialog (`crate::support`).
+    pub(crate) support: crate::support::Support,
     font_family: SharedString,
     font_size: f32,
     _subscription: Subscription,
@@ -195,6 +197,7 @@ impl EditorView {
             panel: None,
             macros: MacroState::default(),
             save_as_dialog: None,
+            support: Default::default(),
             font_family: FONT_FAMILY.into(),
             font_size: crate::settings::ViewSettings::default().font_px(),
             _subscription: subscription,
@@ -224,6 +227,11 @@ impl EditorView {
     /// Sets the size of the text area, as the paint does. For tests, which have no paint.
     pub fn set_metrics(&mut self, metrics: Metrics) {
         self.metrics = metrics;
+    }
+
+    /// The font family and size of the text, for what is drawn over it.
+    pub(crate) fn font(&self) -> (SharedString, f32) {
+        (self.font_family.clone(), self.font_size)
     }
 
     /// The document of a view (the text only).
@@ -281,6 +289,7 @@ impl EditorView {
             return true;
         }
         self.record_call(reg.sakura, args);
+        self.completion_before_command(reg.sakura);
         let result = self.run_with(cx, |command_cx| reg.run(command_cx, args));
         let ok = result.is_ok();
         self.notice = result
@@ -349,6 +358,7 @@ impl EditorView {
             return true;
         }
         self.record_call(reg.sakura, args);
+        self.completion_before_command(reg.sakura);
         // The command may leave a message of its own (a search that wrapped around), so only a
         // failure replaces it.
         self.notice = None;
@@ -377,6 +387,7 @@ impl EditorView {
             self.marked = None;
             self.notice = None;
         }
+        self.completion_after_command(changes, cx);
         self.ensure_caret_visible(cx);
         cx.notify();
     }
@@ -392,6 +403,8 @@ impl EditorView {
         let _ = self.cursor.clamp(doc);
         self.layout_version = version;
         self.drop_composition(cx);
+        // the candidates were made for the old text
+        self.support.completion = None;
         self.clamp_scroll();
         cx.notify();
     }
@@ -502,6 +515,11 @@ impl EditorView {
     // ---- keys ----
 
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        // The completion list takes its keys first (Sakura: `CHokanMgr::KeyProc`).
+        if self.completion_key(event, cx) {
+            cx.stop_propagation();
+            return;
+        }
         if event.prefer_character_input {
             return; // AltGr and the like: the character, not a command
         }
@@ -620,6 +638,7 @@ impl Render for EditorView {
             .child(editor)
             .children(self.panel.clone())
             .children(self.save_as_dialog.clone())
+            .children(self.support_overlays(cx))
             .into_any_element()
     }
 }
