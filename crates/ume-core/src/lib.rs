@@ -6,6 +6,7 @@
 pub mod bookmarks;
 pub mod buffer;
 pub mod cursor;
+pub mod diff;
 pub mod encoding;
 pub mod file;
 pub mod jump_history;

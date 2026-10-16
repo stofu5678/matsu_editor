@@ -14,12 +14,13 @@ use gpui::{
 use ume_core::buffer::Eol;
 use ume_layout::RowInfo;
 
-use super::{EditorView, PaintInfo};
+use super::{EditorView, PaintInfo, diff_mark};
 use crate::geometry::{Metrics, SCROLLBAR_WIDTH, Scrollbar};
 use crate::hit::selected_columns;
 use crate::search::highlight::highlight_columns;
 use crate::segments::{SegmentKind, row_segments};
-use crate::settings::{Colors, Marks};
+use crate::settings::{Colors, DiffColor, Marks};
+use ume_core::diff::DiffMark;
 
 /// The caret of overwrite mode: the caret color with some transparency.
 const CARET_BLOCK_ALPHA: u32 = 0x70;
@@ -97,35 +98,65 @@ struct GutterStyle {
     bold: bool,
 }
 
+/// The colors of the DIFF mark of a line, if they are shown (`CDiffLineGetter::GetDiffColor`).
+fn diff_color(colors: &Colors, mark: DiffMark) -> Option<DiffColor> {
+    let color = match mark {
+        DiffMark::Append => colors.diff_append,
+        DiffMark::Change => colors.diff_change,
+        DiffMark::Delete | DiffMark::DeleteEx => colors.diff_delete,
+    };
+    color.shown.then_some(color)
+}
+
+/// Which entry decided the colors of a line number.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ColorSource {
+    Plain,
+    Modified,
+    Other,
+}
+
+/// The colors are chosen in this order, the last that applies wins: the line number, a modified
+/// line, a DIFF mark, a bookmark (`CTextDrawer::DispLineNumber`). A modified line passes its
+/// colors on to a line that has another color of its own, where that color is the line number's
+/// own (the DIFF and bookmark entries of the default colors do not differ in bold, for example).
 fn gutter_style(
     colors: &Colors,
     marks: &Marks,
     bookmarked: bool,
     modified: bool,
+    diff: Option<DiffMark>,
     line_numbers: bool,
 ) -> GutterStyle {
     let modified = modified && marks.modified;
     let bookmark_colored = bookmarked && marks.bookmark;
-    let (mut text, mut back, mut bold) = if bookmark_colored {
-        (
-            colors.bookmark,
-            colors.bookmark_background,
-            colors.bookmark_bold,
-        )
-    } else if modified {
-        (
+    let mut source = ColorSource::Plain;
+    let (mut text, mut back, mut bold) = (
+        colors.line_number,
+        colors.line_number_background,
+        colors.line_number_bold,
+    );
+    if modified {
+        (text, back, bold) = (
             colors.modified,
             colors.modified_background,
             colors.modified_bold,
-        )
-    } else {
-        (
-            colors.line_number,
-            colors.line_number_background,
-            colors.line_number_bold,
-        )
-    };
-    if modified && bookmark_colored {
+        );
+        source = ColorSource::Modified;
+    }
+    if let Some(color) = diff.and_then(|mark| diff_color(colors, mark)) {
+        (text, back, bold) = (color.text, color.background, color.bold);
+        source = ColorSource::Other;
+    }
+    if bookmark_colored {
+        (text, back, bold) = (
+            colors.bookmark,
+            colors.bookmark_background,
+            colors.bookmark_bold,
+        );
+        source = ColorSource::Other;
+    }
+    if modified && source == ColorSource::Other {
         if colors.line_number == text {
             text = colors.modified;
         }
@@ -139,7 +170,7 @@ fn gutter_style(
     GutterStyle {
         text,
         // the color is drawn with the line number, which is not there without line numbers
-        background: (line_numbers && (bookmark_colored || modified)).then_some(back),
+        background: (line_numbers && source != ColorSource::Plain).then_some(back),
         bold,
     }
 }
@@ -154,6 +185,8 @@ struct RowPaint {
     bookmarked: bool,
     /// The fill of the line number area of this row (see [`GutterStyle`]).
     gutter_background: Option<u32>,
+    /// The DIFF mark of the line and the color it is drawn in (the text color of the line number).
+    diff: Option<(DiffMark, u32)>,
     text: Vec<Placed>,
     /// The same pieces in the color of selected text, when that differs from the text color and
     /// the row has a selection.
@@ -298,6 +331,7 @@ impl Element for EditorElement {
         .into_iter();
         let model = editor.document.read(cx).model();
         let bookmarks = model.bookmarks();
+        let diff_marks = model.diff_marks();
         let mut widest = 0;
         let mut painted = Vec::with_capacity(rows.len());
         for row in &rows {
@@ -305,11 +339,15 @@ impl Element for EditorElement {
             let bookmarked = !row.is_eof_row && bookmarks.contains(row.line);
             // the empty row after the last line break is no line (Sakura has no layout for it)
             let modified = !row.is_eof_row && model.is_line_modified(row.line);
+            let diff = (!row.is_eof_row)
+                .then(|| diff_marks.get(row.line))
+                .flatten();
             let style = gutter_style(
                 &colors,
                 &marks_shown,
                 bookmarked,
                 modified,
+                diff,
                 show_line_numbers,
             );
             let numbers =
@@ -396,6 +434,7 @@ impl Element for EditorElement {
                 numbers,
                 bookmarked,
                 gutter_background: style.background,
+                diff: diff.filter(|_| show_line_numbers).map(|m| (m, style.text)),
                 text,
                 selected_text,
                 marks,
@@ -504,6 +543,17 @@ impl Element for EditorElement {
                     Bounds::new(point(bounds.left() + px(1.), y), size(px(2.), lh)),
                     rgb(p.colors.line_number),
                 )),
+            }
+            if let Some((mark, color)) = row.diff {
+                for (dx, dy) in diff_mark::pixels(mark, f32::from(lh).round() as i32) {
+                    window.paint_quad(fill(
+                        Bounds::new(
+                            point(bounds.left() + px(dx as f32), y + px(dy as f32)),
+                            size(px(1.), px(1.)),
+                        ),
+                        rgb(color),
+                    ));
+                }
             }
             if let Some(numbers) = &row.numbers {
                 numbers
@@ -789,6 +839,18 @@ mod tests {
             line_number_bold: false,
             bookmark_bold: false,
             modified_bold: true,
+            diff_append: diff_color_of(0x0000d2, 0xa2d0ff),
+            diff_change: diff_color_of(0x006f00, 0xbdfdc0),
+            diff_delete: diff_color_of(0xd56a00, 0xffe9ac),
+        }
+    }
+
+    fn diff_color_of(text: u32, background: u32) -> DiffColor {
+        DiffColor {
+            text,
+            background,
+            bold: false,
+            shown: true,
         }
     }
 
@@ -807,13 +869,13 @@ mod tests {
     fn a_modified_line_number_is_bold_by_default() {
         let c = colors();
         let m = marks(true, true);
-        let plain = gutter_style(&c, &m, false, false, true);
+        let plain = gutter_style(&c, &m, false, false, None, true);
         assert_eq!(
             (plain.text, plain.background, plain.bold),
             (0x0000ff, None, false)
         );
         // Sakura's default colors differ only in bold
-        let modified = gutter_style(&c, &m, false, true, true);
+        let modified = gutter_style(&c, &m, false, true, None, true);
         assert_eq!(modified.text, 0x0000ff);
         assert_eq!(modified.background, Some(0xefefef));
         assert!(modified.bold);
@@ -826,16 +888,16 @@ mod tests {
             modified_background: 0x00ff00,
             ..colors()
         };
-        let style = gutter_style(&c, &marks(true, true), false, true, true);
+        let style = gutter_style(&c, &marks(true, true), false, true, None, true);
         assert_eq!((style.text, style.background), (0xff0000, Some(0x00ff00)));
         // switched off in the settings: the line number as usual
-        let style = gutter_style(&c, &marks(true, false), false, true, true);
+        let style = gutter_style(&c, &marks(true, false), false, true, None, true);
         assert_eq!(
             (style.text, style.background, style.bold),
             (0x0000ff, None, false)
         );
         // without line numbers there is nothing to color
-        let style = gutter_style(&c, &marks(true, true), false, true, false);
+        let style = gutter_style(&c, &marks(true, true), false, true, None, false);
         assert_eq!(style.background, None);
     }
 
@@ -848,7 +910,7 @@ mod tests {
         };
         // the bookmark has its own colors: they stay; bold is the modified line's, because the
         // bookmark is as bold as the line number (`cGyouType.IsBoldFont() == cColorType.IsBoldFont()`)
-        let style = gutter_style(&c, &marks(true, true), true, true, true);
+        let style = gutter_style(&c, &marks(true, true), true, true, None, true);
         assert_eq!(
             (style.text, style.background, style.bold),
             (0xfffbf0, Some(0x0080c0), true)
@@ -859,16 +921,72 @@ mod tests {
             bookmark_background: c.line_number_background,
             ..c
         };
-        let style = gutter_style(&same, &marks(true, true), true, true, true);
+        let style = gutter_style(&same, &marks(true, true), true, true, None, true);
         assert_eq!(
             (style.text, style.background, style.bold),
             (0xff0000, Some(0x00ff00), true)
         );
         // a bookmark without its color shown: the modified line's colors
-        let style = gutter_style(&c, &marks(false, true), true, true, true);
+        let style = gutter_style(&c, &marks(false, true), true, true, None, true);
         assert_eq!((style.text, style.background), (0xff0000, Some(0x00ff00)));
         // a bookmark and no modification: the bookmark's colors
-        let style = gutter_style(&c, &marks(true, true), true, false, true);
+        let style = gutter_style(&c, &marks(true, true), true, false, None, true);
         assert_eq!((style.text, style.background), (0xfffbf0, Some(0x0080c0)));
+    }
+
+    #[test]
+    fn a_diff_mark_colors_the_line_number() {
+        let c = colors();
+        let m = marks(true, true);
+        let style = gutter_style(&c, &m, false, false, Some(DiffMark::Change), true);
+        assert_eq!((style.text, style.background), (0x006f00, Some(0xbdfdc0)));
+        // the end of the file has the color of a deletion
+        let style = gutter_style(&c, &m, false, false, Some(DiffMark::DeleteEx), true);
+        assert_eq!((style.text, style.background), (0xd56a00, Some(0xffe9ac)));
+        // without line numbers there is nothing to color
+        let style = gutter_style(&c, &m, false, false, Some(DiffMark::Append), false);
+        assert_eq!(style.background, None);
+        // a color that is not shown leaves the line number alone
+        let hidden = Colors {
+            diff_append: DiffColor {
+                shown: false,
+                ..c.diff_append
+            },
+            ..c
+        };
+        let style = gutter_style(&hidden, &m, false, false, Some(DiffMark::Append), true);
+        assert_eq!((style.text, style.background), (0x0000ff, None));
+    }
+
+    #[test]
+    fn a_bookmark_wins_over_a_diff_mark_and_a_modified_line_passes_its_bold_on() {
+        let c = colors();
+        let m = marks(true, true);
+        let style = gutter_style(&c, &m, true, false, Some(DiffMark::Append), true);
+        assert_eq!((style.text, style.background), (0xfffbf0, Some(0x0080c0)));
+        // a modified line with a diff mark: the colors of the mark, bold from the modified line
+        // because the mark is as bold as the line number
+        let style = gutter_style(&c, &m, false, true, Some(DiffMark::Append), true);
+        assert_eq!(
+            (style.text, style.background, style.bold),
+            (0x0000d2, Some(0xa2d0ff), true)
+        );
+        // a diff mark of its own bold keeps it
+        let bold = Colors {
+            diff_append: DiffColor {
+                bold: true,
+                ..c.diff_append
+            },
+            ..c
+        };
+        let style = gutter_style(
+            &bold,
+            &marks(true, false),
+            false,
+            true,
+            Some(DiffMark::Append),
+            true,
+        );
+        assert!(style.bold);
     }
 }

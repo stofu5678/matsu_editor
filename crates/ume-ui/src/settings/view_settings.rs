@@ -70,6 +70,28 @@ pub struct Marks {
     pub modified: bool,
 }
 
+/// The colors of one kind of DIFF mark (追加 "DFA", 変更 "DFC", 削除 "DFD"): the line number of
+/// a marked line gets them while `shown` (the `disp` flag of the color,
+/// `CDiffLineGetter::GetDiffColor`). The mark itself is drawn whether they are shown or not.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DiffColor {
+    pub text: Rgb,
+    pub background: Rgb,
+    pub bold: bool,
+    pub shown: bool,
+}
+
+impl DiffColor {
+    fn of(entry: &ColorEntry) -> Self {
+        Self {
+            text: rgb_of(entry.text),
+            background: rgb_of(entry.back),
+            bold: entry.bold,
+            shown: entry.disp,
+        }
+    }
+}
+
 /// The colors the view paints with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Colors {
@@ -97,6 +119,10 @@ pub struct Colors {
     pub line_number_bold: bool,
     pub bookmark_bold: bool,
     pub modified_bold: bool,
+    /// The DIFF marks: 追加, 変更 and 削除 (also the 削除 of the end of the file).
+    pub diff_append: DiffColor,
+    pub diff_change: DiffColor,
+    pub diff_delete: DiffColor,
 }
 
 /// The settings of the view for one file.
@@ -299,6 +325,7 @@ impl ViewSettings {
         let eof = entry(names::EOF);
         let bookmark = entry(names::BOOKMARK);
         let modified = entry(names::LINE_NUMBER_MODIFIED);
+        let (diff_append, diff_change, diff_delete) = (entry("DFA"), entry("DFC"), entry("DFD"));
 
         ViewSettings {
             type_index,
@@ -337,6 +364,9 @@ impl ViewSettings {
                 line_number_bold: line_number.bold,
                 bookmark_bold: bookmark.bold,
                 modified_bold: modified.bold,
+                diff_append: DiffColor::of(&diff_append),
+                diff_change: DiffColor::of(&diff_change),
+                diff_delete: DiffColor::of(&diff_delete),
             },
             show_status_bar: profile.get_bool("Common", "bDispSTATUSBAR").unwrap_or(true),
         }

@@ -3,6 +3,11 @@
 pub mod bookmark_next;
 pub mod bookmark_pattern;
 pub mod bookmark_prev;
+pub mod compare;
+pub mod diff;
+pub mod diff_dialog;
+pub mod diff_next;
+pub mod diff_prev;
 pub mod grep;
 pub mod grep_dialog;
 pub mod isearch_next;
