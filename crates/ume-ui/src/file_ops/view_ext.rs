@@ -20,7 +20,8 @@ impl EditorView {
     /// unmodified (`CEditDoc::IsAcceptLoad`, `sakura_core/doc/CEditDoc.cpp`).
     pub(crate) fn accepts_load(&self, cx: &gpui::App) -> bool {
         let shared = self.document.read(cx);
-        shared.path().is_none() && !shared.model().is_modified()
+        // A Grep window is not one to load into (`CEditDoc::IsAcceptLoad`).
+        shared.path().is_none() && !shared.model().is_modified() && !self.is_grep_window()
     }
 
     /// Replaces the document of the view with `new`: a new layout, the caret at `restore` (or at

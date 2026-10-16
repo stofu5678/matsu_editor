@@ -152,10 +152,10 @@ fn undo_and_redo_by_key_and_by_menu_action(cx: &mut TestAppContext) {
 #[gpui::test]
 fn a_function_without_a_command_says_so(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "abc");
-    // Ctrl+G is Sakura's Grep dialog, which has no command yet
-    cx.simulate_keystrokes("ctrl-g");
+    // Ctrl+Q is Sakura's key binding list (キー割り当て一覧をコピー), which has no command yet
+    cx.simulate_keystrokes("ctrl-q");
     let notice = f.view.read_with(cx, |v, _| v.notice.clone());
-    assert!(notice.unwrap().contains("F_GREP_DIALOG"));
+    assert!(notice.unwrap().contains("F_CREATEKEYBINDLIST"));
     // and the text is untouched
     assert_eq!(f.lines(cx), ["abc"]);
 }

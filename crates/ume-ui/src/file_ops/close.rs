@@ -18,9 +18,25 @@ pub(crate) async fn confirm_discard(
     view: &WeakEntity<EditorView>,
     cx: &mut AsyncWindowContext,
 ) -> bool {
+    // Nothing is closed while Grep searches (`CGrepAgent::OnBeforeClose`, the message "Grepの処理中です。").
+    if view
+        .read_with(cx, |v, _| v.is_grep_running())
+        .unwrap_or(false)
+    {
+        view.update(cx, |view, cx| {
+            view.notice = Some("Grepの処理中です。".to_owned());
+            cx.notify();
+        })
+        .ok();
+        return false;
+    }
     let Ok((modified, title)) = view.read_with(cx, |view, app| {
         let shared = view.document().read(app);
-        (shared.model().is_modified(), document_title(shared.path()))
+        // A Grep window is closed without the question (`m_bGrepExitConfirm` is off).
+        (
+            shared.model().is_modified() && !view.is_grep_window(),
+            document_title(shared.path()),
+        )
     }) else {
         return false;
     };

@@ -148,6 +148,8 @@ pub struct EditorView {
     pub(crate) isearch: Option<ISearch>,
     /// The find, replace or go-to-line panel, while it is open.
     pub(crate) panel: Option<Entity<SearchPanel>>,
+    /// Grep: the dialog, and whether this window shows a result (`crate::grep`).
+    pub(crate) grep: crate::grep::window::GrepWindow,
     /// Key macro recording and the macro that runs (`crate::macros`).
     pub(crate) macros: MacroState,
     /// The Save As options dialog that covers the view, while one is open.
@@ -193,6 +195,7 @@ impl EditorView {
             search: SearchState::default(),
             isearch: None,
             panel: None,
+            grep: Default::default(),
             macros: MacroState::default(),
             save_as_dialog: None,
             font_family: FONT_FAMILY.into(),
@@ -483,8 +486,10 @@ impl EditorView {
 
     pub fn title(&self, cx: &App) -> String {
         let shared = self.document.read(cx);
+        // A Grep window is `【Grep】key` (`${w?【Grep】$h$:...}`).
+        let grep_title = self.grep_title();
         let mut title = crate::status::window_title(
-            shared.file_name().as_deref(),
+            grep_title.as_deref().or(shared.file_name().as_deref()),
             shared.model().is_modified(),
         );
         if shared.view_mode() {
@@ -619,6 +624,8 @@ impl Render for EditorView {
             .relative()
             .child(editor)
             .children(self.panel.clone())
+            .children(self.grep.panel.clone())
+            .children(self.grep_progress_bar(cx))
             .children(self.save_as_dialog.clone())
             .into_any_element()
     }

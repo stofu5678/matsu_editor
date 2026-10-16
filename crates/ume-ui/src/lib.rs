@@ -25,6 +25,7 @@ mod clipboard;
 pub mod document;
 mod file_ops;
 pub mod geometry;
+pub mod grep;
 pub mod hit;
 pub mod keys;
 pub mod layout_adapter;
