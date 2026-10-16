@@ -1,7 +1,6 @@
 //! The application: the window with a menu bar, the editor and a status bar.
 //!
-//! The menu is the smallest that shows the way: File > Exit and Edit > Undo / Redo. Sakura's whole
-//! main menu is in `ume_commands::sakura::MAIN_MENU` and comes in a later PR.
+//! The menu is Sakura's main menu (`crate::menu`).
 
 use std::path::PathBuf;
 
@@ -15,11 +14,20 @@ use gpui_component::{GlobalState, Root, TitleBar};
 use gpui_platform::application;
 
 use crate::document::SharedDocument;
+use crate::menu::{Entry, MenuAction, Registered, label_with_shortcut, main_menu};
 use crate::open::OpenError;
 use crate::status::status_text;
-use crate::view::{EditorView, Redo, Undo};
+use crate::view::{EditorView, RunFunction};
+use ume_commands::keymap::{DisplayStyle, KeyMap};
 
-actions!(ume, [Exit]);
+actions!(
+    ume,
+    [
+        Exit,
+        /// A menu item that cannot run: no one handles this action.
+        Unavailable
+    ]
+);
 
 /// Why the editor could not start.
 #[derive(Debug)]
@@ -47,12 +55,13 @@ pub fn run(path: Option<PathBuf>) -> Result<(), StartError> {
         None => SharedDocument::empty(),
     };
     let user = crate::settings::UserSettings::load();
+    let keymap = user.key_map(ume_commands::keymap::Platform::current());
     let app = application();
     #[cfg(target_os = "linux")]
     let app = app.with_assets(gpui_kit_assets::Assets);
     app.run(move |cx: &mut App| {
         gpui_component::init(cx);
-        set_menus(cx);
+        set_menus(cx, &keymap);
         cx.on_action(|_: &Exit, cx| cx.quit());
         cx.on_window_closed(|cx, _| {
             if cx.windows().is_empty() {
@@ -87,26 +96,56 @@ pub fn run(path: Option<PathBuf>) -> Result<(), StartError> {
     Ok(())
 }
 
-/// Sets the menus of the application. macOS shows them in the menu bar of the screen; elsewhere
-/// the window draws them (`AppMenuBar`), from the copy in gpui-component's global state.
-fn set_menus(cx: &mut App) {
-    let mut file = Vec::new();
-    // macOS has Quit in the application menu, not in the File menu.
-    if !cfg!(target_os = "macos") {
-        file.push(MenuItem::action("終了(X)", Exit));
-    }
+/// Sets the menus of the application: Sakura's main menu (`crate::menu`). macOS shows them in the
+/// menu bar of the screen; elsewhere the window draws them (`AppMenuBar`), from the copy in
+/// gpui-component's global state. An item runs its Sakura function on the editor
+/// ([`RunFunction`]); a function without a command is grayed out. The shortcuts shown are those
+/// of `keymap`, the user's key map (ume.ini).
+fn set_menus(cx: &mut App, keymap: &KeyMap) {
+    let style = if cfg!(target_os = "macos") {
+        DisplayStyle::Mac
+    } else {
+        DisplayStyle::Sakura
+    };
     let mut menus = Vec::new();
+    // macOS has Quit in the application menu, not in the File menu.
     if cfg!(target_os = "macos") {
         menus.push(Menu::new("UME Editor").items([MenuItem::action("UME Editor を終了", Exit)]));
     }
-    menus.push(Menu::new("ファイル(F)").items(file));
-    menus.push(Menu::new("編集(E)").items([
-        MenuItem::action("元に戻す(U)", Undo),
-        MenuItem::action("やり直し(R)", Redo),
-    ]));
+    for top in main_menu(keymap, &Registered) {
+        let items = gpui_items(top.entries, style);
+        menus.push(Menu::new(top.label).items(items));
+    }
     cx.set_menus(menus);
     let owned = cx.get_menus().unwrap_or_default();
     GlobalState::global_mut(cx).set_app_menus(owned);
+}
+
+fn gpui_items(entries: Vec<Entry>, style: DisplayStyle) -> Vec<MenuItem> {
+    entries
+        .into_iter()
+        .filter_map(|entry| match entry {
+            Entry::Separator => Some(MenuItem::separator()),
+            Entry::Submenu { label, entries } => Some(MenuItem::submenu(
+                Menu::new(label).items(gpui_items(entries, style)),
+            )),
+            Entry::Item(item) => {
+                let label = label_with_shortcut(&item, style);
+                match item.action {
+                    MenuAction::Exit if cfg!(target_os = "macos") => None,
+                    MenuAction::Exit => Some(MenuItem::action(label, Exit)),
+                    MenuAction::Function(code) if item.enabled => {
+                        Some(MenuItem::action(label, RunFunction { code }))
+                    }
+                    // Nobody handles `Unavailable`, so the native menu of macOS, which asks
+                    // whether the action can be handled, keeps the item gray.
+                    MenuAction::Function(_) | MenuAction::Placeholder => {
+                        Some(MenuItem::action(label, Unavailable).disabled(true))
+                    }
+                }
+            }
+        })
+        .collect()
 }
 
 /// The content of the window: menu bar, editor, status bar.
@@ -181,6 +220,7 @@ impl Render for Workspace {
 
 #[cfg(test)]
 mod tests {
+    use crate::view::{Redo, Undo};
     use gpui::TestAppContext;
     use ume_core::buffer::Document;
     use ume_core::model::DocumentModel;
@@ -193,7 +233,7 @@ mod tests {
     fn the_window_builds_and_its_menu_edits(cx: &mut TestAppContext) {
         cx.update(|cx| {
             gpui_component::init(cx);
-            set_menus(cx);
+            set_menus(cx, &KeyMap::default());
         });
         let doc = Document::from_utf8(b"abc".to_vec()).unwrap();
         let shared = cx.new(|_| {
@@ -219,5 +259,29 @@ mod tests {
         assert_eq!(text(cx), "abc");
         cx.dispatch_action(Redo);
         assert_eq!(text(cx), "xabc");
+        // The Edit menu items of Sakura's table run by function code (F_UNDO, F_REDO).
+        cx.dispatch_action(RunFunction { code: 30210 });
+        assert_eq!(text(cx), "abc");
+        cx.dispatch_action(RunFunction { code: 30211 });
+        assert_eq!(text(cx), "xabc");
+    }
+
+    /// The menus handed to GPUI are Sakura's: the File menu has submenus and separators, items
+    /// without a command are disabled.
+    #[gpui::test]
+    fn the_menus_are_sakuras(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            set_menus(cx, &KeyMap::default());
+        });
+        let menus = cx.update(|cx| cx.get_menus().unwrap_or_default());
+        let file = menus
+            .iter()
+            .find(|m| m.name.contains("ファイル"))
+            .expect("the File menu");
+        let has = |pred: fn(&gpui::OwnedMenuItem) -> bool| file.items.iter().any(pred);
+        assert!(has(|i| matches!(i, gpui::OwnedMenuItem::Separator)));
+        assert!(has(|i| matches!(i, gpui::OwnedMenuItem::Submenu(_))));
+        // Which items are enabled depends on the commands linked in; `menu::tests` checks that.
     }
 }

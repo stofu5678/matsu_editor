@@ -1,0 +1,29 @@
+//! `F_1PageDown`: `Command_1PageDown`: the caret and the view go down by a page less one row.
+//!
+//! Sakura: `sakura_core/cmd/CViewCommander_Cursor.cpp`; the rules are in `view/paging.rs`.
+
+use gpui::{Context, Window};
+use ume_commands::command::{Arg, Result};
+
+use crate::ui_command::{UiCommand, register_ui_command};
+use crate::view::EditorView;
+
+#[derive(Default)]
+pub struct OnePageDown;
+
+impl UiCommand for OnePageDown {
+    const ID: &'static str = "one_page_down";
+    const SAKURA: &'static str = "F_1PageDown";
+
+    fn run(
+        &self,
+        view: &mut EditorView,
+        _: &[Arg],
+        _: &mut Window,
+        cx: &mut Context<EditorView>,
+    ) -> Result {
+        view.page_by(1, false, cx)
+    }
+}
+
+register_ui_command!(OnePageDown);

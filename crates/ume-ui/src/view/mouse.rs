@@ -46,12 +46,13 @@ impl EditorView {
             if y >= bar.thumb_top && y <= bar.thumb_top + bar.thumb_height {
                 self.drag = Drag::Thumb {
                     start_y: f32::from(event.position.y),
-                    start_scroll: self.scroll_y,
+                    start_scroll: clamp_scroll_y(&self.metrics, rows, self.scroll_y),
                 };
             } else {
                 // Clicking the track pages up or down, as on Windows.
                 let page = self.metrics.line_height * (self.metrics.visible_rows() as f32 - 1.0);
                 let page = if y < bar.thumb_top { -page } else { page };
+                self.scroll_past_end = false;
                 self.scroll_y = clamp_scroll_y(&self.metrics, rows, self.scroll_y + page);
             }
             cx.notify();
@@ -127,6 +128,7 @@ impl EditorView {
                 let rows = self.layout.row_count();
                 let bar = Scrollbar::new(&self.metrics, rows, self.scroll_y);
                 let dy = f32::from(event.position.y) - start_y;
+                self.scroll_past_end = false;
                 self.scroll_y = bar.scroll_for_drag(&self.metrics, rows, start_scroll, dy);
                 cx.notify();
             }
@@ -146,17 +148,13 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.run_wheel_function(event, window, cx) {
-            return;
-        }
-        let delta = event.delta.pixel_delta(gpui::px(self.metrics.line_height));
-        self.scroll_by(f32::from(delta.x), f32::from(delta.y));
-        cx.notify();
+        self.handle_wheel(event, window, cx);
     }
 
     /// Scrolls the text as the wheel does: a positive `dy` moves the text up.
     pub fn scroll_by(&mut self, dx: f32, dy: f32) {
         let rows = self.layout.row_count();
+        self.scroll_past_end = false;
         self.scroll_y = clamp_scroll_y(&self.metrics, rows, self.scroll_y - dy);
         // The text can scroll right until the widest row of the last paint ends at the edge.
         let widest = (self.widest_cols as f32 + 1.0) * self.metrics.cell_width;

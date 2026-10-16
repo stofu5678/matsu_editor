@@ -17,6 +17,7 @@
 mod element;
 mod input;
 mod mouse;
+mod paging;
 mod settings;
 #[cfg(test)]
 mod settings_tests;
@@ -56,6 +57,13 @@ actions!(
         Redo,
     ]
 );
+
+/// A menu item: run the Sakura function with this code on the editor (`EditorView::run_function`).
+#[derive(Clone, PartialEq, Debug, gpui::Action)]
+#[action(namespace = ume, no_json)]
+pub struct RunFunction {
+    pub code: u16,
+}
 
 /// The font of the text, by OS: a Japanese monospaced font, so that full-width characters are
 /// twice as wide as half-width ones. GPUI picks a font by family name and falls back to its
@@ -111,6 +119,12 @@ pub struct EditorView {
     pub(crate) focus_handle: FocusHandle,
     pub(crate) scroll_x: f32,
     pub(crate) scroll_y: f32,
+    /// The top row may be past the end of the scroll range (Sakura's `MoveViewTopLine`, see
+    /// `paging.rs`); any other scrolling clears this.
+    pub(crate) scroll_past_end: bool,
+    /// The part of a wheel notch that has not made a whole row yet, vertical and horizontal
+    /// (`paging.rs`).
+    pub(crate) wheel_remainder: [f32; 2],
     pub(crate) metrics: Metrics,
     pub(crate) paint: Option<PaintInfo>,
     /// The widest end column among the rows of the last paint, for the horizontal scroll range.
@@ -147,6 +161,8 @@ impl EditorView {
             focus_handle: cx.focus_handle(),
             scroll_x: 0.0,
             scroll_y: 0.0,
+            scroll_past_end: false,
+            wheel_remainder: [0.0; 2],
             metrics: Metrics::default(),
             paint: None,
             widest_cols: 0,
@@ -331,7 +347,11 @@ impl EditorView {
     // ---- scrolling ----
 
     pub(crate) fn clamp_scroll(&mut self) {
-        self.scroll_y = clamp_scroll_y(&self.metrics, self.layout.row_count(), self.scroll_y);
+        self.scroll_y = if self.scroll_past_end {
+            self.scroll_y.max(0.0)
+        } else {
+            clamp_scroll_y(&self.metrics, self.layout.row_count(), self.scroll_y)
+        };
         self.scroll_x = self.scroll_x.max(0.0);
     }
 
@@ -344,19 +364,21 @@ impl EditorView {
 
     /// Scrolls so that the caret's row is `offset` rows below the top of the view, as Sakura's
     /// `MoveViewTopLine` does (`sakura_core/cmd/CViewCommander_Cursor.cpp`): the top is never above
-    /// the first row. The caret does not move.
+    /// the first row, and it may be past the end of the scroll range. The caret does not move.
     pub fn scroll_caret_row_to(&mut self, offset: usize, cx: &mut Context<Self>) {
-        let top = self.caret_row(cx).row.saturating_sub(offset);
-        self.scroll_y = top as f32 * self.metrics.line_height;
-        self.clamp_scroll();
-        cx.notify();
+        let top = self.caret_row(cx).row as isize - offset as isize;
+        self.move_view_top_line(top, cx);
     }
 
     /// Scrolls so that the caret is in view.
     pub fn ensure_caret_visible(&mut self, cx: &App) {
         let at = self.caret_row(cx);
         let m = self.metrics;
+        let before = self.scroll_y;
         self.scroll_y = scroll_y_to_show_row(&m, self.scroll_y, at.row);
+        if self.scroll_y != before {
+            self.scroll_past_end = false;
+        }
         let x = at.column as f32 * m.cell_width;
         self.scroll_x = scroll_x_to_show(&m, self.scroll_x, x, x);
         self.clamp_scroll();
@@ -471,6 +493,9 @@ impl Render for EditorView {
             .capture_key_down(cx.listener(Self::on_key_down))
             .on_action(cx.listener(|this, _: &Undo, _, cx| this.run_command("undo", &[], cx)))
             .on_action(cx.listener(|this, _: &Redo, _, cx| this.run_command("redo", &[], cx)))
+            .on_action(cx.listener(|this, a: &RunFunction, window, cx| {
+                this.run_function(a.code, &[], window, cx);
+            }))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
@@ -481,5 +506,7 @@ impl Render for EditorView {
     }
 }
 
+#[cfg(test)]
+mod paging_tests;
 #[cfg(test)]
 mod tests;

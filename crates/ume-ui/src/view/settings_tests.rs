@@ -156,9 +156,11 @@ fn a_file_that_hides_the_status_bar_starts_without_it(cx: &mut TestAppContext) {
 fn ctrl_wheel_zooms_and_the_plain_wheel_scrolls(cx: &mut TestAppContext) {
     use gpui::{Modifiers, ScrollDelta, ScrollWheelEvent, TouchPhase, point, px};
     let (view, cx) = setup(cx, &"line\n".repeat(200));
+    // One notch: GPUI's Windows and Linux backends report 3 lines for it (see `paging.rs`).
+    let notch = if cfg!(target_os = "macos") { 1.0 } else { 3.0 };
     let wheel = |modifiers| ScrollWheelEvent {
         position: point(px(100.), px(100.)),
-        delta: ScrollDelta::Lines(point(0., 1.)),
+        delta: ScrollDelta::Lines(point(0., notch)),
         modifiers,
         touch_phase: TouchPhase::Moved,
     };
