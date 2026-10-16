@@ -23,6 +23,10 @@ mod clipboard;
 mod convert;
 mod indent;
 mod lines;
+mod modes;
+mod modified_lines;
+#[cfg(test)]
+mod modified_lines_tests;
 mod motion;
 mod paragraph;
 mod view_mode;
@@ -41,6 +45,8 @@ use crate::layout::Layout;
 pub use bookmarks::BookmarkJump;
 pub use boxsel::MAX_BOX_COL;
 pub(crate) use clipboard::QUOTE;
+pub use modes::eol_of_type;
+pub use modified_lines::ModifiedLineJump;
 pub(crate) use motion::is_indent_char;
 
 /// One edit of the text, in the coordinates of the document before the edit for `old_end` and

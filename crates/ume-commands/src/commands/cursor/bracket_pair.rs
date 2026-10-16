@@ -15,7 +15,7 @@
 //!   used only when Sakura draws the highlight of a pair, so it is not needed here.
 //!
 //! Sakura moves with `MoveCursorSelecting(..., m_bSelectingLock)`: while the selection lock is on
-//! (after `F_BEGIN_BOX`; `F_BEGIN_SEL` is not implemented yet) the move extends the selection.
+//! (after `F_BEGIN_SEL` or `F_BEGIN_BOX`) the move extends the selection.
 
 use ume_core::buffer::{Document, Pos};
 

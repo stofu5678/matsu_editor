@@ -10,6 +10,7 @@ pub mod encoding;
 pub mod file;
 pub mod jump_history;
 pub mod model;
+pub mod modified;
 pub mod search;
 pub mod tag_jump;
 pub mod undo;

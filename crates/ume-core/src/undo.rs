@@ -36,6 +36,7 @@ use std::collections::VecDeque;
 use crate::bookmarks::{LineDelta, LineEdit};
 use crate::buffer::Document;
 use crate::cursor::Cursor;
+use crate::modified::{MarkEdit, ModifiedLines, Seq};
 
 /// A document version and the cursor that went with it.
 #[derive(Clone, Debug)]
@@ -60,6 +61,8 @@ struct Block {
     after: Snapshot,
     /// The changes of the line list, in the order the edits were made (for the bookmarks).
     lines: Vec<LineEdit>,
+    /// The changes of the sequence numbers of the lines (for the modified lines).
+    marks: Vec<MarkEdit>,
 }
 
 /// The block that is being made.
@@ -69,6 +72,7 @@ struct Open {
     before: Snapshot,
     edited: bool,
     lines: Vec<LineEdit>,
+    marks: Vec<MarkEdit>,
 }
 
 /// The undo and redo history of a document.
@@ -81,6 +85,11 @@ pub struct History {
     saved: Option<usize>,
     open: Option<Open>,
     max_blocks: Option<usize>,
+    /// How many blocks were forgotten from the front, so that the sequence numbers of the
+    /// lines (`origin + pos`) stay the same when `trim` forgets blocks.
+    origin: Seq,
+    /// The sequence number of each line (see [`crate::modified`]).
+    marks: ModifiedLines,
 }
 
 impl Default for History {
@@ -98,6 +107,8 @@ impl History {
             saved: Some(0),
             open: None,
             max_blocks: None,
+            origin: 0,
+            marks: ModifiedLines::new(),
         }
     }
 
@@ -123,10 +134,53 @@ impl History {
 
     /// Records that the document is saved as it is now. `doc` and `cursor` are the current state:
     /// the edits of a running block so far are stored as a step first (as `undo` does), so the
-    /// saved version is a step that can be undone to and redone from.
+    /// saved version is a step that can be undone to and redone from. No line is modified
+    /// afterwards (Sakura: `CModifyManager::OnAfterSave`).
     pub fn mark_saved(&mut self, doc: &Document, cursor: &Cursor) {
         self.store_open_edits(doc, cursor);
         self.saved = Some(self.pos);
+        self.marks.reset(self.current_seq());
+    }
+
+    /// The sequence number of the version that is applied now (Sakura: `m_nCurrentPointer`).
+    fn current_seq(&self) -> Seq {
+        self.origin + self.pos as Seq
+    }
+
+    /// The sequence number the lines of the next edit get (`COpeBuf::GetNextSeq`).
+    pub fn next_seq(&self) -> Seq {
+        self.current_seq() + 1
+    }
+
+    /// The sequence number of the saved version, if it can still be reached.
+    pub fn saved_seq(&self) -> Option<Seq> {
+        self.saved.map(|s| self.origin + s as Seq)
+    }
+
+    /// The sequence numbers of the lines.
+    pub fn marks(&self) -> &ModifiedLines {
+        &self.marks
+    }
+
+    /// Whether `line` differs from the saved version (Sakura: `CModifyVisitor::IsLineModified`,
+    /// drawn only while the document is modified at all). When there is no saved version to
+    /// compare with, every line is modified.
+    pub fn is_line_modified(&self, line: usize) -> bool {
+        self.is_modified() && self.saved_seq() != Some(self.marks.seq_of(line))
+    }
+
+    /// Does an edit of the sequence numbers and keeps it in the block, so that undo can revert it.
+    /// Call it after [`note_edit`](Self::note_edit).
+    pub fn apply_marks(&mut self, edit: MarkEdit) {
+        edit.apply(&mut self.marks);
+        if let Some(open) = &mut self.open {
+            open.marks.push(edit);
+        }
+    }
+
+    /// Forgets the numbers of lines from `rows` on.
+    pub fn truncate_marks(&mut self, rows: usize) {
+        self.marks.truncate(rows);
     }
 
     /// Opens a block (or enters the open one). `doc` and `cursor` are the state before the
@@ -140,6 +194,7 @@ impl History {
                     before: Snapshot::of(doc, cursor),
                     edited: false,
                     lines: Vec::new(),
+                    marks: Vec::new(),
                 });
             }
         }
@@ -178,7 +233,12 @@ impl History {
         if let Some(open) = self.open.take()
             && open.edited
         {
-            self.push(open.before, Snapshot::of(doc, cursor), open.lines);
+            self.push(
+                open.before,
+                Snapshot::of(doc, cursor),
+                open.lines,
+                open.marks,
+            );
         }
     }
 
@@ -200,6 +260,9 @@ impl History {
             return None;
         }
         self.pos -= 1;
+        for edit in self.blocks[self.pos].marks.iter().rev() {
+            edit.revert(&mut self.marks);
+        }
         let lines = self.blocks[self.pos]
             .lines
             .iter()
@@ -226,6 +289,9 @@ impl History {
         let block = self.blocks.get(self.pos)?;
         let after = block.after.clone();
         let lines = block.lines.iter().flat_map(LineEdit::forward).collect();
+        for edit in &block.marks {
+            edit.apply(&mut self.marks);
+        }
         self.pos += 1;
         self.restore(after, doc, cursor);
         Some(lines)
@@ -241,7 +307,8 @@ impl History {
         let before = std::mem::replace(&mut open.before, Snapshot::of(doc, cursor));
         open.edited = false;
         let lines = std::mem::take(&mut open.lines);
-        self.push(before, Snapshot::of(doc, cursor), lines);
+        let marks = std::mem::take(&mut open.marks);
+        self.push(before, Snapshot::of(doc, cursor), lines, marks);
     }
 
     fn restore(&mut self, snap: Snapshot, doc: &mut Document, cursor: &mut Cursor) {
@@ -254,7 +321,13 @@ impl History {
         }
     }
 
-    fn push(&mut self, before: Snapshot, after: Snapshot, lines: Vec<LineEdit>) {
+    fn push(
+        &mut self,
+        before: Snapshot,
+        after: Snapshot,
+        lines: Vec<LineEdit>,
+        marks: Vec<MarkEdit>,
+    ) {
         self.blocks.truncate(self.pos);
         // The saved version was in the redo tail that is gone now.
         if self.saved.is_some_and(|s| s > self.pos) {
@@ -264,6 +337,7 @@ impl History {
             before,
             after,
             lines,
+            marks,
         });
         self.pos += 1;
         self.trim();
@@ -280,6 +354,7 @@ impl History {
             } else {
                 self.blocks.pop_front();
                 self.pos -= 1;
+                self.origin += 1;
                 // A saved version that is forgotten can never be reached again.
                 self.saved = self.saved.and_then(|s| s.checked_sub(1));
             }

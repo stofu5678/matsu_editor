@@ -65,6 +65,9 @@ pub struct Marks {
     /// If not, a bookmark is a short vertical line at the left edge of the line number area
     /// (`CTextDrawer::DispLineNumber`).
     pub bookmark: bool,
+    /// The color of modified lines ("MOD") is shown: the line number of a line that differs from
+    /// the saved version gets its colors (`CTypeSupport( COLORIDX_GYOU_MOD ).IsDisp()`).
+    pub modified: bool,
 }
 
 /// The colors the view paints with.
@@ -86,6 +89,14 @@ pub struct Colors {
     /// The text and the background of the line number of a bookmarked line (color "MRK").
     pub bookmark: Rgb,
     pub bookmark_background: Rgb,
+    /// The text and the background of the line number of a modified line (color "MOD").
+    pub modified: Rgb,
+    pub modified_background: Rgb,
+    /// Whether the line numbers of the three kinds are bold (the colors "LNO", "MRK" and "MOD").
+    /// Sakura's default makes a modified line bold and nothing else.
+    pub line_number_bold: bool,
+    pub bookmark_bold: bool,
+    pub modified_bold: bool,
 }
 
 /// The settings of the view for one file.
@@ -287,6 +298,7 @@ impl ViewSettings {
         let eol = entry(names::EOL);
         let eof = entry(names::EOF);
         let bookmark = entry(names::BOOKMARK);
+        let modified = entry(names::LINE_NUMBER_MODIFIED);
 
         ViewSettings {
             type_index,
@@ -304,6 +316,7 @@ impl ViewSettings {
                 eol: eol.disp,
                 eof: eof.disp,
                 bookmark: bookmark.disp,
+                modified: modified.disp,
             },
             colors: Colors {
                 text: rgb_of(text.text),
@@ -319,6 +332,11 @@ impl ViewSettings {
                 eof: rgb_of(eof.text),
                 bookmark: rgb_of(bookmark.text),
                 bookmark_background: rgb_of(bookmark.back),
+                modified: rgb_of(modified.text),
+                modified_background: rgb_of(modified.back),
+                line_number_bold: line_number.bold,
+                bookmark_bold: bookmark.bold,
+                modified_bold: modified.bold,
             },
             show_status_bar: profile.get_bool("Common", "bDispSTATUSBAR").unwrap_or(true),
         }
@@ -403,7 +421,8 @@ mod tests {
                 full_width_space: true,
                 eol: true,
                 eof: true,
-                bookmark: true
+                bookmark: true,
+                modified: true
             }
         );
         // `ColorInfo_DEFAULT`: black text on (255, 251, 240).
@@ -414,6 +433,13 @@ mod tests {
         // the bookmark color: (255, 251, 240) on (0, 128, 192)
         assert_eq!(s.colors.bookmark, 0xfffbf0);
         assert_eq!(s.colors.bookmark_background, 0x0080c0);
+        // the color of modified lines: (0, 0, 255) on (239, 239, 239), as the line number
+        assert_eq!(s.colors.modified, 0x0000ff);
+        assert_eq!(s.colors.modified_background, 0xefefef);
+        // and bold, which is all that tells a modified line from the others by default
+        assert!(s.colors.modified_bold);
+        assert!(!s.colors.line_number_bold);
+        assert!(!s.colors.bookmark_bold);
         // Sakura's default font has no point size, only the height -13: 13 * 72 / 96 = 9.75 pt, rounded.
         assert_eq!(s.point_size, 98);
         assert_eq!(s.font_px(), 13.0);

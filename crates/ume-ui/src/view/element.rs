@@ -19,7 +19,7 @@ use crate::geometry::{Metrics, SCROLLBAR_WIDTH, Scrollbar};
 use crate::hit::selected_columns;
 use crate::search::highlight::highlight_columns;
 use crate::segments::{SegmentKind, row_segments};
-use crate::settings::Colors;
+use crate::settings::{Colors, Marks};
 
 /// The caret of overwrite mode: the caret color with some transparency.
 const CARET_BLOCK_ALPHA: u32 = 0x70;
@@ -82,6 +82,68 @@ fn gutter_mark(bookmarked: bool, colored: bool, line_numbers: bool) -> GutterMar
     }
 }
 
+/// How the line number of a row is drawn.
+///
+/// Sakura: `CTextDrawer::DispLineNumber` (`sakura_core/view/CTextDrawer.cpp`). The color of a
+/// bookmark (when it is shown) wins over the plain line number color. A modified line (with the
+/// color 変更行 shown, and the document modified) takes the color of 変更行; when a bookmark's
+/// color is used, the 変更行 text color replaces it only if the bookmark's text color is the line
+/// number's own, and the same for the background and for bold. `background` is the fill of the
+/// line number area of the row, if it is not the area's own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct GutterStyle {
+    text: u32,
+    background: Option<u32>,
+    bold: bool,
+}
+
+fn gutter_style(
+    colors: &Colors,
+    marks: &Marks,
+    bookmarked: bool,
+    modified: bool,
+    line_numbers: bool,
+) -> GutterStyle {
+    let modified = modified && marks.modified;
+    let bookmark_colored = bookmarked && marks.bookmark;
+    let (mut text, mut back, mut bold) = if bookmark_colored {
+        (
+            colors.bookmark,
+            colors.bookmark_background,
+            colors.bookmark_bold,
+        )
+    } else if modified {
+        (
+            colors.modified,
+            colors.modified_background,
+            colors.modified_bold,
+        )
+    } else {
+        (
+            colors.line_number,
+            colors.line_number_background,
+            colors.line_number_bold,
+        )
+    };
+    if modified && bookmark_colored {
+        if colors.line_number == text {
+            text = colors.modified;
+        }
+        if colors.line_number_background == back {
+            back = colors.modified_background;
+        }
+        if colors.line_number_bold == bold {
+            bold = colors.modified_bold;
+        }
+    }
+    GutterStyle {
+        text,
+        // the color is drawn with the line number, which is not there without line numbers
+        background: (line_numbers && (bookmark_colored || modified)).then_some(back),
+        bold,
+    }
+}
+
 struct RowPaint {
     /// The columns of the matches of the search pattern on this row.
     found: Vec<(u32, u32)>,
@@ -90,6 +152,8 @@ struct RowPaint {
     /// The line of this row has a bookmark (every row of a wrapped line shows it, as in Sakura:
     /// `CTextDrawer::DispLineNumber` looks at the line of each layout row).
     bookmarked: bool,
+    /// The fill of the line number area of this row (see [`GutterStyle`]).
+    gutter_background: Option<u32>,
     text: Vec<Placed>,
     /// The same pieces in the color of selected text, when that differs from the text color and
     /// the row has a selection.
@@ -187,6 +251,21 @@ impl Element for EditorElement {
                 .text_system()
                 .shape_line(text, font_size, &runs, None)
         };
+        let bold_font = gpui::Font {
+            weight: gpui::FontWeight::BOLD,
+            ..font.clone()
+        };
+        let shape_number = |window: &mut Window, text: &str, color: u32, bold: bool| {
+            let text: SharedString = text.to_owned().into();
+            let runs = [run(
+                if bold { &bold_font } else { &font },
+                text.len(),
+                color,
+            )];
+            window
+                .text_system()
+                .shape_line(text, font_size, &runs, None)
+        };
 
         // One column is the advance of a half-width character.
         let cell = f32::from(shape(window, "0000000000", colors.text).width()) / 10.0;
@@ -217,23 +296,29 @@ impl Element for EditorElement {
             None => Vec::new(),
         }
         .into_iter();
-        let bookmarks = editor.document.read(cx).model().bookmarks();
+        let model = editor.document.read(cx).model();
+        let bookmarks = model.bookmarks();
         let mut widest = 0;
         let mut painted = Vec::with_capacity(rows.len());
         for row in &rows {
             widest = widest.max(row.end_column);
             let bookmarked = !row.is_eof_row && bookmarks.contains(row.line);
-            let number_color = if bookmarked && marks_shown.bookmark {
-                colors.bookmark
-            } else {
-                colors.line_number
-            };
+            // the empty row after the last line break is no line (Sakura has no layout for it)
+            let modified = !row.is_eof_row && model.is_line_modified(row.line);
+            let style = gutter_style(
+                &colors,
+                &marks_shown,
+                bookmarked,
+                modified,
+                show_line_numbers,
+            );
             let numbers =
                 (show_line_numbers && row.row_in_line == 0 && !row.is_eof_row).then(|| {
-                    shape(
+                    shape_number(
                         window,
                         &format!("{:>width$}", row.line + 1, width = digits),
-                        number_color,
+                        style.text,
+                        style.bold,
                     )
                 });
             let selected = match &box_area {
@@ -310,6 +395,7 @@ impl Element for EditorElement {
                 selection: selected,
                 numbers,
                 bookmarked,
+                gutter_background: style.background,
                 text,
                 selected_text,
                 marks,
@@ -406,12 +492,14 @@ impl Element for EditorElement {
 
         for (i, row) in p.rows.iter().enumerate() {
             let y = bounds.top() + px(p.y_offset) + lh * i as f32;
-            match gutter_mark(row.bookmarked, p.bookmark_colored, p.show_line_numbers) {
-                GutterMark::None => {}
-                GutterMark::Background => window.paint_quad(fill(
+            if let Some(background) = row.gutter_background {
+                window.paint_quad(fill(
                     Bounds::new(point(bounds.left(), y), size(px(p.gutter_width), lh)),
-                    rgb(p.colors.bookmark_background),
-                )),
+                    rgb(background),
+                ));
+            }
+            match gutter_mark(row.bookmarked, p.bookmark_colored, p.show_line_numbers) {
+                GutterMark::None | GutterMark::Background => {}
                 GutterMark::Line => window.paint_quad(fill(
                     Bounds::new(point(bounds.left() + px(1.), y), size(px(2.), lh)),
                     rgb(p.colors.line_number),
@@ -679,5 +767,108 @@ mod tests {
         assert_eq!(gutter_mark(true, false, false), Line);
         // the color is drawn with the line number, which is not there
         assert_eq!(gutter_mark(true, true, false), None);
+    }
+
+    fn colors() -> Colors {
+        Colors {
+            text: 0x000000,
+            background: 0xfffbf0,
+            line_number: 0x0000ff,
+            line_number_background: 0xefefef,
+            caret: 0,
+            selection: 0,
+            selection_text: 0,
+            tab: 0,
+            full_width_space: 0,
+            eol: 0,
+            eof: 0,
+            bookmark: 0xfffbf0,
+            bookmark_background: 0x0080c0,
+            modified: 0x0000ff,
+            modified_background: 0xefefef,
+            line_number_bold: false,
+            bookmark_bold: false,
+            modified_bold: true,
+        }
+    }
+
+    fn marks(bookmark: bool, modified: bool) -> Marks {
+        Marks {
+            tab: true,
+            full_width_space: true,
+            eol: true,
+            eof: true,
+            bookmark,
+            modified,
+        }
+    }
+
+    #[test]
+    fn a_modified_line_number_is_bold_by_default() {
+        let c = colors();
+        let m = marks(true, true);
+        let plain = gutter_style(&c, &m, false, false, true);
+        assert_eq!(
+            (plain.text, plain.background, plain.bold),
+            (0x0000ff, None, false)
+        );
+        // Sakura's default colors differ only in bold
+        let modified = gutter_style(&c, &m, false, true, true);
+        assert_eq!(modified.text, 0x0000ff);
+        assert_eq!(modified.background, Some(0xefefef));
+        assert!(modified.bold);
+    }
+
+    #[test]
+    fn a_modified_line_takes_the_colors_of_the_modified_line_entry() {
+        let c = Colors {
+            modified: 0xff0000,
+            modified_background: 0x00ff00,
+            ..colors()
+        };
+        let style = gutter_style(&c, &marks(true, true), false, true, true);
+        assert_eq!((style.text, style.background), (0xff0000, Some(0x00ff00)));
+        // switched off in the settings: the line number as usual
+        let style = gutter_style(&c, &marks(true, false), false, true, true);
+        assert_eq!(
+            (style.text, style.background, style.bold),
+            (0x0000ff, None, false)
+        );
+        // without line numbers there is nothing to color
+        let style = gutter_style(&c, &marks(true, true), false, true, false);
+        assert_eq!(style.background, None);
+    }
+
+    #[test]
+    fn a_bookmark_color_wins_unless_it_is_the_line_numbers_own() {
+        let c = Colors {
+            modified: 0xff0000,
+            modified_background: 0x00ff00,
+            ..colors()
+        };
+        // the bookmark has its own colors: they stay; bold is the modified line's, because the
+        // bookmark is as bold as the line number (`cGyouType.IsBoldFont() == cColorType.IsBoldFont()`)
+        let style = gutter_style(&c, &marks(true, true), true, true, true);
+        assert_eq!(
+            (style.text, style.background, style.bold),
+            (0xfffbf0, Some(0x0080c0), true)
+        );
+        // a bookmark whose text and background are the line number's own gets the modified ones
+        let same = Colors {
+            bookmark: c.line_number,
+            bookmark_background: c.line_number_background,
+            ..c
+        };
+        let style = gutter_style(&same, &marks(true, true), true, true, true);
+        assert_eq!(
+            (style.text, style.background, style.bold),
+            (0xff0000, Some(0x00ff00), true)
+        );
+        // a bookmark without its color shown: the modified line's colors
+        let style = gutter_style(&c, &marks(false, true), true, true, true);
+        assert_eq!((style.text, style.background), (0xff0000, Some(0x00ff00)));
+        // a bookmark and no modification: the bookmark's colors
+        let style = gutter_style(&c, &marks(true, true), true, false, true);
+        assert_eq!((style.text, style.background), (0xfffbf0, Some(0x0080c0)));
     }
 }

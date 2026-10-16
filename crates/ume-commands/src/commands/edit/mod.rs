@@ -19,6 +19,7 @@ pub mod toggle_overwrite_mode;
 pub mod undo;
 pub mod unindent_space;
 pub mod unindent_tab;
+pub mod word_cut;
 pub mod word_delete;
 pub mod word_delete_to_end;
 pub mod word_delete_to_start;
