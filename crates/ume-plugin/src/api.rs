@@ -459,20 +459,29 @@ pub fn call(
 /// Handles one message line from the macro and returns the response line, or `None` for a
 /// notification.
 pub fn handle_message(doc: &mut dyn MacroDocument, text: &str) -> Option<String> {
+    respond(text, |method, params| call(doc, method, params))
+}
+
+/// Parses one message line, runs the call with `run` and builds the response line (`None` for a
+/// notification). `handle_message` runs the call on a `MacroDocument`; the bridge
+/// (`crate::bridge`) runs it on the commands.
+pub fn respond(
+    text: &str,
+    run: impl FnOnce(&str, &[Value]) -> Result<Value, RpcError>,
+) -> Option<String> {
     let request = match parse_request(text) {
         Ok(request) => request,
         Err(rejection) => return Some(response_error(&rejection.id, &rejection.error)),
     };
     let Request { id, method, params } = request;
     // A panic in a handler must not take the editor down or leave the macro waiting.
-    let outcome =
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| call(doc, &method, &params)))
-            .unwrap_or_else(|_| {
-                Err(RpcError::new(
-                    INTERNAL_ERROR,
-                    "internal error in the editor",
-                ))
-            });
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(&method, &params)))
+        .unwrap_or_else(|_| {
+            Err(RpcError::new(
+                INTERNAL_ERROR,
+                "internal error in the editor",
+            ))
+        });
     let id = id?;
     Some(match outcome {
         Ok(result) => response_ok(&id, result),

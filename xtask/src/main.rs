@@ -2,11 +2,13 @@
 //!
 //! Tasks:
 //! - `sakura-tables --sakura <path>`: regenerate `crates/ume-commands/src/sakura/*.rs` from a
-//!   clone of <https://github.com/sakura-editor/sakura>.
+//!   clone of <https://github.com/sakura-editor/sakura> (`macro_functions.rs` comes from
+//!   `macro_table.rs`).
 //!
 //! To check that the committed tables are up to date, run the test with the path of the clone:
 //! `SAKURA_DIR=<path> cargo test -p xtask`. Without `SAKURA_DIR` that test is skipped.
 
+mod macro_table;
 mod parse;
 mod render;
 
@@ -59,7 +61,9 @@ fn repository_root() -> PathBuf {
 fn generate(sakura: &Path) -> Result<Vec<(String, String)>, String> {
     let tables = parse::read_tables(sakura)?;
     let commit = sakura_commit(sakura)?;
-    Ok(render::render(&tables, &commit))
+    let mut files = render::render(&tables, &commit);
+    files.push(macro_table::render(sakura, &tables, &commit)?);
+    Ok(files)
 }
 
 fn sakura_commit(sakura: &Path) -> Result<String, String> {

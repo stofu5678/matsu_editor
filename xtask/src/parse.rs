@@ -211,7 +211,7 @@ pub fn read_tables(sakura: &Path) -> Result<Tables> {
 // ---- reading files ----------------------------------------------------------------------
 
 /// Reads a text file as UTF-8 or UTF-16LE (sakura_rc.rc), drops the BOM and turns CRLF into LF.
-fn read_text(path: &Path) -> Result<String> {
+pub(crate) fn read_text(path: &Path) -> Result<String> {
     let bytes = fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let text = if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
         let (pairs, tail) = rest.as_chunks::<2>();
@@ -227,7 +227,7 @@ fn read_text(path: &Path) -> Result<String> {
 }
 
 /// Removes `//` and `/* */` comments (keeping line breaks) outside string literals.
-fn strip_comments(text: &str) -> String {
+pub(crate) fn strip_comments(text: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
     let mut out = String::with_capacity(text.len());
     let mut i = 0;

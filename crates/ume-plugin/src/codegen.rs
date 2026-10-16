@@ -11,7 +11,7 @@ Regenerate with: UME_UPDATE_GENERATED=1 cargo test -p ume-plugin generated_files
 pub(super) fn generate_js() -> String {
     let mut out = String::new();
     out.push_str(&format!("// {GENERATED_NOTE}\n'use strict';\n\n"));
-    out.push_str("module.exports = function install(call) {\n  return {\n");
+    out.push_str("module.exports = function install(call) {\n  const editor = {\n");
     for func in FUNCS {
         let signature: Vec<String> = func
             .params
@@ -44,9 +44,30 @@ pub(super) fn generate_js() -> String {
             func.name
         ));
     }
-    out.push_str("  };\n};\n");
+    out.push_str("  };\n");
+    out.push_str(JS_FALLBACK);
+    out.push_str("};\n");
     out
 }
+
+/// What the macro API does for a name that the table above does not have: any other function of
+/// Sakura's macro tables (`Left`, `Char`, ...) is a call by name. The editor answers a name that
+/// it does not know with an error (a JavaScript exception).
+const JS_FALLBACK: &str = r#"  // Any other name that starts like a Sakura macro name (an upper case letter or a digit) is
+  // sent to the editor as it is. The editor answers a name it does not know with an error.
+  return new Proxy(editor, {
+    get(target, name, receiver) {
+      if (typeof name !== 'string' || name in target || !/^[0-9A-Z]/.test(name)) {
+        return Reflect.get(target, name, receiver);
+      }
+      return function () {
+        const args = Array.prototype.slice.call(arguments);
+        while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+        return call(name, args);
+      };
+    },
+  });
+"#;
 
 /// The Python part (`api_gen.py`): `install(call)` returns the `Editor` object.
 pub(super) fn generate_py() -> String {
@@ -97,9 +118,27 @@ pub(super) fn generate_py() -> String {
             names.join(", ")
         ));
     }
+    out.push_str(PY_FALLBACK);
     out.push_str("    return _Editor()\n");
     out
 }
+
+/// The Python counterpart of [`JS_FALLBACK`], as a method of `_Editor`.
+const PY_FALLBACK: &str = r#"    def _fallback(self, name):
+        # Any other name that starts like a Sakura macro name (an upper case letter or a digit)
+        # is sent to the editor as it is. The editor answers a name it does not know with an
+        # error (EditorError).
+        if not name[:1].isupper() and not name[:1].isdigit():
+            raise AttributeError(name)
+
+        def method(*args):
+            return call(name, _pack(*args))
+
+        return method
+
+    _Editor.__getattr__ = _fallback
+
+"#;
 
 /// Breaks a text into lines of at most `width` characters at spaces.
 fn wrap(text: &str, width: usize) -> Vec<String> {

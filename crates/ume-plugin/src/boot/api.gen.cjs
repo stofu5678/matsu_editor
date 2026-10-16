@@ -2,7 +2,7 @@
 'use strict';
 
 module.exports = function install(call) {
-  return {
+  const editor = {
     /**
      * GetLineCount(reserved: int) -> int
      *
@@ -168,4 +168,18 @@ module.exports = function install(call) {
       return call('GetFilename', args);
     },
   };
+  // Any other name that starts like a Sakura macro name (an upper case letter or a digit) is
+  // sent to the editor as it is. The editor answers a name it does not know with an error.
+  return new Proxy(editor, {
+    get(target, name, receiver) {
+      if (typeof name !== 'string' || name in target || !/^[0-9A-Z]/.test(name)) {
+        return Reflect.get(target, name, receiver);
+      }
+      return function () {
+        const args = Array.prototype.slice.call(arguments);
+        while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+        return call(name, args);
+      };
+    },
+  });
 };

@@ -7,6 +7,7 @@
 
 mod functions;
 mod key_bindings;
+pub mod macro_functions;
 mod main_menu;
 
 pub use functions::{FUNCTION_GROUPS, FUNCTIONS};
