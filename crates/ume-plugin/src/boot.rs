@@ -10,12 +10,20 @@ pub const JS_BOOT: &str = "boot.cjs";
 pub const JS_API: &str = "api.gen.cjs";
 pub const PY_BOOT: &str = "boot.py";
 pub const PY_API: &str = "api_gen.py";
+pub const RB_BOOT: &str = "boot.rb";
+pub const RB_API: &str = "api_gen.rb";
+pub const PHP_BOOT: &str = "boot.php";
+pub const PHP_API: &str = "api_gen.php";
 
-const FILES: [(&str, &str); 4] = [
+const FILES: [(&str, &str); 8] = [
     (JS_BOOT, include_str!("boot/boot.cjs")),
     (JS_API, include_str!("boot/api.gen.cjs")),
     (PY_BOOT, include_str!("boot/boot.py")),
     (PY_API, include_str!("boot/api_gen.py")),
+    (RB_BOOT, include_str!("boot/boot.rb")),
+    (RB_API, include_str!("boot/api_gen.rb")),
+    (PHP_BOOT, include_str!("boot/boot.php")),
+    (PHP_API, include_str!("boot/api_gen.php")),
 ];
 
 /// How many times the removal is tried, and the wait between the tries. On Windows a file that

@@ -1,6 +1,6 @@
 [package]
 name = "ume-plugin"
-description = "JSON-RPC macro host of UME Editor: runs Node.js and Python macros as child processes"
+description = "JSON-RPC macro host of UME Editor: runs Node.js, Python, Ruby and PHP macros as child processes"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
