@@ -253,6 +253,8 @@ impl EditorView {
         let Some(a) = self.isearch.take() else { return };
         self.search
             .set_pattern(if a.count() == 0 { "" } else { &a.key });
+        // `ISearchExit` puts the key in the history and keeps the window's sequence up to date.
+        self.remember_search_key(cx);
         cx.notify();
     }
 

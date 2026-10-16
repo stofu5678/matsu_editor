@@ -11,6 +11,7 @@ pub mod doc_types;
 pub mod font;
 pub mod keyword_data;
 pub mod keywords;
+pub mod search_keys;
 pub mod type_rules;
 pub mod types;
 
@@ -19,5 +20,6 @@ pub use color::{ColorEntry, ColorSet};
 pub use doc_types::DocumentTypes;
 pub use font::{FontSetting, LogFont, ViewFont};
 pub use keywords::{KeywordSet, KeywordSets};
+pub use search_keys::{KeyList, SearchKeys};
 pub use type_rules::{BlockComment, LineComment, RegexKeyword};
 pub use types::{NewFileKeys, TypeSettings, types_count};

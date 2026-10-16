@@ -84,81 +84,108 @@ impl HistoryStore {
         &self.path
     }
 
+    #[cfg(test)]
     pub(super) fn lock_path(&self) -> PathBuf {
-        let mut name = self.path.as_os_str().to_owned();
-        name.push(".mru-lock");
-        PathBuf::from(name)
-    }
-
-    fn read_profile(&self) -> io::Result<Profile> {
-        match retry(|| Profile::load(&self.path)) {
-            Ok(profile) => Ok(profile),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Profile::new()),
-            Err(e) => Err(e),
-        }
+        lock_path(&self.path)
     }
 
     /// The history as the file has it now. A file that is missing or cannot be read is an empty
     /// history.
     pub fn load(&self) -> History {
-        let profile = self.read_profile().unwrap_or_default();
+        let profile = read_profile(&self.path).unwrap_or_default();
         History::from_profile(&profile, self.case_insensitive)
-    }
-
-    fn lock(&self) -> io::Result<Lock> {
-        let path = self.lock_path();
-        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
-            std::fs::create_dir_all(parent)?;
-        }
-        let start = std::time::Instant::now();
-        loop {
-            match OpenOptions::new().write(true).create_new(true).open(&path) {
-                Ok(_) => return Ok(Lock(path)),
-                Err(e) if e.kind() == io::ErrorKind::AlreadyExists || is_busy(&e) => {
-                    let age = std::fs::metadata(&path)
-                        .and_then(|m| m.modified())
-                        .ok()
-                        .and_then(|t| SystemTime::now().duration_since(t).ok());
-                    if age.is_some_and(|a| a > STALE_LOCK) {
-                        // Two processes may take over the same dead lock; that is rare (the lock
-                        // is held for milliseconds) and the cost is one lost addition.
-                        match std::fs::remove_file(&path) {
-                            Ok(()) => continue,
-                            Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
-                            // Busy: the owner is deleting it right now; wait below.
-                            Err(e) if is_busy(&e) => {}
-                            Err(e) => return Err(e),
-                        }
-                    }
-                    if start.elapsed() > LOCK_TIMEOUT {
-                        return Err(io::Error::new(
-                            io::ErrorKind::TimedOut,
-                            "the history is locked by another window",
-                        ));
-                    }
-                    std::thread::sleep(POLL);
-                }
-                Err(e) => return Err(e),
-            }
-        }
     }
 
     /// Applies `change` to the history in the file and writes it back. Nothing is written when the
     /// history does not change. Returns the history as it is after the change.
     pub fn update(&self, change: impl FnOnce(&mut History)) -> io::Result<History> {
-        let _lock = self.lock()?;
-        let mut profile = self.read_profile()?;
-        let before = History::from_profile(&profile, self.case_insensitive);
-        let mut history = before.clone();
-        change(&mut history);
-        if history != before {
-            history
-                .write_to(&mut profile)
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-            retry(|| profile.save(&self.path))?;
-        }
-        Ok(history)
+        let mut result = None;
+        update_profile(&self.path, |profile| {
+            let before = History::from_profile(profile, self.case_insensitive);
+            let mut history = before.clone();
+            change(&mut history);
+            let changed = history != before;
+            if changed {
+                history
+                    .write_to(profile)
+                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+            }
+            result = Some(history);
+            Ok(changed)
+        })?;
+        result.ok_or_else(|| io::Error::other("the change was not applied"))
     }
+}
+
+/// The lock file of a settings file. One lock covers the whole file, whichever section is written.
+fn lock_path(settings: &Path) -> PathBuf {
+    let mut name = settings.as_os_str().to_owned();
+    name.push(".mru-lock");
+    PathBuf::from(name)
+}
+
+fn read_profile(path: &Path) -> io::Result<Profile> {
+    match retry(|| Profile::load(path)) {
+        Ok(profile) => Ok(profile),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Profile::new()),
+        Err(e) => Err(e),
+    }
+}
+
+fn lock(settings: &Path) -> io::Result<Lock> {
+    let path = lock_path(settings);
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)?;
+    }
+    let start = std::time::Instant::now();
+    loop {
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(_) => return Ok(Lock(path)),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists || is_busy(&e) => {
+                let age = std::fs::metadata(&path)
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| SystemTime::now().duration_since(t).ok());
+                if age.is_some_and(|a| a > STALE_LOCK) {
+                    // Two processes may take over the same dead lock; that is rare (the lock
+                    // is held for milliseconds) and the cost is one lost addition.
+                    match std::fs::remove_file(&path) {
+                        Ok(()) => continue,
+                        Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+                        // Busy: the owner is deleting it right now; wait below.
+                        Err(e) if is_busy(&e) => {}
+                        Err(e) => return Err(e),
+                    }
+                }
+                if start.elapsed() > LOCK_TIMEOUT {
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "the history is locked by another window",
+                    ));
+                }
+                std::thread::sleep(POLL);
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+/// The one way to change the settings file while other windows may do the same: takes the lock,
+/// reads the file again, lets `change` edit its [`Profile`] (the history, the search strings, ...)
+/// and writes it back with [`Profile::save`] if `change` returns `true`. Every writer of a section
+/// of the file goes through here, so that two windows that write different sections at the same
+/// moment do not overwrite each other with an old copy. A file that does not exist is an empty
+/// profile; one that cannot be read is an error (and is not touched).
+pub fn update_profile(
+    path: &Path,
+    change: impl FnOnce(&mut Profile) -> io::Result<bool>,
+) -> io::Result<()> {
+    let _lock = lock(path)?;
+    let mut profile = read_profile(path)?;
+    if change(&mut profile)? {
+        retry(|| profile.save(path))?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

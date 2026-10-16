@@ -320,6 +320,50 @@ fn a_lock_left_by_a_dead_process_is_taken_over() {
 }
 
 #[test]
+fn recent_files_and_search_keys_written_at_the_same_time_are_both_kept() {
+    use crate::settings::SearchKeys;
+    let dir = temp_dir("sections");
+    let path = dir.join("ume.ini");
+    let store = HistoryStore::new(&path, true);
+    let files = std::thread::spawn({
+        let store = store.clone();
+        move || {
+            for n in 0..12 {
+                store
+                    .update(|h| h.add_file(FileEntry::new(format!("/mru/f{n}.txt"))))
+                    .unwrap();
+            }
+        }
+    });
+    let keys = std::thread::spawn({
+        let path = path.clone();
+        move || {
+            for n in 0..25 {
+                update_profile(&path, |profile| {
+                    let mut keys = SearchKeys::from_profile(profile);
+                    keys.add_search(&format!("検索{n}"));
+                    keys.write_to(profile).unwrap();
+                    Ok(true)
+                })
+                .unwrap();
+            }
+        }
+    });
+    files.join().unwrap();
+    keys.join().unwrap();
+    let h = store.load();
+    for n in 0..12 {
+        assert!(h.file(&format!("/mru/f{n}.txt")).is_some(), "file {n}");
+    }
+    let profile = Profile::load(&path).unwrap();
+    let keys = SearchKeys::from_profile(&profile);
+    assert_eq!(keys.search.len(), 25);
+    assert_eq!(keys.search.newest(), Some("検索24"));
+    assert!(!store.lock_path().exists());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn the_old_bookmark_key_is_read_when_there_is_no_new_one() {
     let p =
         Profile::from_bytes(b"[MRU]\n_MRU_Counts=1\nMRU[00].szPath=a.txt\nMRU[00].szMark=1,5, 9\n");

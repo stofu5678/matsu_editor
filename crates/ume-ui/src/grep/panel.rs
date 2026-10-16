@@ -629,8 +629,19 @@ impl EditorView {
     fn open_grep_panel_as(&mut self, replace: bool, window: &mut Window, cx: &mut Context<Self>) {
         let mut settings = remembered(cx);
         settings.paste = false;
-        if let Some(seed) = self.search_seed(cx) {
-            settings.key = seed;
+        match self.search_seed(cx) {
+            Some(seed) => settings.key = seed,
+            // As the find dialog does: the newest search string, if it is news to this window
+            // (`CControlTray`, `GetCurrentTextForSearchDlg`).
+            None => {
+                // The window's sequence is left alone: the dialog may be cancelled, and the
+                // find dialog should still find the string new.
+                if let Some((newest, _)) =
+                    crate::search::history::newer_search_key(cx, self.search.key_sequence())
+                {
+                    settings.key = newest;
+                }
+            }
         }
         let path = self.document.read(cx).path().map(Path::to_path_buf);
         settings.offer_folder(path.as_deref());

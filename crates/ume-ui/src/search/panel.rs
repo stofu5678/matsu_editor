@@ -12,10 +12,11 @@
 //! live in the view's [`SearchState`](super::state::SearchState), so the menu, F3 and the panel
 //! always agree.
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     App, AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
-    KeyDownEvent, ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window,
-    div, px, rgb,
+    KeyDownEvent, ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement,
+    Styled, Subscription, WeakEntity, Window, div, px, rgb,
 };
 use gpui_component::button::Button;
 use gpui_component::checkbox::Checkbox;
@@ -24,6 +25,7 @@ use gpui_component::{Disableable as _, Selectable as _, h_flex, v_flex};
 use ume_core::buffer::Pos;
 use ume_core::search::{Direction, ReplaceTarget};
 
+use super::history;
 use super::ops::SearchOutcome;
 use super::state::{NO_PATTERN_MESSAGE, ReplaceSettings, SearchOptions};
 use crate::view::EditorView;
@@ -36,8 +38,29 @@ pub enum PanelMode {
     Jump,
 }
 
+/// The input that a history drop-down belongs to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Combo {
+    /// 検索する文字列 (`IDC_COMBO_TEXT`): the search strings.
+    Search,
+    /// 置換後の文字列 (`IDC_COMBO_TEXT2`): the replace strings.
+    Replace,
+}
+
+/// A drop-down list that is open: Sakura's combo box shows `m_aSearchKeys` or `m_aReplaceKeys`
+/// (`CDlgFind::OnCbnDropDown`, `CDlgReplace::OnCbnDropDown`).
+#[derive(Clone, Copy, Debug)]
+struct DropDown {
+    combo: Combo,
+    /// The entry that Enter takes.
+    highlight: usize,
+}
+
 pub struct SearchPanel {
     editor: WeakEntity<EditorView>,
+    dropdown: Option<DropDown>,
+    /// Scrolls the open list to the highlighted entry.
+    list_scroll: ScrollHandle,
     mode: PanelMode,
     text: Entity<InputState>,
     replacement: Entity<InputState>,
@@ -100,6 +123,8 @@ impl SearchPanel {
         ));
         Self {
             editor,
+            dropdown: None,
+            list_scroll: ScrollHandle::new(),
             mode,
             text,
             replacement,
@@ -130,6 +155,187 @@ impl SearchPanel {
     pub fn focus_replacement(&self, window: &mut Window, cx: &mut Context<Self>) {
         let input = self.replacement.clone();
         input.update(cx, |state, cx| state.focus(window, cx));
+    }
+
+    fn combo_input(&self, combo: Combo) -> &Entity<InputState> {
+        match combo {
+            Combo::Search => &self.text,
+            Combo::Replace => &self.replacement,
+        }
+    }
+
+    fn combo_keys(combo: Combo, cx: &App) -> Vec<String> {
+        match combo {
+            Combo::Search => history::search_keys(cx),
+            Combo::Replace => history::replace_keys(cx),
+        }
+    }
+
+    /// The combo box that has the focus (the Jump panel has none).
+    fn focused_combo(&self, window: &Window, cx: &App) -> Option<Combo> {
+        let has_focus =
+            |input: &Entity<InputState>| input.read(cx).focus_handle(cx).is_focused(window);
+        match self.mode {
+            PanelMode::Jump => None,
+            PanelMode::Find => has_focus(&self.text).then_some(Combo::Search),
+            PanelMode::Replace if has_focus(&self.text) => Some(Combo::Search),
+            PanelMode::Replace => has_focus(&self.replacement).then_some(Combo::Replace),
+        }
+    }
+
+    /// Opens the drop-down of a combo box, or closes it. With no history there is nothing to open.
+    fn toggle_dropdown(&mut self, combo: Combo, cx: &mut Context<Self>) {
+        if self.dropdown.is_some_and(|d| d.combo == combo) {
+            self.dropdown = None;
+        } else {
+            let keys = Self::combo_keys(combo, cx);
+            let current = self.combo_input(combo).read(cx).value();
+            self.dropdown = (!keys.is_empty()).then(|| DropDown {
+                combo,
+                highlight: keys.iter().position(|k| k == current.as_str()).unwrap_or(0),
+            });
+            if let Some(open) = self.dropdown {
+                self.list_scroll.scroll_to_item(open.highlight);
+            }
+        }
+        cx.notify();
+    }
+
+    /// Puts a string of the history in the input, closes the list and gives the focus back to
+    /// the input.
+    fn pick(&mut self, combo: Combo, text: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.dropdown = None;
+        let input = self.combo_input(combo).clone();
+        input.update(cx, |state, cx| {
+            state.set_value(text, window, cx);
+            state.focus(window, cx);
+        });
+        self.sync(cx);
+        cx.notify();
+    }
+
+    /// Up and Down in a combo box whose list is closed go through the list and put the string in
+    /// the edit field. From a string that is not in the list, both take the first.
+    fn step(&mut self, combo: Combo, down: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let keys = Self::combo_keys(combo, cx);
+        if keys.is_empty() {
+            return;
+        }
+        let current = self.combo_input(combo).read(cx).value();
+        let next = match (keys.iter().position(|k| k == current.as_str()), down) {
+            (Some(i), true) => (i + 1).min(keys.len() - 1),
+            (Some(i), false) => i.saturating_sub(1),
+            (None, _) => 0,
+        };
+        self.pick(combo, keys[next].clone(), window, cx);
+    }
+
+    /// The keys of the combo boxes: Alt+Down and F4 open or close the list; with the list open
+    /// Up, Down, Enter and Escape work in it; with it closed Up and Down go through the strings.
+    /// Returns whether the key was used.
+    fn combo_key(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let focused = self.focused_combo(window, cx);
+        if self.dropdown.is_some_and(|d| Some(d.combo) != focused) {
+            // The focus left the combo box: the list closes.
+            self.dropdown = None;
+            cx.notify();
+        }
+        let Some(combo) = focused else { return false };
+        let key = event.keystroke.key.as_str();
+        let m = &event.keystroke.modifiers;
+        let plain = !m.alt && !m.control && !m.platform && !m.shift;
+        if key == "f4" || (key == "down" && m.alt) {
+            self.toggle_dropdown(combo, cx);
+            return true;
+        }
+        let Some(open) = self.dropdown else {
+            return match key {
+                "down" | "up" if plain => {
+                    self.step(combo, key == "down", window, cx);
+                    true
+                }
+                _ => false,
+            };
+        };
+        let keys = Self::combo_keys(combo, cx);
+        match key {
+            "down" | "up" if plain && !keys.is_empty() => {
+                let highlight = if key == "down" {
+                    (open.highlight + 1).min(keys.len() - 1)
+                } else {
+                    open.highlight.saturating_sub(1)
+                };
+                self.dropdown = Some(DropDown { highlight, ..open });
+                self.list_scroll.scroll_to_item(highlight);
+                cx.notify();
+            }
+            "enter" if plain && open.highlight < keys.len() => {
+                self.pick(combo, keys[open.highlight].clone(), window, cx);
+            }
+            "escape" => {
+                self.dropdown = None;
+                cx.notify();
+            }
+            _ => return false,
+        }
+        true
+    }
+
+    /// An input with the button that opens its history, and the list under it while it is open.
+    fn combo_box(&self, combo: Combo, cx: &mut Context<Self>) -> impl IntoElement {
+        let (id, toggle_id) = match combo {
+            Combo::Search => ("search-history", "search-history-toggle"),
+            Combo::Replace => ("replace-history", "replace-history-toggle"),
+        };
+        let mut column = v_flex().gap_1().flex_1().child(
+            h_flex()
+                .gap_1()
+                .child(div().flex_1().child(Input::new(self.combo_input(combo))))
+                .child(Button::new(toggle_id).label("▼").on_click(cx.listener(
+                    move |this, _, window, cx| {
+                        // The button does not take the focus; the keys of the list go to
+                        // the combo box that has it, so give it to this one.
+                        let input = this.combo_input(combo).clone();
+                        input.update(cx, |state, cx| state.focus(window, cx));
+                        this.toggle_dropdown(combo, cx);
+                    },
+                ))),
+        );
+        if let Some(open) = self.dropdown.filter(|d| d.combo == combo) {
+            let entries = Self::combo_keys(combo, cx)
+                .into_iter()
+                .enumerate()
+                .map(|(i, text)| {
+                    let picked = text.clone();
+                    div()
+                        .id((id, i))
+                        .px_2()
+                        .truncate()
+                        .when(i == open.highlight, |d| d.bg(rgb(0xcce4f7)))
+                        .hover(|d| d.bg(rgb(0xe5f1fb)))
+                        .child(SharedString::from(text))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.pick(combo, picked.clone(), window, cx);
+                        }))
+                });
+            column = column.child(
+                div()
+                    .id(id)
+                    .max_h(px(150.))
+                    .overflow_y_scroll()
+                    .track_scroll(&self.list_scroll)
+                    .border_1()
+                    .border_color(rgb(0xb0b0b0))
+                    .bg(rgb(0xffffff))
+                    .children(entries),
+            );
+        }
+        column
     }
 
     /// Takes the pattern and the replacement from the inputs into the view's search state.
@@ -180,7 +386,11 @@ impl SearchPanel {
             });
             return;
         }
+        let mode = self.mode;
         let (outcome, auto_close) = editor.update(cx, |editor, cx| {
+            // `CDlgFind::GetData` and `CDlgReplace::GetData` put the strings in the history
+            // before they search.
+            remember_keys(editor, mode, cx);
             let outcome = editor.search(direction, window, cx);
             (outcome, editor.search.options().auto_close)
         });
@@ -203,7 +413,9 @@ impl SearchPanel {
         if self.text.read(cx).value().is_empty() {
             return;
         }
+        let mode = self.mode;
         let auto_close = editor.update(cx, |editor, cx| {
+            remember_keys(editor, mode, cx);
             editor.mark_matching_lines(window, cx);
             editor.search.options().auto_close && editor.search.pattern_error().is_none()
         });
@@ -217,10 +429,12 @@ impl SearchPanel {
         let Some(editor) = self.editor.upgrade() else {
             return;
         };
+        let mode = self.mode;
         editor.update(cx, |editor, cx| {
             if editor.search.pattern().is_empty() {
                 editor.info_box("置換条件を指定してください。", window, cx);
             } else {
+                remember_keys(editor, mode, cx);
                 editor.replace_next(window, cx);
             }
         });
@@ -232,10 +446,12 @@ impl SearchPanel {
         let Some(editor) = self.editor.upgrade() else {
             return;
         };
+        let mode = self.mode;
         editor.update(cx, |editor, cx| {
             if editor.search.pattern().is_empty() {
                 editor.info_box("置換条件を指定してください。", window, cx);
             } else {
+                remember_keys(editor, mode, cx);
                 editor.replace_all(window, cx);
             }
         });
@@ -403,6 +619,21 @@ impl SearchPanel {
     }
 }
 
+/// The strings of the dialog go in the history: the search string, and in the replace dialog the
+/// replacement too (`AddToSearchKeyArr`, `AddToReplaceKeyArr` in `CDlgFind::GetData` and
+/// `CDlgReplace::GetData`).
+fn remember_keys(editor: &mut EditorView, mode: PanelMode, cx: &mut Context<EditorView>) {
+    // A pattern that does not compile ends the operation before anything is kept
+    // (`CheckRegexpSyntax` comes first in `GetData`).
+    if editor.search.pattern_error().is_some() {
+        return;
+    }
+    editor.remember_search_key(cx);
+    if mode == PanelMode::Replace {
+        editor.remember_replace_key(cx);
+    }
+}
+
 impl Focusable for SearchPanel {
     fn focus_handle(&self, cx: &App) -> FocusHandle {
         self.main_input().read(cx).focus_handle(cx)
@@ -429,7 +660,7 @@ impl Render for SearchPanel {
             match self.mode {
                 PanelMode::Find => v_flex()
                     .gap_2()
-                    .child(Input::new(&self.text))
+                    .child(self.combo_box(Combo::Search, cx))
                     .child(self.render_find_options(options, cx))
                     .child(self.option_box(
                         "search-auto-close",
@@ -467,13 +698,13 @@ impl Render for SearchPanel {
                         h_flex()
                             .gap_2()
                             .child("置換前(N)")
-                            .child(Input::new(&self.text)),
+                            .child(self.combo_box(Combo::Search, cx)),
                     )
                     .child(
                         h_flex()
                             .gap_2()
                             .child("置換後(P)")
-                            .child(Input::new(&self.replacement)),
+                            .child(self.combo_box(Combo::Replace, cx)),
                     )
                     .child(self.render_find_options(options, cx))
                     .child(self.render_replace_targets(replace.target, replace.in_selection, cx))
@@ -563,6 +794,12 @@ impl Render for SearchPanel {
             .border_color(rgb(0xb0b0b0))
             .rounded_md()
             .shadow_md()
+            // The combo box keys come first: Up, Down and Enter would otherwise reach the input.
+            .capture_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                if this.combo_key(event, window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 match event.keystroke.key.as_str() {
                     "escape" => {
@@ -599,10 +836,21 @@ impl EditorView {
         // The Grep dialog is in the same place: only one of them is open.
         self.close_grep_panel(window, cx);
         // Going to a line does not touch the search.
-        if mode != PanelMode::Jump
-            && let Some(seed) = self.search_seed(cx)
-        {
-            self.search.set_pattern(&seed);
+        if mode != PanelMode::Jump {
+            match self.search_seed(cx) {
+                Some(seed) => self.search.set_pattern(&seed),
+                // No selection and no word: the newest search string, if another window put
+                // one in the history since this window last searched
+                // (`CEditView::GetCurrentTextForSearchDlg`).
+                None => {
+                    if let Some((newest, sequence)) =
+                        history::newer_search_key(cx, self.search.key_sequence())
+                    {
+                        self.search.set_pattern(&newest);
+                        self.search.set_key_sequence(Some(sequence));
+                    }
+                }
+            }
         }
         // Sakura starts the replace dialog with the selection if it spans lines, and the whole
         // file otherwise (`bSelected` in `Command_REPLACE_DIALOG`).
@@ -613,6 +861,13 @@ impl EditorView {
                 .is_some_and(|(a, b)| a.line != b.line);
             self.search.replace.in_selection = multi_line;
             self.search.replace.target = ReplaceTarget::Match;
+            // The previous replacement, if it is news to this window (`Command_REPLACE_DIALOG`).
+            if let Some((newest, sequence)) =
+                history::newer_replace_key(cx, self.search.replace_sequence())
+            {
+                self.search.replace.text = newest;
+                self.search.set_replace_sequence(Some(sequence));
+            }
         }
         let caret = self.cursor.caret();
         let pattern = self.search.pattern().to_owned();
@@ -621,6 +876,7 @@ impl EditorView {
             Some(panel) => {
                 panel.update(cx, |p, _| {
                     p.mode = mode;
+                    p.dropdown = None;
                     p.pending_start = Some(caret);
                 });
                 panel.clone()
