@@ -6,6 +6,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::lua::Lua;
+use crate::micropython::MicroPython;
 use crate::mruby::Mruby;
 use crate::quickjs::QuickJs;
 use crate::rpc::{Editor, Initialize};
@@ -17,13 +18,14 @@ pub trait Engine {
 }
 
 /// The names that `--engine` accepts.
-pub const ENGINES: &[&str] = &["lua", "quickjs", "mruby"];
+pub const ENGINES: &[&str] = &["lua", "quickjs", "mruby", "micropython"];
 
 pub fn by_name(name: &str) -> Option<Box<dyn Engine>> {
     match name {
         "lua" => Some(Box::new(Lua)),
         "quickjs" => Some(Box::new(QuickJs)),
         "mruby" => Some(Box::new(Mruby)),
+        "micropython" => Some(Box::new(MicroPython)),
         _ => None,
     }
 }
