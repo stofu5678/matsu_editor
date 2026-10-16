@@ -15,7 +15,7 @@ use gpui::{AppContext as _, Entity, TestAppContext, VisualTestContext};
 use ume_commands::command::Arg;
 use ume_core::buffer::Document;
 use ume_core::model::DocumentModel;
-use ume_plugin::session::Language;
+use ume_plugin::session::{Engine, Language};
 
 use super::{F_EXECEXTMACRO, FileKind, file_kind};
 use crate::document::SharedDocument;
@@ -116,6 +116,10 @@ fn files_are_told_apart_by_their_extension() {
     assert_eq!(
         file_kind(Path::new("a.PHP")),
         FileKind::Script(Language::Php)
+    );
+    assert_eq!(
+        file_kind(Path::new("a.lua")),
+        FileKind::Script(Language::Bundled(Engine::Lua))
     );
     assert_eq!(file_kind(Path::new("a.vbs")), FileKind::Unknown);
     assert_eq!(file_kind(Path::new("macro")), FileKind::Unknown);

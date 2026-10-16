@@ -180,6 +180,18 @@ pub struct InitializeInfo {
     pub process_id: u32,
     /// The path of the document, or `None` when it is not a file.
     pub document_path: Option<String>,
+    /// The user's script, for a host that does not open the file itself (the bundled script
+    /// host: a Windows program opens a path with the ANSI code page, which cannot name every
+    /// file). `None` for the interpreters that get the path as an argument.
+    pub script: Option<ScriptSource>,
+}
+
+/// The name and the text of the user's script, as `params.script` of `initialize`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScriptSource {
+    /// The name that errors show (the path of the file).
+    pub name: String,
+    pub source: String,
 }
 
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -194,16 +206,20 @@ pub fn initialize_message(info: &InitializeInfo) -> String {
             .clone()
             .map_or(Value::Null, Value::String),
     );
+    let mut params = json!({
+        "protocolVersion": PROTOCOL_VERSION,
+        "processId": info.process_id,
+        "editor": {"name": info.editor_name, "version": info.editor_version},
+        "apiVersion": API_VERSION,
+        "document": document,
+    });
+    if let Some(script) = &info.script {
+        params["script"] = json!({"name": script.name, "source": script.source});
+    }
     ascii_json(&json!({
         "jsonrpc": "2.0",
         "method": "initialize",
-        "params": {
-            "protocolVersion": PROTOCOL_VERSION,
-            "processId": info.process_id,
-            "editor": {"name": info.editor_name, "version": info.editor_version},
-            "apiVersion": API_VERSION,
-            "document": document,
-        },
+        "params": params,
     }))
 }
 
@@ -321,6 +337,10 @@ mod tests {
             editor_version: "0.0.0".into(),
             process_id: 1234,
             document_path: Some("C:\\work\\あ.txt".into()),
+            script: Some(ScriptSource {
+                name: "C:\\work\\絵文字😀.lua".into(),
+                source: "print('あ')\n".into(),
+            }),
         });
         assert!(line.is_ascii() && !line.contains('\n'));
         let value: Value = serde_json::from_str(&line).unwrap();
@@ -328,12 +348,16 @@ mod tests {
         assert!(value.get("id").is_none());
         assert_eq!(value["params"]["protocolVersion"], 1);
         assert_eq!(value["params"]["document"]["path"], "C:\\work\\あ.txt");
+        assert_eq!(value["params"]["script"]["name"], "C:\\work\\絵文字😀.lua");
+        assert_eq!(value["params"]["script"]["source"], "print('あ')\n");
         let none = initialize_message(&InitializeInfo {
             editor_name: "UME Editor".into(),
             editor_version: "0.0.0".into(),
             process_id: 1,
             document_path: None,
+            script: None,
         });
         assert!(none.contains(r#""path":null"#));
+        assert!(!none.contains("script"));
     }
 }

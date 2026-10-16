@@ -45,6 +45,7 @@ fn config_for(
         Language::Python => "macro.py",
         Language::Ruby => "macro.rb",
         Language::Php => "macro.php",
+        Language::Bundled(_) => unreachable!("the bundled engines are tested in ume-script"),
     };
     let script = dir.path().join(name);
     // A PHP file starts with `<?php`. It goes on the first line, so the line numbers of the
@@ -259,6 +260,7 @@ fn a_syntax_error_shows_the_line_number() {
             Language::Python => ("macro.py", "line 3"),
             Language::Ruby => ("macro.rb", ":3"),
             Language::Php => ("macro.php", "line 3"),
+            Language::Bundled(_) => unreachable!(),
         };
         assert!(
             stderr.contains(file) && stderr.contains(line),
@@ -285,6 +287,7 @@ fn a_runtime_error_shows_the_line_number_of_the_users_file() {
             Language::Ruby => "macro.rb:3",
             // "macro.php:3" or "macro.php on line 3" (Xdebug words it the second way).
             Language::Php => "macro.php",
+            Language::Bundled(_) => unreachable!(),
         };
         assert!(stderr.contains(want), "{language:?}: {stderr}");
         if language == PHP {
@@ -352,6 +355,7 @@ echo "not reached\n";
             Language::Ruby | Language::Php => {
                 assert_eq!(lines[0], "caught EditorError -32602 true");
             }
+            Language::Bundled(_) => unreachable!(),
         }
         assert!(
             lines[1].starts_with("caught -32602 GetLineCount: "),
@@ -539,6 +543,7 @@ fn the_macro_sees_the_initialize_message() {
             Language::JavaScript => "1 1 UME Editor /work/テスト.txt true",
             Language::Python => "1 1 UME Editor /work/テスト.txt True",
             Language::Ruby | Language::Php => "1 1 UME Editor /work/テスト.txt true",
+            Language::Bundled(_) => unreachable!(),
         };
         assert_eq!(stdout(&report), [want]);
     }

@@ -359,6 +359,7 @@ fn run_macro(language: Language, code: &str, f: &mut Fixture) -> Option<crate::s
         Language::Python => "macro.py",
         Language::Ruby => "macro.rb",
         Language::Php => "macro.php",
+        Language::Bundled(_) => unreachable!("the bundled engines are tested in ume-script"),
     };
     let script = dir.path().join(name);
     // A PHP file starts with `<?php`.
@@ -485,6 +486,7 @@ try { Editor::lower_case_name(); } catch (BadMethodCallException $e) { echo "no 
                     "no method"
                 ]
             ),
+            Language::Bundled(_) => unreachable!(),
         }
     }
 }
