@@ -335,7 +335,9 @@ impl EditorView {
             .name(Some("RecKey.mac".to_owned()))
             .titled("キーマクロの保存", "保存");
         let answer = file_dialog::ask(window, cx, ask);
+        let tracked = track(cx, window);
         cx.spawn_in(window, async move |this, cx| {
+            let _tracked = tracked;
             let answer = answer.await;
             this.update_in(cx, |this, window, cx| match answer {
                 Ok(Some(paths)) => {
@@ -385,7 +387,9 @@ impl EditorView {
             .start(file_dialog::macro_folder(cx))
             .titled("キーマクロの読み込み", "読み込み");
         let answer = file_dialog::ask(window, cx, ask);
+        let tracked = track(cx, window);
         cx.spawn_in(window, async move |this, cx| {
+            let _tracked = tracked;
             let answer = answer.await;
             this.update_in(cx, |this, window, cx| match answer {
                 Ok(Some(mut paths)) => {
@@ -431,7 +435,9 @@ impl EditorView {
             .start(file_dialog::macro_folder(cx))
             .titled("マクロの実行", "実行");
         let answer = file_dialog::ask(window, cx, ask);
+        let tracked = track(cx, window);
         cx.spawn_in(window, async move |this, cx| {
+            let _tracked = tracked;
             let answer = answer.await;
             this.update_in(cx, |this, window, cx| match answer {
                 Ok(Some(mut paths)) => {

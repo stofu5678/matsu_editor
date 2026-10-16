@@ -165,9 +165,10 @@ pub(crate) async fn load_here(
             error => error,
         };
     }
-    cx.update(|_, app| windows::finish_pending(app, view)).ok();
     match result {
         Ok(file) => {
+            cx.update(|_, app| windows::finish_pending(app, view))
+                .ok();
             let mut shared = SharedDocument::from_text_file(file);
             // `FileOpen(file, code, 1)` of a macro asked for view mode.
             if cx
@@ -206,6 +207,9 @@ pub(crate) async fn load_here(
             .ok();
             let (message, detail) = open_error_message(path, &error);
             tell(cx, PromptLevel::Critical, &message, Some(&detail)).await;
+            // Pending until the error is read: a macro that opened the file waits for the box.
+            cx.update(|_, app| windows::finish_pending(app, view))
+                .ok();
             false
         }
     }
