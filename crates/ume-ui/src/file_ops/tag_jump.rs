@@ -148,19 +148,24 @@ pub(crate) async fn tag_jump(
 /// window. `false` if the file could not be opened.
 async fn jump_to(target: &TagTarget, cx: &mut AsyncWindowContext) -> bool {
     let (line, column) = (target.line, target.column);
-    let open = cx
-        .update(|_, app| windows::find_open(app, &target.path))
-        .ok()
-        .flatten();
-    if let Some((handle, editor)) = open {
-        // A window that is still reading its file would drop the caret when the file arrives.
-        let timer = cx.background_executor().clone();
-        while cx
-            .update(|_, app| windows::has_pending(app, handle))
-            .unwrap_or(false)
-        {
-            timer.timer(Duration::from_millis(50)).await;
+    // A window that is still reading its file would drop the caret when the file arrives: wait,
+    // and look again (the window may have closed, or the file may not have come).
+    let timer = cx.background_executor().clone();
+    let open = loop {
+        let found = cx
+            .update(|_, app| {
+                windows::find_open(app, &target.path)
+                    .map(|(handle, editor)| (handle, editor, windows::has_pending(app, handle)))
+            })
+            .ok()
+            .flatten();
+        match found {
+            Some((_, _, true)) => timer.timer(Duration::from_millis(50)).await,
+            Some((handle, editor, false)) => break Some((handle, editor)),
+            None => break None,
         }
+    };
+    if let Some((handle, editor)) = open {
         // The place is set before the window comes to the front, as in Sakura.
         let own = cx.window_handle() == handle;
         let moved = cx.update(|_, app| {
