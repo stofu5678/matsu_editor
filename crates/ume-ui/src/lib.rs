@@ -23,6 +23,7 @@
 pub mod app;
 mod clipboard;
 mod diff;
+mod doc_types;
 pub mod document;
 mod file_ops;
 pub mod geometry;

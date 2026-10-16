@@ -85,6 +85,18 @@ pub mod names {
     pub const SINGLE_QUOTE: ColorName = "SQT";
     /// Double quote string.
     pub const DOUBLE_QUOTE: ColorName = "WQT";
+    /// Half-width numbers (`COLORIDX_DIGIT`).
+    pub const NUMBER: ColorName = "NUM";
+    /// The pair of the bracket at the caret (`COLORIDX_BRACKET_PAIR`).
+    pub const BRACKET_PAIR: ColorName = "BRC";
+    /// Vertical lines at given columns (`COLORIDX_VERTLINE`).
+    pub const VERT_LINE: ColorName = "VER";
+    /// Comments (`COLORIDX_COMMENT`), for line and block comments.
+    pub const COMMENT: ColorName = "CMT";
+    /// Here documents (`COLORIDX_HEREDOC`).
+    pub const HEREDOC: ColorName = "HDC";
+    /// URLs (`COLORIDX_URL`).
+    pub const URL: ColorName = "URL";
 }
 
 /// `COLOR_ATTRIB_*` (`sakura_core/_main/global.h`).

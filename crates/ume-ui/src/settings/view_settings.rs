@@ -19,10 +19,8 @@ use ume_config::Profile;
 use ume_config::location::Os;
 use ume_config::settings::color::{ColorEntry, ColorRef, names};
 use ume_config::settings::types::wrap_method;
-use ume_config::settings::{TypeSettings, ViewFont, types_count};
+use ume_config::settings::{DocumentTypes, ViewFont};
 use ume_layout::{LayoutConfig, MAX_LINE_COLUMNS, MIN_LINE_COLUMNS, Wrap};
-
-use super::doc_type::type_index_for;
 
 /// A color as `0xRRGGBB`, which is what GPUI's `rgb()` takes.
 pub type Rgb = u32;
@@ -249,9 +247,10 @@ fn mix(a: ColorRef, b: ColorRef, alpha: u32) -> ColorRef {
 }
 
 impl Default for ViewSettings {
-    /// Sakura's defaults, as for a file without the settings file.
+    /// Sakura's defaults for a new document, as without a settings file: the basic type of the
+    /// built-in types.
     fn default() -> Self {
-        Self::from_profile(&Profile::new(), None, Os::current())
+        Self::from_types(&DocumentTypes::builtin(), 0, &Profile::new(), Os::current())
     }
 }
 
@@ -259,21 +258,22 @@ impl ViewSettings {
     /// The settings for a file called `file_name` (the name only, no folder; `None` for a new
     /// document, which is the basic type), from the contents of `profile`.
     pub fn from_profile(profile: &Profile, file_name: Option<&str>, os: Os) -> Self {
-        let count = usize::try_from(types_count(profile)).unwrap_or(1);
-        let types: Vec<TypeSettings> = (0..count)
-            .map(|i| {
-                let i = i as i32;
-                // Sakura starts a type of the file from a copy of the basic type's defaults
-                // (`ume-config` has no more).
-                let mut t = TypeSettings::basic();
-                t.read_over(profile, i);
-                t
-            })
-            .collect();
-        let type_index = file_name.map_or(0, |name| {
-            type_index_for(types.iter().map(|t| t.type_exts.as_str()), name)
-        });
-        let t = &types[type_index];
+        let types = DocumentTypes::from_profile(profile);
+        let type_index = file_name.map_or(0, |name| types.type_index_for_file_name(name));
+        Self::from_types(&types, type_index, profile, os)
+    }
+
+    /// The settings of type `type_index` of `types` (the basic type for an index that does not
+    /// exist). `profile` has what is not per type: the common font and the status bar.
+    pub fn from_types(types: &DocumentTypes, type_index: usize, profile: &Profile, os: Os) -> Self {
+        let type_index = if type_index < types.len() {
+            type_index
+        } else {
+            0
+        };
+        let t = types
+            .get(type_index)
+            .expect("the document types have type 0");
 
         // The font of the type, if it has its own, else the common one.
         let view_font = ViewFont::read(profile);

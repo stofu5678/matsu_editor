@@ -21,6 +21,15 @@ ADR-0001 では、設定は独自の形式にし、サクラの設定の取り�
 - Windows に固有の値（フォントの指定、ウィンドウの位置、パス）は、ほかの OS での読み替えを決める必要がある
 - 新しい文書の改行コードの既定は OS に合わせる（Windows は CRLF、macOS と Linux は LF）。ume.ini のタイプ別設定にあればそれに従う。設定ファイル自身の改行コードも、新しく書くときと「サクラの形式」で書くときは OS に合わせる（既存のファイルは今の改行コードのまま書き戻す）（2026-10-15 にユーザーが決めた）
 
+## タイプ別設定（文書タイプ）の扱い（2026-10-16）
+
+- サクラが最初から持つ 17 のタイプ（基本、テキスト、C/C++、HTML、PL/SQL、COBOL、Java、アセンブラ、AWK、MS-DOS バッチファイル、Pascal、TeX、Perl、Python、Visual Basic、リッチテキスト、設定ファイル）と、強調キーワードの 17 のセットは、プログラムが組み込みで持つ（`ume-config` の `settings/builtin_types.rs` と `settings/keyword_data/`。出どころは `sakura_core/types/CType_*.cpp`）。`ume.ini` がなくても、拡張子でタイプが決まり、タブ幅・折り返し・コメント・文字列・キーワードのルールが使える
+- `ume.ini` の `Types(N)` は、組み込みのタイプ N の上に重ねて読む。ファイルにないキーは組み込みの値のままなので、1 つのタイプの 1 つの設定だけを変えられる。`[Other]` の `nTypesCount`（なければ 30。最大 60）が 17 より大きいと、足した分は「基本」の写しで始まり、名前は `設定N` になる
+- 強調キーワードのセットは、`[KeyWords]` に `nKeyWordSetNum` があれば、その節の内容で組み込みのセットをすべて置き換える（サクラと同じ）。ない場合は組み込みのまま
+- タイプの選び方は `CDocTypeManager::GetDocumentTypeOfPath` に従う。番号の小さいタイプから順に拡張子の一覧と照合し、最初に合ったものにする。どれにも合わなければ 0（基本）。拡張子は大文字小文字を区別しない
+- 色分け（次の PR）が読むもの: コメント（`szLineComment`/`nLineCommentColumn` の 3 組、`szBlockCommentFrom`/`To` の 2 組）、文字列（`nInts` の `stringType`、`bStringLineOnly`、`bStringEndLine`）、数値（`C[NUM]` の表示）、キーワードのセット（`nInts` と `nKeywordSelect3` から `10`）、正規表現キーワード（`bUseRegexKeyword`、`RxKey[NNN]`）、縦線（`nVertLineIdxN`）、アウトライン（`nDefaultOutline`）
+- ユーザーが選んだタイプ（`F_CHANGETYPE`、`F_TYPE_LIST` の「一時適用」）は、文書の名前が変わっても変わらない。次にファイルを読み込むと、名前で決まるタイプに戻る（`CDocType::LockDocumentType`）。ファイルを別の名前で保存したときは、名前で決まるタイプに変わる
+
 ## 調べる場所
 
 - 設定の読み書き: `sakura_core/env/CShareData_IO.cpp`、`sakura_core/env/CDataProfile.cpp`、`sakura_core/util/CProfile.cpp`

@@ -66,12 +66,18 @@ impl EditorView {
         // The new document may be of another type (ume.ini): then it has that type's font, wrap
         // and colors. Reloading the same type (reopen) keeps the temporary settings (zoom, wrap);
         // only the layout, which `LayoutConfig::default()` above reset, is brought back.
-        if let Some(user) = cx.try_global::<crate::settings::UserSettings>().cloned() {
-            let name = self.document.read(cx).file_name();
-            if user.view_settings(name.as_deref()).type_index == self.prefs.settings.type_index {
+        // The type the user chose (`F_CHANGETYPE`) lasts until a file is loaded (`SetDocumentType`
+        // with `force`).
+        self.doc_type.locked = false;
+        let name = self.document.read(cx).file_name();
+        let wanted = crate::doc_types::with_user(cx, |user| {
+            let index = user.type_index_for(name.as_deref());
+            (index != self.prefs.settings.type_index).then(|| user.view_settings_of_type(index))
+        });
+        match wanted {
+            Some(settings) => self.apply_settings(settings, cx),
+            None => {
                 self.relayout_in(cx);
-            } else {
-                self.apply_type_of_document(&user, cx);
             }
         }
         self.ensure_caret_visible(cx);

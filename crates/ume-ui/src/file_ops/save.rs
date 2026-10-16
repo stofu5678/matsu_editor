@@ -312,6 +312,8 @@ pub(crate) async fn save(
             }
             view.update(cx, |view, cx| {
                 view.notice = Some(notice);
+                // Saved under another name: the new name may be of another document type.
+                view.follow_file_name(cx);
                 cx.notify();
             })
             .ok();

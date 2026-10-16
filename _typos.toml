@@ -12,9 +12,14 @@ extend-exclude = [
     # Test strings for the regex engine (subjects like "ba" are not words).
     "tools/bregonig-compat/cases.json",
     "tools/bregonig-compat/make_cases.py",
+    # Sakura's keyword sets, word for word (TeX commands, COBOL words and so on are not English).
+    "crates/ume-config/src/settings/keyword_data/",
 ]
 
 [default.extend-words]
+# cpy: a COBOL copybook extension in the built-in document type (sakura_core/types/CType_Cobol.cpp).
+cpy = "cpy"
+
 # bb.edn: Babashka's config file (EDN, the Extensible Data Notation of Clojure).
 edn = "edn"
 

@@ -69,12 +69,10 @@ impl EditorView {
             .map(|running| running.path.to_string_lossy().into_owned());
         env.current_type = self.prefs.settings.type_index;
         // The types of the settings are only copied for the two functions that read them.
-        if message.contains("TypeExt")
-            && let Some(user) = cx.try_global::<crate::settings::UserSettings>().cloned()
-        {
-            env.type_of_ext = Some(Box::new(move |ext| {
-                user.view_settings(Some(ext)).type_index
-            }));
+        if message.contains("TypeExt") {
+            // `GetDocumentTypeOfExt`; the built-in types when there is no settings file.
+            let types = crate::doc_types::with_user(cx, |user| user.shared_types());
+            env.type_of_ext = Some(Box::new(move |ext| types.type_index_for_ext(ext)));
         }
         env
     }
