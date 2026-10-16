@@ -385,6 +385,8 @@ impl EditorView {
         let _ = self.cursor.clamp(doc);
         self.layout_version = version;
         self.drop_composition(cx);
+        // the candidates were made for the old text
+        self.support.completion = None;
         self.clamp_scroll();
         cx.notify();
     }
