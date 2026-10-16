@@ -20,7 +20,7 @@
 //!
 //! # Writing it back
 //!
-//! The window writes only the section `[MRU]` (the recent files and folders, [`crate::history`]),
+//! The window writes only the section `[MRU]` (the recent files and folders, `crate::history`),
 //! at once and safely for several windows; the rest of the file stays as it was.
 //!
 //! The window does not write the other sections. Sakura writes it when the last window closes, but the values
