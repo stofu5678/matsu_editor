@@ -295,6 +295,30 @@ fn a_script_is_told_when_a_function_of_a_menu_fails(cx: &mut TestAppContext) {
     assert_eq!(results(&output), ["error"], "{output}");
 }
 
+#[gpui::test]
+fn work_that_the_user_starts_in_the_dialog_is_waited_for_too(cx: &mut TestAppContext) {
+    // The OK of a dialog often starts a job (DIFF, Grep, a file read). The macro waits for it,
+    // not only for the dialog.
+    let dir = tempfile::tempdir().unwrap();
+    let path = write(dir.path(), "w.mac", "TypeList();\nChar(66);\n");
+    let (f, cx) = setup_with_ui(cx, "");
+    run_file(&f, cx, &path);
+    assert!(type_list_open(&f, cx));
+    f.view.update_in(cx, |v, window, cx| {
+        v.doc_type.list = None;
+        crate::file_ops::start(window, cx, async move |_, cx| {
+            cx.background_executor().timer(Duration::from_secs(5)).await;
+        });
+    });
+    settle(cx, 20);
+    // the dialog is closed, the job runs for 5 s of the test's clock (100 ms a round)
+    assert!(f.running(cx));
+    assert!(f.lines(cx).is_empty());
+    settle(cx, 40);
+    assert_eq!(f.lines(cx), ["B"]);
+    assert!(!f.running(cx));
+}
+
 #[test]
 fn a_script_can_call_a_command_of_the_menus() {
     // `TypeList` is a menu command (kind `Command`), not one of the macro-only functions.

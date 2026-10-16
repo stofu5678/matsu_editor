@@ -33,6 +33,7 @@
 //! it, whichever window the command opened or activated.
 
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -59,10 +60,13 @@ const PRINT_PREVIEW: u32 = 1 << 9;
 const FAVORITE_DIALOG: u32 = 1 << 10;
 const GREP_RUNNING: u32 = 1 << 11;
 const LOADING: u32 = 1 << 12;
+const PRINTING: u32 = 1 << 13;
 
-/// The flows that the call being made starts: [`track`] counts them.
+/// The flows that the call of a macro starts in each window, from the call until its wait is over:
+/// [`track`] counts them. The work that the user starts meanwhile (the OK of a dialog that the
+/// call opened) belongs to the call as well, so the entry stays while the macro waits.
 #[derive(Default)]
-struct Armed(Option<Rc<Cell<usize>>>);
+struct Armed(HashMap<AnyWindowHandle, Rc<Cell<usize>>>);
 
 impl Global for Armed {}
 
@@ -77,9 +81,13 @@ impl Drop for FlowGuard {
 }
 
 /// Call this where a UI command starts work that outlives the call, and hold the result until
-/// the work ends. Gives `None` outside a macro's call, which waits for nothing.
-pub(crate) fn track(cx: &App) -> Option<FlowGuard> {
-    let counter = cx.try_global::<Armed>()?.0.clone()?;
+/// the work ends. Gives `None` when no macro waits for `window`, which waits for nothing.
+pub(crate) fn track(cx: &App, window: &Window) -> Option<FlowGuard> {
+    let counter = cx
+        .try_global::<Armed>()?
+        .0
+        .get(&window.window_handle())?
+        .clone();
     counter.set(counter.get() + 1);
     Some(FlowGuard(counter))
 }
@@ -95,6 +103,15 @@ pub(crate) struct Wait {
     windows: Vec<AnyWindowHandle>,
     /// Which wait this is; a newer one, or a cancel, makes it stale.
     epoch: u64,
+}
+
+/// The call of a macro in `window` is over: its flows are no longer counted (unless a newer call
+/// has taken the place).
+fn disarm(cx: &mut App, window: AnyWindowHandle, flows: &Rc<Cell<usize>>) {
+    let armed = cx.default_global::<Armed>();
+    if armed.0.get(&window).is_some_and(|f| Rc::ptr_eq(f, flows)) {
+        armed.0.remove(&window);
+    }
 }
 
 impl EditorView {
@@ -114,6 +131,7 @@ impl EditorView {
             (crate::history::dialog::is_open(cx), FAVORITE_DIALOG),
             (self.grep.is_running(), GREP_RUNNING),
             (has_pending(cx, window.window_handle()), LOADING),
+            (self.is_printing(), PRINTING),
         ];
         flags
             .into_iter()
@@ -132,8 +150,8 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) -> (bool, Option<Wait>) {
         let flows = Rc::new(Cell::new(0));
-        let outer = cx.try_global::<Armed>().and_then(|armed| armed.0.clone());
-        cx.set_global(Armed(Some(flows.clone())));
+        let me = window.window_handle();
+        cx.default_global::<Armed>().0.insert(me, flows.clone());
         let mut wait = Wait {
             flows,
             baseline: self.activity(window, cx),
@@ -141,10 +159,12 @@ impl EditorView {
             windows: editors(cx).into_iter().map(|(h, _)| h).collect(),
             epoch: 0,
         };
-        wait.windows.push(window.window_handle());
+        wait.windows.push(me);
         let ok = self.run_function(code, args, window, cx);
-        cx.set_global(Armed(outer));
         let waits = ok && !self.is_settled(&mut wait, window, cx);
+        if !waits {
+            disarm(cx, me, &wait.flows);
+        }
         (ok, waits.then_some(wait))
     }
 
@@ -189,12 +209,14 @@ impl EditorView {
                 let finished = this.update_in(cx, |this, window, cx| {
                     // Stopped, or another wait began: nothing to do.
                     if this.macros.waiting != Some(wait.epoch) {
+                        disarm(cx, window.window_handle(), &wait.flows);
                         return true;
                     }
                     if !this.is_settled(&mut wait, window, cx) {
                         return false;
                     }
                     this.macros.waiting = None;
+                    disarm(cx, window.window_handle(), &wait.flows);
                     if let Some(done) = done.take() {
                         done(this, window, cx);
                     }
