@@ -465,7 +465,11 @@ fn a_read_only_file_is_not_changed_and_is_told() {
         b"older\n",
         "an earlier backup stays when the file could not be written"
     );
-    assert!(!p.exists("a.txt.skrold.new"), "and no copy is left");
+    let left: Vec<_> = std::fs::read_dir(p.dir.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(left.len(), 4, "no copy is left: {left:?}");
     assert_eq!(p.read("b.txt"), b"d\n");
     assert_eq!(outcome.hits, 1, "only the file that was written counts");
     assert!(
@@ -574,4 +578,34 @@ fn the_tag_jump_reads_what_grep_replace_writes() {
     let target = find_target(&at, i, Some(&root), &is_file).expect("a target");
     assert_eq!(target.line, Some(2));
     assert_eq!(target.column, Some(8));
+}
+
+#[test]
+fn a_backup_that_cannot_be_put_in_place_leaves_the_copy_of_the_old_file() {
+    // the backup name is a folder: the new file is written, and the old content is not lost
+    let p = Project::new();
+    p.write("a.txt", b"abc\n");
+    std::fs::create_dir(p.dir.path().join("a.txt.skrold")).unwrap();
+    let (text, outcome) = grep(&p.info("abc", "d"));
+    assert_eq!(outcome.hits, 1);
+    assert_eq!(p.read("a.txt"), b"d\n");
+    assert!(text.contains("ファイルの削除に失敗しました。["), "{text}");
+    let copies: Vec<_> = std::fs::read_dir(p.dir.path())
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|path| path.to_string_lossy().ends_with(".tmp"))
+        .collect();
+    assert_eq!(copies.len(), 1, "{text}");
+    assert_eq!(std::fs::read(&copies[0]).unwrap(), b"abc\n");
+}
+
+#[test]
+fn a_regular_expression_replacement_with_a_line_break_keeps_the_other_lines() {
+    let p = Project::new();
+    p.write("a.txt", b"a,b\nplain\nc,d\n");
+    let mut info = p.info(",", "\\n");
+    info.options = regex();
+    let (_, outcome) = grep(&info);
+    assert_eq!(outcome.hits, 2);
+    assert_eq!(p.read("a.txt"), b"a\nb\nplain\nc\nd\n");
 }

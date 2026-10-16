@@ -54,7 +54,7 @@
 //! replaced, not the old file renamed after the new one is written.
 
 use std::path::Path;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use ume_core::buffer::Pos;
 use ume_core::file::{FileError, SaveOptions, TextFile};
@@ -94,6 +94,8 @@ impl Runner<'_> {
         let by_match = self.replacer.is_none();
         let mut doc = file.document.clone();
         let mut plan: Vec<Replacement> = Vec::new();
+        // The lines a regular expression changes, to be replaced one by one (and stopped between).
+        let mut regex_lines: Vec<std::ops::Range<Pos>> = Vec::new();
         let mut any_hit = false;
         let mut shown_any = false;
         for index in 0..doc.line_count() {
@@ -124,6 +126,14 @@ impl Runner<'_> {
                 continue;
             }
             any_hit = true;
+            if !by_match {
+                let end = if line.eol.is_some() {
+                    Pos::new(index + 1, 0)
+                } else {
+                    Pos::new(index, line.text.len())
+                };
+                regex_lines.push(Pos::new(index, 0)..end);
+            }
             // The result: the first hit of the line; every hit with 該当部分, and no more than
             // the first of the file with ファイル毎最初のみ検索.
             if !(self.info.file_only && shown_any) {
@@ -179,10 +189,25 @@ impl Runner<'_> {
             return Ok(());
         }
         let replaced = match &self.replacer {
-            Some(replacer) => replacer
-                .replace_all(&mut doc, ReplaceAllMode::Batch, None, Control::new())
-                .map(|result| result.edits.len())
-                .ok(),
+            Some(replacer) => {
+                // From the last line to the first, so that a replacement with a line break does
+                // not move the lines that follow.
+                let mut count = Some(0);
+                for range in regex_lines.into_iter().rev() {
+                    self.check_cancel()?;
+                    let done = replacer.replace_all(
+                        &mut doc,
+                        ReplaceAllMode::Batch,
+                        Some(range),
+                        Control::new(),
+                    );
+                    count = done.ok().and_then(|r| count.map(|c| c + r.edits.len()));
+                    if count.is_none() {
+                        break;
+                    }
+                }
+                count
+            }
             None => {
                 let count = plan.len();
                 apply_replacements(&mut doc, &plan).map(|_| count).ok()
@@ -213,9 +238,9 @@ impl Runner<'_> {
         let old = format!("{path}{BACKUP_SUFFIX}");
         // The file is copied before it is replaced, to a name of its own: an earlier backup stays
         // until the new content is in place.
-        let staged = format!("{old}.new");
+        let staged = staged_name(&old);
         if backup {
-            if std::fs::copy(path, &staged).is_err() {
+            if copy_new(path, &staged).is_err() {
                 let _ = std::fs::remove_file(&staged);
                 self.buffer.push_str(&format::replace_replace_error(&old));
                 return Ok(false);
@@ -252,14 +277,35 @@ impl Runner<'_> {
     }
 
     /// The copy of the old file takes the place of the earlier backup (`DeleteFile`, then
-    /// `MoveFile` in `CWriteData::Close`).
+    /// `MoveFile` in `CWriteData::Close`). The new content is already in place, so when the
+    /// earlier backup cannot be removed the copy stays under its own name: it is the only copy
+    /// of the old content.
     fn keep_backup(&mut self, staged: &str, old: &str) {
         if Path::new(old).exists() && std::fs::remove_file(old).is_err() {
-            let _ = std::fs::remove_file(staged);
             self.buffer.push_str(&format::replace_delete_error(old));
+            self.buffer.push_str(&format::replace_replace_error(staged));
         } else if std::fs::rename(staged, old).is_err() {
-            let _ = std::fs::remove_file(staged);
-            self.buffer.push_str(&format::replace_replace_error(old));
+            self.buffer.push_str(&format::replace_replace_error(staged));
         }
     }
+}
+
+/// A name for the copy of a file that is about to be replaced, next to its backup. Nothing of
+/// that name is expected to exist ([`copy_new`] refuses to write over a file).
+fn staged_name(old: &str) -> String {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, Ordering::Relaxed);
+    format!("{old}.{}-{n}.tmp", std::process::id())
+}
+
+/// Copies `from` to `to`, which must not exist (a file or a link in the way is an error).
+fn copy_new(from: &str, to: &str) -> std::io::Result<()> {
+    let mut source = std::fs::File::open(from)?;
+    let mut target = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(to)?;
+    std::io::copy(&mut source, &mut target)?;
+    target.sync_all()?;
+    std::fs::set_permissions(to, source.metadata()?.permissions())
 }
