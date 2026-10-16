@@ -15,6 +15,9 @@
 //! command file only says *which* of them to call (see `crate::commands`).
 
 mod bookmarks;
+mod box_edit;
+#[cfg(test)]
+mod box_edit_tests;
 mod boxsel;
 mod clipboard;
 mod convert;
@@ -284,7 +287,9 @@ impl<'a> CommandContext<'a> {
     /// selection stay as they are; the other methods below move them as a command expects.
     ///
     /// Fails while a box selection covers something or the caret is to the right of the text in
-    /// one (box selections are not edited yet).
+    /// one: this edits a range, not a box, so a command that wants to edit a box goes through
+    /// [`delete_selection`](Self::delete_selection), [`insert_text`](Self::insert_text) or the
+    /// methods of `box_edit`, which end the box first.
     pub fn replace(&mut self, from: Pos, to: Pos, text: &str) -> Result<Edit> {
         self.refuse_edit_in_box()?;
         let (a, b) = (self.doc().clamp_pos(from)?, self.doc().clamp_pos(to)?);
@@ -301,11 +306,11 @@ impl<'a> CommandContext<'a> {
         Ok(edit)
     }
 
-    /// Editing a box selection (Sakura: replace or delete the box row by row, and pad the rows
-    /// that are shorter than the box) is not done yet. While a box covers something, or the caret
-    /// of a box is to the right of the text of its row, where Sakura would pad the row, an edit
-    /// beeps and fails, so that a command stops before it changes anything else. A box that
-    /// covers nothing, with its caret on the text, is only a mode and the edit ends it.
+    /// While a box covers something, or the caret of a box is to the right of the text of its
+    /// row, a range edit beeps and fails, so that a command that does not know boxes stops before
+    /// it changes anything (it would take the stream between the corners for the selection).
+    /// A box that covers nothing, with its caret on the text, is only a mode and the edit ends
+    /// it.
     fn refuse_edit_in_box(&mut self) -> Result<()> {
         self.refuse_in_view_mode()?;
         if self.cursor.is_box() && self.caret_is_in_empty_space()? {
@@ -361,7 +366,19 @@ impl<'a> CommandContext<'a> {
     }
 
     /// Inserts `text` at the caret, or in place of the selection, and puts the caret after it.
+    ///
+    /// With a box selected the first line of `text` goes into every row of the box instead
+    /// (`insert_into_box`), and with a box caret to the right of the
+    /// text the row is padded with spaces first.
     pub fn insert_text(&mut self, text: &str) -> Result<Edit> {
+        if self.cursor.is_box() {
+            if self.cursor.has_selection() {
+                return self.insert_into_box(text);
+            }
+            if self.caret_is_in_empty_space()? {
+                return self.insert_in_empty_space(text);
+            }
+        }
         self.refuse_edit_in_box()?;
         let (from, to) = self.selection().unwrap_or((self.caret(), self.caret()));
         let edit = self.replace(from, to, text)?;
@@ -378,7 +395,14 @@ impl<'a> CommandContext<'a> {
     }
 
     /// Deletes the selected text. Returns `false` if nothing is selected.
+    ///
+    /// A box selection is deleted as a box: the text of each row of it (see
+    /// `delete_box`).
     pub fn delete_selection(&mut self) -> Result<bool> {
+        if self.cursor.is_box() && self.cursor.has_selection() {
+            self.delete_box()?;
+            return Ok(true);
+        }
         match self.selection() {
             Some((from, to)) => self.delete_range(from, to).map(|()| true),
             None => Ok(false),
@@ -410,6 +434,12 @@ impl<'a> CommandContext<'a> {
     /// [`overwrite_end`](Self::overwrite_end)). A selection is replaced in both modes. The caret
     /// ends after the text.
     pub fn type_text(&mut self, text: &str) -> Result<Edit> {
+        // In a box the typing mode does not matter (see `box_edit`).
+        if self.cursor.is_box()
+            && (self.cursor.has_selection() || self.caret_is_in_empty_space()?)
+        {
+            return self.insert_text(text);
+        }
         self.refuse_edit_in_box()?;
         if self.overwrite && self.selection().is_none() {
             let at = self.caret();

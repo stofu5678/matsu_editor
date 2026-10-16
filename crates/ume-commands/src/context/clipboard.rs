@@ -10,7 +10,6 @@
 //! exist.
 
 use ume_core::buffer::{Eol, Pos};
-use ume_core::cursor::SelectionMode;
 use ume_core::model::eol_text;
 
 use super::CommandContext;
@@ -23,6 +22,8 @@ const ENABLE_NO_SELECT_COPY: bool = true;
 const ENABLE_LINE_MODE_PASTE: bool = true;
 /// `bConvertEOLPaste`: paste converts the line endings to the document's. Default off.
 const CONVERT_EOL_PASTE: bool = false;
+/// `bAutoColumnPaste`: the text of a box copy is pasted as a box. Default on.
+const AUTO_COLUMN_PASTE: bool = true;
 /// `m_szInyouKigou`: the quote of `F_COPYLINESASPASSAGE` (`m_sFormat`). Default `"> "`.
 pub(crate) const QUOTE: &str = "> ";
 /// `LINENUMWIDTH_MIN` in `sakura_core/config/app_constants.h`: the least number of digits of the
@@ -39,6 +40,10 @@ pub(crate) mod paste_option {
     pub const LINE_MODE: i64 = 0x04;
     /// Paste a row copy at the caret.
     pub const NO_LINE_MODE: i64 = 0x08;
+    /// Paste the text of a box copy as a box.
+    pub const BOX: i64 = 0x10;
+    /// Paste the text of a box copy as normal text.
+    pub const NO_BOX: i64 = 0x20;
 }
 
 /// Whether `c` ends a line (Sakura: `WCODE::IsLineDelimiter` with the extended line endings, as
@@ -115,36 +120,85 @@ impl CommandContext<'_> {
     }
 
     /// The selected text with the line endings changed to `eol` if given (Sakura:
-    /// `GetSelectedData`). Beeps and returns `None` for a rectangular selection, which is not
-    /// supported yet.
-    fn selected_text(&mut self, eol: Option<Eol>) -> Result<Option<String>> {
+    /// `GetSelectedData`), and how it is marked on the clipboard. A box selection gives the text
+    /// of its rows, each followed by CRLF (see [`box_text`](Self::box_text)); `eol` and `add_eol`
+    /// do not apply to it. `add_eol` (Sakura: `bAddCRLFWhenCopy`) ends every row that does not
+    /// end the line, a wrapped row, with the line ending of the document or `eol`.
+    fn selected_text(
+        &mut self,
+        eol: Option<Eol>,
+        add_eol: bool,
+    ) -> Result<Option<(String, ClipKind)>> {
         let Some((from, to)) = self.selection() else {
             return Ok(None);
         };
-        if self.cursor().mode() == SelectionMode::Rectangular {
-            self.beep();
-            return Ok(None);
+        if self.cursor().is_box() {
+            return Ok(self.box_text()?.map(|text| (text, ClipKind::Box)));
+        }
+        if add_eol {
+            let text = self.text_with_row_endings(from, to, eol)?;
+            return Ok(Some((text, ClipKind::Normal)));
         }
         let text = self.doc().text_between(from, to)?;
-        Ok(Some(match eol {
+        let text = match eol {
             Some(eol) => convert_eols(&text, eol_text(eol), true),
             None => text,
-        }))
+        };
+        Ok(Some((text, ClipKind::Normal)))
+    }
+
+    /// The text from `from` to `to` where every row that the selection takes to its end gets a
+    /// line ending if it has none (Sakura: the `bAddCRLFWhenCopy` part of `GetSelectedData`).
+    /// Rows without text are left out, as there.
+    fn text_with_row_endings(&self, from: Pos, to: Pos, eol: Option<Eol>) -> Result<String> {
+        let new_line = eol_text(eol.unwrap_or_else(|| self.new_line()));
+        let mut out = String::new();
+        let mut row = self.layout().row_start(self.doc(), from)?;
+        while row < to {
+            let next = self.layout().next_row_start(self.doc(), row)?;
+            let row_end = match next {
+                Some(next) => next,
+                None => self.layout().row_end(self.doc(), row)?,
+            };
+            let (start, end) = (from.max(row), to.min(row_end));
+            if start < end {
+                let text = self.doc().text_between(start, end)?;
+                if end == row_end && !text.ends_with(is_eol_char) {
+                    out.push_str(&text);
+                    out.push_str(new_line);
+                } else if let Some(eol) = eol {
+                    out.push_str(&convert_eols(&text, eol_text(eol), true));
+                } else {
+                    out.push_str(&text);
+                }
+            }
+            match next {
+                Some(next) => row = next,
+                None => break,
+            }
+        }
+        Ok(out)
     }
 
     /// `Command_COPY`: copies the selection, or the row if nothing is selected. `eol` changes the
-    /// line endings of the copy (`F_COPY_CRLF`).
-    pub fn copy(&mut self, eol: Option<Eol>) -> Result<()> {
+    /// line endings of the copy (`F_COPY_CRLF`). `add_eol` ends the rows that wrap with a line
+    /// ending (`F_COPY_ADDCRLF`; Sakura's `bAddCRLFWhenCopy`, off by default). A box is copied as
+    /// a box.
+    pub fn copy(&mut self, eol: Option<Eol>, add_eol: bool) -> Result<()> {
         if self.selection().is_none() {
             if !ENABLE_NO_SELECT_COPY {
                 return Ok(()); // Sakura: nothing, not even a beep
             }
             // `CopyCurLine`: no row, no copy and no beep.
-            if let Some((_, _, text)) = self.caret_row_text()? {
-                let text = match eol {
-                    Some(eol) => convert_eols(&text, eol_text(eol), true),
-                    None => text,
-                };
+            if let Some((_, _, mut text)) = self.caret_row_text()? {
+                if let Some(eol) = eol {
+                    text = convert_eols(&text, eol_text(eol), true);
+                }
+                // A row that wraps has no line ending: `CopyCurLine` adds CRLF, or the ending
+                // that was asked for.
+                if add_eol && !text.ends_with(is_eol_char) {
+                    text.push_str(eol.map_or("\r\n", eol_text));
+                }
                 let kind = if ENABLE_LINE_MODE_PASTE {
                     ClipKind::Line
                 } else {
@@ -154,13 +208,14 @@ impl CommandContext<'_> {
             }
             return Ok(());
         }
-        if let Some(text) = self.selected_text(eol)? {
-            self.copy_text(text, ClipKind::Normal)?;
+        if let Some((text, kind)) = self.selected_text(eol, add_eol)? {
+            self.copy_text(text, kind)?;
         }
         Ok(())
     }
 
     /// `Command_CUT`: copies the selection and deletes it. Without a selection it cuts the row.
+    /// A box is cut as a box.
     pub fn cut(&mut self) -> Result<()> {
         self.refuse_in_view_mode()?;
         if self.selection().is_none() {
@@ -169,10 +224,10 @@ impl CommandContext<'_> {
             }
             return self.cut_row();
         }
-        let Some(text) = self.selected_text(None)? else {
+        let Some((text, kind)) = self.selected_text(None, false)? else {
             return Ok(());
         };
-        if self.copy_text(text, ClipKind::Normal)? {
+        if self.copy_text(text, kind)? {
             self.delete_selection()?;
         }
         Ok(())
@@ -250,7 +305,7 @@ impl CommandContext<'_> {
         let Some((from, to)) = self.selection() else {
             return Ok(());
         };
-        if self.cursor().mode() == SelectionMode::Rectangular {
+        if self.cursor().is_box() {
             self.beep();
             return Ok(());
         }
@@ -338,6 +393,18 @@ impl CommandContext<'_> {
         } else {
             CONVERT_EOL_PASTE
         };
+        let as_box = if option & paste_option::BOX != 0 {
+            true
+        } else if option & paste_option::NO_BOX != 0 {
+            false
+        } else {
+            AUTO_COLUMN_PASTE
+        };
+        // The text of a box copy is pasted as a box (`Command_PASTE`, `bAutoColumnPaste`). The
+        // line endings are not converted.
+        if as_box && clip.kind == ClipKind::Box {
+            return self.paste_box(&clip.text);
+        }
         let new_line = eol_text(self.new_line());
         let mut text = clip.text;
         // A row copy of a wrapped row does not end with a line ending; add one.
@@ -348,13 +415,16 @@ impl CommandContext<'_> {
         if convert {
             text = convert_eols(&text, new_line, false);
         }
-        if !by_line {
+        // With a box selected the first line goes into every row of the box, a row copy too
+        // (`Command_INSTEXT`).
+        if !by_line || (self.cursor().is_box() && self.cursor().has_selection()) {
             self.insert_text(&text)?;
             return Ok(());
         }
         // Sakura deletes the selection, goes to the start of the row, inserts, and comes back
         // to the character the caret was on.
         self.delete_selection()?;
+        self.cursor.clear_selection();
         let caret = self.caret();
         let row = self.layout().row_start(self.doc(), caret)?;
         let delta = caret.col.saturating_sub(row.col);

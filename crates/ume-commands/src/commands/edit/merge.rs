@@ -28,6 +28,10 @@ impl Command for Merge {
     const SAKURA: &'static str = "F_MERGE";
 
     fn run(&self, cx: &mut CommandContext<'_>, _args: &[Arg]) -> Result {
+        // `Command_MERGE` returns at once with a box selected, without a beep.
+        if cx.cursor().is_box() && cx.cursor().has_selection() {
+            return Ok(());
+        }
         cx.merge_selected_lines()
     }
 }

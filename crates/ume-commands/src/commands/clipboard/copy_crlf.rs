@@ -15,7 +15,7 @@ impl Command for CopyCrlf {
     const SAKURA: &'static str = "F_COPY_CRLF";
 
     fn run(&self, cx: &mut CommandContext<'_>, _args: &[Arg]) -> Result {
-        cx.copy(Some(Eol::CrLf))
+        cx.copy(Some(Eol::CrLf), false)
     }
 }
 

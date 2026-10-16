@@ -63,7 +63,7 @@ impl CommandContext<'_> {
     /// Whether the row of `row_pos` ends because the line wraps there. The end of such a row is
     /// the start of the next one for a position, so a box caret never rests at the end of a
     /// wrapped row, and there is no empty space to its right.
-    fn row_is_wrapped(&self, row_pos: Pos) -> Result<bool> {
+    pub(super) fn row_is_wrapped(&self, row_pos: Pos) -> Result<bool> {
         let end = self.layout.row_end(self.doc(), row_pos)?;
         Ok(self.layout.next_row_start(self.doc(), row_pos)? == Some(end))
     }
@@ -194,16 +194,17 @@ mod tests {
     use crate::testing::Editor;
 
     #[test]
-    fn edits_beep_and_change_nothing_while_a_box_is_selected() {
+    fn commands_that_sakura_does_not_do_for_boxes_beep_and_change_nothing() {
+        // Sakura: `Command_WordDeleteToStart`, `Command_WordDeleteToEnd` and `Command_UNINDENT`
+        // beep at once with a box selected.
         let mut e = Editor::new("ab|cd\nefgh").with_clipboard("x", ClipKind::Normal);
         e.run("begin_box").run("cursor_down");
         let text = e.marked();
         for id in [
-            "delete",
-            "delete_back",
-            "word_delete",
-            "indent_tab",
-            "paste",
+            "word_delete_to_start",
+            "word_delete_to_end",
+            "unindent_tab",
+            "unindent_space",
         ] {
             let result = e.try_run(id, &[]);
             assert!(
@@ -215,14 +216,6 @@ mod tests {
             assert_eq!(e.marked(), text, "{id}");
             assert_eq!(e.box_state(), Some(((0, 2), (1, 2))), "{id}");
         }
-        assert!(e.try_run("input_char", &[Arg::Char('x')]).is_err());
-        assert_eq!(e.marked(), text);
-        // copy and cut say no too, and the clipboard stays empty
-        e.run("cut").run("copy");
-        assert_eq!(e.clipboard().map(|c| c.text.as_str()), Some("x"));
-        assert_eq!(e.marked(), text);
-        e.run("undo");
-        e.assert_box((0, 2), (1, 2));
     }
 
     #[test]
@@ -231,7 +224,7 @@ mod tests {
         let mut e = Editor::new("z|b\nya\nxc\n");
         e.run("begin_box").run("cursor_down").run("cursor_down");
         let text = e.marked();
-        for id in ["sort_asc", "sort_desc", "ltrim", "rtrim", "merge"] {
+        for id in ["sort_asc", "sort_desc"] {
             let result = e.try_run(id, &[]);
             assert!(result.is_err(), "{id}");
             assert!(!e.changes().text_changed(), "{id}");
@@ -241,15 +234,14 @@ mod tests {
     }
 
     #[test]
-    fn editing_in_the_empty_space_of_a_box_beeps() {
-        // Sakura would pad the row with spaces to the column of the caret
+    fn typing_in_the_empty_space_of_a_box_inserts_at_the_end_of_the_text() {
         let mut e = Editor::new("ab|");
         e.run("cursor_right_box");
-        assert!(e.try_run("input_char", &[Arg::Char('x')]).is_err());
-        assert!(e.changes().beep);
-        // the text is "ab"; the anchor and the caret are both at its end
-        assert_eq!(e.marked(), "ab[|");
-        e.assert_box((0, 2), (0, 3));
+        e.run_with("input_char", &[Arg::Char('x')]);
+        // the box was one column wide, past the text; it moves right by the typed char
+        assert_eq!(e.marked(), "abx[|");
+        e.assert_box((0, 4), (0, 3));
+        assert!(!e.changes().beep);
     }
 
     #[test]

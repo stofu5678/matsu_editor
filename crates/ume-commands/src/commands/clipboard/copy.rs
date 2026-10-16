@@ -14,7 +14,7 @@ impl Command for Copy {
     const SAKURA: &'static str = "F_COPY";
 
     fn run(&self, cx: &mut CommandContext<'_>, _args: &[Arg]) -> Result {
-        cx.copy(None)
+        cx.copy(None, false)
     }
 }
 

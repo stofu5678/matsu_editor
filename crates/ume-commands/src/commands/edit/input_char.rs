@@ -13,10 +13,13 @@
 //!   indentation of the line before the caret is copied after it (auto indent,
 //!   `m_bAutoIndent`, on by default in `sakura_core/types/CType.cpp`).
 //!
+//! * With a box selected, the char goes before the box in every row and the box moves right
+//!   (`Command_INDENT`, see `CommandContext::insert_text`); Enter deletes the box first.
+//!
 //! Not done yet: the option to pad with spaces to the width of the replaced char
-//! (`m_bOverWriteFixMode`, off by default), the option to overwrite line endings, typing over a
-//! rectangular selection (`Command_INDENT`), the other indent chars and smart indent of the type settings, trimming
-//! the previous line (`m_bRTrimPrevLine`), and the extended line endings (`m_bEnableExtEol`).
+//! (`m_bOverWriteFixMode`, off by default), the option to overwrite line endings, the other
+//! indent chars and smart indent of the type settings, trimming the previous line
+//! (`m_bRTrimPrevLine`), and the extended line endings (`m_bEnableExtEol`).
 //!
 //! Argument: one char, as `Arg::Char`, or a code point as `Arg::Int`.
 
@@ -35,6 +38,10 @@ impl Command for InputChar {
     fn run(&self, cx: &mut CommandContext<'_>, args: &[Arg]) -> Result {
         let c = char_arg(args)?;
         if c == '\r' || c == '\n' {
+            // `Command_WCHAR` deletes the selection first, a box as a box.
+            if cx.cursor().is_box() {
+                cx.delete_selection()?;
+            }
             // One edit replaces the selection: deleting it first could join the CR and the LF
             // around it into a CRLF and move the place to insert.
             let text = format!(
