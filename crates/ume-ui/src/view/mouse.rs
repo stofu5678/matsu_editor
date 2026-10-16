@@ -58,10 +58,12 @@ impl EditorView {
             cx.notify();
             return;
         }
+        // Before the hit test: finishing an overwrite composition can remove chars and move the
+        // text under the pointer.
+        self.interrupt_composition(cx);
         let Some(pos) = self.position_for_point(event.position, cx) else {
             return;
         };
-        self.interrupt_composition(cx);
         let extend = event.modifiers.shift;
         let anchor = if extend {
             self.cursor.anchor().unwrap_or(self.cursor.caret())

@@ -401,3 +401,172 @@ fn the_title_and_the_status_follow_the_document(cx: &mut TestAppContext) {
         assert!(status.modified);
     });
 }
+
+#[gpui::test]
+fn the_insert_key_switches_to_overwrite_mode_and_back(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abcd");
+    let overwrite = |f: &Fixture, cx: &mut VisualTestContext| {
+        f.document.read_with(cx, |shared, _| shared.overwrite())
+    };
+    assert!(!overwrite(&f, cx));
+    cx.simulate_keystrokes("insert");
+    assert!(overwrite(&f, cx));
+    assert_eq!(f.lines(cx), ["abcd"]);
+    cx.simulate_keystrokes("x y");
+    assert_eq!(f.lines(cx), ["xycd"]);
+    assert_eq!(f.caret(cx), Pos::new(0, 2));
+    cx.simulate_keystrokes("insert z");
+    assert!(!overwrite(&f, cx));
+    assert_eq!(f.lines(cx), ["xyzcd"]);
+}
+
+#[gpui::test]
+fn the_status_bar_shows_the_mode(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "ab");
+    f.view
+        .read_with(cx, |v, cx| assert!(!v.status(cx).overwrite));
+    cx.simulate_keystrokes("insert");
+    f.view.read_with(cx, |v, cx| {
+        assert!(v.status(cx).overwrite);
+        assert!(crate::status::status_text(&v.status(cx)).contains("上書"));
+    });
+}
+
+#[gpui::test]
+fn the_mode_belongs_to_the_document(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "ab");
+    let second = f.document.clone();
+    let view2 = cx.update(|_, cx| cx.new(|cx| EditorView::new(second, cx)));
+    cx.simulate_keystrokes("insert");
+    view2.read_with(cx, |v, cx| assert!(v.status(cx).overwrite));
+}
+
+#[gpui::test]
+fn a_committed_ime_text_overwrites_in_overwrite_mode(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abcde");
+    cx.simulate_keystrokes("right insert");
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_and_mark_text_in_range(None, "にほん", Some(9..9), window, cx);
+        v.replace_text_in_range(None, "日本", window, cx);
+    });
+    // two chars committed replace two chars: b and c
+    assert_eq!(f.lines(cx), ["a日本de"]);
+    // one undo step brings back the text
+    cx.simulate_keystrokes("ctrl-z");
+    assert_eq!(f.lines(cx), ["abcde"]);
+}
+
+#[gpui::test]
+fn the_ime_inserts_in_insert_mode(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abcde");
+    cx.simulate_keystrokes("right");
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_and_mark_text_in_range(None, "にほん", Some(9..9), window, cx);
+        v.replace_text_in_range(None, "日本", window, cx);
+    });
+    assert_eq!(f.lines(cx), ["a日本bcde"]);
+}
+
+#[gpui::test]
+fn a_composition_over_a_selection_overwrites_nothing_more(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abcde");
+    cx.simulate_keystrokes("right shift-right shift-right insert");
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_and_mark_text_in_range(None, "に", Some(3..3), window, cx);
+        v.replace_text_in_range(None, "日", window, cx);
+    });
+    assert_eq!(f.lines(cx), ["a日de"]);
+}
+
+#[gpui::test]
+fn another_view_of_the_document_repaints_when_the_mode_changes(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "ab");
+    let second = f.document.clone();
+    let view2 = cx.update(|_, cx| cx.new(|cx| EditorView::new(second, cx)));
+    let notified = std::rc::Rc::new(std::cell::Cell::new(0));
+    let counter = notified.clone();
+    cx.update(|_, cx| {
+        cx.observe(&view2, move |_, _| counter.set(counter.get() + 1))
+            .detach();
+    });
+    cx.simulate_keystrokes("insert");
+    cx.run_until_parked();
+    assert!(notified.get() > 0);
+    view2.read_with(cx, |v, cx| assert!(v.status(cx).overwrite));
+}
+
+#[gpui::test]
+fn an_unmarked_composition_overwrites_like_a_commit(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abcde");
+    cx.simulate_keystrokes("right insert");
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_and_mark_text_in_range(None, "に", Some(3..3), window, cx);
+        v.unmark_text(window, cx);
+    });
+    assert_eq!(f.lines(cx), ["aにcde"]);
+    // the composition and its overwrite are one undo step
+    cx.simulate_keystrokes("ctrl-z");
+    assert_eq!(f.lines(cx), ["abcde"]);
+}
+
+#[gpui::test]
+fn a_click_during_a_composition_overwrites_in_overwrite_mode(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abcde");
+    cx.simulate_keystrokes("right insert");
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_and_mark_text_in_range(None, "に", Some(3..3), window, cx);
+        v.interrupt_composition(cx);
+    });
+    assert_eq!(f.lines(cx), ["aにcde"]);
+}
+
+#[gpui::test]
+fn an_unmarked_composition_over_a_selection_overwrites_nothing_more(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abcde");
+    cx.simulate_keystrokes("right shift-right shift-right insert");
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_and_mark_text_in_range(None, "に", Some(3..3), window, cx);
+        v.unmark_text(window, cx);
+    });
+    assert_eq!(f.lines(cx), ["aにde"]);
+}
+
+#[gpui::test]
+fn an_unmarked_composition_inserts_in_insert_mode(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abcde");
+    cx.simulate_keystrokes("right");
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_and_mark_text_in_range(None, "に", Some(3..3), window, cx);
+        v.unmark_text(window, cx);
+    });
+    assert_eq!(f.lines(cx), ["aにbcde"]);
+}
+
+#[gpui::test]
+fn an_edit_in_another_view_ends_an_overwrite_composition_without_deleting(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abcde");
+    let second = f.document.clone();
+    let view2 = cx.update(|_, cx| cx.new(|cx| EditorView::new(second, cx)));
+    cx.simulate_keystrokes("right insert");
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_and_mark_text_in_range(None, "X", Some(1..1), window, cx);
+    });
+    view2.update(cx, |v, cx| {
+        v.run_command("input_char", &[ume_commands::command::Arg::Char('Z')], cx)
+    });
+    cx.run_until_parked();
+    // view 2 typed Z over the first char; the composition of view 1 is kept and nothing more is
+    // deleted (b stays)
+    assert_eq!(f.lines(cx), ["ZXbcde"]);
+}
+
+#[gpui::test]
+fn a_committed_line_break_is_not_overwritten_text(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abcdef");
+    cx.simulate_keystrokes("insert");
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_text_in_range(None, "X\nY", window, cx);
+    });
+    // as typed char by char: X over a, the line break inserted, Y over b
+    assert_eq!(f.lines(cx), ["X", "Ycdef"]);
+}

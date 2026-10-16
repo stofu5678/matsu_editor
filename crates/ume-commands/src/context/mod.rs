@@ -92,6 +92,9 @@ pub struct Changes {
     pub selection_changed: bool,
     /// The command could not do what was asked in this state (Sakura: `ErrorBeep()`).
     pub beep: bool,
+    /// Whether typing overwrites after the command (Sakura: not `IsInsMode`). `ume-ui` keeps the
+    /// mode in the document and writes this back after every command.
+    pub overwrite: bool,
 }
 
 impl Changes {
@@ -112,6 +115,9 @@ pub struct CommandContext<'a> {
     /// The cursor when the context was made, to tell what moved.
     start: Cursor,
     changes: Changes,
+    /// Typing overwrites the char at the caret instead of inserting before it. See
+    /// [`set_overwrite`](Self::set_overwrite).
+    overwrite: bool,
 }
 
 impl<'a> CommandContext<'a> {
@@ -130,6 +136,7 @@ impl<'a> CommandContext<'a> {
             clipboard: None,
             start,
             changes: Changes::default(),
+            overwrite: false,
         }
     }
 
@@ -141,15 +148,29 @@ impl<'a> CommandContext<'a> {
         self
     }
 
+    /// Sets the typing mode before the command runs (the default is insert mode). Not part of
+    /// [`new`](Self::new) so that its callers need no change.
+    #[must_use]
+    pub fn with_overwrite(mut self, overwrite: bool) -> Self {
+        self.overwrite = overwrite;
+        self
+    }
+
     /// Ends the context and returns what changed.
     pub fn finish(mut self) -> Changes {
         self.changes.caret_moved = self.cursor.caret() != self.start.caret();
         self.changes.selection_changed =
             self.cursor.anchor() != self.start.anchor() || self.cursor.mode() != self.start.mode();
+        self.changes.overwrite = self.overwrite;
         self.changes
     }
 
     // ---- reading ----
+
+    /// Whether typing overwrites (Sakura: `!CEditView::IsInsMode`).
+    pub fn is_overwrite(&self) -> bool {
+        self.overwrite
+    }
 
     /// The document, to read by lines and ranges.
     pub fn doc(&self) -> &Document {
@@ -285,6 +306,42 @@ impl<'a> CommandContext<'a> {
         match self.selection() {
             Some((from, to)) => self.delete_range(from, to).map(|()| true),
             None => Ok(false),
+        }
+    }
+
+    /// Switches between insert and overwrite mode (Sakura: `SetInsMode`).
+    pub fn set_overwrite(&mut self, overwrite: bool) {
+        self.overwrite = overwrite;
+    }
+
+    /// The end of the text that typing `chars` chars at `at` overwrites in overwrite mode: the
+    /// next `chars` chars of the line, fewer at the end of the text of the line. A line ending is
+    /// never overwritten, and neither is the end of the document, so there the typed text is
+    /// inserted. Sakura: `CViewCommander::DelCharForOverwrite` in
+    /// `sakura_core/cmd/CViewCommander_Edit.cpp` with the defaults `m_bNotOverWriteCRLF` on and
+    /// `m_bOverWriteFixMode` off (`sakura_core/env/CShareData.cpp`).
+    pub fn overwrite_end(&self, at: Pos, chars: usize) -> Result<Pos> {
+        let Some(line) = self.doc().line(at.line)? else {
+            return Ok(at);
+        };
+        let rest = line.text.get(at.col..).unwrap_or("");
+        let len: usize = rest.chars().take(chars).map(char::len_utf8).sum();
+        Ok(Pos::new(at.line, at.col + len))
+    }
+
+    /// Types `text` at the caret as the typing mode says: insert mode inserts it, overwrite mode
+    /// replaces as many chars after the caret as `text` has (see
+    /// [`overwrite_end`](Self::overwrite_end)). A selection is replaced in both modes. The caret
+    /// ends after the text.
+    pub fn type_text(&mut self, text: &str) -> Result<Edit> {
+        if self.overwrite && self.selection().is_none() {
+            let at = self.caret();
+            let end = self.overwrite_end(at, text.chars().count())?;
+            let edit = self.replace(at, end, text)?;
+            self.cursor.move_to(edit.end, false);
+            Ok(edit)
+        } else {
+            self.insert_text(text)
         }
     }
 

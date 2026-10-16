@@ -20,6 +20,9 @@ use crate::hit::selected_columns;
 use crate::segments::{SegmentKind, row_segments};
 use crate::settings::Colors;
 
+/// The caret of overwrite mode: the caret color with some transparency.
+const CARET_BLOCK_ALPHA: u32 = 0x70;
+
 /// The mark for a tab: Sakura draws an arrow (`CFigure_Tab.cpp`, the default `TAB_ARROW`).
 const TAB_MARK: &str = "→";
 /// The mark for an ideographic space: a box (`CFigure_ZenSpace.cpp`).
@@ -68,8 +71,9 @@ struct RowPaint {
 
 pub(super) struct Prepaint {
     rows: Vec<RowPaint>,
-    /// The index in `rows` and the column of the caret.
-    caret: Option<(usize, u32)>,
+    /// The index in `rows`, the column and the width of the caret: `None` for the bar of insert
+    /// mode, the columns of the char under the caret for the block of overwrite mode.
+    caret: Option<(usize, u32, Option<u32>)>,
     colors: Colors,
     show_line_numbers: bool,
     cell: f32,
@@ -266,7 +270,14 @@ impl Element for EditorElement {
                 at.row
                     .checked_sub(first_row)
                     .filter(|i| *i < painted.len())
-                    .map(|i| (i, at.column))
+                    .map(|i| {
+                        let block = editor
+                            .document
+                            .read(cx)
+                            .overwrite()
+                            .then(|| overwrite_caret_cells(doc, layout, editor.cursor.caret()));
+                        (i, at.column, block)
+                    })
             });
 
         Prepaint {
@@ -431,13 +442,22 @@ impl Element for EditorElement {
                         ));
                     }
                 }
-                if let Some((i, col)) = p.caret
+                if let Some((i, col, block)) = p.caret
                     && focus_handle.is_focused(window)
                 {
                     let y = bounds.top() + px(p.y_offset) + lh * i as f32;
+                    // Sakura: a 2px bar in insert mode, a block as wide as the char in overwrite
+                    // mode (`CCaret::ShowEditCaret`). The block is see-through to show the char.
+                    let (width, color) = match block {
+                        None => (px(2.), rgb(p.colors.caret)),
+                        Some(cells) => (
+                            px(cells as f32 * p.cell),
+                            gpui::rgba((p.colors.caret << 8) | CARET_BLOCK_ALPHA),
+                        ),
+                    };
                     window.paint_quad(fill(
-                        Bounds::new(point(x_of(col), y), size(px(2.), lh)),
-                        rgb(p.colors.caret),
+                        Bounds::new(point(x_of(col), y), size(width, lh)),
+                        color,
                     ));
                 }
             },
@@ -498,6 +518,30 @@ impl Element for EditorElement {
     }
 }
 
+/// The width in columns of the caret in overwrite mode. Sakura (`CCaret::ShowEditCaret`) makes it
+/// as wide as the char under the caret, and one half-width column at the end of a line or the
+/// document and over a tab.
+fn overwrite_caret_cells(
+    doc: &ume_core::buffer::Document,
+    layout: &ume_layout::DocumentLayout,
+    caret: ume_core::buffer::Pos,
+) -> u32 {
+    let Some(c) = doc
+        .line(caret.line)
+        .ok()
+        .flatten()
+        .and_then(|l| l.text.get(caret.col..)?.chars().next())
+    else {
+        return 1;
+    };
+    if c == '\t' {
+        return 1;
+    }
+    // The width of the char itself, not the distance to the next position: at the end of a
+    // wrapped row the next position is on the next row.
+    layout.config().columns_of(c, 0).max(1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -510,5 +554,41 @@ mod tests {
         assert_eq!(eol_mark(Eol::Nel), "↙");
         assert_eq!(eol_mark(Eol::Ls), "↙");
         assert_eq!(eol_mark(Eol::Ps), "↙");
+    }
+
+    use ume_core::buffer::{Document, Pos};
+    use ume_layout::DocumentLayout;
+
+    fn cells(text: &str, at: Pos) -> u32 {
+        let doc = Document::from_utf8(text.as_bytes().to_vec()).unwrap();
+        let layout = DocumentLayout::laid_out(&doc, Default::default()).unwrap();
+        overwrite_caret_cells(&doc, &layout, at)
+    }
+
+    #[test]
+    fn the_block_is_as_wide_as_the_char_under_the_caret() {
+        // Sakura: CCaret::ShowEditCaret
+        assert_eq!(cells("abc", Pos::new(0, 1)), 1);
+        assert_eq!(cells("a日c", Pos::new(0, 1)), 2);
+        assert_eq!(cells("a😀c", Pos::new(0, 1)), 2);
+    }
+
+    #[test]
+    fn the_block_is_one_column_at_a_line_end_a_tab_and_the_end_of_the_document() {
+        assert_eq!(cells("ab\ncd", Pos::new(0, 2)), 1);
+        assert_eq!(cells("a\tb", Pos::new(0, 1)), 1);
+        assert_eq!(cells("ab", Pos::new(0, 2)), 1);
+        assert_eq!(cells("", Pos::new(0, 0)), 1);
+    }
+
+    #[test]
+    fn the_block_keeps_its_width_at_the_end_of_a_wrapped_row() {
+        let doc = Document::from_utf8("ab日c".as_bytes().to_vec()).unwrap();
+        let config = ume_layout::LayoutConfig {
+            wrap: ume_layout::Wrap::Columns(4),
+            ..Default::default()
+        };
+        let layout = DocumentLayout::laid_out(&doc, config).unwrap();
+        assert_eq!(overwrite_caret_cells(&doc, &layout, Pos::new(0, 2)), 2);
     }
 }

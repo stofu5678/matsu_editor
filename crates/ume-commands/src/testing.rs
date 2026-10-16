@@ -161,6 +161,7 @@ pub struct Editor {
     path: Option<PathBuf>,
     clipboard: MemoryClipboard,
     changes: Changes,
+    overwrite: bool,
 }
 
 impl Editor {
@@ -183,7 +184,20 @@ impl Editor {
             path: None,
             clipboard: MemoryClipboard::default(),
             changes: Changes::default(),
+            overwrite: false,
         }
+    }
+
+    /// Sets the typing mode: overwrite or insert (the default). Commands that switch the mode
+    /// change it for the next ones.
+    pub fn set_overwrite(&mut self, overwrite: bool) -> &mut Self {
+        self.overwrite = overwrite;
+        self
+    }
+
+    /// Whether the editor is in overwrite mode.
+    pub fn overwrite(&self) -> bool {
+        self.overwrite
     }
 
     /// Sets the line ending that Enter inserts.
@@ -233,9 +247,11 @@ impl Editor {
             &mut self.layout,
             self.path.as_deref(),
         )
-        .with_clipboard(&mut self.clipboard);
+        .with_clipboard(&mut self.clipboard)
+        .with_overwrite(self.overwrite);
         let result = Registry::global().run(id, &mut cx, args);
         self.changes = cx.finish();
+        self.overwrite = self.changes.overwrite;
         result
     }
 

@@ -59,6 +59,35 @@ impl EditorView {
             .unwrap_or((self.cursor.caret(), self.cursor.caret()))
     }
 
+    /// In overwrite mode, a composition that stays in the document without a commit (an unmark,
+    /// or an interruption) overwrites the chars after it, as a commit does. Not when it started
+    /// over a selection. Runs inside the composition's undo block.
+    fn finish_overwrite(&mut self, cx: &mut Context<Self>) {
+        let Some(m) = self.marked.clone() else { return };
+        if !self.composing || self.composing_over_selection {
+            return;
+        }
+        let chars = self
+            .document
+            .read(cx)
+            .doc()
+            .line(m.line)
+            .ok()
+            .flatten()
+            .and_then(|l| l.text.get(m.range.clone()).map(|t| t.chars().count()))
+            .unwrap_or(0);
+        self.run_with(cx, |command_cx| {
+            if !command_cx.is_overwrite() {
+                return;
+            }
+            let end = Pos::new(m.line, m.range.end);
+            if let Ok(to) = command_cx.overwrite_end(end, chars) {
+                // the caret stays where the IME put it
+                command_cx.replace(end, to, "").ok();
+            }
+        });
+    }
+
     /// Ends the composition's undo block.
     fn end_composition(&mut self, cx: &mut Context<Self>) {
         if self.composing {
@@ -71,6 +100,14 @@ impl EditorView {
     /// an edit in another view): its text stays in the document, and its undo block closes, so
     /// that later edits are not undone with it.
     pub(super) fn interrupt_composition(&mut self, cx: &mut Context<Self>) {
+        self.finish_overwrite(cx);
+        self.marked = None;
+        self.end_composition(cx);
+    }
+
+    /// Ends a composition after another view changed the document: its range is stale, so no
+    /// overwrite is finished (unlike [`interrupt_composition`](Self::interrupt_composition)).
+    pub(super) fn drop_composition(&mut self, cx: &mut Context<Self>) {
         self.marked = None;
         self.end_composition(cx);
     }
@@ -143,6 +180,7 @@ impl EntityInputHandler for EditorView {
     }
 
     fn unmark_text(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        self.finish_overwrite(cx);
         self.marked = None;
         self.end_composition(cx);
         cx.notify();
@@ -156,6 +194,7 @@ impl EntityInputHandler for EditorView {
         cx: &mut Context<Self>,
     ) {
         let was_composing = self.composing;
+        let over_selection = was_composing && self.composing_over_selection;
         let mut chars = text.chars();
         if let (false, None, Some(c), None) =
             (was_composing, &range_utf16, chars.next(), chars.next())
@@ -171,6 +210,23 @@ impl EntityInputHandler for EditorView {
             if !was_composing {
                 command_cx.begin_block();
             }
+            // Overwrite mode: the committed text replaces as many chars after it as it has, as
+            // Sakura does char by char (`WM_IME_CHAR` runs `F_IME_CHAR` there, and
+            // `Command_IME_CHAR` calls `DelCharForOverwrite` only when nothing is selected), so a
+            // composition that started over a selection overwrites nothing more.
+            let to = if command_cx.is_overwrite()
+                && ((was_composing && !over_selection) || from == to)
+            {
+                command_cx
+                    // a line break is inserted, not overwritten (Enter in `Command_WCHAR`)
+                    .overwrite_end(
+                        to,
+                        text.chars().filter(|c| !matches!(c, '\r' | '\n')).count(),
+                    )
+                    .unwrap_or(to)
+            } else {
+                to
+            };
             if let Ok(edit) = command_cx.replace(from, to, text) {
                 command_cx.move_caret(edit.end, false).ok();
             }
@@ -190,6 +246,9 @@ impl EntityInputHandler for EditorView {
         // Text being composed has no line break.
         let text = text.replace(['\r', '\n'], "");
         let opened = !self.composing;
+        if opened {
+            self.composing_over_selection = from != to;
+        }
         self.composing = true;
         let edit = self.run_with(cx, |command_cx| {
             if opened {

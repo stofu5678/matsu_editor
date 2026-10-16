@@ -132,6 +132,8 @@ pub struct EditorView {
     pub(crate) marked: Option<Marked>,
     /// An undo block for the composition is open (it closes when the text is committed).
     pub(crate) composing: bool,
+    /// The composition replaced a selection when it started: its commit overwrites nothing more.
+    pub(crate) composing_over_selection: bool,
     pub(crate) drag: Drag,
     pub(crate) notice: Option<String>,
     /// The settings of the file and the temporary changes (`view/settings.rs`).
@@ -152,6 +154,9 @@ impl EditorView {
         let subscription = cx.subscribe(&document, |this, _, event, cx| match *event {
             DocumentEvent::Changed { version } => this.document_changed(version, cx),
         });
+        // The typing mode changes only notify the document (no `Changed` event, no new layout):
+        // repaint for the caret and the status bar.
+        cx.observe(&document, |_, _, cx| cx.notify()).detach();
         Self {
             document,
             layout,
@@ -168,6 +173,7 @@ impl EditorView {
             widest_cols: 0,
             marked: None,
             composing: false,
+            composing_over_selection: false,
             drag: Drag::None,
             notice: None,
             prefs: ViewPrefs::new(Default::default()),
@@ -221,13 +227,17 @@ impl EditorView {
         let layout = &mut self.layout;
         let cursor = &mut self.cursor;
         let (result, changes) = document.update(cx, |shared, cx| {
+            let overwrite = shared.overwrite();
             let (model, path) = shared.parts_mut();
             let mut adapter = RowLayout(layout);
             let mut clipboard = crate::clipboard::GpuiClipboard(cx);
             let mut command_cx = CommandContext::new(model, cursor, &mut adapter, path)
-                .with_clipboard(&mut clipboard);
+                .with_clipboard(&mut clipboard)
+                .with_overwrite(overwrite);
             let result = f(&mut command_cx);
-            (result, command_cx.finish())
+            let changes = command_cx.finish();
+            shared.set_overwrite(changes.overwrite, cx);
+            (result, changes)
         });
         self.after_command(&changes, cx);
         result
@@ -327,7 +337,7 @@ impl EditorView {
         let _ = self.layout.layout_for(doc, LAYOUT_BUDGET);
         let _ = self.cursor.clamp(doc);
         self.layout_version = version;
-        self.interrupt_composition(cx);
+        self.drop_composition(cx);
         self.clamp_scroll();
         cx.notify();
     }
@@ -393,6 +403,7 @@ impl EditorView {
             column: self.caret_row(cx).column + 1,
             lines: shared.doc().line_count().max(1),
             modified: shared.model().is_modified(),
+            overwrite: shared.overwrite(),
             notice: self.notice.clone(),
         }
     }

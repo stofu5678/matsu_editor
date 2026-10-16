@@ -29,6 +29,9 @@ pub struct SharedDocument {
     model: DocumentModel,
     path: Option<PathBuf>,
     version: u64,
+    /// Typing overwrites instead of inserting. Sakura keeps the mode per document
+    /// (`CDocEditor::m_bInsMode`) and starts in insert mode.
+    overwrite: bool,
 }
 
 impl EventEmitter<DocumentEvent> for SharedDocument {}
@@ -39,6 +42,7 @@ impl SharedDocument {
             model,
             path,
             version: 0,
+            overwrite: false,
         }
     }
 
@@ -70,6 +74,19 @@ impl SharedDocument {
             .as_deref()
             .and_then(Path::file_name)
             .map(|n| n.to_string_lossy().into_owned())
+    }
+
+    /// Whether typing overwrites (overwrite mode) instead of inserting.
+    pub fn overwrite(&self) -> bool {
+        self.overwrite
+    }
+
+    /// Sets the typing mode. The views repaint (the caret and the status bar show it).
+    pub fn set_overwrite(&mut self, overwrite: bool, cx: &mut Context<Self>) {
+        if self.overwrite != overwrite {
+            self.overwrite = overwrite;
+            cx.notify();
+        }
     }
 
     /// Counts the changes of the text. A view compares it with the version its layout matches.
