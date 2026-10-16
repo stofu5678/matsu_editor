@@ -12,13 +12,14 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use gpui::{Context, PathPromptOptions, PromptLevel, Window};
+use gpui::{Context, PromptLevel, Window};
 use ume_plugin::Value;
 use ume_plugin::functions;
 use ume_plugin::functions::window::{self, Deferred, Icon, Pending};
 use ume_plugin::host::{HostEnv, ViewInfo};
 
 use super::{EditorView, dialog_error};
+use crate::file_dialog::{self, Answer, Ask};
 
 /// The caption of the message boxes (Sakura shows "sakura macro").
 const CAPTION: &str = "UME Editor マクロ";
@@ -127,44 +128,34 @@ impl EditorView {
                     Ok(Value::from(buttons.result(answer.await.ok())))
                 });
             }
-            Deferred::FileOpen { .. } => {
-                let answer = cx.prompt_for_paths(PathPromptOptions {
-                    files: true,
-                    directories: false,
-                    multiple: false,
-                    prompt: Some("開く".into()),
-                });
+            Deferred::FileOpen { default, .. } => {
+                // The folder of the default name if it names one, else that of the document.
+                let (folder, name) = self.dialog_default(&default, cx);
+                let ask = Ask::open(false)
+                    .start(folder)
+                    .name(name)
+                    .titled("ファイルを開く", "開く");
+                let answer = file_dialog::ask(window, cx, ask);
                 self.wait_for(serial, pending, window, cx, path_answer(answer));
             }
-            Deferred::Folder { message, .. } => {
-                let answer = cx.prompt_for_paths(PathPromptOptions {
-                    files: false,
-                    directories: true,
-                    multiple: false,
-                    prompt: (!message.is_empty()).then(|| message.into()),
-                });
+            Deferred::Folder { message, default } => {
+                let start = Some(PathBuf::from(&default))
+                    .filter(|dir| !default.is_empty() && dir.is_dir())
+                    .or_else(|| self.dialog_start(cx));
+                let ask = Ask::folder().start(start);
+                let ask = if message.is_empty() {
+                    ask
+                } else {
+                    ask.titled(message.clone(), message)
+                };
+                let answer = file_dialog::ask(window, cx, ask);
                 self.wait_for(serial, pending, window, cx, path_answer(answer));
             }
             Deferred::FileSave { default, .. } => {
-                // The folder of the default name if it names one, else that of the document.
-                let given = Path::new(&default);
-                let dir = given
-                    .parent()
-                    .filter(|p| !p.as_os_str().is_empty() && p.is_dir())
-                    .map(Path::to_path_buf)
-                    .unwrap_or_else(|| self.dialog_directory(cx));
-                let name = given
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .filter(|n| !n.is_empty());
-                let answer = cx.prompt_for_new_path(&dir, name.as_deref());
-                self.wait_for(serial, pending, window, cx, async move {
-                    match answer.await {
-                        Ok(Ok(Some(path))) => Ok(path_value(&path)),
-                        Ok(Err(error)) => Err(dialog_error(&error)),
-                        _ => Ok(Value::from("")),
-                    }
-                });
+                let (folder, name) = self.dialog_default(&default, cx);
+                let ask = Ask::save().start(folder).name(name);
+                let answer = file_dialog::ask(window, cx, ask);
+                self.wait_for(serial, pending, window, cx, path_answer(answer));
             }
             Deferred::Sleep { millis } => {
                 let timer = cx
@@ -233,15 +224,13 @@ impl EditorView {
 }
 
 /// The answer of a dialog that chooses one path: the path, or an empty string for a cancel.
-async fn path_answer<E: std::fmt::Display, C>(
-    answer: impl Future<Output = Result<Result<Option<Vec<PathBuf>>, E>, C>>,
-) -> Result<Value, String> {
+async fn path_answer(answer: impl Future<Output = Answer>) -> Result<Value, String> {
     match answer.await {
-        Ok(Ok(Some(mut paths))) => Ok(paths
+        Ok(Some(mut paths)) => Ok(paths
             .pop()
             .map_or_else(|| Value::from(""), |p| path_value(&p))),
-        Ok(Err(error)) => Err(dialog_error(&error)),
-        _ => Ok(Value::from("")),
+        Err(error) => Err(dialog_error(&error)),
+        Ok(None) => Ok(Value::from("")),
     }
 }
 

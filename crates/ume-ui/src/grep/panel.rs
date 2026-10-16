@@ -18,8 +18,7 @@ use std::path::Path;
 
 use gpui::{
     App, AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
-    KeyDownEvent, ParentElement, PathPromptOptions, Render, Styled, Subscription, WeakEntity,
-    Window, div, px, rgb,
+    KeyDownEvent, ParentElement, Render, Styled, Subscription, WeakEntity, Window, div, px, rgb,
 };
 use gpui_component::button::Button;
 use gpui_component::checkbox::Checkbox;
@@ -29,8 +28,9 @@ use ume_core::encoding::Encoding;
 
 use super::format::{LineType, OutputStyle};
 use super::keys::split_folders;
-use super::settings::{DialogError, GrepSettings, quote_folder};
+use super::settings::{DialogError, GrepSettings, browse_start, quote_folder};
 use super::window::{clipboard_replacement, remember, remembered};
+use crate::file_dialog::{self, Ask};
 use crate::view::EditorView;
 
 /// The encodings of the combo box, after 自動選択 (`CCodeTypesForCombobox`).
@@ -225,16 +225,16 @@ impl GrepPanel {
             .ok();
     }
 
-    /// 参照: chooses a folder.
+    /// 参照: chooses a folder. The dialog starts in the folder of the box, else in the current folder
+    /// (`IDC_BUTTON_FOLDER`).
     fn browse(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let receiver = cx.prompt_for_paths(PathPromptOptions {
-            files: false,
-            directories: true,
-            multiple: false,
-            prompt: None,
-        });
+        let start = browse_start(self.folder.read(cx).value().as_ref());
+        let ask = Ask::folder()
+            .start(start)
+            .titled("検索するフォルダーを選んでください", "選択");
+        let receiver = file_dialog::ask(window, cx, ask);
         cx.spawn_in(window, async move |this, cx| {
-            let chosen = receiver.await.ok().and_then(Result::ok).flatten();
+            let chosen = receiver.await.ok().flatten();
             if let Some(path) = chosen.and_then(|paths| paths.into_iter().next()) {
                 this.update_in(cx, |this, window, cx| {
                     this.set_folder(&quote_folder(&path.to_string_lossy()), window, cx);

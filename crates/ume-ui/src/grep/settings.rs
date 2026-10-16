@@ -457,12 +457,41 @@ pub fn quote_folder(folder: &str) -> String {
     }
 }
 
+/// Where the folder dialog of the Grep dialog starts: the last folder of the box if it exists,
+/// else the current folder (`IDC_BUTTON_FOLDER`: the text of the box, or `GetCurrentDirectory` when
+/// it is empty). Sakura passes the whole text of the box; with several folders the dialog could not
+/// use it, so the last one (the one 上 and 参照 work on) is taken.
+pub fn browse_start(box_text: &str) -> Option<std::path::PathBuf> {
+    split_folders(box_text)
+        .pop()
+        .map(std::path::PathBuf::from)
+        .filter(|folder| folder.is_dir())
+        .or_else(|| std::env::current_dir().ok())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn text(s: &str) -> Arg {
         Arg::Text(s.to_owned())
+    }
+
+    #[test]
+    fn the_folder_dialog_starts_in_the_last_folder_that_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a");
+        std::fs::create_dir(&a).unwrap();
+        let (dir_text, a_text) = (dir.path().to_string_lossy(), a.to_string_lossy());
+        assert_eq!(browse_start(&a_text), Some(a.clone()));
+        assert_eq!(
+            browse_start(&format!("\"{dir_text}\";\"{a_text}\"")),
+            Some(a.clone())
+        );
+        // no box text, or a folder that is not there: the current folder
+        let current = std::env::current_dir().ok();
+        assert_eq!(browse_start(""), current);
+        assert_eq!(browse_start(&format!("{dir_text}/none")), current);
     }
 
     #[test]

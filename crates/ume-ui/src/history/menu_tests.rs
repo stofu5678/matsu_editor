@@ -99,14 +99,53 @@ fn an_empty_history_leaves_the_disabled_placeholder() {
 }
 
 #[test]
-fn the_folders_stay_a_placeholder() {
-    // Choosing a folder would open the open dialog there; the dialog of the OS cannot start in a
-    // given folder.
-    let lists = RecentLists::new(Some(history_of(3, 3)));
+fn the_folders_are_listed_with_their_access_keys_and_stars() {
+    let mut h = History::new(3, 2, false);
+    for path in ["/a", "/b", "/c"] {
+        h.add_folder(path);
+    }
+    h.folders.set_favorite(0, true);
+    let lists = RecentLists::new(Some(h));
     let menus = main_menu_with(&KeyMap::default(), &Registered, &lists);
     let entries = submenu(&menus, "最近使ったフォルダー");
+    let shown: Vec<_> = entries
+        .iter()
+        .map(|e| match e {
+            Entry::Item(i) => (i.label.clone(), i.action.clone(), i.enabled),
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    // the view count (two folders), newest first
+    assert_eq!(
+        shown,
+        [
+            (
+                "1 ★ /c".to_owned(),
+                MenuAction::RecentFolder("/c".into()),
+                true
+            ),
+            (
+                "2 /b".to_owned(),
+                MenuAction::RecentFolder("/b".into()),
+                true
+            ),
+        ]
+    );
+}
+
+#[test]
+fn no_folders_is_a_disabled_placeholder() {
+    let lists = RecentLists::new(Some(history_of(3, 3)));
+    let menus = main_menu_with(&KeyMap::default(), &Registered, &lists);
+    // the files have folders, but the history here has none of its own
+    let entries = submenu(&menus, "最近使ったフォルダー");
+    assert!(
+        matches!(entries, [Entry::Item(i)] if i.action == MenuAction::RecentFolder("/d/".into()))
+    );
+    let empty = RecentLists::new(Some(History::new(3, 3, false)));
+    let menus = main_menu_with(&KeyMap::default(), &Registered, &empty);
     assert!(matches!(
-        entries,
-        [Entry::Item(i)] if i.action == MenuAction::Placeholder
+        submenu(&menus, "最近使ったフォルダー"),
+        [Entry::Item(i)] if i.action == MenuAction::Placeholder && !i.enabled
     ));
 }

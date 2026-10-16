@@ -188,7 +188,7 @@ pub(crate) async fn close_and_open(
     if !confirm_discard(view, cx).await {
         return false;
     }
-    let Some(mut paths) = choose_files(cx).await else {
+    let Some(mut paths) = choose_files(view, cx, None).await else {
         return false;
     };
     // The first file replaces this document; the others get new windows.

@@ -26,6 +26,7 @@ mod clipboard;
 mod diff;
 mod doc_types;
 pub mod document;
+mod file_dialog;
 mod file_ops;
 pub mod geometry;
 pub mod grep;

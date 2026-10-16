@@ -125,6 +125,20 @@ impl UserSettings {
         self.profile.as_ref()
     }
 
+    /// Where the file dialogs start (「ファイルダイアログの初期位置」, `eOpenDialogDir`).
+    pub fn dialog_dir(&self) -> ume_config::dialog_dir::DialogDirSetting {
+        self.profile
+            .as_ref()
+            .map(ume_config::dialog_dir::DialogDirSetting::from_profile)
+            .unwrap_or_default()
+    }
+
+    /// `[Macro]` `szMACROFOLDER`, the folder of the macros (マクロ用フォルダー), as written. `None`
+    /// when the file does not have it.
+    pub fn macro_folder(&self) -> Option<String> {
+        self.profile.as_ref()?.get_string("Macro", "szMACROFOLDER")
+    }
+
     /// The document types (タイプ別設定).
     pub fn document_types(&self) -> &DocumentTypes {
         &self.types

@@ -33,7 +33,7 @@ impl UiCommand for FileOpen {
         start(window, cx, async move |view, cx| {
             let paths = match path {
                 Some(path) => vec![path],
-                None => match choose_files(cx).await {
+                None => match choose_files(&view, cx, None).await {
                     Some(paths) => paths,
                     None => return,
                 },

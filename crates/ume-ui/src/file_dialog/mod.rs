@@ -1,0 +1,254 @@
+//! The file dialogs, opened where Sakura's open (「ファイルダイアログの初期位置」, `GetDlgInitialDir`).
+//!
+//! GPUI's open dialog cannot be told where to start, so the dialogs of the OS are used
+//! (`ume_platform::dialog`: `IFileOpenDialog`, `NSOpenPanel`, the file chooser portal) with a start
+//! folder. When the OS cannot show one (no portal on Linux) GPUI's dialog is the fallback, without
+//! a start folder; its save dialog takes one, so that keeps it.
+//!
+//! * [`start_folder`] chooses the folder: the pure rules are `ume_config::dialog_dir`.
+//! * [`ask`] shows a dialog and gives the paths chosen.
+
+use std::future::Future;
+use std::path::{Path, PathBuf};
+
+use gpui::{App, AsyncApp, PathPromptOptions, Window};
+use raw_window_handle::HasWindowHandle;
+use ume_config::dialog_dir::{DialogDirSetting, MetaSource, Surroundings};
+use ume_platform::dialog::{Kind, Owner, Request};
+
+use crate::settings::UserSettings;
+
+/// What a dialog gives: the paths chosen (`None` when the user cancels), or the text of the error.
+pub(crate) type Answer = Result<Option<Vec<PathBuf>>, String>;
+
+/// The dialog to show.
+#[derive(Clone, Debug)]
+pub(crate) struct Ask {
+    kind: Kind,
+    start: Option<PathBuf>,
+    name: Option<String>,
+    title: String,
+    /// The label of the button of GPUI's dialog (`PathPromptOptions::prompt`).
+    prompt: Option<String>,
+}
+
+impl Ask {
+    /// The open dialog: one file, or several.
+    pub(crate) fn open(multiple: bool) -> Self {
+        Self::new(Kind::OpenFile { multiple }, "ファイルを開く")
+    }
+
+    /// The dialog that chooses a folder.
+    pub(crate) fn folder() -> Self {
+        Self::new(Kind::Folder, "フォルダーの選択")
+    }
+
+    /// The dialog that chooses a name to save under.
+    pub(crate) fn save() -> Self {
+        Self::new(Kind::SaveFile, "名前を付けて保存")
+    }
+
+    fn new(kind: Kind, title: &str) -> Self {
+        Self {
+            kind,
+            start: None,
+            name: None,
+            title: title.to_owned(),
+            prompt: None,
+        }
+    }
+
+    /// The folder the dialog starts in. `None`: where the OS wants.
+    pub(crate) fn start(mut self, start: Option<PathBuf>) -> Self {
+        self.start = start;
+        self
+    }
+
+    /// The file name the dialog offers.
+    pub(crate) fn name(mut self, name: Option<String>) -> Self {
+        self.name = name;
+        self
+    }
+
+    /// The title of the dialog and the label of the button of GPUI's dialog.
+    pub(crate) fn titled(mut self, title: impl Into<String>, prompt: impl Into<String>) -> Self {
+        self.title = title.into();
+        self.prompt = Some(prompt.into());
+        self
+    }
+
+    fn request(&self) -> Request {
+        Request {
+            kind: self.kind,
+            start: self.start.clone().filter(|dir| dir.is_dir()),
+            name: self.name.clone(),
+            title: self.title.clone(),
+        }
+    }
+}
+
+/// Shows the dialog, modal to `window`, and answers when the user closes it. The returned future does
+/// not borrow anything: it can be awaited after the command has returned.
+pub(crate) fn ask(window: &Window, cx: &mut App, ask: Ask) -> impl Future<Output = Answer> + use<> {
+    let owner = HasWindowHandle::window_handle(window)
+        .ok()
+        .map(|handle| Owner::from_handle(handle.as_raw()))
+        .unwrap_or_default();
+    let app = cx.to_async();
+    async move {
+        let request = ask.request();
+        #[cfg(test)]
+        tests::record(&request);
+        // Whatever stopped the dialog of the OS (it does not exist here, or it failed), GPUI's
+        // dialog is still there.
+        match native(owner, request).await {
+            Ok(paths) => Ok(paths),
+            Err(_) => fallback(&app, &ask).await,
+        }
+    }
+}
+
+/// The dialog of the OS. The tests of the windows have no desktop to show it on.
+async fn native(
+    owner: Owner,
+    request: Request,
+) -> Result<Option<Vec<PathBuf>>, ume_platform::dialog::Error> {
+    #[cfg(test)]
+    {
+        let _ = owner;
+        Err(ume_platform::dialog::Error::Unavailable(format!(
+            "no desktop in the tests ({:?})",
+            request.kind
+        )))
+    }
+    #[cfg(not(test))]
+    {
+        ume_platform::dialog::show(owner, request).await
+    }
+}
+
+/// GPUI's dialog: no start folder for the open dialogs.
+async fn fallback(app: &AsyncApp, ask: &Ask) -> Answer {
+    match ask.kind {
+        Kind::SaveFile => {
+            let directory = ask
+                .start
+                .clone()
+                .filter(|dir| dir.is_dir())
+                .or_else(|| std::env::current_dir().ok())
+                .unwrap_or_default();
+            let receiver = app.update(|cx| cx.prompt_for_new_path(&directory, ask.name.as_deref()));
+            match receiver.await {
+                Ok(Ok(path)) => Ok(path.map(|path| vec![path])),
+                Ok(Err(error)) => Err(error.to_string()),
+                Err(_) => Ok(None),
+            }
+        }
+        Kind::OpenFile { .. } | Kind::Folder => {
+            let options = PathPromptOptions {
+                files: matches!(ask.kind, Kind::OpenFile { .. }),
+                directories: ask.kind == Kind::Folder,
+                multiple: matches!(ask.kind, Kind::OpenFile { multiple: true }),
+                prompt: ask.prompt.clone().map(Into::into),
+            };
+            let receiver = app.update(|cx| cx.prompt_for_paths(options));
+            match receiver.await {
+                Ok(Ok(paths)) => Ok(paths.filter(|paths| !paths.is_empty())),
+                Ok(Err(error)) => Err(error.to_string()),
+                Err(_) => Ok(None),
+            }
+        }
+    }
+}
+
+/// Where the meta folders of the settings (`%MYDOC%` ...) come from on this machine.
+struct Meta {
+    settings_dir: Option<PathBuf>,
+}
+
+impl Meta {
+    fn new(cx: &App) -> Self {
+        Self {
+            settings_dir: settings_dir(cx),
+        }
+    }
+}
+
+impl MetaSource for Meta {
+    fn program_dir(&self) -> Option<String> {
+        program_dir().map(|dir| dir.to_string_lossy().into_owned())
+    }
+
+    fn settings_dir(&self) -> Option<String> {
+        self.settings_dir
+            .as_ref()
+            .map(|dir| dir.to_string_lossy().into_owned())
+    }
+
+    fn shell_folder(&self, name: &str) -> Option<String> {
+        ume_platform::folders::known_folder(name).map(|dir| dir.to_string_lossy().into_owned())
+    }
+
+    fn env_var(&self, name: &str) -> Option<String> {
+        std::env::var(name).ok()
+    }
+}
+
+/// The folder of the program (`GetExedir`).
+fn program_dir() -> Option<PathBuf> {
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(Path::to_owned))
+}
+
+/// The folder of the settings file (`GetInidir`).
+fn settings_dir(cx: &App) -> Option<PathBuf> {
+    cx.try_global::<UserSettings>()?
+        .path()?
+        .parent()
+        .map(Path::to_owned)
+}
+
+/// The folder the dialogs start in (`CSakuraEnvironment::GetDlgInitialDir`): the folder of the
+/// file of the document `document`, else what 「ファイルダイアログの初期位置」 says. `None` when the
+/// dialog is to start where the OS wants.
+pub(crate) fn start_folder(cx: &App, document: Option<&Path>) -> Option<PathBuf> {
+    let setting: DialogDirSetting = cx
+        .try_global::<UserSettings>()
+        .map(UserSettings::dialog_dir)
+        .unwrap_or_default();
+    // the folders the menu shows (`CMRUFolder::GetPathList`)
+    let recent: Vec<String> = crate::history::current(cx)
+        .map(|history| {
+            history
+                .folder_paths()
+                .into_iter()
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    let meta = Meta::new(cx);
+    setting.initial_dir(&Surroundings {
+        document,
+        recent_folders: &recent,
+        current_dir: std::env::current_dir().ok(),
+        meta: &meta,
+        is_dir: &|path| path.is_dir(),
+    })
+}
+
+/// The folder the macro dialogs start in (マクロ用フォルダー).
+pub(crate) fn macro_folder(cx: &App) -> Option<PathBuf> {
+    let setting = cx
+        .try_global::<UserSettings>()
+        .and_then(UserSettings::macro_folder);
+    ume_config::dialog_dir::macro_folder(
+        setting.as_deref(),
+        settings_dir(cx).as_deref(),
+        program_dir().as_deref(),
+        &|path| path.is_dir(),
+    )
+}
+
+#[cfg(test)]
+pub(crate) mod tests;

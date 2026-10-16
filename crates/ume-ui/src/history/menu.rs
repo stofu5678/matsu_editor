@@ -5,11 +5,12 @@
 //! (`sakura_core/env/CFileNameManager.cpp`): the access key `1` to `9`, `A` to `Z`, `0`, a star
 //! for a favorite, the path, and the encoding in brackets unless it is Shift_JIS.
 //!
-//! The recent folders are not in the menu: choosing a folder opens the open dialog in it
-//! (`SelectOpenFileFromFolder`, `sakura_core/_main/CControlTray.cpp`), and the dialog of the OS
-//! that GPUI shows cannot be told where to start.
+//! The recent folders (`CMRUFolder::CreateMenu`, `sakura_core/recent/CMRUFolder.cpp`) are listed the
+//! same way. Choosing a folder shows the open dialog in it (`IDM_SELOPENFOLDER`,
+//! `CEditWnd::OnCommand` in `sakura_core/window/CEditWnd.cpp`): [`OpenRecentFolder`] runs
+//! [`EditorView::open_recent_folder`].
 
-use ume_config::history::{FileEntry, History};
+use ume_config::history::{FileEntry, FolderEntry, History};
 use ume_core::encoding::Encoding;
 
 use crate::menu::{Item, Lists, MenuAction};
@@ -17,6 +18,9 @@ use crate::window_ops::list::access_key;
 
 /// `F_FILE_USED_RECENTLY`, the row of the File menu that stands for the recent files.
 pub(crate) const F_FILE_USED_RECENTLY: u16 = 29002;
+
+/// `F_FOLDER_USED_RECENTLY`, the row that stands for the recent folders.
+pub(crate) const F_FOLDER_USED_RECENTLY: u16 = 29003;
 
 /// The text of a recent file in the menu (`GetMenuFullLabel` with a path). Sakura puts `&` before
 /// the access key and doubles `&` in the path; a GPUI menu has no mnemonics, so neither is done.
@@ -31,6 +35,16 @@ pub(crate) fn label(index: usize, entry: &FileEntry) -> String {
         if entry.favorite { "★ " } else { "" },
         entry.path,
         charset
+    )
+}
+
+/// The text of a recent folder in the menu (`GetMenuFullLabel` with a folder: no encoding).
+pub(crate) fn folder_label(index: usize, entry: &FolderEntry) -> String {
+    format!(
+        "{} {}{}",
+        access_key(index),
+        if entry.favorite { "★ " } else { "" },
+        entry.path
     )
 }
 
@@ -50,20 +64,32 @@ impl Lists for RecentLists {
         let Some(history) = &self.history else {
             return Vec::new();
         };
-        if code != F_FILE_USED_RECENTLY {
-            return Vec::new();
+        match code {
+            F_FILE_USED_RECENTLY => history
+                .files
+                .visible()
+                .iter()
+                .enumerate()
+                .map(|(i, entry)| Item {
+                    label: label(i, entry),
+                    action: MenuAction::RecentFile(entry.path.clone()),
+                    shortcut: None,
+                    enabled: true,
+                })
+                .collect(),
+            F_FOLDER_USED_RECENTLY => history
+                .folders
+                .visible()
+                .iter()
+                .enumerate()
+                .map(|(i, entry)| Item {
+                    label: folder_label(i, entry),
+                    action: MenuAction::RecentFolder(entry.path.clone()),
+                    shortcut: None,
+                    enabled: true,
+                })
+                .collect(),
+            _ => Vec::new(),
         }
-        history
-            .files
-            .visible()
-            .iter()
-            .enumerate()
-            .map(|(i, entry)| Item {
-                label: label(i, entry),
-                action: MenuAction::RecentFile(entry.path.clone()),
-                shortcut: None,
-                enabled: true,
-            })
-            .collect()
     }
 }

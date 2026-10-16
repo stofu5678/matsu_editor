@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use gpui::{
     App, AppContext as _, ClickEvent, Context, Entity, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, KeyDownEvent, ParentElement, PathPromptOptions, Render,
+    IntoElement, KeyDownEvent, ParentElement, Render,
     StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window, div, px, rgb,
 };
 use gpui_component::button::Button;
@@ -25,6 +25,7 @@ use ume_core::diff::DiffOptions;
 use super::{
     Candidate, DocRef, Owner, Remembered, Target, best_candidate, candidates, remember, remembered,
 };
+use crate::file_dialog::{self, Ask};
 use crate::file_ops::ask::document_title;
 use crate::search::SearchOptions;
 use crate::view::EditorView;
@@ -146,16 +147,24 @@ impl DiffPanel {
             .ok();
     }
 
-    /// 参照: chooses the file.
+    /// 参照: chooses the file. The dialog starts in the folder of the file of this window
+    /// (`IDC_BUTTON_DIFF_DST` starts in `m_szFile1`).
     fn browse(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let receiver = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: None,
-        });
+        let start = self
+            .editor
+            .read_with(cx, |editor, cx| {
+                editor
+                    .document()
+                    .read(cx)
+                    .path()
+                    .and_then(Path::parent)
+                    .map(Path::to_owned)
+            })
+            .ok()
+            .flatten();
+        let receiver = file_dialog::ask(window, cx, Ask::open(false).start(start));
         cx.spawn_in(window, async move |this, cx| {
-            let chosen = receiver.await.ok().and_then(Result::ok).flatten();
+            let chosen = receiver.await.ok().flatten();
             if let Some(path) = chosen.and_then(|paths| paths.into_iter().next()) {
                 this.update_in(cx, |this, window, cx| {
                     this.set_file(&path.to_string_lossy(), window, cx);
