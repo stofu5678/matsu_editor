@@ -148,6 +148,8 @@ pub struct EditorView {
     pub(crate) panel: Option<Entity<SearchPanel>>,
     /// Key macro recording and the macro that runs (`crate::macros`).
     pub(crate) macros: MacroState,
+    /// The Save As options dialog that covers the view, while one is open.
+    pub(crate) save_as_dialog: Option<Entity<crate::file_ops::save_as_dialog::SaveAsDialog>>,
     font_family: SharedString,
     font_size: f32,
     _subscription: Subscription,
@@ -189,6 +191,7 @@ impl EditorView {
             search: SearchState::default(),
             panel: None,
             macros: MacroState::default(),
+            save_as_dialog: None,
             font_family: FONT_FAMILY.into(),
             font_size: crate::settings::ViewSettings::default().font_px(),
             _subscription: subscription,
@@ -555,11 +558,13 @@ impl Render for EditorView {
             .on_drop(cx.listener(Self::on_external_drop))
             .child(EditorElement::new(cx.entity()));
         // The panel is a sibling, so that keys typed in its inputs do not reach the editor's.
+        // The Save As options cover the view (and take the keys) while they are open.
         div()
             .size_full()
             .relative()
             .child(editor)
             .children(self.panel.clone())
+            .children(self.save_as_dialog.clone())
             .into_any_element()
     }
 }

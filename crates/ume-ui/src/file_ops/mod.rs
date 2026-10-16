@@ -10,6 +10,7 @@
 //!   new windows, reopening with an encoding.
 //! * [`save`]: the save flow: the path, the questions Sakura asks before writing (mixed line
 //!   endings, characters the encoding cannot write), and the write.
+//! * [`save_as_dialog`]: the encoding, BOM and line ending asked after the path of a Save As.
 //! * [`close`]: asking to save before closing, closing a file, a window, or all windows.
 //! * [`windows`]: making editor windows, and finding the windows that are open.
 //! * [`ask`]: the prompts and the texts of the questions and the errors.
@@ -20,6 +21,7 @@ pub(crate) mod ask;
 pub(crate) mod close;
 pub(crate) mod load;
 pub(crate) mod save;
+pub(crate) mod save_as_dialog;
 mod view_ext;
 pub(crate) mod windows;
 

@@ -94,6 +94,9 @@ fn saving_a_new_document_writes_the_line_ending_of_the_os(cx: &mut TestAppContex
     let target = path.clone();
     cx.simulate_new_path_selection(move |_| Some(target));
     cx.run_until_parked();
+    // The Save As options come after the path (#54); Enter keeps what they propose.
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
     assert_eq!(
         std::fs::read(&path).unwrap(),
         format!("a{0}b", os_eol_text()).into_bytes()
