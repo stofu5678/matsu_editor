@@ -17,6 +17,9 @@
 mod element;
 mod input;
 mod mouse;
+mod settings;
+#[cfg(test)]
+mod settings_tests;
 
 use std::ops::Range;
 
@@ -42,6 +45,7 @@ use crate::status::StatusInfo;
 use crate::ui_command::{UiRegistration, UiRegistry};
 
 use element::EditorElement;
+pub(crate) use settings::ViewPrefs;
 
 actions!(
     ume,
@@ -60,8 +64,6 @@ actions!(
 pub const FONT_FAMILY: &str = "BIZ UDGothic";
 #[cfg(not(any(windows, target_os = "macos")))]
 pub const FONT_FAMILY: &str = "Noto Sans Mono CJK JP";
-
-const FONT_SIZE: f32 = 14.0;
 
 /// `F_INDENT_TAB`, the function of the Tab key (`sakura_core/func/CKeyBind.cpp`).
 const F_INDENT_TAB: u16 = 30260;
@@ -118,6 +120,8 @@ pub struct EditorView {
     pub(crate) composing: bool,
     pub(crate) drag: Drag,
     pub(crate) notice: Option<String>,
+    /// The settings of the file and the temporary changes (`view/settings.rs`).
+    pub(crate) prefs: ViewPrefs,
     font_family: SharedString,
     font_size: f32,
     _subscription: Subscription,
@@ -148,8 +152,9 @@ impl EditorView {
             composing: false,
             drag: Drag::None,
             notice: None,
+            prefs: ViewPrefs::new(Default::default()),
             font_family: FONT_FAMILY.into(),
-            font_size: FONT_SIZE,
+            font_size: crate::settings::ViewSettings::default().font_px(),
             _subscription: subscription,
         }
     }
@@ -438,7 +443,9 @@ impl Focusable for EditorView {
 
 impl Render for EditorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.follow_window_width(cx);
         self.advance_layout(window, cx);
+        self.settle_caret(cx);
         div()
             .id("editor")
             .size_full()

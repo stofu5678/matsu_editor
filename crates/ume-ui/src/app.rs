@@ -46,6 +46,7 @@ pub fn run(path: Option<PathBuf>) -> Result<(), StartError> {
         })?,
         None => SharedDocument::empty(),
     };
+    let user = crate::settings::UserSettings::load();
     let app = application();
     #[cfg(target_os = "linux")]
     let app = app.with_assets(gpui_kit_assets::Assets);
@@ -72,6 +73,12 @@ pub fn run(path: Option<PathBuf>) -> Result<(), StartError> {
         cx.open_window(options, move |window, cx| {
             let document = cx.new(|_| shared);
             let workspace = cx.new(|cx| Workspace::new(document, window, cx));
+            // ume.ini: the font, the layout, the colors and the key bindings.
+            workspace.update(cx, |workspace, cx| {
+                workspace
+                    .editor
+                    .update(cx, |editor, cx| editor.apply_user_settings(&user, cx));
+            });
             cx.new(|cx| Root::new(workspace, window, cx))
         })
         .expect("failed to open the window");
@@ -132,6 +139,7 @@ impl Render for Workspace {
         let editor = self.editor.read(cx);
         window.set_window_title(&editor.title(cx));
         let status = status_text(&editor.status(cx));
+        let show_status_bar = editor.status_bar_shown();
         let ui_font = gpui_component::Theme::global(cx).font_family.clone();
         // A Wayland compositor without server-side decorations, such as WSLg's, leaves the title
         // bar and its buttons to the app.
@@ -157,15 +165,17 @@ impl Render for Workspace {
                 )
             })
             .child(div().flex_1().overflow_hidden().child(self.editor.clone()))
-            .child(
-                div()
-                    .px_2()
-                    .py_0p5()
-                    .text_size(px(12.))
-                    .bg(rgb(0xe8e8e8))
-                    .text_color(rgb(0x333333))
-                    .child(status),
-            )
+            .when(show_status_bar, |this| {
+                this.child(
+                    div()
+                        .px_2()
+                        .py_0p5()
+                        .text_size(px(12.))
+                        .bg(rgb(0xe8e8e8))
+                        .text_color(rgb(0x333333))
+                        .child(status),
+                )
+            })
     }
 }
 

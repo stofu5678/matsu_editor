@@ -5,3 +5,4 @@
 //! alphabetical order), and write its tests. Nothing else lists them.
 
 pub mod cursor;
+pub mod settings;

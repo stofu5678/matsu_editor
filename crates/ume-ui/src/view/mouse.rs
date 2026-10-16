@@ -143,9 +143,12 @@ impl EditorView {
     pub(crate) fn on_scroll(
         &mut self,
         event: &ScrollWheelEvent,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.run_wheel_function(event, window, cx) {
+            return;
+        }
         let delta = event.delta.pixel_delta(gpui::px(self.metrics.line_height));
         self.scroll_by(f32::from(delta.x), f32::from(delta.y));
         cx.notify();
