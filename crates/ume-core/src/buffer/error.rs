@@ -7,9 +7,9 @@ pub type Result<T> = std::result::Result<T, BufferError>;
 
 #[derive(Debug)]
 pub enum BufferError {
-    /// The source is larger than the limit (ADR-0012).
+    /// The source is larger than the limit the caller gave, or than the address space.
     SourceTooLarge { len: u64, max: u64 },
-    /// The text does not fit in the add buffer (offsets are 32 bits).
+    /// The text added to the document does not fit in the address space.
     TooLarge,
     /// Reading the source failed.
     Io(io::Error),
@@ -37,6 +37,12 @@ impl std::error::Error for BufferError {
             Self::Io(e) => Some(e),
             _ => None,
         }
+    }
+}
+
+impl From<std::collections::TryReserveError> for BufferError {
+    fn from(e: std::collections::TryReserveError) -> Self {
+        Self::Io(io::Error::new(io::ErrorKind::OutOfMemory, e))
     }
 }
 

@@ -11,9 +11,6 @@ use super::storage::{LineIndex, MemorySource, Original, Source, Storages};
 use super::tree::{self, Store, Tree};
 use crate::encoding::Encoding;
 
-/// The default limit for the size of a source: 2 GiB (ADR-0012).
-pub const DEFAULT_MAX_SOURCE_LEN: u64 = 2 * 1024 * 1024 * 1024;
-
 /// One line: its text without the line ending, and the line ending, if it has one.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Line {
@@ -88,21 +85,22 @@ impl Document {
         )
     }
 
-    /// A document over `source`, read through `codec`. Refuses a source over
-    /// [`DEFAULT_MAX_SOURCE_LEN`].
+    /// A document over `source`, read through `codec`. There is no size limit, as in 64-bit
+    /// Sakura (ADR-0012); memory is the bound. On a target whose `usize` is 32 bits, a source over
+    /// 4 GiB is refused ([`BufferError::SourceTooLarge`]).
     pub fn new(source: impl Source + 'static, codec: Arc<dyn Codec>) -> Result<Self> {
-        Self::with_limit(source, codec, DEFAULT_MAX_SOURCE_LEN)
+        Self::with_limit(source, codec, u64::MAX)
     }
 
-    /// Like [`Document::new`] with a limit of your choice. The line index uses 32-bit offsets, so
-    /// sources over 4 GiB are refused whatever the limit is.
+    /// Like [`Document::new`], but refuses a source longer than `max` bytes. For callers and
+    /// tests that want a limit; the address space is a limit too (see [`Document::new`]).
     pub fn with_limit(
         source: impl Source + 'static,
         codec: Arc<dyn Codec>,
         max: u64,
     ) -> Result<Self> {
         let len = source.len();
-        let max = max.min(u64::from(u32::MAX));
+        let max = max.min(usize::MAX as u64);
         if len > max {
             return Err(BufferError::SourceTooLarge { len, max });
         }
@@ -126,7 +124,7 @@ impl Document {
         }
         let bytes = source.read(0, len)?;
         let mut index = LineIndex::default();
-        index.scan(&*codec, &bytes, 0);
+        index.scan(&*codec, &bytes, 0)?;
         index.shrink_to_fit();
         drop(bytes);
         let mut doc = Self::build(source, codec, index);
@@ -135,6 +133,23 @@ impl Document {
             doc.root = Some(tree::join(None, piece, None));
         }
         Ok(doc)
+    }
+
+    /// A document over `source` with a line index the caller made, without reading the source.
+    /// For tests with sources too big to read (offsets above 4 GiB).
+    #[cfg(test)]
+    pub(super) fn with_prebuilt_index(
+        source: impl Source + 'static,
+        codec: Arc<dyn Codec>,
+        index: LineIndex,
+    ) -> Self {
+        let len = source.len();
+        let mut doc = Self::build(source, codec, index);
+        if len > 0 {
+            let piece = doc.st.piece(Store::Original, 0, len as usize);
+            doc.root = Some(tree::join(None, piece, None));
+        }
+        doc
     }
 
     fn build(source: impl Source + 'static, codec: Arc<dyn Codec>, index: LineIndex) -> Self {

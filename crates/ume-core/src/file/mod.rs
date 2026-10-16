@@ -7,9 +7,12 @@
 //!
 //! # What Sakura does, and where we differ
 //!
-//! * **Size limit.** `CFileLoad::FileOpen` refuses a file that is too big (`CFileLoad::IsLoadableSize`,
-//!   `sakura_core/io/CFileLoad.cpp`). ADR-0012 sets the limit at 2 GiB; the size is checked before the
-//!   file is read ([`FileError::TooLarge`]).
+//! * **Size limit.** 64-bit Sakura has none (`CFileLoad::GetLimitSize` returns `ULLONG_MAX` on
+//!   `_WIN64`, `CFileLoad::IsLoadableSize`, `sakura_core/io/CFileLoad.cpp`), and neither do we
+//!   (ADR-0012): memory is the bound, and a file that does not fit fails with an I/O error
+//!   (`OutOfMemory`). A caller may set [`OpenOptions::max_len`]; the size is then checked before
+//!   the file is read ([`FileError::TooLarge`]). Where `usize` is 32 bits, a file over 4 GiB is
+//!   refused with `TooLarge`.
 //! * **Encoding.** The caller may force an encoding ("文字コード指定" of the open dialog), else it is
 //!   detected ([`crate::encoding::detect`], `CCodeMediator::CheckKanjiCodeOfFile`,
 //!   `sakura_core/env/CReadManager.cpp`).
@@ -48,7 +51,7 @@ use std::sync::Arc;
 pub use error::{FileError, Result};
 pub use save::{MAX_REPORTED, Preserve, SaveOptions, SaveReport, UnmappableChar, UnmappableReport};
 
-use crate::buffer::{DEFAULT_MAX_SOURCE_LEN, Document, EncodingCodec, Eol};
+use crate::buffer::{Document, EncodingCodec, Eol};
 use crate::encoding::{DetectOptions, Detection, Encoding, detect};
 use source::FileBytes;
 
@@ -74,8 +77,9 @@ pub struct OpenOptions {
     /// The line ending for new lines when the file has none and has the default encoding
     /// (`m_eDefaultEoltype`; Sakura's default is CR LF, here the line ending of the OS).
     pub default_eol: Eol,
-    /// Refuse files larger than this (ADR-0012: 2 GiB). Never more than 4 GiB - 1.
-    pub max_len: u64,
+    /// Refuse files larger than this many bytes. `None` (the default) means no limit, as in
+    /// 64-bit Sakura (ADR-0012).
+    pub max_len: Option<u64>,
 }
 
 impl Default for OpenOptions {
@@ -84,7 +88,7 @@ impl Default for OpenOptions {
             encoding: None,
             detect: DetectOptions::default(),
             default_eol: Eol::platform_default(),
-            max_len: DEFAULT_MAX_SOURCE_LEN,
+            max_len: None,
         }
     }
 }
@@ -146,7 +150,7 @@ pub fn open_file_with(
     progress: Progress<'_>,
 ) -> Result<TextFile> {
     let path = path.as_ref();
-    let max = options.max_len.min(u64::from(u32::MAX));
+    let max = options.max_len.unwrap_or(u64::MAX).min(usize::MAX as u64);
     // Look before opening: opening a pipe can block for ever.
     if !fs::metadata(path)?.is_file() {
         return Err(not_regular());
@@ -182,7 +186,7 @@ pub fn open_file_with(
         None
     };
     let source = FileBytes::new(Arc::new(bytes), bom_len);
-    let document = Document::with_limit(source, Arc::new(EncodingCodec(encoding)), max)?;
+    let document = Document::new(source, Arc::new(EncodingCodec(encoding)))?;
 
     // `CDocEditor::OnAfterLoad`: the first line's ending, else the default.
     let fallback = if encoding == options.detect.default_encoding {
@@ -212,7 +216,11 @@ pub fn open_file_with(
 
 /// Reads `len` bytes in chunks. A file that grows while it is read is refused when it passes `max`.
 fn read_all(file: &mut File, len: u64, max: u64, progress: Progress<'_>) -> Result<Vec<u8>> {
-    let mut bytes = Vec::with_capacity(len as usize);
+    // `len` is within `max`, so it fits `usize`. A file bigger than memory is an error, not an abort.
+    let mut bytes = Vec::new();
+    bytes
+        .try_reserve_exact(len as usize)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::OutOfMemory, e))?;
     let mut chunk = vec![0u8; READ_CHUNK.min(len.max(1) as usize)];
     loop {
         let n = match file.read(&mut chunk) {
@@ -221,6 +229,9 @@ fn read_all(file: &mut File, len: u64, max: u64, progress: Progress<'_>) -> Resu
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(e) => return Err(e.into()),
         };
+        bytes
+            .try_reserve(n)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::OutOfMemory, e))?;
         bytes.extend_from_slice(&chunk[..n]);
         if bytes.len() as u64 > max {
             return Err(FileError::TooLarge {

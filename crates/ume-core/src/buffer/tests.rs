@@ -5,6 +5,7 @@ use std::io;
 use std::sync::Arc;
 use std::time::Instant;
 
+use super::storage::LineIndex;
 use super::*;
 use crate::encoding::Encoding;
 
@@ -619,7 +620,101 @@ fn a_source_over_the_limit_is_refused() {
     ));
     assert!(err.to_string().contains("too large"));
     assert!(Document::with_limit(MemorySource::new(vec![b'a'; 5]), Arc::new(UTF8), 5).is_ok());
-    assert_eq!(DEFAULT_MAX_SOURCE_LEN, 2_147_483_648);
+}
+
+// ---- offsets above 4 GiB ----
+
+#[cfg(target_pointer_width = "64")]
+const GIB: u64 = 1 << 30;
+/// A "unit" of the synthetic source below: 8 bytes of text and an LF.
+#[cfg(target_pointer_width = "64")]
+const UNIT: u64 = 9;
+
+/// A source of 10 GiB that makes its bytes on demand, so no test allocates gigabytes. Outside the
+/// dense regions it is one run of `x` without line endings, so the line index has few entries.
+/// In a dense region, unit `n` is `<n mod 10>xxxxxxx\n`.
+#[cfg(target_pointer_width = "64")]
+#[derive(Debug)]
+struct HugeSource {
+    /// `(start, number of units)`.
+    regions: Vec<(u64, u64)>,
+}
+
+#[cfg(target_pointer_width = "64")]
+impl HugeSource {
+    fn byte(&self, pos: u64) -> u8 {
+        for &(start, units) in &self.regions {
+            if (start..start + units * UNIT).contains(&pos) {
+                let (n, k) = ((pos - start) / UNIT, (pos - start) % UNIT);
+                return match k {
+                    0 => b'0' + (n % 10) as u8,
+                    8 => b'\n',
+                    _ => b'x',
+                };
+            }
+        }
+        b'x'
+    }
+}
+
+#[cfg(target_pointer_width = "64")]
+impl Source for HugeSource {
+    fn len(&self) -> u64 {
+        10 * GIB
+    }
+
+    fn read(&self, start: u64, end: u64) -> io::Result<Cow<'_, [u8]>> {
+        assert!(end - start < 1 << 20, "a test read a huge range");
+        Ok(Cow::Owned((start..end).map(|p| self.byte(p)).collect()))
+    }
+}
+
+/// A document over [`HugeSource`]. Region 0 has units 0..100 and the 4 GiB mark falls on the start
+/// of unit 25; region 1 has units 0..100 and the 8 GiB mark falls inside unit 0. Line `i` for
+/// `1 <= i <= 99` is unit `i` of region 0, and line `100 + m` for `1 <= m <= 99` is unit `m` of
+/// region 1. Lines 0, 100 and 200 are the long runs and are never read.
+#[cfg(target_pointer_width = "64")]
+fn huge_doc() -> Document {
+    let source = HugeSource {
+        regions: vec![(4 * GIB - 25 * UNIT, 100), (8 * GIB - 7, 100)],
+    };
+    let mut index = LineIndex::default();
+    for &(start, units) in &source.regions {
+        let bytes = source.read(start, start + units * UNIT).unwrap();
+        index.scan(&UTF8, &bytes, start as usize).unwrap();
+    }
+    Document::with_prebuilt_index(source, Arc::new(UTF8), index)
+}
+
+#[cfg(target_pointer_width = "64")]
+fn unit_text(unit: usize) -> String {
+    format!("{}xxxxxxx", unit % 10)
+}
+
+#[cfg(target_pointer_width = "64")]
+#[test]
+fn lines_above_4_gib_are_found_and_edited() {
+    let mut d = huge_doc();
+    assert_eq!(d.line_count(), 201);
+    for i in [1, 24, 25, 26, 99, 101, 102, 150, 199] {
+        let line = d.line(i).unwrap().unwrap();
+        assert_eq!(line.text, unit_text(i % 100), "line {i}");
+        assert_eq!(line.eol, Some(Eol::Lf), "line {i}");
+    }
+    // Edit at the 4 GiB mark and read back.
+    d.insert(Pos::new(25, 3), "ABC\nDEF").unwrap();
+    assert_eq!(d.line(25).unwrap().unwrap().text, "5xxABC");
+    assert_eq!(d.line(26).unwrap().unwrap().text, "DEFxxxxx");
+    assert_eq!(d.line(27).unwrap().unwrap().text, unit_text(26));
+    assert_eq!(d.line_count(), 202);
+    d.delete(Pos::new(25, 3), Pos::new(26, 3)).unwrap();
+    assert_eq!(d.line(25).unwrap().unwrap().text, unit_text(25));
+    assert_eq!(d.line_count(), 201);
+    // Delete across the 8 GiB mark's region.
+    d.delete(Pos::new(150, 0), Pos::new(152, 0)).unwrap();
+    assert_eq!(d.line_count(), 199);
+    assert_eq!(d.line(150).unwrap().unwrap().text, unit_text(52));
+    d.check_invariants();
 }
 
 /// A source that can be read once as a whole (to build the index) and then fails.

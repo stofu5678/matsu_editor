@@ -1,6 +1,7 @@
 //! The two storages behind the pieces: the original bytes and the add buffer.
 
 use std::borrow::Cow;
+use std::collections::TryReserveError;
 use std::fmt;
 use std::io;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -85,39 +86,122 @@ fn bits_to_kind(bits: u8) -> Eol {
 
 /// The line endings of one storage, sorted by position. 5 bytes per line ending.
 ///
+/// Positions are 64-bit, but only the low 32 bits are stored per entry. The high 32 bits change
+/// rarely (once per 4 GiB), so `epochs` records where they change. A plain 64-bit array would
+/// cost 9 bytes per line ending instead of 5 (measured: 16.5 MB -> 29.7 MB for 100 MB of text).
+///
 /// A piece sees the line endings that overlap its byte range. A CRLF that crosses the edge of the
 /// range is seen as a lone LF (when it crosses the start) or a lone CR (when it crosses the end),
 /// so a piece never depends on what the neighbouring piece holds.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct LineIndex {
+    /// The low 32 bits of the start of each line ending.
     starts: Vec<u32>,
+    /// `(first entry, high 32 bits)` for each run of entries whose start has non-zero high bits,
+    /// sorted. Entries before the first item have high bits 0. Empty below 4 GiB.
+    epochs: Vec<(usize, u32)>,
     /// Low 3 bits: the kind. High 5 bits: the length in bytes.
     meta: Vec<u8>,
 }
 
 impl LineIndex {
-    fn push(&mut self, start: usize, len: usize, kind: Eol) {
+    /// Adds an entry. Fails, leaving the index as it was, when memory runs out: a huge file must
+    /// not abort the process (ADR-0012).
+    fn push(
+        &mut self,
+        start: usize,
+        len: usize,
+        kind: Eol,
+    ) -> std::result::Result<(), TryReserveError> {
         debug_assert!((1..32).contains(&len));
+        let high = (start as u64 >> 32) as u32;
+        self.starts.try_reserve(1)?;
+        self.meta.try_reserve(1)?;
+        if high != self.high_of_last() {
+            self.epochs.try_reserve(1)?;
+            self.epochs.push((self.starts.len(), high));
+        }
         self.starts.push(start as u32);
         self.meta
             .push(kind_to_bits(kind) | ((len as u8) << KIND_BITS));
+        Ok(())
+    }
+
+    /// Drops the entries from `n` on.
+    fn truncate(&mut self, n: usize) {
+        self.starts.truncate(n);
+        self.meta.truncate(n);
+        while self.epochs.last().is_some_and(|&(first, _)| first >= n) {
+            self.epochs.pop();
+        }
+    }
+
+    fn high_of_last(&self) -> u32 {
+        self.epochs.last().map_or(0, |&(_, high)| high)
     }
 
     pub fn shrink_to_fit(&mut self) {
         self.starts.shrink_to_fit();
+        self.epochs.shrink_to_fit();
         self.meta.shrink_to_fit();
     }
 
     pub fn heap_bytes(&self) -> usize {
-        self.starts.capacity() * 4 + self.meta.capacity()
+        self.starts.capacity() * 4
+            + self.meta.capacity()
+            + self.epochs.capacity() * std::mem::size_of::<(usize, u32)>()
     }
 
     pub fn len(&self) -> usize {
         self.starts.len()
     }
 
+    /// Removes entry `j`, which must be the one the add buffer just appended.
+    fn remove_entry(&mut self, j: usize) {
+        self.starts.remove(j);
+        self.meta.remove(j);
+        // Epoch starts at or after `j` move down by one; one that began exactly at `j` now begins
+        // at the entry that took its place (or is dropped when none did).
+        let n = self.starts.len();
+        for e in &mut self.epochs {
+            if e.0 > j {
+                e.0 -= 1;
+            }
+        }
+        while self.epochs.last().is_some_and(|&(first, _)| first >= n) {
+            self.epochs.pop();
+        }
+    }
+
     fn start(&self, j: usize) -> usize {
-        self.starts[j] as usize
+        let high = if self.epochs.is_empty() {
+            0
+        } else {
+            let k = self.epochs.partition_point(|&(first, _)| first <= j);
+            k.checked_sub(1).map_or(0, |k| self.epochs[k].1)
+        };
+        ((u64::from(high) << 32) | u64::from(self.starts[j])) as usize
+    }
+
+    /// The number of entries whose start is less than `pos`.
+    fn count_before(&self, pos: usize) -> usize {
+        if self.epochs.is_empty() {
+            // Fast path below 4 GiB: compare the stored 32-bit values.
+            let Ok(pos) = u32::try_from(pos) else {
+                return self.starts.len();
+            };
+            return self.starts.partition_point(|&x| x < pos);
+        }
+        let (mut lo, mut hi) = (0, self.starts.len());
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            if self.start(mid) < pos {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        lo
     }
 
     fn eol_len(&self, j: usize) -> usize {
@@ -128,8 +212,28 @@ impl LineIndex {
         bits_to_kind(self.meta[j] & ((1 << KIND_BITS) - 1))
     }
 
-    /// Scans `bytes` with `codec` in one pass. `base` is added to the offsets.
-    pub fn scan(&mut self, codec: &dyn Codec, bytes: &[u8], base: usize) {
+    /// Scans `bytes` with `codec` in one pass. `base` is added to the offsets. When memory runs
+    /// out, the entries of this call are dropped again and the error is returned.
+    pub fn scan(
+        &mut self,
+        codec: &dyn Codec,
+        bytes: &[u8],
+        base: usize,
+    ) -> std::result::Result<(), TryReserveError> {
+        let before = self.len();
+        let result = self.scan_inner(codec, bytes, base);
+        if result.is_err() {
+            self.truncate(before);
+        }
+        result
+    }
+
+    fn scan_inner(
+        &mut self,
+        codec: &dyn Codec,
+        bytes: &[u8],
+        base: usize,
+    ) -> std::result::Result<(), TryReserveError> {
         let mut from = 0;
         while let Some((off, kind)) = codec.find_eol(bytes, from) {
             let fallback = if kind == Eol::CrLf { 2 } else { 1 };
@@ -138,9 +242,10 @@ impl LineIndex {
             if off < from || len == 0 || len >= 32 || off + len > bytes.len() {
                 break;
             }
-            self.push(base + off, len, kind);
+            self.push(base + off, len, kind)?;
             from = off + len;
         }
+        Ok(())
     }
 
     /// The entries overlapping the byte range `s..e`, as an index range.
@@ -148,13 +253,13 @@ impl LineIndex {
         if s >= e {
             return (0, 0);
         }
-        let before = self.starts.partition_point(|&x| (x as usize) < s);
+        let before = self.count_before(s);
         let lo = if before > 0 && self.start(before - 1) + self.eol_len(before - 1) > s {
             before - 1
         } else {
             before
         };
-        let hi = self.starts.partition_point(|&x| (x as usize) < e);
+        let hi = self.count_before(e);
         (lo, hi.max(lo))
     }
 
@@ -228,13 +333,12 @@ pub(crate) struct AddBuf {
 impl AddBuf {
     fn append(&mut self, text: &str) -> Result<(usize, usize)> {
         let start = self.data.len();
-        let end = start + text.len();
-        if end > u32::MAX as usize {
-            return Err(BufferError::TooLarge);
-        }
+        // Only a length that does not fit the address space can fail here; memory runs out first.
+        let end = start.checked_add(text.len()).ok_or(BufferError::TooLarge)?;
         let before = self.index.len();
+        self.data.try_reserve(text.len())?;
+        self.index.scan(codec::utf8(), text.as_bytes(), start)?;
         self.data.extend_from_slice(text.as_bytes());
-        self.index.scan(codec::utf8(), text.as_bytes(), start);
         // A CR at the end of the old text and an LF at the start of the new text are one CRLF.
         if before > 0
             && self.index.len() > before
@@ -245,8 +349,7 @@ impl AddBuf {
         {
             let last = before - 1;
             self.index.meta[last] = kind_to_bits(Eol::CrLf) | (2 << KIND_BITS);
-            self.index.starts.remove(before);
-            self.index.meta.remove(before);
+            self.index.remove_entry(before);
         }
         Ok((start, end))
     }
@@ -414,12 +517,61 @@ mod tests {
     #[test]
     fn index_clips_a_crlf_at_piece_edges() {
         let mut idx = LineIndex::default();
-        idx.scan(codec::utf8(), b"ab\r\ncd", 0);
+        idx.scan(codec::utf8(), b"ab\r\ncd", 0).unwrap();
         let head = idx.agg(0, 3);
         assert_eq!((head.breaks, head.last_cr), (1, true));
         let tail = idx.agg(3, 6);
         assert_eq!((tail.breaks, tail.first_lf), (1, 1));
         let whole = idx.agg(0, 6);
         assert_eq!((whole.breaks, whole.first_lf, whole.last_cr), (1, 0, false));
+    }
+
+    #[cfg(target_pointer_width = "64")]
+    const GIB: u64 = 1 << 30;
+
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn the_line_index_addresses_more_than_4_gib() {
+        let mut idx = LineIndex::default();
+        let base = 5 * GIB as usize;
+        let far = 9 * GIB as usize;
+        idx.scan(codec::utf8(), b"ab\r\ncd\nef", base).unwrap();
+        idx.scan(codec::utf8(), b"\n", far).unwrap();
+        assert_eq!(idx.len(), 3);
+        assert_eq!(idx.agg(base, base + 10).breaks, 2);
+        // A CRLF cut by a piece edge is seen as a lone CR or a lone LF.
+        let head = idx.agg(base, base + 3);
+        assert_eq!((head.breaks, head.last_cr), (1, true));
+        let tail = idx.agg(base + 3, base + 10);
+        assert_eq!((tail.breaks, tail.first_lf), (2, 1));
+        assert_eq!(idx.agg(0, base).breaks, 0);
+        assert_eq!(idx.agg(0, 10 * GIB as usize).breaks, 3);
+        assert_eq!(idx.agg(base + 10, far).breaks, 0);
+        assert_eq!(idx.agg(far, far + 1).breaks, 1);
+        // Below 4 GiB the high words cost nothing.
+        let mut small = LineIndex::default();
+        small.scan(codec::utf8(), b"a\nb\n", 0).unwrap();
+        small.shrink_to_fit();
+        assert_eq!(small.heap_bytes(), small.len() * 5);
+    }
+
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn removing_an_index_entry_keeps_the_high_words_right() {
+        let mut idx = LineIndex::default();
+        let at = 4 * GIB as usize - 1;
+        idx.scan(codec::utf8(), b"\r", at).unwrap();
+        idx.scan(codec::utf8(), b"\n", at + 1).unwrap();
+        assert_eq!(idx.len(), 2);
+        idx.remove_entry(1);
+        assert_eq!(idx.len(), 1);
+        assert_eq!(idx.agg(at - 4, at + 4).breaks, 1);
+        // An entry that began a high word, followed by one that did not.
+        let mut idx = LineIndex::default();
+        idx.scan(codec::utf8(), b"\n\n\n", 4 * GIB as usize)
+            .unwrap();
+        idx.remove_entry(0);
+        assert_eq!(idx.len(), 2);
+        assert_eq!(idx.agg(4 * GIB as usize, 4 * GIB as usize + 3).breaks, 2);
     }
 }

@@ -297,7 +297,7 @@ fn a_file_over_the_limit_is_refused_without_being_read() {
     let dir = TempDir::new();
     let path = dir.write("a.txt", b"0123456789");
     let mut options = OpenOptions {
-        max_len: 5,
+        max_len: Some(5),
         ..OpenOptions::default()
     };
     let mut calls = 0;
@@ -313,23 +313,33 @@ fn a_file_over_the_limit_is_refused_without_being_read() {
     assert!(err.to_string().contains("too large"));
     assert_eq!(calls, 0, "nothing was read");
     // Exactly at the limit is fine.
-    options.max_len = 10;
+    options.max_len = Some(10);
     assert!(open_file(&path, &options).is_ok());
+}
+
+#[test]
+fn there_is_no_size_limit_by_default() {
+    // ADR-0012: no limit, as 64-bit Sakura.
+    assert_eq!(OpenOptions::default().max_len, None);
 }
 
 #[cfg(unix)]
 #[test]
-fn a_sparse_file_over_2_gib_is_refused() {
-    // `set_len` makes a sparse file on Unix file systems, so this does not write 2 GiB. If the
-    // size check did not come first, the open would try to read 2 GiB.
+fn a_sparse_file_over_an_explicit_limit_is_refused_without_being_read() {
+    // `set_len` makes a sparse file on Unix file systems, so this does not write 5 GiB. If the
+    // size check did not come first, the open would try to read 5 GiB.
     let dir = TempDir::new();
     let path = dir.path("big.txt");
     let file = fs::File::create(&path).unwrap();
-    file.set_len(2 * 1024 * 1024 * 1024 + 1).unwrap();
+    file.set_len(5 * 1024 * 1024 * 1024).unwrap();
     drop(file);
-    let err = open_file(&path, &OpenOptions::default()).unwrap_err();
+    let options = OpenOptions {
+        max_len: Some(4 * 1024 * 1024 * 1024),
+        ..OpenOptions::default()
+    };
+    let err = open_file(&path, &options).unwrap_err();
     assert!(
-        matches!(err, FileError::TooLarge { len, max } if len == 2_147_483_649 && max == 2_147_483_648),
+        matches!(err, FileError::TooLarge { len, max } if len == 5 << 30 && max == 4 << 30),
         "{err}"
     );
 }
