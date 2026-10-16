@@ -84,6 +84,22 @@ impl PaneSet {
         }
     }
 
+    /// A set without panes, left in a window whose tabs were all taken out for a move. The
+    /// window is closed at once and never draws it.
+    pub(crate) fn emptied() -> Self {
+        Self {
+            slots: Default::default(),
+            grid: Grid::ONE,
+            active: 0,
+            h: 0.0,
+            v: 0.0,
+            area: Rc::new(Cell::new(Bounds::default())),
+            dragging: None,
+            subscriptions: Default::default(),
+            scrolled: [(0.0, 0.0); 4],
+        }
+    }
+
     pub(crate) fn active(&self) -> &Entity<EditorView> {
         self.slots[self.active]
             .as_ref()
@@ -92,6 +108,26 @@ impl PaneSet {
 
     fn pane(&self, index: usize) -> Option<&Entity<EditorView>> {
         self.slots.get(index).and_then(Option::as_ref)
+    }
+
+    /// Whether `view` is one of the panes (shown or not).
+    pub(crate) fn contains(&self, view: &Entity<EditorView>) -> bool {
+        self.index_of(view).is_some()
+    }
+
+    /// Every pane that exists, with its number.
+    pub(crate) fn numbered(&self) -> Vec<(usize, Entity<EditorView>)> {
+        self.slots
+            .iter()
+            .enumerate()
+            .filter_map(|(i, s)| Some((i, s.clone()?)))
+            .collect()
+    }
+
+    /// Lets go of what the panes were listening to. The set moves to another window, which listens
+    /// again (`Workspace::adopt`).
+    pub(crate) fn forget_subscriptions(&mut self) {
+        self.subscriptions = Default::default();
     }
 
     /// The panes that are shown, in Sakura's order.
@@ -291,6 +327,19 @@ impl Workspace {
         self.panes.slots[index] = Some(pane);
     }
 
+    /// `adopt` for a pane that comes from another window or is new: it also learns its window.
+    pub(crate) fn adopt_into_window(
+        &mut self,
+        index: usize,
+        pane: Entity<EditorView>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let host = cx.weak_entity();
+        pane.update(cx, |view, _| view.split_host = Some(host));
+        self.adopt(index, pane, window, cx);
+    }
+
     /// The user went to another pane (a click, or a key that moves the focus).
     fn pane_got_focus(
         &mut self,
@@ -330,8 +379,26 @@ impl Workspace {
         else {
             return;
         };
+        self.move_window_state_between(&old, &new, true, window, cx);
+    }
+
+    /// The same between two views, such as the active panes of two tabs. A key macro belongs to
+    /// the tab where it was started (Sakura records in one edit window), so `with_macros` is off
+    /// for tabs.
+    pub(crate) fn move_window_state_between(
+        &mut self,
+        old: &Entity<EditorView>,
+        new: &Entity<EditorView>,
+        with_macros: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if old == new {
+            return;
+        }
         // A macro that runs belongs to the view that runs it.
-        let with_macros = !old.read(cx).is_macro_running() && !new.read(cx).is_macro_running();
+        let with_macros =
+            with_macros && !old.read(cx).is_macro_running() && !new.read(cx).is_macro_running();
         let state = old.update(cx, |view, _| view.take_window_state(with_macros));
         new.update(cx, |view, cx| {
             view.put_window_state(state);

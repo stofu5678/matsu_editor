@@ -21,16 +21,17 @@ use std::path::Path;
 use std::time::Duration;
 
 use gpui::{
-    AnyWindowHandle, App, AppContext as _, ClickEvent, Context, Entity, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, KeyDownEvent, MouseDownEvent, ParentElement, Render,
-    ScrollHandle, StatefulInteractiveElement, Styled, WeakEntity, Window, div, px, rgb, rgba,
+    AnyWindowHandle, App, AppContext as _, ClickEvent, Context, Entity, EntityId, FocusHandle,
+    Focusable, InteractiveElement, IntoElement, KeyDownEvent, MouseDownEvent, ParentElement,
+    Render, ScrollHandle, StatefulInteractiveElement, Styled, WeakEntity, Window, div, px, rgb,
+    rgba,
 };
 use ume_commands::sakura::FUNCTIONS;
 use ume_core::encoding::Encoding;
 
 use super::run_in_window;
 use crate::file_ops::ask::document_title;
-use crate::file_ops::windows::{activate, editors};
+use crate::file_ops::windows::{editors, workspace_of};
 use crate::view::EditorView;
 
 /// The access key of the window at `index` (0 origin): 1 to 9, A to Z, and again
@@ -87,6 +88,8 @@ struct Row {
 }
 
 fn rows(cx: &mut App, owner: AnyWindowHandle) -> Vec<Row> {
+    // The document the owner shows (its active tab) has the check mark.
+    let shown = workspace_of(cx, owner).map(|ws| ws.read(cx).editor().clone());
     editors(cx)
         .into_iter()
         .enumerate()
@@ -98,11 +101,12 @@ fn rows(cx: &mut App, owner: AnyWindowHandle) -> Vec<Row> {
                 shared.model().is_modified(),
                 shared.file().encoding,
             );
+            let current = handle == owner && shown.as_ref() == Some(&view);
             Row {
                 handle,
                 view,
                 label,
-                current: handle == owner,
+                current,
             }
         })
         .collect()
@@ -125,7 +129,7 @@ pub(crate) struct WindowList {
     owner: AnyWindowHandle,
     view: WeakEntity<EditorView>,
     selected: usize,
-    checked: HashSet<AnyWindowHandle>,
+    checked: HashSet<EntityId>,
     focus: FocusHandle,
     scroll: ScrollHandle,
 }
@@ -179,13 +183,19 @@ impl WindowList {
     }
 
     /// Brings the window to the front, and closes the list.
-    fn choose(&mut self, handle: AnyWindowHandle, window: &mut Window, cx: &mut Context<Self>) {
+    fn choose(
+        &mut self,
+        handle: AnyWindowHandle,
+        view: Entity<EditorView>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.close(window, cx);
         if handle == self.owner {
             window.activate_window();
-        } else {
-            activate(cx, handle);
         }
+        // The window and, in tab mode, the tab.
+        crate::tabs::flows::reveal(cx, handle, view);
     }
 
     fn move_selection(&mut self, delta: isize, count: usize) {
@@ -194,9 +204,9 @@ impl WindowList {
         }
     }
 
-    fn toggle(&mut self, handle: AnyWindowHandle) {
-        if !self.checked.remove(&handle) {
-            self.checked.insert(handle);
+    fn toggle(&mut self, id: EntityId) {
+        if !self.checked.remove(&id) {
+            self.checked.insert(id);
         }
     }
 
@@ -210,7 +220,7 @@ impl WindowList {
     ) {
         let checked: Vec<_> = rows(cx, self.owner)
             .into_iter()
-            .filter(|r| self.checked.contains(&r.handle))
+            .filter(|r| self.checked.contains(&r.view.entity_id()))
             .collect();
         let code = code_of(function);
         cx.spawn_in(window, async move |this, cx| {
@@ -219,7 +229,10 @@ impl WindowList {
             }
             this.update(cx, |this, cx| {
                 // The windows that are gone no longer count.
-                let open: HashSet<_> = rows(cx, this.owner).iter().map(|r| r.handle).collect();
+                let open: HashSet<_> = rows(cx, this.owner)
+                    .iter()
+                    .map(|r| r.view.entity_id())
+                    .collect();
                 this.checked.retain(|h| open.contains(h));
                 cx.notify();
             })
@@ -240,18 +253,18 @@ impl WindowList {
             "end" => self.selected = rows.len().saturating_sub(1),
             "enter" => {
                 if let Some(row) = rows.get(self.selected) {
-                    self.choose(row.handle, window, cx);
+                    self.choose(row.handle, row.view.clone(), window, cx);
                 }
             }
             "space" if self.dialog => {
                 if let Some(row) = rows.get(self.selected) {
-                    self.toggle(row.handle);
+                    self.toggle(row.view.entity_id());
                 }
             }
             _ if !self.dialog && !modifiers.control && !modifiers.alt && !modifiers.platform => {
                 // The access key of an item.
                 match index_of_key(key, rows.len()) {
-                    Some(i) => self.choose(rows[i].handle, window, cx),
+                    Some(i) => self.choose(rows[i].handle, rows[i].view.clone(), window, cx),
                     None => return,
                 }
             }
@@ -281,6 +294,8 @@ impl Render for WindowList {
             .enumerate()
             .map(|(i, row)| {
                 let handle = row.handle;
+                let view = row.view.clone();
+                let id = row.view.entity_id();
                 let mut item = div()
                     .id(("window", i))
                     .px_2()
@@ -293,7 +308,7 @@ impl Render for WindowList {
                     item = item.bg(rgb(SELECTED_BG)).text_color(rgb(0xffffff));
                 }
                 if self.dialog {
-                    let checked = self.checked.contains(&handle);
+                    let checked = self.checked.contains(&id);
                     item = item.child(
                         div()
                             .id(("checkbox", i))
@@ -308,7 +323,7 @@ impl Render for WindowList {
                             .justify_center()
                             .child(if checked { "✓" } else { "" })
                             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                this.toggle(handle);
+                                this.toggle(id);
                                 this.selected = i;
                                 cx.stop_propagation();
                                 cx.notify();
@@ -322,7 +337,7 @@ impl Render for WindowList {
                     move |this, event: &ClickEvent, window, cx| {
                         this.selected = i;
                         if !this.dialog || event.click_count() >= 2 {
-                            this.choose(handle, window, cx);
+                            this.choose(handle, view.clone(), window, cx);
                         }
                         cx.notify();
                     },

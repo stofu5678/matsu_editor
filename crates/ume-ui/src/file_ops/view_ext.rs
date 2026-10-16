@@ -68,14 +68,19 @@ impl EditorView {
         // only the layout, which `LayoutConfig::default()` above reset, is brought back.
         // The type the user chose (`F_CHANGETYPE`) lasts until a file is loaded (`SetDocumentType`
         // with `force`).
-        self.doc_type.locked = false;
+        // (`replace_with` above made a document that is not locked.)
         let name = self.document.read(cx).file_name();
         let wanted = crate::doc_types::with_user(cx, |user| {
             let index = user.type_index_for(name.as_deref());
-            (index != self.prefs.settings.type_index).then(|| user.view_settings_of_type(index))
+            (index != self.prefs.settings.type_index)
+                .then(|| (index, user.view_settings_of_type(index)))
         });
         match wanted {
-            Some(settings) => self.apply_settings(settings, cx),
+            Some((index, settings)) => {
+                self.apply_settings(settings, cx);
+                self.document
+                    .update(cx, |shared, cx| shared.announce_type(index, cx));
+            }
             None => {
                 self.relayout_in(cx);
             }

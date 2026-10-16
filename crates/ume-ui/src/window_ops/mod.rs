@@ -21,7 +21,6 @@ use ume_platform::window::arrange::{
 };
 use ume_platform::window::{self, Error, RawWindowHandle};
 
-use crate::file_ops::close::confirm_and_close_window;
 use crate::file_ops::windows::{activate, editors};
 use crate::view::EditorView;
 
@@ -315,9 +314,15 @@ pub(crate) fn window_after(
     Some(all[neighbor(all.len(), at, direction)])
 }
 
-/// All editor windows, oldest first.
+/// All editor windows, oldest first (a window with tabs once).
 pub(crate) fn all_handles(cx: &mut App) -> Vec<AnyWindowHandle> {
-    editors(cx).into_iter().map(|(handle, _)| handle).collect()
+    let mut handles = Vec::new();
+    for (handle, _) in editors(cx) {
+        if !handles.contains(&handle) {
+            handles.push(handle);
+        }
+    }
+    handles
 }
 
 /// `F_WIN_CLOSEALL` and `F_TAB_CLOSEOTHER`: asks about each window with unsaved changes and
@@ -325,26 +330,44 @@ pub(crate) fn all_handles(cx: &mut App) -> Vec<AnyWindowHandle> {
 /// (`CAppNodeGroupHandle::RequestCloseEditor` sends the close request to one window after the
 /// other and returns when one refuses). `keep` leaves the window alone (`F_TAB_CLOSEOTHER`).
 ///
-/// The window that runs the flow goes last: it would take the flow with it when it closes. When
+/// The document that runs the flow goes last: it would take the flow with it when it closes. When
 /// the last window is closed the program ends, as the editor processes of Sakura end.
-/// Returns whether every window was closed.
+/// Returns whether every document was closed.
+///
+/// The documents are those of the group of the window (`nGroup`): the tabs of the window in tab
+/// mode, else all the windows (`crate::tabs::flows::group_views`). `keep_current` leaves the
+/// document that runs the flow alone (`F_TAB_CLOSEOTHER`).
 pub(crate) async fn close_windows(
     cx: &mut AsyncWindowContext,
     current: AnyWindowHandle,
     keep_current: bool,
 ) -> bool {
-    let editors = cx.update(|_, app| editors(app)).unwrap_or_default();
-    let (mine, others): (Vec<_>, Vec<_>) = editors.into_iter().partition(|(h, _)| *h == current);
+    let group = cx
+        .update(|_, app| {
+            let mine = crate::file_ops::windows::workspace_of(app, current)
+                .map(|ws| ws.read(app).editor().clone());
+            (crate::tabs::flows::group_views(app, current), mine)
+        })
+        .unwrap_or_default();
+    let (editors, mine) = group;
+    let (mine, others): (Vec<_>, Vec<_>) = editors
+        .into_iter()
+        .partition(|(_, view)| Some(view) == mine.as_ref());
     let mut closing = others;
     if !keep_current {
         closing.extend(mine);
     }
-    for (handle, view) in closing {
-        let weak = view.downgrade();
-        let Ok(mut window_cx) = handle.update(cx, |_, window, app| window.to_async(app)) else {
-            continue;
-        };
-        if !confirm_and_close_window(&weak, &mut window_cx).await {
+    close_views(cx, closing).await
+}
+
+/// Asks about each of the documents with unsaved changes and closes it, one by one. A "cancel"
+/// stops it: the documents closed before stay closed.
+pub(crate) async fn close_views(
+    cx: &mut AsyncWindowContext,
+    views: Vec<(AnyWindowHandle, Entity<EditorView>)>,
+) -> bool {
+    for (handle, view) in views {
+        if !crate::tabs::bar::close_document(cx, handle, &view).await {
             return false;
         }
     }

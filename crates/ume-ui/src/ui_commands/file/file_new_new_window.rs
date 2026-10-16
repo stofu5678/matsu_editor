@@ -1,10 +1,11 @@
 //! `F_FILENEW_NEWWINDOW`: a new untitled document in a new window.
 //!
 //! Sakura: `Command_FILENEW_NEWWINDOW` (`sakura_core/cmd/CViewCommander_File.cpp`) differs from
-//! `F_FILENEW` only in what the window does with tabs, which we do not have.
+//! `F_FILENEW` in what it does with tabs: it passes `bNewWindow`, which gives the editor a group
+//! of its own (`CControlTray::OpenNewEditor`), so the document gets a new window even in tab mode.
 
 use crate::document::SharedDocument;
-use crate::file_ops::windows::open_editor_window;
+use crate::tabs::flows::open_document;
 use crate::ui_command::{UiCommand, register_ui_command};
 use crate::view::EditorView;
 use gpui::{Context, Window};
@@ -24,9 +25,10 @@ impl UiCommand for FileNewNewWindow {
         window: &mut Window,
         cx: &mut Context<EditorView>,
     ) -> Result {
-        let _ = (view, window);
-        open_editor_window(cx, SharedDocument::empty(), None).ok();
-        Ok(())
+        let from = window.window_handle();
+        view.defer_in_window(window, cx, move |window, app| {
+            open_document(app, Some(window), from, true, SharedDocument::empty(), None).ok();
+        })
     }
 }
 

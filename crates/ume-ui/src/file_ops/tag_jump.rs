@@ -6,7 +6,7 @@
 //! (`sakura_core/env/CTagJumpManager.cpp`). What the line names is found by
 //! [`ume_core::tag_jump`].
 //!
-//! Before a jump the window and the caret are pushed on a stack that all windows share (Sakura keeps
+//! Before a jump the document (its window and tab) and the caret are pushed on a stack that all windows share (Sakura keeps
 //! it in the shared memory, 100 entries; when it is full the oldest entry is dropped). The jump
 //! brings the window to the front if the file is open and moves its caret to the place, else opens
 //! the file in a new window with the encoding detected. Without a line number the caret stays.
@@ -18,13 +18,13 @@
 
 use std::time::Duration;
 
-use gpui::{AnyWindowHandle, AsyncWindowContext, Context, Global, WeakEntity};
+use gpui::{AsyncWindowContext, Context, Global, WeakEntity};
 use ume_core::buffer::{Pos, col_from_utf16};
 use ume_core::tag_jump::{TagTarget, find_target};
 
 use super::close::confirm_and_close_window;
 use super::load::load_here;
-use super::windows::{self, open_editor_window};
+use super::windows;
 use crate::document::SharedDocument;
 use crate::view::EditorView;
 
@@ -39,22 +39,22 @@ const CANNOT_JUMP_BACK: &str = "タグジャンプバックできません";
 /// Where the tag jumps came from, the newest last.
 #[derive(Default)]
 struct TagJumpStack {
-    entries: Vec<(AnyWindowHandle, Pos)>,
+    entries: Vec<(WeakEntity<EditorView>, Pos)>,
 }
 
 impl Global for TagJumpStack {}
 
 impl TagJumpStack {
     /// `CTagJumpManager::PushTagJump`: a full stack drops its oldest entry.
-    fn push(&mut self, window: AnyWindowHandle, pos: Pos) {
+    fn push(&mut self, view: WeakEntity<EditorView>, pos: Pos) {
         if self.entries.len() >= MAX_ENTRIES {
             self.entries.remove(0);
         }
-        self.entries.push((window, pos));
+        self.entries.push((view, pos));
     }
 
     /// `CTagJumpManager::PopTagJump`.
-    fn pop(&mut self) -> Option<(AnyWindowHandle, Pos)> {
+    fn pop(&mut self) -> Option<(WeakEntity<EditorView>, Pos)> {
         self.entries.pop()
     }
 }
@@ -64,8 +64,8 @@ pub(crate) fn push_current(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowCo
     let Ok(pos) = view.read_with(cx, |view, _| view.cursor().caret()) else {
         return;
     };
-    let handle = cx.window_handle();
-    cx.update(|_, app| app.default_global::<TagJumpStack>().push(handle, pos))
+    let view = view.clone();
+    cx.update(|_, app| app.default_global::<TagJumpStack>().push(view, pos))
         .ok();
 }
 
@@ -167,36 +167,30 @@ async fn jump_to(target: &TagTarget, cx: &mut AsyncWindowContext) -> bool {
     };
     if let Some((handle, editor)) = open {
         // The place is set before the window comes to the front, as in Sakura.
-        let own = cx.window_handle() == handle;
         let moved = cx.update(|_, app| {
             editor.update(app, |view, cx| view.go_to_tag(line, column, cx));
-            if !own {
-                windows::activate(app, handle);
-            }
+            // the tab of the file may not be the one that is shown
+            crate::tabs::flows::reveal(app, handle, editor.clone());
         });
         return moved.is_ok();
     }
-    let Ok(handle) = cx.update(|_, app| open_editor_window(app, SharedDocument::empty(), None))
-    else {
+    let own = cx.window_handle();
+    // A new tab of this window in tab mode, else a new window (`OpenNewEditor`).
+    let Ok(Ok((handle, editor))) = cx.update(|window, app| {
+        crate::tabs::flows::open_document(
+            app,
+            Some(window),
+            own,
+            false,
+            SharedDocument::empty(),
+            None,
+        )
+    }) else {
         return false;
     };
-    let Ok(handle) = handle else {
-        return false;
-    };
+    let editor = editor.downgrade();
     let path = target.path.clone();
     let Ok(mut window_cx) = handle.update(cx, |_, window, app| window.to_async(app)) else {
-        return false;
-    };
-    let editor = window_cx
-        .update(|_, app| {
-            windows::editors(app)
-                .into_iter()
-                .find(|(h, _)| *h == handle)
-                .map(|(_, view)| view.downgrade())
-        })
-        .ok()
-        .flatten();
-    let Some(editor) = editor else {
         return false;
     };
     // The file is read in the new window, which shows the progress and the errors.
@@ -210,7 +204,7 @@ async fn jump_to(target: &TagTarget, cx: &mut AsyncWindowContext) -> bool {
             })
             .unwrap_or(true);
         if !modified {
-            window_cx.update(|window, _| window.remove_window()).ok();
+            super::close::close_tab_or_window(&editor, &mut window_cx);
         }
         return false;
     }
@@ -225,15 +219,11 @@ pub(crate) fn tag_jump_back(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowC
         .update(|_, app| app.default_global::<TagJumpStack>().pop())
         .ok()
         .flatten();
-    // The window may be gone (`IsSakuraMainWindow`).
-    let target = entry.and_then(|(handle, pos)| {
-        let editor = cx
-            .update(|_, app| {
-                windows::editors(app)
-                    .into_iter()
-                    .find(|(h, _)| *h == handle)
-                    .map(|(_, view)| view)
-            })
+    // The window or the tab may be gone (`IsSakuraMainWindow`). The stack remembers the document,
+    // not the window: the tab may have moved to another window since.
+    let target = entry.and_then(|(view, pos)| {
+        let (handle, editor) = cx
+            .update(|_, app| windows::find_tab_of(app, &view))
             .ok()
             .flatten()?;
         Some((handle, pos, editor))
@@ -246,12 +236,9 @@ pub(crate) fn tag_jump_back(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowC
         .ok();
         return;
     };
-    let own = cx.window_handle() == handle;
     cx.update(|_, app| {
         editor.update(app, |view, cx| view.go_to(pos, cx));
-        if !own {
-            windows::activate(app, handle);
-        }
+        crate::tabs::flows::reveal(app, handle, editor.clone());
     })
     .ok();
 }

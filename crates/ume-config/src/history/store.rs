@@ -115,6 +115,23 @@ impl HistoryStore {
         })?;
         result.ok_or_else(|| io::Error::other("the change was not applied"))
     }
+
+    /// Changes other keys of the file (not the history) under the same lock, so that a window
+    /// writing a setting does not undo what another window wrote at the same moment. `change`
+    /// returns whether it changed anything; nothing is written if not.
+    pub fn update_profile(
+        &self,
+        change: impl FnOnce(&mut Profile) -> Result<bool, crate::profile::ProfileError>,
+    ) -> io::Result<()> {
+        let _lock = self.lock()?;
+        let mut profile = self.read_profile()?;
+        let changed = change(&mut profile)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+        if changed {
+            retry(|| profile.save(&self.path))?;
+        }
+        Ok(())
+    }
 }
 
 /// The lock file of a settings file. One lock covers the whole file, whichever section is written.

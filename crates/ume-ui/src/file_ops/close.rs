@@ -4,7 +4,7 @@
 //! document is modified; `CDocFileOperation::FileClose` and `FileCloseOpen`
 //! (`sakura_core/doc/CDocFileOperation.cpp`) do the closing.
 
-use gpui::{AsyncWindowContext, PromptLevel, WeakEntity};
+use gpui::{App, AsyncWindowContext, Entity, PromptLevel, WeakEntity, Window};
 
 use super::ask::{Answer, ask, document_title, save_before_close_message};
 use super::load::{choose_files, load_here, open_paths};
@@ -60,8 +60,14 @@ async fn ask_about_changes(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowCo
     if !modified {
         return true;
     }
-    // Sakura brings the window to the front first.
-    cx.update(|window, _| window.activate_window()).ok();
+    // Sakura brings the window to the front first; with tabs, the tab too.
+    if let Some(entity) = view.upgrade() {
+        cx.update(|window, app| {
+            show_in_window(&entity, window, app);
+            window.activate_window();
+        })
+        .ok();
+    }
     match ask(
         cx,
         PromptLevel::Warning,
@@ -77,7 +83,43 @@ async fn ask_about_changes(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowCo
     }
 }
 
-/// `F_WINCLOSE`: closes the window after the question. `false` if the user stopped it.
+/// Makes the tab of `view` the active one in its window.
+pub(crate) fn show_in_window(view: &Entity<EditorView>, window: &mut Window, app: &mut App) {
+    let host = view.read(app).split_host.as_ref().and_then(|h| h.upgrade());
+    if let Some(workspace) = host {
+        workspace.update(app, |workspace, cx| workspace.show_view(view, window, cx));
+    }
+}
+
+/// Closes the tab of `view` without a question, or the window when it is the only tab. The flow
+/// runs in the window of the view.
+pub(crate) fn close_tab_or_window(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+) -> bool {
+    let Some(view) = view.upgrade() else {
+        return false;
+    };
+    cx.update(|window, app| {
+        let host = view.read(app).split_host.as_ref().and_then(|h| h.upgrade());
+        if let Some(workspace) = host {
+            let (count, index) = {
+                let w = workspace.read(app);
+                (w.tab_count(), w.tab_of(&view))
+            };
+            if let (true, Some(index)) = (count > 1, index) {
+                workspace.update(app, |w, cx| w.close_tab_now(index, window, cx));
+                return;
+            }
+        }
+        window.remove_window();
+    })
+    .is_ok()
+}
+
+/// `F_WINCLOSE`: closes the document after the question: its tab, or the window when it has no
+/// other tab (`Command_WINCLOSE` closes the edit window, which is a tab of the group). `false`
+/// if the user stopped it.
 pub(crate) async fn confirm_and_close_window(
     view: &WeakEntity<EditorView>,
     cx: &mut AsyncWindowContext,
@@ -85,7 +127,7 @@ pub(crate) async fn confirm_and_close_window(
     if !confirm_discard(view, cx).await {
         return false;
     }
-    cx.update(|window, _| window.remove_window()).is_ok()
+    close_tab_or_window(view, cx)
 }
 
 /// `F_FILESAVECLOSE`: saves and closes the window. An unmodified document is only closed
@@ -106,7 +148,7 @@ pub(crate) async fn save_and_close_window(
         return false;
     }
     view.update(cx, |view, cx| view.record_history(cx)).ok();
-    cx.update(|window, _| window.remove_window()).is_ok()
+    close_tab_or_window(view, cx)
 }
 
 /// `F_FILECLOSE`: closes the file and leaves an untitled document in the window.
@@ -138,11 +180,11 @@ pub(crate) async fn close_and_open(
     let first = paths.remove(0);
     // A file that is open in a window is not opened again; that window comes to the front.
     let existing = cx
-        .update(|_, app| super::windows::find_open(app, &first).map(|(h, _)| h))
+        .update(|_, app| super::windows::find_open(app, &first))
         .ok()
         .flatten();
-    let ok = if let Some(handle) = existing {
-        cx.update(|_, app| super::windows::activate(app, handle))
+    let ok = if let Some((handle, found)) = existing {
+        cx.update(|_, app| crate::tabs::flows::reveal(app, handle, found))
             .ok();
         true
     } else {

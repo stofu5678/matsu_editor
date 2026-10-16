@@ -234,6 +234,26 @@ impl EditorView {
             self.begin_grep(info, cx);
             return true;
         }
+        // The result goes to a new tab of this window in tab mode, else to a new window
+        // (`OpenNewEditor`). The tab changes the panes of this window, which hold this view, so it
+        // is made after the command ends.
+        let from = window.window_handle();
+        if crate::tabs::settings::current(cx).bound() && !new_window {
+            window.defer(cx, move |window, app| {
+                let opened = crate::tabs::flows::open_document(
+                    app,
+                    Some(window),
+                    from,
+                    false,
+                    SharedDocument::empty(),
+                    None,
+                );
+                if let Ok((_, target)) = opened {
+                    target.update(app, |view, cx| view.begin_grep(info, cx));
+                }
+            });
+            return true;
+        }
         match open_editor_window(cx, SharedDocument::empty(), None) {
             Ok(handle) => {
                 let target = editors(cx)

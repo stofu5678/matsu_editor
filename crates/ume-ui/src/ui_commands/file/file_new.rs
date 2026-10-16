@@ -1,10 +1,12 @@
-//! `F_FILENEW`: a new untitled document in a new window.
+//! `F_FILENEW`: a new untitled document in a new window, or in a new tab in tab mode.
 //!
 //! Sakura: `CViewCommander::Command_FILENEW` (`sakura_core/cmd/CViewCommander_File.cpp`) starts a
-//! new editor window with no file.
+//! new editor window with no file, in the group of this window (`CControlTray::OpenNewEditor`,
+//! `sakura_core/_main/CControlTray.cpp`): with the tab bar shown and the windows grouped that is
+//! a new tab here.
 
 use crate::document::SharedDocument;
-use crate::file_ops::windows::open_editor_window;
+use crate::tabs::flows::open_document;
 use crate::ui_command::{UiCommand, register_ui_command};
 use crate::view::EditorView;
 use gpui::{Context, Window};
@@ -24,9 +26,18 @@ impl UiCommand for FileNew {
         window: &mut Window,
         cx: &mut Context<EditorView>,
     ) -> Result {
-        let _ = (view, window);
-        open_editor_window(cx, SharedDocument::empty(), None).ok();
-        Ok(())
+        let from = window.window_handle();
+        view.defer_in_window(window, cx, move |window, app| {
+            open_document(
+                app,
+                Some(window),
+                from,
+                false,
+                SharedDocument::empty(),
+                None,
+            )
+            .ok();
+        })
     }
 }
 

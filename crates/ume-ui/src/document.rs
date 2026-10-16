@@ -26,6 +26,9 @@ use crate::settings::NewDocumentDefaults;
 pub enum DocumentEvent {
     /// The text changed. `version` is the number [`SharedDocument::version`] has now.
     Changed { version: u64 },
+    /// The document got the type (タイプ別設定) number `index`. Every view of the document takes
+    /// its settings: Sakura keeps the type per document (`CEditDoc::m_cDocType`), not per pane.
+    TypeChanged { index: usize },
 }
 
 /// The document of the editor with its undo history, shared by the views that show it.
@@ -40,6 +43,10 @@ pub struct SharedDocument {
     /// (`CAppMode::m_bViewMode`), clears it for a new document and keeps it when the file is
     /// reopened.
     view_mode: bool,
+    /// The user chose the document type (`F_CHANGETYPE`): a new file name does not change it until
+    /// a file is loaded (`m_nSettingTypeLocked`, `CDocType::LockDocumentType`). Per document, so
+    /// all panes of it agree.
+    type_locked: bool,
     /// What saving needs besides the text: the encoding, the BOM and the line ending. Its
     /// `document` is a placeholder; the text is `model`'s (see [`with_file`](Self::with_file)).
     file: TextFile,
@@ -56,6 +63,7 @@ impl SharedDocument {
             version: 0,
             overwrite: false,
             view_mode: false,
+            type_locked: false,
             file,
         }
     }
@@ -72,6 +80,7 @@ impl SharedDocument {
             version: 0,
             overwrite: false,
             view_mode: false,
+            type_locked: false,
             file,
         }
     }
@@ -228,6 +237,20 @@ impl SharedDocument {
             self.view_mode = view_mode;
             cx.notify();
         }
+    }
+
+    /// Whether the user chose the document type (`F_CHANGETYPE`).
+    pub fn type_locked(&self) -> bool {
+        self.type_locked
+    }
+
+    pub fn set_type_locked(&mut self, locked: bool) {
+        self.type_locked = locked;
+    }
+
+    /// Tells the views that the document has type `index`; each applies the settings of the type.
+    pub fn announce_type(&mut self, index: usize, cx: &mut Context<Self>) {
+        cx.emit(DocumentEvent::TypeChanged { index });
     }
 
     /// Counts the changes of the text. A view compares it with the version its layout matches.

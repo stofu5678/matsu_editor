@@ -24,14 +24,14 @@ fn temp_dir() -> PathBuf {
 }
 
 /// A settings file (UTF-8 with a BOM, as Sakura writes it).
-fn user(text: &str) -> UserSettings {
+pub(super) fn user(text: &str) -> UserSettings {
     let mut bytes = vec![0xEF, 0xBB, 0xBF];
     bytes.extend_from_slice(text.as_bytes());
     UserSettings::from_profile(Profile::from_bytes(&bytes), None)
 }
 
 /// Opens an untitled window, with `settings` read at startup if given.
-fn window(cx: &mut TestAppContext, settings: Option<UserSettings>) -> AnyWindowHandle {
+pub(super) fn window(cx: &mut TestAppContext, settings: Option<UserSettings>) -> AnyWindowHandle {
     cx.update(gpui_component::init);
     if let Some(settings) = settings {
         cx.update(|cx| cx.set_global(settings));
@@ -40,11 +40,16 @@ fn window(cx: &mut TestAppContext, settings: Option<UserSettings>) -> AnyWindowH
         .unwrap()
 }
 
-fn view_of(cx: &mut VisualTestContext) -> Entity<EditorView> {
+pub(super) fn view_of(cx: &mut VisualTestContext) -> Entity<EditorView> {
     cx.update(|_, app| editors(app).last().unwrap().1.clone())
 }
 
-fn run(view: &Entity<EditorView>, cx: &mut VisualTestContext, function: &str, args: &[Arg]) {
+pub(super) fn run(
+    view: &Entity<EditorView>,
+    cx: &mut VisualTestContext,
+    function: &str,
+    args: &[Arg],
+) {
     let code = FUNCTIONS.iter().find(|f| f.name == function).unwrap().code;
     view.update_in(cx, |view, window, cx| {
         view.run_function(code, args, window, cx)
@@ -52,16 +57,16 @@ fn run(view: &Entity<EditorView>, cx: &mut VisualTestContext, function: &str, ar
     cx.run_until_parked();
 }
 
-fn type_index(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> usize {
+pub(super) fn type_index(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> usize {
     view.read_with(cx, |v, _| v.view_settings().type_index)
 }
 
-fn tab_width(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> u32 {
+pub(super) fn tab_width(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> u32 {
     view.read_with(cx, |v, _| v.view_settings().tab_width)
 }
 
-fn locked(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> bool {
-    view.read_with(cx, |v, _| v.type_is_locked())
+pub(super) fn locked(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> bool {
+    view.read_with(cx, |v, cx| v.type_is_locked(cx))
 }
 
 /// Saves the untitled document under `path` (the Save As options come after the path).
@@ -75,7 +80,7 @@ fn save_as(view: &Entity<EditorView>, cx: &mut VisualTestContext, path: &std::pa
 }
 
 /// Types 1 and 2 with their own tab widths, over the built-in types.
-const TABS: &str = "[Other]\r\nnTypesCount=17\r\n\
+pub(super) const TABS: &str = "[Other]\r\nnTypesCount=17\r\n\
     [Types(1)]\r\nnInts=1,120,0,8,-1,-1,0,1,1,0,0,0\r\n\
     [Types(2)]\r\nnInts=2,10240,0,2,0,-1,0,1,1,0,0,0\r\n";
 
