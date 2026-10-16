@@ -324,6 +324,11 @@ impl EditorView {
         }
         self.record_call(reg.sakura, args);
         self.completion_before_command(reg.sakura);
+        // `MoveCursorLayout(row, ..)` names a row of the whole text: a document that is still being
+        // laid out in the background has estimates for the rest.
+        if reg.sakura == "F_MOVECURSORLAYOUT" && !self.layout.is_complete() {
+            let _ = self.layout.layout_all(self.document.read(cx).doc());
+        }
         let result = self.run_with(cx, |command_cx| reg.run(command_cx, args));
         let ok = result.is_ok();
         self.notice = result

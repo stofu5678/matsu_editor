@@ -76,6 +76,7 @@ pub fn needs_exact_layout(name: &str) -> bool {
             | "LogicToLayoutLineNum"
             | "LineColumnToIndex"
             | "LineIndexToColumn"
+            | "MoveCursorLayout"
     )
 }
 
