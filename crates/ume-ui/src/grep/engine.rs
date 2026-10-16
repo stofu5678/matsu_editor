@@ -484,11 +484,6 @@ impl Runner<'_> {
                     break;
                 }
             };
-            // The empty line after the last line break is not a line of the file (a 0-byte file has
-            // none): Sakura's `CFileLoad::ReadLine` gives no line there.
-            if line.text.is_empty() && line.eol.is_none() {
-                continue;
-            }
             let eol = line.eol.map_or("", eol_text);
             file_hits += self.line(paths, &code_name, state, index as u64 + 1, &line.text, eol)?;
             self.flush_when_due();
