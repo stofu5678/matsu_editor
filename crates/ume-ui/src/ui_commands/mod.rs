@@ -12,3 +12,4 @@ pub mod search;
 pub mod select;
 pub mod settings;
 pub mod support;
+pub mod window;

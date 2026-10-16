@@ -156,6 +156,8 @@ pub struct EditorView {
     pub(crate) save_as_dialog: Option<Entity<crate::file_ops::save_as_dialog::SaveAsDialog>>,
     /// The completion list, the command list and the version dialog (`crate::support`).
     pub(crate) support: crate::support::Support,
+    /// The window list (popup or dialog) over the view, while one is open.
+    pub(crate) window_list: Option<Entity<crate::window_ops::list::WindowList>>,
     font_family: SharedString,
     font_size: f32,
     _subscription: Subscription,
@@ -201,6 +203,7 @@ impl EditorView {
             macros: MacroState::default(),
             save_as_dialog: None,
             support: Default::default(),
+            window_list: None,
             font_family: FONT_FAMILY.into(),
             font_size: crate::settings::ViewSettings::default().font_px(),
             _subscription: subscription,
@@ -644,8 +647,10 @@ impl Render for EditorView {
             .children(self.panel.clone())
             .children(self.grep.panel.clone())
             .children(self.grep_progress_bar(cx))
-            .children(self.save_as_dialog.clone())
             .children(self.support_overlays(cx))
+            .children(self.window_list.clone())
+            // Above the window list: Save from the list can ask for the options.
+            .children(self.save_as_dialog.clone())
             .into_any_element()
     }
 }

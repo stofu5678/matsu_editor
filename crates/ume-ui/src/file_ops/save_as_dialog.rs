@@ -281,7 +281,11 @@ impl SaveAsDialog {
         let view = self.view.clone();
         view.update(cx, |view, cx| {
             view.save_as_dialog = None;
-            window.focus(&view.focus_handle, cx);
+            // The window list (Save from its dialog) stays open and keeps the keys.
+            match view.window_list.clone() {
+                Some(list) => window.focus(&list.focus_handle(cx), cx),
+                None => window.focus(&view.focus_handle, cx),
+            }
             cx.notify();
         })
         .ok();
