@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use gpui::{AsyncWindowContext, Context, PromptLevel, Window};
 use ume_core::cursor::SelectionMode;
+use ume_core::file::{Preserve, write_bytes};
 
 use super::ask::tell;
 use super::save::choose_path;
@@ -57,26 +58,18 @@ pub(crate) fn save_bytes_as(
     );
 }
 
-/// Writes `data` to `path`. An existing file is replaced only after the new bytes are all on
-/// disk (a temporary file next to it, then a rename), so a failed write leaves it as it was
-/// (ADR-0005). Sakura truncates the file first (`CBinaryOutputStream`).
-fn write_bytes(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
-    if !path.exists() {
-        return std::fs::write(path, data);
-    }
-    let mut temp = path.as_os_str().to_owned();
-    temp.push(".ume-tmp");
-    let temp = PathBuf::from(temp);
-    let result = std::fs::write(&temp, data).and_then(|()| std::fs::rename(&temp, path));
-    if result.is_err() {
-        let _ = std::fs::remove_file(&temp);
-    }
-    result
-}
-
+/// Writes `data` to `path` as a save does (ADR-0005): an existing file is replaced only after the
+/// new bytes are all on disk, so a failed write leaves it as it was. Sakura truncates the file
+/// first (`CBinaryOutputStream`).
 async fn write(cx: &mut AsyncWindowContext, path: PathBuf, data: Vec<u8>) {
-    if write_bytes(&path, &data).is_err() {
+    if let Err(error) = write_bytes(&path, &data, Preserve::default()) {
         let message = write_error_message(&path);
-        tell(cx, PromptLevel::Critical, &message, None).await;
+        tell(
+            cx,
+            PromptLevel::Critical,
+            &message,
+            Some(&error.to_string()),
+        )
+        .await;
     }
 }

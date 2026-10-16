@@ -49,7 +49,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub use error::{FileError, Result};
-pub use save::{MAX_REPORTED, Preserve, SaveOptions, SaveReport, UnmappableChar, UnmappableReport};
+pub use save::{
+    MAX_REPORTED, Preserve, SaveOptions, SaveReport, UnmappableChar, UnmappableReport, write_bytes,
+};
 
 use crate::buffer::{Document, EncodingCodec, Eol};
 use crate::encoding::{DetectOptions, Detection, Encoding, detect};

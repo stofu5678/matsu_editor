@@ -743,6 +743,45 @@ fn write_file(
     })
 }
 
+/// Writes `bytes` to `path` the way a save does (ADR-0005): to a new file next to the target,
+/// which then replaces it, so a failed write leaves the old file as it was. A symbolic link is
+/// followed, and the permissions (and with `preserve` the owner and group) of the replaced file
+/// are kept. For bytes that are not the text of a document (the output of Base64 and uudecode).
+pub fn write_bytes(path: &Path, bytes: &[u8], preserve: Preserve) -> Result<()> {
+    let real = resolve_target(path)?;
+    let existing = fs::metadata(&real).ok();
+    if let Some(meta) = &existing {
+        if !meta.is_file() {
+            return Err(FileError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "the target is not a regular file",
+            )));
+        }
+        if meta.permissions().readonly() {
+            return Err(FileError::ReadOnly);
+        }
+    }
+    let dir = real
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let permissions = existing.as_ref().map(fs::Metadata::permissions);
+    let (mut file, mut temp) = create_temp(dir, permissions.as_ref())?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    drop(file);
+    if let Some(meta) = &existing {
+        if preserve.owner_and_group {
+            copy_owner_and_group(&temp.path, meta);
+        }
+        fs::set_permissions(&temp.path, meta.permissions())?;
+    }
+    fs::rename(&temp.path, &real)?;
+    temp.keep = true;
+    sync_dir(dir);
+    Ok(())
+}
+
 /// Gives `new` the owner and group of the old file. What the OS refuses is skipped: only root may
 /// change the owner, and a user may only pick a group they are in. If both cannot be set together,
 /// the group alone is tried, so a plain user still keeps the group.
