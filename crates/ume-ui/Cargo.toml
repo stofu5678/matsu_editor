@@ -18,6 +18,8 @@ ume-commands = { path = "../ume-commands" }
 ume-config = { path = "../ume-config" }
 ume-platform = { path = "../ume-platform" }
 ume-print = { path = "../ume-print" }
+# The regular expression option of the find and replace panel (ADR-0006).
+ume-regex = { path = "../ume-regex" }
 # The macro host and the bridge from a macro's calls to the commands (ADR-0007).
 ume-plugin = { path = "../ume-plugin" }
 # Carries the events of a running macro from the host's threads to the UI thread.

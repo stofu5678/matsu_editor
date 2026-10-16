@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use ume_core::buffer::Pos;
 use ume_core::search::{Direction, Matcher, PlainMatcher, PlainOptions, ReplaceTarget};
+use ume_regex::{PatternError, RegexMatcher, RegexSearchOptions};
 
 use crate::word::word_range;
 
@@ -27,6 +28,9 @@ pub struct SearchOptions {
     pub auto_close: bool,
     /// 先頭（末尾）から再検索 (`m_bSearchAll`, off by default).
     pub wrap: bool,
+    /// 正規表現 (`bRegularExp`). The pattern is bregonig's syntax ([`ume_regex`]). 単語単位 is
+    /// then ignored, as in Sakura, whose dialog greys the box out (`CDlgFind::OnBnClicked`).
+    pub regex: bool,
 }
 
 impl Default for SearchOptions {
@@ -39,6 +43,7 @@ impl Default for SearchOptions {
             notify_not_found: true,
             auto_close: true,
             wrap: false,
+            regex: false,
         }
     }
 }
@@ -52,6 +57,9 @@ pub struct ReplaceSettings {
     pub target: ReplaceTarget,
     /// 選択範囲内 (`m_bSelectedArea`) instead of the whole file.
     pub in_selection: bool,
+    /// 「すべて置換」は置換の繰返し (`m_bConsecutiveAll`, off by default). Only a regular
+    /// expression has it (the box is disabled without 正規表現).
+    pub consecutive_all: bool,
 }
 
 /// What the window remembers about searching.
@@ -65,23 +73,66 @@ pub struct SearchState {
     /// 検索開始位置 for `F_JUMP_SRCHSTARTPOS` (`m_ptSrchStartPos_PHY`).
     start_pos: Option<Pos>,
     matcher: Option<Arc<dyn Matcher>>,
+    /// The same matcher as [`regex`](Self::regex) when the option is on, for the replacement.
+    regex: Option<Arc<RegexMatcher>>,
+    /// Why a regular expression pattern cannot be used (it then has no matcher).
+    pattern_error: Option<PatternError>,
+    /// Where the last search selected an empty match, so that the next one steps over it.
+    empty_match: Option<Pos>,
+}
+
+/// A matcher made by [`build_matcher`].
+#[derive(Clone, Debug)]
+pub struct BuiltMatcher {
+    pub matcher: Arc<dyn Matcher>,
+    /// Set for a regular expression, whose replacement needs more than [`Matcher`] gives.
+    pub regex: Option<Arc<RegexMatcher>>,
 }
 
 /// The matcher for a pattern and options, or `None` for an empty pattern. This is the one place
-/// that picks the matching engine: the regular expression option of Sakura's dialog (#38) comes
-/// here as one more field of [`SearchOptions`] and one more arm.
-pub fn build_matcher(pattern: &str, options: &SearchOptions) -> Option<Arc<dyn Matcher>> {
+/// that picks the matching engine: the plain search of `ume_core`, or the regular expression of
+/// `ume_regex` (bregonig's syntax) when the option is on. A pattern that does not compile is an
+/// error (Sakura says so with `CheckRegexpSyntax`, `sakura_core/extmodule/CBregexp.cpp`).
+pub fn build_matcher(
+    pattern: &str,
+    options: &SearchOptions,
+) -> Result<Option<BuiltMatcher>, PatternError> {
     if pattern.is_empty() {
-        return None;
+        return Ok(None);
     }
-    Some(Arc::new(PlainMatcher::new(
-        pattern,
-        PlainOptions {
-            match_case: options.match_case,
-            whole_word: options.whole_word,
-        },
-    )))
+    if options.regex {
+        // 単語単位 is left out: `CSearchAgent::SearchWord` takes the regex branch first.
+        let regex = Arc::new(RegexMatcher::new(
+            pattern,
+            RegexSearchOptions {
+                match_case: options.match_case,
+            },
+        )?);
+        return Ok(Some(BuiltMatcher {
+            matcher: regex.clone(),
+            regex: Some(regex),
+        }));
+    }
+    Ok(Some(BuiltMatcher {
+        matcher: Arc::new(PlainMatcher::new(
+            pattern,
+            PlainOptions {
+                match_case: options.match_case,
+                whole_word: options.whole_word,
+            },
+        )),
+        regex: None,
+    }))
 }
+
+/// `STR_REGEX_COMPILE_ERR_PREAMBLE`: the box for a pattern that does not compile (the title is
+/// [`REGEX_ERROR_TITLE`]).
+pub fn regex_error_message(error: &impl std::fmt::Display) -> String {
+    format!("正規表現の構文に誤りがあります。\n詳細：{error}")
+}
+
+/// `STR_BREGONIG_TITLE`.
+pub const REGEX_ERROR_TITLE: &str = "正規表現エラー";
 
 impl SearchState {
     pub fn pattern(&self) -> &str {
@@ -95,6 +146,25 @@ impl SearchState {
     /// The matcher of the current pattern, if there is a pattern.
     pub fn matcher(&self) -> Option<&Arc<dyn Matcher>> {
         self.matcher.as_ref()
+    }
+
+    /// The regular expression matcher, when the option is on and the pattern compiles.
+    pub fn regex(&self) -> Option<&Arc<RegexMatcher>> {
+        self.regex.as_ref()
+    }
+
+    /// Why the regular expression cannot be used, if it cannot.
+    pub fn pattern_error(&self) -> Option<&PatternError> {
+        self.pattern_error.as_ref()
+    }
+
+    /// Where the last search selected an empty match.
+    pub fn empty_match(&self) -> Option<Pos> {
+        self.empty_match
+    }
+
+    pub fn set_empty_match(&mut self, pos: Option<Pos>) {
+        self.empty_match = pos;
     }
 
     pub fn set_pattern(&mut self, pattern: &str) {
@@ -112,7 +182,19 @@ impl SearchState {
     }
 
     fn rebuild(&mut self) {
-        self.matcher = build_matcher(&self.pattern, &self.options);
+        self.empty_match = None;
+        match build_matcher(&self.pattern, &self.options) {
+            Ok(built) => {
+                self.matcher = built.as_ref().map(|b| b.matcher.clone());
+                self.regex = built.and_then(|b| b.regex);
+                self.pattern_error = None;
+            }
+            Err(e) => {
+                self.matcher = None;
+                self.regex = None;
+                self.pattern_error = Some(e);
+            }
+        }
     }
 
     /// Whether the matches are drawn.
@@ -238,6 +320,29 @@ mod tests {
             ..s.options()
         });
         assert!(!hit(&s));
+    }
+
+    #[test]
+    fn the_regular_expression_option_picks_the_engine() {
+        let mut s = SearchState::default();
+        s.set_options(SearchOptions {
+            regex: true,
+            ..s.options()
+        });
+        s.set_pattern("a+");
+        assert!(s.regex().is_some() && s.pattern_error().is_none());
+        let m = s.matcher().unwrap().find_at("baab", 0).unwrap().unwrap();
+        assert_eq!((m.start, m.end), (1, 3));
+        // a pattern that does not compile has no matcher, and says why
+        s.set_pattern("(");
+        assert!(s.matcher().is_none() && s.regex().is_none() && s.pattern_error().is_some());
+        // the plain search takes the same text literally
+        s.set_options(SearchOptions {
+            regex: false,
+            ..s.options()
+        });
+        assert!(s.pattern_error().is_none() && s.regex().is_none());
+        assert!(s.matcher().unwrap().find_at("a(b", 0).unwrap().is_some());
     }
 
     #[test]

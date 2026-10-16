@@ -20,7 +20,7 @@ use gpui::{
 use gpui_component::button::Button;
 use gpui_component::checkbox::Checkbox;
 use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::{Selectable as _, h_flex, v_flex};
+use gpui_component::{Disableable as _, Selectable as _, h_flex, v_flex};
 use ume_core::buffer::Pos;
 use ume_core::search::{Direction, ReplaceTarget};
 
@@ -204,8 +204,8 @@ impl SearchPanel {
             return;
         }
         let auto_close = editor.update(cx, |editor, cx| {
-            editor.mark_matching_lines(cx);
-            editor.search.options().auto_close
+            editor.mark_matching_lines(window, cx);
+            editor.search.options().auto_close && editor.search.pattern_error().is_none()
         });
         if auto_close && self.mode == PanelMode::Find {
             self.close(window, cx);
@@ -283,18 +283,29 @@ impl SearchPanel {
     ) -> impl IntoElement {
         v_flex()
             .gap_1()
-            .child(self.option_box(
-                "search-whole-word",
-                "単語単位で探す(W)",
-                options.whole_word,
-                |o, v| o.whole_word = v,
-                cx,
-            ))
+            // Sakura greys the box out while 正規表現 is on (`CDlgFind::OnBnClicked`).
+            .child(
+                self.option_box(
+                    "search-whole-word",
+                    "単語単位で探す(W)",
+                    options.whole_word,
+                    |o, v| o.whole_word = v,
+                    cx,
+                )
+                .disabled(options.regex),
+            )
             .child(self.option_box(
                 "search-match-case",
                 "英大文字と小文字を区別する(C)",
                 options.match_case,
                 |o, v| o.match_case = v,
+                cx,
+            ))
+            .child(self.option_box(
+                "search-regex",
+                "正規表現(E)",
+                options.regex,
+                |o, v| o.regex = v,
                 cx,
             ))
             .child(self.option_box(
@@ -466,6 +477,23 @@ impl Render for SearchPanel {
                     )
                     .child(self.render_find_options(options, cx))
                     .child(self.render_replace_targets(replace.target, replace.in_selection, cx))
+                    // `IDC_CHECK_CONSECUTIVEALL`, enabled only with 正規表現 (`CDlgReplace`).
+                    .child(
+                        Checkbox::new("replace-consecutive")
+                            .label("「すべて置換」は置換の繰返し(L)")
+                            .checked(replace.consecutive_all)
+                            .disabled(!options.regex)
+                            .on_click(cx.listener(|this, value: &bool, _, cx| {
+                                let value = *value;
+                                this.editor
+                                    .update(cx, |editor, cx| {
+                                        editor.search.replace.consecutive_all = value;
+                                        cx.notify();
+                                    })
+                                    .ok();
+                                cx.notify();
+                            })),
+                    )
                     .child(
                         h_flex()
                             .gap_2()

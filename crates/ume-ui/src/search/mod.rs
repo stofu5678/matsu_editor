@@ -3,9 +3,8 @@
 //! ([`ops`]) and the panel that stands for the dialogs ([`panel`]). The functions the keys and
 //! menus run are the UI commands in `ui_commands/search/`; they only call into here.
 //!
-//! The matching rules are `ume_core::search` (ADR-0006); the matcher is chosen in one place
-//! ([`state::build_matcher`]) so that the regular expression option can come later without
-//! touching the rest.
+//! The matching rules are `ume_core::search` (ADR-0006), and `ume_regex` for the regular
+//! expression option; the matcher is chosen in one place ([`state::build_matcher`]).
 
 pub mod bookmarks;
 pub mod highlight;
@@ -19,5 +18,7 @@ pub use state::{SearchOptions, SearchState};
 
 #[cfg(test)]
 mod bookmarks_tests;
+#[cfg(test)]
+mod regex_tests;
 #[cfg(test)]
 mod tests;

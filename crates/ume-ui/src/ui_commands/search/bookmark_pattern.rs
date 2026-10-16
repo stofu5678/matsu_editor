@@ -3,8 +3,7 @@
 //!
 //! Sakura: `CViewCommander::Command_BOOKMARK_PATTERN` (`sakura_core/cmd/CViewCommander_Bookmark.cpp`)
 //! and `CBookmarkManager::MarkSearchWord`. The pattern and options are the ones of the search
-//! panel, whichever kind of search they say (plain, whole word; the regular expression option is
-//! not in the panel yet). Not like Sakura's macro: the arguments of `BookmarkPattern` (a pattern
+//! panel, whichever kind of search they say (plain, whole word, regular expression). Not like Sakura's macro: the arguments of `BookmarkPattern` (a pattern
 //! and the option flags) are not read, as for `search_next`; the current pattern is used.
 
 use gpui::{Context, Window};
@@ -24,10 +23,10 @@ impl UiCommand for BookmarkPattern {
         &self,
         view: &mut EditorView,
         _: &[Arg],
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<EditorView>,
     ) -> Result {
-        view.mark_matching_lines(cx);
+        view.mark_matching_lines(window, cx);
         Ok(())
     }
 }
