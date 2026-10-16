@@ -170,6 +170,8 @@ pub struct EditorView {
     pub(crate) window_list: Option<Entity<crate::window_ops::list::WindowList>>,
     /// The DIFF and compare dialogs, while one is open (`crate::diff`).
     pub(crate) diff: crate::diff::DiffState,
+    /// Whether the user chose the document type, and the list of types (`crate::doc_types`).
+    pub(crate) doc_type: crate::doc_types::DocTypeState,
     /// The window that holds this view among its panes (`crate::panes`).
     pub(crate) split_host: Option<gpui::WeakEntity<crate::app::Workspace>>,
     font_family: SharedString,
@@ -219,6 +221,7 @@ impl EditorView {
             support: Default::default(),
             window_list: None,
             diff: Default::default(),
+            doc_type: Default::default(),
             split_host: None,
             font_family: FONT_FAMILY.into(),
             font_size: crate::settings::ViewSettings::default().font_px(),
@@ -670,6 +673,7 @@ impl Render for EditorView {
             .children(self.window_list.clone())
             .children(self.diff.panel.clone())
             .children(self.diff.compare.clone())
+            .children(self.doc_type.list.clone())
             // Above the window list: Save from the list can ask for the options.
             .children(self.save_as_dialog.clone())
             .into_any_element()

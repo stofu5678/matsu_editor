@@ -92,6 +92,8 @@ impl EditorView {
     /// when a file is opened or saved under another name). Call it after the name changes.
     pub fn apply_type_of_document(&mut self, user: &UserSettings, cx: &mut Context<Self>) {
         let name = self.document.read(cx).file_name();
+        // A file that is loaded takes the type of its name: the user's choice (`F_CHANGETYPE`) ends.
+        self.doc_type.locked = false;
         self.apply_settings(user.view_settings(name.as_deref()), cx);
     }
 

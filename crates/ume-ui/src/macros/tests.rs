@@ -1083,3 +1083,22 @@ fn functions_without_a_window_part_say_so_clearly(cx: &mut TestAppContext) {
     };
     assert!(text.starts_with("-32001 "), "{output}");
 }
+
+/// `IsCurTypeExt` and `IsSameTypeExt` compare the document types of the extensions
+/// (`GetDocumentTypeOfExt`): the built-in types of Sakura, also without a settings file.
+#[gpui::test]
+fn the_extension_functions_use_the_document_types(cx: &mut TestAppContext) {
+    let (f, vcx) = setup(cx, "");
+    let types = f.view.update(vcx, |view, cx| {
+        let env = view.host_env("IsCurTypeExt", cx);
+        (
+            env.current_type,
+            env.type_of("cpp"),
+            env.type_of(".h"),
+            env.type_of("TXT"),
+            env.type_of("zzz"),
+        )
+    });
+    // The new document is the basic type (0); cpp and h are C/C++ (2), txt is テキスト (1).
+    assert_eq!(types, (0, 2, 2, 1, 0));
+}

@@ -41,11 +41,18 @@
 //! `sakura_core/types/CType.cpp` (`_DefaultConfig`, the defaults), `sakura_core/types/CType_Basis.cpp`
 //! (the basic type) and `sakura_core/config/app_constants.h` (the limits).
 //!
-//! Only what the first editor window needs is typed here. Everything else in a `Types(N)` section stays in
-//! the [`Profile`] as raw entries and is kept when the file is written.
+//! Typed here: what the first editor window needs, and the rules the coloring reads (comments, strings,
+//! keyword sets, numbers, regular expression keywords, the outline). Everything else in a `Types(N)` section
+//! stays in the [`Profile`] as raw entries and is kept when the file is written.
+//!
+//! The built-in types of Sakura (基本, テキスト, C/C++, ...) are in [`super::builtin_types()`].
 
 use super::color::{ColorSet, names};
 use super::font::FontSetting;
+use super::type_rules::{
+    BLOCK_COMMENT_COUNT, BlockComment, DEFAULT_REGEX_COLOR, LINE_COMMENT_COUNT, LineComment,
+    MAX_REGEX_KEYWORDS, MAX_VERT_LINES, RegexKeyword, outline_type, smart_indent, string_type,
+};
 use crate::profile::{Profile, ProfileError};
 use crate::value::{parse_long, scan_ints};
 
@@ -132,6 +139,7 @@ pub struct TypeSettings {
     pub tab_space: i32,
     /// `nKeyWordSetIdx[0..10]` (the first two in `nInts`, the rest in `nKeywordSelect3` to `10`).
     pub keyword_set_idx: [i32; 10],
+    /// `nStringType` ([`string_type`]): how a quote inside a string is written.
     pub string_type: i32,
     /// Line numbers count lines (true) or wrapped rows (false).
     pub line_num_is_crlf: bool,
@@ -204,6 +212,33 @@ pub struct TypeSettings {
     pub font: FontSetting,
     /// `C[...]`: colours and what is shown.
     pub colors: ColorSet,
+
+    // --- the rules of the coloring ---
+    /// `m_cLineComment`: up to 3 line comment delimiters (`szLineComment`, `nLineCommentColumn`).
+    pub line_comments: [LineComment; LINE_COMMENT_COUNT],
+    /// `m_cBlockComments`: up to 2 block comment pairs (`szBlockCommentFrom`, `szBlockCommentTo`).
+    pub block_comments: [BlockComment; BLOCK_COMMENT_COUNT],
+    /// `bStringLineOnly`: a string ends at the end of the line.
+    pub string_line_only: bool,
+    /// `bStringEndLine`: a string with no end quote is colored to the end of the line.
+    pub string_end_line: bool,
+    /// `m_nHeredocType` (0 PHP, 1 Ruby, 2 Perl). Sakura does not keep it in the file.
+    pub heredoc_type: i32,
+    /// `bUseRegexKeyword`.
+    pub use_regex_keyword: bool,
+    /// `m_RegexKeywordArr` and `m_RegexKeywordList` (`RxKey[NNN]`).
+    pub regex_keywords: Vec<RegexKeyword>,
+    /// `nVertLineIdx1` to `200`: the columns of vertical lines (1 is the first column). The list
+    /// ends at the first 0; see [`TypeSettings::vert_lines`].
+    pub vert_line_idx: [i32; MAX_VERT_LINES],
+
+    // --- the outline and the smart indent ---
+    /// `nDefaultOutline` ([`outline_type`]).
+    pub default_outline: i32,
+    /// `szOutlineRuleFilename`: the rule file of [`outline_type::FILE`].
+    pub outline_rule_filename: String,
+    /// `nSmartIndent` ([`smart_indent`]).
+    pub smart_indent: i32,
 }
 
 impl Default for TypeSettings {
@@ -215,7 +250,7 @@ impl Default for TypeSettings {
             column_space: 0,
             tab_space: 4,
             keyword_set_idx: [-1; 10],
-            string_type: 0,
+            string_type: string_type::CPP,
             line_num_is_crlf: true,
             line_term_type: 1,
             word_wrap: false,
@@ -271,6 +306,17 @@ impl Default for TypeSettings {
                 point_size: 0,
             },
             colors: ColorSet::default(),
+            line_comments: Default::default(),
+            block_comments: Default::default(),
+            string_line_only: false,
+            string_end_line: false,
+            heredoc_type: 0,
+            use_regex_keyword: false,
+            regex_keywords: Vec::new(),
+            vert_line_idx: [0; MAX_VERT_LINES],
+            default_outline: outline_type::TEXT,
+            outline_rule_filename: String::new(),
+            smart_indent: smart_indent::NONE,
         }
     }
 }
@@ -301,16 +347,7 @@ impl TypeSettings {
     /// The basic type "基本" with its defaults (`CType_Basis::InitTypeConfigImp`): single and double quoted
     /// strings are not coloured.
     pub fn basic() -> Self {
-        let mut t = TypeSettings {
-            type_name: "基本".to_owned(),
-            ..TypeSettings::default()
-        };
-        for name in [names::SINGLE_QUOTE, names::DOUBLE_QUOTE] {
-            if let Some(c) = t.colors.get_mut(name) {
-                c.disp = false;
-            }
-        }
-        t
+        super::builtin_types::basic()
     }
 
     /// Reads the settings of type `index` from its `Types(N)` section over `self`. Keys that are missing or
@@ -427,8 +464,71 @@ impl TypeSettings {
         );
         read_bool(profile, s, "bChkEnterAtEnd", &mut self.warn_mixed_eol);
         read_bool(profile, s, "bUseTypeFont", &mut self.use_type_font);
+        self.read_rules(profile, s);
         self.font.read(profile, s, "lf", None, None);
         self.colors.read(profile, s);
+    }
+
+    /// The coloring rules, the outline and the smart indent of a `Types(N)` section.
+    fn read_rules(&mut self, profile: &Profile, s: &str) {
+        read_bool(profile, s, "bStringLineOnly", &mut self.string_line_only);
+        read_bool(profile, s, "bStringEndLine", &mut self.string_end_line);
+        // ShareData_IO_BlockComments: the start and the end are read together; if one is missing the pair stays.
+        for (i, block) in self.block_comments.iter_mut().enumerate() {
+            let suffix = if i > 0 {
+                (i + 1).to_string()
+            } else {
+                String::new()
+            };
+            let from = profile.get(s, &format!("szBlockCommentFrom{suffix}"));
+            let to = profile.get(s, &format!("szBlockCommentTo{suffix}"));
+            if let (Some(from), Some(to)) = (from, to) {
+                *block = BlockComment::new(from, to);
+            }
+        }
+        // ShareData_IO_LineComments: the delimiter and the column are read together.
+        for (i, line) in self.line_comments.iter_mut().enumerate() {
+            let suffix = if i > 0 {
+                (i + 1).to_string()
+            } else {
+                String::new()
+            };
+            let text = profile.get(s, &format!("szLineComment{suffix}"));
+            let column = profile.get_i32(s, &format!("nLineCommentColumn{suffix}"));
+            if let (Some(text), Some(column)) = (text, column) {
+                *line = LineComment::new(text, column);
+            }
+        }
+        read_string(
+            profile,
+            s,
+            "szOutlineRuleFilename",
+            &mut self.outline_rule_filename,
+            MAX_PATH,
+        );
+        read_i32(profile, s, "nDefaultOutline", &mut self.default_outline);
+        read_i32(profile, s, "nSmartIndent", &mut self.smart_indent);
+        // ShareData_IO_VertLineIdx: a column that is 0 ends the list.
+        for (i, slot) in self.vert_line_idx.iter_mut().enumerate() {
+            if let Some(v) = profile.get_i32(s, &format!("nVertLineIdx{}", i + 1)) {
+                *slot = v;
+                if v == 0 {
+                    break;
+                }
+            }
+        }
+        // ShareData_IO_RegexKeyword: `RxKey[NNN]=color,pattern`; the first missing number ends it.
+        read_bool(profile, s, "bUseRegexKeyword", &mut self.use_regex_keyword);
+        for i in 0..MAX_REGEX_KEYWORDS {
+            let Some(value) = profile.get(s, &format!("RxKey[{i:03}]")) else {
+                break;
+            };
+            let keyword = parse_regex_keyword(value);
+            match self.regex_keywords.get_mut(i) {
+                Some(slot) => *slot = keyword,
+                None => self.regex_keywords.push(keyword),
+            }
+        }
     }
 
     /// Reads type `index` over the defaults of the basic type.
@@ -539,12 +639,75 @@ impl TypeSettings {
         profile.set_string(s, "szKinsokuKuto", &self.kinsoku_kuto)?;
         profile.set_bool(s, "bChkEnterAtEnd", self.warn_mixed_eol)?;
         profile.set_bool(s, "bUseTypeFont", self.use_type_font)?;
+        self.write_rules(profile, s)?;
         // Sakura always writes the font of the type (an all-zero one when the type has none). A type that does
         // not use its own font does not need it, so it is not added to a file that has none.
         if self.use_type_font || profile.get(s, "lf").is_some() {
             self.font.write(profile, s, "lf", None, None)?;
         }
         self.colors.write(profile, s)
+    }
+
+    fn write_rules(&self, profile: &mut Profile, s: &str) -> Result<(), ProfileError> {
+        profile.set_bool(s, "bStringLineOnly", self.string_line_only)?;
+        profile.set_bool(s, "bStringEndLine", self.string_end_line)?;
+        for (i, block) in self.block_comments.iter().enumerate() {
+            let suffix = if i > 0 {
+                (i + 1).to_string()
+            } else {
+                String::new()
+            };
+            profile.set_string(s, &format!("szBlockCommentFrom{suffix}"), &block.from)?;
+            profile.set_string(s, &format!("szBlockCommentTo{suffix}"), &block.to)?;
+        }
+        for (i, line) in self.line_comments.iter().enumerate() {
+            let suffix = if i > 0 {
+                (i + 1).to_string()
+            } else {
+                String::new()
+            };
+            profile.set_string(s, &format!("szLineComment{suffix}"), &line.delimiter)?;
+            profile.set_i32(
+                s,
+                &format!("nLineCommentColumn{suffix}"),
+                line.column_value(),
+            )?;
+        }
+        profile.set_string(s, "szOutlineRuleFilename", &self.outline_rule_filename)?;
+        profile.set_i32(s, "nDefaultOutline", self.default_outline)?;
+        profile.set_i32(s, "nSmartIndent", self.smart_indent)?;
+        // Like Sakura, up to and including the first 0.
+        for (i, &v) in self.vert_line_idx.iter().enumerate() {
+            profile.set_i32(s, &format!("nVertLineIdx{}", i + 1), v)?;
+            if v == 0 {
+                break;
+            }
+        }
+        profile.set_bool(s, "bUseRegexKeyword", self.use_regex_keyword)?;
+        // Contiguous numbers: reading stops at the first missing one. An undefined keyword (no
+        // pattern) is skipped, as Sakura does.
+        let defined = self.regex_keywords.iter().filter(|k| !k.pattern.is_empty());
+        for (n, k) in defined.take(MAX_REGEX_KEYWORDS).enumerate() {
+            profile.set_string(
+                s,
+                &format!("RxKey[{n:03}]"),
+                &format!("{},{}", k.color, k.pattern),
+            )?;
+        }
+        Ok(())
+    }
+
+    /// The columns of the vertical lines (`nVertLineIdx`): the entries before the first 0.
+    pub fn vert_lines(&self) -> impl Iterator<Item = u32> + '_ {
+        self.vert_line_idx
+            .iter()
+            .take_while(|&&c| c != 0)
+            .filter_map(|&c| u32::try_from(c).ok())
+    }
+
+    /// Numbers are colored (`C[NUM]` is shown).
+    pub fn colors_numbers(&self) -> bool {
+        self.colors.get(names::NUMBER).is_some_and(|c| c.disp)
     }
 }
 
@@ -556,6 +719,35 @@ pub fn types_count(profile: &Profile) -> i32 {
         .and_then(parse_long)
         .unwrap_or(30);
     clamp_to(n, 1, MAX_TYPES)
+}
+
+/// `MAX_PATH`: the size of `szOutlineRuleFilename`, in UTF-16 units.
+const MAX_PATH: usize = 260;
+
+/// One `RxKey[NNN]` value, `color,pattern` (`swscanf` with `%[^,],%[^\n]`). The color is a name or a number
+/// (the index in Sakura's table); anything else is the first regular expression color. A value that does not
+/// have both parts is an empty keyword of that color.
+fn parse_regex_keyword(value: &str) -> RegexKeyword {
+    let Some((color, pattern)) = value.split_once(',') else {
+        return RegexKeyword {
+            color: DEFAULT_REGEX_COLOR.to_owned(),
+            pattern: String::new(),
+        };
+    };
+    let pattern = pattern.split('\n').next().unwrap_or_default();
+    let names: Vec<_> = ColorSet::all_names().collect();
+    let color = if names.contains(&color) {
+        color.to_owned()
+    } else {
+        parse_long(color)
+            .and_then(|i| usize::try_from(i).ok())
+            .and_then(|i| names.get(i))
+            .map_or_else(|| DEFAULT_REGEX_COLOR.to_owned(), |n| (*n).to_owned())
+    };
+    RegexKeyword {
+        color,
+        pattern: pattern.to_owned(),
+    }
 }
 
 /// Reads a string into a buffer of `capacity` UTF-16 units including the end mark. Sakura refuses a value that
@@ -770,5 +962,64 @@ mod tests {
         assert_eq!(types_count(&p), 60);
         let p = Profile::from_bytes(b"[Other]\r\nnTypesCount=0\r\n");
         assert_eq!(types_count(&p), 1);
+    }
+
+    #[test]
+    fn the_coloring_rules_are_read_from_the_section() {
+        let p = Profile::from_bytes(&utf8(
+            "[Types(3)]\r\nszLineComment=%\r\nnLineCommentColumn=2\r\nszLineComment2=REM \r\n\
+             szBlockCommentFrom=<!--\r\nszBlockCommentTo=-->\r\nszBlockCommentFrom2=only from\r\n\
+             bStringLineOnly=1\r\nbStringEndLine=1\r\nnDefaultOutline=10\r\nnSmartIndent=1\r\n\
+             szOutlineRuleFilename=rules.txt\r\nnVertLineIdx1=5\r\nnVertLineIdx2=0\r\nnVertLineIdx3=9\r\n\
+             bUseRegexKeyword=1\r\nRxKey[000]=URL,/a+/k\r\nRxKey[001]=7,/b/\r\nRxKey[003]=RK2,/skipped/\r\n",
+        ));
+        let t = TypeSettings::read(&p, 3);
+        // The column is read together with the delimiter: the second one has none, so it is not used.
+        assert_eq!(t.line_comments[0], LineComment::new("%", 2));
+        assert_eq!(t.line_comments[1], LineComment::default());
+        // A block comment needs both parts.
+        assert_eq!(t.block_comments[0], BlockComment::new("<!--", "-->"));
+        assert_eq!(t.block_comments[1], BlockComment::default());
+        assert!(t.string_line_only && t.string_end_line);
+        assert_eq!(t.default_outline, outline_type::HTML);
+        assert_eq!(t.smart_indent, smart_indent::CPP);
+        assert_eq!(t.outline_rule_filename, "rules.txt");
+        // The list ends at the 0, and the entries after it are not read.
+        assert_eq!(t.vert_line_idx[..3], [5, 0, 0]);
+        assert_eq!(t.vert_lines().collect::<Vec<_>>(), [5]);
+        assert!(t.use_regex_keyword);
+        // A number is the index in Sakura's color table; the first missing number ends the list.
+        assert_eq!(t.regex_keywords.len(), 2);
+        assert_eq!(t.regex_keywords[0].color, "URL");
+        assert_eq!(t.regex_keywords[0].pattern, "/a+/k");
+        assert_eq!(t.regex_keywords[1].color, "NOT");
+    }
+
+    #[test]
+    fn the_coloring_rules_survive_a_write_and_a_read() {
+        let mut t = TypeSettings::basic();
+        t.line_comments[0] = LineComment::new("//", -1);
+        t.line_comments[2] = LineComment::new("*", 6);
+        t.block_comments[1] = BlockComment::new("#if 0", "#endif");
+        t.string_type = string_type::PYTHON;
+        t.string_line_only = true;
+        t.default_outline = outline_type::PYTHON;
+        t.vert_line_idx[..3].copy_from_slice(&[7, 8, 0]);
+        t.use_regex_keyword = true;
+        t.regex_keywords = vec![RegexKeyword {
+            color: "RK3".to_owned(),
+            pattern: "/x,y/k".to_owned(),
+        }];
+        let mut p = Profile::new();
+        t.write(&mut p, 5).unwrap();
+        let back = TypeSettings::read(&p, 5);
+        assert_eq!(back.line_comments, t.line_comments);
+        assert_eq!(back.block_comments, t.block_comments);
+        assert_eq!(back.string_type, string_type::PYTHON);
+        assert!(back.string_line_only);
+        assert_eq!(back.default_outline, outline_type::PYTHON);
+        assert_eq!(back.vert_line_idx[..3], [7, 8, 0]);
+        // The pattern may have a comma: only the first one splits the color from the pattern.
+        assert_eq!(back.regex_keywords, t.regex_keywords);
     }
 }

@@ -40,11 +40,13 @@ pub mod view_settings;
 pub mod zoom;
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use ume_commands::keymap::user::parse_entries;
 use ume_commands::keymap::{KeyMap, Platform, UserRow};
 use ume_config::Profile;
 use ume_config::location::{Environment, Os, candidate_paths, find_existing, write_path};
+use ume_config::settings::DocumentTypes;
 
 pub use mac_key_layout::MacKeyLayout;
 pub use new_document::NewDocumentDefaults;
@@ -54,6 +56,8 @@ pub use view_settings::{Colors, DiffColor, Marks, ViewSettings, WrapMethod};
 #[derive(Clone, Debug, Default)]
 pub struct UserSettings {
     profile: Option<Profile>,
+    /// The document types: Sakura's built-in ones with what the file overrides and adds.
+    types: Arc<DocumentTypes>,
     path: Option<PathBuf>,
     /// Things in the file that could not be used, for the status bar.
     pub warnings: Vec<String>,
@@ -103,6 +107,7 @@ impl UserSettings {
         let (_, problems) = parse_entries(profile.entries("KeyBind"));
         let warnings = problems.iter().map(ToString::to_string).collect();
         Self {
+            types: Arc::new(DocumentTypes::from_profile(&profile)),
             profile: Some(profile),
             path,
             warnings,
@@ -119,12 +124,38 @@ impl UserSettings {
         self.profile.as_ref()
     }
 
+    /// The document types (タイプ別設定).
+    pub fn document_types(&self) -> &DocumentTypes {
+        &self.types
+    }
+
+    /// The document types, to keep beyond the borrow of the settings.
+    pub fn shared_types(&self) -> Arc<DocumentTypes> {
+        Arc::clone(&self.types)
+    }
+
+    /// The index of the document type of a file called `file_name` (no folder), or of a new
+    /// document (the basic type).
+    pub fn type_index_for(&self, file_name: Option<&str>) -> usize {
+        file_name.map_or(0, |name| self.types.type_index_for_file_name(name))
+    }
+
     /// The settings of the view for a file called `file_name` (no folder), or for a new document.
     pub fn view_settings(&self, file_name: Option<&str>) -> ViewSettings {
-        match &self.profile {
-            Some(profile) => ViewSettings::from_profile(profile, file_name, Os::current()),
-            None => ViewSettings::default(),
-        }
+        self.view_settings_of_type(self.type_index_for(file_name))
+    }
+
+    /// The settings of the view for document type `index`.
+    pub fn view_settings_of_type(&self, index: usize) -> ViewSettings {
+        let empty;
+        let profile = match &self.profile {
+            Some(profile) => profile,
+            None => {
+                empty = Profile::new();
+                &empty
+            }
+        };
+        ViewSettings::from_types(&self.types, index, profile, Os::current())
     }
 
     /// The key map for `platform`: Sakura's table read the way `[UME]` `nMacKeyLayout` says
@@ -143,7 +174,15 @@ impl UserSettings {
     /// for a file called `file_name` (`None` for an untitled document). See [`new_document`].
     pub fn new_document_defaults(&self, file_name: Option<&str>) -> NewDocumentDefaults {
         match &self.profile {
-            Some(profile) => NewDocumentDefaults::from_profile(profile, file_name),
+            Some(profile) => NewDocumentDefaults::from_types(profile, &self.types, file_name),
+            None => NewDocumentDefaults::default(),
+        }
+    }
+
+    /// The encoding, BOM and line ending a document of type `index` gets.
+    pub fn new_document_defaults_of_type(&self, index: usize) -> NewDocumentDefaults {
+        match &self.profile {
+            Some(profile) => NewDocumentDefaults::for_type(profile, index),
             None => NewDocumentDefaults::default(),
         }
     }
@@ -184,7 +223,12 @@ mod tests {
         let s = UserSettings::load_from(&[PathBuf::from("/no/such/dir/ume.ini")]);
         assert!(s.path().is_none());
         assert!(s.warnings.is_empty());
-        assert_eq!(s.view_settings(Some("a.txt")), ViewSettings::default());
+        // A file of an unknown type, and a new document, are the basic type.
+        assert_eq!(s.view_settings(Some("a.xyz")), ViewSettings::default());
+        assert_eq!(s.view_settings(None), ViewSettings::default());
+        // The built-in types are there without a file: .txt is テキスト.
+        assert_eq!(s.view_settings(Some("a.txt")).type_index, 1);
+        assert_eq!(s.document_types().len(), 17);
         assert!(s.key_rows().is_empty());
     }
 

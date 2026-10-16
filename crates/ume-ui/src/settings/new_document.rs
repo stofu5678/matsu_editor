@@ -14,10 +14,8 @@
 
 use ume_config::Profile;
 use ume_config::settings::types::eol_type;
-use ume_config::settings::{TypeSettings, types_count};
+use ume_config::settings::{DocumentTypes, TypeSettings};
 use ume_core::encoding::{Encoding, Eol};
-
-use super::doc_type::type_index_for;
 
 /// The encoding, BOM and line ending of a new document.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -42,12 +40,19 @@ impl NewDocumentDefaults {
     /// The defaults for a file called `file_name` (the name only; `None` for an untitled
     /// document, which has the basic type).
     pub fn from_profile(profile: &Profile, file_name: Option<&str>) -> Self {
-        let index = file_name.map_or(0, |name| {
-            let exts: Vec<String> = (0..types_count(profile))
-                .map(|i| TypeSettings::read(profile, i).type_exts)
-                .collect();
-            type_index_for(exts.iter().map(String::as_str), name)
-        });
+        Self::from_types(profile, &DocumentTypes::from_profile(profile), file_name)
+    }
+
+    /// The same, with the document types already read from `profile` (the type of the file is
+    /// found among the built-in types and the ones the file adds).
+    pub fn from_types(profile: &Profile, types: &DocumentTypes, file_name: Option<&str>) -> Self {
+        let index = file_name.map_or(0, |name| types.type_index_for_file_name(name));
+        Self::for_type(profile, index)
+    }
+
+    /// The defaults of document type `index` (what `F_CHANGETYPE` applies to an empty untitled
+    /// document, `CEditDoc::OnChangeType`).
+    pub fn for_type(profile: &Profile, index: usize) -> Self {
         let own = TypeSettings::new_file_keys(profile, i32::try_from(index).unwrap_or(0));
         let basic = TypeSettings::new_file_keys(profile, 0);
 
