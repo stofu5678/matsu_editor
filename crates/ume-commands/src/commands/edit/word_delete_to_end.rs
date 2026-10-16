@@ -22,6 +22,8 @@ impl Command for WordDeleteToEnd {
     const SAKURA: &'static str = "F_WordDeleteToEnd";
 
     fn run(&self, cx: &mut CommandContext<'_>, _args: &[Arg]) -> Result {
+        // Sakura beeps at once with a box selected ("not done for boxes").
+        cx.refuse_box_selection()?;
         cx.move_word_right(true)?;
         if !cx.delete_selection()? {
             cx.beep();

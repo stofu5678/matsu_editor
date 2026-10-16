@@ -20,6 +20,8 @@ impl Command for WordDeleteToStart {
     const SAKURA: &'static str = "F_WordDeleteToStart";
 
     fn run(&self, cx: &mut CommandContext<'_>, _args: &[Arg]) -> Result {
+        // Sakura beeps at once with a box selected ("not done for boxes").
+        cx.refuse_box_selection()?;
         cx.move_word_left(true)?;
         if !cx.delete_selection()? {
             cx.beep();
