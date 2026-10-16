@@ -647,9 +647,10 @@ impl Render for EditorView {
             .children(self.panel.clone())
             .children(self.grep.panel.clone())
             .children(self.grep_progress_bar(cx))
-            .children(self.save_as_dialog.clone())
             .children(self.support_overlays(cx))
             .children(self.window_list.clone())
+            // Above the window list: Save from the list can ask for the options.
+            .children(self.save_as_dialog.clone())
             .into_any_element()
     }
 }

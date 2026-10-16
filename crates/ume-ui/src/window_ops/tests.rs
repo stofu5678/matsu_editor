@@ -528,3 +528,14 @@ fn the_dialog_closes_with_escape_and_enter_chooses_a_window(cx: &mut TestAppCont
     assert!(!w[0].has_list(cx));
     assert_eq!(cx.update(|app| app.active_window()), Some(w[1].handle));
 }
+
+#[gpui::test]
+fn a_long_list_scrolls_to_the_chosen_window(cx: &mut TestAppContext) {
+    let w = windows(cx, 40);
+    w[0].run(cx, "F_WINLIST");
+    w[0].cx(cx).simulate_keystrokes("end");
+    w[0].cx(cx).simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert!(!w[0].has_list(cx));
+    assert_eq!(cx.update(|app| app.active_window()), Some(w[39].handle));
+}

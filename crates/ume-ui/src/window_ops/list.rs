@@ -23,7 +23,7 @@ use std::time::Duration;
 use gpui::{
     AnyWindowHandle, App, AppContext as _, ClickEvent, Context, Entity, FocusHandle, Focusable,
     InteractiveElement, IntoElement, KeyDownEvent, MouseDownEvent, ParentElement, Render,
-    StatefulInteractiveElement, Styled, WeakEntity, Window, div, px, rgb, rgba,
+    ScrollHandle, StatefulInteractiveElement, Styled, WeakEntity, Window, div, px, rgb, rgba,
 };
 use ume_commands::sakura::FUNCTIONS;
 use ume_core::encoding::Encoding;
@@ -127,6 +127,7 @@ pub(crate) struct WindowList {
     selected: usize,
     checked: HashSet<AnyWindowHandle>,
     focus: FocusHandle,
+    scroll: ScrollHandle,
 }
 
 impl WindowList {
@@ -162,6 +163,7 @@ impl WindowList {
             selected,
             checked: HashSet::new(),
             focus: cx.focus_handle(),
+            scroll: ScrollHandle::new(),
         }
     }
 
@@ -255,6 +257,7 @@ impl WindowList {
             }
             _ => return,
         }
+        self.scroll.scroll_to_item(self.selected);
         cx.stop_propagation();
         cx.notify();
     }
@@ -270,7 +273,7 @@ const TEXT: u32 = 0x222222;
 const SELECTED_BG: u32 = 0x2f6fd0;
 
 impl Render for WindowList {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let rows = rows(cx, self.owner);
         self.selected = self.selected.min(rows.len().saturating_sub(1));
         let items: Vec<_> = rows
@@ -327,6 +330,17 @@ impl Render for WindowList {
             })
             .collect();
 
+        // Room for the rows: the height of the window less the title, the buttons and a margin
+        // (the popup has none of them). Longer lists scroll.
+        let spare = if self.dialog { 150. } else { 24. };
+        let max_rows = (window.viewport_size().height - px(spare)).max(px(48.));
+        let rows_box = div()
+            .id("window-list-rows")
+            .max_h(max_rows)
+            .overflow_y_scroll()
+            .track_scroll(&self.scroll)
+            .children(items);
+
         let button = |id: &'static str, text: &'static str| {
             div()
                 .id(id)
@@ -366,7 +380,7 @@ impl Render for WindowList {
                             .border_1()
                             .border_color(rgb(0xaaaaaa))
                             .min_h(px(120.))
-                            .children(items),
+                            .child(rows_box),
                     )
                     .child(
                         div()
@@ -392,7 +406,7 @@ impl Render for WindowList {
                     );
         } else {
             panel = panel
-                .children(items)
+                .child(rows_box)
                 // A click outside the popup closes it, as outside a menu.
                 .on_mouse_down_out(cx.listener(|this, _: &MouseDownEvent, window, cx| {
                     this.close(window, cx);

@@ -52,12 +52,21 @@ fn raw_handle(window: &Window) -> Option<RawWindowHandle> {
         .map(|handle| handle.as_raw())
 }
 
+/// A call into the OS that changes a window.
+type Deferred = Box<dyn FnOnce()>;
+
 /// The real screen. The window that runs the command is borrowed by GPUI while the command runs,
 /// so it is reached through `window`; the others through their handles.
+///
+/// Moving, resizing and raising a window make the OS call GPUI back (`WM_SIZE` and the like), and
+/// GPUI's callbacks need the application, which the command holds while it runs. GPUI's own
+/// `Window::resize` therefore sends the call to the foreground executor; so does this: what
+/// changes a window is queued in `deferred` and run by [`with_screen`] after the command.
 pub(crate) struct Os<'a> {
     window: &'a mut Window,
     cx: &'a mut App,
     current: AnyWindowHandle,
+    deferred: Vec<Deferred>,
 }
 
 impl<'a> Os<'a> {
@@ -67,6 +76,7 @@ impl<'a> Os<'a> {
             window,
             cx,
             current,
+            deferred: Vec::new(),
         }
     }
 
@@ -97,7 +107,12 @@ impl Screen for Os<'_> {
     }
 
     fn place(&mut self, window: AnyWindowHandle, rect: Rect) -> Result<(), Error> {
-        window::place(self.raw(window)?, rect)
+        let raw = self.raw(window)?;
+        self.deferred.push(Box::new(move || {
+            // The command has ended; a refusal of the OS has nowhere to go.
+            let _ = window::place(raw, rect);
+        }));
+        Ok(())
     }
 
     fn cascade_step(&self) -> (i32, i32) {
@@ -127,7 +142,11 @@ impl Screen for Os<'_> {
     }
 
     fn set_topmost(&mut self, window: AnyWindowHandle, topmost: bool) -> Result<(), Error> {
-        window::set_topmost(self.raw(window)?, topmost)
+        let raw = self.raw(window)?;
+        self.deferred.push(Box::new(move || {
+            let _ = window::set_topmost(raw, topmost);
+        }));
+        Ok(())
     }
 }
 
@@ -141,7 +160,16 @@ pub(crate) fn with_screen<R>(
     let all = all_handles(cx);
     let mut screen = Os::new(window, cx);
     let current = screen.current;
-    f(&mut screen, &all, current)
+    let result = f(&mut screen, &all, current);
+    let deferred = std::mem::take(&mut screen.deferred);
+    cx.foreground_executor()
+        .spawn(async move {
+            for call in deferred {
+                call();
+            }
+        })
+        .detach();
+    result
 }
 
 /// The error of a command for a window the OS cannot place.
