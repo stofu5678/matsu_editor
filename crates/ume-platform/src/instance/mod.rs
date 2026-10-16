@@ -75,19 +75,25 @@ impl Key {
     }
 }
 
-/// The path with links and `..` resolved, also when the file does not exist yet (its folder is
-/// resolved then).
+/// The path with links and `..` resolved, also when the file or its folders do not exist yet: the
+/// nearest folder that exists is resolved and the rest is put after it. (The settings folder is made
+/// when the first file is written, and the key must not change then.)
 fn canonical_path(path: &Path) -> PathBuf {
-    if let Ok(path) = path.canonicalize() {
-        return path;
-    }
     let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_owned());
-    if let (Some(parent), Some(name)) = (absolute.parent(), absolute.file_name())
-        && let Ok(parent) = parent.canonicalize()
-    {
-        return parent.join(name);
+    let mut rest = Vec::new();
+    let mut existing = absolute.as_path();
+    loop {
+        if let Ok(resolved) = existing.canonicalize() {
+            return rest.iter().rev().fold(resolved, |p, name| p.join(name));
+        }
+        match (existing.parent(), existing.file_name()) {
+            (Some(parent), Some(name)) => {
+                rest.push(name);
+                existing = parent;
+            }
+            _ => return absolute,
+        }
     }
-    absolute
 }
 
 /// Whether the file system of the folder `dir` ignores the case of names: Windows does in every
@@ -218,6 +224,23 @@ pub fn join_with(key: &Key, request: &Request, handler: Handler, timeouts: Timeo
         }
     }
     Joined::Standalone(last)
+}
+
+/// Runs `send` on a thread and waits for it for `limit`. A call that blocks without a timeout of
+/// its own (a `connect` to a socket whose queue is full) cannot hold the sender longer than that;
+/// the thread is left behind in that case and ends with the process.
+#[cfg(unix)]
+pub(crate) fn bounded<T: Send + 'static>(
+    limit: Duration,
+    send: impl FnOnce() -> Result<T, SendError> + Send + 'static,
+) -> Result<T, SendError> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .name("ume-instance-send".to_owned())
+        .spawn(move || {
+            let _ = tx.send(send());
+        })?;
+    rx.recv_timeout(limit).unwrap_or(Err(SendError::TimedOut))
 }
 
 /// Why a request could not be sent.

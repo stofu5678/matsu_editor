@@ -120,7 +120,11 @@ fn absolute_arg(cwd: &std::path::Path, arg: OsString) -> OsString {
     if arg.is_empty() {
         return arg;
     }
-    cwd.join(arg).into_os_string()
+    // `absolute` also resolves what `join` cannot: on Windows, `C:foo.txt` is relative to the
+    // current folder of drive C, which is not always the working folder.
+    std::path::absolute(&arg)
+        .unwrap_or_else(|_| cwd.join(&arg))
+        .into_os_string()
 }
 
 fn put_bytes(out: &mut Vec<u8>, bytes: &[u8]) {

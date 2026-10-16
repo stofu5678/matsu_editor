@@ -18,7 +18,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use super::{Handler, Key, Request, SendError, Timeouts, exchange, serve_connection};
+use super::{Handler, Key, Request, SendError, Timeouts, bounded, exchange, serve_connection};
 
 /// How long a receiver waits for a client that has connected and not sent its request.
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -149,10 +149,14 @@ pub(super) fn send(
     timeouts: Timeouts,
 ) -> Result<super::Reply, SendError> {
     let socket = socket_path(&private_dir()?, key);
-    let mut stream = connect(&socket, timeouts.receiver)?;
-    stream.set_read_timeout(Some(timeouts.reply))?;
-    stream.set_write_timeout(Some(timeouts.reply))?;
-    Ok(exchange(&mut stream, request)?)
+    let request = request.clone();
+    // `connect` has no timeout, and waits for ever when the queue of the listener is full.
+    bounded(timeouts.receiver + timeouts.reply, move || {
+        let mut stream = connect(&socket, timeouts.receiver)?;
+        stream.set_read_timeout(Some(timeouts.reply))?;
+        stream.set_write_timeout(Some(timeouts.reply))?;
+        Ok(exchange(&mut stream, &request)?)
+    })
 }
 
 /// Connects, trying again for `wait` while the receiver holds the key but has not bound yet.

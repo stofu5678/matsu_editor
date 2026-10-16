@@ -50,6 +50,19 @@ fn the_same_settings_file_gives_the_same_key_however_it_is_written() {
     }
 }
 
+/// The settings folder is made when the first file is written: the key must be the same before and
+/// after, also when more than one folder is missing.
+#[test]
+fn the_key_does_not_change_when_the_folders_of_the_file_are_made() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("a").join("b").join("ume.ini");
+    let before = Key::for_settings_file(&file);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    assert_eq!(Key::for_settings_file(&file), before);
+    std::fs::write(&file, "").unwrap();
+    assert_eq!(Key::for_settings_file(&file), before);
+}
+
 #[test]
 fn another_settings_file_gives_another_key() {
     let dir = tempfile::tempdir().unwrap();
