@@ -3,6 +3,8 @@
 pub mod bookmark_next;
 pub mod bookmark_pattern;
 pub mod bookmark_prev;
+pub mod grep;
+pub mod grep_dialog;
 pub mod isearch_next;
 pub mod isearch_prev;
 pub mod isearch_regexp_next;

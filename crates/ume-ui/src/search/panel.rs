@@ -596,6 +596,8 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // The Grep dialog is in the same place: only one of them is open.
+        self.close_grep_panel(window, cx);
         // Going to a line does not touch the search.
         if mode != PanelMode::Jump
             && let Some(seed) = self.search_seed(cx)
