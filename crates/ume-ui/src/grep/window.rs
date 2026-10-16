@@ -34,6 +34,10 @@ use crate::view::EditorView;
 /// The title of the message boxes of Grep.
 const BOX_TITLE: &str = "UME Editor";
 
+/// How many pieces of the result wait for the window at most (the engine sends 32 KB at most in
+/// one).
+const QUEUE_LEN: usize = 64;
+
 /// The progress is sent at most this often.
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(50);
 
@@ -304,9 +308,9 @@ impl EditorView {
         self.grep.progress = None;
         cx.notify();
 
-        // Unbounded: the pieces are small (the engine sends 32 KB at most) and the window takes
-        // them as they come.
-        let (sender, receiver) = async_channel::unbounded::<Event>();
+        // Bounded: a search that finds faster than the window writes waits for it, so that the
+        // pieces do not pile up in memory and a stop is not behind a long queue.
+        let (sender, receiver) = async_channel::bounded::<Event>(QUEUE_LEN);
         let flag = cancel.clone();
         let task = cx.background_executor().spawn(async move {
             let mut sink = ChannelSink {

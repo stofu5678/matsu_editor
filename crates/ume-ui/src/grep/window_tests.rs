@@ -505,3 +505,22 @@ fn a_window_in_view_mode_gets_a_new_window_for_the_result(cx: &mut TestAppContex
     assert_eq!(other_views(cx, &f.view).len(), 1);
     assert_eq!(text_of(&f.view, cx), "");
 }
+
+#[gpui::test]
+fn only_one_of_the_grep_and_the_search_dialogs_is_open(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    f.run(cx, "F_GREP_DIALOG", &[]);
+    assert!(f.panel_open(cx));
+    f.run(cx, "F_SEARCH_DIALOG", &[]);
+    assert!(!f.panel_open(cx), "the search dialog replaced it");
+    assert!(
+        f.view
+            .read_with(cx, |v, app| v.search_panel_mode(app).is_some())
+    );
+    f.run(cx, "F_GREP_DIALOG", &[]);
+    assert!(f.panel_open(cx));
+    assert!(
+        f.view
+            .read_with(cx, |v, app| v.search_panel_mode(app).is_none())
+    );
+}

@@ -139,7 +139,7 @@ impl GrepSettings {
             ));
         }
         if !self.file.is_empty()
-            && let Err(e) = GrepKeys::parse(&self.file, false)
+            && let Err(e) = GrepKeys::parse(&self.file, self.except_file_regex)
         {
             return Err(DialogError::warning(e.message()));
         }
