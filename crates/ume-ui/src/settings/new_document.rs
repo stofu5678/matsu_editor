@@ -52,8 +52,8 @@ impl NewDocumentDefaults {
         let basic = TypeSettings::new_file_keys(profile, 0);
 
         let fallback = Self::default();
-        // Encodings that are Windows code pages or UTF-32 are not supported yet (another PR adds
-        // code pages); until then they fall back to UTF-8.
+        // A Windows code page is read by its number (CP932 is Shift_JIS); UTF-32 is not supported
+        // and, like UTF-7 and JIS, falls back to UTF-8.
         let encoding = own
             .codetype
             .or(basic.codetype)
@@ -190,10 +190,26 @@ mod tests {
     }
 
     #[test]
+    fn a_code_page_can_be_the_default() {
+        // Sakura stores a code page by its number; CP932 is its Shift_JIS.
+        let p = profile("[Types(0)]\r\neDefaultCodetype=932\r\n");
+        assert_eq!(
+            NewDocumentDefaults::from_profile(&p, None).encoding,
+            Encoding::ShiftJis
+        );
+        let p = profile("[Types(0)]\r\neDefaultCodetype=936\r\nbDefaultBom=1\r\n");
+        let d = NewDocumentDefaults::from_profile(&p, None);
+        let gbk = ume_core::encoding::CodePage::new(936).unwrap();
+        assert_eq!(d.encoding, Encoding::CodePage(gbk));
+        // a code page cannot hold a BOM
+        assert!(!d.bom);
+    }
+
+    #[test]
     fn unsupported_values_fall_back() {
-        // UTF-32 and code pages are not supported yet; UTF-7 cannot be a default; 0 for the line
-        // ending is "no conversion".
-        for code in [12000, 932, 5] {
+        // UTF-32 is not supported; UTF-7 cannot be a default; 0 for the line ending is "no
+        // conversion".
+        for code in [12000, 5] {
             let p = profile(&format!("[Types(0)]\r\neDefaultCodetype={code}\r\n"));
             let d = NewDocumentDefaults::from_profile(&p, None);
             assert_eq!(d.encoding, Encoding::Utf8, "{code}");
