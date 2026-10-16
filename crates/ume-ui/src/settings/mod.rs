@@ -46,13 +46,15 @@ pub use mac_key_layout::MacKeyLayout;
 pub use view_settings::{Colors, Marks, ViewSettings, WrapMethod};
 
 /// The settings file, read once at startup.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct UserSettings {
     profile: Option<Profile>,
     path: Option<PathBuf>,
     /// Things in the file that could not be used, for the status bar.
     pub warnings: Vec<String>,
 }
+
+impl gpui::Global for UserSettings {}
 
 impl UserSettings {
     /// No file: Sakura's defaults.

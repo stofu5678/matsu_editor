@@ -10,7 +10,9 @@
 //! * [`menu`]: Sakura's main menu as a model (labels, shortcuts, what is enabled).
 //! * [`ui_command`]: the commands that need the window (the size of the view, dialogs), one per file
 //!   under `ui_commands/` like the core commands, found by the same Sakura function codes.
-//! * [`open`]: where a file is read into a document (the one place to switch for real encodings).
+//! * [`open`]: where a file is read into a document (encoding detection, BOM, size limit).
+//! * `file_ops`: the flows of the file functions: open, save, close, reopen, and the questions
+//!   they ask.
 //! * the rest is the arithmetic and the glue that need no window and are tested without one:
 //!   [`keys`] (GPUI keystroke to key map chord), [`layout_adapter`] (`ume-layout` as the commands'
 //!   `Layout`, kept up to date after every edit), [`geometry`] and [`hit`] (pixels,
@@ -19,6 +21,7 @@
 pub mod app;
 mod clipboard;
 pub mod document;
+mod file_ops;
 pub mod geometry;
 pub mod hit;
 pub mod keys;
@@ -34,7 +37,7 @@ mod ui_commands;
 pub mod view;
 pub mod word;
 
-pub use app::{StartError, run};
+pub use app::run;
 
 // The commands register themselves with `inventory` when the crate is linked; this makes sure
 // that the linker keeps it (ADR-0013, "守ること").

@@ -1,5 +1,8 @@
 //! The text of the status bar and the title of the window.
 
+use ume_core::buffer::Eol;
+use ume_core::encoding::Encoding;
+
 /// What the status bar shows about the editor.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StatusInfo {
@@ -12,6 +15,9 @@ pub struct StatusInfo {
     pub modified: bool,
     /// Overwrite mode (the Insert key); else insert mode.
     pub overwrite: bool,
+    /// The encoding (with BOM) and the line ending of the file, such as `UTF-8 BOM付  CRLF`
+    /// ([`file_format_label`]). Empty when there is nothing to show.
+    pub file_format: String,
     /// A message about the last command, such as "not implemented yet".
     pub notice: Option<String>,
 }
@@ -27,6 +33,10 @@ pub fn status_text(info: &StatusInfo) -> String {
         if info.overwrite { "上書" } else { "挿入" },
         info.lines
     );
+    if !info.file_format.is_empty() {
+        text.push_str("  |  ");
+        text.push_str(&info.file_format);
+    }
     if info.modified {
         text.push_str("  |  変更あり");
     }
@@ -35,6 +45,31 @@ pub fn status_text(info: &StatusInfo) -> String {
         text.push_str(notice);
     }
     text
+}
+
+/// The encoding, the BOM and the line ending as the status bar shows them. Sakura shows the name of
+/// the encoding with " BOM付" when the document has a BOM, and the name of the line ending
+/// (`CCaret::ShowCaretPosInfo`, `sakura_core/view/CCaret.cpp`; `STR_CARET_WITHBOM` in
+/// `sakura_core/sakura_rc.rc`; `CEol::GetName`, `sakura_core/basis/CEol.cpp`).
+pub fn file_format_label(encoding: Encoding, bom: bool, eol: Eol) -> String {
+    format!(
+        "{}{}  {}",
+        encoding.combo_name(),
+        if bom { " BOM付" } else { "" },
+        eol_name(eol)
+    )
+}
+
+/// The name of a line ending (`CEol::GetName`).
+pub fn eol_name(eol: Eol) -> &'static str {
+    match eol {
+        Eol::CrLf => "CRLF",
+        Eol::Lf => "LF",
+        Eol::Cr => "CR",
+        Eol::Nel => "NEL",
+        Eol::Ls => "LS",
+        Eol::Ps => "PS",
+    }
 }
 
 /// The title of the window: the file name (or 無題 for a new document), a mark when the document
@@ -59,6 +94,7 @@ mod tests {
             lines: 100,
             modified: false,
             overwrite: false,
+            file_format: String::new(),
             notice: None,
         };
         assert_eq!(status_text(&info), "3 行  12 桁  |  挿入  |  全 100 行");
@@ -82,9 +118,31 @@ mod tests {
             lines: 1,
             modified: false,
             overwrite: true,
+            file_format: String::new(),
             notice: None,
         };
         assert_eq!(status_text(&info), "1 行  1 桁  |  上書  |  全 1 行");
+    }
+
+    #[test]
+    fn the_status_shows_the_encoding_and_the_line_ending() {
+        let info = StatusInfo {
+            line: 1,
+            column: 1,
+            lines: 2,
+            modified: false,
+            overwrite: false,
+            file_format: file_format_label(Encoding::Utf8, true, Eol::CrLf),
+            notice: None,
+        };
+        assert_eq!(
+            status_text(&info),
+            "1 行  1 桁  |  挿入  |  全 2 行  |  UTF-8 BOM付  CRLF"
+        );
+        assert_eq!(
+            file_format_label(Encoding::ShiftJis, false, Eol::Lf),
+            "SJIS  LF"
+        );
     }
 
     #[test]
