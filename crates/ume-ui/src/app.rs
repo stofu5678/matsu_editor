@@ -8,13 +8,13 @@ use gpui::{
     App, AppContext as _, Context, Decorations, Entity, Focusable, IntoElement, Menu, MenuItem,
     ParentElement, Render, Styled, Window, actions, div, prelude::FluentBuilder, px, rgb,
 };
-use gpui_component::menu::AppMenuBar;
 use gpui_component::{GlobalState, TitleBar};
 use gpui_platform::application;
 
 use crate::document::SharedDocument;
 use crate::file_ops::windows::open_startup_windows;
 use crate::menu::{Entry, MenuAction, Registered, label_with_shortcut, main_menu};
+use crate::menu_bar::MenuBar;
 use crate::status::status_text;
 use crate::view::{EditorView, RunFunction};
 use ume_commands::keymap::{DisplayStyle, KeyMap};
@@ -110,7 +110,7 @@ fn gpui_items(entries: Vec<Entry>, style: DisplayStyle) -> Vec<MenuItem> {
 /// The content of the window: menu bar, editor, status bar.
 pub struct Workspace {
     editor: Entity<EditorView>,
-    menu_bar: Entity<AppMenuBar>,
+    menu_bar: Entity<MenuBar>,
 }
 
 impl Workspace {
@@ -123,7 +123,7 @@ impl Workspace {
         window.focus(&editor.focus_handle(cx), cx);
         Self {
             editor,
-            menu_bar: AppMenuBar::new(cx),
+            menu_bar: MenuBar::new(cx),
         }
     }
 
