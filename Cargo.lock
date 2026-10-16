@@ -7320,17 +7320,20 @@ dependencies = [
 name = "ume-ui"
 version = "0.0.0"
 dependencies = [
+ "async-channel",
  "gpui-component",
  "gpui-kit-assets",
  "gpui-pre",
  "gpui-pre-platform",
  "inventory",
  "raw-window-handle",
+ "tempfile",
  "ume-commands",
  "ume-config",
  "ume-core",
  "ume-layout",
  "ume-platform",
+ "ume-plugin",
  "ume-print",
 ]
 
