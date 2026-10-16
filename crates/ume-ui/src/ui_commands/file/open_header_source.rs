@@ -7,12 +7,13 @@
 //! document without a file, one that is not C/C++, or a pair that does not exist beeps there and
 //! says so on the status bar here.
 //!
-//! Not done: Sakura also pushes the position to the tag jump stack, so that `F_TAGJUMPBACK` can
-//! return; this program has no tag jump yet.
+//! Like Sakura, it also pushes the place of the caret on the tag jump stack, so that
+//! `F_TAGJUMPBACK` returns here.
 
 use crate::file_ops::header_source::counterpart;
 use crate::file_ops::load::open_paths;
 use crate::file_ops::start;
+use crate::file_ops::tag_jump::push_current;
 use crate::ui_command::{UiCommand, register_ui_command};
 use crate::view::EditorView;
 use gpui::{Context, Window};
@@ -44,6 +45,7 @@ impl UiCommand for OpenHeaderSource {
         };
         start(window, cx, async move |view, cx| {
             open_paths(&view, cx, vec![target], Some(encoding)).await;
+            push_current(&view, cx);
         });
         Ok(())
     }
