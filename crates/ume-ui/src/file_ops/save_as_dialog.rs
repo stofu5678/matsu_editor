@@ -34,10 +34,11 @@ use ume_core::encoding::Encoding;
 
 use crate::view::EditorView;
 
-/// The encodings the dialog offers, in the order of the list. This is the one place where the UI
-/// asks the core for the list; the rest of the dialog works on whatever this returns.
+/// The encodings the dialog offers, in the order of the list: Sakura's nine, then the Windows code
+/// pages ([`Encoding::choices`]). This is the one place where the UI asks the core for the list;
+/// the rest of the dialog works on whatever this returns.
 pub(crate) fn encoding_choices() -> Vec<Encoding> {
-    Encoding::ALL.to_vec()
+    Encoding::choices()
 }
 
 /// The line ending choices (`pEolNameArr`). `None` is "変換なし": keep the endings as they are.
@@ -553,6 +554,18 @@ mod tests {
 
     fn index_of(s: &State, encoding: Encoding) -> usize {
         s.choices.iter().position(|e| *e == encoding).unwrap()
+    }
+
+    #[test]
+    fn the_list_has_sakuras_encodings_and_then_the_code_pages() {
+        let choices = encoding_choices();
+        assert_eq!(&choices[..Encoding::ALL.len()], &Encoding::ALL[..]);
+        let gbk = Encoding::CodePage(ume_core::encoding::CodePage::new(936).unwrap());
+        assert!(choices.contains(&gbk));
+        // a code page has no BOM, so choosing one turns the check box off
+        let mut s = state(Encoding::Utf8, true);
+        s.select(index_of(&s, gbk));
+        assert!(!s.choice().bom);
     }
 
     #[test]
