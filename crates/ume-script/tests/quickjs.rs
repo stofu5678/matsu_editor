@@ -330,6 +330,17 @@ fn a_rejection_that_is_handled_does_not_hide_one_that_is_not() {
         stderr(&report)
     );
 
+    let (report, _) = run(
+        "queueMicrotask(() => { throw new Error('in a job'); });",
+        "",
+    );
+    assert_eq!(report.finished.exit_code, Some(1));
+    let err = stderr(&report);
+    assert!(
+        err.contains("Error: in a job") && err.contains("macro.js:1"),
+        "{err}"
+    );
+
     let (report, _) = run("Promise.reject(new Error('B')).catch(() => {});", "");
     assert_clean_exit(&report);
 }

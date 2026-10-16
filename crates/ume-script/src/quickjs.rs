@@ -70,12 +70,20 @@ impl Engine for QuickJs {
             match runtime.execute_pending_job() {
                 Ok(true) => {}
                 Ok(false) => break,
-                Err(error) => return Err(format!("{error}")),
+                // A callback that threw (`queueMicrotask`): the exception is still pending.
+                Err(_) => {
+                    return context.with(|ctx| {
+                        let exception = ctx.catch();
+                        Err(match restore_hooks(&ctx, &hooks) {
+                            Ok(hooks) => describe_value(&hooks, exception),
+                            Err(message) => message,
+                        })
+                    });
+                }
             }
         }
         context.with(|ctx| {
-            let saved = hooks.borrow().clone().ok_or("the boot is gone")?;
-            let hooks = saved.restore(&ctx).map_err(|e| e.to_string())?;
+            let hooks = restore_hooks(&ctx, &hooks)?;
             let unhandled: Function = hooks.get("unhandled").map_err(|e| e.to_string())?;
             let reasons: Array = unhandled.call(()).map_err(|e| e.to_string())?;
             match reasons.get::<Value>(0) {
@@ -84,6 +92,14 @@ impl Engine for QuickJs {
             }
         })
     }
+}
+
+fn restore_hooks<'js>(
+    ctx: &Ctx<'js>,
+    saved: &RefCell<Option<Hooks>>,
+) -> Result<Object<'js>, String> {
+    let saved = saved.borrow().clone().ok_or("the boot is gone")?;
+    saved.restore(ctx).map_err(|e| e.to_string())
 }
 
 /// Binds the API and runs the script. The error is the text for the standard error.
