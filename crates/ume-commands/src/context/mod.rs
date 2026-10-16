@@ -435,6 +435,9 @@ mod tests {
     }
 
     impl Layout for CachedLayout {
+        fn tab_width(&self) -> usize {
+            self.inner.tab_width()
+        }
         fn edited(&mut self, doc: &Document, _change: &TextChange) {
             self.lines = doc.line_count();
             self.edits += 1;

@@ -22,6 +22,10 @@ pub const LAYOUT_BUDGET: Duration = Duration::from_millis(4);
 pub struct RowLayout<'a>(pub &'a mut DocumentLayout);
 
 impl Layout for RowLayout<'_> {
+    fn tab_width(&self) -> usize {
+        self.0.config().effective_tab_width() as usize
+    }
+
     fn edited(&mut self, doc: &Document, change: &TextChange) {
         // `DocumentLayout::edited` follows one edit made right before `doc`, which is what the
         // context promises. If the index still disagrees, start again from the document.
@@ -93,6 +97,29 @@ mod tests {
 
     fn laid_out(d: &Document, cfg: LayoutConfig) -> DocumentLayout {
         DocumentLayout::laid_out(d, cfg).unwrap()
+    }
+
+    #[test]
+    fn the_tab_width_is_the_effective_one_of_the_layout() {
+        let d = doc("a\n");
+        let mut layout = laid_out(
+            &d,
+            LayoutConfig {
+                tab_width: 8,
+                ..LayoutConfig::default()
+            },
+        );
+        assert_eq!(RowLayout(&mut layout).tab_width(), 8);
+        // a tab width that is not less than the wrap column falls back to 4
+        let mut layout = laid_out(
+            &d,
+            LayoutConfig {
+                tab_width: 8,
+                wrap: Wrap::Columns(8),
+                ..LayoutConfig::default()
+            },
+        );
+        assert_eq!(RowLayout(&mut layout).tab_width(), 4);
     }
 
     /// Without wrapping the real layout must agree with the simple layout that the commands'

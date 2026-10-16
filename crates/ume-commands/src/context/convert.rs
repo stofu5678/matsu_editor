@@ -4,21 +4,10 @@
 //! command (`Command_TOLOWER`, `Command_TABTOSPACE` and the others in
 //! `sakura_core/cmd/CViewCommander_Convert.cpp`) only calls it with its function code.
 
-use ume_core::buffer::Pos;
 use ume_core::cursor::SelectionMode;
 
 use super::CommandContext;
 use crate::command::Result;
-
-/// The most tabs that [`CommandContext::tab_width`] looks at.
-const MAX_TABS_SEEN: usize = 16;
-/// How many lines around the selection [`CommandContext::tab_width`] searches for tabs.
-const TAB_SEARCH_LINES: usize = 200;
-/// The largest tab width that Sakura allows (`MAXLINEKETAS` is 64).
-const MAX_TAB_WIDTH: usize = 64;
-/// Sakura's default tab width (`m_nTabSpace`, `InitTypeConfigDefault` in
-/// `sakura_core/types/CType.cpp`).
-const DEFAULT_TAB_WIDTH: usize = 4;
 
 impl CommandContext<'_> {
     /// Replaces the selected text by `convert(selected text)`.
@@ -51,7 +40,7 @@ impl CommandContext<'_> {
             return Ok(());
         };
         let old = self.doc().text_between(from, to)?;
-        let tab_width = self.tab_width(from, to)?;
+        let tab_width = self.tab_width();
         let start_col = self.layout.display_col(self.doc(), from)?;
         let new = convert(&old, tab_width, start_col);
         let end = if new == old {
@@ -62,46 +51,12 @@ impl CommandContext<'_> {
         self.select_range(from, end)
     }
 
-    /// The tab width of the layout, found from the display columns of the tabs near `from..to`.
+    /// The tab width of the layout ([`Layout::tab_width`](crate::layout::Layout::tab_width)).
     ///
-    /// The [`Layout`](crate::layout::Layout) trait has no tab width, so it is derived: a tab at
-    /// display column `c` that ends at column `e` means the width `w` with `(c / w + 1) * w == e`.
-    /// The widths that fit all the tabs seen are the candidates (a lone tab at column 7 that ends
-    /// at 8 fits 1, 2, 4 and 8). Sakura's default 4 is taken if it is a candidate, else the
-    /// largest. With no tab in the text around the selection, 4 is used too. So the answer is a
-    /// guess when the tabs do not settle it; a `Layout::tab_width` would make it exact (the
-    /// layout trait is not changed by this module). Only the lines near the selection are
-    /// searched, because a document may be huge.
-    pub fn tab_width(&self, from: Pos, to: Pos) -> Result<usize> {
-        let first = from.line.saturating_sub(TAB_SEARCH_LINES);
-        let last = (to.line + TAB_SEARCH_LINES + 1).min(self.doc().line_count());
-        // the lines of the selection first, then the ones before it
-        let order = (from.line..last).chain((first..from.line).rev());
-        let mut seen: Vec<(usize, usize)> = Vec::new();
-        'lines: for line in order {
-            let Some(l) = self.doc().line(line)? else {
-                continue;
-            };
-            for (col, _) in l.text.match_indices('\t') {
-                let before = self.layout.display_col(self.doc(), Pos::new(line, col))?;
-                let after = self
-                    .layout
-                    .display_col(self.doc(), Pos::new(line, col + 1))?;
-                seen.push((before, after));
-                if seen.len() >= MAX_TABS_SEEN {
-                    break 'lines;
-                }
-            }
-        }
-        let fits = |w: usize| seen.iter().all(|&(c, e)| (c / w + 1) * w == e);
-        Ok(if fits(DEFAULT_TAB_WIDTH) {
-            DEFAULT_TAB_WIDTH
-        } else {
-            (1..=MAX_TAB_WIDTH)
-                .rev()
-                .find(|&w| fits(w))
-                .unwrap_or(DEFAULT_TAB_WIDTH)
-        })
+    /// Sakura gives the conversions `m_cLayoutMgr.GetTabSpaceKetas()`, the tab width of the
+    /// layout (`CEditView::ConvSelectedArea` in `sakura_core/view/CEditView.cpp`).
+    pub fn tab_width(&self) -> usize {
+        self.layout.tab_width()
     }
 }
 
@@ -114,29 +69,14 @@ mod tests {
     use super::*;
     use crate::layout::PlainLayout;
 
-    fn tab_width_of(text: &str, layout_tab: usize) -> usize {
-        let mut model = DocumentModel::new(Document::from_utf8(text.as_bytes().to_vec()).unwrap());
-        let mut cursor = Cursor::default();
-        let mut layout = PlainLayout {
-            tab_width: layout_tab,
-        };
-        let cx = CommandContext::new(&mut model, &mut cursor, &mut layout, None);
-        cx.tab_width(Pos::new(0, 0), Pos::new(0, 0)).unwrap()
-    }
-
     #[test]
-    fn the_tab_width_is_found_from_the_tabs_in_the_text() {
-        assert_eq!(tab_width_of("\tx", 8), 8);
-        assert_eq!(tab_width_of("\tx", 2), 2);
-        assert_eq!(tab_width_of("ab\tx", 4), 4);
-        // a tab at column 7 that ends at 8 fits 1, 2, 4 and 8; Sakura's 4 is taken
-        assert_eq!(tab_width_of("abcdefg\tz", 8), 4);
-        // a tab at column 3 that ends at 4 fits 1, 2 and 4
-        assert_eq!(tab_width_of("abc\tx", 4), 4);
-        // two tabs settle what one cannot: columns 3 -> 6 and 6 -> 9 mean 3
-        assert_eq!(tab_width_of("abc\t\tx", 3), 3);
-        // no tab: Sakura's default
-        assert_eq!(tab_width_of("abc", 8), 4);
-        assert_eq!(tab_width_of("", 8), 4);
+    fn the_tab_width_is_the_one_of_the_layout() {
+        for width in [1, 2, 4, 8] {
+            let mut model = DocumentModel::new(Document::from_utf8(b"\tx".to_vec()).unwrap());
+            let mut cursor = Cursor::default();
+            let mut layout = PlainLayout { tab_width: width };
+            let cx = CommandContext::new(&mut model, &mut cursor, &mut layout, None);
+            assert_eq!(cx.tab_width(), width);
+        }
     }
 }

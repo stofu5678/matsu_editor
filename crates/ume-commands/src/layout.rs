@@ -52,6 +52,11 @@ pub trait Layout {
     /// and returns the position at display column `goal_col` there. Sakura moves to the goal
     /// column of the same row when it cannot move further (`CCaret::Cursor_UPDOWN`).
     fn move_rows(&self, doc: &Document, pos: Pos, rows: isize, goal_col: usize) -> Result<Pos>;
+
+    /// The width of a tab stop in display columns, at least 1: the tab width of the document
+    /// type that the layout uses (`CLayoutMgr::GetTabSpaceKetas`). It must be the width that
+    /// [`display_col`](Self::display_col) counts tabs with.
+    fn tab_width(&self) -> usize;
 }
 
 /// A layout without wrapping: a row is a line. Tabs go to the next multiple of 4; chars of East
@@ -108,6 +113,10 @@ impl PlainLayout {
 }
 
 impl Layout for PlainLayout {
+    fn tab_width(&self) -> usize {
+        self.tab_width.max(1)
+    }
+
     // Rows are computed from the document on every call, so there is nothing to update.
     fn edited(&mut self, _doc: &Document, _change: &TextChange) {}
 
