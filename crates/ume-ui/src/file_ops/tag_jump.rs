@@ -16,6 +16,8 @@
 //! the caret (`Command_TagJumpByTagsFile`); this program has no tags file support yet, so it only
 //! says that it cannot jump.
 
+use std::time::Duration;
+
 use gpui::{AnyWindowHandle, AsyncWindowContext, Context, Global, WeakEntity};
 use ume_core::buffer::{Pos, col_from_utf16};
 use ume_core::tag_jump::{TagTarget, find_target};
@@ -151,6 +153,14 @@ async fn jump_to(target: &TagTarget, cx: &mut AsyncWindowContext) -> bool {
         .ok()
         .flatten();
     if let Some((handle, editor)) = open {
+        // A window that is still reading its file would drop the caret when the file arrives.
+        let timer = cx.background_executor().clone();
+        while cx
+            .update(|_, app| windows::has_pending(app, handle))
+            .unwrap_or(false)
+        {
+            timer.timer(Duration::from_millis(50)).await;
+        }
         // The place is set before the window comes to the front, as in Sakura.
         let own = cx.window_handle() == handle;
         let moved = cx.update(|_, app| {
@@ -187,7 +197,16 @@ async fn jump_to(target: &TagTarget, cx: &mut AsyncWindowContext) -> bool {
     // The file is read in the new window, which shows the progress and the errors.
     let loaded = load_here(&editor, &mut window_cx, &path, None, None).await;
     if !loaded {
-        window_cx.update(|window, _| window.remove_window()).ok();
+        // The window was opened for this jump and has no file; one in which the user has typed
+        // meanwhile (which is why a load is dropped) stays.
+        let modified = editor
+            .read_with(&window_cx, |view, app| {
+                view.document().read(app).model().is_modified()
+            })
+            .unwrap_or(true);
+        if !modified {
+            window_cx.update(|window, _| window.remove_window()).ok();
+        }
         return false;
     }
     editor

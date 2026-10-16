@@ -786,12 +786,16 @@ mod tests {
         );
     }
 
+    // `/root` is not an absolute path on Windows.
+    #[cfg(unix)]
     #[test]
     fn a_heading_can_be_jumped_from_too() {
         let w = world(&[r#"■"/p/a.txt""#], &["/p/a.txt"]);
         assert_eq!(w.jump(0), target("/p/a.txt", None, None));
     }
 
+    // `/root` is not an absolute path on Windows.
+    #[cfg(unix)]
     #[test]
     fn unix_style_headings_use_slashes() {
         let w = world(
@@ -817,6 +821,8 @@ mod tests {
         assert_eq!(w.jump(2), None);
     }
 
+    // `/root` is not an absolute path on Windows.
+    #[cfg(unix)]
     #[test]
     fn a_relative_heading_needs_a_base_folder() {
         let w = world(
