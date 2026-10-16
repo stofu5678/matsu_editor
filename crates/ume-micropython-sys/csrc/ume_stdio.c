@@ -7,6 +7,7 @@
 
 #include <stddef.h>
 
+#include "py/lexer.h"
 #include "py/obj.h"
 #include "py/runtime.h"
 #include "py/stream.h"
@@ -124,3 +125,9 @@ static mp_obj_t ume_open(size_t n_args, const mp_obj_t *args, mp_map_t *kwargs) 
     mp_raise_OSError(MP_EPERM);
 }
 MP_DEFINE_CONST_FUN_OBJ_KW(mp_builtin_open_obj, 1, ume_open);
+
+// `execfile` reads a file with this; there is no file system.
+mp_lexer_t *mp_lexer_new_from_file(qstr filename) {
+    (void)filename;
+    mp_raise_OSError(MP_EPERM);
+}
