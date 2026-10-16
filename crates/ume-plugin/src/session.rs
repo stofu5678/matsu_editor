@@ -14,7 +14,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::boot;
-use crate::protocol::{self, InitializeInfo};
+use crate::protocol::{self, InitializeInfo, ScriptSource};
 
 /// The time that a macro may run if the editor does not say otherwise.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -29,7 +29,17 @@ pub enum Language {
     Python,
     Ruby,
     Php,
+    /// Run by the bundled script host (`ume-script --engine lua`), which sits next to the
+    /// editor's executable. The next bundled engines add a variant like this one.
+    Lua,
 }
+
+/// The file name of the bundled script host.
+pub const SCRIPT_HOST: &str = if cfg!(windows) {
+    "ume-script.exe"
+} else {
+    "ume-script"
+};
 
 impl Language {
     /// The language of a macro file, by its extension.
@@ -39,6 +49,7 @@ impl Language {
             "py" => Some(Self::Python),
             "rb" => Some(Self::Ruby),
             "php" => Some(Self::Php),
+            "lua" => Some(Self::Lua),
             _ => None,
         }
     }
@@ -49,12 +60,27 @@ impl Language {
             Self::Python => "Python",
             Self::Ruby => "Ruby",
             Self::Php => "PHP",
+            Self::Lua => "Lua (ume-script)",
+        }
+    }
+
+    /// The engine that the bundled host is asked for (`None` for the external interpreters).
+    fn host_engine(self) -> Option<&'static str> {
+        match self {
+            Self::Lua => Some("lua"),
+            Self::JavaScript | Self::Python | Self::Ruby | Self::Php => None,
         }
     }
 
     /// The usual name of the interpreter on this OS, which the system finds on the `PATH`.
     pub fn default_interpreter(self) -> OsString {
         match self {
+            // Next to the editor; if that fails, the system looks on the `PATH`.
+            Self::Lua => std::env::current_exe()
+                .ok()
+                .map(|exe| exe.with_file_name(SCRIPT_HOST))
+                .filter(|host| host.is_file())
+                .map_or_else(|| SCRIPT_HOST.into(), PathBuf::into_os_string),
             Self::JavaScript => "node".into(),
             Self::Python if cfg!(windows) => "python".into(),
             Self::Python => "python3".into(),
@@ -69,6 +95,8 @@ impl Language {
     /// in `MacroConfig::interpreter`. Nothing calls it by default.
     pub fn real_interpreter_path(self, interpreter: &OsStr) -> io::Result<PathBuf> {
         let (flag, code) = match self {
+            // The host is the executable itself; there is no launcher to see through.
+            Self::Lua => return Ok(PathBuf::from(interpreter)),
             Self::JavaScript => ("-p", "process.execPath"),
             Self::Python => ("-c", "import sys; print(sys.executable)"),
             // A version manager (asdf, rbenv) answers with a shim; this is the real one.
@@ -134,6 +162,11 @@ pub enum StartError {
         script: PathBuf,
     },
     Boot(std::io::Error),
+    /// The script could not be read (the bundled host gets its text from the editor).
+    ReadScript {
+        script: PathBuf,
+        source: std::io::Error,
+    },
     Spawn {
         language: Language,
         interpreter: OsString,
@@ -146,10 +179,15 @@ impl std::fmt::Display for StartError {
         match self {
             Self::UnknownLanguage { script } => write!(
                 f,
-                "{}: マクロの拡張子は .mjs、.js、.cjs、.py、.rb、.php のどれかにしてください",
+                "{}: マクロの拡張子は .mjs、.js、.cjs、.py、.rb、.php、.lua のどれかにしてください",
                 script.display()
             ),
             Self::Boot(err) => write!(f, "マクロの準備に失敗しました: {err}"),
+            Self::ReadScript { script, source } => write!(
+                f,
+                "{} を読めませんでした (UTF-8 で保存してください): {source}",
+                script.display()
+            ),
             Self::Spawn {
                 language,
                 interpreter,
@@ -230,20 +268,41 @@ pub type Sink = Arc<dyn Fn(HostEvent) + Send + Sync>;
 /// Starts the macro. The events go to `sink` from other threads, in order, ending with
 /// `Finished`.
 pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
-    let boot_dir = boot::write_boot_files(config.temp_dir.as_deref()).map_err(StartError::Boot)?;
+    let script = match config.language {
+        Language::Lua => Some(read_script(&config.script)?),
+        Language::JavaScript | Language::Python | Language::Ruby | Language::Php => None,
+    };
+    // The bundled host needs no boot files.
+    let boot_dir = if config.language == Language::Lua {
+        None
+    } else {
+        Some(boot::write_boot_files(config.temp_dir.as_deref()).map_err(StartError::Boot)?)
+    };
+    let boot_files = |name: &str| {
+        boot_dir
+            .as_ref()
+            .map(|dir| dir.path().join(name))
+            .unwrap_or_default()
+    };
     let mut command = Command::new(&config.interpreter);
     match config.language {
+        Language::Lua => {
+            // The text goes in `initialize`, so there is no path to open.
+            command
+                .arg("--engine")
+                .arg(config.language.host_engine().unwrap_or_default());
+        }
         Language::JavaScript => {
             command
                 .arg("--require")
-                .arg(boot_dir.path().join(boot::JS_BOOT))
+                .arg(boot_files(boot::JS_BOOT))
                 .arg(&config.script);
         }
         Language::Python => {
             // -u: no buffering, so the user's output and the requests stay in order.
             command
                 .arg("-u")
-                .arg(boot_dir.path().join(boot::PY_BOOT))
+                .arg(boot_files(boot::PY_BOOT))
                 .arg(&config.script);
         }
         Language::Ruby => {
@@ -251,7 +310,7 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
             command
                 .arg("-E")
                 .arg("UTF-8")
-                .arg(boot_dir.path().join(boot::RB_BOOT))
+                .arg(boot_files(boot::RB_BOOT))
                 .arg(&config.script);
         }
         Language::Php => {
@@ -270,7 +329,7 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
                     "-d",
                     "output_buffering=0",
                 ])
-                .arg(boot_dir.path().join(boot::PHP_BOOT))
+                .arg(boot_files(boot::PHP_BOOT))
                 .arg(&config.script);
         }
     }
@@ -305,6 +364,7 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
             editor_version: env!("CARGO_PKG_VERSION").into(),
             process_id: std::process::id(),
             document_path: config.document_path.clone(),
+            script,
         }))
         .expect("the receiver is alive");
     thread::spawn(move || {
@@ -405,7 +465,9 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
         // The folder goes before the end is reported. The caller may exit the process as soon as
         // it has seen `Finished`, which would cut the removal short and leave the folder.
         // A folder that cannot be removed is tried once more when this thread drops it.
-        let _ = boot_dir.remove();
+        if let Some(dir) = &mut boot_dir {
+            let _ = dir.remove();
+        }
         let mut ended = ended.lock().unwrap_or_else(PoisonError::into_inner);
         *ended = true;
         sink(HostEvent::Finished(Finished {
@@ -416,6 +478,25 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
     });
 
     Ok(Session { writer, cancel })
+}
+
+/// Reads the script for a host that gets its text in `initialize`. It must be UTF-8; a BOM is
+/// dropped.
+fn read_script(path: &Path) -> Result<ScriptSource, StartError> {
+    let fail = |source| StartError::ReadScript {
+        script: path.to_path_buf(),
+        source,
+    };
+    let bytes = std::fs::read(path).map_err(fail)?;
+    let source = String::from_utf8(bytes)
+        .map_err(|e| fail(io::Error::new(io::ErrorKind::InvalidData, e)))?;
+    Ok(ScriptSource {
+        name: path.display().to_string(),
+        source: source
+            .strip_prefix('\u{feff}')
+            .unwrap_or(&source)
+            .to_string(),
+    })
 }
 
 /// Reads lines until the end of the stream. The bytes are read as UTF-8, and anything that is
@@ -444,7 +525,6 @@ pub struct Report {
 
 impl Report {
     /// The lines of one stream.
-    #[cfg(test)]
     pub fn lines(&self, stream: Stream) -> Vec<&str> {
         self.output
             .iter()
@@ -486,6 +566,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_script_for_the_host_is_read_as_utf8_without_its_bom() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("あ.lua");
+        std::fs::write(&path, "\u{feff}print('日本語')").unwrap();
+        let script = read_script(&path).unwrap();
+        assert_eq!(script.source, "print('日本語')");
+        assert_eq!(script.name, path.display().to_string());
+
+        std::fs::write(&path, b"print('\x82\xa0')").unwrap(); // Shift_JIS
+        assert!(matches!(
+            read_script(&path),
+            Err(StartError::ReadScript { .. })
+        ));
+        assert!(read_script(&dir.path().join("none.lua")).is_err());
+    }
+
+    #[test]
     fn language_by_extension() {
         assert_eq!(
             Language::of_file(Path::new("a.js")),
@@ -498,6 +595,7 @@ mod tests {
         );
         assert_eq!(Language::of_file(Path::new("a.rb")), Some(Language::Ruby));
         assert_eq!(Language::of_file(Path::new("a.PHP")), Some(Language::Php));
+        assert_eq!(Language::of_file(Path::new("a.Lua")), Some(Language::Lua));
         assert_eq!(Language::of_file(Path::new("a.txt")), None);
         assert_eq!(Language::of_file(Path::new("noext")), None);
     }

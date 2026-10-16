@@ -230,6 +230,21 @@ JSON-RPC の方式について、Codex が挙げた点。
 - VBScript は Windows 11 24H2 で「オプション機能」になり（既定で有効）、2027 年ごろに既定で無効になる予定。削除の時期は未定
 - `-ExecutionPolicy Bypass` は、グループポリシーを越えられない
 
+## 同梱のスクリプトホスト（ume-script）
+
+2026-10-16 にユーザーが決めた: Lua・QuickJS（JavaScript）・MicroPython・mruby の処理系を同梱する。ただし本体のプロセスには入れず、`ume` の隣に置く 1 つの別の実行ファイル `ume-script` に入れる。`ume-script` は、外部の処理系と同じ JSON-RPC のマクロの仕様（上の 1.〜3.）を話す。止まったり無限ループしたりしても、巻き込まれるのはそのプロセスだけで、エディタは、ほかのマクロと同じく時間切れで止める。どの言語も同じしくみで動く。
+
+- 実装は `crates/ume-script`。起動のしかたは `ume-script --engine lua`。`--engine` で処理系を選ぶ。今あるのは Lua（5.4。`mlua` に同梱の C のソースをビルドして使う）だけで、ほかの処理系は `Engine` トレイトを実装して `engine::by_name` に足す
+- 拡張子との対応は、`.lua` が Lua（同梱）。エディタ（`ume-plugin` の `Language::Lua`）が、`ume` の実行ファイルの隣の `ume-script` を起動する。`MacroConfig::interpreter` で別の場所を指せる（テストが使う）。隣になければ `PATH` から探す
+- 利用者のスクリプトは、ファイルのパスを引数で渡さず、エディタが読んで `initialize` の `params.script`（`name` と `source`）で渡す（「Lua」の節の理由と同じ）。UTF-8 でなければエディタが読み込みの時点で断る。先頭の BOM は取る
+- ホストは `initialize` を読み、スクリプトを実行して、`Editor.InsText(...)` などの呼び出しを要求として送り、応答を待つ。やることは `boot.cjs`・`boot.py` と同じ
+  - `Editor` と、その関数、`EditorError` はグローバルにある。関数は `ume_plugin::api::FUNCS`（JavaScript と Python の生成元と同じ表）から、Rust の関数として束ねる。1 つずつ書いてはいない
+  - 応答がエラーなら、`EditorError`（`code`・`message`・呼んだ場所 `where`）を投げる。`pcall` で受けられ、受けなければ `名前:行: EditorError -32602: ...` で終わる
+  - 引数の最後の `nil` は省く。整数の値の浮動小数点数（`4 / 2`）は整数として送る。表や関数など JSON にできない値は、その場で `-32602` の `EditorError` にする
+  - `print` は Rust で標準出力に書いて、すぐ流す。`io.write` と `io.stderr` は、バッファーを切って（`setvbuf("no")`）、要求との順番を保つ
+  - スクリプトのエラーは、行番号つきで標準エラーに書き、終了コード 1 で終わる。最初の行が `#` で始まる（シバン）ときは、行番号を保ったままコメントにする
+- 配布物には、`ume` の隣に `ume-script` も入れる（リリースのパッケージの作りで扱う）
+
 ## 試作の結果
 
 `poc/gpui-textview` で 2026-10-11 に作り、2026-10-14 に Windows の Python でも確かめた。コード、API の表、制約は [poc/gpui-textview](../../poc/gpui-textview/README.md) の「マクロ（JSON-RPC）」にある。

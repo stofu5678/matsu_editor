@@ -117,6 +117,10 @@ fn files_are_told_apart_by_their_extension() {
         file_kind(Path::new("a.PHP")),
         FileKind::Script(Language::Php)
     );
+    assert_eq!(
+        file_kind(Path::new("a.lua")),
+        FileKind::Script(Language::Lua)
+    );
     assert_eq!(file_kind(Path::new("a.vbs")), FileKind::Unknown);
     assert_eq!(file_kind(Path::new("macro")), FileKind::Unknown);
 }
