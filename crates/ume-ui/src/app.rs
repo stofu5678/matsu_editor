@@ -15,6 +15,7 @@ use crate::document::SharedDocument;
 use crate::file_ops::windows::open_startup_windows;
 use crate::menu::{Entry, MenuAction, Registered, label_with_shortcut, main_menu};
 use crate::menu_bar::MenuBar;
+use crate::panes::PaneSet;
 use crate::status::status_text;
 use crate::view::{EditorView, RunFunction};
 use ume_commands::keymap::{DisplayStyle, KeyMap};
@@ -108,7 +109,7 @@ fn gpui_items(entries: Vec<Entry>, style: DisplayStyle) -> Vec<MenuItem> {
 
 /// The content of the window: menu bar, editor, status bar.
 pub struct Workspace {
-    editor: Entity<EditorView>,
+    pub(crate) panes: PaneSet,
     menu_bar: Entity<MenuBar>,
 }
 
@@ -120,24 +121,30 @@ impl Workspace {
     ) -> Self {
         let editor = cx.new(|cx| EditorView::new(document, cx));
         window.focus(&editor.focus_handle(cx), cx);
-        Self {
-            editor,
+        let host = cx.weak_entity();
+        editor.update(cx, |view, _| view.split_host = Some(host));
+        let mut workspace = Self {
+            panes: PaneSet::new(editor.clone()),
             menu_bar: MenuBar::new(cx),
-        }
+        };
+        workspace.adopt(0, editor, window, cx);
+        workspace
     }
 
+    /// The pane the user works in (the only pane unless the window is split).
     pub fn editor(&self) -> &Entity<EditorView> {
-        &self.editor
+        self.panes.active()
     }
 }
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let editor = self.editor.read(cx);
+        let active = self.panes.active().clone();
+        let editor = active.read(cx);
         window.set_window_title(&editor.title(cx));
         let status = status_text(&editor.status(cx));
         let show_status_bar = editor.status_bar_shown();
-        let macro_panel = editor.macro_panel(self.editor.clone());
+        let macro_panel = editor.macro_panel(active.clone());
         let ui_font = gpui_component::Theme::global(cx).font_family.clone();
         // A Wayland compositor without server-side decorations, such as WSLg's, leaves the title
         // bar and its buttons to the app.
@@ -162,7 +169,12 @@ impl Render for Workspace {
                         .child(self.menu_bar.clone()),
                 )
             })
-            .child(div().flex_1().overflow_hidden().child(self.editor.clone()))
+            .child(
+                div()
+                    .flex_1()
+                    .overflow_hidden()
+                    .child(self.render_panes(cx)),
+            )
             .children(macro_panel)
             .when(show_status_bar, |this| {
                 this.child(

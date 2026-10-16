@@ -18,6 +18,7 @@ mod element;
 mod input;
 mod mouse;
 pub(crate) mod paging;
+pub(crate) mod pane;
 mod settings;
 #[cfg(test)]
 mod settings_tests;
@@ -158,6 +159,8 @@ pub struct EditorView {
     pub(crate) support: crate::support::Support,
     /// The window list (popup or dialog) over the view, while one is open.
     pub(crate) window_list: Option<Entity<crate::window_ops::list::WindowList>>,
+    /// The window that holds this view among its panes (`crate::panes`).
+    pub(crate) split_host: Option<gpui::WeakEntity<crate::app::Workspace>>,
     font_family: SharedString,
     font_size: f32,
     _subscription: Subscription,
@@ -204,6 +207,7 @@ impl EditorView {
             save_as_dialog: None,
             support: Default::default(),
             window_list: None,
+            split_host: None,
             font_family: FONT_FAMILY.into(),
             font_size: crate::settings::ViewSettings::default().font_px(),
             _subscription: subscription,
