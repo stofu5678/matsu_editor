@@ -211,17 +211,17 @@ impl Runner<'_> {
         backup: bool,
     ) -> Result<bool, Stopped> {
         let old = format!("{path}{BACKUP_SUFFIX}");
+        // The file is copied before it is replaced, to a name of its own: an earlier backup stays
+        // until the new content is in place.
+        let staged = format!("{old}.new");
         if backup {
-            // An old backup goes first (`DeleteFile`), then the file is kept (`MoveFile`).
-            if Path::new(&old).exists() && std::fs::remove_file(&old).is_err() {
-                self.buffer.push_str(&format::replace_delete_error(&old));
-                return Ok(false);
-            }
-            if std::fs::copy(path, &old).is_err() {
+            if std::fs::copy(path, &staged).is_err() {
+                let _ = std::fs::remove_file(&staged);
                 self.buffer.push_str(&format::replace_replace_error(&old));
                 return Ok(false);
             }
             self.kept.insert(old.clone());
+            self.kept.insert(staged.clone());
         }
         let options = SaveOptions::keep(file);
         let cancel = self.cancel;
@@ -233,11 +233,14 @@ impl Runner<'_> {
             }
         });
         let Err(error) = saved else {
+            if backup {
+                self.keep_backup(&staged, &old);
+            }
             return Ok(true);
         };
         if backup {
             // The old file is as it was: the copy of it is not needed.
-            let _ = std::fs::remove_file(&old);
+            let _ = std::fs::remove_file(&staged);
         }
         match error {
             FileError::Cancelled => return Err(Stopped),
@@ -246,5 +249,17 @@ impl Runner<'_> {
             _ => self.buffer.push_str(&format::file_write_error(path)),
         }
         Ok(false)
+    }
+
+    /// The copy of the old file takes the place of the earlier backup (`DeleteFile`, then
+    /// `MoveFile` in `CWriteData::Close`).
+    fn keep_backup(&mut self, staged: &str, old: &str) {
+        if Path::new(old).exists() && std::fs::remove_file(old).is_err() {
+            let _ = std::fs::remove_file(staged);
+            self.buffer.push_str(&format::replace_delete_error(old));
+        } else if std::fs::rename(staged, old).is_err() {
+            let _ = std::fs::remove_file(staged);
+            self.buffer.push_str(&format::replace_replace_error(old));
+        }
     }
 }

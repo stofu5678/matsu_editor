@@ -453,15 +453,19 @@ fn lines_without_a_hit_cannot_be_asked_for() {
 fn a_read_only_file_is_not_changed_and_is_told() {
     use std::os::unix::fs::PermissionsExt;
     let p = Project::new();
-    p.write("a.txt", b"abc\n").write("b.txt", b"abc\n");
+    p.write("a.txt", b"abc\n")
+        .write("b.txt", b"abc\n")
+        .write("a.txt.skrold", b"older\n");
     let path = p.dir.path().join("a.txt");
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).unwrap();
     let (text, outcome) = grep(&p.info("abc", "d"));
     assert_eq!(p.read("a.txt"), b"abc\n");
-    assert!(
-        !p.exists("a.txt.skrold"),
-        "the backup of a failed file is removed"
+    assert_eq!(
+        p.read("a.txt.skrold"),
+        b"older\n",
+        "an earlier backup stays when the file could not be written"
     );
+    assert!(!p.exists("a.txt.skrold.new"), "and no copy is left");
     assert_eq!(p.read("b.txt"), b"d\n");
     assert_eq!(outcome.hits, 1, "only the file that was written counts");
     assert!(
