@@ -2,9 +2,6 @@
 //!
 //! Sakura: `CViewCommander::Command_JUMPHIST_SET` in `sakura_core/cmd/CViewCommander_Cursor.cpp`, called from
 //! `CViewCommander::HandleCommand` in `sakura_core/cmd/CViewCommander.cpp`.
-//!
-//! Sakura passes the selection lock (`m_bSelectingLock`, switched by `F_BEGIN_SEL`) as `bSelect`
-//! here. That mode is not implemented yet, so this command never extends the selection.
 
 use crate::command::{Arg, Command, Result};
 use crate::context::CommandContext;

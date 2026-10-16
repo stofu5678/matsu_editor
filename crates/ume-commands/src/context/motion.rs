@@ -20,7 +20,7 @@ pub(crate) fn is_indent_char(c: char) -> bool {
 impl CommandContext<'_> {
     /// Whether a move extends the selection: it was asked to, or the selection is locked
     /// (Sakura passes `m_bSelectingLock` as `bSelect` for the plain moves, `HandleCommand`).
-    pub(super) fn extends(&self, extend: bool) -> bool {
+    pub fn extends(&self, extend: bool) -> bool {
         extend || self.cursor.selecting_lock()
     }
 
