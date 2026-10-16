@@ -1,7 +1,7 @@
 # Vendored MicroPython (embed package)
 
 The C sources that MicroPython's own embed port (`ports/embed`) generates, plus four extmod
-modules, for the `ume-micropython-sys` crate. Nothing in here is edited by hand.
+modules, for the `ume-micropython-sys` crate. Nothing in here is edited by hand, except the two small changes under "Local changes" below.
 
 - Upstream: https://github.com/micropython/micropython
 - Version: tag `v1.29.0`, commit `0fd6c573ea815774668bbb16b8e197c8822368b2`
@@ -28,8 +28,23 @@ https://github.com/pfalcon/re1.5 (Paul Sokolovsky's fork of Russ Cox's re1), com
 `dd37aa2a4f4742edcadff6e75124898c71d5dc89`, copied unchanged. It is the BSD-3-Clause text with
 "Copyright (c) 2007-2009 Russ Cox, Google Inc.". All five files exist upstream (MicroPython's copy
 is an older snapshot with MicroPython's own changes, which are under MicroPython's MIT license).
-Paul Sokolovsky's copyright lines stay in the files that carry them; upstream's `LICENSE` does not
-name him, and the files point to that same `LICENSE`.
+`compilecode.c`, `dumpcode.c` and `re1.5.h` also carry Paul Sokolovsky's copyright (2014 on) in their
+headers, under the same BSD-3-Clause terms: they point to the same `LICENSE` file, which is
+upstream's, unchanged, with Russ Cox / Google's line.
+
+## Local changes
+
+Two files differ from MicroPython v1.29.0. Each change is marked with a `UME Editor:` comment.
+Upstream master still has both problems as of 2026-10-17.
+
+- `extmod/modre.c`, `re_sub_helper`: the match object handed to a `re.sub` callback lives on the
+  C stack (`mp_local_alloc`) and is overwritten by the next match, so a callback that kept it
+  crashed the process after `sub()` returned. Each callback call now gets its own match object on
+  the GC heap (a copy of the captures; the subject string is kept alive by the match). A string
+  replacement still uses the single stack match.
+- `lib/re1.5/compilecode.c`, character class: for a pattern like `[a-`, `re += 2` stepped onto the
+  end of the pattern and the loop went on reading past it. It now fails to compile
+  (`ValueError`) like other malformed patterns.
 
 ## Regenerating
 

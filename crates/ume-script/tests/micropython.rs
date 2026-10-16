@@ -521,6 +521,46 @@ print(hasattr(re, "I"), hasattr(re, "findall"), hasattr(re, "split"))
     assert_eq!(lines[9], "False False False");
 }
 
+// UME Editor's change to modre.c: each callback call gets its own match object.
+#[test]
+fn re_sub_callback_matches_stay_valid_after_sub() {
+    let code = r#"
+import re
+saved = []
+def cb(m):
+    saved.append(m)
+    return "X"
+print(re.sub("(a)(b|c)", cb, "ab-ac-ab"))
+print([(m.group(0), m.group(1), m.group(2), m.span(0)) for m in saved])
+"#;
+    let (report, _) = run(code, "");
+    assert_clean_exit(&report);
+    assert_eq!(
+        stdout(&report),
+        [
+            "X-X-X",
+            "[('ab', 'a', 'b', (0, 2)), ('ac', 'a', 'c', (3, 5)), ('ab', 'a', 'b', (6, 8))]",
+        ]
+    );
+}
+
+// UME Editor's change to compilecode.c: a class range cut off by the end of the pattern.
+#[test]
+fn re_unterminated_class_ranges_are_value_errors() {
+    let code = r#"
+import re
+for p in ["[a-", "[\\"]:
+    try:
+        re.compile(p)
+        print("compiled")
+    except ValueError:
+        print("ValueError")
+"#;
+    let (report, _) = run(code, "");
+    assert_clean_exit(&report);
+    assert_eq!(stdout(&report), ["ValueError", "ValueError"]);
+}
+
 #[test]
 fn re_works_on_the_text_of_the_document() {
     let code = r#"

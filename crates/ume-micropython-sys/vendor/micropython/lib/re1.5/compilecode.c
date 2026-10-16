@@ -80,6 +80,8 @@ static const char *_compilecode(const char *re, ByteProg *prog, int sizecode)
                 if (!c) return NULL;
                 if (re[1] == '-' && re[2] != ']') {
                     re += 2;
+                    // UME Editor: "[a-" ends here; upstream went on reading past the end.
+                    if (!*re) return NULL;
                 }
             emit_char_pair:
                 EMIT(PC++, c);

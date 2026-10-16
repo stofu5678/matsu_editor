@@ -351,7 +351,19 @@ static mp_obj_t re_sub_helper(size_t n_args, const mp_obj_t *args) {
         vstr_add_strn(&vstr_return, subj.begin, match->caps[0] - subj.begin);
 
         // Get replacement string
-        const char *repl = mp_obj_str_get_str((mp_obj_is_callable(replace) ? mp_call_function_1(replace, MP_OBJ_FROM_PTR(match)) : replace));
+        mp_obj_t repl_obj = replace;
+        if (mp_obj_is_callable(replace)) {
+            // UME Editor: the callback gets its own match object on the GC heap. Upstream passes
+            // `match`, which lives on the C stack (mp_local_alloc) and is overwritten by the next
+            // match, so a callback that kept it crashed after sub() returned.
+            mp_obj_match_t *cb_match = m_new_obj_var(mp_obj_match_t, caps, char *, caps_num);
+            cb_match->base.type = (mp_obj_type_t *)&match_type;
+            cb_match->num_matches = match->num_matches;
+            cb_match->str = match->str;
+            memcpy((char *)cb_match->caps, (char *)match->caps, caps_num * sizeof(char *));
+            repl_obj = mp_call_function_1(replace, MP_OBJ_FROM_PTR(cb_match));
+        }
+        const char *repl = mp_obj_str_get_str(repl_obj);
 
         // Append replacement string to result, substituting any regex groups
         while (*repl != '\0') {
