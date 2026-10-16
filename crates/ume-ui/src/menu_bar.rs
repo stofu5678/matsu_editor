@@ -195,7 +195,10 @@ fn fill(
                         Some(handle) => sub.action_context(handle.clone()),
                         None => sub,
                     };
+                    // As gpui-component does: a long submenu scrolls within its default height.
+                    let scrollable = submenu.items.len() > 20;
                     fill(sub, submenu.items.clone(), context.as_ref(), window, cx)
+                        .scrollable(scrollable)
                 })
             }
             OwnedMenuItem::SystemMenu(_) => menu,
@@ -211,6 +214,8 @@ pub(crate) struct BarMenu {
     name: SharedString,
     menu: OwnedMenu,
     popup_menu: Option<Entity<PopupMenu>>,
+    /// The height of the window that `popup_menu` was sized for.
+    popup_window_height: Pixels,
     /// Where the button was at the last paint, to size the popup below it.
     bounds: Bounds<Pixels>,
     _subscription: Option<Subscription>,
@@ -225,6 +230,7 @@ impl BarMenu {
             name,
             menu: menu.clone(),
             popup_menu: None,
+            popup_window_height: Pixels::ZERO,
             bounds: Bounds::default(),
             _subscription: None,
         })
@@ -261,6 +267,7 @@ impl BarMenu {
                 self._subscription =
                     Some(cx.subscribe_in(&popup_menu, window, Self::handle_dismiss));
                 self.popup_menu = Some(popup_menu.clone());
+                self.popup_window_height = window.viewport_size().height;
                 popup_menu
             }
         };
@@ -324,6 +331,11 @@ impl Render for BarMenu {
         let is_open = self.is_open(cx);
         if !is_open && self.popup_menu.is_some() {
             // Built again when it opens, with the focus and the window size of that moment.
+            self.popup_menu = None;
+            self._subscription = None;
+        }
+        if is_open && self.popup_window_height != window.viewport_size().height {
+            // The window was resized while the menu is open: size the popup again.
             self.popup_menu = None;
             self._subscription = None;
         }
@@ -451,6 +463,17 @@ mod tests {
             "{popup:?} in {window_height:?}"
         );
         assert!(popup.bottom() > window_height - px(40.), "{popup:?}");
+    }
+
+    #[gpui::test]
+    fn an_open_menu_follows_a_smaller_window(cx: &mut TestAppContext) {
+        let (_menu_bar, cx) = open_menu(cx);
+        cx.simulate_resize(gpui::size(px(800.), px(500.)));
+        cx.run_until_parked();
+        let popup = cx
+            .debug_bounds(POPUP_SELECTOR)
+            .expect("the open menu is painted");
+        assert!(popup.bottom() <= px(500.), "{popup:?}");
     }
 
     #[gpui::test]
