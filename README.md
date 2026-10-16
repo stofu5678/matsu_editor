@@ -39,6 +39,7 @@
   cargo about generate --locked --all-features --workspace --fail about.hbs -o THIRD_PARTY_NOTICES.txt
   ```
 
+- 作り直すにはネットワークが要ります（クレートの取得と、パッケージにライセンスファイルがないクレートの補正で、リポジトリからライセンスファイルを取るため）。補正はライセンスファイルのチェックサムを持っていて、ファイルが変わると使われなくなります。
 - CI の `notices` ジョブが同じコマンドで作り直し、コミット済みのファイルと違えば失敗します。
 
 ### Contribution
