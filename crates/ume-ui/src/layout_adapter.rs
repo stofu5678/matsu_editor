@@ -359,4 +359,45 @@ mod tests {
         run("go_file_end_box", &mut cursor);
         assert_eq!(corners(&cursor), (Pos::new(2, 1), Some(1), Some(1)));
     }
+
+    /// On a wrapped row the end of the row is the start of the next one: a box caret does not
+    /// rest there, and the empty space exists only after the last row of a line.
+    #[test]
+    fn a_box_caret_does_not_rest_at_the_end_of_a_wrapped_row() {
+        let cfg = LayoutConfig {
+            wrap: Wrap::Columns(4),
+            ..LayoutConfig::default()
+        };
+        // rows: "abcd" "ef"
+        let mut model = DocumentModel::new(doc("abcdef\n"));
+        let mut cursor = Cursor::new(Pos::new(0, 1));
+        let mut layout = laid_out(model.doc(), cfg);
+        let mut run = |id: &str, cursor: &mut Cursor| {
+            let mut adapter = RowLayout(&mut layout);
+            let mut cx = CommandContext::new(&mut model, cursor, &mut adapter, None);
+            Registry::global().run(id, &mut cx, &[]).unwrap();
+            cx.finish();
+        };
+        let at = |c: &Cursor| (c.caret(), c.box_caret_col());
+        run("begin_box", &mut cursor);
+        run("cursor_right_box", &mut cursor);
+        assert_eq!(at(&cursor), (Pos::new(0, 2), Some(2)));
+        run("cursor_right_box", &mut cursor);
+        assert_eq!(at(&cursor), (Pos::new(0, 3), Some(3)));
+        // the last char of the row is as far as it goes; it stays on the row
+        run("cursor_right_box", &mut cursor);
+        assert_eq!(at(&cursor), (Pos::new(0, 3), Some(3)));
+        run("cursor_left_box", &mut cursor);
+        assert_eq!(at(&cursor), (Pos::new(0, 2), Some(2)));
+        // down to the short row, and on to the end of the last row, where there is empty space
+        run("cursor_right_box", &mut cursor);
+        run("cursor_down_box", &mut cursor);
+        assert_eq!(at(&cursor), (Pos::new(0, 6), Some(3)));
+        for _ in 0..3 {
+            run("cursor_right_box", &mut cursor);
+        }
+        assert_eq!(at(&cursor), (Pos::new(0, 6), Some(6)));
+        run("cursor_left_box", &mut cursor);
+        assert_eq!(at(&cursor), (Pos::new(0, 6), Some(5)));
+    }
 }

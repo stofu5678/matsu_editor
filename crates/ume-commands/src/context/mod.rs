@@ -30,7 +30,7 @@ use ume_core::cursor::Cursor;
 use ume_core::model::DocumentModel;
 
 use crate::clipboard::Clipboard;
-use crate::command::Result;
+use crate::command::{CommandError, Result};
 use crate::layout::Layout;
 
 pub use boxsel::MAX_BOX_COL;
@@ -144,7 +144,7 @@ impl<'a> CommandContext<'a> {
     }
 
     /// Attaches the clipboard that the clipboard commands use. A context without one answers
-    /// those commands with [`CommandError::Unavailable`](crate::command::CommandError::Unavailable).
+    /// those commands with [`CommandError::Unavailable`].
     #[must_use]
     pub fn with_clipboard(mut self, clipboard: &'a mut dyn Clipboard) -> Self {
         self.clipboard = Some(clipboard);
@@ -251,12 +251,10 @@ impl<'a> CommandContext<'a> {
     /// Replaces the text between two positions (in either order) with `text`. The caret and the
     /// selection stay as they are; the other methods below move them as a command expects.
     ///
-    /// Nothing is replaced while a box selection covers something or the caret is to the right of
-    /// the text in one (box selections are not edited yet).
+    /// Fails while a box selection covers something or the caret is to the right of the text in
+    /// one (box selections are not edited yet).
     pub fn replace(&mut self, from: Pos, to: Pos, text: &str) -> Result<Edit> {
-        if let Some(edit) = self.edit_blocked_by_box()? {
-            return Ok(edit);
-        }
+        self.refuse_edit_in_box()?;
         let (a, b) = (self.doc().clamp_pos(from)?, self.doc().clamp_pos(to)?);
         let (a, b) = (a.min(b), a.max(b));
         let joined = self.joined_by(a, b, text)?;
@@ -274,17 +272,24 @@ impl<'a> CommandContext<'a> {
     /// Editing a box selection (Sakura: replace or delete the box row by row, and pad the rows
     /// that are shorter than the box) is not done yet. While a box covers something, or the caret
     /// of a box is to the right of the text of its row, where Sakura would pad the row, an edit
-    /// beeps and changes nothing; this returns the empty edit that stands for that. A box that
+    /// beeps and fails, so that a command stops before it changes anything else. A box that
     /// covers nothing, with its caret on the text, is only a mode and the edit ends it.
-    fn edit_blocked_by_box(&mut self) -> Result<Option<Edit>> {
-        if !self.cursor.is_box()
-            || !(self.cursor.has_selection() || self.caret_is_in_empty_space()?)
-        {
-            return Ok(None);
+    fn refuse_edit_in_box(&mut self) -> Result<()> {
+        if self.cursor.is_box() && self.caret_is_in_empty_space()? {
+            self.beep();
+            return Err(CommandError::Unavailable("editing a box selection"));
         }
-        self.beep();
-        let at = self.caret();
-        Ok(Some(Edit { start: at, end: at }))
+        self.refuse_box_selection()
+    }
+
+    /// For the commands that work on the rows of a selection, before they look at it: they would
+    /// take the stream between the corners of a box for their selection. They beep and fail.
+    pub(crate) fn refuse_box_selection(&mut self) -> Result<()> {
+        if self.cursor.is_box() && self.cursor.has_selection() {
+            self.beep();
+            return Err(CommandError::Unavailable("editing a box selection"));
+        }
+        Ok(())
     }
 
     /// Which line endings an edit that replaces `a..b` with `text` joins (see [`Joined`]).
@@ -315,9 +320,7 @@ impl<'a> CommandContext<'a> {
 
     /// Inserts `text` at the caret, or in place of the selection, and puts the caret after it.
     pub fn insert_text(&mut self, text: &str) -> Result<Edit> {
-        if let Some(edit) = self.edit_blocked_by_box()? {
-            return Ok(edit);
-        }
+        self.refuse_edit_in_box()?;
         let (from, to) = self.selection().unwrap_or((self.caret(), self.caret()));
         let edit = self.replace(from, to, text)?;
         self.cursor.move_to(edit.end, false);
@@ -326,9 +329,7 @@ impl<'a> CommandContext<'a> {
 
     /// Deletes the text between two positions and puts the caret where it was.
     pub fn delete_range(&mut self, from: Pos, to: Pos) -> Result<()> {
-        if self.edit_blocked_by_box()?.is_some() {
-            return Ok(());
-        }
+        self.refuse_edit_in_box()?;
         let edit = self.replace(from, to, "")?;
         self.cursor.move_to(edit.start, false);
         Ok(())
@@ -367,9 +368,7 @@ impl<'a> CommandContext<'a> {
     /// [`overwrite_end`](Self::overwrite_end)). A selection is replaced in both modes. The caret
     /// ends after the text.
     pub fn type_text(&mut self, text: &str) -> Result<Edit> {
-        if let Some(edit) = self.edit_blocked_by_box()? {
-            return Ok(edit);
-        }
+        self.refuse_edit_in_box()?;
         if self.overwrite && self.selection().is_none() {
             let at = self.caret();
             let end = self.overwrite_end(at, text.chars().count())?;
