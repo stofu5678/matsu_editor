@@ -61,6 +61,8 @@ impl EditorView {
         // Before the hit test: finishing an overwrite composition can remove chars and move the
         // text under the pointer.
         self.interrupt_composition(cx);
+        // A click ends the incremental search (`CEditView::OnLBUTTONDOWN`).
+        self.isearch_exit(cx);
         let Some(pos) = self.position_for_point(event.position, cx) else {
             return;
         };

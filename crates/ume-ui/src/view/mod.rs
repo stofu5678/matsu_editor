@@ -43,7 +43,7 @@ use crate::geometry::{Metrics, clamp_scroll_y, scroll_x_to_show, scroll_y_to_sho
 use crate::keys::chord_of;
 use crate::layout_adapter::{LAYOUT_BUDGET, RowLayout};
 use crate::macros::MacroState;
-use crate::search::{SearchPanel, SearchState};
+use crate::search::{ISearch, SearchPanel, SearchState};
 use crate::status::StatusInfo;
 use crate::ui_command::{UiRegistration, UiRegistry};
 
@@ -144,6 +144,8 @@ pub struct EditorView {
     pub(crate) print: crate::print::PrintState,
     /// Find and replace: the pattern, the options and the marks (`crate::search`).
     pub(crate) search: SearchState,
+    /// The incremental search, while its mode is on (`crate::search::isearch`).
+    pub(crate) isearch: Option<ISearch>,
     /// The find, replace or go-to-line panel, while it is open.
     pub(crate) panel: Option<Entity<SearchPanel>>,
     /// Key macro recording and the macro that runs (`crate::macros`).
@@ -189,6 +191,7 @@ impl EditorView {
             prefs: ViewPrefs::new(Default::default()),
             print: Default::default(),
             search: SearchState::default(),
+            isearch: None,
             panel: None,
             macros: MacroState::default(),
             save_as_dialog: None,
@@ -273,6 +276,9 @@ impl EditorView {
     ) -> bool {
         self.interrupt_composition(cx);
         self.record_call(reg.sakura, args);
+        if self.isearch_intercept(reg.sakura, args, cx) {
+            return true;
+        }
         let result = self.run_with(cx, |command_cx| reg.run(command_cx, args));
         let ok = result.is_ok();
         self.notice = result
@@ -331,6 +337,9 @@ impl EditorView {
     ) -> bool {
         self.interrupt_composition(cx);
         self.record_call(reg.sakura, args);
+        if self.isearch_intercept(reg.sakura, args, cx) {
+            return true;
+        }
         // The command may leave a message of its own (a search that wrapped around), so only a
         // failure replaces it.
         self.notice = None;
@@ -454,7 +463,12 @@ impl EditorView {
                 shared.file().bom,
                 shared.new_line(),
             ),
-            notice: self.notice.clone(),
+            // the incremental search shows its pattern where the notice goes
+            notice: self
+                .isearch
+                .as_ref()
+                .map(|a| a.message().to_owned())
+                .or_else(|| self.notice.clone()),
         }
     }
 
@@ -491,6 +505,18 @@ impl EditorView {
                 cx.stop_propagation();
             }
             Lookup::NotImplemented { code, function } => {
+                // A function that is not there yet still ends the incremental search (Esc is
+                // `F_CANCEL_MODE`), and Tab and Space are chars in it.
+                if let Some(f) = function
+                    && self.isearch.is_some()
+                    && UiRegistry::global().get_by_code(code).is_none()
+                {
+                    self.interrupt_composition(cx);
+                    if self.isearch_intercept(f.name, &[], cx) {
+                        cx.stop_propagation();
+                        return;
+                    }
+                }
                 // A function that needs the window is not a core command.
                 if let Some(reg) = UiRegistry::global().get_by_code(code) {
                     self.run_ui_registration(reg, &[], window, cx);

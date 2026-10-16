@@ -208,6 +208,11 @@ impl EntityInputHandler for EditorView {
             return;
         }
         self.record_typed_text(text);
+        if self.isearch.is_some() {
+            // `F_INSTEXT_W` in the incremental search: the text goes to the pattern
+            self.isearch_add_str(text, cx);
+            return;
+        }
         let (from, to) = self.input_target(range_utf16, cx);
         self.marked = None;
         self.composing = false;
@@ -247,6 +252,9 @@ impl EntityInputHandler for EditorView {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.isearch.is_some() {
+            return; // the composition is not shown; its commit goes to the pattern
+        }
         let (from, to) = self.input_target(range_utf16, cx);
         // Text being composed has no line break.
         let text = text.replace(['\r', '\n'], "");
