@@ -29,9 +29,31 @@ pub enum Language {
     Python,
     Ruby,
     Php,
-    /// Run by the bundled script host (`ume-script --engine lua`), which sits next to the
-    /// editor's executable. The next bundled engines add a variant like this one.
+    /// Run by the bundled script host (`ume-script --engine <name>`), which sits next to the
+    /// editor's executable.
+    Bundled(Engine),
+}
+
+/// The engines of the bundled script host. A new engine adds a variant here, its names below
+/// and its extension in [`Language::of_file`]; the rest of the code handles every engine alike.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Engine {
     Lua,
+}
+
+impl Engine {
+    /// The name that `ume-script --engine` takes.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Lua => "lua",
+        }
+    }
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::Lua => "Lua (ume-script)",
+        }
+    }
 }
 
 /// The file name of the bundled script host.
@@ -49,7 +71,7 @@ impl Language {
             "py" => Some(Self::Python),
             "rb" => Some(Self::Ruby),
             "php" => Some(Self::Php),
-            "lua" => Some(Self::Lua),
+            "lua" => Some(Self::Bundled(Engine::Lua)),
             _ => None,
         }
     }
@@ -60,15 +82,7 @@ impl Language {
             Self::Python => "Python",
             Self::Ruby => "Ruby",
             Self::Php => "PHP",
-            Self::Lua => "Lua (ume-script)",
-        }
-    }
-
-    /// The engine that the bundled host is asked for (`None` for the external interpreters).
-    fn host_engine(self) -> Option<&'static str> {
-        match self {
-            Self::Lua => Some("lua"),
-            Self::JavaScript | Self::Python | Self::Ruby | Self::Php => None,
+            Self::Bundled(engine) => engine.display_name(),
         }
     }
 
@@ -76,7 +90,7 @@ impl Language {
     pub fn default_interpreter(self) -> OsString {
         match self {
             // Next to the editor; if that fails, the system looks on the `PATH`.
-            Self::Lua => std::env::current_exe()
+            Self::Bundled(_) => std::env::current_exe()
                 .ok()
                 .map(|exe| exe.with_file_name(SCRIPT_HOST))
                 .filter(|host| host.is_file())
@@ -96,7 +110,7 @@ impl Language {
     pub fn real_interpreter_path(self, interpreter: &OsStr) -> io::Result<PathBuf> {
         let (flag, code) = match self {
             // The host is the executable itself; there is no launcher to see through.
-            Self::Lua => return Ok(PathBuf::from(interpreter)),
+            Self::Bundled(_) => return Ok(PathBuf::from(interpreter)),
             Self::JavaScript => ("-p", "process.execPath"),
             Self::Python => ("-c", "import sys; print(sys.executable)"),
             // A version manager (asdf, rbenv) answers with a shim; this is the real one.
@@ -269,11 +283,11 @@ pub type Sink = Arc<dyn Fn(HostEvent) + Send + Sync>;
 /// `Finished`.
 pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
     let script = match config.language {
-        Language::Lua => Some(read_script(&config.script)?),
+        Language::Bundled(_) => Some(read_script(&config.script)?),
         Language::JavaScript | Language::Python | Language::Ruby | Language::Php => None,
     };
     // The bundled host needs no boot files.
-    let boot_dir = if config.language == Language::Lua {
+    let boot_dir = if matches!(config.language, Language::Bundled(_)) {
         None
     } else {
         Some(boot::write_boot_files(config.temp_dir.as_deref()).map_err(StartError::Boot)?)
@@ -286,11 +300,9 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
     };
     let mut command = Command::new(&config.interpreter);
     match config.language {
-        Language::Lua => {
+        Language::Bundled(engine) => {
             // The text goes in `initialize`, so there is no path to open.
-            command
-                .arg("--engine")
-                .arg(config.language.host_engine().unwrap_or_default());
+            command.arg("--engine").arg(engine.name());
         }
         Language::JavaScript => {
             command
@@ -595,7 +607,10 @@ mod tests {
         );
         assert_eq!(Language::of_file(Path::new("a.rb")), Some(Language::Ruby));
         assert_eq!(Language::of_file(Path::new("a.PHP")), Some(Language::Php));
-        assert_eq!(Language::of_file(Path::new("a.Lua")), Some(Language::Lua));
+        assert_eq!(
+            Language::of_file(Path::new("a.Lua")),
+            Some(Language::Bundled(Engine::Lua))
+        );
         assert_eq!(Language::of_file(Path::new("a.txt")), None);
         assert_eq!(Language::of_file(Path::new("noext")), None);
     }

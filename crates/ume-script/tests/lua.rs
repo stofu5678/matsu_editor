@@ -7,7 +7,9 @@ use std::time::{Duration, Instant};
 
 use ume_plugin::api;
 use ume_plugin::model::TextModel;
-use ume_plugin::session::{self, EndReason, HostEvent, Language, MacroConfig, Report, Stream};
+use ume_plugin::session::{
+    self, EndReason, Engine, HostEvent, Language, MacroConfig, Report, Stream,
+};
 
 const DOCUMENT_PATH: &str = "/work/テスト.txt";
 
@@ -15,7 +17,7 @@ fn config(dir: &tempfile::TempDir, file: &str, code: &str, timeout: Duration) ->
     let script = dir.path().join(file);
     std::fs::write(&script, code).unwrap();
     let mut config = MacroConfig::for_script(&script, Some(DOCUMENT_PATH.into())).unwrap();
-    assert_eq!(config.language, Language::Lua);
+    assert_eq!(config.language, Language::Bundled(Engine::Lua));
     config.interpreter = env!("CARGO_BIN_EXE_ume-script").into();
     config.timeout = timeout;
     config
