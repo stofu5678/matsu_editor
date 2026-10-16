@@ -459,6 +459,14 @@ fn available(language: Language) -> bool {
         .unwrap_or(false);
     if !ok {
         eprintln!("SKIP: {} is not available", language.display_name());
+        // On a CI runner that has every interpreter, a missing one is a failure, not a skip:
+        // otherwise the tests of that language would pass without running.
+        if std::env::var_os("UME_REQUIRE_INTERPRETERS").is_some_and(|v| !v.is_empty()) {
+            panic!(
+                "{} is required here (UME_REQUIRE_INTERPRETERS)",
+                language.display_name()
+            );
+        }
     }
     ok
 }

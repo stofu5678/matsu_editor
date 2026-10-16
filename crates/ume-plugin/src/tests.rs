@@ -30,6 +30,14 @@ fn available(language: Language) -> bool {
             language.display_name(),
             interpreter.to_string_lossy()
         );
+        // On a CI runner that has every interpreter, a missing one is a failure, not a skip:
+        // otherwise the tests of that language would pass without running.
+        if std::env::var_os("UME_REQUIRE_INTERPRETERS").is_some_and(|v| !v.is_empty()) {
+            panic!(
+                "{} is required here (UME_REQUIRE_INTERPRETERS)",
+                language.display_name()
+            );
+        }
     }
     ok
 }
