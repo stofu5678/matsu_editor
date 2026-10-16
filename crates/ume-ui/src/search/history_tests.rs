@@ -213,13 +213,32 @@ fn what_another_process_saved_is_news_to_the_windows(cx: &mut TestAppContext) {
     });
     let before = cx.update(|_, app| app.global::<SearchHistory>().search_sequence());
     // this process then remembers a replacement: the file's search string comes in
-    other_window(cx, "mine", Some("r"));
+    cx.update(|_, app| {
+        history::remember_replace(app, "r");
+    });
     let after = cx.update(|_, app| app.global::<SearchHistory>().search_sequence());
-    assert!(after > before + 1, "{before} {after}");
+    assert!(after > before, "{before} {after}");
     assert_eq!(search_keys(cx), ["theirs", "mine"]);
     // and the window that had the old sequence takes it when Find opens
     cx.simulate_keystrokes("ctrl-f");
     assert_eq!(f.pattern(cx), "theirs");
+    std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+}
+
+#[gpui::test]
+fn searching_again_for_the_newest_string_puts_it_on_top_in_the_file(cx: &mut TestAppContext) {
+    let (_f, cx) = setup(cx, "");
+    let path = temp_ini("again");
+    cx.update(|_, app| history::install(app, SearchHistory::load(None, Some(path.clone()))));
+    other_window(cx, "x", None);
+    // another process saves "y" after "x"
+    SearchHistory::load(Some(&path), Some(path.clone())).persist(|keys| {
+        keys.add_search("y");
+    });
+    // this process searches for "x" again, which it has as the newest
+    other_window(cx, "x", None);
+    let file = SearchHistory::load(Some(&path), None);
+    assert_eq!(file.keys().search.items(), ["x", "y"]);
     std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
 }
 

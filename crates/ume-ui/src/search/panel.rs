@@ -292,15 +292,20 @@ impl SearchPanel {
             Combo::Search => ("search-history", "search-history-toggle"),
             Combo::Replace => ("replace-history", "replace-history-toggle"),
         };
-        let mut column =
-            v_flex().gap_1().flex_1().child(
-                h_flex()
-                    .gap_1()
-                    .child(div().flex_1().child(Input::new(self.combo_input(combo))))
-                    .child(Button::new(toggle_id).label("▼").on_click(
-                        cx.listener(move |this, _, _, cx| this.toggle_dropdown(combo, cx)),
-                    )),
-            );
+        let mut column = v_flex().gap_1().flex_1().child(
+            h_flex()
+                .gap_1()
+                .child(div().flex_1().child(Input::new(self.combo_input(combo))))
+                .child(Button::new(toggle_id).label("▼").on_click(cx.listener(
+                    move |this, _, window, cx| {
+                        // The button does not take the focus; the keys of the list go to
+                        // the combo box that has it, so give it to this one.
+                        let input = this.combo_input(combo).clone();
+                        input.update(cx, |state, cx| state.focus(window, cx));
+                        this.toggle_dropdown(combo, cx);
+                    },
+                ))),
+        );
         if let Some(open) = self.dropdown.filter(|d| d.combo == combo) {
             let entries = Self::combo_keys(combo, cx)
                 .into_iter()

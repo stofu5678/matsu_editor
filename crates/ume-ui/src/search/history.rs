@@ -85,7 +85,9 @@ impl SearchHistory {
             let mut keys = local.clone();
             keys.merge_from(&SearchKeys::from_profile(profile));
             add(&mut keys);
-            let written = keys.write_to(profile).is_ok();
+            // Nothing is written when the file already has these strings.
+            let before = profile.to_bytes();
+            let written = keys.write_to(profile).is_ok() && profile.to_bytes() != before;
             merged = Some(keys);
             Ok(written)
         });
@@ -125,26 +127,24 @@ pub fn replace_keys(cx: &App) -> Vec<String> {
 /// `AddToSearchKeyArr`. Returns the sequence number to put in the view that searched.
 pub fn remember_search(cx: &mut App, text: &str) -> u64 {
     let history = cx.default_global::<SearchHistory>();
-    let changed = history.keys.add_search(text);
+    history.keys.add_search(text);
     history.search_sequence += 1;
-    if changed {
-        history.persist(|keys| {
-            keys.add_search(text);
-        });
-    }
+    // Also when the string is already first here: another process may have put another one on
+    // top since, and this search is the latest use.
+    history.persist(|keys| {
+        keys.add_search(text);
+    });
     history.search_sequence
 }
 
 /// `AddToReplaceKeyArr`. Returns the sequence number to put in the view that replaced.
 pub fn remember_replace(cx: &mut App, text: &str) -> u64 {
     let history = cx.default_global::<SearchHistory>();
-    let changed = history.keys.add_replace(text);
+    history.keys.add_replace(text);
     history.replace_sequence += 1;
-    if changed {
-        history.persist(|keys| {
-            keys.add_replace(text);
-        });
-    }
+    history.persist(|keys| {
+        keys.add_replace(text);
+    });
     history.replace_sequence
 }
 
