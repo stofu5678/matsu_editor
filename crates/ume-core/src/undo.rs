@@ -242,6 +242,41 @@ impl History {
         }
     }
 
+    /// How many times the open block was entered and not yet left (Sakura: `COpeBlk::GetRefCount`),
+    /// or 0 when no block is open.
+    pub fn depth(&self) -> usize {
+        self.open.as_ref().map_or(0, |open| open.depth)
+    }
+
+    /// Stores what the open block has so far as an undo step and goes on with a new block at the
+    /// same depth (Sakura: `F_COMMITUNDOBUFFER` in `CMacro::HandleCommand`, which sets the
+    /// reference count to 1, stores the block with `SetUndoBuffer`, and makes a new block with the
+    /// old count). Nothing is stored when the block has no edit. Does nothing outside a block.
+    pub fn commit(&mut self, doc: &Document, cursor: &Cursor) {
+        self.store_open_edits(doc, cursor);
+    }
+
+    /// Makes the open block count as an edit even if it has none, so that it is stored as a step
+    /// that undo goes back over (Sakura: `F_APPENDUNDOBUFFERCURSOR` appends a `CMoveCaretOpe`, an
+    /// operation that only holds a caret position, and a block with an operation is stored). The
+    /// document counts as modified after it, as in Sakura, where the step moves the pointer of
+    /// the undo buffer. Does nothing outside a block.
+    pub fn note_caret_step(&mut self) {
+        if let Some(open) = &mut self.open {
+            open.edited = true;
+        }
+    }
+
+    /// Leaves the open block however deep it is, which stores it if it has an edit (Sakura:
+    /// `CMacroBeforeAfter::ExecKeyMacroAfter` puts the reference count back to what it was before
+    /// the macro, so a macro that called `AddRefUndoBuffer` more often than `SetUndoBuffer` does
+    /// not keep the block open).
+    pub fn close_all(&mut self, doc: &Document, cursor: &Cursor) {
+        while self.open.is_some() {
+            self.end(doc, cursor);
+        }
+    }
+
     /// Undoes one block: puts back the document and the cursor from before it. Returns `false`
     /// when there is nothing to undo.
     pub fn undo(&mut self, doc: &mut Document, cursor: &mut Cursor) -> bool {

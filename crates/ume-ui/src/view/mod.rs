@@ -281,13 +281,22 @@ impl EditorView {
             let view_mode = shared.view_mode();
             let (model, path) = shared.parts_mut();
             let mut adapter = RowLayout(layout);
+            let quote = cx
+                .try_global::<crate::clipboard::QuoteString>()
+                .map(|quote| quote.0.clone());
             let mut clipboard = crate::clipboard::GpuiClipboard(cx);
             let mut command_cx = CommandContext::new(model, cursor, &mut adapter, path)
                 .with_clipboard(&mut clipboard)
                 .with_overwrite(overwrite)
                 .with_view_mode(view_mode);
+            if let Some(quote) = quote {
+                command_cx = command_cx.with_quote_string(quote);
+            }
             let result = f(&mut command_cx);
             let changes = command_cx.finish();
+            if let Some(quote) = changes.quote_string.clone() {
+                cx.set_global(crate::clipboard::QuoteString(quote));
+            }
             shared.set_overwrite(changes.overwrite, cx);
             if changes.bookmarks_changed {
                 // the other views of the document draw the marks too
@@ -413,7 +422,12 @@ impl EditorView {
             self.notice = None;
         }
         self.completion_after_command(changes, cx);
-        self.ensure_caret_visible(cx);
+        // A command that moved nothing leaves the view where it is: `SetViewTop` of a macro
+        // scrolls away from the caret, and the calls after it must not scroll back (Sakura scrolls
+        // to the caret when the caret moves).
+        if changes.text_changed() || changes.caret_moved || changes.selection_changed {
+            self.ensure_caret_visible(cx);
+        }
         cx.notify();
     }
 

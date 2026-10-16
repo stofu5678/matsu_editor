@@ -141,7 +141,7 @@ pub fn call_with(
 /// Checks the JSON arguments against the types in Sakura's table and converts them. A macro may
 /// leave out the last arguments (Sakura passes a null pointer for those); the command decides
 /// whether it can do without them.
-fn convert_arguments(row: &MacroFunction, params: &[Value]) -> Result<Vec<Arg>, RpcError> {
+pub fn convert_arguments(row: &MacroFunction, params: &[Value]) -> Result<Vec<Arg>, RpcError> {
     if params.len() > row.args.len() {
         return Err(RpcError::invalid_params(format!(
             "{}: expected at most {} argument(s), got {}",

@@ -95,6 +95,27 @@ impl DocumentModel {
         self.history.end(&self.doc, cursor);
     }
 
+    /// The depth of the open undo block, 0 if none; see [`History::depth`].
+    pub fn block_depth(&self) -> usize {
+        self.history.depth()
+    }
+
+    /// Stores the edits of the open block so far as an undo step; see [`History::commit`].
+    /// `cursor` is the cursor now.
+    pub fn commit_block(&mut self, cursor: &Cursor) {
+        self.history.commit(&self.doc, cursor);
+    }
+
+    /// Makes the open block a step even without an edit; see [`History::note_caret_step`].
+    pub fn note_caret_step(&mut self) {
+        self.history.note_caret_step();
+    }
+
+    /// Leaves every open block; see [`History::close_all`].
+    pub fn close_blocks(&mut self, cursor: &Cursor) {
+        self.history.close_all(&self.doc, cursor);
+    }
+
     /// Replaces the text between two positions (in either order, clamped) with `text`.
     pub fn replace(&mut self, from: Pos, to: Pos, text: &str) -> Result<Edit> {
         let (from, to) = (self.doc.clamp_pos(from)?, self.doc.clamp_pos(to)?);

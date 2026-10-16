@@ -364,7 +364,7 @@ fn value_functions_check_their_arguments() {
 fn the_basic_api_runs_where_no_command_is_registered() {
     let registry = Registry::global();
     // If one of these gets a command, the test must move to the section above.
-    for name in ["InsText", "AddTail", "MoveCursor", "Jump"] {
+    for name in ["InsText", "AddTail", "Jump"] {
         let code = ume_commands::macro_names::by_name(name).unwrap().code;
         assert!(
             registry.get_by_code(code).is_none(),
@@ -372,6 +372,7 @@ fn the_basic_api_runs_where_no_command_is_registered() {
         );
     }
     let mut f = Fixture::new("abc\ndef");
+    // (`MoveCursor` has a command since the macro-only commands; it behaves the same.)
     f.call("MoveCursor", json!([1, 2, 0])).unwrap();
     f.call("InsText", json!(["X\nY"])).unwrap();
     assert_eq!(f.text(), "aX\nYbc\ndef");
@@ -396,6 +397,139 @@ fn column_counts_are_utf16_units_in_move_cursor() {
     let mut f = Fixture::new("a😀b");
     f.call("MoveCursor", json!([1, 4, 0])).unwrap();
     assert_eq!(f.caret(), (0, "a😀".len()));
+}
+
+// ---- the commands that only macros call ----
+
+#[test]
+fn move_cursor_is_a_command_that_selects_and_selects_boxes() {
+    let code = ume_commands::macro_names::by_name("MoveCursor")
+        .unwrap()
+        .code;
+    assert!(Registry::global().get_by_code(code).is_some());
+    let mut f = Fixture::new("abcd\nefgh\nijkl");
+    f.call("MoveCursor", json!([2, 3, 1])).unwrap();
+    assert_eq!(f.caret(), (1, 2));
+    assert_eq!(f.call("IsTextSelected", json!([])), Ok(json!(1)));
+    assert_eq!(
+        f.call("GetSelectedString", json!([0])),
+        Ok(json!("abcd\nef"))
+    );
+    // option 2 is a box now (the basic API refused it)
+    f.call("MoveCursor", json!([1, 2, 0])).unwrap();
+    f.call("MoveCursor", json!([3, 4, 2])).unwrap();
+    assert_eq!(f.call("IsTextSelected", json!([])), Ok(json!(2)));
+    assert_eq!(
+        f.call("GetSelectedString", json!([0])),
+        Ok(json!("bc\nfg\njk\n"))
+    );
+    // a number below 1 does nothing, and all three arguments are needed
+    f.call("MoveCursor", json!([0, 1, 0])).unwrap();
+    assert_eq!(f.call("IsTextSelected", json!([])), Ok(json!(2)));
+    assert_eq!(
+        f.call("MoveCursor", json!([1, 1])).unwrap_err().code,
+        INVALID_PARAMS
+    );
+}
+
+#[test]
+fn move_cursor_layout_counts_the_cells_of_the_layout() {
+    let mut f = Fixture::new("あいう\nabc");
+    f.call("MoveCursorLayout", json!([1, 3, 0])).unwrap();
+    assert_eq!(f.caret(), (0, "あ".len()));
+    f.call("MoveCursorLayout", json!([2, 2, 1])).unwrap();
+    assert_eq!(f.caret(), (1, 1));
+    assert_eq!(
+        f.call("GetSelectedString", json!([0])),
+        Ok(json!("いう\na"))
+    );
+    assert_eq!(
+        f.call("MoveCursorLayout", json!([1])).unwrap_err().code,
+        INVALID_PARAMS
+    );
+}
+
+#[test]
+fn the_undo_buffer_functions_make_calls_one_step() {
+    let mut f = Fixture::new("");
+    f.call("AddRefUndoBuffer", json!([])).unwrap();
+    f.call("Char", json!([97])).unwrap();
+    f.call("Char", json!([98])).unwrap();
+    f.call("SetUndoBuffer", json!([])).unwrap();
+    f.call("Char", json!([99])).unwrap();
+    assert_eq!(f.text(), "abc");
+    f.call("Undo", json!([])).unwrap();
+    assert_eq!(f.text(), "ab");
+    f.call("Undo", json!([])).unwrap();
+    assert_eq!(f.text(), "");
+    // CommitUndoBuffer cuts the step in two
+    f.call("AddRefUndoBuffer", json!([])).unwrap();
+    f.call("Char", json!([120])).unwrap();
+    f.call("CommitUndoBuffer", json!([])).unwrap();
+    f.call("Char", json!([121])).unwrap();
+    f.call("SetUndoBuffer", json!([])).unwrap();
+    f.call("Undo", json!([])).unwrap();
+    assert_eq!(f.text(), "x");
+    f.call("Undo", json!([])).unwrap();
+    assert_eq!(f.text(), "");
+}
+
+#[test]
+fn append_undo_buffer_cursor_makes_a_step_of_the_caret() {
+    let mut f = Fixture::new("ab\ncd");
+    f.call("AppendUndoBufferCursor", json!([])).unwrap();
+    f.call("GoFileEnd", json!([])).unwrap();
+    assert_eq!(f.caret(), (1, 2));
+    f.call("Undo", json!([])).unwrap();
+    assert_eq!(f.caret(), (0, 0));
+    assert_eq!(f.text(), "ab\ncd");
+}
+
+#[test]
+fn the_quote_string_takes_one_text() {
+    let mut f = Fixture::new("a");
+    f.call("SetMsgQuoteStr", json!(["# "])).unwrap();
+    for params in [json!([]), json!([1]), json!(["a", "b"])] {
+        assert_eq!(
+            f.call("SetMsgQuoteStr", params).unwrap_err().code,
+            INVALID_PARAMS
+        );
+    }
+}
+
+#[test]
+fn clipboard_empty_needs_a_clipboard() {
+    // The macro runs without a window here, so there is no clipboard.
+    let mut f = Fixture::new("a");
+    assert_eq!(
+        f.call("ClipboardEmpty", json!([])).unwrap_err().code,
+        UNAVAILABLE
+    );
+    let code = ume_commands::macro_names::by_name("ClipboardEmpty")
+        .unwrap()
+        .code;
+    assert!(Registry::global().get_by_code(code).is_some());
+}
+
+#[test]
+fn the_functions_that_need_the_window_are_not_run_by_the_bridge() {
+    // The window runs them (`ume-ui`, `macros/ui_calls.rs`); here the answer is the one for a
+    // function that is not supported yet.
+    let mut f = Fixture::new("a");
+    for (name, params) in [
+        ("TraceOut", json!(["x"])),
+        ("StatusMsg", json!(["x"])),
+        ("PutFile", json!(["x"])),
+        ("InsFile", json!(["x"])),
+        ("SetViewTop", json!([1])),
+        ("WinMaximize", json!([])),
+    ] {
+        assert_eq!(
+            f.call(name, params).unwrap_err().code,
+            NOT_IMPLEMENTED,
+            "{name}"
+        );
+    }
 }
 
 // ---- messages ----

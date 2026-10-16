@@ -15,5 +15,6 @@ pub mod cursor;
 pub mod diff;
 pub mod edit;
 pub mod insert;
+pub mod macro_only;
 pub mod mode;
 pub mod select;

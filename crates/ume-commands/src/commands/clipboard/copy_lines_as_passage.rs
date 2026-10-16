@@ -3,7 +3,6 @@
 
 use crate::command::{Arg, Command, Result};
 use crate::context::CommandContext;
-use crate::context::QUOTE;
 use crate::register_command;
 
 #[derive(Default)]
@@ -14,7 +13,8 @@ impl Command for CopyLinesAsPassage {
     const SAKURA: &'static str = "F_COPYLINESASPASSAGE";
 
     fn run(&self, cx: &mut CommandContext<'_>, _args: &[Arg]) -> Result {
-        cx.copy_selected_lines(Some(QUOTE), false)
+        let quote = cx.quote_string().to_owned();
+        cx.copy_selected_lines(Some(&quote), false)
     }
 }
 

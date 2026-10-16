@@ -45,7 +45,7 @@ pub(crate) trait Screen {
 }
 
 /// The OS handle of a GPUI window (`None` when it has none, as in the headless tests).
-fn raw_handle(window: &Window) -> Option<RawWindowHandle> {
+pub(crate) fn raw_handle(window: &Window) -> Option<RawWindowHandle> {
     use raw_window_handle::HasWindowHandle;
     HasWindowHandle::window_handle(window)
         .ok()

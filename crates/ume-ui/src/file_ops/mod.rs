@@ -32,6 +32,7 @@ pub(crate) mod save_as_dialog;
 pub(crate) mod save_decoded;
 pub(crate) mod tag_jump;
 mod view_ext;
+pub(crate) mod view_mode_request;
 pub(crate) mod windows;
 
 use gpui::{AsyncWindowContext, Context, WeakEntity, Window};

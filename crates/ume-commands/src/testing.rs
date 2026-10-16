@@ -163,6 +163,8 @@ pub struct Editor {
     changes: Changes,
     overwrite: bool,
     view_mode: bool,
+    /// The quote string that `F_SET_QUOTESTRING` set (the window keeps it between commands).
+    quote: Option<String>,
 }
 
 impl Editor {
@@ -187,6 +189,7 @@ impl Editor {
             changes: Changes::default(),
             overwrite: false,
             view_mode: false,
+            quote: None,
         }
     }
 
@@ -265,9 +268,30 @@ impl Editor {
         .with_clipboard(&mut self.clipboard)
         .with_overwrite(self.overwrite)
         .with_view_mode(self.view_mode);
+        if let Some(quote) = &self.quote {
+            cx = cx.with_quote_string(quote.as_str());
+        }
         let result = Registry::global().run(id, &mut cx, args);
         self.changes = cx.finish();
         self.overwrite = self.changes.overwrite;
+        if let Some(quote) = &self.changes.quote_string {
+            self.quote = Some(quote.clone());
+        }
+        result
+    }
+
+    /// Runs `f` on a context like the one of a command, outside any command (a window does this
+    /// at the end of a macro).
+    pub fn with_context<R>(&mut self, f: impl FnOnce(&mut CommandContext<'_>) -> R) -> R {
+        let mut cx = CommandContext::new(
+            &mut self.model,
+            &mut self.cursor,
+            &mut self.layout,
+            self.path.as_deref(),
+        )
+        .with_clipboard(&mut self.clipboard);
+        let result = f(&mut cx);
+        self.changes = cx.finish();
         result
     }
 

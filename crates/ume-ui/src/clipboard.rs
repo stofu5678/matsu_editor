@@ -6,7 +6,7 @@
 //! text was changed by another program), so a row copied in UME Editor is pasted as a row in UME
 //! Editor but is plain text elsewhere, and Visual Studio's `MSDEVLineSelect` is not read yet.
 
-use gpui::{App, ClipboardItem};
+use gpui::{App, ClipboardItem, Global};
 use ume_commands::clipboard::{ClipData, ClipKind, Clipboard};
 
 /// The metadata of a row copy.
@@ -14,13 +14,20 @@ const LINE: &str = "ume:line";
 /// The metadata of a box copy.
 const BOX: &str = "ume:box";
 
+/// The quote string that `F_SET_QUOTESTRING` set, for every window of the session (Sakura keeps
+/// it in the shared common settings, `m_szInyouKigou`). Without it commands use Sakura's default.
+pub(crate) struct QuoteString(pub(crate) String);
+
+impl Global for QuoteString {}
+
 /// The clipboard of the application.
 pub(crate) struct GpuiClipboard<'a>(pub(crate) &'a mut App);
 
 impl Clipboard for GpuiClipboard<'_> {
     fn get(&mut self) -> Option<ClipData> {
         let item = self.0.read_from_clipboard()?;
-        let text = item.text()?;
+        // `clear` leaves an empty text (GPUI cannot empty the clipboard), which is no text here.
+        let text = item.text().filter(|text| !text.is_empty())?;
         let kind = match item.metadata().map(String::as_str) {
             Some(LINE) => ClipKind::Line,
             Some(BOX) => ClipKind::Box,
@@ -37,6 +44,13 @@ impl Clipboard for GpuiClipboard<'_> {
         };
         self.0.write_to_clipboard(item);
         true
+    }
+
+    /// GPUI has no call that empties the clipboard, so this writes an empty text, which `get`
+    /// reports as no text. The clipboard is not empty for other programs.
+    fn clear(&mut self) {
+        self.0
+            .write_to_clipboard(ClipboardItem::new_string(String::new()));
     }
 }
 

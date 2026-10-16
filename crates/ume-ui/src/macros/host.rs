@@ -26,7 +26,7 @@ const CAPTION: &str = "UME Editor マクロ";
 impl EditorView {
     /// The environment for one call: what the window reports. `message` is the line of the call,
     /// which tells whether the call needs the types of the settings.
-    pub(super) fn host_env(&mut self, message: &str, cx: &Context<Self>) -> HostEnv {
+    pub(crate) fn host_env(&mut self, message: &str, cx: &Context<Self>) -> HostEnv {
         let metrics = self.metrics;
         // `CTextArea::UpdateViewColRowNums`: (size - 1) / pitch, at least 1.
         let cells = |size: f32, pitch: f32| -> i64 {
@@ -78,7 +78,7 @@ impl EditorView {
     }
 
     /// Keeps what the call left in the environment, and does what it asked for.
-    pub(super) fn finish_host_env(&mut self, env: HostEnv, cx: &mut Context<Self>) {
+    pub(crate) fn finish_host_env(&mut self, env: HostEnv, cx: &mut Context<Self>) {
         self.macros.host_state = env.state;
         if let Some(width) = env.requests.tab_width {
             self.set_tab_width(width, cx);

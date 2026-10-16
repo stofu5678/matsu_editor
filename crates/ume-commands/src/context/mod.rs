@@ -24,6 +24,7 @@ mod convert;
 mod diff;
 mod indent;
 mod lines;
+mod macro_support;
 mod modes;
 mod modified_lines;
 #[cfg(test)]
@@ -109,6 +110,10 @@ pub struct Changes {
     pub selection_changed: bool,
     /// The command could not do what was asked in this state (Sakura: `ErrorBeep()`).
     pub beep: bool,
+    /// `F_SET_QUOTESTRING` set this quote string. `ume-ui` keeps it for the commands after (it is
+    /// shared by all windows in Sakura) and hands it to the next context ([`CommandContext::
+    /// with_quote_string`]).
+    pub quote_string: Option<String>,
     /// The bookmarks of the document changed (set, cleared, or marked by a search). Edits move
     /// them too, but those are reported as edits. `ume-ui` repaints every view of the document.
     pub bookmarks_changed: bool,
@@ -140,6 +145,8 @@ pub struct CommandContext<'a> {
     overwrite: bool,
     /// View mode: every edit is refused. See [`with_view_mode`](Self::with_view_mode).
     view_mode: bool,
+    /// The quote string of `F_COPYLINESASPASSAGE`. See [`with_quote_string`](Self::with_quote_string).
+    quote: String,
 }
 
 impl<'a> CommandContext<'a> {
@@ -160,6 +167,7 @@ impl<'a> CommandContext<'a> {
             changes: Changes::default(),
             overwrite: false,
             view_mode: false,
+            quote: QUOTE.to_owned(),
         }
     }
 
@@ -188,6 +196,14 @@ impl<'a> CommandContext<'a> {
     #[must_use]
     pub fn with_view_mode(mut self, view_mode: bool) -> Self {
         self.view_mode = view_mode;
+        self
+    }
+
+    /// Sets the quote string that `F_COPYLINESASPASSAGE` puts before each row (the default is
+    /// Sakura's `"> "`). The window keeps the value that `F_SET_QUOTESTRING` set.
+    #[must_use]
+    pub fn with_quote_string(mut self, quote: impl Into<String>) -> Self {
+        self.quote = quote.into();
         self
     }
 
