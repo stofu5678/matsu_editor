@@ -264,13 +264,47 @@ pub enum HostEvent {
     Finished(Finished),
 }
 
+/// The time that the macro has spent waiting for the window (a dialog, `Sleep`), which does not
+/// count against its timeout.
+#[derive(Debug, Default)]
+struct Waiting {
+    /// How many calls are being waited for now.
+    holds: usize,
+    /// When the oldest wait began.
+    since: Option<Instant>,
+    /// The time of the waits that are over.
+    spent: Duration,
+}
+
 /// A running macro: answer requests with `send` and stop it with `cancel`.
 pub struct Session {
     writer: mpsc::Sender<String>,
     cancel: Arc<AtomicBool>,
+    waiting: Arc<Mutex<Waiting>>,
 }
 
 impl Session {
+    /// The window starts to wait for the user on behalf of the macro (a dialog is open): the
+    /// timeout stops running until the matching [`release`](Self::release). A macro that is
+    /// stopped by the timeout while the user reads its message box would be a bug.
+    pub fn hold(&self) {
+        let mut waiting = self.waiting.lock().unwrap_or_else(PoisonError::into_inner);
+        waiting.holds += 1;
+        waiting.since.get_or_insert_with(Instant::now);
+    }
+
+    /// Ends one [`hold`](Self::hold). The time of the wait is added to the time the macro may
+    /// run.
+    pub fn release(&self) {
+        let mut waiting = self.waiting.lock().unwrap_or_else(PoisonError::into_inner);
+        waiting.holds = waiting.holds.saturating_sub(1);
+        if waiting.holds == 0
+            && let Some(since) = waiting.since.take()
+        {
+            waiting.spent += since.elapsed();
+        }
+    }
+
     /// Queues a line for the macro's standard input. It does not block.
     pub fn send(&self, line: String) {
         let _ = self.writer.send(line);
@@ -458,6 +492,8 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
     let cancel = Arc::new(AtomicBool::new(false));
     let supervisor_cancel = cancel.clone();
     let deadline = Instant::now() + config.timeout;
+    let waiting = Arc::new(Mutex::new(Waiting::default()));
+    let supervisor_waiting = waiting.clone();
     thread::spawn(move || {
         // The boot files live as long as the child.
         let mut boot_dir = boot_dir;
@@ -470,8 +506,14 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
             }
             if supervisor_cancel.load(Ordering::SeqCst) {
                 reason = EndReason::Cancelled;
-            } else if Instant::now() >= deadline {
-                reason = EndReason::TimedOut;
+            } else {
+                // The time spent waiting for the window does not count.
+                let waiting = supervisor_waiting
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner);
+                if waiting.holds == 0 && Instant::now() >= deadline + waiting.spent {
+                    reason = EndReason::TimedOut;
+                }
             }
             if reason != EndReason::Exited {
                 let _ = child.kill();
@@ -501,7 +543,11 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
         }));
     });
 
-    Ok(Session { writer, cancel })
+    Ok(Session {
+        writer,
+        cancel,
+        waiting,
+    })
 }
 
 /// Reads the script for a host that gets its text in `initialize`. It must be UTF-8; a BOM is

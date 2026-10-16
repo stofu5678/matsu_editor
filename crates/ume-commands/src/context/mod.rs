@@ -261,6 +261,27 @@ impl<'a> CommandContext<'a> {
         self.model.end_block(self.cursor);
     }
 
+    /// Whether there is a block to undo (Sakura: `CDocEditor::IsEnableUndo`). View mode does not
+    /// change the answer; `undo` itself refuses there.
+    pub fn can_undo(&self) -> bool {
+        self.model.history().can_undo()
+    }
+
+    /// Whether there is a block to redo (Sakura: `CDocEditor::IsEnableRedo`).
+    pub fn can_redo(&self) -> bool {
+        self.model.history().can_redo()
+    }
+
+    /// Whether line `line` has a bookmark (Sakura: `CBookmarkGetter::IsBookmarked`).
+    pub fn is_bookmarked(&self, line: usize) -> bool {
+        self.model.bookmarks().contains(line)
+    }
+
+    /// Whether the document has changes that were not saved (Sakura: `CDocEditor::IsModified`).
+    pub fn is_modified(&self) -> bool {
+        self.model.is_modified()
+    }
+
     /// Undoes one block. Returns `false` if there is nothing to undo, or in view mode.
     pub fn undo(&mut self) -> bool {
         if self.view_mode {

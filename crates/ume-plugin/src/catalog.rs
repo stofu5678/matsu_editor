@@ -87,6 +87,18 @@ fn build() -> Vec<Entry> {
             }
         })
         .collect();
+    // The functions that need the editor (`crate::functions`), with their own parameter names.
+    for func in crate::functions::all() {
+        let row = ume_commands::macro_names::by_name(func.name);
+        list.push(Entry {
+            name: func.name,
+            params: func.params.to_vec(),
+            result: func.result,
+            doc: func.doc.to_string(),
+            function: row.map(|r| r.function),
+            is_command: false,
+        });
+    }
     for row in MACRO_COMMANDS.iter().chain(MACRO_FUNCTIONS) {
         if list.iter().any(|e| e.name == row.name) {
             continue;
@@ -159,6 +171,169 @@ mod tests {
         let total = names.len();
         names.dedup();
         assert_eq!(names.len(), total, "a name is listed twice");
+    }
+
+    #[test]
+    fn the_editor_functions_are_rows_of_the_table_with_its_types() {
+        for func in crate::functions::all() {
+            let row = ume_commands::macro_names::by_name(func.name)
+                .unwrap_or_else(|| panic!("{} is not a name of Sakura's tables", func.name));
+            assert!(row.result.is_some(), "{}", func.name);
+            assert_eq!(ty_of(row.result), func.result, "{}", func.name);
+            assert!(func.params.len() <= row.args.len(), "{}", func.name);
+            for (param, arg) in func.params.iter().zip(row.args) {
+                assert_eq!(param.ty, ty(*arg), "{} {}", func.name, param.name);
+            }
+            // a parameter that the table has but the function leaves out would be unreachable
+            assert_eq!(func.params.len(), row.args.len().min(func.params.len()));
+            let found = find(func.name).unwrap();
+            assert_eq!(found.params.len(), func.params.len(), "{}", func.name);
+            assert!(!found.is_command, "{}", func.name);
+        }
+        // no name is defined by both lists
+        for func in crate::functions::all() {
+            assert!(!FUNCS.iter().any(|f| f.name == func.name), "{}", func.name);
+        }
+    }
+
+    /// A parameter name becomes a parameter of generated JavaScript, Python, Ruby and PHP, and of
+    /// the Lua and QuickJS code of the bundled engines: it must not be a keyword of any of them.
+    #[test]
+    fn parameter_names_are_not_keywords_of_any_language() {
+        const RESERVED: &[&str] = &[
+            // JavaScript
+            "break",
+            "case",
+            "catch",
+            "class",
+            "const",
+            "continue",
+            "debugger",
+            "default",
+            "delete",
+            "do",
+            "else",
+            "enum",
+            "export",
+            "extends",
+            "false",
+            "finally",
+            "for",
+            "function",
+            "if",
+            "import",
+            "in",
+            "instanceof",
+            "new",
+            "null",
+            "return",
+            "super",
+            "switch",
+            "this",
+            "throw",
+            "true",
+            "try",
+            "typeof",
+            "var",
+            "void",
+            "while",
+            "with",
+            "yield",
+            "let",
+            "static",
+            "await",
+            "async",
+            "of",
+            "arguments",
+            "eval",
+            // Python
+            "and",
+            "as",
+            "assert",
+            "def",
+            "del",
+            "elif",
+            "except",
+            "from",
+            "global",
+            "is",
+            "lambda",
+            "nonlocal",
+            "not",
+            "or",
+            "pass",
+            "raise",
+            "None",
+            "True",
+            "False",
+            // Ruby
+            "alias",
+            "begin",
+            "end",
+            "ensure",
+            "module",
+            "next",
+            "nil",
+            "redo",
+            "rescue",
+            "retry",
+            "self",
+            "then",
+            "undef",
+            "unless",
+            "until",
+            "when",
+            "defined",
+            "__FILE__",
+            // PHP
+            "abstract",
+            "array",
+            "callable",
+            "clone",
+            "declare",
+            "echo",
+            "empty",
+            "endif",
+            "exit",
+            "final",
+            "foreach",
+            "goto",
+            "implements",
+            "include",
+            "interface",
+            "isset",
+            "list",
+            "namespace",
+            "print",
+            "private",
+            "protected",
+            "public",
+            "require",
+            "unset",
+            "use",
+            "xor",
+            "fn",
+            "match",
+            "readonly",
+            // Lua
+            "repeat",
+            "local",
+            "elseif",
+        ];
+        for entry in entries() {
+            for param in &entry.params {
+                assert!(
+                    !RESERVED.contains(&param.name),
+                    "{}: the parameter name \"{}\" is a keyword",
+                    entry.name,
+                    param.name
+                );
+            }
+        }
+    }
+
+    fn ty_of(result: Option<ArgType>) -> Ty {
+        result.map_or(Ty::Null, ty)
     }
 
     #[test]

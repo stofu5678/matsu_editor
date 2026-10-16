@@ -165,7 +165,7 @@ impl CommandContext<'_> {
     /// The text of the box for the clipboard: the text of each row of it, each followed by CRLF
     /// whatever the line ending of the document is, and an empty line for a row without text
     /// (Sakura: `GetSelectedData`). `None` if no box covers anything.
-    pub(crate) fn box_text(&self) -> Result<Option<String>> {
+    pub fn box_text(&self) -> Result<Option<String>> {
         let Some(rect) = self.box_rect()? else {
             return Ok(None);
         };

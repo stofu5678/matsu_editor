@@ -774,3 +774,312 @@ fn line_breaks_in_committed_text_are_recorded(cx: &mut TestAppContext) {
     cx.simulate_keystrokes(EXEC);
     assert_eq!(f.lines(cx), ["p", "qp", "q"]);
 }
+
+// ---- functions that need the window: the view, cookies, the dialogs, Sleep ----
+
+impl Fixture {
+    /// Runs the script at `path` and lets the macro and the window talk until it ends. `answer`
+    /// is called each time round, to answer a dialog that the macro opened; the clock moves on
+    /// by 100 ms each time round for `Sleep`.
+    fn run_script(
+        &self,
+        cx: &mut VisualTestContext,
+        path: &Path,
+        mut answer: impl FnMut(&mut VisualTestContext),
+    ) {
+        self.run(cx, F_EXECEXTMACRO, &[text_arg(path)]);
+        cx.executor().allow_parking();
+        for _ in 0..1500 {
+            cx.run_until_parked();
+            answer(cx);
+            if !self.running(cx) {
+                return;
+            }
+            cx.executor().advance_clock(Duration::from_millis(100));
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        panic!("the macro did not end: {}", self.output(cx));
+    }
+
+    fn script(&self, cx: &mut VisualTestContext, code: &str) -> String {
+        self.script_answering(cx, code, |_| {})
+    }
+
+    fn script_answering(
+        &self,
+        cx: &mut VisualTestContext,
+        code: &str,
+        answer: impl FnMut(&mut VisualTestContext),
+    ) -> String {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(dir.path(), "fn.cjs", code);
+        self.run_script(cx, &path, answer);
+        self.output(cx)
+    }
+}
+
+/// The values that a macro printed with `console.log('r=' + ...)`, one per line.
+fn results(output: &str) -> Vec<&str> {
+    output
+        .lines()
+        .filter_map(|line| line.strip_prefix("r="))
+        .collect()
+}
+
+#[gpui::test]
+fn a_macro_reads_the_view_and_the_file(cx: &mut TestAppContext) {
+    if !available(Language::JavaScript) {
+        return;
+    }
+    let (f, cx) = setup(cx, "日本語\nabc");
+    let output = f.script(
+        cx,
+        "console.log('r=' + [Editor.GetViewLines(), Editor.GetViewColumns(), Editor.GetViewTop(), \
+         Editor.GetCharCode(), Editor.GetLineCode(), Editor.IsShownStatus(), Editor.IsInsMode(), \
+         Editor.GetDrawSwitch()].join(','));",
+    );
+    // `CTextArea::UpdateViewColRowNums`: (size - 1) / pitch, at least 1.
+    let (rows, columns) = f.view.read_with(cx, |v, _| {
+        let m = v.metrics();
+        (
+            (((m.view_height - 1.0) / m.line_height).floor() as i64).max(1),
+            (((m.view_width - 1.0) / m.cell_width).floor() as i64).max(1),
+        )
+    });
+    let line = results(&output);
+    let [view] = line.as_slice() else {
+        panic!("{output}");
+    };
+    let parts: Vec<&str> = view.split(',').collect();
+    assert_eq!(
+        parts[..4],
+        [
+            rows.to_string().as_str(),
+            columns.to_string().as_str(),
+            "1",
+            "4"
+        ],
+        "{output}"
+    );
+    // UTF-8, with the line ending of a new document of this platform
+    assert!(parts[4] == "0" || parts[4] == "2", "{output}");
+    assert_eq!(parts[6..], ["1", "1"], "{output}");
+}
+
+#[gpui::test]
+fn cookies_stay_in_the_window_between_macros(cx: &mut TestAppContext) {
+    if !available(Language::JavaScript) {
+        return;
+    }
+    let (f, cx) = setup(cx, "");
+    f.script(
+        cx,
+        "Editor.SetCookie('window', 'count', '41'); Editor.SetCookie('document', 'name', '日本語');\
+         Editor.SetDrawSwitch(0);",
+    );
+    let output = f.script(
+        cx,
+        "console.log('r=' + [Editor.GetCookie('window', 'count'), Editor.GetCookie('document', 'name'), \
+         Editor.GetCookie('window', 'name'), Editor.GetCookieNames('window'), \
+         Editor.GetDrawSwitch()].join('|'));",
+    );
+    assert!(results(&output).contains(&"41|日本語||count|0"), "{output}");
+}
+
+#[gpui::test]
+fn the_tab_width_and_the_wrap_column_change_for_the_window(cx: &mut TestAppContext) {
+    if !available(Language::JavaScript) {
+        return;
+    }
+    let (f, cx) = setup(cx, "abcdefghijklmnopqrstuvwxyz");
+    let output = f.script(
+        cx,
+        "const t = Editor.ChangeTabWidth(8);\n\
+         const w = Editor.ChangeWrapColumn(10);\n\
+         console.log('r=' + [t, w, Editor.ChangeTabWidth(0), Editor.GetStrWidth('\\t'), \
+         Editor.LineColumnToIndex(2, 3), Editor.LogicToLayoutLineNum(1, 25), \
+         Editor.LayoutToLogicLineNum(3)].join(','));",
+    );
+    // 4 and no wrapping (10240) before; 8 and 10 after. The second row starts at index 11 (from 1):
+    // its third cell is index 13. Index 25 is on the third row.
+    assert!(results(&output).contains(&"4,10240,8,8,13,3,1"), "{output}");
+}
+
+#[gpui::test]
+fn a_message_box_waits_for_the_answer(cx: &mut TestAppContext) {
+    if !available(Language::JavaScript) {
+        return;
+    }
+    let (f, cx) = setup(cx, "");
+    let mut answers = vec!["キャンセル", "OK", "いいえ"];
+    let output = f.script_answering(
+        cx,
+        "console.log('r=' + Editor.MessageBox('三択', 3));\n\
+         console.log('r=' + Editor.InfoMsg('お知らせ'));\n\
+         console.log('r=' + Editor.YesNoBox('いいですか'));\n",
+        |cx| {
+            if cx.has_pending_prompt() && !answers.is_empty() {
+                // The macro waits for this answer; the answers come in the order of the calls.
+                let button = answers.remove(0);
+                cx.simulate_prompt_answer(button);
+            }
+        },
+    );
+    // Yes/No/Cancel: Cancel is 2. Info: OK is 1. Yes/No: No is 7.
+    assert_eq!(results(&output), ["2", "1", "7"], "{output}");
+    assert!(answers.is_empty());
+}
+
+/// Answers a "choose a file to open / a folder" dialog when the macro has opened it.
+fn answer_paths(cx: &mut VisualTestContext, paths: Option<Vec<PathBuf>>) {
+    if cx.did_prompt_for_paths() {
+        cx.simulate_path_prompt_response(move |_| paths.clone());
+    }
+}
+
+#[gpui::test]
+fn a_file_dialog_gives_the_path_and_a_cancel_gives_an_empty_string(cx: &mut TestAppContext) {
+    if !available(Language::JavaScript) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let chosen = dir.path().join("選んだ.txt");
+    let (f, cx) = setup(cx, "");
+    let to_open = chosen.clone();
+    let output = f.script_answering(
+        cx,
+        "console.log('r=' + Editor.FileOpenDialog('a.txt', '*.txt'));\n\
+         console.log('r=' + Editor.FolderDialog('message', ''));\n",
+        |cx| answer_paths(cx, Some(vec![to_open.clone()])),
+    );
+    assert_eq!(
+        results(&output),
+        [
+            chosen.to_string_lossy().as_ref(),
+            chosen.to_string_lossy().as_ref()
+        ],
+        "{output}"
+    );
+    // Cancelled
+    let output = f.script_answering(
+        cx,
+        "console.log('r=[' + Editor.FolderDialog('message', '') + ']');\n",
+        |cx| answer_paths(cx, None),
+    );
+    assert_eq!(results(&output), ["[]"], "{output}");
+}
+
+#[gpui::test]
+fn the_save_dialog_gives_the_path_and_a_cancel_gives_an_empty_string(cx: &mut TestAppContext) {
+    if !available(Language::JavaScript) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("保存.txt");
+    let (f, cx) = setup(cx, "");
+    // The platform of the tests tells no one when a save dialog opens, so the answer is tried
+    // until the dialog is there.
+    let mut answers = vec![Some(target.clone()), None];
+    let output = f.script_answering(
+        cx,
+        "console.log('r=[' + Editor.FileSaveDialog('x.txt') + ']');\n\
+         console.log('r=[' + Editor.FileSaveDialog() + ']');\n",
+        |cx| {
+            if let Some(answer) = answers.first().cloned() {
+                let tried = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    cx.simulate_new_path_selection(move |_| answer.clone());
+                }));
+                if tried.is_ok() {
+                    answers.remove(0);
+                }
+            }
+        },
+    );
+    assert_eq!(
+        results(&output),
+        [format!("[{}]", target.display()).as_str(), "[]"],
+        "{output}"
+    );
+}
+
+#[gpui::test]
+fn sleep_waits_for_the_clock_and_the_macro_goes_on(cx: &mut TestAppContext) {
+    if !available(Language::JavaScript) {
+        return;
+    }
+    let (f, cx) = setup(cx, "");
+    let dir = tempfile::tempdir().unwrap();
+    let path = write(
+        dir.path(),
+        "sleep.cjs",
+        "Editor.InsText('a'); console.log('r=' + Editor.Sleep(1000)); Editor.InsText('b');",
+    );
+    f.run(cx, F_EXECEXTMACRO, &[text_arg(&path)]);
+    cx.executor().allow_parking();
+    // Nothing moves the clock: the macro is stuck in Sleep after the first insert.
+    for _ in 0..60 {
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(f.running(cx), "{}", f.output(cx));
+    assert_eq!(f.lines(cx), ["a"]);
+    // The clock reaches the time.
+    f.wait_until_done_advancing(cx);
+    assert_eq!(f.lines(cx), ["ab"]);
+    assert_eq!(results(&f.output(cx)), ["0"]);
+}
+
+impl Fixture {
+    fn wait_until_done_advancing(&self, cx: &mut VisualTestContext) {
+        cx.executor().allow_parking();
+        for _ in 0..1500 {
+            cx.executor().advance_clock(Duration::from_millis(500));
+            cx.run_until_parked();
+            if !self.running(cx) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        panic!("the macro did not end: {}", self.output(cx));
+    }
+}
+
+#[gpui::test]
+fn expand_parameter_knows_the_macro_file(cx: &mut TestAppContext) {
+    if !available(Language::JavaScript) {
+        return;
+    }
+    let (f, cx) = setup(cx, "abc");
+    let dir = tempfile::tempdir().unwrap();
+    let path = write(
+        dir.path(),
+        "whoami.cjs",
+        "console.log('r=' + Editor.ExpandParameter('$M|$f|$y,$x'));",
+    );
+    f.run_script(cx, &path, |_| {});
+    let expected = format!("{}|(無題)|1,1", path.display());
+    assert_eq!(
+        results(&f.output(cx)),
+        [expected.as_str()],
+        "{}",
+        f.output(cx)
+    );
+}
+
+#[gpui::test]
+fn functions_without_a_window_part_say_so_clearly(cx: &mut TestAppContext) {
+    // InputBox has no dialog yet: the macro gets the "not implemented" error, and ends with it.
+    if !available(Language::JavaScript) {
+        return;
+    }
+    let (f, cx) = setup(cx, "");
+    let output = f.script(
+        cx,
+        "try { Editor.InputBox('x'); } catch (e) { console.log('r=' + e.code + ' ' + e.message); }",
+    );
+    let line = results(&output);
+    let [text] = line.as_slice() else {
+        panic!("{output}");
+    };
+    assert!(text.starts_with("-32001 "), "{output}");
+}
