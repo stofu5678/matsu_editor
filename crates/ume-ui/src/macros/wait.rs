@@ -92,6 +92,24 @@ pub(crate) fn track(cx: &App, window: &Window) -> Option<FlowGuard> {
     Some(FlowGuard(counter))
 }
 
+/// A message box whose answer nobody needs (the OK of a warning): a macro that waits for the call
+/// that showed it waits until the box is closed (Sakura's boxes are modal). Without a macro the
+/// answer is dropped, as before.
+pub(crate) fn keep_box(
+    answer: impl std::future::Future + 'static,
+    window: &mut Window,
+    cx: &mut Context<EditorView>,
+) {
+    let Some(tracked) = track(cx, window) else {
+        return;
+    };
+    cx.spawn_in(window, async move |_, _| {
+        answer.await;
+        drop(tracked);
+    })
+    .detach();
+}
+
 /// What a call of a macro left open or running.
 pub(crate) struct Wait {
     flows: Rc<Cell<usize>>,

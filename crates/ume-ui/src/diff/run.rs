@@ -92,7 +92,7 @@ impl EditorView {
             &["OK"],
             cx,
         );
-        drop(answer);
+        crate::macros::keep_box(answer, window, cx);
     }
 
     /// `Command_Diff`: marks the lines of this window that differ from `target`. `flags` are the

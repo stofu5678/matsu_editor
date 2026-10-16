@@ -54,7 +54,7 @@ impl EditorView {
     /// Shows a message box with an OK button (Sakura's `InfoMessage`).
     pub(crate) fn info_box(&self, message: &str, window: &mut Window, cx: &mut Context<Self>) {
         let answer = window.prompt(PromptLevel::Info, BOX_TITLE, Some(message), &["OK"], cx);
-        drop(answer);
+        crate::macros::keep_box(answer, window, cx);
     }
 
     /// Shows the box for a regular expression that does not compile (`CheckRegexpSyntax`,
@@ -72,7 +72,7 @@ impl EditorView {
             &["OK"],
             cx,
         );
-        drop(answer);
+        crate::macros::keep_box(answer, window, cx);
         true
     }
 
@@ -98,7 +98,7 @@ impl EditorView {
                     &["OK"],
                     cx,
                 );
-                drop(answer);
+                crate::macros::keep_box(answer, window, cx);
                 Err(())
             }
         }

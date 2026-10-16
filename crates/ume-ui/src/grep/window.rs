@@ -294,7 +294,7 @@ impl EditorView {
             &["OK"],
             cx,
         );
-        drop(answer);
+        crate::macros::keep_box(answer, window, cx);
     }
 
     /// The settings of a Grep 置換 as the `GrepInfo` of one. With `check` they are checked as the
@@ -313,7 +313,7 @@ impl EditorView {
                 let message = super::panel::NO_CLIPBOARD;
                 let answer =
                     window.prompt(PromptLevel::Critical, BOX_TITLE, Some(message), &["OK"], cx);
-                drop(answer);
+                crate::macros::keep_box(answer, window, cx);
                 return Err(CommandError::BadArgs(message.to_owned()));
             };
             Some(text)
@@ -347,7 +347,7 @@ impl EditorView {
             &["OK"],
             cx,
         );
-        drop(answer);
+        crate::macros::keep_box(answer, window, cx);
     }
 
     /// Starts the search with the result in this window. The search runs on a background task;

@@ -57,7 +57,7 @@ use crate::view::EditorView;
 use output::PanelActions;
 
 pub(crate) use output::{Kind, Output};
-pub(crate) use wait::{FlowGuard, track};
+pub(crate) use wait::{FlowGuard, keep_box, track};
 
 /// `F_WCHAR`, the function of a typed character (`Char` in a macro).
 pub(crate) const F_WCHAR: u16 = 30200;

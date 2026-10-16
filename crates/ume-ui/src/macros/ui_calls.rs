@@ -30,6 +30,29 @@ use super::EditorView;
 use super::wait::Wait;
 use crate::ui_command::UiRegistry;
 
+/// The UI commands that take the arguments of Sakura's macro function but do not read them yet
+/// (they use the settings of the window: the search pattern, the page overlap). A script that
+/// gives arguments to them gets an error instead of a silent run with other values.
+const IGNORES_ARGUMENTS: &[&str] = &[
+    "F_SEARCH_NEXT",
+    "F_SEARCH_PREV",
+    "F_REPLACE",
+    "F_REPLACE_ALL",
+    "F_BOOKMARK_PATTERN",
+    "F_1PageUp",
+    "F_1PageDown",
+    "F_1PageUp_Sel",
+    "F_1PageDown_Sel",
+    "F_HalfPageUp",
+    "F_HalfPageDown",
+    "F_HalfPageUp_Sel",
+    "F_HalfPageDown_Sel",
+    "F_1PageUp_BOX",
+    "F_1PageDown_BOX",
+    "F_HalfPageUp_BOX",
+    "F_HalfPageDown_BOX",
+];
+
 impl EditorView {
     /// If `text` is a call of a macro-only function that a UI command implements, runs it and
     /// sends the answer to the script, and returns true. Anything else is left to the bridge.
@@ -54,6 +77,23 @@ impl EditorView {
             || UiRegistry::global().get_by_code(row.code).is_none()
         {
             return false;
+        }
+        // A command that does not read its arguments yet must not run as if it had none: the
+        // search would use the pattern of an earlier search instead of the one the script gave.
+        if !params.is_empty() && IGNORES_ARGUMENTS.contains(&row.function) {
+            if let (Some(id), Some(running)) = (id, &self.macros.running) {
+                running.session.send(response_error(
+                    &id,
+                    &RpcError::new(
+                        UNAVAILABLE,
+                        format!(
+                            "{} ({}) does not use its arguments yet; call it without them",
+                            row.name, row.function
+                        ),
+                    ),
+                ));
+            }
+            return true;
         }
         let outcome = self.run_ui_function(row, &params, window, cx);
         // A notification gets no answer, and does not wait: the script goes on.

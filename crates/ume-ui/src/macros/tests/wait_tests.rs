@@ -296,6 +296,24 @@ fn a_script_is_told_when_a_function_of_a_menu_fails(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn a_script_cannot_give_arguments_to_a_command_that_ignores_them(cx: &mut TestAppContext) {
+    if !available(Language::JavaScript) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let script = write(
+        dir.path(),
+        "args.cjs",
+        "try { Editor.ReplaceAll('a', 'b', 0); console.log('r=ran'); } \
+         catch (e) { console.log('r=refused'); }\n",
+    );
+    let (f, cx) = setup_with_ui(cx, "aaa");
+    f.run_script(cx, &script, |_| {});
+    assert_eq!(results(&f.output(cx)), ["refused"], "{}", f.output(cx));
+    assert_eq!(f.lines(cx), ["aaa"]);
+}
+
+#[gpui::test]
 fn work_that_the_user_starts_in_the_dialog_is_waited_for_too(cx: &mut TestAppContext) {
     // The OK of a dialog often starts a job (DIFF, Grep, a file read). The macro waits for it,
     // not only for the dialog.
