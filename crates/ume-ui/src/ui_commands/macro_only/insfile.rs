@@ -91,7 +91,10 @@ fn insert_lines(cx: &mut CommandContext<'_>, doc: &Document) -> Result {
         if let Some(eol) = line.eol {
             chunk.push_str(eol.as_str());
         }
-        if chunk.len() >= CHUNK_BYTES {
+        // A box selection takes the first line of a text only (`insert_into_box`), so a text of
+        // several lines would lose the rest: with a box, each line is inserted by itself, as
+        // Sakura does for every file.
+        if chunk.len() >= CHUNK_BYTES || cx.cursor().is_box() {
             cx.insert_text(&chunk)?;
             chunk.clear();
         }

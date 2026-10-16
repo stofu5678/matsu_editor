@@ -536,6 +536,32 @@ fn ins_file_takes_a_big_file_in_pieces_and_it_is_still_one_step(cx: &mut TestApp
 }
 
 #[gpui::test]
+fn ins_file_into_a_box_inserts_line_by_line(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("in.txt");
+    std::fs::write(&file, "A\nB\nC\n").unwrap();
+    // The expected result: the lines inserted one after the other (Sakura's loop).
+    let (expected, cx_e) = setup(cx, "abc\ndef\nghi");
+    expected.put_caret(cx_e, Pos::new(0, 1));
+    expected.run(
+        cx_e,
+        "F_MOVECURSOR",
+        &[Arg::Int(2), Arg::Int(3), Arg::Int(2)],
+    );
+    expected.view.update(cx_e, |v, cx| {
+        for line in ["A\n", "B\n", "C\n"] {
+            v.run_with(cx, |c| c.insert_text(line)).unwrap();
+        }
+    });
+    let want = expected.text(cx_e);
+    let (f, cx) = setup(cx_e, "abc\ndef\nghi");
+    f.put_caret(cx, Pos::new(0, 1));
+    f.run(cx, "F_MOVECURSOR", &[Arg::Int(2), Arg::Int(3), Arg::Int(2)]);
+    f.run(cx, "F_INSFILE", &[path_arg(&file), Arg::Int(4)]);
+    assert_eq!(f.text(cx), want);
+}
+
+#[gpui::test]
 fn ins_file_is_one_undo_step(cx: &mut TestAppContext) {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("in.txt");
