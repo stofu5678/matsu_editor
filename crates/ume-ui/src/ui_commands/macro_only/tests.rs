@@ -520,6 +520,22 @@ fn ins_file_replaces_a_selection_and_selects_what_it_inserted(cx: &mut TestAppCo
 }
 
 #[gpui::test]
+fn ins_file_takes_a_big_file_in_pieces_and_it_is_still_one_step(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("big.txt");
+    let big: String = (0..30_000).map(|i| format!("line {i}\r\n")).collect();
+    assert!(big.len() > 4 * super::insfile::CHUNK_BYTES);
+    std::fs::write(&file, &big).unwrap();
+    let (f, cx) = setup(cx, "xy");
+    f.put_caret(cx, Pos::new(0, 1));
+    f.run(cx, "F_INSFILE", &[path_arg(&file), Arg::Int(4)]);
+    assert_eq!(f.text(cx), format!("x{big}y"));
+    f.run(cx, "F_UNDO", &[]);
+    assert_eq!(f.text(cx), "xy");
+    assert!(!f.can_undo(cx));
+}
+
+#[gpui::test]
 fn ins_file_is_one_undo_step(cx: &mut TestAppContext) {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("in.txt");
@@ -624,6 +640,38 @@ fn file_open_with_the_third_argument_opens_in_view_mode(cx: &mut TestAppContext)
     assert!(f.document.read_with(cx, |s, _| s.view_mode()));
     // an edit is refused there
     assert!(!f.run(cx, "F_INSFILE", &[path_arg(&file), Arg::Int(4)]));
+}
+
+#[gpui::test]
+fn the_calls_after_file_open_work_on_the_new_text(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("a.txt");
+    std::fs::write(&file, "from the file").unwrap();
+    let mac = dir.path().join("m.mac");
+    let quoted = file.to_string_lossy().replace('\\', "\\\\");
+    std::fs::write(
+        &mac,
+        format!("FileOpen('{quoted}', 4, 0, '');\nGoFileEnd(0);\nChar(33);\n"),
+    )
+    .unwrap();
+    let (f, cx) = setup(cx, "");
+    f.run(cx, "F_EXECEXTMACRO", &[path_arg(&mac)]);
+    assert_eq!(f.text(cx), "from the file!");
+    assert_eq!(cx.windows().len(), 1);
+}
+
+#[gpui::test]
+fn file_open_of_a_file_that_cannot_be_read_is_shown_and_the_macro_goes_on(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    // a folder is not a file
+    let (f, cx) = setup(cx, "");
+    assert!(f.run(cx, "F_FILEOPEN2", &[path_arg(dir.path()), Arg::Int(4)]));
+    assert!(
+        f.output(cx).contains(&*dir.path().to_string_lossy()),
+        "{}",
+        f.output(cx)
+    );
+    assert_eq!(f.text(cx), "");
 }
 
 #[gpui::test]

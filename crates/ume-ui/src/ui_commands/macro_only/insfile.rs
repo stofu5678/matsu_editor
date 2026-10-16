@@ -17,9 +17,10 @@ use std::path::Path;
 
 use gpui::{Context, Window};
 use ume_commands::command::{Arg, Result};
-use ume_core::buffer::Pos;
+use ume_commands::context::CommandContext;
+use ume_core::buffer::Document;
 use ume_core::encoding::Encoding;
-use ume_core::file::{OpenOptions, open_file};
+use ume_core::file::{OpenOptions, TextFile, open_file};
 
 use super::putfile::encoding_of;
 use super::{int_arg, text_arg};
@@ -49,8 +50,8 @@ impl UiCommand for InsFile {
         }
         let document_encoding = view.document().read(cx).file().encoding;
         let encoding = encoding_of(code, document_encoding).unwrap_or(Encoding::ShiftJis);
-        let text = match read_text(Path::new(name), encoding) {
-            Ok(text) => text,
+        let file = match open(Path::new(name), encoding) {
+            Ok(file) => file,
             Err(message) => {
                 view.macro_failed(message, window, cx);
                 return Ok(());
@@ -58,12 +59,13 @@ impl UiCommand for InsFile {
         };
         // `bBeforeTextSelected` and `ptFrom`
         let from = view.cursor().selection().map(|(from, _)| from);
-        if text.is_empty() {
+        let doc = file.document;
+        if doc.line_count() == 0 {
             return Ok(());
         }
         view.run_with(cx, |command_cx| {
             command_cx.begin_block();
-            let result = command_cx.insert_text(&text).and_then(|_| match from {
+            let result = insert_lines(command_cx, &doc).and_then(|()| match from {
                 Some(from) => {
                     let end = command_cx.caret();
                     command_cx.select_range(from, end)
@@ -76,21 +78,39 @@ impl UiCommand for InsFile {
     }
 }
 
-/// The text of the file read in `encoding` (the BOM is dropped), with its line endings.
-fn read_text(path: &Path, encoding: Encoding) -> std::result::Result<String, String> {
+/// How much text one insertion takes. Sakura inserts line by line; a few lines at a time is the
+/// same and does not make a text of the whole file (CLAUDE.md: the document is read by ranges).
+pub(super) const CHUNK_BYTES: usize = 64 * 1024;
+
+/// Inserts the lines of `doc` at the caret, with their line endings as they are.
+fn insert_lines(cx: &mut CommandContext<'_>, doc: &Document) -> Result {
+    let mut chunk = String::new();
+    for index in 0..doc.line_count() {
+        let Some(line) = doc.line(index)? else { break };
+        chunk.push_str(&line.text);
+        if let Some(eol) = line.eol {
+            chunk.push_str(eol.as_str());
+        }
+        if chunk.len() >= CHUNK_BYTES {
+            cx.insert_text(&chunk)?;
+            chunk.clear();
+        }
+    }
+    if !chunk.is_empty() {
+        cx.insert_text(&chunk)?;
+    }
+    Ok(())
+}
+
+/// Opens the file in `encoding` (the BOM is dropped). The error is the text to show.
+fn open(path: &Path, encoding: Encoding) -> std::result::Result<TextFile, String> {
     let options = OpenOptions {
         encoding: Some(encoding),
         ..OpenOptions::default()
     };
     // `STR_GREP_ERR_FILEOPEN` and `STR_ERR_DLGEDITVWCMDNW12`
-    let failed = |error: &dyn std::fmt::Display| {
-        format!("ファイルを開けませんでした。\n{}\n{error}", path.display())
-    };
-    let file = open_file(path, &options).map_err(|error| failed(&error))?;
-    let end = file.document.end_pos().map_err(|error| failed(&error))?;
-    file.document
-        .text_between(Pos::new(0, 0), end)
-        .map_err(|error| failed(&error))
+    open_file(path, &options)
+        .map_err(|error| format!("ファイルを開けませんでした。\n{}\n{error}", path.display()))
 }
 
 register_ui_command!(InsFile);
