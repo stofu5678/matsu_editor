@@ -6,8 +6,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::lua::Lua;
-use crate::quickjs::QuickJs;
 use crate::mruby::Mruby;
+use crate::quickjs::QuickJs;
 use crate::rpc::{Editor, Initialize};
 
 pub trait Engine {

@@ -3,6 +3,6 @@
 
 pub mod engine;
 pub mod lua;
-pub mod quickjs;
 pub mod mruby;
+pub mod quickjs;
 pub mod rpc;
