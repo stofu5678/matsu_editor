@@ -1123,6 +1123,22 @@ fn base64_decode_saves_the_bytes_of_the_selection(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn base64_decode_replaces_an_existing_file_without_leaving_a_temporary_one(
+    cx: &mut TestAppContext,
+) {
+    let dir = TempDir::new();
+    let target = dir.write("old.bin", b"old contents that are longer");
+    let (f, cx) = utf8_fixture(cx, &dir, b"aGVsbG8=");
+    f.run(cx, "F_SELECTALL", &[]);
+    f.run(cx, "F_BASE64DECODE", &[]);
+    let chosen = target.clone();
+    cx.simulate_new_path_selection(move |_| Some(chosen));
+    cx.run_until_parked();
+    assert_eq!(read(&target), b"hello");
+    assert!(!dir.path("old.bin.ume-tmp").exists());
+}
+
+#[gpui::test]
 fn base64_decode_does_nothing_without_a_selection_or_for_other_text(cx: &mut TestAppContext) {
     let dir = TempDir::new();
     let (f, cx) = utf8_fixture(cx, &dir, b"aGVs!bG8=");
