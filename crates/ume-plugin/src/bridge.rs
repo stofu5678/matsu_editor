@@ -42,6 +42,10 @@ use crate::protocol::{INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND, RpcError
 /// range that JSON-RPC 2.0 leaves to the server (-32000 to -32099).
 pub const NOT_IMPLEMENTED: i64 = -32001;
 
+/// The error code for a function that needs something this run of the editor does not have, for
+/// example the clipboard when the macro runs without a window. Also in the server's range.
+pub const UNAVAILABLE: i64 = -32002;
+
 /// Handles one message line from the macro and returns the response line, or `None` for a
 /// notification.
 pub fn handle_message(
@@ -141,6 +145,7 @@ fn command_error(error: CommandError) -> RpcError {
             RpcError::new(NOT_IMPLEMENTED, format!("no such command: {what}"))
         }
         CommandError::Buffer(e) => RpcError::new(INTERNAL_ERROR, e.to_string()),
+        e @ CommandError::Unavailable(_) => RpcError::new(UNAVAILABLE, e.to_string()),
     }
 }
 

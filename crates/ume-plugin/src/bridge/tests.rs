@@ -135,6 +135,16 @@ fn arguments_are_checked_against_sakura_s_table() {
 }
 
 #[test]
+fn a_command_without_what_it_needs_says_so() {
+    // The fixture has no clipboard (as when a macro runs without a window), so Copy cannot run.
+    let mut f = Fixture::new("abc");
+    let err = f.call("Copy", json!([])).unwrap_err();
+    assert_eq!(err.code, UNAVAILABLE);
+    assert!(err.message.contains("clipboard"), "{}", err.message);
+    assert_eq!(f.text(), "abc");
+}
+
+#[test]
 fn a_name_without_a_command_says_so() {
     let mut f = Fixture::new("a");
     // F_FILESAVE is a command of Sakura's table, and this crate has no command for it yet.
