@@ -10,6 +10,8 @@ publish.workspace = true
 
 [dependencies]
 ume-print = { path = "../ume-print" }
+# The window of the OS under a GPUI window, for the window functions (src/window).
+raw-window-handle = "0.6"
 
 # Printing to a PDF (src/print/pdf.rs): what Linux prints, and the PDF of the tests.
 [target.'cfg(not(target_os = "macos"))'.dependencies]
@@ -29,13 +31,11 @@ windows-sys = { version = "0.61", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
-raw-window-handle = "0.6"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-raw-window-handle = "0.6"
 futures-channel = "0.3"
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry", "NSObject", "NSRange", "NSString", "NSURL", "NSDictionary"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSGeometry", "NSObject", "NSRange", "NSString", "NSURL", "NSDictionary"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = [
     "std",
     "objc2-core-foundation",
@@ -46,6 +46,7 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
     "NSPrintPanel",
     "NSPrinter",
     "NSResponder",
+    "NSScreen",
     "NSView",
     "NSWindow",
 ] }

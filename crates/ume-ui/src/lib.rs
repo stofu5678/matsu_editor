@@ -42,6 +42,7 @@ mod support;
 pub mod ui_command;
 mod ui_commands;
 pub mod view;
+mod window_ops;
 pub mod word;
 
 pub use app::run;
