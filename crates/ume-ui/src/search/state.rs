@@ -79,6 +79,11 @@ pub struct SearchState {
     pattern_error: Option<PatternError>,
     /// Where the last search selected an empty match, so that the next one steps over it.
     empty_match: Option<Pos>,
+    /// `m_nCurSearchKeySequence`: how much of the shared search history this window has seen.
+    /// `None` is Sakura's -1 (nothing yet).
+    key_sequence: Option<u64>,
+    /// The same for the replace strings (`CDlgReplace::m_nReplaceKeySequence`).
+    replace_sequence: Option<u64>,
 }
 
 /// A matcher made by [`build_matcher`].
@@ -165,6 +170,23 @@ impl SearchState {
 
     pub fn set_empty_match(&mut self, pos: Option<Pos>) {
         self.empty_match = pos;
+    }
+
+    /// How much of the shared search history this window has seen (see [`super::history`]).
+    pub fn key_sequence(&self) -> Option<u64> {
+        self.key_sequence
+    }
+
+    pub fn set_key_sequence(&mut self, sequence: Option<u64>) {
+        self.key_sequence = sequence;
+    }
+
+    pub fn replace_sequence(&self) -> Option<u64> {
+        self.replace_sequence
+    }
+
+    pub fn set_replace_sequence(&mut self, sequence: Option<u64>) {
+        self.replace_sequence = sequence;
     }
 
     pub fn set_pattern(&mut self, pattern: &str) {

@@ -337,6 +337,8 @@ impl EditorView {
         self.search.set_options(info.options);
         self.search.set_pattern(&info.key);
         self.search.set_mark(true);
+        // The key goes in the history (`CDlgGrep::GetData`, `CNormalProcess` for the command line).
+        self.remember_search_key(cx);
         // The type of a Grep window (`grepout`) writes CR LF, as the result does.
         let empty = self.document.read(cx).doc().line_count() == 0;
         if empty {

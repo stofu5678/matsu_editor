@@ -53,6 +53,17 @@ pub(crate) fn refresh_menus(cx: &mut App) {
 pub fn run(paths: Vec<PathBuf>) {
     let user = crate::settings::UserSettings::load();
     let keymap = user.key_map(ume_commands::keymap::Platform::current());
+    // The search and replace strings of the last runs (`[Keys]`), saved to the same file.
+    let search_history = {
+        let candidates = ume_config::location::candidate_paths(
+            ume_config::location::Os::current(),
+            &ume_config::location::Environment::from_process(),
+        );
+        crate::search::history::SearchHistory::load(
+            user.path(),
+            ume_config::location::write_path(&candidates).map(std::path::Path::to_path_buf),
+        )
+    };
     // gpui-component's icons (check marks, menu arrows, title bar buttons), on every OS.
     let app = application().with_assets(gpui_kit_assets::Assets);
     app.run(move |cx: &mut App| {
@@ -76,6 +87,7 @@ pub fn run(paths: Vec<PathBuf>) {
 
         // Every window that `open_editor_window` makes applies ume.ini (read once, above).
         cx.set_global(user);
+        crate::search::history::install(cx, search_history);
         open_startup_windows(cx, paths).expect("failed to open the window");
         cx.activate(true);
     });
