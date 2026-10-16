@@ -100,6 +100,25 @@ impl CommandContext<'_> {
         Ok(())
     }
 
+    /// Moves the box caret to the end of the text of its row (on a wrapped row, its last char).
+    pub(super) fn box_move_to_row_end(&mut self) -> Result<()> {
+        let caret = self.caret();
+        let (start, end) = (
+            self.layout.row_start(self.doc(), caret)?,
+            self.layout.row_end(self.doc(), caret)?,
+        );
+        let mut pos = end;
+        if self.row_is_wrapped(caret)?
+            && let Some(last) = char_left(self.doc(), end)?
+            && last >= start
+        {
+            pos = last;
+        }
+        let col = self.layout.display_col(self.doc(), pos)?;
+        self.cursor.move_box_to(pos, col);
+        Ok(())
+    }
+
     /// One column left; through the empty space, then one char at a time over the text. The caret
     /// does not go to the previous row.
     pub(super) fn box_left(&mut self) -> Result<()> {

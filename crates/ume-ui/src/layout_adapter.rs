@@ -399,5 +399,12 @@ mod tests {
         assert_eq!(at(&cursor), (Pos::new(0, 6), Some(6)));
         run("cursor_left_box", &mut cursor);
         assert_eq!(at(&cursor), (Pos::new(0, 6), Some(5)));
+        // the end of a row: the last char of a wrapped one, the end of the text of the last one
+        run("cursor_up_box", &mut cursor);
+        run("go_line_end_box", &mut cursor);
+        assert_eq!(at(&cursor), (Pos::new(0, 3), Some(3)));
+        run("cursor_down_box", &mut cursor);
+        run("go_line_end_box", &mut cursor);
+        assert_eq!(at(&cursor), (Pos::new(0, 6), Some(2)));
     }
 }

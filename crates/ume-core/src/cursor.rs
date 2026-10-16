@@ -193,6 +193,7 @@ impl Cursor {
     /// Selects from `anchor` to `caret` (the caret may come first).
     pub fn select(&mut self, anchor: Pos, caret: Pos) {
         self.drop_box();
+        self.selecting_lock = false;
         self.caret = caret;
         self.anchor = (anchor != caret).then_some(anchor);
         self.goal_col = None;
@@ -398,6 +399,7 @@ mod tests {
         let mut c = begin();
         c.select(Pos::new(0, 0), Pos::new(0, 3));
         assert!(!c.is_box());
+        assert!(!c.selecting_lock());
         assert_eq!(c.box_caret_col(), None);
     }
 

@@ -165,6 +165,9 @@ impl CommandContext<'_> {
     /// The end of the row, before the line ending (Sakura: `Command_GOLINEEND`).
     pub fn move_line_end(&mut self, extend: bool) -> Result<()> {
         let extend = self.extends(extend);
+        if extend && self.cursor.is_box() {
+            return self.box_move_to_row_end();
+        }
         let target = self.layout.row_end(self.doc(), self.caret())?;
         self.move_caret(target, extend)
     }
