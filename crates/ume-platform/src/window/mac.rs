@@ -51,6 +51,10 @@ fn to_ns(rect: Rect, primary_height: f64) -> NSRect {
     )
 }
 
+pub(super) fn unsupported() -> Option<&'static str> {
+    None
+}
+
 pub(super) fn work_area(handle: RawWindowHandle) -> Result<Rect, Error> {
     let window = window(handle)?;
     let height = primary_height()?;

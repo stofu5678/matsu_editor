@@ -30,6 +30,10 @@ fn rect(r: RECT) -> Rect {
     Rect::new(r.left, r.top, r.right, r.bottom)
 }
 
+pub(super) fn unsupported() -> Option<&'static str> {
+    None
+}
+
 pub(super) fn work_area(window: RawWindowHandle) -> Result<Rect, Error> {
     let hwnd = hwnd(window)?;
     // SAFETY: `info` is initialised with its size, as GetMonitorInfoW requires; `hwnd` is a window

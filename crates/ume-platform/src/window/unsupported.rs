@@ -5,6 +5,10 @@ use super::{Error, RawWindowHandle, Rect};
 const WHY: &str =
     "ウィンドウの配置 (Wayland のコンポジタは、プログラムがウィンドウを動かすことを認めない)";
 
+pub(super) fn unsupported() -> Option<&'static str> {
+    Some(WHY)
+}
+
 pub(super) fn work_area(_: RawWindowHandle) -> Result<Rect, Error> {
     Err(Error::Unsupported(WHY))
 }

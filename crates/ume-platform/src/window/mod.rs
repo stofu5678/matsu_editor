@@ -58,6 +58,12 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+/// Why this OS cannot place windows, or `None` when it can. Ask before queueing a change that
+/// would only fail later.
+pub fn unsupported() -> Option<&'static str> {
+    os::unsupported()
+}
+
 /// The area of the screen the window is on that programs may use: without the task bar, the
 /// menu bar and the dock (Sakura's `GetMonitorWorkRect`).
 pub fn work_area(window: RawWindowHandle) -> Result<Rect, Error> {

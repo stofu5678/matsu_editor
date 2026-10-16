@@ -52,8 +52,13 @@ fn raw_handle(window: &Window) -> Option<RawWindowHandle> {
         .map(|handle| handle.as_raw())
 }
 
-/// A call into the OS that changes a window.
-type Deferred = Box<dyn FnOnce()>;
+/// What is done to the windows after the command, in order.
+enum Deferred {
+    /// A call into the OS that changes a window.
+    Call(Box<dyn FnOnce()>),
+    /// Brings the window to the front.
+    Raise(AnyWindowHandle),
+}
 
 /// The real screen. The window that runs the command is borrowed by GPUI while the command runs,
 /// so it is reached through `window`; the others through their handles.
@@ -108,10 +113,13 @@ impl Screen for Os<'_> {
 
     fn place(&mut self, window: AnyWindowHandle, rect: Rect) -> Result<(), Error> {
         let raw = self.raw(window)?;
-        self.deferred.push(Box::new(move || {
+        if let Some(why) = window::unsupported() {
+            return Err(Error::Unsupported(why));
+        }
+        self.deferred.push(Deferred::Call(Box::new(move || {
             // The command has ended; a refusal of the OS has nowhere to go.
             let _ = window::place(raw, rect);
-        }));
+        })));
         Ok(())
     }
 
@@ -130,11 +138,8 @@ impl Screen for Os<'_> {
     }
 
     fn raise(&mut self, window: AnyWindowHandle) {
-        if window == self.current {
-            self.window.activate_window();
-        } else {
-            activate(self.cx, window);
-        }
+        // After the placements: restoring a window activates it.
+        self.deferred.push(Deferred::Raise(window));
     }
 
     fn is_topmost(&mut self, window: AnyWindowHandle) -> Result<bool, Error> {
@@ -143,9 +148,12 @@ impl Screen for Os<'_> {
 
     fn set_topmost(&mut self, window: AnyWindowHandle, topmost: bool) -> Result<(), Error> {
         let raw = self.raw(window)?;
-        self.deferred.push(Box::new(move || {
+        if let Some(why) = window::unsupported() {
+            return Err(Error::Unsupported(why));
+        }
+        self.deferred.push(Deferred::Call(Box::new(move || {
             let _ = window::set_topmost(raw, topmost);
-        }));
+        })));
         Ok(())
     }
 }
@@ -162,13 +170,17 @@ pub(crate) fn with_screen<R>(
     let current = screen.current;
     let result = f(&mut screen, &all, current);
     let deferred = std::mem::take(&mut screen.deferred);
-    cx.foreground_executor()
-        .spawn(async move {
-            for call in deferred {
-                call();
+    cx.spawn(async move |cx| {
+        for step in deferred {
+            match step {
+                Deferred::Call(call) => call(),
+                Deferred::Raise(handle) => {
+                    cx.update(|app| activate(app, handle));
+                }
             }
-        })
-        .detach();
+        }
+    })
+    .detach();
     result
 }
 
