@@ -143,6 +143,27 @@ fn the_history_is_written_to_the_file_and_read_back(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn two_processes_with_the_same_file_do_not_lose_each_others_strings(cx: &mut TestAppContext) {
+    let (_f, _cx) = setup(cx, "");
+    let path = temp_ini("two");
+    // both started with an empty file
+    let mut a = SearchHistory::load(None, Some(path.clone()));
+    let mut b = SearchHistory::load(None, Some(path.clone()));
+    a.persist(|keys| {
+        keys.add_search("from a");
+    });
+    b.persist(|keys| {
+        keys.add_replace("from b");
+    });
+    let file = SearchHistory::load(Some(&path), None);
+    assert_eq!(file.keys().search.items(), ["from a"]);
+    assert_eq!(file.keys().replace.items(), ["from b"]);
+    // and b now knows what a saved
+    assert_eq!(b.keys().search.items(), ["from a"]);
+    std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+}
+
+#[gpui::test]
 fn a_file_that_does_not_exist_yet_is_made(cx: &mut TestAppContext) {
     let (_f, cx) = setup(cx, "");
     let path = temp_ini("new");

@@ -53,14 +53,27 @@ impl SearchHistory {
         &self.keys
     }
 
-    /// Writes `[Keys]` into the settings file, leaving the rest of it alone. The file is changed
-    /// under the lock that every writer of the file takes (`ume_config::history::update_profile`),
-    /// so a recent file added by another window at the same moment is not lost. A file that cannot
-    /// be read is not touched.
-    fn persist(&self) {
+    /// Adds a string to the history in the settings file, leaving the rest of the file alone.
+    /// `add` is applied to the strings the file has *now*, under the lock that every writer of the
+    /// file takes (`ume_config::history::update_profile`), so what another window or process
+    /// saved at the same moment (a search string, a replacement, a recent file) is not lost; the
+    /// merged strings replace this copy. A file that cannot be read is not touched.
+    pub(super) fn persist(&mut self, add: impl FnOnce(&mut SearchKeys)) {
         let Some(path) = &self.store else { return };
+        let mut merged = None;
         // A history that cannot be saved is not worth stopping a search for.
-        let _ = update_profile(path, |profile| Ok(self.keys.write_to(profile).is_ok()));
+        let saved = update_profile(path, |profile| {
+            let mut keys = SearchKeys::from_profile(profile);
+            add(&mut keys);
+            let written = keys.write_to(profile).is_ok();
+            merged = Some(keys);
+            Ok(written)
+        });
+        if saved.is_ok()
+            && let Some(keys) = merged
+        {
+            self.keys = keys;
+        }
     }
 }
 
@@ -89,7 +102,9 @@ pub fn remember_search(cx: &mut App, text: &str) -> u64 {
     let changed = history.keys.add_search(text);
     history.search_sequence += 1;
     if changed {
-        history.persist();
+        history.persist(|keys| {
+            keys.add_search(text);
+        });
     }
     history.search_sequence
 }
@@ -100,7 +115,9 @@ pub fn remember_replace(cx: &mut App, text: &str) -> u64 {
     let changed = history.keys.add_replace(text);
     history.replace_sequence += 1;
     if changed {
-        history.persist();
+        history.persist(|keys| {
+            keys.add_replace(text);
+        });
     }
     history.replace_sequence
 }
