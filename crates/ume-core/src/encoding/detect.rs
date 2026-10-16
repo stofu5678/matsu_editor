@@ -55,8 +55,10 @@
 //! - Sakura first asks `uchardet` when its DLL exists (`CharsetDetector`) and only falls back to
 //!   the above when it does not know. That DLL is optional and is not ported.
 //! - A declaration can name a Windows code page (`windows-1251` and the like). Sakura then reads
-//!   the file in that code page. Code pages are out of scope here, so the result is the default
-//!   encoding and [`Detection::unsupported_code_page`] tells the caller what was declared.
+//!   the file in that code page. The code pages of `codepage.rs` are read as
+//!   [`Encoding::CodePage`]. For a code page without a table (437, 850 and so on) the result is
+//!   the default encoding and [`Detection::unsupported_code_page`] tells the caller what was
+//!   declared.
 //! - Sakura reads at most 32768 bytes for opening a file (`CFileLoad::m_nAutoDetectReadLen`;
 //!   the file properties dialog uses 16384). [`detect`] looks at the first
 //!   [`DETECT_SAMPLE_LEN`] bytes of what it is given.
@@ -111,7 +113,7 @@ pub struct Detection {
     pub bom: bool,
     pub certainty: Certainty,
     /// The Windows code page number that the text declares when it is not one of
-    /// [`Encoding`]. `encoding` is then the default encoding.
+    /// [`Encoding`] (a code page without a table). `encoding` is then the default encoding.
     pub unsupported_code_page: Option<u32>,
 }
 

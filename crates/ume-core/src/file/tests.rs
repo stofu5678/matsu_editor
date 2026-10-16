@@ -1101,3 +1101,33 @@ fn an_unmappable_character_in_a_later_piece_has_the_right_columns() {
     );
     assert_eq!(report.first[1].pos, Pos::new(1, 0));
 }
+
+#[test]
+fn code_pages_open_edit_and_save_with_invalid_bytes() {
+    use crate::encoding::CodePage;
+    // Bytes made with Python's codecs: text, an invalid byte, CR LF, text.
+    let cases: [(u16, &[u8], &str); 4] = [
+        (936, b"\xbc\xf2\xcc\xe5\xff\r\n\xd6\xd0\xce\xc4", "\u{4e2d}"),
+        (950, b"\xc1\x63\xff\r\n\xa4\xa4\xa4\xe5", "\u{4e2d}"),
+        (949, b"\xc7\xd1\xff\r\n\xb1\xb9\xbe\xee", "\u{d55c}"),
+        (1251, b"\xcf\xf0\xe8\x98\r\n\xe2\xe5\xf2", "\u{43f}"),
+    ];
+    for (number, bytes, added) in cases {
+        let encoding = Encoding::CodePage(CodePage::new(number).unwrap());
+        let dir = TempDir::new();
+        let path = dir.write("a.txt", bytes);
+        let mut file = open_as(&path, encoding);
+        assert_eq!(file.encoding, encoding);
+        assert!(!file.bom);
+        assert_eq!(file.new_line, Eol::CrLf);
+        save_keep(&mut file);
+        assert_eq!(fs::read(&path).unwrap(), bytes, "CP{number} unchanged");
+
+        let end = file.document.end_pos().unwrap();
+        file.document.insert(end, added).unwrap();
+        save_keep(&mut file);
+        let mut expected = bytes.to_vec();
+        expected.extend(encode(encoding, added));
+        assert_eq!(fs::read(&path).unwrap(), expected, "CP{number} edited");
+    }
+}

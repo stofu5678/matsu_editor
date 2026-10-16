@@ -49,10 +49,11 @@
 //!
 //! # Scope
 //!
-//! The nine encodings of Sakura's `ECodeType` (`sakura_core/charset/charset.h`) are supported:
-//! [`Encoding`]. Windows code page encodings (`CODE_CPACP`, `CODE_CPOEM` and numbered code pages)
-//! and UTF-32 (`CODE_UTF32LE`, `CODE_UTF32BE`, which Sakura only offers through code pages) are
-//! out of scope.
+//! The nine encodings of Sakura's `ECodeType` (`sakura_core/charset/charset.h`) are supported
+//! as they are in Sakura, and so are the Windows code pages that `encoding_rs` has (GBK, Big5,
+//! EUC-KR, the single-byte code pages and so on): [`Encoding::CodePage`]. The code pages and their
+//! differences from Windows are listed in `codepage.rs`. `CODE_CPACP`, `CODE_CPOEM` (the system
+//! code page) and UTF-32 (`CODE_UTF32LE`, `CODE_UTF32BE`) are out of scope.
 //!
 //! # Invalid bytes
 //!
@@ -85,8 +86,9 @@
 //!    keeps the invalid bytes but may add escape sequences.
 //! 5. **UTF-7**: a `+` that is followed by neither a Base64 letter nor `-` becomes a stand-in
 //!    (Sakura drops it), and a NUL byte does not end decoding (Sakura stops at the first NUL).
-//! 6. **Detection** does not call uchardet (an optional DLL of Sakura) and does not support the
-//!    Windows code pages that an XML/HTML/`coding:` declaration can name; see [`detect`].
+//! 6. **Detection** does not call uchardet (an optional DLL of Sakura) and only supports the
+//!    Windows code pages of `codepage.rs` when an XML/HTML/`coding:` declaration names them; see
+//!    [`detect`].
 //! 7. The unverified CRT details: `_mbcjmstojis` is assumed to accept lead bytes 0x81..=0x9F and
 //!    0xE0..=0xEF only (the `?` Sakura writes for PUA characters in EUC/JIS follows from this).
 //!
@@ -95,6 +97,7 @@
 //! in UTF-16), so that decoding a range that starts at a boundary gives the same result as
 //! decoding the whole.
 
+mod codepage;
 mod cp932;
 mod detect;
 mod euc;
@@ -190,36 +193,39 @@ impl std::error::Error for Unmappable {}
 
 /// The encodings of Sakura Editor. Sakura: `ECodeType` in `sakura_core/charset/charset.h`.
 ///
-/// The discriminants are the numbers that `sakura.ini` stores (`eDefaultCodetype` and others), so
-/// settings can be read and written as they are (ADR-0010).
+/// [`Encoding::sakura_code`] is the number that `sakura.ini` stores (`eDefaultCodetype` and
+/// others), so settings can be read and written as they are (ADR-0010). A Windows code page is
+/// stored by its number, as Sakura does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[repr(i32)]
 pub enum Encoding {
     /// Shift_JIS (MS-CP932, Windows-31J): `CODE_SJIS`.
-    ShiftJis = 0,
+    ShiftJis,
     /// ISO-2022-JP: `CODE_JIS`.
-    Jis = 1,
+    Jis,
     /// EUC-JP (MS-CP51932 style): `CODE_EUC`.
-    EucJp = 2,
+    EucJp,
     /// UTF-16 little endian ("Unicode"): `CODE_UNICODE`.
-    Utf16Le = 3,
+    Utf16Le,
     /// UTF-8: `CODE_UTF8`.
-    Utf8 = 4,
+    Utf8,
     /// UTF-7: `CODE_UTF7`.
-    Utf7 = 5,
+    Utf7,
     /// UTF-16 big endian: `CODE_UNICODEBE`.
-    Utf16Be = 6,
+    Utf16Be,
     /// CESU-8: `CODE_CESU8`.
-    Cesu8 = 7,
+    Cesu8,
     /// Latin1 (Windows-1252): `CODE_LATIN1`.
-    Latin1 = 8,
+    Latin1,
+    /// A Windows code page that `encoding_rs` has, such as 936 (GBK) or 950 (Big5).
+    CodePage(CodePage),
 }
 
 /// The value Sakura stores for "detect automatically" (`CODE_AUTODETECT`).
 pub const AUTODETECT_CODE: i32 = 99;
 
 impl Encoding {
-    /// All encodings in the order of Sakura's encoding combo box (after "Auto").
+    /// The nine fixed encodings in the order of Sakura's encoding combo box (after "Auto").
+    /// Use [`Encoding::choices`] for a list the user can pick from; it also has the code pages.
     pub const ALL: [Encoding; 9] = [
         Encoding::ShiftJis,
         Encoding::Jis,
@@ -232,22 +238,67 @@ impl Encoding {
         Encoding::Utf7,
     ];
 
-    /// The number Sakura stores in `sakura.ini` for this encoding (`ECodeType`).
+    /// Every encoding a user can choose: Sakura's nine in the order of its combo box, then the
+    /// Windows code pages by number. Dialogs and lists take their items from here.
+    pub fn choices() -> Vec<Encoding> {
+        let code_pages = codepage::CODE_PAGES
+            .iter()
+            .filter_map(|info| CodePage::new(info.number()))
+            .map(Encoding::CodePage);
+        Encoding::ALL.into_iter().chain(code_pages).collect()
+    }
+
+    /// The number Sakura stores in `sakura.ini` for this encoding (`ECodeType`, or the code page
+    /// number).
     pub fn sakura_code(self) -> i32 {
-        self as i32
+        match self {
+            Encoding::ShiftJis => 0,
+            Encoding::Jis => 1,
+            Encoding::EucJp => 2,
+            Encoding::Utf16Le => 3,
+            Encoding::Utf8 => 4,
+            Encoding::Utf7 => 5,
+            Encoding::Utf16Be => 6,
+            Encoding::Cesu8 => 7,
+            Encoding::Latin1 => 8,
+            Encoding::CodePage(code_page) => i32::from(code_page.number()),
+        }
     }
 
     /// The encoding for a number stored by Sakura, or None for the other values
-    /// (`CODE_AUTODETECT`, code pages, UTF-32, garbage).
+    /// (`CODE_AUTODETECT`, `CODE_CPACP`, `CODE_CPOEM`, UTF-32, code pages that are not supported,
+    /// garbage).
+    ///
+    /// Numbers of `ECodeType` (0 to 8) are the fixed encodings. From `CODE_CODEMAX` up Sakura
+    /// stores a Windows code page number: the supported ones are [`Encoding::CodePage`], and the
+    /// numbers of code pages that are one of the fixed encodings here are read as those
+    /// (932 Shift_JIS, 1200 UTF-16, 1201 UTF-16BE, 1252 Latin1, 65000 UTF-7, 65001 UTF-8).
     pub fn from_sakura_code(code: i32) -> Option<Encoding> {
-        Encoding::ALL
+        if let Some(fixed) = Encoding::ALL
             .into_iter()
             .find(|encoding| encoding.sakura_code() == code)
+        {
+            return Some(fixed);
+        }
+        match code {
+            932 => Some(Encoding::ShiftJis),
+            1200 => Some(Encoding::Utf16Le),
+            1201 => Some(Encoding::Utf16Be),
+            1252 => Some(Encoding::Latin1),
+            65000 => Some(Encoding::Utf7),
+            65001 => Some(Encoding::Utf8),
+            _ => u16::try_from(code)
+                .ok()
+                .and_then(CodePage::new)
+                .map(Encoding::CodePage),
+        }
     }
 
-    /// The short name Sakura shows in the status bar and in lists (`SCodeSet::m_sShort`).
+    /// The short name Sakura shows in the status bar and in lists (`SCodeSet::m_sShort`). For a
+    /// code page it is `cp936` (`CCodePage::GetNameShort`, used in the menu bar).
     pub fn short_name(self) -> &'static str {
         match self {
+            Encoding::CodePage(code_page) => code_page.info().short,
             Encoding::ShiftJis => "SJIS",
             Encoding::Jis => "JIS",
             Encoding::EucJp => "EUC",
@@ -260,18 +311,34 @@ impl Encoding {
         }
     }
 
-    /// The name in Sakura's encoding combo box (`SCodeSet::m_sLong`).
+    /// The name in Sakura's encoding combo box (`SCodeSet::m_sLong`). For a code page it is the
+    /// name Sakura shows in the status bar (`CP936`, `CCodePage::GetNameNormal`).
     pub fn combo_name(self) -> &'static str {
         match self {
+            Encoding::CodePage(code_page) => code_page.info().normal,
             Encoding::EucJp => "EUC-JP",
             Encoding::Utf16Be => "UTF-16BE",
             other => other.short_name(),
         }
     }
 
-    /// The status bar text, such as `  [SJIS]` (`CCodeTypeName::Bracket`).
+    /// The name for a list the user picks from: [`Encoding::combo_name`], and for a code page
+    /// also what it is, such as `CP936 - Simplified Chinese (GBK)`. (Sakura lists the names that
+    /// Windows gives to the code pages, which depend on the language of the OS.)
+    pub fn list_name(self) -> &'static str {
+        match self {
+            Encoding::CodePage(code_page) => code_page.info().list,
+            other => other.combo_name(),
+        }
+    }
+
+    /// The status bar text, such as `  [SJIS]` or `  [CP936]` (`CCodeTypeName::Bracket`,
+    /// `CCodePage::GetNameBracket`).
     pub fn bracket_name(self) -> String {
-        format!("  [{}]", self.short_name())
+        match self {
+            Encoding::CodePage(_) => format!("  [{}]", self.combo_name()),
+            _ => format!("  [{}]", self.short_name()),
+        }
     }
 
     /// Whether Sakura offers a BOM option for this encoding (`SCodeSet::m_bUseBom`).
@@ -320,6 +387,7 @@ impl Encoding {
             Encoding::Utf7 => &utf7::Utf7,
             Encoding::Cesu8 => &utf8::Cesu8,
             Encoding::Latin1 => &latin1::Latin1,
+            Encoding::CodePage(code_page) => code_page.info(),
         }
     }
 
@@ -333,6 +401,27 @@ impl Encoding {
         } else {
             0
         }
+    }
+}
+
+/// A supported Windows code page (see `codepage.rs`). It can only be made from a number that is
+/// supported, so [`Encoding::CodePage`] always has a codec.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct CodePage(u16);
+
+impl CodePage {
+    /// The code page with this Windows code page number, or None if it is not supported.
+    pub fn new(number: u16) -> Option<CodePage> {
+        codepage::CodePageInfo::find(number).map(|info| CodePage(info.number()))
+    }
+
+    /// The Windows code page number, such as 936.
+    pub fn number(self) -> u16 {
+        self.0
+    }
+
+    fn info(self) -> &'static codepage::CodePageInfo {
+        codepage::CodePageInfo::find(self.0).expect("a CodePage always has an info")
     }
 }
 
@@ -396,5 +485,7 @@ pub(crate) fn encode_chars(
     }
 }
 
+#[cfg(test)]
+mod codepage_tests;
 #[cfg(test)]
 mod tests;

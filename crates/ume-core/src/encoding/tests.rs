@@ -1097,10 +1097,11 @@ fn detect_declared_encodings() {
         .collect();
     assert_eq!(detect_with_default(&wide).encoding, Encoding::Utf16Be);
 
-    // A Windows code page is reported, not supported.
-    let cyrillic = b"<?xml version=\"1.0\" encoding=\"windows-1251\"?>\n<a/>\n";
+    // A Windows code page without a table is reported, not supported (those with a table are in
+    // codepage_tests.rs).
+    let cyrillic = b"<?xml version=\"1.0\" encoding=\"ibm850\"?>\n<a/>\n";
     let found = detect_with_default(cyrillic);
-    assert_eq!(found.unsupported_code_page, Some(1251));
+    assert_eq!(found.unsupported_code_page, Some(850));
     assert_eq!(found.encoding, Encoding::Utf8);
     assert_eq!(found.certainty, Certainty::Declared);
     // latin1 names map to Latin1.
