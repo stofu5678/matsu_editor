@@ -283,9 +283,16 @@ fn a_runtime_error_shows_the_line_number_of_the_users_file() {
             Language::JavaScript => "macro.js:3",
             Language::Python => "macro.py\", line 3",
             Language::Ruby => "macro.rb:3",
-            Language::Php => "macro.php:3",
+            // "macro.php:3" or "macro.php on line 3" (Xdebug words it the second way).
+            Language::Php => "macro.php",
         };
         assert!(stderr.contains(want), "{language:?}: {stderr}");
+        if language == PHP {
+            assert!(
+                stderr.contains("line 3") || stderr.contains("macro.php:3"),
+                "{stderr}"
+            );
+        }
     }
 }
 
