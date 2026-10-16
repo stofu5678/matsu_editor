@@ -91,6 +91,8 @@ Used by:
 {{#unless ../source_path}}
 {{#if crate.authors}}
     Authors: {{#each crate.authors}}{{#if @index}}, {{/if}}{{{this}}}{{/each}}
+{{else}}
+    Authors: not named in the package (see the link above for its copyright holders).
 {{/if}}
 {{/unless}}
 {{/if}}
