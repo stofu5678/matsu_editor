@@ -111,8 +111,9 @@ pub(crate) fn path_from_file_uri(uri: &str) -> Option<PathBuf> {
             i += 1;
         }
     }
-    Some(PathBuf::from(String::from_utf8(out).ok()?))
+    use std::os::unix::ffi::OsStringExt;
+    Some(PathBuf::from(std::ffi::OsString::from_vec(out)))
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests;
