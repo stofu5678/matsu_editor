@@ -30,7 +30,7 @@
 #ifndef MRB_WORD_BOXING
 #error "ume-mruby-sys expects word boxing"
 #endif
-_Static_assert(sizeof(mrb_value) == sizeof(uintptr_t), "mrb_value must be one word");
+mrb_static_assert2(sizeof(mrb_value) == sizeof(uintptr_t), "mrb_value must be one word");
 #ifndef MRB_INT64
 #error "ume-mruby-sys expects 64-bit integers"
 #endif
