@@ -16,6 +16,8 @@ ume-core = { path = "../ume-core" }
 ume-layout = { path = "../ume-layout" }
 ume-commands = { path = "../ume-commands" }
 ume-config = { path = "../ume-config" }
+ume-platform = { path = "../ume-platform" }
+ume-print = { path = "../ume-print" }
 # The UI commands register themselves like the core commands (ADR-0013 section 1).
 inventory = "0.3.25"
 gpui = { package = "gpui-pre", version = "=0.3.8" }
@@ -29,6 +31,12 @@ gpui-component = "=0.7.1"
 # shaders when the app starts, so the build does not need Xcode's Metal Toolchain.
 [target.'cfg(target_os = "macos")'.dependencies]
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = ["font-kit", "runtime_shaders"] }
+# The window that the print panel is a sheet of (the version that GPUI uses).
+raw-window-handle = "0.6"
+
+# Windows: the window that owns the print dialog.
+[target.'cfg(windows)'.dependencies]
+raw-window-handle = "0.6"
 
 # The icons of the title bar buttons.
 [target.'cfg(target_os = "linux")'.dependencies]

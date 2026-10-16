@@ -23,6 +23,7 @@ pub mod hit;
 pub mod keys;
 pub mod layout_adapter;
 pub mod open;
+pub mod print;
 pub mod segments;
 pub mod settings;
 pub mod status;
