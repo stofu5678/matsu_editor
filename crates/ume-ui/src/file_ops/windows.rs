@@ -29,7 +29,12 @@ struct EditorWindows {
     windows: Vec<(AnyWindowHandle, WeakEntity<Workspace>)>,
     /// Files that views are still reading, with the window of each. Their documents have no path
     /// yet, but opening the same file again must not make a second editable copy.
-    pending: Vec<(AnyWindowHandle, WeakEntity<EditorView>, PathBuf)>,
+    pending: Vec<(
+        AnyWindowHandle,
+        WeakEntity<EditorView>,
+        gpui::EntityId,
+        PathBuf,
+    )>,
 }
 
 impl Global for EditorWindows {}
@@ -64,11 +69,12 @@ pub(crate) fn open_editor_window(
             editor.update(cx, |view, cx| view.apply_user_settings(user, cx));
         }
         if let Some(load) = load {
-            cx.default_global::<EditorWindows>().pending.push((
+            begin_pending(
+                cx,
                 window.window_handle(),
-                editor.downgrade(),
+                &editor.downgrade(),
                 load.path.clone(),
-            ));
+            );
             editor.update(cx, |view, cx| {
                 view.load_path_here(load.path, load.encoding, window, cx);
             });
@@ -210,7 +216,7 @@ pub(crate) fn workspaces(cx: &mut App) -> Vec<(AnyWindowHandle, Entity<Workspace
     list.windows
         .retain(|(handle, ws)| open.contains(handle) && ws.upgrade().is_some());
     list.pending
-        .retain(|(handle, view, _)| open.contains(handle) && view.upgrade().is_some());
+        .retain(|(handle, view, _, _)| open.contains(handle) && view.upgrade().is_some());
     list.windows
         .iter()
         .filter_map(|(handle, ws)| Some((*handle, ws.upgrade()?)))
@@ -289,8 +295,8 @@ pub(crate) fn find_open(
             .default_global::<EditorWindows>()
             .pending
             .iter()
-            .find(|(_, _, open)| same_file(open, path))
-            .map(|(_, view, _)| view.clone())?;
+            .find(|(_, _, _, open)| same_file(open, path))
+            .map(|(_, view, _, _)| view.clone())?;
         find_tab_of(cx, &pending)
     })
 }
@@ -318,16 +324,20 @@ pub(crate) fn begin_pending(
     view: &WeakEntity<EditorView>,
     path: PathBuf,
 ) {
+    // The document is noted now: the view may be borrowed when it is asked about.
+    let Some(document) = view.upgrade().map(|v| v.read(cx).document().entity_id()) else {
+        return;
+    };
     cx.default_global::<EditorWindows>()
         .pending
-        .push((handle, view.clone(), path));
+        .push((handle, view.clone(), document, path));
 }
 
 /// The view has finished reading its file (or failed): the file is no longer pending.
 pub(crate) fn finish_pending(cx: &mut App, view: &WeakEntity<EditorView>) {
     cx.default_global::<EditorWindows>()
         .pending
-        .retain(|(_, v, _)| v.entity_id() != view.entity_id());
+        .retain(|(_, v, _, _)| v.entity_id() != view.entity_id());
 }
 
 /// Opens the documents of the command line: one per file, or one untitled window without files.
@@ -370,22 +380,22 @@ pub(crate) fn has_pending(cx: &mut App, handle: AnyWindowHandle) -> bool {
     cx.default_global::<EditorWindows>()
         .pending
         .iter()
-        .any(|(h, _, _)| *h == handle)
+        .any(|(h, _, _, _)| *h == handle)
 }
 
 /// Whether this view, or another pane of its document, is still reading a file into the
-/// document.
+/// document. The view is read, so it must not be borrowed; [`is_pending_document`] does not.
 pub(crate) fn is_pending(cx: &mut App, view: &WeakEntity<EditorView>) -> bool {
-    let Some(document) = view.upgrade().map(|v| v.read(cx).document().entity_id()) else {
-        return false;
-    };
-    let reading: Vec<_> = cx
-        .default_global::<EditorWindows>()
+    match view.upgrade().map(|v| v.read(cx).document().entity_id()) {
+        Some(document) => is_pending_document(cx, document),
+        None => false,
+    }
+}
+
+/// Whether a file is still being read into the document.
+pub(crate) fn is_pending_document(cx: &mut App, document: gpui::EntityId) -> bool {
+    cx.default_global::<EditorWindows>()
         .pending
         .iter()
-        .filter_map(|(_, v, _)| v.upgrade())
-        .collect();
-    reading
-        .iter()
-        .any(|v| v.read(cx).document().entity_id() == document)
+        .any(|(_, _, d, _)| *d == document)
 }
