@@ -29,6 +29,7 @@ pub mod keys;
 pub mod layout_adapter;
 pub mod macros;
 pub mod menu;
+pub mod menu_bar;
 pub mod open;
 pub mod print;
 pub mod search;
