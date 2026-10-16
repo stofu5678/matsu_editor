@@ -400,6 +400,72 @@ fn a_missing_initialize_is_refused() {
 }
 
 #[test]
+fn a_structure_that_contains_itself_is_refused_quickly() {
+    let code = r##"
+a = []
+a << a << a
+begin
+  Editor.InsText(a)
+rescue EditorError => e
+  puts e.message
+end
+h = {}
+h['self'] = h
+begin
+  Editor.InsText(h)
+rescue EditorError => e
+  puts e.code
+end
+"##;
+    let started = Instant::now();
+    let (report, _) = run(code, "");
+    assert_clean_exit(&report);
+    let lines = stdout(&report);
+    assert!(
+        lines[0].contains("InsText: argument \"text\" must be string, got a nested structure"),
+        "{lines:?}"
+    );
+    assert_eq!(lines[1], "-32602");
+    assert!(started.elapsed() < Duration::from_secs(20));
+}
+
+#[test]
+fn a_hash_with_a_key_whose_hash_method_raises_is_read_without_calling_it() {
+    // More than 16 entries make mruby build a hash table; the key's `hash` raises when it is
+    // looked up. Reading the stored entries must not call it.
+    let code = r##"
+class Key
+  attr_accessor :armed
+  def hash
+    raise 'hash called' if @armed
+    1
+  end
+  def eql?(other)
+    equal?(other)
+  end
+end
+key = Key.new
+h = {}
+20.times { |i| h["k#{i}"] = i }
+h[key] = 1
+key.armed = true
+begin
+  Editor.InsText(h)
+rescue EditorError => e
+  puts e.message
+end
+"##;
+    let (report, _) = run(code, "");
+    assert_clean_exit(&report);
+    assert_eq!(
+        stdout(&report),
+        [
+            "InsText: argument \"text\" must be string, got a hash whose keys are not strings or symbols"
+        ]
+    );
+}
+
+#[test]
 fn the_sample_macro_runs() {
     let sample =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../ume-plugin/samples/sample.mruby");

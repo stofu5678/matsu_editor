@@ -242,7 +242,7 @@ mrb_value ume_array_ref(mrb_state *mrb, mrb_value v, size_t i) {
   return mrb_ary_ref(mrb, v, (mrb_int)i);
 }
 mrb_value ume_hash_keys(mrb_state *mrb, mrb_value v) { return mrb_hash_keys(mrb, v); }
-mrb_value ume_hash_get(mrb_state *mrb, mrb_value h, mrb_value k) { return mrb_hash_get(mrb, h, k); }
+mrb_value ume_hash_values(mrb_state *mrb, mrb_value v) { return mrb_hash_values(mrb, v); }
 const char *ume_class_name(mrb_state *mrb, mrb_value v) { return mrb_obj_classname(mrb, v); }
 
 mrb_value ume_nil(void) { return mrb_nil_value(); }

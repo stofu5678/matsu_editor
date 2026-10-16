@@ -105,7 +105,7 @@ unsafe extern "C" {
     fn ume_array_len(v: MrbValue) -> usize;
     fn ume_array_ref(mrb: *mut MrbState, v: MrbValue, i: usize) -> MrbValue;
     fn ume_hash_keys(mrb: *mut MrbState, v: MrbValue) -> MrbValue;
-    fn ume_hash_get(mrb: *mut MrbState, hash: MrbValue, key: MrbValue) -> MrbValue;
+    fn ume_hash_values(mrb: *mut MrbState, v: MrbValue) -> MrbValue;
     fn ume_class_name(mrb: *mut MrbState, v: MrbValue) -> *const c_char;
 
     fn ume_nil() -> MrbValue;
@@ -119,58 +119,83 @@ unsafe extern "C" {
     fn ume_hash_set(mrb: *mut MrbState, hash: MrbValue, key: MrbValue, value: MrbValue);
 }
 
-/// How deep a value may nest before it is taken for a cycle (an array that contains itself).
+/// How deep a value may nest, and how many values a copy may visit, before the value is taken
+/// for one that contains itself. An array that holds itself twice (`a << a << a`) has a small
+/// depth but an astronomical number of paths, so the number of visits is limited too.
 const MAX_DEPTH: usize = 64;
+const MAX_VISITS: usize = 1_000_000;
 
-/// Safety: `mrb` is a live VM and `v` a value of it.
-unsafe fn read(mrb: *mut MrbState, v: MrbValue, depth: usize) -> Value {
-    unsafe {
-        match ume_kind(v) {
-            kind::NIL => Value::Nil,
-            kind::FALSE => Value::Bool(false),
-            kind::TRUE => Value::Bool(true),
-            kind::INTEGER => Value::Integer(ume_integer(v)),
-            kind::FLOAT => Value::Float(ume_float(v)),
-            kind::STRING => {
-                let mut len = 0;
-                let p = ume_string(v, &mut len);
-                Value::Str(bytes(p, len))
+struct Reader {
+    mrb: *mut MrbState,
+    visits: usize,
+}
+
+impl Reader {
+    /// Safety: `self.mrb` is a live VM and `v` a value of it.
+    ///
+    /// Nothing here calls a Ruby method: a hash is read through its stored keys and values, not
+    /// by looking the keys up (`Hash#[]` would call the `hash` and `eql?` of a user's key, and an
+    /// exception in them would jump over the Rust frames).
+    unsafe fn read(&mut self, v: MrbValue, depth: usize) -> Value {
+        let mrb = self.mrb;
+        self.visits += 1;
+        let too_deep = depth >= MAX_DEPTH || self.visits > MAX_VISITS;
+        unsafe {
+            match ume_kind(v) {
+                kind::NIL => Value::Nil,
+                kind::FALSE => Value::Bool(false),
+                kind::TRUE => Value::Bool(true),
+                kind::INTEGER => Value::Integer(ume_integer(v)),
+                kind::FLOAT => Value::Float(ume_float(v)),
+                kind::STRING => {
+                    let mut len = 0;
+                    let p = ume_string(v, &mut len);
+                    Value::Str(bytes(p, len))
+                }
+                kind::SYMBOL => {
+                    let mut len = 0;
+                    let p = ume_symbol(mrb, v, &mut len);
+                    Value::Str(bytes(p, len))
+                }
+                kind::ARRAY | kind::HASH if too_deep => Value::Other(
+                    "a nested structure that is too deep or large (or contains itself)".into(),
+                ),
+                kind::ARRAY => {
+                    let len = ume_array_len(v);
+                    Value::Array(
+                        (0..len)
+                            .map(|i| self.read(ume_array_ref(mrb, v, i), depth + 1))
+                            .collect(),
+                    )
+                }
+                kind::HASH => {
+                    let keys = ume_hash_keys(mrb, v);
+                    let values = ume_hash_values(mrb, v);
+                    let len = ume_array_len(keys).min(ume_array_len(values));
+                    Value::Hash(
+                        (0..len)
+                            .map(|i| {
+                                (
+                                    self.read(ume_array_ref(mrb, keys, i), depth + 1),
+                                    self.read(ume_array_ref(mrb, values, i), depth + 1),
+                                )
+                            })
+                            .collect(),
+                    )
+                }
+                _ => Value::Other(
+                    CStr::from_ptr(ume_class_name(mrb, v))
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
             }
-            kind::SYMBOL => {
-                let mut len = 0;
-                let p = ume_symbol(mrb, v, &mut len);
-                Value::Str(bytes(p, len))
-            }
-            kind::ARRAY if depth < MAX_DEPTH => {
-                let len = ume_array_len(v);
-                Value::Array(
-                    (0..len)
-                        .map(|i| read(mrb, ume_array_ref(mrb, v, i), depth + 1))
-                        .collect(),
-                )
-            }
-            kind::HASH if depth < MAX_DEPTH => {
-                let keys = ume_hash_keys(mrb, v);
-                let len = ume_array_len(keys);
-                Value::Hash(
-                    (0..len)
-                        .map(|i| {
-                            let key = ume_array_ref(mrb, keys, i);
-                            (
-                                read(mrb, key, depth + 1),
-                                read(mrb, ume_hash_get(mrb, v, key), depth + 1),
-                            )
-                        })
-                        .collect(),
-                )
-            }
-            _ => Value::Other(
-                CStr::from_ptr(ume_class_name(mrb, v))
-                    .to_string_lossy()
-                    .into_owned(),
-            ),
         }
     }
+}
+
+/// Safety: `mrb` is a live VM and `v` a value of it.
+unsafe fn read(mrb: *mut MrbState, v: MrbValue) -> Value {
+    unsafe { Reader { mrb, visits: 0 }.read(v, 0) }
 }
 
 unsafe fn bytes(p: *const u8, len: usize) -> Vec<u8> {
@@ -225,7 +250,7 @@ extern "C" fn trampoline(
     // run, and the VM runs on this thread only.
     let context = unsafe { &mut *context.cast::<Context<'_>>() };
     let answer = catch_unwind(AssertUnwindSafe(|| {
-        let args = match unsafe { read(mrb, args, 0) } {
+        let args = match unsafe { read(mrb, args) } {
             Value::Array(items) => items,
             _ => Vec::new(),
         };
@@ -297,7 +322,7 @@ unsafe fn run_source(mrb: *mut MrbState, name: &str, source: &str) -> Option<Str
     // A NUL ends a C string early; no real file name has one.
     let name = std::ffi::CString::new(name.replace('\0', "?")).unwrap_or_default();
     let error = unsafe { ume_run(mrb, name.as_ptr(), source.as_ptr().cast(), source.len()) };
-    match unsafe { read(mrb, error, 0) } {
+    match unsafe { read(mrb, error) } {
         Value::Str(text) => Some(String::from_utf8_lossy(&text).into_owned()),
         _ => None,
     }
