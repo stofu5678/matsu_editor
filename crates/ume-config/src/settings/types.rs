@@ -684,19 +684,13 @@ impl TypeSettings {
             }
         }
         profile.set_bool(s, "bUseRegexKeyword", self.use_regex_keyword)?;
-        for (i, k) in self
-            .regex_keywords
-            .iter()
-            .enumerate()
-            .take(MAX_REGEX_KEYWORDS)
-        {
-            if k.pattern.is_empty() {
-                // Sakura skips an undefined keyword.
-                continue;
-            }
+        // Contiguous numbers: reading stops at the first missing one. An undefined keyword (no
+        // pattern) is skipped, as Sakura does.
+        let defined = self.regex_keywords.iter().filter(|k| !k.pattern.is_empty());
+        for (n, k) in defined.take(MAX_REGEX_KEYWORDS).enumerate() {
             profile.set_string(
                 s,
-                &format!("RxKey[{i:03}]"),
+                &format!("RxKey[{n:03}]"),
                 &format!("{},{}", k.color, k.pattern),
             )?;
         }
