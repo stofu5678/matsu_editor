@@ -355,7 +355,7 @@ fn run_macro(language: Language, code: &str, f: &mut Fixture) -> Option<crate::s
     }
     let dir = tempfile::tempdir().unwrap();
     let name = match language {
-        Language::JavaScript => "macro.js",
+        Language::JavaScript => "macro.cjs",
         Language::Python => "macro.py",
         Language::Ruby => "macro.rb",
         Language::Php => "macro.php",
@@ -495,7 +495,6 @@ try { Editor::lower_case_name(); } catch (BadMethodCallException $e) { echo "no 
 fn the_sample_macros_run_on_the_commands() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("samples");
     for (language, name) in [
-        (Language::JavaScript, "sample.js"),
         (Language::JavaScript, "sample.mjs"),
         (Language::Python, "sample.py"),
         (Language::Ruby, "sample.rb"),

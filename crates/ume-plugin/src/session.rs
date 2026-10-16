@@ -39,6 +39,7 @@ pub enum Language {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Engine {
     Lua,
+    QuickJs,
 }
 
 impl Engine {
@@ -46,12 +47,14 @@ impl Engine {
     pub fn name(self) -> &'static str {
         match self {
             Self::Lua => "lua",
+            Self::QuickJs => "quickjs",
         }
     }
 
     pub fn display_name(self) -> &'static str {
         match self {
             Self::Lua => "Lua (ume-script)",
+            Self::QuickJs => "QuickJS (ume-script)",
         }
     }
 }
@@ -67,11 +70,12 @@ impl Language {
     /// The language of a macro file, by its extension.
     pub fn of_file(path: &Path) -> Option<Self> {
         match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
-            "mjs" | "js" | "cjs" => Some(Self::JavaScript),
+            "mjs" | "cjs" => Some(Self::JavaScript),
             "py" => Some(Self::Python),
             "rb" => Some(Self::Ruby),
             "php" => Some(Self::Php),
             "lua" => Some(Self::Bundled(Engine::Lua)),
+            "js" => Some(Self::Bundled(Engine::QuickJs)),
             _ => None,
         }
     }
@@ -597,8 +601,12 @@ mod tests {
     #[test]
     fn language_by_extension() {
         assert_eq!(
-            Language::of_file(Path::new("a.js")),
+            Language::of_file(Path::new("a.cjs")),
             Some(Language::JavaScript)
+        );
+        assert_eq!(
+            Language::of_file(Path::new("a.js")),
+            Some(Language::Bundled(Engine::QuickJs))
         );
         assert_eq!(Language::of_file(Path::new("a.PY")), Some(Language::Python));
         assert_eq!(
