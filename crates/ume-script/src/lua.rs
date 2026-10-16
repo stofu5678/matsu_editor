@@ -135,16 +135,15 @@ fn bind(
         let mut params = Vec::with_capacity(args.len());
         for (index, arg) in args.iter().enumerate() {
             match lua_to_json(arg) {
-                Some(value) => params.push(value),
-                None => {
+                Ok(value) => params.push(value),
+                Err(got) => {
                     let (name, ty) = func
                         .params
                         .get(index)
                         .map_or(("?", "a value"), |p| (p.name, p.ty.name()));
                     return failed(RpcError::invalid_params(format!(
-                        "{}: argument \"{name}\" must be {ty}, got {}",
-                        func.name,
-                        arg.type_name()
+                        "{}: argument \"{name}\" must be {ty}, got {got}",
+                        func.name
                     )));
                 }
             }
@@ -163,33 +162,46 @@ fn bind(
 }
 
 /// Where the script called an `Editor` function, like the front of a Lua error message
-/// (`name:3:`). Level 0 is the Rust function, 1 the wrapper in `BOOT`, 2 the script.
+/// (`name:3:`). Level 0 is the Rust function and 1 the wrapper in `BOOT`; the script is the
+/// next Lua function (`pcall(Editor.Jump, ...)` puts the C function `pcall` in between).
 fn caller_location(lua: &mlua::Lua) -> String {
-    lua.inspect_stack(2, |frame| {
-        let source = frame.source();
-        let name = match source.source.as_deref() {
-            Some(s) if s.starts_with(['@', '=']) => s[1..].to_string(),
-            _ => source.short_src.map(|s| s.to_string()).unwrap_or_default(),
-        };
-        match frame.current_line() {
-            Some(line) => format!("{name}:{line}:"),
-            None => format!("{name}:"),
-        }
-    })
-    .unwrap_or_default()
+    (2..)
+        .map_while(|level| {
+            lua.inspect_stack(level, |frame| {
+                let source = frame.source();
+                if source.what == "C" {
+                    return None;
+                }
+                let name = match source.source.as_deref() {
+                    Some(s) if s.starts_with(['@', '=']) => s[1..].to_string(),
+                    _ => source.short_src.map(|s| s.to_string()).unwrap_or_default(),
+                };
+                Some(match frame.current_line() {
+                    Some(line) => format!("{name}:{line}:"),
+                    None => format!("{name}:"),
+                })
+            })
+        })
+        .find_map(|location| location)
+        .unwrap_or_default()
 }
 
-/// A Lua value as JSON, or `None` for what has no JSON form (a table, a function...).
+/// A Lua value as JSON, or what the value is when it has no JSON form (a table, a function, a
+/// string that is not UTF-8...).
 /// A float with a whole value becomes an integer, because Lua writes `2.0` for what the script
 /// meant as 2 (the result of a division, for one).
-fn lua_to_json(value: &LuaValue) -> Option<Value> {
-    Some(match value {
+fn lua_to_json(value: &LuaValue) -> Result<Value, String> {
+    Ok(match value {
         LuaValue::Nil => Value::Null,
         LuaValue::Boolean(b) => Value::Bool(*b),
         LuaValue::Integer(i) => Value::from(*i),
         LuaValue::Number(n) => float_to_json(*n),
-        LuaValue::String(s) => Value::String(s.to_string_lossy()),
-        _ => return None,
+        // Not `to_string_lossy`: text with bytes replaced must not reach the document.
+        LuaValue::String(s) => match s.to_str() {
+            Ok(text) => Value::String(text.to_string()),
+            Err(_) => return Err("a string that is not valid UTF-8".into()),
+        },
+        other => return Err(other.type_name().into()),
     })
 }
 

@@ -142,7 +142,7 @@ fn a_syntax_error_shows_the_line_number() {
 fn an_error_response_becomes_an_editor_error() {
     let code = r#"
 local ok, e = pcall(Editor.GetLineStr, 'x')
-print(ok, getmetatable(e) == EditorError, e.name, e.code)
+print(ok, getmetatable(e) == EditorError, e.name, e.code, e.where:find("macro.lua:2:", 1, true) ~= nil)
 local ok, e = pcall(function() Editor.GetLineCount(5) end)
 print(e.code, e.message)
 print(tostring(e))
@@ -152,7 +152,7 @@ print('not reached')
     let (report, _) = run(code, "a");
     let lines = stdout(&report);
     assert_eq!(lines.len(), 3, "{lines:?}");
-    assert_eq!(lines[0], "false\ttrue\tEditorError\t-32602");
+    assert_eq!(lines[0], "false\ttrue\tEditorError\t-32602\ttrue");
     assert!(lines[1].starts_with("-32602\tGetLineCount: "), "{lines:?}");
     // A caught error shows where the script called the function.
     assert!(
@@ -178,6 +178,23 @@ print(ok, e.code, e.message)
         stdout(&report),
         ["false\t-32602\tInsText: argument \"text\" must be string, got table"]
     );
+}
+
+#[test]
+fn a_string_that_is_not_utf8_is_refused_not_replaced() {
+    let code = r#"
+local ok, e = pcall(Editor.InsText, "a" .. string.char(255))
+print(ok, e.code, e.message)
+"#;
+    let (report, doc) = run(code, "");
+    assert_clean_exit(&report);
+    assert_eq!(
+        stdout(&report),
+        [
+            "false\t-32602\tInsText: argument \"text\" must be string, got a string that is not valid UTF-8"
+        ]
+    );
+    assert_eq!(doc.text(), "");
 }
 
 #[test]
