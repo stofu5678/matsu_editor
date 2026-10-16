@@ -40,6 +40,11 @@ impl EditorView {
         } else {
             0
         };
+        // The functions that convert between layout and logical positions need exact row counts:
+        // a document that is still being laid out in the background has estimates for the rest.
+        if !self.layout.is_complete() {
+            let _ = self.layout.layout_all(self.document.read(cx).doc());
+        }
         let mut env = HostEnv::detached();
         env.state = std::mem::take(&mut self.macros.host_state);
         env.char_code = Some(i64::from(

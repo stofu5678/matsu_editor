@@ -348,23 +348,49 @@ fn truncate_utf16(text: String, max: usize) -> String {
     text[..end].to_owned()
 }
 
+/// The text of `from` to `to` on the line of `from`, at most `max_bytes` of it: the first line of
+/// a range, without reading the rest of a range that may be the whole document. The line ending
+/// is not part of it. A cut inside a character moves back to the character before.
+fn first_line_of(
+    doc: &ume_core::buffer::Document,
+    from: ume_core::buffer::Pos,
+    to: ume_core::buffer::Pos,
+    max_bytes: usize,
+) -> Result<String> {
+    let line_len = doc.line_len(from.line).map_err(command)?.unwrap_or(0);
+    let mut end = line_len.min(from.col.saturating_add(max_bytes));
+    if to.line == from.line {
+        end = end.min(to.col);
+    }
+    // At most three steps back: a character is four bytes at most.
+    for _ in 0..4 {
+        if end < from.col {
+            break;
+        }
+        if let Ok(text) = doc.text_between(from, ume_core::buffer::Pos::new(from.line, end)) {
+            return Ok(text);
+        }
+        end = end.saturating_sub(1);
+    }
+    Ok(String::new())
+}
+
 /// `$C`: the selection up to its first line break, or the word at the caret
-/// (`CEditView::GetCurrentTextForSearch`), at most 259 characters.
+/// (`CEditView::GetCurrentTextForSearch`), at most 259 characters. Only the start of a long
+/// selection is read.
 fn current_text(ed: &Editor) -> Result<String> {
     let cx = &*ed.cx;
-    let text = if let Some((from, to)) = cx.selection() {
-        cx.doc().text_between(from, to).map_err(command)?
-    } else if let Some((from, to)) = cx.word_range_at(cx.caret()).map_err(command)? {
-        cx.doc().text_between(from, to).map_err(command)?
-    } else {
-        String::new()
+    // A UTF-16 unit is at most 3 bytes of UTF-8 (a pair of units is 4 bytes).
+    let max_bytes = CURRENT_TEXT_MAX * 3 + 4;
+    let range = match cx.selection() {
+        Some(range) => Some(range),
+        None => cx.word_range_at(cx.caret()).map_err(command)?,
     };
-    let first = text
-        .split(['\r', '\n', '\u{85}', '\u{2028}', '\u{2029}'])
-        .next()
-        .unwrap_or_default()
-        .to_owned();
-    Ok(truncate_utf16(first, CURRENT_TEXT_MAX))
+    let text = match range {
+        Some((from, to)) => first_line_of(cx.doc(), from, to, max_bytes)?,
+        None => String::new(),
+    };
+    Ok(truncate_utf16(text, CURRENT_TEXT_MAX))
 }
 
 /// F_EXPANDPARAMETER.
@@ -383,7 +409,12 @@ fn expand_parameter(ed: &mut Editor, args: &Args) -> Result {
         exe_path: std::env::current_exe()
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_default(),
-        current_text: current_text(ed)?,
+        // Only the format strings that have `$C` read the text.
+        current_text: if args.str(0).contains("$C") {
+            current_text(ed)?
+        } else {
+            String::new()
+        },
         column: utf16_len(line_text.get(..caret.col).unwrap_or(&line_text)) + 1,
         line: caret.line + 1,
         view_mode: ed.cx.is_view_mode(),
@@ -544,6 +575,32 @@ mod tests {
         let emoji = "😀".repeat(2000);
         // 2047 units hold 1023 pairs, not a cut pair
         assert_eq!(expand(&emoji, &cx).chars().count(), 1023);
+    }
+
+    #[test]
+    fn a_long_selection_is_read_only_as_far_as_the_first_line_needs() {
+        let long = "あ".repeat(100_000);
+        let mut f = Fixture::new(&format!("{long}\nsecond"));
+        f.select((0, 0), (1, 3));
+        let text = f.ok("ExpandParameter", json!(["$C"]));
+        assert_eq!(text, json!("あ".repeat(259)));
+        // a selection that starts in the middle of the line, and one inside a line
+        f.select((0, 6), (1, 3));
+        assert_eq!(
+            f.ok("ExpandParameter", json!(["$C"])),
+            json!("あ".repeat(259))
+        );
+        f.select((0, 6), (0, 12));
+        assert_eq!(f.ok("ExpandParameter", json!(["$C"])), json!("ああ"));
+        // other codes do not read the selection at all
+        assert_eq!(f.ok("ExpandParameter", json!(["$y"])), json!("1"));
+        // 4-byte characters are cut by units: 259 units hold 129 of them
+        let mut f = Fixture::new(&"😀".repeat(1000));
+        f.select((0, 0), (0, 4000));
+        assert_eq!(
+            f.ok("ExpandParameter", json!(["$C"])),
+            json!("😀".repeat(129))
+        );
     }
 
     #[test]
