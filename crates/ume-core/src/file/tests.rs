@@ -248,14 +248,23 @@ fn the_line_ending_for_new_lines() {
     assert_eq!(open(b"a\nb\r\n", &lf_default), Eol::Lf);
     assert_eq!(open(b"a\r\nb\n", &lf_default), Eol::CrLf);
     assert_eq!(open(b"a\rb\n", &lf_default), Eol::Cr);
-    // No ending: the default applies to the default encoding (UTF-8), CR LF to any other.
+    // No ending: the default applies to the default encoding (UTF-8), the line ending of the OS to any other.
     assert_eq!(open(b"abc", &lf_default), Eol::Lf);
     assert_eq!(open(b"", &lf_default), Eol::Lf);
     let sjis = OpenOptions {
         encoding: Some(Encoding::ShiftJis),
         ..lf_default
     };
-    assert_eq!(open(b"abc", &sjis), Eol::CrLf);
+    assert_eq!(open(b"abc", &sjis), Eol::platform_default());
+}
+
+#[test]
+fn a_file_without_a_line_ending_follows_the_os_by_default() {
+    let dir = TempDir::new();
+    let file = open_file(dir.write("a.txt", b"abc"), &OpenOptions::default()).unwrap();
+    let expected = if cfg!(windows) { Eol::CrLf } else { Eol::Lf };
+    assert_eq!(file.new_line, expected);
+    assert_eq!(OpenOptions::default().default_eol, expected);
 }
 
 #[test]

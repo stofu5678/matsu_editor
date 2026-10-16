@@ -37,4 +37,6 @@ where
 }
 
 #[cfg(test)]
+mod new_document_tests;
+#[cfg(test)]
 mod tests;

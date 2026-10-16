@@ -78,7 +78,9 @@ pub(crate) async fn close_file(view: &WeakEntity<EditorView>, cx: &mut AsyncWind
         return false;
     }
     view.update(cx, |view, cx| {
-        view.load_document(SharedDocument::empty(), None, cx);
+        let mut untitled = SharedDocument::empty();
+        untitled.set_new_document_defaults(&crate::settings::new_document_defaults(cx, None));
+        view.load_document(untitled, None, cx);
     })
     .is_ok()
 }

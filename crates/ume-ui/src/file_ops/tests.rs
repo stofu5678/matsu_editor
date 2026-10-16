@@ -70,6 +70,11 @@ fn setup(cx: &mut TestAppContext) -> (Fixture, &mut VisualTestContext) {
     (Fixture { view }, vcx)
 }
 
+/// The name of the line ending a new document has: CRLF on Windows, LF elsewhere.
+fn os_eol_name() -> &'static str {
+    if cfg!(windows) { "CRLF" } else { "LF" }
+}
+
 fn code_of(name: &str) -> u16 {
     FUNCTIONS.iter().find(|f| f.name == name).unwrap().code
 }
@@ -221,7 +226,7 @@ fn saving_an_untitled_document_asks_for_a_name(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert_eq!(read(&path), b"hello");
     assert_eq!(f.title(cx), "saved.txt - UME Editor");
-    assert_eq!(f.format(cx), "UTF-8  CRLF");
+    assert_eq!(f.format(cx), format!("UTF-8  {}", os_eol_name()));
     assert!(f.notice(cx).unwrap().contains("saved.txt"));
 }
 
@@ -561,7 +566,7 @@ fn a_document_without_a_file_only_takes_the_encoding_on_reopen(cx: &mut TestAppC
     f.run(cx, "F_FILE_REOPEN_UNICODE", &[]);
     assert!(!cx.has_pending_prompt());
     assert_eq!(f.lines(cx), ["abc"]);
-    assert_eq!(f.format(cx), "UTF-16 BOM付  CRLF");
+    assert_eq!(f.format(cx), format!("UTF-16 BOM付  {}", os_eol_name()));
 }
 
 #[gpui::test]

@@ -49,6 +49,11 @@ pub(crate) fn open_editor_window(
     load: Option<LoadRequest>,
 ) -> gpui::Result<AnyWindowHandle> {
     let count = editors(cx).len();
+    let mut shared = shared;
+    if load.is_none() {
+        // A new document has the settings of the basic type (a file that is loaded replaces it).
+        shared.set_new_document_defaults(&crate::settings::new_document_defaults(cx, None));
+    }
     let mut bounds = Bounds::centered(None, size(px(1000.), px(700.)), cx);
     // Windows after the first are shifted so that they do not hide each other.
     let shift = px(30. * (count % 8) as f32);

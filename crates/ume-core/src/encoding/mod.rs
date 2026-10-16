@@ -126,6 +126,14 @@ pub enum Eol {
 }
 
 impl Eol {
+    /// The line ending of new documents when no setting says otherwise: CR LF on Windows, LF on
+    /// macOS and Linux (the user's decision of 2026-10-15, ADR-0010). Sakura's own default is
+    /// CR LF (`m_eDefaultEoltype = EEolType::cr_and_lf`, `sakura_core/types/CType.cpp`), which is a
+    /// Windows habit.
+    pub fn platform_default() -> Eol {
+        if cfg!(windows) { Eol::CrLf } else { Eol::Lf }
+    }
+
     /// The line ending as text.
     pub fn as_str(self) -> &'static str {
         match self {

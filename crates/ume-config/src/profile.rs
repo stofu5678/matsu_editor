@@ -55,6 +55,10 @@
 //! - A file with a UTF-8 BOM is UTF-8. A file without one is Shift_JIS (CP932)
 //!   (`CTextInputStream::CTextInputStream`, `ReadLineW`).
 //! - Sakura writes UTF-8 with a BOM and CRLF line ends (`CTextOutputStream`, `CProfile::_WriteFile`).
+//!   UME Editor writes the line ends of the OS instead where Sakura says CRLF (CRLF on Windows, LF on
+//!   macOS and Linux; the user decided so on 2026-10-15, ADR-0010): in a new file, in the Sakura
+//!   format, and for lines added to a file that has no line end yet. A file that exists keeps the line
+//!   ends it has.
 
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -92,6 +96,16 @@ pub enum LineEnding {
 }
 
 impl LineEnding {
+    /// The line end of new files: CRLF on Windows, LF on macOS and Linux. (`ume-core` has the same
+    /// rule for documents, `Eol::platform_default`; this crate does not depend on it.)
+    pub fn platform_default() -> LineEnding {
+        if cfg!(windows) {
+            LineEnding::CrLf
+        } else {
+            LineEnding::Lf
+        }
+    }
+
     fn bytes(self) -> &'static [u8] {
         match self {
             LineEnding::CrLf => b"\r\n",
@@ -287,7 +301,8 @@ fn validate(section: &str, key: &str, value: &str) -> Result<(), ProfileError> {
 }
 
 impl Profile {
-    /// An empty profile that will be written the way Sakura writes it (UTF-8 with a BOM, CRLF).
+    /// An empty profile that will be written the way Sakura writes it (UTF-8 with a BOM, and the line ends of
+    /// the OS: [`LineEnding::platform_default`]).
     pub fn new() -> Self {
         Profile {
             encoding: FileEncoding::Utf8,
@@ -337,13 +352,13 @@ impl Profile {
         self.bom
     }
 
-    /// The line end used for added lines: the first line end in the file, or CRLF.
+    /// The line end used for added lines: the first line end in the file, or the one of the OS.
     fn default_eol(&self) -> LineEnding {
         self.lines
             .iter()
             .map(|l| l.eol)
             .find(|e| *e != LineEnding::None)
-            .unwrap_or(LineEnding::CrLf)
+            .unwrap_or_else(LineEnding::platform_default)
     }
 
     /// Index of the first section header with this name.
@@ -485,22 +500,24 @@ impl Profile {
     }
 
     /// The bytes Sakura would write for this data (`CProfile::WriteProfile`, `_WriteFile`): UTF-8 with a BOM,
-    /// CRLF, an optional first comment line and a blank line, then every section as `[name]`, its entries
+    /// the line ends of the OS (Sakura: CRLF), an optional first comment line and a blank line, then every section as `[name]`, its entries
     /// sorted by key and a blank line. Comments, blank lines, ignored lines and repeated keys are dropped.
     ///
     /// Sakura passes `" sakura.ini テキストエディタ設定ファイル"` as the comment (`CShareData_IO::ShareData_IO_2`);
     /// UME Editor passes [`UME_HEADER_COMMENT`]. Only the name differs; the format is the same.
     pub fn to_sakura_bytes(&self, comment: Option<&str>) -> Vec<u8> {
+        let eol = std::str::from_utf8(LineEnding::platform_default().bytes()).expect("ASCII");
         let mut text = String::new();
         if let Some(comment) = comment {
             text.push(';');
             text.push_str(comment);
-            text.push_str("\r\n\r\n");
+            text.push_str(eol);
+            text.push_str(eol);
         }
         let mut i = 0;
         while i < self.lines.len() {
             if let LineKind::Section(name) = &self.lines[i].kind {
-                text.push_str(&format!("[{name}]\r\n"));
+                text.push_str(&format!("[{name}]{eol}"));
                 // `std::map` keeps the first of a repeated key and orders keys by UTF-16 code units.
                 let mut entries: Vec<(&str, &str)> = Vec::new();
                 for (k, v) in self.entries_at(i) {
@@ -510,9 +527,9 @@ impl Profile {
                 }
                 entries.sort_by(|a, b| utf16_cmp(a.0, b.0));
                 for (k, v) in entries {
-                    text.push_str(&format!("{k}={v}\r\n"));
+                    text.push_str(&format!("{k}={v}{eol}"));
                 }
-                text.push_str("\r\n");
+                text.push_str(eol);
             }
             i += 1;
         }
@@ -599,6 +616,11 @@ mod tests {
     use super::*;
 
     /// A profile from UTF-8 text with a BOM (without one, the bytes are read as Shift_JIS).
+    /// Text written with CRLF (as Sakura writes it) in the line ends of this OS.
+    fn os(s: &str) -> String {
+        s.replace("\r\n", if cfg!(windows) { "\r\n" } else { "\n" })
+    }
+
     fn parse(s: &str) -> Profile {
         let mut bytes = UTF8_BOM.to_vec();
         bytes.extend_from_slice(s.as_bytes());
@@ -729,7 +751,16 @@ mod tests {
         assert_eq!(text(&p), "[A]\r\na=1\r\n\r\n[New]\r\nk=v\r\n");
         let mut p = Profile::new();
         p.set("S", "k", "あ").unwrap();
-        assert_eq!(p.to_bytes(), b"\xEF\xBB\xBF[S]\r\nk=\xE3\x81\x82\r\n");
+        let mut want = UTF8_BOM.to_vec();
+        want.extend_from_slice(os("[S]\r\nk=あ\r\n").as_bytes());
+        assert_eq!(p.to_bytes(), want);
+        // A file that exists keeps its own line ends, whatever the OS.
+        let mut p = parse("[A]\r\na=1\r\n");
+        p.set("A", "b", "2").unwrap();
+        assert_eq!(text(&p), "[A]\r\na=1\r\nb=2\r\n");
+        let mut p = parse("[A]\na=1\n");
+        p.set("A", "b", "2").unwrap();
+        assert_eq!(text(&p), "[A]\na=1\nb=2\n");
     }
 
     #[test]
@@ -791,17 +822,17 @@ mod tests {
         let p = parse("; gone\n[B]\nz=1\nA=2\nz=3\n\n[A]\nk=あ\n");
         let out = p.to_sakura_bytes(Some(" sakura.ini テキストエディタ設定ファイル"));
         let want = "\u{feff}; sakura.ini テキストエディタ設定ファイル\r\n\r\n[B]\r\nA=2\r\nz=1\r\n\r\n[A]\r\nk=あ\r\n\r\n";
-        assert_eq!(String::from_utf8(out).unwrap(), want);
+        assert_eq!(String::from_utf8(out).unwrap(), os(want));
         assert_eq!(
             parse("[A]\nk=1\n").to_sakura_bytes(None),
-            b"\xEF\xBB\xBF[A]\r\nk=1\r\n\r\n"
+            os("\u{feff}[A]\r\nk=1\r\n\r\n").into_bytes()
         );
     }
 
     #[test]
     fn ume_header_comment_differs_from_sakuras_only_in_the_name() {
         let out = parse("[A]\nk=1\n").to_sakura_bytes(Some(UME_HEADER_COMMENT));
-        let want = "\u{feff}; ume.ini テキストエディタ設定ファイル\r\n\r\n[A]";
+        let want = os("\u{feff}; ume.ini テキストエディタ設定ファイル\r\n\r\n[A]");
         assert!(out.starts_with(want.as_bytes()));
     }
 
@@ -810,7 +841,7 @@ mod tests {
         // U+FF21 (one unit 0xFF21) sorts after U+1F600 (units 0xD83D 0xDE00) by UTF-16, before it by code point.
         let p = parse("[A]\nＡ=1\n😀=2\nb=3\n");
         let text = String::from_utf8(p.to_sakura_bytes(None)).unwrap();
-        assert_eq!(text, "\u{feff}[A]\r\nb=3\r\n😀=2\r\nＡ=1\r\n\r\n");
+        assert_eq!(text, os("\u{feff}[A]\r\nb=3\r\n😀=2\r\nＡ=1\r\n\r\n"));
     }
 
     #[test]

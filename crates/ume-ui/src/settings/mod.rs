@@ -32,6 +32,7 @@
 
 pub mod doc_type;
 pub mod mac_key_layout;
+pub mod new_document;
 pub mod view_settings;
 pub mod zoom;
 
@@ -43,6 +44,7 @@ use ume_config::Profile;
 use ume_config::location::{Environment, Os, candidate_paths, find_existing};
 
 pub use mac_key_layout::MacKeyLayout;
+pub use new_document::NewDocumentDefaults;
 pub use view_settings::{Colors, Marks, ViewSettings, WrapMethod};
 
 /// The settings file, read once at startup.
@@ -55,6 +57,14 @@ pub struct UserSettings {
 }
 
 impl gpui::Global for UserSettings {}
+
+/// The defaults of a new document for a file called `file_name`, from the settings file the
+/// application read at startup (Sakura's, with the line ending of the OS, without one).
+pub fn new_document_defaults(cx: &gpui::App, file_name: Option<&str>) -> NewDocumentDefaults {
+    cx.try_global::<UserSettings>()
+        .map(|user| user.new_document_defaults(file_name))
+        .unwrap_or_default()
+}
 
 impl UserSettings {
     /// No file: Sakura's defaults.
@@ -119,6 +129,15 @@ impl UserSettings {
         let mut map = KeyMap::new(layout.options(platform));
         map.apply_user_rows(&self.key_rows());
         map
+    }
+
+    /// The encoding, BOM and line ending of a new document, or of a file that has no line ending,
+    /// for a file called `file_name` (`None` for an untitled document). See [`new_document`].
+    pub fn new_document_defaults(&self, file_name: Option<&str>) -> NewDocumentDefaults {
+        match &self.profile {
+            Some(profile) => NewDocumentDefaults::from_profile(profile, file_name),
+            None => NewDocumentDefaults::default(),
+        }
     }
 
     /// The user's key bindings (`[KeyBind]`), to put over Sakura's table. Empty without a file.

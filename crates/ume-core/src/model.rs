@@ -18,7 +18,7 @@ pub struct DocumentModel {
 
 impl DocumentModel {
     /// A model over `doc`. The line ending for new line breaks is the first one in the document,
-    /// and CRLF if there is none (the default of a new document in Sakura on Windows). This is
+    /// and the line ending of the OS if there is none ([`Eol::platform_default`]). This is
     /// an approximation of Sakura's rule (`CDocEditor::GetNewLineCode`, set when the file is
     /// loaded); the file loader will set it with [`set_new_line`](Self::set_new_line).
     pub fn new(doc: Document) -> Self {
@@ -27,7 +27,7 @@ impl DocumentModel {
             .ok()
             .flatten()
             .and_then(|l| l.eol)
-            .unwrap_or(Eol::CrLf);
+            .unwrap_or_else(Eol::platform_default);
         Self {
             doc,
             history: History::new(),
@@ -131,7 +131,10 @@ mod tests {
     fn the_new_line_is_the_first_one_of_the_document() {
         assert_eq!(model("a\nb\r\n").new_line(), Eol::Lf);
         assert_eq!(model("a\r\nb\n").new_line(), Eol::CrLf);
-        assert_eq!(model("abc").new_line(), Eol::CrLf);
+        assert_eq!(
+            model("abc").new_line(),
+            if cfg!(windows) { Eol::CrLf } else { Eol::Lf }
+        );
     }
 
     #[test]
