@@ -21,8 +21,9 @@ use crate::search::SearchState;
 #[derive(Clone, Debug)]
 pub(crate) struct ViewStatus {
     cursor: Cursor,
-    scroll_x: f32,
-    scroll_y: f32,
+    /// The left column and the top row, not pixels: panes can have different font sizes.
+    left_col: f32,
+    top_row: f32,
     scroll_past_end: bool,
 }
 
@@ -80,8 +81,8 @@ impl EditorView {
     pub(crate) fn view_status(&self) -> ViewStatus {
         ViewStatus {
             cursor: self.cursor.clone(),
-            scroll_x: self.scroll_x,
-            scroll_y: self.scroll_y,
+            left_col: self.scroll_x / self.metrics.cell_width,
+            top_row: self.scroll_y / self.metrics.line_height,
             scroll_past_end: self.scroll_past_end,
         }
     }
@@ -89,11 +90,12 @@ impl EditorView {
     /// Takes the caret, the selection and the scroll position of another pane.
     pub(crate) fn apply_view_status(&mut self, status: ViewStatus) {
         self.cursor = status.cursor;
-        self.scroll_x = status.scroll_x;
-        self.scroll_y = status.scroll_y;
+        self.scroll_x = status.left_col * self.metrics.cell_width;
+        self.scroll_y = status.top_row * self.metrics.line_height;
         self.scroll_past_end = status.scroll_past_end;
         self.marked = None;
         self.drag = super::Drag::None;
+        self.clamp_scroll();
     }
 
     /// The scroll position, for keeping panes in step.

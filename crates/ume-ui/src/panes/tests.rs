@@ -485,3 +485,20 @@ fn a_click_in_the_panel_of_a_pane_activates_the_pane(cx: &mut TestAppContext) {
         "other"
     );
 }
+
+#[gpui::test]
+fn unsplitting_keeps_the_top_row_of_a_pane_with_another_font_size(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, &long_text());
+    f.run(cx, F_SPLIT_H);
+    f.click(cx, 1);
+    f.run(cx, 31122);
+    let large = f.pane(cx, 1).read_with(cx, |v, _| v.metrics().line_height);
+    f.pane(cx, 1).update(cx, |v, cx| {
+        v.set_scroll(None, Some((large * 10.0, false)));
+        cx.notify();
+    });
+    f.run(cx, F_SPLIT_H);
+    let small = f.pane(cx, 0).read_with(cx, |v, _| v.metrics().line_height);
+    let y = f.pane(cx, 0).read_with(cx, |v, _| v.scroll_y());
+    assert!((y - small * 10.0).abs() < 0.01, "{y} vs {}", small * 10.0);
+}
