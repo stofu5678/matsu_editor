@@ -107,6 +107,16 @@ fn the_temporary_wraps_change_the_layout_not_the_settings(cx: &mut TestAppContex
 }
 
 #[gpui::test]
+fn a_new_layout_ends_a_box_selection(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "abcdefgh");
+    run(&view, cx, 30510); // F_BEGIN_BOX
+    run(&view, cx, 30514); // F_RIGHT_BOX
+    assert!(view.read_with(cx, |v, _| v.cursor.is_box() && v.cursor.has_selection()));
+    run(&view, cx, 31143); // F_TMPWRAPWINDOW
+    assert!(view.read_with(cx, |v, _| !v.cursor.is_box() && !v.cursor.has_selection()));
+}
+
+#[gpui::test]
 fn the_wrap_follows_the_width_of_the_window(cx: &mut TestAppContext) {
     let (view, cx) = setup(cx, &"x".repeat(300));
     run(&view, cx, 31143);
