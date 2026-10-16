@@ -87,6 +87,16 @@ fn powershell_gets_set_location_with_the_quotes_doubled() {
     );
     assert_eq!(launch.directory, r"C:\it's here");
     assert_eq!(powershell_quote("a'b''c"), "a''b''''c");
+    // The typographic quotes end a PowerShell string too: they are doubled, so that a folder name
+    // cannot add commands.
+    assert_eq!(
+        powershell_quote("x\u{2019}; Write-Output INJECTED; #"),
+        "x\u{2019}\u{2019}; Write-Output INJECTED; #"
+    );
+    assert_eq!(
+        powershell_quote("\u{2018}\u{201A}\u{201B}"),
+        "\u{2018}\u{2018}\u{201A}\u{201A}\u{201B}\u{201B}"
+    );
     // A folder with brackets is a literal path.
     assert_eq!(
         powershell_parameters(r"C:\work\[ab]"),

@@ -25,6 +25,9 @@ mod tests {
             "to_upper",
             "paste",
             "cut",
+            "cut_line",
+            "line_cut_to_start",
+            "line_cut_to_end",
             "sort_asc",
         ] {
             let mut e = Editor::new("ef|gh\nabcd\n").with_clipboard("x", ClipKind::Normal);
@@ -42,6 +45,8 @@ mod tests {
             assert!(!e.changes().text_changed(), "{id}");
             assert_eq!(plain(&e), text, "{id}");
             assert!(!e.model().is_modified(), "{id}");
+            // a refused cut must not replace what the clipboard has
+            assert_eq!(e.clipboard().map(|c| c.text.as_str()), Some("x"), "{id}");
         }
         let mut e = Editor::new("ab|cd\nefgh");
         let text = plain(&e);

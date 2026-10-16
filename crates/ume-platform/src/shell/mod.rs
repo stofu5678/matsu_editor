@@ -91,10 +91,22 @@ pub fn is_unc_path(path: &str) -> bool {
     path.starts_with(r"\\")
 }
 
-/// Escapes `text` for a single-quoted PowerShell string: `'` becomes `''`. Sakura does this
-/// against command injection through the folder name.
+/// The characters that PowerShell reads as the quote of a single-quoted string: the ASCII
+/// apostrophe and the typographic single quotes (`‘ ’ ‚ ‛`).
+const POWERSHELL_QUOTES: [char; 5] = ['\'', '\u{2018}', '\u{2019}', '\u{201A}', '\u{201B}'];
+
+/// Escapes `text` for a single-quoted PowerShell string: each quote is written twice. Sakura does
+/// this against command injection through the folder name, but only for the ASCII apostrophe; a
+/// folder called `x’; ...` would end the string in PowerShell.
 pub fn powershell_quote(text: &str) -> String {
-    text.replace('\'', "''")
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        out.push(c);
+        if POWERSHELL_QUOTES.contains(&c) {
+            out.push(c);
+        }
+    }
+    out
 }
 
 /// The parameters of `powershell.exe` that open it in `folder`: `-NoExit` keeps it open after

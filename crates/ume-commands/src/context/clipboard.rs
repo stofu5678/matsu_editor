@@ -162,6 +162,7 @@ impl CommandContext<'_> {
 
     /// `Command_CUT`: copies the selection and deletes it. Without a selection it cuts the row.
     pub fn cut(&mut self) -> Result<()> {
+        self.refuse_in_view_mode()?;
         if self.selection().is_none() {
             if !ENABLE_NO_SELECT_COPY {
                 return Ok(());
@@ -180,6 +181,7 @@ impl CommandContext<'_> {
     /// `Command_CUT_LINE`: copies the row of the caret and deletes it. Beeps with a selection
     /// and when there is no row.
     pub fn cut_row(&mut self) -> Result<()> {
+        self.refuse_in_view_mode()?;
         let Some((start, end, text)) = self.caret_row_text()? else {
             self.beep();
             return Ok(());
@@ -208,6 +210,7 @@ impl CommandContext<'_> {
 
     /// `Command_LineCutToStart`: cuts from the start of the line to the caret.
     pub fn cut_to_line_start(&mut self) -> Result<()> {
+        self.refuse_in_view_mode()?;
         if self.selection().is_some() {
             return self.cut();
         }
@@ -223,6 +226,7 @@ impl CommandContext<'_> {
 
     /// `Command_LineCutToEnd`: cuts from the caret to the end of the text of the line.
     pub fn cut_to_line_end(&mut self) -> Result<()> {
+        self.refuse_in_view_mode()?;
         if self.selection().is_some() {
             return self.cut();
         }
