@@ -156,6 +156,11 @@ impl MacroState {
         self.recorder.is_recording()
     }
 
+    /// A macro is playing or running: the commands it calls are not recorded.
+    pub(crate) fn is_suspended(&self) -> bool {
+        self.suspended
+    }
+
     fn busy(&self) -> bool {
         self.running.is_some() || !self.queue.is_empty()
     }

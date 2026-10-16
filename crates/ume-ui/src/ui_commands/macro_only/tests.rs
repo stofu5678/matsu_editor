@@ -254,15 +254,27 @@ fn set_view_top_scrolls_without_moving_the_caret(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn the_calls_after_set_view_top_do_not_scroll_back_to_the_caret(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let mac = dir.path().join("v.mac");
+    // commands that move nothing, after the scroll
+    std::fs::write(
+        &mac,
+        "SetViewTop(200);\nClipboardEmpty();\nSetMsgQuoteStr('> ');\nSetUndoBuffer();\n",
+    )
+    .unwrap();
     let (f, cx) = setup(cx, &lines_of(500));
-    f.run(cx, "F_SETVIEWTOP", &[Arg::Int(200)]);
-    // a command that moves nothing (and the one that does not change the text)
-    f.run(cx, "F_CLIPBOARDEMPTY", &[]);
-    f.run(cx, "F_SET_QUOTESTRING", &[text("> ")]);
-    f.run(cx, "F_SETUNDOBUFFER", &[]);
+    f.run(cx, "F_EXECEXTMACRO", &[path_arg(&mac)]);
     assert_eq!(f.top(cx), 199);
     // a move of the caret brings it into view, as in Sakura
     f.run(cx, "F_MOVECURSOR", &[Arg::Int(1), Arg::Int(3), Arg::Int(0)]);
+    assert_eq!(f.top(cx), 0);
+}
+
+#[gpui::test]
+fn outside_a_macro_every_command_brings_the_caret_into_view(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, &lines_of(500));
+    f.run(cx, "F_SETVIEWTOP", &[Arg::Int(200)]);
+    f.run(cx, "F_GOFILETOP", &[]);
     assert_eq!(f.top(cx), 0);
 }
 

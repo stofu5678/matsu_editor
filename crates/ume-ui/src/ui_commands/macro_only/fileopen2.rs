@@ -32,6 +32,7 @@ use crate::file_ops::args::path_arg;
 use crate::file_ops::ask::open_error_message;
 use crate::file_ops::load::{choose_files, open_paths};
 use crate::file_ops::{start, view_mode_request, windows};
+use crate::history::view::{encoding_of as history_encoding, remembered};
 use crate::open::open_text_file;
 use crate::ui_command::{UiCommand, register_ui_command};
 use crate::view::EditorView;
@@ -70,8 +71,9 @@ impl UiCommand for FileOpen2 {
         if let Some(path) = &path
             && goes_into_this_window(view, window, path, cx)
         {
-            read_here(view, path, encoding, view_mode, window, cx);
-            return Ok(());
+            if read_here(view, path, encoding, view_mode, window, cx) {
+                return Ok(());
+            }
         }
         start(window, cx, async move |view, cx| {
             let paths = match path {
@@ -113,7 +115,12 @@ fn goes_into_this_window(
         && view.accepts_load(cx)
 }
 
-/// Reads the file now and makes it the document of this window. A failure is shown.
+/// Reads the file now and makes it the document of this window, the way `load::load_here` does:
+/// a file the history knows is opened in the encoding of last time, and its caret, view and
+/// bookmarks are restored; it goes to the front of the history. A failure is shown.
+///
+/// Returns false, having done nothing, when the user has to be asked which encoding to use
+/// (`bQueryIfCodeChange`): the asynchronous flow asks.
 fn read_here(
     view: &mut EditorView,
     path: &Path,
@@ -121,24 +128,48 @@ fn read_here(
     view_mode: bool,
     window: &mut Window,
     cx: &mut Context<EditorView>,
-) {
+) -> bool {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
     let defaults = crate::settings::new_document_defaults(cx, name.as_deref());
-    match open_text_file(path, encoding, &defaults, &mut |_, _| {
-        ControlFlow::Continue(())
-    }) {
+    let read = |encoding| {
+        open_text_file(path, encoding, &defaults, &mut |_, _| {
+            ControlFlow::Continue(())
+        })
+    };
+    let previous = remembered(cx, path);
+    let mut result = read(encoding);
+    if encoding.is_none()
+        && let (Ok(file), Some(old)) = (&result, previous.as_ref().and_then(history_encoding))
+        && old != file.encoding
+    {
+        // `CMruListener::OnBeforeLoad`: the encoding of last time, unless the user is asked.
+        if path.exists() && crate::history::options(cx).query_if_code_change {
+            return false;
+        }
+        // if the file cannot be read in that encoding, the detected one stays
+        if let Ok(again) = read(Some(old)) {
+            result = Ok(again);
+        }
+    }
+    match result {
         Ok(file) => {
             let mut shared = SharedDocument::from_text_file(file);
             if view_mode {
                 shared.keep_view_mode(true);
             }
             view.load_document(shared, None, cx);
+            if let Some(entry) = &previous {
+                let options = crate::history::options(cx);
+                view.restore_from_history(entry, options, cx);
+            }
+            view.record_history(cx);
         }
         Err(error) => {
             let (message, detail) = open_error_message(path, &error);
             view.macro_failed(format!("{message}\n{detail}"), window, cx);
         }
     }
+    true
 }
 
 register_ui_command!(FileOpen2);

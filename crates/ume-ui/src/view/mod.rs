@@ -429,10 +429,15 @@ impl EditorView {
             self.notice = None;
         }
         self.completion_after_command(changes, cx);
-        // A command that moved nothing leaves the view where it is: `SetViewTop` of a macro
-        // scrolls away from the caret, and the calls after it must not scroll back (Sakura scrolls
-        // to the caret when the caret moves).
-        if changes.text_changed() || changes.caret_moved || changes.selection_changed {
+        // While a macro runs, a command that moved nothing leaves the view where it is:
+        // `SetViewTop` scrolls away from the caret, and the calls after it must not scroll back
+        // (Sakura scrolls to the caret when the caret moves). Outside a macro every command
+        // brings the caret into view, as before.
+        if !self.macros.is_suspended()
+            || changes.text_changed()
+            || changes.caret_moved
+            || changes.selection_changed
+        {
             self.ensure_caret_visible(cx);
         }
         cx.notify();
