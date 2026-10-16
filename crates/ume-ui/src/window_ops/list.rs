@@ -144,9 +144,11 @@ impl WindowList {
     ) -> Self {
         // Not `rows`: the view of the owner is being updated while the list is made, and its
         // text cannot be read.
-        let selected = editors(cx)
+        let all = editors(cx);
+        let selected = all
             .iter()
-            .position(|(handle, _)| *handle == owner)
+            .position(|(_, v)| v.entity_id() == view.entity_id())
+            .or_else(|| all.iter().position(|(handle, _)| *handle == owner))
             .unwrap_or(0);
         if dialog {
             // The list follows the windows that come and go while it is open.
@@ -196,6 +198,12 @@ impl WindowList {
         }
         // The window and, in tab mode, the tab.
         crate::tabs::flows::reveal(cx, handle, view);
+    }
+
+    /// The row the list is on.
+    #[cfg(test)]
+    pub(crate) fn selected(&self) -> usize {
+        self.selected
     }
 
     fn move_selection(&mut self, delta: isize, count: usize) {

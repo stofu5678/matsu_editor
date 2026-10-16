@@ -165,3 +165,17 @@ fn a_tab_that_arrives_during_the_question_is_asked_about_too(cx: &mut TestAppCon
     answer(cx, first, DONT_SAVE);
     assert_eq!(windows(cx), 0);
 }
+
+#[gpui::test]
+fn the_window_list_starts_on_the_active_tab(cx: &mut TestAppContext) {
+    let handle = tabs(cx, 3);
+    workspace(cx, handle).update_in(visual(cx, handle), |ws, window, cx| {
+        ws.activate_tab(1, window, cx)
+    });
+    cx.run_until_parked();
+    run(cx, handle, "F_WINLIST");
+    let list = super::tests::active_view(cx, handle)
+        .read_with(cx, |v, _| v.window_list.clone())
+        .expect("the list is open");
+    assert_eq!(list.read_with(cx, |l, _| l.selected()), 1);
+}
