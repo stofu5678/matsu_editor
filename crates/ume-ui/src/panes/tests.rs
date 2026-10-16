@@ -477,7 +477,8 @@ fn a_click_in_the_panel_of_a_pane_activates_the_pane(cx: &mut TestAppContext) {
     f.pane(cx, 1)
         .update(cx, |v, _| v.search.set_pattern("other"));
     // the click handler of the pane (it sits around the panels) calls this
-    f.workspace.update(cx, |w, cx| w.activate(0, cx));
+    f.workspace
+        .update_in(cx, |w, window, cx| w.activate(0, window, cx));
     assert_eq!(f.active(cx), 0);
     assert_eq!(
         f.pane(cx, 0)
@@ -501,4 +502,23 @@ fn unsplitting_keeps_the_top_row_of_a_pane_with_another_font_size(cx: &mut TestA
     let small = f.pane(cx, 0).read_with(cx, |v, _| v.metrics().line_height);
     let y = f.pane(cx, 0).read_with(cx, |v, _| v.scroll_y());
     assert!((y - small * 10.0).abs() < 0.01, "{y} vs {}", small * 10.0);
+}
+
+#[gpui::test]
+fn releasing_a_bar_outside_the_area_removes_the_split(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abc");
+    f.run(cx, F_SPLIT_H);
+    f.workspace.update_in(cx, |w, window, cx| {
+        w.panes.dragging = Some(super::Bar::Cols);
+        let area = w.panes.area.get();
+        // no move was seen; the button goes up left of the area (OnLButtonUp, bHUp)
+        let up = gpui::MouseUpEvent {
+            button: gpui::MouseButton::Left,
+            position: gpui::point(area.origin.x - gpui::px(50.), area.origin.y + gpui::px(10.)),
+            modifiers: gpui::Modifiers::none(),
+            click_count: 1,
+        };
+        w.end_drag(&up, window, cx);
+    });
+    assert_eq!(f.grid(cx), (1, 1));
 }

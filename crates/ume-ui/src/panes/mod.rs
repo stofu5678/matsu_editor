@@ -211,7 +211,7 @@ impl Workspace {
         self.panes.v = if height > 0.0 { plan.v / height } else { 0.0 };
         // The window's own state moves with the user to the pane that is active afterwards; the
         // panes that go away are dropped after that.
-        self.move_window_state(old_active, new_active, cx);
+        self.move_window_state(old_active, new_active, window, cx);
         for i in 0..4 {
             if !plan.grid.shows(i) {
                 self.panes.slots[i] = None;
@@ -281,7 +281,7 @@ impl Workspace {
         let handle = pane.read(cx).focus_handle(cx);
         let focus = cx.on_focus_in(&handle, window, {
             let pane = pane.clone();
-            move |this, _, cx| this.pane_got_focus(&pane, cx)
+            move |this, window, cx| this.pane_got_focus(&pane, window, cx)
         });
         let watch = cx.observe(&pane, {
             let pane = pane.clone();
@@ -292,26 +292,37 @@ impl Workspace {
     }
 
     /// The user went to another pane (a click, or a key that moves the focus).
-    fn pane_got_focus(&mut self, pane: &Entity<EditorView>, cx: &mut Context<Self>) {
+    fn pane_got_focus(
+        &mut self,
+        pane: &Entity<EditorView>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(index) = self.panes.index_of(pane) {
-            self.activate(index, cx);
+            self.activate(index, window, cx);
         }
     }
 
     /// Makes the pane `index` the active one.
-    fn activate(&mut self, index: usize, cx: &mut Context<Self>) {
+    fn activate(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         if index == self.panes.active || !self.panes.grid.shows(index) {
             return;
         }
         let old = self.panes.active;
-        self.move_window_state(old, index, cx);
+        self.move_window_state(old, index, window, cx);
         self.panes.active = index;
         cx.notify();
     }
 
     /// The search pattern, the key macro and the status bar belong to the window, so they go to
     /// the pane that is active.
-    fn move_window_state(&mut self, from: usize, to: usize, cx: &mut Context<Self>) {
+    fn move_window_state(
+        &mut self,
+        from: usize,
+        to: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if from == to {
             return;
         }
@@ -324,6 +335,8 @@ impl Workspace {
         let state = old.update(cx, |view, _| view.take_window_state(with_macros));
         new.update(cx, |view, cx| {
             view.put_window_state(state);
+            // an open search panel shows the pattern it had
+            view.show_pattern_in_panel(window, cx);
             cx.notify();
         });
     }
@@ -424,19 +437,27 @@ impl Workspace {
     }
 
     fn drag_to(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
-        let Some(bar) = self.panes.dragging else {
+        if self.panes.dragging.is_none() {
             return;
-        };
+        }
         if !event.dragging() {
             self.panes.dragging = None;
             return;
         }
+        self.move_bar(event.position, cx);
+    }
+
+    /// Moves the bar being dragged to `position`, within the area.
+    fn move_bar(&mut self, position: gpui::Point<Pixels>, cx: &mut Context<Self>) {
+        let Some(bar) = self.panes.dragging else {
+            return;
+        };
         let area = self.panes.area.get();
         let (w, h) = self.panes.area_size();
         // OnMouseMove keeps the tracker inside the area (1 pixel from the top left, 6 from the
         // bottom right).
-        let x = (f32::from(event.position.x - area.origin.x)).clamp(1.0, (w - 6.0).max(1.0));
-        let y = (f32::from(event.position.y - area.origin.y)).clamp(1.0, (h - 6.0).max(1.0));
+        let x = f32::from(position.x - area.origin.x).clamp(1.0, (w - 6.0).max(1.0));
+        let y = f32::from(position.y - area.origin.y).clamp(1.0, (h - 6.0).max(1.0));
         if matches!(bar, Bar::Cols | Bar::Both) {
             self.panes.h = x / w;
         }
@@ -447,10 +468,13 @@ impl Workspace {
     }
 
     /// OnLButtonUp: the split with the bars where the user dropped them.
-    fn end_drag(&mut self, _: &MouseUpEvent, window: &mut Window, cx: &mut Context<Self>) {
-        if self.panes.dragging.take().is_none() {
+    fn end_drag(&mut self, event: &MouseUpEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.panes.dragging.is_none() {
             return;
         }
+        // The release can be outside the area, where no move reached us.
+        self.move_bar(event.position, cx);
+        self.panes.dragging = None;
         let (w, h) = self.panes.area_size();
         let set = &self.panes;
         let x = if set.grid.cols > 1 { set.h * w } else { 0.0 };
@@ -519,7 +543,9 @@ impl Workspace {
                     .overflow_hidden()
                     // The panels of a pane (search, replace) are not under its focus handle: a
                     // click anywhere in the pane makes it the active one.
-                    .capture_any_mouse_down(cx.listener(move |this, _, _, cx| this.activate(i, cx)))
+                    .capture_any_mouse_down(
+                        cx.listener(move |this, _, window, cx| this.activate(i, window, cx)),
+                    )
                     .child(pane.clone()),
             );
         }

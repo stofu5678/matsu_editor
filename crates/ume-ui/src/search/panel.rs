@@ -648,10 +648,13 @@ impl EditorView {
     /// Shows the pattern in the panel's input, after something other than the panel changed it.
     pub(crate) fn show_pattern_in_panel(&self, window: &mut Window, cx: &mut Context<Self>) {
         let pattern = self.search.pattern().to_owned();
+        let replacement = self.search.replace.text.clone();
         if let Some(panel) = &self.panel {
             panel.update(cx, |p, cx| {
                 p.text
                     .update(cx, |state, cx| state.set_value(pattern, window, cx));
+                p.replacement
+                    .update(cx, |state, cx| state.set_value(replacement, window, cx));
             });
         }
     }
