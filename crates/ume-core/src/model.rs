@@ -7,6 +7,7 @@
 use crate::bookmarks::{Bookmarks, LineDelta, LineEdit, TextBreaks};
 use crate::buffer::{Document, Edit, Eol, Pos, Result};
 use crate::cursor::Cursor;
+use crate::modified::Replaced;
 use crate::undo::History;
 
 /// A document, its undo history, and the line ending that new line breaks get.
@@ -110,6 +111,19 @@ impl DocumentModel {
             self.bookmarks.apply(delta);
         }
         self.history.note_lines(line_edit);
+        let marks = self.history.marks().edit_of_replace(
+            Replaced {
+                from: (a.line, a.col),
+                to: (b.line, b.col),
+                inserted: TextBreaks::of(text),
+                inserted_empty: text.is_empty(),
+                rows_before,
+                rows_after: self.rows(),
+            },
+            self.history.next_seq(),
+        );
+        self.history.apply_marks(marks);
+        self.history.truncate_marks(self.rows());
         // A last line that lost all its text is gone (Sakura deletes the line object), and its
         // bookmark with it.
         self.bookmarks.truncate(self.doc.line_count());
@@ -145,6 +159,13 @@ impl DocumentModel {
             self.bookmarks.apply(delta);
         }
         self.bookmarks.truncate(self.doc.line_count());
+    }
+
+    /// Whether `line` differs from the saved version: the lines that Sakura draws in the colors of
+    /// 変更行 and that `F_MODIFYLINE_NEXT` and `F_MODIFYLINE_PREV` look for (see
+    /// [`crate::modified`]). False for every line while the document is unmodified.
+    pub fn is_line_modified(&self, line: usize) -> bool {
+        self.history.is_line_modified(line)
     }
 
     pub fn is_modified(&self) -> bool {
@@ -334,5 +355,150 @@ y
         edit(&mut m, (1, 0), (1, 1), "");
         assert_eq!(m.doc().line_count(), 2);
         assert_eq!(marked(&m), [1]);
+    }
+
+    /// The lines that differ from the saved version.
+    fn changed(m: &DocumentModel) -> Vec<usize> {
+        (0..m.doc().row_count())
+            .filter(|&l| m.is_line_modified(l))
+            .collect()
+    }
+
+    fn save(m: &mut DocumentModel) {
+        m.mark_saved(&Cursor::default());
+    }
+
+    #[test]
+    fn a_loaded_document_has_no_modified_line() {
+        let m = model("a\nb\nc");
+        assert!(changed(&m).is_empty());
+    }
+
+    #[test]
+    fn edited_lines_are_modified_until_the_document_is_saved() {
+        let mut m = model("a\nb\nc\nd");
+        edit(&mut m, (1, 1), (1, 1), "x");
+        assert_eq!(changed(&m), [1]);
+        edit(&mut m, (3, 1), (3, 1), "y");
+        assert_eq!(changed(&m), [1, 3]);
+        save(&mut m);
+        assert!(changed(&m).is_empty());
+        edit(&mut m, (0, 0), (0, 0), "z");
+        assert_eq!(changed(&m), [0]);
+    }
+
+    #[test]
+    fn the_marks_follow_lines_that_come_and_go() {
+        let mut m = model("a\nb\nc\nd");
+        edit(&mut m, (2, 1), (2, 1), "x");
+        edit(&mut m, (0, 0), (0, 0), "n1\nn2\n");
+        // two new lines above (modified), and the old line 2 is now line 4
+        assert_eq!(changed(&m), [0, 1, 4]);
+        edit(&mut m, (0, 0), (2, 0), "");
+        assert_eq!(changed(&m), [2]);
+    }
+
+    #[test]
+    fn undo_back_to_the_saved_version_leaves_nothing_modified() {
+        let mut m = model("a\nb\nc");
+        let mut cursor = Cursor::default();
+        edit(&mut m, (1, 1), (1, 1), "x");
+        edit(&mut m, (0, 0), (0, 0), "q\n");
+        assert_eq!(changed(&m), [0, 2]);
+        assert!(m.undo(&mut cursor));
+        assert_eq!(changed(&m), [1]);
+        assert!(m.undo(&mut cursor));
+        assert!(changed(&m).is_empty());
+        assert!(m.redo(&mut cursor));
+        assert_eq!(changed(&m), [1]);
+        assert!(m.redo(&mut cursor));
+        assert_eq!(changed(&m), [0, 2]);
+    }
+
+    #[test]
+    fn undo_past_a_save_marks_only_the_lines_the_undone_edit_touched() {
+        let mut m = model("a\nb\nc");
+        let mut cursor = Cursor::default();
+        edit(&mut m, (1, 1), (1, 1), "x");
+        save(&mut m);
+        assert!(changed(&m).is_empty());
+        assert!(m.undo(&mut cursor));
+        assert_eq!(changed(&m), [1]);
+        assert!(m.redo(&mut cursor));
+        assert!(changed(&m).is_empty());
+        // an edit after the save, undone: back to the saved state
+        edit(&mut m, (2, 0), (2, 0), "y");
+        assert_eq!(changed(&m), [2]);
+        assert!(m.undo(&mut cursor));
+        assert!(changed(&m).is_empty());
+    }
+
+    #[test]
+    fn an_edit_that_makes_the_old_text_again_is_still_modified() {
+        // Sakura compares sequence numbers, not text
+        let mut m = model("ab");
+        edit(&mut m, (0, 1), (0, 1), "x");
+        edit(&mut m, (0, 1), (0, 2), "");
+        assert_eq!(m.doc().line(0).unwrap().unwrap().text, "ab");
+        assert_eq!(changed(&m), [0]);
+    }
+
+    #[test]
+    fn enter_and_whole_line_deletes_follow_replace_data() {
+        // Enter at the start of a line: the new line is modified, the old one moves down intact
+        let mut m = model("abc\ndef");
+        edit(&mut m, (0, 0), (0, 0), "\n");
+        assert_eq!(changed(&m), [0]);
+        // Enter inside a line: both halves are modified
+        let mut m = model("abc\ndef");
+        edit(&mut m, (0, 1), (0, 1), "\n");
+        assert_eq!(changed(&m), [0, 1]);
+        // deleting a whole line touches no other line
+        let mut m = model("a\nb\nc");
+        edit(&mut m, (1, 0), (2, 0), "");
+        assert!(changed(&m).is_empty());
+        // joining two lines modifies the joined one
+        let mut m = model("a\nb\nc");
+        edit(&mut m, (0, 1), (1, 0), "");
+        assert_eq!(changed(&m), [0]);
+    }
+
+    #[test]
+    fn crlf_and_japanese_text() {
+        let mut m = model("あ\r\nい\r\nう");
+        edit(&mut m, (1, 3), (1, 3), "x\r\ny");
+        assert_eq!(changed(&m), [1, 2]);
+        let mut cursor = Cursor::default();
+        assert!(m.undo(&mut cursor));
+        assert!(changed(&m).is_empty());
+    }
+
+    #[test]
+    fn edits_outside_a_block_are_modified_for_good() {
+        let mut m = model("a\nb");
+        m.replace(Pos::new(1, 0), Pos::new(1, 0), "x").unwrap();
+        // there is no saved version to compare with: every line counts as modified until the
+        // next save
+        assert_eq!(changed(&m), [0, 1]);
+    }
+
+    #[test]
+    fn forgetting_old_blocks_keeps_the_numbers() {
+        let mut m = model("a\nb\nc\nd");
+        let mut cursor = Cursor::default();
+        m.history.set_max_blocks(Some(3));
+        edit(&mut m, (0, 1), (0, 1), "1");
+        edit(&mut m, (1, 1), (1, 1), "2");
+        edit(&mut m, (2, 1), (2, 1), "3");
+        save(&mut m);
+        // the first block is forgotten; the saved version can still be reached
+        edit(&mut m, (3, 1), (3, 1), "4");
+        assert_eq!(changed(&m), [3]);
+        assert!(m.undo(&mut cursor));
+        assert!(changed(&m).is_empty());
+        assert!(m.undo(&mut cursor));
+        assert_eq!(changed(&m), [2]);
+        assert!(m.redo(&mut cursor));
+        assert!(changed(&m).is_empty());
     }
 }
