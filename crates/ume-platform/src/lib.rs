@@ -1,4 +1,5 @@
-//! What GPUI does not have and the OS does: printing ([ADR-0011], [ADR-0013]).
+//! What GPUI does not have and the OS does: printing, and opening a shell in a folder
+//! ([ADR-0011], [ADR-0013]).
 //!
 //! This crate is below `ume-ui` and knows nothing of GPUI. The pages come from `ume-print`
 //! (the layout, the same for the preview and for every OS); this crate prints them: the print
@@ -10,3 +11,4 @@
 //! [ADR-0013]: https://github.com/stofu5678/ume_editor/blob/main/docs/adr/0013-module-structure.md
 
 pub mod print;
+pub mod shell;

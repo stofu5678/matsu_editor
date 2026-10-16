@@ -8,6 +8,7 @@
 //!    unless a macro passed the encoding or the line ending (`save_as_dialog`).
 //! 2. A plain save of an unmodified document writes nothing (`DoSaveFlow`, when
 //!    `m_bEnableUnmodifiedOverwrite` is off, which is Sakura's default).
+//!    In view mode the file itself is never overwritten (`CSaveAgent::OnCheckSave`).
 //! 3. If the line endings are mixed and the save does not convert them, ask whether to unify them
 //!    to the current line ending (Sakura's default asks, `m_bChkEnterAtEnd`).
 //! 4. If the encoding cannot write some characters, show the first place and ask: continue
@@ -40,6 +41,16 @@ pub(crate) struct SaveRequest {
     pub eol: Option<Eol>,
     /// Ask for a name when the document has none. `F_FILESAVE_QUIET` does not.
     pub ask_name: bool,
+}
+
+impl SaveRequest {
+    /// `F_FILESAVE_QUIET`: a plain save that does not ask for a name.
+    pub fn quiet() -> Self {
+        Self {
+            ask_name: false,
+            ..Self::default()
+        }
+    }
 }
 
 impl Default for SaveRequest {
@@ -161,6 +172,26 @@ pub(crate) async fn save(
         })
         .ok();
         return SaveOutcome::NotNeeded;
+    }
+
+    // View mode never overwrites the file it shows (`CSaveAgent::OnCheckSave`,
+    // `STR_SAVEAGENT_VIEW_FILE`). Saving under another name is allowed.
+    let view_mode = view
+        .read_with(cx, |view, app| view.document().read(app).view_mode())
+        .unwrap_or(false);
+    if view_mode
+        && current
+            .as_deref()
+            .is_some_and(|current| super::windows::same_file(current, &path))
+    {
+        tell(
+            cx,
+            PromptLevel::Critical,
+            "ビューモードでは同一ファイルへの保存はできません。",
+            None,
+        )
+        .await;
+        return SaveOutcome::Cancelled;
     }
 
     // The options: the document's own, then what the request changes.
@@ -288,6 +319,25 @@ pub(crate) async fn save(
         }
         Some(Err(error)) => fail(view, cx, &path, &error).await,
         None => SaveOutcome::Cancelled,
+    }
+}
+
+/// `F_FILESAVEALL`: a quiet save in every editor window, one after the other.
+///
+/// Sakura posts `F_FILESAVE_QUIET` to every editor and does not wait for the results
+/// (`Command_FILESAVEALL`, `sakura_core/cmd/CViewCommander_File.cpp`). A window without a file or
+/// without changes does nothing, as for the quiet save; a window that has a question (mixed line
+/// endings, a character the encoding cannot write) asks it in its own window.
+pub(crate) async fn save_all(cx: &mut AsyncWindowContext) {
+    let editors = cx
+        .update(|_, app| super::windows::editors(app))
+        .unwrap_or_default();
+    for (handle, view) in editors {
+        let weak = view.downgrade();
+        let Ok(mut window_cx) = handle.update(cx, |_, window, app| window.to_async(app)) else {
+            continue;
+        };
+        save(&weak, &mut window_cx, SaveRequest::quiet()).await;
     }
 }
 

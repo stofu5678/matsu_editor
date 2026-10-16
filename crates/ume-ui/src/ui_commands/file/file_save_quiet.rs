@@ -26,11 +26,7 @@ impl UiCommand for FileSaveQuiet {
     ) -> Result {
         let _ = view;
         start(window, cx, async move |view, cx| {
-            let request = SaveRequest {
-                ask_name: false,
-                ..SaveRequest::default()
-            };
-            save(&view, cx, request).await;
+            save(&view, cx, SaveRequest::quiet()).await;
         });
         Ok(())
     }

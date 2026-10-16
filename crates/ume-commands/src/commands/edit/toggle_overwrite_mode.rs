@@ -17,6 +17,7 @@ impl Command for ToggleOverwriteMode {
     const SAKURA: &'static str = "F_CHGMOD_INS";
 
     fn run(&self, cx: &mut CommandContext<'_>, _args: &[Arg]) -> Result {
+        cx.refuse_in_view_mode()?;
         cx.set_overwrite(!cx.is_overwrite());
         Ok(())
     }

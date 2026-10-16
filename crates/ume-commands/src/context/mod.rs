@@ -22,6 +22,7 @@ mod indent;
 mod lines;
 mod motion;
 mod paragraph;
+mod view_mode;
 mod word;
 
 use std::path::Path;
@@ -126,6 +127,8 @@ pub struct CommandContext<'a> {
     /// Typing overwrites the char at the caret instead of inserting before it. See
     /// [`set_overwrite`](Self::set_overwrite).
     overwrite: bool,
+    /// View mode: every edit is refused. See [`with_view_mode`](Self::with_view_mode).
+    view_mode: bool,
 }
 
 impl<'a> CommandContext<'a> {
@@ -145,6 +148,7 @@ impl<'a> CommandContext<'a> {
             start,
             changes: Changes::default(),
             overwrite: false,
+            view_mode: false,
         }
     }
 
@@ -164,6 +168,18 @@ impl<'a> CommandContext<'a> {
         self
     }
 
+    /// Sets view mode before the command runs (the default is off). While it is on, the text
+    /// cannot be changed: an edit, undo, redo and the switch between insert and overwrite mode
+    /// beep and fail with [`CommandError::Unavailable`]. Sakura (`F_VIEWMODE`,
+    /// `CEditDoc::IsEditable` and `EIsModificationForbidden` in `sakura_core/doc/CEditDoc.cpp`)
+    /// greys out those functions; here the one place every edit goes through refuses them, so keys,
+    /// macros and plugins are covered alike.
+    #[must_use]
+    pub fn with_view_mode(mut self, view_mode: bool) -> Self {
+        self.view_mode = view_mode;
+        self
+    }
+
     /// Ends the context and returns what changed.
     pub fn finish(mut self) -> Changes {
         self.changes.caret_moved = self.cursor.caret() != self.start.caret()
@@ -176,6 +192,11 @@ impl<'a> CommandContext<'a> {
     }
 
     // ---- reading ----
+
+    /// Whether view mode is on ([`with_view_mode`](Self::with_view_mode)).
+    pub fn is_view_mode(&self) -> bool {
+        self.view_mode
+    }
 
     /// Whether typing overwrites (Sakura: `!CEditView::IsInsMode`).
     pub fn is_overwrite(&self) -> bool {
@@ -231,8 +252,11 @@ impl<'a> CommandContext<'a> {
         self.model.end_block(self.cursor);
     }
 
-    /// Undoes one block. Returns `false` if there is nothing to undo.
+    /// Undoes one block. Returns `false` if there is nothing to undo, or in view mode.
     pub fn undo(&mut self) -> bool {
+        if self.view_mode {
+            return false;
+        }
         let done = self.model.undo(self.cursor);
         if done {
             self.layout.reset(self.model.doc());
@@ -241,8 +265,11 @@ impl<'a> CommandContext<'a> {
         done
     }
 
-    /// Redoes one block. Returns `false` if there is nothing to redo.
+    /// Redoes one block. Returns `false` if there is nothing to redo, or in view mode.
     pub fn redo(&mut self) -> bool {
+        if self.view_mode {
+            return false;
+        }
         let done = self.model.redo(self.cursor);
         if done {
             self.layout.reset(self.model.doc());
@@ -280,11 +307,21 @@ impl<'a> CommandContext<'a> {
     /// beeps and fails, so that a command stops before it changes anything else. A box that
     /// covers nothing, with its caret on the text, is only a mode and the edit ends it.
     fn refuse_edit_in_box(&mut self) -> Result<()> {
+        self.refuse_in_view_mode()?;
         if self.cursor.is_box() && self.caret_is_in_empty_space()? {
             self.beep();
             return Err(CommandError::Unavailable("editing a box selection"));
         }
         self.refuse_box_selection()
+    }
+
+    /// In view mode: beeps and fails. For what changes the text or the typing mode.
+    pub(crate) fn refuse_in_view_mode(&mut self) -> Result<()> {
+        if self.view_mode {
+            self.beep();
+            return Err(CommandError::Unavailable("editing in view mode"));
+        }
+        Ok(())
     }
 
     /// For the commands that work on the rows of a selection, before they look at it: they would

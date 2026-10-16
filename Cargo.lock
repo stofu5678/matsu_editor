@@ -7423,6 +7423,7 @@ name = "ume-ui"
 version = "0.0.0"
 dependencies = [
  "async-channel",
+ "chrono",
  "gpui-base",
  "gpui-component",
  "gpui-kit-assets",

@@ -242,12 +242,14 @@ impl EditorView {
         let cursor = &mut self.cursor;
         let (result, changes) = document.update(cx, |shared, cx| {
             let overwrite = shared.overwrite();
+            let view_mode = shared.view_mode();
             let (model, path) = shared.parts_mut();
             let mut adapter = RowLayout(layout);
             let mut clipboard = crate::clipboard::GpuiClipboard(cx);
             let mut command_cx = CommandContext::new(model, cursor, &mut adapter, path)
                 .with_clipboard(&mut clipboard)
-                .with_overwrite(overwrite);
+                .with_overwrite(overwrite)
+                .with_view_mode(view_mode);
             let result = f(&mut command_cx);
             let changes = command_cx.finish();
             shared.set_overwrite(changes.overwrite, cx);
@@ -462,6 +464,11 @@ impl EditorView {
             shared.file_name().as_deref(),
             shared.model().is_modified(),
         );
+        if shared.view_mode() {
+            // `STR_CAPTION_ACTIVE_VIEW` in `sakura_core/sakura_rc.rc`, which the default title
+            // format `$A $V ${R?(ビューモード)$:(上書き禁止)$}` puts after the name.
+            title.push_str(" (ビューモード)");
+        }
         if self.is_recording_key_macro() {
             // `STR_ERR_CSHAREDATA17` in `sakura_core/sakura_rc.rc`: `${M?  【キーマクロの記録中】$}`.
             title.push_str("  【キーマクロの記録中】");
