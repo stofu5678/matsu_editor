@@ -35,6 +35,13 @@ fn setup<'a>(cx: &'a mut TestAppContext, text: &str) -> (Fixture, &'a mut Visual
         window.focus(&view.focus_handle, cx);
         view
     });
+    // A script macro runs in a real process, and the host's threads hand its events to the
+    // window at any moment. GPUI's test scheduler takes a wake-up from another thread for
+    // non-determinism unless parking has been allowed, so allow it before a macro can start:
+    // allowing it only in `wait_until_done` failed now and then when an event came first. It
+    // comes after `add_window_view`: allowed before it, the test of a script that prints a lot
+    // timed out every time.
+    vcx.executor().allow_parking();
     (Fixture { document, view }, vcx)
 }
 
