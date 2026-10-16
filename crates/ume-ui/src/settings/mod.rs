@@ -20,7 +20,10 @@
 //!
 //! # Writing it back
 //!
-//! The window never writes the file. Sakura writes it when the last window closes, but the values
+//! The window writes only the section `[MRU]` (the recent files and folders, [`crate::history`]),
+//! at once and safely for several windows; the rest of the file stays as it was.
+//!
+//! The window does not write the other sections. Sakura writes it when the last window closes, but the values
 //! this PR changes at run time (the font size by Ctrl+wheel, the wrap method, the status bar of
 //! this window) are Sakura's *temporary* settings: `F_SETFONTSIZEUP` and `F_SETFONTSIZEDOWN` run
 //! `Command_SETFONTSIZE` in mode 2 ("一時適用フォント"), the `F_TMPWRAP*` functions say
@@ -41,7 +44,7 @@ use std::path::{Path, PathBuf};
 use ume_commands::keymap::user::parse_entries;
 use ume_commands::keymap::{KeyMap, Platform, UserRow};
 use ume_config::Profile;
-use ume_config::location::{Environment, Os, candidate_paths, find_existing};
+use ume_config::location::{Environment, Os, candidate_paths, find_existing, write_path};
 
 pub use mac_key_layout::MacKeyLayout;
 pub use new_document::NewDocumentDefaults;
@@ -111,6 +114,11 @@ impl UserSettings {
         self.path.as_deref()
     }
 
+    /// The file as read, for the settings the window itself looks at.
+    pub fn profile(&self) -> Option<&Profile> {
+        self.profile.as_ref()
+    }
+
     /// The settings of the view for a file called `file_name` (no folder), or for a new document.
     pub fn view_settings(&self, file_name: Option<&str>) -> ViewSettings {
         match &self.profile {
@@ -147,6 +155,18 @@ impl UserSettings {
             None => Vec::new(),
         }
     }
+}
+
+/// The settings file the history is written to: the file that was read, or else the place where
+/// `ume-config` writes a new one. `None` if the OS has no such place.
+pub fn history_file(user: &UserSettings) -> Option<PathBuf> {
+    user.path().map(Path::to_owned).or_else(|| {
+        write_path(&candidate_paths(
+            Os::current(),
+            &Environment::from_process(),
+        ))
+        .map(Path::to_owned)
+    })
 }
 
 #[cfg(test)]

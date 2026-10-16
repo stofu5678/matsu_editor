@@ -30,10 +30,20 @@ fn grep_blocks_close(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext)
 
 /// Asks what to do with unsaved changes before the document goes away. `true` means go on: the
 /// document is unmodified, was saved, or the user does not want to save it. `false` means stop.
+/// When it goes on, the file goes to the front of the history with the caret and the bookmarks it
+/// has now (`CMruListener::OnBeforeClose`).
 pub(crate) async fn confirm_discard(
     view: &WeakEntity<EditorView>,
     cx: &mut AsyncWindowContext,
 ) -> bool {
+    let go_on = ask_about_changes(view, cx).await;
+    if go_on {
+        view.update(cx, |view, cx| view.record_history(cx)).ok();
+    }
+    go_on
+}
+
+async fn ask_about_changes(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) -> bool {
     if grep_blocks_close(view, cx) {
         return false;
     }
@@ -95,6 +105,7 @@ pub(crate) async fn save_and_close_window(
     if modified && !save(view, cx, SaveRequest::default()).await.is_safe() {
         return false;
     }
+    view.update(cx, |view, cx| view.record_history(cx)).ok();
     cx.update(|window, _| window.remove_window()).is_ok()
 }
 

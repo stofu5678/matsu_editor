@@ -11,7 +11,7 @@
 //!   an old copy.
 //! * The file is replaced as a whole ([`Profile::save`]), so a crash leaves the old file or the
 //!   new one.
-//! * A lock older than [`STALE_LOCK`] is left by a process that died and is taken over.
+//! * A lock older than 20 seconds is left by a process that died and is taken over.
 
 use std::fs::OpenOptions;
 use std::io;

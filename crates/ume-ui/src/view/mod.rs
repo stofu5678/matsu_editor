@@ -68,6 +68,13 @@ pub struct RunFunction {
     pub code: u16,
 }
 
+/// A menu item of the recent files: open the file at this index of the history.
+#[derive(Clone, PartialEq, Debug, gpui::Action)]
+#[action(namespace = ume, no_json)]
+pub struct OpenRecentFile {
+    pub index: usize,
+}
+
 /// The font of the text, by OS: a Japanese monospaced font, so that full-width characters are
 /// twice as wide as half-width ones. GPUI picks a font by family name and falls back to its
 /// default when the font is missing (the PoC's list of fonts is in `poc/gpui-textview`).
@@ -634,6 +641,9 @@ impl Render for EditorView {
             .on_action(cx.listener(|this, _: &Redo, _, cx| this.run_command("redo", &[], cx)))
             .on_action(cx.listener(|this, a: &RunFunction, window, cx| {
                 this.run_function(a.code, &[], window, cx);
+            }))
+            .on_action(cx.listener(|this, a: &OpenRecentFile, window, cx| {
+                this.open_recent_file(a.index, window, cx);
             }))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_move(cx.listener(Self::on_mouse_move))

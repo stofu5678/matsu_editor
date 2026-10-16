@@ -14,6 +14,7 @@ use ume_core::file::{FileError, TextFile};
 use super::ask::{confirm, document_title, open_error_message, reload_message, tell};
 use super::windows::{self, LoadRequest, open_editor_window};
 use crate::document::SharedDocument;
+use crate::history::view::{code_change_message, encoding_of, remembered};
 use crate::open::open_text_file;
 use crate::view::EditorView;
 
@@ -88,8 +89,50 @@ async fn read_file(
     task.await
 }
 
+/// The encoding a file is opened in when the history knows the file and the user did not say
+/// (`CMruListener::OnBeforeLoad`): if the detected encoding is not the one used last time, the user
+/// is asked (`bQueryIfCodeChange`) or the one used last time is taken. A file that is not there is
+/// a new file in the encoding of last time.
+async fn settle_encoding(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    path: &Path,
+    file: TextFile,
+    old: Encoding,
+) -> Result<TextFile, FileError> {
+    if old == file.encoding {
+        return Ok(file);
+    }
+    let use_old = if path.exists() {
+        let ask = cx
+            .update(|_, app| crate::history::options(app).query_if_code_change)
+            .unwrap_or(false);
+        !ask || confirm(
+            cx,
+            &code_change_message(path, file.encoding, old),
+            None,
+            ["はい(Y)", "いいえ(N)"],
+        )
+        .await
+    } else {
+        true
+    };
+    if !use_old {
+        return Ok(file);
+    }
+    // If the file cannot be read in that encoding, the detected one stays.
+    match read_file(view, cx, path, Some(old)).await {
+        Ok(again) => Ok(again),
+        Err(_) => Ok(file),
+    }
+}
+
 /// Reads `path` and makes it the document of this window. The caret goes to `restore` if given
 /// (reopening keeps it). On a failure the window is as it was and the error is shown.
+///
+/// A file the history knows is opened in the encoding of last time (see `settle_encoding`), and
+/// its caret, view and bookmarks are restored (`CMruListener`) unless `restore` says where the
+/// caret goes; the file goes to the front of the history.
 pub(crate) async fn load_here(
     view: &WeakEntity<EditorView>,
     cx: &mut AsyncWindowContext,
@@ -107,7 +150,20 @@ pub(crate) async fn load_here(
     let reading = path.to_owned();
     cx.update(|_, app| windows::begin_pending(app, handle, reading))
         .ok();
-    let result = read_file(view, cx, path, encoding).await;
+    let previous = if restore.is_none() {
+        cx.update(|_, app| remembered(app, path)).ok().flatten()
+    } else {
+        None
+    };
+    let mut result = read_file(view, cx, path, encoding).await;
+    if encoding.is_none()
+        && let Some(old) = previous.as_ref().and_then(encoding_of)
+    {
+        result = match result {
+            Ok(file) => settle_encoding(view, cx, path, file, old).await,
+            error => error,
+        };
+    }
     cx.update(|_, app| windows::finish_pending(app, handle))
         .ok();
     match result {
@@ -123,6 +179,11 @@ pub(crate) async fn load_here(
                     return false;
                 }
                 view.load_document(shared, restore, cx);
+                if let Some(entry) = &previous {
+                    let options = crate::history::options(cx);
+                    view.restore_from_history(entry, options, cx);
+                }
+                view.record_history(cx);
                 true
             });
             replaced.unwrap_or(false)

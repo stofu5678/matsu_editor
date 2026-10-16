@@ -13,11 +13,11 @@ use gpui_platform::application;
 
 use crate::document::SharedDocument;
 use crate::file_ops::windows::open_startup_windows;
-use crate::menu::{Entry, MenuAction, Registered, label_with_shortcut, main_menu};
+use crate::menu::{Entry, MenuAction, Registered, label_with_shortcut, main_menu_with};
 use crate::menu_bar::MenuBar;
 use crate::panes::PaneSet;
 use crate::status::status_text;
-use crate::view::{EditorView, RunFunction};
+use crate::view::{EditorView, OpenRecentFile, RunFunction};
 use ume_commands::keymap::{DisplayStyle, KeyMap};
 
 actions!(
@@ -29,6 +29,24 @@ actions!(
     ]
 );
 
+/// The key map the menus show the shortcuts of, kept so that the menus can be made again when the
+/// history changes.
+struct MenuKeyMap(KeyMap);
+
+impl gpui::Global for MenuKeyMap {}
+
+/// Counts how many times the menus were made. A window watches it to load the new menus.
+pub(crate) struct MenuGeneration(u64);
+
+impl gpui::Global for MenuGeneration {}
+
+/// Makes the menus again (the recent files changed).
+pub(crate) fn refresh_menus(cx: &mut App) {
+    if let Some(map) = cx.try_global::<MenuKeyMap>().map(|m| m.0.clone()) {
+        set_menus(cx, &map);
+    }
+}
+
 /// Opens a window for each of `paths` (or one untitled window without any) and runs until the
 /// last window closes. Each window reads its file itself, in the background, so a big file shows
 /// its progress and an unreadable one shows its error in its own window.
@@ -39,8 +57,16 @@ pub fn run(paths: Vec<PathBuf>) {
     let app = application().with_assets(gpui_kit_assets::Assets);
     app.run(move |cx: &mut App| {
         gpui_component::init(cx);
+        crate::history::install(cx, &user);
+        cx.set_global(MenuKeyMap(keymap.clone()));
         set_menus(cx, &keymap);
         cx.on_action(|_: &Exit, cx| cx.quit());
+        // The files that are open go into the history, with the caret they have now.
+        cx.on_app_quit(|cx| {
+            crate::history::view::record_all(cx);
+            std::future::ready(())
+        })
+        .detach();
         cx.on_window_closed(|cx, _| {
             if cx.windows().is_empty() {
                 cx.quit();
@@ -71,13 +97,16 @@ fn set_menus(cx: &mut App, keymap: &KeyMap) {
     if cfg!(target_os = "macos") {
         menus.push(Menu::new("UME Editor").items([MenuItem::action("UME Editor を終了", Exit)]));
     }
-    for top in main_menu(keymap, &Registered) {
+    let lists = crate::history::menu::RecentLists::new(crate::history::current(cx));
+    for top in main_menu_with(keymap, &Registered, &lists) {
         let items = gpui_items(top.entries, style);
         menus.push(Menu::new(top.label).items(items));
     }
     cx.set_menus(menus);
     let owned = cx.get_menus().unwrap_or_default();
     GlobalState::global_mut(cx).set_app_menus(owned);
+    let generation = cx.try_global::<MenuGeneration>().map_or(0, |g| g.0);
+    cx.set_global(MenuGeneration(generation + 1));
 }
 
 fn gpui_items(entries: Vec<Entry>, style: DisplayStyle) -> Vec<MenuItem> {
@@ -95,6 +124,9 @@ fn gpui_items(entries: Vec<Entry>, style: DisplayStyle) -> Vec<MenuItem> {
                     MenuAction::Exit => Some(MenuItem::action(label, Exit)),
                     MenuAction::Function(code) if item.enabled => {
                         Some(MenuItem::action(label, RunFunction { code }))
+                    }
+                    MenuAction::RecentFile(index) => {
+                        Some(MenuItem::action(label, OpenRecentFile { index }))
                     }
                     // Nobody handles `Unavailable`, so the native menu of macOS, which asks
                     // whether the action can be handled, keeps the item gray.
@@ -127,6 +159,11 @@ impl Workspace {
             panes: PaneSet::new(editor.clone()),
             menu_bar: MenuBar::new(cx),
         };
+        // The menus are made again when the history changes: the bar loads them.
+        cx.observe_global::<MenuGeneration>(|this: &mut Self, cx| {
+            this.menu_bar.update(cx, |bar, cx| bar.reload(cx));
+        })
+        .detach();
         workspace.adopt(0, editor, window, cx);
         workspace
     }
@@ -251,6 +288,52 @@ mod tests {
         assert_eq!(text(cx), "abc");
         cx.dispatch_action(RunFunction { code: 30211 });
         assert_eq!(text(cx), "xabc");
+    }
+
+    /// The recent files are in the File menu, and the menus are made again when the history
+    /// changes.
+    #[gpui::test]
+    fn the_file_menu_lists_the_recent_files(cx: &mut TestAppContext) {
+        use crate::history::{HistoryOptions, HistoryState};
+        use ume_config::history::FileEntry;
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            cx.set_global(HistoryState::in_memory(HistoryOptions::default()));
+            cx.set_global(MenuKeyMap(KeyMap::default()));
+            set_menus(cx, &KeyMap::default());
+        });
+        let recent = |cx: &mut TestAppContext| -> Vec<String> {
+            let menus = cx.update(|cx| cx.get_menus().unwrap_or_default());
+            let file = menus.iter().find(|m| m.name.contains("ファイル")).unwrap();
+            let submenu = file
+                .items
+                .iter()
+                .find_map(|i| match i {
+                    gpui::OwnedMenuItem::Submenu(m) if m.name.starts_with("最近使ったファイル") => {
+                        Some(m)
+                    }
+                    _ => None,
+                })
+                .unwrap();
+            submenu
+                .items
+                .iter()
+                .filter_map(|i| match i {
+                    gpui::OwnedMenuItem::Action { name, .. } => Some(name.to_string()),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert_eq!(recent(cx), ["(なし)"]);
+        let before = cx.update(|cx| cx.global::<MenuGeneration>().0);
+        cx.update(|cx| {
+            crate::history::update(cx, |h| {
+                h.add_file(FileEntry::new("/home/a/メモ.txt"));
+                h.add_file(FileEntry::new("/home/a/b.txt"));
+            });
+        });
+        assert_eq!(recent(cx), ["1 /home/a/b.txt", "2 /home/a/メモ.txt"]);
+        assert!(cx.update(|cx| cx.global::<MenuGeneration>().0) > before);
     }
 
     /// The menus handed to GPUI are Sakura's: the File menu has submenus and separators, items

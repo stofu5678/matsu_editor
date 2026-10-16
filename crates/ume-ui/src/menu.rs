@@ -20,6 +20,8 @@ pub const F_EXITALL: u16 = 30195;
 pub enum MenuAction {
     /// Run the Sakura function with this code on the editor.
     Function(u16),
+    /// Open the recent file at this index of the history (`IDM_SELMRU + index`).
+    RecentFile(usize),
     /// Quit the application.
     Exit,
     /// Nothing: a list that Sakura fills in at run time (recent files, windows, ...), which is
@@ -130,8 +132,30 @@ fn leaf(item: &MenuItem, keymap: &KeyMap, available: &dyn Available) -> Entry {
     })
 }
 
+/// The items of the lists that Sakura fills in at run time (`MenuKind::Special`): the recent files,
+/// the windows, ... `items` gives the items for the row with this function code. A list with no
+/// items shows a disabled "(なし)".
+pub trait Lists {
+    fn items(&self, code: u16) -> Vec<Item>;
+}
+
+/// No list is filled in.
+pub struct NoLists;
+
+impl Lists for NoLists {
+    fn items(&self, _: u16) -> Vec<Item> {
+        Vec::new()
+    }
+}
+
 /// Builds the entries of the items after `*at` that are deeper than `level`.
-fn entries(at: &mut usize, level: u8, keymap: &KeyMap, available: &dyn Available) -> Vec<Entry> {
+fn entries(
+    at: &mut usize,
+    level: u8,
+    keymap: &KeyMap,
+    available: &dyn Available,
+    lists: &dyn Lists,
+) -> Vec<Entry> {
     let mut out = Vec::new();
     while let Some(item) = MAIN_MENU.get(*at) {
         if item.level <= level {
@@ -141,24 +165,41 @@ fn entries(at: &mut usize, level: u8, keymap: &KeyMap, available: &dyn Available
         out.push(match item.kind {
             MenuKind::Separator => Entry::Separator,
             MenuKind::Leaf => leaf(item, keymap, available),
-            // The list of recent files, windows and so on: nothing to list yet.
-            MenuKind::Special => Entry::Item(Item {
-                label: "(なし)".to_owned(),
-                action: MenuAction::Placeholder,
-                shortcut: None,
-                enabled: false,
-            }),
+            // The list of recent files, windows and so on: the items go into this menu.
+            MenuKind::Special => {
+                let items = lists.items(item.code);
+                if !items.is_empty() {
+                    out.extend(items.into_iter().map(Entry::Item));
+                    continue;
+                }
+                Entry::Item(Item {
+                    label: "(なし)".to_owned(),
+                    action: MenuAction::Placeholder,
+                    shortcut: None,
+                    enabled: false,
+                })
+            }
             MenuKind::Node => Entry::Submenu {
                 label: name_of(item),
-                entries: entries(at, item.level, keymap, available),
+                entries: entries(at, item.level, keymap, available, lists),
             },
         });
     }
     out
 }
 
-/// Sakura's main menu: the menus of the menu bar, in order.
+/// Sakura's main menu: the menus of the menu bar, in order. The lists that Sakura fills in at run
+/// time are empty.
 pub fn main_menu(keymap: &KeyMap, available: &dyn Available) -> Vec<TopMenu> {
+    main_menu_with(keymap, available, &NoLists)
+}
+
+/// As [`main_menu`], with the run-time lists that `lists` fills in.
+pub fn main_menu_with(
+    keymap: &KeyMap,
+    available: &dyn Available,
+    lists: &dyn Lists,
+) -> Vec<TopMenu> {
     let mut tops = Vec::new();
     let mut at = 0;
     while let Some(item) = MAIN_MENU.get(at) {
@@ -166,7 +207,7 @@ pub fn main_menu(keymap: &KeyMap, available: &dyn Available) -> Vec<TopMenu> {
         debug_assert_eq!(item.level, 0, "the table starts each menu at level 0");
         tops.push(TopMenu {
             label: name_of(item),
-            entries: entries(&mut at, 0, keymap, available),
+            entries: entries(&mut at, 0, keymap, available, lists),
         });
     }
     tops
