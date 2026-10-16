@@ -98,8 +98,12 @@ fn files_are_told_apart_by_their_extension() {
     assert_eq!(file_kind(Path::new("a.mac")), FileKind::KeyMacro);
     assert_eq!(file_kind(Path::new("A.MAC")), FileKind::KeyMacro);
     assert_eq!(
-        file_kind(Path::new("a.js")),
+        file_kind(Path::new("a.cjs")),
         FileKind::Script(Language::JavaScript)
+    );
+    assert_eq!(
+        file_kind(Path::new("a.js")),
+        FileKind::Script(Language::Bundled(Engine::QuickJs))
     );
     assert_eq!(
         file_kind(Path::new("a.py")),
@@ -235,7 +239,7 @@ fn a_cancelled_dialog_changes_nothing(cx: &mut TestAppContext) {
 #[gpui::test]
 fn only_a_key_macro_can_be_saved(cx: &mut TestAppContext) {
     let dir = tempfile::tempdir().unwrap();
-    let script = write(dir.path(), "m.js", "// nothing\n");
+    let script = write(dir.path(), "m.cjs", "// nothing\n");
     let target = dir.path().join("out.mac");
     let (f, cx) = setup(cx, "");
     // load a script as "the key macro", then try to save it (Sakura: STR_ERR_CEDITVIEW_CMD26)
@@ -386,7 +390,7 @@ fn script_edits_the_document(cx: &mut TestAppContext, language: Language, name: 
 
 #[gpui::test]
 fn a_javascript_macro_edits_the_document(cx: &mut TestAppContext) {
-    script_edits_the_document(cx, Language::JavaScript, "edit.js", JS_EDIT);
+    script_edits_the_document(cx, Language::JavaScript, "edit.cjs", JS_EDIT);
 }
 
 #[gpui::test]
@@ -423,9 +427,9 @@ fn a_javascript_error_shows_the_line_number(cx: &mut TestAppContext) {
     script_error_names_its_line(
         cx,
         Language::JavaScript,
-        "err.js",
+        "err.cjs",
         "Editor.GoFileTop();\nthrow new Error('boom');\n",
-        "err.js:2",
+        "err.cjs:2",
     );
 }
 
@@ -467,7 +471,7 @@ fn a_javascript_macro_can_be_aborted(cx: &mut TestAppContext) {
     script_can_be_aborted(
         cx,
         Language::JavaScript,
-        "wait.js",
+        "wait.cjs",
         "setInterval(() => {}, 1000);\n",
     );
 }
@@ -488,7 +492,7 @@ fn a_key_macro_waits_for_a_script_it_started(cx: &mut TestAppContext) {
         return;
     }
     let dir = tempfile::tempdir().unwrap();
-    let script = write(dir.path(), "mid.js", "Editor.InsText('-');\n");
+    let script = write(dir.path(), "mid.cjs", "Editor.InsText('-');\n");
     let key_macro = write(
         dir.path(),
         "all.mac",
@@ -665,7 +669,7 @@ fn a_failing_javascript_stops_the_key_macro_that_called_it(cx: &mut TestAppConte
     failing_script_stops_the_key_macro(
         cx,
         Language::JavaScript,
-        "fail.js",
+        "fail.cjs",
         "throw new Error('x');\n",
     );
 }
@@ -703,7 +707,7 @@ fn a_script_that_prints_a_lot_does_not_block_the_window(cx: &mut TestAppContext)
     let dir = tempfile::tempdir().unwrap();
     let script = write(
         dir.path(),
-        "flood.js",
+        "flood.cjs",
         "for (let i = 0; i < 30000; i++) console.log('line ' + i);\nEditor.InsText('end');\n",
     );
     let (f, cx) = setup(cx, "");

@@ -41,7 +41,7 @@ fn config_for(
     timeout: Duration,
 ) -> MacroConfig {
     let name = match language {
-        Language::JavaScript => "macro.js",
+        Language::JavaScript => "macro.cjs",
         Language::Python => "macro.py",
         Language::Ruby => "macro.rb",
         Language::Php => "macro.php",
@@ -256,7 +256,7 @@ fn a_syntax_error_shows_the_line_number() {
         assert_ne!(report.finished.exit_code, Some(0));
         let stderr = report.lines(Stream::Stderr).join("\n");
         let (file, line) = match language {
-            Language::JavaScript => ("macro.js:3", ""),
+            Language::JavaScript => ("macro.cjs:3", ""),
             Language::Python => ("macro.py", "line 3"),
             Language::Ruby => ("macro.rb", ":3"),
             Language::Php => ("macro.php", "line 3"),
@@ -282,7 +282,7 @@ fn a_runtime_error_shows_the_line_number_of_the_users_file() {
         assert_ne!(report.finished.exit_code, Some(0));
         let stderr = report.lines(Stream::Stderr).join("\n");
         let want = match language {
-            Language::JavaScript => "macro.js:3",
+            Language::JavaScript => "macro.cjs:3",
             Language::Python => "macro.py\", line 3",
             Language::Ruby => "macro.rb:3",
             // "macro.php:3" or "macro.php on line 3" (Xdebug words it the second way).
@@ -664,7 +664,6 @@ fn the_sample_macros_run() {
     // The samples in macros/ change the text and print what they did.
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("samples");
     for (language, name) in [
-        (JS, "sample.js"),
         (JS, "sample.mjs"),
         (PY, "sample.py"),
         (RB, "sample.rb"),
