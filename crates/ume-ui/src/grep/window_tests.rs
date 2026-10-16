@@ -483,7 +483,8 @@ fn a_grep_is_recorded_in_a_key_macro_with_its_arguments(cx: &mut TestAppContext)
     assert!(
         saved.contains(&format!(
             "Grep('hit', '{files}', '{}', {flags}, 99);",
-            p.root()
+            // the macro file escapes a backslash
+            p.root().replace('\\', "\\\\")
         )),
         "{saved}"
     );
