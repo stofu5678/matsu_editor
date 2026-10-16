@@ -207,12 +207,13 @@ impl EntityInputHandler for EditorView {
             self.type_char(c, cx);
             return;
         }
-        self.record_typed_text(text);
         if self.isearch.is_some() {
-            // `F_INSTEXT_W` in the incremental search: the text goes to the pattern
+            // `F_INSTEXT_W` in the incremental search: the text goes to the pattern, and a macro
+            // does not record it
             self.isearch_add_str(text, cx);
             return;
         }
+        self.record_typed_text(text);
         let (from, to) = self.input_target(range_utf16, cx);
         self.marked = None;
         self.composing = false;

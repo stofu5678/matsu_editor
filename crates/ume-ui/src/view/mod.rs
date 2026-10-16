@@ -275,10 +275,12 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) -> bool {
         self.interrupt_composition(cx);
-        self.record_call(reg.sakura, args);
+        // Before the recording, as in `CViewCommander::HandleCommand`: the typed chars of the
+        // incremental search are not edits, so a macro does not replay them as such.
         if self.isearch_intercept(reg.sakura, args, cx) {
             return true;
         }
+        self.record_call(reg.sakura, args);
         let result = self.run_with(cx, |command_cx| reg.run(command_cx, args));
         let ok = result.is_ok();
         self.notice = result
@@ -320,6 +322,11 @@ impl EditorView {
                 .iter()
                 .find(|f| f.code == code)
                 .map_or_else(|| code.to_string(), |f| f.name.to_owned());
+            // `F_IME_CHAR` and `F_INSTEXT_W` have no command, but the incremental search takes
+            // them (and any other function ends it).
+            if self.isearch_intercept(&name, args, cx) {
+                return true;
+            }
             self.notice = Some(format!("{name} はまだ使えない"));
             cx.notify();
             false
@@ -336,10 +343,12 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) -> bool {
         self.interrupt_composition(cx);
-        self.record_call(reg.sakura, args);
+        // Before the recording, as in `CViewCommander::HandleCommand`: the typed chars of the
+        // incremental search are not edits, so a macro does not replay them as such.
         if self.isearch_intercept(reg.sakura, args, cx) {
             return true;
         }
+        self.record_call(reg.sakura, args);
         // The command may leave a message of its own (a search that wrapped around), so only a
         // failure replaces it.
         self.notice = None;

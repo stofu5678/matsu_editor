@@ -313,7 +313,8 @@ impl EditorView {
         let found = match self.search.matcher().cloned() {
             Some(matcher) => {
                 let doc = self.document.read(cx).doc();
-                if direction == Direction::Forward
+                if !wrapping
+                    && direction == Direction::Forward
                     && selection.is_none()
                     && self.search.empty_match() == Some(origin)
                 {

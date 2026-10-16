@@ -490,3 +490,52 @@ fn the_ui_commands_are_registered_under_sakuras_functions(cx: &mut TestAppContex
         assert_eq!(reg.sakura, name);
     }
 }
+
+#[gpui::test]
+fn the_pattern_typed_in_the_mode_is_not_recorded_as_an_edit(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "xabx");
+    cx.simulate_keystrokes("ctrl-shift-m");
+    f.run(cx, "F_ISEARCH_NEXT");
+    cx.simulate_input("ab");
+    cx.simulate_keystrokes("enter");
+    cx.simulate_keystrokes("ctrl-shift-m");
+    // the replay must not type "ab" or a line break into the text
+    cx.simulate_keystrokes("ctrl-shift-l");
+    assert_eq!(f.text(cx), "xabx");
+}
+
+#[gpui::test]
+fn the_function_dispatcher_gives_the_text_to_the_mode(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "one two");
+    f.run(cx, "F_ISEARCH_NEXT");
+    let code = FUNCTIONS
+        .iter()
+        .find(|f| f.name == "F_INSTEXT_W")
+        .unwrap()
+        .code;
+    let ran = f.view.update_in(cx, |v, window, cx| {
+        v.run_function(
+            code,
+            &[ume_commands::command::Arg::Text("two".to_owned())],
+            window,
+            cx,
+        )
+    });
+    assert!(ran);
+    assert_eq!(f.key(cx).as_deref(), Some("two"));
+    assert_eq!(f.selection(cx), range((0, 4), (0, 7)));
+}
+
+#[gpui::test]
+fn an_empty_match_at_the_start_is_found_again_after_wrapping(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abc");
+    f.run(cx, "F_ISEARCH_REGEXP_NEXT");
+    cx.simulate_input("^");
+    assert_eq!(f.caret(cx), Pos::new(0, 0));
+    // no other match: it says so, and the next one begins again at the top
+    f.run(cx, "F_ISEARCH_REGEXP_NEXT");
+    assert!(f.message(cx).unwrap().ends_with("(見つかりません)"));
+    f.run(cx, "F_ISEARCH_REGEXP_NEXT");
+    assert_eq!(f.message(cx).as_deref(), Some("[RegExp] I-Search: ^"));
+    assert_eq!(f.caret(cx), Pos::new(0, 0));
+}
