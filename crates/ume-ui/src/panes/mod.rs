@@ -329,21 +329,26 @@ impl Workspace {
         };
         let (x, y) = pane.read(cx).scroll();
         let past_end = pane.read(cx).scroll_past_end();
+        // Panes can have other font sizes (the zoom is per pane): the top row and the left
+        // column are what is kept in step, not the pixels.
+        let metrics = *pane.read(cx).metrics();
+        let top_row = y / metrics.line_height;
+        let left_col = x / metrics.cell_width;
         let (last_x, last_y) = self.panes.scrolled[index];
         self.panes.scrolled[index] = (x, y);
         if SYNC_SCROLL_V && y != last_y {
-            self.sync_scroll(index ^ 1, None, Some((y, past_end)), cx);
+            self.sync_scroll(index ^ 1, None, Some((top_row, past_end)), cx);
         }
         if SYNC_SCROLL_H && x != last_x {
-            self.sync_scroll(index ^ 2, Some(x), None, cx);
+            self.sync_scroll(index ^ 2, Some(left_col), None, cx);
         }
     }
 
     fn sync_scroll(
         &mut self,
         partner: usize,
-        x: Option<f32>,
-        y: Option<(f32, bool)>,
+        left_col: Option<f32>,
+        top_row: Option<(f32, bool)>,
         cx: &mut Context<Self>,
     ) {
         if !self.panes.grid.shows(partner) {
@@ -354,7 +359,11 @@ impl Workspace {
         };
         // Remember what the partner will have, so that its change is not synchronized back.
         let after = other.update(cx, |view, cx| {
-            view.set_scroll(x, y);
+            let m = *view.metrics();
+            view.set_scroll(
+                left_col.map(|col| col * m.cell_width),
+                top_row.map(|(row, past_end)| (row * m.line_height, past_end)),
+            );
             cx.notify();
             view.scroll()
         });
@@ -435,12 +444,21 @@ impl Workspace {
     /// The text area: the pane itself when the window is not split, else the panes and the bars.
     pub(crate) fn render_panes(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let set = &self.panes;
+        let area = set.area.clone();
+        let measure = canvas(move |bounds, _, _| area.set(bounds), |_, _, _, _| {})
+            .absolute()
+            .size_full();
         if !set.grid.is_split() {
-            return set.active().clone().into_any_element();
+            // The area is measured here too: the first split needs the size of the window.
+            return div()
+                .relative()
+                .size_full()
+                .child(measure)
+                .child(set.active().clone())
+                .into_any_element();
         }
         let (rows, cols) = (set.grid.rows > 1, set.grid.cols > 1);
         let (h, v) = (set.h, set.v);
-        let area = set.area.clone();
         let mut root = div()
             .id("panes")
             .relative()
@@ -455,11 +473,7 @@ impl Workspace {
                 MouseButton::Left,
                 cx.listener(|this, e, window, cx| this.end_drag(e, window, cx)),
             )
-            .child(
-                canvas(move |bounds, _, _| area.set(bounds), |_, _, _, _| {})
-                    .absolute()
-                    .size_full(),
-            );
+            .child(measure);
         for &i in set.grid.panes() {
             let Some(pane) = set.pane(i) else { continue };
             let (col, row) = (i % 2, i / 2);

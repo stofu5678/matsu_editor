@@ -436,3 +436,33 @@ fn a_mouse_click_in_a_pane_makes_it_active_and_puts_the_caret_there(cx: &mut Tes
     assert_eq!(f.caret_of(cx, 1), Pos::new(2, 1));
     assert_eq!(f.caret_of(cx, 0), Pos::new(0, 0));
 }
+
+#[gpui::test]
+fn the_area_is_measured_before_the_first_split(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abc");
+    let area = f.workspace.read_with(cx, |w, _| w.panes.area.get());
+    assert!(f32::from(area.size.height) > 0.0 && f32::from(area.size.width) > 0.0);
+}
+
+#[gpui::test]
+fn synchronized_scrolling_keeps_the_top_row_when_the_font_sizes_differ(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, &long_text());
+    f.run(cx, F_SPLIT_H);
+    // the right pane has a larger font (the zoom is per pane)
+    f.click(cx, 1);
+    f.run(cx, 31122);
+    f.click(cx, 0);
+    let line_height = |cx: &mut VisualTestContext, i: usize| {
+        f.pane(cx, i).read_with(cx, |v, _| v.metrics().line_height)
+    };
+    let (small, large) = (line_height(cx, 0), line_height(cx, 1));
+    assert!(large > small);
+    f.pane(cx, 0).update(cx, |v, cx| {
+        v.set_scroll(None, Some((small * 10.0, false)));
+        cx.notify();
+    });
+    cx.run_until_parked();
+    // the same top row, not the same pixels
+    let y = f.pane(cx, 1).read_with(cx, |v, _| v.scroll_y());
+    assert!((y - large * 10.0).abs() < 0.01, "{y} vs {}", large * 10.0);
+}
