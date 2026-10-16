@@ -110,6 +110,11 @@ impl Runner<'_> {
                     return Ok(());
                 }
             };
+            // The empty line after the last line break is not a line of the file: Sakura reads
+            // none there, and nothing is written there.
+            if line.text.is_empty() && line.eol.is_none() {
+                continue;
+            }
             let eol = line.eol.map_or("", ume_core::model::eol_text);
             let whole = format!("{}{eol}", line.text);
             // The hits of the line, in the line as it was. The first is enough where only that
@@ -241,7 +246,6 @@ impl Runner<'_> {
         let staged = staged_name(&old);
         if backup {
             if copy_new(path, &staged).is_err() {
-                let _ = std::fs::remove_file(&staged);
                 self.buffer.push_str(&format::replace_replace_error(&old));
                 return Ok(false);
             }
@@ -298,14 +302,19 @@ fn staged_name(old: &str) -> String {
     format!("{old}.{}-{n}.tmp", std::process::id())
 }
 
-/// Copies `from` to `to`, which must not exist (a file or a link in the way is an error).
+/// Copies `from` to `to`, which must not exist (a file or a link in the way is an error and is
+/// left alone). A copy that fails half way is removed.
 fn copy_new(from: &str, to: &str) -> std::io::Result<()> {
     let mut source = std::fs::File::open(from)?;
     let mut target = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(to)?;
-    std::io::copy(&mut source, &mut target)?;
-    target.sync_all()?;
-    std::fs::set_permissions(to, source.metadata()?.permissions())
+    let copied = std::io::copy(&mut source, &mut target)
+        .and_then(|_| target.sync_all())
+        .and_then(|()| std::fs::set_permissions(to, source.metadata()?.permissions()));
+    if copied.is_err() {
+        let _ = std::fs::remove_file(to);
+    }
+    copied
 }

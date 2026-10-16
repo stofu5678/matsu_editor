@@ -609,3 +609,15 @@ fn a_regular_expression_replacement_with_a_line_break_keeps_the_other_lines() {
     assert_eq!(outcome.hits, 2);
     assert_eq!(p.read("a.txt"), b"a\nb\nplain\nc\nd\n");
 }
+
+#[test]
+fn the_empty_line_after_the_last_line_break_is_not_a_line() {
+    // Sakura reads two lines here (`CFileLoad`), and `^$` finds the empty one between them
+    let p = Project::new();
+    p.write("a.txt", b"a\n\nb\n");
+    let mut info = p.info("^$", "E");
+    info.options = regex();
+    let (_, outcome) = grep(&info);
+    assert_eq!(outcome.hits, 1);
+    assert_eq!(p.read("a.txt"), b"a\nE\nb\n");
+}
