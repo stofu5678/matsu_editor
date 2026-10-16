@@ -12,7 +12,15 @@
 //! What differs from CPython: this is MicroPython (its language level, its library), a trailing
 //! `None` argument is left out (like Lua's trailing `nil`), the traceback is MicroPython's, and
 //! `import` finds only the built-in modules (`sys`, `json`, `math`, `struct`, `collections`,
-//! `array`, `binascii`, `heapq`, `io`, `errno`, `gc`).
+//! `array`, `binascii`, `heapq`, `re`, `io`, `errno`, `gc`).
+//!
+//! `re` is MicroPython's small one (the re1.5 engine, working on the UTF-8 bytes). It has
+//! `compile`, `match`, `search`, `sub` (and `split` on a compiled pattern), groups, `span`,
+//! `start` and `end`. Compared with CPython it lacks lookahead and lookbehind, named groups,
+//! inline flags and the `re.I`-style flags, `{m,n}` (the braces are literal), `\b`,
+//! `findall`, `finditer`, `fullmatch`, `escape` and a module-level `split`; `.` also matches a
+//! newline, and `.` and the quantifiers work on one byte, not one character (a match that ends
+//! inside a Japanese character is a `UnicodeError`; literals, alternatives and ranges are fine).
 
 use std::cell::RefCell;
 use std::rc::Rc;

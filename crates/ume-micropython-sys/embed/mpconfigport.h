@@ -87,7 +87,13 @@
 
 #define MICROPY_HELPER_REPL                     (0)
 #define MICROPY_KBD_EXCEPTION                   (0)
-#define MICROPY_PY_RE                           (0)
+// MicroPython's small `re` (the re1.5 engine): the functions CPython users expect, without the
+// debug dump.
+#define MICROPY_PY_RE                           (1)
+#define MICROPY_PY_RE_SUB                       (1)
+#define MICROPY_PY_RE_MATCH_GROUPS              (1)
+#define MICROPY_PY_RE_MATCH_SPAN_START_END      (1)
+#define MICROPY_PY_RE_DEBUG                     (0)
 
 // Microsoft's C compiler: the spellings of the compiler-specific keywords (as in MicroPython's
 // own Windows port), and <unistd.h> comes from csrc/msvc/ (build.rs adds that directory).
