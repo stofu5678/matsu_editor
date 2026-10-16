@@ -18,6 +18,10 @@ ume-commands = { path = "../ume-commands" }
 ume-config = { path = "../ume-config" }
 ume-platform = { path = "../ume-platform" }
 ume-print = { path = "../ume-print" }
+# The macro host and the bridge from a macro's calls to the commands (ADR-0007).
+ume-plugin = { path = "../ume-plugin" }
+# Carries the events of a running macro from the host's threads to the UI thread.
+async-channel = "2"
 # The UI commands register themselves like the core commands (ADR-0013 section 1).
 inventory = "0.3.25"
 gpui = { package = "gpui-pre", version = "=0.3.8" }
@@ -43,4 +47,5 @@ raw-window-handle = "0.6"
 gpui-kit-assets = "=0.7.1"
 
 [dev-dependencies]
+tempfile = "3.27"
 gpui = { package = "gpui-pre", version = "=0.3.8", features = ["test-support"] }

@@ -42,6 +42,7 @@ use crate::document::{DocumentEvent, SharedDocument};
 use crate::geometry::{Metrics, clamp_scroll_y, scroll_x_to_show, scroll_y_to_show_row};
 use crate::keys::chord_of;
 use crate::layout_adapter::{LAYOUT_BUDGET, RowLayout};
+use crate::macros::MacroState;
 use crate::search::{SearchPanel, SearchState};
 use crate::status::StatusInfo;
 use crate::ui_command::{UiRegistration, UiRegistry};
@@ -145,6 +146,8 @@ pub struct EditorView {
     pub(crate) search: SearchState,
     /// The find, replace or go-to-line panel, while it is open.
     pub(crate) panel: Option<Entity<SearchPanel>>,
+    /// Key macro recording and the macro that runs (`crate::macros`).
+    pub(crate) macros: MacroState,
     font_family: SharedString,
     font_size: f32,
     _subscription: Subscription,
@@ -185,6 +188,7 @@ impl EditorView {
             print: Default::default(),
             search: SearchState::default(),
             panel: None,
+            macros: MacroState::default(),
             font_family: FONT_FAMILY.into(),
             font_size: crate::settings::ViewSettings::default().font_px(),
             _subscription: subscription,
@@ -250,25 +254,31 @@ impl EditorView {
         result
     }
 
-    /// Runs the command `reg` with `args`. A failure goes to the status bar.
+    /// Runs the command `reg` with `args`. A failure goes to the status bar; the result says
+    /// whether the command succeeded.
     pub(crate) fn run_registration(
         &mut self,
         reg: &'static Registration,
         args: &[Arg],
         cx: &mut Context<Self>,
-    ) {
+    ) -> bool {
         self.interrupt_composition(cx);
+        self.record_call(reg.sakura, args);
         let result = self.run_with(cx, |command_cx| reg.run(command_cx, args));
+        let ok = result.is_ok();
         self.notice = result
             .err()
             .map(|e: CommandError| format!("{}: {e}", reg.id));
         cx.notify();
+        ok
     }
 
     /// Runs the command with the ID `id` (menus, tests, macros).
     pub fn run_command(&mut self, id: &str, args: &[Arg], cx: &mut Context<Self>) {
         match Registry::global().get(id) {
-            Some(reg) => self.run_registration(reg, args, cx),
+            Some(reg) => {
+                self.run_registration(reg, args, cx);
+            }
             None => {
                 self.notice = Some(format!("no command {id}"));
                 cx.notify();
@@ -278,18 +288,18 @@ impl EditorView {
 
     /// Runs Sakura's function `code` the way a key or a menu item does: the core command for it if
     /// there is one, else the UI command ([`crate::ui_command`]), else a notice that it is not
-    /// there yet.
+    /// there yet. Returns whether a command ran and succeeded (a key macro stops at `false`).
     pub fn run_function(
         &mut self,
         code: u16,
         args: &[Arg],
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) {
+    ) -> bool {
         if let Some(reg) = Registry::global().get_by_code(code) {
-            self.run_registration(reg, args, cx);
+            self.run_registration(reg, args, cx)
         } else if let Some(reg) = UiRegistry::global().get_by_code(code) {
-            self.run_ui_registration(reg, args, window, cx);
+            self.run_ui_registration(reg, args, window, cx)
         } else {
             let name = FUNCTIONS
                 .iter()
@@ -297,24 +307,31 @@ impl EditorView {
                 .map_or_else(|| code.to_string(), |f| f.name.to_owned());
             self.notice = Some(format!("{name} はまだ使えない"));
             cx.notify();
+            false
         }
     }
 
-    /// Runs the UI command `reg` with `args`. A failure goes to the status bar.
+    /// Runs the UI command `reg` with `args`. A failure goes to the status bar; the result says
+    /// whether the command succeeded.
     fn run_ui_registration(
         &mut self,
         reg: &'static UiRegistration,
         args: &[Arg],
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) {
+    ) -> bool {
         self.interrupt_composition(cx);
-        // The command may leave a message of its own (a search that wrapped around).
+        self.record_call(reg.sakura, args);
+        // The command may leave a message of its own (a search that wrapped around), so only a
+        // failure replaces it.
         self.notice = None;
-        if let Err(e) = reg.run(self, args, window, cx) {
+        let result = reg.run(self, args, window, cx);
+        let ok = result.is_ok();
+        if let Err(e) = result {
             self.notice = Some(format!("{}: {e}", reg.id));
         }
         cx.notify();
+        ok
     }
 
     /// Types one character the way the keyboard does (Enter is `'\r'`).
@@ -425,7 +442,15 @@ impl EditorView {
 
     pub fn title(&self, cx: &App) -> String {
         let shared = self.document.read(cx);
-        crate::status::window_title(shared.file_name().as_deref(), shared.model().is_modified())
+        let mut title = crate::status::window_title(
+            shared.file_name().as_deref(),
+            shared.model().is_modified(),
+        );
+        if self.is_recording_key_macro() {
+            // `STR_ERR_CSHAREDATA17` in `sakura_core/sakura_rc.rc`: `${M?  【キーマクロの記録中】$}`.
+            title.push_str("  【キーマクロの記録中】");
+        }
+        title
     }
 
     // ---- keys ----
