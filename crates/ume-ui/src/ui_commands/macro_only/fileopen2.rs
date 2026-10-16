@@ -70,10 +70,9 @@ impl UiCommand for FileOpen2 {
         }
         if let Some(path) = &path
             && goes_into_this_window(view, window, path, cx)
+            && read_here(view, path, encoding, view_mode, window, cx)
         {
-            if read_here(view, path, encoding, view_mode, window, cx) {
-                return Ok(());
-            }
+            return Ok(());
         }
         start(window, cx, async move |view, cx| {
             let paths = match path {
