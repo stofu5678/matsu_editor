@@ -32,6 +32,7 @@ impl Ty {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct Param {
     pub name: &'static str,
     pub ty: Ty,

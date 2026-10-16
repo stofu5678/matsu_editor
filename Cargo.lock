@@ -7429,6 +7429,8 @@ dependencies = [
  "rquickjs",
  "serde_json",
  "tempfile",
+ "ume-commands",
+ "ume-core",
  "ume-micropython-sys",
  "ume-mruby-sys",
  "ume-plugin",

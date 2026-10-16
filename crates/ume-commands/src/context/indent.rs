@@ -2,7 +2,8 @@
 //! `F_UNINDENT_SPACE`.
 //!
 //! Sakura: `CViewCommander::Command_INDENT` and `Command_UNINDENT` in
-//! `sakura_core/cmd/CViewCommander_Edit_advanced.cpp`. Rectangular selection is not done.
+//! `sakura_core/cmd/CViewCommander_Edit_advanced.cpp`. A box selection is indented by
+//! `indent_box`; unindent refuses it, as Sakura does.
 //!
 //! Not done yet, with Sakura's defaults used (`InitTypeConfigDefault` in
 //! `sakura_core/types/CType.cpp`): the tab width is 4 (`m_nTabSpace`; the `Layout` trait does not
@@ -82,7 +83,9 @@ impl CommandContext<'_> {
     ///   empty, then selects from the start of the first row to the start of the row after the
     ///   last, with the caret at the end.
     pub(crate) fn indent_selection(&mut self, unit: char) -> Result<()> {
-        self.refuse_box_selection()?;
+        if self.cursor.is_box() {
+            return self.indent_box(unit);
+        }
         let unit_text = unit.encode_utf8(&mut [0; 4]).to_owned();
         let Some((from, to)) = self.selection() else {
             self.insert_text(&unit_text)?;

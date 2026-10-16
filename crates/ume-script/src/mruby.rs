@@ -2,7 +2,7 @@
 //! user's script with `Editor` and `EditorError` as top-level constants, as the Ruby boot of
 //! `ume-plugin` does for the user's CRuby.
 //!
-//! Every function of `Editor` comes from `ume_plugin::api::FUNCS` and is bound as a native
+//! Every function of `Editor` comes from `ume_plugin::catalog::entries()` (the basic API and every row of Sakura's macro tables) and is bound as a native
 //! method by name. A small Ruby part (`mruby_boot.rb`) defines `EditorError` and the text of an
 //! error for the standard error.
 
@@ -11,7 +11,7 @@ use std::rc::Rc;
 
 use serde_json::{Map, Number, Value};
 use ume_mruby_sys::{Failure, Host, Script, Value as Mrb};
-use ume_plugin::api::{FUNCS, Func};
+use ume_plugin::catalog::{Entry, entries, find};
 use ume_plugin::protocol::RpcError;
 
 use crate::engine::Engine;
@@ -23,7 +23,7 @@ const BOOT: &str = include_str!("mruby_boot.rb");
 
 impl Engine for Mruby {
     fn run(&self, init: &Initialize, editor: Rc<RefCell<dyn Editor>>) -> Result<(), String> {
-        let names: Vec<&str> = FUNCS.iter().map(|f| f.name).collect();
+        let names: Vec<&str> = entries().iter().map(|f| f.name).collect();
         let info = json_to_mruby(&init.info);
         // A BOM starts a UTF-8 file but is not Ruby.
         let source = init
@@ -49,10 +49,7 @@ struct Bridge {
 
 impl Host for Bridge {
     fn call(&mut self, function: &str, mut args: Vec<Mrb>) -> Result<Mrb, Failure> {
-        let func = FUNCS
-            .iter()
-            .find(|f| f.name == function)
-            .expect("the functions come from FUNCS");
+        let func = find(function).expect("the functions come from the catalog");
         // `Editor.Jump(2, nil)` means `Editor.Jump(2)`.
         while matches!(args.last(), Some(Mrb::Nil)) {
             args.pop();
@@ -75,7 +72,7 @@ impl Host for Bridge {
     }
 }
 
-fn bad_argument(func: &Func, index: usize, got: &str) -> Failure {
+fn bad_argument(func: &Entry, index: usize, got: &str) -> Failure {
     let (name, ty) = func
         .params
         .get(index)

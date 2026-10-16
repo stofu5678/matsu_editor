@@ -180,6 +180,121 @@ fn every_name_gets_an_answer_and_none_panics() {
     }
 }
 
+/// Arguments that fit a row's types: 1 for a number and "x" for a string.
+fn sample_arguments(row: &ume_commands::sakura::macro_functions::MacroFunction) -> Vec<Value> {
+    use ume_commands::sakura::macro_functions::ArgType;
+    row.args
+        .iter()
+        .map(|ty| match ty {
+            ArgType::Int => json!(1),
+            ArgType::Str => json!("x"),
+        })
+        .collect()
+}
+
+#[test]
+fn every_command_of_the_table_runs_or_says_it_is_not_implemented() {
+    use ume_commands::sakura::macro_functions::MACRO_COMMANDS;
+    let registry = Registry::global();
+    for row in MACRO_COMMANDS {
+        let has_command = registry.get_by_code(row.code).is_some();
+        let has_basic_api = api::FUNCS.iter().any(|f| f.name == row.name);
+        for text in ["", "one\ntwo\nthree\n"] {
+            // No argument at all (the last ones may be left out), and arguments that fit.
+            for params in [Vec::new(), sample_arguments(row)] {
+                let mut f = Fixture::new(text);
+                let outcome = f.call(row.name, Value::Array(params.clone()));
+                let context = format!("{} {params:?} on {text:?}", row.name);
+                match outcome {
+                    Ok(value) => {
+                        assert_eq!(value, Value::Null, "{context}");
+                        assert!(has_command || has_basic_api, "{context}: no command");
+                    }
+                    Err(e) if e.code == NOT_IMPLEMENTED => {
+                        assert!(
+                            !has_command && !has_basic_api,
+                            "{context}: a command exists but the bridge says not implemented"
+                        );
+                        // The text names the function, as Sakura's table does.
+                        assert!(e.message.contains(row.function), "{context}: {e:?}");
+                    }
+                    // A command that needs a window or a clipboard, or an argument.
+                    Err(e) => {
+                        assert!(has_command || has_basic_api, "{context}: unexpected {e:?}");
+                        assert!(
+                            [UNAVAILABLE, INVALID_PARAMS].contains(&e.code),
+                            "{context}: {e:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn names_that_share_a_function_code_are_all_callable() {
+    use ume_commands::sakura::macro_functions::MACRO_COMMANDS;
+    let mut shared = 0;
+    for row in MACRO_COMMANDS {
+        for other in MACRO_COMMANDS
+            .iter()
+            .filter(|o| o.code == row.code && o.name != row.name)
+        {
+            shared += 1;
+            let a = Fixture::new("a")
+                .call(row.name, json!([]))
+                .map_err(|e| e.code);
+            let b = Fixture::new("a")
+                .call(other.name, json!([]))
+                .map_err(|e| e.code);
+            assert_eq!(a, b, "{} and {}", row.name, other.name);
+        }
+    }
+    assert!(
+        shared > 0,
+        "the table has old spellings (ViewMode, ReadOnly)"
+    );
+}
+
+#[test]
+fn too_many_arguments_and_wrong_types_are_invalid_params_for_every_name() {
+    use ume_commands::sakura::macro_functions::{ArgType, MACRO_COMMANDS};
+    for row in MACRO_COMMANDS {
+        let mut f = Fixture::new("abc");
+        // One argument more than the table has.
+        let mut too_many = sample_arguments(row);
+        too_many.push(json!(1));
+        let err = f.call(row.name, Value::Array(too_many)).unwrap_err();
+        assert_eq!(err.code, INVALID_PARAMS, "{}", row.name);
+        // A string for a number, and a number for a string.
+        for (i, ty) in row.args.iter().enumerate() {
+            let mut params = sample_arguments(row);
+            params[i] = match ty {
+                ArgType::Int => json!("1"),
+                ArgType::Str => json!(1),
+            };
+            let err = f.call(row.name, Value::Array(params)).unwrap_err();
+            assert_eq!(err.code, INVALID_PARAMS, "{} argument {}", row.name, i + 1);
+            assert!(err.message.contains(row.name), "{}", err.message);
+        }
+        assert_eq!(f.text(), "abc", "{}", row.name);
+    }
+}
+
+#[test]
+fn a_call_is_one_undo_step_whichever_way_it_runs() {
+    // A registered command (Char) and the basic API (InsText) are both one undo block.
+    let mut f = Fixture::new("");
+    f.call("InsText", json!(["a\nb"])).unwrap();
+    f.call("Char", json!([99])).unwrap();
+    assert_eq!(f.text(), "a\nbc");
+    f.call("Undo", json!([])).unwrap();
+    assert_eq!(f.text(), "a\nb");
+    f.call("Undo", json!([])).unwrap();
+    assert_eq!(f.text(), "");
+}
+
 // ---- functions that return a value ----
 
 #[test]
@@ -517,5 +632,55 @@ fn the_sample_macros_run_on_the_commands() {
         let text = f.text();
         assert!(text.starts_with("# サンプルマクロ"), "{name}: {text}");
         assert!(text.contains("みかん😀"), "{name}: {text}");
+    }
+}
+
+#[test]
+fn a_macro_moves_selects_and_edits_with_commands_in_each_language() {
+    // Commands that are not in the basic API table (WordRight_Sel, Delete, GoLineEnd,
+    // DuplicateLine, Char) next to functions that are (GoFileTop, Down, GetLineStr).
+    let js = r#"
+Editor.GoFileTop();
+Editor.WordRight_Sel();
+Editor.Delete();
+Editor.GoLineEnd(0);
+Editor.Char(33);
+Editor.Down();
+Editor.DuplicateLine();
+console.log(JSON.stringify(Editor.GetLineStr(1)), Editor.GetLineCount(0));
+"#;
+    let py = r#"
+Editor.GoFileTop()
+Editor.WordRight_Sel()
+Editor.Delete()
+Editor.GoLineEnd(0)
+Editor.Char(33)
+Editor.Down()
+Editor.DuplicateLine()
+print(repr(Editor.GetLineStr(1)), Editor.GetLineCount(0))
+"#;
+    let rb = r##"
+Editor.GoFileTop
+Editor.WordRight_Sel
+Editor.Delete
+Editor.GoLineEnd(0)
+Editor.Char(33)
+Editor.Down
+Editor.DuplicateLine
+puts "#{Editor.GetLineStr(1).inspect} #{Editor.GetLineCount(0)}"
+"##;
+    for (language, code, shown) in [
+        (Language::JavaScript, js, "\"two!\\n\" 3"),
+        (Language::Python, py, "'two!\\n' 3"),
+        (Language::Ruby, rb, "\"two!\\n\" 3"),
+    ] {
+        let mut f = Fixture::new("one two\nthree\n");
+        let Some(report) = run_macro(language, code, &mut f) else {
+            continue;
+        };
+        let stderr = report.lines(Stream::Stderr).join("\n");
+        assert_eq!(report.finished.exit_code, Some(0), "{language:?}: {stderr}");
+        assert_eq!(f.text(), "two!\nthree\nthree\n", "{language:?}");
+        assert_eq!(report.lines(Stream::Stdout), [shown], "{language:?}");
     }
 }

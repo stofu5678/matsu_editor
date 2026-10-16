@@ -4,23 +4,22 @@
 //! command (`Command_TOLOWER`, `Command_TABTOSPACE` and the others in
 //! `sakura_core/cmd/CViewCommander_Convert.cpp`) only calls it with its function code.
 
-use ume_core::cursor::SelectionMode;
-
 use super::CommandContext;
 use crate::command::Result;
 
 impl CommandContext<'_> {
     /// Replaces the selected text by `convert(selected text)`.
     ///
-    /// * Without a selection nothing happens (Sakura returns at once, without a beep). A
-    ///   rectangular selection beeps and does nothing: it is not implemented yet.
+    /// * Without a selection nothing happens (Sakura returns at once, without a beep).
+    /// * A box selection is converted row by row (`convert_box`): the text
+    ///   of each row of the box, which is then no longer selected.
     /// * The conversion gets the text with its line endings as they are.
     /// * Afterwards the converted text is selected, from where the selection began to the end of
     ///   the new text, with the caret at the end, even if the selection was made backwards
     ///   (`SetSelectArea(ptFrom, caret)` and `MoveCursor(GetTo())` in `ConvSelectedArea`).
     /// * Difference: a conversion that gives the same text makes no edit (and no undo step), where
     ///   Sakura replaces the text by itself.
-    pub fn convert_selection(&mut self, convert: impl FnOnce(&str) -> String) -> Result<()> {
+    pub fn convert_selection(&mut self, mut convert: impl FnMut(&str) -> String) -> Result<()> {
         self.convert_selection_with_columns(|text, _tab_width, _start_col| convert(text))
     }
 
@@ -30,15 +29,14 @@ impl CommandContext<'_> {
     /// (`nStartColumn`, `GetFrom().GetX2() / GetLayoutXDefault()` in Sakura).
     pub fn convert_selection_with_columns(
         &mut self,
-        convert: impl FnOnce(&str, usize, usize) -> String,
+        mut convert: impl FnMut(&str, usize, usize) -> String,
     ) -> Result<()> {
-        if self.cursor.mode() == SelectionMode::Rectangular {
-            self.beep();
-            return Ok(());
-        }
         let Some((from, to)) = self.selection() else {
             return Ok(());
         };
+        if self.cursor.is_box() {
+            return self.convert_box(convert);
+        }
         let old = self.doc().text_between(from, to)?;
         let tab_width = self.tab_width();
         let start_col = self.layout.display_col(self.doc(), from)?;

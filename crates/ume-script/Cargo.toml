@@ -19,6 +19,8 @@ ume-mruby-sys = { path = "../ume-mruby-sys" }
 ume-plugin = { path = "../ume-plugin" }
 
 [dev-dependencies]
+ume-commands = { path = "../ume-commands" }
+ume-core = { path = "../ume-core" }
 tempfile = "3.27"
 
 [lints]

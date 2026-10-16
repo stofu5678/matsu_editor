@@ -1,11 +1,12 @@
-//! Generates the JavaScript, Python, Ruby and PHP parts of the macro API from `api::FUNCS`, and
+//! Generates the JavaScript, Python, Ruby and PHP parts of the macro API from `catalog::entries()` (`api::FUNCS` and every row of Sakura's macro tables), and
 //! checks that the committed files (`boot/api.gen.cjs`, `boot/api_gen.py`, `boot/api_gen.rb`,
 //! `boot/api_gen.php`) are up to date. Only the tests
 //! use it: to regenerate, run `UME_UPDATE_GENERATED=1 cargo test -p ume-plugin generated_files`.
 
-use crate::api::{FUNCS, Ty};
+use crate::api::Ty;
+use crate::catalog::{Entry, entries};
 
-const GENERATED_NOTE: &str = "GENERATED from crates/ume-plugin/src/api.rs (FUNCS). Do not edit. \
+const GENERATED_NOTE: &str = "GENERATED from crates/ume-plugin/src/catalog.rs (api.rs FUNCS and Sakura's macro tables). Do not edit. \
 Regenerate with: UME_UPDATE_GENERATED=1 cargo test -p ume-plugin generated_files";
 
 /// The JavaScript part (`api.gen.cjs`): `module.exports(call)` returns the `Editor` object.
@@ -13,7 +14,7 @@ pub(super) fn generate_js() -> String {
     let mut out = String::new();
     out.push_str(&format!("// {GENERATED_NOTE}\n'use strict';\n\n"));
     out.push_str("module.exports = function install(call) {\n  const editor = {\n");
-    for func in FUNCS {
+    for func in entries().iter().filter(|e| e.is_identifier()) {
         let signature: Vec<String> = func
             .params
             .iter()
@@ -33,7 +34,7 @@ pub(super) fn generate_js() -> String {
             signature.join(", "),
             func.result.name()
         ));
-        for line in wrap(func.doc, 90) {
+        for line in wrap(&func.doc, 90) {
             out.push_str(&format!("     * {line}\n"));
         }
         out.push_str("     */\n");
@@ -83,10 +84,10 @@ pub(super) fn generate_py() -> String {
     out.push_str("def install(call):\n");
     out.push_str("    class _Editor:\n");
     out.push_str("        \"\"\"The editor's macro API (the names and the arguments of Sakura's macros).\"\"\"\n\n");
-    for func in FUNCS {
+    for func in entries().iter().filter(|e| e.is_identifier()) {
         let mut params = vec!["self".to_string()];
         let mut names = Vec::new();
-        for p in func.params {
+        for p in &func.params {
             let py_ty = match p.ty {
                 Ty::Int => "int",
                 Ty::Str => "str",
@@ -110,7 +111,7 @@ pub(super) fn generate_py() -> String {
             params.join(", ")
         ));
         out.push_str("            \"\"\"");
-        let doc_lines = wrap(func.doc, 80);
+        let doc_lines = wrap(&func.doc, 80);
         out.push_str(&doc_lines.join("\n            "));
         out.push_str("\"\"\"\n");
         out.push_str(&format!(
@@ -151,7 +152,7 @@ pub(super) fn generate_rb() -> String {
     out.push_str("  class EditorObject\n");
     out.push_str("    attr_accessor :info\n\n");
     out.push_str("    def initialize(call)\n      @call = call\n      @info = nil\n    end\n\n");
-    for func in FUNCS {
+    for func in entries().iter().filter(|e| e.is_identifier()) {
         let params: Vec<String> = func
             .params
             .iter()
@@ -166,7 +167,7 @@ pub(super) fn generate_rb() -> String {
         let names: Vec<&str> = func.params.iter().map(|p| p.name).collect();
         let signature = signature_text(func);
         out.push_str(&format!("    # {signature}\n    #\n"));
-        for line in wrap(func.doc, 90) {
+        for line in wrap(&func.doc, 90) {
             out.push_str(&format!("    # {line}\n"));
         }
         let def_params = if params.is_empty() {
@@ -224,7 +225,7 @@ pub(super) fn generate_php() -> String {
     out.push_str("    /** @var callable */\n    private static $call;\n\n");
     out.push_str("    /** Used by the boot library; a macro does not call this. */\n");
     out.push_str("    public static function install(callable $call): void\n    {\n        self::$call = $call;\n    }\n\n");
-    for func in FUNCS {
+    for func in entries().iter().filter(|e| e.is_identifier()) {
         let params: Vec<String> = func
             .params
             .iter()
@@ -238,7 +239,7 @@ pub(super) fn generate_php() -> String {
             .collect();
         out.push_str("    /**\n");
         out.push_str(&format!("     * {}\n     *\n", signature_text(func)));
-        for line in wrap(func.doc, 90) {
+        for line in wrap(&func.doc, 90) {
             out.push_str(&format!("     * {line}\n"));
         }
         out.push_str("     */\n");
@@ -276,7 +277,7 @@ const PHP_FALLBACK: &str = r#"    /**
 "#;
 
 /// `Name(param: type, optional?: type) -> type`, for the comments of the generated code.
-fn signature_text(func: &crate::api::Func) -> String {
+fn signature_text(func: &Entry) -> String {
     let params: Vec<String> = func
         .params
         .iter()

@@ -12,3 +12,6 @@ pub mod search_clearmark;
 pub mod search_dialog;
 pub mod search_next;
 pub mod search_prev;
+pub mod tagjump;
+pub mod tagjump_close;
+pub mod tagjumpback;

@@ -18,8 +18,8 @@ pub enum ClipKind {
     /// Copied without a selection: the whole row. Sakura's `MSDEVLineSelect`. A paste puts it at
     /// the start of the row instead of at the caret.
     Line,
-    /// Copied from a rectangular selection. Sakura's `MSDEVColumnSelect`. Pasting it as a box is
-    /// not implemented yet; it is pasted as normal text.
+    /// Copied from a rectangular selection. Sakura's `MSDEVColumnSelect`. `paste` pastes it as a
+    /// box (`bAutoColumnPaste`).
     Box,
 }
 

@@ -127,7 +127,17 @@ impl CommandContext<'_> {
     /// With a selection, the selection becomes the trimmed text, with the caret at its end.
     /// With no selection the row of the caret is trimmed and the caret goes to the end of it.
     pub(crate) fn trim_selection(&mut self, left: bool) -> Result<()> {
-        self.refuse_box_selection()?;
+        if self.cursor.is_box() && self.cursor.has_selection() {
+            // `Command_TRIM` converts the selection with `ConvSelectedArea`, which trims each
+            // row of a box.
+            return self.convert_box(|text, _, _| {
+                if left {
+                    text.trim_start_matches(is_blank).to_owned()
+                } else {
+                    text.trim_end_matches(is_blank).to_owned()
+                }
+            });
+        }
         let selected = self.selection();
         let (from, to) = match selected {
             Some(range) => range,
