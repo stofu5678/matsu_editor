@@ -33,6 +33,7 @@ pub mod macros;
 pub mod menu;
 pub mod menu_bar;
 pub mod open;
+mod panes;
 pub mod print;
 pub mod search;
 pub mod segments;
