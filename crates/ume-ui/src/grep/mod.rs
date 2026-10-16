@@ -7,6 +7,9 @@
 //!   [`Sink`](engine::Sink) and reads a flag to stop.
 //! * [`settings`] holds what the dialog holds, with its defaults, its checks and the arguments of
 //!   the macro `Grep`.
+//! * Grep 置換 (`F_GREP_REPLACE_DLG` and `F_GREP_REPLACE`) is the same search with
+//!   [`GrepInfo::replace`](engine::GrepInfo::replace) set: [`engine`] rewrites the files that have
+//!   a hit, and the dialog is the panel with the boxes 置換後 and the like.
 //! * [`panel`] is the dialog, a panel in the editor window. [`window`] runs a Grep in a window: it
 //!   picks the window for the result, runs the engine on a background task, writes the pieces to
 //!   the text, and keeps what makes the window a Grep window (its title, no question about saving,
@@ -24,5 +27,7 @@ pub mod window;
 
 #[cfg(test)]
 mod engine_tests;
+#[cfg(test)]
+mod replace_tests;
 #[cfg(test)]
 mod window_tests;

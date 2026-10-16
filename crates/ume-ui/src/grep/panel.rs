@@ -7,6 +7,10 @@
 //! The values live in [`GrepSettings`]; OK checks them (`GrepSettings::check`, which is
 //! `CDlgGrep::GetData`) and starts the search.
 //!
+//! The same panel is the dialog of Grep 置換 (`F_GREP_REPLACE_DLG`, `IDD_GREP_REPLACE`,
+//! `sakura_core/dlg/CDlgGrepReplace.cpp`): it has the box 置換後 and the check boxes
+//! クリップボードの内容で置換 and バックアップ作成 besides, and its button replaces.
+//!
 //! Left out: 「この編集中のテキストから検索する」 (searching the text of a window), the combo
 //! boxes' history lists, and the list of code pages (the nine encodings of Sakura are offered).
 
@@ -25,8 +29,8 @@ use ume_core::encoding::Encoding;
 
 use super::format::{LineType, OutputStyle};
 use super::keys::split_folders;
-use super::settings::{GrepSettings, quote_folder};
-use super::window::{remember, remembered};
+use super::settings::{DialogError, GrepSettings, quote_folder};
+use super::window::{clipboard_replacement, remember, remembered};
 use crate::view::EditorView;
 
 /// The encodings of the combo box, after 自動選択 (`CCodeTypesForCombobox`).
@@ -48,6 +52,9 @@ pub fn next_charset(current: Option<Encoding>) -> Option<Encoding> {
     choices[(at + 1) % choices.len()]
 }
 
+/// `STR_DLGREPLC_CLIPBOARD`.
+pub(crate) const NO_CLIPBOARD: &str = "クリップボードに有効なデータがありません！";
+
 pub struct GrepPanel {
     editor: WeakEntity<EditorView>,
     pub(crate) key: Entity<InputState>,
@@ -55,6 +62,10 @@ pub struct GrepPanel {
     pub(crate) folder: Entity<InputState>,
     pub(crate) exclude_file: Entity<InputState>,
     pub(crate) exclude_folder: Entity<InputState>,
+    /// 置換後, for Grep 置換.
+    pub(crate) replacement: Entity<InputState>,
+    /// Whether this is the dialog of Grep 置換.
+    pub(crate) replace_mode: bool,
     /// The values besides the text of the boxes (the boxes are read when OK is pressed).
     pub(crate) settings: GrepSettings,
     _subscriptions: Vec<Subscription>,
@@ -64,6 +75,7 @@ impl GrepPanel {
     fn new(
         editor: WeakEntity<EditorView>,
         settings: GrepSettings,
+        replace_mode: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -75,8 +87,16 @@ impl GrepPanel {
         let folder = input("検索するフォルダー", window, cx);
         let exclude_file = input("除外するファイル", window, cx);
         let exclude_folder = input("除外するフォルダー", window, cx);
+        let replacement = input("置換後の文字列", window, cx);
         let mut subscriptions = Vec::new();
-        for state in [&key, &file, &folder, &exclude_file, &exclude_folder] {
+        for state in [
+            &key,
+            &file,
+            &folder,
+            &exclude_file,
+            &exclude_folder,
+            &replacement,
+        ] {
             subscriptions.push(cx.subscribe_in(
                 state,
                 window,
@@ -94,6 +114,8 @@ impl GrepPanel {
             folder,
             exclude_file,
             exclude_folder,
+            replacement,
+            replace_mode,
             settings,
             _subscriptions: subscriptions,
         };
@@ -110,6 +132,7 @@ impl GrepPanel {
             (&self.folder, s.folder),
             (&self.exclude_file, s.exclude_file),
             (&self.exclude_folder, s.exclude_folder),
+            (&self.replacement, s.replacement),
         ] {
             state.update(cx, |state, cx| state.set_value(value, window, cx));
         }
@@ -123,6 +146,7 @@ impl GrepPanel {
         self.settings.folder = text(&self.folder);
         self.settings.exclude_file = text(&self.exclude_file);
         self.settings.exclude_folder = text(&self.exclude_folder);
+        self.settings.replacement = text(&self.replacement);
     }
 
     pub fn focus_key(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -130,18 +154,38 @@ impl GrepPanel {
         key.update(cx, |state, cx| state.focus(window, cx));
     }
 
-    /// The OK button (検索): checks the boxes, and starts the search.
+    /// The OK button (検索, 置換 for Grep 置換): checks the boxes, and starts the search.
     pub(crate) fn ok(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.read_boxes(cx);
-        let info = match self.settings.check() {
+        let checked = if self.replace_mode {
+            // `CDlgGrepReplace::OnBnClicked`: pasting needs something on the clipboard.
+            let clipboard = if self.settings.paste {
+                let text = clipboard_replacement(cx);
+                if text.is_none() {
+                    self.settings.paste = false;
+                    cx.notify();
+                    self.show_error(
+                        DialogError {
+                            message: NO_CLIPBOARD.to_owned(),
+                            regex: false,
+                        },
+                        window,
+                        cx,
+                    );
+                    return;
+                }
+                text
+            } else {
+                None
+            };
+            self.settings.check_replace(clipboard)
+        } else {
+            self.settings.check()
+        };
+        let info = match checked {
             Ok(info) => info,
             Err(error) => {
-                let message = error.clone();
-                self.editor
-                    .update(cx, |editor, cx| {
-                        editor.grep_dialog_error_box(&message, window, cx)
-                    })
-                    .ok();
+                self.show_error(error, window, cx);
                 return;
             }
         };
@@ -149,15 +193,27 @@ impl GrepPanel {
         self.show_settings(window, cx);
         let settings = self.settings.clone();
         remember(cx, settings.clone());
+        let replace = self.replace_mode;
         let Some(editor) = self.editor.upgrade() else {
             return;
         };
         editor.update(cx, |editor, cx| {
-            // What is recorded is the Grep, as `HandleCommand(F_GREP)` does after the dialog.
-            editor.record_call("F_GREP", &settings.macro_args());
+            if !replace {
+                // What is recorded is the Grep, as `HandleCommand(F_GREP)` does after the dialog.
+                // Sakura does not record a Grep 置換 (`GrepReplace` is not a key macro).
+                editor.record_call("F_GREP", &settings.macro_args());
+            }
             editor.close_grep_panel(window, cx);
             editor.start_grep(info, false, window, cx);
         });
+    }
+
+    fn show_error(&self, error: DialogError, window: &mut Window, cx: &mut Context<Self>) {
+        self.editor
+            .update(cx, |editor, cx| {
+                editor.grep_dialog_error_box(&error, window, cx)
+            })
+            .ok();
     }
 
     /// キャンセル.
@@ -316,7 +372,8 @@ impl Render for GrepPanel {
                     .label("現フォルダー(J)")
                     .on_click(cx.listener(|this, _, window, cx| this.current_folder(window, cx))),
             );
-        let options = v_flex()
+        let paste = s.paste;
+        let mut options = v_flex()
             .gap_1()
             .child(self.check_box(
                 "grep-sub",
@@ -364,6 +421,23 @@ impl Render for GrepPanel {
                 |s, v| s.default_folder = v,
                 cx,
             ));
+        if self.replace_mode {
+            options = options
+                .child(self.check_box(
+                    "grep-paste",
+                    "クリップボードの内容で置換(V)",
+                    paste,
+                    |s, v| s.paste = v,
+                    cx,
+                ))
+                .child(self.check_box(
+                    "grep-backup",
+                    "バックアップ作成(B)",
+                    s.backup,
+                    |s, v| s.backup = v,
+                    cx,
+                ));
+        }
         let output = h_flex()
             .gap_4()
             .child(
@@ -465,7 +539,11 @@ impl Render for GrepPanel {
             .gap_2()
             .child(
                 Button::new("grep-ok")
-                    .label("検索")
+                    .label(if self.replace_mode {
+                        "置換"
+                    } else {
+                        "検索"
+                    })
                     .on_click(cx.listener(|this, _, window, cx| this.ok(window, cx))),
             )
             .child(
@@ -498,8 +576,28 @@ impl Render for GrepPanel {
                     cx.stop_propagation();
                 }
             }))
-            .child(div().font_weight(gpui::FontWeight::BOLD).child("Grep"))
-            .child(Self::row("条件(N)", Input::new(&self.key)))
+            .child(
+                div()
+                    .font_weight(gpui::FontWeight::BOLD)
+                    .child(if self.replace_mode {
+                        "Grep置換"
+                    } else {
+                        "Grep"
+                    }),
+            )
+            .child(Self::row(
+                if self.replace_mode {
+                    "置換前(N)"
+                } else {
+                    "条件(N)"
+                },
+                Input::new(&self.key),
+            ))
+            .children(self.replace_mode.then(|| {
+                // The box is not used while the text of the clipboard replaces
+                // (`DlgItem_Enable(IDC_COMBO_TEXT2, ...)`).
+                Self::row("置換後(Z)", Input::new(&self.replacement).disabled(paste))
+            }))
             .child(Self::row("ファイル(I)", Input::new(&self.file)))
             .child(Self::row("フォルダー(D)", folder_buttons))
             .child(Self::row("除外ファイル", Input::new(&self.exclude_file)))
@@ -519,7 +617,18 @@ impl EditorView {
     /// word at the caret as the condition and the folder of the file in the window
     /// (`Command_GREP_DIALOG`, `CDlgGrep::OnInitDialog`).
     pub fn open_grep_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_grep_panel_as(false, window, cx);
+    }
+
+    /// `F_GREP_REPLACE_DLG`: opens the dialog of Grep 置換, in the same way
+    /// (`Command_GREP_REPLACE_DLG`, `CDlgGrepReplace::DoModal`: クリップボードの内容で置換 starts off).
+    pub fn open_grep_replace_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_grep_panel_as(true, window, cx);
+    }
+
+    fn open_grep_panel_as(&mut self, replace: bool, window: &mut Window, cx: &mut Context<Self>) {
         let mut settings = remembered(cx);
+        settings.paste = false;
         if let Some(seed) = self.search_seed(cx) {
             settings.key = seed;
         }
@@ -530,6 +639,7 @@ impl EditorView {
         match &self.grep.panel {
             Some(panel) => {
                 panel.update(cx, |panel, cx| {
+                    panel.replace_mode = replace;
                     panel.settings = settings;
                     panel.show_settings(window, cx);
                     panel.focus_key(window, cx);
@@ -538,7 +648,7 @@ impl EditorView {
             }
             None => {
                 let editor = cx.weak_entity();
-                let panel = cx.new(|cx| GrepPanel::new(editor, settings, window, cx));
+                let panel = cx.new(|cx| GrepPanel::new(editor, settings, replace, window, cx));
                 panel.update(cx, |panel, cx| panel.focus_key(window, cx));
                 self.grep.panel = Some(panel);
             }

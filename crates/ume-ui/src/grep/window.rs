@@ -21,12 +21,14 @@ use gpui::{
     Styled, Window, div, px, rgb,
 };
 use gpui_component::button::Button;
+use ume_commands::clipboard::{ClipKind, Clipboard};
 use ume_commands::command::CommandError;
 use ume_core::buffer::{Eol, Pos};
 
 use super::engine::{self, GrepError, GrepInfo, Outcome, Sink};
 use super::panel::GrepPanel;
 use super::settings::{DialogError, GrepSettings};
+use crate::clipboard::GpuiClipboard;
 use crate::document::SharedDocument;
 use crate::file_ops::windows::{editors, open_editor_window};
 use crate::view::EditorView;
@@ -58,6 +60,21 @@ pub(crate) fn remembered(cx: &App) -> GrepSettings {
 
 pub(crate) fn remember(cx: &mut App, settings: GrepSettings) {
     cx.set_global(GrepMemory(settings));
+}
+
+/// The text of the clipboard for クリップボードの内容で置換 (`MyGetClipboardData` in
+/// `CGrepAgent::DoGrep`), or `None` when there is none. A copy of a row ends with a line break
+/// (the line ending of the result window, CR LF, is added if it has none).
+pub(crate) fn clipboard_replacement(cx: &mut App) -> Option<String> {
+    let data = GpuiClipboard(cx).get()?;
+    if data.text.is_empty() {
+        return None;
+    }
+    let mut text = data.text;
+    if data.kind == ClipKind::Line && !text.ends_with(['\r', '\n']) {
+        text.push_str("\r\n");
+    }
+    Some(text)
 }
 
 /// What a window knows about Grep.
@@ -258,6 +275,38 @@ impl EditorView {
             cx,
         );
         drop(answer);
+    }
+
+    /// The settings of a Grep 置換 as the `GrepInfo` of one. With `check` they are checked as the
+    /// dialog does (`GetData`); the macro form does not (`CMacro::MakeGrepInfo`), `start_grep`
+    /// still refuses a condition that is wrong. A clipboard that has no text is told in a box.
+    pub(crate) fn grep_replace_info(
+        &self,
+        settings: &mut GrepSettings,
+        check: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<GrepInfo, CommandError> {
+        let clipboard = if settings.paste {
+            let Some(text) = clipboard_replacement(cx) else {
+                // `ErrorMessage( STR_DLGREPLC_CLIPBOARD )`
+                let message = super::panel::NO_CLIPBOARD;
+                let answer =
+                    window.prompt(PromptLevel::Critical, BOX_TITLE, Some(message), &["OK"], cx);
+                drop(answer);
+                return Err(CommandError::BadArgs(message.to_owned()));
+            };
+            Some(text)
+        } else {
+            None
+        };
+        if !check {
+            return Ok(settings.replace_info(clipboard));
+        }
+        settings.check_replace(clipboard).map_err(|error| {
+            self.grep_dialog_error_box(&error, window, cx);
+            CommandError::BadArgs(error.message)
+        })
     }
 
     /// The box for a condition that is wrong (`ErrorMessage` and `CheckRegexpSyntax`).

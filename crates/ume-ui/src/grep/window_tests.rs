@@ -525,3 +525,224 @@ fn only_one_of_the_grep_and_the_search_dialogs_is_open(cx: &mut TestAppContext) 
             .read_with(cx, |v, app| v.search_panel_mode(app).is_none())
     );
 }
+
+fn replace_args(p: &Project, key: &str, new: &str, flags: i64) -> Vec<Arg> {
+    vec![
+        Arg::Text(key.to_owned()),
+        Arg::Text(new.to_owned()),
+        Arg::Text("*.txt".to_owned()),
+        Arg::Text(p.root()),
+        Arg::Int(flags),
+        Arg::Int(4),
+    ]
+}
+
+fn read(p: &Project, name: &str) -> String {
+    std::fs::read_to_string(p.file(name)).unwrap()
+}
+
+#[gpui::test]
+fn the_replace_macro_changes_the_files_and_writes_the_result_to_a_new_window(
+    cx: &mut TestAppContext,
+) {
+    let (f, cx) = setup(cx);
+    let p = Project::new();
+    // the subfolders and a backup
+    f.run(
+        cx,
+        "F_GREP_REPLACE",
+        &replace_args(&p, "hit", "HIT", 0x01 | 0x20 | 0x20_0000),
+    );
+    assert_eq!(read(&p, "a.txt"), "alpha\nbeta HIT\ngamma\n");
+    assert_eq!(read(&p, "b.txt"), "no match\nHIT again\n");
+    assert_eq!(read(&p, "a.txt.skrold"), "alpha\nbeta hit\ngamma\n");
+    let windows = other_views(cx, &f.view);
+    assert_eq!(windows.len(), 1, "the result has its own window");
+    let text = text_of(&windows[0], cx);
+    assert!(
+        text.starts_with("\r\n□検索条件  \"hit\"\r\n置換後         \"HIT\"\r\n"),
+        "{text}"
+    );
+    assert!(
+        text.ends_with(&format!(
+            "{}(2,6): beta hit\r\n{}(2,1): hit again\r\n2 個を置換しました。\r\n",
+            p.file("a.txt"),
+            p.file("b.txt")
+        )),
+        "{text}"
+    );
+    assert_eq!(
+        text_of(&f.view, cx),
+        "",
+        "the window it ran in is as it was"
+    );
+    let title = windows[0].read_with(cx, |v, app| v.title(app));
+    assert_eq!(title, "【Grep】hit - UME Editor");
+}
+
+#[gpui::test]
+fn the_replace_macro_without_a_backup_keeps_none(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    let p = Project::new();
+    f.run(cx, "F_GREP_REPLACE", &replace_args(&p, "hit", "", 0x01));
+    assert_eq!(read(&p, "a.txt"), "alpha\nbeta \ngamma\n");
+    assert!(!std::path::Path::new(&p.file("a.txt.skrold")).exists());
+}
+
+#[gpui::test]
+fn the_replace_macro_needs_a_pattern_and_a_new_text(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    let p = Project::new();
+    for args in [
+        replace_args(&p, "", "x", 1),
+        replace_args(&p, "hit", "x", 1)[..1].to_vec(),
+    ] {
+        f.run(cx, "F_GREP_REPLACE", &args);
+        // no window, no change
+        assert!(other_views(cx, &f.view).is_empty());
+        assert_eq!(read(&p, "a.txt"), "alpha\nbeta hit\ngamma\n");
+    }
+}
+
+#[gpui::test]
+fn the_text_of_the_clipboard_replaces_with_the_paste_flag(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    let p = Project::new();
+    cx.write_to_clipboard(gpui::ClipboardItem::new_string("$1 \\n".to_owned()));
+    // a regular expression, but the clipboard is put in as it is
+    let flags = 0x01 | 0x08 | 0x10_0000;
+    f.run(
+        cx,
+        "F_GREP_REPLACE",
+        &replace_args(&p, "h(i)t", "ignored", flags),
+    );
+    assert_eq!(read(&p, "a.txt"), "alpha\nbeta $1 \\n\ngamma\n");
+    let text = text_of(&other_views(cx, &f.view)[0], cx);
+    assert!(
+        text.contains("置換後         (クリップボードから貼り付け)\r\n検索対象"),
+        "{text}"
+    );
+}
+
+#[gpui::test]
+fn an_empty_clipboard_stops_a_paste_with_a_box_and_changes_nothing(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    let p = Project::new();
+    cx.write_to_clipboard(gpui::ClipboardItem::new_string(String::new()));
+    f.run(
+        cx,
+        "F_GREP_REPLACE",
+        &replace_args(&p, "hit", "x", 0x01 | 0x10_0000),
+    );
+    let (_, detail) = cx.pending_prompt().expect("a box");
+    assert_eq!(detail, "クリップボードに有効なデータがありません！");
+    answer(cx, "OK");
+    assert!(other_views(cx, &f.view).is_empty());
+    assert_eq!(read(&p, "a.txt"), "alpha\nbeta hit\ngamma\n");
+}
+
+#[gpui::test]
+fn the_replace_dialog_has_the_new_text_and_replaces(cx: &mut TestAppContext) {
+    let (f, cx) = setup_with(cx, "hit here\n");
+    let p = Project::new();
+    f.run(cx, "F_GREP_REPLACE_DLG", &[]);
+    assert!(f.panel_open(cx));
+    let panel = f.panel(cx);
+    let (mode, key, backup) = panel.read_with(cx, |panel, app| {
+        (
+            panel.replace_mode,
+            panel.key.read(app).value().to_string(),
+            panel.settings.backup,
+        )
+    });
+    assert!(mode);
+    assert_eq!(key, "hit", "the word at the caret");
+    assert!(backup, "the backup is on at first");
+    panel.update_in(cx, |panel, window, cx| {
+        panel
+            .replacement
+            .update(cx, |s, cx| s.set_value("日本語", window, cx));
+    });
+    fill_and_ok(cx, &panel, "hit", &p.root());
+    assert!(!f.panel_open(cx));
+    assert_eq!(read(&p, "a.txt"), "alpha\nbeta 日本語\ngamma\n");
+    assert_eq!(read(&p, "a.txt.skrold"), "alpha\nbeta hit\ngamma\n");
+    // this window has no name and no changes: it takes the result
+    let windows = other_views(cx, &f.view);
+    let text = text_of(windows.first().unwrap_or(&f.view), cx);
+    assert!(text.contains("2 個を置換しました。"), "{text}");
+    // the dialog starts again with the values it had
+    f.run(cx, "F_GREP_REPLACE_DLG", &[]);
+    let panel = f.panel(cx);
+    let (replacement, paste) = panel.read_with(cx, |panel, app| {
+        (
+            panel.replacement.read(app).value().to_string(),
+            panel.settings.paste,
+        )
+    });
+    assert_eq!(replacement, "日本語");
+    assert!(!paste);
+}
+
+#[gpui::test]
+fn the_replace_dialog_wants_a_condition(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    let p = Project::new();
+    f.run(cx, "F_GREP_REPLACE_DLG", &[]);
+    let panel = f.panel(cx);
+    fill_and_ok(cx, &panel, "", &p.root());
+    let (_, detail) = cx.pending_prompt().expect("a box");
+    assert_eq!(detail, "置換条件を指定してください。");
+    answer(cx, "OK");
+    assert!(f.panel_open(cx));
+    assert_eq!(read(&p, "a.txt"), "alpha\nbeta hit\ngamma\n");
+}
+
+#[gpui::test]
+fn the_replace_dialog_unchecks_a_paste_without_a_clipboard(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    let p = Project::new();
+    cx.write_to_clipboard(gpui::ClipboardItem::new_string(String::new()));
+    f.run(cx, "F_GREP_REPLACE_DLG", &[]);
+    let panel = f.panel(cx);
+    panel.update(cx, |panel, _| panel.settings.paste = true);
+    fill_and_ok(cx, &panel, "hit", &p.root());
+    let (_, detail) = cx.pending_prompt().expect("a box");
+    assert_eq!(detail, "クリップボードに有効なデータがありません！");
+    answer(cx, "OK");
+    assert!(f.panel_open(cx), "it stays open");
+    assert!(!panel.read_with(cx, |panel, _| panel.settings.paste));
+    assert_eq!(read(&p, "a.txt"), "alpha\nbeta hit\ngamma\n");
+}
+
+#[gpui::test]
+fn the_two_dialogs_are_one_panel_in_two_forms(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    f.run(cx, "F_GREP_REPLACE_DLG", &[]);
+    assert!(f.panel(cx).read_with(cx, |panel, _| panel.replace_mode));
+    f.run(cx, "F_GREP_DIALOG", &[]);
+    assert!(!f.panel(cx).read_with(cx, |panel, _| panel.replace_mode));
+    f.run(cx, "F_GREP_REPLACE_DLG", &[]);
+    assert!(f.panel(cx).read_with(cx, |panel, _| panel.replace_mode));
+}
+
+#[gpui::test]
+fn a_replacement_is_not_recorded_in_a_key_macro(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rec.mac");
+    let (f, cx) = setup(cx);
+    let p = Project::new();
+    f.view
+        .update(cx, |view, cx| view.toggle_key_macro_recording(cx));
+    f.run(cx, "F_GREP_REPLACE_DLG", &[]);
+    let panel = f.panel(cx);
+    fill_and_ok(cx, &panel, "hit", &p.root());
+    f.view
+        .update(cx, |view, cx| view.toggle_key_macro_recording(cx));
+    f.view
+        .read_with(cx, |view, _| view.save_key_macro_to(&path))
+        .unwrap();
+    let saved = String::from_utf8_lossy(&std::fs::read(&path).unwrap()).into_owned();
+    // `GrepReplace` is not a function of key macros (`MacroFunction::key_macro`)
+    assert!(!saved.contains("Grep"), "{saved}");
+}

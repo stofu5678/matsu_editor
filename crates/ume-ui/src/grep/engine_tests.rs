@@ -78,6 +78,7 @@ impl Project {
             layout: Layout::default(),
             file_only: false,
             except_file_regex: false,
+            replace: None,
         }
     }
 }
