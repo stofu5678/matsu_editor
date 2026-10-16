@@ -83,6 +83,10 @@ pub(crate) fn rows(history: &History, tab: Tab) -> Vec<Row> {
     }
 }
 
+fn paths_of(history: &History, tab: Tab) -> Vec<String> {
+    rows(history, tab).into_iter().map(|r| r.text).collect()
+}
+
 /// Makes the item a favorite or not.
 pub(crate) fn set_favorite(history: &mut History, tab: Tab, index: usize, favorite: bool) {
     match tab {
@@ -249,23 +253,37 @@ impl FavoriteDialog {
         if let Some(history) = super::current(cx)
             && history != self.history
         {
+            let same_rows = self.paths() == paths_of(&history, self.tab);
             self.history = history;
-            let count = self.rows().len();
-            self.selected.retain(|i| *i < count);
-            self.focus_row = self.focus_row.min(count.saturating_sub(1));
+            self.keep_selection(same_rows);
             cx.notify();
         }
     }
 
     /// Applies a change to the history, and shows the result.
     fn change(&mut self, cx: &mut Context<Self>, change: impl FnOnce(&mut History)) {
+        let before = self.paths();
         if let Some(history) = super::update(cx, change) {
             self.history = history;
+        }
+        let same_rows = before == self.paths();
+        self.keep_selection(same_rows);
+        cx.notify();
+    }
+
+    fn paths(&self) -> Vec<String> {
+        paths_of(&self.history, self.tab)
+    }
+
+    /// The selection is by row number, so it only stays when the rows are the same ones in the same
+    /// order; else it would point at other files.
+    fn keep_selection(&mut self, same_rows: bool) {
+        if !same_rows {
+            self.selected.clear();
         }
         let count = self.rows().len();
         self.selected.retain(|i| *i < count);
         self.focus_row = self.focus_row.min(count.saturating_sub(1));
-        cx.notify();
     }
 
     pub(crate) fn select_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
