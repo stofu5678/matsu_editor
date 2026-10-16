@@ -271,6 +271,11 @@ impl EditorView {
     /// was before the macro). The edits in them become an undo step. Not a command, so the view
     /// stays where the macro put it.
     fn close_undo_blocks(&mut self, cx: &mut Context<Self>) {
+        // The block of an IME composition that the user started is not the macro's: it closes
+        // when the text is committed.
+        if self.composing {
+            return;
+        }
         let cursor = &self.cursor;
         self.document.update(cx, |shared, _| {
             shared.parts_mut().0.close_blocks(cursor);
