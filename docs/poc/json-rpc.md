@@ -248,6 +248,10 @@ JSON-RPC の方式について、Codex が挙げた点。
   - 捕まえなかったエラーは、`スクリプト名:行:桁` つきのスタックを標準エラーに書き、終了コード 1 で終わる。スクリプトのあとに動く Promise の処理は、終わるまで待つ。誰も受けなかった拒否も、同じようにエラーで終わる
   - 再帰の深さは機械のスタックの手前（512 KB）で止まり、`RangeError` になる（Windows のメインスレッドは 1 MB）
 - mruby（`.mruby`。4.0。`crates/ume-mruby-sys` が C のソースと生成済みのファイルを抱えてビルドする。ビルドに Ruby は要らない）も同じ作りで、`Editor` の関数は C の関数として名前ごとに束ねる。`EditorError` は `code` と `message` を持ち、呼んだ行は例外の `backtrace` に出る（`where` はない）。エラーは `名前:行: メッセージ (クラス名)` で標準エラーに書く。入っている mrbgem と理由は `crates/ume-mruby-sys/vendor/mruby/README.md` にある。`.rb` は引き続き利用者の CRuby で動く
+- MicroPython（`.upy`、`--engine micropython`）: MicroPython 1.29.0（MIT）を、公式の embed ポート（`ports/embed`）で作った C のソースにして `crates/ume-micropython-sys/vendor/micropython/` に置き、`cc` でビルドして `ume-script` に入れる（再生成の手順は、そこの README）。`.mpy` は MicroPython のバイトコードの拡張子なので使わない。`.py` は利用者の CPython のまま
+  - `Editor`（`Editor.info` を含む）と `EditorError(Exception)`（`code`・`message`）は、`boot.py` と同じ。C の関数 `_ume_call` を 1 つだけ経由して、`FUNCS` の名前から束ねる。引数の最後の `None` は省く。整数の値の浮動小数点数は整数として送る
+  - 例外は、MicroPython の形で標準エラーに出す（`File "名前", line 3, in <module>`）。終了コードは 1
+  - 使えるのは組み込みのモジュールだけ（`sys`・`json`・`math`・`struct`・`collections`・`array`・`binascii`・`heapq`・`io`・`errno`・`gc`）。ファイルは開けない。`re` は、エンジン（`lib/re1.5`）のライセンス文が MicroPython に付いていないので入れていない。ヒープは 64 MiB 固定（OS から確保して使った分だけ触る）で、超えると `MemoryError`
 - 配布物には、`ume` の隣に `ume-script` も入れる（リリースのパッケージの作りで扱う）
 
 ## 試作の結果
