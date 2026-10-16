@@ -890,3 +890,12 @@ fn pastebox_into_wrapped_rows_adds_a_line_ending_at_the_wrap_point_as_sakura_doe
     assert_eq!(text, "a12\nbcdef");
     assert_eq!(cursor.caret(), Pos::new(0, 1));
 }
+
+#[test]
+fn text_that_reaches_the_wrap_point_moves_the_box_to_the_right_edge() {
+    // The end of the inserted text is on the next row, so its width cannot be told from the
+    // columns; Sakura counts the columns up to the right edge (`GetMaxLineLayout()`).
+    let (text, _, cursor) = run_wrapped("abcdef\nxy", (0, 1), (1, 2), "XY", "paste", &[]);
+    assert_eq!(text, "aXYbcdXYef\nxy");
+    assert_eq!(cursor.box_caret_col(), Some(crate::context::MAX_BOX_COL));
+}

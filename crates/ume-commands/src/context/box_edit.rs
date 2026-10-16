@@ -313,7 +313,13 @@ impl CommandContext<'_> {
             let padded = format!("{}{text}", " ".repeat(ins.pad));
             let edit = self.replace(ins.at, ins.at, &padded)?;
             let end_col = self.layout.display_col(self.doc(), edit.end)?;
-            let width = end_col.saturating_sub(ins.col);
+            // The text reached the wrap point: the end is on the next row. Sakura then counts
+            // the columns to the right edge (`GetMaxLineLayout()` minus the start column).
+            let width = if end_col >= ins.col {
+                end_col - ins.col
+            } else {
+                MAX_BOX_COL.saturating_sub(ins.col)
+            };
             shift = Some(shift.map_or(width, |s: usize| s.min(width)));
         }
         let shift = shift.unwrap_or(0);
