@@ -409,13 +409,18 @@ fn current_text(ed: &Editor) -> Result<String> {
 /// F_EXPANDPARAMETER.
 fn expand_parameter(ed: &mut Editor, args: &Args) -> Result {
     let caret = ed.cx.caret();
-    let line_text = ed
-        .cx
-        .doc()
-        .line(caret.line)
-        .map_err(command)?
-        .map(|l| l.text)
-        .unwrap_or_default();
+    // `$x` is the number of UTF-16 units before the caret, plus one. Only that format reads the
+    // text in front of the caret.
+    let column = if args.str(0).contains("$x") {
+        let before = ed
+            .cx
+            .doc()
+            .text_between(ume_core::buffer::Pos::new(caret.line, 0), caret)
+            .map_err(command)?;
+        utf16_len(&before) + 1
+    } else {
+        0
+    };
     let context = Context {
         path: ed.cx.path().map(|p| p.to_string_lossy().into_owned()),
         macro_path: ed.env.macro_path.clone(),
@@ -428,7 +433,7 @@ fn expand_parameter(ed: &mut Editor, args: &Args) -> Result {
         } else {
             String::new()
         },
-        column: utf16_len(line_text.get(..caret.col).unwrap_or(&line_text)) + 1,
+        column,
         line: caret.line + 1,
         view_mode: ed.cx.is_view_mode(),
         recording: ed.env.recording_key_macro,

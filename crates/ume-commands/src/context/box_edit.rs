@@ -182,13 +182,13 @@ impl CommandContext<'_> {
     /// `ExpandParameter` (`$C`) takes of a box. Unlike [`box_text`](Self::box_text) it does not
     /// read the other rows. `None` if no box covers anything.
     pub fn box_first_row_text(&self) -> Result<Option<String>> {
-        let Some(rect) = self.box_rect()? else {
+        // The rows are not listed: only the first one is needed, and a box can cover the whole
+        // document.
+        let Some(((a, a_col), (c, c_col))) = self.cursor.box_corners() else {
             return Ok(None);
         };
-        let Some(&row) = rect.rows.first() else {
-            return Ok(Some(String::new()));
-        };
-        let (from, to) = self.box_row_range(row, rect.left, rect.right)?;
+        let row = self.layout.row_start(self.doc(), a.min(c))?;
+        let (from, to) = self.box_row_range(row, a_col.min(c_col), a_col.max(c_col))?;
         Ok(Some(self.doc().text_between(from, to)?))
     }
 

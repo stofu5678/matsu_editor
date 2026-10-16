@@ -262,7 +262,10 @@ fn get_view_top(ed: &mut Editor, _: &Args) -> Result {
 fn change_tab_width(ed: &mut Editor, args: &Args) -> Result {
     let old = i64::try_from(ed.cx.layout().tab_width()).unwrap_or(4);
     let new = args.int(0);
-    if (1..=MAX_TAB_WIDTH).contains(&new) && new != old {
+    // Even a width that is the one in use is asked for: the width in use may be the fallback of 4
+    // for a tab width that does not fit the wrap column, and a later wrap column would bring the
+    // old width back. The window ignores a request for the width it has.
+    if (1..=MAX_TAB_WIDTH).contains(&new) {
         ed.env.requests.tab_width = u32::try_from(new).ok();
     }
     Ok(old.into())
@@ -552,10 +555,14 @@ mod tests {
     fn the_tab_width_is_read_and_changed_by_request() {
         let mut f = Fixture::new("");
         // 0 and out of range only read
-        for width in [0, -1, 65, 4] {
+        for width in [0, -1, 65] {
             assert_eq!(f.ok("ChangeTabWidth", json!([width])), json!(4));
             assert_eq!(f.env.requests.tab_width, None, "{width}");
         }
+        // the width in use is asked for as well (see the function)
+        assert_eq!(f.ok("ChangeTabWidth", json!([4])), json!(4));
+        assert_eq!(f.env.requests.tab_width, Some(4));
+        f.env.requests.tab_width = None;
         assert_eq!(f.ok("ChangeTabWidth", json!([8])), json!(4));
         assert_eq!(f.env.requests.tab_width, Some(8));
     }
