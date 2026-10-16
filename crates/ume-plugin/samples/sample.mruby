@@ -1,0 +1,28 @@
+# Sample macro (mruby, bundled in ume-script). Run it from the Tools menu of the PoC:
+#   ツール > 名前を指定してマクロ実行...
+# `Editor` is there without a require. The names and the arguments are Sakura's macro API.
+
+Editor.GoFileTop
+Editor.InsText("# サンプルマクロ 😀\n")
+
+count = Editor.GetLineCount(0)
+puts "行数: #{count} ファイル: #{Editor.GetFilename.empty? ? '(無題)' : Editor.GetFilename}"
+(1..count).each do |i|
+  puts "#{i}: #{Editor.GetLineStr(i).chomp}"
+end
+
+# Select line 3 (a line number and a column both start at 1) and replace it.
+Editor.MoveCursor(3, 1, 0)
+Editor.MoveCursor(3, 1000, 1) # past the end of the line: the end of the line
+puts "選択: #{Editor.GetSelectedString(0)} / IsTextSelected = #{Editor.IsTextSelected}"
+Editor.InsText('みかん😀 (置き換えました)')
+
+# An error response is an exception.
+begin
+  Editor.GetLineStr('not a number')
+rescue EditorError => e
+  puts "エラー: #{e.code} #{e.message}"
+end
+
+Editor.AddTail("-- マクロの終わり --\n")
+Editor.Jump(1)

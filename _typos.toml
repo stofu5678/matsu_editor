@@ -2,6 +2,8 @@
 extend-exclude = [
     "*.lock",
     "*.diff",
+    # Vendored C sources (mruby and its generated files).
+    "vendor/",
     # Vendored Onigmo (C sources and Unicode tables) and the test table generated from its testpy.py.
     "crates/ume-regex/onigmo/",
     "crates/ume-regex/src/onigmo_suite/cases.rs",
