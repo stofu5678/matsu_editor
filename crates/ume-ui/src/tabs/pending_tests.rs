@@ -104,3 +104,15 @@ fn the_bar_is_not_switched_while_a_file_is_being_read(cx: &mut TestAppContext) {
     let notice = super::tests::active_view(cx, handle).read_with(cx, |v, _| v.notice.clone());
     assert!(notice.is_some_and(|n| n.contains("読み込み中")));
 }
+
+#[gpui::test]
+fn a_file_being_read_is_pending_for_every_pane_of_the_document(cx: &mut TestAppContext) {
+    let handle = tabs(cx, 2);
+    run(cx, handle, "F_SPLIT_V");
+    let panes = workspace(cx, handle).read_with(cx, |ws, _| ws.panes.shown());
+    assert_eq!(panes.len(), 2);
+    cx.update(|app| begin_pending(app, handle, &panes[0].downgrade(), "/work/slow.txt".into()));
+    assert!(cx.update(|app| is_pending(app, &panes[1].downgrade())));
+    let other_tab = tab(cx, handle, 0);
+    assert!(!cx.update(|app| is_pending(app, &other_tab.downgrade())));
+}

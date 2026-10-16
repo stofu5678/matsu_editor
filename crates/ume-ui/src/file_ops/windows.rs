@@ -336,10 +336,19 @@ pub(crate) fn has_pending(cx: &mut App, handle: AnyWindowHandle) -> bool {
         .any(|(h, _, _)| *h == handle)
 }
 
-/// Whether this view is still reading a file into its document.
+/// Whether this view, or another pane of its document, is still reading a file into the
+/// document.
 pub(crate) fn is_pending(cx: &mut App, view: &WeakEntity<EditorView>) -> bool {
-    cx.default_global::<EditorWindows>()
+    let Some(document) = view.upgrade().map(|v| v.read(cx).document().entity_id()) else {
+        return false;
+    };
+    let reading: Vec<_> = cx
+        .default_global::<EditorWindows>()
         .pending
         .iter()
-        .any(|(_, v, _)| v.entity_id() == view.entity_id())
+        .filter_map(|(_, v, _)| v.upgrade())
+        .collect();
+    reading
+        .iter()
+        .any(|v| v.read(cx).document().entity_id() == document)
 }

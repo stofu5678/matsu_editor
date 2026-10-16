@@ -145,18 +145,7 @@ impl Workspace {
             .border_b_1()
             .border_color(rgb(0xc0c0c0))
             .text_size(px(12.))
-            .text_color(rgb(0x1e1e1e))
-            // `OnLButtonDblClk`: a double click beside the tabs makes a new document.
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
-                    if event.click_count >= 2 {
-                        let editor = this.editor().clone();
-                        let code = function_code("F_FILENEW");
-                        editor.update(cx, |view, cx| view.run_function(code, &[], window, cx));
-                    }
-                }),
-            );
+            .text_color(rgb(0x1e1e1e));
         for (i, entry) in entries.iter().cloned().enumerate() {
             bar = bar.child(self.render_tab(i, entry, own, cx));
         }
@@ -173,9 +162,25 @@ impl Workspace {
                 editor.update(cx, |view, cx| view.run_function(code, &[], window, cx));
             }));
         Some(
-            bar.child(div().flex_1())
-                .child(list_button)
-                .into_any_element(),
+            bar.child(
+                div()
+                    .flex_1()
+                    // `OnLButtonDblClk`: a double click beside the tabs makes a new document.
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
+                            if event.click_count >= 2 {
+                                let editor = this.editor().clone();
+                                let code = function_code("F_FILENEW");
+                                editor.update(cx, |view, cx| {
+                                    view.run_function(code, &[], window, cx)
+                                });
+                            }
+                        }),
+                    ),
+            )
+            .child(list_button)
+            .into_any_element(),
         )
     }
 
