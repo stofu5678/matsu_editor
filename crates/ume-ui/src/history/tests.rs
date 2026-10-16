@@ -358,8 +358,10 @@ fn the_recent_file_menu_opens_the_file(cx: &mut TestAppContext) {
         h.add_file(entry);
         h.add_file(FileEntry::new(path_text(&a)));
     });
-    // The list is a at 0 and b at 1; the untitled window takes b.
-    cx.dispatch_action(OpenRecentFile { index: 1 });
+    // The list is a, b; the untitled window takes b.
+    cx.dispatch_action(OpenRecentFile {
+        path: path_text(&b),
+    });
     cx.run_until_parked();
     assert_eq!(f.text(cx), "bbb");
     assert_eq!(
@@ -367,10 +369,13 @@ fn the_recent_file_menu_opens_the_file(cx: &mut TestAppContext) {
         [path_text(&b), path_text(&a)],
         "opening moves it to the front"
     );
-    // An index that is not there does nothing.
-    cx.dispatch_action(OpenRecentFile { index: 9 });
+    // The item opens the file it showed, whatever the history is now.
+    set_history(cx, |h| h.files.clear());
+    cx.dispatch_action(OpenRecentFile {
+        path: path_text(&a),
+    });
     cx.run_until_parked();
-    assert_eq!(f.text(cx), "bbb");
+    assert_eq!(cx.windows().len(), 2, "a opened in a new window");
 }
 
 #[gpui::test]

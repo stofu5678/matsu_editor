@@ -125,8 +125,8 @@ fn gpui_items(entries: Vec<Entry>, style: DisplayStyle) -> Vec<MenuItem> {
                     MenuAction::Function(code) if item.enabled => {
                         Some(MenuItem::action(label, RunFunction { code }))
                     }
-                    MenuAction::RecentFile(index) => {
-                        Some(MenuItem::action(label, OpenRecentFile { index }))
+                    MenuAction::RecentFile(path) => {
+                        Some(MenuItem::action(label, OpenRecentFile { path }))
                     }
                     // Nobody handles `Unavailable`, so the native menu of macOS, which asks
                     // whether the action can be handled, keeps the item gray.

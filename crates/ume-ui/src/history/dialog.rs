@@ -95,6 +95,15 @@ pub(crate) fn set_favorite(history: &mut History, tab: Tab, index: usize, favori
     history.folders.change_view_count(folders);
 }
 
+/// The index of the item with this path in the latest history: another window may have changed the
+/// order since the dialog showed it, so rows are told by their path.
+fn index_of(history: &History, tab: Tab, path: &str) -> Option<usize> {
+    match tab {
+        Tab::Files => history.files.find(path),
+        Tab::Folders => history.folders.find(path),
+    }
+}
+
 /// "すべて": removes every item, favorites too (`DeleteAllItem`).
 pub(crate) fn delete_all(history: &mut History, tab: Tab) {
     match tab {
@@ -300,8 +309,14 @@ impl FavoriteDialog {
     /// The check box of a row.
     pub(crate) fn toggle_favorite(&mut self, index: usize, cx: &mut Context<Self>) {
         let tab = self.tab;
-        let favorite = self.rows().get(index).is_some_and(|r| r.favorite);
-        self.change(cx, |h| set_favorite(h, tab, index, !favorite));
+        let Some(row) = self.rows().into_iter().nth(index) else {
+            return;
+        };
+        self.change(cx, |h| {
+            if let Some(i) = index_of(h, tab, &row.text) {
+                set_favorite(h, tab, i, !row.favorite);
+            }
+        });
     }
 
     /// Asks, and runs `change` on the history if the answer is yes.
@@ -361,9 +376,19 @@ impl FavoriteDialog {
         if selected.is_empty() {
             return;
         }
+        let paths: Vec<String> = self
+            .rows()
+            .into_iter()
+            .enumerate()
+            .filter(|(i, _)| selected.contains(i))
+            .map(|(_, r)| r.text)
+            .collect();
         let next = selected.iter().next_back().copied().unwrap_or(0) + 1 - selected.len();
         self.selected.clear();
-        self.change(cx, |h| delete_selected(h, tab, &selected));
+        self.change(cx, |h| {
+            let indices = paths.iter().filter_map(|p| index_of(h, tab, p)).collect();
+            delete_selected(h, tab, &indices);
+        });
         // The item after the last one deleted is selected, or the last item.
         let count = self.rows().len();
         if count > 0 {

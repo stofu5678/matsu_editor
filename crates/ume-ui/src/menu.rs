@@ -16,12 +16,12 @@ use ume_commands::sakura::{FUNCTIONS, KEY_PARENTHESES, MAIN_MENU, MenuItem, Menu
 pub const F_EXITALL: u16 = 30195;
 
 /// What an item does when it is chosen.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MenuAction {
     /// Run the Sakura function with this code on the editor.
     Function(u16),
-    /// Open the recent file at this index of the history (`IDM_SELMRU + index`).
-    RecentFile(usize),
+    /// Open this recent file (`IDM_SELMRU + index`; the path is what the item showed).
+    RecentFile(String),
     /// Quit the application.
     Exit,
     /// Nothing: a list that Sakura fills in at run time (recent files, windows, ...), which is

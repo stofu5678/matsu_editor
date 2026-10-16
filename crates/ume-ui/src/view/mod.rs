@@ -68,11 +68,12 @@ pub struct RunFunction {
     pub code: u16,
 }
 
-/// A menu item of the recent files: open the file at this index of the history.
+/// A menu item of the recent files: open this file. The path is the one the menu showed, so a history
+/// that another window changed since cannot make the item open another file.
 #[derive(Clone, PartialEq, Debug, gpui::Action)]
 #[action(namespace = ume, no_json)]
 pub struct OpenRecentFile {
-    pub index: usize,
+    pub path: String,
 }
 
 /// The font of the text, by OS: a Japanese monospaced font, so that full-width characters are
@@ -643,7 +644,7 @@ impl Render for EditorView {
                 this.run_function(a.code, &[], window, cx);
             }))
             .on_action(cx.listener(|this, a: &OpenRecentFile, window, cx| {
-                this.open_recent_file(a.index, window, cx);
+                this.open_recent_file(a.path.clone(), window, cx);
             }))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_move(cx.listener(Self::on_mouse_move))

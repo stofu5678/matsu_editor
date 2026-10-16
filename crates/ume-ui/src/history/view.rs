@@ -127,19 +127,18 @@ impl EditorView {
         }
     }
 
-    /// `IDM_SELMRU + index`: opens the file of the history. The encoding the file had is used
-    /// (`CControlTray::OnCommand`: the `EditInfo` is given to the new editor).
+    /// `IDM_SELMRU + index`: opens the file the menu showed. The encoding the history has for it is
+    /// used (`CControlTray::OnCommand`: the `EditInfo` is given to the new editor).
     pub(crate) fn open_recent_file(
         &mut self,
-        index: usize,
+        path: String,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(entry) = super::current(cx).and_then(|h| h.files.get(index).cloned()) else {
-            return;
-        };
-        let path = PathBuf::from(&entry.path);
-        let encoding = encoding_of(&entry);
+        let encoding = super::current(cx)
+            .and_then(|h| h.file(&path).cloned())
+            .and_then(|entry| encoding_of(&entry));
+        let path = PathBuf::from(path);
         start(window, cx, async move |view, cx| {
             open_paths(&view, cx, vec![path], encoding).await;
         });

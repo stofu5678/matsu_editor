@@ -74,8 +74,8 @@ fn the_file_menu_lists_the_files_that_are_shown() {
     let items = recent_items(&menus);
     assert_eq!(items.len(), 3, "the view count, not all five");
     assert_eq!(items[0].label, "1 /d/4.txt");
-    assert_eq!(items[0].action, MenuAction::RecentFile(0));
-    assert_eq!(items[2].action, MenuAction::RecentFile(2));
+    assert_eq!(items[0].action, MenuAction::RecentFile("/d/4.txt".into()));
+    assert_eq!(items[2].action, MenuAction::RecentFile("/d/2.txt".into()));
     assert!(items.iter().all(|i| i.enabled));
     // They are in the submenu of the recent files, in the File menu.
     let entries = submenu(&menus, "最近使ったファイル");

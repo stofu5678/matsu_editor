@@ -60,7 +60,7 @@ impl Lists for RecentLists {
             .enumerate()
             .map(|(i, entry)| Item {
                 label: label(i, entry),
-                action: MenuAction::RecentFile(i),
+                action: MenuAction::RecentFile(entry.path.clone()),
                 shortcut: None,
                 enabled: true,
             })

@@ -24,7 +24,7 @@ use crate::profile::Profile;
 /// A lock this old is taken over.
 const STALE_LOCK: Duration = Duration::from_secs(20);
 /// How long to wait for the lock before giving up.
-const LOCK_TIMEOUT: Duration = Duration::from_secs(10);
+const LOCK_TIMEOUT: Duration = Duration::from_secs(3);
 const POLL: Duration = Duration::from_millis(5);
 
 /// The history in a settings file.
@@ -93,8 +93,13 @@ impl HistoryStore {
                         .ok()
                         .and_then(|t| SystemTime::now().duration_since(t).ok());
                     if age.is_some_and(|a| a > STALE_LOCK) {
-                        let _ = std::fs::remove_file(&path);
-                        continue;
+                        // Two processes may take over the same dead lock; that is rare (the lock
+                        // is held for milliseconds) and the cost is one lost addition.
+                        match std::fs::remove_file(&path) {
+                            Ok(()) => continue,
+                            Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+                            Err(e) => return Err(e),
+                        }
                     }
                     if start.elapsed() > LOCK_TIMEOUT {
                         return Err(io::Error::new(
