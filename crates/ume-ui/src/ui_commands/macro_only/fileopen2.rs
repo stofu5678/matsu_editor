@@ -8,13 +8,16 @@
 //! untitled and unmodified, else in a new window, or a new tab in tab mode; a file that is open already is brought to
 //! the front), and in view mode when the third argument is not 0.
 //!
-//! # The macro waits when the file goes into this window
+//! # The macro waits in all three cases
 //!
-//! Sakura reads such a file before `FileOpen` returns, so the calls after it work on the new
-//! text. Here too: the file is read at once (on the UI thread, as Sakura does), and a failure is
-//! shown and the macro goes on. A file for a new window, and the open dialog (empty name), are
-//! asynchronous: the macro does not wait for them (Sakura waits for the dialog, and starts a new
-//! process for the new window, which a macro does not wait for either).
+//! Sakura reads a file that goes into this window before `FileOpen` returns, so the calls after
+//! it work on the new text. Here too: such a file is read at once (on the UI thread, as Sakura
+//! does), and a failure is shown and the macro goes on. A file for a new window, and the open
+//! dialog (empty name), run as flows (`file_ops::start`) and the macro waits for them
+//! (`macros/wait.rs`): until the dialog is closed and the file is read, and, for a new window,
+//! until that window has finished loading. Sakura waits for the dialog, but starts a new process
+//! for the new window and does not wait for it; waiting for it is the user's decision
+//! (2026-10-17), so that the calls after `FileOpen` can rely on the file being loaded.
 //!
 //! # The default name
 //!

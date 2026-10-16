@@ -127,7 +127,9 @@ impl EditorView {
                     self.warning_box(FILE_NOT_FOUND, window, cx);
                     return;
                 }
+                let tracked = crate::macros::track(cx);
                 cx.spawn_in(window, async move |this, cx| {
+                    let _tracked = tracked;
                     let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
                     let defaults = cx
                         .update(|_, app| new_document_defaults(app, name.as_deref()))
@@ -165,7 +167,9 @@ impl EditorView {
             }
         };
         let options = DiffOptions::from_flags(flags);
+        let tracked = crate::macros::track(cx);
         cx.spawn_in(window, async move |this, cx| {
+            let _tracked = tracked;
             let outcome = cx
                 .background_executor()
                 .spawn(async move { compute(&own, &other, options) })

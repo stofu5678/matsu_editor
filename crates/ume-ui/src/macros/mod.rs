@@ -26,12 +26,16 @@
 //! * Text from the IME is recorded as one `Char` per character, like typed characters.
 //! * The user can still type while a script runs; Sakura blocks the window. Both write to the
 //!   same document, one call at a time.
+//! * A call that opens a dialog or a panel, or works in the background, is waited for: a script
+//!   gets its answer, and a key macro goes on, when it is over (`wait.rs`). That includes a file
+//!   in a new window, which Sakura (it starts another process) does not wait for.
 //! * A script is aborted from the panel's button or by [`EditorView::cancel_macro`]; Sakura
 //!   has no way to stop a macro.
 
 mod host;
 mod output;
 mod ui_calls;
+mod wait;
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -53,6 +57,7 @@ use crate::view::EditorView;
 use output::PanelActions;
 
 pub(crate) use output::{Kind, Output};
+pub(crate) use wait::track;
 
 /// `F_WCHAR`, the function of a typed character (`Char` in a macro).
 pub(crate) const F_WCHAR: u16 = 30200;
@@ -147,6 +152,11 @@ pub(crate) struct MacroState {
     /// Counts the scripts that were started, so that the answer of a dialog that was open when
     /// its macro ended is not sent to the next one.
     serial: u64,
+    /// The wait for a call that finishes later (`wait.rs`): the number of the wait that is on,
+    /// if any. A key macro does not go on, and a script gets no answer, until it ends.
+    waiting: Option<u64>,
+    /// Counts the waits that began, so that a wait that was stopped can tell.
+    epoch: u64,
     /// What the macro functions keep between two calls (cookies, the draw switch).
     host_state: ume_plugin::host::HostState,
     pub(crate) output: Output,
@@ -163,7 +173,7 @@ impl MacroState {
     }
 
     fn busy(&self) -> bool {
-        self.running.is_some() || !self.queue.is_empty()
+        self.running.is_some() || !self.queue.is_empty() || self.waiting.is_some()
     }
 }
 
@@ -541,7 +551,7 @@ impl EditorView {
     /// first call that fails (`CKeyMacroMgr::ExecKeyMacro`), and waits while a script runs.
     fn drain_key_macro(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.macros.draining = true;
-        while self.macros.running.is_none() {
+        while self.macros.running.is_none() && self.macros.waiting.is_none() {
             let step = match self.macros.queue.pop_front() {
                 None => break,
                 Some(Item::Leave) => {
@@ -556,7 +566,8 @@ impl EditorView {
             let args = &step.args[..step.args.len().min(declared)];
             self.notice = None;
             // The result says whether the call failed; a notice may also come with a success.
-            if !self.run_function(step.code, args, window, cx) {
+            let (ok, wait) = self.run_macro_function(step.code, args, window, cx);
+            if !ok {
                 let notice = self.notice.clone().unwrap_or_default();
                 self.clear_key_macro();
                 let message = format!(
@@ -568,9 +579,18 @@ impl EditorView {
                 self.macros.output.push(Kind::Note, message);
                 break;
             }
+            // A dialog, a panel or a file that is read: the macro goes on when it is over.
+            if let Some(wait) = wait {
+                self.begin_wait(wait, window, cx, |this, window, cx| {
+                    this.drain_key_macro(window, cx);
+                });
+            }
         }
         self.macros.draining = false;
-        if self.macros.running.is_none() && self.macros.queue.is_empty() {
+        if self.macros.running.is_none()
+            && self.macros.waiting.is_none()
+            && self.macros.queue.is_empty()
+        {
             self.macros.suspended = false;
             self.close_undo_blocks(cx);
         }
@@ -665,6 +685,8 @@ impl EditorView {
             }
             HostEvent::Finished(finished) => {
                 let running = self.macros.running.take();
+                // A call of the script that was waiting gets no answer: the script is gone.
+                self.macros.waiting = None;
                 let (name, timeout_text) =
                     running.map_or_else(Default::default, |r| (r.name, r.timeout_text));
                 let mut message = ume_plugin::describe(&finished, &timeout_text);
@@ -695,6 +717,8 @@ impl EditorView {
     /// Stops the macro that is running, and drops the rest of a key macro that waits for it.
     pub fn cancel_macro(&mut self, cx: &mut Context<Self>) {
         self.clear_key_macro();
+        // The wait for a dialog ends; the dialog itself stays for the user to close.
+        self.macros.waiting = None;
         match &self.macros.running {
             // `Finished` follows with `Cancelled`.
             Some(running) => running.session.cancel(),
@@ -712,7 +736,7 @@ impl EditorView {
     pub fn macro_panel(&self, view: Entity<EditorView>) -> Option<AnyElement> {
         let cancel = view.clone();
         self.macros.output.panel(PanelActions {
-            running: self.macros.running.is_some(),
+            running: self.macros.running.is_some() || self.macros.waiting.is_some(),
             on_cancel: Box::new(move |_, _, cx| {
                 cancel.update(cx, |view, cx| view.cancel_macro(cx));
             }),
