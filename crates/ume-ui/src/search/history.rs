@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 
 use gpui::{App, Global};
 use ume_config::Profile;
+use ume_config::history::update_profile;
 use ume_config::settings::SearchKeys;
 
 use crate::view::EditorView;
@@ -52,22 +53,14 @@ impl SearchHistory {
         &self.keys
     }
 
-    /// Writes `[Keys]` into the settings file, leaving the rest of it alone. A file that cannot be
-    /// read is not touched.
+    /// Writes `[Keys]` into the settings file, leaving the rest of it alone. The file is changed
+    /// under the lock that every writer of the file takes (`ume_config::history::update_profile`),
+    /// so a recent file added by another window at the same moment is not lost. A file that cannot
+    /// be read is not touched.
     fn persist(&self) {
         let Some(path) = &self.store else { return };
-        let mut profile = if path.is_file() {
-            match Profile::load(path) {
-                Ok(profile) => profile,
-                Err(_) => return,
-            }
-        } else {
-            Profile::new()
-        };
-        if self.keys.write_to(&mut profile).is_ok() {
-            // A history that cannot be saved is not worth stopping a search for.
-            let _ = profile.save(path);
-        }
+        // A history that cannot be saved is not worth stopping a search for.
+        let _ = update_profile(path, |profile| Ok(self.keys.write_to(profile).is_ok()));
     }
 }
 

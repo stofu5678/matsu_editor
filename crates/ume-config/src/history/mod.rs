@@ -70,7 +70,7 @@ pub mod marks;
 pub mod store;
 
 pub use list::{Recent, RecentList};
-pub use store::HistoryStore;
+pub use store::{HistoryStore, update_profile};
 
 use crate::profile::{Profile, ProfileError};
 
