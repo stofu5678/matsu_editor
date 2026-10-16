@@ -60,11 +60,36 @@ struct Placed {
     line: ShapedLine,
 }
 
+/// How the line number area of a row shows a bookmark.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GutterMark {
+    None,
+    /// The area has the background of the bookmark color (and the number its text color).
+    Background,
+    /// A vertical line two pixels wide at the left edge, in the color of the line number.
+    Line,
+}
+
+/// Sakura: `CTextDrawer::DispLineNumber` (`sakura_core/view/CTextDrawer.cpp`). When the bookmark
+/// color is shown, the line number is drawn in it, which needs the line numbers to be shown
+/// (the area is filled by the text drawing); when it is not shown, a bookmark is the vertical
+/// line, whether the line numbers are shown or not.
+fn gutter_mark(bookmarked: bool, colored: bool, line_numbers: bool) -> GutterMark {
+    match (bookmarked, colored, line_numbers) {
+        (false, ..) | (true, true, false) => GutterMark::None,
+        (true, true, true) => GutterMark::Background,
+        (true, false, _) => GutterMark::Line,
+    }
+}
+
 struct RowPaint {
     /// The columns of the matches of the search pattern on this row.
     found: Vec<(u32, u32)>,
     selection: Option<(u32, u32)>,
     numbers: Option<ShapedLine>,
+    /// The line of this row has a bookmark (every row of a wrapped line shows it, as in Sakura:
+    /// `CTextDrawer::DispLineNumber` looks at the line of each layout row).
+    bookmarked: bool,
     text: Vec<Placed>,
     /// The same pieces in the color of selected text, when that differs from the text color and
     /// the row has a selection.
@@ -81,6 +106,8 @@ pub(super) struct Prepaint {
     caret: Option<(usize, u32, Option<u32>)>,
     colors: Colors,
     show_line_numbers: bool,
+    /// The bookmark color is shown (see `Marks::bookmark`).
+    bookmark_colored: bool,
     cell: f32,
     line_height: f32,
     gutter_width: f32,
@@ -190,16 +217,23 @@ impl Element for EditorElement {
             None => Vec::new(),
         }
         .into_iter();
+        let bookmarks = editor.document.read(cx).model().bookmarks();
         let mut widest = 0;
         let mut painted = Vec::with_capacity(rows.len());
         for row in &rows {
             widest = widest.max(row.end_column);
+            let bookmarked = !row.is_eof_row && bookmarks.contains(row.line);
+            let number_color = if bookmarked && marks_shown.bookmark {
+                colors.bookmark
+            } else {
+                colors.line_number
+            };
             let numbers =
                 (show_line_numbers && row.row_in_line == 0 && !row.is_eof_row).then(|| {
                     shape(
                         window,
                         &format!("{:>width$}", row.line + 1, width = digits),
-                        colors.line_number,
+                        number_color,
                     )
                 });
             let selected = match &box_area {
@@ -275,6 +309,7 @@ impl Element for EditorElement {
                 found: found.next().unwrap_or_default(),
                 selection: selected,
                 numbers,
+                bookmarked,
                 text,
                 selected_text,
                 marks,
@@ -309,6 +344,7 @@ impl Element for EditorElement {
             caret,
             colors,
             show_line_numbers,
+            bookmark_colored: marks_shown.bookmark,
             cell,
             line_height,
             gutter_width,
@@ -370,6 +406,17 @@ impl Element for EditorElement {
 
         for (i, row) in p.rows.iter().enumerate() {
             let y = bounds.top() + px(p.y_offset) + lh * i as f32;
+            match gutter_mark(row.bookmarked, p.bookmark_colored, p.show_line_numbers) {
+                GutterMark::None => {}
+                GutterMark::Background => window.paint_quad(fill(
+                    Bounds::new(point(bounds.left(), y), size(px(p.gutter_width), lh)),
+                    rgb(p.colors.bookmark_background),
+                )),
+                GutterMark::Line => window.paint_quad(fill(
+                    Bounds::new(point(bounds.left() + px(1.), y), size(px(2.), lh)),
+                    rgb(p.colors.line_number),
+                )),
+            }
             if let Some(numbers) = &row.numbers {
                 numbers
                     .paint(
@@ -620,5 +667,17 @@ mod tests {
         };
         let layout = DocumentLayout::laid_out(&doc, config).unwrap();
         assert_eq!(overwrite_caret_cells(&doc, &layout, Pos::new(0, 2)), 2);
+    }
+
+    #[test]
+    fn a_bookmarked_line_shows_its_mark_the_way_sakura_draws_it() {
+        use GutterMark::*;
+        assert_eq!(gutter_mark(false, true, true), None);
+        assert_eq!(gutter_mark(true, true, true), Background);
+        // without the bookmark color a vertical line marks the line
+        assert_eq!(gutter_mark(true, false, true), Line);
+        assert_eq!(gutter_mark(true, false, false), Line);
+        // the color is drawn with the line number, which is not there
+        assert_eq!(gutter_mark(true, true, false), None);
     }
 }

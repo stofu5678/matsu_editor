@@ -7,6 +7,7 @@
 //! ([`state::build_matcher`]) so that the regular expression option can come later without
 //! touching the rest.
 
+pub mod bookmarks;
 pub mod highlight;
 pub mod ops;
 pub mod panel;
@@ -16,5 +17,7 @@ pub use ops::SearchOutcome;
 pub use panel::{PanelMode, SearchPanel};
 pub use state::{SearchOptions, SearchState};
 
+#[cfg(test)]
+mod bookmarks_tests;
 #[cfg(test)]
 mod tests;

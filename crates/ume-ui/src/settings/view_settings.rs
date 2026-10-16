@@ -61,6 +61,10 @@ pub struct Marks {
     pub full_width_space: bool,
     pub eol: bool,
     pub eof: bool,
+    /// The bookmark color ("MRK") is shown: a bookmarked line gets its colors on the line number.
+    /// If not, a bookmark is a short vertical line at the left edge of the line number area
+    /// (`CTextDrawer::DispLineNumber`).
+    pub bookmark: bool,
 }
 
 /// The colors the view paints with.
@@ -79,6 +83,9 @@ pub struct Colors {
     pub full_width_space: Rgb,
     pub eol: Rgb,
     pub eof: Rgb,
+    /// The text and the background of the line number of a bookmarked line (color "MRK").
+    pub bookmark: Rgb,
+    pub bookmark_background: Rgb,
 }
 
 /// The settings of the view for one file.
@@ -279,6 +286,7 @@ impl ViewSettings {
         let zen = entry(names::FULL_SPACE);
         let eol = entry(names::EOL);
         let eof = entry(names::EOF);
+        let bookmark = entry(names::BOOKMARK);
 
         ViewSettings {
             type_index,
@@ -295,6 +303,7 @@ impl ViewSettings {
                 full_width_space: zen.disp,
                 eol: eol.disp,
                 eof: eof.disp,
+                bookmark: bookmark.disp,
             },
             colors: Colors {
                 text: rgb_of(text.text),
@@ -308,6 +317,8 @@ impl ViewSettings {
                 full_width_space: rgb_of(zen.text),
                 eol: rgb_of(eol.text),
                 eof: rgb_of(eof.text),
+                bookmark: rgb_of(bookmark.text),
+                bookmark_background: rgb_of(bookmark.back),
             },
             show_status_bar: profile.get_bool("Common", "bDispSTATUSBAR").unwrap_or(true),
         }
@@ -391,7 +402,8 @@ mod tests {
                 tab: true,
                 full_width_space: true,
                 eol: true,
-                eof: true
+                eof: true,
+                bookmark: true
             }
         );
         // `ColorInfo_DEFAULT`: black text on (255, 251, 240).
@@ -399,6 +411,9 @@ mod tests {
         assert_eq!(s.colors.background, 0xfffbf0);
         assert_eq!(s.colors.line_number, 0x0000ff);
         assert_eq!(s.colors.line_number_background, 0xefefef);
+        // the bookmark color: (255, 251, 240) on (0, 128, 192)
+        assert_eq!(s.colors.bookmark, 0xfffbf0);
+        assert_eq!(s.colors.bookmark_background, 0x0080c0);
         // Sakura's default font has no point size, only the height -13: 13 * 72 / 96 = 9.75 pt, rounded.
         assert_eq!(s.point_size, 98);
         assert_eq!(s.font_px(), 13.0);

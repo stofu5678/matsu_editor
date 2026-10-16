@@ -77,6 +77,8 @@ pub mod names {
     pub const WRAP: ColorName = "RAP";
     /// EOF mark.
     pub const EOF: ColorName = "EOF";
+    /// Bookmark (`COLORIDX_MARK`).
+    pub const BOOKMARK: ColorName = "MRK";
     /// Single quote string.
     pub const SINGLE_QUOTE: ColorName = "SQT";
     /// Double quote string.

@@ -213,6 +213,13 @@ impl Document {
         if self.has_tail() { breaks + 1 } else { breaks }
     }
 
+    /// The number of rows of the text: its line breaks plus one. Unlike [`line_count`](Self::line_count)
+    /// it counts the empty row after a final line break (and is 1 for an empty document). It
+    /// reads the index only, never the text.
+    pub fn row_count(&self) -> usize {
+        self.break_count() + 1
+    }
+
     /// Whether there is text after the last line break.
     fn has_tail(&self) -> bool {
         let breaks = self.break_count();

@@ -33,6 +33,7 @@
 
 use std::collections::VecDeque;
 
+use crate::bookmarks::{LineDelta, LineEdit};
 use crate::buffer::Document;
 use crate::cursor::Cursor;
 
@@ -57,6 +58,8 @@ impl Snapshot {
 struct Block {
     before: Snapshot,
     after: Snapshot,
+    /// The changes of the line list, in the order the edits were made (for the bookmarks).
+    lines: Vec<LineEdit>,
 }
 
 /// The block that is being made.
@@ -65,6 +68,7 @@ struct Open {
     depth: usize,
     before: Snapshot,
     edited: bool,
+    lines: Vec<LineEdit>,
 }
 
 /// The undo and redo history of a document.
@@ -135,6 +139,7 @@ impl History {
                     depth: 1,
                     before: Snapshot::of(doc, cursor),
                     edited: false,
+                    lines: Vec::new(),
                 });
             }
         }
@@ -153,6 +158,15 @@ impl History {
         }
     }
 
+    /// Tells the history how an edit changed the line list (and how undoing it will), after [`note_edit`](Self::note_edit),
+    /// so that undo and redo can tell the bookmarks. Outside a block there is nothing to undo, so
+    /// nothing is kept.
+    pub fn note_lines(&mut self, edit: LineEdit) {
+        if let Some(open) = &mut self.open {
+            open.lines.push(edit);
+        }
+    }
+
     /// Leaves a block. The outermost `end` stores the block if the command edited the document.
     /// `doc` and `cursor` are the state after the command.
     pub fn end(&mut self, doc: &Document, cursor: &Cursor) {
@@ -164,32 +178,57 @@ impl History {
         if let Some(open) = self.open.take()
             && open.edited
         {
-            self.push(open.before, Snapshot::of(doc, cursor));
+            self.push(open.before, Snapshot::of(doc, cursor), open.lines);
         }
     }
 
     /// Undoes one block: puts back the document and the cursor from before it. Returns `false`
     /// when there is nothing to undo.
     pub fn undo(&mut self, doc: &mut Document, cursor: &mut Cursor) -> bool {
+        self.undo_lines(doc, cursor).is_some()
+    }
+
+    /// [`undo`](Self::undo) that also returns the changes of the line list that the undo makes,
+    /// in the order to apply them. `None` when there is nothing to undo.
+    pub fn undo_lines(
+        &mut self,
+        doc: &mut Document,
+        cursor: &mut Cursor,
+    ) -> Option<Vec<LineDelta>> {
         self.store_open_edits(doc, cursor);
         if self.pos == 0 {
-            return false;
+            return None;
         }
         self.pos -= 1;
+        let lines = self.blocks[self.pos]
+            .lines
+            .iter()
+            .rev()
+            .flat_map(LineEdit::inverse)
+            .collect();
         self.restore(self.blocks[self.pos].before.clone(), doc, cursor);
-        true
+        Some(lines)
     }
 
     /// Redoes one block: puts back the document and the cursor from after it.
     pub fn redo(&mut self, doc: &mut Document, cursor: &mut Cursor) -> bool {
+        self.redo_lines(doc, cursor).is_some()
+    }
+
+    /// [`redo`](Self::redo) that also returns the changes of the line list, like
+    /// [`undo_lines`](Self::undo_lines).
+    pub fn redo_lines(
+        &mut self,
+        doc: &mut Document,
+        cursor: &mut Cursor,
+    ) -> Option<Vec<LineDelta>> {
         self.store_open_edits(doc, cursor);
-        let Some(block) = self.blocks.get(self.pos) else {
-            return false;
-        };
+        let block = self.blocks.get(self.pos)?;
         let after = block.after.clone();
+        let lines = block.lines.iter().flat_map(LineEdit::forward).collect();
         self.pos += 1;
         self.restore(after, doc, cursor);
-        true
+        Some(lines)
     }
 
     /// Sakura closes the block of the running command before it undoes (`Command_UNDO` calls
@@ -201,7 +240,8 @@ impl History {
         }
         let before = std::mem::replace(&mut open.before, Snapshot::of(doc, cursor));
         open.edited = false;
-        self.push(before, Snapshot::of(doc, cursor));
+        let lines = std::mem::take(&mut open.lines);
+        self.push(before, Snapshot::of(doc, cursor), lines);
     }
 
     fn restore(&mut self, snap: Snapshot, doc: &mut Document, cursor: &mut Cursor) {
@@ -214,13 +254,17 @@ impl History {
         }
     }
 
-    fn push(&mut self, before: Snapshot, after: Snapshot) {
+    fn push(&mut self, before: Snapshot, after: Snapshot, lines: Vec<LineEdit>) {
         self.blocks.truncate(self.pos);
         // The saved version was in the redo tail that is gone now.
         if self.saved.is_some_and(|s| s > self.pos) {
             self.saved = None;
         }
-        self.blocks.push_back(Block { before, after });
+        self.blocks.push_back(Block {
+            before,
+            after,
+            lines,
+        });
         self.pos += 1;
         self.trim();
     }
