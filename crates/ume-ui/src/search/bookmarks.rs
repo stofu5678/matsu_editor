@@ -57,7 +57,10 @@ impl EditorView {
 
     /// `F_BOOKMARK_PATTERN`: bookmarks every line that has a match of the current pattern (and
     /// keeps the bookmarks that are there). With no pattern nothing happens.
-    pub fn mark_matching_lines(&mut self, cx: &mut Context<Self>) {
+    pub fn mark_matching_lines(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.report_pattern_error(window, cx) {
+            return;
+        }
         let Some(matcher) = self.search.matcher().cloned() else {
             return;
         };
