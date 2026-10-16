@@ -789,8 +789,8 @@ final class Editor
      * FileOpenDialog(defaultName: string?, filter: string?) -> string
      *
      * Lets the user choose a file to open and returns its full path, or an empty string when the
-     * dialog is cancelled. The dialog starts in the folder of the default name (or of the file
-     * in the window). The filter is not used: the dialog of the platform does not take one.
+     * dialog is cancelled. The default name and the filter are not used: the dialog of the
+     * platform takes neither.
      */
     public static function FileOpenDialog($defaultName = null, $filter = null)
     {
@@ -815,7 +815,8 @@ final class Editor
      * FolderDialog(message: string?, defaultFolder: string?) -> string
      *
      * Lets the user choose a folder and returns its full path, or an empty string when the
-     * dialog is cancelled. The message is shown by the platform where it has room for one.
+     * dialog is cancelled. The message becomes the prompt text of the platform dialog where it
+     * has one; the default folder is not used.
      */
     public static function FolderDialog($message = null, $defaultFolder = null)
     {

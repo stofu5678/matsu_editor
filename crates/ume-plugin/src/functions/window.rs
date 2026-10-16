@@ -308,9 +308,8 @@ pub const FUNCS: &[EditorFunc] = &[
         params: &[opt("defaultName", Ty::Str), opt("filter", Ty::Str)],
         result: Ty::Str,
         doc: "Lets the user choose a file to open and returns its full path, or an empty string \
-              when the dialog is cancelled. The dialog starts in the folder of the default name \
-              (or of the file in the window). The filter is not used: the dialog of the \
-              platform does not take one.",
+              when the dialog is cancelled. The default name and the filter are not used: the \
+              dialog of the platform takes neither.",
         run: needs_window,
     },
     EditorFunc {
@@ -327,8 +326,8 @@ pub const FUNCS: &[EditorFunc] = &[
         params: &[opt("message", Ty::Str), opt("defaultFolder", Ty::Str)],
         result: Ty::Str,
         doc: "Lets the user choose a folder and returns its full path, or an empty string when \
-              the dialog is cancelled. The message is shown by the platform where it has room \
-              for one.",
+              the dialog is cancelled. The message becomes the prompt text of the platform \
+              dialog where it has one; the default folder is not used.",
         run: needs_window,
     },
     EditorFunc {

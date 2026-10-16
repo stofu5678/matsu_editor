@@ -774,8 +774,8 @@ module.exports = function install(call) {
      * FileOpenDialog(defaultName: string?, filter: string?) -> string
      *
      * Lets the user choose a file to open and returns its full path, or an empty string when the
-     * dialog is cancelled. The dialog starts in the folder of the default name (or of the file
-     * in the window). The filter is not used: the dialog of the platform does not take one.
+     * dialog is cancelled. The default name and the filter are not used: the dialog of the
+     * platform takes neither.
      */
     FileOpenDialog(defaultName, filter) {
       // A trailing undefined is a missing argument, not a null.
@@ -800,7 +800,8 @@ module.exports = function install(call) {
      * FolderDialog(message: string?, defaultFolder: string?) -> string
      *
      * Lets the user choose a folder and returns its full path, or an empty string when the
-     * dialog is cancelled. The message is shown by the platform where it has room for one.
+     * dialog is cancelled. The message becomes the prompt text of the platform dialog where it
+     * has one; the default folder is not used.
      */
     FolderDialog(message, defaultFolder) {
       // A trailing undefined is a missing argument, not a null.

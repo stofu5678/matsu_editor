@@ -354,9 +354,8 @@ def install(call):
 
         def FileOpenDialog(self, defaultName: str = _UNSET, filter: str = _UNSET) -> str:
             """Lets the user choose a file to open and returns its full path, or an empty
-            string when the dialog is cancelled. The dialog starts in the folder of the
-            default name (or of the file in the window). The filter is not used: the dialog
-            of the platform does not take one."""
+            string when the dialog is cancelled. The default name and the filter are not
+            used: the dialog of the platform takes neither."""
             return call("FileOpenDialog", _pack(defaultName, filter))
 
         def FileSaveDialog(self, defaultName: str = _UNSET, filter: str = _UNSET) -> str:
@@ -367,8 +366,8 @@ def install(call):
 
         def FolderDialog(self, message: str = _UNSET, defaultFolder: str = _UNSET) -> str:
             """Lets the user choose a folder and returns its full path, or an empty string when
-            the dialog is cancelled. The message is shown by the platform where it has room
-            for one."""
+            the dialog is cancelled. The message becomes the prompt text of the platform
+            dialog where it has one; the default folder is not used."""
             return call("FolderDialog", _pack(message, defaultFolder))
 
         def Sleep(self, milliseconds: int) -> int:

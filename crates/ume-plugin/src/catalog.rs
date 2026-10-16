@@ -184,8 +184,8 @@ mod tests {
             for (param, arg) in func.params.iter().zip(row.args) {
                 assert_eq!(param.ty, ty(*arg), "{} {}", func.name, param.name);
             }
-            // a parameter that the table has but the function leaves out would be unreachable
-            assert_eq!(func.params.len(), row.args.len().min(func.params.len()));
+            // a parameter that the table has but the function leaves out would be refused
+            assert_eq!(func.params.len(), row.args.len(), "{}", func.name);
             let found = find(func.name).unwrap();
             assert_eq!(found.params.len(), func.params.len(), "{}", func.name);
             assert!(!found.is_command, "{}", func.name);
