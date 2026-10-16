@@ -424,7 +424,7 @@ impl Runner<'_> {
                 }
             };
             let eol = line.eol.map_or("", eol_text);
-            file_hits += self.line(paths, &code_name, state, index as u64 + 1, &line.text, eol);
+            file_hits += self.line(paths, &code_name, state, index as u64 + 1, &line.text, eol)?;
             self.flush_when_due();
             // ファイル毎最初のみ検索: the file is done at its first hit.
             if self.info.file_only && file_hits >= 1 {
@@ -444,10 +444,10 @@ impl Runner<'_> {
         number: u64,
         text: &str,
         eol: &str,
-    ) -> usize {
+    ) -> Result<usize, Stopped> {
         let layout = self.info.layout;
         let Some(matcher) = self.matcher.clone() else {
-            return 0;
+            return Ok(0);
         };
         let subject: String;
         let whole: &str = if eol.is_empty() {
@@ -456,33 +456,47 @@ impl Runner<'_> {
             subject = format!("{text}{eol}");
             &subject
         };
+        let shown = shown_path(paths, &layout);
+        let mut at = 0;
+        if layout.line_type == LineType::NoHitLine {
+            if next_hit(matcher.as_ref(), whole, &mut at).is_some() {
+                return Ok(0);
+            }
+            self.hits += 1;
+            self.push_hit(paths, code_name, state, shown, number, 1, Body::Line(text));
+            return Ok(1);
+        }
         // One hit is enough for a line, unless the matched parts are written.
         let all = layout.line_type == LineType::MatchPart && !self.info.file_only;
-        let found = find_hits(matcher.as_ref(), whole, all);
-        let shown = shown_path(paths, &layout);
+        // The column of a hit is counted from the one before it, so that a line with many hits is
+        // not read again for each.
+        let (mut counted_to, mut units) = (0, 0);
         let mut hits = 0;
-        match layout.line_type {
-            LineType::NoHitLine => {
-                if found.is_empty() {
-                    hits += 1;
-                    self.push_hit(paths, code_name, state, shown, number, 1, Body::Line(text));
-                }
+        while let Some(m) = next_hit(matcher.as_ref(), whole, &mut at) {
+            if m.start >= counted_to {
+                units += format::utf16_len(&whole[counted_to..m.start]);
+            } else {
+                units = format::utf16_len(&whole[..m.start]);
             }
-            line_type => {
-                for m in found {
-                    hits += 1;
-                    let column = format::utf16_len(&whole[..m.start]) + 1;
-                    let body = if line_type == LineType::Line {
-                        Body::Line(text)
-                    } else {
-                        Body::Part(&whole[m.start..m.end])
-                    };
-                    self.push_hit(paths, code_name, state, shown, number, column, body);
-                }
+            counted_to = m.start;
+            let body = if layout.line_type == LineType::Line {
+                Body::Line(text)
+            } else {
+                Body::Part(&whole[m.start..m.end])
+            };
+            hits += 1;
+            self.hits += 1;
+            self.push_hit(paths, code_name, state, shown, number, units + 1, body);
+            // A line can have millions of hits: the stop and the output are looked at inside it.
+            if hits % CANCEL_CHECK_LINES == 0 {
+                self.check_cancel()?;
+            }
+            self.flush_when_due();
+            if !all {
+                break;
             }
         }
-        self.hits += hits;
-        hits
+        Ok(hits)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -603,29 +617,26 @@ fn detect_name(path: &Path) -> String {
     }
 }
 
-/// The matches to write for a line: all of them without overlap, or only the first. After a
-/// match the search goes on at its end, and after an empty match one character on, as `DoGrepFile`
-/// does for a regular expression.
-fn find_hits(matcher: &dyn Matcher, line: &str, all: bool) -> Vec<Match> {
-    let mut found = Vec::new();
-    let mut at = 0;
-    while at <= line.len() {
-        let Ok(Some(m)) = matcher.find_at(line, at) else {
-            break;
-        };
-        let next = if m.end > m.start {
-            m.end
-        } else {
-            match line[m.start..].chars().next() {
-                Some(c) => m.start + c.len_utf8(),
-                None => line.len() + 1,
-            }
-        };
-        found.push(m);
-        if !all || next <= at {
-            break;
-        }
-        at = next;
+/// The next match of the scan of a line, and where the scan goes on: at its end, and after an
+/// empty match one character on, as `DoGrepFile` does for a regular expression. `at` is past the
+/// line when the scan is over.
+fn next_hit(matcher: &dyn Matcher, line: &str, at: &mut usize) -> Option<Match> {
+    if *at > line.len() {
+        return None;
     }
-    found
+    let Ok(Some(m)) = matcher.find_at(line, *at) else {
+        *at = usize::MAX;
+        return None;
+    };
+    let next = if m.end > m.start {
+        m.end
+    } else {
+        match line[m.start..].chars().next() {
+            Some(c) => m.start + c.len_utf8(),
+            None => line.len() + 1,
+        }
+    };
+    // never go back, so that the scan ends
+    *at = if next > *at { next } else { usize::MAX };
+    Some(m)
 }

@@ -21,6 +21,7 @@ use gpui::{
     Styled, Window, div, px, rgb,
 };
 use gpui_component::button::Button;
+use ume_commands::command::CommandError;
 use ume_core::buffer::{Eol, Pos};
 
 use super::engine::{self, GrepError, GrepInfo, Outcome, Sink};
@@ -189,7 +190,9 @@ impl EditorView {
             return false;
         }
         let shared = self.document.read(cx);
-        self.grep.is_grep() || (shared.path().is_none() && !shared.model().is_modified())
+        // A window in view mode refuses the text of the result.
+        !shared.view_mode()
+            && (self.grep.is_grep() || (shared.path().is_none() && !shared.model().is_modified()))
     }
 
     /// Runs a Grep. The result goes to this window when Sakura would write it here (unless
@@ -361,14 +364,26 @@ impl EditorView {
 
     /// `AddTail`: adds the text at the end of the document. The caret stays where it was.
     fn grep_append(&mut self, text: &str, cx: &mut Context<Self>) {
-        self.run_with(cx, |c| -> Result<(), ume_commands::command::CommandError> {
-            let end = c.doc().end_pos()?;
-            c.begin_block();
-            let result = c.replace(end, end, text);
-            c.end_block();
-            result.map(|_| ())
-        })
-        .ok();
+        for attempt in 0..2 {
+            let result = self.run_with(cx, |c| -> Result<(), CommandError> {
+                let end = c.doc().end_pos()?;
+                c.begin_block();
+                let result = c.replace(end, end, text);
+                c.end_block();
+                result.map(|_| ())
+            });
+            if result.is_ok() {
+                return;
+            }
+            if attempt == 0 {
+                // A box selection refuses to be edited around: end it, and write again.
+                let caret = self.cursor.caret();
+                self.run_with(cx, |c| c.move_caret(caret, false)).ok();
+            }
+        }
+        // View mode, turned on while the search runs.
+        self.notice = Some("Grep の結果を書き込めなかった".to_owned());
+        cx.notify();
     }
 
     /// The end of a search: the caret goes back to where the result begins and the text counts as

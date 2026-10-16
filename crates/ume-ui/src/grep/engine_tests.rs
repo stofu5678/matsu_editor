@@ -794,3 +794,62 @@ fn a_link_to_a_folder_above_is_not_followed_for_ever() {
     let (text, outcome) = grep(&p.info("hit"));
     assert_eq!(outcome.hits, 2, "{text}");
 }
+
+#[cfg(unix)]
+#[test]
+fn a_pipe_in_the_folder_is_not_a_file_to_search() {
+    let p = Project::new();
+    p.write("a.txt", b"hit\n");
+    let made = std::process::Command::new("mkfifo")
+        .arg(p.path("pipe.txt"))
+        .status();
+    if !made.is_ok_and(|s| s.success()) {
+        eprintln!("SKIP: no mkfifo");
+        return;
+    }
+    // the search of the names reads the start of each file too: it must not wait on the pipe
+    for key in ["hit", ""] {
+        let (text, outcome) = grep(&p.info(key));
+        assert_eq!(outcome.hits, 1, "{text}");
+        assert!(!text.contains("pipe.txt"));
+    }
+}
+
+#[test]
+fn many_hits_in_one_long_line_have_their_columns_and_end_quickly() {
+    let p = Project::new();
+    let mut line = "a".repeat(20_000);
+    line.push_str("𠮷a\n");
+    p.write("a.txt", line.as_bytes());
+    let mut info = p.info("a");
+    info.layout.line_type = LineType::MatchPart;
+    info.layout.style = OutputStyle::PerFile;
+    let (text, outcome) = grep(&info);
+    assert_eq!(outcome.hits, 20_001, "hits");
+    // the last `a` is after 20000 `a`s and one character of two UTF-16 units
+    assert!(text.contains("・(     1,20003): a\r\n"), "the last column");
+    assert!(text.contains("・(     1,1    ): a\r\n"));
+}
+
+#[test]
+fn a_stop_is_noticed_inside_a_line_with_many_hits() {
+    let p = Project::new();
+    p.write("a.txt", "a".repeat(100_000).as_bytes());
+    let mut info = p.info("a");
+    info.layout.line_type = LineType::MatchPart;
+    let cancel = AtomicBool::new(false);
+    // stops when the output has some size
+    struct StopOnText<'a>(&'a AtomicBool, usize);
+    impl Sink for StopOnText<'_> {
+        fn write(&mut self, text: &str) {
+            self.1 += text.len();
+            if self.1 > 2000 {
+                self.0.store(true, Ordering::Relaxed);
+            }
+        }
+    }
+    let mut sink = StopOnText(&cancel, 0);
+    let outcome = run(&info, &cancel, &mut sink).unwrap();
+    assert!(outcome.stopped);
+    assert!(outcome.hits < 100_000, "{}", outcome.hits);
+}

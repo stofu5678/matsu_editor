@@ -119,10 +119,13 @@ enum Kind {
 struct Entry {
     name: String,
     is_dir: bool,
+    /// A regular file. A pipe, a socket or a device is neither this nor a folder: reading it
+    /// could wait for ever.
+    is_file: bool,
 }
 
 /// The entries of a folder, sorted by name; nothing when it cannot be read (`FindFirstFile`
-/// failing). A link is what it points to.
+/// failing).
 fn read_entries(dir: &Path) -> Vec<Entry> {
     let Ok(read) = fs::read_dir(dir) else {
         return Vec::new();
@@ -131,18 +134,16 @@ fn read_entries(dir: &Path) -> Vec<Entry> {
         .filter_map(Result::ok)
         .filter_map(|entry| {
             let name = entry.file_name().into_string().ok()?;
-            let is_dir = entry
-                .file_type()
-                .ok()
-                .map(|t| {
-                    if t.is_symlink() {
-                        entry.path().is_dir()
-                    } else {
-                        t.is_dir()
-                    }
-                })
-                .unwrap_or(false);
-            Some(Entry { name, is_dir })
+            // A link is what it points to (nothing, when it points to nothing).
+            let kind = fs::metadata(entry.path())
+                .or_else(|_| entry.metadata())
+                .ok()?
+                .file_type();
+            Some(Entry {
+                name,
+                is_dir: kind.is_dir(),
+                is_file: kind.is_file(),
+            })
         })
         .collect();
     entries.sort_by_cached_key(|entry| (entry.name.to_lowercase(), entry.name.clone()));
@@ -183,7 +184,7 @@ fn enumerate(
                 continue;
             }
             let wanted = match kind {
-                Kind::File => !entry.is_dir,
+                Kind::File => entry.is_file,
                 Kind::Folder => entry.is_dir && entry.name != "." && entry.name != "..",
             };
             if !wanted {

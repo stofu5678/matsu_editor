@@ -487,3 +487,20 @@ fn a_grep_is_recorded_in_a_key_macro_with_its_arguments(cx: &mut TestAppContext)
         "{saved}"
     );
 }
+
+#[gpui::test]
+fn a_window_in_view_mode_gets_a_new_window_for_the_result(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    let p = Project::new();
+    f.view.update(cx, |view, cx| {
+        view.document()
+            .clone()
+            .update(cx, |shared, cx| shared.set_view_mode(true, cx));
+    });
+    f.view.update_in(cx, |view, window, cx| {
+        view.start_grep(p.settings("hit").info(), false, window, cx);
+    });
+    settle(cx);
+    assert_eq!(other_views(cx, &f.view).len(), 1);
+    assert_eq!(text_of(&f.view, cx), "");
+}
