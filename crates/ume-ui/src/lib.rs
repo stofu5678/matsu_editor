@@ -27,6 +27,7 @@ pub mod document;
 mod file_ops;
 pub mod geometry;
 pub mod grep;
+mod history;
 pub mod hit;
 pub mod keys;
 pub mod layout_adapter;

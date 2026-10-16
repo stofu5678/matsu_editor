@@ -113,6 +113,7 @@ fn install(window: &mut Window, cx: &mut App, editor: &Entity<EditorView>) {
         if editor.read(cx).is_grep_window()
             || !editor.read(cx).document().read(cx).model().is_modified()
         {
+            editor.update(cx, |view, cx| view.record_history(cx));
             return true;
         }
         if !asking.replace(true) {

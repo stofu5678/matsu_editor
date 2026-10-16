@@ -9,6 +9,7 @@
 //!
 //! This crate has no UI and no OS-specific code, so the same tests run on every OS.
 
+pub mod history;
 pub mod location;
 pub mod profile;
 pub mod settings;

@@ -7,6 +7,7 @@
 pub mod box_select;
 pub mod cursor;
 pub mod file;
+pub mod history;
 pub mod macros;
 pub mod search;
 pub mod select;

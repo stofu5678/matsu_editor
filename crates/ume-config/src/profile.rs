@@ -465,6 +465,27 @@ impl Profile {
         Ok(())
     }
 
+    /// Removes every entry with this key from the first section with this name. Returns whether there was one.
+    /// The other lines stay as they were (a rewritten list drops the entries it no longer has this way).
+    pub fn remove(&mut self, section: &str, key: &str) -> bool {
+        let Some(header) = self.find_section(section) else {
+            return false;
+        };
+        let range = self.section_range(header);
+        let before = self.lines.len();
+        let mut at = range.start;
+        let mut end = range.end;
+        while at < end {
+            if matches!(&self.lines[at].kind, LineKind::Entry { key: k, .. } if k == key) {
+                self.lines.remove(at);
+                end -= 1;
+            } else {
+                at += 1;
+            }
+        }
+        self.lines.len() != before
+    }
+
     /// The bytes of the file with every unchanged line exactly as it was read.
     ///
     /// A file read as Shift_JIS is written as Shift_JIS. If a changed line has a character Shift_JIS cannot
@@ -742,6 +763,15 @@ mod tests {
         let mut p = parse("[A]\na=1\n; note\n\n[B]\nc=3\n");
         p.set("A", "z", "26").unwrap();
         assert_eq!(text(&p), "[A]\na=1\nz=26\n; note\n\n[B]\nc=3\n");
+    }
+
+    #[test]
+    fn remove_drops_the_entry_and_keeps_the_rest() {
+        let mut p = Profile::from_bytes(b"[A]\na=1\nb=2\na=3\n[B]\na=9\n");
+        assert!(p.remove("A", "a"));
+        assert!(!p.remove("A", "a"));
+        assert!(!p.remove("C", "a"));
+        assert_eq!(p.to_bytes(), b"[A]\nb=2\n[B]\na=9\n");
     }
 
     #[test]
