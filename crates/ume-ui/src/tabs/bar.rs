@@ -86,6 +86,15 @@ pub(crate) async fn close_document(
 }
 
 impl Workspace {
+    /// Runs a function of Sakura on the active view once this event is handled: the function may
+    /// look at the tabs of every window, which cannot happen while this window is borrowed.
+    fn run_after_event(&self, code: u16, window: &mut Window, cx: &mut Context<Self>) {
+        let editor = self.editor().clone();
+        window.defer(cx, move |window, app| {
+            editor.update(app, |view, cx| view.run_function(code, &[], window, cx));
+        });
+    }
+
     /// The tabs the bar shows, or `None` when the bar is hidden.
     fn bar_entries(&self, window: &Window, cx: &mut Context<Self>) -> Option<Vec<Entry>> {
         let tab_settings = settings::current(cx);
@@ -157,9 +166,7 @@ impl Workspace {
             .hover(|s| s.bg(rgb(0xd0d0d0)))
             .child("▼")
             .on_click(cx.listener(|this, _, window, cx| {
-                let editor = this.editor().clone();
-                let code = function_code("F_WINLIST");
-                editor.update(cx, |view, cx| view.run_function(code, &[], window, cx));
+                this.run_after_event(function_code("F_WINLIST"), window, cx);
             }));
         Some(
             bar.child(
@@ -170,11 +177,7 @@ impl Workspace {
                         MouseButton::Left,
                         cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
                             if event.click_count >= 2 {
-                                let editor = this.editor().clone();
-                                let code = function_code("F_FILENEW");
-                                editor.update(cx, |view, cx| {
-                                    view.run_function(code, &[], window, cx)
-                                });
+                                this.run_after_event(function_code("F_FILENEW"), window, cx);
                             }
                         }),
                     ),

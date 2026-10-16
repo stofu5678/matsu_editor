@@ -148,22 +148,54 @@ fn install(window: &mut Window, cx: &mut App, workspace: &Entity<Workspace>) {
             return true;
         }
         if !asking.replace(true) {
-            let views: Vec<_> = views.iter().map(Entity::downgrade).collect();
+            let workspace = workspace.downgrade();
             let asking = asking.clone();
             window
                 .spawn(cx, async move |cx| {
-                    for view in &views {
-                        if !close::confirm_discard(view, cx).await {
-                            asking.set(false);
-                            return;
-                        }
-                    }
-                    cx.update(|window, _| window.remove_window()).ok();
+                    close_after_questions(&workspace, cx).await;
+                    asking.set(false);
                 })
                 .detach();
         }
         false
     });
+}
+
+/// Asks about each tab with unsaved changes, then closes the window. Another window can move a
+/// tab here while a question is open, so the tabs and their versions are checked again before the
+/// window goes (`exit_all` does the same): nothing is thrown away without a question.
+async fn close_after_questions(
+    workspace: &WeakEntity<Workspace>,
+    cx: &mut gpui::AsyncWindowContext,
+) {
+    let mut asked: Vec<(gpui::EntityId, u64)> = Vec::new();
+    loop {
+        let Ok(views) = workspace.read_with(cx, |ws, _| ws.tab_editors()) else {
+            return;
+        };
+        for view in &views {
+            let version = view.read_with(cx, |v, app| v.document().read(app).version());
+            if asked.contains(&(view.entity_id(), version)) {
+                continue;
+            }
+            if !close::confirm_discard(&view.downgrade(), cx).await {
+                return;
+            }
+            let version = view.read_with(cx, |v, app| v.document().read(app).version());
+            asked.push((view.entity_id(), version));
+        }
+        let unchanged = workspace
+            .read_with(cx, |ws, app| {
+                ws.tab_editors().iter().all(|v| {
+                    asked.contains(&(v.entity_id(), v.read(app).document().read(app).version()))
+                })
+            })
+            .unwrap_or(true);
+        if unchanged {
+            cx.update(|window, _| window.remove_window()).ok();
+            return;
+        }
+    }
 }
 
 /// The windows that are open with their workspaces, oldest first.

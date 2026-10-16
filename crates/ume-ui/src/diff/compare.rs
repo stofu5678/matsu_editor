@@ -12,9 +12,9 @@
 //! which this program does not have.
 
 use gpui::{
-    App, AppContext as _, ClickEvent, Context, EntityId, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render,
-    StatefulInteractiveElement, Styled, WeakEntity, Window, div, px, rgb,
+    App, AppContext as _, ClickEvent, Context, FocusHandle, Focusable, InteractiveElement,
+    IntoElement, KeyDownEvent, ParentElement, Render, StatefulInteractiveElement, Styled,
+    WeakEntity, Window, div, px, rgb,
 };
 use gpui_component::button::Button;
 use gpui_component::checkbox::Checkbox;
@@ -22,8 +22,10 @@ use gpui_component::{h_flex, v_flex};
 use ume_core::diff::first_difference;
 
 use super::panel::own_label;
-use super::{Candidate, DocRef, Remembered, best_candidate, candidates, remember, remembered};
-use crate::file_ops::windows::editors;
+use super::{
+    Candidate, DocRef, Owner, Remembered, best_candidate, candidates, find_document, remember,
+    remembered,
+};
 use crate::view::EditorView;
 use crate::window_ops::{tile_windows, with_screen};
 
@@ -34,7 +36,7 @@ pub(crate) const FOUND_DIFFERENCE: &str = "異なる箇所が見つかりまし�
 
 pub struct ComparePanel {
     editor: WeakEntity<EditorView>,
-    owner: EntityId,
+    owner: Owner,
     own_label: String,
     selected: Option<DocRef>,
     tile: bool,
@@ -44,7 +46,7 @@ pub struct ComparePanel {
 impl ComparePanel {
     fn new(
         editor: WeakEntity<EditorView>,
-        owner: EntityId,
+        owner: Owner,
         own_label: String,
         selected: Option<DocRef>,
         cx: &mut Context<Self>,
@@ -192,7 +194,10 @@ impl EditorView {
     /// selected (`FileMatchScoreSepExt`).
     pub fn open_compare_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.close_diff_panel(window, cx);
-        let owner = cx.entity_id();
+        let owner = Owner {
+            view: cx.entity_id(),
+            document: self.document.entity_id(),
+        };
         let (path, modified, encoding) = {
             let shared = self.document.read(cx);
             (
@@ -245,10 +250,8 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some((handle, other)) = editors(cx)
-            .into_iter()
-            .find(|(_, view)| view.entity_id() == doc.view)
-        else {
+        let this = cx.entity_id();
+        let Some((handle, other)) = find_document(cx, this, doc) else {
             return;
         };
         let own_caret = self.cursor.caret();

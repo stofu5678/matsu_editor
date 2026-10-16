@@ -12,8 +12,8 @@
 use std::path::{Path, PathBuf};
 
 use gpui::{
-    App, AppContext as _, ClickEvent, Context, Entity, EntityId, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, KeyDownEvent, ParentElement, PathPromptOptions, Render,
+    App, AppContext as _, ClickEvent, Context, Entity, FocusHandle, Focusable, InteractiveElement,
+    IntoElement, KeyDownEvent, ParentElement, PathPromptOptions, Render,
     StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window, div, px, rgb,
 };
 use gpui_component::button::Button;
@@ -23,7 +23,7 @@ use gpui_component::{Selectable as _, h_flex, v_flex};
 use ume_core::diff::DiffOptions;
 
 use super::{
-    Candidate, DocRef, Remembered, Target, best_candidate, candidates, remember, remembered,
+    Candidate, DocRef, Owner, Remembered, Target, best_candidate, candidates, remember, remembered,
 };
 use crate::file_ops::ask::document_title;
 use crate::search::SearchOptions;
@@ -31,7 +31,7 @@ use crate::view::EditorView;
 
 pub struct DiffPanel {
     editor: WeakEntity<EditorView>,
-    owner: EntityId,
+    owner: Owner,
     /// The label of this window (編集中のファイル).
     own_label: String,
     file: Entity<InputState>,
@@ -47,7 +47,7 @@ pub struct DiffPanel {
 impl DiffPanel {
     fn new(
         editor: WeakEntity<EditorView>,
-        owner: EntityId,
+        owner: Owner,
         own_label: String,
         selected: Option<DocRef>,
         search: SearchOptions,
@@ -420,7 +420,10 @@ impl EditorView {
     pub fn open_diff_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // one of the dialogs of this kind at a time
         self.close_compare_panel(window, cx);
-        let owner = cx.entity_id();
+        let owner = Owner {
+            view: cx.entity_id(),
+            document: self.document.entity_id(),
+        };
         let (path, modified, encoding) = {
             let shared = self.document.read(cx);
             (

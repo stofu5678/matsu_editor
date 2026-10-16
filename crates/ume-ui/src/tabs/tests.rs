@@ -58,7 +58,7 @@ pub(super) fn run(cx: &mut TestAppContext, handle: AnyWindowHandle, function: &s
     cx.run_until_parked();
 }
 
-fn visual(cx: &mut TestAppContext, handle: AnyWindowHandle) -> &mut VisualTestContext {
+pub(super) fn visual(cx: &mut TestAppContext, handle: AnyWindowHandle) -> &mut VisualTestContext {
     VisualTestContext::from_window(handle, cx).into_mut()
 }
 

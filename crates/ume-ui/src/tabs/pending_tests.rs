@@ -5,7 +5,7 @@ use gpui::{AnyWindowHandle, Entity, TestAppContext};
 use ume_core::buffer::Document;
 use ume_core::model::DocumentModel;
 
-use super::tests::{run, tab_count, tabs, windows, workspace};
+use super::tests::{answer, run, tab_count, tabs, type_text, visual, windows, workspace};
 use crate::diff::{DocRef, Target, candidates};
 use crate::document::SharedDocument;
 use crate::file_ops::windows::{begin_pending, editors, find_open, is_pending};
@@ -27,10 +27,10 @@ fn tab(cx: &mut TestAppContext, handle: AnyWindowHandle, index: usize) -> Entity
     workspace(cx, handle).read_with(cx, |ws, _| ws.tab_editor(index).unwrap())
 }
 
-fn doc_ref(handle: AnyWindowHandle, view: &Entity<EditorView>) -> DocRef {
+fn doc_ref(cx: &mut TestAppContext, handle: AnyWindowHandle, view: &Entity<EditorView>) -> DocRef {
     DocRef {
         handle,
-        view: view.entity_id(),
+        document: view.read_with(cx, |v, _| v.document().entity_id()),
     }
 }
 
@@ -60,12 +60,18 @@ fn diff_targets_name_a_tab_not_a_window(cx: &mut TestAppContext) {
     add_tab(cx, handle, "a\nb", "/work/three.txt");
     let (one, two, three) = (tab(cx, handle, 1), tab(cx, handle, 2), tab(cx, handle, 3));
     // the other tabs of the same window can be chosen
-    let others = cx.update(|app| candidates(app, one.entity_id()));
+    let owner = crate::diff::Owner {
+        view: one.entity_id(),
+        document: one.read_with(cx, |v, _| v.document().entity_id()),
+    };
+    let others = cx.update(|app| candidates(app, owner));
     assert_eq!(others.len(), 3);
     assert!(others.iter().all(|c| c.doc.handle == handle));
-    diff(cx, handle, &one, doc_ref(handle, &two));
+    let target = doc_ref(cx, handle, &two);
+    diff(cx, handle, &one, target);
     assert_eq!(mark_count(cx, &one), 1, "line 2 differs from two.txt");
-    diff(cx, handle, &one, doc_ref(handle, &three));
+    let target = doc_ref(cx, handle, &three);
+    diff(cx, handle, &one, target);
     assert_eq!(mark_count(cx, &one), 0, "three.txt has the same text");
 }
 
@@ -115,4 +121,47 @@ fn a_file_being_read_is_pending_for_every_pane_of_the_document(cx: &mut TestAppC
     assert!(cx.update(|app| is_pending(app, &panes[1].downgrade())));
     let other_tab = tab(cx, handle, 0);
     assert!(!cx.update(|app| is_pending(app, &other_tab.downgrade())));
+}
+
+const DONT_SAVE: &str = "保存しない(N)";
+const CANCEL: &str = "キャンセル";
+
+#[gpui::test]
+fn the_close_button_of_the_window_asks_about_every_tab(cx: &mut TestAppContext) {
+    let handle = tabs(cx, 2);
+    type_text(cx, handle, "x");
+    workspace(cx, handle).update_in(visual(cx, handle), |ws, window, cx| {
+        ws.activate_tab(0, window, cx)
+    });
+    cx.run_until_parked();
+    type_text(cx, handle, "y");
+    assert!(!visual(cx, handle).simulate_close());
+    cx.run_until_parked();
+    answer(cx, handle, CANCEL);
+    assert_eq!(windows(cx), 1);
+    // after a cancel it can be asked again; every tab with changes has its question
+    assert!(!visual(cx, handle).simulate_close());
+    cx.run_until_parked();
+    answer(cx, handle, DONT_SAVE);
+    assert_eq!(windows(cx), 1, "the other tab is asked about too");
+    answer(cx, handle, DONT_SAVE);
+    assert_eq!(windows(cx), 0);
+}
+
+#[gpui::test]
+fn a_tab_that_arrives_during_the_question_is_asked_about_too(cx: &mut TestAppContext) {
+    let first = super::tests::window(cx, true);
+    type_text(cx, first, "a");
+    run(cx, first, "F_FILENEW_NEWWINDOW");
+    let second = cx.windows()[1];
+    type_text(cx, second, "b");
+    assert!(!visual(cx, first).simulate_close());
+    cx.run_until_parked();
+    // while the question about the first window is open, the second window's tab moves into it
+    run(cx, second, "F_TAB_JOINTNEXT");
+    assert_eq!(tab_count(cx, first), 2);
+    answer(cx, first, DONT_SAVE);
+    assert_eq!(windows(cx), 1, "the tab that came in is asked about");
+    answer(cx, first, DONT_SAVE);
+    assert_eq!(windows(cx), 0);
 }
