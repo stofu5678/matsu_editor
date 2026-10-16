@@ -5,7 +5,7 @@
 //! A box is written as its two corners, each `(row, display column)`, with the display columns
 //! of [`PlainLayout`]: tabs to multiples of 4, full-width chars two columns.
 
-use ume_core::buffer::{Document, Pos};
+use ume_core::buffer::{Document, Eol, Pos};
 use ume_core::cursor::Cursor;
 use ume_core::model::DocumentModel;
 
@@ -583,7 +583,9 @@ fn pastebox_into_the_empty_row_at_the_end_creates_lines() {
     e.run("pastebox");
     assert_eq!(text_of(&e), "ab\nx\ny\n");
     // from a column past the start
-    let mut e = Editor::new("abc|").with_clipboard("x\ny", ClipKind::Normal);
+    let mut e = Editor::new("abc|")
+        .with_new_line(Eol::Lf)
+        .with_clipboard("x\ny", ClipKind::Normal);
     e.run("pastebox");
     assert_eq!(text_of(&e), "abcx\n   y\n");
 }
@@ -778,6 +780,7 @@ fn run_wrapped(
     args: &[Arg],
 ) -> (String, Option<(String, ClipKind)>, Cursor) {
     let mut model = DocumentModel::new(Document::from_utf8(text.as_bytes().to_vec()).unwrap());
+    model.set_new_line(Eol::Lf); // the document has no line ending; not the OS default
     let mut layout = Wrap(3);
     let rows = layout.rows(model.doc());
     let corner = |(row, col): (usize, usize)| {
