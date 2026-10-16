@@ -179,3 +179,28 @@ fn the_window_list_starts_on_the_active_tab(cx: &mut TestAppContext) {
         .expect("the list is open");
     assert_eq!(list.read_with(cx, |l, _| l.selected()), 1);
 }
+
+#[gpui::test]
+fn the_tab_settings_are_written_to_the_settings_file(cx: &mut TestAppContext) {
+    use crate::history::{HistoryOptions, HistoryState};
+    let dir = std::env::temp_dir().join(format!("ume-ui-tabs-ini-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("ume.ini");
+    std::fs::write(&path, "[Common]\r\nm_bRestoreCurPosition=1\r\n").unwrap();
+    cx.update(|app| {
+        let store = ume_config::history::HistoryStore::new(&path, false);
+        app.set_global(HistoryState::on_disk(store, HistoryOptions::default()));
+        super::settings::update(app, |s| {
+            s.show_bar = true;
+            s.grouped = false;
+        });
+    });
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.contains("bDispTabWnd=1"), "{text}");
+    assert!(text.contains("bDispTabWndMultiWin=1"), "{text}");
+    assert!(
+        text.contains("m_bRestoreCurPosition=1"),
+        "the rest of the file stays"
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}

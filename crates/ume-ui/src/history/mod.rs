@@ -157,7 +157,10 @@ pub(crate) fn write_settings(
         .and_then(|state| state.store.as_ref())
     {
         // A file that cannot be written has nowhere to say so; the setting stays for the session.
-        let _ = store.update_profile(change);
+        let _ = ume_config::history::update_profile(store.path(), |profile| {
+            change(profile)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))
+        });
     }
 }
 
