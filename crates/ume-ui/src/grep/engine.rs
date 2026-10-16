@@ -40,10 +40,14 @@
 //! matcher of the search panel (`build_matcher` in `crate::search::state`), also for
 //! the regular expression and the words. Sakura does not skip binary files, nor do we.
 //!
+//! Grep 置換 is the same search with [`GrepInfo::replace`] set: the files are rewritten by the
+//! `replace` module, through the save of `ume_core::file`.
+//!
 //! Differences from Sakura: the option "この編集中のテキストから検索する" (`:HWND:`, searching the text
-//! of a window) and Grep 置換 are not here; `GetLongFileName` is not applied to the folders; the
+//! of a window) is not here; `GetLongFileName` is not applied to the folders; the
 //! output to the standard output (`-GOPT=S`) is not here.
 
+use std::borrow::Cow;
 use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
@@ -51,10 +55,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use ume_core::encoding::{DETECT_SAMPLE_LEN, DetectOptions, Encoding, detect};
-use ume_core::file::{FileError, OpenOptions, open_file_with};
+use ume_core::file::{FileError, OpenOptions, TextFile, open_file_with};
 use ume_core::model::eol_text;
+use ume_core::search::ReplaceTarget;
 use ume_core::search::{Match, Matcher};
-use ume_regex::{PatternError, RegexMatcher, RegexSearchOptions};
+use ume_regex::{PatternError, RegexMatcher, RegexReplacer, RegexSearchOptions, ReplacementError};
 
 use super::enumerate::{Walker, join_path};
 use super::format::{
@@ -62,6 +67,8 @@ use super::format::{
 };
 use super::keys::{GrepKeys, KeysError, split_folders};
 use crate::search::state::{SearchOptions, build_matcher};
+
+mod replace;
 
 /// The version text that the heading shows for the regular expression (`GetVersionW` of
 /// bregonig in Sakura).
@@ -74,8 +81,8 @@ const FLUSH_INTERVAL: Duration = Duration::from_millis(50);
 /// The flag is read every this many lines.
 const CANCEL_CHECK_LINES: usize = 32;
 
-/// What one Grep needs (`GrepInfo` in `sakura_core/basis/GrepInfo.h`, without the parts of Grep
-/// 置換 and of the standard output).
+/// What one Grep needs (`GrepInfo` in `sakura_core/basis/GrepInfo.h`, without the parts of the
+/// standard output).
 #[derive(Clone, Debug)]
 pub struct GrepInfo {
     /// The pattern (`cmGrepKey`). Empty searches the names of the files only ("ファイル検索").
@@ -97,6 +104,35 @@ pub struct GrepInfo {
     pub file_only: bool,
     /// 除外ファイルは正規表現 (`bGrepExceptFileRegexp`).
     pub except_file_regex: bool,
+    /// Grep 置換: what to replace the hits with (`bGrepReplace`).
+    pub replace: Option<ReplaceInfo>,
+}
+
+/// The parts of a Grep 置換 that a Grep does not have (`cmGrepRep`, `bGrepPaste`, `bGrepBackup`).
+#[derive(Clone, Debug)]
+pub struct ReplaceInfo {
+    /// The new text. For a regular expression it is bregonig's replacement (`$1`, `\n`...); with
+    /// `paste` it is the text of the clipboard, which is used as it is.
+    pub text: String,
+    /// クリップボードから貼り付け: `text` came from the clipboard and is not read as a
+    /// replacement of a regular expression.
+    pub paste: bool,
+    /// バックアップ作成: the old file is kept as `name.skrold`.
+    pub backup: bool,
+}
+
+impl GrepInfo {
+    /// `GrepInfo::Normalized` (`sakura_core/basis/GrepInfo.cpp`): "一致しなかった行を出力" does
+    /// not hold for a replacement, and shows the lines of the hits.
+    fn normalized(&self) -> Cow<'_, GrepInfo> {
+        if self.replace.is_some() && self.layout.line_type == LineType::NoHitLine {
+            let mut info = self.clone();
+            info.layout.line_type = LineType::Line;
+            Cow::Owned(info)
+        } else {
+            Cow::Borrowed(self)
+        }
+    }
 }
 
 /// Why a Grep did not start. Sakura says it in a message box and writes nothing to the result.
@@ -110,6 +146,10 @@ pub enum GrepError {
     ExceptRegex { pattern: String, reason: String },
     /// A folder is not there (`STR_DLGGREP5`).
     FolderMissing,
+    /// A replacement without a pattern (`STR_DLGREPLC_REPSTR`).
+    NoPattern,
+    /// The replacement of a regular expression is wrong (`SetPattern` of the replacement).
+    Replacement(ReplacementError),
 }
 
 impl GrepError {
@@ -122,6 +162,8 @@ impl GrepError {
                 format!("除外ファイルの正規表現が正しくありません。\n{pattern}\n{reason}")
             }
             GrepError::FolderMissing => "検索対象フォルダーが正しくありません。".to_owned(),
+            GrepError::NoPattern => "置換条件を指定してください。".to_owned(),
+            GrepError::Replacement(e) => crate::search::state::regex_error_message(e),
         }
     }
 }
@@ -163,6 +205,8 @@ struct Stopped;
 struct Runner<'a> {
     info: &'a GrepInfo,
     matcher: Option<Arc<dyn Matcher>>,
+    /// The replacement of a regular expression (not for a paste).
+    replacer: Option<RegexReplacer>,
     walker: Walker,
     cancel: &'a AtomicBool,
     sink: &'a mut dyn Sink,
@@ -174,11 +218,15 @@ struct Runner<'a> {
     /// The real paths of the folders the search is in, so that a link to a folder above is not
     /// followed for ever. (Sakura has no such check; Windows has few links like that.)
     visiting: Vec<std::path::PathBuf>,
+    /// The backups that a Grep 置換 made in this search. They are not searched: their text would
+    /// be replaced a second time.
+    kept: std::collections::HashSet<String>,
 }
 
 /// What a search needs that can be wrong: the pattern, the file patterns and the folders.
 struct Prepared {
     matcher: Option<Arc<dyn Matcher>>,
+    replacer: Option<RegexReplacer>,
     keys: GrepKeys,
     regexes: Vec<Arc<dyn Matcher>>,
     /// The folders as the heading shows them (`ChopYen`).
@@ -188,6 +236,18 @@ struct Prepared {
 /// Checks the conditions in the order of `DoGrep` and makes what the search needs.
 fn prepare(info: &GrepInfo) -> Result<Prepared, GrepError> {
     let built = build_matcher(&info.key, &info.options).map_err(GrepError::Pattern)?;
+    if info.replace.is_some() && built.is_none() {
+        return Err(GrepError::NoPattern);
+    }
+    // A regular expression is replaced as bregonig does, with `$1` and the like; a paste, and
+    // the other searches, put the text in as it is.
+    let replacer = match (&info.replace, built.as_ref().and_then(|b| b.regex.clone())) {
+        (Some(replace), Some(regex)) if !replace.paste => Some(
+            RegexReplacer::new(regex, &replace.text, ReplaceTarget::Match)
+                .map_err(GrepError::Replacement)?,
+        ),
+        _ => None,
+    };
     let keys = GrepKeys::parse(&info.file, info.except_file_regex).map_err(GrepError::Keys)?;
     let regexes = compile_excluded(&keys)?;
     let folders = split_folders(&info.folder);
@@ -196,6 +256,7 @@ fn prepare(info: &GrepInfo) -> Result<Prepared, GrepError> {
     }
     Ok(Prepared {
         matcher: built.map(|b| b.matcher),
+        replacer,
         keys,
         regexes,
         folders: folders.iter().map(|f| chop_yen(f)).collect(),
@@ -216,8 +277,11 @@ pub fn run(
     cancel: &AtomicBool,
     sink: &mut dyn Sink,
 ) -> Result<Outcome, GrepError> {
+    let normalized = info.normalized();
+    let info = &*normalized;
     let Prepared {
         matcher,
+        replacer,
         keys,
         regexes,
         folders: shown_folders,
@@ -226,6 +290,7 @@ pub fn run(
     let mut runner = Runner {
         info,
         matcher,
+        replacer,
         walker: Walker::new(keys.clone(), regexes),
         cancel,
         sink,
@@ -234,6 +299,7 @@ pub fn run(
         last_flush: Instant::now(),
         hits_at_flush: 0,
         visiting: Vec::new(),
+        kept: std::collections::HashSet::new(),
     };
     let conditions = HeaderConditions {
         key: &info.key,
@@ -247,6 +313,10 @@ pub fn run(
         layout: info.layout,
         file_only: info.file_only,
         regex_version: REGEX_VERSION,
+        replace: info.replace.as_ref().map(|r| format::ReplaceHeader {
+            text: &r.text,
+            paste: r.paste,
+        }),
     };
     runner.sink.write(&format::header(&conditions, &keys));
 
@@ -262,7 +332,11 @@ pub fn run(
     if stopped {
         runner.sink.write(format::SUSPENDED);
     }
-    runner.sink.write(&format::count_line(runner.hits));
+    runner.sink.write(&if info.replace.is_some() {
+        format::replace_count_line(runner.hits)
+    } else {
+        format::count_line(runner.hits)
+    });
     Ok(Outcome {
         hits: runner.hits,
         stopped,
@@ -336,6 +410,9 @@ impl Runner<'_> {
         for name in self.walker.files_in(path) {
             self.check_cancel()?;
             let full = join_path(path, &name);
+            if self.kept.contains(&full) {
+                continue;
+            }
             // `nBasePathLen2`: the folder below the base, without the separator after the base.
             let below_base = path
                 .get(base.len() + 1..)
@@ -385,30 +462,13 @@ impl Runner<'_> {
             self.file_name_only(paths, state);
             return Ok(());
         }
-        let mut options = OpenOptions {
-            encoding: self.info.charset,
-            ..OpenOptions::default()
+        if self.info.replace.is_some() {
+            return self.replace_file(paths, state);
+        }
+        let Some(file) = self.open(paths.full)? else {
+            return Ok(());
         };
-        options.detect = DetectOptions::default();
-        let cancel = self.cancel;
-        let file = match open_file_with(paths.full, &options, &mut |_, _| {
-            if cancel.load(Ordering::Relaxed) {
-                std::ops::ControlFlow::Break(())
-            } else {
-                std::ops::ControlFlow::Continue(())
-            }
-        }) {
-            Ok(file) => file,
-            Err(FileError::Cancelled) => return Err(Stopped),
-            Err(_) => {
-                self.buffer.push_str(&format::file_open_error(paths.full));
-                return Ok(());
-            }
-        };
-        let code_name = match self.info.charset {
-            None => file.encoding.bracket_name(),
-            Some(_) => String::new(),
-        };
+        let code_name = self.code_name(&file);
         let mut file_hits = 0usize;
         let doc = &file.document;
         for index in 0..doc.line_count() {
@@ -432,6 +492,39 @@ impl Runner<'_> {
             }
         }
         Ok(())
+    }
+
+    /// Opens a file for the search, in the encoding of the dialog or the detected one. A file that
+    /// cannot be opened is told in the result and gives `None`.
+    fn open(&mut self, path: &str) -> Result<Option<TextFile>, Stopped> {
+        let mut options = OpenOptions {
+            encoding: self.info.charset,
+            ..OpenOptions::default()
+        };
+        options.detect = DetectOptions::default();
+        let cancel = self.cancel;
+        match open_file_with(path, &options, &mut |_, _| {
+            if cancel.load(Ordering::Relaxed) {
+                std::ops::ControlFlow::Break(())
+            } else {
+                std::ops::ControlFlow::Continue(())
+            }
+        }) {
+            Ok(file) => Ok(Some(file)),
+            Err(FileError::Cancelled) => Err(Stopped),
+            Err(_) => {
+                self.buffer.push_str(&format::file_open_error(path));
+                Ok(None)
+            }
+        }
+    }
+
+    /// The encoding shown in front of a hit, as `  [UTF-8]`; none when the dialog chose one.
+    fn code_name(&self, file: &TextFile) -> String {
+        match self.info.charset {
+            None => file.encoding.bracket_name(),
+            Some(_) => String::new(),
+        }
     }
 
     /// The hits of one line. Sakura matches on the line with its line break, and the break is

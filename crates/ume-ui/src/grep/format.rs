@@ -303,6 +303,17 @@ pub struct HeaderConditions<'a> {
     pub file_only: bool,
     /// The version text of the regular expression library, for `(正規表現:` and `)`.
     pub regex_version: &'a str,
+    /// Set for Grep 置換.
+    pub replace: Option<ReplaceHeader<'a>>,
+}
+
+/// What the heading of a Grep 置換 says about the replacement.
+#[derive(Clone, Copy, Debug)]
+pub struct ReplaceHeader<'a> {
+    /// The replacement text (the clipboard text when `paste`).
+    pub text: &'a str,
+    /// クリップボードから貼り付け.
+    pub paste: bool,
 }
 
 /// `FormatPathList`: the patterns joined with `;`, one with a `;` in quotation marks.
@@ -356,6 +367,20 @@ pub fn header(c: &HeaderConditions<'_>, keys: &GrepKeys) -> String {
         out.push('"');
         out.push_str(&escape_key(c.key));
         out.push('"');
+        out.push_str(EOL);
+    }
+    if let Some(replace) = c.replace {
+        // `STR_GREP_REPLACE_TO`, then the text in quotation marks. Sakura writes
+        // the string for 貼り付け without a line break, which joins the next line to it; the
+        // break is added here.
+        out.push_str("置換後         ");
+        if replace.paste {
+            out.push_str("(クリップボードから貼り付け)");
+        } else {
+            out.push('"');
+            out.push_str(&escape_key(replace.text));
+            out.push('"');
+        }
         out.push_str(EOL);
     }
     out.push_str("検索対象       ");
@@ -417,6 +442,11 @@ pub fn header(c: &HeaderConditions<'_>, keys: &GrepKeys) -> String {
         out.push_str(match c.layout.line_type {
             LineType::Line => "    (一致した行を出力)",
             LineType::NoHitLine => "    (一致しなかった行を出力)",
+            // `STR_GREP_SHOW_FIRST_LINE`: a replacement with a regular expression changes a
+            // line at once, so only its first match is shown.
+            LineType::MatchPart if c.regex && c.replace.is_some_and(|replace| !replace.paste) => {
+                "    (一致した行の最初の箇所のみ出力)"
+            }
             LineType::MatchPart => "    (一致した箇所のみ出力)",
         });
         out.push_str(EOL);
@@ -436,6 +466,26 @@ pub const SUSPENDED: &str = "中断しました。\r\n";
 /// The line with the count (`STR_GREP_MATCH_COUNT`).
 pub fn count_line(hits: usize) -> String {
     format!("{hits} 個が検索されました。{EOL}")
+}
+
+/// `STR_GREP_REPLACE_COUNT`: the line with the number of replacements.
+pub fn replace_count_line(replaced: usize) -> String {
+    format!("{replaced} 個を置換しました。{EOL}")
+}
+
+/// `STR_GREP_REP_ERR_DELETE`: the old file could not be removed.
+pub fn replace_delete_error(path: &str) -> String {
+    format!("ファイルの削除に失敗しました。[{path}]{EOL}")
+}
+
+/// `STR_GREP_REP_ERR_REPLACE`: the new file could not take the place of the old one.
+pub fn replace_replace_error(path: &str) -> String {
+    format!("ファイルの置き換えに失敗しました。[{path}]{EOL}")
+}
+
+/// `STR_GREP_ERR_FILEWRITE`: the new content could not be written.
+pub fn file_write_error(path: &str) -> String {
+    format!("書き込めませんでした。 [{path}]{EOL}")
 }
 
 /// `STR_GREP_ERR_FILEOPEN`: a file that could not be opened.
@@ -680,6 +730,7 @@ mod tests {
             layout: layout(OutputStyle::Normal, LineType::Line),
             file_only: false,
             regex_version: "Onigmo",
+            replace: None,
         }
     }
 
@@ -701,6 +752,57 @@ mod tests {
              \x20   (一致した行を出力)\r\n\
              \r\n\r\n"
         );
+    }
+
+    #[test]
+    fn the_heading_of_a_replacement_has_the_new_text() {
+        let keys = GrepKeys::parse("*.txt", false).unwrap();
+        let folders = vec![r"C:\work".to_owned()];
+        let c = HeaderConditions {
+            replace: Some(ReplaceHeader {
+                text: "a\"b",
+                paste: false,
+            }),
+            ..conditions(&folders)
+        };
+        let text = header(&c, &keys);
+        // Sakura (CGrepAgent.cpp): STR_GREP_REPLACE_TO, then the text as a literal
+        assert!(text.contains("□検索条件  \"foo\"\r\n置換後         \"a\\\"b\"\r\n検索対象"));
+        let c = HeaderConditions {
+            replace: Some(ReplaceHeader {
+                text: "clip",
+                paste: true,
+            }),
+            ..c
+        };
+        let text = header(&c, &keys);
+        assert!(text.contains("置換後         (クリップボードから貼り付け)\r\n検索対象"));
+        assert!(!text.contains("clip"));
+    }
+
+    #[test]
+    fn a_regex_replacement_shows_only_the_first_part_of_a_line() {
+        let keys = GrepKeys::parse("*.txt", false).unwrap();
+        let folders = vec![r"C:\work".to_owned()];
+        let c = HeaderConditions {
+            regex: true,
+            layout: layout(OutputStyle::Normal, LineType::MatchPart),
+            replace: Some(ReplaceHeader {
+                text: "x",
+                paste: false,
+            }),
+            ..conditions(&folders)
+        };
+        assert!(header(&c, &keys).contains("(一致した行の最初の箇所のみ出力)"));
+        // pasting replaces every match one by one
+        let c = HeaderConditions {
+            replace: Some(ReplaceHeader {
+                text: "x",
+                paste: true,
+            }),
+            ..c
+        };
+        assert!(header(&c, &keys).contains("    (一致した箇所のみ出力)"));
     }
 
     #[test]
@@ -784,6 +886,7 @@ mod tests {
         assert_eq!(count_line(0), "0 個が検索されました。\r\n");
         assert_eq!(count_line(12), "12 個が検索されました。\r\n");
         assert_eq!(SUSPENDED, "中断しました。\r\n");
+        assert_eq!(replace_count_line(3), "3 個を置換しました。\r\n");
         assert_eq!(file_open_error("a.txt"), "file open error [a.txt]\r\n");
         assert!(file_read_error("a.txt").ends_with("[a.txt]\r\n"));
     }

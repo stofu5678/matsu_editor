@@ -11,7 +11,7 @@ use std::path::Path;
 use ume_commands::command::{Arg, CommandError};
 use ume_core::encoding::{AUTODETECT_CODE, Encoding};
 
-use super::engine::GrepInfo;
+use super::engine::{GrepInfo, ReplaceInfo};
 use super::format::{Layout, LineType, OutputStyle};
 use super::keys::{GrepKeys, has_unclosed_quote, split_folders, split_pattern_keep_quotes};
 use crate::search::state::{SearchOptions, build_matcher, regex_error_message};
@@ -72,6 +72,12 @@ pub struct GrepSettings {
     pub except_file_regex: bool,
     /// フォルダーの初期値をカレントフォルダーにする (`m_bGrepDefaultFolder`).
     pub default_folder: bool,
+    /// 置換後 of Grep 置換 (`CDlgGrepReplace::m_strText2`).
+    pub replacement: String,
+    /// クリップボードの内容で置換 (`m_bPaste`); off whenever the dialog opens.
+    pub paste: bool,
+    /// バックアップ作成 (`m_bGrepBackup`, on by default).
+    pub backup: bool,
 }
 
 impl Default for GrepSettings {
@@ -95,6 +101,10 @@ impl Default for GrepSettings {
             separate_folder: false,
             except_file_regex: false,
             default_folder: false,
+            replacement: String::new(),
+            paste: false,
+            // CShareData.cpp: sSearch.m_bGrepBackup = true
+            backup: true,
         }
     }
 }
@@ -130,6 +140,21 @@ impl GrepSettings {
     /// The OK button (`CDlgGrep::GetData`): checks the boxes in Sakura's order and makes the
     /// `GrepInfo`. The folders are made absolute and written back to the box.
     pub fn check(&mut self) -> Result<GrepInfo, DialogError> {
+        self.check_boxes(None)
+    }
+
+    /// The OK button of Grep 置換 (`CDlgGrepReplace::GetData`): the condition must not be empty,
+    /// and the rest is the check of a Grep. `clipboard` is the text for クリップボードの内容で置換.
+    pub fn check_replace(&mut self, clipboard: Option<String>) -> Result<GrepInfo, DialogError> {
+        if self.key.is_empty() {
+            // STR_DLGREPLC_REPSTR
+            return Err(DialogError::warning("置換条件を指定してください。"));
+        }
+        self.check_boxes(Some(clipboard))
+    }
+
+    /// The checks of `CDlgGrep::GetData`; `replace` is the clipboard of a Grep 置換.
+    fn check_boxes(&mut self, replace: Option<Option<String>>) -> Result<GrepInfo, DialogError> {
         if has_unclosed_quote(&self.file)
             || has_unclosed_quote(&self.exclude_file)
             || has_unclosed_quote(&self.exclude_folder)
@@ -176,9 +201,15 @@ impl GrepSettings {
         }
         // The patterns as the search reads them, the boxes of the excluded files and folders
         // included: a mistake there is told here, with the dialog still open.
-        let info = self.info();
+        let info = match replace {
+            Some(clipboard) => self.replace_info(clipboard),
+            None => self.info(),
+        };
         super::engine::check(&info).map_err(|e| DialogError {
-            regex: matches!(e, super::engine::GrepError::Pattern(_)),
+            regex: matches!(
+                e,
+                super::engine::GrepError::Pattern(_) | super::engine::GrepError::Replacement(_)
+            ),
             message: e.message(),
         })?;
         Ok(info)
@@ -201,6 +232,24 @@ impl GrepSettings {
             },
             file_only: self.file_only,
             except_file_regex: self.except_file_regex,
+            replace: None,
+        }
+    }
+
+    /// The `GrepInfo` of a Grep 置換 (`CDlgGrepReplace::MakeGrepInfo`). With クリップボードの内容で
+    /// 置換 the new text is `clipboard`.
+    pub fn replace_info(&self, clipboard: Option<String>) -> GrepInfo {
+        GrepInfo {
+            replace: Some(ReplaceInfo {
+                text: if self.paste {
+                    clipboard.unwrap_or_default()
+                } else {
+                    self.replacement.clone()
+                },
+                paste: self.paste,
+                backup: self.backup,
+            }),
+            ..self.info()
         }
     }
 
@@ -253,6 +302,46 @@ impl GrepSettings {
     /// (`CMacro::HandleCommand`, `CMacro::MakeGrepInfo`). The boxes of the excluded files and
     /// folders are empty: the macro does not pass them.
     pub fn from_macro_args(args: &[Arg]) -> Result<GrepSettings, CommandError> {
+        Self::from_macro_args_at(args, 0)
+    }
+
+    /// The arguments the macro `GrepReplace` stands for: the pattern, the new text, then those
+    /// of `Grep` (`CMacro::HandleCommand`; 0x100000 is クリップボードから貼り付け and 0x200000
+    /// バックアップ作成).
+    pub fn from_replace_macro_args(args: &[Arg]) -> Result<GrepSettings, CommandError> {
+        // STR_ERR_DLGMACRO11 and 17: the pattern must not be empty either
+        if !matches!(args.first(), Some(Arg::Text(t)) if !t.is_empty()) {
+            return Err(CommandError::BadArgs(
+                "GREPパターンが指定されていません．".into(),
+            ));
+        }
+        let replacement = match args.get(1) {
+            Some(Arg::Text(t)) => t.clone(),
+            Some(other) => {
+                return Err(CommandError::BadArgs(format!(
+                    "argument 2 must be text, not {other:?}"
+                )));
+            }
+            None => {
+                return Err(CommandError::BadArgs(
+                    "GREP置換後が指定されていません．".into(),
+                ));
+            }
+        };
+        let flags = match args.get(4) {
+            Some(Arg::Int(n)) => *n,
+            _ => 5,
+        };
+        let mut settings = Self::from_macro_args_at(args, 1)?;
+        settings.replacement = replacement;
+        settings.paste = flags & 0x10_0000 != 0;
+        settings.backup = flags & 0x20_0000 != 0;
+        Ok(settings)
+    }
+
+    /// The arguments of `Grep` start at `first` (1 after the new text of `GrepReplace`).
+    fn from_macro_args_at(args: &[Arg], first: usize) -> Result<GrepSettings, CommandError> {
+        let at = |i: usize| i + first;
         let text = |i: usize, missing: &str| match args.get(i) {
             Some(Arg::Text(t)) => Ok(t.clone()),
             Some(other) => Err(CommandError::BadArgs(format!(
@@ -270,10 +359,10 @@ impl GrepSettings {
                 ));
             }
         };
-        let file = text(1, "ファイル種別が指定されていません．")?;
-        let folder = text(2, "検索先フォルダーが指定されていません．")?;
+        let file = text(at(1), "ファイル種別が指定されていません．")?;
+        let folder = text(at(2), "検索先フォルダーが指定されていません．")?;
         // `wtoi_def(Argument[3], 5)`: without the flags the folders and the case are the default.
-        let flags = match args.get(3) {
+        let flags = match args.get(at(3)) {
             None => 5,
             Some(Arg::Int(n)) => *n,
             Some(other) => {
@@ -282,7 +371,7 @@ impl GrepSettings {
                 )));
             }
         };
-        let charset = macro_charset(flags, args.get(4))?;
+        let charset = macro_charset(flags, args.get(at(4)))?;
         Ok(GrepSettings {
             key,
             file,
@@ -314,6 +403,10 @@ impl GrepSettings {
             separate_folder: flags & 0x8_0000 != 0,
             except_file_regex: flags & 0x80_0000 != 0,
             default_folder: false,
+            replacement: String::new(),
+            paste: false,
+            // not an argument of `Grep`; `from_replace_macro_args` sets it from the flags
+            backup: true,
         })
     }
 }
@@ -628,5 +721,78 @@ mod tests {
         assert_eq!(quote_folder("/a;b"), "\"/a;b\"");
         assert_eq!(charset_code(None), 99);
         assert_eq!(charset_code(Some(Encoding::Utf8)), 4);
+    }
+    #[test]
+    fn the_replace_macro_has_the_new_text_and_two_more_flags() {
+        let text = |t: &str| Arg::Text(t.to_owned());
+        let args = [
+            text("foo"),
+            text("bar"),
+            text("*.txt"),
+            text("/tmp"),
+            Arg::Int(0x01 | 0x08 | 0x10_0000 | 0x20_0000),
+            Arg::Int(4),
+        ];
+        let s = GrepSettings::from_replace_macro_args(&args).unwrap();
+        assert_eq!(s.key, "foo");
+        assert_eq!(s.replacement, "bar");
+        assert_eq!(s.file, "*.txt");
+        assert_eq!(s.folder, "/tmp");
+        assert!(s.options.regex && s.sub_folder && s.paste && s.backup);
+        assert_eq!(s.charset, Some(Encoding::Utf8));
+        // without the flags: the folders and the case, no paste, no backup
+        let s = GrepSettings::from_replace_macro_args(&args[..4]).unwrap();
+        assert!(s.sub_folder && !s.paste && !s.backup && !s.options.regex);
+        // STR_ERR_DLGMACRO11 (also for an empty pattern) and 17
+        assert!(GrepSettings::from_replace_macro_args(&[]).is_err());
+        assert!(
+            GrepSettings::from_replace_macro_args(&[text(""), text("b"), text("*"), text("/")])
+                .is_err()
+        );
+        assert!(GrepSettings::from_replace_macro_args(&[text("a")]).is_err());
+        assert!(GrepSettings::from_replace_macro_args(&[text("a"), text("b"), text("*")]).is_err());
+        // an empty new text is a deletion
+        assert!(
+            GrepSettings::from_replace_macro_args(&[text("a"), text(""), text("*"), text("/")])
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn the_replace_dialog_wants_a_condition_and_makes_the_replacement() {
+        let dir = std::env::temp_dir();
+        let mut s = GrepSettings {
+            folder: dir.to_string_lossy().into_owned(),
+            replacement: "new".into(),
+            ..GrepSettings::default()
+        };
+        // STR_DLGREPLC_REPSTR
+        let error = s.check_replace(None).unwrap_err();
+        assert_eq!(error.message, "置換条件を指定してください。");
+        s.key = "old".into();
+        let info = s.check_replace(None).unwrap();
+        let replace = info.replace.unwrap();
+        assert_eq!(replace.text, "new");
+        assert!(
+            !replace.paste && replace.backup,
+            "the backup is on by default"
+        );
+        // the clipboard replaces the text of the box
+        s.paste = true;
+        let replace = s
+            .check_replace(Some("clip".into()))
+            .unwrap()
+            .replace
+            .unwrap();
+        assert_eq!(replace.text, "clip");
+        assert!(replace.paste);
+        // a wrong replacement of a regular expression is a regular expression error
+        s.paste = false;
+        s.options.regex = true;
+        s.replacement = "x\\".into();
+        let error = s.check_replace(None).unwrap_err();
+        assert!(error.regex, "{error:?}");
+        // a Grep is not a replacement
+        assert!(s.info().replace.is_none());
     }
 }
