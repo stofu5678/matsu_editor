@@ -22,6 +22,7 @@
 
 pub mod app;
 mod clipboard;
+mod diff;
 pub mod document;
 mod file_ops;
 pub mod geometry;

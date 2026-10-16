@@ -7,6 +7,7 @@
 use crate::bookmarks::{Bookmarks, LineDelta, LineEdit, TextBreaks};
 use crate::buffer::{Document, Edit, Eol, Pos, Result};
 use crate::cursor::Cursor;
+use crate::diff::DiffMarks;
 use crate::modified::Replaced;
 use crate::undo::History;
 
@@ -17,6 +18,7 @@ pub struct DocumentModel {
     history: History,
     new_line: Eol,
     bookmarks: Bookmarks,
+    diff_marks: DiffMarks,
 }
 
 impl DocumentModel {
@@ -36,6 +38,7 @@ impl DocumentModel {
             history: History::new(),
             new_line,
             bookmarks: Bookmarks::new(),
+            diff_marks: DiffMarks::new(),
         }
     }
 
@@ -60,6 +63,17 @@ impl DocumentModel {
     /// The bookmarks, to set and clear them. Bookmarks are not part of the undo history.
     pub fn bookmarks_mut(&mut self) -> &mut Bookmarks {
         &mut self.bookmarks
+    }
+
+    /// The lines marked by the last DIFF (Sakura: 差分表示). Like the bookmarks they follow the
+    /// edits, also those of undo and redo.
+    pub fn diff_marks(&self) -> &DiffMarks {
+        &self.diff_marks
+    }
+
+    /// The DIFF marks, to set and clear them. They are not part of the undo history.
+    pub fn diff_marks_mut(&mut self) -> &mut DiffMarks {
+        &mut self.diff_marks
     }
 
     /// The line ending that Enter inserts.
@@ -109,6 +123,7 @@ impl DocumentModel {
         );
         for delta in line_edit.forward() {
             self.bookmarks.apply(delta);
+            self.diff_marks.apply(delta);
         }
         self.history.note_lines(line_edit);
         let marks = self.history.marks().edit_of_replace(
@@ -127,6 +142,7 @@ impl DocumentModel {
         // A last line that lost all its text is gone (Sakura deletes the line object), and its
         // bookmark with it.
         self.bookmarks.truncate(self.doc.line_count());
+        self.diff_marks.truncate(self.doc.line_count());
         Ok(edit)
     }
 
@@ -157,8 +173,10 @@ impl DocumentModel {
     fn apply_lines(&mut self, lines: &[LineDelta]) {
         for &delta in lines {
             self.bookmarks.apply(delta);
+            self.diff_marks.apply(delta);
         }
         self.bookmarks.truncate(self.doc.line_count());
+        self.diff_marks.truncate(self.doc.line_count());
     }
 
     /// Whether `line` differs from the saved version: the lines that Sakura draws in the colors of

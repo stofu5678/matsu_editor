@@ -14,6 +14,7 @@
 //! The context tells the layout about each edit as it happens (`RowLayout`), so a command that
 //! edits and then moves vertically sees the new rows.
 
+mod diff_mark;
 mod element;
 mod input;
 mod mouse;
@@ -159,6 +160,8 @@ pub struct EditorView {
     pub(crate) support: crate::support::Support,
     /// The window list (popup or dialog) over the view, while one is open.
     pub(crate) window_list: Option<Entity<crate::window_ops::list::WindowList>>,
+    /// The DIFF and compare dialogs, while one is open (`crate::diff`).
+    pub(crate) diff: crate::diff::DiffState,
     /// The window that holds this view among its panes (`crate::panes`).
     pub(crate) split_host: Option<gpui::WeakEntity<crate::app::Workspace>>,
     font_family: SharedString,
@@ -207,6 +210,7 @@ impl EditorView {
             save_as_dialog: None,
             support: Default::default(),
             window_list: None,
+            diff: Default::default(),
             split_host: None,
             font_family: FONT_FAMILY.into(),
             font_size: crate::settings::ViewSettings::default().font_px(),
@@ -653,6 +657,8 @@ impl Render for EditorView {
             .children(self.grep_progress_bar(cx))
             .children(self.support_overlays(cx))
             .children(self.window_list.clone())
+            .children(self.diff.panel.clone())
+            .children(self.diff.compare.clone())
             // Above the window list: Save from the list can ask for the options.
             .children(self.save_as_dialog.clone())
             .into_any_element()

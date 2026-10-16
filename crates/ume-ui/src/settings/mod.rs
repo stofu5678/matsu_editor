@@ -45,7 +45,7 @@ use ume_config::location::{Environment, Os, candidate_paths, find_existing};
 
 pub use mac_key_layout::MacKeyLayout;
 pub use new_document::NewDocumentDefaults;
-pub use view_settings::{Colors, Marks, ViewSettings, WrapMethod};
+pub use view_settings::{Colors, DiffColor, Marks, ViewSettings, WrapMethod};
 
 /// The settings file, read once at startup.
 #[derive(Clone, Debug, Default)]
