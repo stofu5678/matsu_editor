@@ -42,8 +42,8 @@ use crate::document::{DocumentEvent, SharedDocument};
 use crate::geometry::{Metrics, clamp_scroll_y, scroll_x_to_show, scroll_y_to_show_row};
 use crate::keys::chord_of;
 use crate::layout_adapter::{LAYOUT_BUDGET, RowLayout};
-use crate::search::{SearchPanel, SearchState};
 use crate::macros::MacroState;
+use crate::search::{SearchPanel, SearchState};
 use crate::status::StatusInfo;
 use crate::ui_command::{UiRegistration, UiRegistry};
 
