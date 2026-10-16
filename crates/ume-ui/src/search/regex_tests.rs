@@ -334,3 +334,15 @@ fn the_search_mark_command_drops_the_regular_expression(cx: &mut TestAppContext)
     let options = f.view.read_with(cx, |v, _| v.search.options());
     assert!(!options.regex);
 }
+
+#[gpui::test]
+fn an_empty_match_selected_by_replace_is_stepped_over_too(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "ab\r\ncd\r\nef");
+    f.regex(cx, "^");
+    f.replacement(cx, ">");
+    f.run(cx, "F_REPLACE");
+    assert_eq!(f.text(cx), ">ab\r\ncd\r\nef");
+    assert_eq!(f.caret(cx), Pos::new(1, 0));
+    f.run(cx, "F_SEARCH_NEXT");
+    assert_eq!(f.caret(cx), Pos::new(2, 0));
+}

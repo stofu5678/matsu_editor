@@ -222,6 +222,7 @@ impl EditorView {
             return SearchOutcome::InvalidPattern;
         };
         self.search.set_mark(true);
+        self.search.set_empty_match(None);
         // Sakura moves the caret to the start of the selection and looks from there, so a match
         // that is selected is the one that gets replaced.
         let from = self
@@ -315,6 +316,8 @@ impl EditorView {
         }
         match next {
             Some(n) => {
+                self.search
+                    .set_empty_match((n.start == n.end).then_some(n.start));
                 self.notice = n
                     .wrapped
                     .then(|| wrapped_message(Direction::Forward).to_owned());
@@ -335,6 +338,7 @@ impl EditorView {
         let settings = self.search.replace.clone();
         let replacer = self.regex_replacer(&settings, window, cx).ok()?;
         self.search.set_mark(true);
+        self.search.set_empty_match(None);
         // 選択範囲内 means the selection if there is one, else the whole file
         // (`bSelectedArea=FALSE` in `Command_REPLACE_ALL`).
         let range = self.selection_range().filter(|_| settings.in_selection);
