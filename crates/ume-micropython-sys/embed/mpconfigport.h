@@ -93,6 +93,8 @@
 // own Windows port), and <unistd.h> comes from csrc/msvc/ (build.rs adds that directory).
 #ifdef _MSC_VER
 #include <limits.h>
+#define MP_ENDIANNESS_LITTLE                    (1)
+#define MICROPY_USE_INTERNAL_PRINTF             (0)
 #define MP_NORETURN                             __declspec(noreturn)
 #define MP_WEAK
 #define MP_NOINLINE                             __declspec(noinline)
