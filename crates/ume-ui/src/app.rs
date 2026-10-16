@@ -55,12 +55,13 @@ pub fn run(path: Option<PathBuf>) -> Result<(), StartError> {
         None => SharedDocument::empty(),
     };
     let user = crate::settings::UserSettings::load();
+    let keymap = user.key_map(ume_commands::keymap::Platform::current());
     let app = application();
     #[cfg(target_os = "linux")]
     let app = app.with_assets(gpui_kit_assets::Assets);
     app.run(move |cx: &mut App| {
         gpui_component::init(cx);
-        set_menus(cx);
+        set_menus(cx, &keymap);
         cx.on_action(|_: &Exit, cx| cx.quit());
         cx.on_window_closed(|cx, _| {
             if cx.windows().is_empty() {
@@ -98,9 +99,9 @@ pub fn run(path: Option<PathBuf>) -> Result<(), StartError> {
 /// Sets the menus of the application: Sakura's main menu (`crate::menu`). macOS shows them in the
 /// menu bar of the screen; elsewhere the window draws them (`AppMenuBar`), from the copy in
 /// gpui-component's global state. An item runs its Sakura function on the editor
-/// ([`RunFunction`]); a function without a command is grayed out.
-fn set_menus(cx: &mut App) {
-    let keymap = KeyMap::default();
+/// ([`RunFunction`]); a function without a command is grayed out. The shortcuts shown are those
+/// of `keymap`, the user's key map (ume.ini).
+fn set_menus(cx: &mut App, keymap: &KeyMap) {
     let style = if cfg!(target_os = "macos") {
         DisplayStyle::Mac
     } else {
@@ -111,7 +112,7 @@ fn set_menus(cx: &mut App) {
     if cfg!(target_os = "macos") {
         menus.push(Menu::new("UME Editor").items([MenuItem::action("UME Editor を終了", Exit)]));
     }
-    for top in main_menu(&keymap, &Registered) {
+    for top in main_menu(keymap, &Registered) {
         let items = gpui_items(top.entries, style);
         menus.push(Menu::new(top.label).items(items));
     }
@@ -232,7 +233,7 @@ mod tests {
     fn the_window_builds_and_its_menu_edits(cx: &mut TestAppContext) {
         cx.update(|cx| {
             gpui_component::init(cx);
-            set_menus(cx);
+            set_menus(cx, &KeyMap::default());
         });
         let doc = Document::from_utf8(b"abc".to_vec()).unwrap();
         let shared = cx.new(|_| {
@@ -271,7 +272,7 @@ mod tests {
     fn the_menus_are_sakuras(cx: &mut TestAppContext) {
         cx.update(|cx| {
             gpui_component::init(cx);
-            set_menus(cx);
+            set_menus(cx, &KeyMap::default());
         });
         let menus = cx.update(|cx| cx.get_menus().unwrap_or_default());
         let file = menus
