@@ -71,10 +71,12 @@ impl SaveOutcome {
     }
 }
 
-/// Shows the save dialog. `None` if the user cancelled.
-async fn choose_path(
+/// Shows the save dialog. `None` if the user cancelled. The dialog starts in the folder of the
+/// `current` file and suggests `name`, else the name of the current file, else `無題.txt`.
+pub(crate) async fn choose_path(
     cx: &mut AsyncWindowContext,
     current: Option<&std::path::Path>,
+    name: Option<&str>,
 ) -> Option<PathBuf> {
     let dir = current
         .and_then(|p| p.parent())
@@ -83,10 +85,12 @@ async fn choose_path(
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_default();
     // Sakura suggests *.txt for a document without a name (`SaveFileDialog`).
-    let name = current.and_then(|p| p.file_name()).map_or_else(
-        || "無題.txt".to_owned(),
-        |n| n.to_string_lossy().into_owned(),
-    );
+    let name = name.map(str::to_owned).unwrap_or_else(|| {
+        current.and_then(|p| p.file_name()).map_or_else(
+            || "無題.txt".to_owned(),
+            |n| n.to_string_lossy().into_owned(),
+        )
+    });
     let receiver = cx
         .update(|_, app| app.prompt_for_new_path(&dir, Some(&name)))
         .ok()?;
@@ -135,7 +139,7 @@ pub(crate) async fn save(
         if busy {
             return SaveOutcome::Cancelled;
         }
-        match choose_path(cx, current.as_deref()).await {
+        match choose_path(cx, current.as_deref(), None).await {
             Some(path) => {
                 from_dialog = true;
                 path

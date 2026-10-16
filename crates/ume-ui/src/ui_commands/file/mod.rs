@@ -3,6 +3,7 @@
 //! The flows of open, save and close are in `crate::file_ops`; the commands read their arguments
 //! and start them.
 
+pub mod base64_decode;
 pub mod exit_all;
 pub mod exit_all_editors;
 pub mod file_close;
@@ -28,4 +29,5 @@ pub mod file_save_quiet;
 pub mod print;
 pub mod print_pagesetup;
 pub mod print_preview;
+pub mod uudecode;
 pub mod win_close;

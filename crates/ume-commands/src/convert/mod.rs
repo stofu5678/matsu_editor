@@ -6,11 +6,13 @@
 //! Nothing here knows the document or the cursor, so the functions are tested on strings.
 //!
 //! * [`case`]: lower and upper case by Sakura's ranges.
+//! * [`code`]: character code conversions of the selection, Base64 and uudecode.
 //! * [`kana`]: full and half width, hiragana and katakana, alphanumerics and symbols.
 //! * [`tabs`]: tabs to spaces and spaces to tabs.
 //! * [`datetime`]: the date and time pictures of `F_INS_DATE` and `F_INS_TIME`, and the clock.
 
 pub mod case;
+pub mod code;
 pub mod datetime;
 pub mod kana;
 pub mod tabs;

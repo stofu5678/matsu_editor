@@ -1102,3 +1102,72 @@ fn a_second_save_as_does_not_open_another_path_dialog(cx: &mut TestAppContext) {
     f.keys(cx, "enter");
     assert_eq!(read(&target), b"abc");
 }
+
+// ---- Base64 and uudecode of the selection (save_decoded.rs) ----
+
+#[gpui::test]
+fn base64_decode_saves_the_bytes_of_the_selection(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let target = dir.path("out.bin");
+    let (f, cx) = utf8_fixture(cx, &dir, b"aGVs\r\nbG8=");
+    f.run(cx, "F_SELECTALL", &[]);
+    f.run(cx, "F_BASE64DECODE", &[]);
+    assert!(cx.did_prompt_for_new_path());
+    let chosen = target.clone();
+    cx.simulate_new_path_selection(move |_| Some(chosen));
+    cx.run_until_parked();
+    assert_eq!(read(&target), b"hello");
+    // The document is not changed.
+    assert!(!f.modified(cx));
+    assert_eq!(f.title(cx), "a.txt - UME Editor");
+}
+
+#[gpui::test]
+fn base64_decode_does_nothing_without_a_selection_or_for_other_text(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let (f, cx) = utf8_fixture(cx, &dir, b"aGVs!bG8=");
+    f.run(cx, "F_BASE64DECODE", &[]);
+    assert!(!cx.did_prompt_for_new_path(), "no selection");
+    f.run(cx, "F_SELECTALL", &[]);
+    f.run(cx, "F_BASE64DECODE", &[]);
+    assert!(!cx.did_prompt_for_new_path(), "not Base64");
+}
+
+#[gpui::test]
+fn cancelling_the_dialog_of_base64_decode_writes_nothing(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let (f, cx) = utf8_fixture(cx, &dir, b"aGVsbG8=");
+    f.run(cx, "F_SELECTALL", &[]);
+    f.run(cx, "F_BASE64DECODE", &[]);
+    cx.simulate_new_path_selection(|_| None);
+    cx.run_until_parked();
+    assert!(!cx.has_pending_prompt());
+    assert!(!f.modified(cx));
+}
+
+#[gpui::test]
+fn uudecode_saves_the_bytes_of_the_selection(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let target = dir.path("cat.txt");
+    let (f, cx) = utf8_fixture(cx, &dir, b"begin 644 cat.txt\r\n#0V%T\r\n`\r\nend\r\n");
+    f.run(cx, "F_SELECTALL", &[]);
+    f.run(cx, "F_UUDECODE", &[]);
+    assert!(cx.did_prompt_for_new_path());
+    let chosen = target.clone();
+    cx.simulate_new_path_selection(move |_| Some(chosen));
+    cx.run_until_parked();
+    assert_eq!(read(&target), b"Cat");
+    assert!(!f.modified(cx));
+}
+
+#[gpui::test]
+fn uudecode_does_nothing_for_text_that_is_not_uu(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let (f, cx) = utf8_fixture(cx, &dir, b"begin 644 a\n#0V%T\n`\nend\n");
+    f.run(cx, "F_SELECTALL", &[]);
+    f.run(cx, "F_UUDECODE", &[]);
+    assert!(
+        !cx.did_prompt_for_new_path(),
+        "the lines do not end with CR LF"
+    );
+}
