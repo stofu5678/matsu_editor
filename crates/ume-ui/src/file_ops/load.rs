@@ -168,7 +168,14 @@ pub(crate) async fn load_here(
         .ok();
     match result {
         Ok(file) => {
-            let shared = SharedDocument::from_text_file(file);
+            let mut shared = SharedDocument::from_text_file(file);
+            // `FileOpen(file, code, 1)` of a macro asked for view mode.
+            if cx
+                .update(|_, app| super::view_mode_request::take(app, path))
+                .unwrap_or(false)
+            {
+                shared.keep_view_mode(true);
+            }
             let replaced = view.update(cx, |view, cx| {
                 if Some(view.document().read(cx).version()) != started {
                     view.notice = Some(format!(
@@ -189,6 +196,9 @@ pub(crate) async fn load_here(
             replaced.unwrap_or(false)
         }
         Err(error) => {
+            // a request for view mode is for this read only
+            cx.update(|_, app| super::view_mode_request::take(app, path))
+                .ok();
             view.update(cx, |view, cx| {
                 view.notice = None;
                 cx.notify();

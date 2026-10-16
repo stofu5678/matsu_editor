@@ -47,6 +47,10 @@ pub trait Clipboard {
     /// Replaces the content of the clipboard. Returns `false` if the clipboard could not be
     /// written (Sakura: `MySetClipboardData` fails and the command beeps).
     fn set(&mut self, data: ClipData) -> bool;
+
+    /// Empties the clipboard, so that [`get`](Self::get) finds no text (Sakura: `CClipboard::Empty`,
+    /// `EmptyClipboard`).
+    fn clear(&mut self);
 }
 
 /// A clipboard in memory, for tests.
@@ -77,5 +81,9 @@ impl Clipboard for MemoryClipboard {
     fn set(&mut self, data: ClipData) -> bool {
         self.data = Some(data);
         true
+    }
+
+    fn clear(&mut self) {
+        self.data = None;
     }
 }

@@ -146,6 +146,30 @@ impl SharedDocument {
         Ok(report)
     }
 
+    /// Writes the document to `path` for `F_PUTFILE`: like [`save_as`](Self::save_as), but the
+    /// document keeps its own path, encoding, BOM and line ending (Sakura: "現在開いているファイル
+    /// には影響しない").
+    pub fn put_file(
+        &mut self,
+        path: PathBuf,
+        options: &SaveOptions,
+        progress: Progress<'_>,
+    ) -> ume_core::file::Result<SaveReport> {
+        let (encoding, bom, new_line, eol_on_save) = (
+            self.file.encoding,
+            self.file.bom,
+            self.file.new_line,
+            self.file.eol_on_save,
+        );
+        let result = self.with_file(|file| file.save_as(path, options, progress));
+        self.file.path = self.path.clone();
+        self.file.encoding = encoding;
+        self.file.bom = bom;
+        self.file.new_line = new_line;
+        self.file.eol_on_save = eol_on_save;
+        result
+    }
+
     /// The line ending that Enter inserts, as the status bar names it.
     pub fn new_line(&self) -> Eol {
         self.model.new_line()

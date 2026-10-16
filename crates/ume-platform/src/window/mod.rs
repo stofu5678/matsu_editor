@@ -103,3 +103,9 @@ pub fn is_topmost(window: RawWindowHandle) -> Result<bool, Error> {
 pub fn set_topmost(window: RawWindowHandle, topmost: bool) -> Result<(), Error> {
     os::set_topmost(window, topmost)
 }
+
+/// Brings a minimized or maximized window back to its normal size and place (Sakura's
+/// `ShowWindow(SW_RESTORE)`, `F_WINRESTORE`). A window that is normal already stays as it is.
+pub fn restore(window: RawWindowHandle) -> Result<(), Error> {
+    os::restore(window)
+}

@@ -102,3 +102,15 @@ pub(super) fn set_topmost(handle: RawWindowHandle, topmost: bool) -> Result<(), 
     });
     Ok(())
 }
+
+pub(super) fn restore(handle: RawWindowHandle) -> Result<(), Error> {
+    let window = window(handle)?;
+    if window.isMiniaturized() {
+        window.deminiaturize(None);
+    }
+    // `zoom:` toggles; only a zoomed window is zoomed back.
+    if window.isZoomed() {
+        window.zoom(None);
+    }
+    Ok(())
+}

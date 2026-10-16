@@ -36,3 +36,7 @@ pub(super) fn is_topmost(_: RawWindowHandle) -> Result<bool, Error> {
 pub(super) fn set_topmost(_: RawWindowHandle, _: bool) -> Result<(), Error> {
     Err(Error::Unsupported("常に手前に表示"))
 }
+
+pub(super) fn restore(_: RawWindowHandle) -> Result<(), Error> {
+    Err(Error::Unsupported("ウィンドウを元の大きさに戻す"))
+}

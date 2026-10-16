@@ -135,3 +135,13 @@ pub(super) fn set_topmost(window: RawWindowHandle, topmost: bool) -> Result<(), 
     }
     Ok(())
 }
+
+pub(super) fn restore(window: RawWindowHandle) -> Result<(), Error> {
+    let hwnd = hwnd(window)?;
+    // SAFETY: plain call with a window of this process. `ShowWindow` returns whether the window
+    // was visible before, not whether it worked, so there is nothing to check.
+    unsafe {
+        ShowWindow(hwnd, SW_RESTORE);
+    }
+    Ok(())
+}

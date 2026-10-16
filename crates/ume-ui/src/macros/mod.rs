@@ -31,6 +31,7 @@
 
 mod host;
 mod output;
+mod ui_calls;
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -155,6 +156,11 @@ impl MacroState {
         self.recorder.is_recording()
     }
 
+    /// A macro is playing or running: the commands it calls are not recorded.
+    pub(crate) fn is_suspended(&self) -> bool {
+        self.suspended
+    }
+
     fn busy(&self) -> bool {
         self.running.is_some() || !self.queue.is_empty()
     }
@@ -258,6 +264,22 @@ impl EditorView {
             let recorded = self.macros.recorder.stop();
             self.macros.current = Some(CurrentMacro::Recorded(recorded));
         }
+    }
+
+    /// Leaves the undo blocks that a macro entered with `AddRefUndoBuffer()` and did not leave
+    /// (Sakura: `CMacroBeforeAfter::ExecKeyMacroAfter` puts the reference count back to what it
+    /// was before the macro). The edits in them become an undo step. Not a command, so the view
+    /// stays where the macro put it.
+    fn close_undo_blocks(&mut self, cx: &mut Context<Self>) {
+        // The block of an IME composition that the user started is not the macro's: it closes
+        // when the text is committed.
+        if self.composing {
+            return;
+        }
+        let cursor = &self.cursor;
+        self.document.update(cx, |shared, _| {
+            shared.parts_mut().0.close_blocks(cursor);
+        });
     }
 
     // ---- messages ----
@@ -545,6 +567,7 @@ impl EditorView {
         self.macros.draining = false;
         if self.macros.running.is_none() && self.macros.queue.is_empty() {
             self.macros.suspended = false;
+            self.close_undo_blocks(cx);
         }
         cx.notify();
     }
@@ -622,7 +645,9 @@ impl EditorView {
                 // An IME composition that the user started ends first, as for a key.
                 self.interrupt_composition(cx);
                 // A message box, a file dialog or `Sleep` is answered when it is over.
-                if !self.start_waiting_call(&text, window, cx) {
+                if !self.start_waiting_call(&text, window, cx)
+                    && !self.run_ui_call(&text, window, cx)
+                {
                     let mut env = self.host_env(&text, cx);
                     let reply = self.run_with(cx, |command_cx| {
                         bridge::handle_message_with(Registry::global(), command_cx, &mut env, &text)
@@ -668,7 +693,10 @@ impl EditorView {
         match &self.macros.running {
             // `Finished` follows with `Cancelled`.
             Some(running) => running.session.cancel(),
-            None => self.macros.suspended = false,
+            None => {
+                self.macros.suspended = false;
+                self.close_undo_blocks(cx);
+            }
         }
         cx.notify();
     }

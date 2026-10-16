@@ -34,11 +34,15 @@ pub struct Output {
     lines: Vec<Line>,
     /// The panel is shown.
     open: bool,
+    /// The last line was left without a line break (`TraceOut` with option 2): the next trace
+    /// goes on in it.
+    open_line: bool,
     scroll: ScrollHandle,
 }
 
 impl Output {
     pub fn push(&mut self, kind: Kind, text: impl Into<String>) {
+        self.open_line = false;
         self.lines.push(Line {
             kind,
             text: text.into(),
@@ -49,9 +53,43 @@ impl Output {
         self.scroll.scroll_to_bottom();
     }
 
+    /// `TraceOut`: appends `text` to the output and shows the panel. With `line_break` the
+    /// text ends a line (Sakura appends CR LF); without it the next trace goes on in the same
+    /// line. A line break in `text` (LF, CR LF) starts a new line.
+    pub fn trace(&mut self, text: &str, line_break: bool) {
+        self.open = true;
+        let mut text = text.replace("\r\n", "\n");
+        if line_break {
+            text.push('\n');
+        }
+        let pieces: Vec<&str> = text.split('\n').collect();
+        for (i, piece) in pieces.iter().enumerate() {
+            let last = i + 1 == pieces.len();
+            match self.lines.last_mut() {
+                Some(line) if i == 0 && self.open_line => line.text.push_str(piece),
+                // what follows the last line break is nothing yet
+                _ if last && piece.is_empty() => {}
+                _ => self.lines.push(Line {
+                    kind: Kind::Out,
+                    text: (*piece).to_owned(),
+                }),
+            }
+            if !last {
+                self.open_line = false;
+            } else if !piece.is_empty() {
+                self.open_line = true;
+            }
+        }
+        if self.lines.len() > MAX_LINES {
+            self.lines.drain(..self.lines.len() - MAX_LINES);
+        }
+        self.scroll.scroll_to_bottom();
+    }
+
     /// Starts a new run: the panel is emptied and shown.
     pub fn begin(&mut self) {
         self.lines.clear();
+        self.open_line = false;
         self.open = true;
     }
 
@@ -181,6 +219,48 @@ mod tests {
         }
         assert_eq!(output.lines().len(), MAX_LINES);
         assert_eq!(output.lines()[0].text, "10");
+    }
+
+    #[test]
+    fn trace_ends_the_line_unless_told_not_to() {
+        let mut output = Output::default();
+        output.trace("a", true);
+        output.trace("b", false);
+        output.trace("c", false);
+        output.trace("d", true);
+        output.trace("e", true);
+        assert_eq!(output.text(), "a\nbcd\ne");
+        assert!(output.is_open());
+    }
+
+    #[test]
+    fn trace_splits_the_text_at_line_breaks() {
+        let mut output = Output::default();
+        output.trace("1\r\n2\n3", false);
+        output.trace("4\n", false);
+        output.trace("", true);
+        output.trace("5", true);
+        assert_eq!(output.text(), "1\n2\n34\n\n5");
+    }
+
+    #[test]
+    fn trace_of_nothing_without_a_break_changes_nothing() {
+        let mut output = Output::default();
+        output.trace("", false);
+        assert_eq!(output.text(), "");
+        output.trace("a", false);
+        output.trace("", false);
+        output.trace("b", true);
+        assert_eq!(output.text(), "ab");
+    }
+
+    #[test]
+    fn another_line_ends_the_open_one() {
+        let mut output = Output::default();
+        output.trace("open", false);
+        output.push(Kind::Note, "note");
+        output.trace("after", true);
+        assert_eq!(output.text(), "open\nnote\nafter");
     }
 
     #[test]
