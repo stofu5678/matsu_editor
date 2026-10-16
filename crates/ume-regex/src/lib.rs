@@ -207,6 +207,16 @@ pub trait Regex: Send + Sync + fmt::Debug {
     /// look-behind see the part before `start`.
     fn captures_at(&self, text: &str, start: usize) -> Result<Option<Captures>, SearchError>;
 
+    /// Like [`captures_at`](Self::captures_at), but `\G` is `gpos` instead of `start`. The `g`
+    /// option of bregonig.dll keeps `\G` at the end of the last match while it steps over an
+    /// empty one, so that `\G` matches only there (measured on bregonig.dll 4.20).
+    fn captures_from(
+        &self,
+        text: &str,
+        start: usize,
+        gpos: usize,
+    ) -> Result<Option<Captures>, SearchError>;
+
     /// Like [`captures_at`](Self::captures_at), but only the range of the whole match.
     fn find_at(&self, text: &str, start: usize) -> Result<Option<Range<usize>>, SearchError> {
         Ok(self.captures_at(text, start)?.map(|c| c.whole()))
@@ -248,7 +258,27 @@ impl Regex for OnigmoRegex {
     }
 
     fn captures_at(&self, text: &str, start: usize) -> Result<Option<Captures>, SearchError> {
-        if !text.is_char_boundary(start) {
+        self.search(text, None, start)
+    }
+
+    fn captures_from(
+        &self,
+        text: &str,
+        start: usize,
+        gpos: usize,
+    ) -> Result<Option<Captures>, SearchError> {
+        self.search(text, Some(gpos), start)
+    }
+}
+
+impl OnigmoRegex {
+    fn search(
+        &self,
+        text: &str,
+        gpos: Option<usize>,
+        start: usize,
+    ) -> Result<Option<Captures>, SearchError> {
+        if !text.is_char_boundary(start) || gpos.is_some_and(|g| !text.is_char_boundary(g)) {
             return Err(SearchError::InvalidStart {
                 start,
                 len: text.len(),
@@ -256,7 +286,7 @@ impl Regex for OnigmoRegex {
         }
         let found = self
             .compiled
-            .search(text.as_bytes(), None, start, text.len(), 0)
+            .search(text.as_bytes(), gpos, start, text.len(), 0)
             .map_err(|e| SearchError::Engine {
                 code: e.code,
                 message: e.message,

@@ -5,11 +5,19 @@ extend-exclude = [
     # Vendored Onigmo (C sources and Unicode tables) and the test table generated from its testpy.py.
     "crates/ume-regex/onigmo/",
     "crates/ume-regex/src/onigmo_suite/cases.rs",
+    # What bregonig.dll returned for the cases, byte for byte (the outputs include odd text on purpose).
+    "tools/bregonig-compat/bregonig-4.20-*.json",
+    # Test strings for the regex engine (subjects like "ba" are not words).
+    "tools/bregonig-compat/cases.json",
+    "tools/bregonig-compat/make_cases.py",
 ]
 
 [default.extend-words]
 # bb.edn: Babashka's config file (EDN, the Extensible Data Notation of Clojure).
 edn = "edn"
+
+# bregonig.dll's own error message "unmatch separater" (a pattern that ends with a backslash).
+separater = "separater"
 
 [default.extend-identifiers]
 # Sakura's macro names (sakura_core/macro/CSMacroMgr.cpp): "UNICODE to SJIS" written as a word.

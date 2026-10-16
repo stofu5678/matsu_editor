@@ -12,7 +12,7 @@
 //!   `m_bConsecutiveAll`, off by default): [`ReplaceAllMode::Batch`] is the `g` option of bregonig.html (5.2, "g: global
 //!   replacement"; Sakura passes it unless the check box is on), one
 //!   pass over each line that searches the line as it was before any replacement (that look-behind
-//!   sees the original text is not in bregonig.html; to check against the real bregonig.dll);
+//!   sees the original text is not in bregonig.html; bregonig.dll 4.20 does so);
 //!   [`ReplaceAllMode::Repeat`] replaces one match, searches again from the caret and so on.
 //!   They differ when a replacement changes what a later match sees (look-behind, `\b`, `\G`).
 
@@ -21,8 +21,9 @@ use std::sync::Arc;
 
 use ume_core::buffer::{BufferError, Document, Pos};
 use ume_core::search::{
-    AppliedEdit, Control, Direction, Found, Matcher, ReplaceAllResult, ReplaceStep, ReplaceTarget,
-    Replacement, SearchError, apply_replacements, find, find_all, replacement_for, start_after,
+    AppliedEdit, Control, Direction, Found, Match, Matcher, MatcherError, ReplaceAllResult,
+    ReplaceStep, ReplaceTarget, Replacement, SearchError, apply_replacements, find, find_all,
+    replacement_for, start_after,
 };
 
 use crate::matcher::RegexMatcher;
@@ -38,6 +39,40 @@ pub enum ReplaceAllMode {
     /// One match is replaced, and the search goes on from there in the changed text
     /// (「すべて置換」は置換の繰返し).
     Repeat,
+}
+
+/// The matcher of [`ReplaceAllMode::Batch`]: it scans a line the way the `g` option of
+/// bregonig.dll does (measured on bregonig.dll 4.20). That differs from Sakura's own loop
+/// (`CSearchAgent::SearchWord`, which `RegexMatcher` follows) in one place: `\G` stays at the end
+/// of the last match while the scan steps one character over an empty match, so after an empty
+/// match `\G` cannot match any more (`\G` replaced by `-` in `abc` gives `-abc`).
+#[derive(Debug)]
+struct GlobalScan<'a>(&'a RegexMatcher);
+
+impl Matcher for GlobalScan<'_> {
+    fn find_at(&self, line: &str, start: usize) -> Result<Option<Match>, MatcherError> {
+        self.0.find_at(line, start)
+    }
+
+    fn find_all_from(&self, line: &str, start: usize) -> Result<Vec<Match>, MatcherError> {
+        let mut all = Vec::new();
+        let (mut pos, mut gpos) = (start, start);
+        while let Some(m) = self.0.find_from(line, pos, gpos)? {
+            let end = m.end;
+            let empty = m.is_empty();
+            all.push(m);
+            gpos = end;
+            pos = if empty {
+                match line[end..].chars().next() {
+                    Some(c) => end + c.len_utf8(),
+                    None => break,
+                }
+            } else {
+                end
+            };
+        }
+        Ok(all)
+    }
 }
 
 /// A regular expression, a replacement for it and what to do with the match.
@@ -257,7 +292,8 @@ impl RegexReplacer {
         let mut deleted_through: Option<usize> = None;
         // Matches come line by line, so the last line read is enough.
         let mut cached: Option<(usize, String)> = None;
-        for found in find_all(work, &*self.matcher, range, ctl) {
+        let scan = GlobalScan(&self.matcher);
+        for found in find_all(work, &scan, range, ctl) {
             let found = found?;
             let line_no = found.start.line;
             if self.target == ReplaceTarget::DeleteLine {

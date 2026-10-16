@@ -7312,6 +7312,7 @@ name = "ume-regex"
 version = "0.0.0"
 dependencies = [
  "cc",
+ "serde_json",
  "ume-core",
 ]
 

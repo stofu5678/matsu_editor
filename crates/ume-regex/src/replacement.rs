@@ -2,8 +2,9 @@
 //!
 //! This module is an independent implementation. It was written from the user documentation of
 //! bregonig (`bregonig.html`, section 5.3) and from Sakura's help, without looking at the source
-//! code of bregonig, for ADR-0006. Where the documentation is silent, the choice made here is
-//! stated in the doc comment of the item and needs a check against the real `bregonig.dll`.
+//! code of bregonig, for ADR-0006. Where the documentation is silent it follows what the real
+//! bregonig.dll 4.20 (Sakura's package) does, measured on 2026-10-16 with `tools/bregonig-compat`;
+//! `tests/bregonig_compat.rs` replays those measurements.
 //!
 //! # Syntax
 //!
@@ -11,43 +12,56 @@
 //! |------|---------|
 //! | `\t \n \r \b \f \a \e` | tab, LF, CR, backspace, form feed, bell, ESC |
 //! | `\0nn` | octal character (at most 3 digits including the `0`) |
-//! | `\xHH`, `\x{H...}` | hexadecimal character (1-2 digits, or any number in braces) |
-//! | `\o{n...}` | octal character in braces |
+//! | `\xHH`, `\x{H...}` | hexadecimal character (1-2 digits, or up to 8 in braces; `\x{}` is U+0000) |
+//! | `\o{n...}` | octal character in braces (`\o{}` is U+0000) |
 //! | `\cX` | control character (`\c[` is ESC); `\c\X` is read as `\cX` |
 //! | `\l \u` | the next character in lower / upper case |
 //! | `\L \U \E` | lower / upper case until `\E` (or the end) |
-//! | `\1`..`\9`, `$1`.. | group by number (`\10` and more are octal when no such group exists) |
+//! | `\Q` | nothing (it is skipped; it does not quote) |
+//! | `\1`..`\9`, `$1`.. | group by number |
+//! | `\10` and more | the group if the pattern has that many, else 2-3 octal digits up to `\377` make a character, else the group (empty) |
 //! | `${n}` | group by number, safe before digits (`${0}` is the whole match) |
 //! | `$&` | the whole match |
 //! | `$+` | the group with the highest number that took part in the match |
-//! | `\k<name>`, `\k'name'`, `${name}`, `$+{name}` | group by name (the leftmost one that took part) |
-//! | `$-{name}[n]` | the n-th group of that name (`0` leftmost, `-1` rightmost) |
-//! | `\` + other | the character itself (`\\`, `\$`, `\/`, ...) |
+//! | `\k<name>`, `\k'name'`, `${name}`, `$+{name}` | the first group of that name (lowest number) |
+//! | `$-{name}[n]` | the n-th group of that name (`0` first, `-1` last) |
+//! | `\` + other | the character itself (`\\`, `\$`, `\/`, `\v`, ...) |
 //!
-//! `$` followed by anything else is an ordinary character (`$0`, `$var`, a final `$`).
 //! Case conversion only touches ASCII letters, as the documentation says.
 //!
-//! # Choices where the documentation is silent
+//! # What bregonig.dll 4.20 does where the documentation is silent
 //!
 //! * A reference that cannot be resolved (a group number past the pattern's groups, an unknown
 //!   name) gives an empty string and is listed in [`ReplacementTemplate::problems`].
-//! * A malformed `$` form (`${1`, `$+{x`, `$-{x}`) is written as it stands: the `$` is an ordinary
-//!   character and scanning resumes right after it. A malformed backslash form (`\x{41`, `\k<x`,
-//!   `\o`, `\c` at the end) drops the backslash and keeps the letter, like any unknown escape.
-//! * `\x` with no hexadecimal digit, and a code point that is not a character, are malformed.
-//! * `\Q`, `\v` and other unlisted escapes are the letter itself.
-//! * `$$` is two ordinary characters; a reference after it still works (`$$1` is `$` + group 1).
-//! * A name (and the digits of `${n}`) is a run of word characters (letters, digits, `_`) up to
-//!   the closing delimiter; `\x{...}` and `\o{...}` hold only hexadecimal / octal digits. Anything
-//!   else (`${foo bar}`, `\x{4 1}`) makes the form malformed text. This keeps parsing linear.
+//! * A `$` that does not start a reference is text together with the character after it, which
+//!   is not read as anything: `$$1` is the text `$$1`, `$\n` the text `$\n`, `$0` the text `$0`.
+//! * `${...}`: a form that starts with a digit has to be digits and `}` (`${1a}` and `${1 }` are
+//!   text); any other form is a name up to the first `}`, whatever it holds (`${}`, `${a b}`,
+//!   `${ 1}`, `${-1}` are names no group has, so they give nothing). Without a `}` it is text.
+//!   `$+{...}`, `$-{...}[n]` and `\k<...>` read their names the same way; `\k<1>` is the name
+//!   "1", so it gives nothing.
+//! * `$-{name}[n]`: the index is `[]` (0) or white space, an optional sign and digits, then `]`;
+//!   anything else makes the whole form text.
+//! * A malformed backslash form (`\x{41`, `\k<x`, `\o`) drops the backslash and keeps the rest as
+//!   text. `\x` with no hexadecimal digit, `\x{` with more than 8 digits or a non-digit are
+//!   malformed.
 //! * `\xHH` and the octal escapes give the code point with that number, not a byte of some
 //!   encoding: Sakura uses the UTF-16 API of bregonig (`sakura_core/extmodule/CBregexpDll2.cpp`),
 //!   so `\xC3\xA9` is two characters, not `é`.
-//! * Several groups with one name: `\k<n>`, `${n}`, `$+{n}` take the leftmost one that took part.
+//! * Several groups with one name: `\k<n>`, `${n}`, `$+{n}` use the group with the lowest number,
+//!   even if it did not take part in the match (then they give nothing).
 //! * `\L`/`\U` stay in effect over literal text, escapes and groups; `\l`/`\u` wait for the next
 //!   character that is written (an empty group does not use it up), and win over `\L`/`\U`.
 //! * A replacement that ends with an odd number of backslashes is an error
 //!   ([`ReplacementError::UnmatchedSeparator`]), see [`ends_with_escape`].
+//!
+//! # Known differences from the DLL
+//!
+//! * The DLL turns `\x{D800}` (a surrogate) and `\x{110000}` and above into lone surrogates in
+//!   its UTF-16 text; a Rust string cannot hold them, so they give nothing here.
+//! * `$-{name}[n]` with an `n` past the groups reads memory it should not in the DLL (the 32-bit
+//!   and the 64-bit DLL differ, and `-2` for a single group gives that group); here it is empty.
+//! * A group number of 20 or more digits wraps around in the DLL and saturates here.
 
 use std::fmt;
 use std::ops::Range;
@@ -103,8 +117,6 @@ enum Part {
     Group(usize),
     /// `$+`
     LastGroup,
-    /// Groups of one name, leftmost first; the first one that took part is used.
-    Named(Vec<usize>),
     /// `\l` or `\u`: the next written character.
     Next(Case),
     /// `\L` or `\U`.
@@ -139,6 +151,8 @@ impl ReplacementTemplate {
             text: String::new(),
             parts: Vec::new(),
             problems: Vec::new(),
+            seek: [None, None, None],
+            index_failed_at: None,
         };
         parser.run();
         Ok(Self {
@@ -179,14 +193,6 @@ impl ReplacementTemplate {
                         out.push_str(group_text(n));
                     }
                 }
-                Part::Named(numbers) => {
-                    if let Some(&n) = numbers
-                        .iter()
-                        .find(|&&n| groups.get(n).is_some_and(Option::is_some))
-                    {
-                        out.push_str(group_text(n));
-                    }
-                }
                 Part::Next(case) => out.next = Some(*case),
                 Part::Mode(case) => out.mode = Some(*case),
                 Part::EndMode => out.mode = None,
@@ -223,6 +229,28 @@ impl Emitter {
     }
 }
 
+/// The closing delimiter of a form that reads up to it.
+#[derive(Clone, Copy)]
+enum Close {
+    Brace,
+    Angle,
+    Quote,
+}
+
+impl Close {
+    fn index(self) -> usize {
+        self as usize
+    }
+
+    fn char(self) -> char {
+        match self {
+            Self::Brace => '}',
+            Self::Angle => '>',
+            Self::Quote => '\'',
+        }
+    }
+}
+
 struct Parser<'a> {
     chars: Vec<char>,
     pos: usize,
@@ -232,6 +260,12 @@ struct Parser<'a> {
     text: String,
     parts: Vec<Part>,
     problems: Vec<ReplacementProblem>,
+    /// For each [`Close`], the index of the next such character at or after every position
+    /// (`usize::MAX`: none). Built on first use, so that an unclosed form costs no scan.
+    seek: [Option<Vec<usize>>; 3],
+    /// The `}` after which an index failed to parse. Every `$-{` before one `}` sees the same
+    /// text after it, so it is not read again.
+    index_failed_at: Option<usize>,
 }
 
 impl Parser<'_> {
@@ -304,38 +338,56 @@ impl Parser<'_> {
         self.push_part(Part::Group(n));
     }
 
-    /// The numbers of the groups called `name`; records a problem when there are none.
-    fn numbers_of(&mut self, name: &str) -> Vec<usize> {
-        let numbers = self.names.numbers(name).to_vec();
-        if numbers.is_empty() {
-            self.problems
-                .push(ReplacementProblem::UnknownName(name.to_owned()));
-        }
-        numbers
-    }
-
-    /// A reference by name or by number (`${...}`, `\k<...>`).
-    fn reference(&mut self, label: &str) {
-        if !label.is_empty() && label.chars().all(|c| c.is_ascii_digit()) {
-            let n = label.chars().fold(0usize, |v, c| {
-                v.saturating_mul(10)
-                    .saturating_add(c.to_digit(10).unwrap_or(0) as usize)
-            });
-            self.group(n);
-        } else {
-            let numbers = self.numbers_of(label);
-            self.push_part(Part::Named(numbers));
+    /// The group called `name`. With several groups of that name it is the one with the lowest
+    /// number, whether or not it took part in the match (bregonig.dll 4.20).
+    fn named(&mut self, name: &str) {
+        match self.names.numbers(name).first().copied() {
+            Some(n) => self.push_part(Part::Group(n)),
+            None => self
+                .problems
+                .push(ReplacementProblem::UnknownName(name.to_owned())),
         }
     }
 
-    /// Reads a non-empty run of characters that satisfy `accept`, then `close`, and consumes
-    /// both. `None` (and nothing consumed) otherwise. The scan stops at the first character that
-    /// does not fit, so a failed attempt costs only its valid prefix and the whole parse stays
-    /// linear.
-    fn until(&mut self, close: char, accept: impl Fn(char) -> bool) -> Option<String> {
+    /// The index of the next `close` at or after the current position.
+    fn next_close(&mut self, close: Close) -> Option<usize> {
+        let chars = &self.chars;
+        let table = self.seek[close.index()].get_or_insert_with(|| {
+            let mut next = vec![usize::MAX; chars.len() + 1];
+            for i in (0..chars.len()).rev() {
+                next[i] = if chars[i] == close.char() {
+                    i
+                } else {
+                    next[i + 1]
+                };
+            }
+            next
+        });
+        table.get(self.pos).copied().filter(|&i| i != usize::MAX)
+    }
+
+    /// Consumes the text up to the next `close` and the `close` itself, and returns the text,
+    /// whatever it holds. `None` (and nothing consumed) when there is no `close` later on.
+    fn up_to(&mut self, close: Close) -> Option<String> {
+        let at = self.next_close(close)?;
+        let text = self.chars[self.pos..at].iter().collect();
+        self.pos = at + 1;
+        Some(text)
+    }
+
+    /// Reads a run of characters that satisfy `accept` (possibly none, if `allow_empty`), then
+    /// `close`, and consumes both. `None` (and nothing consumed) otherwise. The scan stops at the
+    /// first character that does not fit, so a failed attempt costs only its valid prefix and the
+    /// whole parse stays linear.
+    fn until(
+        &mut self,
+        close: char,
+        accept: impl Fn(char) -> bool,
+        allow_empty: bool,
+    ) -> Option<String> {
         let rest = &self.chars[self.pos..];
         let len = rest.iter().take_while(|&&c| accept(c)).count();
-        if len == 0 || rest.get(len) != Some(&close) {
+        if (len == 0 && !allow_empty) || rest.get(len) != Some(&close) {
             return None;
         }
         let label: String = rest[..len].iter().collect();
@@ -343,96 +395,140 @@ impl Parser<'_> {
         Some(label)
     }
 
-    /// After a `$`.
+    /// After a `$`. A `$` that does not start a reference is text together with the character
+    /// after it, which is never read as the start of anything: `$$1` is the four characters
+    /// `$$1` and `$\n` is `$\n` (bregonig.dll 4.20).
     fn dollar(&mut self) {
-        match self.peek() {
+        let done = match self.peek() {
             Some('&') => {
                 self.pos += 1;
                 self.push_part(Part::Group(0));
+                true
             }
             Some('1'..='9') => {
                 let (n, _) = self.decimal_run();
                 self.group(n);
+                true
             }
-            Some('{') => {
-                self.pos += 1;
-                match self.until('}', is_name_char) {
-                    Some(label) => self.reference(&label),
-                    None => self.bad_dollar("${"),
-                }
+            Some('{') => self.braced(),
+            Some('+') => self.plus(),
+            Some('-') => self.indexed_name(),
+            _ => false,
+        };
+        if !done {
+            self.text.push('$');
+            if let Some(c) = self.bump() {
+                self.text.push(c);
             }
-            Some('+') => {
-                self.pos += 1;
-                if self.eat('{') {
-                    match self.until('}', is_name_char) {
-                        Some(name) => {
-                            let numbers = self.numbers_of(&name);
-                            self.push_part(Part::Named(numbers));
-                        }
-                        None => self.bad_dollar("$+{"),
-                    }
-                } else {
-                    self.push_part(Part::LastGroup);
-                }
-            }
-            Some('-') if self.peek_at(1) == Some('{') => {
-                self.pos += 2;
-                self.indexed_name();
-            }
-            _ => self.text.push('$'),
         }
     }
 
-    /// A malformed `$` form: the `$` is text and scanning goes on after it.
-    fn bad_dollar(&mut self, form: &str) {
-        // The caller already stepped over the form's opening characters; go back to just after `$`.
-        self.pos -= form.chars().count() - 1;
-        self.malformed(&format!("unterminated {form}...}}"));
-        self.text.push('$');
+    /// `${n}` or `${name}`, at the `{`. A form that starts with a digit has to be digits and `}`
+    /// (`${1a}` is text); otherwise everything up to the first `}` is a name.
+    fn braced(&mut self) -> bool {
+        let start = self.pos;
+        self.pos += 1;
+        if self.peek().is_some_and(|c| c.is_ascii_digit()) {
+            let (n, _) = self.decimal_run();
+            if self.eat('}') {
+                self.group(n);
+                return true;
+            }
+        } else if let Some(name) = self.up_to(Close::Brace) {
+            self.named(&name);
+            return true;
+        }
+        self.pos = start;
+        self.malformed("${...} is not complete");
+        false
     }
 
-    /// `$-{name}[n]`, after `$-{`.
-    fn indexed_name(&mut self) {
-        let start = self.pos - 3;
-        let parsed = self.until('}', is_name_char).and_then(|name| {
-            if !self.eat('[') {
+    /// `$+` or `$+{name}`, at the `+`.
+    fn plus(&mut self) -> bool {
+        if self.peek_at(1) != Some('{') {
+            self.pos += 1;
+            self.push_part(Part::LastGroup);
+            return true;
+        }
+        let start = self.pos;
+        self.pos += 2;
+        if let Some(name) = self.up_to(Close::Brace) {
+            self.named(&name);
+            return true;
+        }
+        self.pos = start;
+        self.malformed("$+{name} is not complete");
+        false
+    }
+
+    /// `$-{name}[n]`, at the `-`. The name is everything up to the first `}`.
+    fn indexed_name(&mut self) -> bool {
+        if self.peek_at(1) != Some('{') {
+            return false;
+        }
+        let start = self.pos;
+        self.pos += 2;
+        let name_start = self.pos;
+        let parsed = self.next_close(Close::Brace).and_then(|at| {
+            if self.index_failed_at == Some(at) {
                 return None;
             }
-            let negative = self.eat('-');
-            let (n, len) = self.decimal_run();
-            if len == 0 || !self.eat(']') {
-                return None;
+            self.pos = at + 1;
+            let index = self.index();
+            if index.is_none() {
+                self.index_failed_at = Some(at);
             }
-            let n = i64::try_from(n).unwrap_or(i64::MAX);
-            Some((name, if negative { -n } else { n }))
+            index.map(|index| (at, index))
         });
-        let Some((name, index)) = parsed else {
-            self.pos = start + 1;
+        let Some((at, index)) = parsed else {
+            self.pos = start;
             self.malformed("$-{name}[n] is not complete");
-            self.text.push('$');
-            return;
+            return false;
         };
+        let name: String = self.chars[name_start..at].iter().collect();
         let numbers = self.names.numbers(&name);
         if numbers.is_empty() {
             self.problems.push(ReplacementProblem::UnknownName(name));
-            self.push_part(Part::Named(Vec::new()));
-            return;
+            return true;
         }
-        let at = if index < 0 {
+        let from_start = if index < 0 {
             usize::try_from(index.unsigned_abs())
                 .ok()
                 .and_then(|back| numbers.len().checked_sub(back))
         } else {
             usize::try_from(index).ok()
         };
-        match at.and_then(|i| numbers.get(i).copied()) {
-            Some(n) => self.push_part(Part::Named(vec![n])),
-            None => {
-                self.problems
-                    .push(ReplacementProblem::NameIndexOutOfRange { name, index });
-                self.push_part(Part::Named(Vec::new()));
-            }
+        match from_start.and_then(|i| numbers.get(i).copied()) {
+            Some(n) => self.push_part(Part::Group(n)),
+            None => self
+                .problems
+                .push(ReplacementProblem::NameIndexOutOfRange { name, index }),
         }
+        true
+    }
+
+    /// `[n]` after `$-{name}`: `[]` (0), or white space, an optional sign and at least one digit,
+    /// then `]` (bregonig.dll 4.20). Anything else makes the whole form text.
+    fn index(&mut self) -> Option<i64> {
+        if !self.eat('[') {
+            return None;
+        }
+        if self.eat(']') {
+            return Some(0);
+        }
+        while self.peek().is_some_and(char::is_whitespace) {
+            self.pos += 1;
+        }
+        let negative = self.eat('-');
+        if !negative {
+            self.eat('+');
+        }
+        let (n, len) = self.decimal_run();
+        if len == 0 || !self.eat(']') {
+            return None;
+        }
+        let n = i64::try_from(n).unwrap_or(i64::MAX);
+        Some(if negative { -n } else { n })
     }
 
     /// After a `\`. (A trailing lone backslash was rejected before parsing.)
@@ -453,6 +549,8 @@ impl Parser<'_> {
             'L' => self.push_part(Part::Mode(Case::Lower)),
             'U' => self.push_part(Part::Mode(Case::Upper)),
             'E' => self.push_part(Part::EndMode),
+            // bregonig.dll 4.20 skips `\Q` (it does not quote anything).
+            'Q' => {}
             '0' => self.octal_after_zero(),
             '1'..='9' => {
                 self.pos -= 1;
@@ -488,25 +586,23 @@ impl Parser<'_> {
         self.push_code(value, "octal escape");
     }
 
-    /// `\1`..`\9...`: a group, or an octal character when the number is 10 or more, the pattern
-    /// has no such group, and all of its digits are octal (then the first three make the
-    /// character and the rest is text). A number with a digit 8 or 9 anywhere is always a group (so
-    /// `\18` is `${18}`).
+    /// `\1`..`\9...`: the digits are read as one decimal number. It is a group if the pattern has
+    /// that many groups. Otherwise, if it is two or three octal digits with a value up to `\377`,
+    /// it is that character; and in every other case it is still a group, which gives nothing
+    /// (`\7`, `\18`, `\400`, `\1111`) (bregonig.dll 4.20).
     fn number_escape(&mut self) {
         let start = self.pos;
         let (n, len) = self.decimal_run();
-        if len >= 2 && n > self.capture_count {
-            let head = &self.chars[start..start + len.min(3)];
-            if self.chars[start..start + len]
-                .iter()
-                .all(|c| ('0'..='7').contains(c))
-            {
-                let value = head
+        if n > self.capture_count && (2..=3).contains(&len) {
+            let digits = &self.chars[start..start + len];
+            if digits.iter().all(|c| ('0'..='7').contains(c)) {
+                let value = digits
                     .iter()
                     .fold(0, |v, c| v * 8 + c.to_digit(8).unwrap_or(0));
-                self.pos = start + head.len();
-                self.push_code(value, "octal escape");
-                return;
+                if value <= 0o377 {
+                    self.push_code(value, "octal escape");
+                    return;
+                }
             }
         }
         self.group(n);
@@ -518,14 +614,20 @@ impl Parser<'_> {
     /// calls the wide API of bregonig (`BMatchW`, `BSubstW`, `BSubstExW` in
     /// `sakura_core/extmodule/CBregexpDll2.cpp`), where the text is UTF-16, so a "byte value" is
     /// one UTF-16 code unit: `\xC3` is U+00C3, and `\xC3\xA9` is two characters, not the UTF-8
-    /// bytes of `é`. This is the reading chosen here; to check against the real bregonig.dll.
+    /// bytes of `é`. bregonig.dll 4.20 does so.
+    ///
+    /// `\x{}` is U+0000, and the braces take at most 8 digits (more is text, `x{...`). The DLL
+    /// also turns a value of 0x10000 or more into a surrogate pair by a formula that is wrong
+    /// above U+10FFFF, and passes a value in the surrogate range through as a lone surrogate; a
+    /// Rust string holds neither, so those give nothing here.
     fn hex_escape(&mut self) {
         if self.eat('{') {
             let start = self.pos;
-            if let Some(digits) = self.until('}', |c| c.is_ascii_hexdigit())
-                && let Some(code) = parse_radix(&digits, 16)
+            if let Some(digits) = self.until('}', |c| c.is_ascii_hexdigit(), true)
+                && digits.len() <= 8
             {
-                self.push_code(code, "hexadecimal escape");
+                let value = u32::from_str_radix(&digits, 16).unwrap_or(0);
+                self.push_code(value, "hexadecimal escape");
                 return;
             }
             self.pos = start;
@@ -551,15 +653,17 @@ impl Parser<'_> {
         }
     }
 
-    /// `\o{n...}`.
+    /// `\o{n...}`. `\o{}` is U+0000 and there is no limit on the digits; the value wraps at 32
+    /// bits like the DLL's.
     fn brace_octal_escape(&mut self) {
         if self.peek() == Some('{') {
             let start = self.pos;
             self.pos += 1;
-            if let Some(digits) = self.until('}', |c| c.is_digit(8))
-                && let Some(code) = parse_radix(&digits, 8)
-            {
-                self.push_code(code, "octal escape");
+            if let Some(digits) = self.until('}', |c| c.is_digit(8), true) {
+                let value = digits.chars().fold(0u32, |v, c| {
+                    v.wrapping_mul(8).wrapping_add(c.to_digit(8).unwrap_or(0))
+                });
+                self.push_code(value, "octal escape");
                 return;
             }
             self.pos = start;
@@ -569,6 +673,10 @@ impl Parser<'_> {
     }
 
     /// `\cX`. A backslash after the `c` is skipped when a character follows (`\c\[` is `\c[`).
+    ///
+    /// An ASCII letter is upper-cased first; any other character just has bit 6 flipped
+    /// (`\cé` is U+00A9, `\c1` is `q`). At the end of the text the DLL reads the delimiter that
+    /// Sakura puts after the replacement (U+FFFF) and gives U+FFBF; that is repeated here.
     fn control_escape(&mut self) {
         if self.peek() == Some('\\') && self.peek_at(1).is_some() {
             self.pos += 1;
@@ -579,18 +687,24 @@ impl Parser<'_> {
                 self.text
                     .push(char::from(x.to_ascii_uppercase() as u8 ^ 0x40));
             }
-            _ => {
-                self.malformed(r"\c without a character");
+            Some(x) if u32::from(x) <= 0xFFFF => {
+                self.pos += 1;
+                self.push_code(u32::from(x) ^ 0x40, "control escape");
+            }
+            Some(_) => {
+                self.malformed(r"\c with a character outside the BMP");
                 self.text.push('c');
             }
+            None => self.push_code(0xFFFF ^ 0x40, "control escape"),
         }
     }
 
-    /// `\k<name>` or `\k'name'`.
+    /// `\k<name>` or `\k'name'`, after the `\k`. The name is everything up to the closing
+    /// delimiter, and a number is a name that no group has (`\k<1>` gives nothing).
     fn named_escape(&mut self) {
         let close = match self.peek() {
-            Some('<') => '>',
-            Some('\'') => '\'',
+            Some('<') => Close::Angle,
+            Some('\'') => Close::Quote,
             _ => {
                 self.malformed(r"\k without <name> or 'name'");
                 self.text.push('k');
@@ -599,8 +713,8 @@ impl Parser<'_> {
         };
         let start = self.pos;
         self.pos += 1;
-        match self.until(close, is_name_char) {
-            Some(label) => self.reference(&label),
+        match self.up_to(close) {
+            Some(name) => self.named(&name),
             None => {
                 self.pos = start;
                 self.malformed(r"\k<name> is not complete");
@@ -608,27 +722,6 @@ impl Parser<'_> {
             }
         }
     }
-}
-
-/// A character of a group name or of a group number: a word character (letter, digit, `_`).
-/// Anything else ends the name, so `${foo bar}` is not a reference but malformed text.
-fn is_name_char(c: char) -> bool {
-    // Onigmo allows word characters in names, which include combining marks and connector
-    // punctuation outside ASCII; so every non-ASCII character but a space or control is taken.
-    if c.is_ascii() {
-        c.is_ascii_alphanumeric() || c == '_'
-    } else {
-        !c.is_whitespace() && !c.is_control()
-    }
-}
-
-/// A non-empty run of digits of `radix` (underscores and signs are not digits); `None` otherwise
-/// or on overflow.
-fn parse_radix(digits: &str, radix: u32) -> Option<u32> {
-    if digits.is_empty() || !digits.chars().all(|c| c.is_digit(radix)) {
-        return None;
-    }
-    u32::from_str_radix(digits, radix).ok()
 }
 
 #[cfg(test)]
@@ -681,7 +774,12 @@ mod tests {
         // bregonig.html 5.3: $0 and $var are plain strings.
         let g = [Some(0..1)];
         assert_eq!(plain("$0 $var a$ $", "x", &g), "$0 $var a$ $");
-        assert_eq!(plain("$$1", "x", &[Some(0..1), Some(0..1)]), "$x");
+        // bregonig.dll 4.20: the character after a `$` that is not a reference is text too.
+        let one = [Some(0..1), Some(0..1)];
+        assert_eq!(plain("$$1", "x", &one), "$$1");
+        assert_eq!(plain("$$$1", "x", &one), "$$x");
+        assert_eq!(plain(r"$\n", "x", &one), r"$\n");
+        assert_eq!(plain("$ $1", "x", &one), "$ x");
         assert_eq!(plain("$", "x", &g), "$");
     }
 
@@ -713,8 +811,8 @@ mod tests {
             assert_eq!(run(r, names, "2026-10", &g).0, "10/2026", "{r}");
         }
         assert_eq!(run("$-{y}[0]", names, "2026-10", &g).0, "2026");
-        // A number inside \k<> or ${}.
-        assert_eq!(run(r"\k<2>${2}", names, "2026-10", &g).0, "1010");
+        // A number in ${} is a group; in \k<> it is a name, which no group has.
+        assert_eq!(run(r"\k<2>${2}", names, "2026-10", &g).0, "10");
     }
 
     #[test]
@@ -734,9 +832,9 @@ mod tests {
             problems[0],
             ReplacementProblem::NameIndexOutOfRange { index: 2, .. }
         ));
-        // The leftmost one that took part.
+        // The lowest number, even if it did not take part (bregonig.dll 4.20).
         let g = [Some(0..1), None, Some(0..1)];
-        assert_eq!(run("$+{n}", names, "b", &g).0, "b");
+        assert_eq!(run("$+{n}", names, "b", &g).0, "");
     }
 
     #[test]
@@ -790,7 +888,10 @@ mod tests {
         let g = [Some(0..1)];
         assert_eq!(plain(r"\12", "x", &g), "\n");
         assert_eq!(plain(r"\101", "x", &g), "A");
-        assert_eq!(plain(r"\1014", "x", &g), "A4");
+        // Four digits are never octal.
+        assert_eq!(plain(r"\1014", "x", &g), "");
+        assert_eq!(plain(r"\400", "x", &g), "");
+        assert_eq!(plain(r"\377", "x", &g), "\u{ff}");
         assert_eq!(plain(r"\18", "x", &g), "");
         // A digit 8 or 9 anywhere in the run makes it a group.
         assert_eq!(
@@ -821,7 +922,9 @@ mod tests {
     #[test]
     fn other_escapes_are_the_character() {
         let g = [Some(0..1)];
-        assert_eq!(plain(r"\\\$\/\.\v\Q\&", "x", &g), "\\$/.vQ&");
+        assert_eq!(plain(r"\\\$\/\.\v\&", "x", &g), "\\$/.v&");
+        // `\Q` is skipped.
+        assert_eq!(plain(r"[\Qa$&\E]", "x", &g), "[ax]");
     }
 
     #[test]
@@ -830,20 +933,19 @@ mod tests {
         for (src, out) in [
             ("${1", "${1"),
             ("$+{x", "$+{x"),
-            ("${}", "${}"),
-            ("${a b}", "${a b}"),
+            ("${1a}", "${1a}"),
+            ("${a", "${a"),
             (r"\x{4 1}", "x{4 1}"),
             ("$-{x}", "$-{x}"),
             ("$-{x}[a]", "$-{x}[a]"),
             (r"\k<x", "k<x"),
             (r"\k", "k"),
             (r"\x{41", "x{41"),
-            (r"\x{}", "x{}"),
+            (r"\x{000000041}", "x{000000041}"),
             (r"\xg", "xg"),
             (r"\x{110000}", ""),
             (r"\o", "o"),
             (r"\o{9}", "o{9}"),
-            (r"\c", "c"),
         ] {
             let (got, problems) = run(src, &[], "x", &g);
             assert_eq!(got, out, "{src}");
@@ -857,13 +959,92 @@ mod tests {
     }
 
     #[test]
+    fn braces_and_names_read_up_to_the_first_close() {
+        // bregonig.dll 4.20: a form that does not start with a digit is a name, whatever it holds.
+        let g = [Some(0..1), Some(0..1)];
+        for src in [
+            "${}",
+            "${a b}",
+            "${ 1}",
+            "${-1}",
+            "${+1}",
+            "$+{ }",
+            "$-{n x}[0]",
+            r"\k<a b>",
+        ] {
+            let (out, problems) = run(&format!("[{src}]"), &[], "x", &g);
+            assert_eq!(out, "[]", "{src}");
+            assert!(
+                matches!(problems[..], [ReplacementProblem::UnknownName(_)]),
+                "{src}: {problems:?}"
+            );
+        }
+        // Up to the first `}`.
+        assert_eq!(plain("${1}2}", "x", &g), "x2}");
+        // Leading zeros are decimal.
+        assert_eq!(plain("${01}", "x", &g), "x");
+    }
+
+    #[test]
+    fn the_index_of_an_indexed_name() {
+        // bregonig.dll 4.20: `[]` is 0; else white space, an optional sign and digits, then `]`.
+        let g = [Some(0..2), Some(0..1), Some(1..2)];
+        let names: &[(&str, &[usize])] = &[("n", &[1, 2])];
+        for (src, out) in [
+            ("$-{n}[ 1]", "b"),
+            ("$-{n}[+1]", "b"),
+            ("$-{n}[ -1]", "b"),
+            ("$-{n}[]", "a"),
+            ("$-{n}[01]", "b"),
+            ("$-{n}[1 ]", "$-{n}[1 ]"),
+            ("$-{n}[--1]", "$-{n}[--1]"),
+            ("$-{n}[x]", "$-{n}[x]"),
+            ("$-{n}[ ]", "$-{n}[ ]"),
+            ("$-{n}[+]", "$-{n}[+]"),
+            ("$-{n}[\t1]", "b"),
+        ] {
+            assert_eq!(run(src, names, "ab", &g).0, out, "{src}");
+        }
+    }
+
+    #[test]
+    fn hexadecimal_and_octal_in_braces() {
+        let g = [Some(0..1)];
+        // Up to 8 digits in `\x{}`; empty is U+0000; `\o{}` has no limit on the digits.
+        assert_eq!(
+            plain(r"\x{00000041}\x{}\o{0000000101}\o{}", "x", &g),
+            "A\0A\0"
+        );
+        assert_eq!(plain(r"\x{000000041}", "x", &g), "x{000000041}");
+        assert_eq!(
+            plain(r"\x{10000}\x{10FFFF}", "x", &g),
+            "\u{10000}\u{10FFFF}"
+        );
+        // A surrogate, or a value past U+10FFFF, is not a character here (the DLL gives lone surrogates).
+        assert_eq!(
+            plain(r"[\x{D800}\x{FFFFFFFF}\o{37777777777}]", "x", &g),
+            "[]"
+        );
+    }
+
+    #[test]
+    fn control_escape_beyond_ascii_and_at_the_end() {
+        let g = [Some(0..1)];
+        // Bit 6 is flipped; only ASCII letters are upper-cased first.
+        assert_eq!(plain("\\c\u{e9}\\cあ\\c1", "x", &g), "\u{a9}\u{3002}q");
+        // The DLL reads the delimiter U+FFFF that Sakura puts after the replacement.
+        assert_eq!(plain(r"a\c", "x", &g), "a\u{ffbf}");
+    }
+
+    #[test]
     fn many_unterminated_forms_parse_quickly() {
         let n = GroupNames::default();
         // Each kind repeated, with one closing delimiter at the very end.
         for unit in [
             "${", "$+{", "$-{", "\\k<", "\\k'", "\\x{", "\\o{", "${a", "\\x{4",
         ] {
-            for close in ["}", ">", "'"] {
+            let spaces = format!("}}[{}x", " ".repeat(50_000));
+            for close in ["}", ">", "'", spaces.as_str()] {
                 let src = format!("{}{close}", unit.repeat(50_000));
                 let start = std::time::Instant::now();
                 assert!(ReplacementTemplate::parse(&src, &n, 0).is_ok());
