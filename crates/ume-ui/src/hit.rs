@@ -86,6 +86,50 @@ pub fn selected_columns(
     Ok((last > first).then_some((first, last)))
 }
 
+/// The area of a box selection (Sakura's 矩形選択): rows `first..=last` of the layout, and the
+/// display columns `from..to` on each of them. A corner can be right of the text of its row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BoxArea {
+    first_row: usize,
+    last_row: usize,
+    from: u32,
+    to: u32,
+}
+
+impl BoxArea {
+    /// The area between two corners, each given as a row and a display column. `None` for a box
+    /// that is not wider than a column (it covers no cell).
+    pub fn between((row_a, col_a): (usize, u32), (row_b, col_b): (usize, u32)) -> Option<Self> {
+        (col_a != col_b).then(|| Self {
+            first_row: row_a.min(row_b),
+            last_row: row_a.max(row_b),
+            from: col_a.min(col_b),
+            to: col_a.max(col_b),
+        })
+    }
+
+    /// The area of the box selection of `cursor`, if it covers anything.
+    pub fn of_cursor(
+        layout: &DocumentLayout,
+        doc: &Document,
+        cursor: &ume_core::cursor::Cursor,
+    ) -> Option<Self> {
+        let ((anchor, anchor_col), (caret, caret_col)) = cursor.box_corners()?;
+        let corner = |pos, col: usize| -> Option<(usize, u32)> {
+            let at = layout.pos_to_row(doc, pos).ok()?;
+            Some((at.row, u32::try_from(col).ok()?.max(at.column)))
+        };
+        Self::between(corner(anchor, anchor_col)?, corner(caret, caret_col)?)
+    }
+
+    /// The columns of the row `row` that the box covers, or `None`.
+    pub fn columns_on(&self, row: usize) -> Option<(u32, u32)> {
+        (self.first_row..=self.last_row)
+            .contains(&row)
+            .then_some((self.from, self.to))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use ume_layout::{LayoutConfig, Wrap};
@@ -200,5 +244,38 @@ mod tests {
             Some((1, 3))
         );
         assert_eq!(selected_columns(&l, &d, &rows[1], sel).unwrap(), None);
+    }
+
+    #[test]
+    fn a_box_covers_the_same_columns_on_each_of_its_rows() {
+        let area = BoxArea::between((4, 7), (2, 3)).unwrap();
+        assert_eq!(area.columns_on(1), None);
+        assert_eq!(area.columns_on(2), Some((3, 7)));
+        assert_eq!(area.columns_on(4), Some((3, 7)));
+        assert_eq!(area.columns_on(5), None);
+        // as wide as nothing: no cell
+        assert_eq!(BoxArea::between((0, 3), (5, 3)), None);
+    }
+
+    #[test]
+    fn the_area_of_a_cursor_follows_the_corners_and_the_rows_of_the_layout() {
+        use ume_core::cursor::Cursor;
+        let cfg = LayoutConfig {
+            wrap: Wrap::Columns(4),
+            ..LayoutConfig::default()
+        };
+        // rows: "abcd" "efg" "ij"
+        let (d, l, _) = setup("abcdefg\nij", cfg);
+        let mut c = Cursor::new(Pos::new(0, 5));
+        c.begin_box(2, true);
+        // the caret is in the empty space of the last row: its position is the end of that row
+        c.move_box_to(Pos::new(1, 2), 6);
+        let area = BoxArea::of_cursor(&l, &d, &c).unwrap();
+        assert_eq!(area.columns_on(0), None);
+        assert_eq!(area.columns_on(1), Some((2, 6)));
+        assert_eq!(area.columns_on(2), Some((2, 6)));
+        assert_eq!(area.columns_on(3), None);
+        let none = BoxArea::of_cursor(&l, &d, &Cursor::new(Pos::new(0, 0)));
+        assert_eq!(none, None);
     }
 }

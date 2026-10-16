@@ -177,7 +177,11 @@ impl Element for EditorElement {
             4.0
         };
 
-        let selection = editor.cursor.selection();
+        let box_area = crate::hit::BoxArea::of_cursor(layout, doc, &editor.cursor);
+        let selection = editor
+            .cursor
+            .selection()
+            .filter(|_| !editor.cursor.is_box());
         let marked = editor.marked.clone();
         let last_line = doc.line_count().saturating_sub(1);
 
@@ -198,8 +202,12 @@ impl Element for EditorElement {
                         colors.line_number,
                     )
                 });
-            let selected =
-                selection.and_then(|s| selected_columns(layout, doc, row, s).ok().flatten());
+            let selected = match &box_area {
+                Some(area) => area.columns_on(row.row),
+                None => {
+                    selection.and_then(|s| selected_columns(layout, doc, row, s).ok().flatten())
+                }
+            };
             let own_selection_color = selected.is_some() && colors.selection_text != colors.text;
             let mut text = Vec::new();
             let mut selected_text = Vec::new();
@@ -274,6 +282,11 @@ impl Element for EditorElement {
             });
         }
 
+        // In a box selection the caret can be right of the end of the text.
+        let caret_column = editor
+            .cursor
+            .box_caret_col()
+            .map_or(0, |c| u32::try_from(c).unwrap_or(u32::MAX));
         let caret = layout
             .pos_to_row(doc, editor.cursor.caret())
             .ok()
@@ -287,7 +300,7 @@ impl Element for EditorElement {
                             .read(cx)
                             .overwrite()
                             .then(|| overwrite_caret_cells(doc, layout, editor.cursor.caret()));
-                        (i, at.column, block)
+                        (i, caret_column.max(at.column), block)
                     })
             });
 

@@ -402,6 +402,15 @@ impl EditorView {
             .unwrap_or(RowPos { row: 0, column: 0 })
     }
 
+    /// The display column of the caret on its row. In a box selection the caret can be to the right
+    /// of the end of the text (see `ume_core::cursor::Cursor::box_caret_col`).
+    pub(crate) fn caret_column(&self, cx: &App) -> u32 {
+        let column = self.caret_row(cx).column;
+        self.cursor
+            .box_caret_col()
+            .map_or(column, |c| u32::try_from(c).unwrap_or(u32::MAX).max(column))
+    }
+
     /// Scrolls so that the caret's row is `offset` rows below the top of the view, as Sakura's
     /// `MoveViewTopLine` does (`sakura_core/cmd/CViewCommander_Cursor.cpp`): the top is never above
     /// the first row, and it may be past the end of the scroll range. The caret does not move.
@@ -419,7 +428,7 @@ impl EditorView {
         if self.scroll_y != before {
             self.scroll_past_end = false;
         }
-        let x = at.column as f32 * m.cell_width;
+        let x = self.caret_column(cx) as f32 * m.cell_width;
         self.scroll_x = scroll_x_to_show(&m, self.scroll_x, x, x);
         self.clamp_scroll();
     }
@@ -430,7 +439,7 @@ impl EditorView {
         let shared = self.document.read(cx);
         StatusInfo {
             line: self.cursor.caret().line + 1,
-            column: self.caret_row(cx).column + 1,
+            column: self.caret_column(cx) + 1,
             lines: shared.doc().line_count().max(1),
             modified: shared.model().is_modified(),
             overwrite: shared.overwrite(),

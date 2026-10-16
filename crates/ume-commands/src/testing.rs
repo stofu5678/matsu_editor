@@ -275,6 +275,27 @@ impl Editor {
         &self.cursor
     }
 
+    /// The corners of the box selection as `(line, display column)`: the anchor and the caret.
+    /// `None` if there is no box selection (a box that covers nothing has both corners equal).
+    pub fn box_state(&self) -> Option<((usize, usize), (usize, usize))> {
+        let c = &self.cursor;
+        let caret = (c.caret().line, c.box_caret_col()?);
+        let anchor = (c.anchor().unwrap_or(c.caret()).line, c.box_anchor_col()?);
+        Some((anchor, caret))
+    }
+
+    /// Checks the box selection: the corners as `(line, display column)`.
+    #[track_caller]
+    pub fn assert_box(&self, anchor: (usize, usize), caret: (usize, usize)) -> &Self {
+        assert_eq!(
+            self.box_state(),
+            Some((anchor, caret)),
+            "the corners (anchor, caret) of the box in {:?}",
+            self.marked()
+        );
+        self
+    }
+
     /// The document and the cursor as a marked text.
     pub fn marked(&self) -> String {
         render(self.model.doc(), &self.cursor)
@@ -302,6 +323,13 @@ impl Editor {
 #[track_caller]
 pub fn check(id: &str, before: &str, after: &str) {
     Editor::new(before).run(id).assert_marked(after);
+}
+
+/// Runs the command `id` on `before` (a marked text) and checks the corners of the box
+/// selection that results, as `(line, display column)`.
+#[track_caller]
+pub fn check_box(id: &str, before: &str, anchor: (usize, usize), caret: (usize, usize)) {
+    Editor::new(before).run(id).assert_box(anchor, caret);
 }
 
 /// Like [`check`], with arguments.
