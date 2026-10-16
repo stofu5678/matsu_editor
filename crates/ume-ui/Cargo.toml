@@ -33,6 +33,9 @@ gpui-component = "=0.7.1"
 # The actions and `ElementExt` that gpui-component's own menu bar uses (the version it depends on).
 # Our menu bar (`menu_bar.rs`) needs them; gpui-component does not re-export them.
 gpui-base = "=0.7.2"
+# The icons that gpui-component draws (the check mark of a check box, the arrows of menus, the
+# title bar buttons). Without them a checked box is a filled square on every OS.
+gpui-kit-assets = "=0.7.1"
 
 # macOS: without font-kit, GPUI draws no text at all. runtime_shaders compiles the Metal
 # shaders when the app starts, so the build does not need Xcode's Metal Toolchain.
@@ -44,10 +47,6 @@ raw-window-handle = "0.6"
 # Windows: the window that owns the print dialog.
 [target.'cfg(windows)'.dependencies]
 raw-window-handle = "0.6"
-
-# The icons of the title bar buttons.
-[target.'cfg(target_os = "linux")'.dependencies]
-gpui-kit-assets = "=0.7.1"
 
 [dev-dependencies]
 tempfile = "3.27"
