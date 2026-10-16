@@ -8,6 +8,7 @@
 
 use std::ffi::{c_char, c_int, c_longlong, c_void};
 use std::io::Write;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// The answer of the editor to one call of the macro API.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -161,12 +162,30 @@ unsafe extern "C" fn call_host(
     status
 }
 
+/// The VM keeps its state in C globals: one run at a time in the process.
+static RUNNING: AtomicBool = AtomicBool::new(false);
+
+struct RunGuard;
+
+impl RunGuard {
+    fn acquire() -> Option<Self> {
+        (!RUNNING.swap(true, Ordering::Acquire)).then_some(Self)
+    }
+}
+
+impl Drop for RunGuard {
+    fn drop(&mut self) {
+        RUNNING.store(false, Ordering::Release);
+    }
+}
+
 /// Runs the boot script (it defines `Editor` and `EditorError`; it calls `_ume_setup()` for
 /// `names_json` and `info_json` and `_ume_call(name, args_json)` for the API) and then the
 /// user's script, in the same globals.
 ///
 /// `Err` is the text for the standard error: the traceback of an exception that the script did
-/// not catch. The script's own output has already been written by then.
+/// not catch (or that another run is going on in this process). The script's own output has
+/// already been written by then.
 pub fn run(
     host: &mut dyn Host,
     names_json: &str,
@@ -174,6 +193,9 @@ pub fn run(
     boot: Source<'_>,
     script: Source<'_>,
 ) -> Result<(), String> {
+    let Some(_guard) = RunGuard::acquire() else {
+        return Err("MicroPython is already running a script in this process".into());
+    };
     let mut ctx = Context {
         host,
         answer: Vec::new(),

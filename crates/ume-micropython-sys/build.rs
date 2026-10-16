@@ -15,7 +15,12 @@ fn main() {
         .warnings(false)
         // MicroPython's object model casts between pointer types freely.
         .flag_if_supported("-fno-strict-aliasing")
-        .define("_CRT_SECURE_NO_WARNINGS", None);
+        .define("_CRT_SECURE_NO_WARNINGS", None)
+        .define("_USE_MATH_DEFINES", None);
+    if build.get_compiler().is_like_msvc() {
+        // A stand-in for <unistd.h>, which MicroPython includes for `ssize_t`.
+        build.include("csrc/msvc");
+    }
     // The same C files as the embed port builds, except its HAL file: csrc/ume_stdio.c has
     // the output hooks.
     let sources = [

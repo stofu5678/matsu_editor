@@ -88,3 +88,24 @@
 #define MICROPY_HELPER_REPL                     (0)
 #define MICROPY_KBD_EXCEPTION                   (0)
 #define MICROPY_PY_RE                           (0)
+
+// Microsoft's C compiler: the spellings of the compiler-specific keywords (as in MicroPython's
+// own Windows port), and <unistd.h> comes from csrc/msvc/ (build.rs adds that directory).
+#ifdef _MSC_VER
+#include <limits.h>
+#define MP_NORETURN                             __declspec(noreturn)
+#define MP_WEAK
+#define MP_NOINLINE                             __declspec(noinline)
+#define MP_ALWAYSINLINE                         __forceinline
+#define MP_LIKELY(x)                            (x)
+#define MP_UNLIKELY(x)                          (x)
+#ifdef _WIN64
+#define MP_SSIZE_MAX                            _I64_MAX
+#else
+#define MP_SSIZE_MAX                            _I32_MAX
+#endif
+#ifndef __cplusplus
+#define restrict
+#define inline                                  __inline
+#endif
+#endif

@@ -143,7 +143,15 @@ static mp_obj_t ume_call(mp_obj_t name_in, mp_obj_t args_in) {
     size_t name_len;
     const char *name = mp_obj_str_get_data(name_in, &name_len);
     text_buffer args = {NULL, 0, 0};
-    json_value(&args, args_in);
+    // An exception while writing (recursion too deep) must not leak the buffer.
+    nlr_buf_t nlr;
+    if (nlr_push(&nlr) == 0) {
+        json_value(&args, args_in);
+        nlr_pop();
+    } else {
+        free(args.data);
+        nlr_jump(nlr.ret_val);
+    }
     long long code = 0;
     const char *out = NULL;
     size_t out_len = 0;

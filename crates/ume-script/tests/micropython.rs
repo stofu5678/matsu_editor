@@ -206,6 +206,15 @@ for value in (object(), float("nan"), chr(0xD800)):
 }
 
 #[test]
+fn a_cyclic_argument_is_a_catchable_error() {
+    let code = "a = []\na.append(a)\ntry:\n    Editor.InsText(a)\nexcept RuntimeError:\n    print('too deep')\nEditor.InsText('ok')";
+    let (report, doc) = run(code, "");
+    assert_clean_exit(&report);
+    assert_eq!(stdout(&report), ["too deep"]);
+    assert_eq!(doc.text(), "ok");
+}
+
+#[test]
 fn a_wrong_type_is_the_editors_answer() {
     let code = r#"
 try:
