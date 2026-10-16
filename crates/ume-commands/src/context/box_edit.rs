@@ -178,6 +178,20 @@ impl CommandContext<'_> {
         Ok(Some(out))
     }
 
+    /// The text of the first row of the box, without a line ending: all that the macro function
+    /// `ExpandParameter` (`$C`) takes of a box. Unlike [`box_text`](Self::box_text) it does not
+    /// read the other rows. `None` if no box covers anything.
+    pub fn box_first_row_text(&self) -> Result<Option<String>> {
+        let Some(rect) = self.box_rect()? else {
+            return Ok(None);
+        };
+        let Some(&row) = rect.rows.first() else {
+            return Ok(Some(String::new()));
+        };
+        let (from, to) = self.box_row_range(row, rect.left, rect.right)?;
+        Ok(Some(self.doc().text_between(from, to)?))
+    }
+
     /// Deletes the text of the box, row by row, and puts the caret at its top left corner. A box
     /// that has no text at its left column just ends (Sakura: `DeleteData`, `IsEmptyArea`). The
     /// selection is gone afterwards.

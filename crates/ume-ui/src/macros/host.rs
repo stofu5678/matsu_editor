@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use gpui::{Context, PathPromptOptions, PromptLevel, Window};
 use ume_plugin::Value;
+use ume_plugin::functions;
 use ume_plugin::functions::window::{self, Deferred, Icon, Pending};
 use ume_plugin::host::{HostEnv, ViewInfo};
 
@@ -42,7 +43,10 @@ impl EditorView {
         };
         // The functions that convert between layout and logical positions need exact row counts:
         // a document that is still being laid out in the background has estimates for the rest.
-        if !self.layout.is_complete() {
+        // Only they pay for completing the layout.
+        let needs_exact = ume_plugin::protocol::parse_request(message)
+            .is_ok_and(|request| functions::needs_exact_layout(&request.method));
+        if needs_exact && !self.layout.is_complete() {
             let _ = self.layout.layout_all(self.document.read(cx).doc());
         }
         let mut env = HostEnv::detached();

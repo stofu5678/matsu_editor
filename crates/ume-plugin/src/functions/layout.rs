@@ -131,7 +131,7 @@ fn layout_to_logic(cx: &CommandContext, row: usize, col: i64) -> Result<(usize, 
 /// F_LAYOUTTOLOGICLINENUM: the logical line of a layout line. The line after the last layout line
 /// gives the line after the last logical line; any other line outside the text is an error.
 fn layout_to_logic_line_num(ed: &mut Editor, args: &Args) -> Result {
-    let row = args.int(0) - 1;
+    let row = args.int(0).saturating_sub(1);
     let cx = &*ed.cx;
     let lines = layout_line_count(cx)?;
     if row == i64::try_from(lines).unwrap_or(i64::MAX) {
@@ -156,7 +156,7 @@ fn layout_to_logic_line_num(ed: &mut Editor, args: &Args) -> Result {
 /// F_LINECOLUMNTOINDEX: the logical index (from 1, in UTF-16 units) of a layout line and column.
 /// The line must be 1 or more; the column is not checked.
 fn line_column_to_index(ed: &mut Editor, args: &Args) -> Result {
-    let (line, col) = (args.int(0) - 1, args.int(1) - 1);
+    let (line, col) = (args.int(0).saturating_sub(1), args.int(1).saturating_sub(1));
     let row = usize::try_from(line).map_err(|_| {
         RpcError::invalid_params("LineColumnToIndex: the layout line must be 1 or more")
     })?;
@@ -168,7 +168,7 @@ fn line_column_to_index(ed: &mut Editor, args: &Args) -> Result {
 /// logical line and index. Both start from 1. The line must be 1 or more; the index is not
 /// checked.
 fn logic_to_layout_call(ed: &mut Editor, args: &Args, column: bool) -> Result {
-    let (line, index) = (args.int(0) - 1, args.int(1) - 1);
+    let (line, index) = (args.int(0).saturating_sub(1), args.int(1).saturating_sub(1));
     let line = usize::try_from(line)
         .map_err(|_| RpcError::invalid_params("the logical line must be 1 or more"))?;
     let (row, col) = logic_to_layout(&*ed.cx, line, index)?;
@@ -191,12 +191,12 @@ fn text_width(cx: &CommandContext, text: &str, start: i64) -> i64 {
     let mut x = start;
     for c in text.chars() {
         if c == '\t' {
-            x += tab - x % tab;
+            x = x.saturating_add(tab - x % tab);
         } else {
-            x += i64::try_from(cx.layout().char_columns(c)).unwrap_or(1);
+            x = x.saturating_add(i64::try_from(cx.layout().char_columns(c)).unwrap_or(1));
         }
     }
-    x - start
+    x.saturating_sub(start)
 }
 
 /// F_GETSTRWIDTH: the width of a string in cells, from layout column `start` (from 1, default 1;
@@ -204,7 +204,7 @@ fn text_width(cx: &CommandContext, text: &str, start: i64) -> i64 {
 /// (`pLine[nLen - 2] == CR && pLine[nLen - 1] == LF`: `nLen--`).
 fn get_str_width(ed: &mut Editor, args: &Args) -> Result {
     let text = args.str(0);
-    let start = args.int_or(1, 1) - 1;
+    let start = args.int_or(1, 1).saturating_sub(1);
     let text = text
         .strip_suffix("\r\n")
         .map_or(text, |t| &text[..t.len() + 1]);
@@ -216,7 +216,7 @@ fn get_str_width(ed: &mut Editor, args: &Args) -> Result {
 /// of the document with `CMemoryIterator`; the width of a line ending there is one cell.)
 fn get_str_layout_length(ed: &mut Editor, args: &Args) -> Result {
     let text = args.str(0);
-    let start = args.int_or(1, 1) - 1;
+    let start = args.int_or(1, 1).saturating_sub(1);
     let (body, eol) = match text
         .strip_suffix("\r\n")
         .or_else(|| text.strip_suffix(['\n', '\r', '\u{85}', '\u{2028}', '\u{2029}']))
@@ -412,6 +412,38 @@ mod tests {
         assert!(f.call("LayoutToLogicLineNum", json!([5])).is_err());
         assert!(f.call("LayoutToLogicLineNum", json!([0])).is_err());
         assert!(f.call("LogicToLayoutLineNum", json!([0, 1])).is_err());
+    }
+
+    #[test]
+    fn extreme_arguments_are_errors_or_clamped_not_panics() {
+        let mut f = Fixture::new("abc\ndef");
+        for name in [
+            "LineColumnToIndex",
+            "LogicToLayoutLineNum",
+            "LineIndexToColumn",
+        ] {
+            assert!(f.call(name, json!([i64::MIN, 1])).is_err(), "{name}");
+            assert!(f.call(name, json!([1, i64::MIN])).is_ok(), "{name}");
+            assert!(f.call(name, json!([i64::MAX, i64::MAX])).is_ok(), "{name}");
+        }
+        assert!(f.call("LayoutToLogicLineNum", json!([i64::MIN])).is_err());
+        assert!(f.call("LayoutToLogicLineNum", json!([i64::MAX])).is_err());
+        assert!(f.call("GetStrWidth", json!(["a\tb", i64::MAX])).is_ok());
+        assert!(f.call("GetStrWidth", json!(["a\tb", i64::MIN])).is_ok());
+        assert!(
+            f.call("GetStrLayoutLength", json!(["a\n", i64::MIN]))
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn only_the_layout_functions_need_exact_rows() {
+        use super::super::needs_exact_layout;
+        assert!(needs_exact_layout("LogicToLayoutLineNum"));
+        assert!(needs_exact_layout("GetSelectColmTo"));
+        assert!(!needs_exact_layout("GetFilename"));
+        assert!(!needs_exact_layout("GetCookie"));
+        assert!(!needs_exact_layout("GetStrWidth"));
     }
 
     #[test]

@@ -60,6 +60,25 @@ pub fn find(name: &str) -> Option<&'static EditorFunc> {
     all().find(|f| f.name == name)
 }
 
+/// Whether the function converts between layout and logical positions, or reports a position in
+/// layout units, and so needs exact row counts: a window that lays a large document out in the
+/// background completes the layout before it runs such a call (and only then).
+pub fn needs_exact_layout(name: &str) -> bool {
+    matches!(
+        name,
+        "GetSelectLineFrom"
+            | "GetSelectColmFrom"
+            | "GetSelectColumnFrom"
+            | "GetSelectLineTo"
+            | "GetSelectColmTo"
+            | "GetSelectColumnTo"
+            | "LayoutToLogicLineNum"
+            | "LogicToLayoutLineNum"
+            | "LineColumnToIndex"
+            | "LineIndexToColumn"
+    )
+}
+
 /// Runs a call of one of these functions: `None` if the name is not one of them.
 pub fn call(
     editor: &mut Editor<'_, '_>,

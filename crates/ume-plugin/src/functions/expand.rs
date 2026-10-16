@@ -382,6 +382,19 @@ fn current_text(ed: &Editor) -> Result<String> {
     let cx = &*ed.cx;
     // A UTF-16 unit is at most 3 bytes of UTF-8 (a pair of units is 4 bytes).
     let max_bytes = CURRENT_TEXT_MAX * 3 + 4;
+    // A box selection is its first row inside its columns, not the range between its corners.
+    if cx.cursor().box_corners().is_some() {
+        let text = cx
+            .box_first_row_text()
+            .map_err(command)?
+            .unwrap_or_default();
+        let first = text
+            .split(['\r', '\n'])
+            .next()
+            .unwrap_or_default()
+            .to_owned();
+        return Ok(truncate_utf16(first, CURRENT_TEXT_MAX));
+    }
     let range = match cx.selection() {
         Some(range) => Some(range),
         None => cx.word_range_at(cx.caret()).map_err(command)?,
@@ -601,6 +614,16 @@ mod tests {
             f.ok("ExpandParameter", json!(["$C"])),
             json!("😀".repeat(129))
         );
+    }
+
+    #[test]
+    fn a_box_selection_gives_its_first_row() {
+        use ume_core::buffer::Pos;
+        let mut f = Fixture::new("abcdef\nabcdef\nabcdef");
+        f.cursor.move_to(Pos::new(0, 1), false);
+        f.cursor.begin_box(1, false);
+        f.cursor.move_box_to(Pos::new(1, 3), 3);
+        assert_eq!(f.ok("ExpandParameter", json!(["[$C]"])), json!("[bc]"));
     }
 
     #[test]
