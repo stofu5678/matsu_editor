@@ -22,16 +22,11 @@ fn request(name: &str) -> Request {
 /// A handler that passes each request to the returned channel.
 fn collecting() -> (Handler, mpsc::Receiver<Request>) {
     let (tx, rx) = mpsc::channel();
-    (
-        Box::new(move |request| {
-            let _ = tx.send(request);
-        }),
-        rx,
-    )
+    (Box::new(move |request| tx.send(request).is_ok()), rx)
 }
 
 fn nothing() -> Handler {
-    Box::new(|_| {})
+    Box::new(|_| true)
 }
 
 // The key
@@ -65,17 +60,20 @@ fn another_settings_file_gives_another_key() {
     assert!(a.as_str().bytes().all(|c| c.is_ascii_hexdigit()));
 }
 
-#[cfg(any(windows, target_os = "macos"))]
 #[test]
-fn the_case_of_the_path_does_not_matter_where_the_file_system_ignores_it() {
+fn the_case_of_the_path_matters_only_where_the_file_system_cares() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("Ume.ini");
     std::fs::write(&file, "").unwrap();
-    let upper = std::path::PathBuf::from(file.to_string_lossy().to_uppercase());
+    let other = std::path::PathBuf::from(file.to_string_lossy().to_uppercase());
+    // Ask the file system the same question in another way: is the other spelling a file?
+    let same_file = other.exists();
     assert_eq!(
-        Key::for_settings_file(&file),
-        Key::for_settings_file(&upper)
+        Key::for_settings_file(&file) == Key::for_settings_file(&other),
+        same_file
     );
+    // Windows ignores case in every folder.
+    assert!(!cfg!(windows) || same_file);
 }
 
 #[test]
@@ -143,6 +141,26 @@ fn a_message_that_is_too_long_is_refused_without_reading_it() {
 }
 
 #[test]
+fn a_request_that_the_handler_cannot_pass_on_is_refused() {
+    let mut stream = Fake {
+        input: Cursor::new(request("a.txt").encode()),
+        output: Vec::new(),
+    };
+    let _ = serve_connection(&mut stream, &(Box::new(|_| false) as Handler));
+    assert_eq!(stream.output, [Reply::Refused.to_byte()]);
+}
+
+#[test]
+fn a_sender_whose_request_was_refused_runs_on_its_own() {
+    let key = unique_key("not-passed-on");
+    let Joined::Receiver(_receiver) = join(&key, &request("first"), Box::new(|_| false)) else {
+        panic!("the first launch must be the receiver");
+    };
+    let joined = join(&key, &request("second"), nothing());
+    assert!(matches!(joined, Joined::Standalone(Standalone::Refused)));
+}
+
+#[test]
 fn a_cut_message_is_not_handed_over() {
     let message = request("a.txt").encode();
     let (output, handled) = serve(message[..message.len() - 1].to_vec());
@@ -188,9 +206,7 @@ fn launches_at_the_same_moment_end_with_one_receiver() {
             let (key, barrier, tx) = (key.clone(), barrier.clone(), tx.clone());
             std::thread::spawn(move || {
                 barrier.wait();
-                let handler: Handler = Box::new(move |request| {
-                    let _ = tx.send(request);
-                });
+                let handler: Handler = Box::new(move |request| tx.send(request).is_ok());
                 join(&key, &request(&format!("{i}.txt")), handler)
             })
         })
@@ -217,7 +233,10 @@ fn launches_at_the_same_moment_end_with_one_receiver() {
 #[test]
 fn a_receiver_that_does_not_answer_costs_the_sender_its_timeout_only() {
     let key = unique_key("hang");
-    let hung: Handler = Box::new(|_| std::thread::sleep(Duration::from_secs(3)));
+    let hung: Handler = Box::new(|_| {
+        std::thread::sleep(Duration::from_secs(3));
+        true
+    });
     let Joined::Receiver(_receiver) = join(&key, &request("first"), hung) else {
         panic!("the first launch must be the receiver");
     };

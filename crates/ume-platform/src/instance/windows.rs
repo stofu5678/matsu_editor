@@ -34,8 +34,8 @@ use windows_sys::Win32::Security::{
     GetTokenInformation, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER, TokenUser,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    CreateFileW, FILE_FLAG_FIRST_PIPE_INSTANCE, OPEN_EXISTING, PIPE_ACCESS_DUPLEX,
-    SECURITY_IDENTIFICATION, SECURITY_SQOS_PRESENT,
+    CreateFileW, FILE_FLAG_FIRST_PIPE_INSTANCE, FlushFileBuffers, OPEN_EXISTING,
+    PIPE_ACCESS_DUPLEX, SECURITY_IDENTIFICATION, SECURITY_SQOS_PRESENT,
 };
 use windows_sys::Win32::System::Pipes::{
     ConnectNamedPipe, CreateNamedPipeW, GetNamedPipeServerProcessId, PIPE_READMODE_BYTE,
@@ -208,8 +208,14 @@ fn accept_loop(mut pipe: OwnedHandle, name: &[u16], sid: &str, handler: &Arc<Han
         let _ = std::thread::Builder::new()
             .name("ume-instance-client".to_owned())
             .spawn(move || {
+                use std::os::windows::io::AsRawHandle;
                 let mut file = File::from(served);
                 let _ = serve_connection(&mut file, &handler);
+                // `File::flush` does nothing. Closing the pipe before the client has read the
+                // answer would lose it, and the client would run on its own after the request
+                // was handled: wait until the client has read it.
+                // SAFETY: `file` owns a pipe handle.
+                unsafe { FlushFileBuffers(file.as_raw_handle()) };
             });
     }
 }

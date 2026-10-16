@@ -52,8 +52,7 @@ impl Key {
     pub fn for_settings_file(path: &Path) -> Key {
         let canonical = canonical_path(path);
         let mut text = canonical.to_string_lossy().into_owned();
-        // Windows and macOS file systems ignore case by default.
-        if cfg!(any(windows, target_os = "macos")) {
+        if canonical.parent().is_some_and(ignores_case) {
             text = text.to_lowercase();
         }
         Key::from_name(&text)
@@ -91,6 +90,34 @@ fn canonical_path(path: &Path) -> PathBuf {
     absolute
 }
 
+/// Whether the file system of the folder `dir` ignores the case of names: Windows does in every
+/// folder.
+#[cfg(windows)]
+fn ignores_case(_dir: &Path) -> bool {
+    true
+}
+
+/// Whether the file system of the folder `dir` ignores the case of names (macOS does on its default
+/// volumes). It is asked of the file system: the name of the folder in the other case is the same
+/// folder, or not.
+#[cfg(unix)]
+fn ignores_case(dir: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let name = dir.to_string_lossy();
+    let mut other = name.to_uppercase();
+    if other == name {
+        other = name.to_lowercase();
+    }
+    if other == name {
+        // No letters in the name: nothing to tell by.
+        return false;
+    }
+    match (std::fs::metadata(dir), std::fs::metadata(&other)) {
+        (Ok(a), Ok(b)) => (a.dev(), a.ino()) == (b.dev(), b.ino()),
+        _ => false,
+    }
+}
+
 /// How long the calls of [`join`] wait.
 #[derive(Clone, Copy, Debug)]
 pub struct Timeouts {
@@ -111,8 +138,10 @@ impl Default for Timeouts {
 }
 
 /// What a receiver does with each request. It runs on a thread of the receiver, so it should only
-/// pass the request on (to the UI thread) and return.
-pub type Handler = Box<dyn Fn(Request) + Send + Sync + 'static>;
+/// pass the request on (to the UI thread) and return. It returns `false` when the request could not
+/// be passed on (the receiver is ending): the sender is then told "refused" and runs on its own,
+/// instead of believing that its files are being opened.
+pub type Handler = Box<dyn Fn(Request) -> bool + Send + Sync + 'static>;
 
 /// What [`join`] made of this process.
 #[must_use]
@@ -225,12 +254,11 @@ pub(crate) fn serve_connection<S: Read + Write>(
     }
     let mut body = vec![0u8; length];
     stream.read_exact(&mut body)?;
-    let reply = match Request::decode(&body) {
-        Ok(request) => {
-            handler(request);
-            Reply::Accepted
-        }
-        Err(_) => Reply::Refused,
+    let handed_over = Request::decode(&body).is_ok_and(handler);
+    let reply = if handed_over {
+        Reply::Accepted
+    } else {
+        Reply::Refused
     };
     stream.write_all(&[reply.to_byte()])?;
     stream.flush()

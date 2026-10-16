@@ -137,7 +137,7 @@ fn join(
     let key = Key::for_settings_file(&file);
     let handler = Box::new(move |later: Request| {
         // The UI thread takes it from the channel; this thread only passes it on.
-        tx.send_blocking(OpenRequest::from_launch(&later)).ok();
+        tx.send_blocking(OpenRequest::from_launch(&later)).is_ok()
     });
     Some(ume_platform::instance::join(&key, request, handler))
 }

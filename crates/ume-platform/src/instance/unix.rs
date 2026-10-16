@@ -20,9 +20,6 @@ use std::time::{Duration, Instant};
 
 use super::{Handler, Key, Request, SendError, Timeouts, exchange, serve_connection};
 
-/// A socket path must fit `sun_path` (104 bytes on macOS, 108 on Linux, with the NUL).
-const MAX_SOCKET_PATH: usize = 100;
-
 /// How long a receiver waits for a client that has connected and not sent its request.
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -48,31 +45,22 @@ fn euid() -> u32 {
 }
 
 /// The directory for the sockets and locks of this user, made if it is not there.
+///
+/// It must be the same for every launch of the user, so it is not taken from the environment
+/// (`$XDG_RUNTIME_DIR` and `$TMPDIR` differ between a desktop session, `ssh` and `cron`): on Linux it
+/// is `/run/user/<uid>` (what `$XDG_RUNTIME_DIR` is on a system with systemd) when that is the
+/// user's own folder, and `/tmp/ume-editor-<uid>` otherwise and on macOS.
 pub(super) fn private_dir() -> io::Result<PathBuf> {
-    for base in base_dirs() {
-        let dir = base.join("ume-editor");
-        // `/tmp/...` names are checked for room: a long `$TMPDIR` falls through to the next one.
-        if dir.join("ume-0000000000000000.sock").as_os_str().len() > MAX_SOCKET_PATH {
-            continue;
-        }
-        if base.is_dir() && ensure_private_dir(&dir).is_ok() {
+    let uid = euid();
+    if cfg!(target_os = "linux") {
+        let dir = PathBuf::from(format!("/run/user/{uid}/ume-editor"));
+        if ensure_private_dir(&dir).is_ok() {
             return Ok(dir);
         }
     }
-    let dir = PathBuf::from(format!("/tmp/ume-editor-{}", euid()));
+    let dir = PathBuf::from(format!("/tmp/ume-editor-{uid}"));
     ensure_private_dir(&dir)?;
     Ok(dir)
-}
-
-/// Where the user's own temporary files go, best first: `$XDG_RUNTIME_DIR` (Linux, `/run/user/N`,
-/// already private to the user) and `$TMPDIR` (macOS: `/var/folders/.../T`, private to the user).
-fn base_dirs() -> Vec<PathBuf> {
-    ["XDG_RUNTIME_DIR", "TMPDIR"]
-        .into_iter()
-        .filter_map(std::env::var_os)
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .collect()
 }
 
 /// Makes `dir` (mode 0700) if it is not there; refuses one that someone else owns or that others
