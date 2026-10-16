@@ -254,6 +254,11 @@ impl History {
     /// old count). Nothing is stored when the block has no edit. Does nothing outside a block.
     pub fn commit(&mut self, doc: &Document, cursor: &Cursor) {
         self.store_open_edits(doc, cursor);
+        // A block without an edit is dropped and a new one made (Sakura), so the next step starts
+        // from here, not from where the block was entered.
+        if let Some(open) = &mut self.open {
+            open.before = Snapshot::of(doc, cursor);
+        }
     }
 
     /// Makes the open block count as an edit even if it has none, so that it is stored as a step

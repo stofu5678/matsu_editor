@@ -74,6 +74,21 @@ mod tests {
     }
 
     #[test]
+    fn the_next_step_starts_where_the_commit_was_even_without_an_edit_before_it() {
+        let mut e = Editor::new("|ab\ncd");
+        e.run("addrefundobuffer");
+        // only the caret moved so far: there is nothing to store
+        e.run("go_file_end");
+        e.run("commitundobuffer");
+        e.run_with("input_char", &[Arg::Char('x')]);
+        e.run("setundobuffer");
+        e.assert_marked("ab\ncdx|");
+        // undo puts the caret back to where the commit was, not to where the block began
+        e.run("undo");
+        e.assert_marked("ab\ncd|");
+    }
+
+    #[test]
     fn the_stored_step_can_be_undone_while_the_block_is_open() {
         let mut e = Editor::new("|");
         e.run("addrefundobuffer");
