@@ -219,7 +219,8 @@ struct Runner<'a> {
     /// followed for ever. (Sakura has no such check; Windows has few links like that.)
     visiting: Vec<std::path::PathBuf>,
     /// The backups that a Grep 置換 made in this search. They are not searched: their text would
-    /// be replaced a second time.
+    /// be replaced a second time. The paths are in lower case, as a file system may not tell the
+    /// cases apart.
     kept: std::collections::HashSet<String>,
 }
 
@@ -410,7 +411,7 @@ impl Runner<'_> {
         for name in self.walker.files_in(path) {
             self.check_cancel()?;
             let full = join_path(path, &name);
-            if self.kept.contains(&full) {
+            if !self.kept.is_empty() && self.kept.contains(&full.to_lowercase()) {
                 continue;
             }
             // `nBasePathLen2`: the folder below the base, without the separator after the base.

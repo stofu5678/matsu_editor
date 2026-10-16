@@ -44,7 +44,7 @@
 //!   replacements is the number of matches. Only the first match of a line is shown in the result.
 //! * Every other search (plain text, whole words, and a regular expression with the text of the
 //!   clipboard) puts the text in for each match, in the line as it was read.
-//! * With バックアップ作成 the old file is kept as `name.skrold` (an old one is removed first).
+//! * With バックアップ作成 the old file is kept as `name.skrold`; an earlier backup is replaced when the new content is in place.
 //! * With ファイル毎最初のみ検索 only the first hit of a file is shown, but all are replaced.
 //!
 //! Differences from Sakura: the hits of a file that could not be written are not counted (Sakura
@@ -249,8 +249,8 @@ impl Runner<'_> {
                 self.buffer.push_str(&format::replace_replace_error(&old));
                 return Ok(false);
             }
-            self.kept.insert(old.clone());
-            self.kept.insert(staged.clone());
+            self.kept.insert(old.to_lowercase());
+            self.kept.insert(staged.to_lowercase());
         }
         let options = SaveOptions::keep(file);
         let cancel = self.cancel;
