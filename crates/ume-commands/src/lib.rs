@@ -18,6 +18,7 @@
 //!
 //! The README of this crate explains how to add a command and how to write its test.
 
+pub mod clipboard;
 pub mod command;
 pub mod commands;
 pub mod context;

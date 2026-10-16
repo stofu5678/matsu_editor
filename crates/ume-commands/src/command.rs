@@ -52,6 +52,9 @@ pub enum CommandError {
     BadArgs(String),
     /// No command has this ID or function code.
     Unknown(String),
+    /// The command needs something that this context does not have (for example the clipboard
+    /// of a context that runs without a window).
+    Unavailable(&'static str),
 }
 
 impl fmt::Display for CommandError {
@@ -60,6 +63,7 @@ impl fmt::Display for CommandError {
             Self::Buffer(e) => write!(f, "{e}"),
             Self::BadArgs(m) => write!(f, "bad arguments: {m}"),
             Self::Unknown(what) => write!(f, "no such command: {what}"),
+            Self::Unavailable(what) => write!(f, "{what} is not available here"),
         }
     }
 }
