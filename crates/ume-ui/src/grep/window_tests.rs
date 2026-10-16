@@ -478,12 +478,13 @@ fn a_grep_is_recorded_in_a_key_macro_with_its_arguments(cx: &mut TestAppContext)
         .unwrap();
     let saved = String::from_utf8_lossy(&std::fs::read(&path).unwrap()).into_owned();
     let flags = 0x01 | 0x10 | 0x20 | (99 << 8);
+    let files =
+        "*.*;#.git;#.svn;#.vs;!*.msi;!*.exe;!*.obj;!*.pdb;!*.ilk;!*.res;!*.pch;!*.iobj;!*.ipdb";
     assert!(
-        saved.contains(&format!("Grep('hit', '*.*', '{}', {flags}, 99);", p.root()))
-            || saved.contains(&format!(
-                "Grep(\"hit\", \"*.*\", \"{}\", {flags}, 99);",
-                p.root()
-            )),
+        saved.contains(&format!(
+            "Grep('hit', '{files}', '{}', {flags}, 99);",
+            p.root()
+        )),
         "{saved}"
     );
 }

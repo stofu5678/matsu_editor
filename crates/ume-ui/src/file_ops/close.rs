@@ -12,22 +12,29 @@ use super::save::{SaveRequest, save};
 use crate::document::SharedDocument;
 use crate::view::EditorView;
 
+/// Nothing is closed while Grep searches (`CGrepAgent::OnBeforeClose`): the window says so
+/// ("Grepの処理中です。") and this returns `true`.
+fn grep_blocks_close(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) -> bool {
+    let running = view
+        .read_with(cx, |v, _| v.is_grep_running())
+        .unwrap_or(false);
+    if running {
+        view.update(cx, |view, cx| {
+            view.notice = Some("Grepの処理中です。".to_owned());
+            cx.notify();
+        })
+        .ok();
+    }
+    running
+}
+
 /// Asks what to do with unsaved changes before the document goes away. `true` means go on: the
 /// document is unmodified, was saved, or the user does not want to save it. `false` means stop.
 pub(crate) async fn confirm_discard(
     view: &WeakEntity<EditorView>,
     cx: &mut AsyncWindowContext,
 ) -> bool {
-    // Nothing is closed while Grep searches (`CGrepAgent::OnBeforeClose`, the message "Grepの処理中です。").
-    if view
-        .read_with(cx, |v, _| v.is_grep_running())
-        .unwrap_or(false)
-    {
-        view.update(cx, |view, cx| {
-            view.notice = Some("Grepの処理中です。".to_owned());
-            cx.notify();
-        })
-        .ok();
+    if grep_blocks_close(view, cx) {
         return false;
     }
     let Ok((modified, title)) = view.read_with(cx, |view, app| {
@@ -77,6 +84,9 @@ pub(crate) async fn save_and_close_window(
     view: &WeakEntity<EditorView>,
     cx: &mut AsyncWindowContext,
 ) -> bool {
+    if grep_blocks_close(view, cx) {
+        return false;
+    }
     let modified = view
         .read_with(cx, |view, app| {
             view.document().read(app).model().is_modified()

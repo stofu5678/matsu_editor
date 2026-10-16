@@ -233,12 +233,16 @@ impl GrepSettings {
         flags
     }
 
-    /// The arguments the macro `Grep` is recorded with: the pattern, the file box, the folder
-    /// box, the flags and the number of the encoding.
+    /// The arguments the macro `Grep` is recorded with: the pattern, the file patterns (with the
+    /// excluded ones, see [`packed_files`](Self::packed_files)), the folder box, the flags and the
+    /// number of the encoding.
     pub fn macro_args(&self) -> Vec<Arg> {
         vec![
             Arg::Text(self.key.clone()),
-            Arg::Text(self.file.clone()),
+            // Sakura records the file box only, and the replay loses the excluded files and
+            // folders. The packed patterns are read by the replay (`SetFileKeys` takes `!` and
+            // `#`), so they are recorded.
+            Arg::Text(self.packed_files()),
             Arg::Text(self.folder.clone()),
             Arg::Int(self.macro_flags()),
             Arg::Int(i64::from(charset_code(self.charset))),
@@ -521,7 +525,10 @@ mod tests {
             GrepSettings::default().macro_args(),
             vec![
                 text(""),
-                text("*.*"),
+                // the excluded folders and files are in the file argument
+                text(
+                    "*.*;#.git;#.svn;#.vs;!*.msi;!*.exe;!*.obj;!*.pdb;!*.ilk;!*.res;!*.pch;!*.iobj;!*.ipdb"
+                ),
                 text(""),
                 Arg::Int(0x01 | 0x10 | 0x20 | (99 << 8)),
                 Arg::Int(99),
@@ -569,6 +576,23 @@ mod tests {
             GrepSettings::from_macro_args(&original.macro_args()).unwrap(),
             original
         );
+    }
+
+    #[test]
+    fn the_replay_of_a_recorded_grep_searches_the_same_files() {
+        let recorded = GrepSettings {
+            key: "x".into(),
+            folder: "/tmp".into(),
+            file: "*.rs;*.toml".into(),
+            exclude_file: "*.bak \"a b.txt\"".into(),
+            exclude_folder: "target".into(),
+            ..GrepSettings::default()
+        };
+        let replayed = GrepSettings::from_macro_args(&recorded.macro_args()).unwrap();
+        assert_eq!(replayed.info().file, recorded.info().file);
+        let keys = GrepKeys::parse(&replayed.info().file, false).unwrap();
+        assert_eq!(keys.except_files, vec!["*.bak", "a b.txt"]);
+        assert_eq!(keys.except_folders, vec!["target"]);
     }
 
     #[test]

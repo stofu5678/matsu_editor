@@ -5,7 +5,8 @@
 //! folder, flags, encoding)` is in `CMacro::HandleCommand` and `CMacro::MakeGrepInfo`
 //! (`sakura_core/macro/CMacro.cpp`) and always writes the result to a new window.
 //!
-//! Arguments of the macro: the pattern, the files, the folder, the sum of the flags (1 subfolders,
+//! Arguments of the macro: the pattern, the files (as in the dialog; `!pattern` and `#pattern` exclude
+//! files and folders, which is what a recorded Grep writes), the folder, the sum of the flags (1 subfolders,
 //! 4 case, 8 regular expression, 0x10 detect the encoding, 0x20 lines, 0x40 per file, 0x80 result
 //! only, 0x100 to 0xff00 the number of the encoding times 0x100, 0x10000 words, 0x20000 first hit
 //! of a file, 0x40000 base folder, 0x80000 folders apart, 0x400000 lines without a hit, 0x800000
