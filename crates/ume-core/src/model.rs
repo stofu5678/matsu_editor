@@ -4,7 +4,7 @@
 //! All edits go through [`DocumentModel::replace`], which tells the history, so that the
 //! document and the undo blocks cannot disagree.
 
-use crate::bookmarks::{Bookmarks, LineDelta};
+use crate::bookmarks::{Bookmarks, LineDelta, LineEdit, TextBreaks};
 use crate::buffer::{Document, Edit, Eol, Pos, Result};
 use crate::cursor::Cursor;
 use crate::undo::History;
@@ -90,25 +90,38 @@ impl DocumentModel {
             });
         }
         // The document is left as it was when the replace fails, so the history is told after.
-        let lines_before = self.doc.line_count();
+        let rows_before = self.rows();
         let edit = self.doc.replace(from, to, text)?;
         self.history.note_edit();
         let (a, b) = (from.min(to), from.max(to));
-        let deltas = LineDelta::of_edit(
+        let line_edit = LineEdit::of_replace(
             (a.line, a.col),
             (b.line, b.col),
-            text,
-            lines_before,
-            self.doc.line_count(),
+            (edit.end.line, edit.end.col),
+            TextBreaks {
+                count: b.line - a.line,
+                ends_with_break: b.col == 0 && b.line > a.line,
+            },
+            TextBreaks::of(text),
+            rows_before,
+            self.rows(),
         );
-        for delta in deltas.into_iter().flatten() {
+        for delta in line_edit.forward() {
             self.bookmarks.apply(delta);
-            self.history.note_lines(delta);
         }
+        self.history.note_lines(line_edit);
         // A last line that lost all its text is gone (Sakura deletes the line object), and its
         // bookmark with it.
         self.bookmarks.truncate(self.doc.line_count());
         Ok(edit)
+    }
+
+    /// The number of rows of the text: its line breaks plus one, so the empty row after a final
+    /// line break counts (which `line_count` leaves out).
+    fn rows(&self) -> usize {
+        self.doc
+            .end_pos()
+            .map_or_else(|_| self.doc.line_count(), |p| p.line + 1)
     }
 
     /// Undoes one block, and puts the cursor back. `false` if there is nothing to undo.
@@ -298,6 +311,30 @@ y
         let mut m = model("a\r\nb\r\nc");
         m.bookmarks_mut().set(2, true);
         edit(&mut m, (0, 1), (1, 0), ""); // joins "a" and "b"
+        assert_eq!(marked(&m), [1]);
+    }
+
+    #[test]
+    fn undo_keeps_the_bookmark_of_the_line_that_survives_the_inverse_edit() {
+        // "\nx" typed at the start of "abc": "" above, "xabc" below; the bookmark is on "xabc"
+        let mut m = model("abc");
+        let mut cursor = Cursor::default();
+        edit(&mut m, (0, 0), (0, 0), "\nx");
+        m.bookmarks_mut().set(1, true);
+        assert!(m.undo(&mut cursor));
+        assert_eq!(marked(&m), [0]);
+        // redo runs the edit again: the line above keeps the bookmark of the line it was
+        assert!(m.redo(&mut cursor));
+        assert_eq!(marked(&m), [0]);
+    }
+
+    #[test]
+    fn a_cr_and_an_lf_that_meet_are_one_line_break() {
+        // "a\rb\nc": deleting "b" makes "a\r\nc"
+        let mut m = model("a\rb\nc");
+        m.bookmarks_mut().set(2, true);
+        edit(&mut m, (1, 0), (1, 1), "");
+        assert_eq!(m.doc().line_count(), 2);
         assert_eq!(marked(&m), [1]);
     }
 }

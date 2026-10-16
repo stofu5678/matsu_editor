@@ -33,7 +33,7 @@
 
 use std::collections::VecDeque;
 
-use crate::bookmarks::LineDelta;
+use crate::bookmarks::{LineDelta, LineEdit};
 use crate::buffer::Document;
 use crate::cursor::Cursor;
 
@@ -59,7 +59,7 @@ struct Block {
     before: Snapshot,
     after: Snapshot,
     /// The changes of the line list, in the order the edits were made (for the bookmarks).
-    lines: Vec<LineDelta>,
+    lines: Vec<LineEdit>,
 }
 
 /// The block that is being made.
@@ -68,7 +68,7 @@ struct Open {
     depth: usize,
     before: Snapshot,
     edited: bool,
-    lines: Vec<LineDelta>,
+    lines: Vec<LineEdit>,
 }
 
 /// The undo and redo history of a document.
@@ -158,14 +158,12 @@ impl History {
         }
     }
 
-    /// Tells the history how an edit changed the line list, after [`note_edit`](Self::note_edit),
+    /// Tells the history how an edit changed the line list (and how undoing it will), after [`note_edit`](Self::note_edit),
     /// so that undo and redo can tell the bookmarks. Outside a block there is nothing to undo, so
     /// nothing is kept.
-    pub fn note_lines(&mut self, delta: LineDelta) {
-        if let Some(open) = &mut self.open
-            && !delta.is_noop()
-        {
-            open.lines.push(delta);
+    pub fn note_lines(&mut self, edit: LineEdit) {
+        if let Some(open) = &mut self.open {
+            open.lines.push(edit);
         }
     }
 
@@ -206,7 +204,7 @@ impl History {
             .lines
             .iter()
             .rev()
-            .map(|d| d.inverse())
+            .flat_map(LineEdit::inverse)
             .collect();
         self.restore(self.blocks[self.pos].before.clone(), doc, cursor);
         Some(lines)
@@ -227,7 +225,7 @@ impl History {
         self.store_open_edits(doc, cursor);
         let block = self.blocks.get(self.pos)?;
         let after = block.after.clone();
-        let lines = block.lines.clone();
+        let lines = block.lines.iter().flat_map(LineEdit::forward).collect();
         self.pos += 1;
         self.restore(after, doc, cursor);
         Some(lines)
@@ -256,7 +254,7 @@ impl History {
         }
     }
 
-    fn push(&mut self, before: Snapshot, after: Snapshot, lines: Vec<LineDelta>) {
+    fn push(&mut self, before: Snapshot, after: Snapshot, lines: Vec<LineEdit>) {
         self.blocks.truncate(self.pos);
         // The saved version was in the redo tail that is gone now.
         if self.saved.is_some_and(|s| s > self.pos) {
