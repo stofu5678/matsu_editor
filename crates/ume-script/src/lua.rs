@@ -1,7 +1,7 @@
 //! The Lua engine: Lua 5.4 (`mlua`, with the C source built in), running the user's script with
 //! `Editor` and `EditorError` in the global scope, as the JavaScript and Python boots do.
 //!
-//! Every function of `Editor` comes from `ume_plugin::api::FUNCS` and is bound as a Rust
+//! Every function of `Editor` comes from `ume_plugin::catalog::entries()` (the basic API and every row of Sakura's macro tables) and is bound as a Rust
 //! function. A small Lua part (`BOOT`) only turns the answer of a Rust function into a return
 //! value or into a thrown `EditorError`, because a Rust function cannot throw a table.
 
@@ -11,7 +11,7 @@ use std::rc::Rc;
 
 use mlua::{Function, MultiValue, Table, Value as LuaValue, Variadic};
 use serde_json::{Number, Value};
-use ume_plugin::api::{FUNCS, Func};
+use ume_plugin::catalog::{Entry, entries};
 use ume_plugin::protocol::RpcError;
 
 use crate::engine::Engine;
@@ -101,8 +101,8 @@ fn install(
     lua.globals().set("print", print)?;
 
     let raw = lua.create_table()?;
-    let mut names = Vec::with_capacity(FUNCS.len());
-    for func in FUNCS {
+    let mut names = Vec::with_capacity(entries().len());
+    for func in entries() {
         names.push(func.name);
         raw.set(func.name, bind(lua, func, editor.clone())?)?;
     }
@@ -115,7 +115,7 @@ fn install(
 /// One function of the macro API as a Rust function for Lua.
 fn bind(
     lua: &mlua::Lua,
-    func: &'static Func,
+    func: &'static Entry,
     editor: Rc<RefCell<dyn Editor>>,
 ) -> mlua::Result<Function> {
     lua.create_function(move |lua, args: Variadic<LuaValue>| {
