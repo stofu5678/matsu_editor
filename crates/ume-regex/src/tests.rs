@@ -85,7 +85,7 @@ fn context_before_the_start_offset_is_visible() {
     // Look-behind sees the text before the start offset.
     assert_eq!(compile("(?<=a)b").find_at("ab", 1).unwrap(), Some(1..2));
     assert_eq!(compile(r"\bb").find_at("ab", 1).unwrap(), None);
-    // `\G` is the start offset (bregonig passes it as the global position).
+    // `\G` is the start offset (bregonig.html, section 5.1.5: the match start position).
     assert_eq!(compile(r"\Gb").find_at("ab", 1).unwrap(), Some(1..2));
     assert_eq!(compile(r"\Gb").find_at("abb", 2).unwrap(), Some(2..3));
     assert_eq!(compile(r"\Gb").find_at("aab", 1).unwrap(), None);
@@ -219,8 +219,8 @@ fn bregonig_extensions_are_enabled() {
     assert_eq!(find(r"\p{Hiragana}+", "カタかなカナ"), Some(6..12));
     assert_eq!(find(r"(?<q>['\x22]).*?\k<q>", "say 'hi' ok"), Some(4..8));
     assert_eq!(find(r"(\((?:[^()]|\g<1>)*\))", "f(a(b)c)d"), Some(1..8));
-    // bregonig also sets these in its syntax (src/bregonig.cpp, DllMain):
-    // `(?~...)` (absent operator) and look-behind with alternatives of different length.
+    // bregonig.html also documents these: `(?~...)` (absent operator, section
+    // 5.1.7) and look-behind with alternatives of different length (section 5.1).
     assert_eq!(find("/\\*(?~\\*/)\\*/", "x/* a */ b */"), Some(1..8));
     assert_eq!(find("(?<=a|bc)d", "bcd"), Some(2..3));
     // Options inside the pattern: `i`, and negating them (HLP000089.html).

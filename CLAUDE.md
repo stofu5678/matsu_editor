@@ -46,6 +46,7 @@ typos                   # cargo install --locked typos-cli
 - 依存を追加するときは、ライセンスが MIT / Apache-2.0 と両立するか確認する。GPL 系（GPL・LGPL・AGPL）のものは使わない
 - MPL-2.0 のものは使ってよい（2026-10-10 にユーザーが判断）。ただし、MPL-2.0 のファイルを改変したら、そのファイルを公開する
 - Zed のエディタ部分（GPL / AGPL のクレート）からコードを写さない。参考にしてよいのは GPUI 本体と gpui-component（どちらも Apache-2.0）まで
+- bregonig（サクラが使う正規表現の DLL）のソースは、GPL か Artistic License の選択制で、このリポジトリでは使えない。ソースは読まず、写さない。挙動は説明書（`bregonig.html`）と、実物の bregonig.dll を動かした結果から決める（2026-10-16 にユーザーが判断）
 - サクラエディタ（zlib License）のコードを移植するときは、ファイルの先頭に移植元のファイル名、元の著作権表示、zlib License の全文を残し、改変したことを明記する
 
 ## ほかの OSS への報告
