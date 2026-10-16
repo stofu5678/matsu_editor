@@ -34,9 +34,8 @@ actions!(
 pub fn run(paths: Vec<PathBuf>) {
     let user = crate::settings::UserSettings::load();
     let keymap = user.key_map(ume_commands::keymap::Platform::current());
-    let app = application();
-    #[cfg(target_os = "linux")]
-    let app = app.with_assets(gpui_kit_assets::Assets);
+    // gpui-component's icons (check marks, menu arrows, title bar buttons), on every OS.
+    let app = application().with_assets(gpui_kit_assets::Assets);
     app.run(move |cx: &mut App| {
         gpui_component::init(cx);
         set_menus(cx, &keymap);
@@ -188,6 +187,20 @@ mod tests {
     use ume_core::model::DocumentModel;
 
     use super::*;
+
+    /// The icons gpui-component draws are in the assets given to the application on every OS: a
+    /// checked box draws `IconName::Check` (`gpui_component::checkbox`), and without the file it
+    /// is a filled square.
+    #[test]
+    fn the_icons_of_the_components_are_in_the_assets() {
+        use gpui::AssetSource as _;
+        use gpui_component::{IconName, IconNamed as _};
+        for icon in [IconName::Check, IconName::ChevronRight, IconName::Close] {
+            let path = icon.path();
+            let svg = gpui_kit_assets::Assets.load(&path).unwrap();
+            assert!(svg.is_some_and(|bytes| !bytes.is_empty()), "{path}");
+        }
+    }
 
     /// The whole window (menu bar, editor, status bar) builds and paints, and the menu actions
     /// reach the editor.
