@@ -91,6 +91,7 @@ pub(crate) fn open_document(
                 crate::file_ops::windows::begin_pending(
                     cx,
                     window.window_handle(),
+                    &editor.downgrade(),
                     load.path.clone(),
                 );
                 editor.update(cx, |view, cx| {
@@ -198,6 +199,22 @@ pub(crate) fn change_settings(
     window: &mut Window,
     change: impl FnOnce(&mut TabSettings),
 ) {
+    // A tab that is being read cannot move: its task belongs to the window it started in. The
+    // bar stays as it is until the reading ends.
+    let reading = workspaces(cx)
+        .into_iter()
+        .any(|(handle, _)| has_pending(cx, handle));
+    if reading {
+        if let Some(workspace) = workspace_of(cx, window.window_handle()) {
+            let editor = workspace.read(cx).editor().clone();
+            editor.update(cx, |view, cx| {
+                view.notice =
+                    Some("ファイルの読み込み中は、タブの表示を切り替えられない".to_owned());
+                cx.notify();
+            });
+        }
+        return;
+    }
     settings::update(cx, change);
     regroup(cx, window);
 }

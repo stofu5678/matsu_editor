@@ -816,9 +816,10 @@ fn a_file_being_read_into_a_window_counts_as_open(cx: &mut TestAppContext) {
         cx.update(|cx| super::windows::find_open(cx, &path).map(|(h, _)| h))
     };
     assert_eq!(found(cx), None);
-    cx.update(|cx| super::windows::begin_pending(cx, handle, path.clone()));
+    let view = cx.update(|cx| super::windows::editors(cx)[0].1.downgrade());
+    cx.update(|cx| super::windows::begin_pending(cx, handle, &view, path.clone()));
     assert_eq!(found(cx), Some(handle));
-    cx.update(|cx| super::windows::finish_pending(cx, handle));
+    cx.update(|cx| super::windows::finish_pending(cx, &view));
     assert_eq!(found(cx), None);
 }
 
@@ -877,8 +878,10 @@ fn a_window_that_is_reading_a_file_is_not_reused_for_another(cx: &mut TestAppCon
         .update(|cx| open_editor_window(cx, SharedDocument::empty(), None))
         .unwrap();
     let cx = &mut VisualTestContext::from_window(handle, cx);
-    cx.update(|_, app| super::windows::begin_pending(app, handle, dir.path("a.txt")));
     let editor = cx.update(|_, app| super::windows::editors(app)[0].1.clone());
+    cx.update(|_, app| {
+        super::windows::begin_pending(app, handle, &editor.downgrade(), dir.path("a.txt"))
+    });
     let f = Fixture { view: editor };
     f.open(cx, &other, None);
     assert_eq!(cx.windows().len(), 2, "B gets its own window");

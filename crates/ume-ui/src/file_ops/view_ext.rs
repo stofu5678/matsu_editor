@@ -124,8 +124,7 @@ impl EditorView {
     ) {
         start(window, cx, async move |view, cx| {
             load::load_here(&view, cx, &path, encoding, None).await;
-            let handle = cx.window_handle();
-            cx.update(|_, app| super::windows::finish_pending(app, handle))
+            cx.update(|_, app| super::windows::finish_pending(app, &view))
                 .ok();
         });
     }

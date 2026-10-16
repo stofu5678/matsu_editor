@@ -154,8 +154,10 @@ async fn jump_to(target: &TagTarget, cx: &mut AsyncWindowContext) -> bool {
     let open = loop {
         let found = cx
             .update(|_, app| {
-                windows::find_open(app, &target.path)
-                    .map(|(handle, editor)| (handle, editor, windows::has_pending(app, handle)))
+                windows::find_open(app, &target.path).map(|(handle, editor)| {
+                    let pending = windows::is_pending(app, &editor.downgrade());
+                    (handle, editor, pending)
+                })
             })
             .ok()
             .flatten();

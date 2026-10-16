@@ -27,7 +27,7 @@ mod tests;
 
 use std::path::{Path, PathBuf};
 
-use gpui::{AnyWindowHandle, App, Entity, Global};
+use gpui::{AnyWindowHandle, App, Entity, EntityId, Global};
 use ume_core::encoding::Encoding;
 
 use crate::file_ops::windows::editors;
@@ -78,30 +78,43 @@ pub(crate) fn remember(cx: &mut App, value: Remembered) {
 pub(crate) enum Target {
     /// A file (外部ファイルを指定).
     File(PathBuf),
-    /// Another editor window (他の編集中のファイル).
-    Window(AnyWindowHandle),
+    /// Another document that is open (他の編集中のファイル): a window, or a tab of one.
+    Window(DocRef),
 }
 
-/// An editor window that can be the other side, as the lists of the dialogs show it.
+/// An open document: its window, and the view of its tab. A window with tabs has several, so the
+/// window alone does not say which one is meant.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct DocRef {
+    pub(crate) handle: AnyWindowHandle,
+    pub(crate) view: EntityId,
+}
+
+/// A document that can be the other side, as the lists of the dialogs show it.
 #[derive(Clone)]
 pub(crate) struct Candidate {
-    pub(crate) handle: AnyWindowHandle,
+    pub(crate) doc: DocRef,
     /// The label of the window list: the number, the name, ` *` when modified and the encoding.
     pub(crate) label: String,
     pub(crate) path: Option<PathBuf>,
     pub(crate) encoding: Encoding,
 }
 
-/// The editor windows but `owner`, in the order of the window list (whose numbers the labels use).
-pub(crate) fn candidates(cx: &mut App, owner: AnyWindowHandle) -> Vec<Candidate> {
+/// The open documents but the one of the view `owner`, in the order of the window list (whose
+/// numbers the labels use).
+pub(crate) fn candidates(cx: &mut App, owner: EntityId) -> Vec<Candidate> {
     editors(cx)
         .into_iter()
         .enumerate()
-        .filter(|(_, (handle, _))| *handle != owner)
+        .filter(|(_, (_, view))| view.entity_id() != owner)
         .map(|(i, (handle, view))| {
+            let doc = DocRef {
+                handle,
+                view: view.entity_id(),
+            };
             let shared = view.read(cx).document().read(cx);
             Candidate {
-                handle,
+                doc,
                 label: label(
                     i,
                     shared.path(),

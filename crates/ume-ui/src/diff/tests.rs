@@ -27,6 +27,14 @@ struct Win {
 }
 
 impl Win {
+    /// This document as the other side of a comparison.
+    fn doc(&self) -> super::DocRef {
+        super::DocRef {
+            handle: self.handle,
+            view: self.view.entity_id(),
+        }
+    }
+
     fn run(&self, cx: &mut TestAppContext, function: &str) -> bool {
         self.run_with(cx, function, &[])
     }
@@ -130,7 +138,7 @@ fn diff_with_window(cx: &mut TestAppContext, w: &Win, other: &Win) {
         .view
         .read_with(cx, |v, _| v.diff.panel.clone())
         .expect("the dialog");
-    let target = other.handle;
+    let target = other.doc();
     w.handle
         .update(cx, |_, window, app| {
             panel.update(app, |p, cx| {
@@ -467,7 +475,7 @@ fn the_dialog_selects_the_window_with_the_most_alike_name(cx: &mut TestAppContex
     let panel = w.view.read_with(cx, |v, _| v.diff.panel.clone()).unwrap();
     assert_eq!(
         panel.read_with(cx, |p, cx| p.target(cx)),
-        Some(Target::Window(like.handle))
+        Some(Target::Window(like.doc()))
     );
 }
 
@@ -495,7 +503,7 @@ fn compare_moves_both_carets_to_the_first_difference(cx: &mut TestAppContext) {
     w.handle
         .update(cx, |_, window, app| {
             panel.update(app, |p, cx| {
-                p.select_window(other.handle, cx);
+                p.select_window(other.doc(), cx);
                 p.ok(window, cx);
             })
         })
@@ -523,7 +531,7 @@ fn compare_says_when_nothing_differs(cx: &mut TestAppContext) {
     w.handle
         .update(cx, |_, window, app| {
             panel.update(app, |p, cx| {
-                p.select_window(other.handle, cx);
+                p.select_window(other.doc(), cx);
                 p.ok(window, cx);
             })
         })
@@ -549,7 +557,7 @@ fn compare_starts_at_the_carets_and_sees_line_endings(cx: &mut TestAppContext) {
     w.handle
         .update(cx, |_, window, app| {
             panel.update(app, |p, cx| {
-                p.select_window(other.handle, cx);
+                p.select_window(other.doc(), cx);
                 p.ok(window, cx);
             })
         })

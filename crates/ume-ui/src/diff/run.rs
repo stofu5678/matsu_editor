@@ -112,10 +112,10 @@ impl EditorView {
         let epoch = self.document.read(cx).model().diff_marks().epoch();
         let version = (version, epoch);
         match target {
-            Target::Window(handle) => {
+            Target::Window(doc) => {
                 let other = editors(cx)
                     .into_iter()
-                    .find(|(h, _)| *h == handle)
+                    .find(|(_, view)| view.entity_id() == doc.view)
                     .map(|(_, view)| document_lines(view.read(cx).document().read(cx).doc()));
                 match other {
                     Some(Ok(lines)) => self.diff_with_lines(lines, flags, version, window, cx),

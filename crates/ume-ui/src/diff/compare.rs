@@ -12,7 +12,7 @@
 //! which this program does not have.
 
 use gpui::{
-    AnyWindowHandle, App, AppContext as _, ClickEvent, Context, FocusHandle, Focusable,
+    App, AppContext as _, ClickEvent, Context, EntityId, FocusHandle, Focusable,
     InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render,
     StatefulInteractiveElement, Styled, WeakEntity, Window, div, px, rgb,
 };
@@ -22,7 +22,7 @@ use gpui_component::{h_flex, v_flex};
 use ume_core::diff::first_difference;
 
 use super::panel::own_label;
-use super::{Candidate, Remembered, best_candidate, candidates, remember, remembered};
+use super::{Candidate, DocRef, Remembered, best_candidate, candidates, remember, remembered};
 use crate::file_ops::windows::editors;
 use crate::view::EditorView;
 use crate::window_ops::{tile_windows, with_screen};
@@ -34,9 +34,9 @@ pub(crate) const FOUND_DIFFERENCE: &str = "異なる箇所が見つかりまし�
 
 pub struct ComparePanel {
     editor: WeakEntity<EditorView>,
-    owner: AnyWindowHandle,
+    owner: EntityId,
     own_label: String,
-    selected: Option<AnyWindowHandle>,
+    selected: Option<DocRef>,
     tile: bool,
     focus: FocusHandle,
 }
@@ -44,9 +44,9 @@ pub struct ComparePanel {
 impl ComparePanel {
     fn new(
         editor: WeakEntity<EditorView>,
-        owner: AnyWindowHandle,
+        owner: EntityId,
         own_label: String,
-        selected: Option<AnyWindowHandle>,
+        selected: Option<DocRef>,
         cx: &mut Context<Self>,
     ) -> Self {
         Self {
@@ -59,8 +59,8 @@ impl ComparePanel {
         }
     }
 
-    pub(crate) fn select_window(&mut self, handle: AnyWindowHandle, cx: &mut Context<Self>) {
-        self.selected = Some(handle);
+    pub(crate) fn select_window(&mut self, doc: DocRef, cx: &mut Context<Self>) {
+        self.selected = Some(doc);
         cx.notify();
     }
 
@@ -82,8 +82,8 @@ impl ComparePanel {
         };
         editor.update(cx, |editor, cx| {
             editor.close_compare_panel(window, cx);
-            if let Some(handle) = selected {
-                editor.compare_with(handle, tile, window, cx);
+            if let Some(doc) = selected {
+                editor.compare_with(doc, tile, window, cx);
             }
         });
     }
@@ -105,7 +105,7 @@ impl Render for ComparePanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let rows: Vec<Candidate> = candidates(cx, self.owner);
         let list = rows.iter().enumerate().map(|(i, row)| {
-            let handle = row.handle;
+            let doc = row.doc;
             let mut item = div()
                 .id(("compare-window", i))
                 .px_2()
@@ -115,9 +115,9 @@ impl Render for ComparePanel {
                 .cursor_pointer()
                 .child(row.label.clone())
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.select_window(handle, cx);
+                    this.select_window(doc, cx);
                 }));
-            if self.selected == Some(handle) {
+            if self.selected == Some(doc) {
                 item = item.bg(rgb(0x2f6fd0)).text_color(rgb(0xffffff));
             }
             item
@@ -192,7 +192,7 @@ impl EditorView {
     /// selected (`FileMatchScoreSepExt`).
     pub fn open_compare_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.close_diff_panel(window, cx);
-        let owner = window.window_handle();
+        let owner = cx.entity_id();
         let (path, modified, encoding) = {
             let shared = self.document.read(cx);
             (
@@ -204,7 +204,7 @@ impl EditorView {
         let others = candidates(cx, owner);
         // the list of Sakura selects the first window when none matches
         let selected =
-            best_candidate(path.as_deref(), encoding, &others, false).map(|i| others[i].handle);
+            best_candidate(path.as_deref(), encoding, &others, false).map(|i| others[i].doc);
         let label = own_label(path.as_deref(), modified, encoding);
         let editor = cx.weak_entity();
         match &self.diff.compare {
@@ -240,12 +240,15 @@ impl EditorView {
     /// so in a box on the other window.
     pub(crate) fn compare_with(
         &mut self,
-        handle: AnyWindowHandle,
+        doc: DocRef,
         tile: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some((_, other)) = editors(cx).into_iter().find(|(h, _)| *h == handle) else {
+        let Some((handle, other)) = editors(cx)
+            .into_iter()
+            .find(|(_, view)| view.entity_id() == doc.view)
+        else {
             return;
         };
         let own_caret = self.cursor.caret();
@@ -263,7 +266,9 @@ impl EditorView {
                 return;
             }
         };
-        if tile {
+        // Another tab of this window has no window to place or to ask for a box.
+        let same_window = handle == window.window_handle();
+        if tile && !same_window {
             // The OS may not be able to place windows (Linux); the comparison goes on.
             let _ = with_screen(window, cx, |screen, _, current| {
                 tile_windows(screen, &[current, handle], current, false)
@@ -271,25 +276,36 @@ impl EditorView {
         }
         match found {
             None => {
-                handle
-                    .update(cx, |_, other_window, app| {
-                        other.update(app, |view, cx| {
-                            view.info_box(NO_DIFFERENCE, other_window, cx);
-                        });
-                    })
-                    .ok();
+                if same_window {
+                    other.update(cx, |view, cx| view.info_box(NO_DIFFERENCE, window, cx));
+                } else {
+                    handle
+                        .update(cx, |_, other_window, app| {
+                            other.update(app, |view, cx| {
+                                view.info_box(NO_DIFFERENCE, other_window, cx);
+                            });
+                        })
+                        .ok();
+                }
             }
             Some((own, theirs)) => {
                 // the carets move before the message ("位置を変更してからメッセージ")
                 self.run_with(cx, |c| c.move_caret(own, false)).ok();
-                handle
-                    .update(cx, |_, other_window, app| {
-                        other.update(app, |view, cx| {
-                            view.run_with(cx, |c| c.move_caret(theirs, false)).ok();
-                            view.warning_box(FOUND_DIFFERENCE, other_window, cx);
-                        });
-                    })
-                    .ok();
+                if same_window {
+                    other.update(cx, |view, cx| {
+                        view.run_with(cx, |c| c.move_caret(theirs, false)).ok();
+                        view.warning_box(FOUND_DIFFERENCE, window, cx);
+                    });
+                } else {
+                    handle
+                        .update(cx, |_, other_window, app| {
+                            other.update(app, |view, cx| {
+                                view.run_with(cx, |c| c.move_caret(theirs, false)).ok();
+                                view.warning_box(FOUND_DIFFERENCE, other_window, cx);
+                            });
+                        })
+                        .ok();
+                }
             }
         }
         // "開いているウィンドウをアクティブにする"

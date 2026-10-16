@@ -12,7 +12,7 @@
 use std::path::{Path, PathBuf};
 
 use gpui::{
-    AnyWindowHandle, App, AppContext as _, ClickEvent, Context, Entity, FocusHandle, Focusable,
+    App, AppContext as _, ClickEvent, Context, Entity, EntityId, FocusHandle, Focusable,
     InteractiveElement, IntoElement, KeyDownEvent, ParentElement, PathPromptOptions, Render,
     StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window, div, px, rgb,
 };
@@ -22,20 +22,22 @@ use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::{Selectable as _, h_flex, v_flex};
 use ume_core::diff::DiffOptions;
 
-use super::{Candidate, Remembered, Target, best_candidate, candidates, remember, remembered};
+use super::{
+    Candidate, DocRef, Remembered, Target, best_candidate, candidates, remember, remembered,
+};
 use crate::file_ops::ask::document_title;
 use crate::search::SearchOptions;
 use crate::view::EditorView;
 
 pub struct DiffPanel {
     editor: WeakEntity<EditorView>,
-    owner: AnyWindowHandle,
+    owner: EntityId,
     /// The label of this window (編集中のファイル).
     own_label: String,
     file: Entity<InputState>,
     /// 外部ファイルを指定 is chosen (else the list).
     use_file: bool,
-    selected: Option<AnyWindowHandle>,
+    selected: Option<DocRef>,
     options: DiffOptions,
     notify_not_found: bool,
     wrap: bool,
@@ -45,9 +47,9 @@ pub struct DiffPanel {
 impl DiffPanel {
     fn new(
         editor: WeakEntity<EditorView>,
-        owner: AnyWindowHandle,
+        owner: EntityId,
         own_label: String,
-        selected: Option<AnyWindowHandle>,
+        selected: Option<DocRef>,
         search: SearchOptions,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -100,8 +102,8 @@ impl DiffPanel {
         cx.notify();
     }
 
-    pub(crate) fn select_window(&mut self, handle: AnyWindowHandle, cx: &mut Context<Self>) {
-        self.selected = Some(handle);
+    pub(crate) fn select_window(&mut self, doc: DocRef, cx: &mut Context<Self>) {
+        self.selected = Some(doc);
         self.use_file = false;
         cx.notify();
     }
@@ -192,7 +194,7 @@ impl Render for DiffPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let rows: Vec<Candidate> = candidates(cx, self.owner);
         let list = rows.iter().enumerate().map(|(i, row)| {
-            let handle = row.handle;
+            let doc = row.doc;
             let mut item = div()
                 .id(("diff-window", i))
                 .px_2()
@@ -202,9 +204,9 @@ impl Render for DiffPanel {
                 .cursor_pointer()
                 .child(row.label.clone())
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.select_window(handle, cx);
+                    this.select_window(doc, cx);
                 }));
-            if !self.use_file && self.selected == Some(handle) {
+            if !self.use_file && self.selected == Some(doc) {
                 item = item.bg(rgb(0x2f6fd0)).text_color(rgb(0xffffff));
             }
             item
@@ -242,7 +244,7 @@ impl Render for DiffPanel {
                     .on_click(cx.listener(|this, _, _, cx| {
                         // "ListBoxが選択されていなかったら，先頭のファイルを選択する"
                         if this.selected.is_none() {
-                            this.selected = candidates(cx, this.owner).first().map(|c| c.handle);
+                            this.selected = candidates(cx, this.owner).first().map(|c| c.doc);
                         }
                         this.use_file = this.selected.is_none();
                         cx.notify();
@@ -418,7 +420,7 @@ impl EditorView {
     pub fn open_diff_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // one of the dialogs of this kind at a time
         self.close_compare_panel(window, cx);
-        let owner = window.window_handle();
+        let owner = cx.entity_id();
         let (path, modified, encoding) = {
             let shared = self.document.read(cx);
             (
@@ -429,7 +431,7 @@ impl EditorView {
         };
         let others = candidates(cx, owner);
         let selected =
-            best_candidate(path.as_deref(), encoding, &others, true).map(|i| others[i].handle);
+            best_candidate(path.as_deref(), encoding, &others, true).map(|i| others[i].doc);
         let label = own_label(path.as_deref(), modified, encoding);
         let search = self.search.options();
         let editor = cx.weak_entity();

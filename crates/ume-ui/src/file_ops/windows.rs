@@ -27,9 +27,9 @@ use super::close;
 #[derive(Default)]
 struct EditorWindows {
     windows: Vec<(AnyWindowHandle, WeakEntity<Workspace>)>,
-    /// Files that windows are still reading. Their documents have no path yet, but opening the
-    /// same file again must not make a second editable copy.
-    pending: Vec<(AnyWindowHandle, PathBuf)>,
+    /// Files that views are still reading, with the window of each. Their documents have no path
+    /// yet, but opening the same file again must not make a second editable copy.
+    pending: Vec<(AnyWindowHandle, WeakEntity<EditorView>, PathBuf)>,
 }
 
 impl Global for EditorWindows {}
@@ -64,9 +64,11 @@ pub(crate) fn open_editor_window(
             editor.update(cx, |view, cx| view.apply_user_settings(user, cx));
         }
         if let Some(load) = load {
-            cx.default_global::<EditorWindows>()
-                .pending
-                .push((window.window_handle(), load.path.clone()));
+            cx.default_global::<EditorWindows>().pending.push((
+                window.window_handle(),
+                editor.downgrade(),
+                load.path.clone(),
+            ));
             editor.update(cx, |view, cx| {
                 view.load_path_here(load.path, load.encoding, window, cx);
             });
@@ -170,7 +172,8 @@ pub(crate) fn workspaces(cx: &mut App) -> Vec<(AnyWindowHandle, Entity<Workspace
     let list = cx.default_global::<EditorWindows>();
     list.windows
         .retain(|(handle, ws)| open.contains(handle) && ws.upgrade().is_some());
-    list.pending.retain(|(handle, _)| open.contains(handle));
+    list.pending
+        .retain(|(handle, view, _)| open.contains(handle) && view.upgrade().is_some());
     list.windows
         .iter()
         .filter_map(|(handle, ws)| Some((*handle, ws.upgrade()?)))
@@ -249,11 +252,9 @@ pub(crate) fn find_open(
             .default_global::<EditorWindows>()
             .pending
             .iter()
-            .find(|(_, open)| same_file(open, path))
-            .map(|(handle, _)| *handle)?;
-        editors(cx)
-            .into_iter()
-            .find(|(handle, _)| *handle == pending)
+            .find(|(_, _, open)| same_file(open, path))
+            .map(|(_, view, _)| view.clone())?;
+        find_tab_of(cx, &pending)
     })
 }
 
@@ -272,19 +273,24 @@ pub(crate) fn activate(cx: &mut App, handle: AnyWindowHandle) {
         .ok();
 }
 
-/// The window starts reading `path` into its document: until `finish_pending`, opening the same
-/// file again brings this window to the front instead of making a second copy.
-pub(crate) fn begin_pending(cx: &mut App, handle: AnyWindowHandle, path: PathBuf) {
+/// The view starts reading `path` into its document: until `finish_pending`, opening the same
+/// file again brings the tab of this view to the front instead of making a second copy.
+pub(crate) fn begin_pending(
+    cx: &mut App,
+    handle: AnyWindowHandle,
+    view: &WeakEntity<EditorView>,
+    path: PathBuf,
+) {
     cx.default_global::<EditorWindows>()
         .pending
-        .push((handle, path));
+        .push((handle, view.clone(), path));
 }
 
-/// The window has finished reading its file (or failed): the file is no longer pending.
-pub(crate) fn finish_pending(cx: &mut App, handle: AnyWindowHandle) {
+/// The view has finished reading its file (or failed): the file is no longer pending.
+pub(crate) fn finish_pending(cx: &mut App, view: &WeakEntity<EditorView>) {
     cx.default_global::<EditorWindows>()
         .pending
-        .retain(|(h, _)| *h != handle);
+        .retain(|(_, v, _)| v.entity_id() != view.entity_id());
 }
 
 /// Opens the documents of the command line: one per file, or one untitled window without files.
@@ -322,10 +328,18 @@ pub(crate) fn open_startup_windows(cx: &mut App, paths: Vec<PathBuf>) -> gpui::R
     Ok(())
 }
 
-/// Whether the window is still reading a file into its document.
+/// Whether a view of the window is still reading a file into its document.
 pub(crate) fn has_pending(cx: &mut App, handle: AnyWindowHandle) -> bool {
     cx.default_global::<EditorWindows>()
         .pending
         .iter()
-        .any(|(h, _)| *h == handle)
+        .any(|(h, _, _)| *h == handle)
+}
+
+/// Whether this view is still reading a file into its document.
+pub(crate) fn is_pending(cx: &mut App, view: &WeakEntity<EditorView>) -> bool {
+    cx.default_global::<EditorWindows>()
+        .pending
+        .iter()
+        .any(|(_, v, _)| v.entity_id() == view.entity_id())
 }

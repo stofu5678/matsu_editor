@@ -21,6 +21,8 @@ pub(crate) mod bar;
 mod file_tests;
 pub(crate) mod flows;
 pub(crate) mod order;
+#[cfg(test)]
+mod pending_tests;
 pub(crate) mod settings;
 #[cfg(test)]
 mod tests;
