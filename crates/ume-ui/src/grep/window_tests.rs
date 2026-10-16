@@ -302,6 +302,27 @@ fn a_wrong_condition_is_told_in_a_box_and_nothing_starts(cx: &mut TestAppContext
     // a folder that is not there
     fill_and_ok(cx, &panel, "x", "/no/such/folder/here");
     answer(cx, "OK");
+    // an excluded pattern that is wrong
+    let p = Project::new();
+    panel.update(cx, |panel, _| {
+        panel.settings.except_file_regex = true;
+    });
+    panel.update_in(cx, |panel, window, cx| {
+        panel
+            .exclude_file
+            .update(cx, |s, cx| s.set_value("(", window, cx));
+    });
+    fill_and_ok(cx, &panel, "x", &p.root());
+    let (_, detail) = cx.pending_prompt().unwrap();
+    assert!(
+        detail.contains("除外ファイルの正規表現が正しくありません"),
+        "{detail}"
+    );
+    answer(cx, "OK");
+    assert!(f.panel_open(cx), "the dialog stays open for the fix");
+    panel.update(cx, |panel, _| {
+        panel.settings.except_file_regex = false;
+    });
     // a regular expression that does not compile
     let p = Project::new();
     panel.update(cx, |panel, _| panel.settings.options.regex = true);
@@ -384,6 +405,12 @@ fn a_grep_window_cannot_be_closed_while_it_searches_and_never_asks_to_save(
     f.run(cx, "F_FILECLOSE", &[]);
     assert!(!cx.has_pending_prompt(), "no question about saving");
     assert_eq!(text_of(&f.view, cx), "");
+    // the window is an ordinary one again: its notes are asked about
+    assert!(!f.view.read_with(cx, |v, _| v.is_grep_window()));
+    assert_eq!(f.title(cx), "(無題) - UME Editor");
+    cx.simulate_input("notes");
+    f.run(cx, "F_FILECLOSE", &[]);
+    assert!(cx.has_pending_prompt(), "the notes are asked about");
 }
 
 #[gpui::test]

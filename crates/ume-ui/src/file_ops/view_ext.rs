@@ -61,6 +61,8 @@ impl EditorView {
         self.scroll_x = 0.0;
         self.scroll_y = 0.0;
         self.notice = None;
+        // The new document is not the result of a Grep.
+        self.grep.forget_result();
         // The new document may be of another type (ume.ini): then it has that type's font, wrap
         // and colors. Reloading the same type (reopen) keeps the temporary settings (zoom, wrap);
         // only the layout, which `LayoutConfig::default()` above reset, is brought back.

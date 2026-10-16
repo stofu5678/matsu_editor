@@ -104,6 +104,10 @@ fn install(window: &mut Window, cx: &mut App, editor: &Entity<EditorView>) {
         // A Grep window cannot be closed while it searches (`CGrepAgent::OnBeforeClose`), and
         // it is closed without the question about saving (`CEditDoc::OnFileClose`).
         if editor.read(cx).is_grep_running() {
+            editor.update(cx, |view, cx| {
+                view.notice = Some("Grepの処理中です。".to_owned());
+                cx.notify();
+            });
             return false;
         }
         if editor.read(cx).is_grep_window()

@@ -72,6 +72,15 @@ pub struct GrepWindow {
 }
 
 impl GrepWindow {
+    /// The document was replaced (the file was closed): it is not a Grep result any more
+    /// (`m_bGrepMode` is cleared). A search that is running keeps the window, which cannot be
+    /// closed meanwhile.
+    pub(crate) fn forget_result(&mut self) {
+        if self.running.is_none() {
+            self.key = None;
+        }
+    }
+
     /// Whether the window shows the result of a Grep.
     pub fn is_grep(&self) -> bool {
         self.key.is_some()

@@ -174,7 +174,14 @@ impl GrepSettings {
                 });
             }
         }
-        Ok(self.info())
+        // The patterns as the search reads them, the boxes of the excluded files and folders
+        // included: a mistake there is told here, with the dialog still open.
+        let info = self.info();
+        super::engine::check(&info).map_err(|e| DialogError {
+            regex: matches!(e, super::engine::GrepError::Pattern(_)),
+            message: e.message(),
+        })?;
+        Ok(info)
     }
 
     /// The `GrepInfo` for the values as they are (`MakeGrepInfo`).
