@@ -1140,3 +1140,47 @@ fn code_pages_open_edit_and_save_with_invalid_bytes() {
         assert_eq!(fs::read(&path).unwrap(), expected, "CP{number} edited");
     }
 }
+
+#[test]
+fn preserve_defaults_to_permissions_only() {
+    assert!(!Preserve::default().owner_and_group);
+    assert!(
+        Preserve::default()
+            .with_owner_and_group(true)
+            .owner_and_group
+    );
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", b"x");
+    let file = open_as(&path, Encoding::Utf8);
+    assert_eq!(SaveOptions::keep(&file).preserve, Preserve::default());
+    assert_eq!(
+        SaveOptions::for_encoding(Encoding::Utf8).preserve,
+        Preserve::default()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn owner_and_group_can_be_kept_and_the_mode_still_is() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    for keep_owner in [false, true] {
+        let dir = TempDir::new();
+        let path = dir.write("a.txt", b"one");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
+        let before = fs::metadata(&path).unwrap();
+        let mut file = open_as(&path, Encoding::Utf8);
+        file.document.insert(Pos::new(0, 3), "two").unwrap();
+        let mut options = SaveOptions::keep(&file);
+        options.preserve = Preserve::default().with_owner_and_group(keep_owner);
+        save(&mut file, &options);
+
+        let after = fs::metadata(&path).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"onetwo");
+        assert_eq!(after.permissions().mode() & 0o777, 0o640);
+        // The test creates the file itself, so the owner and group are the same either way; this
+        // checks that asking for them does not break the save. Changing them needs root.
+        assert_eq!((after.uid(), after.gid()), (before.uid(), before.gid()));
+        assert_eq!(dir.names(), ["a.txt"]);
+    }
+}
