@@ -116,7 +116,10 @@ impl EditorView {
                 let other = find_document(cx, this, doc)
                     .map(|(_, view)| document_lines(view.read(cx).document().read(cx).doc()));
                 match other {
-                    Some(Ok(lines)) => self.diff_with_lines(lines, flags, version, window, cx),
+                    Some(Ok(lines)) => {
+                        let tracked = crate::macros::track(cx);
+                        self.diff_with_lines(lines, flags, version, tracked, window, cx)
+                    }
                     Some(Err(e)) => self.warning_box(&failed(&e.to_string()), window, cx),
                     None => self.warning_box(FILE_NOT_FOUND, window, cx),
                 }
@@ -127,9 +130,8 @@ impl EditorView {
                     self.warning_box(FILE_NOT_FOUND, window, cx);
                     return;
                 }
-                let tracked = crate::macros::track(cx);
+                let mut tracked = crate::macros::track(cx);
                 cx.spawn_in(window, async move |this, cx| {
-                    let _tracked = tracked;
                     let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
                     let defaults = cx
                         .update(|_, app| new_document_defaults(app, name.as_deref()))
@@ -139,7 +141,10 @@ impl EditorView {
                         .spawn(async move { file_lines(&path, &defaults) })
                         .await;
                     this.update_in(cx, |this, window, cx| match read {
-                        Ok(lines) => this.diff_with_lines(lines, flags, version, window, cx),
+                        // the guard goes on to the comparison, so that the wait has no gap
+                        Ok(lines) => {
+                            this.diff_with_lines(lines, flags, version, tracked.take(), window, cx)
+                        }
                         Err(reason) => this.warning_box(&failed(&reason), window, cx),
                     })
                     .ok();
@@ -156,6 +161,7 @@ impl EditorView {
         other: Vec<String>,
         flags: u32,
         version: (u64, u64),
+        tracked: Option<crate::macros::FlowGuard>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -167,7 +173,6 @@ impl EditorView {
             }
         };
         let options = DiffOptions::from_flags(flags);
-        let tracked = crate::macros::track(cx);
         cx.spawn_in(window, async move |this, cx| {
             let _tracked = tracked;
             let outcome = cx
