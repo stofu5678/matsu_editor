@@ -98,10 +98,11 @@ pub fn powershell_quote(text: &str) -> String {
 }
 
 /// The parameters of `powershell.exe` that open it in `folder`: `-NoExit` keeps it open after
-/// `Set-Location`. Sakura builds exactly this string.
+/// `Set-Location`. Sakura builds this string with `-Path`; `-LiteralPath` is used here because
+/// `-Path` reads `[` and `*` in a folder name as wildcards and can go to another folder.
 pub fn powershell_parameters(folder: &str) -> String {
     format!(
-        "-NoExit -Command \"Set-Location -Path '{}'\"",
+        "-NoExit -Command \"Set-Location -LiteralPath '{}'\"",
         powershell_quote(folder)
     )
 }

@@ -76,16 +76,22 @@ fn the_command_prompt_refuses_a_network_folder_and_a_missing_comspec() {
 
 #[test]
 fn powershell_gets_set_location_with_the_quotes_doubled() {
-    // Sakura: -NoExit -Command "Set-Location -Path '<folder>'" with ' written as ''.
+    // Sakura: -NoExit -Command "Set-Location -Path ..." (here -LiteralPath, so that [ and * in the
+    // folder name are not wildcards) with ' written as ''.
     let launch =
         windows_launch(Shell::PowerShell, false, Path::new(r"C:\it's here"), None).unwrap();
     assert_eq!(launch.file, "powershell.exe");
     assert_eq!(
         launch.parameters.as_deref(),
-        Some(r#"-NoExit -Command "Set-Location -Path 'C:\it''s here'""#)
+        Some(r#"-NoExit -Command "Set-Location -LiteralPath 'C:\it''s here'""#)
     );
     assert_eq!(launch.directory, r"C:\it's here");
     assert_eq!(powershell_quote("a'b''c"), "a''b''''c");
+    // A folder with brackets is a literal path.
+    assert_eq!(
+        powershell_parameters(r"C:\work\[ab]"),
+        r#"-NoExit -Command "Set-Location -LiteralPath 'C:\work\[ab]'""#
+    );
 }
 
 #[test]
