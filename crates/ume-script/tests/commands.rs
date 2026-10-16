@@ -172,3 +172,26 @@ fn both_engines_have_every_name_of_the_catalog() {
     assert_clean_exit(&report);
     assert_eq!(report.lines(Stream::Stdout), ["0"]);
 }
+
+#[test]
+fn mruby_calls_every_command_by_its_sakura_name() {
+    let code = r#"
+Editor.GoFileTop
+Editor.WordRight_Sel
+Editor.Delete
+Editor.GoLineEnd(0)
+Editor.Char(33)
+Editor.Down
+Editor.DuplicateLine
+puts Editor.GetLineStr(1).inspect, Editor.GetLineCount(0)
+begin; Editor.FileSave; rescue EditorError => e; puts e.code; end
+begin; Editor.Char('a'); rescue EditorError => e; puts e.code; end
+"#;
+    let (report, fixture) = run("macro.mruby", code, "one two\nthree\n");
+    assert_clean_exit(&report);
+    assert_eq!(fixture.text(), "two!\nthree\nthree\n");
+    assert_eq!(
+        report.lines(Stream::Stdout),
+        ["\"two!\\n\"", "3", "-32001", "-32602"]
+    );
+}
