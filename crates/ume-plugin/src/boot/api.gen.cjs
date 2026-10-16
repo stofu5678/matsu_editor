@@ -120,8 +120,7 @@ module.exports = function install(call) {
     /**
      * IsTextSelected() -> int
      *
-     * 0 when nothing is selected, 1 when text is selected. (Sakura returns 2 for a box
-     * selection, which is not supported yet.)
+     * 0 when nothing is selected, 1 when text is selected, 2 when a box selection is selected.
      */
     IsTextSelected() {
       // A trailing undefined is a missing argument, not a null.
@@ -166,6 +165,662 @@ module.exports = function install(call) {
       const args = Array.prototype.slice.call(arguments);
       while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
       return call('GetFilename', args);
+    },
+    /**
+     * GetSelectLineFrom() -> int
+     *
+     * The line where the selection starts, counted from 1 in layout lines (wrapped rows count as
+     * lines). 0 when nothing is selected.
+     */
+    GetSelectLineFrom() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GetSelectLineFrom', args);
+    },
+    /**
+     * GetSelectColmFrom() -> int
+     *
+     * The column where the selection starts, counted from 1 in layout columns (cells: a
+     * full-width character is 2, a tab goes to the tab stop). 0 when nothing is selected. Same
+     * as GetSelectColumnFrom.
+     */
+    GetSelectColmFrom() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GetSelectColmFrom', args);
+    },
+    /**
+     * GetSelectColumnFrom() -> int
+     *
+     * The column where the selection starts, counted from 1 in layout columns (cells: a
+     * full-width character is 2, a tab goes to the tab stop). 0 when nothing is selected.
+     */
+    GetSelectColumnFrom() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GetSelectColumnFrom', args);
+    },
+    /**
+     * GetSelectLineTo() -> int
+     *
+     * The line where the selection ends, counted from 1 in layout lines. 0 when nothing is
+     * selected.
+     */
+    GetSelectLineTo() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GetSelectLineTo', args);
+    },
+    /**
+     * GetSelectColmTo() -> int
+     *
+     * The column where the selection ends, counted from 1 in layout columns. 0 when nothing is
+     * selected. Same as GetSelectColumnTo.
+     */
+    GetSelectColmTo() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GetSelectColmTo', args);
+    },
+    /**
+     * GetSelectColumnTo() -> int
+     *
+     * The column where the selection ends, counted from 1 in layout columns. 0 when nothing is
+     * selected.
+     */
+    GetSelectColumnTo() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GetSelectColumnTo', args);
+    },
+    /**
+     * IsInsMode() -> int
+     *
+     * 1 in insert mode, 0 in overwrite mode.
+     */
+    IsInsMode() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('IsInsMode', args);
+    },
+    /**
+     * GetCharCode() -> int
+     *
+     * The encoding of the file: 0 Shift_JIS, 1 JIS, 2 EUC-JP, 3 UTF-16, 4 UTF-8, 5 UTF-7, 6
+     * UTF-16 BE, 7 CESU-8, 8 Latin1.
+     */
+    GetCharCode() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GetCharCode', args);
+    },
+    /**
+     * GetLineCode() -> int
+     *
+     * The line ending that new line breaks get: 0 CR LF, 1 CR, 2 LF (3 NEL, 4 LS, 5 PS).
+     */
+    GetLineCode() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GetLineCode', args);
+    },
+    /**
+     * IsPossibleUndo() -> int
+     *
+     * 1 when there is something to undo, else 0.
+     */
+    IsPossibleUndo() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('IsPossibleUndo', args);
+    },
+    /**
+     * IsPossibleRedo() -> int
+     *
+     * 1 when there is something to redo, else 0.
+     */
+    IsPossibleRedo() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('IsPossibleRedo', args);
+    },
+    /**
+     * GetLineAttribute(line: int, type: int) -> int
+     *
+     * An attribute of a logical line (0 is the line of the cursor, 1 the first line). Type 0 is
+     * 1 when the line changed since the last save, type 1 the number of the undo step that last
+     * touched it, type 2 the bookmark (1 or 0). Types 3 (diff mark) and 4 (function list mark)
+     * answer the error -32001 until the editor has them. A negative line, a line past the end
+     * and any other type are errors.
+     */
+    GetLineAttribute(line, type) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GetLineAttribute', args);
+    },
+    /**
+     * IsTextSelectingLock() -> int
+     *
+     * 0 when the selection is not locked, 1 when it is locked (plain moves extend the
+     * selection), 2 when it is locked and a box selection.
+     */
+    IsTextSelectingLock() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('IsTextSelectingLock', args);
+    },
+    /**
+     * GetSaveFilename() -> string
+     *
+     * The full path that a save writes to, or an empty string when the text has no file. The
+     * same as GetFilename here.
+     */
+    GetSaveFilename() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GetSaveFilename', args);
+    },
+    /**
+     * LayoutToLogicLineNum(layoutLine: int) -> int
+     *
+     * The logical line (up to a line break) that a layout line (a row on the screen) belongs to,
+     * both counted from 1. The line after the last layout line gives the line after the last
+     * logical line. Any other line outside the text is an error.
+     */
+    LayoutToLogicLineNum(layoutLine) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('LayoutToLogicLineNum', args);
+    },
+    /**
+     * LogicToLayoutLineNum(logicLine: int, logicIndex: int) -> int
+     *
+     * The layout line (a row on the screen) of a position in a logical line: the line and the
+     * index in it (UTF-16 code units), both counted from 1. A line past the end gives the line
+     * after the last layout line.
+     */
+    LogicToLayoutLineNum(logicLine, logicIndex) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('LogicToLayoutLineNum', args);
+    },
+    /**
+     * LineColumnToIndex(layoutLine: int, layoutColumn: int) -> int
+     *
+     * The index (UTF-16 code units, from 1) in the logical line of a layout line and a layout
+     * column (cells), both from 1. A column past the text gives the end of the text of the row.
+     */
+    LineColumnToIndex(layoutLine, layoutColumn) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('LineColumnToIndex', args);
+    },
+    /**
+     * LineIndexToColumn(logicLine: int, logicIndex: int) -> int
+     *
+     * The layout column (cells, from 1) of a position in a logical line: the line and the index
+     * in it (UTF-16 code units), both from 1. Tabs and full-width characters take their width.
+     */
+    LineIndexToColumn(logicLine, logicIndex) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('LineIndexToColumn', args);
+    },
+    /**
+     * GetStrWidth(text: string, column: int?) -> int
+     *
+     * The width of a string in cells, starting at layout column `column` (from 1, default 1; it
+     * matters for tabs). A CR LF at the end counts as the CR alone.
+     */
+    GetStrWidth(text, column) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GetStrWidth', args);
+    },
+    /**
+     * GetStrLayoutLength(text: string, column: int?) -> int
+     *
+     * The width of a string as a line of the document in cells, starting at layout column
+     * `column` (from 1, default 1). A line ending at the end takes one cell.
+     */
+    GetStrLayoutLength(text, column) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GetStrLayoutLength', args);
+    },
+    /**
+     * GetDefaultCharLength() -> int
+     *
+     * The layout width of a half-width character. This editor lays out in cells, so it is 1.
+     */
+    GetDefaultCharLength() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GetDefaultCharLength', args);
+    },
+    /**
+     * GetViewLines() -> int
+     *
+     * How many rows the text area shows (at least 1).
+     */
+    GetViewLines() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GetViewLines', args);
+    },
+    /**
+     * GetViewColumns() -> int
+     *
+     * How many columns the text area shows (at least 1).
+     */
+    GetViewColumns() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GetViewColumns', args);
+    },
+    /**
+     * GetViewTop() -> int
+     *
+     * The layout line at the top of the text area, counted from 1.
+     */
+    GetViewTop() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GetViewTop', args);
+    },
+    /**
+     * ChangeTabWidth(width: int) -> int
+     *
+     * The tab width before the call. A width from 1 to 64 that differs from it becomes the tab
+     * width of this window (not saved). Any other value, such as 0, only reads.
+     */
+    ChangeTabWidth(width) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('ChangeTabWidth', args);
+    },
+    /**
+     * ChangeWrapColm(column: int) -> int
+     *
+     * The wrap column before the call. A column from 10 to 10240 makes this window wrap at that
+     * column (not saved). Any other value only reads. Same as ChangeWrapColumn.
+     */
+    ChangeWrapColm(column) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('ChangeWrapColm', args);
+    },
+    /**
+     * ChangeWrapColumn(column: int) -> int
+     *
+     * The wrap column before the call. A column from 10 to 10240 makes this window wrap at that
+     * column (not saved). Any other value only reads.
+     */
+    ChangeWrapColumn(column) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('ChangeWrapColumn', args);
+    },
+    /**
+     * GetClipboard(option: int?) -> string
+     *
+     * The text on the clipboard, or an empty string when there is none. The line endings are
+     * those of the source. The option is reserved.
+     */
+    GetClipboard(option) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GetClipboard', args);
+    },
+    /**
+     * SetClipboard(option: int?, text: string?) -> int
+     *
+     * Puts the text on the clipboard. Option bit 0 marks a box copy (a paste puts it in as a
+     * box), bit 1 a row copy (a paste puts it in front of the row); with both, the box wins.
+     * Returns 1 when it worked, 0 when not.
+     */
+    SetClipboard(option, text) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('SetClipboard', args);
+    },
+    /**
+     * IsIncludeClipboardFormat(format: string) -> int
+     *
+     * 1 when the clipboard has the format. Only text is known: CF_TEXT, CF_OEMTEXT and
+     * CF_UNICODETEXT (or 1, 7, 13) are 1 when the clipboard has text; every other format is 0.
+     */
+    IsIncludeClipboardFormat(format) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('IsIncludeClipboardFormat', args);
+    },
+    /**
+     * GetClipboardByFormat(format: string, mode: int, endMode: int?) -> string
+     *
+     * The text of the clipboard in a text format (CF_TEXT, CF_OEMTEXT, CF_UNICODETEXT), with the
+     * line endings of the document. Mode -2 is the usual way and 3 is UTF-16 (the text itself);
+     * the other modes and formats are errors (-32001). The end mode is not used.
+     */
+    GetClipboardByFormat(format, mode, endMode) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GetClipboardByFormat', args);
+    },
+    /**
+     * SetClipboardByFormat(text: string, format: string, mode: int, endMode: int?) -> int
+     *
+     * Puts the text on the clipboard as text. The formats and modes are those of
+     * GetClipboardByFormat. Returns 1 when it worked.
+     */
+    SetClipboardByFormat(text, format, mode, endMode) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('SetClipboardByFormat', args);
+    },
+    /**
+     * GetCookie(scope: string, name: string) -> string
+     *
+     * The value of a cookie, or an empty string when there is none. The scope is "window" or
+     * "document".
+     */
+    GetCookie(scope, name) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GetCookie', args);
+    },
+    /**
+     * GetCookieDefault(scope: string, name: string, defaultValue: string) -> string
+     *
+     * The value of a cookie, or the default when there is none (an unknown scope still gives an
+     * empty string). The scope is "window" or "document".
+     */
+    GetCookieDefault(scope, name, defaultValue) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GetCookieDefault', args);
+    },
+    /**
+     * SetCookie(scope: string, name: string, value: string) -> int
+     *
+     * Sets a cookie. Returns 0 when it worked, 1 for an unknown scope, 2 for a name with a
+     * character that a name cannot have (Sakura lets in digits, letters and every character from
+     * "_" up in the character table). The scope is "window" or "document".
+     */
+    SetCookie(scope, name, value) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('SetCookie', args);
+    },
+    /**
+     * DeleteCookie(scope: string, name: string) -> int
+     *
+     * Deletes a cookie. Returns 0 when it worked, 1 for an unknown scope, 2 for a bad name, 5
+     * when there is no such cookie. The scope is "window" or "document".
+     */
+    DeleteCookie(scope, name) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('DeleteCookie', args);
+    },
+    /**
+     * GetCookieNames(scope: string) -> string
+     *
+     * The names of the cookies of a scope, joined with commas, in the order of the names (UTF-16
+     * code units). An unknown scope gives an empty string. The scope is "window" or "document".
+     */
+    GetCookieNames(scope) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GetCookieNames', args);
+    },
+    /**
+     * CompareVersion(versionA: string, versionB: string) -> int
+     *
+     * Compares two version strings: 0 when equal, positive when A is newer, negative when B is.
+     * Four parts at most; a part has two digits at most; "alpha", "beta", "rc" and "pl" put a
+     * part before or after the release (like PHP's version_compare).
+     */
+    CompareVersion(versionA, versionB) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('CompareVersion', args);
+    },
+    /**
+     * SetDrawSwitch(on: int) -> int
+     *
+     * Turns the draw switch on (non-zero) or off (0) and returns the state before (1 or 0). The
+     * editor keeps the flag for GetDrawSwitch but still paints the text when it likes.
+     */
+    SetDrawSwitch(on) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('SetDrawSwitch', args);
+    },
+    /**
+     * GetDrawSwitch() -> int
+     *
+     * 1 when the draw switch is on (the start state), 0 when a macro turned it off.
+     */
+    GetDrawSwitch() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('GetDrawSwitch', args);
+    },
+    /**
+     * IsShownStatus() -> int
+     *
+     * 1 when the status bar is shown, else 0.
+     */
+    IsShownStatus() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('IsShownStatus', args);
+    },
+    /**
+     * IsCurTypeExt(extension: string) -> int
+     *
+     * 1 when the document type of this file is the type of the extension (looked up in the
+     * extension lists of the types in the settings file, as a file name). Without type settings
+     * every extension is the basic type.
+     */
+    IsCurTypeExt(extension) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('IsCurTypeExt', args);
+    },
+    /**
+     * IsSameTypeExt(extension1: string, extension2: string) -> int
+     *
+     * 1 when the two extensions belong to the same document type (see IsCurTypeExt).
+     */
+    IsSameTypeExt(extension1, extension2) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('IsSameTypeExt', args);
+    },
+    /**
+     * ExpandParameter(format: string) -> string
+     *
+     * Replaces the codes that start with $ in a string: $$ ($), $F (full path), $f (file name),
+     * $g (file name without the extension), $/ (full path with /), $N (as $F), $b (extension),
+     * $e and $E (folder), $C (the selected text or the word at the caret), $x and $y (caret
+     * column in UTF-16 units and line, from 1), $S (the editor), $M (the macro file), $V
+     * (version), $A (name), and conditions ${R?a$:b$:c$} (R, w, M, U, N, I). A text without a
+     * file is (無題). $d $t $D $T $B $Q $I are not supported and stay as written. At most 2047
+     * UTF-16 units.
+     */
+    ExpandParameter(format) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('ExpandParameter', args);
+    },
+    /**
+     * MessageBox(message: string, type: int?) -> int
+     *
+     * Shows a message box and waits. The type is Windows' MB_ value: the low nibble chooses the
+     * buttons (0 OK, 1 OK/Cancel, 2 Abort/Retry/Ignore, 3 Yes/No/Cancel, 4 Yes/No, 5
+     * Retry/Cancel, 6 Cancel/Try again/Continue), the icon bits (0x10 stop, 0x20 question, 0x30
+     * exclamation, 0x40 information) the icon; the default button and the modality are ignored.
+     * Returns the button as Windows numbers it: 1 OK, 2 Cancel, 3 Abort, 4 Retry, 5 Ignore, 6
+     * Yes, 7 No, 10 Try again, 11 Continue. A box that is closed without an answer gives Cancel
+     * (the last button when there is none).
+     */
+    MessageBox(message, type) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('MessageBox', args);
+    },
+    /**
+     * ErrorMsg(message: string) -> int
+     *
+     * Shows an error message with an OK button and waits. Returns 1.
+     */
+    ErrorMsg(message) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('ErrorMsg', args);
+    },
+    /**
+     * WarnMsg(message: string) -> int
+     *
+     * Shows a warning with an OK button and waits. Returns 1.
+     */
+    WarnMsg(message) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('WarnMsg', args);
+    },
+    /**
+     * InfoMsg(message: string) -> int
+     *
+     * Shows an information message with an OK button and waits. Returns 1.
+     */
+    InfoMsg(message) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('InfoMsg', args);
+    },
+    /**
+     * OkCancelBox(message: string) -> int
+     *
+     * Asks a question with OK and Cancel and waits. Returns 1 (OK) or 2 (Cancel).
+     */
+    OkCancelBox(message) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('OkCancelBox', args);
+    },
+    /**
+     * YesNoBox(message: string) -> int
+     *
+     * Asks a question with Yes and No and waits. Returns 6 (Yes) or 7 (No).
+     */
+    YesNoBox(message) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('YesNoBox', args);
+    },
+    /**
+     * FileOpenDialog(defaultName: string?, filter: string?) -> string
+     *
+     * Lets the user choose a file to open and returns its full path, or an empty string when the
+     * dialog is cancelled. The default name and the filter are not used: the dialog of the
+     * platform takes neither.
+     */
+    FileOpenDialog(defaultName, filter) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('FileOpenDialog', args);
+    },
+    /**
+     * FileSaveDialog(defaultName: string?, filter: string?) -> string
+     *
+     * Lets the user choose a file name to save under and returns the full path, or an empty
+     * string when the dialog is cancelled. The dialog starts with the default name. The filter
+     * is not used.
+     */
+    FileSaveDialog(defaultName, filter) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('FileSaveDialog', args);
+    },
+    /**
+     * FolderDialog(message: string?, defaultFolder: string?) -> string
+     *
+     * Lets the user choose a folder and returns its full path, or an empty string when the
+     * dialog is cancelled. The message becomes the prompt text of the platform dialog where it
+     * has one; the default folder is not used.
+     */
+    FolderDialog(message, defaultFolder) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('FolderDialog', args);
+    },
+    /**
+     * Sleep(milliseconds: int) -> int
+     *
+     * Waits for the given number of milliseconds (the window stays alive, and the macro can be
+     * cancelled). Returns 0.
+     */
+    Sleep(milliseconds) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('Sleep', args);
     },
     /**
      * FileNew() -> null
@@ -4172,222 +4827,6 @@ module.exports = function install(call) {
       return call('SetViewLeft', args);
     },
     /**
-     * GetSaveFilename() -> string
-     *
-     * Sakura's F_GETSAVEFILENAME (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    GetSaveFilename() {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('GetSaveFilename', args);
-    },
-    /**
-     * ExpandParameter(arg1: string?) -> string
-     *
-     * Sakura's F_EXPANDPARAMETER (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    ExpandParameter(arg1) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('ExpandParameter', args);
-    },
-    /**
-     * ChangeTabWidth(arg1: int?) -> int
-     *
-     * Sakura's F_CHGTABWIDTH (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    ChangeTabWidth(arg1) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('ChangeTabWidth', args);
-    },
-    /**
-     * GetSelectLineFrom() -> int
-     *
-     * Sakura's F_GETSELLINEFROM (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    GetSelectLineFrom() {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('GetSelectLineFrom', args);
-    },
-    /**
-     * GetSelectColmFrom() -> int
-     *
-     * Sakura's F_GETSELCOLUMNFROM (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    GetSelectColmFrom() {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('GetSelectColmFrom', args);
-    },
-    /**
-     * GetSelectColumnFrom() -> int
-     *
-     * Sakura's F_GETSELCOLUMNFROM (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    GetSelectColumnFrom() {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('GetSelectColumnFrom', args);
-    },
-    /**
-     * GetSelectLineTo() -> int
-     *
-     * Sakura's F_GETSELLINETO (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    GetSelectLineTo() {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('GetSelectLineTo', args);
-    },
-    /**
-     * GetSelectColmTo() -> int
-     *
-     * Sakura's F_GETSELCOLUMNTO (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    GetSelectColmTo() {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('GetSelectColmTo', args);
-    },
-    /**
-     * GetSelectColumnTo() -> int
-     *
-     * Sakura's F_GETSELCOLUMNTO (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    GetSelectColumnTo() {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('GetSelectColumnTo', args);
-    },
-    /**
-     * IsInsMode() -> int
-     *
-     * Sakura's F_ISINSMODE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    IsInsMode() {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('IsInsMode', args);
-    },
-    /**
-     * GetCharCode() -> int
-     *
-     * Sakura's F_GETCHARCODE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    GetCharCode() {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('GetCharCode', args);
-    },
-    /**
-     * GetLineCode() -> int
-     *
-     * Sakura's F_GETLINECODE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    GetLineCode() {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('GetLineCode', args);
-    },
-    /**
-     * IsPossibleUndo() -> int
-     *
-     * Sakura's F_ISPOSSIBLEUNDO (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    IsPossibleUndo() {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('IsPossibleUndo', args);
-    },
-    /**
-     * IsPossibleRedo() -> int
-     *
-     * Sakura's F_ISPOSSIBLEREDO (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    IsPossibleRedo() {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('IsPossibleRedo', args);
-    },
-    /**
-     * ChangeWrapColm(arg1: int?) -> int
-     *
-     * Sakura's F_CHGWRAPCOLUMN (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    ChangeWrapColm(arg1) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('ChangeWrapColm', args);
-    },
-    /**
-     * ChangeWrapColumn(arg1: int?) -> int
-     *
-     * Sakura's F_CHGWRAPCOLUMN (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    ChangeWrapColumn(arg1) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('ChangeWrapColumn', args);
-    },
-    /**
-     * IsCurTypeExt(arg1: string?) -> int
-     *
-     * Sakura's F_ISCURTYPEEXT (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    IsCurTypeExt(arg1) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('IsCurTypeExt', args);
-    },
-    /**
-     * IsSameTypeExt(arg1: string?, arg2: string?) -> int
-     *
-     * Sakura's F_ISSAMETYPEEXT (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    IsSameTypeExt(arg1, arg2) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('IsSameTypeExt', args);
-    },
-    /**
      * InputBox(arg1: string?, arg2: string?, arg3: int?) -> string
      *
      * Sakura's F_INPUTBOX (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
@@ -4400,426 +4839,6 @@ module.exports = function install(call) {
       return call('InputBox', args);
     },
     /**
-     * MessageBox(arg1: string?, arg2: int?) -> int
-     *
-     * Sakura's F_MESSAGEBOX (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    MessageBox(arg1, arg2) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('MessageBox', args);
-    },
-    /**
-     * ErrorMsg(arg1: string?) -> int
-     *
-     * Sakura's F_ERRORMSG (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    ErrorMsg(arg1) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('ErrorMsg', args);
-    },
-    /**
-     * WarnMsg(arg1: string?) -> int
-     *
-     * Sakura's F_WARNMSG (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    WarnMsg(arg1) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('WarnMsg', args);
-    },
-    /**
-     * InfoMsg(arg1: string?) -> int
-     *
-     * Sakura's F_INFOMSG (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    InfoMsg(arg1) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('InfoMsg', args);
-    },
-    /**
-     * OkCancelBox(arg1: string?) -> int
-     *
-     * Sakura's F_OKCANCELBOX (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    OkCancelBox(arg1) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('OkCancelBox', args);
-    },
-    /**
-     * YesNoBox(arg1: string?) -> int
-     *
-     * Sakura's F_YESNOBOX (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    YesNoBox(arg1) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('YesNoBox', args);
-    },
-    /**
-     * CompareVersion(arg1: string?, arg2: string?) -> int
-     *
-     * Sakura's F_COMPAREVERSION (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    CompareVersion(arg1, arg2) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('CompareVersion', args);
-    },
-    /**
-     * Sleep(arg1: int?) -> int
-     *
-     * Sakura's F_MACROSLEEP (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    Sleep(arg1) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('Sleep', args);
-    },
-    /**
-     * FileOpenDialog(arg1: string?, arg2: string?) -> string
-     *
-     * Sakura's F_FILEOPENDIALOG (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    FileOpenDialog(arg1, arg2) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('FileOpenDialog', args);
-    },
-    /**
-     * FileSaveDialog(arg1: string?, arg2: string?) -> string
-     *
-     * Sakura's F_FILESAVEDIALOG (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    FileSaveDialog(arg1, arg2) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('FileSaveDialog', args);
-    },
-    /**
-     * FolderDialog(arg1: string?, arg2: string?) -> string
-     *
-     * Sakura's F_FOLDERDIALOG (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    FolderDialog(arg1, arg2) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('FolderDialog', args);
-    },
-    /**
-     * GetClipboard(arg1: int?) -> string
-     *
-     * Sakura's F_GETCLIPBOARD (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    GetClipboard(arg1) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('GetClipboard', args);
-    },
-    /**
-     * SetClipboard(arg1: int?, arg2: string?) -> int
-     *
-     * Sakura's F_SETCLIPBOARD (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    SetClipboard(arg1, arg2) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('SetClipboard', args);
-    },
-    /**
-     * LayoutToLogicLineNum(arg1: int?) -> int
-     *
-     * Sakura's F_LAYOUTTOLOGICLINENUM (sakura_core/macro/CSMacroMgr.cpp). A function with a
-     * result. This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    LayoutToLogicLineNum(arg1) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('LayoutToLogicLineNum', args);
-    },
-    /**
-     * LogicToLayoutLineNum(arg1: int?, arg2: int?) -> int
-     *
-     * Sakura's F_LOGICTOLAYOUTLINENUM (sakura_core/macro/CSMacroMgr.cpp). A function with a
-     * result. This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    LogicToLayoutLineNum(arg1, arg2) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('LogicToLayoutLineNum', args);
-    },
-    /**
-     * LineColumnToIndex(arg1: int?, arg2: int?) -> int
-     *
-     * Sakura's F_LINECOLUMNTOINDEX (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    LineColumnToIndex(arg1, arg2) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('LineColumnToIndex', args);
-    },
-    /**
-     * LineIndexToColumn(arg1: int?, arg2: int?) -> int
-     *
-     * Sakura's F_LINEINDEXTOCOLUMN (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    LineIndexToColumn(arg1, arg2) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('LineIndexToColumn', args);
-    },
-    /**
-     * GetCookie(arg1: string?, arg2: string?) -> string
-     *
-     * Sakura's F_GETCOOKIE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    GetCookie(arg1, arg2) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('GetCookie', args);
-    },
-    /**
-     * GetCookieDefault(arg1: string?, arg2: string?, arg3: string?) -> string
-     *
-     * Sakura's F_GETCOOKIEDEFAULT (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    GetCookieDefault(arg1, arg2, arg3) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('GetCookieDefault', args);
-    },
-    /**
-     * SetCookie(arg1: string?, arg2: string?, arg3: string?) -> int
-     *
-     * Sakura's F_SETCOOKIE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    SetCookie(arg1, arg2, arg3) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('SetCookie', args);
-    },
-    /**
-     * DeleteCookie(arg1: string?, arg2: string?) -> int
-     *
-     * Sakura's F_DELETECOOKIE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    DeleteCookie(arg1, arg2) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('DeleteCookie', args);
-    },
-    /**
-     * GetCookieNames(arg1: string?) -> string
-     *
-     * Sakura's F_GETCOOKIENAMES (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    GetCookieNames(arg1) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('GetCookieNames', args);
-    },
-    /**
-     * SetDrawSwitch(arg1: int?) -> int
-     *
-     * Sakura's F_SETDRAWSWITCH (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    SetDrawSwitch(arg1) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('SetDrawSwitch', args);
-    },
-    /**
-     * GetDrawSwitch() -> int
-     *
-     * Sakura's F_GETDRAWSWITCH (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    GetDrawSwitch() {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('GetDrawSwitch', args);
-    },
-    /**
-     * IsShownStatus() -> int
-     *
-     * Sakura's F_ISSHOWNSTATUS (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    IsShownStatus() {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('IsShownStatus', args);
-    },
-    /**
-     * GetStrWidth(arg1: string?, arg2: int?) -> int
-     *
-     * Sakura's F_GETSTRWIDTH (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    GetStrWidth(arg1, arg2) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('GetStrWidth', args);
-    },
-    /**
-     * GetStrLayoutLength(arg1: string?, arg2: int?) -> int
-     *
-     * Sakura's F_GETSTRLAYOUTLENGTH (sakura_core/macro/CSMacroMgr.cpp). A function with a
-     * result. This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    GetStrLayoutLength(arg1, arg2) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('GetStrLayoutLength', args);
-    },
-    /**
-     * GetDefaultCharLength() -> int
-     *
-     * Sakura's F_GETDEFAULTCHARLENGTH (sakura_core/macro/CSMacroMgr.cpp). A function with a
-     * result. This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    GetDefaultCharLength() {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('GetDefaultCharLength', args);
-    },
-    /**
-     * IsIncludeClipboardFormat(arg1: string?) -> int
-     *
-     * Sakura's F_ISINCLUDECLIPBOARDFORMAT (sakura_core/macro/CSMacroMgr.cpp). A function with a
-     * result. This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    IsIncludeClipboardFormat(arg1) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('IsIncludeClipboardFormat', args);
-    },
-    /**
-     * GetClipboardByFormat(arg1: string?, arg2: int?, arg3: int?) -> string
-     *
-     * Sakura's F_GETCLIPBOARDBYFORMAT (sakura_core/macro/CSMacroMgr.cpp). A function with a
-     * result. This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    GetClipboardByFormat(arg1, arg2, arg3) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('GetClipboardByFormat', args);
-    },
-    /**
-     * SetClipboardByFormat(arg1: string?, arg2: string?, arg3: int?, arg4: int?) -> int
-     *
-     * Sakura's F_SETCLIPBOARDBYFORMAT (sakura_core/macro/CSMacroMgr.cpp). A function with a
-     * result. This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    SetClipboardByFormat(arg1, arg2, arg3, arg4) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('SetClipboardByFormat', args);
-    },
-    /**
-     * GetLineAttribute(arg1: int?, arg2: int?) -> int
-     *
-     * Sakura's F_GETLINEATTRIBUTE (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    GetLineAttribute(arg1, arg2) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('GetLineAttribute', args);
-    },
-    /**
-     * IsTextSelectingLock() -> int
-     *
-     * Sakura's F_ISTEXTSELECTINGLOCK (sakura_core/macro/CSMacroMgr.cpp). A function with a
-     * result. This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    IsTextSelectingLock() {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('IsTextSelectingLock', args);
-    },
-    /**
-     * GetViewLines() -> int
-     *
-     * Sakura's F_GETVIEWLINES (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    GetViewLines() {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('GetViewLines', args);
-    },
-    /**
-     * GetViewColumns() -> int
-     *
-     * Sakura's F_GETVIEWCOLUMNS (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    GetViewColumns() {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('GetViewColumns', args);
-    },
-    /**
      * CreateMenu(arg1: int?, arg2: string?) -> int
      *
      * Sakura's F_CREATEMENU (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
@@ -4830,18 +4849,6 @@ module.exports = function install(call) {
       const args = Array.prototype.slice.call(arguments);
       while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
       return call('CreateMenu', args);
-    },
-    /**
-     * GetViewTop() -> int
-     *
-     * Sakura's F_GETVIEWTOP (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    GetViewTop() {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('GetViewTop', args);
     },
     /**
      * ChangeInsertSpace(arg1: int?) -> int

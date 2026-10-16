@@ -29,6 +29,7 @@
 //! * A script is aborted from the panel's button or by [`EditorView::cancel_macro`]; Sakura
 //!   has no way to stop a macro.
 
+mod host;
 mod output;
 
 use std::collections::VecDeque;
@@ -119,6 +120,8 @@ async fn yield_now() {
 struct Running {
     session: Session,
     name: String,
+    /// The macro file (for `$M` of `ExpandParameter`).
+    path: PathBuf,
     timeout_text: String,
 }
 
@@ -139,6 +142,11 @@ pub(crate) struct MacroState {
     /// A macro is running: the commands it runs are not recorded.
     suspended: bool,
     running: Option<Running>,
+    /// Counts the scripts that were started, so that the answer of a dialog that was open when
+    /// its macro ended is not sent to the next one.
+    serial: u64,
+    /// What the macro functions keep between two calls (cookies, the draw switch).
+    host_state: ume_plugin::host::HostState,
     pub(crate) output: Output,
 }
 
@@ -572,9 +580,11 @@ impl EditorView {
         self.macros
             .output
             .push(Kind::Note, format!("マクロ {name} を開始します"));
+        self.macros.serial += 1;
         self.macros.running = Some(Running {
             session,
             name,
+            path: path.to_path_buf(),
             timeout_text,
         });
         self.macros.suspended = true;
@@ -611,11 +621,16 @@ impl EditorView {
                 // One call at a time, on the UI thread, against the document on the screen.
                 // An IME composition that the user started ends first, as for a key.
                 self.interrupt_composition(cx);
-                let reply = self.run_with(cx, |command_cx| {
-                    bridge::handle_message(Registry::global(), command_cx, &text)
-                });
-                if let (Some(reply), Some(running)) = (reply, &self.macros.running) {
-                    running.session.send(reply);
+                // A message box, a file dialog or `Sleep` is answered when it is over.
+                if !self.start_waiting_call(&text, window, cx) {
+                    let mut env = self.host_env(&text, cx);
+                    let reply = self.run_with(cx, |command_cx| {
+                        bridge::handle_message_with(Registry::global(), command_cx, &mut env, &text)
+                    });
+                    self.finish_host_env(env, cx);
+                    if let (Some(reply), Some(running)) = (reply, &self.macros.running) {
+                        running.session.send(reply);
+                    }
                 }
             }
             HostEvent::Finished(finished) => {

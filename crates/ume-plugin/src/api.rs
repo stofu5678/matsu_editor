@@ -51,7 +51,7 @@ pub struct Func {
     pub run: fn(&mut dyn MacroDocument, &Args) -> Result<Value, RpcError>,
 }
 
-const fn req(name: &'static str, ty: Ty) -> Param {
+pub(crate) const fn req(name: &'static str, ty: Ty) -> Param {
     Param {
         name,
         ty,
@@ -59,7 +59,7 @@ const fn req(name: &'static str, ty: Ty) -> Param {
     }
 }
 
-const fn opt(name: &'static str, ty: Ty) -> Param {
+pub(crate) const fn opt(name: &'static str, ty: Ty) -> Param {
     Param {
         name,
         ty,
@@ -86,6 +86,10 @@ pub trait MacroDocument {
     fn line_text(&self, row: usize) -> String;
     fn cursor(&self) -> (usize, usize);
     fn has_selection(&self) -> bool;
+    /// `IsTextSelected`: 0 nothing, 1 text, 2 a box selection (CMacro.cpp, F_ISTEXTSELECTED).
+    fn selection_kind(&self) -> i64 {
+        i64::from(self.has_selection())
+    }
     /// The selected text, with "\n" for line breaks.
     fn selected_text(&self) -> String;
     /// Moves the cursor. Without `extend` the selection goes away; with it the selection starts
@@ -101,9 +105,18 @@ pub trait MacroDocument {
 }
 
 /// The arguments of a call, already checked against the parameters of the function.
-pub struct Args<'a>(&'a [Value]);
+pub struct Args<'a>(pub(crate) &'a [Value]);
 
 impl Args<'_> {
+    /// How many arguments the call has.
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     pub fn int(&self, index: usize) -> i64 {
         self.0[index].as_i64().unwrap_or_default()
     }
@@ -200,8 +213,8 @@ pub const FUNCS: &[Func] = &[
         name: "IsTextSelected",
         params: &[],
         result: Ty::Int,
-        doc: "0 when nothing is selected, 1 when text is selected. (Sakura returns 2 for a box \
-              selection, which is not supported yet.)",
+        doc: "0 when nothing is selected, 1 when text is selected, 2 when a box selection is \
+              selected.",
         run: is_text_selected,
     },
     Func {
@@ -336,7 +349,7 @@ fn get_selected_string(doc: &mut dyn MacroDocument, _: &Args) -> Result<Value, R
 }
 
 fn is_text_selected(doc: &mut dyn MacroDocument, _: &Args) -> Result<Value, RpcError> {
-    Ok(i64::from(doc.has_selection()).into())
+    Ok(doc.selection_kind().into())
 }
 
 /// CMacro::HandleCommand, F_MOVECURSOR, then Command_MOVECURSOR: the line and the column are
@@ -410,21 +423,25 @@ pub fn byte_offset_for_utf16(line: &str, units: usize) -> usize {
 }
 
 /// The error for a call whose arguments do not fit the function, or `None` when they do.
-fn check_params(func: &Func, params: &[Value]) -> Result<(), RpcError> {
-    let required = func.params.iter().filter(|p| !p.optional).count();
-    if params.len() < required || params.len() > func.params.len() {
-        let expected = if required == func.params.len() {
+pub(crate) fn check_params(
+    name: &str,
+    declared: &[Param],
+    params: &[Value],
+) -> Result<(), RpcError> {
+    let required = declared.iter().filter(|p| !p.optional).count();
+    if params.len() < required || params.len() > declared.len() {
+        let expected = if required == declared.len() {
             required.to_string()
         } else {
-            format!("{required} to {}", func.params.len())
+            format!("{required} to {}", declared.len())
         };
         return Err(RpcError::invalid_params(format!(
             "{}: expected {expected} argument(s), got {}",
-            func.name,
+            name,
             params.len()
         )));
     }
-    for (param, value) in func.params.iter().zip(params) {
+    for (param, value) in declared.iter().zip(params) {
         let fits = match param.ty {
             // Only what fits an i64: a bigger number must not turn into 0 silently.
             Ty::Int => value.is_i64(),
@@ -434,7 +451,7 @@ fn check_params(func: &Func, params: &[Value]) -> Result<(), RpcError> {
         if !fits {
             return Err(RpcError::invalid_params(format!(
                 "{}: argument \"{}\" must be {}",
-                func.name,
+                name,
                 param.name,
                 param.ty.name()
             )));
@@ -449,11 +466,21 @@ pub fn call(
     method: &str,
     params: &[Value],
 ) -> Result<Value, RpcError> {
-    let func = FUNCS
-        .iter()
-        .find(|f| f.name == method)
-        .ok_or_else(|| RpcError::new(METHOD_NOT_FOUND, format!("unknown method: {method}")))?;
-    check_params(func, params)?;
+    let Some(func) = FUNCS.iter().find(|f| f.name == method) else {
+        // A function that needs the whole editor (the layout, the clipboard, the window): this
+        // host only has a text model.
+        if crate::functions::find(method).is_some() {
+            return Err(RpcError::new(
+                crate::bridge::UNAVAILABLE,
+                format!("{method} needs the editor, which this host does not have"),
+            ));
+        }
+        return Err(RpcError::new(
+            METHOD_NOT_FOUND,
+            format!("unknown method: {method}"),
+        ));
+    };
+    check_params(func.name, func.params, params)?;
     (func.run)(doc, &Args(params))
 }
 

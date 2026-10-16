@@ -827,3 +827,84 @@ fn generated_code_has_every_function() {
         );
     }
 }
+
+#[test]
+fn the_time_spent_waiting_for_the_window_does_not_count_against_the_timeout() {
+    if !available(Language::JavaScript) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    // The timeout is shorter than the wait.
+    let config = config_for(
+        &dir,
+        Language::JavaScript,
+        "Editor.GetFilename(); console.log('after the wait');",
+        Duration::from_millis(600),
+    );
+    let (tx, rx) = mpsc::channel();
+    let sink: session::Sink = Arc::new(move |event| {
+        let _ = tx.send(event);
+    });
+    let session = Arc::new(session::start(config, sink).unwrap());
+    let mut printed = Vec::new();
+    for event in rx {
+        match event {
+            HostEvent::Output { text, .. } => printed.push(text),
+            HostEvent::Message(text) => {
+                // A dialog is open: the window holds the macro's clock, then answers.
+                session.hold();
+                let session = session.clone();
+                let id = serde_json::from_str::<Value>(&text).unwrap()["id"].clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(1500));
+                    session.send(crate::protocol::response_ok(&id, Value::from("")));
+                    session.release();
+                });
+            }
+            HostEvent::Finished(finished) => {
+                assert_eq!(finished.reason, EndReason::Exited, "{finished:?}");
+                assert_eq!(finished.exit_code, Some(0));
+                assert!(printed.iter().any(|l| l.contains("after the wait")));
+                return;
+            }
+        }
+    }
+    panic!("no Finished event");
+}
+
+#[test]
+fn without_a_hold_the_same_wait_times_out() {
+    if !available(Language::JavaScript) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let config = config_for(
+        &dir,
+        Language::JavaScript,
+        "Editor.GetFilename(); console.log('after the wait');",
+        Duration::from_millis(600),
+    );
+    let (tx, rx) = mpsc::channel();
+    let sink: session::Sink = Arc::new(move |event| {
+        let _ = tx.send(event);
+    });
+    let session = Arc::new(session::start(config, sink).unwrap());
+    for event in rx {
+        match event {
+            HostEvent::Output { .. } => {}
+            HostEvent::Message(text) => {
+                let id = serde_json::from_str::<Value>(&text).unwrap()["id"].clone();
+                let session = session.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(1500));
+                    session.send(crate::protocol::response_ok(&id, Value::from("")));
+                });
+            }
+            HostEvent::Finished(finished) => {
+                assert_eq!(finished.reason, EndReason::TimedOut);
+                return;
+            }
+        }
+    }
+    panic!("no Finished event");
+}

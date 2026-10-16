@@ -88,8 +88,7 @@ module UmeEditorApi
 
     # IsTextSelected() -> int
     #
-    # 0 when nothing is selected, 1 when text is selected. (Sakura returns 2 for a box
-    # selection, which is not supported yet.)
+    # 0 when nothing is selected, 1 when text is selected, 2 when a box selection is selected.
     def IsTextSelected
       @call.call('IsTextSelected', _pack())
     end
@@ -118,6 +117,446 @@ module UmeEditorApi
     # The full path of the file, or an empty string when the text has no file.
     def GetFilename
       @call.call('GetFilename', _pack())
+    end
+
+    # GetSelectLineFrom() -> int
+    #
+    # The line where the selection starts, counted from 1 in layout lines (wrapped rows count as
+    # lines). 0 when nothing is selected.
+    def GetSelectLineFrom
+      @call.call('GetSelectLineFrom', _pack())
+    end
+
+    # GetSelectColmFrom() -> int
+    #
+    # The column where the selection starts, counted from 1 in layout columns (cells: a
+    # full-width character is 2, a tab goes to the tab stop). 0 when nothing is selected. Same
+    # as GetSelectColumnFrom.
+    def GetSelectColmFrom
+      @call.call('GetSelectColmFrom', _pack())
+    end
+
+    # GetSelectColumnFrom() -> int
+    #
+    # The column where the selection starts, counted from 1 in layout columns (cells: a
+    # full-width character is 2, a tab goes to the tab stop). 0 when nothing is selected.
+    def GetSelectColumnFrom
+      @call.call('GetSelectColumnFrom', _pack())
+    end
+
+    # GetSelectLineTo() -> int
+    #
+    # The line where the selection ends, counted from 1 in layout lines. 0 when nothing is
+    # selected.
+    def GetSelectLineTo
+      @call.call('GetSelectLineTo', _pack())
+    end
+
+    # GetSelectColmTo() -> int
+    #
+    # The column where the selection ends, counted from 1 in layout columns. 0 when nothing is
+    # selected. Same as GetSelectColumnTo.
+    def GetSelectColmTo
+      @call.call('GetSelectColmTo', _pack())
+    end
+
+    # GetSelectColumnTo() -> int
+    #
+    # The column where the selection ends, counted from 1 in layout columns. 0 when nothing is
+    # selected.
+    def GetSelectColumnTo
+      @call.call('GetSelectColumnTo', _pack())
+    end
+
+    # IsInsMode() -> int
+    #
+    # 1 in insert mode, 0 in overwrite mode.
+    def IsInsMode
+      @call.call('IsInsMode', _pack())
+    end
+
+    # GetCharCode() -> int
+    #
+    # The encoding of the file: 0 Shift_JIS, 1 JIS, 2 EUC-JP, 3 UTF-16, 4 UTF-8, 5 UTF-7, 6
+    # UTF-16 BE, 7 CESU-8, 8 Latin1.
+    def GetCharCode
+      @call.call('GetCharCode', _pack())
+    end
+
+    # GetLineCode() -> int
+    #
+    # The line ending that new line breaks get: 0 CR LF, 1 CR, 2 LF (3 NEL, 4 LS, 5 PS).
+    def GetLineCode
+      @call.call('GetLineCode', _pack())
+    end
+
+    # IsPossibleUndo() -> int
+    #
+    # 1 when there is something to undo, else 0.
+    def IsPossibleUndo
+      @call.call('IsPossibleUndo', _pack())
+    end
+
+    # IsPossibleRedo() -> int
+    #
+    # 1 when there is something to redo, else 0.
+    def IsPossibleRedo
+      @call.call('IsPossibleRedo', _pack())
+    end
+
+    # GetLineAttribute(line: int, type: int) -> int
+    #
+    # An attribute of a logical line (0 is the line of the cursor, 1 the first line). Type 0 is
+    # 1 when the line changed since the last save, type 1 the number of the undo step that last
+    # touched it, type 2 the bookmark (1 or 0). Types 3 (diff mark) and 4 (function list mark)
+    # answer the error -32001 until the editor has them. A negative line, a line past the end
+    # and any other type are errors.
+    def GetLineAttribute(line, type)
+      @call.call('GetLineAttribute', _pack(line, type))
+    end
+
+    # IsTextSelectingLock() -> int
+    #
+    # 0 when the selection is not locked, 1 when it is locked (plain moves extend the
+    # selection), 2 when it is locked and a box selection.
+    def IsTextSelectingLock
+      @call.call('IsTextSelectingLock', _pack())
+    end
+
+    # GetSaveFilename() -> string
+    #
+    # The full path that a save writes to, or an empty string when the text has no file. The
+    # same as GetFilename here.
+    def GetSaveFilename
+      @call.call('GetSaveFilename', _pack())
+    end
+
+    # LayoutToLogicLineNum(layoutLine: int) -> int
+    #
+    # The logical line (up to a line break) that a layout line (a row on the screen) belongs to,
+    # both counted from 1. The line after the last layout line gives the line after the last
+    # logical line. Any other line outside the text is an error.
+    def LayoutToLogicLineNum(layoutLine)
+      @call.call('LayoutToLogicLineNum', _pack(layoutLine))
+    end
+
+    # LogicToLayoutLineNum(logicLine: int, logicIndex: int) -> int
+    #
+    # The layout line (a row on the screen) of a position in a logical line: the line and the
+    # index in it (UTF-16 code units), both counted from 1. A line past the end gives the line
+    # after the last layout line.
+    def LogicToLayoutLineNum(logicLine, logicIndex)
+      @call.call('LogicToLayoutLineNum', _pack(logicLine, logicIndex))
+    end
+
+    # LineColumnToIndex(layoutLine: int, layoutColumn: int) -> int
+    #
+    # The index (UTF-16 code units, from 1) in the logical line of a layout line and a layout
+    # column (cells), both from 1. A column past the text gives the end of the text of the row.
+    def LineColumnToIndex(layoutLine, layoutColumn)
+      @call.call('LineColumnToIndex', _pack(layoutLine, layoutColumn))
+    end
+
+    # LineIndexToColumn(logicLine: int, logicIndex: int) -> int
+    #
+    # The layout column (cells, from 1) of a position in a logical line: the line and the index
+    # in it (UTF-16 code units), both from 1. Tabs and full-width characters take their width.
+    def LineIndexToColumn(logicLine, logicIndex)
+      @call.call('LineIndexToColumn', _pack(logicLine, logicIndex))
+    end
+
+    # GetStrWidth(text: string, column: int?) -> int
+    #
+    # The width of a string in cells, starting at layout column `column` (from 1, default 1; it
+    # matters for tabs). A CR LF at the end counts as the CR alone.
+    def GetStrWidth(text, column = UNSET)
+      @call.call('GetStrWidth', _pack(text, column))
+    end
+
+    # GetStrLayoutLength(text: string, column: int?) -> int
+    #
+    # The width of a string as a line of the document in cells, starting at layout column
+    # `column` (from 1, default 1). A line ending at the end takes one cell.
+    def GetStrLayoutLength(text, column = UNSET)
+      @call.call('GetStrLayoutLength', _pack(text, column))
+    end
+
+    # GetDefaultCharLength() -> int
+    #
+    # The layout width of a half-width character. This editor lays out in cells, so it is 1.
+    def GetDefaultCharLength
+      @call.call('GetDefaultCharLength', _pack())
+    end
+
+    # GetViewLines() -> int
+    #
+    # How many rows the text area shows (at least 1).
+    def GetViewLines
+      @call.call('GetViewLines', _pack())
+    end
+
+    # GetViewColumns() -> int
+    #
+    # How many columns the text area shows (at least 1).
+    def GetViewColumns
+      @call.call('GetViewColumns', _pack())
+    end
+
+    # GetViewTop() -> int
+    #
+    # The layout line at the top of the text area, counted from 1.
+    def GetViewTop
+      @call.call('GetViewTop', _pack())
+    end
+
+    # ChangeTabWidth(width: int) -> int
+    #
+    # The tab width before the call. A width from 1 to 64 that differs from it becomes the tab
+    # width of this window (not saved). Any other value, such as 0, only reads.
+    def ChangeTabWidth(width)
+      @call.call('ChangeTabWidth', _pack(width))
+    end
+
+    # ChangeWrapColm(column: int) -> int
+    #
+    # The wrap column before the call. A column from 10 to 10240 makes this window wrap at that
+    # column (not saved). Any other value only reads. Same as ChangeWrapColumn.
+    def ChangeWrapColm(column)
+      @call.call('ChangeWrapColm', _pack(column))
+    end
+
+    # ChangeWrapColumn(column: int) -> int
+    #
+    # The wrap column before the call. A column from 10 to 10240 makes this window wrap at that
+    # column (not saved). Any other value only reads.
+    def ChangeWrapColumn(column)
+      @call.call('ChangeWrapColumn', _pack(column))
+    end
+
+    # GetClipboard(option: int?) -> string
+    #
+    # The text on the clipboard, or an empty string when there is none. The line endings are
+    # those of the source. The option is reserved.
+    def GetClipboard(option = UNSET)
+      @call.call('GetClipboard', _pack(option))
+    end
+
+    # SetClipboard(option: int?, text: string?) -> int
+    #
+    # Puts the text on the clipboard. Option bit 0 marks a box copy (a paste puts it in as a
+    # box), bit 1 a row copy (a paste puts it in front of the row); with both, the box wins.
+    # Returns 1 when it worked, 0 when not.
+    def SetClipboard(option = UNSET, text = UNSET)
+      @call.call('SetClipboard', _pack(option, text))
+    end
+
+    # IsIncludeClipboardFormat(format: string) -> int
+    #
+    # 1 when the clipboard has the format. Only text is known: CF_TEXT, CF_OEMTEXT and
+    # CF_UNICODETEXT (or 1, 7, 13) are 1 when the clipboard has text; every other format is 0.
+    def IsIncludeClipboardFormat(format)
+      @call.call('IsIncludeClipboardFormat', _pack(format))
+    end
+
+    # GetClipboardByFormat(format: string, mode: int, endMode: int?) -> string
+    #
+    # The text of the clipboard in a text format (CF_TEXT, CF_OEMTEXT, CF_UNICODETEXT), with the
+    # line endings of the document. Mode -2 is the usual way and 3 is UTF-16 (the text itself);
+    # the other modes and formats are errors (-32001). The end mode is not used.
+    def GetClipboardByFormat(format, mode, endMode = UNSET)
+      @call.call('GetClipboardByFormat', _pack(format, mode, endMode))
+    end
+
+    # SetClipboardByFormat(text: string, format: string, mode: int, endMode: int?) -> int
+    #
+    # Puts the text on the clipboard as text. The formats and modes are those of
+    # GetClipboardByFormat. Returns 1 when it worked.
+    def SetClipboardByFormat(text, format, mode, endMode = UNSET)
+      @call.call('SetClipboardByFormat', _pack(text, format, mode, endMode))
+    end
+
+    # GetCookie(scope: string, name: string) -> string
+    #
+    # The value of a cookie, or an empty string when there is none. The scope is "window" or
+    # "document".
+    def GetCookie(scope, name)
+      @call.call('GetCookie', _pack(scope, name))
+    end
+
+    # GetCookieDefault(scope: string, name: string, defaultValue: string) -> string
+    #
+    # The value of a cookie, or the default when there is none (an unknown scope still gives an
+    # empty string). The scope is "window" or "document".
+    def GetCookieDefault(scope, name, defaultValue)
+      @call.call('GetCookieDefault', _pack(scope, name, defaultValue))
+    end
+
+    # SetCookie(scope: string, name: string, value: string) -> int
+    #
+    # Sets a cookie. Returns 0 when it worked, 1 for an unknown scope, 2 for a name with a
+    # character that a name cannot have (Sakura lets in digits, letters and every character from
+    # "_" up in the character table). The scope is "window" or "document".
+    def SetCookie(scope, name, value)
+      @call.call('SetCookie', _pack(scope, name, value))
+    end
+
+    # DeleteCookie(scope: string, name: string) -> int
+    #
+    # Deletes a cookie. Returns 0 when it worked, 1 for an unknown scope, 2 for a bad name, 5
+    # when there is no such cookie. The scope is "window" or "document".
+    def DeleteCookie(scope, name)
+      @call.call('DeleteCookie', _pack(scope, name))
+    end
+
+    # GetCookieNames(scope: string) -> string
+    #
+    # The names of the cookies of a scope, joined with commas, in the order of the names (UTF-16
+    # code units). An unknown scope gives an empty string. The scope is "window" or "document".
+    def GetCookieNames(scope)
+      @call.call('GetCookieNames', _pack(scope))
+    end
+
+    # CompareVersion(versionA: string, versionB: string) -> int
+    #
+    # Compares two version strings: 0 when equal, positive when A is newer, negative when B is.
+    # Four parts at most; a part has two digits at most; "alpha", "beta", "rc" and "pl" put a
+    # part before or after the release (like PHP's version_compare).
+    def CompareVersion(versionA, versionB)
+      @call.call('CompareVersion', _pack(versionA, versionB))
+    end
+
+    # SetDrawSwitch(on: int) -> int
+    #
+    # Turns the draw switch on (non-zero) or off (0) and returns the state before (1 or 0). The
+    # editor keeps the flag for GetDrawSwitch but still paints the text when it likes.
+    def SetDrawSwitch(on)
+      @call.call('SetDrawSwitch', _pack(on))
+    end
+
+    # GetDrawSwitch() -> int
+    #
+    # 1 when the draw switch is on (the start state), 0 when a macro turned it off.
+    def GetDrawSwitch
+      @call.call('GetDrawSwitch', _pack())
+    end
+
+    # IsShownStatus() -> int
+    #
+    # 1 when the status bar is shown, else 0.
+    def IsShownStatus
+      @call.call('IsShownStatus', _pack())
+    end
+
+    # IsCurTypeExt(extension: string) -> int
+    #
+    # 1 when the document type of this file is the type of the extension (looked up in the
+    # extension lists of the types in the settings file, as a file name). Without type settings
+    # every extension is the basic type.
+    def IsCurTypeExt(extension)
+      @call.call('IsCurTypeExt', _pack(extension))
+    end
+
+    # IsSameTypeExt(extension1: string, extension2: string) -> int
+    #
+    # 1 when the two extensions belong to the same document type (see IsCurTypeExt).
+    def IsSameTypeExt(extension1, extension2)
+      @call.call('IsSameTypeExt', _pack(extension1, extension2))
+    end
+
+    # ExpandParameter(format: string) -> string
+    #
+    # Replaces the codes that start with $ in a string: $$ ($), $F (full path), $f (file name),
+    # $g (file name without the extension), $/ (full path with /), $N (as $F), $b (extension),
+    # $e and $E (folder), $C (the selected text or the word at the caret), $x and $y (caret
+    # column in UTF-16 units and line, from 1), $S (the editor), $M (the macro file), $V
+    # (version), $A (name), and conditions ${R?a$:b$:c$} (R, w, M, U, N, I). A text without a
+    # file is (無題). $d $t $D $T $B $Q $I are not supported and stay as written. At most 2047
+    # UTF-16 units.
+    def ExpandParameter(format)
+      @call.call('ExpandParameter', _pack(format))
+    end
+
+    # MessageBox(message: string, type: int?) -> int
+    #
+    # Shows a message box and waits. The type is Windows' MB_ value: the low nibble chooses the
+    # buttons (0 OK, 1 OK/Cancel, 2 Abort/Retry/Ignore, 3 Yes/No/Cancel, 4 Yes/No, 5
+    # Retry/Cancel, 6 Cancel/Try again/Continue), the icon bits (0x10 stop, 0x20 question, 0x30
+    # exclamation, 0x40 information) the icon; the default button and the modality are ignored.
+    # Returns the button as Windows numbers it: 1 OK, 2 Cancel, 3 Abort, 4 Retry, 5 Ignore, 6
+    # Yes, 7 No, 10 Try again, 11 Continue. A box that is closed without an answer gives Cancel
+    # (the last button when there is none).
+    def MessageBox(message, type = UNSET)
+      @call.call('MessageBox', _pack(message, type))
+    end
+
+    # ErrorMsg(message: string) -> int
+    #
+    # Shows an error message with an OK button and waits. Returns 1.
+    def ErrorMsg(message)
+      @call.call('ErrorMsg', _pack(message))
+    end
+
+    # WarnMsg(message: string) -> int
+    #
+    # Shows a warning with an OK button and waits. Returns 1.
+    def WarnMsg(message)
+      @call.call('WarnMsg', _pack(message))
+    end
+
+    # InfoMsg(message: string) -> int
+    #
+    # Shows an information message with an OK button and waits. Returns 1.
+    def InfoMsg(message)
+      @call.call('InfoMsg', _pack(message))
+    end
+
+    # OkCancelBox(message: string) -> int
+    #
+    # Asks a question with OK and Cancel and waits. Returns 1 (OK) or 2 (Cancel).
+    def OkCancelBox(message)
+      @call.call('OkCancelBox', _pack(message))
+    end
+
+    # YesNoBox(message: string) -> int
+    #
+    # Asks a question with Yes and No and waits. Returns 6 (Yes) or 7 (No).
+    def YesNoBox(message)
+      @call.call('YesNoBox', _pack(message))
+    end
+
+    # FileOpenDialog(defaultName: string?, filter: string?) -> string
+    #
+    # Lets the user choose a file to open and returns its full path, or an empty string when the
+    # dialog is cancelled. The default name and the filter are not used: the dialog of the
+    # platform takes neither.
+    def FileOpenDialog(defaultName = UNSET, filter = UNSET)
+      @call.call('FileOpenDialog', _pack(defaultName, filter))
+    end
+
+    # FileSaveDialog(defaultName: string?, filter: string?) -> string
+    #
+    # Lets the user choose a file name to save under and returns the full path, or an empty
+    # string when the dialog is cancelled. The dialog starts with the default name. The filter
+    # is not used.
+    def FileSaveDialog(defaultName = UNSET, filter = UNSET)
+      @call.call('FileSaveDialog', _pack(defaultName, filter))
+    end
+
+    # FolderDialog(message: string?, defaultFolder: string?) -> string
+    #
+    # Lets the user choose a folder and returns its full path, or an empty string when the
+    # dialog is cancelled. The message becomes the prompt text of the platform dialog where it
+    # has one; the default folder is not used.
+    def FolderDialog(message = UNSET, defaultFolder = UNSET)
+      @call.call('FolderDialog', _pack(message, defaultFolder))
+    end
+
+    # Sleep(milliseconds: int) -> int
+    #
+    # Waits for the given number of milliseconds (the window stays alive, and the macro can be
+    # cancelled). Returns 0.
+    def Sleep(milliseconds)
+      @call.call('Sleep', _pack(milliseconds))
     end
 
     # FileNew() -> null
@@ -2892,150 +3331,6 @@ module UmeEditorApi
       @call.call('SetViewLeft', _pack(arg1))
     end
 
-    # GetSaveFilename() -> string
-    #
-    # Sakura's F_GETSAVEFILENAME (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-    # This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def GetSaveFilename
-      @call.call('GetSaveFilename', _pack())
-    end
-
-    # ExpandParameter(arg1: string?) -> string
-    #
-    # Sakura's F_EXPANDPARAMETER (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-    # This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def ExpandParameter(arg1 = UNSET)
-      @call.call('ExpandParameter', _pack(arg1))
-    end
-
-    # ChangeTabWidth(arg1: int?) -> int
-    #
-    # Sakura's F_CHGTABWIDTH (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-    # editor answers the error -32001 (not implemented) while it cannot answer it.
-    def ChangeTabWidth(arg1 = UNSET)
-      @call.call('ChangeTabWidth', _pack(arg1))
-    end
-
-    # GetSelectLineFrom() -> int
-    #
-    # Sakura's F_GETSELLINEFROM (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-    # This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def GetSelectLineFrom
-      @call.call('GetSelectLineFrom', _pack())
-    end
-
-    # GetSelectColmFrom() -> int
-    #
-    # Sakura's F_GETSELCOLUMNFROM (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-    # This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def GetSelectColmFrom
-      @call.call('GetSelectColmFrom', _pack())
-    end
-
-    # GetSelectColumnFrom() -> int
-    #
-    # Sakura's F_GETSELCOLUMNFROM (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-    # This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def GetSelectColumnFrom
-      @call.call('GetSelectColumnFrom', _pack())
-    end
-
-    # GetSelectLineTo() -> int
-    #
-    # Sakura's F_GETSELLINETO (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-    # editor answers the error -32001 (not implemented) while it cannot answer it.
-    def GetSelectLineTo
-      @call.call('GetSelectLineTo', _pack())
-    end
-
-    # GetSelectColmTo() -> int
-    #
-    # Sakura's F_GETSELCOLUMNTO (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-    # This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def GetSelectColmTo
-      @call.call('GetSelectColmTo', _pack())
-    end
-
-    # GetSelectColumnTo() -> int
-    #
-    # Sakura's F_GETSELCOLUMNTO (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-    # This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def GetSelectColumnTo
-      @call.call('GetSelectColumnTo', _pack())
-    end
-
-    # IsInsMode() -> int
-    #
-    # Sakura's F_ISINSMODE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-    # editor answers the error -32001 (not implemented) while it cannot answer it.
-    def IsInsMode
-      @call.call('IsInsMode', _pack())
-    end
-
-    # GetCharCode() -> int
-    #
-    # Sakura's F_GETCHARCODE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-    # editor answers the error -32001 (not implemented) while it cannot answer it.
-    def GetCharCode
-      @call.call('GetCharCode', _pack())
-    end
-
-    # GetLineCode() -> int
-    #
-    # Sakura's F_GETLINECODE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-    # editor answers the error -32001 (not implemented) while it cannot answer it.
-    def GetLineCode
-      @call.call('GetLineCode', _pack())
-    end
-
-    # IsPossibleUndo() -> int
-    #
-    # Sakura's F_ISPOSSIBLEUNDO (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-    # This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def IsPossibleUndo
-      @call.call('IsPossibleUndo', _pack())
-    end
-
-    # IsPossibleRedo() -> int
-    #
-    # Sakura's F_ISPOSSIBLEREDO (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-    # This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def IsPossibleRedo
-      @call.call('IsPossibleRedo', _pack())
-    end
-
-    # ChangeWrapColm(arg1: int?) -> int
-    #
-    # Sakura's F_CHGWRAPCOLUMN (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-    # This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def ChangeWrapColm(arg1 = UNSET)
-      @call.call('ChangeWrapColm', _pack(arg1))
-    end
-
-    # ChangeWrapColumn(arg1: int?) -> int
-    #
-    # Sakura's F_CHGWRAPCOLUMN (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-    # This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def ChangeWrapColumn(arg1 = UNSET)
-      @call.call('ChangeWrapColumn', _pack(arg1))
-    end
-
-    # IsCurTypeExt(arg1: string?) -> int
-    #
-    # Sakura's F_ISCURTYPEEXT (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-    # editor answers the error -32001 (not implemented) while it cannot answer it.
-    def IsCurTypeExt(arg1 = UNSET)
-      @call.call('IsCurTypeExt', _pack(arg1))
-    end
-
-    # IsSameTypeExt(arg1: string?, arg2: string?) -> int
-    #
-    # Sakura's F_ISSAMETYPEEXT (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-    # This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def IsSameTypeExt(arg1 = UNSET, arg2 = UNSET)
-      @call.call('IsSameTypeExt', _pack(arg1, arg2))
-    end
-
     # InputBox(arg1: string?, arg2: string?, arg3: int?) -> string
     #
     # Sakura's F_INPUTBOX (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
@@ -3044,300 +3339,12 @@ module UmeEditorApi
       @call.call('InputBox', _pack(arg1, arg2, arg3))
     end
 
-    # MessageBox(arg1: string?, arg2: int?) -> int
-    #
-    # Sakura's F_MESSAGEBOX (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-    # editor answers the error -32001 (not implemented) while it cannot answer it.
-    def MessageBox(arg1 = UNSET, arg2 = UNSET)
-      @call.call('MessageBox', _pack(arg1, arg2))
-    end
-
-    # ErrorMsg(arg1: string?) -> int
-    #
-    # Sakura's F_ERRORMSG (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-    # editor answers the error -32001 (not implemented) while it cannot answer it.
-    def ErrorMsg(arg1 = UNSET)
-      @call.call('ErrorMsg', _pack(arg1))
-    end
-
-    # WarnMsg(arg1: string?) -> int
-    #
-    # Sakura's F_WARNMSG (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-    # editor answers the error -32001 (not implemented) while it cannot answer it.
-    def WarnMsg(arg1 = UNSET)
-      @call.call('WarnMsg', _pack(arg1))
-    end
-
-    # InfoMsg(arg1: string?) -> int
-    #
-    # Sakura's F_INFOMSG (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-    # editor answers the error -32001 (not implemented) while it cannot answer it.
-    def InfoMsg(arg1 = UNSET)
-      @call.call('InfoMsg', _pack(arg1))
-    end
-
-    # OkCancelBox(arg1: string?) -> int
-    #
-    # Sakura's F_OKCANCELBOX (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-    # editor answers the error -32001 (not implemented) while it cannot answer it.
-    def OkCancelBox(arg1 = UNSET)
-      @call.call('OkCancelBox', _pack(arg1))
-    end
-
-    # YesNoBox(arg1: string?) -> int
-    #
-    # Sakura's F_YESNOBOX (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-    # editor answers the error -32001 (not implemented) while it cannot answer it.
-    def YesNoBox(arg1 = UNSET)
-      @call.call('YesNoBox', _pack(arg1))
-    end
-
-    # CompareVersion(arg1: string?, arg2: string?) -> int
-    #
-    # Sakura's F_COMPAREVERSION (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-    # This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def CompareVersion(arg1 = UNSET, arg2 = UNSET)
-      @call.call('CompareVersion', _pack(arg1, arg2))
-    end
-
-    # Sleep(arg1: int?) -> int
-    #
-    # Sakura's F_MACROSLEEP (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-    # editor answers the error -32001 (not implemented) while it cannot answer it.
-    def Sleep(arg1 = UNSET)
-      @call.call('Sleep', _pack(arg1))
-    end
-
-    # FileOpenDialog(arg1: string?, arg2: string?) -> string
-    #
-    # Sakura's F_FILEOPENDIALOG (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-    # This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def FileOpenDialog(arg1 = UNSET, arg2 = UNSET)
-      @call.call('FileOpenDialog', _pack(arg1, arg2))
-    end
-
-    # FileSaveDialog(arg1: string?, arg2: string?) -> string
-    #
-    # Sakura's F_FILESAVEDIALOG (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-    # This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def FileSaveDialog(arg1 = UNSET, arg2 = UNSET)
-      @call.call('FileSaveDialog', _pack(arg1, arg2))
-    end
-
-    # FolderDialog(arg1: string?, arg2: string?) -> string
-    #
-    # Sakura's F_FOLDERDIALOG (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-    # editor answers the error -32001 (not implemented) while it cannot answer it.
-    def FolderDialog(arg1 = UNSET, arg2 = UNSET)
-      @call.call('FolderDialog', _pack(arg1, arg2))
-    end
-
-    # GetClipboard(arg1: int?) -> string
-    #
-    # Sakura's F_GETCLIPBOARD (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-    # editor answers the error -32001 (not implemented) while it cannot answer it.
-    def GetClipboard(arg1 = UNSET)
-      @call.call('GetClipboard', _pack(arg1))
-    end
-
-    # SetClipboard(arg1: int?, arg2: string?) -> int
-    #
-    # Sakura's F_SETCLIPBOARD (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-    # editor answers the error -32001 (not implemented) while it cannot answer it.
-    def SetClipboard(arg1 = UNSET, arg2 = UNSET)
-      @call.call('SetClipboard', _pack(arg1, arg2))
-    end
-
-    # LayoutToLogicLineNum(arg1: int?) -> int
-    #
-    # Sakura's F_LAYOUTTOLOGICLINENUM (sakura_core/macro/CSMacroMgr.cpp). A function with a
-    # result. This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def LayoutToLogicLineNum(arg1 = UNSET)
-      @call.call('LayoutToLogicLineNum', _pack(arg1))
-    end
-
-    # LogicToLayoutLineNum(arg1: int?, arg2: int?) -> int
-    #
-    # Sakura's F_LOGICTOLAYOUTLINENUM (sakura_core/macro/CSMacroMgr.cpp). A function with a
-    # result. This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def LogicToLayoutLineNum(arg1 = UNSET, arg2 = UNSET)
-      @call.call('LogicToLayoutLineNum', _pack(arg1, arg2))
-    end
-
-    # LineColumnToIndex(arg1: int?, arg2: int?) -> int
-    #
-    # Sakura's F_LINECOLUMNTOINDEX (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-    # This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def LineColumnToIndex(arg1 = UNSET, arg2 = UNSET)
-      @call.call('LineColumnToIndex', _pack(arg1, arg2))
-    end
-
-    # LineIndexToColumn(arg1: int?, arg2: int?) -> int
-    #
-    # Sakura's F_LINEINDEXTOCOLUMN (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-    # This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def LineIndexToColumn(arg1 = UNSET, arg2 = UNSET)
-      @call.call('LineIndexToColumn', _pack(arg1, arg2))
-    end
-
-    # GetCookie(arg1: string?, arg2: string?) -> string
-    #
-    # Sakura's F_GETCOOKIE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-    # editor answers the error -32001 (not implemented) while it cannot answer it.
-    def GetCookie(arg1 = UNSET, arg2 = UNSET)
-      @call.call('GetCookie', _pack(arg1, arg2))
-    end
-
-    # GetCookieDefault(arg1: string?, arg2: string?, arg3: string?) -> string
-    #
-    # Sakura's F_GETCOOKIEDEFAULT (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-    # This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def GetCookieDefault(arg1 = UNSET, arg2 = UNSET, arg3 = UNSET)
-      @call.call('GetCookieDefault', _pack(arg1, arg2, arg3))
-    end
-
-    # SetCookie(arg1: string?, arg2: string?, arg3: string?) -> int
-    #
-    # Sakura's F_SETCOOKIE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-    # editor answers the error -32001 (not implemented) while it cannot answer it.
-    def SetCookie(arg1 = UNSET, arg2 = UNSET, arg3 = UNSET)
-      @call.call('SetCookie', _pack(arg1, arg2, arg3))
-    end
-
-    # DeleteCookie(arg1: string?, arg2: string?) -> int
-    #
-    # Sakura's F_DELETECOOKIE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-    # editor answers the error -32001 (not implemented) while it cannot answer it.
-    def DeleteCookie(arg1 = UNSET, arg2 = UNSET)
-      @call.call('DeleteCookie', _pack(arg1, arg2))
-    end
-
-    # GetCookieNames(arg1: string?) -> string
-    #
-    # Sakura's F_GETCOOKIENAMES (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-    # This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def GetCookieNames(arg1 = UNSET)
-      @call.call('GetCookieNames', _pack(arg1))
-    end
-
-    # SetDrawSwitch(arg1: int?) -> int
-    #
-    # Sakura's F_SETDRAWSWITCH (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-    # This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def SetDrawSwitch(arg1 = UNSET)
-      @call.call('SetDrawSwitch', _pack(arg1))
-    end
-
-    # GetDrawSwitch() -> int
-    #
-    # Sakura's F_GETDRAWSWITCH (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-    # This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def GetDrawSwitch
-      @call.call('GetDrawSwitch', _pack())
-    end
-
-    # IsShownStatus() -> int
-    #
-    # Sakura's F_ISSHOWNSTATUS (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-    # This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def IsShownStatus
-      @call.call('IsShownStatus', _pack())
-    end
-
-    # GetStrWidth(arg1: string?, arg2: int?) -> int
-    #
-    # Sakura's F_GETSTRWIDTH (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-    # editor answers the error -32001 (not implemented) while it cannot answer it.
-    def GetStrWidth(arg1 = UNSET, arg2 = UNSET)
-      @call.call('GetStrWidth', _pack(arg1, arg2))
-    end
-
-    # GetStrLayoutLength(arg1: string?, arg2: int?) -> int
-    #
-    # Sakura's F_GETSTRLAYOUTLENGTH (sakura_core/macro/CSMacroMgr.cpp). A function with a
-    # result. This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def GetStrLayoutLength(arg1 = UNSET, arg2 = UNSET)
-      @call.call('GetStrLayoutLength', _pack(arg1, arg2))
-    end
-
-    # GetDefaultCharLength() -> int
-    #
-    # Sakura's F_GETDEFAULTCHARLENGTH (sakura_core/macro/CSMacroMgr.cpp). A function with a
-    # result. This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def GetDefaultCharLength
-      @call.call('GetDefaultCharLength', _pack())
-    end
-
-    # IsIncludeClipboardFormat(arg1: string?) -> int
-    #
-    # Sakura's F_ISINCLUDECLIPBOARDFORMAT (sakura_core/macro/CSMacroMgr.cpp). A function with a
-    # result. This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def IsIncludeClipboardFormat(arg1 = UNSET)
-      @call.call('IsIncludeClipboardFormat', _pack(arg1))
-    end
-
-    # GetClipboardByFormat(arg1: string?, arg2: int?, arg3: int?) -> string
-    #
-    # Sakura's F_GETCLIPBOARDBYFORMAT (sakura_core/macro/CSMacroMgr.cpp). A function with a
-    # result. This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def GetClipboardByFormat(arg1 = UNSET, arg2 = UNSET, arg3 = UNSET)
-      @call.call('GetClipboardByFormat', _pack(arg1, arg2, arg3))
-    end
-
-    # SetClipboardByFormat(arg1: string?, arg2: string?, arg3: int?, arg4: int?) -> int
-    #
-    # Sakura's F_SETCLIPBOARDBYFORMAT (sakura_core/macro/CSMacroMgr.cpp). A function with a
-    # result. This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def SetClipboardByFormat(arg1 = UNSET, arg2 = UNSET, arg3 = UNSET, arg4 = UNSET)
-      @call.call('SetClipboardByFormat', _pack(arg1, arg2, arg3, arg4))
-    end
-
-    # GetLineAttribute(arg1: int?, arg2: int?) -> int
-    #
-    # Sakura's F_GETLINEATTRIBUTE (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-    # This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def GetLineAttribute(arg1 = UNSET, arg2 = UNSET)
-      @call.call('GetLineAttribute', _pack(arg1, arg2))
-    end
-
-    # IsTextSelectingLock() -> int
-    #
-    # Sakura's F_ISTEXTSELECTINGLOCK (sakura_core/macro/CSMacroMgr.cpp). A function with a
-    # result. This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def IsTextSelectingLock
-      @call.call('IsTextSelectingLock', _pack())
-    end
-
-    # GetViewLines() -> int
-    #
-    # Sakura's F_GETVIEWLINES (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-    # editor answers the error -32001 (not implemented) while it cannot answer it.
-    def GetViewLines
-      @call.call('GetViewLines', _pack())
-    end
-
-    # GetViewColumns() -> int
-    #
-    # Sakura's F_GETVIEWCOLUMNS (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-    # This editor answers the error -32001 (not implemented) while it cannot answer it.
-    def GetViewColumns
-      @call.call('GetViewColumns', _pack())
-    end
-
     # CreateMenu(arg1: int?, arg2: string?) -> int
     #
     # Sakura's F_CREATEMENU (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
     # editor answers the error -32001 (not implemented) while it cannot answer it.
     def CreateMenu(arg1 = UNSET, arg2 = UNSET)
       @call.call('CreateMenu', _pack(arg1, arg2))
-    end
-
-    # GetViewTop() -> int
-    #
-    # Sakura's F_GETVIEWTOP (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-    # editor answers the error -32001 (not implemented) while it cannot answer it.
-    def GetViewTop
-      @call.call('GetViewTop', _pack())
     end
 
     # ChangeInsertSpace(arg1: int?) -> int

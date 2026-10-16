@@ -26,6 +26,21 @@ impl Layout for RowLayout<'_> {
         self.0.config().effective_tab_width() as usize
     }
 
+    fn char_columns(&self, c: char) -> usize {
+        self.0.config().width.columns(c) as usize
+    }
+
+    fn row_index(&self, doc: &Document, pos: Pos) -> Result<usize> {
+        Ok(self.0.pos_to_row(doc, pos)?.row)
+    }
+
+    fn row_start_at(&self, doc: &Document, row: usize) -> Result<Option<Pos>> {
+        if row >= self.0.row_count() {
+            return Ok(None);
+        }
+        Ok(Some(self.0.row(doc, row)?.start))
+    }
+
     fn edited(&mut self, doc: &Document, change: &TextChange) {
         // `DocumentLayout::edited` follows one edit made right before `doc`, which is what the
         // context promises. If the index still disagrees, start again from the document.

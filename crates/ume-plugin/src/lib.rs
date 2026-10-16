@@ -11,6 +11,8 @@
 //! - `bridge`: runs a macro's calls by Sakura's macro names on the commands (`ume-commands`).
 //! - `catalog`: every callable name (the basic API and every row of Sakura's macro tables) in one
 //!   list, which the code generator and the bundled engines read.
+//! - `functions`: the macro functions that need the editor itself (the layout, the clipboard, the
+//!   window), and `host`: what the window gives them.
 //! - `api`: the basic API (one table). `codegen` (tests only) generates the JS, Python, Ruby and PHP parts
 //!   from it.
 //! - `session`: the child process, its threads, the timeout and the cancel.
@@ -21,6 +23,8 @@ pub mod api;
 pub mod boot;
 pub mod bridge;
 pub mod catalog;
+pub mod functions;
+pub mod host;
 pub mod model;
 pub mod protocol;
 pub mod session;
@@ -29,6 +33,9 @@ pub mod session;
 mod codegen;
 #[cfg(test)]
 mod tests;
+
+/// The JSON value of a call's argument and result, for a host that answers a call itself.
+pub use serde_json::Value;
 
 use session::{EndReason, Finished};
 

@@ -7,7 +7,12 @@
 //! 1. **A command** (the name is in `m_MacroFuncInfoCommandArr`): if a command is registered for
 //!    the function code, the bridge converts the JSON arguments to `Arg`s and runs the command
 //!    through the registry. The command is one undo block, as when a key runs it.
-//! 2. **A function that returns a value** (`m_MacroFuncInfoArr`): answered from the document.
+//! 2. **A function that returns a value** (`m_MacroFuncInfoArr`): answered from the document
+//!    (`api::FUNCS`, on a [`MacroDocument`]), or, when it needs the layout, the clipboard or the
+//!    window, by `crate::functions` on the command context and the [`HostEnv`] that the window
+//!    gives (`handle_message_with`). The calls that wait for the user (message boxes, file
+//!    dialogs, `Sleep`) are answered by the window itself when the wait is over
+//!    (`functions::window::parse`); here they answer [`UNAVAILABLE`].
 //! 3. A name that Sakura has but no command or answer exists for yet gets the error
 //!    [`NOT_IMPLEMENTED`] that names the function, so the macro author sees what is missing.
 //!    A name that Sakura does not have gets `-32601`.
@@ -25,7 +30,9 @@
 //!
 //! The editor makes one `CommandContext` for the whole macro run, calls
 //! [`handle_message`] for every message the macro sends, and calls `finish` on the context when
-//! the macro ends to learn what changed.
+//! the macro ends to learn what changed. [`handle_message`] has no window state (cookies do not
+//! last from one call to the next); a host that keeps a [`HostEnv`] for the run calls
+//! [`handle_message_with`].
 
 use serde_json::Value;
 use ume_commands::command::{Arg, CommandError};
@@ -36,6 +43,8 @@ use ume_commands::sakura::macro_functions::{ArgType, MacroFunction};
 use ume_core::buffer::Pos;
 
 use crate::api::{self, MacroDocument};
+use crate::functions;
+use crate::host::{Editor, HostEnv};
 use crate::protocol::{INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND, RpcError};
 
 /// The error code for a function that Sakura has but this editor does not run yet. It is in the
@@ -53,13 +62,37 @@ pub fn handle_message(
     cx: &mut CommandContext<'_>,
     text: &str,
 ) -> Option<String> {
-    api::respond(text, |method, params| call(registry, cx, method, params))
+    handle_message_with(registry, cx, &mut HostEnv::detached(), text)
+}
+
+/// Like [`handle_message`], with the environment of the window (see [`crate::host`]) for the
+/// functions that need it.
+pub fn handle_message_with(
+    registry: &Registry,
+    cx: &mut CommandContext<'_>,
+    env: &mut HostEnv,
+    text: &str,
+) -> Option<String> {
+    api::respond(text, |method, params| {
+        call_with(registry, cx, env, method, params)
+    })
 }
 
 /// Runs one call by its Sakura macro name. See the module documentation.
 pub fn call(
     registry: &Registry,
     cx: &mut CommandContext<'_>,
+    method: &str,
+    params: &[Value],
+) -> Result<Value, RpcError> {
+    call_with(registry, cx, &mut HostEnv::detached(), method, params)
+}
+
+/// Like [`call`], with the environment of the window.
+pub fn call_with(
+    registry: &Registry,
+    cx: &mut CommandContext<'_>,
+    env: &mut HostEnv,
     method: &str,
     params: &[Value],
 ) -> Result<Value, RpcError> {
@@ -83,6 +116,11 @@ pub fn call(
         if is_command {
             cx.end_block();
         }
+        return result;
+    }
+    if row.result.is_some()
+        && let Some(result) = functions::call(&mut Editor { cx, env }, row.name, params)
+    {
         return result;
     }
     Err(RpcError::new(
@@ -138,7 +176,7 @@ fn convert_arguments(row: &MacroFunction, params: &[Value]) -> Result<Vec<Arg>, 
         .collect()
 }
 
-fn command_error(error: CommandError) -> RpcError {
+pub(crate) fn command_error(error: CommandError) -> RpcError {
     match error {
         CommandError::BadArgs(message) => RpcError::new(INVALID_PARAMS, message),
         CommandError::Unknown(what) => {
@@ -222,11 +260,25 @@ impl MacroDocument for ContextDocument<'_, '_> {
         self.cx.selection().is_some()
     }
 
+    fn selection_kind(&self) -> i64 {
+        // A box that covers something is 2 (CMacro.cpp, F_ISTEXTSELECTED).
+        if self.cx.cursor().box_corners().is_some() {
+            2
+        } else {
+            i64::from(self.has_selection())
+        }
+    }
+
     fn selected_text(&self) -> String {
-        let Some((start, end)) = self.cx.selection() else {
-            return String::new();
+        // A box selection is the text of its rows (CViewCommander: GetSelectedData).
+        let text = if self.cx.cursor().box_corners().is_some() {
+            self.cx.box_text().ok().flatten().unwrap_or_default()
+        } else {
+            let Some((start, end)) = self.cx.selection() else {
+                return String::new();
+            };
+            self.cx.doc().text_between(start, end).unwrap_or_default()
         };
-        let text = self.cx.doc().text_between(start, end).unwrap_or_default();
         // Every line ending the document knows becomes "\n" (like the lines of `GetLineStr`).
         text.replace("\r\n", "\n")
             .replace(['\r', '\u{85}', '\u{2028}', '\u{2029}'], "\n")

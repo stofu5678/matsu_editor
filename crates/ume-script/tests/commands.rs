@@ -13,6 +13,7 @@ use ume_core::buffer::{Document, Pos};
 use ume_core::cursor::Cursor;
 use ume_core::model::DocumentModel;
 use ume_plugin::bridge;
+use ume_plugin::host::HostEnv;
 use ume_plugin::session::{self, EndReason, MacroConfig, Report, Stream};
 
 struct Fixture {
@@ -46,6 +47,8 @@ fn run(file: &str, code: &str, text: &str) -> (Report, Fixture) {
     config.timeout = Duration::from_secs(30);
     let mut fixture = Fixture::new(text);
     let registry = Registry::global();
+    // One environment for the whole run, so that a cookie set by one call is there for the next.
+    let mut env = HostEnv::detached();
     let report = {
         let mut cx = CommandContext::new(
             &mut fixture.model,
@@ -53,8 +56,10 @@ fn run(file: &str, code: &str, text: &str) -> (Report, Fixture) {
             &mut fixture.layout,
             None,
         );
-        session::run_blocking(config, |m| bridge::handle_message(registry, &mut cx, m))
-            .expect("the host starts")
+        session::run_blocking(config, |m| {
+            bridge::handle_message_with(registry, &mut cx, &mut env, m)
+        })
+        .expect("the host starts")
     };
     (report, fixture)
 }
@@ -238,4 +243,74 @@ fn micropython_has_every_name_of_the_catalog() {
     let (report, _) = run("names.upy", &code, "");
     assert_clean_exit(&report);
     assert_eq!(report.lines(Stream::Stdout), ["0"]);
+}
+
+// ---- functions with a result: the environment, the layout, a version, a format string ----
+
+/// What every engine prints for the same calls: a cookie (the environment), the width of a
+/// string and the column of an index (the layout), a version comparison, a format string (the
+/// document and the caret), and the error of a function that needs a window.
+const FUNCTIONS_OUTPUT: [&str; 2] = ["値/9/-256/5/1,1|$", "no view -32002"];
+
+#[test]
+fn lua_calls_the_functions_with_a_result() {
+    let code = r#"
+Editor.SetCookie('window', 'k', '値')
+print(table.concat({Editor.GetCookie('window', 'k'), Editor.GetStrWidth('日本\ta', 1),
+  Editor.CompareVersion('1.2.3', '1.2.4'), Editor.LineIndexToColumn(1, 3),
+  Editor.ExpandParameter('$y,$x|$$')}, '/'))
+local ok, e = pcall(Editor.GetViewLines)
+print('no view', e.code)
+"#;
+    let (report, _) = run("functions.lua", code, "日本語");
+    assert_clean_exit(&report);
+    assert_eq!(
+        report.lines(Stream::Stdout),
+        [FUNCTIONS_OUTPUT[0], "no view\t-32002"]
+    );
+}
+
+#[test]
+fn quickjs_calls_the_functions_with_a_result() {
+    let code = r#"
+Editor.SetCookie('window', 'k', '値');
+console.log([Editor.GetCookie('window', 'k'), Editor.GetStrWidth('日本\ta', 1),
+  Editor.CompareVersion('1.2.3', '1.2.4'), Editor.LineIndexToColumn(1, 3),
+  Editor.ExpandParameter('$y,$x|$$')].join('/'));
+try { Editor.GetViewLines(); } catch (e) { console.log('no view', e.code); }
+"#;
+    let (report, _) = run("functions.js", code, "日本語");
+    assert_clean_exit(&report);
+    assert_eq!(report.lines(Stream::Stdout), FUNCTIONS_OUTPUT);
+}
+
+#[test]
+fn mruby_calls_the_functions_with_a_result() {
+    let code = r##"
+Editor.SetCookie('window', 'k', '値')
+puts [Editor.GetCookie('window', 'k'), Editor.GetStrWidth("日本\ta", 1),
+  Editor.CompareVersion('1.2.3', '1.2.4'), Editor.LineIndexToColumn(1, 3),
+  Editor.ExpandParameter('$y,$x|$$')].join('/')
+begin; Editor.GetViewLines; rescue EditorError => e; puts "no view #{e.code}"; end
+"##;
+    let (report, _) = run("functions.mruby", code, "日本語");
+    assert_clean_exit(&report);
+    assert_eq!(report.lines(Stream::Stdout), FUNCTIONS_OUTPUT);
+}
+
+#[test]
+fn micropython_calls_the_functions_with_a_result() {
+    let code = r#"
+Editor.SetCookie('window', 'k', '値')
+print('/'.join([str(v) for v in [Editor.GetCookie('window', 'k'), Editor.GetStrWidth('日本\ta', 1),
+  Editor.CompareVersion('1.2.3', '1.2.4'), Editor.LineIndexToColumn(1, 3),
+  Editor.ExpandParameter('$y,$x|$$')]]))
+try:
+    Editor.GetViewLines()
+except EditorError as e:
+    print('no view', e.code)
+"#;
+    let (report, _) = run("functions.upy", code, "日本語");
+    assert_clean_exit(&report);
+    assert_eq!(report.lines(Stream::Stdout), FUNCTIONS_OUTPUT);
 }

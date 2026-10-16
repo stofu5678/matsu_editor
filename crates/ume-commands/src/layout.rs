@@ -57,6 +57,42 @@ pub trait Layout {
     /// type that the layout uses (`CLayoutMgr::GetTabSpaceKetas`). It must be the width that
     /// [`display_col`](Self::display_col) counts tabs with.
     fn tab_width(&self) -> usize;
+
+    /// The number of cells of a char other than a tab (`CharWidthCache` in Sakura). The default
+    /// is the short table of [`PlainLayout`]; a real layout answers with its own width table.
+    fn char_columns(&self, c: char) -> usize {
+        char_width(c)
+    }
+
+    /// The index of the row that contains `pos`, counted from 0 over the whole document (Sakura:
+    /// the layout line number, `CLayout` y). The default walks the rows from the start, which is
+    /// slow on a long document; a layout that keeps an index overrides it.
+    fn row_index(&self, doc: &Document, pos: Pos) -> Result<usize> {
+        let target = self.row_start(doc, pos)?;
+        let mut at = Pos::new(0, 0);
+        let mut index = 0;
+        while at < target {
+            match self.next_row_start(doc, at)? {
+                Some(next) => at = next,
+                None => break,
+            }
+            index += 1;
+        }
+        Ok(index)
+    }
+
+    /// The first position of row `row` (from 0), or `None` if the document has fewer rows. The
+    /// default walks the rows from the start, like [`row_index`](Self::row_index).
+    fn row_start_at(&self, doc: &Document, row: usize) -> Result<Option<Pos>> {
+        let mut at = Pos::new(0, 0);
+        for _ in 0..row {
+            match self.next_row_start(doc, at)? {
+                Some(next) => at = next,
+                None => return Ok(None),
+            }
+        }
+        Ok(Some(at))
+    }
 }
 
 /// A layout without wrapping: a row is a line. Tabs go to the next multiple of 4; chars of East

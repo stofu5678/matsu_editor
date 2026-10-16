@@ -135,8 +135,7 @@ final class Editor
     /**
      * IsTextSelected() -> int
      *
-     * 0 when nothing is selected, 1 when text is selected. (Sakura returns 2 for a box
-     * selection, which is not supported yet.)
+     * 0 when nothing is selected, 1 when text is selected, 2 when a box selection is selected.
      */
     public static function IsTextSelected()
     {
@@ -180,6 +179,662 @@ final class Editor
     {
         // func_get_args() holds only the arguments that were given.
         return (self::$call)('GetFilename', func_get_args());
+    }
+
+    /**
+     * GetSelectLineFrom() -> int
+     *
+     * The line where the selection starts, counted from 1 in layout lines (wrapped rows count as
+     * lines). 0 when nothing is selected.
+     */
+    public static function GetSelectLineFrom()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetSelectLineFrom', func_get_args());
+    }
+
+    /**
+     * GetSelectColmFrom() -> int
+     *
+     * The column where the selection starts, counted from 1 in layout columns (cells: a
+     * full-width character is 2, a tab goes to the tab stop). 0 when nothing is selected. Same
+     * as GetSelectColumnFrom.
+     */
+    public static function GetSelectColmFrom()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetSelectColmFrom', func_get_args());
+    }
+
+    /**
+     * GetSelectColumnFrom() -> int
+     *
+     * The column where the selection starts, counted from 1 in layout columns (cells: a
+     * full-width character is 2, a tab goes to the tab stop). 0 when nothing is selected.
+     */
+    public static function GetSelectColumnFrom()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetSelectColumnFrom', func_get_args());
+    }
+
+    /**
+     * GetSelectLineTo() -> int
+     *
+     * The line where the selection ends, counted from 1 in layout lines. 0 when nothing is
+     * selected.
+     */
+    public static function GetSelectLineTo()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetSelectLineTo', func_get_args());
+    }
+
+    /**
+     * GetSelectColmTo() -> int
+     *
+     * The column where the selection ends, counted from 1 in layout columns. 0 when nothing is
+     * selected. Same as GetSelectColumnTo.
+     */
+    public static function GetSelectColmTo()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetSelectColmTo', func_get_args());
+    }
+
+    /**
+     * GetSelectColumnTo() -> int
+     *
+     * The column where the selection ends, counted from 1 in layout columns. 0 when nothing is
+     * selected.
+     */
+    public static function GetSelectColumnTo()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetSelectColumnTo', func_get_args());
+    }
+
+    /**
+     * IsInsMode() -> int
+     *
+     * 1 in insert mode, 0 in overwrite mode.
+     */
+    public static function IsInsMode()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('IsInsMode', func_get_args());
+    }
+
+    /**
+     * GetCharCode() -> int
+     *
+     * The encoding of the file: 0 Shift_JIS, 1 JIS, 2 EUC-JP, 3 UTF-16, 4 UTF-8, 5 UTF-7, 6
+     * UTF-16 BE, 7 CESU-8, 8 Latin1.
+     */
+    public static function GetCharCode()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetCharCode', func_get_args());
+    }
+
+    /**
+     * GetLineCode() -> int
+     *
+     * The line ending that new line breaks get: 0 CR LF, 1 CR, 2 LF (3 NEL, 4 LS, 5 PS).
+     */
+    public static function GetLineCode()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetLineCode', func_get_args());
+    }
+
+    /**
+     * IsPossibleUndo() -> int
+     *
+     * 1 when there is something to undo, else 0.
+     */
+    public static function IsPossibleUndo()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('IsPossibleUndo', func_get_args());
+    }
+
+    /**
+     * IsPossibleRedo() -> int
+     *
+     * 1 when there is something to redo, else 0.
+     */
+    public static function IsPossibleRedo()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('IsPossibleRedo', func_get_args());
+    }
+
+    /**
+     * GetLineAttribute(line: int, type: int) -> int
+     *
+     * An attribute of a logical line (0 is the line of the cursor, 1 the first line). Type 0 is
+     * 1 when the line changed since the last save, type 1 the number of the undo step that last
+     * touched it, type 2 the bookmark (1 or 0). Types 3 (diff mark) and 4 (function list mark)
+     * answer the error -32001 until the editor has them. A negative line, a line past the end
+     * and any other type are errors.
+     */
+    public static function GetLineAttribute($line, $type)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetLineAttribute', func_get_args());
+    }
+
+    /**
+     * IsTextSelectingLock() -> int
+     *
+     * 0 when the selection is not locked, 1 when it is locked (plain moves extend the
+     * selection), 2 when it is locked and a box selection.
+     */
+    public static function IsTextSelectingLock()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('IsTextSelectingLock', func_get_args());
+    }
+
+    /**
+     * GetSaveFilename() -> string
+     *
+     * The full path that a save writes to, or an empty string when the text has no file. The
+     * same as GetFilename here.
+     */
+    public static function GetSaveFilename()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetSaveFilename', func_get_args());
+    }
+
+    /**
+     * LayoutToLogicLineNum(layoutLine: int) -> int
+     *
+     * The logical line (up to a line break) that a layout line (a row on the screen) belongs to,
+     * both counted from 1. The line after the last layout line gives the line after the last
+     * logical line. Any other line outside the text is an error.
+     */
+    public static function LayoutToLogicLineNum($layoutLine)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('LayoutToLogicLineNum', func_get_args());
+    }
+
+    /**
+     * LogicToLayoutLineNum(logicLine: int, logicIndex: int) -> int
+     *
+     * The layout line (a row on the screen) of a position in a logical line: the line and the
+     * index in it (UTF-16 code units), both counted from 1. A line past the end gives the line
+     * after the last layout line.
+     */
+    public static function LogicToLayoutLineNum($logicLine, $logicIndex)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('LogicToLayoutLineNum', func_get_args());
+    }
+
+    /**
+     * LineColumnToIndex(layoutLine: int, layoutColumn: int) -> int
+     *
+     * The index (UTF-16 code units, from 1) in the logical line of a layout line and a layout
+     * column (cells), both from 1. A column past the text gives the end of the text of the row.
+     */
+    public static function LineColumnToIndex($layoutLine, $layoutColumn)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('LineColumnToIndex', func_get_args());
+    }
+
+    /**
+     * LineIndexToColumn(logicLine: int, logicIndex: int) -> int
+     *
+     * The layout column (cells, from 1) of a position in a logical line: the line and the index
+     * in it (UTF-16 code units), both from 1. Tabs and full-width characters take their width.
+     */
+    public static function LineIndexToColumn($logicLine, $logicIndex)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('LineIndexToColumn', func_get_args());
+    }
+
+    /**
+     * GetStrWidth(text: string, column: int?) -> int
+     *
+     * The width of a string in cells, starting at layout column `column` (from 1, default 1; it
+     * matters for tabs). A CR LF at the end counts as the CR alone.
+     */
+    public static function GetStrWidth($text, $column = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetStrWidth', func_get_args());
+    }
+
+    /**
+     * GetStrLayoutLength(text: string, column: int?) -> int
+     *
+     * The width of a string as a line of the document in cells, starting at layout column
+     * `column` (from 1, default 1). A line ending at the end takes one cell.
+     */
+    public static function GetStrLayoutLength($text, $column = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetStrLayoutLength', func_get_args());
+    }
+
+    /**
+     * GetDefaultCharLength() -> int
+     *
+     * The layout width of a half-width character. This editor lays out in cells, so it is 1.
+     */
+    public static function GetDefaultCharLength()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetDefaultCharLength', func_get_args());
+    }
+
+    /**
+     * GetViewLines() -> int
+     *
+     * How many rows the text area shows (at least 1).
+     */
+    public static function GetViewLines()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetViewLines', func_get_args());
+    }
+
+    /**
+     * GetViewColumns() -> int
+     *
+     * How many columns the text area shows (at least 1).
+     */
+    public static function GetViewColumns()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetViewColumns', func_get_args());
+    }
+
+    /**
+     * GetViewTop() -> int
+     *
+     * The layout line at the top of the text area, counted from 1.
+     */
+    public static function GetViewTop()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetViewTop', func_get_args());
+    }
+
+    /**
+     * ChangeTabWidth(width: int) -> int
+     *
+     * The tab width before the call. A width from 1 to 64 that differs from it becomes the tab
+     * width of this window (not saved). Any other value, such as 0, only reads.
+     */
+    public static function ChangeTabWidth($width)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ChangeTabWidth', func_get_args());
+    }
+
+    /**
+     * ChangeWrapColm(column: int) -> int
+     *
+     * The wrap column before the call. A column from 10 to 10240 makes this window wrap at that
+     * column (not saved). Any other value only reads. Same as ChangeWrapColumn.
+     */
+    public static function ChangeWrapColm($column)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ChangeWrapColm', func_get_args());
+    }
+
+    /**
+     * ChangeWrapColumn(column: int) -> int
+     *
+     * The wrap column before the call. A column from 10 to 10240 makes this window wrap at that
+     * column (not saved). Any other value only reads.
+     */
+    public static function ChangeWrapColumn($column)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ChangeWrapColumn', func_get_args());
+    }
+
+    /**
+     * GetClipboard(option: int?) -> string
+     *
+     * The text on the clipboard, or an empty string when there is none. The line endings are
+     * those of the source. The option is reserved.
+     */
+    public static function GetClipboard($option = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetClipboard', func_get_args());
+    }
+
+    /**
+     * SetClipboard(option: int?, text: string?) -> int
+     *
+     * Puts the text on the clipboard. Option bit 0 marks a box copy (a paste puts it in as a
+     * box), bit 1 a row copy (a paste puts it in front of the row); with both, the box wins.
+     * Returns 1 when it worked, 0 when not.
+     */
+    public static function SetClipboard($option = null, $text = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SetClipboard', func_get_args());
+    }
+
+    /**
+     * IsIncludeClipboardFormat(format: string) -> int
+     *
+     * 1 when the clipboard has the format. Only text is known: CF_TEXT, CF_OEMTEXT and
+     * CF_UNICODETEXT (or 1, 7, 13) are 1 when the clipboard has text; every other format is 0.
+     */
+    public static function IsIncludeClipboardFormat($format)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('IsIncludeClipboardFormat', func_get_args());
+    }
+
+    /**
+     * GetClipboardByFormat(format: string, mode: int, endMode: int?) -> string
+     *
+     * The text of the clipboard in a text format (CF_TEXT, CF_OEMTEXT, CF_UNICODETEXT), with the
+     * line endings of the document. Mode -2 is the usual way and 3 is UTF-16 (the text itself);
+     * the other modes and formats are errors (-32001). The end mode is not used.
+     */
+    public static function GetClipboardByFormat($format, $mode, $endMode = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetClipboardByFormat', func_get_args());
+    }
+
+    /**
+     * SetClipboardByFormat(text: string, format: string, mode: int, endMode: int?) -> int
+     *
+     * Puts the text on the clipboard as text. The formats and modes are those of
+     * GetClipboardByFormat. Returns 1 when it worked.
+     */
+    public static function SetClipboardByFormat($text, $format, $mode, $endMode = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SetClipboardByFormat', func_get_args());
+    }
+
+    /**
+     * GetCookie(scope: string, name: string) -> string
+     *
+     * The value of a cookie, or an empty string when there is none. The scope is "window" or
+     * "document".
+     */
+    public static function GetCookie($scope, $name)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetCookie', func_get_args());
+    }
+
+    /**
+     * GetCookieDefault(scope: string, name: string, defaultValue: string) -> string
+     *
+     * The value of a cookie, or the default when there is none (an unknown scope still gives an
+     * empty string). The scope is "window" or "document".
+     */
+    public static function GetCookieDefault($scope, $name, $defaultValue)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetCookieDefault', func_get_args());
+    }
+
+    /**
+     * SetCookie(scope: string, name: string, value: string) -> int
+     *
+     * Sets a cookie. Returns 0 when it worked, 1 for an unknown scope, 2 for a name with a
+     * character that a name cannot have (Sakura lets in digits, letters and every character from
+     * "_" up in the character table). The scope is "window" or "document".
+     */
+    public static function SetCookie($scope, $name, $value)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SetCookie', func_get_args());
+    }
+
+    /**
+     * DeleteCookie(scope: string, name: string) -> int
+     *
+     * Deletes a cookie. Returns 0 when it worked, 1 for an unknown scope, 2 for a bad name, 5
+     * when there is no such cookie. The scope is "window" or "document".
+     */
+    public static function DeleteCookie($scope, $name)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('DeleteCookie', func_get_args());
+    }
+
+    /**
+     * GetCookieNames(scope: string) -> string
+     *
+     * The names of the cookies of a scope, joined with commas, in the order of the names (UTF-16
+     * code units). An unknown scope gives an empty string. The scope is "window" or "document".
+     */
+    public static function GetCookieNames($scope)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetCookieNames', func_get_args());
+    }
+
+    /**
+     * CompareVersion(versionA: string, versionB: string) -> int
+     *
+     * Compares two version strings: 0 when equal, positive when A is newer, negative when B is.
+     * Four parts at most; a part has two digits at most; "alpha", "beta", "rc" and "pl" put a
+     * part before or after the release (like PHP's version_compare).
+     */
+    public static function CompareVersion($versionA, $versionB)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CompareVersion', func_get_args());
+    }
+
+    /**
+     * SetDrawSwitch(on: int) -> int
+     *
+     * Turns the draw switch on (non-zero) or off (0) and returns the state before (1 or 0). The
+     * editor keeps the flag for GetDrawSwitch but still paints the text when it likes.
+     */
+    public static function SetDrawSwitch($on)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('SetDrawSwitch', func_get_args());
+    }
+
+    /**
+     * GetDrawSwitch() -> int
+     *
+     * 1 when the draw switch is on (the start state), 0 when a macro turned it off.
+     */
+    public static function GetDrawSwitch()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('GetDrawSwitch', func_get_args());
+    }
+
+    /**
+     * IsShownStatus() -> int
+     *
+     * 1 when the status bar is shown, else 0.
+     */
+    public static function IsShownStatus()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('IsShownStatus', func_get_args());
+    }
+
+    /**
+     * IsCurTypeExt(extension: string) -> int
+     *
+     * 1 when the document type of this file is the type of the extension (looked up in the
+     * extension lists of the types in the settings file, as a file name). Without type settings
+     * every extension is the basic type.
+     */
+    public static function IsCurTypeExt($extension)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('IsCurTypeExt', func_get_args());
+    }
+
+    /**
+     * IsSameTypeExt(extension1: string, extension2: string) -> int
+     *
+     * 1 when the two extensions belong to the same document type (see IsCurTypeExt).
+     */
+    public static function IsSameTypeExt($extension1, $extension2)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('IsSameTypeExt', func_get_args());
+    }
+
+    /**
+     * ExpandParameter(format: string) -> string
+     *
+     * Replaces the codes that start with $ in a string: $$ ($), $F (full path), $f (file name),
+     * $g (file name without the extension), $/ (full path with /), $N (as $F), $b (extension),
+     * $e and $E (folder), $C (the selected text or the word at the caret), $x and $y (caret
+     * column in UTF-16 units and line, from 1), $S (the editor), $M (the macro file), $V
+     * (version), $A (name), and conditions ${R?a$:b$:c$} (R, w, M, U, N, I). A text without a
+     * file is (無題). $d $t $D $T $B $Q $I are not supported and stay as written. At most 2047
+     * UTF-16 units.
+     */
+    public static function ExpandParameter($format)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ExpandParameter', func_get_args());
+    }
+
+    /**
+     * MessageBox(message: string, type: int?) -> int
+     *
+     * Shows a message box and waits. The type is Windows' MB_ value: the low nibble chooses the
+     * buttons (0 OK, 1 OK/Cancel, 2 Abort/Retry/Ignore, 3 Yes/No/Cancel, 4 Yes/No, 5
+     * Retry/Cancel, 6 Cancel/Try again/Continue), the icon bits (0x10 stop, 0x20 question, 0x30
+     * exclamation, 0x40 information) the icon; the default button and the modality are ignored.
+     * Returns the button as Windows numbers it: 1 OK, 2 Cancel, 3 Abort, 4 Retry, 5 Ignore, 6
+     * Yes, 7 No, 10 Try again, 11 Continue. A box that is closed without an answer gives Cancel
+     * (the last button when there is none).
+     */
+    public static function MessageBox($message, $type = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('MessageBox', func_get_args());
+    }
+
+    /**
+     * ErrorMsg(message: string) -> int
+     *
+     * Shows an error message with an OK button and waits. Returns 1.
+     */
+    public static function ErrorMsg($message)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ErrorMsg', func_get_args());
+    }
+
+    /**
+     * WarnMsg(message: string) -> int
+     *
+     * Shows a warning with an OK button and waits. Returns 1.
+     */
+    public static function WarnMsg($message)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('WarnMsg', func_get_args());
+    }
+
+    /**
+     * InfoMsg(message: string) -> int
+     *
+     * Shows an information message with an OK button and waits. Returns 1.
+     */
+    public static function InfoMsg($message)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('InfoMsg', func_get_args());
+    }
+
+    /**
+     * OkCancelBox(message: string) -> int
+     *
+     * Asks a question with OK and Cancel and waits. Returns 1 (OK) or 2 (Cancel).
+     */
+    public static function OkCancelBox($message)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('OkCancelBox', func_get_args());
+    }
+
+    /**
+     * YesNoBox(message: string) -> int
+     *
+     * Asks a question with Yes and No and waits. Returns 6 (Yes) or 7 (No).
+     */
+    public static function YesNoBox($message)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('YesNoBox', func_get_args());
+    }
+
+    /**
+     * FileOpenDialog(defaultName: string?, filter: string?) -> string
+     *
+     * Lets the user choose a file to open and returns its full path, or an empty string when the
+     * dialog is cancelled. The default name and the filter are not used: the dialog of the
+     * platform takes neither.
+     */
+    public static function FileOpenDialog($defaultName = null, $filter = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('FileOpenDialog', func_get_args());
+    }
+
+    /**
+     * FileSaveDialog(defaultName: string?, filter: string?) -> string
+     *
+     * Lets the user choose a file name to save under and returns the full path, or an empty
+     * string when the dialog is cancelled. The dialog starts with the default name. The filter
+     * is not used.
+     */
+    public static function FileSaveDialog($defaultName = null, $filter = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('FileSaveDialog', func_get_args());
+    }
+
+    /**
+     * FolderDialog(message: string?, defaultFolder: string?) -> string
+     *
+     * Lets the user choose a folder and returns its full path, or an empty string when the
+     * dialog is cancelled. The message becomes the prompt text of the platform dialog where it
+     * has one; the default folder is not used.
+     */
+    public static function FolderDialog($message = null, $defaultFolder = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('FolderDialog', func_get_args());
+    }
+
+    /**
+     * Sleep(milliseconds: int) -> int
+     *
+     * Waits for the given number of milliseconds (the window stays alive, and the macro can be
+     * cancelled). Returns 0.
+     */
+    public static function Sleep($milliseconds)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('Sleep', func_get_args());
     }
 
     /**
@@ -4187,222 +4842,6 @@ final class Editor
     }
 
     /**
-     * GetSaveFilename() -> string
-     *
-     * Sakura's F_GETSAVEFILENAME (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function GetSaveFilename()
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('GetSaveFilename', func_get_args());
-    }
-
-    /**
-     * ExpandParameter(arg1: string?) -> string
-     *
-     * Sakura's F_EXPANDPARAMETER (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function ExpandParameter($arg1 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('ExpandParameter', func_get_args());
-    }
-
-    /**
-     * ChangeTabWidth(arg1: int?) -> int
-     *
-     * Sakura's F_CHGTABWIDTH (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function ChangeTabWidth($arg1 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('ChangeTabWidth', func_get_args());
-    }
-
-    /**
-     * GetSelectLineFrom() -> int
-     *
-     * Sakura's F_GETSELLINEFROM (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function GetSelectLineFrom()
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('GetSelectLineFrom', func_get_args());
-    }
-
-    /**
-     * GetSelectColmFrom() -> int
-     *
-     * Sakura's F_GETSELCOLUMNFROM (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function GetSelectColmFrom()
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('GetSelectColmFrom', func_get_args());
-    }
-
-    /**
-     * GetSelectColumnFrom() -> int
-     *
-     * Sakura's F_GETSELCOLUMNFROM (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function GetSelectColumnFrom()
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('GetSelectColumnFrom', func_get_args());
-    }
-
-    /**
-     * GetSelectLineTo() -> int
-     *
-     * Sakura's F_GETSELLINETO (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function GetSelectLineTo()
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('GetSelectLineTo', func_get_args());
-    }
-
-    /**
-     * GetSelectColmTo() -> int
-     *
-     * Sakura's F_GETSELCOLUMNTO (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function GetSelectColmTo()
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('GetSelectColmTo', func_get_args());
-    }
-
-    /**
-     * GetSelectColumnTo() -> int
-     *
-     * Sakura's F_GETSELCOLUMNTO (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function GetSelectColumnTo()
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('GetSelectColumnTo', func_get_args());
-    }
-
-    /**
-     * IsInsMode() -> int
-     *
-     * Sakura's F_ISINSMODE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function IsInsMode()
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('IsInsMode', func_get_args());
-    }
-
-    /**
-     * GetCharCode() -> int
-     *
-     * Sakura's F_GETCHARCODE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function GetCharCode()
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('GetCharCode', func_get_args());
-    }
-
-    /**
-     * GetLineCode() -> int
-     *
-     * Sakura's F_GETLINECODE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function GetLineCode()
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('GetLineCode', func_get_args());
-    }
-
-    /**
-     * IsPossibleUndo() -> int
-     *
-     * Sakura's F_ISPOSSIBLEUNDO (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function IsPossibleUndo()
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('IsPossibleUndo', func_get_args());
-    }
-
-    /**
-     * IsPossibleRedo() -> int
-     *
-     * Sakura's F_ISPOSSIBLEREDO (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function IsPossibleRedo()
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('IsPossibleRedo', func_get_args());
-    }
-
-    /**
-     * ChangeWrapColm(arg1: int?) -> int
-     *
-     * Sakura's F_CHGWRAPCOLUMN (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function ChangeWrapColm($arg1 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('ChangeWrapColm', func_get_args());
-    }
-
-    /**
-     * ChangeWrapColumn(arg1: int?) -> int
-     *
-     * Sakura's F_CHGWRAPCOLUMN (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function ChangeWrapColumn($arg1 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('ChangeWrapColumn', func_get_args());
-    }
-
-    /**
-     * IsCurTypeExt(arg1: string?) -> int
-     *
-     * Sakura's F_ISCURTYPEEXT (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function IsCurTypeExt($arg1 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('IsCurTypeExt', func_get_args());
-    }
-
-    /**
-     * IsSameTypeExt(arg1: string?, arg2: string?) -> int
-     *
-     * Sakura's F_ISSAMETYPEEXT (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function IsSameTypeExt($arg1 = null, $arg2 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('IsSameTypeExt', func_get_args());
-    }
-
-    /**
      * InputBox(arg1: string?, arg2: string?, arg3: int?) -> string
      *
      * Sakura's F_INPUTBOX (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
@@ -4415,426 +4854,6 @@ final class Editor
     }
 
     /**
-     * MessageBox(arg1: string?, arg2: int?) -> int
-     *
-     * Sakura's F_MESSAGEBOX (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function MessageBox($arg1 = null, $arg2 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('MessageBox', func_get_args());
-    }
-
-    /**
-     * ErrorMsg(arg1: string?) -> int
-     *
-     * Sakura's F_ERRORMSG (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function ErrorMsg($arg1 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('ErrorMsg', func_get_args());
-    }
-
-    /**
-     * WarnMsg(arg1: string?) -> int
-     *
-     * Sakura's F_WARNMSG (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function WarnMsg($arg1 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('WarnMsg', func_get_args());
-    }
-
-    /**
-     * InfoMsg(arg1: string?) -> int
-     *
-     * Sakura's F_INFOMSG (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function InfoMsg($arg1 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('InfoMsg', func_get_args());
-    }
-
-    /**
-     * OkCancelBox(arg1: string?) -> int
-     *
-     * Sakura's F_OKCANCELBOX (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function OkCancelBox($arg1 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('OkCancelBox', func_get_args());
-    }
-
-    /**
-     * YesNoBox(arg1: string?) -> int
-     *
-     * Sakura's F_YESNOBOX (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function YesNoBox($arg1 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('YesNoBox', func_get_args());
-    }
-
-    /**
-     * CompareVersion(arg1: string?, arg2: string?) -> int
-     *
-     * Sakura's F_COMPAREVERSION (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function CompareVersion($arg1 = null, $arg2 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('CompareVersion', func_get_args());
-    }
-
-    /**
-     * Sleep(arg1: int?) -> int
-     *
-     * Sakura's F_MACROSLEEP (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function Sleep($arg1 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('Sleep', func_get_args());
-    }
-
-    /**
-     * FileOpenDialog(arg1: string?, arg2: string?) -> string
-     *
-     * Sakura's F_FILEOPENDIALOG (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function FileOpenDialog($arg1 = null, $arg2 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('FileOpenDialog', func_get_args());
-    }
-
-    /**
-     * FileSaveDialog(arg1: string?, arg2: string?) -> string
-     *
-     * Sakura's F_FILESAVEDIALOG (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function FileSaveDialog($arg1 = null, $arg2 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('FileSaveDialog', func_get_args());
-    }
-
-    /**
-     * FolderDialog(arg1: string?, arg2: string?) -> string
-     *
-     * Sakura's F_FOLDERDIALOG (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function FolderDialog($arg1 = null, $arg2 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('FolderDialog', func_get_args());
-    }
-
-    /**
-     * GetClipboard(arg1: int?) -> string
-     *
-     * Sakura's F_GETCLIPBOARD (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function GetClipboard($arg1 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('GetClipboard', func_get_args());
-    }
-
-    /**
-     * SetClipboard(arg1: int?, arg2: string?) -> int
-     *
-     * Sakura's F_SETCLIPBOARD (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function SetClipboard($arg1 = null, $arg2 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('SetClipboard', func_get_args());
-    }
-
-    /**
-     * LayoutToLogicLineNum(arg1: int?) -> int
-     *
-     * Sakura's F_LAYOUTTOLOGICLINENUM (sakura_core/macro/CSMacroMgr.cpp). A function with a
-     * result. This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function LayoutToLogicLineNum($arg1 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('LayoutToLogicLineNum', func_get_args());
-    }
-
-    /**
-     * LogicToLayoutLineNum(arg1: int?, arg2: int?) -> int
-     *
-     * Sakura's F_LOGICTOLAYOUTLINENUM (sakura_core/macro/CSMacroMgr.cpp). A function with a
-     * result. This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function LogicToLayoutLineNum($arg1 = null, $arg2 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('LogicToLayoutLineNum', func_get_args());
-    }
-
-    /**
-     * LineColumnToIndex(arg1: int?, arg2: int?) -> int
-     *
-     * Sakura's F_LINECOLUMNTOINDEX (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function LineColumnToIndex($arg1 = null, $arg2 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('LineColumnToIndex', func_get_args());
-    }
-
-    /**
-     * LineIndexToColumn(arg1: int?, arg2: int?) -> int
-     *
-     * Sakura's F_LINEINDEXTOCOLUMN (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function LineIndexToColumn($arg1 = null, $arg2 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('LineIndexToColumn', func_get_args());
-    }
-
-    /**
-     * GetCookie(arg1: string?, arg2: string?) -> string
-     *
-     * Sakura's F_GETCOOKIE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function GetCookie($arg1 = null, $arg2 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('GetCookie', func_get_args());
-    }
-
-    /**
-     * GetCookieDefault(arg1: string?, arg2: string?, arg3: string?) -> string
-     *
-     * Sakura's F_GETCOOKIEDEFAULT (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function GetCookieDefault($arg1 = null, $arg2 = null, $arg3 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('GetCookieDefault', func_get_args());
-    }
-
-    /**
-     * SetCookie(arg1: string?, arg2: string?, arg3: string?) -> int
-     *
-     * Sakura's F_SETCOOKIE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function SetCookie($arg1 = null, $arg2 = null, $arg3 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('SetCookie', func_get_args());
-    }
-
-    /**
-     * DeleteCookie(arg1: string?, arg2: string?) -> int
-     *
-     * Sakura's F_DELETECOOKIE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function DeleteCookie($arg1 = null, $arg2 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('DeleteCookie', func_get_args());
-    }
-
-    /**
-     * GetCookieNames(arg1: string?) -> string
-     *
-     * Sakura's F_GETCOOKIENAMES (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function GetCookieNames($arg1 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('GetCookieNames', func_get_args());
-    }
-
-    /**
-     * SetDrawSwitch(arg1: int?) -> int
-     *
-     * Sakura's F_SETDRAWSWITCH (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function SetDrawSwitch($arg1 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('SetDrawSwitch', func_get_args());
-    }
-
-    /**
-     * GetDrawSwitch() -> int
-     *
-     * Sakura's F_GETDRAWSWITCH (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function GetDrawSwitch()
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('GetDrawSwitch', func_get_args());
-    }
-
-    /**
-     * IsShownStatus() -> int
-     *
-     * Sakura's F_ISSHOWNSTATUS (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function IsShownStatus()
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('IsShownStatus', func_get_args());
-    }
-
-    /**
-     * GetStrWidth(arg1: string?, arg2: int?) -> int
-     *
-     * Sakura's F_GETSTRWIDTH (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function GetStrWidth($arg1 = null, $arg2 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('GetStrWidth', func_get_args());
-    }
-
-    /**
-     * GetStrLayoutLength(arg1: string?, arg2: int?) -> int
-     *
-     * Sakura's F_GETSTRLAYOUTLENGTH (sakura_core/macro/CSMacroMgr.cpp). A function with a
-     * result. This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function GetStrLayoutLength($arg1 = null, $arg2 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('GetStrLayoutLength', func_get_args());
-    }
-
-    /**
-     * GetDefaultCharLength() -> int
-     *
-     * Sakura's F_GETDEFAULTCHARLENGTH (sakura_core/macro/CSMacroMgr.cpp). A function with a
-     * result. This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function GetDefaultCharLength()
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('GetDefaultCharLength', func_get_args());
-    }
-
-    /**
-     * IsIncludeClipboardFormat(arg1: string?) -> int
-     *
-     * Sakura's F_ISINCLUDECLIPBOARDFORMAT (sakura_core/macro/CSMacroMgr.cpp). A function with a
-     * result. This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function IsIncludeClipboardFormat($arg1 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('IsIncludeClipboardFormat', func_get_args());
-    }
-
-    /**
-     * GetClipboardByFormat(arg1: string?, arg2: int?, arg3: int?) -> string
-     *
-     * Sakura's F_GETCLIPBOARDBYFORMAT (sakura_core/macro/CSMacroMgr.cpp). A function with a
-     * result. This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function GetClipboardByFormat($arg1 = null, $arg2 = null, $arg3 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('GetClipboardByFormat', func_get_args());
-    }
-
-    /**
-     * SetClipboardByFormat(arg1: string?, arg2: string?, arg3: int?, arg4: int?) -> int
-     *
-     * Sakura's F_SETCLIPBOARDBYFORMAT (sakura_core/macro/CSMacroMgr.cpp). A function with a
-     * result. This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function SetClipboardByFormat($arg1 = null, $arg2 = null, $arg3 = null, $arg4 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('SetClipboardByFormat', func_get_args());
-    }
-
-    /**
-     * GetLineAttribute(arg1: int?, arg2: int?) -> int
-     *
-     * Sakura's F_GETLINEATTRIBUTE (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function GetLineAttribute($arg1 = null, $arg2 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('GetLineAttribute', func_get_args());
-    }
-
-    /**
-     * IsTextSelectingLock() -> int
-     *
-     * Sakura's F_ISTEXTSELECTINGLOCK (sakura_core/macro/CSMacroMgr.cpp). A function with a
-     * result. This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function IsTextSelectingLock()
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('IsTextSelectingLock', func_get_args());
-    }
-
-    /**
-     * GetViewLines() -> int
-     *
-     * Sakura's F_GETVIEWLINES (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function GetViewLines()
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('GetViewLines', func_get_args());
-    }
-
-    /**
-     * GetViewColumns() -> int
-     *
-     * Sakura's F_GETVIEWCOLUMNS (sakura_core/macro/CSMacroMgr.cpp). A function with a result.
-     * This editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function GetViewColumns()
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('GetViewColumns', func_get_args());
-    }
-
-    /**
      * CreateMenu(arg1: int?, arg2: string?) -> int
      *
      * Sakura's F_CREATEMENU (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
@@ -4844,18 +4863,6 @@ final class Editor
     {
         // func_get_args() holds only the arguments that were given.
         return (self::$call)('CreateMenu', func_get_args());
-    }
-
-    /**
-     * GetViewTop() -> int
-     *
-     * Sakura's F_GETVIEWTOP (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function GetViewTop()
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('GetViewTop', func_get_args());
     }
 
     /**

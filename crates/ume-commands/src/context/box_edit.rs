@@ -165,7 +165,7 @@ impl CommandContext<'_> {
     /// The text of the box for the clipboard: the text of each row of it, each followed by CRLF
     /// whatever the line ending of the document is, and an empty line for a row without text
     /// (Sakura: `GetSelectedData`). `None` if no box covers anything.
-    pub(crate) fn box_text(&self) -> Result<Option<String>> {
+    pub fn box_text(&self) -> Result<Option<String>> {
         let Some(rect) = self.box_rect()? else {
             return Ok(None);
         };
@@ -176,6 +176,20 @@ impl CommandContext<'_> {
             out.push_str("\r\n");
         }
         Ok(Some(out))
+    }
+
+    /// The text of the first row of the box, without a line ending: all that the macro function
+    /// `ExpandParameter` (`$C`) takes of a box. Unlike [`box_text`](Self::box_text) it does not
+    /// read the other rows. `None` if no box covers anything.
+    pub fn box_first_row_text(&self) -> Result<Option<String>> {
+        // The rows are not listed: only the first one is needed, and a box can cover the whole
+        // document.
+        let Some(((a, a_col), (c, c_col))) = self.cursor.box_corners() else {
+            return Ok(None);
+        };
+        let row = self.layout.row_start(self.doc(), a.min(c))?;
+        let (from, to) = self.box_row_range(row, a_col.min(c_col), a_col.max(c_col))?;
+        Ok(Some(self.doc().text_between(from, to)?))
     }
 
     /// Deletes the text of the box, row by row, and puts the caret at its top left corner. A box

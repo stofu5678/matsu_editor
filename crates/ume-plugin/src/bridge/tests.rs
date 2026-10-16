@@ -153,9 +153,12 @@ fn a_name_without_a_command_says_so() {
     assert!(err.message.contains("FileSave"), "{}", err.message);
     assert!(err.message.contains("F_FILESAVE"), "{}", err.message);
     // A function that returns a value and that the editor cannot answer yet.
-    let err = f.call("GetViewTop", json!([])).unwrap_err();
+    let err = f.call("InputBox", json!(["message"])).unwrap_err();
     assert_eq!(err.code, NOT_IMPLEMENTED);
-    assert!(err.message.contains("GetViewTop"), "{}", err.message);
+    assert!(err.message.contains("InputBox"), "{}", err.message);
+    // One that it can answer, but not without a window.
+    let err = f.call("GetViewTop", json!([])).unwrap_err();
+    assert_eq!(err.code, UNAVAILABLE);
     // A name that Sakura does not have.
     let err = f.call("NoSuchMacro", json!([])).unwrap_err();
     assert_eq!(err.code, METHOD_NOT_FOUND);
@@ -691,4 +694,112 @@ puts "#{Editor.GetLineStr(1).inspect} #{Editor.GetLineCount(0)}"
         assert_eq!(f.text(), "two!\nthree\nthree\n", "{language:?}");
         assert_eq!(report.lines(Stream::Stdout), [shown], "{language:?}");
     }
+}
+
+/// Runs a macro on the bridge with an environment that lives for the whole run.
+fn run_macro_with_env(
+    language: Language,
+    code: &str,
+    f: &mut Fixture,
+    env: &mut HostEnv,
+) -> Option<crate::session::Report> {
+    if !available(language) {
+        return None;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let name = match language {
+        Language::JavaScript => "macro.cjs",
+        Language::Python => "macro.py",
+        Language::Ruby => "macro.rb",
+        Language::Php => "macro.php",
+        Language::Bundled(_) => unreachable!("the bundled engines are tested in ume-script"),
+    };
+    let script = dir.path().join(name);
+    let code = if language == Language::Php {
+        format!("<?php {code}")
+    } else {
+        code.to_string()
+    };
+    std::fs::write(&script, code).unwrap();
+    let mut config = MacroConfig::for_script(&script, None).unwrap();
+    config.temp_dir = Some(dir.path().to_path_buf());
+    let registry = Registry::global();
+    let mut cx = f.cx();
+    Some(session::run_blocking(config, |m| handle_message_with(registry, &mut cx, env, m)).unwrap())
+}
+
+#[test]
+fn functions_with_a_result_run_in_each_language() {
+    // A cookie round trip (the environment), the width of a string and the column of an index
+    // (the layout), a version comparison, and a format string (the document and the caret).
+    let js = r#"
+Editor.SetCookie('window', 'k', '値');
+console.log([Editor.GetCookie('window', 'k'), Editor.GetStrWidth('日本\ta', 1),
+  Editor.CompareVersion('1.2.3', '1.2.4'), Editor.LineIndexToColumn(1, 3),
+  Editor.ExpandParameter('$y,$x|$$')].join('/'));
+try { Editor.GetViewLines(); } catch (e) { console.log('no view', e.code); }
+"#;
+    let py = r#"
+Editor.SetCookie('window', 'k', '値')
+print('/'.join(str(v) for v in [Editor.GetCookie('window', 'k'), Editor.GetStrWidth('日本\ta', 1),
+  Editor.CompareVersion('1.2.3', '1.2.4'), Editor.LineIndexToColumn(1, 3),
+  Editor.ExpandParameter('$y,$x|$$')]))
+try:
+    Editor.GetViewLines()
+except EditorError as e:
+    print('no view', e.code)
+"#;
+    let rb = r##"
+Editor.SetCookie('window', 'k', '値')
+puts [Editor.GetCookie('window', 'k'), Editor.GetStrWidth("日本\ta", 1),
+  Editor.CompareVersion('1.2.3', '1.2.4'), Editor.LineIndexToColumn(1, 3),
+  Editor.ExpandParameter('$y,$x|$$')].join('/')
+begin; Editor.GetViewLines; rescue EditorError => e; puts "no view #{e.code}"; end
+"##;
+    let php = r#"
+Editor::SetCookie('window', 'k', '値');
+echo implode('/', [Editor::GetCookie('window', 'k'), Editor::GetStrWidth("日本\ta", 1),
+  Editor::CompareVersion('1.2.3', '1.2.4'), Editor::LineIndexToColumn(1, 3),
+  Editor::ExpandParameter('$y,$x|$$')]), "\n";
+try { Editor::GetViewLines(); } catch (EditorError $e) { echo 'no view ', $e->getCode(), "\n"; }
+"#;
+    for (language, code) in [
+        (Language::JavaScript, js),
+        (Language::Python, py),
+        (Language::Ruby, rb),
+        (Language::Php, php),
+    ] {
+        let mut f = Fixture::new("日本語");
+        let mut env = HostEnv::detached();
+        let Some(report) = run_macro_with_env(language, code, &mut f, &mut env) else {
+            continue;
+        };
+        let stderr = report.lines(Stream::Stderr).join("\n");
+        assert_eq!(report.finished.exit_code, Some(0), "{language:?}: {stderr}");
+        assert_eq!(
+            report.lines(Stream::Stdout),
+            ["値/9/-256/5/1,1|$", "no view -32002"],
+            "{language:?}"
+        );
+        // The cookie is in the environment that the window keeps.
+        assert_eq!(env.state.cookies.get("window", "k"), "値", "{language:?}");
+    }
+}
+
+#[test]
+fn a_box_selection_is_2_and_its_text_is_the_rows_of_the_box() {
+    let mut f = Fixture::new("abcdef\nabcdef\nabcdef");
+    assert_eq!(f.call("IsTextSelected", json!([])).unwrap(), json!(0));
+    f.cursor.move_to(Pos::new(0, 1), false);
+    f.cursor.begin_box(1, false);
+    f.cursor.move_box_to(Pos::new(2, 3), 3);
+    assert_eq!(f.call("IsTextSelected", json!([])).unwrap(), json!(2));
+    assert_eq!(
+        f.call("GetSelectedString", json!([0])).unwrap(),
+        json!("bc\nbc\nbc\n")
+    );
+    // A normal selection is 1.
+    f.cursor.clear_selection();
+    f.cursor.select(Pos::new(0, 0), Pos::new(0, 2));
+    assert_eq!(f.call("IsTextSelected", json!([])).unwrap(), json!(1));
 }
