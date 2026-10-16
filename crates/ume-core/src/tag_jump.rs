@@ -1,3 +1,51 @@
+// Ported in part from Sakura Editor (https://github.com/sakura-editor/sakura, commit 48db6c7c25e2):
+//   sakura_core/cmd/CViewCommander_TagJump.cpp (Command_TagJumpNoMessage: the Grep headings)
+//   sakura_core/util/file.cpp (IsFilePath)
+//   sakura_core/util/string_ex2.cpp (GetLineColumn, GetLineColumnPos)
+//
+// sakura_core/cmd/CViewCommander_TagJump.cpp:
+//   Copyright (C) 1998-2001, Norio Nakatani
+//   Copyright (C) 2000-2001, genta
+//   Copyright (C) 2001, YAZAKI
+//   Copyright (C) 2002, MIK
+//   Copyright (C) 2003, MIK, genta, じゅうじ
+//   Copyright (C) 2004, Moca, novice
+//   Copyright (C) 2005, MIK
+//   Copyright (C) 2006, genta
+//   Copyright (C) 2007, ryoji, maru, Uchi
+//   Copyright (C) 2008, MIK
+//   Copyright (C) 2010, Moca
+//   Copyright (C) 2018-2022, Sakura Editor Organization
+// sakura_core/util/file.cpp:
+//   Copyright (C) 2002, SUI
+//   Copyright (C) 2003, MIK
+//   Copyright (C) 2008, kobake
+//   Copyright (C) 2018-2026, Sakura Editor Organization
+// sakura_core/util/string_ex2.cpp:
+//   Copyright (C) 2018-2022, Sakura Editor Organization
+//
+// This file is derived from the files above and was modified: the C++ code (UTF-16 buffers, the
+// current folder of the process and the file system calls) was rewritten in Rust on `char`s, with
+// the folder of the document and an `is_file` closure from the caller, and the tests are new.
+//
+// zlib License
+//
+// This software is provided 'as-is', without any express or implied
+// warranty.  In no event will the authors be held liable for any damages
+// arising from the use of this software.
+//
+// Permission is granted to anyone to use this software for any purpose,
+// including commercial applications, and to alter it and redistribute it
+// freely, subject to the following restrictions:
+//
+// 1. The origin of this software must not be misrepresented; you must not
+//    claim that you wrote the original software. If you use this software
+//    in a product, an acknowledgment in the product documentation would be
+//    appreciated but is not required.
+// 2. Altered source versions must be plainly marked as such, and must not be
+//    misrepresented as being the original software.
+// 3. This notice may not be removed or altered from any source distribution.
+
 //! Finding the target of a tag jump in the text around the caret (`F_TAGJUMP`).
 //!
 //! Sakura: `CViewCommander::Command_TagJumpNoMessage` (`sakura_core/cmd/CViewCommander_TagJump.cpp`),
