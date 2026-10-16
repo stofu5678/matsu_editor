@@ -840,6 +840,69 @@ fn permissions_are_kept_and_symlinks_are_followed() {
     assert_eq!(dir.names(), ["link.txt", "real.txt"]);
 }
 
+#[test]
+fn write_bytes_writes_a_new_file_and_replaces_an_old_one() {
+    let dir = TempDir::new();
+    let new = dir.path("new.bin");
+    write_bytes(&new, b"\x00\xFFabc", Preserve::default()).unwrap();
+    assert_eq!(fs::read(&new).unwrap(), b"\x00\xFFabc");
+    let old = dir.write("old.bin", b"much longer old contents");
+    write_bytes(&old, b"x", Preserve::default()).unwrap();
+    assert_eq!(fs::read(&old).unwrap(), b"x");
+    assert_eq!(
+        dir.names(),
+        ["new.bin", "old.bin"],
+        "no temporary file is left"
+    );
+}
+
+#[test]
+fn write_bytes_refuses_a_folder_and_a_read_only_file() {
+    let dir = TempDir::new();
+    let sub = dir.path("sub");
+    fs::create_dir(&sub).unwrap();
+    assert!(write_bytes(&sub, b"x", Preserve::default()).is_err());
+    let file = dir.write("ro.bin", b"keep");
+    let mut permissions = fs::metadata(&file).unwrap().permissions();
+    permissions.set_readonly(true);
+    fs::set_permissions(&file, permissions).unwrap();
+    assert!(matches!(
+        write_bytes(&file, b"x", Preserve::default()),
+        Err(FileError::ReadOnly)
+    ));
+    assert_eq!(fs::read(&file).unwrap(), b"keep");
+    // Let the folder be removed on every OS.
+    let mut permissions = fs::metadata(&file).unwrap().permissions();
+    #[allow(clippy::permissions_set_readonly_false)]
+    permissions.set_readonly(false);
+    fs::set_permissions(&file, permissions).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn write_bytes_keeps_the_mode_and_follows_a_symlink() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    let dir = TempDir::new();
+    let real = dir.write("real.bin", b"one");
+    fs::set_permissions(&real, fs::Permissions::from_mode(0o640)).unwrap();
+    let link = dir.path("link.bin");
+    symlink(&real, &link).unwrap();
+    write_bytes(&link, b"two", Preserve::default()).unwrap();
+    assert!(
+        fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(fs::read(&real).unwrap(), b"two");
+    assert_eq!(
+        fs::metadata(&real).unwrap().permissions().mode() & 0o777,
+        0o640
+    );
+    assert_eq!(dir.names(), ["link.bin", "real.bin"]);
+}
+
 #[cfg(unix)]
 #[test]
 fn a_dangling_symlink_is_followed_not_replaced() {
