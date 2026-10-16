@@ -15,8 +15,8 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     App, AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
-    KeyDownEvent, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled,
-    Subscription, WeakEntity, Window, div, px, rgb,
+    KeyDownEvent, ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement,
+    Styled, Subscription, WeakEntity, Window, div, px, rgb,
 };
 use gpui_component::button::Button;
 use gpui_component::checkbox::Checkbox;
@@ -59,6 +59,8 @@ struct DropDown {
 pub struct SearchPanel {
     editor: WeakEntity<EditorView>,
     dropdown: Option<DropDown>,
+    /// Scrolls the open list to the highlighted entry.
+    list_scroll: ScrollHandle,
     mode: PanelMode,
     text: Entity<InputState>,
     replacement: Entity<InputState>,
@@ -122,6 +124,7 @@ impl SearchPanel {
         Self {
             editor,
             dropdown: None,
+            list_scroll: ScrollHandle::new(),
             mode,
             text,
             replacement,
@@ -191,6 +194,9 @@ impl SearchPanel {
                 combo,
                 highlight: keys.iter().position(|k| k == current.as_str()).unwrap_or(0),
             });
+            if let Some(open) = self.dropdown {
+                self.list_scroll.scroll_to_item(open.highlight);
+            }
         }
         cx.notify();
     }
@@ -265,6 +271,7 @@ impl SearchPanel {
                     open.highlight.saturating_sub(1)
                 };
                 self.dropdown = Some(DropDown { highlight, ..open });
+                self.list_scroll.scroll_to_item(highlight);
                 cx.notify();
             }
             "enter" if plain && open.highlight < keys.len() => {
@@ -316,6 +323,7 @@ impl SearchPanel {
                     .id(id)
                     .max_h(px(150.))
                     .overflow_y_scroll()
+                    .track_scroll(&self.list_scroll)
                     .border_1()
                     .border_color(rgb(0xb0b0b0))
                     .bg(rgb(0xffffff))

@@ -634,11 +634,12 @@ impl EditorView {
             // As the find dialog does: the newest search string, if it is news to this window
             // (`CControlTray`, `GetCurrentTextForSearchDlg`).
             None => {
-                if let Some((newest, sequence)) =
+                // The window's sequence is left alone: the dialog may be cancelled, and the
+                // find dialog should still find the string new.
+                if let Some((newest, _)) =
                     crate::search::history::newer_search_key(cx, self.search.key_sequence())
                 {
                     settings.key = newest;
-                    self.search.set_key_sequence(Some(sequence));
                 }
             }
         }
