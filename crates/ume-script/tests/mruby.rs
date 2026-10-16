@@ -466,6 +466,26 @@ end
 }
 
 #[test]
+fn a_hash_too_large_to_copy_is_an_error_not_a_crash() {
+    // mruby cannot make an array of 131073 keys (ArgumentError inside the copy).
+    let code = r##"
+h = {}
+131_073.times { |i| h[i] = i }
+begin
+  Editor.InsText(h)
+rescue EditorError => e
+  puts e.message
+end
+"##;
+    let (report, _) = run(code, "");
+    assert_clean_exit(&report);
+    assert_eq!(
+        stdout(&report),
+        ["InsText: argument \"text\" must be string, got a hash that is too large"]
+    );
+}
+
+#[test]
 fn the_sample_macro_runs() {
     let sample =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../ume-plugin/samples/sample.mruby");

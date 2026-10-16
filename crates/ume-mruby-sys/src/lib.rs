@@ -6,8 +6,9 @@
 //!
 //! mruby reports errors with `longjmp`. Rust is only called from one native method, and it
 //! answers with a status that the C glue (`glue.c`) turns into an exception after Rust has
-//! returned, so no Rust frame is jumped over by a script error. The one exception is running
-//! out of memory inside an mruby call that Rust makes while it builds a value.
+//! returned, so no Rust frame is jumped over by a script error. The mruby calls that Rust makes
+//! to copy a value (which can fail when the value is too large) run under `mrb_protect_error`
+//! in the glue and answer with a status. Reading a value calls no Ruby method.
 
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -104,19 +105,20 @@ unsafe extern "C" {
     fn ume_symbol(mrb: *mut MrbState, v: MrbValue, len: *mut usize) -> *const u8;
     fn ume_array_len(v: MrbValue) -> usize;
     fn ume_array_ref(mrb: *mut MrbState, v: MrbValue, i: usize) -> MrbValue;
-    fn ume_hash_keys(mrb: *mut MrbState, v: MrbValue) -> MrbValue;
-    fn ume_hash_values(mrb: *mut MrbState, v: MrbValue) -> MrbValue;
+    fn ume_hash_keys(mrb: *mut MrbState, hash: MrbValue, out: *mut MrbValue) -> c_int;
+    fn ume_hash_values(mrb: *mut MrbState, hash: MrbValue, out: *mut MrbValue) -> c_int;
     fn ume_class_name(mrb: *mut MrbState, v: MrbValue) -> *const c_char;
 
     fn ume_nil() -> MrbValue;
     fn ume_bool(b: c_int) -> MrbValue;
-    fn ume_integer_value(mrb: *mut MrbState, i: i64) -> MrbValue;
-    fn ume_float_value(mrb: *mut MrbState, f: f64) -> MrbValue;
-    fn ume_string_new(mrb: *mut MrbState, p: *const u8, len: usize) -> MrbValue;
-    fn ume_array_new(mrb: *mut MrbState, capacity: usize) -> MrbValue;
-    fn ume_array_push(mrb: *mut MrbState, array: MrbValue, item: MrbValue);
-    fn ume_hash_new(mrb: *mut MrbState) -> MrbValue;
-    fn ume_hash_set(mrb: *mut MrbState, hash: MrbValue, key: MrbValue, value: MrbValue);
+    // These make objects, which can fail (too large): they answer 0 then, never jump.
+    fn ume_integer_value(mrb: *mut MrbState, i: i64, out: *mut MrbValue) -> c_int;
+    fn ume_float_value(mrb: *mut MrbState, f: f64, out: *mut MrbValue) -> c_int;
+    fn ume_string_new(mrb: *mut MrbState, p: *const u8, len: usize, out: *mut MrbValue) -> c_int;
+    fn ume_array_new(mrb: *mut MrbState, capacity: usize, out: *mut MrbValue) -> c_int;
+    fn ume_array_push(mrb: *mut MrbState, array: MrbValue, item: MrbValue) -> c_int;
+    fn ume_hash_new(mrb: *mut MrbState, out: *mut MrbValue) -> c_int;
+    fn ume_hash_set(mrb: *mut MrbState, hash: MrbValue, key: MrbValue, value: MrbValue) -> c_int;
 }
 
 /// How deep a value may nest, and how many values a copy may visit, before the value is taken
@@ -169,8 +171,12 @@ impl Reader {
                     )
                 }
                 kind::HASH => {
-                    let keys = ume_hash_keys(mrb, v);
-                    let values = ume_hash_values(mrb, v);
+                    let (mut keys, mut values) = (ume_nil(), ume_nil());
+                    if ume_hash_keys(mrb, v, &mut keys) == 0
+                        || ume_hash_values(mrb, v, &mut values) == 0
+                    {
+                        return Value::Other("a hash that is too large".into());
+                    }
                     let len = ume_array_len(keys).min(ume_array_len(values));
                     Value::Hash(
                         (0..len)
@@ -206,31 +212,42 @@ unsafe fn bytes(p: *const u8, len: usize) -> Vec<u8> {
     }
 }
 
+/// The value could not be made in mruby (it is too large).
+struct TooLarge;
+
 /// Safety: `mrb` is a live VM. `Other` has no mruby form and becomes nil.
-unsafe fn write(mrb: *mut MrbState, value: &Value) -> MrbValue {
-    unsafe {
+unsafe fn write(mrb: *mut MrbState, value: &Value) -> Result<MrbValue, TooLarge> {
+    let mut out = unsafe { ume_nil() };
+    let made = unsafe {
         match value {
-            Value::Nil | Value::Other(_) => ume_nil(),
-            Value::Bool(b) => ume_bool(c_int::from(*b)),
-            Value::Integer(i) => ume_integer_value(mrb, *i),
-            Value::Float(f) => ume_float_value(mrb, *f),
-            Value::Str(s) => ume_string_new(mrb, s.as_ptr(), s.len()),
+            Value::Nil | Value::Other(_) => return Ok(ume_nil()),
+            Value::Bool(b) => return Ok(ume_bool(c_int::from(*b))),
+            Value::Integer(i) => ume_integer_value(mrb, *i, &mut out),
+            Value::Float(f) => ume_float_value(mrb, *f, &mut out),
+            Value::Str(s) => ume_string_new(mrb, s.as_ptr(), s.len(), &mut out),
             Value::Array(items) => {
-                let array = ume_array_new(mrb, items.len());
+                let mut made = ume_array_new(mrb, items.len(), &mut out);
                 for item in items {
-                    ume_array_push(mrb, array, write(mrb, item));
+                    if made == 0 {
+                        break;
+                    }
+                    made = ume_array_push(mrb, out, write(mrb, item)?);
                 }
-                array
+                made
             }
             Value::Hash(pairs) => {
-                let hash = ume_hash_new(mrb);
+                let mut made = ume_hash_new(mrb, &mut out);
                 for (key, item) in pairs {
-                    ume_hash_set(mrb, hash, write(mrb, key), write(mrb, item));
+                    if made == 0 {
+                        break;
+                    }
+                    made = ume_hash_set(mrb, out, write(mrb, key)?, write(mrb, item)?);
                 }
-                hash
+                made
             }
         }
-    }
+    };
+    if made == 0 { Err(TooLarge) } else { Ok(out) }
 }
 
 /// What the C glue calls back with: the host, and the names behind the function indexes.
@@ -259,22 +276,20 @@ extern "C" fn trampoline(
     .unwrap_or_else(|_| Err(Failure::Fatal("internal error in the script host".into())));
     // Safety: `out` points at a local of the C glue.
     unsafe {
-        match answer {
-            Ok(value) => {
-                *out = write(mrb, &value);
-                0
+        let (status, value) = match answer {
+            Ok(value) => (0, value),
+            Err(Failure::Editor { code, message }) => (
+                1,
+                Value::Array(vec![Value::Integer(code), Value::Str(message.into_bytes())]),
+            ),
+            Err(Failure::Fatal(message)) => (2, Value::Str(message.into_bytes())),
+        };
+        match write(mrb, &value) {
+            Ok(made) => {
+                *out = made;
+                status
             }
-            Err(Failure::Editor { code, message }) => {
-                *out = write(
-                    mrb,
-                    &Value::Array(vec![Value::Integer(code), Value::Str(message.into_bytes())]),
-                );
-                1
-            }
-            Err(Failure::Fatal(message)) => {
-                *out = write(mrb, &Value::Str(message.into_bytes()));
-                2
-            }
+            Err(TooLarge) => 3,
         }
     }
 }
@@ -310,7 +325,10 @@ pub fn run(script: &Script<'_>, host: &mut dyn Host) -> Result<(), String> {
         if let Some(message) = run_source(mrb, "ume-script boot", script.boot) {
             return Err(message);
         }
-        ume_set_info(mrb, write(mrb, script.info));
+        match write(mrb, script.info) {
+            Ok(info) => ume_set_info(mrb, info),
+            Err(TooLarge) => return Err("cannot pass the editor's information to mruby".into()),
+        }
         let result = run_source(mrb, script.name, script.source);
         drop(vm);
         result.map_or(Ok(()), Err)

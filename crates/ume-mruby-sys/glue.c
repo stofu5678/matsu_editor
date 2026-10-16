@@ -38,7 +38,7 @@ _Static_assert(sizeof(mrb_value) == sizeof(uintptr_t), "mrb_value must be one wo
 /*
  * The call into Rust. Returns 0 and the result in *out; 1 and `[code, message]` in *out for an
  * error answer of the editor; 2 and a message string in *out for a failure that ends the macro
- * (the connection is gone).
+ * (the connection is gone); 3 when the answer could not be built in mruby (too large).
  */
 typedef int (*ume_call_fn)(void *host, mrb_state *mrb, size_t index, mrb_value args,
                            mrb_value *out);
@@ -73,6 +73,9 @@ static mrb_value editor_function(mrb_state *mrb, mrb_value self) {
     ctor_args[0] = mrb_ary_ref(mrb, out, 0);
     ctor_args[1] = mrb_ary_ref(mrb, out, 1);
     mrb_exc_raise(mrb, mrb_obj_new(mrb, error_class, 2, ctor_args));
+  }
+  if (status == 3) {
+    mrb_raise(mrb, E_RUNTIME_ERROR, "cannot hand the value over to or from the editor (too large?)");
   }
   mrb_exc_raise(mrb, mrb_exc_new_str(mrb, E_RUNTIME_ERROR, out));
 }
@@ -241,28 +244,113 @@ size_t ume_array_len(mrb_value v) { return (size_t)RARRAY_LEN(v); }
 mrb_value ume_array_ref(mrb_state *mrb, mrb_value v, size_t i) {
   return mrb_ary_ref(mrb, v, (mrb_int)i);
 }
-mrb_value ume_hash_keys(mrb_state *mrb, mrb_value v) { return mrb_hash_keys(mrb, v); }
-mrb_value ume_hash_values(mrb_state *mrb, mrb_value v) { return mrb_hash_values(mrb, v); }
 const char *ume_class_name(mrb_state *mrb, mrb_value v) { return mrb_obj_classname(mrb, v); }
 
 mrb_value ume_nil(void) { return mrb_nil_value(); }
 mrb_value ume_bool(int b) { return b ? mrb_true_value() : mrb_false_value(); }
-mrb_value ume_integer_value(mrb_state *mrb, int64_t i) {
-  return mrb_int_value(mrb, (mrb_int)i);
+
+/*
+ * The calls that make mruby objects can raise (a hash of more than 131072 entries cannot be
+ * turned into an array, a string of 1 MiB can fail to allocate...). Rust frames are on the
+ * stack when they are called, so each runs under mrb_protect_error and answers 0 instead of
+ * jumping. On success the result is in *out, and it stays alive (mrb_protect_error puts it in
+ * the GC arena).
+ */
+enum {
+  OP_INTEGER,
+  OP_FLOAT,
+  OP_STRING,
+  OP_ARRAY_NEW,
+  OP_ARRAY_PUSH,
+  OP_HASH_NEW,
+  OP_HASH_SET,
+  OP_HASH_KEYS,
+  OP_HASH_VALUES,
+};
+
+struct op {
+  int kind;
+  mrb_value a, b, c;
+  int64_t i;
+  double f;
+  const char *p;
+  size_t n;
+};
+
+static mrb_value op_body(mrb_state *mrb, void *data) {
+  struct op *op = (struct op *)data;
+  switch (op->kind) {
+    case OP_INTEGER:
+      return mrb_int_value(mrb, (mrb_int)op->i);
+    case OP_FLOAT:
+      return mrb_float_value(mrb, (mrb_float)op->f);
+    case OP_STRING:
+      return mrb_str_new(mrb, op->p, (mrb_int)op->n);
+    case OP_ARRAY_NEW:
+      return mrb_ary_new_capa(mrb, (mrb_int)op->n);
+    case OP_ARRAY_PUSH:
+      mrb_ary_push(mrb, op->a, op->b);
+      return op->a;
+    case OP_HASH_NEW:
+      return mrb_hash_new(mrb);
+    case OP_HASH_SET:
+      mrb_hash_set(mrb, op->a, op->b, op->c);
+      return op->a;
+    case OP_HASH_KEYS:
+      return mrb_hash_keys(mrb, op->a);
+    case OP_HASH_VALUES:
+      return mrb_hash_values(mrb, op->a);
+  }
+  return mrb_nil_value();
 }
-mrb_value ume_float_value(mrb_state *mrb, double f) {
-  return mrb_float_value(mrb, (mrb_float)f);
+
+static int run_op(mrb_state *mrb, struct op *op, mrb_value *out) {
+  mrb_bool error = FALSE;
+  mrb_value result = mrb_protect_error(mrb, op_body, op, &error);
+  if (error) {
+    return 0;
+  }
+  *out = result;
+  return 1;
 }
-mrb_value ume_string_new(mrb_state *mrb, const char *p, size_t len) {
-  return mrb_str_new(mrb, p, (mrb_int)len);
+
+int ume_integer_value(mrb_state *mrb, int64_t i, mrb_value *out) {
+  struct op op = {.kind = OP_INTEGER, .i = i};
+  return run_op(mrb, &op, out);
 }
-mrb_value ume_array_new(mrb_state *mrb, size_t capacity) {
-  return mrb_ary_new_capa(mrb, (mrb_int)capacity);
+int ume_float_value(mrb_state *mrb, double f, mrb_value *out) {
+  struct op op = {.kind = OP_FLOAT, .f = f};
+  return run_op(mrb, &op, out);
 }
-void ume_array_push(mrb_state *mrb, mrb_value array, mrb_value item) {
-  mrb_ary_push(mrb, array, item);
+int ume_string_new(mrb_state *mrb, const char *p, size_t len, mrb_value *out) {
+  struct op op = {.kind = OP_STRING, .p = p, .n = len};
+  return run_op(mrb, &op, out);
 }
-mrb_value ume_hash_new(mrb_state *mrb) { return mrb_hash_new(mrb); }
-void ume_hash_set(mrb_state *mrb, mrb_value h, mrb_value k, mrb_value v) {
-  mrb_hash_set(mrb, h, k, v);
+int ume_array_new(mrb_state *mrb, size_t capacity, mrb_value *out) {
+  struct op op = {.kind = OP_ARRAY_NEW, .n = capacity};
+  return run_op(mrb, &op, out);
+}
+int ume_array_push(mrb_state *mrb, mrb_value array, mrb_value item) {
+  struct op op = {.kind = OP_ARRAY_PUSH, .a = array, .b = item};
+  mrb_value ignored;
+  return run_op(mrb, &op, &ignored);
+}
+int ume_hash_new(mrb_state *mrb, mrb_value *out) {
+  struct op op = {.kind = OP_HASH_NEW};
+  return run_op(mrb, &op, out);
+}
+int ume_hash_set(mrb_state *mrb, mrb_value hash, mrb_value key, mrb_value value) {
+  struct op op = {.kind = OP_HASH_SET, .a = hash, .b = key, .c = value};
+  mrb_value ignored;
+  return run_op(mrb, &op, &ignored);
+}
+/* The keys and the values of a hash, in the same order, as arrays. A hash is read this way and
+   not by looking the keys up, because a lookup calls the `hash` and `eql?` of the user's keys. */
+int ume_hash_keys(mrb_state *mrb, mrb_value hash, mrb_value *out) {
+  struct op op = {.kind = OP_HASH_KEYS, .a = hash};
+  return run_op(mrb, &op, out);
+}
+int ume_hash_values(mrb_state *mrb, mrb_value hash, mrb_value *out) {
+  struct op op = {.kind = OP_HASH_VALUES, .a = hash};
+  return run_op(mrb, &op, out);
 }
