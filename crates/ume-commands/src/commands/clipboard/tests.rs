@@ -105,10 +105,12 @@ fn paste_does_not_convert_line_endings_by_default() {
 
 #[test]
 fn paste_option_converts_the_line_endings_to_the_documents() {
-    // Command_PASTE: option 0x01 converts to the new line code of the document
+    // Command_PASTE: option 0x01 converts to the new line code of the document. A document without
+    // a line ending has the one of the OS (CRLF on Windows, as in Sakura; LF elsewhere).
+    let os = if cfg!(windows) { "\r\n" } else { "\n" };
     let mut e = Editor::new("|").with_clipboard("a\nb\rc\r\nd", ClipKind::Normal);
     e.run_with("paste", &[Arg::Int(1)])
-        .assert_marked("a\r\nb\r\nc\r\nd|");
+        .assert_marked(&format!("a{os}b{os}c{os}d|"));
 }
 
 #[test]
@@ -120,8 +122,10 @@ fn paste_of_a_line_copy_goes_to_the_start_of_the_row_and_the_caret_stays() {
 
 #[test]
 fn paste_of_a_line_copy_adds_a_line_ending_if_it_has_none() {
+    // the line ending of the OS, since the document has none yet
+    let os = if cfg!(windows) { "\r\n" } else { "\n" };
     let mut e = Editor::new("a|b").with_clipboard("XY", ClipKind::Line);
-    e.run("paste").assert_marked("XY\r\na|b");
+    e.run("paste").assert_marked(&format!("XY{os}a|b"));
 }
 
 #[test]
