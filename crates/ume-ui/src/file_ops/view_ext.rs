@@ -31,6 +31,12 @@ impl EditorView {
         restore: Option<Pos>,
         cx: &mut Context<Self>,
     ) {
+        // Reopening the file keeps the mode (`CDocFileOperation::ReloadCurrentFile` loads with
+        // the current one); any other new document starts without it.
+        let mut new = new;
+        if restore.is_some() {
+            new.keep_view_mode(self.document.read(cx).view_mode());
+        }
         let version = self
             .document
             .update(cx, |shared, cx| shared.replace_with(new, cx));

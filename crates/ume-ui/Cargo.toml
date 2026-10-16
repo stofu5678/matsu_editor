@@ -24,6 +24,8 @@ ume-plugin = { path = "../ume-plugin" }
 async-channel = "2"
 # The UI commands register themselves like the core commands (ADR-0013 section 1).
 inventory = "0.3.25"
+# The times in the file property dialog, in the local time zone (as ume-commands does).
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 gpui = { package = "gpui-pre", version = "=0.3.8" }
 # Without these features GPUI runs headless on Linux.
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = ["wayland", "x11"] }

@@ -16,6 +16,7 @@ impl Command for Redo {
     const SAKURA: &'static str = "F_REDO";
 
     fn run(&self, cx: &mut CommandContext<'_>, _args: &[Arg]) -> Result {
+        cx.refuse_in_view_mode()?;
         cx.redo();
         Ok(())
     }

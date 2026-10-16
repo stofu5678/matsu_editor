@@ -162,6 +162,7 @@ pub struct Editor {
     clipboard: MemoryClipboard,
     changes: Changes,
     overwrite: bool,
+    view_mode: bool,
 }
 
 impl Editor {
@@ -185,7 +186,14 @@ impl Editor {
             clipboard: MemoryClipboard::default(),
             changes: Changes::default(),
             overwrite: false,
+            view_mode: false,
         }
+    }
+
+    /// Sets view mode: every edit is refused (`F_VIEWMODE`).
+    pub fn set_view_mode(&mut self, view_mode: bool) -> &mut Self {
+        self.view_mode = view_mode;
+        self
     }
 
     /// Sets the typing mode: overwrite or insert (the default). Commands that switch the mode
@@ -255,7 +263,8 @@ impl Editor {
             self.path.as_deref(),
         )
         .with_clipboard(&mut self.clipboard)
-        .with_overwrite(self.overwrite);
+        .with_overwrite(self.overwrite)
+        .with_view_mode(self.view_mode);
         let result = Registry::global().run(id, &mut cx, args);
         self.changes = cx.finish();
         self.overwrite = self.changes.overwrite;

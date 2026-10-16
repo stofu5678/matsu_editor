@@ -36,6 +36,10 @@ pub struct SharedDocument {
     /// Typing overwrites instead of inserting. Sakura keeps the mode per document
     /// (`CDocEditor::m_bInsMode`) and starts in insert mode.
     overwrite: bool,
+    /// View mode (`F_VIEWMODE`): every edit is refused. Sakura keeps it per window
+    /// (`CAppMode::m_bViewMode`), clears it for a new document and keeps it when the file is
+    /// reopened.
+    view_mode: bool,
     /// What saving needs besides the text: the encoding, the BOM and the line ending. Its
     /// `document` is a placeholder; the text is `model`'s (see [`with_file`](Self::with_file)).
     file: TextFile,
@@ -51,6 +55,7 @@ impl SharedDocument {
             path,
             version: 0,
             overwrite: false,
+            view_mode: false,
             file,
         }
     }
@@ -66,6 +71,7 @@ impl SharedDocument {
             path: file.path.clone(),
             version: 0,
             overwrite: false,
+            view_mode: false,
             file,
         }
     }
@@ -178,6 +184,24 @@ impl SharedDocument {
     pub fn set_overwrite(&mut self, overwrite: bool, cx: &mut Context<Self>) {
         if self.overwrite != overwrite {
             self.overwrite = overwrite;
+            cx.notify();
+        }
+    }
+
+    /// For a document that replaces this one (reopen): starts in the same mode.
+    pub(crate) fn keep_view_mode(&mut self, view_mode: bool) {
+        self.view_mode = view_mode;
+    }
+
+    /// Whether view mode is on.
+    pub fn view_mode(&self) -> bool {
+        self.view_mode
+    }
+
+    /// Turns view mode on or off. The views repaint (the title shows it).
+    pub fn set_view_mode(&mut self, view_mode: bool, cx: &mut Context<Self>) {
+        if self.view_mode != view_mode {
+            self.view_mode = view_mode;
             cx.notify();
         }
     }

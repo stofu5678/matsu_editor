@@ -20,6 +20,7 @@ impl Command for Undo {
     const SAKURA: &'static str = "F_UNDO";
 
     fn run(&self, cx: &mut CommandContext<'_>, _args: &[Arg]) -> Result {
+        cx.refuse_in_view_mode()?;
         cx.undo();
         Ok(())
     }
