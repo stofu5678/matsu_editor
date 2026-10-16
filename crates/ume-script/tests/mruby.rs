@@ -466,6 +466,26 @@ end
 }
 
 #[test]
+fn a_huge_nested_argument_is_refused_without_copying_it_all() {
+    let code = r##"
+a = []
+60.times { a = [a] + Array.new(20000, 1) }
+begin
+  Editor.InsText(a)
+rescue EditorError => e
+  puts e.message
+end
+"##;
+    let (report, _) = run(code, "");
+    assert_clean_exit(&report);
+    assert!(
+        stdout(&report)[0].contains("got a nested structure that is too deep or large"),
+        "{:?}",
+        stdout(&report)
+    );
+}
+
+#[test]
 fn a_hash_too_large_to_copy_is_an_error_not_a_crash() {
     // mruby cannot make an array of 131073 keys (ArgumentError inside the copy).
     let code = r##"

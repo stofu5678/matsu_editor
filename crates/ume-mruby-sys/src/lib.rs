@@ -126,6 +126,7 @@ unsafe extern "C" {
 /// depth but an astronomical number of paths, so the number of visits is limited too.
 const MAX_DEPTH: usize = 64;
 const MAX_VISITS: usize = 1_000_000;
+const TOO_DEEP: &str = "a nested structure that is too deep or large (or contains itself)";
 
 struct Reader {
     mrb: *mut MrbState,
@@ -159,16 +160,17 @@ impl Reader {
                     let p = ume_symbol(mrb, v, &mut len);
                     Value::Str(bytes(p, len))
                 }
-                kind::ARRAY | kind::HASH if too_deep => Value::Other(
-                    "a nested structure that is too deep or large (or contains itself)".into(),
-                ),
+                kind::ARRAY | kind::HASH if too_deep => Value::Other(TOO_DEEP.into()),
                 kind::ARRAY => {
                     let len = ume_array_len(v);
-                    Value::Array(
-                        (0..len)
-                            .map(|i| self.read(ume_array_ref(mrb, v, i), depth + 1))
-                            .collect(),
-                    )
+                    let mut items = Vec::new();
+                    for i in 0..len {
+                        if self.visits > MAX_VISITS {
+                            return Value::Other(TOO_DEEP.into());
+                        }
+                        items.push(self.read(ume_array_ref(mrb, v, i), depth + 1));
+                    }
+                    Value::Array(items)
                 }
                 kind::HASH => {
                     let (mut keys, mut values) = (ume_nil(), ume_nil());
@@ -178,16 +180,17 @@ impl Reader {
                         return Value::Other("a hash that is too large".into());
                     }
                     let len = ume_array_len(keys).min(ume_array_len(values));
-                    Value::Hash(
-                        (0..len)
-                            .map(|i| {
-                                (
-                                    self.read(ume_array_ref(mrb, keys, i), depth + 1),
-                                    self.read(ume_array_ref(mrb, values, i), depth + 1),
-                                )
-                            })
-                            .collect(),
-                    )
+                    let mut pairs = Vec::new();
+                    for i in 0..len {
+                        if self.visits > MAX_VISITS {
+                            return Value::Other(TOO_DEEP.into());
+                        }
+                        pairs.push((
+                            self.read(ume_array_ref(mrb, keys, i), depth + 1),
+                            self.read(ume_array_ref(mrb, values, i), depth + 1),
+                        ));
+                    }
+                    Value::Hash(pairs)
                 }
                 _ => Value::Other(
                     CStr::from_ptr(ume_class_name(mrb, v))
