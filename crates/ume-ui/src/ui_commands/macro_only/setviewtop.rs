@@ -42,6 +42,11 @@ impl UiCommand for SetViewTop {
         cx: &mut Context<EditorView>,
     ) -> Result {
         let row = position("SetViewTop", args)?;
+        // The scroll range comes from the number of rows: a document that is still being laid
+        // out in the background has an estimate, and a row past it would be cut short.
+        if !view.layout.is_complete() {
+            let _ = view.layout.layout_all(view.document.read(cx).doc());
+        }
         view.scroll_top_to(row, cx);
         Ok(())
     }

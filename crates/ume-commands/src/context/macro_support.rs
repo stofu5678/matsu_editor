@@ -73,11 +73,13 @@ impl CommandContext<'_> {
             self.beep();
             return Ok(());
         };
-        let (row_start, pos) = match self.layout.row_start_at(self.doc(), row)? {
-            Some(start) => (start, self.layout.pos_at_col(self.doc(), start, col)?),
+        let (row_start, pos, col) = match self.layout.row_start_at(self.doc(), row)? {
+            Some(start) => (start, self.layout.pos_at_col(self.doc(), start, col)?, col),
             None => {
+                // past the last row: the end of the text, and its column for a box
                 let end = self.doc().end_pos()?;
-                (self.layout.row_start(self.doc(), end)?, end)
+                let at = self.layout.display_col(self.doc(), end)?;
+                (self.layout.row_start(self.doc(), end)?, end, at)
             }
         };
         self.move_macro_caret(row_start, pos, col, option)

@@ -82,6 +82,14 @@ mod tests {
     }
 
     #[test]
+    fn a_box_past_the_last_row_goes_to_the_end_of_the_text() {
+        let mut e = Editor::new("|abc\ndef");
+        go(&mut e, 9, 1, 2);
+        e.assert_box((0, 0), (1, 3));
+        assert_eq!(e.cursor().caret(), ume_core::buffer::Pos::new(1, 3));
+    }
+
+    #[test]
     fn below_1_beeps_and_does_nothing() {
         let mut e = Editor::new("a|b");
         go(&mut e, 0, 1, 0);
