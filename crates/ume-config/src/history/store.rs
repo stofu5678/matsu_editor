@@ -34,12 +34,39 @@ pub struct HistoryStore {
     case_insensitive: bool,
 }
 
+/// Whether an error only says "try again in a moment". On Windows a file that another handle has
+/// open or that is waiting to be deleted cannot be replaced, deleted or created again: that is
+/// `ERROR_ACCESS_DENIED` (5), `ERROR_SHARING_VIOLATION` (32) or `ERROR_LOCK_VIOLATION` (33). Other
+/// systems report a real permission problem, which retrying does not cure.
+fn is_busy(e: &io::Error) -> bool {
+    cfg!(windows)
+        && (e.kind() == io::ErrorKind::PermissionDenied
+            || matches!(e.raw_os_error(), Some(5 | 32 | 33)))
+}
+
+/// Runs `op` again while it fails with a busy error, until [`LOCK_TIMEOUT`] has passed.
+fn retry<T>(mut op: impl FnMut() -> io::Result<T>) -> io::Result<T> {
+    let start = std::time::Instant::now();
+    loop {
+        match op() {
+            Err(e) if is_busy(&e) && start.elapsed() < LOCK_TIMEOUT => std::thread::sleep(POLL),
+            other => return other,
+        }
+    }
+}
+
 /// Removes the lock file when it goes out of scope.
 struct Lock(PathBuf);
 
 impl Drop for Lock {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
+        // On Windows a file that was just read may not be deleted for a moment.
+        for _ in 0..200 {
+            match std::fs::remove_file(&self.0) {
+                Err(e) if is_busy(&e) => std::thread::sleep(POLL),
+                _ => break,
+            }
+        }
     }
 }
 
@@ -64,7 +91,7 @@ impl HistoryStore {
     }
 
     fn read_profile(&self) -> io::Result<Profile> {
-        match Profile::load(&self.path) {
+        match retry(|| Profile::load(&self.path)) {
             Ok(profile) => Ok(profile),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Profile::new()),
             Err(e) => Err(e),
@@ -87,7 +114,7 @@ impl HistoryStore {
         loop {
             match OpenOptions::new().write(true).create_new(true).open(&path) {
                 Ok(_) => return Ok(Lock(path)),
-                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists || is_busy(&e) => {
                     let age = std::fs::metadata(&path)
                         .and_then(|m| m.modified())
                         .ok()
@@ -98,6 +125,8 @@ impl HistoryStore {
                         match std::fs::remove_file(&path) {
                             Ok(()) => continue,
                             Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+                            // Busy: the owner is deleting it right now; wait below.
+                            Err(e) if is_busy(&e) => {}
                             Err(e) => return Err(e),
                         }
                     }
@@ -126,8 +155,46 @@ impl HistoryStore {
             history
                 .write_to(&mut profile)
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-            profile.save(&self.path)?;
+            retry(|| profile.save(&self.path))?;
         }
         Ok(history)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_busy_error_is_tried_again_only_where_windows_makes_it() {
+        let mut calls = 0;
+        let result = retry(|| {
+            calls += 1;
+            if calls < 3 {
+                Err(io::Error::from(io::ErrorKind::PermissionDenied))
+            } else {
+                Ok(calls)
+            }
+        });
+        if cfg!(windows) {
+            assert_eq!(result.unwrap(), 3);
+        } else {
+            // A real permission error is returned at once.
+            assert_eq!(result.unwrap_err().kind(), io::ErrorKind::PermissionDenied);
+            assert_eq!(calls, 1);
+        }
+        assert!(is_busy(&io::Error::from_raw_os_error(32)) == cfg!(windows));
+        assert!(!is_busy(&io::Error::from(io::ErrorKind::NotFound)));
+    }
+
+    #[test]
+    fn other_errors_are_not_retried() {
+        let mut calls = 0;
+        let result: io::Result<()> = retry(|| {
+            calls += 1;
+            Err(io::Error::from(io::ErrorKind::InvalidData))
+        });
+        assert!(result.is_err());
+        assert_eq!(calls, 1);
     }
 }
