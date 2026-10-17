@@ -45,6 +45,9 @@ use crate::view::EditorView;
 /// in Sakura waits 20 ms).
 const POLL: Duration = Duration::from_millis(15);
 
+/// How long the window gets between two batches of output.
+const YIELD: Duration = Duration::from_millis(1);
+
 /// How much text is put in the window at a time.
 const BATCH_BYTES: usize = 256 * 1024;
 
@@ -346,8 +349,12 @@ pub(crate) async fn run_command(
         }
         let idle = batch.is_empty() && exit.is_none();
         keep_going = put(view, cx, target, &batch);
-        if idle {
-            cx.background_executor().timer(POLL).await;
+        if exit.is_none() {
+            // A command that never stops writing (`yes`) must not keep the window from drawing and
+            // from hearing the 中断 button: wait a moment after every batch, longer when idle.
+            cx.background_executor()
+                .timer(if idle { POLL } else { YIELD })
+                .await;
         }
     }
 

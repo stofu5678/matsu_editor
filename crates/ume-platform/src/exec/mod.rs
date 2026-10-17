@@ -27,7 +27,7 @@ use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -52,6 +52,10 @@ const READ_BYTES: usize = 8 * 1024;
 /// and left it running holds the pipe open; Sakura stops when the process has ended and the pipe
 /// is empty (`PeekNamedPipe`), and so does this.
 const GRACE: Duration = Duration::from_millis(300);
+
+/// How many pieces of output may wait for the caller. The process is held back (its pipe fills)
+/// when the caller does not keep up, instead of the memory of this program growing.
+const OUTPUT_PIECES: usize = 64;
 
 /// How many pieces the input may have waiting. The sender waits when the process does not read.
 const STDIN_PIECES: usize = 8;
@@ -200,39 +204,71 @@ impl Run {
             return None;
         }
         let deadline = Instant::now() + wait;
+        let mut disconnected = false;
         loop {
+            // What is already queued comes first, whatever the clocks say.
+            match self.rx.try_recv() {
+                Ok(raw) => {
+                    if let Some(event) = self.take(raw) {
+                        return Some(event);
+                    }
+                    continue;
+                }
+                Err(TryRecvError::Disconnected) => disconnected = true,
+                Err(TryRecvError::Empty) => {}
+            }
             if let Some((exit, at)) = self.exit
-                && (self.reader_done || at.elapsed() >= GRACE)
+                && (self.reader_done || disconnected || at.elapsed() >= GRACE)
             {
                 self.over = true;
                 return Some(Event::Exited(exit));
             }
-            let now = Instant::now();
-            let mut left = deadline.saturating_duration_since(now);
+            if disconnected {
+                // the thread that waits for the process is gone without a word
+                self.over = true;
+                return None;
+            }
+            let mut left = deadline.saturating_duration_since(Instant::now());
             if let Some((_, at)) = self.exit {
                 // do not sleep past the end of the grace period
                 left = left.min(GRACE.saturating_sub(at.elapsed()));
             }
+            if left.is_zero() {
+                match self.exit {
+                    // the grace period is over: the top of the loop gives the exit
+                    Some((_, at)) if at.elapsed() >= GRACE => continue,
+                    _ => return None,
+                }
+            }
             match self.rx.recv_timeout(left) {
-                Ok(Raw::Output(bytes)) => return Some(Event::Output(bytes)),
-                Ok(Raw::ReaderDone) => self.reader_done = true,
-                Ok(Raw::Exited(exit)) => self.exit = Some((exit, Instant::now())),
-                Err(RecvTimeoutError::Timeout) => {
-                    if Instant::now() >= deadline {
-                        // the grace period may have ended with this wait
-                        let ended = self.exit.is_some_and(|(_, at)| at.elapsed() >= GRACE);
-                        if !ended {
-                            return None;
-                        }
+                Ok(raw) => {
+                    if let Some(event) = self.take(raw) {
+                        return Some(event);
                     }
                 }
-                Err(RecvTimeoutError::Disconnected) => {
-                    self.reader_done = true;
-                    if self.exit.is_none() {
-                        self.over = true;
-                        return None;
-                    }
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => disconnected = true,
+            }
+        }
+    }
+
+    /// Takes in what a thread sent; the event for the caller, if it is one.
+    fn take(&mut self, raw: Raw) -> Option<Event> {
+        match raw {
+            Raw::Output(bytes) => {
+                // The grace period after the exit counts from the last output.
+                if let Some((_, at)) = &mut self.exit {
+                    *at = Instant::now();
                 }
+                Some(Event::Output(bytes))
+            }
+            Raw::ReaderDone => {
+                self.reader_done = true;
+                None
+            }
+            Raw::Exited(exit) => {
+                self.exit = Some((exit, Instant::now()));
+                None
             }
         }
     }
@@ -280,7 +316,7 @@ pub fn start(spec: Spec) -> Result<Run, StartError> {
         });
     };
     let reader = pipe.map(|(reader, _writer)| reader);
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = mpsc::sync_channel(OUTPUT_PIECES);
     let state = Arc::new(StopState {
         pid: child.id(),
         stopped: AtomicBool::new(false),
@@ -345,7 +381,7 @@ fn feed(input: StdinReceiver, mut stdin: std::process::ChildStdin) {
     });
 }
 
-fn read_output(mut reader: io::PipeReader, tx: mpsc::Sender<Raw>) {
+fn read_output(mut reader: io::PipeReader, tx: SyncSender<Raw>) {
     thread::spawn(move || {
         let mut buf = vec![0; READ_BYTES];
         loop {
@@ -362,7 +398,7 @@ fn read_output(mut reader: io::PipeReader, tx: mpsc::Sender<Raw>) {
     });
 }
 
-fn wait_for(mut child: Child, state: Arc<StopState>, tx: mpsc::Sender<Raw>) {
+fn wait_for(mut child: Child, state: Arc<StopState>, tx: SyncSender<Raw>) {
     thread::spawn(move || {
         let status = child.wait();
         {

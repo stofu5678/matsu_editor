@@ -180,7 +180,8 @@ fn wait_until(
     mut done: impl FnMut(&mut TestAppContext) -> bool,
 ) {
     cx.executor().allow_parking();
-    for _ in 0..3000 {
+    let begun = std::time::Instant::now();
+    while begun.elapsed() < Duration::from_secs(60) {
         cx.executor().advance_clock(Duration::from_millis(20));
         cx.run_until_parked();
         if done(cx) {
@@ -491,6 +492,17 @@ fn a_long_command_is_stopped_with_the_button(cx: &mut TestAppContext) {
     wait_for_output(cx, &w, "中断しました。");
     let output = w.output(cx);
     assert!(output.contains("終了コード: "), "{output}");
+}
+
+#[cfg(unix)]
+#[gpui::test]
+fn a_command_that_never_stops_writing_can_still_be_stopped(cx: &mut TestAppContext) {
+    let (_dir, w) = open(cx, "");
+    w.exec(cx, "yes", OUT | NO_INFO);
+    wait_until(cx, "some output", |cx| w.output(cx).lines().count() > 1000);
+    // the window gets its turns between the batches: the button works
+    stop(&w, cx);
+    wait_until(cx, "the end", |cx| !w.running(cx));
 }
 
 #[gpui::test]

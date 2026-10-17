@@ -284,6 +284,34 @@ mod unix_only {
     }
 
     #[test]
+    fn a_slow_reader_loses_nothing_after_the_exit() {
+        // 3 MB is more than the queue and the pipe hold: the command waits for us, and ends
+        // before we read; the grace period after its end does not cut off what is queued
+        let mut run = start(Spec::new("head -c 3000000 /dev/zero")).unwrap();
+        std::thread::sleep(Duration::from_millis(1200));
+        let mut total = 0;
+        let begun = Instant::now();
+        loop {
+            assert!(begun.elapsed() < LIMIT);
+            match run.poll(Duration::from_millis(50)) {
+                Some(Event::Output(bytes)) => {
+                    total += bytes.len();
+                    // slower than the grace period over the whole output
+                    if total % (1 << 20) < 8192 {
+                        std::thread::sleep(Duration::from_millis(400));
+                    }
+                }
+                Some(Event::Exited(exit)) => {
+                    assert_eq!(exit.code, Some(0));
+                    break;
+                }
+                None => {}
+            }
+        }
+        assert_eq!(total, 3_000_000);
+    }
+
+    #[test]
     fn a_big_output_arrives_whole() {
         let done = run("head -c 3000000 /dev/zero");
         assert_eq!(done.output.len(), 3_000_000);
