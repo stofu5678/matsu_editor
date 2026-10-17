@@ -489,6 +489,23 @@ fn the_quote_of_the_page_is_the_quote_of_the_passage_copy(cx: &mut TestAppContex
 }
 
 #[gpui::test]
+fn a_quote_set_by_a_macro_is_shown_and_kept_by_ok(cx: &mut TestAppContext) {
+    // `F_SET_QUOTESTRING` changes the quote of the session, not the file.
+    let (ini, handle) = setup(cx, "[Common]\r\nszInyouKigou=# \r\n");
+    cx.update(|app| app.set_global(crate::clipboard::QuoteString("| ".to_owned())));
+    run(cx, handle, "F_OPTION_GENERAL");
+    with_dialog(cx, |d, _, dcx| d.select_page(Page::Format, dcx));
+    assert_eq!(
+        with_dialog(cx, |d, _, dcx| d.input_text("quote_string", dcx)).as_deref(),
+        Some("| ")
+    );
+    ok(cx);
+    assert_eq!(value(&ini, "Common", "szInyouKigou").as_deref(), Some("| "));
+    let quote = cx.update(|app| app.global::<crate::clipboard::QuoteString>().0.clone());
+    assert_eq!(quote, "| ");
+}
+
+#[gpui::test]
 fn the_heading_marks_of_the_page_reach_the_outline_of_a_text(cx: &mut TestAppContext) {
     let (ini, handle) = setup(cx, "");
     let marks = |cx: &mut TestAppContext| {

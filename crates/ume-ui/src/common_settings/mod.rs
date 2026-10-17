@@ -210,8 +210,8 @@ pub(crate) fn current_dialog(cx: &App) -> Option<Entity<CommonSettingsDialog>> {
 }
 
 /// The profile the dialog starts from: the settings file as it is now (another window may have
-/// written it), with what the windows hold in their own state: the tab mode, and the status bar of
-/// the window the dialog was opened from.
+/// written it), with what the windows hold in their own state: the tab mode, the quote string, and
+/// the status bar of the window the dialog was opened from.
 fn start_profile(cx: &mut App, opener: Option<AnyWindowHandle>) -> Profile {
     let mut profile = crate::history::settings_path(cx)
         .and_then(|path| Profile::load(&path).ok())
@@ -237,6 +237,11 @@ fn start_profile(cx: &mut App, opener: Option<AnyWindowHandle>) -> Profile {
         .map(|(_, view)| view);
     if let Some(view) = opener_view {
         put("bDispSTATUSBAR", view.read(cx).status_bar_shown());
+    }
+    // `F_SET_QUOTESTRING` changes the quote of the session only (`m_szInyouKigou` in memory): the
+    // dialog shows it, so that OK does not take it back.
+    if let Some(quote) = cx.try_global::<crate::clipboard::QuoteString>() {
+        let _ = profile.set(model::SECTION, "szInyouKigou", &quote.0);
     }
     profile
 }
