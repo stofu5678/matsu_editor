@@ -237,6 +237,15 @@ fn set_menus(cx: &mut App, keymap: &KeyMap) {
     cx.set_global(MenuGeneration(generation + 1));
 }
 
+/// How many documents the windows other than `except` have (the tabs of each).
+pub(crate) fn documents_elsewhere(cx: &App, except: gpui::EntityId) -> usize {
+    crate::file_ops::windows::listed_workspaces(cx)
+        .iter()
+        .filter(|(_, workspace)| workspace.entity_id() != except)
+        .map(|(_, workspace)| workspace.read(cx).tab_count())
+        .sum()
+}
+
 /// The state of the window that is active, for the marks of the native menu. `None` when no
 /// editor window is active, or when it is busy (a command is running in it: the menus are made
 /// again when that ends).
@@ -247,7 +256,9 @@ pub(crate) fn active_states(cx: &mut App) -> Option<crate::menu_state::FuncState
     handle
         .update(cx, |_, window, cx| {
             let topmost = crate::window_ops::is_topmost(window, cx);
-            workspace.read(cx).func_states(topmost, cx)
+            workspace
+                .read(cx)
+                .func_states(topmost, workspace.entity_id(), cx)
         })
         .ok()
 }
@@ -358,11 +369,20 @@ impl Workspace {
 
     /// The state that the check marks and gray items of the menus show (`crate::menu_state`):
     /// the active pane of this window. `topmost` is what the OS says of the window.
-    pub(crate) fn func_states(&self, topmost: bool, cx: &App) -> crate::menu_state::FuncStates {
+    ///
+    /// `this` is the entity of this workspace: it may be borrowed (the window is being drawn), so
+    /// the documents of the other windows are counted without reading it.
+    pub(crate) fn func_states(
+        &self,
+        topmost: bool,
+        this: gpui::EntityId,
+        cx: &App,
+    ) -> crate::menu_state::FuncStates {
         crate::menu_state::FuncStates::of_view(
             self.panes.active().read(cx),
             self.outline.is_some(),
             topmost,
+            self.tab_count() + documents_elsewhere(cx, this),
             cx,
         )
     }
@@ -384,7 +404,8 @@ impl Render for Workspace {
         let macro_panel = editor.macro_panel(active.clone());
         let ui_font = gpui_component::Theme::global(cx).font_family.clone();
         let tab_bar = self.render_tab_bar(window, cx);
-        let toolbar = self.render_toolbar(cx);
+        let topmost = crate::window_ops::is_topmost(window, cx);
+        let toolbar = self.render_toolbar(topmost, cx);
         let funckeys_top = self.render_funckeys(crate::bars::FuncKeyPlace::Top, window, cx);
         let funckeys_bottom = self.render_funckeys(crate::bars::FuncKeyPlace::Bottom, window, cx);
         // A Wayland compositor without server-side decorations, such as WSLg's, leaves the title

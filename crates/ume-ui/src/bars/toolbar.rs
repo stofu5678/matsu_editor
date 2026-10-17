@@ -12,7 +12,10 @@
 //!   (`CEditWnd::GetTooltipText`).
 //! * Not built: the search box (`F_SEARCH_BOX`), the drop-down arrow of the open button
 //!   (`F_FILEOPEN_DROPDOWN`: the button itself opens a file, as `Command_FILEOPEN` does), the
-//!   pressed look of the toggle buttons (`IsFuncChecked`), and plugin buttons.
+//!   and plugin buttons.
+//! * A button is pressed while `IsFuncChecked` says so (`TBSTATE_CHECKED`, `CMainToolBar.cpp`) and
+//!   gray while `IsFuncEnable` says no (`TBSTATE_ENABLED`): the state of the window the toolbar
+//!   is in ([`crate::menu_state::FuncStates`]), read each time the window is drawn.
 
 use gpui::{
     AnyElement, App, Global, InteractiveElement, IntoElement, ParentElement,
@@ -117,6 +120,22 @@ impl Button {
     }
 }
 
+/// How a button looks: gray when its function cannot run, pressed when `IsFuncChecked` says so.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Look {
+    pub enabled: bool,
+    pub pressed: bool,
+}
+
+/// `CMainToolBar::UpdateToolbar`: a function without a command is gray, and so is one that
+/// `IsFuncEnable` refuses; a button is pressed while `IsFuncChecked` is true.
+pub(crate) fn look(code: u16, states: &crate::menu_state::FuncStates) -> Look {
+    Look {
+        enabled: is_available(code) && states.is_enabled(code),
+        pressed: states.is_checked(code),
+    }
+}
+
 /// An item of a line of the toolbar.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Item {
@@ -207,11 +226,16 @@ pub(super) fn tooltip_text(code: u16, cx: &App) -> String {
 
 impl Workspace {
     /// The toolbar, if it is shown.
-    pub(crate) fn render_toolbar(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+    pub(crate) fn render_toolbar(
+        &self,
+        topmost: bool,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<AnyElement> {
         if !super::current(cx).toolbar {
             return None;
         }
         let lines = arrange(&buttons(cx).0);
+        let states = self.func_states(topmost, cx.entity_id(), cx);
         let mut bar = div()
             .id("tool-bar")
             .debug_selector(|| "tool-bar".into())
@@ -227,7 +251,9 @@ impl Workspace {
             for (column, item) in line.into_iter().enumerate() {
                 line_el = line_el.child(match item {
                     Item::Separator => div().w(px(8.)).into_any_element(),
-                    Item::Button(button) => self.render_tool_button(row, column, button, cx),
+                    Item::Button(button) => {
+                        self.render_tool_button(row, column, button, &states, cx)
+                    }
                 });
             }
             bar = bar.child(line_el);
@@ -240,10 +266,12 @@ impl Workspace {
         row: usize,
         column: usize,
         button: Button,
+        states: &crate::menu_state::FuncStates,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let code = button.click_code();
-        let enabled = is_available(code);
+        // A function without a command is gray, and so is one that `IsFuncEnable` refuses.
+        let Look { enabled, pressed } = look(code, states);
         let image = button.icon.and_then(icons::icon);
         div()
             .id(("tool-button", row * 1000 + column))
@@ -254,6 +282,11 @@ impl Workspace {
             .w(px(24.))
             .h(px(22.))
             .rounded_sm()
+            .when(pressed, |this| {
+                this.bg(rgb(0xc4d8f0))
+                    .border_1()
+                    .border_color(rgb(0x7fa3d1))
+            })
             .when(enabled, |this| {
                 this.cursor_pointer()
                     .hover(|s| s.bg(rgb(0xd8e6f5)))

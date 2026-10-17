@@ -55,6 +55,9 @@ pub(super) fn base() -> FuncStates {
         has_search_keys: false,
         has_search_start: false,
         open_documents: 1,
+        toolbar: true,
+        funckeys: false,
+        unmodified_overwrite: false,
         diff_shown: false,
         can_jump_back: false,
         can_jump_forward: false,
@@ -416,8 +419,9 @@ impl Fixture {
     }
 
     pub(super) fn states(&self, cx: &mut VisualTestContext) -> FuncStates {
-        self.workspace
-            .read_with(cx, |w, cx| w.func_states(false, cx))
+        self.workspace.read_with(cx, |w, cx| {
+            w.func_states(false, gpui::Entity::entity_id(&self.workspace), cx)
+        })
     }
 
     /// The items of Sakura's main menu as the menu bar of this window builds them when it opens.

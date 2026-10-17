@@ -348,3 +348,131 @@ fn the_jump_history_shows_in_the_state(cx: &mut TestAppContext) {
     assert!(states.can_jump_forward);
     assert!(states.is_enabled(code("F_JUMPHIST_NEXT")));
 }
+
+// ---- the toolbar and the function key bar ----
+
+#[test]
+fn the_bars_are_checked_while_shown() {
+    let shown = FuncStates {
+        toolbar: true,
+        funckeys: true,
+        ..base()
+    };
+    let hidden = FuncStates {
+        toolbar: false,
+        funckeys: false,
+        ..base()
+    };
+    for name in ["F_SHOWTOOLBAR", "F_SHOWFUNCKEY"] {
+        assert!(shown.is_checked(code(name)), "{name} shown");
+        assert!(!hidden.is_checked(code(name)), "{name} hidden");
+        // the items are always available
+        assert!(enabled(&hidden, name));
+    }
+    // each bar has its own mark
+    let toolbar_only = FuncStates {
+        toolbar: true,
+        funckeys: false,
+        ..base()
+    };
+    assert!(toolbar_only.is_checked(code("F_SHOWTOOLBAR")));
+    assert!(!toolbar_only.is_checked(code("F_SHOWFUNCKEY")));
+}
+
+#[test]
+fn saving_an_unmodified_file_follows_the_setting() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("a.txt");
+    std::fs::write(&path, "").unwrap();
+    let on_disk = FuncStates {
+        has_path: true,
+        path: Some(path),
+        ..base()
+    };
+    let overwrite = FuncStates {
+        unmodified_overwrite: true,
+        ..on_disk.clone()
+    };
+    flips("F_FILESAVE", &on_disk, &overwrite);
+    // view mode still refuses
+    let view = FuncStates {
+        view_mode: true,
+        ..overwrite
+    };
+    assert!(!enabled(&view, "F_FILESAVE"));
+}
+
+// The toolbar shows a button gray when the function has no command or `IsFuncEnable` refuses it,
+// and pressed while `IsFuncChecked` says so.
+#[test]
+fn a_toolbar_button_is_gray_or_pressed_by_the_state() {
+    use crate::bars::toolbar::{Look, look};
+    let undo = code("F_UNDO");
+    let view_mode = code("F_VIEWMODE");
+    let can_undo = FuncStates {
+        can_undo: true,
+        ..base()
+    };
+    let look_of = |enabled, pressed| Look { enabled, pressed };
+    assert_eq!(look(undo, &base()), look_of(false, false));
+    assert_eq!(look(undo, &can_undo), look_of(true, false));
+    let view = FuncStates {
+        view_mode: true,
+        can_undo: true,
+        ..base()
+    };
+    assert_eq!(look(undo, &view), look_of(false, false));
+    assert_eq!(look(view_mode, &view), look_of(true, true));
+    assert_eq!(look(view_mode, &base()), look_of(true, false));
+    // a function with no command stays gray, and the empty button too
+    assert!(!look(code("F_TOGGLE_KEY_SEARCH"), &base()).enabled);
+    assert!(!look(0, &base()).enabled);
+}
+
+fn open_window(cx: &mut TestAppContext) -> gpui::AnyWindowHandle {
+    let handle = cx
+        .update(|app| {
+            crate::file_ops::windows::open_editor_window(
+                app,
+                crate::document::SharedDocument::empty(),
+                None,
+            )
+        })
+        .unwrap();
+    cx.run_until_parked();
+    handle
+}
+
+fn states_of(cx: &mut TestAppContext, handle: gpui::AnyWindowHandle) -> FuncStates {
+    let ws = cx
+        .update(|app| crate::file_ops::windows::workspace_of(app, handle))
+        .unwrap();
+    let id = gpui::Entity::entity_id(&ws);
+    ws.read_with(cx, |w, cx| w.func_states(false, id, cx))
+}
+
+// The toolbar reads the state of its own window; the bars are shared by every window.
+#[gpui::test]
+fn each_window_has_its_own_state_and_the_bars_are_shared(cx: &mut TestAppContext) {
+    cx.update(gpui_component::init);
+    let first = open_window(cx);
+    let second = open_window(cx);
+    let ws = cx
+        .update(|app| crate::file_ops::windows::workspace_of(app, first))
+        .unwrap();
+    let view = ws.read_with(cx, |w, _| w.editor().clone());
+    first
+        .update(cx, |_, window, app| {
+            view.update(app, |view, cx| {
+                view.run_function(code("F_VIEWMODE"), &[], window, cx)
+            })
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert!(states_of(cx, first).is_checked(code("F_VIEWMODE")));
+    assert!(!states_of(cx, second).is_checked(code("F_VIEWMODE")));
+    // two documents are open now, counted once each
+    assert_eq!(states_of(cx, first).open_documents, 2);
+    assert_eq!(states_of(cx, second).open_documents, 2);
+    assert_eq!(states_of(cx, first).toolbar, states_of(cx, second).toolbar);
+}

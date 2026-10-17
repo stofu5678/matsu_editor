@@ -48,13 +48,12 @@
 //! and custom menus (`CEditView::CreatePopUpMenuSub`) and the toolbar (`CMainToolBar`).
 //!
 //! Not here yet:
-//! * `F_SHOWTOOLBAR`, `F_SHOWFUNCKEY` (the toolbar and the function key bar come in another change).
 //! * `F_SHOWMINIMAP` (no minimap: never checked), `F_SELECT_COUNT_MODE` and `F_TOGGLE_KEY_SEARCH`
 //!   (no command yet: the items stay gray).
 //! * The `IsFuncEnable` cases that need state UME does not have: the clipboard (`F_PASTE`, whose
 //!   read is slow on Wayland), the box functions (a fixed-pitch font), the limit of windows
 //!   (there is none), a change of the encoding that makes `F_FILESAVE` write an unmodified file,
-//!   `m_bEnableUnmodifiedOverwrite` (not read), and whether PowerShell is installed. Another
+//!   and whether PowerShell is installed. Another
 //!   window that records a key macro is not known either.
 
 use gpui::{Action, App, MenuItem, OwnedMenuItem};
@@ -115,6 +114,11 @@ pub(crate) struct FuncStates {
     pub has_search_start: bool,
     /// How many documents are open in all the windows (`m_nEditArrNum`).
     pub open_documents: usize,
+    /// The toolbar and the function key bar are shown (`F_SHOWTOOLBAR`, `F_SHOWFUNCKEY`).
+    pub toolbar: bool,
+    pub funckeys: bool,
+    /// `m_bEnableUnmodifiedOverwrite`: a save writes the file even when it is unmodified.
+    pub unmodified_overwrite: bool,
     /// A DIFF is shown in the document (`CDiffManager::IsDiffUse`).
     pub diff_shown: bool,
     /// The jump history has an entry before (after) the current one.
@@ -135,14 +139,17 @@ fn name_of(code: u16) -> Option<&'static str> {
 impl FuncStates {
     /// The state of the window of `view`. `outline` is whether the window shows the outline pane
     /// (the window keeps it, not the view) and `topmost` whether the OS says the window is on top.
-    pub(crate) fn of_view(view: &EditorView, outline: bool, topmost: bool, cx: &App) -> Self {
+    pub(crate) fn of_view(
+        view: &EditorView,
+        outline: bool,
+        topmost: bool,
+        open_documents: usize,
+        cx: &App,
+    ) -> Self {
         let shared = view.document().read(cx);
         let tabs = crate::tabs::settings::current(cx);
         let path = shared.path();
-        let open_documents = crate::file_ops::windows::listed_workspaces(cx)
-            .iter()
-            .map(|(_, workspace)| workspace.read(cx).tab_count())
-            .sum();
+        let bars = crate::bars::current(cx);
         Self {
             encoding: shared.file().encoding,
             new_line: shared.new_line(),
@@ -168,6 +175,9 @@ impl FuncStates {
             has_search_keys: !crate::search::history::search_keys(cx).is_empty(),
             has_search_start: view.search.start_pos().is_some(),
             open_documents,
+            toolbar: bars.toolbar,
+            funckeys: bars.funckeys,
+            unmodified_overwrite: crate::file_ops::prefs::prefs(cx).enable_unmodified_overwrite,
             diff_shown: shared.model().diff_marks().in_use(),
             can_jump_back: view.cursor.jump_history().has_prev(),
             can_jump_forward: view.cursor.jump_history().has_next(),
@@ -193,6 +203,8 @@ impl FuncStates {
             "F_FILE_REOPEN_CESU8" => self.encoding == Encoding::Cesu8,
             "F_FILE_REOPEN_UTF7" => self.encoding == Encoding::Utf7,
             "F_RECKEYMACRO" => self.recording_key_macro,
+            "F_SHOWTOOLBAR" => self.toolbar,
+            "F_SHOWFUNCKEY" => self.funckeys,
             "F_SHOWTAB" => self.tab_bar,
             "F_SHOWSTATUSBAR" => self.status_bar,
             "F_TMPWRAPNOWRAP" => self.wrap == WrapMethod::None,
@@ -239,13 +251,15 @@ impl FuncStates {
             "F_JUMP_SRCHSTARTPOS" => self.has_search_start,
             "F_COMPARE" => self.open_documents >= 2,
             "F_DIFF_NEXT" | "F_DIFF_PREV" | "F_DIFF_RESET" => self.diff_shown,
-            // View mode is refused above; otherwise an unmodified file is not written
-            // (`m_bEnableUnmodifiedOverwrite` is off, Sakura's default).
-            // A named file that is not on disk yet is created by a save even when unmodified
-            // (`on_disk` in `file_ops::save`).
+            // View mode is refused above. Then a save is possible when the document is modified
+            // or `m_bEnableUnmodifiedOverwrite` is on. (Sakura also looks at a change of the
+            // encoding.) A named file that is not on disk yet is created by a save even when
+            // unmodified (`on_disk` in `file_ops::save`).
             "F_FILESAVE" => {
                 !self.view_mode
-                    && (self.modified || self.path.as_deref().is_some_and(|p| !p.exists()))
+                    && (self.modified
+                        || self.unmodified_overwrite
+                        || self.path.as_deref().is_some_and(|p| !p.exists()))
             }
             "F_UNDO" => self.can_undo,
             "F_REDO" => self.can_redo,

@@ -502,7 +502,7 @@ fn ok_shows_and_hides_the_toolbar_and_the_function_keys_in_every_window(cx: &mut
         let ws = cx
             .update(|app| crate::file_ops::windows::workspace_of(app, handle))
             .unwrap();
-        assert!(ws.update(cx, |ws, cx| ws.render_toolbar(cx).is_none()));
+        assert!(ws.update(cx, |ws, cx| ws.render_toolbar(false, cx).is_none()));
         let bottom = handle
             .update(cx, |_, window, app| {
                 ws.update(app, |ws, cx| {

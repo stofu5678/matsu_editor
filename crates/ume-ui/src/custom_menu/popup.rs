@@ -138,13 +138,16 @@ impl EditorView {
     ) {
         // The window keeps the outline pane. (The view is not inside an update of its window here:
         // a menu opens from a mouse event or a function that was dispatched to the view.)
-        let outline = self
-            .split_host
+        let host = self.split_host.as_ref().and_then(gpui::WeakEntity::upgrade);
+        let outline = host
             .as_ref()
-            .and_then(gpui::WeakEntity::upgrade)
             .is_some_and(|workspace| workspace.read(cx).outline.is_some());
+        let documents = host.as_ref().map_or(1, |workspace| {
+            workspace.read(cx).tab_count()
+                + crate::app::documents_elsewhere(cx, workspace.entity_id())
+        });
         let topmost = crate::window_ops::is_topmost(window, cx);
-        let states = crate::menu_state::FuncStates::of_view(self, outline, topmost, cx);
+        let states = crate::menu_state::FuncStates::of_view(self, outline, topmost, documents, cx);
         crate::menu_state::apply(items, &states);
     }
 

@@ -103,7 +103,9 @@ impl MenuBar {
         let Some(workspace) = workspace.as_ref().and_then(WeakEntity::upgrade) else {
             return;
         };
-        let states = workspace.read(cx).func_states(topmost, cx);
+        let states = workspace
+            .read(cx)
+            .func_states(topmost, workspace.entity_id(), cx);
         crate::menu_state::apply(items, &states);
     }
 
