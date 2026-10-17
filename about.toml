@@ -42,67 +42,10 @@ ignore-build-dependencies = false
 # file makes cargo-about fall back to its own search (and the CI job shows the difference).
 # Crate-specific tables must stay below the global options.
 
-# The Rust crates of this repository: our own license (LICENSE-MIT, next to LICENSE-APACHE).
-[ume.clarify]
-license = "MIT"
-[[ume.clarify.files]]
-path = "../../LICENSE-MIT"
-checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
-
-[ume-commands.clarify]
-license = "MIT"
-[[ume-commands.clarify.files]]
-path = "../../LICENSE-MIT"
-checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
-
-[ume-config.clarify]
-license = "MIT"
-[[ume-config.clarify.files]]
-path = "../../LICENSE-MIT"
-checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
-
-[ume-core.clarify]
-license = "MIT"
-[[ume-core.clarify.files]]
-path = "../../LICENSE-MIT"
-checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
-
-[ume-layout.clarify]
-license = "MIT"
-[[ume-layout.clarify.files]]
-path = "../../LICENSE-MIT"
-checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
-
-[ume-platform.clarify]
-license = "MIT"
-[[ume-platform.clarify.files]]
-path = "../../LICENSE-MIT"
-checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
-
-[ume-plugin.clarify]
-license = "MIT"
-[[ume-plugin.clarify.files]]
-path = "../../LICENSE-MIT"
-checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
-
-[ume-print.clarify]
-license = "MIT"
-[[ume-print.clarify.files]]
-path = "../../LICENSE-MIT"
-checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
-
-[ume-script.clarify]
-license = "MIT"
-[[ume-script.clarify.files]]
-path = "../../LICENSE-MIT"
-checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
-
-[ume-ui.clarify]
-license = "MIT"
-[[ume-ui.clarify.files]]
-path = "../../LICENSE-MIT"
-checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
-
+# The Rust crates of this repository need no entry here: about.hbs leaves them out of the list (they
+# are covered by the text at its top), except the three that carry third-party C code. Those
+# are clarified below, and about.hbs names them. A new crate of ours that vendors third-party
+# code needs a clarification here and its name in about.hbs.
 # The crates that vendor C sources: our license plus the license files of the vendored code.
 # Onigmo (2-clause BSD, "Onigmo (Oniguruma-mod) LICENSE").
 [ume-regex.clarify]
@@ -126,89 +69,116 @@ checksum = "3d157c160af394dab4a2b117f09bece2644f9d13965dfafdfba77f7423a9aec7"
 # `grep -rhoE "Copyright \(c\).*" crates/ume-micropython-sys/vendor` and fix the checksums
 # (cargo-about says which clarification no longer matches).
 [ume-micropython-sys.clarify]
-license = "MIT"
+license = "MIT AND BSD-3-Clause"
 [[ume-micropython-sys.clarify.files]]
 path = "../../LICENSE-MIT"
+license = "MIT"
 checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
 [[ume-micropython-sys.clarify.files]]
+# re1.5 (BSD-3-Clause, Russ Cox / Google), the engine of the re module
+path = "vendor/micropython/lib/re1.5/LICENSE"
+license = "BSD-3-Clause"
+checksum = "df5c6cd09a47c05bd8529b3188b0daa5f5ffbd5c73398fd76bafb64b75663fab"
+[[ume-micropython-sys.clarify.files]]
+# Paul Sokolovsky's line in compilecode.c, dumpcode.c and re1.5.h
+path = "vendor/micropython/lib/re1.5/dumpcode.c"
+license = "BSD-3-Clause"
+checksum = "fdfeb26a3811ab09dc59b3d7df719bec6320c9eab0356ffff20097c6222e9243"
+start = "Copyright 2014 Paul Sokolovsky."
+end = "LICENSE file."
+[[ume-micropython-sys.clarify.files]]
 path = "vendor/micropython/LICENSE"
+license = "MIT"
 checksum = "cadd76d6b495a34c353543ecdf53465b1d375fa30996c577f827425bf035a3aa"
 end = "THE SOFTWARE."
 [[ume-micropython-sys.clarify.files]]
 # Alessandro Gatti
 path = "vendor/micropython/py/nlrloong64.c"
+license = "MIT"
 checksum = "33e1a42a3b44d729ee9e5c01c91d8e3f74c0817f940b5baab0afb588a4123a40"
 start = "Copyright (c) 2026 Alessandro Gatti"
 end = "THE SOFTWARE."
 [[ume-micropython-sys.clarify.files]]
 # Andrew Leech
 path = "vendor/micropython/py/objringio.c"
+license = "MIT"
 checksum = "c8c1db6e7606e9dae4a4e8622ff9cb6f9c8b275fc74417a79aa02a11693eddb4"
 start = "Copyright (c) 2024 Andrew Leech"
 end = "THE SOFTWARE."
 [[ume-micropython-sys.clarify.files]]
 # Angus Gratton
 path = "vendor/micropython/py/objint_impl.h"
+license = "MIT"
 checksum = "ce038ba161eba07894ef8c77fe60eee4792dd8145d96863da9e628b96022bd28"
 start = "Copyright (c) 2026 Angus Gratton"
 end = "THE SOFTWARE."
 [[ume-micropython-sys.clarify.files]]
 # Damien P. George on behalf of Pycom Ltd
 path = "vendor/micropython/py/modthread.c"
+license = "MIT"
 checksum = "bf665998b4c49de7f67f6fee57e5f9a769c8c75e26930c22585ffda5ece45434"
 start = "Copyright (c) 2016 Damien P. George on behalf of Pycom Ltd"
 end = "THE SOFTWARE."
 [[ume-micropython-sys.clarify.files]]
 # Fabian Vogt
 path = "vendor/micropython/py/asmarm.c"
+license = "MIT"
 checksum = "c0d5485107e081ee702b1c4dd5ad475be9e43aa40c9586b500d9843a296e9ec6"
 start = "Copyright (c) 2014 Fabian Vogt"
 end = "THE SOFTWARE."
 [[ume-micropython-sys.clarify.files]]
 # Ibrahim Abdelkader <iabdalkader@openmv.io>
 path = "vendor/micropython/extmod/modplatform.h"
+license = "MIT"
 checksum = "ad34c6edeea41ed5ba2f93a76d47aec28ad8abd3558ee098de98d1e99ac04a6e"
 start = "Copyright (c) 2013-2021 Ibrahim Abdelkader <iabdalkader@openmv.io>"
 end = "THE SOFTWARE."
 [[ume-micropython-sys.clarify.files]]
 # Jim Mussared
 path = "vendor/micropython/py/builtinimport.c"
+license = "MIT"
 checksum = "1496db08ad19c11f3d70f62b87b1c6439fe28abf7e407f4492a0652d17ed2a84"
 start = "Copyright (c) 2021 Jim Mussared"
 end = "THE SOFTWARE."
 [[ume-micropython-sys.clarify.files]]
 # Josef Gajdusek
 path = "vendor/micropython/py/runtime_utils.c"
+license = "MIT"
 checksum = "2f8bda01a3ec845bf2ad66cf186bb3495d1b26e674f0386cfe4c6ea1a91f1ee9"
 start = "Copyright (c) 2015 Josef Gajdusek"
 end = "THE SOFTWARE."
 [[ume-micropython-sys.clarify.files]]
 # Koudai Aono
 path = "vendor/micropython/py/objtemplate.c"
+license = "MIT"
 checksum = "20a391c6f939832339962dfb17b4d5c386346839e1d5f774a526770bb6183f26"
 start = "Copyright (c) 2025 Koudai Aono"
 end = "THE SOFTWARE."
 [[ume-micropython-sys.clarify.files]]
 # Michael Neuling, IBM Corporation.
 path = "vendor/micropython/py/nlrpowerpc.c"
+license = "MIT"
 checksum = "c25f7e976e8b8eb9618016060f806079dd10869261ce025e1cbe712afe52df1a"
 start = "Copyright (c) 2019, Michael Neuling, IBM Corporation."
 end = "THE SOFTWARE."
 [[ume-micropython-sys.clarify.files]]
 # Paul Sokolovsky
 path = "vendor/micropython/py/objstr.c"
+license = "MIT"
 checksum = "7a5f954cb31a98345531cd41fc87e6e0a35041acf75cbf3652738689f4342cd9"
 start = "Copyright (c) 2014-2018 Paul Sokolovsky"
 end = "THE SOFTWARE."
 [[ume-micropython-sys.clarify.files]]
 # SatoshiLabs
 path = "vendor/micropython/py/profile.c"
+license = "MIT"
 checksum = "c652679cdfeee9cbf1c6762de4068afe099530ddf342513899f7711ca74bd507"
 start = "Copyright (c) SatoshiLabs"
 end = "THE SOFTWARE."
 [[ume-micropython-sys.clarify.files]]
 # Yonatan Goldschmidt
 path = "vendor/micropython/py/nlraarch64.c"
+license = "MIT"
 checksum = "b0b3169874340ebac853115013cde6674f126331a76d2ba712a80ee2ead517a0"
 start = "Copyright (c) 2021 Yonatan Goldschmidt"
 end = "THE SOFTWARE."
