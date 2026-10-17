@@ -393,6 +393,22 @@ fn whole_word_searches_for_the_words_of_the_pattern() {
 }
 
 #[test]
+fn whole_word_numbers_the_words_of_the_pattern() {
+    // `IsSearchString` numbers the words of the key that are not spaces; the number picks the
+    // search color.
+    let m = word("foo, bar Foo", false);
+    assert_eq!(m.word_slot("foo"), Some(0));
+    assert_eq!(m.word_slot(","), Some(1));
+    assert_eq!(m.word_slot("BAR"), Some(2));
+    // the first of two equal words
+    assert_eq!(m.word_slot("FOO"), Some(0));
+    assert_eq!(m.word_slot("baz"), None);
+    assert_eq!(word("foo", true).word_slot("FOO"), None);
+    // not by word: no words
+    assert_eq!(plain("foo").word_slot("foo"), None);
+}
+
+#[test]
 fn whole_word_in_japanese() {
     // Words are runs of one kind of char (CWordParse): kanji, hiragana, katakana, ...
     let d = doc("漢字かなカタカナ交じり\n");

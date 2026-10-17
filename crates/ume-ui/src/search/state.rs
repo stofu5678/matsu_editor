@@ -75,6 +75,8 @@ pub struct SearchState {
     matcher: Option<Arc<dyn Matcher>>,
     /// The same matcher as [`regex`](Self::regex) when the option is on, for the replacement.
     regex: Option<Arc<RegexMatcher>>,
+    /// The same matcher when the search is a plain one.
+    plain: Option<Arc<PlainMatcher>>,
     /// Why a regular expression pattern cannot be used (it then has no matcher).
     pattern_error: Option<PatternError>,
     /// Where the last search selected an empty match, so that the next one steps over it.
@@ -92,6 +94,8 @@ pub struct BuiltMatcher {
     pub matcher: Arc<dyn Matcher>,
     /// Set for a regular expression, whose replacement needs more than [`Matcher`] gives.
     pub regex: Option<Arc<RegexMatcher>>,
+    /// Set for a plain search, whose whole-word mode numbers the words of the pattern.
+    pub plain: Option<Arc<PlainMatcher>>,
 }
 
 /// The matcher for a pattern and options, or `None` for an empty pattern. This is the one place
@@ -116,17 +120,20 @@ pub fn build_matcher(
         return Ok(Some(BuiltMatcher {
             matcher: regex.clone(),
             regex: Some(regex),
+            plain: None,
         }));
     }
+    let plain = Arc::new(PlainMatcher::new(
+        pattern,
+        PlainOptions {
+            match_case: options.match_case,
+            whole_word: options.whole_word,
+        },
+    ));
     Ok(Some(BuiltMatcher {
-        matcher: Arc::new(PlainMatcher::new(
-            pattern,
-            PlainOptions {
-                match_case: options.match_case,
-                whole_word: options.whole_word,
-            },
-        )),
+        matcher: plain.clone(),
         regex: None,
+        plain: Some(plain),
     }))
 }
 
@@ -156,6 +163,11 @@ impl SearchState {
     /// The regular expression matcher, when the option is on and the pattern compiles.
     pub fn regex(&self) -> Option<&Arc<RegexMatcher>> {
         self.regex.as_ref()
+    }
+
+    /// The plain-text matcher, when the search is not by regular expression.
+    pub fn plain(&self) -> Option<&Arc<PlainMatcher>> {
+        self.plain.as_ref()
     }
 
     /// Why the regular expression cannot be used, if it cannot.
@@ -208,12 +220,14 @@ impl SearchState {
         match build_matcher(&self.pattern, &self.options) {
             Ok(built) => {
                 self.matcher = built.as_ref().map(|b| b.matcher.clone());
-                self.regex = built.and_then(|b| b.regex);
+                self.regex = built.as_ref().and_then(|b| b.regex.clone());
+                self.plain = built.and_then(|b| b.plain);
                 self.pattern_error = None;
             }
             Err(e) => {
                 self.matcher = None;
                 self.regex = None;
+                self.plain = None;
                 self.pattern_error = Some(e);
             }
         }
