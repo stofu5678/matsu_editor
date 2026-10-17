@@ -340,25 +340,29 @@ pub(crate) fn finish_pending(cx: &mut App, view: &WeakEntity<EditorView>) {
         .retain(|(_, v, _, _)| v.entity_id() != view.entity_id());
 }
 
-/// Opens the documents of the command line: one per file, or one untitled window without files.
-/// A file that is named twice (`a.txt ./a.txt`) is opened once, as in `open_paths`. In tab mode the
-/// files after the first are tabs of the first window, unless `bNewWindow` says that files from
-/// outside get new windows (`CControlTray::OpenNewEditor`).
-pub(crate) fn open_startup_windows(cx: &mut App, paths: Vec<PathBuf>) -> gpui::Result<()> {
-    if paths.is_empty() {
-        open_editor_window(cx, SharedDocument::empty(), None)?;
-    }
+/// The one entry for documents opened from outside: the command line of this process, the files
+/// of a later launch that was handed over (`crate::launch`), and the files that the OS sends to the
+/// running application (Finder, the Dock). `paths` are absolute, or relative to the folder of this
+/// process.
+///
+/// Sakura's rules: a file that is open already brings its tab and window to the front instead of
+/// opening a second copy (`CNormalProcess::ActiveAlreadyOpenedWindow`, as `open_paths` does). Any
+/// other file, and a launch without a file (an empty document), opens the way
+/// `CControlTray::OpenNewEditor` does: in tab mode as a new tab of the active window, else as a new
+/// window, and always a new window with `bNewWindow` (`tabs::flows::open_document`). Without any
+/// window yet (the command line of the first launch), the first document opens a window and the
+/// others follow it. A file that is named twice (`a.txt ./a.txt`) is opened once. The window of the
+/// last document opened comes to the front.
+pub(crate) fn open_from_outside(cx: &mut App, paths: Vec<PathBuf>) -> gpui::Result<()> {
     let new_window = crate::tabs::settings::current(cx).new_window;
-    let mut first: Option<AnyWindowHandle> = None;
-    for path in paths {
-        if find_open(cx, &path).is_some() {
-            continue;
-        }
-        let load = LoadRequest {
-            path,
-            encoding: None,
-        };
-        match first {
+    let mut from = workspaces(cx)
+        .into_iter()
+        .map(|(handle, _)| handle)
+        .rev()
+        .find(|handle| Some(*handle) == cx.active_window())
+        .or_else(|| workspaces(cx).last().map(|(handle, _)| *handle));
+    let mut open = |cx: &mut App, load: Option<LoadRequest>| -> gpui::Result<()> {
+        let handle = match from {
             Some(from) => {
                 crate::tabs::flows::open_document(
                     cx,
@@ -366,11 +370,36 @@ pub(crate) fn open_startup_windows(cx: &mut App, paths: Vec<PathBuf>) -> gpui::R
                     from,
                     new_window,
                     SharedDocument::empty(),
-                    Some(load),
-                )?;
+                    load,
+                )?
+                .0
             }
-            None => first = Some(open_editor_window(cx, SharedDocument::empty(), Some(load))?),
+            None => open_editor_window(cx, SharedDocument::empty(), load)?,
+        };
+        from.get_or_insert(handle);
+        activate(cx, handle);
+        Ok(())
+    };
+    if paths.is_empty() {
+        return open(cx, None);
+    }
+    let count = paths.len();
+    for (i, path) in paths.into_iter().enumerate() {
+        if let Some((handle, found)) = find_open(cx, &path) {
+            // `reveal` acts later than opening does, so only the last file of the request may use
+            // it: the others would come to the front after the document opened after them.
+            if i + 1 == count {
+                crate::tabs::flows::reveal(cx, handle, found);
+            }
+            continue;
         }
+        open(
+            cx,
+            Some(LoadRequest {
+                path,
+                encoding: None,
+            }),
+        )?;
     }
     Ok(())
 }

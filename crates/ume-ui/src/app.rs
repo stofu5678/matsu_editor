@@ -2,8 +2,6 @@
 //!
 //! The menu is Sakura's main menu (`crate::menu`).
 
-use std::path::PathBuf;
-
 use gpui::{
     App, AppContext as _, Context, Decorations, Entity, Focusable, IntoElement, Menu, MenuItem,
     ParentElement, Render, Styled, Window, actions, div, prelude::FluentBuilder, px, rgb,
@@ -12,7 +10,8 @@ use gpui_component::{GlobalState, TitleBar};
 use gpui_platform::application;
 
 use crate::document::SharedDocument;
-use crate::file_ops::windows::open_startup_windows;
+use crate::file_ops::windows::open_from_outside;
+use crate::launch::OpenRequest;
 use crate::menu::{Entry, MenuAction, Registered, label_with_shortcut, main_menu_with};
 use crate::menu_bar::MenuBar;
 use crate::panes::PaneSet;
@@ -47,11 +46,16 @@ pub(crate) fn refresh_menus(cx: &mut App) {
     }
 }
 
-/// Opens a window for each of `paths` (or one untitled window without any) and runs until the
-/// last window closes. Each window reads its file itself, in the background, so a big file shows
-/// its progress and an unreadable one shows its error in its own window.
-pub fn run(paths: Vec<PathBuf>) {
-    let user = crate::settings::UserSettings::load();
+/// Runs the application until the last window closes. The windows are opened for what arrives on
+/// `requests`: first the command line of this process, then, for as long as the process runs,
+/// the launches that hand over their files (`crate::launch`) and the files that macOS sends. Each
+/// window reads its file itself, in the background, so a big file shows its progress and an
+/// unreadable one shows its error in its own window.
+pub(crate) fn run(
+    user: crate::settings::UserSettings,
+    sender: async_channel::Sender<OpenRequest>,
+    requests: async_channel::Receiver<OpenRequest>,
+) {
     let keymap = user.key_map(ume_commands::keymap::Platform::current());
     // The search and replace strings of the last runs (`[Keys]`), saved to the same file.
     let search_history = {
@@ -66,6 +70,14 @@ pub fn run(paths: Vec<PathBuf>) {
     };
     // gpui-component's icons (check marks, menu arrows, title bar buttons), on every OS.
     let app = application().with_assets(gpui_kit_assets::Assets);
+    // macOS: the files that Finder and the Dock open in the running application.
+    app.on_open_urls(move |urls| {
+        let request = OpenRequest::from_urls(&urls);
+        if !request.paths.is_empty() {
+            sender.send_blocking(request).ok();
+        }
+    });
+    app.on_reopen(reopen);
     app.run(move |cx: &mut App| {
         gpui_component::init(cx);
         crate::history::install(cx, &user);
@@ -89,9 +101,31 @@ pub fn run(paths: Vec<PathBuf>) {
         // Every window that `open_editor_window` makes applies ume.ini (read once, above).
         cx.set_global(user);
         crate::search::history::install(cx, search_history);
-        open_startup_windows(cx, paths).expect("failed to open the window");
-        cx.activate(true);
+        cx.spawn(async move |cx| {
+            while let Ok(request) = requests.recv().await {
+                cx.update(|cx| {
+                    if let Err(e) = open_from_outside(cx, request.paths) {
+                        eprintln!("ume: cannot open a window: {e}");
+                    }
+                    // The windows of a launch that was handed over come to the front.
+                    cx.activate(true);
+                    if cx.windows().is_empty() {
+                        cx.quit();
+                    }
+                });
+            }
+        })
+        .detach();
     });
+}
+
+/// The Dock icon was clicked while the application runs (macOS): with no window, a new empty one;
+/// otherwise the windows come to the front.
+fn reopen(cx: &mut App) {
+    if cx.windows().is_empty() {
+        open_from_outside(cx, Vec::new()).ok();
+    }
+    cx.activate(true);
 }
 
 /// Sets the menus of the application: Sakura's main menu (`crate::menu`). macOS shows them in the
@@ -263,6 +297,8 @@ impl Render for Workspace {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use crate::view::{Redo, Undo};
     use gpui::TestAppContext;
     use gpui_component::Root;
