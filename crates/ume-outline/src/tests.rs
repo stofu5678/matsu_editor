@@ -613,6 +613,23 @@ fn the_tree_follows_the_depth() {
 }
 
 #[test]
+fn a_very_deep_tree_is_cut_at_a_depth_the_traversals_can_follow() {
+    // a line of 20 000 dots is a level for every dot
+    let text = format!("{}deep\n", ".".repeat(20_000));
+    let arr = make_topic_list_wztxt(&VecSource::new(&text));
+    assert!(arr.len() > 19_000);
+    let mut tree = build_tree(&arr);
+    sort_tree(&mut tree, SortType::AtoZ);
+    let mut depth = 0;
+    let mut node = &tree[0];
+    while let Some(child) = node.children.first() {
+        depth += 1;
+        node = child;
+    }
+    assert_eq!(depth, crate::tree::MAX_TREE_DEPTH);
+}
+
+#[test]
 fn the_java_tree_groups_members_under_their_classes() {
     let text = lines(&[
         "namespace ns {",

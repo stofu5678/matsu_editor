@@ -120,6 +120,10 @@ impl Arena {
     }
 }
 
+/// The deepest nesting of the tree. Sakura has no limit, but a text with levels can have a line of
+/// thousands of dots, and the traversals of the tree recurse; deeper items go at this depth.
+pub const MAX_TREE_DEPTH: usize = 256;
+
 /// `SetTree`: the items go under the last item of the depth above. A depth that jumps by more
 /// than one (Sakura does not allow for it) goes under the deepest item there is.
 pub fn build_tree(arr: &FuncInfoArr) -> Vec<TreeNode> {
@@ -127,7 +131,7 @@ pub fn build_tree(arr: &FuncInfoArr) -> Vec<TreeNode> {
     // `phParentStack`: the item at each depth
     let mut parents: Vec<usize> = Vec::new();
     for (i, item) in arr.items().iter().enumerate() {
-        let depth = item.depth.min(parents.len());
+        let depth = item.depth.min(parents.len()).min(MAX_TREE_DEPTH);
         parents.truncate(depth);
         let parent = parents.last().copied();
         let id = arena.add(parent, item.name.clone(), i, Some(i));

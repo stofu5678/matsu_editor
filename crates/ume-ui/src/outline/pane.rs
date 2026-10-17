@@ -60,7 +60,7 @@ use ume_outline::{
     Analysis, ListColumn, ListSort, OutlineKind, Request, SortType, TreeNode, ViewType, analyze,
 };
 
-use super::{OutlineOptions, Requested};
+use super::{OutlineOptions, Requested, Show};
 use crate::document::{DocumentEvent, SharedDocument};
 use crate::keys::chord_of;
 use crate::view::EditorView;
@@ -256,6 +256,7 @@ impl OutlinePane {
         self.outline_type = super::resolve_kind(requested, &view, cx);
         self.generation += 1;
         let generation = self.generation;
+        let version = self.document.read(cx).version();
         self.analyzing = true;
 
         let kind = self.outline_type;
@@ -292,9 +293,16 @@ impl OutlinePane {
                 })
                 .await;
             this.update(cx, |this, cx| {
-                if this.generation == generation {
-                    this.finish(analysis, path_for_clip, cx);
+                if this.generation != generation {
+                    return;
                 }
+                // the text was edited while the analysis ran: its line numbers are old, so it
+                // is made again
+                if this.document.read(cx).version() != version {
+                    this.analyze(this.requested, cx);
+                    return;
+                }
+                this.finish(analysis, path_for_clip, cx);
             })
             .ok();
         })
@@ -650,8 +658,23 @@ impl OutlinePane {
             .find(|f| f.code == code)
             .map(|f| f.name);
         match name {
-            Some("F_OUTLINE" | "F_OUTLINE_TOGGLE" | "F_BOOKMARK_VIEW" | "F_REDRAW") => {
-                self.reload(cx);
+            // Key2Command: these run the function again with the action SHOW_RELOAD, except the
+            // toggle, which closes the pane (`HandleCommand` gives it SHOW_TOGGLE); F_REDRAW
+            // makes the same kind again
+            Some(name @ ("F_OUTLINE" | "F_OUTLINE_TOGGLE" | "F_BOOKMARK_VIEW" | "F_REDRAW")) => {
+                let (requested, show) = match name {
+                    "F_OUTLINE" => (Requested::Default, Show::Reload),
+                    "F_OUTLINE_TOGGLE" => (Requested::Default, Show::Toggle),
+                    "F_BOOKMARK_VIEW" => (Requested::Bookmark, Show::Reload),
+                    _ => (self.requested, Show::Reload),
+                };
+                let host = self.host.clone();
+                window.defer(cx, move |window, cx| {
+                    host.update(cx, |workspace, cx| {
+                        workspace.outline_command(requested, show, window, cx)
+                    })
+                    .ok();
+                });
                 true
             }
             Some("F_BOOKMARK_SET") => {
