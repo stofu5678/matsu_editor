@@ -61,6 +61,9 @@ impl EditorView {
             self.font_family = super::FONT_FAMILY.into();
         }
         self.prefs = ViewPrefs::new(settings);
+        // Other rules of coloring: the states of the lines are made again.
+        self.color_states.reset();
+        self.line_color_cache.clear();
         // The status bar is a setting of the window, not of the type; a type change keeps it.
         self.prefs.show_status_bar = status_bar;
         self.relayout_in(cx);

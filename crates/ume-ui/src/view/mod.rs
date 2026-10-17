@@ -14,6 +14,7 @@
 //! The context tells the layout about each edit as it happens (`RowLayout`), so a command that
 //! edits and then moves vertically sees the new rows.
 
+mod colors;
 mod diff_mark;
 mod element;
 mod input;
@@ -23,6 +24,7 @@ pub(crate) mod pane;
 mod settings;
 #[cfg(test)]
 mod settings_tests;
+mod syntax;
 
 use std::ops::Range;
 
@@ -126,6 +128,12 @@ pub struct EditorView {
     pub(crate) layout: DocumentLayout,
     /// The version of the document that `layout` matches.
     pub(crate) layout_version: u64,
+    /// The color state at the start of each line, for the syntax coloring (`view/colors.rs`), and
+    /// the version of the document it matches.
+    pub(crate) color_states: ume_coloring::ColorStates,
+    pub(crate) color_version: u64,
+    /// The colors of the last long line painted (`view/colors.rs`).
+    pub(crate) line_color_cache: colors::LineColorCache,
     pub(crate) cursor: Cursor,
     pub(crate) keymap: KeyMap,
     pub(crate) focus_handle: FocusHandle,
@@ -196,6 +204,9 @@ impl EditorView {
             document,
             layout,
             layout_version,
+            color_states: Default::default(),
+            color_version: layout_version,
+            line_color_cache: Default::default(),
             cursor: Cursor::default(),
             keymap: KeyMap::default(),
             focus_handle: cx.focus_handle(),
@@ -424,6 +435,7 @@ impl EditorView {
         if changes.text_changed() {
             // The context has already told the layout about every edit (`RowLayout`).
             self.layout_version = self.document.update(cx, |shared, cx| shared.changed(cx));
+            self.colors_after_edit(changes, self.layout_version, cx);
         }
         if changes.text_changed() || changes.caret_moved || changes.selection_changed {
             self.marked = None;
@@ -651,6 +663,7 @@ impl Render for EditorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.follow_window_width(cx);
         self.advance_layout(window, cx);
+        self.advance_colors(window, cx);
         self.settle_caret(cx);
         // The print preview takes the place of the text, and the keys of the text stay out of it.
         if let Some(preview) = &self.print.preview {
@@ -707,6 +720,8 @@ impl Render for EditorView {
     }
 }
 
+#[cfg(test)]
+mod colors_tests;
 #[cfg(test)]
 mod paging_tests;
 #[cfg(test)]

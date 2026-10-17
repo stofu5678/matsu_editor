@@ -7341,6 +7341,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ume-coloring"
+version = "0.0.0"
+dependencies = [
+ "ume-config",
+ "ume-core",
+ "unicode-width",
+]
+
+[[package]]
 name = "ume-commands"
 version = "0.0.0"
 dependencies = [
@@ -7460,6 +7469,7 @@ dependencies = [
  "inventory",
  "raw-window-handle",
  "tempfile",
+ "ume-coloring",
  "ume-commands",
  "ume-config",
  "ume-core",

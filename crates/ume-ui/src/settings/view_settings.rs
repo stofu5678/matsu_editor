@@ -15,6 +15,9 @@
 //! * the status bar: `[Common]` `bDispSTATUSBAR`.
 //! * which type a file has: [`super::doc_type`].
 
+use std::sync::Arc;
+
+use ume_coloring::ColorRules;
 use ume_config::Profile;
 use ume_config::location::Os;
 use ume_config::settings::color::{ColorEntry, ColorRef, names};
@@ -121,6 +124,22 @@ pub struct Colors {
     pub diff_append: DiffColor,
     pub diff_change: DiffColor,
     pub diff_delete: DiffColor,
+    /// The entries `TXT` and `SEL` as they are: the colors of selected text depend on the color
+    /// of the text under it (see [`selection_colors_over`]).
+    pub text_entry: ColorEntry,
+    pub selection_entry: ColorEntry,
+    /// The entries `TAB`, `ZEN` and `EOL`: the marks follow the text around them where they have
+    /// the color of the text.
+    pub tab_entry: ColorEntry,
+    pub full_width_space_entry: ColorEntry,
+    pub eol_entry: ColorEntry,
+    /// The color of the matches of the search, if any of the five search colors is shown: the first that
+    /// is (`CColor_Found::OnStartScanLogic`).
+    pub found: Option<ColorEntry>,
+    /// The background of the row with the caret (`CBK`), if it is shown.
+    pub caret_line_back: Option<Rgb>,
+    /// The background of the rows with an odd number (`EBK`), if it is shown.
+    pub even_line_back: Option<Rgb>,
 }
 
 /// The settings of the view for one file.
@@ -143,6 +162,8 @@ pub struct ViewSettings {
     pub show_line_numbers: bool,
     pub marks: Marks,
     pub colors: Colors,
+    /// The rules of the syntax coloring of the type (comments, strings, numbers, keywords).
+    pub coloring: Arc<ColorRules>,
     pub show_status_bar: bool,
 }
 
@@ -228,12 +249,25 @@ pub fn selection_text(
 /// the colors of the text under it). With `SEL` not shown it inverts the screen area
 /// (`CViewSelect::DrawSelectArea`, `bDispText`); here both colors are inverted.
 pub fn selection_colors(selection: &ColorEntry, text: &ColorEntry) -> (ColorRef, ColorRef) {
+    selection_colors_over(selection, text.back, text.text, text.back)
+}
+
+/// The same for selected text over text of another color: `under_text` and `under_back` are the
+/// colors the text has without the selection (the entry of the strategy that colors it, and its
+/// background, or the background of the row where that is the window's).
+/// `window_background` is the background of `TXT`.
+pub fn selection_colors_over(
+    selection: &ColorEntry,
+    window_background: ColorRef,
+    under_text: ColorRef,
+    under_back: ColorRef,
+) -> (ColorRef, ColorRef) {
     if !selection.disp {
-        return (text.text ^ 0x00ff_ffff, text.back ^ 0x00ff_ffff);
+        return (under_text ^ 0x00ff_ffff, under_back ^ 0x00ff_ffff);
     }
     (
-        selection_text(selection, text.back, text.text),
-        selection_background(selection, text.back, text.back),
+        selection_text(selection, window_background, under_text),
+        selection_background(selection, window_background, under_back),
     )
 }
 
@@ -326,6 +360,11 @@ impl ViewSettings {
         let bookmark = entry(names::BOOKMARK);
         let modified = entry(names::LINE_NUMBER_MODIFIED);
         let (diff_append, diff_change, diff_delete) = (entry("DFA"), entry("DFC"), entry("DFD"));
+        let found = [concat!("FN", "D"), "FN2", "FN3", "FN4", "FN5"]
+            .into_iter()
+            .map(entry)
+            .find(|e| e.disp);
+        let shown_back = |name: &str| Some(entry(name)).filter(|e| e.disp).map(|e| rgb_of(e.back));
 
         ViewSettings {
             type_index,
@@ -367,7 +406,16 @@ impl ViewSettings {
                 diff_append: DiffColor::of(&diff_append),
                 diff_change: DiffColor::of(&diff_change),
                 diff_delete: DiffColor::of(&diff_delete),
+                text_entry: text,
+                selection_entry: selection,
+                tab_entry: tab,
+                full_width_space_entry: zen,
+                eol_entry: eol,
+                found,
+                caret_line_back: shown_back("CBK"),
+                even_line_back: shown_back("EBK"),
             },
+            coloring: Arc::new(ColorRules::from_type(t, types.keywords())),
             show_status_bar: profile.get_bool("Common", "bDispSTATUSBAR").unwrap_or(true),
         }
     }

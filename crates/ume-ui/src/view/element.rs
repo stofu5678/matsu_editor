@@ -5,27 +5,31 @@
 //! half-width character, so the caret and the selection stay on the grid whatever the font does.
 //! Sakura draws the marks that this paints in `sakura_core/view/figures/` (`CFigure_Tab.cpp`,
 //! `CFigure_ZenSpace.cpp`, `CFigure_Eol.cpp`).
+//!
+//! The text is cut into pieces of one color (comments, strings, numbers, keywords, the matches of
+//! the search; see `syntax.rs` for the rules, `ume-coloring` for the strategies), and each piece is
+//! drawn with its own colors, bold and underline. Sakura's `CEditView::DrawLayoutLine` does this.
 
 use gpui::{
     App, Bounds, ContentMask, Element, ElementId, ElementInputHandler, Entity, GlobalElementId,
     InspectorElementId, IntoElement, LayoutId, Pixels, ShapedLine, SharedString, Style, TextAlign,
-    TextRun, Window, fill, point, px, relative, rgb, size,
+    TextRun, UnderlineStyle, Window, fill, point, px, relative, rgb, size,
 };
+use ume_coloring::ColorState;
 use ume_core::buffer::Eol;
 use ume_layout::RowInfo;
 
+use super::colors::LineColorRequest;
+use super::syntax::{self, Label, Style as TextStyle};
 use super::{EditorView, PaintInfo, diff_mark};
 use crate::geometry::{Metrics, SCROLLBAR_WIDTH, Scrollbar};
 use crate::hit::selected_columns;
 use crate::search::highlight::highlight_columns;
-use crate::segments::{SegmentKind, row_segments};
 use crate::settings::{Colors, DiffColor, Marks};
 use ume_core::diff::DiffMark;
 
 /// The caret of overwrite mode: the caret color with some transparency.
 const CARET_BLOCK_ALPHA: u32 = 0x70;
-/// The background of the matches of the search pattern (the settings have no color for it yet).
-const FOUND: u32 = 0xffe680;
 
 /// The mark for a tab: Sakura draws an arrow (`CFigure_Tab.cpp`, the default `TAB_ARROW`).
 const TAB_MARK: &str = "→";
@@ -176,8 +180,6 @@ fn gutter_style(
 }
 
 struct RowPaint {
-    /// The columns of the matches of the search pattern on this row.
-    found: Vec<(u32, u32)>,
     selection: Option<(u32, u32)>,
     numbers: Option<ShapedLine>,
     /// The line of this row has a bookmark (every row of a wrapped line shows it, as in Sakura:
@@ -187,9 +189,17 @@ struct RowPaint {
     gutter_background: Option<u32>,
     /// The DIFF mark of the line and the color it is drawn in (the text color of the line number).
     diff: Option<(DiffMark, u32)>,
+    /// The background of the whole row, when it is not the one of the text: the caret line and
+    /// the odd rows (`CBK`, `EBK`).
+    row_background: Option<u32>,
+    /// The backgrounds of pieces of text that are not the text's: from and to column, and color.
+    backs: Vec<(u32, u32, u32)>,
+    /// The backgrounds of the selected parts of the pieces.
+    selected_backs: Vec<(u32, u32, u32)>,
+    /// Underlines under the mark of a tab or a space, from the text around it.
+    underlines: Vec<(u32, u32, u32)>,
     text: Vec<Placed>,
-    /// The same pieces in the color of selected text, when that differs from the text color and
-    /// the row has a selection.
+    /// The same pieces in the colors of selected text, when the row has a selection.
     selected_text: Vec<Placed>,
     marks: Vec<Placed>,
     /// The columns of the IME composition on this row.
@@ -228,6 +238,18 @@ fn run(font: &gpui::Font, len: usize, color: u32) -> TextRun {
         background_color: None,
         underline: None,
         strikethrough: None,
+    }
+}
+
+/// A run for text in a style: its color, bold (`bold_font`) and underline.
+fn styled_run(font: &gpui::Font, bold_font: &gpui::Font, len: usize, style: &TextStyle) -> TextRun {
+    TextRun {
+        underline: style.underline.then(|| UnderlineStyle {
+            thickness: px(1.),
+            color: Some(rgb(style.text).into()),
+            wavy: false,
+        }),
+        ..run(if style.bold { bold_font } else { font }, len, style.text)
     }
 }
 
@@ -274,6 +296,7 @@ impl Element for EditorElement {
         let font = style.font();
         let settings = &editor.prefs.settings;
         let colors = settings.colors;
+        let rules = &settings.coloring;
         let marks_shown = settings.marks;
         let show_line_numbers = settings.show_line_numbers;
 
@@ -295,6 +318,14 @@ impl Element for EditorElement {
                 text.len(),
                 color,
             )];
+            window
+                .text_system()
+                .shape_line(text, font_size, &runs, None)
+        };
+
+        let shape_styled = |window: &mut Window, text: &str, style: &TextStyle| -> ShapedLine {
+            let text: SharedString = text.to_owned().into();
+            let runs = [styled_run(&font, &bold_font, text.len(), style)];
             window
                 .text_system()
                 .shape_line(text, font_size, &runs, None)
@@ -334,7 +365,16 @@ impl Element for EditorElement {
         let diff_marks = model.diff_marks();
         let mut widest = 0;
         let mut painted = Vec::with_capacity(rows.len());
-        for row in &rows {
+        let caret_row_index = layout
+            .pos_to_row(doc, editor.cursor.caret())
+            .ok()
+            .map(|at| at.row);
+        // The colors of the line the rows are in, and the state the next line starts in: lines
+        // come one after the other, so the state of the first is asked for and the others follow.
+        let mut line_colors: Option<(usize, std::sync::Arc<Vec<ume_coloring::ColorRun>>)> = None;
+        let version = editor.document.read(cx).version();
+        let mut carried: Option<(usize, ColorState)> = None;
+        for (row_index, row) in rows.iter().enumerate() {
             widest = widest.max(row.end_column);
             let bookmarked = !row.is_eof_row && bookmarks.contains(row.line);
             // the empty row after the last line break is no line (Sakura has no layout for it)
@@ -365,37 +405,95 @@ impl Element for EditorElement {
                     selection.and_then(|s| selected_columns(layout, doc, row, s).ok().flatten())
                 }
             };
-            let own_selection_color = selected.is_some() && colors.selection_text != colors.text;
+            let row_found = found.next().unwrap_or_default();
+            let row_back =
+                syntax::row_background(&colors, row.row, caret_row_index == Some(row.row));
+
+            // The runs of colors of this row: the line is scanned from its start, in the state
+            // the lines before it left, as far as the last row of it on the screen.
+            let mut eol_color = ume_coloring::ColorKind::Text;
+            let row_runs = if row.is_eof_row || rules.colors_nothing() {
+                Vec::new()
+            } else {
+                if line_colors.as_ref().map(|l| l.0) != Some(row.line)
+                    && let Ok(Some(ll)) = layout.line_layout(doc, row.line)
+                {
+                    let state = match carried.take() {
+                        Some((line, state)) if line == row.line => state,
+                        _ => editor.color_states.state_at(doc, rules, row.line).0,
+                    };
+                    let upto = rows[row_index..]
+                        .iter()
+                        .take_while(|r| r.line == row.line)
+                        .map(|r| r.end.col)
+                        .max()
+                        .unwrap_or(0);
+                    // The state of the next line is only needed if a next line is on the screen,
+                    // and the states may have it already.
+                    let want_next = rows[row_index..]
+                        .iter()
+                        .any(|r| !r.is_eof_row && r.line > row.line);
+                    let next_known = (row.line < editor.color_states.known_lines())
+                        .then(|| editor.color_states.state_at(doc, rules, row.line + 1).0);
+                    let colored = editor.colored_line(LineColorRequest {
+                        rules,
+                        version,
+                        line: row.line,
+                        layout: &ll,
+                        state: &state,
+                        upto,
+                        want_next,
+                        next_known,
+                    });
+                    carried = colored.next.map(|next| (row.line + 1, next));
+                    line_colors = Some((row.line, colored.runs));
+                }
+                match &line_colors {
+                    Some((line, runs)) if *line == row.line => {
+                        if row.eol.is_some()
+                            && let Some(last) = runs.last().filter(|r| r.end > row.end.col)
+                        {
+                            eol_color = last.kind;
+                        }
+                        syntax::row_runs(runs, row.start.col, row.end.col)
+                    }
+                    _ => Vec::new(),
+                }
+            };
+
+            let styling = syntax::style_row(
+                &colors,
+                rules,
+                &syntax::RowInput {
+                    text: row.text(),
+                    start_col: row.start_column,
+                    cfg: layout.config(),
+                    runs: &row_runs,
+                    found: &row_found,
+                    selected,
+                    row_back,
+                },
+            );
             let mut text = Vec::new();
             let mut selected_text = Vec::new();
-            let mut marks = Vec::new();
-            for seg in row_segments(row.text(), row.start_column, layout.config()) {
-                match seg.kind {
-                    SegmentKind::Text => {
-                        if own_selection_color {
-                            selected_text.push(Placed {
-                                col: seg.col,
-                                line: shape(window, &seg.text, colors.selection_text),
-                            });
-                        }
-                        text.push(Placed {
-                            col: seg.col,
-                            line: shape(window, &seg.text, colors.text),
-                        });
-                    }
-                    SegmentKind::Tab if marks_shown.tab => marks.push(Placed {
-                        col: seg.col,
-                        line: shape(window, TAB_MARK, colors.tab),
-                    }),
-                    SegmentKind::FullWidthSpace if marks_shown.full_width_space => {
-                        marks.push(Placed {
-                            col: seg.col,
-                            line: shape(window, FULL_WIDTH_SPACE_MARK, colors.full_width_space),
-                        })
-                    }
-                    SegmentKind::Tab | SegmentKind::FullWidthSpace => {}
+            for item in &styling.items {
+                let label = match &item.label {
+                    Label::Text(text) => text.as_str(),
+                    Label::Tab => TAB_MARK,
+                    Label::FullWidthSpace => FULL_WIDTH_SPACE_MARK,
+                };
+                if let Some(selected_style) = &item.selected {
+                    selected_text.push(Placed {
+                        col: item.col,
+                        line: shape_styled(window, label, selected_style),
+                    });
                 }
+                text.push(Placed {
+                    col: item.col,
+                    line: shape_styled(window, label, &item.style),
+                });
             }
+            let mut marks = Vec::new();
             if row.is_eof_row {
                 if marks_shown.eof {
                     marks.push(Placed {
@@ -405,9 +503,12 @@ impl Element for EditorElement {
                 }
             } else if let Some(eol) = row.eol {
                 if marks_shown.eol {
+                    // The mark is in its own color, or in the color of the text it ends.
+                    let around = syntax::entry_of(&colors, rules, eol_color, false);
+                    let mark = syntax::space_style(&colors.eol_entry, &around, &colors);
                     marks.push(Placed {
                         col: row.end_column,
-                        line: shape(window, eol_mark(eol), colors.eol),
+                        line: shape_styled(window, eol_mark(eol), &mark.style),
                     });
                 }
             } else if !row.wrapped && row.line == last_line && marks_shown.eof {
@@ -429,12 +530,15 @@ impl Element for EditorElement {
                     (a.row == row.row && b.row == row.row).then_some((a.column, b.column))
                 });
             painted.push(RowPaint {
-                found: found.next().unwrap_or_default(),
                 selection: selected,
                 numbers,
                 bookmarked,
                 gutter_background: style.background,
                 diff: diff.filter(|_| show_line_numbers).map(|m| (m, style.text)),
+                row_background: (row_back != colors.background).then_some(row_back),
+                backs: styling.backs,
+                selected_backs: styling.selected_backs,
+                underlines: styling.underlines,
                 text,
                 selected_text,
                 marks,
@@ -576,16 +680,41 @@ impl Element for EditorElement {
             |window| {
                 for (i, row) in p.rows.iter().enumerate() {
                     let y = bounds.top() + px(p.y_offset) + lh * i as f32;
-                    for &(from, to) in &row.found {
+                    if let Some(back) = row.row_background {
+                        window.paint_quad(fill(
+                            Bounds::from_corners(
+                                point(text_bounds.left(), y),
+                                point(text_bounds.right(), y + lh),
+                            ),
+                            rgb(back),
+                        ));
+                    }
+                    for &(from, to, color) in &row.backs {
                         window.paint_quad(fill(
                             Bounds::from_corners(point(x_of(from), y), point(x_of(to), y + lh)),
-                            rgb(FOUND),
+                            rgb(color),
                         ));
                     }
                     if let Some((from, to)) = row.selection {
                         window.paint_quad(fill(
                             Bounds::from_corners(point(x_of(from), y), point(x_of(to), y + lh)),
                             rgb(p.colors.selection),
+                        ));
+                    }
+                    // The selected parts of the pieces have the selection mixed with their colors.
+                    for &(from, to, color) in &row.selected_backs {
+                        window.paint_quad(fill(
+                            Bounds::from_corners(point(x_of(from), y), point(x_of(to), y + lh)),
+                            rgb(color),
+                        ));
+                    }
+                    for &(from, to, color) in &row.underlines {
+                        window.paint_quad(fill(
+                            Bounds::from_corners(
+                                point(x_of(from), y + lh - px(3.)),
+                                point(x_of(to), y + lh - px(2.)),
+                            ),
+                            rgb(color),
                         ));
                     }
                     for placed in &row.marks {
@@ -842,6 +971,7 @@ mod tests {
             diff_append: diff_color_of(0x0000d2, 0xa2d0ff),
             diff_change: diff_color_of(0x006f00, 0xbdfdc0),
             diff_delete: diff_color_of(0xd56a00, 0xffe9ac),
+            ..crate::settings::ViewSettings::default().colors
         }
     }
 
