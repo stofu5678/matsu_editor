@@ -57,10 +57,18 @@ pub enum ColorKind {
     Number,
     /// A keyword of the set in slot 0 to 9: `KW1` to `KWA`.
     Keyword(u8),
+    /// A regular expression keyword: the position in the type's list. Its color is the entry the
+    /// keyword names (any entry, not only `RK1` to `RKA`), see [`ColorRules::entry`].
+    ///
+    /// [`ColorRules::entry`]: crate::ColorRules::entry
+    Regex(u8),
 }
 
 impl ColorKind {
-    /// The name of the color entry, as in the settings file (`C[CMT]`).
+    /// The name of the color entry, as in the settings file (`C[CMT]`). For a regular expression
+    /// keyword this is the default color name; its real entry is [`ColorRules::entry`].
+    ///
+    /// [`ColorRules::entry`]: crate::ColorRules::entry
     pub fn entry_name(self) -> &'static str {
         const KEYWORDS: [&str; KEYWORD_SLOTS] = [
             "KW1", "KW2", "KW3", "KW4", "KW5", "KW6", "KW7", "KW8", "KW9", "KWA",
@@ -74,6 +82,8 @@ impl ColorKind {
             ColorKind::Url => "URL",
             ColorKind::Number => "NUM",
             ColorKind::Keyword(slot) => KEYWORDS[usize::from(slot).min(KEYWORD_SLOTS - 1)],
+            // The entry is the keyword's own; `RK1` is what a keyword without a color gets.
+            ColorKind::Regex(_) => "RK1",
         }
     }
 }

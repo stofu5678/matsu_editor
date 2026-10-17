@@ -813,3 +813,202 @@ fn crlf_and_other_line_endings() {
         );
     }
 }
+
+// ---- regular expression keywords ----
+
+use ume_config::settings::type_rules::RegexKeyword;
+
+/// A type with the regular expression keywords `patterns` (color, pattern) on top of `name`.
+fn regex_rules(name: &str, patterns: &[(&str, &str)]) -> ColorRules {
+    type_rules(name, |t| {
+        t.use_regex_keyword = true;
+        for color in ["RK1", "RK2"] {
+            t.colors.get_mut(color).unwrap().disp = true;
+        }
+        t.regex_keywords = patterns
+            .iter()
+            .map(|(color, pattern)| RegexKeyword {
+                color: (*color).to_owned(),
+                pattern: (*pattern).to_owned(),
+            })
+            .collect();
+    })
+}
+
+const RK1: K = K::Regex(0);
+
+#[test]
+fn the_text_type_colors_a_windows_path_like_a_url() {
+    // `CType_Text`: C:\... and \\... are colored with the URL color.
+    let t = text_rules();
+    assert_eq!(
+        pieces(&t, "see C:\\dir\\file.txt now"),
+        [
+            p("see ", K::Text),
+            p("C:\\dir\\file.txt", K::Regex(1)),
+            p(" now", K::Text)
+        ]
+    );
+    assert_eq!(t.entry(K::Regex(1)), t.entry(K::Url));
+    // a path in double quotes is the first pattern's, and it runs to the closing quote
+    assert_eq!(
+        pieces(&t, "\"\\\\srv\\share\" x"),
+        [
+            p("\"", K::Text),
+            p("\\\\srv\\share", K::Regex(0)),
+            p("\" x", K::Text)
+        ]
+    );
+}
+
+#[test]
+fn a_regex_keyword_colors_what_it_matches() {
+    let r = regex_rules("基本", &[("RK1", "/b+/k")]);
+    assert_eq!(
+        pieces(&r, "abbc"),
+        [p("a", K::Text), p("bb", RK1), p("c", K::Text)]
+    );
+}
+
+#[test]
+fn a_regex_keyword_can_ignore_case() {
+    let r = regex_rules("基本", &[("RK1", "/todo/ki")]);
+    assert_eq!(pieces(&r, "ToDo!")[0], p("ToDo", RK1));
+    let r = regex_rules("基本", &[("RK1", "/todo/k")]);
+    assert_eq!(pieces(&r, "ToDo!"), [p("ToDo!", K::Text)]);
+}
+
+#[test]
+fn a_regex_keyword_takes_the_place_before_a_comment() {
+    // The regular expression keywords are first in the pool (`CColorStrategyPool`).
+    let r = regex_rules("C/C++", &[("RK1", "m#//\\w+#k")]);
+    assert_eq!(
+        pieces(&r, "a //todo b"),
+        [p("a ", K::Text), p("//todo", RK1), p(" b", K::Text)]
+    );
+}
+
+#[test]
+fn a_regex_keyword_takes_the_place_before_a_keyword_and_a_number() {
+    let r = regex_rules("C/C++", &[("RK1", "/int\\d+/k")]);
+    assert_eq!(
+        pieces(&r, "int32 int 4"),
+        [
+            p("int32", RK1),
+            p(" ", K::Text),
+            p("int", K::Keyword(0)),
+            p(" ", K::Text),
+            p("4", K::Number)
+        ]
+    );
+}
+
+#[test]
+fn a_regex_keyword_does_not_begin_inside_a_comment() {
+    let r = regex_rules("C/C++", &[("RK1", "/b+/k")]);
+    assert_eq!(pieces(&r, "// abb"), [p("// abb", COMMENT)]);
+}
+
+#[test]
+fn the_first_keyword_of_the_list_wins_where_two_match() {
+    let r = regex_rules("基本", &[("RK2", "/ab/k"), ("RK1", "/abc/k")]);
+    assert_eq!(pieces(&r, "abc"), [p("ab", K::Regex(0)), p("c", K::Text)]);
+}
+
+#[test]
+fn a_regex_keyword_is_drawn_in_the_color_it_names() {
+    let r = type_rules("基本", |t| {
+        t.use_regex_keyword = true;
+        t.colors.get_mut("RK2").unwrap().disp = true;
+        t.colors.get_mut("RK2").unwrap().text = 0x123456;
+        t.regex_keywords = ["RK2", "CMT"]
+            .iter()
+            .map(|color| RegexKeyword {
+                color: (*color).to_owned(),
+                pattern: "/ab/k".to_owned(),
+            })
+            .collect();
+    });
+    assert_eq!(r.entry(K::Regex(0)).text, 0x123456);
+    assert_eq!(r.entry(K::Regex(1)), r.entry(K::Comment));
+}
+
+#[test]
+fn a_bad_pattern_is_skipped_and_the_others_still_work() {
+    let r = regex_rules(
+        "基本",
+        &[("RK1", "/(/k"), ("RK1", "nonsense"), ("RK1", "/b/k")],
+    );
+    assert_eq!(
+        pieces(&r, "abc"),
+        [p("a", K::Text), p("b", K::Regex(2)), p("c", K::Text)]
+    );
+}
+
+#[test]
+fn a_keyword_for_the_head_of_the_line_matches_there_only() {
+    let r = regex_rules("基本", &[("RK1", "/^ab/k")]);
+    assert_eq!(pieces(&r, "ab ab"), [p("ab", RK1), p(" ab", K::Text)]);
+}
+
+#[test]
+fn the_regex_keywords_are_off_when_the_type_does_not_use_them() {
+    let r = type_rules("基本", |t| {
+        t.use_regex_keyword = false;
+        t.regex_keywords = vec![RegexKeyword {
+            color: "RK1".to_owned(),
+            pattern: "/a/k".to_owned(),
+        }];
+    });
+    assert_eq!(pieces(&r, "a"), [p("a", K::Text)]);
+}
+
+#[test]
+fn a_regex_keyword_is_off_when_its_rk_color_is_not_shown() {
+    let r = type_rules("基本", |t| {
+        t.use_regex_keyword = true;
+        t.colors.get_mut("RK1").unwrap().disp = false;
+        t.regex_keywords = vec![RegexKeyword {
+            color: "RK1".to_owned(),
+            pattern: "/a/k".to_owned(),
+        }];
+    });
+    assert_eq!(pieces(&r, "a"), [p("a", K::Text)]);
+}
+
+#[test]
+fn a_regex_keyword_does_not_change_the_state_at_the_end_of_a_line() {
+    // The regular expression keywords are not tried by the pass of the layout.
+    let r = regex_rules("C/C++", &[("RK1", "m#/\\*#k")]);
+    assert_eq!(
+        end_state(&r, "/* x", &ColorState::Normal),
+        ColorState::Block(0)
+    );
+}
+
+#[test]
+fn a_regex_keyword_matches_japanese_text() {
+    let r = regex_rules("基本", &[("RK1", "/[ァ-ヶー]+/k")]);
+    assert_eq!(
+        pieces(&r, "これはテスト。"),
+        [p("これは", K::Text), p("テスト", RK1), p("。", K::Text)]
+    );
+}
+
+#[test]
+fn a_regex_keyword_can_reach_the_line_ending() {
+    let r = regex_rules("基本", &[("RK1", "/b\\s+/k")]);
+    let runs = line_runs(&r, "ab", Some(Eol::CrLf), &ColorState::Normal, 2);
+    assert_eq!(runs.last().unwrap().kind, RK1);
+    assert_eq!(runs.last().unwrap().end, 4);
+}
+
+#[test]
+fn a_regex_keyword_in_a_long_line_stays_fast() {
+    let r = regex_rules("基本", &[("RK1", "/needle/k")]);
+    let line = "hay ".repeat(50_000) + "needle";
+    let start = std::time::Instant::now();
+    let runs = line_runs(&r, &line, None, &ColorState::Normal, line.len());
+    assert_eq!(runs.last().unwrap().kind, RK1);
+    assert!(start.elapsed() < std::time::Duration::from_secs(5));
+}

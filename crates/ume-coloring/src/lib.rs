@@ -1,5 +1,5 @@
 //! Syntax coloring of UME Editor: the color strategies of Sakura Editor (comments, strings,
-//! numbers, keywords, URLs, here-documents) and the color state at the start of each line.
+//! numbers, keywords, regular expression keywords, URLs, here-documents) and the color state at the start of each line.
 //!
 //! It knows nothing of a window: it takes the text of a line and gives the runs of colors, so it
 //! is tested without one and the printing can use it too. The window (`ume-ui`) paints the runs.
@@ -13,7 +13,6 @@
 //!
 //! # Where this differs from Sakura
 //!
-//! * Regular expression keywords (`/pattern/k`) are not colored yet.
 //! * Which characters are "full-width" for the kind of a character follows East Asian Width, not
 //!   the font (`IsHankaku` asks the font in Sakura).
 //! * Positions are bytes of UTF-8, Sakura's are UTF-16 units; the columns of line comments that
@@ -27,6 +26,7 @@ mod keyword;
 mod kind;
 mod number;
 mod quote;
+mod regex_keyword;
 mod rules;
 mod scan;
 mod states;

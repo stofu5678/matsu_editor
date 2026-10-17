@@ -2,6 +2,7 @@
 //
 // Original files:
 //   sakura_core/view/colors/CColorStrategy.cpp (CColorStrategyPool::OnChangeSetting)
+//   sakura_core/view/colors/CColor_RegexKeyword.h (Disp)
 //   sakura_core/view/colors/CColor_Comment.h, sakura_core/view/colors/CColor_Quote.h,
 //     sakura_core/view/colors/CColor_Heredoc.h, sakura_core/view/colors/CColor_Url.h,
 //     sakura_core/view/colors/CColor_Numeric.h, sakura_core/view/colors/CColor_KeywordSet.h (Disp)
@@ -47,6 +48,7 @@ use ume_config::settings::{ColorSet, TypeSettings};
 
 use crate::keyword::PreparedSet;
 use crate::kind::{ColorKind, KEYWORD_SLOTS};
+use crate::regex_keyword::RegexKeywords;
 
 /// `HEREDOC_PHP` (`EHereDocType`, `sakura_core/types/CType.h`): the only kind of here-document
 /// that Sakura colors.
@@ -83,6 +85,8 @@ fn kind_index(kind: ColorKind) -> usize {
         ColorKind::Url => 5,
         ColorKind::Number => 6,
         ColorKind::Keyword(slot) => 7 + usize::from(slot).min(KEYWORD_SLOTS - 1),
+        // The entries of the regular expression keywords are kept apart (`ColorRules::entry`).
+        ColorKind::Regex(_) => 0,
     }
 }
 
@@ -112,6 +116,9 @@ pub struct ColorRules {
     /// The keyword sets in use, with the slot (the color `KW1` to `KWA`) of each: a slot whose
     /// color is off or whose set is `-1` or does not exist is left out.
     pub(crate) keywords: Vec<(u8, PreparedSet)>,
+    /// The regular expression keywords, and the color entry of each keyword of the type's list.
+    pub(crate) regex_keywords: RegexKeywords,
+    regex_entries: Vec<ColorEntry>,
     entries: [ColorEntry; KINDS.len()],
 }
 
@@ -146,6 +153,16 @@ impl ColorRules {
             })
             .collect();
         let entries = std::array::from_fn(|i| entry_of(colors, KINDS[i]));
+        let regex_keywords = RegexKeywords::from_type(t);
+        let regex_entries = (0..regex_keywords.len())
+            .map(|i| {
+                regex_keywords
+                    .color_name(i)
+                    .and_then(|name| colors.get(name))
+                    .copied()
+                    .unwrap_or_else(|| entry_of(colors, ColorKind::Text))
+            })
+            .collect();
         Self {
             line_comments,
             line_comment_columns,
@@ -163,6 +180,8 @@ impl ColorRules {
             url: disp("URL"),
             number: disp("NUM"),
             keywords,
+            regex_keywords,
+            regex_entries,
             entries,
         }
     }
@@ -183,13 +202,21 @@ impl ColorRules {
             url: false,
             number: false,
             keywords: Vec::new(),
+            regex_keywords: RegexKeywords::default(),
+            regex_entries: Vec::new(),
             entries: std::array::from_fn(|i| entry_of(&colors, KINDS[i])),
         }
     }
 
     /// The color entry of a kind of run.
     pub fn entry(&self, kind: ColorKind) -> &ColorEntry {
-        &self.entries[kind_index(kind)]
+        match kind {
+            ColorKind::Regex(i) => self
+                .regex_entries
+                .get(usize::from(i))
+                .unwrap_or(&self.entries[kind_index(ColorKind::Text)]),
+            _ => &self.entries[kind_index(kind)],
+        }
     }
 
     /// Some strategy can carry a state over the end of a line (comments, strings, here-documents;
@@ -205,7 +232,11 @@ impl ColorRules {
     /// No strategy colors anything (`IsSkipBeforeLayout`, for the rules alone): the text is drawn
     /// in `TXT` throughout.
     pub fn colors_nothing(&self) -> bool {
-        !self.has_range_based() && !self.url && !self.number && self.keywords.is_empty()
+        !self.has_range_based()
+            && !self.url
+            && !self.number
+            && self.keywords.is_empty()
+            && self.regex_keywords.is_empty()
     }
 }
 
