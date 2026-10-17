@@ -92,7 +92,13 @@ Used by:
 {{#if crate.authors}}
     Authors: {{#each crate.authors}}{{#if @index}}, {{/if}}{{{this}}}{{/each}}
 {{else}}
+    {{#if (eq crate.name "zune-core")}}
+    Authors: not named in the package. Copyright (c) zune-image developers (LICENSE.md of https://github.com/etemesi254/zune-image at the commit the package was published from; MIT OR Apache-2.0 OR Zlib).
+    {{else if (eq crate.name "zune-inflate")}}
+    Authors: not named in the package. Copyright (c) zune-image developers (LICENSE.md of https://github.com/etemesi254/zune-image at the commit the package was published from; MIT OR Apache-2.0 OR Zlib).
+    {{else}}
     Authors: not named in the package (see the link above for its copyright holders).
+    {{/if}}
 {{/if}}
 {{/unless}}
 {{/if}}

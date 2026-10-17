@@ -8867,6 +8867,56 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
+  * objc2-app-kit 0.2.2 - https://github.com/madsmtm/objc2
+  * objc2-app-kit 0.3.2 - https://github.com/madsmtm/objc2
+  * objc2-cloud-kit 0.3.2 - https://github.com/madsmtm/objc2
+  * objc2-core-data 0.3.2 - https://github.com/madsmtm/objc2
+  * objc2-core-foundation 0.3.2 - https://github.com/madsmtm/objc2
+  * objc2-core-graphics 0.3.2 - https://github.com/madsmtm/objc2
+  * objc2-core-image 0.3.2 - https://github.com/madsmtm/objc2
+  * objc2-core-location 0.3.2 - https://github.com/madsmtm/objc2
+  * objc2-core-media 0.3.2 - https://github.com/madsmtm/objc2
+  * objc2-core-text 0.3.2 - https://github.com/madsmtm/objc2
+  * objc2-core-video 0.3.2 - https://github.com/madsmtm/objc2
+  * objc2-foundation 0.2.2 - https://github.com/madsmtm/objc2
+  * objc2-foundation 0.3.2 - https://github.com/madsmtm/objc2
+  * objc2-metal 0.3.2 - https://github.com/madsmtm/objc2
+  * objc2-quartz-core 0.3.2 - https://github.com/madsmtm/objc2
+  * objc2-screen-capture-kit 0.3.2 - https://github.com/madsmtm/objc2
+  * objc2-user-notifications 0.3.2 - https://github.com/madsmtm/objc2
+
+Copyright 2026 Mads Marquart
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+--------------------------------------------------------------------------------
+MIT License (MIT)
+--------------------------------------------------------------------------------
+
+Used by:
   * encoding_rs 0.8.42 - https://github.com/hsivonen/encoding_rs
   * multiversion_no_op 1.0.0 - https://github.com/hsivonen/multiversion_no_op
   * utf8_iter 1.0.4 - https://github.com/hsivonen/utf8_iter
@@ -10215,42 +10265,8 @@ Used by:
     Authors: Aleksandr Orlenko <zxteam@pm.me>
   * objc-sys 0.3.5 - https://github.com/madsmtm/objc2
     Authors: Mads Marquart <mads@marquart.dk>
-  * objc2-app-kit 0.2.2 - https://github.com/madsmtm/objc2
-    Authors: not named in the package (see the link above for its copyright holders).
-  * objc2-app-kit 0.3.2 - https://github.com/madsmtm/objc2
-    Authors: not named in the package (see the link above for its copyright holders).
-  * objc2-cloud-kit 0.3.2 - https://github.com/madsmtm/objc2
-    Authors: not named in the package (see the link above for its copyright holders).
-  * objc2-core-data 0.3.2 - https://github.com/madsmtm/objc2
-    Authors: not named in the package (see the link above for its copyright holders).
-  * objc2-core-foundation 0.3.2 - https://github.com/madsmtm/objc2
-    Authors: not named in the package (see the link above for its copyright holders).
-  * objc2-core-graphics 0.3.2 - https://github.com/madsmtm/objc2
-    Authors: not named in the package (see the link above for its copyright holders).
-  * objc2-core-image 0.3.2 - https://github.com/madsmtm/objc2
-    Authors: not named in the package (see the link above for its copyright holders).
-  * objc2-core-location 0.3.2 - https://github.com/madsmtm/objc2
-    Authors: not named in the package (see the link above for its copyright holders).
-  * objc2-core-media 0.3.2 - https://github.com/madsmtm/objc2
-    Authors: not named in the package (see the link above for its copyright holders).
-  * objc2-core-text 0.3.2 - https://github.com/madsmtm/objc2
-    Authors: not named in the package (see the link above for its copyright holders).
-  * objc2-core-video 0.3.2 - https://github.com/madsmtm/objc2
-    Authors: not named in the package (see the link above for its copyright holders).
   * objc2-encode 4.1.0 - https://github.com/madsmtm/objc2
     Authors: Mads Marquart <mads@marquart.dk>
-  * objc2-foundation 0.2.2 - https://github.com/madsmtm/objc2
-    Authors: not named in the package (see the link above for its copyright holders).
-  * objc2-foundation 0.3.2 - https://github.com/madsmtm/objc2
-    Authors: not named in the package (see the link above for its copyright holders).
-  * objc2-metal 0.3.2 - https://github.com/madsmtm/objc2
-    Authors: not named in the package (see the link above for its copyright holders).
-  * objc2-quartz-core 0.3.2 - https://github.com/madsmtm/objc2
-    Authors: not named in the package (see the link above for its copyright holders).
-  * objc2-screen-capture-kit 0.3.2 - https://github.com/madsmtm/objc2
-    Authors: not named in the package (see the link above for its copyright holders).
-  * objc2-user-notifications 0.3.2 - https://github.com/madsmtm/objc2
-    Authors: not named in the package (see the link above for its copyright holders).
   * objc2 0.5.3 - https://github.com/madsmtm/objc2
     Authors: Steven Sheldon, Mads Marquart <mads@marquart.dk>
   * objc2 0.6.5 - https://github.com/madsmtm/objc2
@@ -10280,9 +10296,9 @@ Used by:
   * xim-parser 0.2.2 - https://github.com/Riey/xim-rs
     Authors: Riey <creeper844@gmail.com>
   * zune-core 0.4.12 - https://crates.io/crates/zune-core/0.4.12
-    Authors: not named in the package (see the link above for its copyright holders).
+    Authors: not named in the package. Copyright (c) zune-image developers (LICENSE.md of https://github.com/etemesi254/zune-image at the commit the package was published from; MIT OR Apache-2.0 OR Zlib).
   * zune-inflate 0.2.54 - https://crates.io/crates/zune-inflate/0.2.54
-    Authors: not named in the package (see the link above for its copyright holders).
+    Authors: not named in the package. Copyright (c) zune-image developers (LICENSE.md of https://github.com/etemesi254/zune-image at the commit the package was published from; MIT OR Apache-2.0 OR Zlib).
   * zune-jpeg 0.4.21 - https://github.com/etemesi254/zune-image/tree/dev/crates/zune-jpeg
     Authors: caleb <etemesicaleb@gmail.com>
 

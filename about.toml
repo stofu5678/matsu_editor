@@ -468,3 +468,115 @@ license = "LGPL-2.1-or-later"
 checksum = "b0889adc71f7bc2164ecb54c1762f97bbed08dcff0d5ec105612f7001ec4ec9a"
 start = "SPDX-FileCopyrightText: 2015 Martin"
 end = "SPDX-License-Identifier: LGPL-2.1-or-later"
+
+# objc2 (https://github.com/madsmtm/objc2): the frameworks crates have no license file in the
+# package. Their repository has the MIT text with the copyright line (LICENSE-MIT.txt) only from a
+# later commit than the one these versions were published from (there, LICENSE.md only describes
+# the licenses), so that file is taken at a pinned later commit of the main branch: its year is
+# newer than the versions'. objc2-app-kit and objc2-foundation also have a 0.2.2 in the tree
+# (MIT, Steven Sheldon, LICENSE.txt at its commit); one clarification serves every version of a
+# crate name, so that line is not in this file for those two.
+[objc2-app-kit.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-app-kit.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-cloud-kit.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-cloud-kit.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-core-data.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-core-data.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-core-foundation.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-core-foundation.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-core-graphics.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-core-graphics.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-core-image.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-core-image.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-core-location.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-core-location.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-core-media.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-core-media.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-core-text.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-core-text.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-core-video.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-core-video.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-foundation.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-foundation.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-metal.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-metal.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-quartz-core.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-quartz-core.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-screen-capture-kit.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-screen-capture-kit.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-user-notifications.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-user-notifications.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
