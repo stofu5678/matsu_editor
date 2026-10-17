@@ -41,8 +41,9 @@
 //!   escape; heredocs are not recognized
 //! * YAML: the single quote is not a string quote (a plain scalar such as `don't` would start a string); block
 //!   scalars are not recognized
-//! * Markdown: only the headings (a regular expression keyword) and the HTML comments are colored; the single
-//!   and double quotes are not strings
+//! * Markdown: the HTML comments are colored; the headings are a regular expression keyword, which shows
+//!   only when the coloring has regular expression keywords (it has not yet); the single and double quotes are
+//!   not strings
 //! * CSS: the at-rule names with a hyphen (`@font-face`) are not keywords; property names are not keywords
 //! * JSON: `//` and `/* */` are comments for the sake of `.jsonc`
 
@@ -509,6 +510,12 @@ mod tests {
         // The other extensions of the type stay with UME Editor's type.
         assert_eq!(types.type_index_for_file_name("a.mjs"), 17);
         assert_eq!(types.get(17).unwrap().type_exts, "mjs,cjs,jsx");
+        // A pattern of the file is found too.
+        let text =
+            "[Other]\r\nnTypesCount=30\r\n[Types(29)]\r\nszTypeName=My JS\r\nszTypeExts=*.js\r\n";
+        let types = DocumentTypes::from_profile(&profile(text));
+        assert_eq!(types.type_index_for_file_name("a.js"), 29);
+        assert_eq!(types.type_index_for_file_name("a.mjs"), 17);
         // A type that has nothing left is not added, and the next one takes its number.
         let text = "[Other]\r\nnTypesCount=30\r\n[Types(29)]\r\nszTypeName=Mine\r\nszTypeExts=json,jsonc\r\n";
         let types = DocumentTypes::from_profile(&profile(text));

@@ -231,7 +231,11 @@ impl DocumentTypes {
                 let kept: Vec<&str> = t
                     .type_exts
                     .split(',')
-                    .filter(|ext| !used().any(|u| is_file_name_match(&u.type_exts, ext)))
+                    // A file called `x.<ext>` also finds the patterns of the file (`*.js`).
+                    .filter(|ext| {
+                        let file = format!("x.{ext}");
+                        !used().any(|u| is_file_name_match(&u.type_exts, &file))
+                    })
                     .collect();
                 if kept.is_empty() {
                     return None;
