@@ -717,7 +717,6 @@ impl Render for EditorView {
             .on_mouse_down(MouseButton::Right, cx.listener(Self::on_right_mouse_down))
             .on_mouse_up(MouseButton::Right, cx.listener(Self::on_right_mouse_up))
             .on_scroll_wheel(cx.listener(Self::on_scroll))
-            .on_drop(cx.listener(Self::on_external_drop))
             .child(EditorElement::new(cx.entity()));
         // The panel is a sibling, so that keys typed in its inputs do not reach the editor's.
         // The Save As options cover the view (and take the keys) while they are open.
