@@ -459,6 +459,56 @@ fn the_synchronized_scrolling_follows_the_check_boxes(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn ok_shows_and_hides_the_toolbar_and_the_function_keys_in_every_window(cx: &mut TestAppContext) {
+    use crate::bars::{BarSettings, FuncKeyPlace, current as bars};
+    let (ini, first) = setup(cx, INI);
+    let second = open_window(cx);
+    assert_eq!(cx.update(|app| bars(app)), BarSettings::default());
+    run(cx, first, "F_OPTION_WINDOW");
+    check(cx, "disp_toolbar", false);
+    check(cx, "disp_funckey_wnd", true);
+    choose(cx, "funckey_place", 1);
+    type_in(cx, "funckey_group_num", "6");
+    ok(cx);
+    assert_eq!(ini.get("bDispTOOLBAR").as_deref(), Some("0"));
+    assert_eq!(ini.get("bDispFUNCKEYWND").as_deref(), Some("1"));
+    assert_eq!(ini.get("nFUNCKEYWND_Place").as_deref(), Some("1"));
+    assert_eq!(ini.get("nFUNCKEYWND_GroupNum").as_deref(), Some("6"));
+    let now = cx.update(|app| bars(app));
+    assert_eq!(
+        (
+            now.toolbar,
+            now.funckeys,
+            now.funckey_place,
+            now.funckey_group_num
+        ),
+        (false, true, FuncKeyPlace::Bottom, 6)
+    );
+    for handle in [first, second] {
+        let ws = cx
+            .update(|app| crate::file_ops::windows::workspace_of(app, handle))
+            .unwrap();
+        assert!(ws.update(cx, |ws, cx| ws.render_toolbar(cx).is_none()));
+        let bottom = handle
+            .update(cx, |_, window, app| {
+                ws.update(app, |ws, cx| {
+                    ws.render_funckeys(FuncKeyPlace::Bottom, window, cx)
+                        .is_some()
+                })
+            })
+            .unwrap();
+        assert!(bottom, "both windows");
+    }
+    // The dialog starts from what the windows have now.
+    run(cx, second, "F_OPTION_WINDOW");
+    assert!(!with_dialog(cx, |d, _, _| d.values().bool("disp_toolbar")));
+    assert!(with_dialog(cx, |d, _, _| d
+        .values()
+        .bool("disp_funckey_wnd")));
+    cancel(cx);
+}
+
+#[gpui::test]
 fn cancel_changes_nothing(cx: &mut TestAppContext) {
     let (ini, handle) = setup(cx, INI);
     let bytes = ini.bytes();

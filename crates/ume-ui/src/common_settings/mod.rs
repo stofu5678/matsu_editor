@@ -210,6 +210,7 @@ fn start_profile(cx: &mut App, opener: Option<AnyWindowHandle>) -> Profile {
         })
         .unwrap_or_default();
     let tabs = crate::tabs::settings::current(cx);
+    crate::bars::put_into(&mut profile, crate::bars::current(cx));
     let mut put = |key: &str, on: bool| {
         // A key that cannot be written to the copy is left as the file has it.
         let _ = profile.set(model::SECTION, key, if on { "1" } else { "0" });
