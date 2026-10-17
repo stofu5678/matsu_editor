@@ -284,6 +284,24 @@ mod unix_only {
     }
 
     #[test]
+    fn what_the_command_left_writing_can_still_be_stopped() {
+        // the shell ends at once; `yes` goes on writing to the output, so the run does not end
+        let mut run = start(Spec::new("yes &")).unwrap();
+        let stopper = run.stopper();
+        let begun = Instant::now();
+        let mut seen = 0;
+        while seen < 100_000 {
+            assert!(begun.elapsed() < LIMIT);
+            if let Some(Event::Output(bytes)) = run.poll(Duration::from_millis(50)) {
+                seen += bytes.len();
+            }
+        }
+        stopper.stop();
+        let done = finish(run);
+        assert!(done.exit.stopped, "{:?}", done.exit);
+    }
+
+    #[test]
     fn a_slow_reader_loses_nothing_after_the_exit() {
         // 3 MB is more than the queue and the pipe hold: the command waits for us, and ends
         // before we read; the grace period after its end does not cut off what is queued

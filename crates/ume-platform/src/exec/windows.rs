@@ -11,6 +11,9 @@ const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
 /// `CREATE_NO_WINDOW`: a command whose output is taken shows nothing (Sakura: `SW_HIDE`).
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+/// `taskkill /T` needs the process that started the others to be there.
+pub(super) const KILLS_AFTER_EXIT: bool = false;
+
 /// The program and the rest of the line as `CreateProcess` reads them. The rest is given to the
 /// process as it is, without Rust's quoting.
 pub(super) fn direct_command(line: &str) -> Option<Command> {

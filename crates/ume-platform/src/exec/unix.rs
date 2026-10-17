@@ -9,6 +9,9 @@ use std::process::{Command, ExitStatus};
 
 use super::{needs_shell, split_program};
 
+/// A process group outlives its leader, so the processes a command left running can be ended.
+pub(super) const KILLS_AFTER_EXIT: bool = true;
+
 /// The command line as a program with its arguments, split at spaces; `None` when it needs a
 /// shell (see [`needs_shell`]), so that the shell runs it.
 pub(super) fn direct_command(line: &str) -> Option<Command> {

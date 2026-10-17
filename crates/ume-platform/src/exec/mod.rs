@@ -159,17 +159,26 @@ pub struct Stopper(Arc<StopState>);
 struct StopState {
     pid: u32,
     stopped: AtomicBool,
-    finished: AtomicBool,
-    /// The process, killed through its id; taken so that two calls do not both kill.
+    /// The process has ended (it may have left others running).
+    exited: AtomicBool,
+    /// The caller has been given [`Event::Exited`]: nothing is left to stop.
+    ended: AtomicBool,
+    /// Serializes the kill with the two flags, so that the id of a process that is gone is not
+    /// used.
     lock: Mutex<()>,
 }
 
 impl Stopper {
-    /// Ends the process and the ones it started (a process that has ended is left alone).
+    /// Ends the process and the ones it started. A process that has ended can have left others
+    /// that still write to the output (`yes &`): on macOS and Linux they are ended through the
+    /// process group, which lives as long as one of them does; on Windows the tree of a process
+    /// that has ended is not known, and nothing is done. After [`Event::Exited`] nothing is done.
     pub fn stop(&self) {
         let state = &self.0;
         let _guard = state.lock.lock().unwrap_or_else(|e| e.into_inner());
-        if state.finished.load(Ordering::SeqCst) {
+        if state.ended.load(Ordering::SeqCst)
+            || (state.exited.load(Ordering::SeqCst) && !sys::KILLS_AFTER_EXIT)
+        {
             return;
         }
         state.stopped.store(true, Ordering::SeqCst);
@@ -220,8 +229,7 @@ impl Run {
             if let Some((exit, at)) = self.exit
                 && (self.reader_done || disconnected || at.elapsed() >= GRACE)
             {
-                self.over = true;
-                return Some(Event::Exited(exit));
+                return Some(self.finish(exit));
             }
             if disconnected {
                 // the thread that waits for the process is gone without a word
@@ -250,6 +258,17 @@ impl Run {
                 Err(RecvTimeoutError::Disconnected) => disconnected = true,
             }
         }
+    }
+
+    /// The last event: from now on nothing can be stopped, and a stop that came after the process
+    /// had exited (see [`Stopper::stop`]) is counted.
+    fn finish(&mut self, mut exit: Exit) -> Event {
+        let state = &self.stopper.0;
+        let _guard = state.lock.lock().unwrap_or_else(|e| e.into_inner());
+        state.ended.store(true, Ordering::SeqCst);
+        exit.stopped |= state.stopped.load(Ordering::SeqCst);
+        self.over = true;
+        Event::Exited(exit)
     }
 
     /// Takes in what a thread sent; the event for the caller, if it is one.
@@ -320,7 +339,8 @@ pub fn start(spec: Spec) -> Result<Run, StartError> {
     let state = Arc::new(StopState {
         pid: child.id(),
         stopped: AtomicBool::new(false),
-        finished: AtomicBool::new(false),
+        exited: AtomicBool::new(false),
+        ended: AtomicBool::new(false),
         lock: Mutex::new(()),
     });
     if let (Some(input), Some(stdin)) = (spec.stdin, child.stdin.take()) {
@@ -404,7 +424,7 @@ fn wait_for(mut child: Child, state: Arc<StopState>, tx: SyncSender<Raw>) {
         {
             // a stop in progress finishes first; later ones see a process that has ended
             let _guard = state.lock.lock().unwrap_or_else(|e| e.into_inner());
-            state.finished.store(true, Ordering::SeqCst);
+            state.exited.store(true, Ordering::SeqCst);
         }
         let code = status.ok().and_then(sys::exit_code);
         let _ = tx.send(Raw::Exited(Exit {

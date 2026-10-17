@@ -155,7 +155,8 @@ fn put(
     text: &str,
 ) -> bool {
     if text.is_empty() {
-        return true;
+        // nothing to put, but a window that is gone ends the run
+        return view.update_in(cx, |_, _, _| ()).is_ok();
     }
     view.update_in(cx, |view, _window, cx| match target {
         Target::Window => view
@@ -285,8 +286,9 @@ pub(crate) async fn run_command(
     let mut select_from = None;
 
     if to_window {
-        // One undo step for all the output. A selection is replaced by the first piece; a box is
-        // deleted; with the whole document going through the command and coming back, the
+        // One undo step for all the output. A selection is replaced by the first piece (so a
+        // command that writes nothing leaves it, as in Sakura, where nothing is inserted then); a
+        // box is deleted; with the whole document going through the command and coming back, the
         // document is replaced as a whole (`DeleteData` after `SetSelectArea`, 2007.05.20 maru).
         let filter_all = !had_selection && flags.send_stdin();
         select_from = prepared.selection.map(|(from, _)| from);
