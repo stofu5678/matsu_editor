@@ -55,6 +55,89 @@ impl TabSettings {
     }
 }
 
+/// `bTab_RetainEmptyWin`, `bTab_CloseOneWin`, `bSameTabWidth`, `bDispTabClose` and `bChgWndByWheel`,
+/// which the common settings dialog changes (「共通設定」の「タブバー」).
+const KEY_RETAIN_EMPTY: &str = "bTab_RetainEmptyWin";
+const KEY_CLOSE_ONE_WIN: &str = "bTab_CloseOneWin";
+const KEY_SAME_WIDTH: &str = "bSameTabWidth";
+const KEY_DISP_CLOSE: &str = "bDispTabClose";
+const KEY_CHANGE_BY_WHEEL: &str = "bChgWndByWheel";
+
+/// `EDispTabClose`: when a tab shows its close button (`sakura_core/env/CommonSetting.h`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum DispTabClose {
+    /// `DISPTABCLOSE_NO` (0): never. Sakura's default.
+    #[default]
+    No,
+    /// The second value (1): on every tab.
+    Always,
+    /// `DISPTABCLOSE_AUTO` (2): on the tab the pointer is over.
+    Auto,
+}
+
+impl DispTabClose {
+    pub(crate) fn from_code(code: i32) -> Self {
+        match code {
+            1 => Self::Always,
+            2 => Self::Auto,
+            _ => Self::No,
+        }
+    }
+}
+
+/// The tab settings besides the mode: how the bar behaves and looks. Sakura's defaults
+/// (`CShareData::InitShareData`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct TabOptions {
+    /// `m_bTab_RetainEmptyWin`: closing the last file of the group leaves an untitled document in
+    /// the window (tab mode only).
+    pub retain_empty: bool,
+    /// `m_bTab_CloseOneWin`: the close button of the window closes only the current file (tab mode
+    /// only).
+    pub close_one_win: bool,
+    /// `m_bSameTabWidth`: all tabs are as wide as each other.
+    pub same_width: bool,
+    /// `m_bDispTabClose`: the close buttons of the tabs.
+    pub disp_close: DispTabClose,
+    /// `m_bChgWndByWheel`: the wheel over the bar goes to the next or previous window.
+    pub change_by_wheel: bool,
+}
+
+impl Default for TabOptions {
+    fn default() -> Self {
+        Self {
+            retain_empty: true,
+            close_one_win: false,
+            same_width: false,
+            disp_close: DispTabClose::No,
+            change_by_wheel: false,
+        }
+    }
+}
+
+impl Global for TabOptions {}
+
+impl TabOptions {
+    pub(crate) fn from_profile(profile: &Profile) -> Self {
+        let default = Self::default();
+        let get = |key: &str, default: bool| profile.get_bool("Common", key).unwrap_or(default);
+        Self {
+            retain_empty: get(KEY_RETAIN_EMPTY, default.retain_empty),
+            close_one_win: get(KEY_CLOSE_ONE_WIN, default.close_one_win),
+            same_width: get(KEY_SAME_WIDTH, default.same_width),
+            disp_close: profile
+                .get_i32("Common", KEY_DISP_CLOSE)
+                .map_or(default.disp_close, DispTabClose::from_code),
+            change_by_wheel: get(KEY_CHANGE_BY_WHEEL, default.change_by_wheel),
+        }
+    }
+}
+
+/// The options now. Sakura's defaults before the application installs them.
+pub(crate) fn options(cx: &App) -> TabOptions {
+    cx.try_global::<TabOptions>().copied().unwrap_or_default()
+}
+
 /// The settings now. Sakura's defaults before the application installs them.
 pub(crate) fn current(cx: &App) -> TabSettings {
     cx.try_global::<TabSettings>().copied().unwrap_or_default()
@@ -66,6 +149,10 @@ pub(crate) fn install(cx: &mut App, user: &crate::settings::UserSettings) {
         .profile()
         .map_or_else(TabSettings::default, TabSettings::from_profile);
     cx.set_global(settings);
+    cx.set_global(
+        user.profile()
+            .map_or_else(TabOptions::default, TabOptions::from_profile),
+    );
 }
 
 /// Changes the settings: windows notice (`observe_global`), and the file keeps them.

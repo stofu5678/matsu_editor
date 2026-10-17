@@ -101,7 +101,7 @@ impl CommandContext<'_> {
         let caret = self.caret();
         if let Some(line) = self.line_chars(caret.line)?
             && let Some(idx) = line.index_of(caret.col)
-            && let Some(to) = word::search_prev_word(&line.chars, idx, STOPS_BOTH_ENDS)
+            && let Some(to) = word::search_prev_word(&line.chars, idx, stops_both_ends())
         {
             return self.move_caret(Pos::new(caret.line, line.offsets[to]), extend);
         }
@@ -134,7 +134,7 @@ impl CommandContext<'_> {
             let to = line
                 .index_of(caret.col)
                 .filter(|&i| i < line.chars.len() && !word::is_line_delimiter(line.chars[i]))
-                .and_then(|i| word::search_next_word(&line.chars, i, STOPS_BOTH_ENDS));
+                .and_then(|i| word::search_next_word(&line.chars, i, stops_both_ends()));
             if let Some(to) = to {
                 return self.move_caret(Pos::new(caret.line, line.offsets[to]), extend);
             }
@@ -148,8 +148,10 @@ impl CommandContext<'_> {
 }
 
 /// Sakura's option `m_bStopsBothEndsWhenSearchWord` ("stop at both ends of a word when moving by
-/// words"); off by default (`sakura_core/env/CShareData.cpp`).
-const STOPS_BOTH_ENDS: bool = false;
+/// words"); off by default (`sakura_core/env/CShareData.cpp`). See [`crate::edit_options`].
+fn stops_both_ends() -> bool {
+    crate::edit_options::get().stops_both_ends_word
+}
 
 #[cfg(test)]
 mod tests {

@@ -237,6 +237,19 @@ pub(crate) fn start_folder(cx: &App, document: Option<&Path>) -> Option<PathBuf>
     })
 }
 
+/// The folder that the text of a settings box names (「指定フォルダー」): its meta folders
+/// (`%MYDOC%` ...) expanded, `None` when there is no such folder.
+pub(crate) fn expanded_folder(cx: &App, text: &str) -> Option<PathBuf> {
+    let expanded = ume_config::dialog_dir::expand_meta(text, &Meta::new(cx)).text;
+    // The settings file of Windows holds backslashes; on the other OSes they are separators too.
+    let native = if cfg!(windows) {
+        expanded
+    } else {
+        expanded.replace('\\', "/")
+    };
+    Some(PathBuf::from(native)).filter(|path| !path.as_os_str().is_empty() && path.is_dir())
+}
+
 /// The folder the macro dialogs start in (マクロ用フォルダー).
 pub(crate) fn macro_folder(cx: &App) -> Option<PathBuf> {
     let setting = cx

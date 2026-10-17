@@ -18,7 +18,7 @@
 
 use gpui::{
     AnyElement, AnyWindowHandle, AppContext as _, AsyncWindowContext, Context, Entity,
-    InteractiveElement, IntoElement, MouseButton, ParentElement, Render,
+    InteractiveElement, IntoElement, MouseButton, ParentElement, Render, SharedString,
     StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px, rgb,
 };
 use ume_commands::sakura::FUNCTIONS;
@@ -145,6 +145,7 @@ impl Workspace {
     ) -> Option<AnyElement> {
         let entries = self.bar_entries(window, cx)?;
         let own = window.window_handle();
+        let options = settings::options(cx);
         let mut bar = div()
             .id("tab-bar")
             .flex()
@@ -156,7 +157,7 @@ impl Workspace {
             .text_size(px(12.))
             .text_color(rgb(0x1e1e1e));
         for (i, entry) in entries.iter().cloned().enumerate() {
-            bar = bar.child(self.render_tab(i, entry, own, cx));
+            bar = bar.child(self.render_tab(i, entry, own, options, cx));
         }
         let list_button = div()
             .id("tab-list")
@@ -168,6 +169,31 @@ impl Workspace {
             .on_click(cx.listener(|this, _, window, cx| {
                 this.run_after_event(function_code("F_WINLIST"), window, cx);
             }));
+        // `m_bChgWndByWheel`: the wheel over the bar goes to the next or previous window
+        // (`CEditWnd::DoMouseWheel`: a turn toward the user is the next one).
+        if options.change_by_wheel {
+            bar = bar.on_scroll_wheel(cx.listener(
+                |this, event: &gpui::ScrollWheelEvent, window, cx| {
+                    let y = event.delta.pixel_delta(px(16.)).y;
+                    // A trackpad sends many small moves; only a real move counts.
+                    let least = if event.delta.precise() {
+                        px(50.)
+                    } else {
+                        px(1.)
+                    };
+                    if y.abs() < least {
+                        return;
+                    }
+                    let code = function_code(if y < px(0.) {
+                        "F_NEXTWINDOW"
+                    } else {
+                        "F_PREVWINDOW"
+                    });
+                    this.run_after_event(code, window, cx);
+                    cx.stop_propagation();
+                },
+            ));
+        }
         Some(
             bar.child(
                 div()
@@ -192,6 +218,7 @@ impl Workspace {
         index: usize,
         entry: Entry,
         own: AnyWindowHandle,
+        options: settings::TabOptions,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let Entry {
@@ -223,6 +250,7 @@ impl Workspace {
             }
         };
         let close_for_button = close.clone();
+        let group = SharedString::from(format!("tab-group-{index}"));
         let mut element = div()
             .id(("tab", index))
             .flex()
@@ -231,7 +259,10 @@ impl Workspace {
             .gap_1()
             .px_2()
             .py_0p5()
-            .max_w(px(220.))
+            .group(group.clone())
+            // `m_bSameTabWidth`: every tab is as wide as the others.
+            .when(!options.same_width, |tab| tab.max_w(px(220.)))
+            .when(options.same_width, |tab| tab.w(px(160.)).flex_none())
             .border_r_1()
             .border_color(rgb(0xc0c0c0))
             .bg(if active { rgb(0xffffff) } else { rgb(0xd8d8d8) })
@@ -246,18 +277,28 @@ impl Workspace {
                     .text_ellipsis()
                     .child(caption.clone()),
             )
-            .child(
-                div()
-                    .id(("tab-close", index))
-                    .px_1()
-                    .cursor_pointer()
-                    .hover(|s| s.bg(rgb(0xc8c8c8)))
-                    .child("×")
-                    .on_click(move |_, window, cx| {
-                        cx.stop_propagation();
-                        close_for_button(window, cx)
-                    }),
-            );
+            // `m_bDispTabClose`: never, on every tab, or on the tab the pointer is over.
+            .when(options.disp_close != settings::DispTabClose::No, |tab| {
+                let auto = options.disp_close == settings::DispTabClose::Auto;
+                let hover_group = group.clone();
+                tab.child(
+                    div()
+                        .id(("tab-close", index))
+                        .px_1()
+                        .cursor_pointer()
+                        .hover(|s| s.bg(rgb(0xc8c8c8)))
+                        .when(auto, |button| {
+                            button
+                                .invisible()
+                                .group_hover(hover_group, |style| style.visible())
+                        })
+                        .child("×")
+                        .on_click(move |_, window, cx| {
+                            cx.stop_propagation();
+                            close_for_button(window, cx)
+                        }),
+                )
+            });
         if let Some(from) = tab {
             element = element
                 .on_drag(

@@ -32,3 +32,5 @@ separater = "separater"
 # Sakura's macro names (sakura_core/macro/CSMacroMgr.cpp): "UNICODE to SJIS" written as a word.
 CodeCnvUNICODEtoSJIS = "CodeCnvUNICODEtoSJIS"
 CodeCnvUNICODEBEtoSJIS = "CodeCnvUNICODEBEtoSJIS"
+# The key of Sakura's settings file for "copy, then drop the selection" (CShareData_IO.cpp), spelled so.
+bCopyAndDisablSelection = "bCopyAndDisablSelection"

@@ -1,0 +1,241 @@
+//! 「編集」: `IDD_PROP_EDIT` (`sakura_core/sakura_rc.rc`), `CPropEdit`
+//! (`sakura_core/prop/CPropComEdit.cpp`).
+//!
+//! Live: copy without a selection, paste of a row at the start of the row, the conversion of line
+//! endings in a paste, and where the file dialogs start (`eOpenDialogDir`, `szOpenDialogSelDir`,
+//! read by `crate::file_dialog`). Not available yet: the copy of wrapped rows with a line ending
+//! and the deselection after a copy, drag and drop, the options of the overwrite mode, selecting
+//! a URL by a click, the Vista style dialog (a Windows thing), the extended line endings and the
+//! lock of the box selection.
+
+use gpui::{Context, Window};
+use ume_commands::edit_options;
+
+use super::super::Env;
+use super::super::dialog::CommonSettingsDialog;
+use super::super::model::{Control, Item, Values};
+
+/// `OPENDIALOGDIR_CUR`, `OPENDIALOGDIR_MRU`, `OPENDIALOGDIR_SEL` (`eOpenDialogDir`).
+const DIR_CURRENT: i32 = 0;
+const DIR_RECENT: i32 = 1;
+const DIR_SELECTED: i32 = 2;
+
+fn drag_drop_is_on(values: &Values) -> bool {
+    values.bool("use_ole_drag_drop")
+}
+
+/// `EnableEditPropInput`: the given folder is edited only when it is the one that is chosen.
+fn given_folder_is_chosen(values: &Values) -> bool {
+    values.int("open_dialog_dir") == DIR_SELECTED
+}
+
+pub(in crate::common_settings) fn items() -> Vec<Item> {
+    vec![Item::Columns(vec![
+        vec![
+            Item::Group(
+                "コピー",
+                vec![
+                    Control::check(
+                        "add_crlf_when_copy",
+                        "折り返し行に改行を付けてコピー(&C)",
+                        "bAddCRLFWhenCopy",
+                        false,
+                    )
+                    .unavailable()
+                    .into(),
+                    Control::check(
+                        "copy_and_disable_selection",
+                        "コピーしたら選択解除(&R)",
+                        "bCopyAndDisablSelection",
+                        false,
+                    )
+                    .unavailable()
+                    .into(),
+                    Control::check(
+                        "enable_no_select_copy",
+                        "選択なしでコピーを可能にする(&E)",
+                        "bEnableNoSelectCopy",
+                        true,
+                    )
+                    .into(),
+                    Control::check(
+                        "enable_line_mode_paste",
+                        "ラインモード貼り付けを可能にする(&L)",
+                        "bEnableLineModePaste",
+                        true,
+                    )
+                    .into(),
+                    Control::check(
+                        "convert_eol_paste",
+                        "改行コードを変換して貼り付ける(&P)",
+                        "bConvertEOLPaste",
+                        false,
+                    )
+                    .into(),
+                ],
+            ),
+            Item::Group(
+                "ドラッグ && ドロップ",
+                vec![
+                    Control::check(
+                        "use_ole_drag_drop",
+                        "ドラッグ && ドロップ編集する(&D)",
+                        "bUseOLE_DragDrop",
+                        true,
+                    )
+                    .unavailable()
+                    .into(),
+                    Control::check(
+                        "use_ole_drop_source",
+                        "ドロップ元にする(&S)",
+                        "bUseOLE_DropSource",
+                        true,
+                    )
+                    .unavailable()
+                    .when(drag_drop_is_on)
+                    .into(),
+                ],
+            ),
+            Item::Group(
+                "上書きモード",
+                vec![
+                    Control::check(
+                        "not_overwrite_crlf",
+                        "改行コードは上書きしない(&N)",
+                        "bNotOverWriteCRLF",
+                        true,
+                    )
+                    .unavailable()
+                    .into(),
+                    Control::check(
+                        "overwrite_fix_mode",
+                        "文字幅に合わせてスペースを詰める(&F)",
+                        "bOverWriteFixMode",
+                        false,
+                    )
+                    .unavailable()
+                    .into(),
+                    Control::check(
+                        "overwrite_box_delete",
+                        "矩形入力で選択範囲を削除する(&G)",
+                        "bOverWriteBoxDelete",
+                        false,
+                    )
+                    .unavailable()
+                    .into(),
+                ],
+            ),
+        ],
+        vec![
+            Item::Group(
+                "クリッカブルURL",
+                vec![
+                    Control::check(
+                        "select_clicked_url",
+                        "クリックで&URLを選択する",
+                        "bSelectClickedURL",
+                        true,
+                    )
+                    .unavailable()
+                    .into(),
+                ],
+            ),
+            Item::Group(
+                "ファイルダイアログの初期位置",
+                vec![
+                    Control::radio(
+                        "open_dialog_dir",
+                        "カレントフォルダー(&U)",
+                        "eOpenDialogDir",
+                        DIR_CURRENT,
+                        DIR_CURRENT,
+                    )
+                    .into(),
+                    Control::radio(
+                        "open_dialog_dir",
+                        "最近使ったフォルダー(&M)",
+                        "eOpenDialogDir",
+                        DIR_RECENT,
+                        DIR_CURRENT,
+                    )
+                    .into(),
+                    Control::radio(
+                        "open_dialog_dir",
+                        "指定フォルダー(&F)",
+                        "eOpenDialogDir",
+                        DIR_SELECTED,
+                        DIR_CURRENT,
+                    )
+                    .into(),
+                    Item::Row(vec![
+                        Control::text(
+                            "open_dialog_sel_dir",
+                            "",
+                            "szOpenDialogSelDir",
+                            ume_config::dialog_dir::DEFAULT_SELECTED,
+                        )
+                        .when(given_folder_is_chosen)
+                        .into(),
+                        Control::button("open_dialog_sel_dir_browse", "...", browse)
+                            .when(given_folder_is_chosen)
+                            .into(),
+                    ]),
+                ],
+            ),
+            Control::check(
+                "vista_style_file_dialog",
+                "Vistaスタイルのファイルダイアログ(&I)",
+                "bVistaStyleFileDialog",
+                true,
+            )
+            .unavailable()
+            .into(),
+            Item::Group(
+                "その他",
+                vec![
+                    Control::check(
+                        "enable_ext_eol",
+                        "改行コードNEL, PS, LSを有効にする(&O)",
+                        "bEnableExtEol",
+                        false,
+                    )
+                    .unavailable()
+                    .into(),
+                    Control::check(
+                        "box_select_lock",
+                        "矩形選択移動で選択をロックする(&B)",
+                        "bBoxSelectLock",
+                        true,
+                    )
+                    .unavailable()
+                    .into(),
+                ],
+            ),
+        ],
+    ])]
+}
+
+/// `IDC_BUTTON_FILEOPENDIR`: chooses the given folder. The box starts the dialog (its meta
+/// folders expanded) and takes the folder back with `%` doubled (`STR_PROPEDIT_SELECT_DIR`).
+fn browse(
+    dialog: &mut CommonSettingsDialog,
+    window: &mut Window,
+    cx: &mut Context<CommonSettingsDialog>,
+) {
+    dialog.choose_folder(
+        "open_dialog_sel_dir",
+        "ファイルダイアログの指定フォルダーの選択",
+        window,
+        cx,
+    );
+}
+
+/// What OK does to the windows: the options of the commands. The start folder of the dialogs is
+/// read from the settings each time a dialog opens.
+pub(in crate::common_settings) fn apply(_env: &mut Env, after: &Values, _before: Option<&Values>) {
+    let mut options = edit_options::get();
+    options.enable_no_select_copy = after.bool("enable_no_select_copy");
+    options.enable_line_mode_paste = after.bool("enable_line_mode_paste");
+    options.convert_eol_paste = after.bool("convert_eol_paste");
+    edit_options::set(options);
+}

@@ -83,6 +83,7 @@ pub(crate) fn run(
         gpui_component::init(cx);
         crate::history::install(cx, &user);
         crate::tabs::settings::install(cx, &user);
+        crate::common_settings::install(cx, &user);
         // Every window that `open_editor_window` makes applies ume.ini (read once, above). Before the
         // menus: the row for the custom menus reads it.
         cx.set_global(user);
@@ -239,6 +240,8 @@ impl Workspace {
         .detach();
         // The tab bar is shown or hidden for every window at once.
         cx.observe_global::<crate::tabs::settings::TabSettings>(|_, cx| cx.notify())
+            .detach();
+        cx.observe_global::<crate::tabs::settings::TabOptions>(|_, cx| cx.notify())
             .detach();
         for (index, pane) in numbered {
             workspace.adopt_into_window(index, pane, window, cx);

@@ -136,6 +136,14 @@ pub(crate) fn options(cx: &App) -> HistoryOptions {
         .map_or_else(HistoryOptions::default, |s| s.options)
 }
 
+/// The settings file the history is kept in, if it is kept in a file.
+pub(crate) fn settings_path(cx: &App) -> Option<std::path::PathBuf> {
+    cx.try_global::<HistoryState>()?
+        .store
+        .as_ref()
+        .map(|store| store.path().to_owned())
+}
+
 /// Changes the history and brings the menus up to date. Without a history nothing happens.
 pub(crate) fn update(cx: &mut App, change: impl FnOnce(&mut History)) -> Option<History> {
     if !cx.has_global::<HistoryState>() {

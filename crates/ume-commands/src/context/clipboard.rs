@@ -5,9 +5,9 @@
 //! `CEditView::GetSelectedData` in `sakura_core/view/CEditView_Command.cpp` and `CEditView.cpp`,
 //! `CViewCommander::ConvertEol` in `sakura_core/cmd/CViewCommander.cpp`.
 //!
-//! The settings that these functions read in Sakura (`m_Common.m_sEdit`) are constants here,
-//! with Sakura's defaults (`sakura_core/env/CShareData.cpp`, `InitShareData`), until the settings
-//! exist.
+//! Three of the settings that these functions read in Sakura (`m_Common.m_sEdit`) come from
+//! [`crate::edit_options`] (Sakura's defaults, `sakura_core/env/CShareData.cpp`, `InitShareData`,
+//! until the application sets them); the others are constants.
 
 use ume_core::buffer::{Eol, Pos};
 use ume_core::model::eol_text;
@@ -17,11 +17,17 @@ use crate::clipboard::{ClipData, ClipKind};
 use crate::command::{CommandError, Result};
 
 /// `bEnableNoSelectCopy`: copy and cut without a selection take the row. Default on.
-const ENABLE_NO_SELECT_COPY: bool = true;
+fn enable_no_select_copy() -> bool {
+    crate::edit_options::get().enable_no_select_copy
+}
 /// `bEnableLineModePaste`: a copy of a row is pasted at the start of the row. Default on.
-const ENABLE_LINE_MODE_PASTE: bool = true;
+fn enable_line_mode_paste() -> bool {
+    crate::edit_options::get().enable_line_mode_paste
+}
 /// `bConvertEOLPaste`: paste converts the line endings to the document's. Default off.
-const CONVERT_EOL_PASTE: bool = false;
+fn convert_eol_paste() -> bool {
+    crate::edit_options::get().convert_eol_paste
+}
 /// `bAutoColumnPaste`: the text of a box copy is pasted as a box. Default on.
 const AUTO_COLUMN_PASTE: bool = true;
 /// `m_szInyouKigou`: the quote of `F_COPYLINESASPASSAGE` (`m_sFormat`). Default `"> "`.
@@ -186,7 +192,7 @@ impl CommandContext<'_> {
     /// a box.
     pub fn copy(&mut self, eol: Option<Eol>, add_eol: bool) -> Result<()> {
         if self.selection().is_none() {
-            if !ENABLE_NO_SELECT_COPY {
+            if !enable_no_select_copy() {
                 return Ok(()); // Sakura: nothing, not even a beep
             }
             // `CopyCurLine`: no row, no copy and no beep.
@@ -199,7 +205,7 @@ impl CommandContext<'_> {
                 if add_eol && !text.ends_with(is_eol_char) {
                     text.push_str(eol.map_or("\r\n", eol_text));
                 }
-                let kind = if ENABLE_LINE_MODE_PASTE {
+                let kind = if enable_line_mode_paste() {
                     ClipKind::Line
                 } else {
                     ClipKind::Normal
@@ -219,7 +225,7 @@ impl CommandContext<'_> {
     pub fn cut(&mut self) -> Result<()> {
         self.refuse_in_view_mode()?;
         if self.selection().is_none() {
-            if !ENABLE_NO_SELECT_COPY {
+            if !enable_no_select_copy() {
                 return Ok(());
             }
             return self.cut_row();
@@ -245,7 +251,7 @@ impl CommandContext<'_> {
             self.beep();
             return Ok(());
         }
-        let kind = if ENABLE_LINE_MODE_PASTE {
+        let kind = if enable_line_mode_paste() {
             ClipKind::Line
         } else {
             ClipKind::Normal
@@ -384,14 +390,14 @@ impl CommandContext<'_> {
         } else if option & NO_LINE_MODE != 0 {
             false
         } else {
-            ENABLE_LINE_MODE_PASTE
+            enable_line_mode_paste()
         };
         let convert = if option & CONVERT_EOL != 0 {
             true
         } else if option & KEEP_EOL != 0 {
             false
         } else {
-            CONVERT_EOL_PASTE
+            convert_eol_paste()
         };
         let as_box = if option & paste_option::BOX != 0 {
             true

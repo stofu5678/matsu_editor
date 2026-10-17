@@ -1,0 +1,229 @@
+//! 「ウィンドウ」: `IDD_PROP_WIN` (`sakura_core/sakura_rc.rc`), `CPropWin`
+//! (`sakura_core/prop/CPropComWin.cpp`).
+//!
+//! Live: the status bar (`bDispSTATUSBAR`) and the synchronized scrolling of the split panes
+//! (`bSplitterWndVScroll`, `bSplitterWndHScroll`). Not available yet: the tool bar, the function
+//! key bar, the horizontal scroll bar, the icons in menus, the dark mode, the size and position
+//! of the window, the ruler and the line number gaps, the function keys, the language, and the
+//! captions of the title bar (they need `CFormatManager::ExpandParameter`, which only the print
+//! headers have).
+
+use gpui::{App, Global};
+
+use super::super::Env;
+use super::super::model::{Control, Item, Values};
+
+/// `IDC_SPIN_nRulerHeight_MIN` and `_MAX` (`sakura_core/_main/global.h`).
+const RULER_HEIGHT: (i32, i32) = (2, 32);
+
+/// Sakura's default captions of the title bar (`CShareData::InitShareData`).
+const CAPTION_ACTIVE: &str = "${w?$h$:アウトプット$:${I?$f$n$:$N$n$}$}${U?(更新)$} - $A $V ${R?(ビューモード)$:(上書き禁止)$}${M?  【キーマクロの記録中】$} $<profile>";
+const CAPTION_INACTIVE: &str = "${w?$h$:アウトプット$:$f$n$}${U?(更新)$} - $A $V ${R?(ビューモード)$:(上書き禁止)$}${M?  【キーマクロの記録中】$} $<profile>";
+
+/// What the split panes keep in step (`m_bSplitterWndVScroll`, `m_bSplitterWndHScroll`; both on
+/// by default).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct SplitterSync {
+    pub vertical: bool,
+    pub horizontal: bool,
+}
+
+impl Default for SplitterSync {
+    fn default() -> Self {
+        Self {
+            vertical: true,
+            horizontal: true,
+        }
+    }
+}
+
+impl Global for SplitterSync {}
+
+/// The synchronized scrolling now.
+pub(crate) fn splitter_sync(cx: &App) -> SplitterSync {
+    cx.try_global::<SplitterSync>().copied().unwrap_or_default()
+}
+
+fn funckey_bar_is_shown(values: &Values) -> bool {
+    values.bool("disp_funckey_wnd")
+}
+
+pub(in crate::common_settings) fn items() -> Vec<Item> {
+    let (ruler_min, ruler_max) = RULER_HEIGHT;
+    vec![
+        Item::Group(
+            "基本設定",
+            vec![Item::Columns(vec![
+                vec![
+                    Control::check("disp_toolbar", "ツールバー表示(&T)", "bDispTOOLBAR", true)
+                        .unavailable()
+                        .into(),
+                    Control::check(
+                        "disp_funckey_wnd",
+                        "ファンクションキー表示(&K)",
+                        "bDispFUNCKEYWND",
+                        false,
+                    )
+                    .unavailable()
+                    .into(),
+                    Control::check(
+                        "disp_status_bar",
+                        "ステータスバー表示(&S)",
+                        "bDispSTATUSBAR",
+                        true,
+                    )
+                    .into(),
+                ],
+                vec![
+                    Control::check(
+                        "scroll_bar_horz",
+                        "水平スクロールバー(&R)",
+                        "bScrollBarHorz",
+                        true,
+                    )
+                    .unavailable()
+                    .into(),
+                    Control::check("dark_mode", "ダークモード(&D)", "bDarkMode", false)
+                        .unavailable()
+                        .into(),
+                    Item::Label("タブバー表示は\n[タブバー]タブにあります"),
+                ],
+                vec![
+                    Control::check("menu_icon", "アイコン付きメニュー(&I)", "bMenuIcon", true)
+                        .unavailable()
+                        .into(),
+                    Control::button("win_size", "位置と大きさの設定(&W)...", |_, _, _| {})
+                        .unavailable()
+                        .into(),
+                ],
+            ])],
+        ),
+        Item::Columns(vec![
+            vec![
+                Item::Group(
+                    "ルーラー / 行番号",
+                    vec![
+                        Control::number(
+                            "ruler_height",
+                            "ルーラーの高さ(&E)",
+                            "nRulerHeight",
+                            13,
+                            ruler_min,
+                            ruler_max,
+                        )
+                        .unavailable()
+                        .into(),
+                        Control::number(
+                            "ruler_bottom_space",
+                            "ルーラーとテキストの隙間(&P)",
+                            "nRulerBottomSpace",
+                            0,
+                            0,
+                            32,
+                        )
+                        .unavailable()
+                        .into(),
+                        Control::number(
+                            "line_number_right_space",
+                            "行番号とテキストの隙間(&L)",
+                            "nLineNumberRightSpace",
+                            0,
+                            0,
+                            32,
+                        )
+                        .unavailable()
+                        .into(),
+                    ],
+                ),
+                Item::Group(
+                    "分割ウィンドウ",
+                    vec![
+                        Control::check(
+                            "splitter_v_scroll",
+                            "垂直スクロールの同期をとる(&V)",
+                            "bSplitterWndVScroll",
+                            true,
+                        )
+                        .into(),
+                        Control::check(
+                            "splitter_h_scroll",
+                            "水平スクロールの同期をとる(&H)",
+                            "bSplitterWndHScroll",
+                            true,
+                        )
+                        .into(),
+                    ],
+                ),
+            ],
+            vec![
+                Item::Group(
+                    "ファンクションキー",
+                    vec![
+                        Item::Row(vec![
+                            Control::radio("funckey_place", "上(&O)", "nFUNCKEYWND_Place", 0, 1)
+                                .unavailable()
+                                .when(funckey_bar_is_shown)
+                                .into(),
+                            Control::radio("funckey_place", "下(&B)", "nFUNCKEYWND_Place", 1, 1)
+                                .unavailable()
+                                .when(funckey_bar_is_shown)
+                                .into(),
+                        ]),
+                        Control::number(
+                            "funckey_group_num",
+                            "グループボタン数(&G)",
+                            "nFUNCKEYWND_GroupNum",
+                            4,
+                            1,
+                            12,
+                        )
+                        .unavailable()
+                        .into(),
+                    ],
+                ),
+                Item::Group(
+                    "言語",
+                    vec![
+                        Control::choice("language", "", "", 0, &[("日本語", 0)])
+                            .unavailable()
+                            .into(),
+                    ],
+                ),
+            ],
+        ]),
+        Item::Group(
+            "タイトルバー",
+            vec![
+                Control::text(
+                    "win_caption_active",
+                    "アクティブ時(&1)",
+                    "szWinCaptionActive",
+                    CAPTION_ACTIVE,
+                )
+                .unavailable()
+                .into(),
+                Control::text(
+                    "win_caption_inactive",
+                    "非アクティブ時(&2)",
+                    "szWinCaptionInactive",
+                    CAPTION_INACTIVE,
+                )
+                .unavailable()
+                .into(),
+            ],
+        ),
+    ]
+}
+
+/// What OK does to the windows: every window takes the status bar of the check box
+/// (`CEditWnd::OnChangeSetting`), and the panes take the synchronized scrolling.
+pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: Option<&Values>) {
+    env.cx.set_global(SplitterSync {
+        vertical: after.bool("splitter_v_scroll"),
+        horizontal: after.bool("splitter_h_scroll"),
+    });
+    let shown = after.bool("disp_status_bar");
+    if before.is_some_and(|b| b.bool("disp_status_bar") != shown) {
+        super::super::windows::set_status_bar(env.cx, shown);
+    }
+}

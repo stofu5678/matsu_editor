@@ -137,6 +137,25 @@ fn install(window: &mut Window, cx: &mut App, workspace: &Entity<Workspace>) {
         let Some(workspace) = workspace.upgrade() else {
             return true;
         };
+        // `m_bTab_CloseOneWin`: in tab mode the close button of the window closes the file that is
+        // shown and nothing else (`CKeyBind::GetDefFuncCode`: `F_WINCLOSE` instead of
+        // `F_GROUPCLOSE`).
+        if crate::tabs::settings::current(cx).bound()
+            && crate::tabs::settings::options(cx).close_one_win
+            && workspace.read(cx).tab_count() > 1
+        {
+            if !asking.replace(true) {
+                let view = workspace.read(cx).editor().downgrade();
+                let asking = asking.clone();
+                window
+                    .spawn(cx, async move |cx| {
+                        close::confirm_and_close_window(&view, cx).await;
+                        asking.set(false);
+                    })
+                    .detach();
+            }
+            return false;
+        }
         // Every tab is asked about (`RequestCloseEditor` goes to each window of the group).
         let views = workspace.read(cx).tab_editors();
         // A Grep window cannot be closed while it searches (`CGrepAgent::OnBeforeClose`), and
