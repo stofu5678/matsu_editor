@@ -738,16 +738,10 @@ impl EditorView {
         default: &str,
         cx: &Context<Self>,
     ) -> (Option<PathBuf>, Option<String>) {
-        let given = Path::new(default);
-        let folder = given
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty() && p.is_dir())
-            .map(Path::to_path_buf)
-            .or_else(|| self.dialog_start(cx));
-        let name = given
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .filter(|n| !n.is_empty());
+        // a default that ends with a separator is a folder with no name
+        let (folder, name) =
+            ume_config::dialog_dir::split_default_name(default, &|dir| dir.is_dir());
+        let folder = folder.or_else(|| self.dialog_start(cx));
         (folder, name)
     }
 }
