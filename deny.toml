@@ -21,6 +21,9 @@ ignore = [
 
 [licenses]
 version = 2
+# One exception that this check does not see: wayland-protocols-plasma is MIT, but its code is
+# generated from KDE's protocol definitions (LGPL-2.1-or-later). CLAUDE.md ("ライセンスのルール")
+# records the decision; THIRD_PARTY_NOTICES.txt carries the LGPL text (about.toml).
 allow = [
     "MIT",
     "Apache-2.0",
@@ -30,6 +33,8 @@ allow = [
     "ISC",
     "Zlib",
     "Unicode-3.0",
+    # The older version of Unicode-3.0 (regex-syntax's Unicode tables; the user allowed it on 2026-10-17).
+    "Unicode-DFS-2016",
     "CC0-1.0",
     "0BSD",
     "bzip2-1.0.6",

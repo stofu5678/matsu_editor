@@ -1,0 +1,582 @@
+# cargo-about: generates THIRD_PARTY_NOTICES.txt (template: about.hbs). See the section
+# "Third-party notices" in README.md.
+#
+# `accepted` is deny.toml's [licenses] allow list, in the same order. It is the policy: add nothing
+# here that deny.toml does not allow. cargo-about uses the first license of a crate's "A OR B"
+# expression that is in this list.
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "0BSD",
+    "bzip2-1.0.6",
+    "MPL-2.0",
+]
+
+# Every target that CI builds (.github/workflows/ci.yml). Crates that only a target we do not
+# build uses (Android, wasm, ...) are left out.
+targets = [
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+    "aarch64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+]
+
+# Dev-dependencies (test helpers) never reach the programs, so they are left out. Build-dependencies
+# are kept on purpose: most are tools that run on the build machine (cc, bindgen, pkg-config), but
+# some carry code that is compiled into the programs (lua-src is the C source of Lua, a
+# build-dependency of mlua-sys), and cargo-about cannot tell the two apart. The cost is a few extra
+# notices. Proc-macro crates are build-time only too and stay for the same reason.
+ignore-dev-dependencies = true
+ignore-build-dependencies = false
+
+# Clarifications. Each one names the license files by checksum, so a crate update that changes a
+# file makes cargo-about fall back to its own search (and the CI job shows the difference).
+# Crate-specific tables must stay below the global options.
+
+# The Rust crates of this repository: our own license (LICENSE-MIT, next to LICENSE-APACHE).
+[ume.clarify]
+license = "MIT"
+[[ume.clarify.files]]
+path = "../../LICENSE-MIT"
+checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
+
+[ume-commands.clarify]
+license = "MIT"
+[[ume-commands.clarify.files]]
+path = "../../LICENSE-MIT"
+checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
+
+[ume-config.clarify]
+license = "MIT"
+[[ume-config.clarify.files]]
+path = "../../LICENSE-MIT"
+checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
+
+[ume-core.clarify]
+license = "MIT"
+[[ume-core.clarify.files]]
+path = "../../LICENSE-MIT"
+checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
+
+[ume-layout.clarify]
+license = "MIT"
+[[ume-layout.clarify.files]]
+path = "../../LICENSE-MIT"
+checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
+
+[ume-platform.clarify]
+license = "MIT"
+[[ume-platform.clarify.files]]
+path = "../../LICENSE-MIT"
+checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
+
+[ume-plugin.clarify]
+license = "MIT"
+[[ume-plugin.clarify.files]]
+path = "../../LICENSE-MIT"
+checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
+
+[ume-print.clarify]
+license = "MIT"
+[[ume-print.clarify.files]]
+path = "../../LICENSE-MIT"
+checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
+
+[ume-script.clarify]
+license = "MIT"
+[[ume-script.clarify.files]]
+path = "../../LICENSE-MIT"
+checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
+
+[ume-ui.clarify]
+license = "MIT"
+[[ume-ui.clarify.files]]
+path = "../../LICENSE-MIT"
+checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
+
+# The crates that vendor C sources: our license plus the license files of the vendored code.
+# Onigmo (2-clause BSD, "Onigmo (Oniguruma-mod) LICENSE").
+[ume-regex.clarify]
+license = "MIT AND BSD-2-Clause"
+[[ume-regex.clarify.files]]
+path = "../../LICENSE-MIT"
+license = "MIT"
+checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
+[[ume-regex.clarify.files]]
+path = "onigmo/COPYING"
+license = "BSD-2-Clause"
+checksum = "3d157c160af394dab4a2b117f09bece2644f9d13965dfafdfba77f7423a9aec7"
+
+# MicroPython (MIT). Its files carry their own copyright lines next to the MIT text (Damien P.
+# George in LICENSE; Paul Sokolovsky, Alessandro Gatti and others in the headers of single files),
+# and the license says the notice must stay with all copies. LICENSE is used up to the end of the
+# MIT text (the list below it names the third-party parts of other MicroPython ports, none of
+# which was taken, see vendor/micropython/README.md). After it comes one header for each other
+# copyright holder, from the file where that holder's line has the widest years. When MicroPython
+# is updated: list the holders with
+# `grep -rhoE "Copyright \(c\).*" crates/ume-micropython-sys/vendor` and fix the checksums
+# (cargo-about says which clarification no longer matches).
+[ume-micropython-sys.clarify]
+license = "MIT"
+[[ume-micropython-sys.clarify.files]]
+path = "../../LICENSE-MIT"
+checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
+[[ume-micropython-sys.clarify.files]]
+path = "vendor/micropython/LICENSE"
+checksum = "cadd76d6b495a34c353543ecdf53465b1d375fa30996c577f827425bf035a3aa"
+end = "THE SOFTWARE."
+[[ume-micropython-sys.clarify.files]]
+# Alessandro Gatti
+path = "vendor/micropython/py/nlrloong64.c"
+checksum = "33e1a42a3b44d729ee9e5c01c91d8e3f74c0817f940b5baab0afb588a4123a40"
+start = "Copyright (c) 2026 Alessandro Gatti"
+end = "THE SOFTWARE."
+[[ume-micropython-sys.clarify.files]]
+# Andrew Leech
+path = "vendor/micropython/py/objringio.c"
+checksum = "c8c1db6e7606e9dae4a4e8622ff9cb6f9c8b275fc74417a79aa02a11693eddb4"
+start = "Copyright (c) 2024 Andrew Leech"
+end = "THE SOFTWARE."
+[[ume-micropython-sys.clarify.files]]
+# Angus Gratton
+path = "vendor/micropython/py/objint_impl.h"
+checksum = "ce038ba161eba07894ef8c77fe60eee4792dd8145d96863da9e628b96022bd28"
+start = "Copyright (c) 2026 Angus Gratton"
+end = "THE SOFTWARE."
+[[ume-micropython-sys.clarify.files]]
+# Damien P. George on behalf of Pycom Ltd
+path = "vendor/micropython/py/modthread.c"
+checksum = "bf665998b4c49de7f67f6fee57e5f9a769c8c75e26930c22585ffda5ece45434"
+start = "Copyright (c) 2016 Damien P. George on behalf of Pycom Ltd"
+end = "THE SOFTWARE."
+[[ume-micropython-sys.clarify.files]]
+# Fabian Vogt
+path = "vendor/micropython/py/asmarm.c"
+checksum = "c0d5485107e081ee702b1c4dd5ad475be9e43aa40c9586b500d9843a296e9ec6"
+start = "Copyright (c) 2014 Fabian Vogt"
+end = "THE SOFTWARE."
+[[ume-micropython-sys.clarify.files]]
+# Ibrahim Abdelkader <iabdalkader@openmv.io>
+path = "vendor/micropython/extmod/modplatform.h"
+checksum = "ad34c6edeea41ed5ba2f93a76d47aec28ad8abd3558ee098de98d1e99ac04a6e"
+start = "Copyright (c) 2013-2021 Ibrahim Abdelkader <iabdalkader@openmv.io>"
+end = "THE SOFTWARE."
+[[ume-micropython-sys.clarify.files]]
+# Jim Mussared
+path = "vendor/micropython/py/builtinimport.c"
+checksum = "1496db08ad19c11f3d70f62b87b1c6439fe28abf7e407f4492a0652d17ed2a84"
+start = "Copyright (c) 2021 Jim Mussared"
+end = "THE SOFTWARE."
+[[ume-micropython-sys.clarify.files]]
+# Josef Gajdusek
+path = "vendor/micropython/py/runtime_utils.c"
+checksum = "2f8bda01a3ec845bf2ad66cf186bb3495d1b26e674f0386cfe4c6ea1a91f1ee9"
+start = "Copyright (c) 2015 Josef Gajdusek"
+end = "THE SOFTWARE."
+[[ume-micropython-sys.clarify.files]]
+# Koudai Aono
+path = "vendor/micropython/py/objtemplate.c"
+checksum = "20a391c6f939832339962dfb17b4d5c386346839e1d5f774a526770bb6183f26"
+start = "Copyright (c) 2025 Koudai Aono"
+end = "THE SOFTWARE."
+[[ume-micropython-sys.clarify.files]]
+# Michael Neuling, IBM Corporation.
+path = "vendor/micropython/py/nlrpowerpc.c"
+checksum = "c25f7e976e8b8eb9618016060f806079dd10869261ce025e1cbe712afe52df1a"
+start = "Copyright (c) 2019, Michael Neuling, IBM Corporation."
+end = "THE SOFTWARE."
+[[ume-micropython-sys.clarify.files]]
+# Paul Sokolovsky
+path = "vendor/micropython/py/objstr.c"
+checksum = "7a5f954cb31a98345531cd41fc87e6e0a35041acf75cbf3652738689f4342cd9"
+start = "Copyright (c) 2014-2018 Paul Sokolovsky"
+end = "THE SOFTWARE."
+[[ume-micropython-sys.clarify.files]]
+# SatoshiLabs
+path = "vendor/micropython/py/profile.c"
+checksum = "c652679cdfeee9cbf1c6762de4068afe099530ddf342513899f7711ca74bd507"
+start = "Copyright (c) SatoshiLabs"
+end = "THE SOFTWARE."
+[[ume-micropython-sys.clarify.files]]
+# Yonatan Goldschmidt
+path = "vendor/micropython/py/nlraarch64.c"
+checksum = "b0b3169874340ebac853115013cde6674f126331a76d2ba712a80ee2ead517a0"
+start = "Copyright (c) 2021 Yonatan Goldschmidt"
+end = "THE SOFTWARE."
+
+# mruby (MIT), the mruby-set gem (MIT), and the part of src/string.c that is 2-clause BSD (LEGAL).
+# LEGAL also names src/fmt_fp.c (public domain, no notice needed) and the Windows-only dirent.c
+# (not vendored).
+[ume-mruby-sys.clarify]
+license = "MIT AND BSD-2-Clause"
+[[ume-mruby-sys.clarify.files]]
+path = "../../LICENSE-MIT"
+license = "MIT"
+checksum = "adb1881c5badcc6790500ddc778f5ae7a2da0cbaeeeee35b851fb80b5b32c18d"
+[[ume-mruby-sys.clarify.files]]
+path = "vendor/mruby/LICENSE"
+license = "MIT"
+checksum = "07dc3c033f3f0ee600f76ac52211a04cbb67e722f8da44767687e86151586170"
+[[ume-mruby-sys.clarify.files]]
+path = "vendor/mruby/gems/mruby-set/LICENSE"
+license = "MIT"
+checksum = "2c78d80cafa36acdd728d6a5ddd68aef42e603ae246b3d0c9ac85f09d87d7e17"
+[[ume-mruby-sys.clarify.files]]
+path = "vendor/mruby/LEGAL"
+license = "BSD-2-Clause"
+checksum = "7bb0747d2cf28d59b244f14f96a0ac90840a6966479f5a0c3ccfaa6685484178"
+start = "Copyright (c) 2008-2016, Wojciech"
+end = "SUCH DAMAGE."
+
+# subsetter adapted code from ttf-parser and fonttools; its NOTICE file holds their MIT notices
+# (the rest of NOTICE is about test fonts that are not part of the crate's code).
+[subsetter.clarify]
+license = "MIT"
+[[subsetter.clarify.files]]
+path = "LICENSE-MIT"
+checksum = "508a77d2e7b51d98adeed32648ad124b7b30241a8e70b2e72c99f92d8e5874d1"
+[[subsetter.clarify.files]]
+path = "NOTICE"
+checksum = "0b3a181cccee1c281218857e56a4bbb3709f795f1353150002db51a8704bc1c5"
+start = "Copyright (c) 2018 Yevhenii Reizner"
+end = "THE SOFTWARE."
+[[subsetter.clarify.files]]
+path = "NOTICE"
+checksum = "bcf9c4f3815a8ef8945325d6900169c034994e6f4a3c4ff11455cbcee43ff23f"
+start = "MIT License\n\nCopyright (c) 2017 Just van Rossum"
+end = "IN THE\nSOFTWARE."
+
+# gpui-kit-assets (Apache-2.0, no license file in the package) embeds the Lucide icons (ISC) and,
+# among them, the icons derived from Feather (MIT); LICENSE-LUCIDE holds both notices. The crate's
+# own Apache-2.0 text is the same standard text that the other Apache-2.0 crates carry below.
+[gpui-kit-assets.clarify]
+license = "ISC AND MIT"
+[[gpui-kit-assets.clarify.files]]
+path = "LICENSE-LUCIDE"
+license = "ISC"
+checksum = "542631f43ab6291ff527c45c3642a29a8569b49b4d32e790c169eb7ebe34bb49"
+start = "Copyright (c) 2026 Lucide Icons"
+end = "PERFORMANCE OF THIS SOFTWARE."
+[[gpui-kit-assets.clarify.files]]
+path = "LICENSE-LUCIDE"
+license = "MIT"
+checksum = "22b5efa1033c6d9dbf511ab9b7c4a53e8a7c3ee97d56369e06cae4d57ae9c879"
+start = "Copyright (c) 2013-present Cole Bemis"
+end = "SOFTWARE."
+
+# lua-src is the C source of Lua (MIT), which mlua-sys compiles for ume-script. Its LICENSE holds
+# the crate's own notice and Lua's, one after the other.
+[lua-src.clarify]
+license = "MIT"
+[[lua-src.clarify.files]]
+path = "LICENSE"
+checksum = "0bf6b79c0bd9dd384cc9b92057646c972c352b0d6a84590fb9c4b3097aa8c553"
+end = "SOFTWARE."
+[[lua-src.clarify.files]]
+path = "LICENSE"
+checksum = "20dcecd5d19f2cd0216b139b5b3b8be8e4294e97ca0dbf92ab1c4c836de65a4c"
+start = "Copyright © 1994–2017 Lua.org, PUC-Rio."
+# The windows-rs crates (Microsoft, MIT OR Apache-2.0) carry their MIT text as `license-mit`,
+# which cargo-about does not find by itself, so it fell back to the text without the copyright
+# line. The same file is in every one of these crates.
+[windows-collections.clarify]
+license = "MIT"
+[[windows-collections.clarify.files]]
+path = "license-mit"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows-core.clarify]
+license = "MIT"
+[[windows-core.clarify.files]]
+path = "license-mit"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows-future.clarify]
+license = "MIT"
+[[windows-future.clarify.files]]
+path = "license-mit"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows-implement.clarify]
+license = "MIT"
+[[windows-implement.clarify.files]]
+path = "license-mit"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows-interface.clarify]
+license = "MIT"
+[[windows-interface.clarify.files]]
+path = "license-mit"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows-link.clarify]
+license = "MIT"
+[[windows-link.clarify.files]]
+path = "license-mit"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows-numerics.clarify]
+license = "MIT"
+[[windows-numerics.clarify.files]]
+path = "license-mit"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows-registry.clarify]
+license = "MIT"
+[[windows-registry.clarify.files]]
+path = "license-mit"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows-result.clarify]
+license = "MIT"
+[[windows-result.clarify.files]]
+path = "license-mit"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows-strings.clarify]
+license = "MIT"
+[[windows-strings.clarify.files]]
+path = "license-mit"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows-sys.clarify]
+license = "MIT"
+[[windows-sys.clarify.files]]
+path = "license-mit"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows-targets.clarify]
+license = "MIT"
+[[windows-targets.clarify.files]]
+path = "license-mit"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows-threading.clarify]
+license = "MIT"
+[[windows-threading.clarify.files]]
+path = "license-mit"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows-version.clarify]
+license = "MIT"
+[[windows-version.clarify.files]]
+path = "license-mit"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows.clarify]
+license = "MIT"
+[[windows.clarify.files]]
+path = "license-mit"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows_aarch64_msvc.clarify]
+license = "MIT"
+[[windows_aarch64_msvc.clarify.files]]
+path = "license-mit"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows_x86_64_gnu.clarify]
+license = "MIT"
+[[windows_x86_64_gnu.clarify.files]]
+path = "license-mit"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+[windows_x86_64_msvc.clarify]
+license = "MIT"
+[[windows_x86_64_msvc.clarify.files]]
+path = "license-mit"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+
+# chrono: LICENSE.txt holds the MIT text and the Apache-2.0 text one after the other, with the
+# copyright lines above the MIT text.
+[chrono.clarify]
+license = "MIT"
+[[chrono.clarify.files]]
+path = "LICENSE.txt"
+checksum = "8f62e89f5d579c48175357a870e1e8096ad2c3ef95b0655d9344d1e112a4d207"
+start = "Rust-chrono is dual-licensed"
+end = "THE SOFTWARE."
+
+# These crates have no license file in the package; the license file of their repository, at the
+# commit they were published from (.cargo_vcs_info.json), is used. cargo-about downloads it, so
+# generating the notices needs network access.
+[harfrust.clarify]
+license = "MIT"
+[[harfrust.clarify.git]]
+path = "LICENSE"
+checksum = "3a7c3f0b887abb7c638faf022d29257418458614c6724b120ceeffb279f9c7d2"
+
+[rust-i18n-macro.clarify]
+license = "MIT"
+[[rust-i18n-macro.clarify.git]]
+path = "LICENSE"
+checksum = "d6fde6c28ecbccfc7f6d97c0badbb14bbea2cc8f5e81a8c1537204bdfed9a6d5"
+
+[rust-i18n-support.clarify]
+license = "MIT"
+[[rust-i18n-support.clarify.git]]
+path = "LICENSE"
+checksum = "d6fde6c28ecbccfc7f6d97c0badbb14bbea2cc8f5e81a8c1537204bdfed9a6d5"
+
+# regex-syntax: the Unicode tables carry the Unicode license (the older version of Unicode-3.0,
+# Unicode-DFS-2016) in src/unicode_tables/LICENSE-UNICODE, which cargo-about does not pick up by
+# itself.
+[regex-syntax.clarify]
+license = "MIT AND Unicode-DFS-2016"
+[[regex-syntax.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb"
+[[regex-syntax.clarify.files]]
+path = "src/unicode_tables/LICENSE-UNICODE"
+license = "Unicode-DFS-2016"
+checksum = "74db5baf44a41b1000312c673544b3374e4198af5605c7f9080a402cec42cfa3"
+
+# wayland-protocols-plasma is MIT, but its code is generated from KDE's protocol definitions, 17 of
+# which are LGPL-2.1-or-later. GPUI's Linux backend uses the one in blur.xml. The user decided to
+# use it as it is (CLAUDE.md, "ライセンスのルール"). LGPL-2.1-or-later is accepted for this crate
+# only, so that its text and the copyright lines of blur.xml reach THIRD_PARTY_NOTICES.txt.
+[wayland-protocols-plasma]
+accepted = ["LGPL-2.1-or-later"]
+[wayland-protocols-plasma.clarify]
+license = "MIT AND LGPL-2.1-or-later"
+[[wayland-protocols-plasma.clarify.files]]
+path = "LICENSE.txt"
+license = "MIT"
+checksum = "1cb6f4dee8c649f175736380495f0af0c753c87f22d50931692968bb24bf2161"
+[[wayland-protocols-plasma.clarify.files]]
+path = "plasma-wayland-protocols/LICENSES/MIT.txt"
+license = "MIT"
+checksum = "8f25018489d6fe0dec34a352314c38dc146247b7de65735790f4398a92afa84b"
+[[wayland-protocols-plasma.clarify.files]]
+path = "plasma-wayland-protocols/LICENSES/LGPL-2.1-or-later.txt"
+license = "LGPL-2.1-or-later"
+checksum = "1ccf09bf2f598308df4bed9cd8e9657dc5cd0973d2800318f2e241486e2edf3f"
+[[wayland-protocols-plasma.clarify.files]]
+path = "plasma-wayland-protocols/src/protocols/blur.xml"
+license = "LGPL-2.1-or-later"
+checksum = "b0889adc71f7bc2164ecb54c1762f97bbed08dcff0d5ec105612f7001ec4ec9a"
+start = "SPDX-FileCopyrightText: 2015 Martin"
+end = "SPDX-License-Identifier: LGPL-2.1-or-later"
+
+# objc2 (https://github.com/madsmtm/objc2): the frameworks crates have no license file in the
+# package. Their repository has the MIT text with the copyright line (LICENSE-MIT.txt) only from a
+# later commit than the one these versions were published from (there, LICENSE.md only describes
+# the licenses), so that file is taken at a pinned later commit of the main branch: its year is
+# newer than the versions'. objc2-app-kit and objc2-foundation also have a 0.2.2 in the tree
+# (MIT, Steven Sheldon, LICENSE.txt at its commit); one clarification serves every version of a
+# crate name, so that line is not in this file for those two.
+[objc2-app-kit.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-app-kit.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-cloud-kit.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-cloud-kit.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-core-data.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-core-data.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-core-foundation.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-core-foundation.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-core-graphics.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-core-graphics.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-core-image.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-core-image.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-core-location.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-core-location.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-core-media.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-core-media.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-core-text.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-core-text.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-core-video.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-core-video.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-foundation.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-foundation.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-metal.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-metal.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-quartz-core.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-quartz-core.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-screen-capture-kit.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-screen-capture-kit.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"
+
+[objc2-user-notifications.clarify]
+license = "MIT"
+override-git-commit = "601634ec9fe7ba9f95e10167945e56f355310478"
+[[objc2-user-notifications.clarify.git]]
+path = "LICENSE-MIT.txt"
+checksum = "f6a2e783669a0dd7a2c3b8a4f76db40ae49033e66e1bdc30f3aa25fe5577b070"

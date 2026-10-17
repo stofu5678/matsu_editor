@@ -1,0 +1,128 @@
+UME Editor: third-party notices
+===============================
+
+UME Editor is licensed under either the MIT License or the Apache License 2.0, at your option
+(LICENSE-MIT and LICENSE-APACHE in the source repository, https://github.com/stofu5678/ume_editor).
+
+The programs of UME Editor (`ume` and `ume-script`) contain software of other authors. Their
+licenses ask that a copy of their copyright notices and license texts goes with the programs.
+This file is that copy. It has these parts:
+
+  1. Sakura Editor, whose behavior UME Editor reproduces and from whose source some files are ported.
+  2. Code that is not Rust code of a crate: C sources compiled into the programs, and icons.
+  3. Rust crates: one entry for each license text, with the packages that use it.
+
+This file is generated. Do not edit it by hand: edit about.toml or about.hbs and run
+`cargo about generate` (README.md, "Third-party notices").
+
+
+1. Sakura Editor
+================
+
+Some files of UME Editor are ported from Sakura Editor (https://github.com/sakura-editor/sakura)
+and say so in their first lines, with the file they come from and the copyright lines of that
+file. Each of them was modified (rewritten in Rust). Sakura Editor is licensed under the zlib
+License:
+
+    zlib License
+
+    Copyright (C) 2018-2022, Sakura Editor Organization
+
+    This software is provided 'as-is', without any express or implied
+    warranty.  In no event will the authors be held liable for any damages
+    arising from the use of this software.
+
+    Permission is granted to anyone to use this software for any purpose,
+    including commercial applications, and to alter it and redistribute it
+    freely, subject to the following restrictions:
+
+    1. The origin of this software must not be misrepresented; you must not
+       claim that you wrote the original software. If you use this software
+       in a product, an acknowledgment in the product documentation would be
+       appreciated but is not required.
+    2. Altered source versions must be plainly marked as such, and must not be
+       misrepresented as being the original software.
+    3. This notice may not be removed or altered from any source distribution.
+
+The files of Sakura Editor carry the copyright lines of its contributors (for example
+"Copyright (C) 2008, kobake", "Copyright (C) 1998-2001, Norio Nakatani", "Copyright (C) 2009,
+ryoji"). The ported files of UME Editor keep those lines.
+
+
+2. C sources and assets that are compiled into the programs
+===========================================================
+
+The license texts of these are in the list of part 3, under the packages named here.
+
+  Component         Where it comes from              License
+  ----------------  -------------------------------  ------------------------------------------
+  MicroPython       crate ume-micropython-sys        MIT
+  mruby             crate ume-mruby-sys              MIT; src/string.c in part 2-clause BSD
+  Onigmo            crate ume-regex                  2-clause BSD
+  Lua 5.4           crates lua-src and mlua-sys      MIT
+  QuickJS           crate rquickjs-sys               MIT
+  Lucide icons      crate gpui-kit-assets            ISC; the icons derived from Feather: MIT
+
+
+3. Rust crates
+==============
+
+For each license text: the packages that use it. Where a package has no license file of its own,
+the standard text of its license is given and its copyright holders are the authors named here.
+The source of the packages is on https://crates.io/crates/NAME/VERSION and in the repository
+named for each. For the packages under the Mozilla Public License 2.0 the source code is
+there, too; UME Editor does not modify them.
+
+Licenses in this list:
+{{#each overview}}
+  {{{name}}} ({{id}}): {{count}} license texts
+{{/each}}
+
+{{#each licenses}}
+
+--------------------------------------------------------------------------------
+{{{name}}} ({{id}})
+--------------------------------------------------------------------------------
+
+Used by:
+{{#each used_by}}
+{{#if (ne crate.name "xtask")}}
+  * {{crate.name}} {{crate.version}}{{#if crate.repository}} - {{crate.repository}}{{else}} - https://crates.io/crates/{{crate.name}}/{{crate.version}}{{/if}}
+{{#unless ../source_path}}
+{{#if crate.authors}}
+    Authors: {{#each crate.authors}}{{#if @index}}, {{/if}}{{{this}}}{{/each}}
+{{else}}
+    {{#if (eq crate.name "zune-core")}}
+    Authors: not named in the package. Copyright (c) zune-image developers (LICENSE.md of https://github.com/etemesi254/zune-image at the commit the package was published from; MIT OR Apache-2.0 OR Zlib).
+    {{else if (eq crate.name "zune-inflate")}}
+    Authors: not named in the package. Copyright (c) zune-image developers (LICENSE.md of https://github.com/etemesi254/zune-image at the commit the package was published from; MIT OR Apache-2.0 OR Zlib).
+    {{else}}
+    Authors: not named in the package (see the link above for its copyright holders).
+    {{/if}}
+{{/if}}
+{{/unless}}
+{{/if}}
+{{/each}}
+{{#if (eq id "LGPL-2.1-or-later")}}
+Notice about the Wayland protocol definitions of KDE (Linux builds only): the crate
+wayland-protocols-plasma is MIT, but the Rust code it provides is generated from the protocol
+definitions of KDE's plasma-wayland-protocols, 17 of whose 29 XML files are LGPL-2.1-or-later. The
+Linux backend of GPUI uses `wayland_protocols_plasma::blur::client::org_kde_kwin_blur`, generated
+from blur.xml, so the Linux program contains client code generated from that definition. The
+definitions state the protocol (names and argument types) and are used as they are. This entry
+holds the copyright lines of blur.xml (the entry with the lines "SPDX-FileCopyrightText") and the
+text of the GNU Lesser General Public License 2.1 (the other entry). The source is the crate
+(https://crates.io/crates/wayland-protocols-plasma/0.3.12, directory plasma-wayland-protocols) and
+KDE's repository https://invent.kde.org/libraries/plasma-wayland-protocols. The source code of UME
+Editor is public (https://github.com/stofu5678/ume_editor), so the program can be rebuilt with a
+changed copy of the crate.
+{{/if}}
+{{#if (eq id "MPL-2.0")}}
+The source code of these packages (unmodified) is available from:
+{{#each used_by}}
+  * https://crates.io/crates/{{crate.name}}/{{crate.version}} (download: https://crates.io/api/v1/crates/{{crate.name}}/{{crate.version}}/download)
+{{/each}}
+{{/if}}
+
+{{{text}}}
+{{/each}}
