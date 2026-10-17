@@ -177,7 +177,8 @@ fn the_base_folder_of_a_tags_file_is_where_its_names_start() {
     let page = find_tags(&doc, &TagQuery::direct("f", 3));
     assert_eq!(page.items[0].path, base.join("sub/a.c"));
     let page = find_tags(&doc, &TagQuery::direct("g", 3));
-    assert_eq!(page.items[0].path, PathBuf::from("/abs/b.c"));
+    // a name that starts at the root is not put under the base folder (on Windows it gets the drive)
+    assert!(page.items[0].path.ends_with("abs/b.c") && !page.items[0].path.starts_with(&base));
 }
 
 #[test]
