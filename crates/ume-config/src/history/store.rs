@@ -44,12 +44,12 @@ fn is_busy(e: &io::Error) -> bool {
             || matches!(e.raw_os_error(), Some(5 | 32 | 33)))
 }
 
-/// Runs `op` again while it fails with a busy error, until [`LOCK_TIMEOUT`] has passed.
-fn retry<T>(mut op: impl FnMut() -> io::Result<T>) -> io::Result<T> {
+/// Runs `op` again while it fails with a busy error, until `timeout` has passed.
+fn retry<T>(timeout: Duration, mut op: impl FnMut() -> io::Result<T>) -> io::Result<T> {
     let start = std::time::Instant::now();
     loop {
         match op() {
-            Err(e) if is_busy(&e) && start.elapsed() < LOCK_TIMEOUT => std::thread::sleep(POLL),
+            Err(e) if is_busy(&e) && start.elapsed() < timeout => std::thread::sleep(POLL),
             other => return other,
         }
     }
@@ -92,15 +92,25 @@ impl HistoryStore {
     /// The history as the file has it now. A file that is missing or cannot be read is an empty
     /// history.
     pub fn load(&self) -> History {
-        let profile = read_profile(&self.path).unwrap_or_default();
+        let profile = read_profile(&self.path, LOCK_TIMEOUT).unwrap_or_default();
         History::from_profile(&profile, self.case_insensitive)
     }
 
     /// Applies `change` to the history in the file and writes it back. Nothing is written when the
     /// history does not change. Returns the history as it is after the change.
     pub fn update(&self, change: impl FnOnce(&mut History)) -> io::Result<History> {
+        self.update_within(LOCK_TIMEOUT, change)
+    }
+
+    /// [`update`](Self::update) with its own time to wait for the lock. The tests that make many
+    /// writers fight for the lock give a long one, so that a slow machine cannot fail them.
+    pub(crate) fn update_within(
+        &self,
+        timeout: Duration,
+        change: impl FnOnce(&mut History),
+    ) -> io::Result<History> {
         let mut result = None;
-        update_profile(&self.path, |profile| {
+        update_profile_within(&self.path, timeout, |profile| {
             let before = History::from_profile(profile, self.case_insensitive);
             let mut history = before.clone();
             change(&mut history);
@@ -124,15 +134,15 @@ fn lock_path(settings: &Path) -> PathBuf {
     PathBuf::from(name)
 }
 
-fn read_profile(path: &Path) -> io::Result<Profile> {
-    match retry(|| Profile::load(path)) {
+fn read_profile(path: &Path, timeout: Duration) -> io::Result<Profile> {
+    match retry(timeout, || Profile::load(path)) {
         Ok(profile) => Ok(profile),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Profile::new()),
         Err(e) => Err(e),
     }
 }
 
-fn lock(settings: &Path) -> io::Result<Lock> {
+fn lock(settings: &Path, timeout: Duration) -> io::Result<Lock> {
     let path = lock_path(settings);
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)?;
@@ -157,7 +167,7 @@ fn lock(settings: &Path) -> io::Result<Lock> {
                         Err(e) => return Err(e),
                     }
                 }
-                if start.elapsed() > LOCK_TIMEOUT {
+                if start.elapsed() > timeout {
                     return Err(io::Error::new(
                         io::ErrorKind::TimedOut,
                         "the history is locked by another window",
@@ -180,10 +190,20 @@ pub fn update_profile(
     path: &Path,
     change: impl FnOnce(&mut Profile) -> io::Result<bool>,
 ) -> io::Result<()> {
-    let _lock = lock(path)?;
-    let mut profile = read_profile(path)?;
+    update_profile_within(path, LOCK_TIMEOUT, change)
+}
+
+/// [`update_profile`] with its own time to wait (for the lock, and for a file that Windows says is
+/// busy).
+pub(crate) fn update_profile_within(
+    path: &Path,
+    timeout: Duration,
+    change: impl FnOnce(&mut Profile) -> io::Result<bool>,
+) -> io::Result<()> {
+    let _lock = lock(path, timeout)?;
+    let mut profile = read_profile(path, timeout)?;
     if change(&mut profile)? {
-        retry(|| profile.save(path))?;
+        retry(timeout, || profile.save(path))?;
     }
     Ok(())
 }
@@ -195,7 +215,7 @@ mod tests {
     #[test]
     fn a_busy_error_is_tried_again_only_where_windows_makes_it() {
         let mut calls = 0;
-        let result = retry(|| {
+        let result = retry(LOCK_TIMEOUT, || {
             calls += 1;
             if calls < 3 {
                 Err(io::Error::from(io::ErrorKind::PermissionDenied))
@@ -217,7 +237,7 @@ mod tests {
     #[test]
     fn other_errors_are_not_retried() {
         let mut calls = 0;
-        let result: io::Result<()> = retry(|| {
+        let result: io::Result<()> = retry(LOCK_TIMEOUT, || {
             calls += 1;
             Err(io::Error::from(io::ErrorKind::InvalidData))
         });
