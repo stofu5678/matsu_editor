@@ -632,6 +632,13 @@ impl Render for FavoriteDialog {
     }
 }
 
+/// Whether the dialog is open.
+pub(crate) fn is_open(cx: &App) -> bool {
+    cx.try_global::<OpenDialog>()
+        .and_then(|d| d.0)
+        .is_some_and(|handle| cx.windows().contains(&handle))
+}
+
 /// Shows the dialog; one that is open comes to the front instead of a second one.
 pub(crate) fn open(cx: &mut App) {
     if let Some(handle) = cx.try_global::<OpenDialog>().and_then(|d| d.0)

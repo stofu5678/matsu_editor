@@ -239,7 +239,10 @@ impl EditorView {
         // is made after the command ends.
         let from = window.window_handle();
         if crate::tabs::settings::current(cx).bound() && !new_window {
+            // A macro that called this waits for the tab to be made and the search to begin.
+            let tracked = crate::macros::track(cx);
             window.defer(cx, move |window, app| {
+                let _tracked = tracked;
                 let opened = crate::tabs::flows::open_document(
                     app,
                     Some(window),
@@ -294,7 +297,7 @@ impl EditorView {
             &["OK"],
             cx,
         );
-        drop(answer);
+        crate::macros::keep_box(answer, window, cx);
     }
 
     /// The settings of a Grep 置換 as the `GrepInfo` of one. With `check` they are checked as the
@@ -313,7 +316,7 @@ impl EditorView {
                 let message = super::panel::NO_CLIPBOARD;
                 let answer =
                     window.prompt(PromptLevel::Critical, BOX_TITLE, Some(message), &["OK"], cx);
-                drop(answer);
+                crate::macros::keep_box(answer, window, cx);
                 return Err(CommandError::BadArgs(message.to_owned()));
             };
             Some(text)
@@ -347,7 +350,7 @@ impl EditorView {
             &["OK"],
             cx,
         );
-        drop(answer);
+        crate::macros::keep_box(answer, window, cx);
     }
 
     /// Starts the search with the result in this window. The search runs on a background task;

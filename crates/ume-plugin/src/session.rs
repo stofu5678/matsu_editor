@@ -305,6 +305,15 @@ impl Session {
         }
     }
 
+    /// Whether the window is waiting on behalf of the macro now (the timeout is not running).
+    pub fn is_held(&self) -> bool {
+        self.waiting
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .holds
+            > 0
+    }
+
     /// Queues a line for the macro's standard input. It does not block.
     pub fn send(&self, line: String) {
         let _ = self.writer.send(line);

@@ -72,6 +72,11 @@ impl EditorView {
         }
     }
 
+    /// Whether the print dialog of the OS is open (a macro waits for it).
+    pub(crate) fn is_printing(&self) -> bool {
+        self.print.printing
+    }
+
     pub fn is_print_preview_open(&self) -> bool {
         self.print.preview.is_some()
     }

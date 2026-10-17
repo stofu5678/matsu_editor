@@ -756,11 +756,20 @@ fn a_script_that_prints_a_lot_does_not_block_the_window(cx: &mut TestAppContext)
     if !available(Language::JavaScript) {
         return;
     }
+    // The deadline this test can miss is the script's own timeout (`DEFAULT_TIMEOUT`, 30 s): the
+    // time the host's reader waits for the window counts against it, and the window takes a
+    // line in about 130 us in a debug build (4 s for 30 000 lines when the machine is idle),
+    // which a busy machine made eight times as long. The output keeps 5000 lines, so 12 000 lines
+    // are enough to show that the flood is capped and that the window is not blocked; a real
+    // slowdown of the window (a tenfold cost per line) would still end the script by the timeout.
+    const LINES: usize = 12_000;
     let dir = tempfile::tempdir().unwrap();
     let script = write(
         dir.path(),
         "flood.cjs",
-        "for (let i = 0; i < 30000; i++) console.log('line ' + i);\nEditor.InsText('end');\n",
+        &format!(
+            "for (let i = 0; i < {LINES}; i++) console.log('line ' + i);\nEditor.InsText('end');\n"
+        ),
     );
     let (f, cx) = setup(cx, "");
     f.run(cx, F_EXECEXTMACRO, &[text_arg(&script)]);
@@ -768,7 +777,7 @@ fn a_script_that_prints_a_lot_does_not_block_the_window(cx: &mut TestAppContext)
     assert_eq!(f.lines(cx), ["end"]);
     let output = f.output(cx);
     assert!(
-        output.contains("line 29999") && output.contains("正常に終了"),
+        output.contains(&format!("line {}", LINES - 1)) && output.contains("正常に終了"),
         "output ends"
     );
     assert!(output.lines().count() <= 5000);
@@ -1139,3 +1148,7 @@ fn the_extension_functions_use_the_document_types(cx: &mut TestAppContext) {
     // The new document is the basic type (0); cpp and h are C/C++ (2), txt is テキスト (1).
     assert_eq!(types, (0, 2, 2, 1, 0));
 }
+
+mod wait_tests;
+
+mod wait_tab_tests;
