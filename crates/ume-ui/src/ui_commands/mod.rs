@@ -6,6 +6,7 @@
 
 pub mod box_select;
 pub mod cursor;
+pub mod custom_menu;
 pub mod file;
 pub mod history;
 pub mod macro_only;

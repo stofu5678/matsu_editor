@@ -7,6 +7,7 @@
 
 pub mod builtin_types;
 pub mod color;
+pub mod custom_menu;
 pub mod doc_types;
 pub mod extra_types;
 pub mod font;
@@ -18,6 +19,7 @@ pub mod types;
 
 pub use builtin_types::builtin_types;
 pub use color::{ColorEntry, ColorSet};
+pub use custom_menu::{CustomMenu, CustomMenuItem, CustomMenus};
 pub use doc_types::DocumentTypes;
 pub use extra_types::ExtraSet;
 pub use font::{FontSetting, LogFont, ViewFont};

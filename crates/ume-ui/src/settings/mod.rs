@@ -202,6 +202,16 @@ impl UserSettings {
         }
     }
 
+    /// The custom menus and the right-click menu (`[CustMenu]`): Sakura's defaults under what the file sets.
+    pub fn custom_menus(&self) -> ume_config::settings::CustomMenus {
+        match &self.profile {
+            Some(profile) => ume_config::settings::CustomMenus::from_profile(profile, &|name| {
+                ume_commands::macro_names::by_name(name).map(|f| f.code)
+            }),
+            None => ume_config::settings::CustomMenus::default(),
+        }
+    }
+
     /// The user's key bindings (`[KeyBind]`), to put over Sakura's table. Empty without a file.
     pub fn key_rows(&self) -> Vec<UserRow> {
         match &self.profile {

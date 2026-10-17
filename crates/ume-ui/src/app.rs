@@ -9,6 +9,7 @@ use gpui::{
 use gpui_component::{GlobalState, TitleBar};
 use gpui_platform::application;
 
+use crate::custom_menu::{ChainedLists, model::CustomMenuList};
 use crate::document::SharedDocument;
 use crate::file_ops::windows::open_from_outside;
 use crate::launch::OpenRequest;
@@ -82,6 +83,9 @@ pub(crate) fn run(
         gpui_component::init(cx);
         crate::history::install(cx, &user);
         crate::tabs::settings::install(cx, &user);
+        // Every window that `open_editor_window` makes applies ume.ini (read once, above). Before the
+        // menus: the row for the custom menus reads it.
+        cx.set_global(user);
         cx.set_global(MenuKeyMap(keymap.clone()));
         set_menus(cx, &keymap);
         cx.on_action(|_: &Exit, cx| cx.quit());
@@ -98,8 +102,6 @@ pub(crate) fn run(
         })
         .detach();
 
-        // Every window that `open_editor_window` makes applies ume.ini (read once, above).
-        cx.set_global(user);
         crate::search::history::install(cx, search_history);
         cx.spawn(async move |cx| {
             while let Ok(request) = requests.recv().await {
@@ -144,7 +146,14 @@ fn set_menus(cx: &mut App, keymap: &KeyMap) {
     if cfg!(target_os = "macos") {
         menus.push(Menu::new("UME Editor").items([MenuItem::action("UME Editor を終了", Exit)]));
     }
-    let lists = crate::history::menu::RecentLists::new(crate::history::current(cx));
+    let recent = crate::history::menu::RecentLists::new(crate::history::current(cx));
+    // The row for the custom menus (`F_CUSTMENU_LIST`) lists the menus that have items.
+    let custom_menus = cx
+        .try_global::<crate::settings::UserSettings>()
+        .map(crate::settings::UserSettings::custom_menus)
+        .unwrap_or_default();
+    let custom = CustomMenuList(&custom_menus);
+    let lists = ChainedLists(&recent, &custom);
     for top in main_menu_with(keymap, &Registered, &lists) {
         let items = gpui_items(top.entries, style);
         menus.push(Menu::new(top.label).items(items));
@@ -156,7 +165,7 @@ fn set_menus(cx: &mut App, keymap: &KeyMap) {
     cx.set_global(MenuGeneration(generation + 1));
 }
 
-fn gpui_items(entries: Vec<Entry>, style: DisplayStyle) -> Vec<MenuItem> {
+pub(crate) fn gpui_items(entries: Vec<Entry>, style: DisplayStyle) -> Vec<MenuItem> {
     entries
         .into_iter()
         .filter_map(|entry| match entry {

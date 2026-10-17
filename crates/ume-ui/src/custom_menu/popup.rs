@@ -1,0 +1,167 @@
+//! Showing a custom menu: a GPUI popup at a point of the window.
+//!
+//! Sakura: `CEditView::CreatePopUpMenuSub` opens it with `TrackPopupMenu` at the mouse pointer, 4 pixels
+//! higher (`po.y -= 4`), for the right click and for a key alike. Here the right click opens it at the
+//! pointer ([`CustomMenuState::mouse_at`]) and a key at the caret.
+
+use gpui::{
+    AnyElement, Context, DismissEvent, Entity, Focusable as _, InteractiveElement as _,
+    IntoElement, MenuItem, ParentElement, Pixels, Point, Subscription, Window, anchored, deferred,
+    div, point, px,
+};
+use gpui_component::menu::PopupMenu;
+use ume_commands::keymap::DisplayStyle;
+
+use super::ChainedLists;
+use super::model::{self, CustomMenuList};
+use crate::app::gpui_items;
+use crate::history::menu::RecentLists;
+use crate::menu::Registered;
+use crate::menu_bar::{fill, popup_max_height};
+use crate::settings::UserSettings;
+use crate::view::EditorView;
+
+/// How far above the pointer the popup starts (`po.y -= 4`).
+const ABOVE_POINTER: f32 = 4.0;
+
+/// The popup that is open, and where the next one opens.
+#[derive(Default)]
+pub(crate) struct CustomMenuState {
+    open: Option<OpenPopup>,
+    /// The pointer position of the right click that is being handled: the menu opens there instead of at
+    /// the caret.
+    pub(super) mouse_at: Option<Point<Pixels>>,
+}
+
+struct OpenPopup {
+    popup: Entity<PopupMenu>,
+    at: Point<Pixels>,
+    /// The height of the window that the popup was sized for.
+    window_height: Pixels,
+    _dismiss: Subscription,
+}
+
+impl CustomMenuState {
+    /// Whether a popup is open.
+    #[cfg(test)]
+    pub(crate) fn is_open(&self) -> bool {
+        self.open.is_some()
+    }
+
+    /// Where the open popup starts.
+    #[cfg(test)]
+    pub(crate) fn open_at(&self) -> Option<Point<Pixels>> {
+        self.open.as_ref().map(|o| o.at)
+    }
+}
+
+impl EditorView {
+    /// `Command_CUSTMENU`: shows custom menu `index` (0 is the right-click menu). A menu with no items
+    /// shows nothing, as in Sakura. Returns whether a popup opened.
+    pub(crate) fn show_custom_menu(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let menus = cx
+            .try_global::<UserSettings>()
+            .map(UserSettings::custom_menus)
+            .unwrap_or_default();
+        if menus.get(index).is_none_or(|m| m.items.is_empty()) {
+            return false;
+        }
+        let recent = RecentLists::new(crate::history::current(cx));
+        let custom = CustomMenuList(&menus);
+        let lists = ChainedLists(&recent, &custom);
+        let entries = model::entries(
+            index,
+            &model::Context {
+                menus: &menus,
+                keymap: &self.keymap,
+                available: &Registered,
+                lists: &lists,
+            },
+        );
+        let style = if cfg!(target_os = "macos") {
+            DisplayStyle::Mac
+        } else {
+            DisplayStyle::Sakura
+        };
+        let items: Vec<_> = gpui_items(entries, style)
+            .into_iter()
+            .map(MenuItem::owned)
+            .collect();
+        let at = self
+            .custom_menu
+            .mouse_at
+            .take()
+            .map(|p| point(p.x, p.y - px(ABOVE_POINTER)))
+            .unwrap_or_else(|| self.caret_below(cx));
+        let handle = self.focus_handle.clone();
+        let max_height = popup_max_height(window.viewport_size().height, at.y);
+        let popup = PopupMenu::build(window, cx, |menu, window, cx| {
+            let menu = menu.action_context(handle.clone());
+            fill(menu, items, Some(&handle), window, cx)
+                .scrollable(true)
+                .max_h(max_height)
+        });
+        let dismiss = cx.subscribe_in(&popup, window, |this, _, _: &DismissEvent, window, cx| {
+            this.close_custom_menu(window, cx)
+        });
+        popup.read(cx).focus_handle(cx).focus(window, cx);
+        self.custom_menu.open = Some(OpenPopup {
+            popup,
+            at,
+            window_height: window.viewport_size().height,
+            _dismiss: dismiss,
+        });
+        cx.notify();
+        true
+    }
+
+    /// Closes the popup and gives the focus back to the text.
+    pub(crate) fn close_custom_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.custom_menu.open.take().is_some() {
+            window.focus(&self.focus_handle, cx);
+            cx.notify();
+        }
+    }
+
+    /// The point under the caret, where a menu opened by a key starts. The top left of the view before the
+    /// first paint.
+    fn caret_below(&self, cx: &gpui::App) -> Point<Pixels> {
+        self.point_of(self.cursor.caret(), cx)
+            .map_or_else(Point::default, |p| {
+                point(p.x, p.y + px(self.metrics.line_height))
+            })
+    }
+
+    /// The popup, to be a child of the view while it is open. A menu of Sakura is modal and a resize of the
+    /// window ends it; the popup is sized for the window it opened in, so it closes when the height changes.
+    pub(crate) fn custom_menu_popup(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        if self
+            .custom_menu
+            .open
+            .as_ref()
+            .is_some_and(|o| o.window_height != window.viewport_size().height)
+        {
+            self.close_custom_menu(window, cx);
+        }
+        let open = self.custom_menu.open.as_ref()?;
+        Some(
+            deferred(
+                anchored()
+                    .position(open.at)
+                    .anchor(gpui::Anchor::TopLeft)
+                    .snap_to_window_with_margin(px(8.))
+                    .child(div().occlude().child(open.popup.clone())),
+            )
+            .into_any_element(),
+        )
+    }
+}

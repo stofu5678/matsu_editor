@@ -164,7 +164,7 @@ impl Render for MenuBar {
     }
 }
 
-fn fill(
+pub(crate) fn fill(
     mut menu: PopupMenu,
     items: Vec<OwnedMenuItem>,
     action_context: Option<&FocusHandle>,

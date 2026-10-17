@@ -188,6 +188,8 @@ pub struct EditorView {
     pub(crate) diff: crate::diff::DiffState,
     /// Whether the user chose the document type, and the list of types (`crate::doc_types`).
     pub(crate) doc_type: crate::doc_types::DocTypeState,
+    /// The popup of a custom menu or the right-click menu, while one is open (`crate::custom_menu`).
+    pub(crate) custom_menu: crate::custom_menu::CustomMenuState,
     /// The window that holds this view among its panes (`crate::panes`).
     pub(crate) split_host: Option<gpui::WeakEntity<crate::app::Workspace>>,
     font_family: SharedString,
@@ -242,6 +244,7 @@ impl EditorView {
             window_list: None,
             diff: Default::default(),
             doc_type: Default::default(),
+            custom_menu: Default::default(),
             split_host: None,
             font_family: FONT_FAMILY.into(),
             font_size: crate::settings::ViewSettings::default().font_px(),
@@ -708,6 +711,8 @@ impl Render for EditorView {
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
+            .on_mouse_down(MouseButton::Right, cx.listener(Self::on_right_mouse_down))
+            .on_mouse_up(MouseButton::Right, cx.listener(Self::on_right_mouse_up))
             .on_scroll_wheel(cx.listener(Self::on_scroll))
             .on_drop(cx.listener(Self::on_external_drop))
             .child(EditorElement::new(cx.entity()));
@@ -725,6 +730,7 @@ impl Render for EditorView {
             .children(self.diff.panel.clone())
             .children(self.diff.compare.clone())
             .children(self.doc_type.list.clone())
+            .children(self.custom_menu_popup(window, cx))
             // Above the window list: Save from the list can ask for the options.
             .children(self.save_as_dialog.clone())
             .into_any_element()
