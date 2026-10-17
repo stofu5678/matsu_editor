@@ -9,7 +9,7 @@
 //!
 //! The arguments are read where the documents are opened: a handed-over launch brings its
 //! arguments as they are, and the process that receives them reads them
-//! ([`command_line`], Sakura's options). The one option that has to be read
+//! (`command_line`, Sakura's options). The one option that has to be read
 //! before that is `-PROF=`, because the profile decides the settings file, and the settings file
 //! decides which running UME Editor a launch joins (as Sakura's profiles do).
 //!
@@ -44,7 +44,7 @@ pub struct OpenRequest {
 
 impl OpenRequest {
     /// The request of a launch: relative files are in the launch's working folder, and the
-    /// options are read ([`command_line::parse_with`], with the response file `-@=` read from
+    /// options are read (`command_line::parse_with`, with the response file `-@=` read from
     /// the working folder too).
     pub fn from_launch(request: &Request) -> OpenRequest {
         let mut options = command_line::parse_with(&request.args, &mut |path| {
