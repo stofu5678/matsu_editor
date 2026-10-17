@@ -724,7 +724,8 @@ impl Element for EditorElement {
         let mut brackets = Vec::new();
         let bracket_entry = colors.bracket_entry;
         if bracket_entry.disp && !selecting && editor.focus_handle.is_focused(window) {
-            let rows_shown = (body_height / line_height).ceil().max(1.0) as usize;
+            // Every row whose top is above the bottom edge, the first one being cut by the scroll.
+            let rows_shown = ((body_height - y_offset) / line_height).ceil().max(1.0) as usize;
             let screen = bracket_marks::Screen {
                 first_row,
                 last_row: first_row + rows_shown - 1,
@@ -904,8 +905,7 @@ impl Element for EditorElement {
                             rgb(color),
                         ));
                     }
-                    // The note lines and the vertical lines go over the backgrounds, under the text
-                    // (`DrawLayoutLine` draws them after the row's text, in thin lines).
+                    // The note lines go over the backgrounds, under the text.
                     if let Some((offset, color)) = p.lines.note {
                         let line_y = y + px(offset);
                         window.paint_quad(fill(
@@ -916,9 +916,9 @@ impl Element for EditorElement {
                             rgb(color),
                         ));
                     }
-                    for &x in &p.lines.vertical {
-                        let x = origin_x + px(x);
-                        if p.lines.vertical_dotted {
+                    if p.lines.vertical_dotted {
+                        for &x in &p.lines.vertical {
+                            let x = origin_x + px(x);
                             // One pixel in two, on the same pixel rows in every row of text.
                             let row_top = f32::from(y - bounds.top());
                             let row_bottom = row_top + p.line_height;
@@ -936,11 +936,6 @@ impl Element for EditorElement {
                                 ));
                                 dot += 2.0;
                             }
-                        } else {
-                            window.paint_quad(fill(
-                                Bounds::new(point(x, y), size(px(1.), lh)),
-                                rgb(p.lines.vertical_color),
-                            ));
                         }
                     }
                     for &(from, to, color) in &row.underlines {
@@ -1042,6 +1037,19 @@ impl Element for EditorElement {
                             .ok();
                     }
                 }
+                // The vertical lines at given columns, whole (not row by row), over the text as
+                // Sakura draws them; a dotted line was drawn with each row.
+                if !p.lines.vertical_dotted {
+                    for &x in &p.lines.vertical {
+                        window.paint_quad(fill(
+                            Bounds::new(
+                                point(origin_x + px(x), body_top),
+                                size(px(1.), text_bounds.size.height),
+                            ),
+                            rgb(p.lines.vertical_color),
+                        ));
+                    }
+                }
                 // The line of the caret column goes first, so that the underline of the caret
                 // line is over it (`CaretUnderLineON`).
                 for &x in &p.lines.caret_column {
@@ -1122,35 +1130,40 @@ impl Element for EditorElement {
             );
             window.with_content_mask(Some(ContentMask { bounds: strip }), |window| {
                 let scale = &ruler.scale;
-                window.paint_quad(fill(
-                    Bounds::from_corners(
-                        point(origin_x + px(scale.base_from), top + px(scale.base_y)),
-                        point(origin_x + px(scale.base_to), top + px(scale.base_y + 1.0)),
-                    ),
-                    rgb(ruler.color),
-                ));
-                for tick in &scale.ticks {
-                    let x = origin_x + px(tick.x.round());
+                // The scale has a line for each column, and none of them touch: they are one
+                // layer, which GPUI draws without working out how each one overlaps the others
+                // (that costs more than drawing them does, with a hundred lines every frame).
+                window.paint_layer(strip, |window| {
                     window.paint_quad(fill(
                         Bounds::from_corners(
-                            point(x, top + px(tick.top)),
-                            point(x + px(1.), top + px(scale.base_y)),
+                            point(origin_x + px(scale.base_from), top + px(scale.base_y)),
+                            point(origin_x + px(scale.base_to), top + px(scale.base_y + 1.0)),
                         ),
                         rgb(ruler.color),
                     ));
-                }
-                for (x, number) in &ruler.numbers {
-                    number
-                        .paint(
-                            point(origin_x + px(*x), top - px(1.)),
-                            px(ruler.height),
-                            TextAlign::Left,
-                            None,
-                            window,
-                            cx,
-                        )
-                        .ok();
-                }
+                    for tick in &scale.ticks {
+                        let x = origin_x + px(tick.x.round());
+                        window.paint_quad(fill(
+                            Bounds::from_corners(
+                                point(x, top + px(tick.top)),
+                                point(x + px(1.), top + px(scale.base_y)),
+                            ),
+                            rgb(ruler.color),
+                        ));
+                    }
+                    for (x, number) in &ruler.numbers {
+                        number
+                            .paint(
+                                point(origin_x + px(*x), top - px(1.)),
+                                px(ruler.height),
+                                TextAlign::Left,
+                                None,
+                                window,
+                                cx,
+                            )
+                            .ok();
+                    }
+                });
                 if let Some(((x0, x1, y0, y1), color)) = ruler.caret {
                     window.paint_quad(fill(
                         Bounds::from_corners(

@@ -86,6 +86,10 @@ fn marks_checked(
     caret: Pos,
     screen: Screen,
 ) -> Option<Vec<Mark>> {
+    // Finding the bracket reads the whole line: not one that is too long for that.
+    if doc.line_len(caret.line).ok()?? > MAX_LINE_BYTES {
+        return None;
+    }
     let start = start_of(doc, caret).ok()??;
     let start_at = layout.pos_to_row(doc, start.pos).ok()?;
     // `nSearchNum`: the rows from the bracket to the bottom (down) or to the top (up).

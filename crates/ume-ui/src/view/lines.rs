@@ -114,8 +114,9 @@ pub fn vertical_xs(
     for column in vertical_columns(idx, first, last, max_columns) {
         let x = (offset as f32 + (column - 1) as f32 * cell - scroll_x).round();
         let bold_x = if bold { x - 1.0 } else { x };
+        // Right of the text area; a later entry (the columns need not be in order) may be on it.
         if right <= bold_x {
-            break;
+            continue;
         }
         if x >= 0.0 {
             if x < right {
@@ -239,6 +240,15 @@ mod tests {
         // the wrap column: a line at 40 + 1 columns
         assert_eq!(vertical_xs(&[10], 8.0, 0.0, 400.0, 10, -1, false), [71.0]);
         assert!(vertical_xs(&[12], 8.0, 0.0, 400.0, 10, -1, false).is_empty());
+    }
+
+    #[test]
+    fn columns_need_not_be_in_order() {
+        // 14 is right of a text area 100 wide, and 5 is not
+        assert_eq!(
+            vertical_xs(&[14, 5], 8.0, 0.0, 100.0, 100, -1, false),
+            [31.0]
+        );
     }
 
     #[test]
