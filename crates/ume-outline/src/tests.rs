@@ -507,6 +507,17 @@ fn xml_skips_cdata_and_handles_empty_tags() {
 }
 
 #[test]
+fn the_tag_right_after_a_tag_that_closes_itself_is_read() {
+    // Sakura does not read the character after "/>", so it misses the heading here; UME Editor
+    // reads it (the user's decision, 2026-10-17)
+    let text = lines(&["<div/><h1>Title</h1>", "<a/><b/>", "<x></x>"]);
+    assert_eq!(
+        dump(&make_topic_list_html(&VecSource::new(&text), true)),
+        "1:0:0:div\n1:0:0:h1 Title\n2:0:0:a\n2:0:0:b\n3:0:0:x "
+    );
+}
+
+#[test]
 fn html_tag_over_several_lines_is_at_its_last_line() {
     let text = lines(&["<div", "  class=\"x\"", "  id=\"y\">", "text", "</div>"]);
     assert_eq!(

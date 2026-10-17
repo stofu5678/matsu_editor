@@ -295,7 +295,8 @@ pub fn make_topic_list_html(src: &dyn LineSource, xml: bool) -> FuncInfoArr {
                             i = 0;
                         }
                     }
-                    if x < TITLE_SIZE - 3 && !end_tag {
+                    let reads_text = x < TITLE_SIZE - 3 && !end_tag;
+                    if reads_text {
                         title.truncate(k.min(title.len()));
                         title.push(' ');
                         k += 1;
@@ -309,6 +310,12 @@ pub fn make_topic_list_html(src: &dyn LineSource, xml: bool) -> FuncInfoArr {
                             k += 1;
                             j += 1;
                         }
+                    } else if !keep_going && j > 0 {
+                        // UME Editor: `j` is past the ">" here, and the `i + j + 1` below would
+                        // skip the character after the tag (Sakura does, so it misses the "<" of
+                        // `<a/><b/>`). Step back to the ">" so that the next tag is read (the
+                        // user's decision, 2026-10-17).
+                        j -= 1;
                     }
                     title.truncate(k);
                     out.push(n + 1, title.iter().collect::<String>(), 0, depth);
@@ -355,10 +362,8 @@ pub fn make_topic_list_html(src: &dyn LineSource, xml: bool) -> FuncInfoArr {
                     }
                 }
             }
-            // Sakura goes on from `i + j + 1` also after the "/>" of a tag that closes itself, where
-            // `j` is already past the ">": the character after such a tag is not read (so the "<"
-            // of `<a/><b/>` is lost). The same in the original, kept so that the lists agree.
-            // `j` may have gone back by one to the "<" that ends the text of the item
+            // `j` is at the last character that was read: the ">" of the tag, or the character
+            // before the "<" that ends the text of the item
             i = ((i as isize) + (j as isize) + 1) as usize;
         }
         n += 1;
