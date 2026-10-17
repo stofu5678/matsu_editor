@@ -96,6 +96,8 @@ fn last_page(cx: &App) -> usize {
 struct OpenSheet {
     window: AnyWindowHandle,
     dialog: WeakEntity<CommonSettingsDialog>,
+    /// The type the sheet is for.
+    index: usize,
 }
 
 impl Global for OpenSheet {}
@@ -189,14 +191,25 @@ pub(crate) fn open(
     opener: Option<AnyWindowHandle>,
 ) -> Option<Entity<CommonSettingsDialog>> {
     if let Some(dialog) = current_dialog(cx) {
-        let window = cx.global::<OpenSheet>().window;
-        if let Some(page) = page {
-            dialog.update(cx, |dialog, cx| dialog.select_index(page, cx));
+        let (window, open_index) = {
+            let open = cx.global::<OpenSheet>();
+            (open.window, open.index)
+        };
+        if open_index != index {
+            // The sheet of another type is open: it is closed (nothing is written) and the one
+            // that was asked for takes its place.
+            window
+                .update(cx, |_, window, _| window.remove_window())
+                .ok();
+        } else {
+            if let Some(page) = page {
+                dialog.update(cx, |dialog, cx| dialog.select_index(page, cx));
+            }
+            window
+                .update(cx, |_, window, _| window.activate_window())
+                .ok();
+            return Some(dialog);
         }
-        window
-            .update(cx, |_, window, _| window.activate_window())
-            .ok();
-        return Some(dialog);
     }
     let page = page.unwrap_or_else(|| last_page(cx));
     let profile = current_profile(cx);
@@ -228,6 +241,7 @@ pub(crate) fn open(
     cx.set_global(OpenSheet {
         window: handle.into(),
         dialog: dialog.downgrade(),
+        index,
     });
     remember_page(cx, page);
     Some(dialog)

@@ -365,6 +365,17 @@ fn the_list_opens_the_settings_of_the_selected_type(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn the_sheet_of_another_type_takes_the_place_of_the_open_one(cx: &mut TestAppContext) {
+    let (_ini, a) = setup(cx, "");
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    assert_eq!(with_dialog(cx, |d, _, _| d.values().int(TYPE_INDEX)), 0);
+    cx.update(|app| open(app, 2, None, None)).unwrap();
+    cx.run_until_parked();
+    assert_eq!(with_dialog(cx, |d, _, _| d.values().int(TYPE_INDEX)), 2);
+    cancel(cx);
+}
+
+#[gpui::test]
 fn the_page_used_last_opens_again(cx: &mut TestAppContext) {
     let (_ini, handle) = setup(cx, "");
     run(cx, handle, "F_OPTION_TYPE", &[]);
