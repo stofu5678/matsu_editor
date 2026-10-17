@@ -364,7 +364,7 @@ fn value_functions_check_their_arguments() {
 fn the_basic_api_runs_where_no_command_is_registered() {
     let registry = Registry::global();
     // If one of these gets a command, the test must move to the section above.
-    for name in ["InsText", "AddTail", "Jump"] {
+    for name in ["InsText", "AddTail"] {
         let code = ume_commands::macro_names::by_name(name).unwrap().code;
         assert!(
             registry.get_by_code(code).is_none(),
@@ -379,8 +379,6 @@ fn the_basic_api_runs_where_no_command_is_registered() {
     assert_eq!(f.caret(), (1, 1));
     f.call("AddTail", json!(["!"])).unwrap();
     assert_eq!(f.text(), "aX\nYbc\ndef!");
-    f.call("Jump", json!([2])).unwrap();
-    assert_eq!(f.caret(), (1, 0));
     // MoveCursor with the select option, then InsText replaces the selection.
     f.call("MoveCursor", json!([1, 1, 0])).unwrap();
     f.call("MoveCursor", json!([1, 3, 1])).unwrap();
@@ -390,6 +388,23 @@ fn the_basic_api_runs_where_no_command_is_registered() {
     // The edits are undoable like any other.
     f.call("Undo", json!([])).unwrap();
     assert_eq!(f.text(), "aX\nYbc\ndef!");
+}
+
+#[test]
+fn jump_is_a_command_with_sakuras_options() {
+    let code = ume_commands::macro_names::by_name("Jump").unwrap().code;
+    assert!(Registry::global().get_by_code(code).is_some());
+    let mut f = Fixture::new("abc\ndef\nghi");
+    f.call("Jump", json!([2])).unwrap();
+    assert_eq!(f.caret(), (1, 0));
+    // below 1 is the first line, past the end the last (option 1: lines up to line breaks)
+    f.call("Jump", json!([99, 1])).unwrap();
+    assert_eq!(f.caret(), (2, 0));
+    f.call("Jump", json!([-3, 1])).unwrap();
+    assert_eq!(f.caret(), (0, 0));
+    // option 2 is PL/SQL: the second valid line
+    f.call("Jump", json!([2, 3])).unwrap();
+    assert_eq!(f.caret(), (1, 0));
 }
 
 #[test]

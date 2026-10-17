@@ -451,3 +451,21 @@ fn f3_works_while_the_panel_has_the_focus(cx: &mut TestAppContext) {
     assert_eq!(f.selection(cx), Some((Pos::new(0, 0), Pos::new(0, 2))));
     assert!(f.panel_mode(cx).is_some());
 }
+
+#[gpui::test]
+fn f_jump_takes_the_line_and_the_option_of_the_macro(cx: &mut TestAppContext) {
+    // `Jump(line, option)` and the dialog share the code of the F_JUMP command
+    let (f, cx) = setup(cx, "a\nb\nc\nd");
+    let code = ume_commands::sakura::FUNCTIONS
+        .iter()
+        .find(|f| f.name == "F_JUMP")
+        .unwrap()
+        .code;
+    let args = [
+        ume_commands::command::Arg::Int(3),
+        ume_commands::command::Arg::Int(1),
+    ];
+    f.view
+        .update_in(cx, |v, window, cx| v.run_function(code, &args, window, cx));
+    assert_eq!(f.caret(cx), Pos::new(2, 0));
+}

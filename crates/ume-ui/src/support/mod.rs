@@ -26,6 +26,10 @@ pub(crate) struct Support {
     pub command_list: Option<Entity<command_list::CommandList>>,
     /// The version dialog, while it is open.
     pub about: Option<Entity<about::AboutDialog>>,
+    /// The tag jump list, while it is open (`crate::tags`).
+    pub tag_list: Option<Entity<crate::tags::list::TagList>>,
+    /// The dialog of 「タグファイルの作成」, while it is open.
+    pub tags_make: Option<Entity<crate::tags::make::TagsMakeDialog>>,
 }
 
 impl EditorView {
@@ -40,6 +44,8 @@ impl EditorView {
                 .map(|e| e.into_any_element()),
         );
         out.extend(self.support.about.clone().map(|e| e.into_any_element()));
+        out.extend(self.support.tag_list.clone().map(|e| e.into_any_element()));
+        out.extend(self.support.tags_make.clone().map(|e| e.into_any_element()));
         out
     }
 }

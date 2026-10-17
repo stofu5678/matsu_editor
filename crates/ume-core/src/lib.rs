@@ -13,7 +13,9 @@ pub mod jump_history;
 pub mod model;
 pub mod modified;
 pub mod search;
+pub mod tag_file;
 pub mod tag_jump;
+pub mod tags_make;
 pub mod undo;
 
 /// Returns the crate version, so that the workspace has something to build

@@ -12,9 +12,8 @@
 //! the file in a new window with the encoding detected. Without a line number the caret stays.
 //! Jumping back pops the stack and returns to that window and place.
 //!
-//! Not done: when the line names nothing, Sakura tries the tags file (`ctags`) with the word under
-//! the caret (`Command_TagJumpByTagsFile`); this program has no tags file support yet, so it only
-//! says that it cannot jump.
+//! When the line names nothing, Sakura looks for the word under the caret in the tags file
+//! (`Command_TagJumpByTagsFile`); that is [`crate::tags`], which comes back here to jump.
 
 use std::time::Duration;
 
@@ -121,27 +120,44 @@ pub(crate) async fn tag_jump(
     close: bool,
 ) {
     let Ok(Some(target)) = view.read_with(cx, target_of) else {
-        view.update(cx, |view, cx| {
-            view.notice = Some(CANNOT_JUMP.to_owned());
-            cx.notify();
-        })
-        .ok();
+        // "Also after the Grep form failed, the tags file is searched" (2011.11.29 Moca).
+        if crate::tags::jump_by_tags_file(view, cx, close).await {
+            return;
+        }
+        say_cannot_jump(view, cx);
         return;
     };
+    jump_to_target(view, cx, &target, close).await;
+}
+
+/// `TagJumpSub`: pushes the place for `F_TAGJUMPBACK`, jumps to `target`, and closes the window
+/// that the jump started from if `close`. Says so if the file cannot be opened.
+pub(crate) async fn jump_to_target(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    target: &TagTarget,
+    close: bool,
+) -> bool {
     // Saved before the jump: a jump inside this window moves the caret that is saved.
     push_current(view, cx);
-    if !jump_to(&target, cx).await {
+    if !jump_to(target, cx).await {
         // The entry stays, as in Sakura (`PushTagJump` comes before the file is opened).
-        view.update(cx, |view, cx| {
-            view.notice = Some(CANNOT_JUMP.to_owned());
-            cx.notify();
-        })
-        .ok();
-        return;
+        say_cannot_jump(view, cx);
+        return false;
     }
     if close {
         confirm_and_close_window(view, cx).await;
     }
+    true
+}
+
+/// `STR_ERR_TAGJMP1` in the status bar.
+pub(crate) fn say_cannot_jump(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) {
+    view.update(cx, |view, cx| {
+        view.notice = Some(CANNOT_JUMP.to_owned());
+        cx.notify();
+    })
+    .ok();
 }
 
 /// Brings the window of the file to the front and moves its caret, or opens the file in a new

@@ -25,6 +25,7 @@ pub mod gonextparagraph;
 pub mod gonextparagraph_sel;
 pub mod goprevparagraph;
 pub mod goprevparagraph_sel;
+pub mod jump;
 pub mod jumphist_next;
 pub mod jumphist_prev;
 pub mod jumphist_set;

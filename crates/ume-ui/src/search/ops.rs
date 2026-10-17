@@ -15,6 +15,7 @@ use std::ops::Range;
 
 use gpui::{Context, PromptLevel, Window};
 use ume_commands::command::CommandError;
+use ume_commands::commands::cursor::jump::{DEFAULT_OPTION, jump_to_line};
 use ume_commands::context::CommandContext;
 use ume_core::buffer::{Document, Eol, Pos};
 use ume_core::search::{
@@ -445,15 +446,11 @@ impl EditorView {
         }
     }
 
-    /// `F_JUMP`: goes to the start of line `number` (counted from 1 by line breaks, which is
-    /// Sakura's default, `m_bLineNumIsCRLF_ForJump`), clamped to the document.
+    /// The go-to-line dialog's jump: `F_JUMP` with the option the dialog gives, line breaks
+    /// (Sakura's default, `m_bLineNumIsCRLF_ForJump`).
     pub fn go_to_line(&mut self, number: usize, cx: &mut Context<Self>) {
-        let lines = self.document.read(cx).doc().line_count();
-        if lines == 0 {
-            return;
-        }
-        let line = number.clamp(1, lines) - 1;
-        self.run_with(cx, |c| c.move_caret(Pos::new(line, 0), false))
+        let number = i64::try_from(number).unwrap_or(i64::MAX);
+        self.run_with(cx, |c| jump_to_line(c, number, DEFAULT_OPTION))
             .ok();
     }
 }
