@@ -16,7 +16,7 @@ use crate::menu::{Entry, MenuAction, Registered, label_with_shortcut, main_menu_
 use crate::menu_bar::MenuBar;
 use crate::panes::PaneSet;
 use crate::status::status_text;
-use crate::view::{EditorView, OpenRecentFile, RunFunction};
+use crate::view::{EditorView, OpenRecentFile, OpenRecentFolder, RunFunction};
 use ume_commands::keymap::{DisplayStyle, KeyMap};
 
 actions!(
@@ -174,6 +174,9 @@ fn gpui_items(entries: Vec<Entry>, style: DisplayStyle) -> Vec<MenuItem> {
                     }
                     MenuAction::RecentFile(path) => {
                         Some(MenuItem::action(label, OpenRecentFile { path }))
+                    }
+                    MenuAction::RecentFolder(path) => {
+                        Some(MenuItem::action(label, OpenRecentFolder { path }))
                     }
                     // Nobody handles `Unavailable`, so the native menu of macOS, which asks
                     // whether the action can be handled, keeps the item gray.

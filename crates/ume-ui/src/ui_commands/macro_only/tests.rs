@@ -733,6 +733,50 @@ fn file_open_with_an_empty_name_asks_for_a_file(cx: &mut TestAppContext) {
     assert_eq!(f.text(cx), "chosen");
 }
 
+#[gpui::test]
+fn file_open_starts_the_dialog_where_the_fourth_argument_says(cx: &mut TestAppContext) {
+    use crate::file_dialog::tests::asked;
+    use ume_platform::dialog::Kind;
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("メモ.txt");
+    std::fs::write(&file, "chosen").unwrap();
+    let (f, cx) = setup(cx, "");
+    asked();
+    let open = |cx: &mut gpui::VisualTestContext, default: String| {
+        f.run(
+            cx,
+            "F_FILEOPEN2",
+            &[text(""), Arg::Int(99), Arg::Int(0), Arg::Text(default)],
+        );
+        let mut shown = asked();
+        assert_eq!(shown.len(), 1, "{shown:?}");
+        cx.simulate_path_prompt_response(|_| None);
+        cx.run_until_parked();
+        shown.pop().unwrap()
+    };
+    // a folder (with the separator): the dialog starts in it
+    let folder = format!("{}{}", dir.path().display(), std::path::MAIN_SEPARATOR);
+    let shown = open(cx, folder);
+    assert_eq!(shown.kind, Kind::OpenFile { multiple: true });
+    assert_eq!(shown.start.as_deref(), Some(dir.path()));
+    assert_eq!(shown.name, None);
+    // a file in a folder that exists: its folder, and its name
+    let shown = open(cx, file.display().to_string());
+    assert_eq!(shown.start.as_deref(), Some(dir.path()));
+    assert_eq!(shown.name.as_deref(), Some("メモ.txt"));
+    // a folder that does not exist: where the OS wants, and no name
+    let gone = dir.path().join("gone").join("a.txt");
+    let shown = open(cx, gone.display().to_string());
+    assert_eq!(shown.start, None);
+    assert_eq!(shown.name, None);
+    // without the argument: the setting (the current folder here)
+    f.run(cx, "F_FILEOPEN2", &[text("")]);
+    let shown = asked();
+    assert_eq!(shown.len(), 1, "{shown:?}");
+    assert_eq!(shown[0].start, std::env::current_dir().ok());
+    assert_eq!(shown[0].name, None);
+}
+
 // ---- the window ----
 
 struct FakeWindow {

@@ -1,0 +1,136 @@
+//! The file chooser portal (`org.freedesktop.portal.FileChooser`): `OpenFile` and `SaveFile` with
+//! `current_folder` and `current_name`. The portal shows the dialog of the desktop (GTK or Qt)
+//! without this program linking GTK, which is LGPL.
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+use raw_window_handle::RawWindowHandle;
+use zbus::zvariant::Value;
+
+use super::{Error, Kind, Request, path_from_file_uri};
+use crate::portal::{Answer, Failure, Portal};
+
+const INTERFACE: &str = "org.freedesktop.portal.FileChooser";
+
+/// The window the dialog belongs to, as the portal names it (`parent_window`): `x11:<hex id>`,
+/// or empty when there is none or it cannot be told (a Wayland window needs an exported handle).
+#[derive(Clone, Debug, Default)]
+pub struct Owner(String);
+
+impl Owner {
+    pub fn from_handle(handle: RawWindowHandle) -> Self {
+        Self(match handle {
+            RawWindowHandle::Xlib(handle) => format!("x11:{:x}", handle.window),
+            RawWindowHandle::Xcb(handle) => format!("x11:{:x}", handle.window.get()),
+            _ => String::new(),
+        })
+    }
+}
+
+/// `current_folder` is a byte string that ends with NUL (`ay`).
+fn folder_bytes(folder: &Path) -> Vec<u8> {
+    use std::os::unix::ffi::OsStrExt;
+    let mut bytes = folder.as_os_str().as_bytes().to_vec();
+    bytes.push(0);
+    bytes
+}
+
+pub(super) async fn show(owner: Owner, request: Request) -> Result<Option<Vec<PathBuf>>, Error> {
+    let portal = Portal::new(INTERFACE).await.map_err(Error::Unavailable)?;
+    let method = match request.kind {
+        Kind::SaveFile => "SaveFile",
+        Kind::OpenFile { .. } | Kind::Folder => "OpenFile",
+    };
+    let answer = portal
+        .request(method, |mut options| {
+            options.insert("modal", true.into());
+            match request.kind {
+                Kind::OpenFile { multiple } => {
+                    options.insert("multiple", multiple.into());
+                }
+                Kind::Folder => {
+                    options.insert("directory", true.into());
+                }
+                Kind::SaveFile => {}
+            }
+            if let Some(folder) = request.start.as_deref() {
+                options.insert("current_folder", Value::from(folder_bytes(folder)));
+            }
+            if let Some(name) = &request.name
+                && request.kind == Kind::SaveFile
+            {
+                options.insert("current_name", Value::from(name.clone()));
+            }
+            (owner.0.as_str(), request.title.as_str(), options)
+        })
+        .await;
+    match answer {
+        // No portal that has the file chooser: the caller uses another dialog.
+        Err(Failure::Call(why)) => Err(Error::Unavailable(why)),
+        Err(Failure::Answer(why)) => Err(Error::Failed(why)),
+        Ok(Answer::Cancelled) => Ok(None),
+        Ok(Answer::Failed) => Err(Error::Failed("ポータルが失敗を返した".to_owned())),
+        Ok(Answer::Done(results)) => Ok(paths_of(&results)),
+    }
+}
+
+/// The `uris` of the answer as paths. An answer without one is a cancel.
+fn paths_of(results: &HashMap<String, zbus::zvariant::OwnedValue>) -> Option<Vec<PathBuf>> {
+    let uris = results
+        .get("uris")
+        .and_then(|uris| <Vec<String>>::try_from(uris.try_clone().ok()?).ok())?;
+    let paths: Vec<PathBuf> = uris
+        .iter()
+        .filter_map(|uri| path_from_file_uri(uri))
+        .collect();
+    (!paths.is_empty()).then_some(paths)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_folder_ends_with_nul() {
+        assert_eq!(
+            folder_bytes(Path::new("/a/メモ")),
+            b"/a/\xe3\x83\xa1\xe3\x83\xa2\0"
+        );
+    }
+
+    #[test]
+    fn the_uris_of_the_answer_are_paths() {
+        let mut results = HashMap::new();
+        let uris = vec![
+            "file:///home/a/b.txt".to_owned(),
+            "file:///home/a/c%20d.txt".to_owned(),
+        ];
+        results.insert("uris".to_owned(), Value::from(uris).try_into().unwrap());
+        assert_eq!(
+            paths_of(&results),
+            Some(vec![
+                PathBuf::from("/home/a/b.txt"),
+                PathBuf::from("/home/a/c d.txt")
+            ])
+        );
+        assert_eq!(paths_of(&HashMap::new()), None);
+    }
+
+    #[test]
+    fn an_x11_window_is_named_by_its_id() {
+        let mut xlib = raw_window_handle::XlibWindowHandle::new(0x2a00007);
+        xlib.visual_id = 0;
+        assert_eq!(
+            Owner::from_handle(RawWindowHandle::Xlib(xlib)).0,
+            "x11:2a00007"
+        );
+        assert_eq!(
+            Owner::from_handle(RawWindowHandle::Web(
+                raw_window_handle::WebWindowHandle::new(1)
+            ))
+            .0,
+            ""
+        );
+    }
+}

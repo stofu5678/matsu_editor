@@ -7399,6 +7399,7 @@ dependencies = [
 name = "ume-platform"
 version = "0.0.0"
 dependencies = [
+ "block2 0.6.2",
  "futures-channel",
  "krilla",
  "libc",
@@ -7411,6 +7412,7 @@ dependencies = [
  "raw-window-handle",
  "tempfile",
  "ume-print",
+ "windows 0.62.2",
  "windows-sys 0.61.2",
  "zbus",
 ]

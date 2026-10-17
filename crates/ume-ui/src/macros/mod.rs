@@ -37,7 +37,7 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use gpui::{AnyElement, Context, Entity, PathPromptOptions, Window};
+use gpui::{AnyElement, Context, Entity, Window};
 use ume_commands::command::{Arg, CommandError};
 use ume_commands::key_macro::{KeyMacro, KeyMacroRecorder, Step};
 use ume_commands::macro_names;
@@ -48,6 +48,7 @@ use ume_plugin::session::{
     self, EndReason, HostEvent, Language, MacroConfig, Session, Sink, Stream,
 };
 
+use crate::file_dialog::{self, Ask};
 use crate::view::EditorView;
 use output::PanelActions;
 
@@ -318,18 +319,24 @@ impl EditorView {
     /// `F_SAVEKEYMACRO`: asks for a file and saves the key macro in it.
     pub(crate) fn ask_key_macro_save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.stop_key_macro_recording();
-        let dir = self.dialog_directory(cx);
-        let answer = cx.prompt_for_new_path(&dir, Some("RecKey.mac"));
+        // Sakura starts in the macro folder (`Command_SAVEKEYMACRO`).
+        let ask = Ask::save()
+            .start(file_dialog::macro_folder(cx))
+            .name(Some("RecKey.mac".to_owned()))
+            .titled("キーマクロの保存", "保存");
+        let answer = file_dialog::ask(window, cx, ask);
         cx.spawn_in(window, async move |this, cx| {
             let answer = answer.await;
             this.update_in(cx, |this, window, cx| match answer {
-                Ok(Ok(Some(path))) => {
-                    if let Err(message) = this.save_key_macro_to(&path) {
+                Ok(Some(paths)) => {
+                    if let Some(path) = paths.last()
+                        && let Err(message) = this.save_key_macro_to(path)
+                    {
                         this.macro_failed(message, window, cx);
                     }
                 }
-                Ok(Err(error)) => this.macro_failed(dialog_error(&error), window, cx),
-                _ => {}
+                Err(error) => this.macro_failed(dialog_error(&error), window, cx),
+                Ok(None) => {}
             })
             .ok();
         })
@@ -363,22 +370,21 @@ impl EditorView {
     /// when it runs.
     pub(crate) fn ask_key_macro_load(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.stop_key_macro_recording();
-        let answer = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: Some("読み込み".into()),
-        });
+        // Sakura starts in the macro folder (`Command_LOADKEYMACRO`).
+        let ask = Ask::open(false)
+            .start(file_dialog::macro_folder(cx))
+            .titled("キーマクロの読み込み", "読み込み");
+        let answer = file_dialog::ask(window, cx, ask);
         cx.spawn_in(window, async move |this, cx| {
             let answer = answer.await;
             this.update_in(cx, |this, window, cx| match answer {
-                Ok(Ok(Some(mut paths))) => {
+                Ok(Some(mut paths)) => {
                     if let Some(path) = paths.pop() {
                         this.macros.current = Some(CurrentMacro::File(path));
                     }
                 }
-                Ok(Err(error)) => this.macro_failed(dialog_error(&error), window, cx),
-                _ => {}
+                Err(error) => this.macro_failed(dialog_error(&error), window, cx),
+                Ok(None) => {}
             })
             .ok();
         })
@@ -410,23 +416,22 @@ impl EditorView {
 
     /// `F_EXECEXTMACRO` without a file: asks for one.
     pub(crate) fn ask_macro_to_run(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let answer = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: Some("実行".into()),
-        });
+        // Sakura starts in the macro folder (`Command_EXECEXTMACRO`).
+        let ask = Ask::open(false)
+            .start(file_dialog::macro_folder(cx))
+            .titled("マクロの実行", "実行");
+        let answer = file_dialog::ask(window, cx, ask);
         cx.spawn_in(window, async move |this, cx| {
             let answer = answer.await;
             this.update_in(cx, |this, window, cx| match answer {
-                Ok(Ok(Some(mut paths))) => {
+                Ok(Some(mut paths)) => {
                     if let Some(path) = paths.pop() {
                         // The error is reported by `exec_ext_macro`.
                         this.exec_ext_macro(&path, window, cx).ok();
                     }
                 }
-                Ok(Err(error)) => this.macro_failed(dialog_error(&error), window, cx),
-                _ => {}
+                Err(error) => this.macro_failed(dialog_error(&error), window, cx),
+                Ok(None) => {}
             })
             .ok();
         })
@@ -720,16 +725,24 @@ impl EditorView {
         })
     }
 
-    /// Where a file dialog starts: the folder of the document, else the current folder.
-    fn dialog_directory(&self, cx: &Context<Self>) -> PathBuf {
-        self.document
-            .read(cx)
-            .path()
-            .and_then(Path::parent)
-            .map(Path::to_path_buf)
-            .filter(|p| !p.as_os_str().is_empty())
-            .or_else(|| std::env::current_dir().ok())
-            .unwrap_or_else(|| PathBuf::from("."))
+    /// Where a file dialog starts: the folder of the document, else what 「ファイルダイアログの初期位置」
+    /// says (`GetDlgInitialDir`).
+    fn dialog_start(&self, cx: &Context<Self>) -> Option<PathBuf> {
+        file_dialog::start_folder(cx, self.document.read(cx).path())
+    }
+
+    /// The start folder and the name for a dialog that is given a default: the folder of the
+    /// default if it names one that exists, else [`Self::dialog_start`]; the name is its file name.
+    fn dialog_default(
+        &self,
+        default: &str,
+        cx: &Context<Self>,
+    ) -> (Option<PathBuf>, Option<String>) {
+        // a default that ends with a separator is a folder with no name
+        let (folder, name) =
+            ume_config::dialog_dir::split_default_name(default, &|dir| dir.is_dir());
+        let folder = folder.or_else(|| self.dialog_start(cx));
+        (folder, name)
     }
 }
 

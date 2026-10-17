@@ -22,6 +22,9 @@ pub enum MenuAction {
     Function(u16),
     /// Open this recent file (`IDM_SELMRU + index`; the path is what the item showed).
     RecentFile(String),
+    /// Open the open dialog in this recent folder (`IDM_SELOPENFOLDER + index`; the path is what
+    /// the item showed).
+    RecentFolder(String),
     /// Quit the application.
     Exit,
     /// Nothing: a list that Sakura fills in at run time (recent files, windows, ...), which is

@@ -1,6 +1,6 @@
 [package]
 name = "ume-platform"
-description = "The OS-specific parts of UME Editor that GPUI does not have: printing on macOS, Windows and Linux"
+description = "The OS-specific parts of UME Editor that GPUI does not have: printing, file dialogs with a start folder, and window placement on macOS, Windows and Linux"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -26,7 +26,19 @@ tempfile = "3.27"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+# The file dialogs wait for a thread (Windows) or AppKit's completion handler (macOS).
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+futures-channel = "0.3"
+
 [target.'cfg(windows)'.dependencies]
+# The file dialogs (src/dialog) and the known folders (src/folders): COM, which windows-sys has no
+# interfaces for. The version GPUI uses.
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+] }
 windows-sys = { version = "0.61", features = [
     # The named pipe of src/instance/windows.rs: the user's SID in its security descriptor.
     "Win32_Foundation",
@@ -45,19 +57,24 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-futures-channel = "0.3"
+block2 = "0.6"
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSGeometry", "NSObject", "NSRange", "NSString", "NSURL", "NSDictionary"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = [
     "std",
     "objc2-core-foundation",
     "objc2-core-graphics",
+    "block2",
+    "NSApplication",
     "NSGraphicsContext",
+    "NSOpenPanel",
+    "NSPanel",
     "NSPrintInfo",
     "NSPrintOperation",
     "NSPrintPanel",
     "NSPrinter",
     "NSResponder",
+    "NSSavePanel",
     "NSScreen",
     "NSView",
     "NSWindow",

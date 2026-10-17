@@ -16,14 +16,19 @@
 //! asynchronous: the macro does not wait for them (Sakura waits for the dialog, and starts a new
 //! process for the new window, which a macro does not wait for either).
 //!
-//! The default name (the folder, or the file, that the dialog starts with) is not used: GPUI's
-//! open dialog cannot be told where to start.
+//! # The default name
+//!
+//! The fourth argument is the folder, or the file, that the open dialog starts with. A folder
+//! (the text ends with a separator) is where the dialog starts; for a file the dialog starts in
+//! its folder, and offers the name when the folder exists (`Command_FILEOPEN`). Without it the
+//! dialog starts where 「ファイルダイアログの初期位置」 says.
 
 use std::ops::ControlFlow;
 use std::path::Path;
 
 use gpui::{Context, Window};
 use ume_commands::command::{Arg, CommandError, Result};
+use ume_config::dialog_dir::split_default_name;
 use ume_core::encoding::Encoding;
 
 use super::int_arg;
@@ -63,11 +68,18 @@ impl UiCommand for FileOpen2 {
             .and_then(Encoding::from_sakura_code);
         let view_mode = int_arg("FileOpen", args, 2, 0)? != 0;
         // the default name: see the module documentation
-        if !matches!(args.get(3), None | Some(Arg::Text(_))) {
-            return Err(CommandError::BadArgs(
-                "FileOpen needs a text as argument 4".to_owned(),
-            ));
-        }
+        let default_name = match args.get(3) {
+            None => None,
+            Some(Arg::Text(text)) => Some(text.as_str()),
+            Some(_) => {
+                return Err(CommandError::BadArgs(
+                    "FileOpen needs a text as argument 4".to_owned(),
+                ));
+            }
+        };
+        let given = default_name
+            .filter(|name| !name.is_empty())
+            .map(|name| split_default_name(name, &|dir| dir.is_dir()));
         if let Some(path) = &path
             && goes_into_this_window(view, path, cx)
             && read_here(view, path, encoding, view_mode, window, cx)
@@ -77,7 +89,7 @@ impl UiCommand for FileOpen2 {
         start(window, cx, async move |view, cx| {
             let paths = match path {
                 Some(path) => vec![path],
-                None => match choose_files(cx).await {
+                None => match choose_files(&view, cx, given).await {
                     Some(paths) => paths,
                     None => return,
                 },

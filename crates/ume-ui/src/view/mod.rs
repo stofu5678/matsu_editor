@@ -79,6 +79,14 @@ pub struct OpenRecentFile {
     pub path: String,
 }
 
+/// A menu item of the recent folders: show the open dialog in this folder, and open the files
+/// chosen. The path is the one the menu showed.
+#[derive(Clone, PartialEq, Debug, gpui::Action)]
+#[action(namespace = ume, no_json)]
+pub struct OpenRecentFolder {
+    pub path: String,
+}
+
 /// The font of the text, by OS: a Japanese monospaced font, so that full-width characters are
 /// twice as wide as half-width ones. GPUI picks a font by family name and falls back to its
 /// default when the font is missing (the PoC's list of fonts is in `poc/gpui-textview`).
@@ -692,6 +700,9 @@ impl Render for EditorView {
             }))
             .on_action(cx.listener(|this, a: &OpenRecentFile, window, cx| {
                 this.open_recent_file(a.path.clone(), window, cx);
+            }))
+            .on_action(cx.listener(|this, a: &OpenRecentFolder, window, cx| {
+                this.open_recent_folder(a.path.clone(), window, cx);
             }))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_move(cx.listener(Self::on_mouse_move))

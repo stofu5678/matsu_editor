@@ -18,7 +18,7 @@ use ume_core::buffer::{Pos, col_from_utf16, col_to_utf16};
 use ume_core::encoding::Encoding;
 
 use super::HistoryOptions;
-use crate::file_ops::load::open_paths;
+use crate::file_ops::load::{choose_files, open_paths};
 use crate::file_ops::start;
 use crate::file_ops::windows::editors;
 use crate::view::EditorView;
@@ -141,6 +141,24 @@ impl EditorView {
         let path = PathBuf::from(path);
         start(window, cx, async move |view, cx| {
             open_paths(&view, cx, vec![path], encoding).await;
+        });
+    }
+
+    /// An item of the recent folders (`IDM_SELOPENFOLDER`): the open dialog starts in `folder`
+    /// and the files chosen are opened as File > Open opens them (`CEditWnd::OnCommand`). The
+    /// folder is the one the menu showed.
+    pub(crate) fn open_recent_folder(
+        &mut self,
+        folder: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let folder = PathBuf::from(folder);
+        start(window, cx, async move |view, cx| {
+            let Some(paths) = choose_files(&view, cx, Some((Some(folder), None))).await else {
+                return;
+            };
+            open_paths(&view, cx, paths, None).await;
         });
     }
 }

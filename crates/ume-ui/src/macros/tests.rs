@@ -298,11 +298,48 @@ fn playing_stops_at_the_first_call_that_fails(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn the_macro_dialogs_start_in_the_macro_folder(cx: &mut TestAppContext) {
+    use crate::file_dialog::tests::asked;
+    use ume_platform::dialog::Kind;
+    let dir = tempfile::tempdir().unwrap();
+    let macros = dir.path().join("macros");
+    std::fs::create_dir(&macros).unwrap();
+    let ini = dir.path().join("ume.ini");
+    // a relative folder is taken from the folder of the settings file
+    let profile = ume_config::Profile::from_bytes(b"[Macro]\nszMACROFOLDER=macros\n");
+    cx.update(|cx| {
+        cx.set_global(crate::settings::UserSettings::from_profile(
+            profile,
+            Some(ini),
+        ));
+    });
+    asked();
+    let (f, cx) = setup(cx, "xyz");
+    f.run(cx, F_EXECEXTMACRO, &[]);
+    cx.run_until_parked();
+    let run = asked();
+    assert_eq!(run.len(), 1, "{run:?}");
+    assert_eq!(run[0].kind, Kind::OpenFile { multiple: false });
+    assert_eq!(run[0].start.as_deref(), Some(macros.as_path()));
+    cx.simulate_path_prompt_response(|_| None);
+    cx.run_until_parked();
+    // 保存 and 読み込み of the key macro
+    cx.simulate_keystrokes(REC);
+    cx.simulate_keystrokes("ctrl-m");
+    let save = asked();
+    assert_eq!(save.len(), 1, "{save:?}");
+    assert_eq!(save[0].kind, Kind::SaveFile);
+    assert_eq!(save[0].start.as_deref(), Some(macros.as_path()));
+    assert_eq!(save[0].name.as_deref(), Some("RecKey.mac"));
+}
+
+#[gpui::test]
 fn running_a_key_macro_file_asks_for_the_file(cx: &mut TestAppContext) {
     let dir = tempfile::tempdir().unwrap();
     let path = write(dir.path(), "a.mac", "Right();\nChar(66);\n");
     let (f, cx) = setup(cx, "xyz");
     f.run(cx, F_EXECEXTMACRO, &[]);
+    cx.run_until_parked();
     assert!(cx.did_prompt_for_paths());
     cx.simulate_path_prompt_response(move |_| Some(vec![path]));
     cx.run_until_parked();

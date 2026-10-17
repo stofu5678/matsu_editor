@@ -26,6 +26,7 @@ use super::ask::{
     Answer, ask, save_error_message, tell, unify_line_endings_message, unmappable_message,
 };
 use super::save_as_dialog::ask_options;
+use crate::file_dialog::{self, Ask};
 use crate::view::EditorView;
 
 /// What to save and how. The default is a plain save (`F_FILESAVE`).
@@ -83,18 +84,13 @@ impl SaveOutcome {
 }
 
 /// Shows the save dialog. `None` if the user cancelled. The dialog starts in the folder of the
-/// `current` file and suggests `name`, else the name of the current file, else `無題.txt`.
+/// `current` file, else where 「ファイルダイアログの初期位置」 says (`GetDlgInitialDir`), and suggests
+/// `name`, else the name of the current file, else `無題.txt`.
 pub(crate) async fn choose_path(
     cx: &mut AsyncWindowContext,
     current: Option<&std::path::Path>,
     name: Option<&str>,
 ) -> Option<PathBuf> {
-    let dir = current
-        .and_then(|p| p.parent())
-        .map(std::path::Path::to_owned)
-        .filter(|d| d.is_dir())
-        .or_else(|| std::env::current_dir().ok())
-        .unwrap_or_default();
     // Sakura suggests *.txt for a document without a name (`SaveFileDialog`).
     let name = name.map(str::to_owned).unwrap_or_else(|| {
         current.and_then(|p| p.file_name()).map_or_else(
@@ -102,10 +98,13 @@ pub(crate) async fn choose_path(
             |n| n.to_string_lossy().into_owned(),
         )
     });
-    let receiver = cx
-        .update(|_, app| app.prompt_for_new_path(&dir, Some(&name)))
+    let answer = cx
+        .update(|window, app| {
+            let start = file_dialog::start_folder(app, current);
+            file_dialog::ask(window, app, Ask::save().start(start).name(Some(name)))
+        })
         .ok()?;
-    receiver.await.ok()?.ok()?
+    answer.await.ok().flatten()?.pop()
 }
 
 /// Runs the save flow on `view`.

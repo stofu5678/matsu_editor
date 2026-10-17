@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
-use gpui::{AsyncWindowContext, PathPromptOptions, PromptLevel, WeakEntity};
+use gpui::{AsyncWindowContext, PromptLevel, WeakEntity};
 use ume_core::buffer::Pos;
 use ume_core::encoding::Encoding;
 use ume_core::file::{FileError, TextFile};
@@ -14,6 +14,7 @@ use ume_core::file::{FileError, TextFile};
 use super::ask::{confirm, document_title, open_error_message, reload_message, tell};
 use super::windows::{self, LoadRequest};
 use crate::document::SharedDocument;
+use crate::file_dialog::{self, Ask};
 use crate::history::view::{code_change_message, encoding_of, remembered};
 use crate::open::open_text_file;
 use crate::view::EditorView;
@@ -261,20 +262,32 @@ pub(crate) async fn open_paths(
     }
 }
 
-/// Shows the open dialog and returns the files chosen, or `None` if the user cancelled.
-pub(crate) async fn choose_files(cx: &mut AsyncWindowContext) -> Option<Vec<PathBuf>> {
-    let receiver = cx
-        .update(|_, app| {
-            app.prompt_for_paths(PathPromptOptions {
-                files: true,
-                directories: false,
-                multiple: true,
-                prompt: None,
-            })
+/// Where the open dialog is told to start by a macro (`FileOpen`'s fourth argument): the folder
+/// and the file name. See [`ume_config::dialog_dir::split_default_name`].
+pub(crate) type GivenStart = (Option<PathBuf>, Option<String>);
+
+/// Shows the open dialog and returns the files chosen, or `None` if the user cancelled. It starts
+/// in the folder of the file of this window, else where 「ファイルダイアログの初期位置」 says
+/// (`GetDlgInitialDir`), unless `given` says where.
+pub(crate) async fn choose_files(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    given: Option<GivenStart>,
+) -> Option<Vec<PathBuf>> {
+    let document = view
+        .read_with(cx, |view, app| {
+            view.document().read(app).path().map(Path::to_owned)
+        })
+        .ok()
+        .flatten();
+    let answer = cx
+        .update(|window, app| {
+            let (start, name) = given
+                .unwrap_or_else(|| (file_dialog::start_folder(app, document.as_deref()), None));
+            file_dialog::ask(window, app, Ask::open(true).start(start).name(name))
         })
         .ok()?;
-    let paths = receiver.await.ok()?.ok()??;
-    (!paths.is_empty()).then_some(paths)
+    answer.await.ok().flatten()
 }
 
 /// `F_FILE_REOPEN` and `F_FILE_REOPEN_*` (`CViewCommander::Command_FILE_REOPEN`,
