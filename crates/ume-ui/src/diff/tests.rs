@@ -27,6 +27,14 @@ struct Win {
 }
 
 impl Win {
+    /// This document as the other side of a comparison.
+    fn doc(&self, cx: &mut TestAppContext) -> super::DocRef {
+        super::DocRef {
+            handle: self.handle,
+            document: self.view.read_with(cx, |v, _| v.document().entity_id()),
+        }
+    }
+
     fn run(&self, cx: &mut TestAppContext, function: &str) -> bool {
         self.run_with(cx, function, &[])
     }
@@ -130,7 +138,7 @@ fn diff_with_window(cx: &mut TestAppContext, w: &Win, other: &Win) {
         .view
         .read_with(cx, |v, _| v.diff.panel.clone())
         .expect("the dialog");
-    let target = other.handle;
+    let target = other.doc(cx);
     w.handle
         .update(cx, |_, window, app| {
             panel.update(app, |p, cx| {
@@ -467,7 +475,7 @@ fn the_dialog_selects_the_window_with_the_most_alike_name(cx: &mut TestAppContex
     let panel = w.view.read_with(cx, |v, _| v.diff.panel.clone()).unwrap();
     assert_eq!(
         panel.read_with(cx, |p, cx| p.target(cx)),
-        Some(Target::Window(like.handle))
+        Some(Target::Window(like.doc(cx)))
     );
 }
 
@@ -492,10 +500,11 @@ fn compare_moves_both_carets_to_the_first_difference(cx: &mut TestAppContext) {
     assert!(w.run(cx, "F_COMPARE"));
     assert!(w.view.read_with(cx, |v, _| v.compare_panel_open()));
     let panel = w.view.read_with(cx, |v, _| v.diff.compare.clone()).unwrap();
+    let target = other.doc(cx);
     w.handle
         .update(cx, |_, window, app| {
             panel.update(app, |p, cx| {
-                p.select_window(other.handle, cx);
+                p.select_window(target, cx);
                 p.ok(window, cx);
             })
         })
@@ -520,10 +529,11 @@ fn compare_says_when_nothing_differs(cx: &mut TestAppContext) {
     let other = window(cx, "a\r\nb\r\n", None);
     assert!(w.run(cx, "F_COMPARE"));
     let panel = w.view.read_with(cx, |v, _| v.diff.compare.clone()).unwrap();
+    let target = other.doc(cx);
     w.handle
         .update(cx, |_, window, app| {
             panel.update(app, |p, cx| {
-                p.select_window(other.handle, cx);
+                p.select_window(target, cx);
                 p.ok(window, cx);
             })
         })
@@ -546,10 +556,11 @@ fn compare_starts_at_the_carets_and_sees_line_endings(cx: &mut TestAppContext) {
     other.go_to(cx, 1, 0);
     assert!(w.run(cx, "F_COMPARE"));
     let panel = w.view.read_with(cx, |v, _| v.diff.compare.clone()).unwrap();
+    let target = other.doc(cx);
     w.handle
         .update(cx, |_, window, app| {
             panel.update(app, |p, cx| {
-                p.select_window(other.handle, cx);
+                p.select_window(target, cx);
                 p.ok(window, cx);
             })
         })

@@ -69,6 +69,7 @@ pub fn run(paths: Vec<PathBuf>) {
     app.run(move |cx: &mut App| {
         gpui_component::init(cx);
         crate::history::install(cx, &user);
+        crate::tabs::settings::install(cx, &user);
         cx.set_global(MenuKeyMap(keymap.clone()));
         set_menus(cx, &keymap);
         cx.on_action(|_: &Exit, cx| cx.quit());
@@ -151,9 +152,14 @@ fn gpui_items(entries: Vec<Entry>, style: DisplayStyle) -> Vec<MenuItem> {
         .collect()
 }
 
-/// The content of the window: menu bar, editor, status bar.
+/// The content of the window: menu bar, tab bar, editor, status bar.
+///
+/// A window holds its documents in tabs (ADR-0015); a tab is what a window held before: a document
+/// and its panes. The panes of the tab that is active are in `panes`; the other tabs keep theirs
+/// in `tabs` (see `crate::tabs`).
 pub struct Workspace {
     pub(crate) panes: PaneSet,
+    pub(crate) tabs: crate::tabs::Tabs,
     menu_bar: Entity<MenuBar>,
 }
 
@@ -164,11 +170,20 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Self {
         let editor = cx.new(|cx| EditorView::new(document, cx));
-        window.focus(&editor.focus_handle(cx), cx);
-        let host = cx.weak_entity();
-        editor.update(cx, |view, _| view.split_host = Some(host));
+        Self::with_panes(PaneSet::new(editor), window, cx)
+    }
+
+    /// A window whose only tab has `panes` (a tab that moved here from another window, or a new
+    /// document).
+    pub(crate) fn with_panes(panes: PaneSet, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let mut panes = panes;
+        panes.forget_subscriptions();
+        let numbered = panes.numbered();
+        let active = panes.active().clone();
+        window.focus(&active.focus_handle(cx), cx);
         let mut workspace = Self {
-            panes: PaneSet::new(editor.clone()),
+            panes,
+            tabs: crate::tabs::Tabs::new(),
             menu_bar: MenuBar::new(cx),
         };
         // The menus are made again when the history changes: the bar loads them.
@@ -176,7 +191,12 @@ impl Workspace {
             this.menu_bar.update(cx, |bar, cx| bar.reload(cx));
         })
         .detach();
-        workspace.adopt(0, editor, window, cx);
+        // The tab bar is shown or hidden for every window at once.
+        cx.observe_global::<crate::tabs::settings::TabSettings>(|_, cx| cx.notify())
+            .detach();
+        for (index, pane) in numbered {
+            workspace.adopt_into_window(index, pane, window, cx);
+        }
         workspace
     }
 
@@ -195,6 +215,7 @@ impl Render for Workspace {
         let show_status_bar = editor.status_bar_shown();
         let macro_panel = editor.macro_panel(active.clone());
         let ui_font = gpui_component::Theme::global(cx).font_family.clone();
+        let tab_bar = self.render_tab_bar(window, cx);
         // A Wayland compositor without server-side decorations, such as WSLg's, leaves the title
         // bar and its buttons to the app.
         let client_decorated = cfg!(target_os = "linux")
@@ -218,6 +239,7 @@ impl Render for Workspace {
                         .child(self.menu_bar.clone()),
                 )
             })
+            .children(tab_bar)
             .child(
                 div()
                     .flex_1()

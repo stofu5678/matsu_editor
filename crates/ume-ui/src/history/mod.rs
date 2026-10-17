@@ -146,6 +146,24 @@ pub(crate) fn update(cx: &mut App, change: impl FnOnce(&mut History)) -> Option<
     result
 }
 
+/// Writes keys of the settings file besides the history (the tab settings of `[Common]`), under
+/// the lock of the history store. Without a file on disk nothing is written.
+pub(crate) fn write_settings(
+    cx: &App,
+    change: impl FnOnce(&mut Profile) -> Result<bool, ume_config::ProfileError>,
+) {
+    if let Some(store) = cx
+        .try_global::<HistoryState>()
+        .and_then(|state| state.store.as_ref())
+    {
+        // A file that cannot be written has nowhere to say so; the setting stays for the session.
+        let _ = ume_config::history::update_profile(store.path(), |profile| {
+            change(profile)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))
+        });
+    }
+}
+
 /// Adds a file (and its folder) at the front of the history.
 pub(crate) fn add_file(cx: &mut App, entry: FileEntry) {
     update(cx, |h| h.add_file(entry));

@@ -19,12 +19,12 @@ use crate::view::EditorView;
 
 pub(crate) mod list;
 
-/// What the view keeps of the document type besides the settings of the type (`ViewPrefs`).
+/// What the view keeps of the document type besides the settings of the type (`ViewPrefs`). The
+/// type itself, and whether the user chose it, belong to the document
+/// ([`SharedDocument::type_locked`](crate::document::SharedDocument::type_locked)): all panes of
+/// a document have the same type.
 #[derive(Default)]
 pub(crate) struct DocTypeState {
-    /// The type was chosen by the user (`F_CHANGETYPE`): a new file name does not change it
-    /// (`m_nSettingTypeLocked`).
-    pub locked: bool,
     /// The list of types (`F_TYPE_LIST`), while it is open.
     pub list: Option<Entity<list::TypeList>>,
 }
@@ -67,7 +67,10 @@ impl EditorView {
             return false;
         };
         self.apply_settings(settings, cx);
-        self.doc_type.locked = true;
+        self.document.update(cx, |shared, cx| {
+            shared.set_type_locked(true);
+            shared.announce_type(index, cx);
+        });
         // `OnChangeType`: an untitled, unmodified, empty document takes the type's default
         // encoding and line ending.
         let shared = self.document.read(cx);
@@ -88,16 +91,19 @@ impl EditorView {
     /// settings are applied only when the type changes, so a plain save keeps the zoom and the
     /// wrap of the view.
     pub(crate) fn follow_file_name(&mut self, cx: &mut Context<Self>) {
-        if self.doc_type.locked {
+        if self.document.read(cx).type_locked() {
             return;
         }
         let name = self.document.read(cx).file_name();
         let wanted = with_user(cx, |user| {
             let index = user.type_index_for(name.as_deref());
-            (index != self.prefs.settings.type_index).then(|| user.view_settings_of_type(index))
+            (index != self.prefs.settings.type_index)
+                .then(|| (index, user.view_settings_of_type(index)))
         });
-        if let Some(settings) = wanted {
+        if let Some((index, settings)) = wanted {
             self.apply_settings(settings, cx);
+            self.document
+                .update(cx, |shared, cx| shared.announce_type(index, cx));
         }
     }
 
@@ -111,10 +117,21 @@ impl EditorView {
     }
 
     /// Whether the user chose the type of this document (`F_CHANGETYPE`).
-    pub fn type_is_locked(&self) -> bool {
-        self.doc_type.locked
+    pub fn type_is_locked(&self, cx: &App) -> bool {
+        self.document.read(cx).type_locked()
+    }
+
+    /// Another pane of the document got a type: this pane takes it too (the document has one type).
+    pub(crate) fn follow_document_type(&mut self, index: usize, cx: &mut Context<Self>) {
+        if index == self.prefs.settings.type_index {
+            return;
+        }
+        let settings = with_user(cx, |user| user.view_settings_of_type(index));
+        self.apply_settings(settings, cx);
     }
 }
 
+#[cfg(test)]
+mod shared_tests;
 #[cfg(test)]
 mod tests;

@@ -93,7 +93,11 @@ impl EditorView {
     pub fn apply_type_of_document(&mut self, user: &UserSettings, cx: &mut Context<Self>) {
         let name = self.document.read(cx).file_name();
         // A file that is loaded takes the type of its name: the user's choice (`F_CHANGETYPE`) ends.
-        self.doc_type.locked = false;
+        let index = user.type_index_for(name.as_deref());
+        self.document.update(cx, |shared, cx| {
+            shared.set_type_locked(false);
+            shared.announce_type(index, cx);
+        });
         self.apply_settings(user.view_settings(name.as_deref()), cx);
     }
 

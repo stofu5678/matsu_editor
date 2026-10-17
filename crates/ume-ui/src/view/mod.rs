@@ -187,6 +187,7 @@ impl EditorView {
         let layout_version = document.read(cx).version();
         let subscription = cx.subscribe(&document, |this, _, event, cx| match *event {
             DocumentEvent::Changed { version } => this.document_changed(version, cx),
+            DocumentEvent::TypeChanged { index } => this.follow_document_type(index, cx),
         });
         // The typing mode changes only notify the document (no `Changed` event, no new layout):
         // repaint for the caret and the status bar.

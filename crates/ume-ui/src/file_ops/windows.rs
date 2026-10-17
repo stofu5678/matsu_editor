@@ -18,6 +18,7 @@ use ume_core::encoding::Encoding;
 
 use crate::app::Workspace;
 use crate::document::SharedDocument;
+use crate::panes::PaneSet;
 use crate::view::EditorView;
 
 use super::close;
@@ -25,10 +26,15 @@ use super::close;
 /// The editor windows of the application, for the flows that look at more than one.
 #[derive(Default)]
 struct EditorWindows {
-    windows: Vec<(AnyWindowHandle, WeakEntity<EditorView>)>,
-    /// Files that windows are still reading. Their documents have no path yet, but opening the
-    /// same file again must not make a second editable copy.
-    pending: Vec<(AnyWindowHandle, PathBuf)>,
+    windows: Vec<(AnyWindowHandle, WeakEntity<Workspace>)>,
+    /// Files that views are still reading, with the window of each. Their documents have no path
+    /// yet, but opening the same file again must not make a second editable copy.
+    pending: Vec<(
+        AnyWindowHandle,
+        WeakEntity<EditorView>,
+        gpui::EntityId,
+        PathBuf,
+    )>,
 }
 
 impl Global for EditorWindows {}
@@ -48,12 +54,57 @@ pub(crate) fn open_editor_window(
     shared: SharedDocument,
     load: Option<LoadRequest>,
 ) -> gpui::Result<AnyWindowHandle> {
-    let count = editors(cx).len();
     let mut shared = shared;
     if load.is_none() {
         // A new document has the settings of the basic type (a file that is loaded replaces it).
         shared.set_new_document_defaults(&crate::settings::new_document_defaults(cx, None));
     }
+    // ume.ini, read once at startup (`app::run`); every window applies it.
+    let user = cx.try_global::<crate::settings::UserSettings>().cloned();
+    open_window_with(cx, move |window, cx| {
+        let document = cx.new(|_| shared);
+        let workspace = cx.new(|cx| Workspace::new(document, window, cx));
+        let editor = workspace.read(cx).editor().clone();
+        if let Some(user) = &user {
+            editor.update(cx, |view, cx| view.apply_user_settings(user, cx));
+        }
+        if let Some(load) = load {
+            begin_pending(
+                cx,
+                window.window_handle(),
+                &editor.downgrade(),
+                load.path.clone(),
+            );
+            editor.update(cx, |view, cx| {
+                view.load_path_here(load.path, load.encoding, window, cx);
+            });
+        }
+        workspace
+    })
+}
+
+/// Opens a window for a tab that comes from another window (`F_TAB_SEPARATE`, ungrouping): the
+/// panes keep their views, carets and everything else. If the window cannot be made, the panes
+/// come back so that the caller can put the tab where it was (it may hold unsaved changes).
+pub(crate) fn open_window_with_panes(
+    cx: &mut App,
+    panes: PaneSet,
+) -> Result<AnyWindowHandle, Option<Box<PaneSet>>> {
+    let slot = Rc::new(std::cell::RefCell::new(Some(panes)));
+    let taken = slot.clone();
+    open_window_with(cx, move |window, cx| {
+        let panes = taken.borrow_mut().take().expect("the panes are used once");
+        cx.new(|cx| Workspace::with_panes(panes, window, cx))
+    })
+    .map_err(|_| slot.borrow_mut().take().map(Box::new))
+}
+
+/// Opens a window whose content `build` makes, and registers it.
+fn open_window_with(
+    cx: &mut App,
+    build: impl FnOnce(&mut Window, &mut App) -> Entity<Workspace> + 'static,
+) -> gpui::Result<AnyWindowHandle> {
+    let count = window_count(cx);
     let mut bounds = Bounds::centered(None, size(px(1000.), px(700.)), cx);
     // Windows after the first are shifted so that they do not hide each other.
     let shift = px(30. * (count % 8) as f32);
@@ -67,63 +118,53 @@ pub(crate) fn open_editor_window(
         }),
         ..Default::default()
     };
-    // ume.ini, read once at startup (`app::run`); every window applies it.
-    let user = cx.try_global::<crate::settings::UserSettings>().cloned();
     let handle = cx.open_window(options, move |window, cx| {
-        let document = cx.new(|_| shared);
-        let workspace = cx.new(|cx| Workspace::new(document, window, cx));
-        let editor = workspace.read(cx).editor().clone();
-        install(window, cx, &editor);
-        if let Some(user) = &user {
-            editor.update(cx, |view, cx| view.apply_user_settings(user, cx));
-        }
-        if let Some(load) = load {
-            cx.default_global::<EditorWindows>()
-                .pending
-                .push((window.window_handle(), load.path.clone()));
-            editor.update(cx, |view, cx| {
-                view.load_path_here(load.path, load.encoding, window, cx);
-            });
-        }
+        let workspace = build(window, cx);
+        install(window, cx, &workspace);
         cx.new(|cx| Root::new(workspace, window, cx))
     })?;
     Ok(handle.into())
 }
 
 /// Registers the window, and asks about unsaved changes when the user closes it.
-fn install(window: &mut Window, cx: &mut App, editor: &Entity<EditorView>) {
+fn install(window: &mut Window, cx: &mut App, workspace: &Entity<Workspace>) {
     cx.default_global::<EditorWindows>()
         .windows
-        .push((window.window_handle(), editor.downgrade()));
-    let view = editor.downgrade();
+        .push((window.window_handle(), workspace.downgrade()));
+    let workspace = workspace.downgrade();
     let asking = Rc::new(Cell::new(false));
     window.on_window_should_close(cx, move |window, cx| {
-        let Some(editor) = view.upgrade() else {
+        let Some(workspace) = workspace.upgrade() else {
             return true;
         };
+        // Every tab is asked about (`RequestCloseEditor` goes to each window of the group).
+        let views = workspace.read(cx).tab_editors();
         // A Grep window cannot be closed while it searches (`CGrepAgent::OnBeforeClose`), and
         // it is closed without the question about saving (`CEditDoc::OnFileClose`).
-        if editor.read(cx).is_grep_running() {
-            editor.update(cx, |view, cx| {
+        if let Some(busy) = views.iter().find(|v| v.read(cx).is_grep_running()) {
+            busy.update(cx, |view, cx| {
                 view.notice = Some("Grepの処理中です。".to_owned());
                 cx.notify();
             });
             return false;
         }
-        if editor.read(cx).is_grep_window()
-            || !editor.read(cx).document().read(cx).model().is_modified()
-        {
-            editor.update(cx, |view, cx| view.record_history(cx));
+        let needs_question = |view: &Entity<EditorView>, cx: &App| {
+            !view.read(cx).is_grep_window()
+                && view.read(cx).document().read(cx).model().is_modified()
+        };
+        if !views.iter().any(|v| needs_question(v, cx)) {
+            for view in &views {
+                view.update(cx, |view, cx| view.record_history(cx));
+            }
             return true;
         }
         if !asking.replace(true) {
-            let view = view.clone();
+            let workspace = workspace.downgrade();
             let asking = asking.clone();
             window
                 .spawn(cx, async move |cx| {
-                    if !close::confirm_and_close_window(&view, cx).await {
-                        asking.set(false);
-                    }
+                    close_after_questions(&workspace, cx).await;
+                    asking.set(false);
                 })
                 .detach();
         }
@@ -131,17 +172,110 @@ fn install(window: &mut Window, cx: &mut App, editor: &Entity<EditorView>) {
     });
 }
 
-/// The editor windows that are open, oldest first.
-pub(crate) fn editors(cx: &mut App) -> Vec<(AnyWindowHandle, Entity<EditorView>)> {
+/// Asks about each tab with unsaved changes, then closes the window. Another window can move a
+/// tab here while a question is open, so the tabs and their versions are checked again before the
+/// window goes (`exit_all` does the same): nothing is thrown away without a question.
+async fn close_after_questions(
+    workspace: &WeakEntity<Workspace>,
+    cx: &mut gpui::AsyncWindowContext,
+) {
+    let mut asked: Vec<(gpui::EntityId, u64)> = Vec::new();
+    loop {
+        let Ok(views) = workspace.read_with(cx, |ws, _| ws.tab_editors()) else {
+            return;
+        };
+        for view in &views {
+            let version = view.read_with(cx, |v, app| v.document().read(app).version());
+            if asked.contains(&(view.entity_id(), version)) {
+                continue;
+            }
+            if !close::confirm_discard(&view.downgrade(), cx).await {
+                return;
+            }
+            let version = view.read_with(cx, |v, app| v.document().read(app).version());
+            asked.push((view.entity_id(), version));
+        }
+        let unchanged = workspace
+            .read_with(cx, |ws, app| {
+                ws.tab_editors().iter().all(|v| {
+                    asked.contains(&(v.entity_id(), v.read(app).document().read(app).version()))
+                })
+            })
+            .unwrap_or(true);
+        if unchanged {
+            cx.update(|window, _| window.remove_window()).ok();
+            return;
+        }
+    }
+}
+
+/// The windows that are open with their workspaces, oldest first.
+pub(crate) fn workspaces(cx: &mut App) -> Vec<(AnyWindowHandle, Entity<Workspace>)> {
     let open = cx.windows();
     let list = cx.default_global::<EditorWindows>();
     list.windows
-        .retain(|(handle, view)| open.contains(handle) && view.upgrade().is_some());
-    list.pending.retain(|(handle, _)| open.contains(handle));
+        .retain(|(handle, ws)| open.contains(handle) && ws.upgrade().is_some());
+    list.pending
+        .retain(|(handle, view, _, _)| open.contains(handle) && view.upgrade().is_some());
     list.windows
         .iter()
-        .filter_map(|(handle, view)| Some((*handle, view.upgrade()?)))
+        .filter_map(|(handle, ws)| Some((*handle, ws.upgrade()?)))
         .collect()
+}
+
+/// The registered windows as they are, without forgetting the ones that look closed. A window
+/// that is being drawn for the first time is not among the open windows yet, so what draws (the
+/// tab bar) must not prune the list.
+pub(crate) fn listed_workspaces(cx: &App) -> Vec<(AnyWindowHandle, Entity<Workspace>)> {
+    cx.try_global::<EditorWindows>()
+        .map_or_else(Vec::new, |list| {
+            list.windows
+                .iter()
+                .filter_map(|(handle, ws)| Some((*handle, ws.upgrade()?)))
+                .collect()
+        })
+}
+
+/// The number of editor windows.
+pub(crate) fn window_count(cx: &mut App) -> usize {
+    workspaces(cx).len()
+}
+
+/// The workspace of a window.
+pub(crate) fn workspace_of(cx: &mut App, handle: AnyWindowHandle) -> Option<Entity<Workspace>> {
+    workspaces(cx)
+        .into_iter()
+        .find(|(h, _)| *h == handle)
+        .map(|(_, ws)| ws)
+}
+
+/// The documents that are open, oldest window first, the tabs of a window in the order of its
+/// bar: the window and the view of each tab (its active pane). Without tabs this is one view for
+/// each window.
+pub(crate) fn editors(cx: &mut App) -> Vec<(AnyWindowHandle, Entity<EditorView>)> {
+    workspaces(cx)
+        .into_iter()
+        .flat_map(|(handle, ws)| {
+            ws.read(cx)
+                .tab_editors()
+                .into_iter()
+                .map(move |view| (handle, view))
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// The window and the view (the active pane of the tab) of the tab that has the pane `view`.
+pub(crate) fn find_tab_of(
+    cx: &mut App,
+    view: &WeakEntity<EditorView>,
+) -> Option<(AnyWindowHandle, Entity<EditorView>)> {
+    let view = view.upgrade()?;
+    workspaces(cx).into_iter().find_map(|(handle, ws)| {
+        let ws = ws.read(cx);
+        let tab = ws.tab_of(&view)?;
+        Some((handle, ws.tab_editor(tab)?))
+    })
 }
 
 /// The window that has `path` open.
@@ -161,11 +295,9 @@ pub(crate) fn find_open(
             .default_global::<EditorWindows>()
             .pending
             .iter()
-            .find(|(_, open)| same_file(open, path))
-            .map(|(handle, _)| *handle)?;
-        editors(cx)
-            .into_iter()
-            .find(|(handle, _)| *handle == pending)
+            .find(|(_, _, _, open)| same_file(open, path))
+            .map(|(_, view, _, _)| view.clone())?;
+        find_tab_of(cx, &pending)
     })
 }
 
@@ -184,27 +316,40 @@ pub(crate) fn activate(cx: &mut App, handle: AnyWindowHandle) {
         .ok();
 }
 
-/// The window starts reading `path` into its document: until `finish_pending`, opening the same
-/// file again brings this window to the front instead of making a second copy.
-pub(crate) fn begin_pending(cx: &mut App, handle: AnyWindowHandle, path: PathBuf) {
+/// The view starts reading `path` into its document: until `finish_pending`, opening the same
+/// file again brings the tab of this view to the front instead of making a second copy.
+pub(crate) fn begin_pending(
+    cx: &mut App,
+    handle: AnyWindowHandle,
+    view: &WeakEntity<EditorView>,
+    path: PathBuf,
+) {
+    // The document is noted now: the view may be borrowed when it is asked about.
+    let Some(document) = view.upgrade().map(|v| v.read(cx).document().entity_id()) else {
+        return;
+    };
     cx.default_global::<EditorWindows>()
         .pending
-        .push((handle, path));
+        .push((handle, view.clone(), document, path));
 }
 
-/// The window has finished reading its file (or failed): the file is no longer pending.
-pub(crate) fn finish_pending(cx: &mut App, handle: AnyWindowHandle) {
+/// The view has finished reading its file (or failed): the file is no longer pending.
+pub(crate) fn finish_pending(cx: &mut App, view: &WeakEntity<EditorView>) {
     cx.default_global::<EditorWindows>()
         .pending
-        .retain(|(h, _)| *h != handle);
+        .retain(|(_, v, _, _)| v.entity_id() != view.entity_id());
 }
 
-/// Opens the windows of the command line: one per file, or one untitled window without files.
-/// A file that is named twice (`a.txt ./a.txt`) gets one window, as in `open_paths`.
+/// Opens the documents of the command line: one per file, or one untitled window without files.
+/// A file that is named twice (`a.txt ./a.txt`) is opened once, as in `open_paths`. In tab mode the
+/// files after the first are tabs of the first window, unless `bNewWindow` says that files from
+/// outside get new windows (`CControlTray::OpenNewEditor`).
 pub(crate) fn open_startup_windows(cx: &mut App, paths: Vec<PathBuf>) -> gpui::Result<()> {
     if paths.is_empty() {
         open_editor_window(cx, SharedDocument::empty(), None)?;
     }
+    let new_window = crate::tabs::settings::current(cx).new_window;
+    let mut first: Option<AnyWindowHandle> = None;
     for path in paths {
         if find_open(cx, &path).is_some() {
             continue;
@@ -213,15 +358,44 @@ pub(crate) fn open_startup_windows(cx: &mut App, paths: Vec<PathBuf>) -> gpui::R
             path,
             encoding: None,
         };
-        open_editor_window(cx, SharedDocument::empty(), Some(load))?;
+        match first {
+            Some(from) => {
+                crate::tabs::flows::open_document(
+                    cx,
+                    None,
+                    from,
+                    new_window,
+                    SharedDocument::empty(),
+                    Some(load),
+                )?;
+            }
+            None => first = Some(open_editor_window(cx, SharedDocument::empty(), Some(load))?),
+        }
     }
     Ok(())
 }
 
-/// Whether the window is still reading a file into its document.
+/// Whether a view of the window is still reading a file into its document.
 pub(crate) fn has_pending(cx: &mut App, handle: AnyWindowHandle) -> bool {
     cx.default_global::<EditorWindows>()
         .pending
         .iter()
-        .any(|(h, _)| *h == handle)
+        .any(|(h, _, _, _)| *h == handle)
+}
+
+/// Whether this view, or another pane of its document, is still reading a file into the
+/// document. The view is read, so it must not be borrowed; [`is_pending_document`] does not.
+pub(crate) fn is_pending(cx: &mut App, view: &WeakEntity<EditorView>) -> bool {
+    match view.upgrade().map(|v| v.read(cx).document().entity_id()) {
+        Some(document) => is_pending_document(cx, document),
+        None => false,
+    }
+}
+
+/// Whether a file is still being read into the document.
+pub(crate) fn is_pending_document(cx: &mut App, document: gpui::EntityId) -> bool {
+    cx.default_global::<EditorWindows>()
+        .pending
+        .iter()
+        .any(|(_, _, d, _)| *d == document)
 }

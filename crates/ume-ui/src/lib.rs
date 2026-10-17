@@ -43,6 +43,7 @@ pub mod segments;
 pub mod settings;
 pub mod status;
 mod support;
+mod tabs;
 pub mod ui_command;
 mod ui_commands;
 pub mod view;

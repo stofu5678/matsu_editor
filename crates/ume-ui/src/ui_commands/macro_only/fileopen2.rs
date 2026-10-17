@@ -5,8 +5,8 @@
 //! name to none. `CViewCommander::Command_FILEOPEN` (`sakura_core/cmd/CViewCommander_File.cpp`)
 //! turns a number that is not an encoding into auto detection, and shows the open dialog when the
 //! file name is empty. The file opens as `F_FILEOPEN` does (the first in this window when it is
-//! untitled and unmodified, else in a new window; a file that is open already is brought to the
-//! front), and in view mode when the third argument is not 0.
+//! untitled and unmodified, else in a new window, or a new tab in tab mode; a file that is open already is brought to
+//! the front), and in view mode when the third argument is not 0.
 //!
 //! # The macro waits when the file goes into this window
 //!
@@ -69,7 +69,7 @@ impl UiCommand for FileOpen2 {
             ));
         }
         if let Some(path) = &path
-            && goes_into_this_window(view, window, path, cx)
+            && goes_into_this_window(view, path, cx)
             && read_here(view, path, encoding, view_mode, window, cx)
         {
             return Ok(());
@@ -102,15 +102,9 @@ impl UiCommand for FileOpen2 {
 
 /// Whether `path` is read into this window: it is not open anywhere, and this window is
 /// untitled, unmodified and not busy reading another file (`CLoadAgent::OnCheckLoad`).
-fn goes_into_this_window(
-    view: &EditorView,
-    window: &Window,
-    path: &Path,
-    cx: &mut Context<EditorView>,
-) -> bool {
-    let handle = window.window_handle();
+fn goes_into_this_window(view: &EditorView, path: &Path, cx: &mut Context<EditorView>) -> bool {
     windows::find_open(cx, path).is_none()
-        && !windows::has_pending(cx, handle)
+        && !windows::is_pending_document(cx, view.document.entity_id())
         && view.accepts_load(cx)
 }
 

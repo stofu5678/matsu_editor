@@ -3,7 +3,8 @@
 //! Sakura: `CViewCommander::Command_TAB_CLOSEOTHER` (`sakura_core/cmd/CViewCommander_Window.cpp`)
 //! asks every window of the group except this one to close with `RequestCloseEditor`, so each
 //! window with changes asks "save?" and "cancel" stops it. Without tabs all windows are in one
-//! group. The window that runs the command stays.
+//! group. The window that runs the command stays. In tab mode the group is this window: the
+//! other tabs close and this one stays (`crate::tabs::flows::group_views`).
 
 use crate::file_ops::start;
 use crate::ui_command::{UiCommand, register_ui_command};

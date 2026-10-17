@@ -12,7 +12,7 @@ use ume_core::encoding::Encoding;
 use ume_core::file::{FileError, TextFile};
 
 use super::ask::{confirm, document_title, open_error_message, reload_message, tell};
-use super::windows::{self, LoadRequest, open_editor_window};
+use super::windows::{self, LoadRequest};
 use crate::document::SharedDocument;
 use crate::history::view::{code_change_message, encoding_of, remembered};
 use crate::open::open_text_file;
@@ -148,7 +148,7 @@ pub(crate) async fn load_here(
         .ok();
     let handle = cx.window_handle();
     let reading = path.to_owned();
-    cx.update(|_, app| windows::begin_pending(app, handle, reading))
+    cx.update(|_, app| windows::begin_pending(app, handle, view, reading))
         .ok();
     let previous = if restore.is_none() {
         cx.update(|_, app| remembered(app, path)).ok().flatten()
@@ -164,8 +164,7 @@ pub(crate) async fn load_here(
             error => error,
         };
     }
-    cx.update(|_, app| windows::finish_pending(app, handle))
-        .ok();
+    cx.update(|_, app| windows::finish_pending(app, view)).ok();
     match result {
         Ok(file) => {
             let mut shared = SharedDocument::from_text_file(file);
@@ -222,9 +221,8 @@ pub(crate) async fn open_paths(
 ) {
     // A window that is still reading a file is not free for another one: both reads would
     // target the same document, and the slower one would be dropped.
-    let handle = cx.window_handle();
     let reading = cx
-        .update(|_, app| windows::has_pending(app, handle))
+        .update(|_, app| windows::is_pending(app, view))
         .unwrap_or(true);
     let mut here = !reading
         && view
@@ -232,11 +230,12 @@ pub(crate) async fn open_paths(
             .unwrap_or(false);
     for path in paths {
         let existing = cx
-            .update(|_, app| windows::find_open(app, &path).map(|(h, _)| h))
+            .update(|_, app| windows::find_open(app, &path))
             .ok()
             .flatten();
-        if let Some(handle) = existing {
-            cx.update(|_, app| windows::activate(app, handle)).ok();
+        if let Some((handle, found)) = existing {
+            cx.update(|_, app| crate::tabs::flows::reveal(app, handle, found))
+                .ok();
             continue;
         }
         if here {
@@ -244,8 +243,18 @@ pub(crate) async fn open_paths(
             load_here(view, cx, &path, encoding, None).await;
         } else {
             let request = LoadRequest { path, encoding };
-            cx.update(|_, app| {
-                open_editor_window(app, SharedDocument::empty(), Some(request)).ok();
+            // A new tab of this window in tab mode, else a new window (`OpenNewEditor`).
+            cx.update(|window, app| {
+                let from = window.window_handle();
+                crate::tabs::flows::open_document(
+                    app,
+                    Some(window),
+                    from,
+                    false,
+                    SharedDocument::empty(),
+                    Some(request),
+                )
+                .ok();
             })
             .ok();
         }

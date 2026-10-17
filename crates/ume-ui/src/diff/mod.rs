@@ -27,10 +27,11 @@ mod tests;
 
 use std::path::{Path, PathBuf};
 
-use gpui::{AnyWindowHandle, App, Entity, Global};
+use gpui::{AnyWindowHandle, App, Entity, EntityId, Global};
 use ume_core::encoding::Encoding;
 
 use crate::file_ops::windows::editors;
+use crate::view::EditorView;
 use crate::window_ops::list::label;
 
 use self::compare::ComparePanel;
@@ -81,30 +82,55 @@ pub(crate) fn remember(cx: &mut App, value: Remembered) {
 pub(crate) enum Target {
     /// A file (外部ファイルを指定).
     File(PathBuf),
-    /// Another editor window (他の編集中のファイル).
-    Window(AnyWindowHandle),
+    /// Another document that is open (他の編集中のファイル): a window, or a tab of one.
+    Window(DocRef),
 }
 
-/// An editor window that can be the other side, as the lists of the dialogs show it.
+/// An open document: its window, and the document itself. A window with tabs has several, so the
+/// window alone does not say which one is meant; the document stays the same when the user
+/// changes panes or the tab moves to another window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct DocRef {
+    pub(crate) handle: AnyWindowHandle,
+    pub(crate) document: EntityId,
+}
+
+/// The view that opened a dialog and its document, which are not candidates for the other side.
+/// The view may be borrowed while the dialog opens, so it is skipped by its id, not read.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Owner {
+    pub(crate) view: EntityId,
+    pub(crate) document: EntityId,
+}
+
+/// A document that can be the other side, as the lists of the dialogs show it.
 #[derive(Clone)]
 pub(crate) struct Candidate {
-    pub(crate) handle: AnyWindowHandle,
+    pub(crate) doc: DocRef,
     /// The label of the window list: the number, the name, ` *` when modified and the encoding.
     pub(crate) label: String,
     pub(crate) path: Option<PathBuf>,
     pub(crate) encoding: Encoding,
 }
 
-/// The editor windows but `owner`, in the order of the window list (whose numbers the labels use).
-pub(crate) fn candidates(cx: &mut App, owner: AnyWindowHandle) -> Vec<Candidate> {
+/// The open documents but the document of `owner`, in the order of the window list (whose numbers the
+/// labels use).
+pub(crate) fn candidates(cx: &mut App, owner: Owner) -> Vec<Candidate> {
     editors(cx)
         .into_iter()
         .enumerate()
-        .filter(|(_, (handle, _))| *handle != owner)
+        .filter(|(_, (_, view))| {
+            view.entity_id() != owner.view && view.read(cx).document().entity_id() != owner.document
+        })
         .map(|(i, (handle, view))| {
-            let shared = view.read(cx).document().read(cx);
-            Candidate {
+            let document = view.read(cx).document();
+            let doc = DocRef {
                 handle,
+                document: document.entity_id(),
+            };
+            let shared = document.read(cx);
+            Candidate {
+                doc,
                 label: label(
                     i,
                     shared.path(),
@@ -116,6 +142,18 @@ pub(crate) fn candidates(cx: &mut App, owner: AnyWindowHandle) -> Vec<Candidate>
             }
         })
         .collect()
+}
+
+/// The window and the view of the open document `doc`. `this` is the view that asks, which is
+/// borrowed and so is not read.
+pub(crate) fn find_document(
+    cx: &mut App,
+    this: EntityId,
+    doc: DocRef,
+) -> Option<(AnyWindowHandle, Entity<EditorView>)> {
+    editors(cx).into_iter().find(|(_, view)| {
+        view.entity_id() != this && view.read(cx).document().entity_id() == doc.document
+    })
 }
 
 /// The length of the longest part that two names have in common, ignoring case

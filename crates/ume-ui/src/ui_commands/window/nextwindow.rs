@@ -23,11 +23,19 @@ impl UiCommand for Nextwindow {
 
     fn run(
         &self,
-        _view: &mut EditorView,
+        view: &mut EditorView,
         _: &[Arg],
         window: &mut Window,
         cx: &mut Context<EditorView>,
     ) -> Result {
+        // In tab mode the group is this window, and its windows are the tabs
+        // (`ActiveNextWindow` / `ActivePrevWindow` walk the windows of the group).
+        if crate::tabs::settings::current(cx).bound() {
+            return view.with_workspace(window, cx, |ws, window, cx| {
+                let to = crate::tabs::order::next_tab(ws.active_tab(), ws.tab_count());
+                ws.activate_tab(to, window, cx);
+            });
+        }
         let current = window.window_handle();
         let all = all_handles(cx);
         if let Some(target) = window_after(&all, current, Direction::Next) {

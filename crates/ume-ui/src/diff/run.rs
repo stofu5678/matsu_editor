@@ -17,8 +17,7 @@ use ume_core::diff::{DiffOptions, Hunk, diff_lines};
 use ume_core::file::no_progress;
 use ume_core::model::eol_text;
 
-use super::Target;
-use crate::file_ops::windows::editors;
+use super::{Target, find_document};
 use crate::open::open_text_file;
 use crate::settings::new_document_defaults;
 use crate::view::EditorView;
@@ -112,10 +111,9 @@ impl EditorView {
         let epoch = self.document.read(cx).model().diff_marks().epoch();
         let version = (version, epoch);
         match target {
-            Target::Window(handle) => {
-                let other = editors(cx)
-                    .into_iter()
-                    .find(|(h, _)| *h == handle)
+            Target::Window(doc) => {
+                let this = cx.entity_id();
+                let other = find_document(cx, this, doc)
                     .map(|(_, view)| document_lines(view.read(cx).document().read(cx).doc()));
                 match other {
                     Some(Ok(lines)) => self.diff_with_lines(lines, flags, version, window, cx),
