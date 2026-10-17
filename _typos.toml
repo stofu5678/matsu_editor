@@ -22,6 +22,12 @@ extend-exclude = [
 # cpy: a COBOL copybook extension in the built-in document type (sakura_core/types/CType_Cobol.cpp).
 cpy = "cpy"
 
+# mak: the extension of makefiles in the table of ctags kinds (CDlgTagJumpList.cpp).
+mak = "mak"
+
+# fo: the start of "foo" in the tag jump tests (a keyword that is searched by its beginning).
+fo = "fo"
+
 # bb.edn: Babashka's config file (EDN, the Extensible Data Notation of Clojure).
 edn = "edn"
 

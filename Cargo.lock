@@ -7371,6 +7371,7 @@ version = "0.0.0"
 dependencies = [
  "encoding_rs",
  "similar",
+ "tempfile",
 ]
 
 [[package]]
