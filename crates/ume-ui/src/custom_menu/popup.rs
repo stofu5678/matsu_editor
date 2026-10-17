@@ -36,6 +36,8 @@ pub(crate) struct CustomMenuState {
 struct OpenPopup {
     popup: Entity<PopupMenu>,
     at: Point<Pixels>,
+    /// The height of the window that the popup was sized for.
+    window_height: Pixels,
     _dismiss: Subscription,
 }
 
@@ -111,6 +113,7 @@ impl EditorView {
         self.custom_menu.open = Some(OpenPopup {
             popup,
             at,
+            window_height: window.viewport_size().height,
             _dismiss: dismiss,
         });
         cx.notify();
@@ -134,8 +137,21 @@ impl EditorView {
             })
     }
 
-    /// The popup, to be a child of the view while it is open.
-    pub(crate) fn custom_menu_popup(&self) -> Option<AnyElement> {
+    /// The popup, to be a child of the view while it is open. A menu of Sakura is modal and a resize of the
+    /// window ends it; the popup is sized for the window it opened in, so it closes when the height changes.
+    pub(crate) fn custom_menu_popup(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        if self
+            .custom_menu
+            .open
+            .as_ref()
+            .is_some_and(|o| o.window_height != window.viewport_size().height)
+        {
+            self.close_custom_menu(window, cx);
+        }
         let open = self.custom_menu.open.as_ref()?;
         Some(
             deferred(

@@ -730,7 +730,7 @@ impl Render for EditorView {
             .children(self.diff.panel.clone())
             .children(self.diff.compare.clone())
             .children(self.doc_type.list.clone())
-            .children(self.custom_menu_popup())
+            .children(self.custom_menu_popup(window, cx))
             // Above the window list: Save from the list can ask for the options.
             .children(self.save_as_dialog.clone())
             .into_any_element()

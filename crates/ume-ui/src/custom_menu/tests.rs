@@ -465,6 +465,17 @@ fn escape_closes_the_menu_and_changes_nothing(cx: &mut TestAppContext) {
 
 // A key macro records the function that was chosen, not the menu that showed it (`F_MENU_RBUTTON` and
 // `F_CUSTMENU_n` are not key macro functions in `CanFuncIsKeyMacro`).
+// A menu of Sakura is modal, and the popup is sized for the window it opened in: a resize closes it.
+#[gpui::test]
+fn resizing_the_window_closes_the_menu(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, SELECT_ALL_MENU, "abc");
+    cx.dispatch_action(RunFunction { code: 31502 });
+    assert!(f.is_open(cx));
+    cx.simulate_resize(gpui::size(gpui::px(500.), gpui::px(300.)));
+    cx.run_until_parked();
+    assert!(!f.is_open(cx));
+}
+
 #[gpui::test]
 fn a_key_macro_records_the_chosen_function(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, SELECT_ALL_MENU, "abc");
