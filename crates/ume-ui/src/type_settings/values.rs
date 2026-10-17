@@ -462,6 +462,13 @@ pub(super) fn store(v: &Values, original: &TypeSettings) -> TypeSettings {
 /// changed the type while the sheet was open, its other changes stay.
 pub(super) fn merge(base: &TypeSettings, old: &TypeSettings, new: &TypeSettings) -> TypeSettings {
     let mut out = base.clone();
+    macro_rules! take_field {
+        ($target:ident, $before:ident, $after:ident, $($field:ident),*) => {
+            $(if $after.$field != $before.$field {
+                $target.$field = $after.$field;
+            })*
+        };
+    }
     macro_rules! take {
         ($($field:ident),* $(,)?) => {
             $(if new.$field != old.$field {
@@ -498,11 +505,14 @@ pub(super) fn merge(base: &TypeSettings, old: &TypeSettings, new: &TypeSettings)
             out.line_comments[i] = new.line_comments[i].clone();
         }
     }
+    // A color item: each of its five values on its own.
     for name in ColorSet::all_names() {
-        if new.colors.get(name) != old.colors.get(name)
-            && let (Some(entry), Some(target)) = (new.colors.get(name), out.colors.get_mut(name))
-        {
-            *target = *entry;
+        if let (Some(before), Some(after), Some(target)) = (
+            old.colors.get(name),
+            new.colors.get(name),
+            out.colors.get_mut(name),
+        ) {
+            take_field!(target, before, after, disp, bold, underline, text, back);
         }
     }
     out

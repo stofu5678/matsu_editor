@@ -647,6 +647,47 @@ fn a_tab_width_the_reader_would_change_is_put_into_its_range_at_once(cx: &mut Te
 }
 
 #[gpui::test]
+fn new_file_keys_the_user_did_not_change_stay_as_the_file_has_them(cx: &mut TestAppContext) {
+    // `eDefaultEoltype=0` is "no conversion": the type has the line ending of the basic type.
+    // `eDefaultCodetype=936` is a code page, which the list of the sheet does not have.
+    let ini_text = "[Types(0)]\r\neDefaultEoltype=2\r\n[Types(2)]\r\neDefaultEoltype=0\r\neDefaultCodetype=936\r\n";
+    let (ini, a) = setup(cx, ini_text);
+    run(cx, a, "F_CHANGETYPE", &[Arg::Int(3)]);
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    type_in(cx, TAB_SPACE, "7");
+    ok(cx);
+    assert_eq!(ints(&ini, 2)[3], 7);
+    assert_eq!(ini.get("Types(2)", "eDefaultEoltype").as_deref(), Some("0"));
+    assert_eq!(
+        ini.get("Types(2)", "eDefaultCodetype").as_deref(),
+        Some("936")
+    );
+    assert_eq!(ini.get("Types(2)", "bDefaultBom"), None);
+}
+
+#[gpui::test]
+fn the_values_of_a_color_item_are_merged_one_by_one(cx: &mut TestAppContext) {
+    let (ini, a) = setup(cx, "");
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    with_dialog(cx, |d, _, dcx| d.select_index(1, dcx));
+    let item = ColorSet::all_names().position(|n| n == "CMT").unwrap();
+    choose(cx, COLOR_SEL, i32::try_from(item).unwrap());
+    color(cx, COLOR_TEXT, 0x0000ff);
+    // Another process makes the same item bold and underlined meanwhile.
+    let mut profile = ini.profile();
+    profile
+        .set("Types(0)", "C[CMT]", "1,1,008000,f0fbff,1")
+        .unwrap();
+    profile.save(&ini.path).unwrap();
+    ok(cx);
+    assert_eq!(
+        ini.get("Types(0)", "C[CMT]").as_deref(),
+        Some("1,1,0000ff,f0fbff,1"),
+        "the new text color of the user, the bold and underline of the other"
+    );
+}
+
+#[gpui::test]
 fn what_another_process_changed_meanwhile_stays(cx: &mut TestAppContext) {
     let (ini, a) = setup(cx, "[Types(0)]\r\nbAutoIndent=1\r\nnLineSpace=3\r\n");
     run(cx, a, "F_OPTION_TYPE", &[]);

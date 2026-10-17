@@ -295,21 +295,42 @@ fn write_type(
     let base = values::shown_type(&types, profile, target.index)
         .unwrap_or_else(|| (*target.original).clone());
     let merged = values::merge(&base, &target.original, new);
-    // The keys of the file as it is now.
-    let now = TypeSettings::new_file_keys(profile, number);
+    let section = TypeSettings::section_name(number);
+    // The new-file keys as the file has them now, to put back the ones the user did not change:
+    // a key that is not there, or says "like the basic type" (`eDefaultEoltype=0`) or an encoding
+    // UME Editor does not have, stays as it is.
+    let raw = |key: &str| profile.get(&section, key).map(str::to_owned);
+    let kept = [
+        (
+            "eDefaultCodetype",
+            merged.default_codetype == base.default_codetype,
+            raw("eDefaultCodetype"),
+        ),
+        (
+            "eDefaultEoltype",
+            merged.default_eoltype == base.default_eoltype,
+            raw("eDefaultEoltype"),
+        ),
+        (
+            "bDefaultBom",
+            merged.default_bom == base.default_bom,
+            raw("bDefaultBom"),
+        ),
+    ];
     merged.write(profile, number)?;
     if target.unused_slot {
         return Ok(());
     }
-    let section = TypeSettings::section_name(number);
-    if now.codetype.is_none() && merged.default_codetype == base.default_codetype {
-        profile.remove(&section, "eDefaultCodetype");
-    }
-    if now.eoltype.is_none() && merged.default_eoltype == base.default_eoltype {
-        profile.remove(&section, "eDefaultEoltype");
-    }
-    if now.bom.is_none() && merged.default_bom == base.default_bom {
-        profile.remove(&section, "bDefaultBom");
+    for (key, unchanged, before) in kept {
+        if !unchanged {
+            continue;
+        }
+        match before {
+            Some(text) => profile.set(&section, key, &text)?,
+            None => {
+                profile.remove(&section, key);
+            }
+        }
     }
     Ok(())
 }
