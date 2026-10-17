@@ -383,9 +383,14 @@ pub(crate) fn open_from_outside(cx: &mut App, paths: Vec<PathBuf>) -> gpui::Resu
     if paths.is_empty() {
         return open(cx, None);
     }
-    for path in paths {
+    let count = paths.len();
+    for (i, path) in paths.into_iter().enumerate() {
         if let Some((handle, found)) = find_open(cx, &path) {
-            crate::tabs::flows::reveal(cx, handle, found);
+            // `reveal` acts later than opening does, so only the last file of the request may use
+            // it: the others would come to the front after the document opened after them.
+            if i + 1 == count {
+                crate::tabs::flows::reveal(cx, handle, found);
+            }
             continue;
         }
         open(
