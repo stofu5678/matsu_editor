@@ -117,7 +117,7 @@ impl EditorView {
                     .map(|(_, view)| document_lines(view.read(cx).document().read(cx).doc()));
                 match other {
                     Some(Ok(lines)) => {
-                        let tracked = crate::macros::track(cx, window);
+                        let tracked = crate::macros::track(cx);
                         self.diff_with_lines(lines, flags, version, tracked, window, cx)
                     }
                     Some(Err(e)) => self.warning_box(&failed(&e.to_string()), window, cx),
@@ -130,7 +130,7 @@ impl EditorView {
                     self.warning_box(FILE_NOT_FOUND, window, cx);
                     return;
                 }
-                let mut tracked = crate::macros::track(cx, window);
+                let mut tracked = crate::macros::track(cx);
                 cx.spawn_in(window, async move |this, cx| {
                     let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
                     let defaults = cx

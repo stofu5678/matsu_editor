@@ -1150,3 +1150,5 @@ fn the_extension_functions_use_the_document_types(cx: &mut TestAppContext) {
 }
 
 mod wait_tests;
+
+mod wait_tab_tests;

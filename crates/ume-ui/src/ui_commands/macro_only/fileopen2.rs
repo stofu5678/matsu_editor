@@ -118,7 +118,9 @@ impl UiCommand for FileOpen2 {
 /// Whether `path` is read into this window: it is not open anywhere, and this window is
 /// untitled, unmodified and not busy reading another file (`CLoadAgent::OnCheckLoad`).
 fn goes_into_this_window(view: &EditorView, path: &Path, cx: &mut Context<EditorView>) -> bool {
-    windows::find_open(cx, path).is_none()
+    // this view is being updated: it is not read (it is untitled anyway, see `accepts_load`)
+    let me = cx.entity_id();
+    windows::find_open_except(cx, path, Some(me)).is_none()
         && !windows::is_pending_document(cx, view.document.entity_id())
         && view.accepts_load(cx)
 }

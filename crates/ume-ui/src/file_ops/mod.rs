@@ -46,7 +46,7 @@ where
     F: AsyncFnOnce(WeakEntity<EditorView>, &mut AsyncWindowContext) + 'static,
 {
     // A macro that called the command waits until the flow ends (`macros::wait`).
-    let tracked = crate::macros::track(cx, window);
+    let tracked = crate::macros::track(cx);
     cx.spawn_in(window, async move |view, cx| {
         let _tracked = tracked;
         flow(view, cx).await;

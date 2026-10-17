@@ -37,11 +37,11 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 
-use gpui::{AnyWindowHandle, App, Context, Global, Window};
+use gpui::{AnyWindowHandle, App, AsyncApp, Context, EntityId, Global, WeakEntity, Window};
 use ume_commands::command::Arg;
 
 use super::EditorView;
-use crate::file_ops::windows::{editors, has_pending};
+use crate::file_ops::windows::{editors, find_tab_of, is_pending_document};
 
 /// How often a waiting macro looks again. A change of the windows has no event to wait for.
 const POLL: Duration = Duration::from_millis(25);
@@ -62,11 +62,11 @@ const GREP_RUNNING: u32 = 1 << 11;
 const LOADING: u32 = 1 << 12;
 const PRINTING: u32 = 1 << 13;
 
-/// The flows that the call of a macro starts in each window, from the call until its wait is over:
+/// The flows that the call of a macro starts in each view, from the call until its wait is over:
 /// [`track`] counts them. The work that the user starts meanwhile (the OK of a dialog that the
 /// call opened) belongs to the call as well, so the entry stays while the macro waits.
 #[derive(Default)]
-struct Armed(HashMap<AnyWindowHandle, Rc<Cell<usize>>>);
+struct Armed(HashMap<EntityId, Rc<Cell<usize>>>);
 
 impl Global for Armed {}
 
@@ -81,13 +81,11 @@ impl Drop for FlowGuard {
 }
 
 /// Call this where a UI command starts work that outlives the call, and hold the result until
-/// the work ends. Gives `None` when no macro waits for `window`, which waits for nothing.
-pub(crate) fn track(cx: &App, window: &Window) -> Option<FlowGuard> {
-    let counter = cx
-        .try_global::<Armed>()?
-        .0
-        .get(&window.window_handle())?
-        .clone();
+/// the work ends. Gives `None` when no macro waits for this view, which waits for nothing. The
+/// view is the one the macro is bound to: the tab it started in (Sakura: its `CEditView`), wherever
+/// that tab is shown.
+pub(crate) fn track(cx: &Context<EditorView>) -> Option<FlowGuard> {
+    let counter = cx.try_global::<Armed>()?.0.get(&cx.entity_id())?.clone();
     counter.set(counter.get() + 1);
     Some(FlowGuard(counter))
 }
@@ -97,13 +95,13 @@ pub(crate) fn track(cx: &App, window: &Window) -> Option<FlowGuard> {
 /// answer is dropped, as before.
 pub(crate) fn keep_box(
     answer: impl std::future::Future + 'static,
-    window: &mut Window,
+    _window: &mut Window,
     cx: &mut Context<EditorView>,
 ) {
-    let Some(tracked) = track(cx, window) else {
+    let Some(tracked) = track(cx) else {
         return;
     };
-    cx.spawn_in(window, async move |_, _| {
+    cx.spawn(async move |_, _| {
         answer.await;
         drop(tracked);
     })
@@ -117,24 +115,46 @@ pub(crate) struct Wait {
     baseline: u32,
     /// What the call opened, so far.
     watched: u32,
-    /// The editor windows that were there before the call.
-    windows: Vec<AnyWindowHandle>,
+    /// The documents (tabs) that were open before the call.
+    documents: Vec<EntityId>,
     /// Which wait this is; a newer one, or a cancel, makes it stale.
     epoch: u64,
 }
 
-/// The call of a macro in `window` is over: its flows are no longer counted (unless a newer call
-/// has taken the place).
-fn disarm(cx: &mut App, window: AnyWindowHandle, flows: &Rc<Cell<usize>>) {
+/// The call of a macro in `view` is over: its flows are no longer counted (unless a newer call has
+/// taken the place).
+fn disarm(cx: &mut App, view: EntityId, flows: &Rc<Cell<usize>>) {
     let armed = cx.default_global::<Armed>();
-    if armed.0.get(&window).is_some_and(|f| Rc::ptr_eq(f, flows)) {
-        armed.0.remove(&window);
+    if armed.0.get(&view).is_some_and(|f| Rc::ptr_eq(f, flows)) {
+        armed.0.remove(&view);
     }
+}
+
+/// Runs `f` on the view with the window that shows its tab now. A macro belongs to the tab, not to
+/// the window it started in: the tab may be moved to another window (`F_TAB_SEPARATE`,
+/// `F_TAB_JOINTNEXT`) and the first window may close. `fallback` is the window to use when the
+/// view is in no tab (a view that no workspace holds). `None` when the view or the window is gone
+/// (the tab was closed): the caller ends its wait.
+pub(crate) fn follow<R>(
+    this: &WeakEntity<EditorView>,
+    fallback: AnyWindowHandle,
+    cx: &mut AsyncApp,
+    f: impl FnOnce(&mut EditorView, &mut Window, &mut Context<EditorView>) -> R,
+) -> Option<R> {
+    let entity = this.upgrade()?;
+    let handle = cx
+        .update(|app| find_tab_of(app, this))
+        .map_or(fallback, |(handle, _)| handle);
+    handle
+        .update(cx, |_, window, app| {
+            entity.update(app, |view, cx| f(view, window, cx))
+        })
+        .ok()
 }
 
 impl EditorView {
     /// What is open or running in this window now.
-    fn activity(&self, window: &Window, cx: &mut Context<Self>) -> u32 {
+    fn activity(&self, cx: &mut Context<Self>) -> u32 {
         let flags = [
             (self.panel.is_some(), SEARCH_PANEL),
             (self.grep.panel.is_some(), GREP_PANEL),
@@ -148,7 +168,7 @@ impl EditorView {
             (self.print.preview.is_some(), PRINT_PREVIEW),
             (crate::history::dialog::is_open(cx), FAVORITE_DIALOG),
             (self.grep.is_running(), GREP_RUNNING),
-            (has_pending(cx, window.window_handle()), LOADING),
+            (is_pending_document(cx, self.document.entity_id()), LOADING),
             (self.is_printing(), PRINTING),
         ];
         flags
@@ -168,44 +188,63 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) -> (bool, Option<Wait>) {
         let flows = Rc::new(Cell::new(0));
-        let me = window.window_handle();
+        let me = cx.entity_id();
         cx.default_global::<Armed>().0.insert(me, flows.clone());
         let mut wait = Wait {
             flows,
-            baseline: self.activity(window, cx),
+            baseline: self.activity(cx),
             watched: 0,
-            windows: editors(cx).into_iter().map(|(h, _)| h).collect(),
+            documents: self.open_tabs(cx).into_iter().map(|(d, _, _)| d).collect(),
             epoch: 0,
         };
-        wait.windows.push(me);
         let ok = self.run_function(code, args, window, cx);
-        let waits = ok && !self.is_settled(&mut wait, window, cx);
+        let waits = ok && !self.is_settled(&mut wait, cx);
         if !waits {
             disarm(cx, me, &wait.flows);
         }
         (ok, waits.then_some(wait))
     }
 
+    /// The open tabs: the document of each, whether it is still being read into, and whether a
+    /// Grep runs in it. This view stands for its own tab (it may be borrowed, so it is not read).
+    fn open_tabs(&self, cx: &mut Context<Self>) -> Vec<(EntityId, bool, bool)> {
+        let me = cx.entity_id();
+        let mut tabs = vec![(
+            self.document.entity_id(),
+            is_pending_document(cx, self.document.entity_id()),
+            self.grep.is_running(),
+        )];
+        for (_, view) in editors(cx) {
+            if view.entity_id() == me {
+                continue;
+            }
+            let view = view.read(cx);
+            let document = view.document().entity_id();
+            if document != tabs[0].0 {
+                let grep = view.is_grep_running();
+                tabs.push((document, is_pending_document(cx, document), grep));
+            }
+        }
+        tabs
+    }
+
     /// Whether everything the call left behind is over.
-    fn is_settled(&self, wait: &mut Wait, window: &Window, cx: &mut Context<Self>) -> bool {
+    fn is_settled(&self, wait: &mut Wait, cx: &mut Context<Self>) -> bool {
         if wait.flows.get() > 0 {
             return false;
         }
-        let now = self.activity(window, cx);
+        let now = self.activity(cx);
         wait.watched |= now & !wait.baseline;
         if wait.watched & now != 0 {
             return false;
         }
-        // The windows that the call opened: a file that is read into one, a Grep that runs in one.
-        for (handle, view) in editors(cx) {
-            if wait.windows.contains(&handle) {
-                continue;
-            }
-            if has_pending(cx, handle) || view.read(cx).is_grep_running() {
-                return false;
-            }
-        }
-        true
+        // The tabs (windows) that the call opened: a file that is read into one, a Grep that runs
+        // in one.
+        self.open_tabs(cx)
+            .into_iter()
+            .all(|(document, pending, grep)| {
+                wait.documents.contains(&document) || !(pending || grep)
+            })
     }
 
     /// Waits for `wait` in this window, and then runs `done` (not when the macro was stopped
@@ -220,27 +259,29 @@ impl EditorView {
         self.macros.epoch += 1;
         wait.epoch = self.macros.epoch;
         self.macros.waiting = Some(wait.epoch);
-        cx.spawn_in(window, async move |this, cx| {
+        let fallback = window.window_handle();
+        cx.spawn(async move |this, cx| {
             let mut done = Some(done);
             loop {
                 cx.background_executor().timer(POLL).await;
-                let finished = this.update_in(cx, |this, window, cx| {
+                let finished = follow(&this, fallback, cx, |this, window, cx| {
+                    let me = cx.entity_id();
                     // Stopped, or another wait began: nothing to do.
                     if this.macros.waiting != Some(wait.epoch) {
-                        disarm(cx, window.window_handle(), &wait.flows);
+                        disarm(cx, me, &wait.flows);
                         return true;
                     }
-                    if !this.is_settled(&mut wait, window, cx) {
+                    if !this.is_settled(&mut wait, cx) {
                         return false;
                     }
                     this.macros.waiting = None;
-                    disarm(cx, window.window_handle(), &wait.flows);
+                    disarm(cx, me, &wait.flows);
                     if let Some(done) = done.take() {
                         done(this, window, cx);
                     }
                     true
                 });
-                // An error is a window that is gone.
+                // `None`: the tab was closed, and the macro with it.
                 if finished.unwrap_or(true) {
                     break;
                 }

@@ -181,9 +181,11 @@ impl EditorView {
         cx: &mut Context<Self>,
         answer: impl Future<Output = Result<Value, String>> + 'static,
     ) {
-        cx.spawn_in(window, async move |this, cx| {
+        // The macro belongs to its tab: the answer goes to the window that shows it now.
+        let fallback = window.window_handle();
+        cx.spawn(async move |this, cx| {
             let result = answer.await;
-            this.update_in(cx, |this, window, cx| {
+            super::follow(&this, fallback, cx, |this, window, cx| {
                 let value = match result {
                     Ok(value) => value,
                     Err(message) => {
@@ -197,8 +199,7 @@ impl EditorView {
                     running.session.send(pending.reply(value));
                     running.session.release();
                 }
-            })
-            .ok();
+            });
         })
         .detach();
     }

@@ -283,12 +283,24 @@ pub(crate) fn find_open(
     cx: &mut App,
     path: &Path,
 ) -> Option<(AnyWindowHandle, Entity<EditorView>)> {
+    find_open_except(cx, path, None)
+}
+
+/// Like [`find_open`], without looking at the view `skip`: for a command that runs in that view,
+/// which is being updated and cannot be read.
+pub(crate) fn find_open_except(
+    cx: &mut App,
+    path: &Path,
+    skip: Option<gpui::EntityId>,
+) -> Option<(AnyWindowHandle, Entity<EditorView>)> {
     let found = editors(cx).into_iter().find(|(_, view)| {
-        view.read(cx)
-            .document()
-            .read(cx)
-            .path()
-            .is_some_and(|open| same_file(open, path))
+        Some(view.entity_id()) != skip
+            && view
+                .read(cx)
+                .document()
+                .read(cx)
+                .path()
+                .is_some_and(|open| same_file(open, path))
     });
     found.or_else(|| {
         let pending = cx

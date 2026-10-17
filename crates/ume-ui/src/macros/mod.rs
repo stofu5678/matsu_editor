@@ -57,7 +57,7 @@ use crate::view::EditorView;
 use output::PanelActions;
 
 pub(crate) use output::{Kind, Output};
-pub(crate) use wait::{FlowGuard, keep_box, track};
+pub(crate) use wait::{FlowGuard, follow, keep_box, track};
 
 /// `F_WCHAR`, the function of a typed character (`Char` in a macro).
 pub(crate) const F_WCHAR: u16 = 30200;
@@ -335,11 +335,12 @@ impl EditorView {
             .name(Some("RecKey.mac".to_owned()))
             .titled("キーマクロの保存", "保存");
         let answer = file_dialog::ask(window, cx, ask);
-        let tracked = track(cx, window);
-        cx.spawn_in(window, async move |this, cx| {
+        let tracked = track(cx);
+        let fallback = window.window_handle();
+        cx.spawn(async move |this, cx| {
             let _tracked = tracked;
             let answer = answer.await;
-            this.update_in(cx, |this, window, cx| match answer {
+            follow(&this, fallback, cx, |this, window, cx| match answer {
                 Ok(Some(paths)) => {
                     if let Some(path) = paths.last()
                         && let Err(message) = this.save_key_macro_to(path)
@@ -349,8 +350,7 @@ impl EditorView {
                 }
                 Err(error) => this.macro_failed(dialog_error(&error), window, cx),
                 Ok(None) => {}
-            })
-            .ok();
+            });
         })
         .detach();
     }
@@ -387,11 +387,12 @@ impl EditorView {
             .start(file_dialog::macro_folder(cx))
             .titled("キーマクロの読み込み", "読み込み");
         let answer = file_dialog::ask(window, cx, ask);
-        let tracked = track(cx, window);
-        cx.spawn_in(window, async move |this, cx| {
+        let tracked = track(cx);
+        let fallback = window.window_handle();
+        cx.spawn(async move |this, cx| {
             let _tracked = tracked;
             let answer = answer.await;
-            this.update_in(cx, |this, window, cx| match answer {
+            follow(&this, fallback, cx, |this, window, cx| match answer {
                 Ok(Some(mut paths)) => {
                     if let Some(path) = paths.pop() {
                         this.macros.current = Some(CurrentMacro::File(path));
@@ -399,8 +400,7 @@ impl EditorView {
                 }
                 Err(error) => this.macro_failed(dialog_error(&error), window, cx),
                 Ok(None) => {}
-            })
-            .ok();
+            });
         })
         .detach();
     }
@@ -435,11 +435,12 @@ impl EditorView {
             .start(file_dialog::macro_folder(cx))
             .titled("マクロの実行", "実行");
         let answer = file_dialog::ask(window, cx, ask);
-        let tracked = track(cx, window);
-        cx.spawn_in(window, async move |this, cx| {
+        let tracked = track(cx);
+        let fallback = window.window_handle();
+        cx.spawn(async move |this, cx| {
             let _tracked = tracked;
             let answer = answer.await;
-            this.update_in(cx, |this, window, cx| match answer {
+            follow(&this, fallback, cx, |this, window, cx| match answer {
                 Ok(Some(mut paths)) => {
                     if let Some(path) = paths.pop() {
                         // The error is reported by `exec_ext_macro`.
@@ -448,8 +449,7 @@ impl EditorView {
                 }
                 Err(error) => this.macro_failed(dialog_error(&error), window, cx),
                 Ok(None) => {}
-            })
-            .ok();
+            });
         })
         .detach();
     }
@@ -643,12 +643,16 @@ impl EditorView {
         });
         self.macros.suspended = true;
         // The host's threads send events; each one is handled here, on the UI thread, in order.
-        cx.spawn_in(window, async move |this, cx| {
+        // The script belongs to the tab it started in, not to the window: the events go to the
+        // window that shows the tab now.
+        let fallback = window.window_handle();
+        cx.spawn(async move |this, cx| {
             while let Ok(event) = rx.recv().await {
                 let last = matches!(event, HostEvent::Finished(_));
-                if this
-                    .update_in(cx, |this, window, cx| this.on_host_event(event, window, cx))
-                    .is_err()
+                if follow(&this, fallback, cx, |this, window, cx| {
+                    this.on_host_event(event, window, cx)
+                })
+                .is_none()
                     || last
                 {
                     break;
