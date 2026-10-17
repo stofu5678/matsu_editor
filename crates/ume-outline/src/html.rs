@@ -355,6 +355,9 @@ pub fn make_topic_list_html(src: &dyn LineSource, xml: bool) -> FuncInfoArr {
                     }
                 }
             }
+            // Sakura goes on from `i + j + 1` also after the "/>" of a tag that closes itself, where
+            // `j` is already past the ">": the character after such a tag is not read (so the "<"
+            // of `<a/><b/>` is lost). The same in the original, kept so that the lists agree.
             // `j` may have gone back by one to the "<" that ends the text of the item
             i = ((i as isize) + (j as isize) + 1) as usize;
         }

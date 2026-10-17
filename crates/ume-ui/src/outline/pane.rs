@@ -229,6 +229,11 @@ impl OutlinePane {
         if same_document {
             self.caret_moved(view, cx);
         } else {
+            // the result belongs to the other document: nothing of it stays to be clicked or
+            // copied while the new one is made
+            self.shown = None;
+            self.rows.clear();
+            self.selected = None;
             self.analyze(self.requested, cx);
         }
     }
