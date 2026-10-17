@@ -23,6 +23,7 @@
 
 pub mod app;
 mod clipboard;
+mod custom_menu;
 mod diff;
 mod doc_types;
 pub mod document;
