@@ -854,3 +854,76 @@ fn a_stop_is_noticed_inside_a_line_with_many_hits() {
     assert!(outcome.stopped);
     assert!(outcome.hits < 100_000, "{}", outcome.hits);
 }
+
+/// Searches one file with a regular expression: the `(line,column)` of each hit, the count and the text.
+fn regex_hits(bytes: &[u8], key: &str) -> (Vec<String>, usize, String) {
+    let p = Project::new();
+    p.write("a.txt", bytes);
+    let mut info = p.info(key);
+    info.options.regex = true;
+    info.layout.line_type = LineType::MatchPart;
+    let (text, outcome) = grep(&info);
+    let positions = body(&text)
+        .lines()
+        .filter_map(|l| {
+            l.split_once('(')
+                .map(|(_, r)| r.split_once(')').unwrap().0.to_owned())
+        })
+        .collect();
+    (positions, outcome.hits, text)
+}
+
+#[test]
+fn the_empty_line_after_the_last_line_break_is_not_searched() {
+    // Sakura reads no line after the last line break (`CFileLoad::ReadLine`).
+    for bytes in [&b"a\r\n\r\nb\r\n"[..], b"a\n\nb\n", b"a\r\rb\r"] {
+        let (positions, hits, text) = regex_hits(bytes, "^$");
+        assert_eq!((positions, hits), (vec!["2,1".to_owned()], 1), "{text}");
+        // three lines, one hit each, none at line 4
+        let (positions, hits, text) = regex_hits(bytes, "^");
+        assert_eq!(hits, 3, "{text}");
+        assert!(positions.iter().all(|p| !p.starts_with("4,")), "{text}");
+        let (positions, _, text) = regex_hits(bytes, ".*");
+        assert!(positions.iter().all(|p| !p.starts_with("4,")), "{text}");
+    }
+}
+
+#[test]
+fn an_empty_file_has_no_line() {
+    for key in ["^$", "^", "$", ".*"] {
+        let (positions, hits, text) = regex_hits(b"", key);
+        assert_eq!((positions.len(), hits), (0, 0), "{key}: {text}");
+    }
+}
+
+#[test]
+fn a_file_of_one_line_break_has_one_empty_line() {
+    for bytes in [&b"\r\n"[..], b"\n", b"\r"] {
+        let (positions, hits, text) = regex_hits(bytes, "^$");
+        assert_eq!((positions, hits), (vec!["1,1".to_owned()], 1), "{text}");
+    }
+}
+
+#[test]
+fn a_last_line_without_a_line_break_is_searched() {
+    let (positions, hits, text) = regex_hits(b"abc", "^.*$");
+    assert_eq!((positions, hits), (vec!["1,1".to_owned()], 1), "{text}");
+    let (positions, hits, text) = regex_hits(b"a\n", "^.*$");
+    assert_eq!((positions, hits), (vec!["1,1".to_owned()], 1), "{text}");
+}
+
+#[test]
+fn utf16_files_have_no_empty_line_after_the_last_line_break() {
+    let le: Vec<u8> = [0xFF, 0xFE]
+        .into_iter()
+        .chain("a\r\n\r\n".encode_utf16().flat_map(u16::to_le_bytes))
+        .collect();
+    let be: Vec<u8> = [0xFE, 0xFF]
+        .into_iter()
+        .chain("a\r\n\r\n".encode_utf16().flat_map(u16::to_be_bytes))
+        .collect();
+    for bytes in [le, be] {
+        let (positions, hits, text) = regex_hits(&bytes, "^$");
+        assert_eq!((positions, hits), (vec!["2,1".to_owned()], 1), "{text}");
+    }
+}
