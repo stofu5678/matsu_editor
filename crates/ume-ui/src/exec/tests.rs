@@ -150,6 +150,12 @@ fn open(cx: &mut TestAppContext, text: &str) -> (tempfile::TempDir, Win) {
     cx.update(gpui_component::init);
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("doc.txt");
+    // Windows has CR LF in its files, and its `sort` takes a last LF alone for a last empty line
+    let text = if cfg!(windows) {
+        text.replace('\n', "\r\n")
+    } else {
+        text.to_owned()
+    };
     std::fs::write(&path, text).unwrap();
     (dir, open_file(cx, &path))
 }
@@ -515,8 +521,9 @@ fn the_box_over_the_text_takes_the_keys_and_escape_stops(cx: &mut TestAppContext
     cx.run_until_parked();
     w.cx(cx).simulate_keystrokes("escape");
     wait_until(cx, "the end", |cx| !w.running(cx));
-    assert!(w.text(cx).starts_with("keep"), "{}", w.text(cx));
-    assert!(!w.text(cx).contains('z'));
+    // what the command wrote (`ping` writes at once) is at the caret, before the text
+    assert!(w.text(cx).contains("keep"), "{}", w.text(cx));
+    assert!(!w.text(cx).contains("zzz"), "{}", w.text(cx));
 }
 
 // ---- the dialog ----
