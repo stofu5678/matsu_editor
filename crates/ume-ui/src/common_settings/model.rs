@@ -61,6 +61,14 @@ pub(crate) fn always(_: &Values) -> bool {
     true
 }
 
+/// What a change of a control does to the other values of the dialog (the `CBN_SELCHANGE` and
+/// `BN_CLICKED` handlers of Sakura's pages that set other controls). It gets the values and the id
+/// of the control that changed.
+pub(crate) type Changed = fn(&mut Values, &'static str);
+
+/// `Changed` for a control whose change affects no other value.
+pub(crate) fn unchanged(_: &mut Values, _: &'static str) {}
+
 /// The sort of a control.
 #[derive(Clone, Copy)]
 pub(crate) enum Kind {
@@ -72,8 +80,16 @@ pub(crate) enum Kind {
     Choice {
         options: &'static [(&'static str, i32)],
     },
-    /// A number with its range (an edit box with a spin button in Sakura).
+    /// A list box of choices that shows all of them (the color items of the type settings): the
+    /// label and the number of each. The value is the number of the chosen one.
+    List {
+        options: &'static [(&'static str, i32)],
+    },
+    /// A number with its range (an edit box with a spin button in Sakura). A range that starts
+    /// below 0 takes a sign (`GetDlgItemInt(..., TRUE)`).
     Number { min: i32, max: i32 },
+    /// A color (`COLORREF`, `0x00BBGGRR`) chosen with a color picker.
+    Color,
     /// An edit box.
     Text,
     /// A push button.
@@ -105,6 +121,8 @@ pub(crate) struct Control {
     pub bit: i32,
     /// For a [`bit`](Self::bit): the default of the whole number in the key.
     pub key_default: i32,
+    /// What a change of this control does to the other values.
+    pub changed: Changed,
 }
 
 impl Control {
@@ -127,6 +145,7 @@ impl Control {
             section: SECTION,
             bit: 0,
             key_default: 0,
+            changed: unchanged,
         }
     }
 
@@ -160,6 +179,27 @@ impl Control {
         options: &'static [(&'static str, i32)],
     ) -> Self {
         Self::new(id, label, key, Def::Int(default), Kind::Choice { options })
+    }
+
+    /// A list box that shows every choice.
+    pub(crate) const fn list(
+        id: &'static str,
+        label: &'static str,
+        key: &'static str,
+        default: i32,
+        options: &'static [(&'static str, i32)],
+    ) -> Self {
+        Self::new(id, label, key, Def::Int(default), Kind::List { options })
+    }
+
+    /// A color.
+    pub(crate) const fn color(
+        id: &'static str,
+        label: &'static str,
+        key: &'static str,
+        default: i32,
+    ) -> Self {
+        Self::new(id, label, key, Def::Int(default), Kind::Color)
     }
 
     /// A number in `min..=max`.
@@ -234,6 +274,12 @@ impl Control {
             Kind::Check,
         )
         .packed(mask, key_default)
+    }
+
+    /// `changed` runs when the user changes this control.
+    pub(crate) const fn on_change(mut self, changed: Changed) -> Self {
+        self.changed = changed;
+        self
     }
 
     /// The check box is the opposite of its key.
@@ -356,7 +402,11 @@ impl Values {
                             .unwrap_or(control.key_default);
                         Value::Int(number & control.bit)
                     }
-                    Kind::Radio { .. } | Kind::Choice { .. } | Kind::Number { .. } => profile
+                    Kind::Radio { .. }
+                    | Kind::Choice { .. }
+                    | Kind::List { .. }
+                    | Kind::Color
+                    | Kind::Number { .. } => profile
                         .get_i32(control.section, control.key)
                         .map_or(fallback, Value::Int),
                     Kind::Text => profile
@@ -388,7 +438,6 @@ impl Values {
     }
 
     /// An edit box. A name that is not there is empty.
-    #[cfg(test)]
     pub(crate) fn text(&self, id: &str) -> &str {
         match self.map.get(id) {
             Some(Value::Text(t)) => t,

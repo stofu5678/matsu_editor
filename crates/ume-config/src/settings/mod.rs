@@ -19,7 +19,7 @@ pub mod type_rules;
 pub mod types;
 
 pub use builtin_types::builtin_types;
-pub use color::{ColorEntry, ColorSet};
+pub use color::{ColorAttributes, ColorEntry, ColorSet};
 pub use custom_menu::{CustomMenu, CustomMenuItem, CustomMenus};
 pub use doc_types::DocumentTypes;
 pub use exec_history::ExecHistory;

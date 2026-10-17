@@ -7,6 +7,11 @@
 //! The keys are those of a property sheet: Tab moves between the controls, Ctrl+Tab and
 //! Ctrl+PageDown go to the next page, Ctrl+Shift+Tab and Ctrl+PageUp to the previous one, Enter is
 //! OK, Esc is キャンセル, and Alt with the letter of a label (`(&F)`) uses the control.
+//!
+//! The window is a *sheet*: a list of pages, their controls, the values, and what OK does with
+//! them. The common settings are one sheet ([`Target::Common`]); the type settings
+//! (`crate::type_settings`) are another ([`Target::Type`]), which brings its own pages and
+//! values and writes to a `Types(N)` section.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -19,6 +24,7 @@ use gpui::{
 };
 use gpui_component::button::Button;
 use gpui_component::checkbox::Checkbox;
+use gpui_component::color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::radio::Radio;
 use gpui_component::{Disableable as _, Selectable as _, h_flex, v_flex};
@@ -28,6 +34,7 @@ use super::model::{Control, Item, Kind, Value, Values, parse_label};
 use super::{LastPage, Page, all_controls, apply};
 use crate::file_dialog::{self, Ask};
 use crate::file_ops::windows::editors;
+use crate::type_settings::{self, TypeSheet, TypeTarget};
 
 /// The note after a control that UME Editor cannot use yet.
 pub(crate) const NOT_AVAILABLE: &str = "（未対応）";
@@ -40,11 +47,26 @@ const MUTED: u32 = 0x888888;
 const BORDER: u32 = 0xaaaaaa;
 const SELECTED_BG: u32 = 0x2f6fd0;
 
+/// A page of a sheet: the name on the tab and its items; `None` for a page that is not available
+/// yet.
+pub(crate) struct SheetPage {
+    pub title: &'static str,
+    pub items: Option<Vec<Item>>,
+}
+
+/// What OK writes.
+pub(crate) enum Target {
+    /// The common settings: `[Common]`, and every window takes them.
+    Common,
+    /// One document type: `Types(N)`, and the windows of that type take it.
+    Type(TypeTarget),
+}
+
 pub(crate) struct CommonSettingsDialog {
-    page: Page,
-    /// The items of each page, in the order of [`Page::ALL`]; `None` for a page that is not
-    /// available yet.
-    layouts: Vec<Option<Vec<Item>>>,
+    /// The index of the page that is shown.
+    page: usize,
+    pages: Vec<SheetPage>,
+    target: Target,
     /// Every control of every available page.
     controls: Vec<Control>,
     values: Values,
@@ -52,6 +74,8 @@ pub(crate) struct CommonSettingsDialog {
     original: Values,
     /// The edit boxes (numbers and texts) by control id.
     inputs: HashMap<&'static str, Entity<InputState>>,
+    /// The color pickers by control id.
+    pickers: HashMap<&'static str, Entity<ColorPickerState>>,
     opener: Option<AnyWindowHandle>,
     focus: FocusHandle,
     focused: bool,
@@ -68,6 +92,38 @@ pub(crate) fn parse_number(text: &str) -> i32 {
         .unwrap_or(0)
 }
 
+/// What `GetDlgItemInt(..., TRUE)` makes of the text of a signed number: the number, or 0 when it
+/// is not one.
+pub(crate) fn parse_signed_number(text: &str) -> i32 {
+    text.trim().parse::<i32>().unwrap_or(0)
+}
+
+/// The red, green and blue (0 to 255) of a `COLORREF` (`0x00BBGGRR`).
+fn channels(color: i32) -> (u32, u32, u32) {
+    let c = u32::from_ne_bytes(color.to_ne_bytes());
+    (c & 0xff, (c >> 8) & 0xff, (c >> 16) & 0xff)
+}
+
+/// The color a `COLORREF` is, as gpui draws it.
+fn rgb_of(color: i32) -> gpui::Rgba {
+    let (r, g, b) = channels(color);
+    gpui::rgb((r << 16) | (g << 8) | b)
+}
+
+/// A `COLORREF` as the color picker holds it.
+fn hsla_of(color: i32) -> gpui::Hsla {
+    rgb_of(color).into()
+}
+
+/// The `COLORREF` of a color the picker holds.
+fn colorref_of(color: gpui::Hsla) -> i32 {
+    let rgba = gpui::Rgba::from(color);
+    // A channel is in 0..=1, so the rounded value is in 0..=255.
+    let channel = |v: f32| (v.clamp(0., 1.) * 255.).round() as u32;
+    let packed = channel(rgba.r) | (channel(rgba.g) << 8) | (channel(rgba.b) << 16);
+    i32::from_ne_bytes(packed.to_ne_bytes())
+}
+
 impl CommonSettingsDialog {
     pub(crate) fn new(
         page: Page,
@@ -76,12 +132,87 @@ impl CommonSettingsDialog {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let layouts: Vec<Option<Vec<Item>>> = Page::ALL.iter().map(|p| p.items()).collect();
+        let pages = Page::ALL
+            .iter()
+            .map(|p| SheetPage {
+                title: p.title(),
+                items: p.items(),
+            })
+            .collect();
         let controls = all_controls();
         let values = Values::load(&controls, profile);
+        Self::build(
+            page.index(),
+            pages,
+            controls,
+            values,
+            Target::Common,
+            opener,
+            window,
+            cx,
+        )
+    }
+
+    /// The type settings of one document type (`crate::type_settings`).
+    pub(crate) fn for_type(
+        page: usize,
+        sheet: TypeSheet,
+        opener: Option<AnyWindowHandle>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let TypeSheet {
+            pages,
+            controls,
+            values,
+            target,
+        } = sheet;
+        let page = page.min(pages.len().saturating_sub(1));
+        Self::build(
+            page,
+            pages,
+            controls,
+            values,
+            Target::Type(target),
+            opener,
+            window,
+            cx,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn build(
+        page: usize,
+        pages: Vec<SheetPage>,
+        controls: Vec<Control>,
+        values: Values,
+        target: Target,
+        opener: Option<AnyWindowHandle>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let mut inputs = HashMap::new();
+        let mut pickers = HashMap::new();
         let mut subscriptions = Vec::new();
         for control in &controls {
+            if matches!(control.kind, Kind::Color) {
+                let picker = cx.new(|cx| ColorPickerState::new(window, cx));
+                picker.update(cx, |state, cx| {
+                    state.set_value(hsla_of(values.int(control.id)), window, cx);
+                });
+                let id = control.id;
+                subscriptions.push(cx.subscribe_in(
+                    &picker,
+                    window,
+                    move |this: &mut Self, _, event: &ColorPickerEvent, _, cx| {
+                        let ColorPickerEvent::Change(Some(color)) = event else {
+                            return;
+                        };
+                        this.set_color(id, colorref_of(*color), cx);
+                    },
+                ));
+                pickers.insert(control.id, picker);
+            }
             if !matches!(control.kind, Kind::Number { .. } | Kind::Text) {
                 continue;
             }
@@ -122,11 +253,13 @@ impl CommonSettingsDialog {
         .detach();
         Self {
             page,
-            layouts,
+            pages,
+            target,
             controls,
             original: values.clone(),
             values,
             inputs,
+            pickers,
             opener,
             focus: cx.focus_handle(),
             focused: false,
@@ -138,6 +271,12 @@ impl CommonSettingsDialog {
 
     #[cfg(test)]
     pub(crate) fn page(&self) -> Page {
+        Page::ALL.get(self.page).copied().unwrap_or(Page::General)
+    }
+
+    /// The index of the page that is shown.
+    #[cfg(test)]
+    pub(crate) fn page_index(&self) -> usize {
         self.page
     }
 
@@ -148,7 +287,8 @@ impl CommonSettingsDialog {
 
     /// The controls of the page that is shown, in the order they are drawn.
     pub(crate) fn page_controls(&self) -> Vec<Control> {
-        self.layouts[self.page.index()]
+        self.pages[self.page]
+            .items
             .as_deref()
             .map(super::model::controls)
             .unwrap_or_default()
@@ -157,6 +297,15 @@ impl CommonSettingsDialog {
     /// Whether the control can be used now: its feature is there and the other controls allow it.
     pub(crate) fn is_usable(&self, control: &Control) -> bool {
         control.live && (control.enabled)(&self.values)
+    }
+
+    /// The color the picker of a color control shows.
+    #[cfg(test)]
+    pub(crate) fn picker_color(&self, id: &str, cx: &App) -> Option<i32> {
+        self.pickers
+            .get(id)
+            .and_then(|picker| picker.read(cx).value())
+            .map(colorref_of)
     }
 
     /// The text in the edit box of a number or a text control.
@@ -171,20 +320,35 @@ impl CommonSettingsDialog {
     /// Shows a page (a click on its name, Ctrl+Tab, `F_OPTION_*`). The page is remembered for the
     /// next `F_OPTION` (`m_nPageNum`).
     pub(crate) fn select_page(&mut self, page: Page, cx: &mut Context<Self>) {
-        self.page = page;
-        cx.set_global(LastPage(page));
+        self.select_index(page.index(), cx);
+    }
+
+    /// Shows the page at `index` of the sheet and remembers it for the next time.
+    pub(crate) fn select_index(&mut self, index: usize, cx: &mut Context<Self>) {
+        if index >= self.pages.len() {
+            return;
+        }
+        self.page = index;
+        match &self.target {
+            Target::Common => {
+                if let Some(page) = Page::ALL.get(index) {
+                    cx.set_global(LastPage(*page));
+                }
+            }
+            Target::Type(_) => type_settings::remember_page(cx, index),
+        }
         cx.notify();
     }
 
     fn step_page(&mut self, forward: bool, cx: &mut Context<Self>) {
-        let count = Page::ALL.len();
-        let at = self.page.index();
+        let count = self.pages.len();
+        let at = self.page;
         let next = if forward {
             (at + 1) % count
         } else {
             (at + count - 1) % count
         };
-        self.select_page(Page::ALL[next], cx);
+        self.select_index(next, cx);
     }
 
     fn control(&self, id: &str) -> Option<Control> {
@@ -193,18 +357,25 @@ impl CommonSettingsDialog {
 
     /// A check box.
     pub(crate) fn set_bool(&mut self, id: &'static str, on: bool, cx: &mut Context<Self>) {
-        if self.control(id).is_some_and(|c| self.is_usable(&c)) {
+        if let Some(control) = self.control(id).filter(|c| self.is_usable(c)) {
             self.values.set(id, Value::Bool(on));
+            (control.changed)(&mut self.values, id);
             cx.notify();
         }
     }
 
-    /// A radio group or a drop-down list.
+    /// A radio group, a drop-down list or a list box.
     pub(crate) fn set_int(&mut self, id: &'static str, value: i32, cx: &mut Context<Self>) {
-        if self.control(id).is_some_and(|c| self.is_usable(&c)) {
+        if let Some(control) = self.control(id).filter(|c| self.is_usable(c)) {
             self.values.set(id, Value::Int(value));
+            (control.changed)(&mut self.values, id);
             cx.notify();
         }
+    }
+
+    /// A color (`COLORREF`).
+    pub(crate) fn set_color(&mut self, id: &'static str, color: i32, cx: &mut Context<Self>) {
+        self.set_int(id, color, cx);
     }
 
     /// Types into the edit box of a number or a text control.
@@ -236,6 +407,9 @@ impl CommonSettingsDialog {
             };
             let text = input.read(cx).value().to_string();
             match control.kind {
+                Kind::Number { min, .. } if min < 0 => self
+                    .values
+                    .set(control.id, Value::Int(parse_signed_number(&text))),
                 Kind::Number { .. } => self.values.set(control.id, Value::Int(parse_number(&text))),
                 Kind::Text => self.values.set(control.id, Value::Text(text)),
                 _ => {}
@@ -247,18 +421,24 @@ impl CommonSettingsDialog {
     /// OK: the values are written and every window takes them; the window closes.
     pub(crate) fn ok(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.commit_inputs(cx);
-        if let Some(message) = super::pages::tab::blocked(cx, &self.values, &self.original) {
-            // Nothing is written; the dialog stays so that the user can choose again.
-            drop(window.prompt(PromptLevel::Info, message, None, &["OK"], cx));
-            return;
+        match &self.target {
+            Target::Common => {
+                if let Some(message) = super::pages::tab::blocked(cx, &self.values, &self.original)
+                {
+                    // Nothing is written; the dialog stays so that the user can choose again.
+                    drop(window.prompt(PromptLevel::Info, message, None, &["OK"], cx));
+                    return;
+                }
+                apply::commit(
+                    cx,
+                    &self.controls,
+                    &self.original,
+                    &self.values,
+                    self.opener,
+                );
+            }
+            Target::Type(target) => type_settings::commit(cx, target, &self.values),
         }
-        apply::commit(
-            cx,
-            &self.controls,
-            &self.original,
-            &self.values,
-            self.opener,
-        );
         window.remove_window();
     }
 
@@ -358,7 +538,7 @@ impl CommonSettingsDialog {
                 self.set_bool(control.id, !on, cx);
             }
             Kind::Radio { value } => self.set_int(control.id, value, cx),
-            Kind::Choice { options } => {
+            Kind::Choice { options } | Kind::List { options } => {
                 let now = self.values.int(control.id);
                 let at = options.iter().position(|(_, v)| *v == now).unwrap_or(0);
                 let next = options[(at + 1) % options.len()].1;
@@ -369,9 +549,55 @@ impl CommonSettingsDialog {
                     input.update(cx, |state, cx| state.focus(window, cx));
                 }
             }
+            Kind::Color => {
+                if let Some(picker) = self.pickers.get(control.id).cloned() {
+                    picker.update(cx, |state, cx| state.set_open(true, cx));
+                }
+            }
             Kind::Button { run } => run(self, window, cx),
         }
         true
+    }
+
+    /// Up and Down in a page with a list box move its choice (the arrow keys of a list box), when
+    /// no edit box is being typed in. Returns whether a choice was moved.
+    fn step_list(&mut self, forward: bool, window: &Window, cx: &mut Context<Self>) -> bool {
+        let typing = self
+            .inputs
+            .values()
+            .any(|input| input.read(cx).focus_handle(cx).is_focused(window));
+        if typing {
+            return false;
+        }
+        let Some((control, options)) =
+            self.page_controls().into_iter().find_map(|c| match c.kind {
+                Kind::List { options } if self.is_usable(&c) => Some((c, options)),
+                _ => None,
+            })
+        else {
+            return false;
+        };
+        let now = self.values.int(control.id);
+        let at = options.iter().position(|(_, v)| *v == now).unwrap_or(0);
+        let next = if forward {
+            (at + 1).min(options.len().saturating_sub(1))
+        } else {
+            at.saturating_sub(1)
+        };
+        self.set_int(control.id, options[next].1, cx);
+        true
+    }
+
+    /// Makes the color pickers show the colors of the values (a change of another control may have
+    /// set them, such as the choice of a color item).
+    fn sync_pickers(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        for (id, picker) in &self.pickers {
+            let wanted = self.values.int(id);
+            let shown = picker.read(cx).value().map(colorref_of);
+            if shown != Some(wanted) {
+                picker.update(cx, |state, cx| state.set_value(hsla_of(wanted), window, cx));
+            }
+        }
     }
 
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -398,6 +624,7 @@ impl CommonSettingsDialog {
                 self.step_page(false, cx);
                 true
             }
+            "up" | "down" if !modifiers.modified() => self.step_list(key == "down", window, cx),
             k if modifiers.alt && !modifiers.control && k.chars().count() == 1 => {
                 let letter = k.chars().next().unwrap_or(' ');
                 self.use_access_key(letter, window, cx)
@@ -457,6 +684,62 @@ impl CommonSettingsDialog {
                 )
                 .children(note)
                 .into_any_element(),
+            Kind::List { options } => {
+                let current = self.values.int(id);
+                let rows = options.iter().map(|(text, value)| {
+                    let value = *value;
+                    div()
+                        .id(Self::element_id(&Control {
+                            kind: Kind::Radio { value },
+                            ..*control
+                        }))
+                        .px_2()
+                        .h(px(20.))
+                        .flex()
+                        .items_center()
+                        .cursor_pointer()
+                        .when(current == value, |d| {
+                            d.bg(rgb(SELECTED_BG)).text_color(rgb(0xffffff))
+                        })
+                        .child(*text)
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            this.set_int(id, value, cx);
+                        }))
+                });
+                v_flex()
+                    .gap_1()
+                    .when(!label.is_empty(), |this| this.child(label.clone()))
+                    .child(
+                        div()
+                            .id(Self::element_id(control))
+                            .h(px(150.))
+                            .overflow_y_scroll()
+                            .bg(rgb(0xffffff))
+                            .border_1()
+                            .border_color(rgb(BORDER))
+                            .children(rows),
+                    )
+                    .into_any_element()
+            }
+            Kind::Color => {
+                let chooser = match self.pickers.get(id) {
+                    Some(picker) if usable => ColorPicker::new(picker).into_any_element(),
+                    _ => div()
+                        .w(px(25.))
+                        .h(px(14.))
+                        .border_1()
+                        .border_color(rgb(BORDER))
+                        .bg(rgb_of(self.values.int(id)))
+                        .into_any_element(),
+                };
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .when(!label.is_empty(), |this| this.child(label.clone()))
+                    .child(chooser)
+                    .children(note)
+                    .into_any_element()
+            }
             Kind::Choice { options } => {
                 let current = self.values.int(id);
                 let choices = options.iter().map(|(text, value)| {
@@ -477,6 +760,7 @@ impl CommonSettingsDialog {
                         h_flex()
                             .gap_1()
                             .items_center()
+                            .flex_wrap()
                             .children(choices)
                             .children(note),
                     )
@@ -581,7 +865,7 @@ impl CommonSettingsDialog {
     }
 
     fn page_element(&self, cx: &mut Context<Self>) -> AnyElement {
-        match self.layouts[self.page.index()].as_deref() {
+        match self.pages[self.page].items.as_deref() {
             Some(items) => {
                 let children: Vec<AnyElement> = items
                     .iter()
@@ -593,7 +877,7 @@ impl CommonSettingsDialog {
                 .text_color(rgb(MUTED))
                 .child(format!(
                     "「{}」のページは UME Editor ではまだ使えません。",
-                    self.page.title()
+                    self.pages[self.page].title
                 ))
                 .into_any_element(),
         }
@@ -612,22 +896,25 @@ impl Render for CommonSettingsDialog {
             self.focused = true;
             window.focus(&self.focus, cx);
         }
+        self.sync_pickers(window, cx);
         let ui_font = gpui_component::Theme::global(cx).font_family.clone();
-        let pages: Vec<AnyElement> = Page::ALL
+        let pages: Vec<AnyElement> = self
+            .pages
             .iter()
-            .map(|&page| {
-                let selected = page == self.page;
+            .enumerate()
+            .map(|(index, page)| {
+                let selected = index == self.page;
                 div()
-                    .id(SharedString::from(format!("cs-page-{}", page.index())))
+                    .id(SharedString::from(format!("cs-page-{index}")))
                     .px_3()
                     .py_1()
                     .cursor_pointer()
                     .when(selected, |d| {
                         d.bg(rgb(SELECTED_BG)).text_color(rgb(0xffffff))
                     })
-                    .child(page.title())
+                    .child(page.title)
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.select_page(page, cx);
+                        this.select_index(index, cx);
                     }))
                     .into_any_element()
             })

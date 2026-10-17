@@ -211,7 +211,7 @@ fn an_empty_untitled_document_takes_the_line_ending_of_the_type(cx: &mut TestApp
 }
 
 #[gpui::test]
-fn the_list_applies_the_selected_type_with_enter(cx: &mut TestAppContext) {
+fn the_list_applies_the_selected_type_with_the_button_and_a_double_click(cx: &mut TestAppContext) {
     let handle = window(cx, Some(user(TABS)));
     let cx = &mut VisualTestContext::from_window(handle, cx);
     let view = view_of(cx);
@@ -225,7 +225,10 @@ fn the_list_applies_the_selected_type_with_enter(cx: &mut TestAppContext) {
         labels[2],
         "C/C++ ( c,cpp,cxx,cc,cp,c++,h,hpp,hxx,hh,hp,h++,rc,hm )"
     );
-    cx.simulate_keystrokes("down down enter");
+    cx.simulate_keystrokes("down down");
+    // 一時適用 (the double click does the same).
+    let list = view.read_with(cx, |v, _| v.doc_type.list.clone().unwrap());
+    list.update_in(cx, |list, window, cx| list.apply(window, cx));
     cx.run_until_parked();
     assert!(view.read_with(cx, |v, _| v.doc_type.list.is_none()));
     assert_eq!((type_index(&view, cx), tab_width(&view, cx)), (2, 2));
