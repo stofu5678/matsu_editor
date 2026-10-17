@@ -277,7 +277,7 @@ JSON-RPC の方式について、Codex が挙げた点。
 - MicroPython（`.upy`、`--engine micropython`）: MicroPython 1.29.0（MIT）を、公式の embed ポート（`ports/embed`）で作った C のソースにして `crates/ume-micropython-sys/vendor/micropython/` に置き、`cc` でビルドして `ume-script` に入れる（再生成の手順は、そこの README）。`.mpy` は MicroPython のバイトコードの拡張子なので使わない。`.py` は利用者の CPython のまま
   - `Editor`（`Editor.info` を含む）と `EditorError(Exception)`（`code`・`message`）は、`boot.py` と同じ。C の関数 `_ume_call` を 1 つだけ経由して、`FUNCS` の名前から束ねる。引数の最後の `None` は省く。整数の値の浮動小数点数は整数として送る
   - 例外は、MicroPython の形で標準エラーに出す（`File "名前", line 3, in <module>`）。終了コードは 1
-  - 使えるのは組み込みのモジュールだけ（`sys`・`json`・`math`・`struct`・`collections`・`array`・`binascii`・`heapq`・`io`・`errno`・`gc`）。ファイルは開けない。`re` は、エンジン（`lib/re1.5`）のライセンス文が MicroPython に付いていないので入れていない。ヒープは 64 MiB 固定（OS から確保して使った分だけ触る）で、超えると `MemoryError`
+  - 使えるのは組み込みのモジュールだけ（`sys`・`json`・`math`・`struct`・`collections`・`array`・`binascii`・`heapq`・`re`・`io`・`errno`・`gc`）。ファイルは開けない。`re` は MicroPython の小さな `re`（エンジンは re1.5。BSD-3-Clause で、ライセンス文は上流の re1.5 から取って `vendor/micropython/lib/re1.5/LICENSE` に置いた）。CPython の `re` と違い、先読み・後読み・名前付きグループ・フラグ・`{m,n}`・`\b`・`findall` などがなく、`.` は改行にも合い、`.` と繰り返しは 1 文字でなく 1 バイトに働く（日本語の文字の途中で終わる一致は `UnicodeError`。文字そのもの・`|`・範囲は使える）。詳しくは `crates/ume-script/src/micropython.rs` の先頭の説明。ヒープは 64 MiB 固定（OS から確保して使った分だけ触る）で、超えると `MemoryError`
 - 配布物には、`ume` の隣に `ume-script` も入れる（リリースのパッケージの作りで扱う）
 
 ## 試作の結果

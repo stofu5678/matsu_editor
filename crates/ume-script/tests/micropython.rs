@@ -272,7 +272,7 @@ fn stderr_is_user_output() {
 #[test]
 fn the_built_in_modules_are_there_and_files_are_not() {
     let code = r#"
-import json, math, struct, collections, binascii, heapq, array, gc, sys
+import json, math, struct, collections, binascii, heapq, array, gc, sys, re
 print(json.dumps({"a": [1, 2.5, None, "日本語"]}), math.floor(2.5), 2 ** 100)
 print(sys.platform, len(sys.version) > 0)
 try:
@@ -418,4 +418,165 @@ fn the_macro_can_be_cancelled() {
             _ => {}
         }
     }
+}
+
+// MicroPython's `re` (the re1.5 engine, byte based). What it has: compile, match, search, sub,
+// and split on a compiled pattern; groups, span/start/end; no flags, no lookaround, no `{m,n}`.
+#[test]
+fn re_compile_search_match_and_groups() {
+    let code = r#"
+import re
+m = re.search(r"(\d+)-(\d+)", "tel 03-1234 x")
+print(m.group(0), m.group(1), m.group(2), m.groups(), m.span(1), m.start(2), m.end(0))
+print(re.match("a", "xa"), re.match("x", "xa").group(0))
+r = re.compile("a(b)?")
+print(r.match("ac").group(1), r.search("xab").group(1))
+print(re.search(r"(?:ab)+", "ababc").group(0), re.search("a+?", "aaa").group(0))
+print(re.search("(a)|(b)", "b").groups())
+"#;
+    let (report, _) = run(code, "");
+    assert_clean_exit(&report);
+    assert_eq!(
+        stdout(&report),
+        [
+            "03-1234 03 1234 ('03', '1234') (4, 6) 7 11",
+            "None x",
+            "None b",
+            "abab a",
+            "(None, 'b')",
+        ]
+    );
+}
+
+#[test]
+fn re_sub_and_split() {
+    let code = r#"
+import re
+print(re.sub("a", "-", "banana"), re.sub("a", "-", "banana", 1))
+print(re.sub("(a)(b)", r"\2\1", "abab"), re.sub("a", lambda m: "X", "aa"))
+r = re.compile(",")
+print(r.split("a,b,,c"), r.split("a,b,c", 1))
+print(re.compile("a").sub("-", "banana", 1))
+"#;
+    let (report, _) = run(code, "");
+    assert_clean_exit(&report);
+    assert_eq!(
+        stdout(&report),
+        [
+            "b-n-n- b-nana",
+            "baba XX",
+            "['a', 'b', '', 'c'] ['a', 'b,c']",
+            "b-nana",
+        ]
+    );
+}
+
+// re1.5 works on the bytes of the UTF-8 text: a Japanese literal, an alternative and a character
+// range match whole characters, but `.` and a quantifier apply to one byte, so a match that ends
+// inside a character is a UnicodeError when the text is taken out.
+#[test]
+fn re_handles_japanese_literals_and_ranges_but_not_single_characters() {
+    let code = r#"
+import re
+print(re.search("日本", "あ日日本").group(0), re.search("東京|大阪", "行東京").group(0))
+print(re.search("[あ-ん]+", "xひらがなx").group(0), re.search("(日本)+", "あ日本日本").group(0))
+print(re.sub("日本", "ニッポン", "日本と日本"), re.compile("、").split("あ、い、う"))
+try:
+    re.search(".", "日本").group(0)
+except UnicodeError:
+    print("byte match")
+"#;
+    let (report, _) = run(code, "");
+    assert_clean_exit(&report);
+    assert_eq!(
+        stdout(&report),
+        [
+            "日本 東京",
+            "ひらがな 日本日本",
+            "ニッポンとニッポン ['あ', 'い', 'う']",
+            "byte match",
+        ]
+    );
+}
+
+#[test]
+fn re_rejects_invalid_and_unsupported_patterns() {
+    let code = r#"
+import re
+for p in ["(", ")", "[a", "*a", "x**", "(?<=a)b", "(?=a)b", "(?P<n>a)", "(?i)a"]:
+    try:
+        re.compile(p)
+        print(p, "compiled")
+    except ValueError as e:
+        print(p, "ValueError")
+print(hasattr(re, "I"), hasattr(re, "findall"), hasattr(re, "split"))
+"#;
+    let (report, _) = run(code, "");
+    assert_clean_exit(&report);
+    let lines = stdout(&report);
+    assert_eq!(lines.len(), 10, "{lines:?}");
+    for line in &lines[..9] {
+        assert!(line.ends_with("ValueError"), "{line}");
+    }
+    assert_eq!(lines[9], "False False False");
+}
+
+// UME Editor's change to modre.c: each callback call gets its own match object.
+#[test]
+fn re_sub_callback_matches_stay_valid_after_sub() {
+    let code = r#"
+import re
+saved = []
+def cb(m):
+    saved.append(m)
+    return "X"
+print(re.sub("(a)(b|c)", cb, "ab-ac-ab"))
+print([(m.group(0), m.group(1), m.group(2), m.span(0)) for m in saved])
+"#;
+    let (report, _) = run(code, "");
+    assert_clean_exit(&report);
+    assert_eq!(
+        stdout(&report),
+        [
+            "X-X-X",
+            "[('ab', 'a', 'b', (0, 2)), ('ac', 'a', 'c', (3, 5)), ('ab', 'a', 'b', (6, 8))]",
+        ]
+    );
+}
+
+// UME Editor's change to compilecode.c: a class range cut off by the end of the pattern.
+#[test]
+fn re_unterminated_class_ranges_are_value_errors() {
+    let code = r#"
+import re
+for p in ["[a-", "[\\"]:
+    try:
+        re.compile(p)
+        print("compiled")
+    except ValueError:
+        print("ValueError")
+"#;
+    let (report, _) = run(code, "");
+    assert_clean_exit(&report);
+    assert_eq!(stdout(&report), ["ValueError", "ValueError"]);
+}
+
+#[test]
+fn re_works_on_the_text_of_the_document() {
+    let code = r#"
+import re
+n = Editor.GetLineCount(0)
+r = re.compile(r"(\d+)円")
+total = 0
+for i in range(1, n + 1):
+    m = r.search(Editor.GetLineStr(i))
+    if m:
+        total += int(m.group(1))
+print(total)
+Editor.InsText(re.sub("りんご", "みかん", Editor.GetLineStr(1)))
+"#;
+    let (report, doc) = run(code, "りんご 120円\nバナナ 80円\nなし\n");
+    assert_clean_exit(&report);
+    assert_eq!(stdout(&report), ["200"]);
+    assert!(doc.text().contains("みかん 120円"), "{}", doc.text());
 }

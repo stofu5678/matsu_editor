@@ -1,13 +1,14 @@
 [package]
 name = "ume-micropython-sys"
-description = "MicroPython (MIT) built from the sources of its embed port, with a small C glue and a Rust API to run one script"
+description = "MicroPython (MIT, with the BSD-3-Clause re1.5 engine) built from the sources of its embed port, with a small C glue and a Rust API to run one script"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish.workspace = true
-# The vendored sources are MicroPython's (MIT, see vendor/micropython/LICENSE).
+# The vendored sources are MicroPython's (MIT, see vendor/micropython/LICENSE), and its `re` engine
+# lib/re1.5 (BSD-3-Clause, see vendor/micropython/lib/re1.5/LICENSE).
 include = ["Cargo.toml", "build.rs", "src", "csrc", "embed", "vendor"]
 
 [dependencies]
