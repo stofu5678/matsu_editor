@@ -88,7 +88,7 @@ pub(crate) async fn close_document(
 impl Workspace {
     /// Runs a function of Sakura on the active view once this event is handled: the function may
     /// look at the tabs of every window, which cannot happen while this window is borrowed.
-    fn run_after_event(&self, code: u16, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn run_after_event(&self, code: u16, window: &mut Window, cx: &mut Context<Self>) {
         let editor = self.editor().clone();
         window.defer(cx, move |window, app| {
             editor.update(app, |view, cx| view.run_function(code, &[], window, cx));

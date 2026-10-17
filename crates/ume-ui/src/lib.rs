@@ -22,6 +22,7 @@
 //!   rows and columns), [`segments`] (what to paint in a row), [`word`] and [`status`].
 
 pub mod app;
+mod bars;
 mod clipboard;
 mod common_settings;
 mod custom_menu;

@@ -1,9 +1,9 @@
 //! 「ウィンドウ」: `IDD_PROP_WIN` (`sakura_core/sakura_rc.rc`), `CPropWin`
 //! (`sakura_core/prop/CPropComWin.cpp`).
 //!
-//! Live: the status bar (`bDispSTATUSBAR`) and the synchronized scrolling of the split panes
-//! (`bSplitterWndVScroll`, `bSplitterWndHScroll`). Not available yet: the tool bar, the function
-//! key bar, the horizontal scroll bar, the icons in menus, the dark mode, the size and position
+//! Live: the tool bar (`bDispTOOLBAR`), the function key bar (`bDispFUNCKEYWND`, its place and the
+//! group size), the status bar (`bDispSTATUSBAR`) and the synchronized scrolling of the split panes
+//! (`bSplitterWndVScroll`, `bSplitterWndHScroll`). Not available yet: the horizontal scroll bar, the icons in menus, the dark mode, the size and position
 //! of the window, the ruler and the line number gaps, the function keys, the language, and the
 //! captions of the title bar (they need `CFormatManager::ExpandParameter`, which only the print
 //! headers have).
@@ -56,7 +56,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
             vec![Item::Columns(vec![
                 vec![
                     Control::check("disp_toolbar", "ツールバー表示(&T)", "bDispTOOLBAR", true)
-                        .unavailable()
                         .into(),
                     Control::check(
                         "disp_funckey_wnd",
@@ -64,7 +63,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         "bDispFUNCKEYWND",
                         false,
                     )
-                    .unavailable()
                     .into(),
                     Control::check(
                         "disp_status_bar",
@@ -161,11 +159,9 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                     vec![
                         Item::Row(vec![
                             Control::radio("funckey_place", "上(&O)", "nFUNCKEYWND_Place", 0, 1)
-                                .unavailable()
                                 .when(funckey_bar_is_shown)
                                 .into(),
                             Control::radio("funckey_place", "下(&B)", "nFUNCKEYWND_Place", 1, 1)
-                                .unavailable()
                                 .when(funckey_bar_is_shown)
                                 .into(),
                         ]),
@@ -177,7 +173,7 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                             1,
                             12,
                         )
-                        .unavailable()
+                        .when(funckey_bar_is_shown)
                         .into(),
                     ],
                 ),
@@ -215,13 +211,30 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
     ]
 }
 
-/// What OK does to the windows: every window takes the status bar of the check box
-/// (`CEditWnd::OnChangeSetting`), and the panes take the synchronized scrolling.
+/// What OK does to the windows: every window takes the status bar, the toolbar and the function
+/// key bar of the check boxes (`CEditWnd::OnChangeSetting`), and the panes take the synchronized
+/// scrolling.
 pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: Option<&Values>) {
     env.cx.set_global(SplitterSync {
         vertical: after.bool("splitter_v_scroll"),
         horizontal: after.bool("splitter_h_scroll"),
     });
+    // At startup the bars take the file as it is (`crate::bars::install`); OK takes the dialog.
+    if before.is_some() {
+        crate::bars::set(
+            env.cx,
+            crate::bars::BarSettings {
+                toolbar: after.bool("disp_toolbar"),
+                funckeys: after.bool("disp_funckey_wnd"),
+                funckey_place: if after.int("funckey_place") == 1 {
+                    crate::bars::FuncKeyPlace::Bottom
+                } else {
+                    crate::bars::FuncKeyPlace::Top
+                },
+                funckey_group_num: after.int("funckey_group_num").clamp(1, 12) as usize,
+            },
+        );
+    }
     let shown = after.bool("disp_status_bar");
     if before.is_some_and(|b| b.bool("disp_status_bar") != shown) {
         super::super::windows::set_status_bar(env.cx, shown);

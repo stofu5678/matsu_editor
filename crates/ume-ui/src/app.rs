@@ -36,6 +36,21 @@ struct MenuKeyMap(KeyMap);
 
 impl gpui::Global for MenuKeyMap {}
 
+/// Runs `f` with the key map of the application (Sakura's default one before `run` installs the
+/// user's). The function key bar reads it to label its buttons.
+pub(crate) fn with_key_map<R>(cx: &App, f: impl FnOnce(&KeyMap) -> R) -> R {
+    match cx.try_global::<MenuKeyMap>() {
+        Some(map) => f(&map.0),
+        None => f(&KeyMap::default()),
+    }
+}
+
+/// Makes `map` the key map of the application (the tests of the function key bar set one).
+#[cfg(test)]
+pub(crate) fn set_key_map(cx: &mut App, map: KeyMap) {
+    cx.set_global(MenuKeyMap(map));
+}
+
 /// Counts how many times the menus were made. A window watches it to load the new menus.
 pub(crate) struct MenuGeneration(u64);
 
@@ -84,6 +99,7 @@ pub(crate) fn run(
         gpui_component::init(cx);
         crate::history::install(cx, &user);
         crate::tabs::settings::install(cx, &user);
+        crate::bars::install(cx, &user);
         crate::common_settings::install(cx, &user);
         // Every window that `open_editor_window` makes applies ume.ini (read once, above). Before the
         // menus: the row for the custom menus reads it.
@@ -250,6 +266,9 @@ impl Workspace {
             .detach();
         cx.observe_global::<crate::tabs::settings::TabOptions>(|_, cx| cx.notify())
             .detach();
+        // The toolbar and the function key bar are shown or hidden for every window at once.
+        cx.observe_global::<crate::bars::BarSettings>(|_, cx| cx.notify())
+            .detach();
         for (index, pane) in numbered {
             workspace.adopt_into_window(index, pane, window, cx);
         }
@@ -273,6 +292,9 @@ impl Render for Workspace {
         let macro_panel = editor.macro_panel(active.clone());
         let ui_font = gpui_component::Theme::global(cx).font_family.clone();
         let tab_bar = self.render_tab_bar(window, cx);
+        let toolbar = self.render_toolbar(cx);
+        let funckeys_top = self.render_funckeys(crate::bars::FuncKeyPlace::Top, window, cx);
+        let funckeys_bottom = self.render_funckeys(crate::bars::FuncKeyPlace::Bottom, window, cx);
         // A Wayland compositor without server-side decorations, such as WSLg's, leaves the title
         // bar and its buttons to the app.
         let client_decorated = cfg!(target_os = "linux")
@@ -299,6 +321,9 @@ impl Render for Workspace {
                         .child(self.menu_bar.clone()),
                 )
             })
+            // Sakura's order under the menu: the toolbar, the function keys (at the top), the tabs.
+            .children(toolbar)
+            .children(funckeys_top)
             .children(tab_bar)
             .child(
                 div()
@@ -315,6 +340,7 @@ impl Render for Workspace {
                     .children(self.outline.clone()),
             )
             .children(macro_panel)
+            .children(funckeys_bottom)
             .when(show_status_bar, |this| {
                 this.child(
                     div()
