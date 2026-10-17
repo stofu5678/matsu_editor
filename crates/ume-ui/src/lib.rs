@@ -54,6 +54,7 @@ pub mod status;
 mod support;
 mod tabs;
 mod tags;
+mod type_settings;
 pub mod ui_command;
 mod ui_commands;
 pub mod view;

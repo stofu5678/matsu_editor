@@ -11,6 +11,7 @@ pub mod option_general;
 pub mod option_grep;
 pub mod option_statusbar;
 pub mod option_tab;
+pub mod option_type;
 pub mod option_window;
 pub mod set_font_size_down;
 pub mod set_font_size_up;

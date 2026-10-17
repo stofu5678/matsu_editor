@@ -41,7 +41,7 @@ use gpui::{
 use gpui_component::Root;
 use ume_config::Profile;
 
-pub(crate) use dialog::CommonSettingsDialog;
+pub(crate) use dialog::{CommonSettingsDialog, SheetPage};
 pub(crate) use pages::window::splitter_sync;
 
 use model::{Control, Item, Values};

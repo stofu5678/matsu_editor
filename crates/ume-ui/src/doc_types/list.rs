@@ -4,11 +4,12 @@
 //! `CDlgTypeList` (`sakura_core/typeprop/CDlgTypeList.cpp`): a list of the types, each as
 //! `名前 ( 拡張子 )` (just the name when the type has no extensions), the current type selected.
 //! 一時適用 (or a double click) applies the selected type to this document with `F_CHANGETYPE`.
+//! 設定変更 (the default button, so Enter; `IDOK`) opens the type settings of the selected type
+//! (`OpenPropertySheetTypes`, `crate::type_settings`).
 //!
 //! Drawn over the editor view, like the window list: the dialog of Sakura is a Windows dialog.
-//! Only 一時適用 and キャンセル are here; the buttons that change the types (設定変更, インポート,
-//! エクスポート, 初期化, 複製, 上, 下, 追加, 削除, and the file association) need the full type
-//! settings dialog (`F_OPTION_TYPE`), which comes later.
+//! Only 設定変更, 一時適用 and キャンセル are here; the buttons that change the list of types
+//! (インポート, エクスポート, 初期化, 複製, 上, 下, 追加, 削除, and the file association) come later.
 
 use gpui::{
     App, AppContext as _, ClickEvent, Context, FocusHandle, Focusable, InteractiveElement,
@@ -63,8 +64,19 @@ impl TypeList {
         .ok();
     }
 
+    /// 設定変更 (`IDOK`): closes the list and opens the type settings of the selected type, once
+    /// the click or the key has ended (the sheet looks at the window's view).
+    pub(super) fn change_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let index = self.selected;
+        let opener = window.window_handle();
+        self.close(window, cx);
+        window.defer(cx, move |_, app| {
+            crate::type_settings::open(app, index, None, Some(opener));
+        });
+    }
+
     /// 一時適用: `F_CHANGETYPE` with the selected type (the argument is the number, 1 origin).
-    fn apply(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn apply(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let number = i64::try_from(self.selected + 1).unwrap_or(0);
         let view = self.view.clone();
         view.update(cx, |view, cx| {
@@ -80,7 +92,7 @@ impl TypeList {
         let last = self.labels.len().saturating_sub(1);
         match event.keystroke.key.as_str() {
             "escape" => self.close(window, cx),
-            "enter" => self.apply(window, cx),
+            "enter" => self.change_settings(window, cx),
             "up" => self.selected = self.selected.saturating_sub(1),
             "down" => self.selected = (self.selected + 1).min(last),
             "pageup" => self.selected = self.selected.saturating_sub(10),
@@ -184,6 +196,11 @@ impl Render for TypeList {
                     .flex()
                     .justify_end()
                     .gap_2()
+                    .child(
+                        button("type-list-settings", "設定変更(S)...").on_click(cx.listener(
+                            |this, _: &ClickEvent, window, cx| this.change_settings(window, cx),
+                        )),
+                    )
                     .child(button("type-list-apply", "一時適用(R)").on_click(
                         cx.listener(|this, _: &ClickEvent, window, cx| this.apply(window, cx)),
                     ))

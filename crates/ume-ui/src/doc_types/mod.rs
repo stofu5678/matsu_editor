@@ -116,6 +116,34 @@ impl EditorView {
         (labels, self.prefs.settings.type_index)
     }
 
+    /// The number of the type of this document.
+    pub(crate) fn type_index(&self) -> usize {
+        self.prefs.settings.type_index
+    }
+
+    /// Document type `changed` has new settings (the type settings dialog, OK): this view takes
+    /// them if its document has that type, and a document that has no type of the user's choice
+    /// gets the type of its file name again (the extensions may have changed). The temporary
+    /// changes (zoom, wrap) are dropped, as for any change of type (`apply_settings`).
+    pub(crate) fn refresh_type(&mut self, changed: usize, cx: &mut Context<Self>) {
+        let current = self.prefs.settings.type_index;
+        let locked = self.document.read(cx).type_locked();
+        let name = self.document.read(cx).file_name();
+        let wanted = if locked {
+            current
+        } else {
+            with_user(cx, |user| user.type_index_for(name.as_deref()))
+        };
+        if wanted != current || wanted == changed {
+            let settings = with_user(cx, |user| user.view_settings_of_type(wanted));
+            self.apply_settings(settings, cx);
+        }
+        if wanted != current {
+            self.document
+                .update(cx, |shared, cx| shared.announce_type(wanted, cx));
+        }
+    }
+
     /// Whether the user chose the type of this document (`F_CHANGETYPE`).
     pub fn type_is_locked(&self, cx: &App) -> bool {
         self.document.read(cx).type_locked()
@@ -128,6 +156,16 @@ impl EditorView {
         }
         let settings = with_user(cx, |user| user.view_settings_of_type(index));
         self.apply_settings(settings, cx);
+    }
+}
+
+/// Document type `index` has new settings: every view of every window takes them
+/// (`MYWM_CHANGESETTING` with `PM_CHANGESETTING_TYPE` to all editors).
+pub(crate) fn refresh_open_views(cx: &mut App, index: usize) {
+    for (_, workspace) in crate::file_ops::windows::workspaces(cx) {
+        for view in workspace.read(cx).all_views() {
+            view.update(cx, |view, cx| view.refresh_type(index, cx));
+        }
     }
 }
 

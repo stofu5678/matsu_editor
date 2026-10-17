@@ -105,7 +105,7 @@ mod attr {
     pub const NO_BOLD: u32 = 0x100;
     pub const NO_UNDERLINE: u32 = 0x200;
     pub const NO_EFFECTS: u32 = 0xF00;
-    // Not used here: NO_TEXT 0x10, NO_BACK 0x20 (they only limit the settings dialog).
+    // NO_TEXT 0x10 and NO_BACK 0x20 only limit the settings dialog (`ColorSet::attributes`).
     pub const NO_TEXT: u32 = 0x10;
     pub const NO_BACK: u32 = 0x20;
 }
@@ -392,6 +392,23 @@ const DEFS: [Def; 57] = [
     ),
 ];
 
+/// What the settings dialog may change of a colour entry (`g_ColorAttributeArr`,
+/// `sakura_core/view/colors/CColorStrategy.cpp`; the dialog greys out the controls the entry does not
+/// have, `CPropTypesColor::DispatchEvent`, `LBN_SELCHANGE`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ColorAttributes {
+    /// The entry is always shown (`COLOR_ATTRIB_FORCE_DISP`): 色分け/表示 cannot be switched.
+    pub force_disp: bool,
+    /// The entry has no text colour (`COLOR_ATTRIB_NO_TEXT`).
+    pub no_text: bool,
+    /// The entry has no background colour (`COLOR_ATTRIB_NO_BACK`).
+    pub no_back: bool,
+    /// The entry cannot be bold (`COLOR_ATTRIB_NO_BOLD`).
+    pub no_bold: bool,
+    /// The entry cannot be underlined (`COLOR_ATTRIB_NO_UNDERLINE`).
+    pub no_underline: bool,
+}
+
 /// All colour entries of a document type, in Sakura's order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ColorSet {
@@ -414,6 +431,18 @@ impl ColorSet {
 
     fn index(name: &str) -> Option<usize> {
         DEFS.iter().position(|d| d.name == name)
+    }
+
+    /// What the dialog may change of the entry called `name`.
+    pub fn attributes(name: &str) -> Option<ColorAttributes> {
+        let def = DEFS.iter().find(|d| d.name == name)?;
+        Some(ColorAttributes {
+            force_disp: def.attr & attr::FORCE_DISP != 0,
+            no_text: def.attr & attr::NO_TEXT != 0,
+            no_back: def.attr & attr::NO_BACK != 0,
+            no_bold: def.attr & attr::NO_BOLD != 0,
+            no_underline: def.attr & attr::NO_UNDERLINE != 0,
+        })
     }
 
     /// An entry by name (`TXT`, `TAB`, ...).
@@ -509,6 +538,23 @@ mod tests {
         sorted.sort_unstable();
         sorted.dedup();
         assert_eq!(sorted.len(), 57);
+    }
+
+    #[test]
+    fn attributes_follow_the_table() {
+        let txt = ColorSet::attributes("TXT").unwrap();
+        assert!(txt.force_disp && txt.no_bold && txt.no_underline && !txt.no_text && !txt.no_back);
+        let car = ColorSet::attributes("CAR").unwrap();
+        assert!(car.no_back && !car.no_text);
+        // CVL may be bold.
+        let cvl = ColorSet::attributes("CVL").unwrap();
+        assert!(cvl.no_back && !cvl.no_bold && cvl.no_underline);
+        assert_eq!(
+            ColorSet::attributes("KW1").unwrap(),
+            ColorAttributes::default()
+        );
+        assert!(ColorSet::attributes("PGV").unwrap().no_text);
+        assert_eq!(ColorSet::attributes("none"), None);
     }
 
     #[test]
