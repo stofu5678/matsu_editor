@@ -6,9 +6,10 @@ use super::CommandContext;
 use crate::command::Result;
 
 /// Sakura's option `m_bStopsBothEndsWhenSearchParagraph` ("stop at both ends of a paragraph");
-/// off by default (`sakura_core/env/CShareData.cpp`). It is a setting in Sakura, which this
-/// crate does not read yet.
-const STOPS_BOTH_ENDS: bool = false;
+/// off by default (`sakura_core/env/CShareData.cpp`). See [`crate::edit_options`].
+fn stops_both_ends() -> bool {
+    crate::edit_options::get().stops_both_ends_paragraph
+}
 
 impl CommandContext<'_> {
     /// Whether line `line` is an "empty line" in Sakura's sense: only spaces and tabs before the
@@ -66,7 +67,7 @@ impl CommandContext<'_> {
         while self.is_empty_line(line + n)? == Some(first_is_empty) {
             n += 1;
         }
-        if !first_is_empty && !STOPS_BOTH_ENDS {
+        if !first_is_empty && !stops_both_ends() {
             while self.is_empty_line(line + n)? == Some(true) {
                 n += 1;
             }
@@ -95,7 +96,7 @@ impl CommandContext<'_> {
         while at(n)? == Some(first_is_empty) {
             n -= 1;
         }
-        if first_is_empty && !STOPS_BOTH_ENDS {
+        if first_is_empty && !stops_both_ends() {
             while at(n)? == Some(false) {
                 n -= 1;
             }

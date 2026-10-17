@@ -113,6 +113,17 @@ pub(super) fn tabs(cx: &mut TestAppContext, count: usize) -> AnyWindowHandle {
     handle
 }
 
+/// `bTab_RetainEmptyWin` off: closing the last file closes the window (Sakura's default keeps an
+/// untitled document, which the tests of the common settings cover).
+fn keep_no_empty_window(cx: &mut TestAppContext) {
+    cx.update(|app| {
+        app.set_global(super::settings::TabOptions {
+            retain_empty: false,
+            ..Default::default()
+        })
+    });
+}
+
 // ---- opening documents as tabs ----
 
 #[gpui::test]
@@ -267,6 +278,7 @@ fn closing_a_tab_goes_back_to_the_one_that_was_active_before(cx: &mut TestAppCon
 #[gpui::test]
 fn closing_the_only_tab_closes_the_window(cx: &mut TestAppContext) {
     let handle = window(cx, true);
+    keep_no_empty_window(cx);
     run(cx, handle, "F_WINCLOSE");
     assert_eq!(windows(cx), 0);
 }
@@ -331,6 +343,7 @@ fn close_other_keeps_only_this_tab(cx: &mut TestAppContext) {
 #[gpui::test]
 fn close_all_and_group_close_close_every_tab_of_the_window(cx: &mut TestAppContext) {
     let handle = tabs(cx, 3);
+    keep_no_empty_window(cx);
     run(cx, handle, "F_GROUPCLOSE");
     assert_eq!(windows(cx), 0);
 

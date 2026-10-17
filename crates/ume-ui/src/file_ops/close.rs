@@ -129,6 +129,19 @@ fn close_in(view: &Entity<EditorView>, window: &mut Window, app: &mut App) {
             return;
         }
     }
+    // `m_bTab_RetainEmptyWin` (`CEditWnd::DispatchEvent`, `MYWM_CLOSE`): in tab mode the last file
+    // of the group closes into an untitled document, and the window stays.
+    if crate::tabs::settings::current(app).bound()
+        && crate::tabs::settings::options(app).retain_empty
+        && super::windows::workspaces(app).len() == 1
+    {
+        view.update(app, |view, cx| {
+            let mut untitled = SharedDocument::empty();
+            untitled.set_new_document_defaults(&crate::settings::new_document_defaults(cx, None));
+            view.load_document(untitled, None, cx);
+        });
+        return;
+    }
     window.remove_window();
 }
 

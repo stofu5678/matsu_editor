@@ -31,11 +31,6 @@ use crate::app::Workspace;
 use crate::view::EditorView;
 use plan::{Active, Grid, Plan, do_split, request};
 
-/// `m_bSplitterWndVScroll` and `m_bSplitterWndHScroll` (`sakura_core/env/CShareData.cpp`): the
-/// default of both is on. There is no setting for them yet.
-const SYNC_SCROLL_V: bool = true;
-const SYNC_SCROLL_H: bool = true;
-
 /// The width of a bar (`SPLITTER_FRAME_WIDTH`).
 const BAR_WIDTH: f32 = 3.0;
 
@@ -435,10 +430,12 @@ impl Workspace {
         let left_col = x / metrics.cell_width;
         let (last_x, last_y) = self.panes.scrolled[index];
         self.panes.scrolled[index] = (x, y);
-        if SYNC_SCROLL_V && y != last_y {
+        // `m_bSplitterWndVScroll` and `m_bSplitterWndHScroll`: the common settings (ウィンドウ).
+        let sync = crate::common_settings::splitter_sync(cx);
+        if sync.vertical && y != last_y {
             self.sync_scroll(index ^ 1, None, Some((top_row, past_end)), cx);
         }
-        if SYNC_SCROLL_H && x != last_x {
+        if sync.horizontal && x != last_x {
             self.sync_scroll(index ^ 2, Some(left_col), None, cx);
         }
     }

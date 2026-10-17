@@ -252,6 +252,14 @@ impl EditorView {
         cx.notify();
     }
 
+    /// Shows or hides the status bar (the common settings, `bDispSTATUSBAR`).
+    pub(crate) fn set_status_bar(&mut self, shown: bool, cx: &mut Context<Self>) {
+        if self.prefs.show_status_bar != shown {
+            self.prefs.show_status_bar = shown;
+            cx.notify();
+        }
+    }
+
     // The wheel chords of the key map (Ctrl+wheel = font size, remapped wheels) are run by
     // `EditorView::handle_wheel` in `paging.rs`.
 

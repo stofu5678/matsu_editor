@@ -102,6 +102,14 @@ impl Workspace {
             .collect()
     }
 
+    /// Every view of the window: all the panes of all the tabs.
+    pub(crate) fn all_views(&self) -> Vec<Entity<EditorView>> {
+        (0..self.tab_count())
+            .filter_map(|i| self.tab_panes(i))
+            .flat_map(|set| set.numbered().into_iter().map(|(_, view)| view))
+            .collect()
+    }
+
     /// The tab that has `view` among its panes.
     pub(crate) fn tab_of(&self, view: &Entity<EditorView>) -> Option<usize> {
         (0..self.tab_count()).find(|&i| self.tab_panes(i).is_some_and(|set| set.contains(view)))
