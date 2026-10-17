@@ -39,6 +39,7 @@
   cargo about generate --locked --all-features --workspace --fail about.hbs -o THIRD_PARTY_NOTICES.txt
   ```
 
+- このリポジトリ自身のクレートは、リストに載せません（先頭の文で足ります）。新しいクレートを足しても、表示は変わりません。ただし、第三者のコード（C のソースなど）を同梱するクレート（今は `ume-regex`、`ume-micropython-sys`、`ume-mruby-sys`）は載せます。そういうクレートを足すときは、`about.toml` に補正を足し、`about.hbs` に名前を足します。
 - 作り直すにはネットワークが要ります（クレートの取得と、パッケージにライセンスファイルがないクレートの補正で、リポジトリからライセンスファイルを取るため）。補正はライセンスファイルのチェックサムを持っていて、ファイルが変わると使われなくなります。
 - Linux 版は、OS の FreeType（`libfreetype-dev` など）にリンクします。OS に無いまま Linux でビルドすると、`freetype-sys` が FreeType を同梱してビルドします。同梱の FreeType は FreeType License（FTL）で、この表示には含まれていません。CI の Linux のテストジョブが、同梱ビルドの成果物（`libfreetype2.a`）がないことを確かめます。
 - Wayland のプロトコル定義（`wayland-protocols-plasma`、LGPL-2.1-or-later）については、`THIRD_PARTY_NOTICES.txt` に LGPL の本文と事情を載せています（[CLAUDE.md](CLAUDE.md) に判断を記録）。

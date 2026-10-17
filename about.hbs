@@ -86,7 +86,8 @@ Licenses in this list:
 
 Used by:
 {{#each used_by}}
-{{#if (ne crate.name "xtask")}}
+{{! Our own crates are left out (the text at the top covers them), except the three that carry third-party C code. }}
+{{#if (or crate.source (eq crate.name "ume-regex") (eq crate.name "ume-micropython-sys") (eq crate.name "ume-mruby-sys"))}}
   * {{crate.name}} {{crate.version}}{{#if crate.repository}} - {{crate.repository}}{{else}} - https://crates.io/crates/{{crate.name}}/{{crate.version}}{{/if}}
 {{#unless ../source_path}}
 {{#if crate.authors}}
