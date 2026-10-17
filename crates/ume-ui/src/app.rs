@@ -207,6 +207,8 @@ pub(crate) fn gpui_items(entries: Vec<Entry>, style: DisplayStyle) -> Vec<MenuIt
 pub struct Workspace {
     pub(crate) panes: PaneSet,
     pub(crate) tabs: crate::tabs::Tabs,
+    /// The outline pane docked at the right of the window, while it is open (`crate::outline`).
+    pub(crate) outline: Option<Entity<crate::outline::pane::OutlinePane>>,
     menu_bar: Entity<MenuBar>,
 }
 
@@ -231,6 +233,7 @@ impl Workspace {
         let mut workspace = Self {
             panes,
             tabs: crate::tabs::Tabs::new(),
+            outline: None,
             menu_bar: MenuBar::new(cx),
         };
         // The menus are made again when the history changes: the bar loads them.
@@ -257,6 +260,7 @@ impl Workspace {
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_outline(cx);
         let active = self.panes.active().clone();
         let editor = active.read(cx);
         window.set_window_title(&editor.title(cx));
@@ -292,8 +296,16 @@ impl Render for Workspace {
             .child(
                 div()
                     .flex_1()
+                    .flex()
                     .overflow_hidden()
-                    .child(self.render_panes(cx)),
+                    .child(
+                        div()
+                            .flex_1()
+                            .h_full()
+                            .overflow_hidden()
+                            .child(self.render_panes(cx)),
+                    )
+                    .children(self.outline.clone()),
             )
             .children(macro_panel)
             .when(show_status_bar, |this| {

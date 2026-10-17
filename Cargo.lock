@@ -7398,6 +7398,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ume-outline"
+version = "0.0.0"
+dependencies = [
+ "ume-config",
+ "ume-core",
+]
+
+[[package]]
 name = "ume-platform"
 version = "0.0.0"
 dependencies = [
@@ -7479,6 +7487,7 @@ dependencies = [
  "ume-config",
  "ume-core",
  "ume-layout",
+ "ume-outline",
  "ume-platform",
  "ume-plugin",
  "ume-print",
