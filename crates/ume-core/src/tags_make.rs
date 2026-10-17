@@ -73,6 +73,8 @@ pub fn find_ctags(dirs: &[PathBuf]) -> Option<PathBuf> {
     dirs.iter()
         .map(|dir| dir.join(CTAGS_COMMAND))
         .find(|path| path.is_file())
+        // the program is started in another folder: a relative path would not find it
+        .map(|path| std::path::absolute(&path).unwrap_or(path))
 }
 
 /// Splits the line of options into words: white space separates them and quotes (`"` or `'`)
@@ -186,8 +188,12 @@ pub fn run_ctags(
             Err(error) => return Outcome::CannotStart(error.to_string()),
         }
     };
-    for reader in readers {
-        let _ = reader.join();
+    // A child of ctags may keep the pipes open; the wait can still be cancelled.
+    while readers.iter().any(|r| !r.is_finished()) {
+        if cancel.load(Ordering::Relaxed) {
+            return Outcome::Cancelled;
+        }
+        thread::sleep(Duration::from_millis(20));
     }
     let bytes = output.lock().map(|b| b.clone()).unwrap_or_default();
     let text = crate::tag_file::decode_text(&bytes);
@@ -374,6 +380,24 @@ mod tests {
                 &AtomicBool::new(false),
             );
             assert!(matches!(outcome, Outcome::Output(m) if m.chars().count() == MAX_OUTPUT));
+        }
+
+        #[test]
+        fn cancelling_works_while_a_child_holds_the_pipes() {
+            let bin = tempfile::tempdir().unwrap();
+            let work = tempfile::tempdir().unwrap();
+            let ctags = fake(bin.path(), "sleep 30 &\nexit 0");
+            let cancel = Arc::new(AtomicBool::new(false));
+            let flag = Arc::clone(&cancel);
+            let stopper = thread::spawn(move || {
+                thread::sleep(Duration::from_millis(300));
+                flag.store(true, Ordering::Relaxed);
+            });
+            let started = std::time::Instant::now();
+            let outcome = run_ctags(&ctags, work.path(), &TagsMakeOptions::default(), &cancel);
+            stopper.join().unwrap();
+            assert_eq!(outcome, Outcome::Cancelled);
+            assert!(started.elapsed() < Duration::from_secs(10));
         }
 
         #[test]
