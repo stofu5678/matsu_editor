@@ -34,7 +34,8 @@
 //!
 //! [`DocumentTypes`] is the list of types in the order of the index `N` of `Types(N)`: the 17
 //! built-in types of Sakura ([`builtin_types`]) with what the file `ume.ini` overrides, then the
-//! types the file adds. It also has the [keyword sets](KeywordSets) that the types refer to.
+//! types the file adds, and UME Editor's own types ([`extra_types`](super::extra_types), ADR-0017) in the
+//! numbers after 17 that the file does not use. It also has the [keyword sets](KeywordSets) that the types refer to.
 //!
 //! # For the coloring engine
 //!
@@ -61,6 +62,7 @@
 //! "テキスト" (`txt`) comes before the others, so `.log` is テキスト even though TeX lists it too.
 
 use super::builtin_types::{BUILTIN_TYPE_COUNT, added_type_name, builtin_types};
+use super::extra_types::{ExtraSet, extra_types};
 use super::keywords::{KeywordSet, KeywordSets};
 use super::types::{TypeSettings, types_count};
 use crate::profile::Profile;
@@ -125,6 +127,23 @@ fn glob_match(pattern: &str, text: &str) -> bool {
     p[pi..].iter().all(|&c| c == '*')
 }
 
+/// Does the settings file leave the type number `index` unused? That is the case when it has no
+/// `Types(index)` section, or the section is what Sakura writes for a number it does not use: the name
+/// `設定N` (or none) and no extensions.
+fn is_unused_slot(profile: &Profile, index: i32) -> bool {
+    let section = TypeSettings::section_name(index);
+    if profile.entries(&section).next().is_none() {
+        return true;
+    }
+    let no_exts = profile
+        .get(&section, "szTypeExts")
+        .is_none_or(|v| v.trim().is_empty());
+    let placeholder_name = profile
+        .get(&section, "szTypeName")
+        .is_none_or(|v| v == added_type_name(index));
+    no_exts && placeholder_name
+}
+
 /// The index of the first type whose extension list matches `file_name`, else 0
 /// (`GetDocumentTypeOfPath`). `type_exts` has the extension list of each type, in the order of
 /// the types.
@@ -143,12 +162,11 @@ pub struct DocumentTypes {
 }
 
 impl DocumentTypes {
-    /// Sakura's 17 built-in types and keyword sets: what the editor has without a settings file.
+    /// What the editor has without a settings file: Sakura's 17 types and keyword sets, UME Editor's own types
+    /// and sets after them (ADR-0017), and copies of the basic type up to 30 types (as for a file without
+    /// `nTypesCount`).
     pub fn builtin() -> Self {
-        Self {
-            types: builtin_types(),
-            keywords: KeywordSets::builtin(),
-        }
+        Self::from_profile(&Profile::new())
     }
 
     /// The types of a settings file. Like Sakura (`ShareData_IO_Types`), the number of types is
@@ -156,31 +174,94 @@ impl DocumentTypes {
     /// the built-in type `N` if there is one, else as a copy of the basic type called `設定N`;
     /// then the keys of `Types(N)` are read over it. A key the file does not have keeps the
     /// built-in value, so a file can override one setting of one type, or add types.
+    ///
+    /// ADR-0017: the numbers from 17 on that the file does not use for a type of its own (no `Types(N)`
+    /// section, or the placeholder Sakura writes: the name `設定N` and no extensions) get UME Editor's own
+    /// types ([`ExtraSet`] has their keyword sets), in order, as long as there are numbers; such a type is
+    /// not read over, because a Sakura file writes an empty section there. A number the file uses is that
+    /// type, as in Sakura.
     pub fn from_profile(profile: &Profile) -> Self {
         let count = usize::try_from(types_count(profile)).unwrap_or(1);
+        let keywords = KeywordSets::from_profile(profile);
         let builtin = builtin_types();
-        let types = (0..count)
-            .map(|i| {
-                let index = i32::try_from(i).unwrap_or(0);
-                let mut t = match builtin.get(i) {
-                    Some(t) => t.clone(),
-                    None => TypeSettings {
-                        idx: index,
-                        id: index,
-                        type_name: added_type_name(index),
-                        ..builtin[0].clone()
-                    },
-                };
-                t.read_over(profile, index);
-                // ShareData_IO_Types: the index in the file is the index in the list.
-                t.idx = index;
-                t
+        // The type at `i` as Sakura reads it: the built-in type (or a copy of the basic type) with the
+        // keys of the file over it.
+        let from_file = |i: usize| {
+            let index = i32::try_from(i).unwrap_or(0);
+            let mut t = match builtin.get(i) {
+                Some(t) => {
+                    let mut t = t.clone();
+                    // A built-in type may use one of UME Editor's sets: the file may have put it elsewhere.
+                    for slot in &mut t.keyword_set_idx {
+                        if let Some(set) = ExtraSet::from_default_index(*slot) {
+                            *slot = keywords.extra_index(set);
+                        }
+                    }
+                    t
+                }
+                None => TypeSettings {
+                    idx: index,
+                    id: index,
+                    type_name: added_type_name(index),
+                    ..builtin[0].clone()
+                },
+            };
+            t.read_over(profile, index);
+            // ShareData_IO_Types: the index in the file is the index in the list.
+            t.idx = index;
+            t
+        };
+        let is_free = |i: usize| {
+            i >= BUILTIN_TYPE_COUNT && is_unused_slot(profile, i32::try_from(i).unwrap_or(0))
+        };
+        let mut types: Vec<Option<TypeSettings>> = (0..count)
+            .map(|i| (!is_free(i)).then(|| from_file(i)))
+            .collect();
+
+        // UME Editor's types, but not the ones the file has: a type that was saved (it has its name in a
+        // number of the file), and not the extensions that a type of the file has, because the first
+        // matching type wins and the file must keep what it says.
+        let mut extras: Vec<TypeSettings> = extra_types(&keywords)
+            .into_iter()
+            .filter_map(|mut t| {
+                let used = || types.iter().flatten();
+                if used().any(|u| u.type_name == t.type_name && u.idx >= 17) {
+                    return None;
+                }
+                let kept: Vec<&str> = t
+                    .type_exts
+                    .split(',')
+                    // A file called `x.<ext>` also finds the patterns of the file (`*.js`).
+                    .filter(|ext| {
+                        let file = format!("x.{ext}");
+                        !used().any(|u| is_file_name_match(&u.type_exts, &file))
+                    })
+                    .collect();
+                if kept.is_empty() {
+                    return None;
+                }
+                t.type_exts = kept.join(",");
+                Some(t)
+            })
+            .collect::<Vec<_>>();
+        extras.reverse();
+
+        let types = types
+            .iter_mut()
+            .enumerate()
+            .map(|(i, slot)| {
+                slot.take().unwrap_or_else(|| match extras.pop() {
+                    Some(mut t) => {
+                        t.idx = i32::try_from(i).unwrap_or(0);
+                        t.id = t.idx;
+                        t
+                    }
+                    // No type of UME Editor's left: what the file says over the basic type, as Sakura.
+                    None => from_file(i),
+                })
             })
             .collect();
-        Self {
-            types,
-            keywords: KeywordSets::from_profile(profile),
-        }
+        Self { types, keywords }
     }
 
     /// How many types there are.
@@ -236,7 +317,7 @@ impl DocumentTypes {
             .collect()
     }
 
-    /// The number of built-in types (the types after them were added by the file).
+    /// The number of Sakura's built-in types (UME Editor's own types and the types of the file come after them).
     pub const BUILTIN_COUNT: usize = BUILTIN_TYPE_COUNT;
 }
 
@@ -309,7 +390,7 @@ mod tests {
     #[test]
     fn the_builtin_types_are_chosen_by_extension() {
         let types = DocumentTypes::builtin();
-        assert_eq!(types.len(), 17);
+        assert_eq!(types.len(), 30);
         let name_of = |file: &str| {
             types
                 .get(types.type_index_for_file_name(file))
@@ -343,14 +424,17 @@ mod tests {
     }
 
     #[test]
-    fn a_file_without_types_has_the_builtin_ones_and_added_copies_up_to_30() {
+    fn a_file_without_types_has_the_builtin_ones_umes_own_and_added_copies_up_to_30() {
         // An old file with no `nTypesCount`: 30 types.
         let types = DocumentTypes::from_profile(&profile("[Common]\r\nbDispSTATUSBAR=1\r\n"));
         assert_eq!(types.len(), 30);
         assert_eq!(types.get(2).unwrap().type_name, "C/C++");
-        assert_eq!(types.get(17).unwrap().type_name, "設定17");
-        assert_eq!(types.get(17).unwrap().type_exts, "");
+        // 17 to 26 are UME Editor's own types (ADR-0017), the rest copies of the basic type.
+        assert_eq!(types.get(17).unwrap().type_name, "JavaScript");
         assert_eq!(types.get(17).unwrap().idx, 17);
+        assert_eq!(types.get(27).unwrap().type_name, "設定27");
+        assert_eq!(types.get(27).unwrap().type_exts, "");
+        assert_eq!(types.get(27).unwrap().idx, 27);
         assert_eq!(types.type_index_for_file_name("a.cpp"), 2);
     }
 
