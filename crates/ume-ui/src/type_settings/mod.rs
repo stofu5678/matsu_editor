@@ -61,7 +61,8 @@ pub(crate) const PAGE_TITLES: [&str; 6] = [
 pub(crate) struct TypeTarget {
     /// The number `N` of `Types(N)`.
     pub index: usize,
-    /// The type as the sheet started from it.
+    /// The type as the sheet started from it (the values for a new document are the effective
+    /// ones, [`values::shown_type`]).
     pub original: Box<TypeSettings>,
     /// The number is one the file does not use for a type of its own, so the type is one of UME
     /// Editor's (ADR-0017): it is written with all its keys.
@@ -152,7 +153,7 @@ fn is_unused_slot(profile: &Profile, index: usize) -> bool {
 /// The sheet for type `index` read from `profile`; `None` when there is no such type.
 pub(crate) fn sheet(profile: &Profile, index: usize) -> Option<TypeSheet> {
     let types = DocumentTypes::from_profile(profile);
-    let original = types.get(index)?.clone();
+    let original = values::shown_type(&types, profile, index)?;
     let pages = pages::pages(index);
     let controls: Vec<Control> = pages
         .iter()
@@ -279,29 +280,35 @@ pub(crate) fn commit(cx: &mut App, target: &TypeTarget, values: &Values) {
     crate::doc_types::refresh_open_views(cx, target.index);
 }
 
-/// `TypeSettings::write` into `profile`, except for the new-file keys the user did not change and
-/// the file did not set: they stay unset, so that the line ending still follows the OS.
+/// Writes what the user changed into type `number` of `profile`, over the type as `profile` has it
+/// now (another window or process may have changed it since the sheet opened), except that the
+/// new-file keys (`eDefaultCodetype`, `eDefaultEoltype`, `bDefaultBom`) the user did not change
+/// and the file does not set stay unset, so that the line ending still follows the OS. A type of
+/// UME Editor's own (ADR-0017) is written with all its keys.
 fn write_type(
     profile: &mut Profile,
     new: &TypeSettings,
     number: i32,
     target: &TypeTarget,
 ) -> Result<(), ume_config::ProfileError> {
-    // The keys of the file as it is now (another window may have written it since the sheet opened).
+    let types = DocumentTypes::from_profile(profile);
+    let base = values::shown_type(&types, profile, target.index)
+        .unwrap_or_else(|| (*target.original).clone());
+    let merged = values::merge(&base, &target.original, new);
+    // The keys of the file as it is now.
     let now = TypeSettings::new_file_keys(profile, number);
-    new.write(profile, number)?;
+    merged.write(profile, number)?;
     if target.unused_slot {
         return Ok(());
     }
     let section = TypeSettings::section_name(number);
-    let old = &*target.original;
-    if now.codetype.is_none() && new.default_codetype == old.default_codetype {
+    if now.codetype.is_none() && merged.default_codetype == base.default_codetype {
         profile.remove(&section, "eDefaultCodetype");
     }
-    if now.eoltype.is_none() && new.default_eoltype == old.default_eoltype {
+    if now.eoltype.is_none() && merged.default_eoltype == base.default_eoltype {
         profile.remove(&section, "eDefaultEoltype");
     }
-    if now.bom.is_none() && new.default_bom == old.default_bom {
+    if now.bom.is_none() && merged.default_bom == base.default_bom {
         profile.remove(&section, "bDefaultBom");
     }
     Ok(())

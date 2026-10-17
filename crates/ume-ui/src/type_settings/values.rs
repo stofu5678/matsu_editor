@@ -13,8 +13,8 @@ use ume_config::settings::type_rules::{
     outline_type,
 };
 use ume_config::settings::types::{MAX_LINE_KETAS as WIDEST_WRAP_COLUMN, eol_type};
-use ume_config::settings::{ColorSet, TypeSettings};
-use ume_core::encoding::Encoding;
+use ume_config::settings::{ColorSet, DocumentTypes, TypeSettings};
+use ume_core::encoding::{Encoding, Eol};
 
 use super::ids::*;
 use super::pages::color::STRING_TYPES;
@@ -29,6 +29,43 @@ const TYPE_NAME_BUFFER: usize = 64;
 const TYPE_EXTS_BUFFER: usize = 64;
 /// `MAX_VERTLINES * 15`: the buffer of the text of the vertical lines.
 const VERT_LINES_TEXT: usize = MAX_VERT_LINES * 15;
+
+/// The number of a line ending in `eDefaultEoltype` (`EEolType`).
+fn eol_code(eol: Eol) -> i32 {
+    match eol {
+        Eol::CrLf => eol_type::CRLF,
+        Eol::Lf => eol_type::LF,
+        Eol::Cr => eol_type::CR,
+        Eol::Nel => eol_type::NEL,
+        Eol::Ls => eol_type::LS,
+        Eol::Ps => eol_type::PS,
+    }
+}
+
+/// Type `index` as the sheet shows it: the values for a new document (the encoding, the BOM and
+/// the line ending) are what a new document of the type gets (`NewDocumentDefaults`), not what a
+/// [`TypeSettings`] has for a key the file does not set: UME Editor follows the OS for a line
+/// ending the file does not say.
+pub(super) fn shown_type(
+    types: &DocumentTypes,
+    profile: &Profile,
+    index: usize,
+) -> Option<TypeSettings> {
+    let mut t = types.get(index)?.clone();
+    let defaults = crate::settings::NewDocumentDefaults::for_type(profile, index);
+    t.default_codetype = defaults.encoding.sakura_code();
+    t.default_bom = defaults.bom;
+    t.default_eoltype = eol_code(defaults.eol);
+    Some(t)
+}
+
+/// What the reader of the file does to the TAB width (`SetValueLimit(m_nTabSpace, 2,
+/// m_nMaxLineKetas - 2)` in `ShareData_IO_TypeInts`). The settings are read from the file again
+/// as soon as OK has written them, so a width the reader would change is put into this range
+/// before it is written, and the window shows what was chosen.
+fn tab_width_in_range(tab: i32, wrap_column: i32) -> i32 {
+    2.max((wrap_column - 2).min(tab))
+}
 
 /// A `COLORREF` as the dialog holds it.
 fn color_value(color: u32) -> i32 {
@@ -368,7 +405,7 @@ pub(super) fn store(v: &Values, original: &TypeSettings) -> TypeSettings {
     t.type_exts = fit(v.text(TYPE_EXTS), TYPE_EXTS_BUFFER);
     t.text_wrap_method = v.int(WRAP_METHOD);
     t.max_line_ketas = v.int(MAX_LINE_KETAS);
-    t.tab_space = v.int(TAB_SPACE);
+    t.tab_space = tab_width_in_range(v.int(TAB_SPACE), t.max_line_ketas);
     t.word_wrap = v.bool(WORD_WRAP);
     t.kinsoku_ret = v.bool(KINSOKU_RET);
     t.kinsoku_hide = v.bool(KINSOKU_HIDE);
@@ -418,4 +455,55 @@ pub(super) fn store(v: &Values, original: &TypeSettings) -> TypeSettings {
     t.default_bom = v.bool(DEFAULT_BOM)
         && Encoding::from_sakura_code(t.default_codetype).is_some_and(Encoding::can_have_bom);
     t
+}
+
+/// The changes the user made (`old` to `new`) put over `base`, the type as the file has it now.
+/// Only what the pages can change is taken, and only what the user changed: if another process
+/// changed the type while the sheet was open, its other changes stay.
+pub(super) fn merge(base: &TypeSettings, old: &TypeSettings, new: &TypeSettings) -> TypeSettings {
+    let mut out = base.clone();
+    macro_rules! take {
+        ($($field:ident),* $(,)?) => {
+            $(if new.$field != old.$field {
+                out.$field = new.$field.clone();
+            })*
+        };
+    }
+    take!(
+        type_name,
+        type_exts,
+        text_wrap_method,
+        max_line_ketas,
+        tab_space,
+        word_wrap,
+        kinsoku_ret,
+        kinsoku_hide,
+        kinsoku_kuto_enabled,
+        default_outline,
+        string_type,
+        string_line_only,
+        string_end_line,
+        vert_line_idx,
+        default_eoltype,
+        default_codetype,
+        default_bom,
+    );
+    for i in 0..new.block_comments.len() {
+        if new.block_comments[i] != old.block_comments[i] {
+            out.block_comments[i] = new.block_comments[i].clone();
+        }
+    }
+    for i in 0..new.line_comments.len() {
+        if new.line_comments[i] != old.line_comments[i] {
+            out.line_comments[i] = new.line_comments[i].clone();
+        }
+    }
+    for name in ColorSet::all_names() {
+        if new.colors.get(name) != old.colors.get(name)
+            && let (Some(entry), Some(target)) = (new.colors.get(name), out.colors.get_mut(name))
+        {
+            *target = *entry;
+        }
+    }
+    out
 }

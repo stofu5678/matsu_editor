@@ -497,7 +497,11 @@ fn a_number_out_of_range_is_put_into_its_range(cx: &mut TestAppContext) {
     type_in(cx, TAB_SPACE, "-5");
     ok(cx);
     let numbers = ints(&ini, 0);
-    assert_eq!((numbers[1], numbers[3]), (10, 1));
+    assert_eq!(
+        (numbers[1], numbers[3]),
+        (10, 2),
+        "the reader of the file keeps a TAB width from 2 to the wrap column minus 2"
+    );
 }
 
 #[gpui::test]
@@ -591,10 +595,21 @@ fn a_type_of_ours_is_written_in_its_slot_with_all_its_keys(cx: &mut TestAppConte
 #[gpui::test]
 fn the_new_file_keys_are_written_when_the_user_changes_them(cx: &mut TestAppContext) {
     let (ini, a) = setup(cx, "");
+    // The sheet shows the line ending a new document gets: the one of the OS, as the file does
+    // not set it.
+    let (os, other, other_label) = if cfg!(windows) {
+        (1, 2, "UTF-8  LF")
+    } else {
+        (2, 1, "UTF-8  CRLF")
+    };
     run(cx, a, "F_OPTION_TYPE", &[]);
-    choose(cx, DEFAULT_EOL, 2);
+    assert_eq!(value(cx, DEFAULT_EOL), Value::Int(os));
+    choose(cx, DEFAULT_EOL, other);
     ok(cx);
-    assert_eq!(ini.get("Types(0)", "eDefaultEoltype").as_deref(), Some("2"));
+    assert_eq!(
+        ini.get("Types(0)", "eDefaultEoltype"),
+        Some(other.to_string())
+    );
     // The ones that did not change stay unset.
     assert_eq!(ini.get("Types(0)", "eDefaultCodetype"), None);
     // A new document has the line ending now.
@@ -602,8 +617,53 @@ fn the_new_file_keys_are_written_when_the_user_changes_them(cx: &mut TestAppCont
     let view = view_of(cx, b);
     assert_eq!(
         view.read_with(cx, |v, app| v.status(app).file_format),
-        "UTF-8  LF"
+        other_label
     );
+
+    // The key is in the file now, and the line ending of the OS is a choice too.
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    choose(cx, DEFAULT_EOL, os);
+    ok(cx);
+    assert_eq!(ini.get("Types(0)", "eDefaultEoltype"), Some(os.to_string()));
+}
+
+#[gpui::test]
+fn a_tab_width_the_reader_would_change_is_put_into_its_range_at_once(cx: &mut TestAppContext) {
+    let (ini, a) = setup(cx, "");
+    let view = view_of(cx, a);
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    type_in(cx, TAB_SPACE, "1");
+    ok(cx);
+    assert_eq!(ints(&ini, 0)[3], 2);
+    assert_eq!(tab_width(cx, &view), 2);
+
+    // A TAB width of 64 does not fit a wrap column of 10.
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    type_in(cx, TAB_SPACE, "64");
+    type_in(cx, MAX_LINE_KETAS, "10");
+    ok(cx);
+    assert_eq!(ints(&ini, 0)[3], 8);
+    assert_eq!(tab_width(cx, &view), 8);
+}
+
+#[gpui::test]
+fn what_another_process_changed_meanwhile_stays(cx: &mut TestAppContext) {
+    let (ini, a) = setup(cx, "[Types(0)]\r\nbAutoIndent=1\r\nnLineSpace=3\r\n");
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    type_in(cx, TAB_SPACE, "6");
+    // Another process changes the type while the sheet is open.
+    let mut profile = ini.profile();
+    profile.set("Types(0)", "bAutoIndent", "0").unwrap();
+    profile.set("Types(0)", "nLineSpace", "9").unwrap();
+    profile.save(&ini.path).unwrap();
+    ok(cx);
+    assert_eq!(ints(&ini, 0)[3], 6, "the change of the user");
+    assert_eq!(
+        ini.get("Types(0)", "bAutoIndent").as_deref(),
+        Some("0"),
+        "what the sheet does not show as changed is as the file has it"
+    );
+    assert_eq!(ini.get("Types(0)", "nLineSpace").as_deref(), Some("9"));
 }
 
 #[gpui::test]
