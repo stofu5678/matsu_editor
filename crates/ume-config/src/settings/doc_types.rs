@@ -234,7 +234,10 @@ impl DocumentTypes {
                     // A file called `x.<ext>` also finds the patterns of the file (`*.js`).
                     .filter(|ext| {
                         let file = format!("x.{ext}");
-                        !used().any(|u| is_file_name_match(&u.type_exts, &file))
+                        !used().any(|u| {
+                            is_file_name_match(&u.type_exts, &file)
+                                || is_file_name_match(&u.type_exts, ext)
+                        })
                     })
                     .collect();
                 if kept.is_empty() {
