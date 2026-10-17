@@ -422,20 +422,20 @@ fn the_function_of_the_right_click_is_the_key_maps(cx: &mut TestAppContext) {
     assert_eq!(f.caret(cx), Pos::new(0, 2));
 }
 
+// Sakura shows the menu at `::GetCursorPos` for a key too (`CEditView::CreatePopUpMenuSub`).
 #[gpui::test]
-fn the_menu_key_opens_the_right_click_menu_at_the_caret(cx: &mut TestAppContext) {
+fn the_menu_key_opens_the_right_click_menu_at_the_pointer(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "", "abc\ndef");
-    cx.simulate_keystrokes("down right");
+    let p = point_of(&f, cx, 1, 2);
+    cx.simulate_mouse_move(p, None, Modifiers::default());
     cx.simulate_keystrokes("menu");
     assert!(f.is_open(cx));
-    let (at, below) = f.view.read_with(cx, |v, c| {
-        let caret = v.point_of(v.cursor.caret(), c).unwrap();
-        (
-            v.custom_menu.open_at().unwrap(),
-            gpui::point(caret.x, caret.y + gpui::px(v.metrics.line_height)),
-        )
-    });
-    assert_eq!(at, below);
+    let at = f
+        .view
+        .read_with(cx, |v, _| v.custom_menu.open_at().unwrap());
+    assert_eq!(at, gpui::point(p.x, p.y - gpui::px(4.)));
+    // the caret did not move
+    assert_eq!(f.caret(cx), Pos::new(0, 0));
 }
 
 #[gpui::test]

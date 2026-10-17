@@ -2,7 +2,8 @@
 //!
 //! Sakura: `CEditView::CreatePopUpMenuSub` opens it with `TrackPopupMenu` at the mouse pointer, 4 pixels
 //! higher (`po.y -= 4`), for the right click and for a key alike. Here the right click opens it at the
-//! pointer ([`CustomMenuState::mouse_at`]) and a key at the caret.
+//! pointer ([`CustomMenuState::mouse_at`]); a key opens it at the pointer too, where the pointer is (Sakura
+//! does the same: `::GetCursorPos` whatever ran the function).
 
 use gpui::{
     AnyElement, Context, DismissEvent, Entity, Focusable as _, InteractiveElement as _,
@@ -97,7 +98,13 @@ impl EditorView {
             .mouse_at
             .take()
             .map(|p| point(p.x, p.y - px(ABOVE_POINTER)))
-            .unwrap_or_else(|| self.caret_below(cx));
+            // Sakura: `::GetCursorPos` for a key as well. GPUI gives the last position it saw the pointer at in
+            // this window; if the pointer is outside, that is the place where it left (or the corner, if
+            // it never came in), and the popup is moved into the window (`snap_to_window_with_margin`).
+            .unwrap_or_else(|| {
+                let p = window.mouse_position();
+                point(p.x, p.y - px(ABOVE_POINTER))
+            });
         let handle = self.focus_handle.clone();
         let max_height = popup_max_height(window.viewport_size().height, at.y);
         let popup = PopupMenu::build(window, cx, |menu, window, cx| {
@@ -126,15 +133,6 @@ impl EditorView {
             window.focus(&self.focus_handle, cx);
             cx.notify();
         }
-    }
-
-    /// The point under the caret, where a menu opened by a key starts. The top left of the view before the
-    /// first paint.
-    fn caret_below(&self, cx: &gpui::App) -> Point<Pixels> {
-        self.point_of(self.cursor.caret(), cx)
-            .map_or_else(Point::default, |p| {
-                point(p.x, p.y + px(self.metrics.line_height))
-            })
     }
 
     /// The popup, to be a child of the view while it is open. A menu of Sakura is modal and a resize of the
