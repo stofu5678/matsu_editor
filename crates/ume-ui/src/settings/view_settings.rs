@@ -240,6 +240,19 @@ pub struct ViewSettings {
     /// `nVertLineIdx` of the type: the columns of the vertical lines; a negative column starts
     /// a repeating line (see `crate::view::lines::vertical_columns`).
     pub vert_lines: Vec<i32>,
+    /// What the outline of the type is made of.
+    pub outline: OutlineSettings,
+}
+
+/// The settings of the type that the outline pane uses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OutlineSettings {
+    /// `nDefaultOutline` ([`ume_config::settings::type_rules::outline_type`]): the kind of the
+    /// analysis of F_OUTLINE.
+    pub kind: i32,
+    /// `bLineNumIsCRLF`: the pane numbers the lines of the text, not the rows of the wrapped
+    /// view.
+    pub line_num_is_crlf: bool,
 }
 
 /// `m_nRulerHeight` of a new `CommonSetting` (`sakura_core/env/CShareData.cpp`).
@@ -520,6 +533,10 @@ impl ViewSettings {
                 .copied()
                 .take_while(|&column| column != 0)
                 .collect(),
+            outline: OutlineSettings {
+                kind: t.default_outline,
+                line_num_is_crlf: t.line_num_is_crlf,
+            },
         }
     }
 

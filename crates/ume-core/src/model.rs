@@ -19,6 +19,7 @@ pub struct DocumentModel {
     new_line: Eol,
     bookmarks: Bookmarks,
     diff_marks: DiffMarks,
+    funclist_marks: Bookmarks,
 }
 
 impl DocumentModel {
@@ -39,6 +40,7 @@ impl DocumentModel {
             new_line,
             bookmarks: Bookmarks::new(),
             diff_marks: DiffMarks::new(),
+            funclist_marks: Bookmarks::new(),
         }
     }
 
@@ -63,6 +65,18 @@ impl DocumentModel {
     /// The bookmarks, to set and clear them. Bookmarks are not part of the undo history.
     pub fn bookmarks_mut(&mut self) -> &mut Bookmarks {
         &mut self.bookmarks
+    }
+
+    /// The lines of the functions that the last outline analysis found (Sakura:
+    /// 関数リストマーク, `CDocLine::m_sMark.m_cFuncList`), which `F_FUNCLIST_NEXT` and
+    /// `F_FUNCLIST_PREV` move between. Like the bookmarks they follow the edits.
+    pub fn funclist_marks(&self) -> &Bookmarks {
+        &self.funclist_marks
+    }
+
+    /// The function list marks, to set and clear them.
+    pub fn funclist_marks_mut(&mut self) -> &mut Bookmarks {
+        &mut self.funclist_marks
     }
 
     /// The lines marked by the last DIFF (Sakura: 差分表示). Like the bookmarks they follow the
@@ -145,6 +159,7 @@ impl DocumentModel {
         for delta in line_edit.forward() {
             self.bookmarks.apply(delta);
             self.diff_marks.apply(delta);
+            self.funclist_marks.apply(delta);
         }
         self.history.note_lines(line_edit);
         let marks = self.history.marks().edit_of_replace(
@@ -164,6 +179,7 @@ impl DocumentModel {
         // bookmark with it.
         self.bookmarks.truncate(self.doc.line_count());
         self.diff_marks.truncate(self.doc.line_count());
+        self.funclist_marks.truncate(self.doc.line_count());
         Ok(edit)
     }
 
@@ -195,9 +211,11 @@ impl DocumentModel {
         for &delta in lines {
             self.bookmarks.apply(delta);
             self.diff_marks.apply(delta);
+            self.funclist_marks.apply(delta);
         }
         self.bookmarks.truncate(self.doc.line_count());
         self.diff_marks.truncate(self.doc.line_count());
+        self.funclist_marks.truncate(self.doc.line_count());
     }
 
     /// Whether `line` differs from the saved version: the lines that Sakura draws in the colors of
