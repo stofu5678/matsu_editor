@@ -34,7 +34,7 @@
 
 use std::cell::Cell;
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::time::Duration;
 
 use gpui::{AnyWindowHandle, App, AsyncApp, Context, EntityId, Global, WeakEntity, Window};
@@ -66,7 +66,7 @@ const PRINTING: u32 = 1 << 13;
 /// [`track`] counts them. The work that the user starts meanwhile (the OK of a dialog that the
 /// call opened) belongs to the call as well, so the entry stays while the macro waits.
 #[derive(Default)]
-struct Armed(HashMap<EntityId, Rc<Cell<usize>>>);
+struct Armed(HashMap<EntityId, Weak<Cell<usize>>>);
 
 impl Global for Armed {}
 
@@ -85,7 +85,12 @@ impl Drop for FlowGuard {
 /// view is the one the macro is bound to: the tab it started in (Sakura: its `CEditView`), wherever
 /// that tab is shown.
 pub(crate) fn track(cx: &Context<EditorView>) -> Option<FlowGuard> {
-    let counter = cx.try_global::<Armed>()?.0.get(&cx.entity_id())?.clone();
+    // A call whose `Wait` was dropped (a notification does not wait) is not counted any more.
+    let counter = cx
+        .try_global::<Armed>()?
+        .0
+        .get(&cx.entity_id())?
+        .upgrade()?;
     counter.set(counter.get() + 1);
     Some(FlowGuard(counter))
 }
@@ -125,7 +130,11 @@ pub(crate) struct Wait {
 /// taken the place).
 fn disarm(cx: &mut App, view: EntityId, flows: &Rc<Cell<usize>>) {
     let armed = cx.default_global::<Armed>();
-    if armed.0.get(&view).is_some_and(|f| Rc::ptr_eq(f, flows)) {
+    if armed
+        .0
+        .get(&view)
+        .is_some_and(|f| f.upgrade().is_none_or(|f| Rc::ptr_eq(&f, flows)))
+    {
         armed.0.remove(&view);
     }
 }
@@ -189,7 +198,9 @@ impl EditorView {
     ) -> (bool, Option<Wait>) {
         let flows = Rc::new(Cell::new(0));
         let me = cx.entity_id();
-        cx.default_global::<Armed>().0.insert(me, flows.clone());
+        cx.default_global::<Armed>()
+            .0
+            .insert(me, Rc::downgrade(&flows));
         let mut wait = Wait {
             flows,
             baseline: self.activity(cx),
