@@ -243,7 +243,7 @@ impl TagList {
 
     /// 次へ.
     pub(crate) fn next_page(&mut self, cx: &mut Context<Self>) {
-        if !self.page.has_next {
+        if self.busy || !self.page.has_next {
             return;
         }
         self.top += PAGE_SIZE;
@@ -252,7 +252,7 @@ impl TagList {
 
     /// 前へ.
     pub(crate) fn previous_page(&mut self, cx: &mut Context<Self>) {
-        if self.top == 0 {
+        if self.busy || self.top == 0 {
             return;
         }
         self.top = self.top.saturating_sub(PAGE_SIZE);
@@ -558,7 +558,7 @@ impl Render for TagList {
                                         .child(
                                             Button::new("tag-prev")
                                                 .label("前へ(P)")
-                                                .disabled(self.top == 0)
+                                                .disabled(self.busy || self.top == 0)
                                                 .on_click(cx.listener(|this, _, _, cx| {
                                                     this.previous_page(cx)
                                                 })),
@@ -566,7 +566,7 @@ impl Render for TagList {
                                         .child(
                                             Button::new("tag-next")
                                                 .label("次へ(N)")
-                                                .disabled(!self.page.has_next)
+                                                .disabled(self.busy || !self.page.has_next)
                                                 .on_click(
                                                     cx.listener(|this, _, _, cx| {
                                                         this.next_page(cx)
