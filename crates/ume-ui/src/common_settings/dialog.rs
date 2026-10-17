@@ -760,6 +760,7 @@ impl CommonSettingsDialog {
                         h_flex()
                             .gap_1()
                             .items_center()
+                            .flex_wrap()
                             .children(choices)
                             .children(note),
                     )

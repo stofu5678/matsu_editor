@@ -666,6 +666,21 @@ fn new_file_keys_the_user_did_not_change_stay_as_the_file_has_them(cx: &mut Test
 }
 
 #[gpui::test]
+fn a_bom_the_user_chose_is_written_when_the_encoding_changes_its_default(cx: &mut TestAppContext) {
+    let (ini, a) = setup(cx, "");
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    // UTF-16 has a BOM by default; the user does not want it.
+    choose(cx, DEFAULT_CODE, 3);
+    check(cx, DEFAULT_BOM, false);
+    ok(cx);
+    assert_eq!(
+        ini.get("Types(0)", "eDefaultCodetype").as_deref(),
+        Some("3")
+    );
+    assert_eq!(ini.get("Types(0)", "bDefaultBom").as_deref(), Some("0"));
+}
+
+#[gpui::test]
 fn the_values_of_a_color_item_are_merged_one_by_one(cx: &mut TestAppContext) {
     let (ini, a) = setup(cx, "");
     run(cx, a, "F_OPTION_TYPE", &[]);

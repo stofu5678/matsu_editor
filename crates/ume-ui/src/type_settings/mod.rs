@@ -313,7 +313,9 @@ fn write_type(
         ),
         (
             "bDefaultBom",
-            merged.default_bom == base.default_bom,
+            // Another encoding has another default BOM, so the BOM is the user's choice then.
+            merged.default_bom == base.default_bom
+                && merged.default_codetype == base.default_codetype,
             raw("bDefaultBom"),
         ),
     ];
