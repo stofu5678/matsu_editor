@@ -264,6 +264,87 @@ pub(crate) async fn open_paths(
     }
 }
 
+/// What the settings say about dropped files (`[Common]` of the settings file).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct DropSettings {
+    /// 「一度にドロップ可能なファイル数」 (`nDropFileNumMax`).
+    pub(crate) max_files: usize,
+    /// 「ファイルをドロップしたときは閉じて開く」 (`bDropFileAndClose`).
+    pub(crate) close_and_open: bool,
+}
+
+impl DropSettings {
+    /// Sakura's default (`CShareData::InitShareData`): 8 files, no close and open.
+    pub(crate) const DEFAULT: Self = Self {
+        max_files: 8,
+        close_and_open: false,
+    };
+
+    /// Reads the settings at the time of the drop. The limit is held to 1..=99 as the common
+    /// settings dialog does (`CPropComFile::GetData`, `sakura_core/prop/CPropComFile.cpp`).
+    pub(crate) fn read(cx: &gpui::App) -> Self {
+        let Some(profile) = cx
+            .try_global::<crate::settings::UserSettings>()
+            .and_then(|user| user.profile())
+        else {
+            return Self::DEFAULT;
+        };
+        let max_files = profile
+            .get_i32("Common", "nDropFileNumMax")
+            .map_or(Self::DEFAULT.max_files, |n| n.clamp(1, 99) as usize);
+        Self {
+            max_files,
+            close_and_open: profile
+                .get_bool("Common", "bDropFileAndClose")
+                .unwrap_or(false),
+        }
+    }
+}
+
+/// Files dropped on the window (`CEditWnd::OnDropFiles`, `sakura_core/window/CEditWnd.cpp`): with
+/// `close_and_open` only the first file is taken, then only the first `max_files`. A file that is
+/// open already comes to the front; otherwise it goes into this window if that accepts a load,
+/// else (`close_and_open`) replaces the document after the question about its changes, else it
+/// gets a new tab or window like the files of the open dialog.
+pub(crate) async fn drop_files(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    mut paths: Vec<PathBuf>,
+    settings: DropSettings,
+) {
+    if settings.close_and_open {
+        paths.truncate(1);
+    }
+    paths.truncate(settings.max_files);
+    if !settings.close_and_open {
+        open_paths(view, cx, paths, None).await;
+        return;
+    }
+    let Some(path) = paths.pop() else {
+        return;
+    };
+    let existing = cx
+        .update(|_, app| windows::find_open(app, &path))
+        .ok()
+        .flatten();
+    if let Some((handle, found)) = existing {
+        cx.update(|_, app| crate::tabs::flows::reveal(app, handle, found))
+            .ok();
+        return;
+    }
+    let reading = cx
+        .update(|_, app| windows::is_pending(app, view))
+        .unwrap_or(true);
+    let accepts = view
+        .read_with(cx, |view, app| view.accepts_load(app))
+        .unwrap_or(false);
+    // `FileCloseOpen`: the question about the changes first, then the file replaces the document.
+    if reading || (!accepts && !super::close::confirm_discard(view, cx).await) {
+        return;
+    }
+    load_here(view, cx, &path, None, None).await;
+}
+
 /// Where the open dialog is told to start by a macro (`FileOpen`'s fourth argument): the folder
 /// and the file name. See [`ume_config::dialog_dir::split_default_name`].
 pub(crate) type GivenStart = (Option<PathBuf>, Option<String>);

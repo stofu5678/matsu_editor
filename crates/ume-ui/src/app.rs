@@ -3,8 +3,9 @@
 //! The menu is Sakura's main menu (`crate::menu`).
 
 use gpui::{
-    App, AppContext as _, Context, Decorations, Entity, Focusable, IntoElement, Menu, MenuItem,
-    ParentElement, Render, Styled, Window, actions, div, prelude::FluentBuilder, px, rgb,
+    App, AppContext as _, Context, Decorations, Entity, Focusable, InteractiveElement as _,
+    IntoElement, Menu, MenuItem, ParentElement, Render, Styled, Window, actions, div,
+    prelude::FluentBuilder, px, rgb,
 };
 use gpui_component::{GlobalState, TitleBar};
 use gpui_platform::application;
@@ -210,6 +211,8 @@ pub struct Workspace {
     /// The outline pane docked at the right of the window, while it is open (`crate::outline`).
     pub(crate) outline: Option<Entity<crate::outline::pane::OutlinePane>>,
     menu_bar: Entity<MenuBar>,
+    /// The files that are being dragged over the window (`crate::file_ops::drop_zone`).
+    pub(crate) file_drop: Option<Vec<std::path::PathBuf>>,
 }
 
 impl Workspace {
@@ -235,6 +238,7 @@ impl Workspace {
             tabs: crate::tabs::Tabs::new(),
             outline: None,
             menu_bar: MenuBar::new(cx),
+            file_drop: None,
         };
         // The menus are made again when the history changes: the bar loads them.
         cx.observe_global::<MenuGeneration>(|this: &mut Self, cx| {
@@ -280,6 +284,9 @@ impl Render for Workspace {
             .bg(rgb(0xffffff))
             .text_color(rgb(0x1e1e1e))
             .font_family(ui_font)
+            // The whole frame takes dropped files (`DragAcceptFiles( GetHwnd(), TRUE )`).
+            .on_drag_move(cx.listener(Self::note_file_drag))
+            .child(crate::file_ops::drop_zone::drop_zone(cx))
             .when(client_decorated, |this| {
                 this.child(TitleBar::new().child(div().text_sm().child("UME Editor")))
             })

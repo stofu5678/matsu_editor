@@ -129,16 +129,19 @@ impl EditorView {
         });
     }
 
-    /// Files dropped on the window open like the files of the open dialog.
+    /// Files dropped on the window (`CEditWnd::OnDropFiles`): see [`load::drop_files`].
     pub(crate) fn on_external_drop(
         &mut self,
         paths: &ExternalPaths,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // `ActivateFrameWindow( GetHwnd() )` before anything else (2009.08.20 ryoji).
+        window.activate_window();
         let paths: Vec<PathBuf> = paths.paths().to_vec();
+        let settings = load::DropSettings::read(cx);
         start(window, cx, async move |view, cx| {
-            load::open_paths(&view, cx, paths, None).await;
+            load::drop_files(&view, cx, paths, settings).await;
         });
     }
 }

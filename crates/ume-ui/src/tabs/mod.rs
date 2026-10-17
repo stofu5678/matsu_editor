@@ -18,6 +18,8 @@
 
 pub(crate) mod bar;
 #[cfg(test)]
+mod drop_tests;
+#[cfg(test)]
 mod file_tests;
 pub(crate) mod flows;
 pub(crate) mod order;
