@@ -46,4 +46,6 @@ pub(super) fn commit(
             page.apply(&mut env, after, Some(before));
         }
     }
+    // The menus read the settings (the history, the custom menus): make them again from the new ones.
+    crate::app::refresh_menus(env.cx);
 }
