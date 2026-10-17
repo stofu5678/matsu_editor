@@ -184,40 +184,77 @@ impl DocumentTypes {
         let count = usize::try_from(types_count(profile)).unwrap_or(1);
         let keywords = KeywordSets::from_profile(profile);
         let builtin = builtin_types();
-        let mut extras = extra_types(&keywords).into_iter();
-        let types = (0..count)
-            .map(|i| {
-                let index = i32::try_from(i).unwrap_or(0);
-                if i >= BUILTIN_TYPE_COUNT
-                    && is_unused_slot(profile, index)
-                    && let Some(mut t) = extras.next()
-                {
-                    t.idx = index;
-                    t.id = index;
-                    return t;
-                }
-                let mut t = match builtin.get(i) {
-                    Some(t) => {
-                        let mut t = t.clone();
-                        // A built-in type may use one of UME Editor's sets: the file may have put it elsewhere.
-                        for slot in &mut t.keyword_set_idx {
-                            if let Some(set) = ExtraSet::from_default_index(*slot) {
-                                *slot = keywords.extra_index(set);
-                            }
+        // The type at `i` as Sakura reads it: the built-in type (or a copy of the basic type) with the
+        // keys of the file over it.
+        let from_file = |i: usize| {
+            let index = i32::try_from(i).unwrap_or(0);
+            let mut t = match builtin.get(i) {
+                Some(t) => {
+                    let mut t = t.clone();
+                    // A built-in type may use one of UME Editor's sets: the file may have put it elsewhere.
+                    for slot in &mut t.keyword_set_idx {
+                        if let Some(set) = ExtraSet::from_default_index(*slot) {
+                            *slot = keywords.extra_index(set);
                         }
+                    }
+                    t
+                }
+                None => TypeSettings {
+                    idx: index,
+                    id: index,
+                    type_name: added_type_name(index),
+                    ..builtin[0].clone()
+                },
+            };
+            t.read_over(profile, index);
+            // ShareData_IO_Types: the index in the file is the index in the list.
+            t.idx = index;
+            t
+        };
+        let is_free = |i: usize| {
+            i >= BUILTIN_TYPE_COUNT && is_unused_slot(profile, i32::try_from(i).unwrap_or(0))
+        };
+        let mut types: Vec<Option<TypeSettings>> = (0..count)
+            .map(|i| (!is_free(i)).then(|| from_file(i)))
+            .collect();
+
+        // UME Editor's types, but not the ones the file has: a type that was saved (it has its name in a
+        // number of the file), and not the extensions that a type of the file has, because the first
+        // matching type wins and the file must keep what it says.
+        let mut extras: Vec<TypeSettings> = extra_types(&keywords)
+            .into_iter()
+            .filter_map(|mut t| {
+                let used = || types.iter().flatten();
+                if used().any(|u| u.type_name == t.type_name && u.idx >= 17) {
+                    return None;
+                }
+                let kept: Vec<&str> = t
+                    .type_exts
+                    .split(',')
+                    .filter(|ext| !used().any(|u| is_file_name_match(&u.type_exts, ext)))
+                    .collect();
+                if kept.is_empty() {
+                    return None;
+                }
+                t.type_exts = kept.join(",");
+                Some(t)
+            })
+            .collect::<Vec<_>>();
+        extras.reverse();
+
+        let types = types
+            .iter_mut()
+            .enumerate()
+            .map(|(i, slot)| {
+                slot.take().unwrap_or_else(|| match extras.pop() {
+                    Some(mut t) => {
+                        t.idx = i32::try_from(i).unwrap_or(0);
+                        t.id = t.idx;
                         t
                     }
-                    None => TypeSettings {
-                        idx: index,
-                        id: index,
-                        type_name: added_type_name(index),
-                        ..builtin[0].clone()
-                    },
-                };
-                t.read_over(profile, index);
-                // ShareData_IO_Types: the index in the file is the index in the list.
-                t.idx = index;
-                t
+                    // No type of UME Editor's left: what the file says over the basic type, as Sakura.
+                    None => from_file(i),
+                })
             })
             .collect();
         Self { types, keywords }

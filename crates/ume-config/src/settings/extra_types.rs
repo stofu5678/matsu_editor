@@ -480,6 +480,49 @@ mod tests {
     }
 
     #[test]
+    fn saving_types_does_not_change_the_rest_of_the_list() {
+        // Saving some of UME Editor's types (as a settings dialog would) must not add copies of them or push
+        // the others out when the file is read again, also when the list is short.
+        for count in [27, 30, 60] {
+            let head = format!("[Other]\r\nnTypesCount={count}\r\n");
+            let before = DocumentTypes::from_profile(&profile(&head));
+            let mut ini = profile(&head);
+            for index in [17, 19, 26] {
+                before
+                    .get(index)
+                    .unwrap()
+                    .write(&mut ini, i32::try_from(index).unwrap())
+                    .unwrap();
+            }
+            let after = DocumentTypes::from_profile(&Profile::from_bytes(&ini.to_bytes()));
+            assert_eq!(after, before, "nTypesCount={count}");
+        }
+    }
+
+    #[test]
+    fn what_the_file_lists_is_not_taken_by_umes_types() {
+        // The user's own JavaScript type is at 29. UME Editor's JavaScript must not come first and win.
+        let text =
+            "[Other]\r\nnTypesCount=30\r\n[Types(29)]\r\nszTypeName=My JS\r\nszTypeExts=js\r\n";
+        let types = DocumentTypes::from_profile(&profile(text));
+        assert_eq!(types.type_index_for_file_name("a.js"), 29);
+        // The other extensions of the type stay with UME Editor's type.
+        assert_eq!(types.type_index_for_file_name("a.mjs"), 17);
+        assert_eq!(types.get(17).unwrap().type_exts, "mjs,cjs,jsx");
+        // A type that has nothing left is not added, and the next one takes its number.
+        let text = "[Other]\r\nnTypesCount=30\r\n[Types(29)]\r\nszTypeName=Mine\r\nszTypeExts=json,jsonc\r\n";
+        let types = DocumentTypes::from_profile(&profile(text));
+        assert_eq!(types.type_index_for_file_name("a.json"), 29);
+        assert_eq!(types.index_of_name("JSON"), None);
+        assert_eq!(types.get(19).unwrap().type_name, "CSS");
+        // A type of Sakura that the file gave an extension: that file stays with it.
+        let text = "[Other]\r\nnTypesCount=30\r\n[Types(2)]\r\nszTypeExts=c,h,rs\r\n";
+        let types = DocumentTypes::from_profile(&profile(text));
+        assert_eq!(types.type_index_for_file_name("a.rs"), 2);
+        assert_eq!(types.index_of_name("Rust"), None);
+    }
+
+    #[test]
     fn the_c_like_types_take_the_values_of_cpp() {
         let types = DocumentTypes::builtin();
         let cpp = types.get(2).unwrap();
