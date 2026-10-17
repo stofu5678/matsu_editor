@@ -30,6 +30,10 @@ pub(crate) struct Support {
     pub tag_list: Option<Entity<crate::tags::list::TagList>>,
     /// The dialog of 「タグファイルの作成」, while it is open.
     pub tags_make: Option<Entity<crate::tags::make::TagsMakeDialog>>,
+    /// The dialog of 外部コマンド実行, while it is open (`crate::exec`).
+    pub exec_dialog: Option<Entity<crate::exec::dialog::ExecDialog>>,
+    /// The box of a command that runs, with its 中断 button.
+    pub exec_running: Option<Entity<crate::exec::running::ExecRunning>>,
 }
 
 impl EditorView {
@@ -46,6 +50,18 @@ impl EditorView {
         out.extend(self.support.about.clone().map(|e| e.into_any_element()));
         out.extend(self.support.tag_list.clone().map(|e| e.into_any_element()));
         out.extend(self.support.tags_make.clone().map(|e| e.into_any_element()));
+        out.extend(
+            self.support
+                .exec_dialog
+                .clone()
+                .map(|e| e.into_any_element()),
+        );
+        out.extend(
+            self.support
+                .exec_running
+                .clone()
+                .map(|e| e.into_any_element()),
+        );
         out
     }
 }

@@ -34,6 +34,9 @@ edn = "edn"
 # bregonig.dll's own error message "unmatch separater" (a pattern that ends with a backslash).
 separater = "separater"
 
+# GAE: a name in the copyright notice of a ported file (CEditView_ExecCmd.cpp).
+GAE = "GAE"
+
 [default.extend-identifiers]
 # Sakura's macro names (sakura_core/macro/CSMacroMgr.cpp): "UNICODE to SJIS" written as a word.
 CodeCnvUNICODEtoSJIS = "CodeCnvUNICODEtoSJIS"

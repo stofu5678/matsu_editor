@@ -28,6 +28,7 @@ mod custom_menu;
 mod diff;
 mod doc_types;
 pub mod document;
+mod exec;
 mod file_dialog;
 mod file_ops;
 pub mod geometry;

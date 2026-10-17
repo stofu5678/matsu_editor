@@ -3,6 +3,8 @@
 
 pub mod exec_ext_macro;
 pub mod exec_key_macro;
+pub mod execmd;
+pub mod execmd_dialog;
 pub mod load_key_macro;
 pub mod rec_key_macro;
 pub mod save_key_macro;

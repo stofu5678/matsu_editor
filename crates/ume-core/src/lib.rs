@@ -8,6 +8,7 @@ pub mod buffer;
 pub mod cursor;
 pub mod diff;
 pub mod encoding;
+pub mod exec;
 pub mod file;
 pub mod jump_history;
 pub mod model;

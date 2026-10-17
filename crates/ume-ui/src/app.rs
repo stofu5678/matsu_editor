@@ -69,6 +69,17 @@ pub(crate) fn run(
             ume_config::location::write_path(&candidates).map(std::path::Path::to_path_buf),
         )
     };
+    // The commands and folders of 外部コマンド実行 (`[Cmd]`), saved to the same file.
+    let exec_prefs = {
+        let candidates = ume_config::location::candidate_paths(
+            ume_config::location::Os::current(),
+            &ume_config::location::Environment::from_process(),
+        );
+        crate::exec::ExecPrefs::load(
+            user.path(),
+            ume_config::location::write_path(&candidates).map(std::path::Path::to_path_buf),
+        )
+    };
     // gpui-component's icons (check marks, menu arrows, title bar buttons), on every OS.
     let app = application().with_assets(gpui_kit_assets::Assets);
     // macOS: the files that Finder and the Dock open in the running application.
@@ -104,6 +115,7 @@ pub(crate) fn run(
         .detach();
 
         crate::search::history::install(cx, search_history);
+        crate::exec::install(cx, exec_prefs);
         cx.spawn(async move |cx| {
             while let Ok(request) = requests.recv().await {
                 cx.update(|cx| {
