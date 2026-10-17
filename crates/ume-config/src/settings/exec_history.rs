@@ -154,7 +154,7 @@ impl ExecHistory {
         self.cur_dirs.add(dir)
     }
 
-    /// Takes in what the file has now (see [`Recent::merge_from`]); the choices of the file are
+    /// Takes in what the file has now (the ones of the file go on top of ours); the choices of the file are
     /// older than ours and are left out.
     pub fn merge_from(&mut self, other: &ExecHistory) {
         self.commands.merge_from(&other.commands);
