@@ -9,7 +9,8 @@
 //   sakura_core/func/Funccode.cpp
 //
 // This file is derived from the files above and was modified: the data was converted
-// to Rust tables, names were converted to command IDs, and labels were resolved.
+// to Rust tables, names were converted to command IDs, and labels were resolved (the
+// product name サクラエディタ in a label became ウメエディタ).
 //
 // Copyright (C) 1998-2001, Norio Nakatani
 // Copyright (C) 2000, jepro
@@ -117,7 +118,7 @@ pub static FUNCTIONS: &[Function] = &[
     Function { code: 30190, name: "F_PROPERTY_FILE", id: "property_file", kind: Command, groups: &[0], label: Some("ファイルのプロパティ") },
     Function { code: 30191, name: "F_PROFILEMGR", id: "profilemgr", kind: Command, groups: &[0], label: Some("プロファイルマネージャ") },
     Function { code: 30194, name: "F_EXITALLEDITORS", id: "exitalleditors", kind: Command, groups: &[0], label: Some("編集の全終了") },
-    Function { code: 30195, name: "F_EXITALL", id: "exitall", kind: Command, groups: &[0], label: Some("サクラエディタの全終了") },
+    Function { code: 30195, name: "F_EXITALL", id: "exitall", kind: Command, groups: &[0], label: Some("ウメエディタの全終了") },
     Function { code: 30196, name: "F_OPEN_FOLDER_IN_EXPLORER", id: "open_folder_in_explorer", kind: Command, groups: &[0], label: Some("ファイルの場所を開く") },
     Function { code: 30197, name: "F_OPEN_COMMAND_PROMPT", id: "open_command_prompt", kind: Command, groups: &[0], label: Some("コマンドプロンプトを開く") },
     Function { code: 30198, name: "F_OPEN_COMMAND_PROMPT_AS_ADMIN", id: "open_command_prompt_as_admin", kind: Command, groups: &[0], label: Some("管理者としてコマンドプロンプトを開く") },

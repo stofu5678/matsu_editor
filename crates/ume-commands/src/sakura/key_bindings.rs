@@ -8,7 +8,8 @@
 //   sakura_core/sakura_rc.rc
 //
 // This file is derived from the files above and was modified: the data was converted
-// to Rust tables, names were converted to command IDs, and labels were resolved.
+// to Rust tables, names were converted to command IDs, and labels were resolved (the
+// product name サクラエディタ in a label became ウメエディタ).
 //
 // Copyright (C) 1998-2001, Norio Nakatani
 // Copyright (C) 2000, jepro

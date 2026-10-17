@@ -60,6 +60,12 @@ pub fn render(tables: &Tables, commit: &str) -> Vec<(String, String)> {
     ]
 }
 
+/// A label as UME Editor shows it: Sakura's product name in it (サクラエディタ, as in
+/// 「サクラエディタの全終了」) becomes ours (ウメエディタ).
+fn ume_label(label: &str) -> String {
+    label.replace("サクラエディタ", "ウメエディタ")
+}
+
 fn header(commit: &str, sources: &[&str]) -> String {
     let mut out = String::new();
     out.push_str(
@@ -75,7 +81,8 @@ fn header(commit: &str, sources: &[&str]) -> String {
     }
     out.push_str("//\n// This file is derived from the files above and was modified: the data was converted\n");
     out.push_str(
-        "// to Rust tables, names were converted to command IDs, and labels were resolved.\n//\n",
+        "// to Rust tables, names were converted to command IDs, and labels were resolved (the\n\
+         // product name サクラエディタ in a label became ウメエディタ).\n//\n",
     );
     for line in NOTICE.lines() {
         if line.is_empty() {
@@ -111,7 +118,7 @@ fn functions(tables: &Tables, commit: &str) -> String {
         let label = f
             .label
             .as_ref()
-            .map_or("None".to_string(), |l| format!("Some({l:?})"));
+            .map_or("None".to_string(), |l| format!("Some({:?})", ume_label(l)));
         let _ = writeln!(
             out,
             "    Function {{ code: {}, name: {:?}, id: {:?}, kind: {}, groups: &[{groups}], label: {label} }},",
@@ -211,7 +218,7 @@ fn main_menu(tables: &Tables, commit: &str) -> String {
         let label = item
             .label
             .as_ref()
-            .map_or("None".to_string(), |l| format!("Some({l:?})"));
+            .map_or("None".to_string(), |l| format!("Some({:?})", ume_label(l)));
         let _ = writeln!(
             out,
             "    MenuItem {{ level: {}, kind: {}, code: {}, access_key: {key}, label: {label} }},",
