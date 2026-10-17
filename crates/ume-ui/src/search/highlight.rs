@@ -11,7 +11,7 @@ use ume_layout::{DocumentLayout, RowInfo};
 pub const MAX_HIGHLIGHT_LINE_BYTES: usize = 64 * 1024;
 
 /// A match on a row: the columns it covers, and which of the search colors it is drawn in (0 is
-/// `FND`, up to 4 for `FN5`, counted over the colors that are shown; see [`slot_of`]).
+/// the first, up to 4 for `FN5`, counted over the colors that are shown; see [`slot_of`]).
 pub type RowMatch = (u32, u32, u8);
 
 /// For each row, the matches on it, in order. Empty matches have no width and are left out. A

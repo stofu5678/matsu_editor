@@ -76,7 +76,7 @@ pub(super) fn row_background(colors: &Colors, row: usize, caret_row: bool) -> Rg
 }
 
 /// A match of the search on a row: from column, to column, and the number of the search color it
-/// is drawn in (`FND` is 0; see [`crate::search::highlight::slot_of`]).
+/// is drawn in (the first is 0; see [`crate::search::highlight::slot_of`]).
 pub(super) type FoundRange = (u32, u32, u8);
 
 /// The entry a piece of text of the kind `kind` is drawn in, or the search color `found` if it is

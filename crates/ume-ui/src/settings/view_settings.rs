@@ -96,8 +96,8 @@ impl DiffColor {
     }
 }
 
-/// The search colors that are shown, in the order `FND`, `FN2` to `FN5` (`CColor_Found`'s
-/// `highlightColors`). A match takes one of them by its number.
+/// The search colors that are shown: the first search color, then `FN2` to `FN5`
+/// (`CColor_Found`'s `highlightColors`). A match takes one of them by its number.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FoundColors {
     entries: [ColorEntry; 5],
