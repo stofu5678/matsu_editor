@@ -70,6 +70,8 @@ pub mod marks;
 pub mod store;
 
 pub use list::{Recent, RecentList};
+#[cfg(test)]
+pub(crate) use store::update_profile_within;
 pub use store::{HistoryStore, update_profile};
 
 use crate::profile::{Profile, ProfileError};

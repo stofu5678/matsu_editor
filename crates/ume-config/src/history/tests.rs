@@ -269,6 +269,12 @@ fn the_store_keeps_the_rest_of_the_file_and_writes_nothing_for_no_change() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// How long the tests that make writers fight for the lock wait for it. The lock is not fair (a
+/// writer polls), so on a busy machine one of eight writers can wait for seconds; what these tests
+/// check is that no update is lost, not how fast the lock is, so the time is long. The time the
+/// application waits ([`HistoryStore::update`]) is shorter and is not what they test.
+const FIGHT: std::time::Duration = std::time::Duration::from_secs(120);
+
 #[test]
 fn windows_that_add_at_the_same_time_all_get_in() {
     let dir = temp_dir("threads");
@@ -281,7 +287,9 @@ fn windows_that_add_at_the_same_time_all_get_in() {
                 let store = HistoryStore::new(path, true);
                 for n in 0..4 {
                     store
-                        .update(|h| h.add_file(FileEntry::new(format!("/t{t}/f{n}.txt"))))
+                        .update_within(FIGHT, |h| {
+                            h.add_file(FileEntry::new(format!("/t{t}/f{n}.txt")));
+                        })
                         .unwrap();
                 }
             })
@@ -330,7 +338,9 @@ fn recent_files_and_search_keys_written_at_the_same_time_are_both_kept() {
         move || {
             for n in 0..12 {
                 store
-                    .update(|h| h.add_file(FileEntry::new(format!("/mru/f{n}.txt"))))
+                    .update_within(FIGHT, |h| {
+                        h.add_file(FileEntry::new(format!("/mru/f{n}.txt")));
+                    })
                     .unwrap();
             }
         }
@@ -339,7 +349,7 @@ fn recent_files_and_search_keys_written_at_the_same_time_are_both_kept() {
         let path = path.clone();
         move || {
             for n in 0..25 {
-                update_profile(&path, |profile| {
+                super::update_profile_within(&path, FIGHT, |profile| {
                     let mut keys = SearchKeys::from_profile(profile);
                     keys.add_search(&format!("検索{n}"));
                     keys.write_to(profile).unwrap();
