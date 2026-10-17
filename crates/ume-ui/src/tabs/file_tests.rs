@@ -108,3 +108,75 @@ fn the_tag_jump_stack_names_the_document_not_the_window(cx: &mut TestAppContext)
     assert_eq!(found, other);
     std::fs::remove_dir_all(&dir).ok();
 }
+
+// ---- documents from outside (a later launch, the OS): `open_from_outside` ----
+
+fn from_outside(cx: &mut TestAppContext, paths: Vec<std::path::PathBuf>) {
+    cx.update(|app| crate::file_ops::windows::open_from_outside(app, paths))
+        .unwrap();
+    cx.run_until_parked();
+}
+
+/// With the tab bar shown, a file from outside is a tab of the active window, and the tab of a
+/// file that is open already comes to the front (`CControlTray::OpenNewEditor`,
+/// `ActiveAlreadyOpenedWindow`).
+#[gpui::test]
+fn a_file_from_outside_is_a_tab_of_the_active_window(cx: &mut TestAppContext) {
+    let dir = temp_dir("outside-tab");
+    let (a, b) = (dir.join("a.txt"), dir.join("b.txt"));
+    std::fs::write(&a, "alpha").unwrap();
+    std::fs::write(&b, "beta").unwrap();
+    let handle = window(cx, true);
+    from_outside(cx, vec![a.clone(), b.clone()]);
+    assert_eq!(windows(cx), 1, "tabs, not windows");
+    assert_eq!(captions(cx, handle), ["(無題)", "a.txt", "b.txt"]);
+    // The first file again: its tab, no copy.
+    from_outside(cx, vec![a]);
+    assert_eq!(windows(cx), 1);
+    assert_eq!(tab_count(cx, handle), 3);
+    assert_eq!(active_tab(cx, handle), 1);
+    // No file: a new empty document, a tab.
+    from_outside(cx, Vec::new());
+    assert_eq!(windows(cx), 1);
+    assert_eq!(tab_count(cx, handle), 4);
+    assert_eq!(
+        active_tab(cx, handle),
+        3,
+        "the new document is the active tab"
+    );
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Without the tab bar every document from outside gets a window of its own.
+#[gpui::test]
+fn a_file_from_outside_is_a_window_without_tabs(cx: &mut TestAppContext) {
+    let dir = temp_dir("outside-window");
+    let (a, b) = (dir.join("a.txt"), dir.join("b.txt"));
+    std::fs::write(&a, "alpha").unwrap();
+    std::fs::write(&b, "beta").unwrap();
+    let _handle = window(cx, false);
+    from_outside(cx, vec![a.clone(), b]);
+    assert_eq!(windows(cx), 3);
+    from_outside(cx, vec![a]);
+    assert_eq!(windows(cx), 3, "the open file is shown, not opened again");
+    from_outside(cx, Vec::new());
+    assert_eq!(windows(cx), 4);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// The command line of the first launch: no window yet, the first file opens the window and the
+/// others are its tabs.
+#[gpui::test]
+fn the_command_line_of_the_first_launch_makes_one_window_of_tabs(cx: &mut TestAppContext) {
+    let dir = temp_dir("outside-first");
+    let (a, b) = (dir.join("a.txt"), dir.join("b.txt"));
+    std::fs::write(&a, "alpha").unwrap();
+    std::fs::write(&b, "beta").unwrap();
+    cx.update(gpui_component::init);
+    super::tests::tab_mode(cx, true, true);
+    from_outside(cx, vec![a, b]);
+    assert_eq!(windows(cx), 1);
+    let handle = cx.windows()[0];
+    assert_eq!(captions(cx, handle), ["a.txt", "b.txt"]);
+    std::fs::remove_dir_all(&dir).ok();
+}
