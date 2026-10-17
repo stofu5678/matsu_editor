@@ -13,6 +13,7 @@ pub mod isearch;
 pub mod modified_lines;
 pub mod ops;
 pub mod panel;
+pub(crate) mod prefs;
 pub mod state;
 
 pub use isearch::{ISearch, ISearchMode};

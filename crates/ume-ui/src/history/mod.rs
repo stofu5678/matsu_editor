@@ -136,6 +136,14 @@ pub(crate) fn options(cx: &App) -> HistoryOptions {
         .map_or_else(HistoryOptions::default, |s| s.options)
 }
 
+/// Changes how the history is used (the common settings' page ファイル). Without a history
+/// nothing happens.
+pub(crate) fn set_options(cx: &mut App, options: HistoryOptions) {
+    if cx.has_global::<HistoryState>() {
+        cx.update_global(|state: &mut HistoryState, _| state.options = options);
+    }
+}
+
 /// The settings file the history is kept in, if it is kept in a file.
 pub(crate) fn settings_path(cx: &App) -> Option<std::path::PathBuf> {
     cx.try_global::<HistoryState>()?

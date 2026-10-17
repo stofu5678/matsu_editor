@@ -2,8 +2,9 @@
 //!
 //! Sakura: `CPropCommon::DoPropertySheet` (`sakura_core/prop/CPropCommon.cpp`) shows one page for
 //! each group of settings, in the order of [`Page::ALL`]; `F_OPTION` opens the page used last
-//! (`m_nPageNum`) and `F_OPTION_GENERAL`, `F_OPTION_WINDOW`, `F_OPTION_TAB` and `F_OPTION_EDIT` open
-//! that page. OK writes the settings and every window takes them at once (`MYWM_CHANGESETTING`);
+//! (`m_nPageNum`) and `F_OPTION_GENERAL`, `F_OPTION_WINDOW`, `F_OPTION_TAB`, `F_OPTION_EDIT`,
+//! `F_OPTION_FILE`, `F_OPTION_BACKUP`, `F_OPTION_FORMAT`, `F_OPTION_GREP`, `F_OPTION_FNAME` and
+//! `F_OPTION_STATUSBAR` open that page. OK writes the settings and every window takes them at once (`MYWM_CHANGESETTING`);
 //! キャンセル changes nothing.
 //!
 //! * [`model`]: the description of a page (its controls, their keys, limits and defaults) and the
@@ -133,6 +134,12 @@ impl Page {
             Page::Window => Some(pages::window::items()),
             Page::Tab => Some(pages::tab::items()),
             Page::Edit => Some(pages::edit::items()),
+            Page::StatusBar => Some(pages::status_bar::items()),
+            Page::File => Some(pages::file::items()),
+            Page::FileName => Some(pages::file_name::items()),
+            Page::Backup => Some(pages::backup::items()),
+            Page::Format => Some(pages::format::items()),
+            Page::Search => Some(pages::search::items()),
             _ => None,
         }
     }
@@ -144,6 +151,10 @@ impl Page {
             Page::Window => pages::window::apply(env, after, before),
             Page::Tab => pages::tab::apply(env, after, before),
             Page::Edit => pages::edit::apply(env, after, before),
+            Page::File => pages::file::apply(env, after, before),
+            Page::Format => pages::format::apply(env, after, before),
+            Page::Search => pages::search::apply(env, after, before),
+            // The other pages have nothing to tell the windows (yet).
             _ => {}
         }
     }
@@ -298,3 +309,5 @@ pub(crate) fn run_command(
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_more_pages;

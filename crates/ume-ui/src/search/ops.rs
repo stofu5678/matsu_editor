@@ -122,6 +122,16 @@ impl EditorView {
         seed_text(selected.as_deref(), &line, caret.col)
     }
 
+    /// The first string of the find, replace and Grep dialogs: [`search_seed`](Self::search_seed),
+    /// but without a selection the word at the caret only when 「カーソル位置の文字列をデフォルトの検索文字列
+    /// にする」 is on (`CEditView::GetCurrentTextForSearchDlg`, `m_bCaretTextForSearch`).
+    pub(crate) fn dialog_seed(&self, cx: &gpui::App) -> Option<String> {
+        if self.cursor.selection().is_none() && !super::prefs::prefs(cx).caret_text_for_search {
+            return None;
+        }
+        self.search_seed(cx)
+    }
+
     /// The selected match range, ordered.
     fn selection_range(&self) -> Option<Range<Pos>> {
         self.cursor.selection().map(|(a, b)| a..b)

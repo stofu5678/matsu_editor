@@ -278,6 +278,9 @@ impl OutlinePane {
             .try_global::<OutlineOptions>()
             .copied()
             .unwrap_or_default();
+        let heading_marks = cx
+            .try_global::<super::HeadingMarks>()
+            .map(|marks| marks.0.clone());
         let (doc, file_path, bookmarks, new_line_len) = {
             let shared = self.document.read(cx);
             let bookmarks: Vec<usize> = if kind == OutlineKind::Bookmark {
@@ -303,6 +306,9 @@ impl OutlinePane {
                     request.file_path = file_path.as_deref();
                     request.bookmarks = &bookmarks;
                     request.ignore_blank_bookmarks = options.ignore_blank_bookmarks;
+                    if let Some(marks) = &heading_marks {
+                        request.heading_marks = marks;
+                    }
                     analyze(&source, &request)
                 })
                 .await;

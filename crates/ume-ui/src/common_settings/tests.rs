@@ -22,7 +22,7 @@ use crate::settings::UserSettings;
 use crate::tabs::settings::{DispTabClose, TabOptions};
 
 /// A folder that is removed at the end of the test.
-struct TempDir(PathBuf);
+pub(super) struct TempDir(pub(super) PathBuf);
 
 impl TempDir {
     fn new() -> Self {
@@ -42,10 +42,10 @@ impl Drop for TempDir {
 }
 
 /// Puts the options of the commands back when the test ends: they are shared by the whole process.
-struct RestoreEditOptions(EditOptions);
+pub(super) struct RestoreEditOptions(EditOptions);
 
 impl RestoreEditOptions {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self(edit_options::get())
     }
 }
@@ -56,46 +56,46 @@ impl Drop for RestoreEditOptions {
     }
 }
 
-fn code_of(name: &str) -> u16 {
+pub(super) fn code_of(name: &str) -> u16 {
     FUNCTIONS.iter().find(|f| f.name == name).unwrap().code
 }
 
 /// The options of the commands are one value for the whole process, and OK and starting the
 /// application set them: the tests that do so take turns.
-fn serial() -> std::sync::MutexGuard<'static, ()> {
+pub(super) fn serial() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// The settings file of a test, and the application as `app::run` starts it.
-struct Ini {
-    dir: TempDir,
-    path: PathBuf,
+pub(super) struct Ini {
+    pub(super) dir: TempDir,
+    pub(super) path: PathBuf,
     _serial: std::sync::MutexGuard<'static, ()>,
 }
 
 impl Ini {
-    fn bytes(&self) -> Vec<u8> {
+    pub(super) fn bytes(&self) -> Vec<u8> {
         std::fs::read(&self.path).unwrap()
     }
 
-    fn profile(&self) -> Profile {
+    pub(super) fn profile(&self) -> Profile {
         Profile::load(&self.path).unwrap()
     }
 
-    fn get(&self, key: &str) -> Option<String> {
+    pub(super) fn get(&self, key: &str) -> Option<String> {
         self.profile().get("Common", key).map(str::to_owned)
     }
 }
 
-fn with_bom(text: &str) -> Vec<u8> {
+pub(super) fn with_bom(text: &str) -> Vec<u8> {
     let mut bytes = vec![0xEF, 0xBB, 0xBF];
     bytes.extend_from_slice(text.as_bytes());
     bytes
 }
 
 /// A settings file with `text`, read as `app::run` reads it, and one editor window.
-fn setup(cx: &mut TestAppContext, text: &str) -> (Ini, AnyWindowHandle) {
+pub(super) fn setup(cx: &mut TestAppContext, text: &str) -> (Ini, AnyWindowHandle) {
     let serial = serial();
     cx.update(gpui_component::init);
     let dir = TempDir::new();
@@ -122,7 +122,7 @@ fn setup(cx: &mut TestAppContext, text: &str) -> (Ini, AnyWindowHandle) {
     )
 }
 
-fn open_window(cx: &mut TestAppContext) -> AnyWindowHandle {
+pub(super) fn open_window(cx: &mut TestAppContext) -> AnyWindowHandle {
     let handle = cx
         .update(|cx| open_editor_window(cx, SharedDocument::empty(), None))
         .unwrap();
@@ -131,7 +131,7 @@ fn open_window(cx: &mut TestAppContext) -> AnyWindowHandle {
 }
 
 /// Runs a function of Sakura in the window, as a key does.
-fn run(cx: &mut TestAppContext, handle: AnyWindowHandle, function: &str) {
+pub(super) fn run(cx: &mut TestAppContext, handle: AnyWindowHandle, function: &str) {
     let code = code_of(function);
     let view = cx
         .update(|app| crate::file_ops::windows::workspace_of(app, handle))
@@ -145,17 +145,17 @@ fn run(cx: &mut TestAppContext, handle: AnyWindowHandle, function: &str) {
     cx.run_until_parked();
 }
 
-fn dialog(cx: &mut TestAppContext) -> Entity<CommonSettingsDialog> {
+pub(super) fn dialog(cx: &mut TestAppContext) -> Entity<CommonSettingsDialog> {
     cx.update(|app| current_dialog(app))
         .expect("no dialog is open")
 }
 
-fn is_open(cx: &mut TestAppContext) -> bool {
+pub(super) fn is_open(cx: &mut TestAppContext) -> bool {
     cx.update(|app| current_dialog(app)).is_some()
 }
 
 /// Does something to the dialog and its window, as a click or a key does.
-fn with_dialog<R>(
+pub(super) fn with_dialog<R>(
     cx: &mut TestAppContext,
     f: impl FnOnce(&mut CommonSettingsDialog, &mut Window, &mut Context<CommonSettingsDialog>) -> R,
 ) -> R {
@@ -170,29 +170,29 @@ fn with_dialog<R>(
     result
 }
 
-fn ok(cx: &mut TestAppContext) {
+pub(super) fn ok(cx: &mut TestAppContext) {
     with_dialog(cx, |d, window, dcx| d.ok(window, dcx));
     assert!(!is_open(cx), "OK closes the dialog");
 }
 
-fn cancel(cx: &mut TestAppContext) {
+pub(super) fn cancel(cx: &mut TestAppContext) {
     with_dialog(cx, |d, window, dcx| d.cancel(window, dcx));
     assert!(!is_open(cx), "キャンセル closes the dialog");
 }
 
-fn check(cx: &mut TestAppContext, id: &'static str, on: bool) {
+pub(super) fn check(cx: &mut TestAppContext, id: &'static str, on: bool) {
     with_dialog(cx, |d, _, dcx| d.set_bool(id, on, dcx));
 }
 
-fn choose(cx: &mut TestAppContext, id: &'static str, value: i32) {
+pub(super) fn choose(cx: &mut TestAppContext, id: &'static str, value: i32) {
     with_dialog(cx, |d, _, dcx| d.set_int(id, value, dcx));
 }
 
-fn type_in(cx: &mut TestAppContext, id: &'static str, text: &str) {
+pub(super) fn type_in(cx: &mut TestAppContext, id: &'static str, text: &str) {
     with_dialog(cx, |d, window, dcx| d.set_input(id, text, window, dcx));
 }
 
-fn visual(cx: &mut TestAppContext, handle: AnyWindowHandle) -> &mut VisualTestContext {
+pub(super) fn visual(cx: &mut TestAppContext, handle: AnyWindowHandle) -> &mut VisualTestContext {
     VisualTestContext::from_window(handle, cx).into_mut()
 }
 
@@ -230,7 +230,21 @@ fn the_pages_are_in_sakuras_order() {
         .copied()
         .filter(|p| p.items().is_some())
         .collect();
-    assert_eq!(filled, [Page::General, Page::Window, Page::Tab, Page::Edit]);
+    assert_eq!(
+        filled,
+        [
+            Page::General,
+            Page::Window,
+            Page::Tab,
+            Page::StatusBar,
+            Page::Edit,
+            Page::File,
+            Page::FileName,
+            Page::Backup,
+            Page::Format,
+            Page::Search,
+        ]
+    );
 }
 
 #[test]
@@ -247,7 +261,7 @@ fn every_control_has_its_own_name_and_sakuras_key() {
         }
     }
     // The radio buttons of a group have their own values and one key.
-    for page in [Page::General, Page::Window, Page::Tab, Page::Edit] {
+    for page in Page::ALL.iter().filter(|p| p.items().is_some()) {
         let list = controls(&page.items().unwrap());
         for control in &list {
             if let Kind::Radio { value } = control.kind {
@@ -258,7 +272,7 @@ fn every_control_has_its_own_name_and_sakuras_key() {
             }
         }
     }
-    // Every key of the four pages in Sakura's `ShareData_IO_Common`.
+    // Every key of the pages in Sakura's `ShareData_IO_Common`.
     let keys: HashSet<&str> = all.iter().map(|c| c.key).collect();
     for key in [
         "bStopsBothEndsWhenSearchWord",
@@ -344,7 +358,7 @@ fn a_second_function_brings_the_open_dialog_to_its_page(cx: &mut TestAppContext)
 fn a_page_that_is_not_there_yet_says_so(cx: &mut TestAppContext) {
     let (_ini, handle) = setup(cx, "");
     run(cx, handle, "F_OPTION");
-    with_dialog(cx, |d, _, dcx| d.select_page(Page::Backup, dcx));
+    with_dialog(cx, |d, _, dcx| d.select_page(Page::Keys, dcx));
     assert!(with_dialog(cx, |d, _, _| d.page_controls()).is_empty());
     // It still draws, and OK from there writes the other pages as they were.
     cx.run_until_parked();
@@ -958,9 +972,9 @@ fn the_access_keys_choose_radio_buttons_and_fill_boxes(cx: &mut TestAppContext) 
 #[gpui::test]
 fn alt_x_is_cancel_and_alt_o_is_ok_where_no_label_has_the_letter(cx: &mut TestAppContext) {
     let (ini, handle) = setup(cx, "");
-    // The page 「バックアップ」 is not there yet and has no labels.
+    // The page 「キー割り当て」 is not there yet and has no labels.
     run(cx, handle, "F_OPTION");
-    with_dialog(cx, |d, _, dcx| d.select_page(Page::Backup, dcx));
+    with_dialog(cx, |d, _, dcx| d.select_page(Page::Keys, dcx));
     with_dialog(cx, |d, w, dcx| d.use_access_key('x', w, dcx));
     assert!(!is_open(cx));
     assert_eq!(ini.get("bDispSTATUSBAR"), None);

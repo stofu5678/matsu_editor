@@ -629,7 +629,7 @@ impl EditorView {
     fn open_grep_panel_as(&mut self, replace: bool, window: &mut Window, cx: &mut Context<Self>) {
         let mut settings = remembered(cx);
         settings.paste = false;
-        match self.search_seed(cx) {
+        match self.dialog_seed(cx) {
             Some(seed) => settings.key = seed,
             // As the find dialog does: the newest search string, if it is news to this window
             // (`CControlTray`, `GetCurrentTextForSearchDlg`).

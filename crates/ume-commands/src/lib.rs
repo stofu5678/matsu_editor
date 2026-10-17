@@ -24,6 +24,7 @@ pub mod commands;
 pub mod context;
 pub mod convert;
 pub mod edit_options;
+pub mod format_options;
 pub mod key_macro;
 pub mod keymap;
 pub mod layout;

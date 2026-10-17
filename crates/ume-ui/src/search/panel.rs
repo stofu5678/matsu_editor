@@ -837,7 +837,7 @@ impl EditorView {
         self.close_grep_panel(window, cx);
         // Going to a line does not touch the search.
         if mode != PanelMode::Jump {
-            match self.search_seed(cx) {
+            match self.dialog_seed(cx) {
                 Some(seed) => self.search.set_pattern(&seed),
                 // No selection and no word: the newest search string, if another window put
                 // one in the history since this window last searched

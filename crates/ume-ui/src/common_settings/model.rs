@@ -97,6 +97,14 @@ pub(crate) struct Control {
     pub kind: Kind,
     /// The value is the opposite of the key's (`bDispTabWndMultiWin`).
     pub invert: bool,
+    /// The section that holds the key: `[Common]` unless [`Control::in_section`] says otherwise
+    /// (`ShareData_IO_Statusbar` writes `[Statusbar]`, `ShareData_IO_Nickname` `[Nickname]`).
+    pub section: &'static str,
+    /// A check box that is one bit of the number in the key (`nBackUpType_Opt1`): the bit; 0 for a
+    /// control that holds the whole key. The other bits of the key stay as the file has them.
+    pub bit: i32,
+    /// For a [`bit`](Self::bit): the default of the whole number in the key.
+    pub key_default: i32,
 }
 
 impl Control {
@@ -116,6 +124,9 @@ impl Control {
             enabled: always,
             kind,
             invert: false,
+            section: SECTION,
+            bit: 0,
+            key_default: 0,
         }
     }
 
@@ -189,6 +200,40 @@ impl Control {
     pub(crate) const fn when(mut self, enabled: Enabled) -> Self {
         self.enabled = enabled;
         self
+    }
+
+    /// The key is in `section` of the file, not in `[Common]`.
+    pub(crate) const fn in_section(mut self, section: &'static str) -> Self {
+        self.section = section;
+        self
+    }
+
+    /// The control holds only the bits `mask` of the number in its key, whose default (all bits)
+    /// is `key_default` (`CommonSetting_Backup::GetBackupOpt` and `GetBackupCount`): a check box
+    /// is one bit (`mask` has one), a number the low bits (`mask` is `0xffff`). The other bits of
+    /// the key stay as the file has them.
+    pub(crate) const fn packed(mut self, mask: i32, key_default: i32) -> Self {
+        self.bit = mask;
+        self.key_default = key_default;
+        self
+    }
+
+    /// A check box that is the bit `mask` of the number in `key`.
+    pub(crate) const fn flag(
+        id: &'static str,
+        label: &'static str,
+        key: &'static str,
+        mask: i32,
+        key_default: i32,
+    ) -> Self {
+        Self::new(
+            id,
+            label,
+            key,
+            Def::Bool(key_default & mask == mask),
+            Kind::Check,
+        )
+        .packed(mask, key_default)
     }
 
     /// The check box is the opposite of its key.
@@ -290,20 +335,32 @@ impl Values {
                 fallback
             } else {
                 match control.kind {
+                    Kind::Check if control.bit != 0 => {
+                        let number = profile
+                            .get_i32(control.section, control.key)
+                            .unwrap_or(control.key_default);
+                        Value::Bool(number & control.bit == control.bit)
+                    }
                     Kind::Check => {
                         let default = matches!(fallback, Value::Bool(true));
                         // `invert`: the default is the control's, the file has the opposite.
                         let file_default = default != control.invert;
                         let on = profile
-                            .get_bool(SECTION, control.key)
+                            .get_bool(control.section, control.key)
                             .unwrap_or(file_default);
                         Value::Bool(on != control.invert)
                     }
+                    Kind::Number { .. } if control.bit != 0 => {
+                        let number = profile
+                            .get_i32(control.section, control.key)
+                            .unwrap_or(control.key_default);
+                        Value::Int(number & control.bit)
+                    }
                     Kind::Radio { .. } | Kind::Choice { .. } | Kind::Number { .. } => profile
-                        .get_i32(SECTION, control.key)
+                        .get_i32(control.section, control.key)
                         .map_or(fallback, Value::Int),
                     Kind::Text => profile
-                        .get_string(SECTION, control.key)
+                        .get_string(control.section, control.key)
                         .map_or(fallback, Value::Text),
                     Kind::Button { .. } => fallback,
                 }
@@ -372,14 +429,31 @@ impl Values {
                 continue;
             }
             done.push(control.id);
+            if control.bit != 0 {
+                let current = profile
+                    .get_i32(control.section, control.key)
+                    .unwrap_or(control.key_default);
+                let number = match self.map.get(control.id) {
+                    Some(Value::Bool(true)) => current | control.bit,
+                    Some(Value::Bool(false)) => current & !control.bit,
+                    Some(Value::Int(i)) => (current & !control.bit) | (*i & control.bit),
+                    _ => continue,
+                };
+                let text = number.to_string();
+                if profile.get(control.section, control.key) != Some(text.as_str()) {
+                    profile.set(control.section, control.key, &text)?;
+                    changed = true;
+                }
+                continue;
+            }
             let text = match self.map.get(control.id) {
                 Some(Value::Bool(on)) => (if *on != control.invert { "1" } else { "0" }).to_owned(),
                 Some(Value::Int(i)) => i.to_string(),
                 Some(Value::Text(t)) => t.clone(),
                 None => continue,
             };
-            if profile.get(SECTION, control.key) != Some(text.as_str()) {
-                profile.set(SECTION, control.key, &text)?;
+            if profile.get(control.section, control.key) != Some(text.as_str()) {
+                profile.set(control.section, control.key, &text)?;
                 changed = true;
             }
         }
@@ -479,5 +553,37 @@ mod tests {
         assert_eq!(p.get("Other", "x"), Some("1"));
         // The same values again change nothing.
         assert!(!v.store(&list, &mut p).unwrap());
+    }
+
+    #[test]
+    fn a_control_can_be_a_part_of_a_number_in_another_section() {
+        // `nBackUpType_Opt1` holds bits; `_Opt2` the generations in the low 16 bits.
+        let list = [
+            Control::flag("year", "Y", "bOpt1", 32, 56),
+            Control::flag("sec", "S", "bOpt1", 1, 56),
+            Control::flag("auto", "A", "bOpt1", 64, 56),
+            Control::number("gens", "G", "bOpt2", 10, 1, 99).packed(0xffff, (98 << 16) + 10),
+            Control::check("short", "S", "bShortPath", true).in_section("Nickname"),
+        ];
+        let v = Values::load(&list, &Profile::new());
+        assert!(v.bool("year") && !v.bool("sec") && !v.bool("auto"));
+        assert_eq!(v.int("gens"), 10);
+        let file =
+            profile("[Common]\r\nbOpt1=65\r\nbOpt2=6422547\r\n[Nickname]\r\nbShortPath=0\r\n");
+        let mut v = Values::load(&list, &file);
+        assert!(!v.bool("year") && v.bool("sec") && v.bool("auto"));
+        assert_eq!(v.int("gens"), 19);
+        assert!(!v.bool("short"));
+        // The other bits of the key stay as the file has them.
+        v.set("year", Value::Bool(true));
+        v.set("gens", Value::Int(42));
+        v.set("short", Value::Bool(true));
+        let mut p = file.clone();
+        assert!(v.store(&list, &mut p).unwrap());
+        assert_eq!(p.get("Common", "bOpt1"), Some("97"));
+        // 'b' << 16 is kept: only the low 16 bits are the generations.
+        assert_eq!(p.get("Common", "bOpt2"), Some("6422570"));
+        assert_eq!(p.get("Nickname", "bShortPath"), Some("1"));
+        assert_eq!(p.get("Common", "bShortPath"), None);
     }
 }

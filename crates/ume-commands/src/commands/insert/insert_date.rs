@@ -8,14 +8,15 @@
 //!
 //! * Sakura's setting `m_nDateFormatType` is 0 by default, which means the date format of the
 //!   Windows locale (`DATE_LONGDATE`), and the picture `m_szDateFormat` is used only for type 1.
-//!   There is no such locale here, so this command always uses Sakura's default *picture*,
-//!   `yyyy'年'M'月'd'日('dddd')'`, which gives `2026年10月15日(木曜日)`. A setting for the
-//!   picture will come with the settings (`ume-config`).
+//!   There is no such locale here, so type 0 uses Sakura's default *picture*,
+//!   `yyyy'年'M'月'd'日('dddd')'`, which gives `2026年10月15日(木曜日)`.
+//!   Type 1 uses the picture of the common settings ([`crate::format_options`]).
 //! * A rectangular selection is not implemented.
 
 use crate::command::{Arg, Command, Result};
 use crate::context::CommandContext;
-use crate::convert::datetime::{Clock, DEFAULT_DATE_PICTURE, SystemClock, format_date};
+use crate::convert::datetime::{Clock, SystemClock, format_date};
+use crate::format_options;
 use crate::register_command;
 
 #[derive(Default)]
@@ -26,7 +27,7 @@ impl Command for InsertDate {
     const SAKURA: &'static str = "F_INS_DATE";
 
     fn run(&self, cx: &mut CommandContext<'_>, _args: &[Arg]) -> Result {
-        insert_date(cx, &SystemClock, DEFAULT_DATE_PICTURE)
+        insert_date(cx, &SystemClock, format_options::get().date_picture())
     }
 }
 
@@ -47,6 +48,7 @@ mod tests {
     use ume_core::model::DocumentModel;
 
     use super::*;
+    use crate::convert::datetime::DEFAULT_DATE_PICTURE;
     use crate::convert::datetime::tests::{FixedClock, thursday_morning};
     use crate::layout::PlainLayout;
     use crate::testing::{Editor, parse, render};
