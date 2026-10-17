@@ -74,7 +74,7 @@ named for each. For the packages under the Mozilla Public License 2.0 the source
 there, too; UME Editor does not modify them.
 
 Licenses in this list:
-  MIT License (MIT): 666 license texts
+  MIT License (MIT): 667 license texts
   Apache License 2.0 (Apache-2.0): 38 license texts
   Unicode License v3 (Unicode-3.0): 19 license texts
   BSD 3-Clause "New" or "Revised" License (BSD-3-Clause): 13 license texts
