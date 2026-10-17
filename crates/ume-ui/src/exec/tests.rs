@@ -468,6 +468,8 @@ fn without_the_output_the_command_just_starts(cx: &mut TestAppContext) {
     assert!(!w.running(cx));
     assert_eq!(w.output(cx), "");
     assert_eq!(w.text(cx), "text\n");
+    // nobody waits for the command: let it end before its folder is removed
+    std::thread::sleep(Duration::from_millis(300));
 }
 
 // ---- 中断 ----
@@ -724,4 +726,28 @@ fn the_history_list_puts_a_row_in_the_box(cx: &mut TestAppContext) {
         .unwrap();
     let command = dialog.read_with(cx, |d, app| d.choice(app).command);
     assert_eq!(command, "older");
+}
+
+#[gpui::test]
+fn a_second_command_does_not_replace_the_box_of_the_first(cx: &mut TestAppContext) {
+    let (_dir, w) = open(cx, "");
+    w.exec(cx, LONG, OUT);
+    wait_until(cx, "the box", |cx| w.running(cx));
+    let first = w.view.read_with(cx, |v, _| {
+        v.support.exec_running.clone().unwrap().entity_id()
+    });
+    w.exec(cx, "echo second", OUT | NO_INFO);
+    wait_until(cx, "the notice", |cx| w.prompt(cx).is_some());
+    let message = w.prompt(cx).unwrap();
+    assert!(message.contains("別のコマンドを実行中です"), "{message}");
+    w.cx(cx).simulate_prompt_answer("OK");
+    cx.run_until_parked();
+    // the first command still has its box, and the second did not run
+    let now = w.view.read_with(cx, |v, _| {
+        v.support.exec_running.clone().unwrap().entity_id()
+    });
+    assert_eq!(now, first);
+    assert!(!w.output(cx).contains("second"));
+    stop(&w, cx);
+    wait_for_output(cx, &w, "終了コード: ");
 }
