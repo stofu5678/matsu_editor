@@ -43,6 +43,7 @@ pub mod layout_adapter;
 pub mod macros;
 pub mod menu;
 pub mod menu_bar;
+mod menu_state;
 pub mod open;
 mod outline;
 mod panes;

@@ -57,6 +57,35 @@ pub(crate) struct MenuGeneration(u64);
 
 impl gpui::Global for MenuGeneration {}
 
+/// The state that the native menu was made with (macOS), to make the menus again only when it
+/// changes.
+struct MenuStates(Option<crate::menu_state::FuncStates>);
+
+impl gpui::Global for MenuStates {}
+
+/// macOS: makes the native menu again if the marks of the active window are not the ones it shows.
+/// Called when a window becomes active and after a function ran, because the native menu cannot
+/// ask when it opens. Does nothing elsewhere (the window's menu bar asks).
+///
+/// `always` skips the comparison: the snapshot does not include what the disk says (whether a
+/// file is there, a header of the same name), so a window that becomes active makes them again.
+fn refresh_menu_states(cx: &mut App, always: bool) {
+    let now = active_states(cx);
+    if !always && cx.try_global::<MenuStates>().is_some_and(|m| m.0 == now) {
+        return;
+    }
+    refresh_menus(cx);
+}
+
+/// Asks for [`refresh_menu_states`] once the update that is running ends (macOS only). It has to
+/// be the application's `defer`, not a window's: a window's runs inside an update of that window,
+/// and the state is read by updating the active window.
+pub(crate) fn defer_refresh_menu_states(cx: &mut App, always: bool) {
+    if cfg!(target_os = "macos") {
+        cx.defer(move |cx| refresh_menu_states(cx, always));
+    }
+}
+
 /// Makes the menus again (the recent files changed).
 pub(crate) fn refresh_menus(cx: &mut App) {
     if let Some(map) = cx.try_global::<MenuKeyMap>().map(|m| m.0.clone()) {
@@ -178,6 +207,13 @@ fn set_menus(cx: &mut App, keymap: &KeyMap) {
     if cfg!(target_os = "macos") {
         menus.push(Menu::new("UME Editor").items([MenuItem::action("UME Editor を終了", Exit)]));
     }
+    // The native menu shows the state of the window that is active now; elsewhere the window's
+    // own menu bar asks when a menu opens (`crate::menu_bar`).
+    let states = if cfg!(target_os = "macos") {
+        active_states(cx)
+    } else {
+        None
+    };
     let recent = crate::history::menu::RecentLists::new(crate::history::current(cx));
     // The row for the custom menus (`F_CUSTMENU_LIST`) lists the menus that have items.
     let custom_menus = cx
@@ -187,14 +223,33 @@ fn set_menus(cx: &mut App, keymap: &KeyMap) {
     let custom = CustomMenuList(&custom_menus);
     let lists = ChainedLists(&recent, &custom);
     for top in main_menu_with(keymap, &Registered, &lists) {
-        let items = gpui_items(top.entries, style);
+        let mut items = gpui_items(top.entries, style);
+        if let Some(states) = &states {
+            crate::menu_state::apply_to_menu_items(&mut items, states);
+        }
         menus.push(Menu::new(top.label).items(items));
     }
     cx.set_menus(menus);
+    cx.set_global(MenuStates(states));
     let owned = cx.get_menus().unwrap_or_default();
     GlobalState::global_mut(cx).set_app_menus(owned);
     let generation = cx.try_global::<MenuGeneration>().map_or(0, |g| g.0);
     cx.set_global(MenuGeneration(generation + 1));
+}
+
+/// The state of the window that is active, for the marks of the native menu. `None` when no
+/// editor window is active, or when it is busy (a command is running in it: the menus are made
+/// again when that ends).
+pub(crate) fn active_states(cx: &mut App) -> Option<crate::menu_state::FuncStates> {
+    let handle = cx.active_window()?;
+    // The root of a window is not the workspace (`Root` wraps it): the open windows know theirs.
+    let workspace = crate::file_ops::windows::workspace_of(cx, handle)?;
+    handle
+        .update(cx, |_, window, cx| {
+            let topmost = crate::window_ops::is_topmost(window, cx);
+            workspace.read(cx).func_states(topmost, cx)
+        })
+        .ok()
 }
 
 pub(crate) fn gpui_items(entries: Vec<Entry>, style: DisplayStyle) -> Vec<MenuItem> {
@@ -240,7 +295,7 @@ pub struct Workspace {
     pub(crate) tabs: crate::tabs::Tabs,
     /// The outline pane docked at the right of the window, while it is open (`crate::outline`).
     pub(crate) outline: Option<Entity<crate::outline::pane::OutlinePane>>,
-    menu_bar: Entity<MenuBar>,
+    pub(crate) menu_bar: Entity<MenuBar>,
     /// The files that are being dragged over the window (`crate::file_ops::drop_zone`).
     pub(crate) file_drop: Option<Vec<std::path::PathBuf>>,
 }
@@ -270,6 +325,11 @@ impl Workspace {
             menu_bar: MenuBar::new(cx),
             file_drop: None,
         };
+        // The menu bar asks this window for the marks of its items when a menu opens.
+        let this = cx.weak_entity();
+        workspace
+            .menu_bar
+            .update(cx, |bar, _| bar.set_workspace(this));
         // The menus are made again when the history changes: the bar loads them.
         cx.observe_global::<MenuGeneration>(|this: &mut Self, cx| {
             this.menu_bar.update(cx, |bar, cx| bar.reload(cx));
@@ -283,10 +343,28 @@ impl Workspace {
         // The toolbar and the function key bar are shown or hidden for every window at once.
         cx.observe_global::<crate::bars::BarSettings>(|_, cx| cx.notify())
             .detach();
+        // macOS: the native menu shows the marks of the active window.
+        cx.observe_window_activation(window, |_, window, cx| {
+            if window.is_window_active() {
+                defer_refresh_menu_states(cx, true);
+            }
+        })
+        .detach();
         for (index, pane) in numbered {
             workspace.adopt_into_window(index, pane, window, cx);
         }
         workspace
+    }
+
+    /// The state that the check marks and gray items of the menus show (`crate::menu_state`):
+    /// the active pane of this window. `topmost` is what the OS says of the window.
+    pub(crate) fn func_states(&self, topmost: bool, cx: &App) -> crate::menu_state::FuncStates {
+        crate::menu_state::FuncStates::of_view(
+            self.panes.active().read(cx),
+            self.outline.is_some(),
+            topmost,
+            cx,
+        )
     }
 
     /// The pane the user works in (the only pane unless the window is split).

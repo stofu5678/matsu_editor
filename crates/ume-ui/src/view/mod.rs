@@ -679,6 +679,9 @@ impl Render for EditorView {
         self.advance_layout(window, cx);
         self.advance_colors(window, cx);
         self.settle_caret(cx);
+        // macOS: whatever changed the view (a key, the mouse, a function) repaints it; the marks of
+        // the native menu follow, if they differ from what it shows.
+        crate::app::defer_refresh_menu_states(cx, false);
         // The print preview takes the place of the text, and the keys of the text stay out of it.
         if let Some(preview) = &self.print.preview {
             return div()

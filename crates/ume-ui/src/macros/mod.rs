@@ -167,6 +167,21 @@ impl MacroState {
         self.recorder.is_recording()
     }
 
+    /// `CSMacroMgr::IsSaveOk`: the macro that `F_EXECKEYMACRO` plays can be saved, which only a key
+    /// macro can (a recording or a key macro file; a script cannot).
+    pub(crate) fn can_save_key_macro(&self) -> bool {
+        match &self.current {
+            Some(CurrentMacro::Recorded(_)) => true,
+            Some(CurrentMacro::File(path)) => file_kind(path) == FileKind::KeyMacro,
+            None => false,
+        }
+    }
+
+    /// There is a macro for `F_EXECKEYMACRO` to play (Sakura: `m_szKeyMacroFileName` is set).
+    pub(crate) fn has_key_macro(&self) -> bool {
+        self.current.is_some()
+    }
+
     /// A macro is playing or running: the commands it calls are not recorded.
     pub(crate) fn is_suspended(&self) -> bool {
         self.suspended

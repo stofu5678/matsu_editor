@@ -28,11 +28,12 @@
 //! the focus that goes back to where it was. The difference is the height of a long menu, see
 //! [`popup_max_height`].
 
+use crate::app::Workspace;
 use gpui::{
     Action, App, AppContext as _, Bounds, ClickEvent, Context, DismissEvent, Entity, FocusHandle,
     Focusable, InteractiveElement as _, IntoElement, MouseButton, OwnedMenu, OwnedMenuItem,
     ParentElement, Pixels, Render, Role, SharedString, StatefulInteractiveElement, Styled,
-    Subscription, Window, anchored, deferred, div, prelude::FluentBuilder, px,
+    Subscription, WeakEntity, Window, anchored, deferred, div, prelude::FluentBuilder, px,
 };
 use gpui_base::ElementExt as _;
 use gpui_base::actions::{Cancel, SelectLeft, SelectRight};
@@ -65,6 +66,8 @@ pub struct MenuBar {
     menus: Vec<Entity<BarMenu>>,
     selected_index: Option<usize>,
     action_context: Option<FocusHandle>,
+    /// The window the bar belongs to: its state gives the check marks and the gray items.
+    workspace: Option<WeakEntity<Workspace>>,
 }
 
 impl MenuBar {
@@ -74,11 +77,34 @@ impl MenuBar {
             let mut this = Self {
                 selected_index: None,
                 action_context: None,
+                workspace: None,
                 menus: Vec::new(),
             };
             this.reload(cx);
             this
         })
+    }
+
+    /// Tells the bar which window it is in (`IsFuncChecked` and `IsFuncEnable` read that window).
+    pub(crate) fn set_workspace(&mut self, workspace: WeakEntity<Workspace>) {
+        self.workspace = Some(workspace);
+    }
+
+    /// Puts the check marks and the gray items of the window on `items`, as Sakura's `InitMenu`
+    /// does each time a menu opens. Items stay as they are before the bar knows its window.
+    pub(crate) fn mark_items(
+        bar: &Entity<Self>,
+        items: &mut [OwnedMenuItem],
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let topmost = crate::window_ops::is_topmost(window, cx);
+        let workspace = bar.read(cx).workspace.clone();
+        let Some(workspace) = workspace.as_ref().and_then(WeakEntity::upgrade) else {
+            return;
+        };
+        let states = workspace.read(cx).func_states(topmost, cx);
+        crate::menu_state::apply(items, &states);
     }
 
     /// Reload the menus from the app.
@@ -250,7 +276,8 @@ impl BarMenu {
             Some(menu) => menu.clone(),
             None => {
                 let action_context = self.menu_bar.read(cx).action_context.clone();
-                let items = self.menu.items.clone();
+                let mut items = self.menu.items.clone();
+                MenuBar::mark_items(&self.menu_bar, &mut items, window, cx);
                 let max_height = popup_max_height(
                     window.viewport_size().height,
                     self.bounds.bottom() + px(POPUP_OFFSET),
