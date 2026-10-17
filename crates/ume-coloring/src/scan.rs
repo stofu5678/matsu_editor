@@ -4,7 +4,7 @@
 //   sakura_core/view/colors/CColorStrategy.cpp, sakura_core/view/colors/CColorStrategy.h
 //     (CheckChangeColor, CheckColorMODE, the order of the pool)
 //   sakura_core/view/colors/CColor_Comment.cpp, sakura_core/view/colors/CColor_Quote.cpp,
-//     sakura_core/view/colors/CColor_Heredoc.cpp, sakura_core/view/colors/CColor_Numeric.cpp,
+//     sakura_core/view/colors/CColor_Heredoc.cpp, sakura_core/view/colors/CColor_RegexKeyword.cpp, sakura_core/view/colors/CColor_Numeric.cpp,
 //     sakura_core/view/colors/CColor_KeywordSet.cpp, sakura_core/view/colors/CColor_Url.cpp
 //   sakura_core/doc/layout/CLayoutMgr_DoLayout.cpp (_MakeOneLine)
 //   sakura_core/view/CEditView_Paint.cpp (DrawLogicLine)
@@ -78,6 +78,7 @@ use crate::number::number_len;
 use crate::quote::{
     Escape, escape_of, is_cpp_raw_string, match_quote, match_quote_str, tracks_escaped_line_end,
 };
+use crate::regex_keyword::LineSearch;
 use crate::rules::ColorRules;
 use crate::url::url_len;
 
@@ -134,6 +135,11 @@ enum Active {
     },
     Keyword {
         slot: u8,
+        end: usize,
+    },
+    /// A regular expression keyword, by its position in the type's list.
+    Regex {
+        index: u8,
         end: usize,
     },
 }
@@ -227,6 +233,7 @@ fn kind_of(active: &Active) -> ColorKind {
         Active::Url { .. } => ColorKind::Url,
         Active::Number { .. } => ColorKind::Number,
         Active::Keyword { slot, .. } => ColorKind::Keyword(*slot),
+        Active::Regex { index, .. } => ColorKind::Regex(*index),
     }
 }
 
@@ -238,6 +245,8 @@ struct Scan<'a> {
     /// A byte offset and the UTF-16 units before it, so that the columns of a long line are
     /// counted once (`utf16_column`).
     utf16: Cell<(usize, usize)>,
+    /// Where the regular expression keywords match on this line.
+    regex: LineSearch<'a>,
 }
 
 impl<'a> Scan<'a> {
@@ -248,6 +257,7 @@ impl<'a> Scan<'a> {
             bytes: line.as_bytes(),
             text_len: text_len.min(line.len()),
             utf16: Cell::new((0, 0)),
+            regex: rules.regex_keywords.line_search(),
         }
     }
 
@@ -275,7 +285,8 @@ impl<'a> Scan<'a> {
             | Some(Active::Quote { end, .. })
             | Some(Active::Url { end })
             | Some(Active::Number { end })
-            | Some(Active::Keyword { end, .. }) => *end,
+            | Some(Active::Keyword { end, .. })
+            | Some(Active::Regex { end, .. }) => *end,
             Some(Active::Block { end, .. }) => end.unwrap_or(limit),
             Some(Active::LineComment) => self.text_len,
             None => step,
@@ -292,7 +303,8 @@ impl<'a> Scan<'a> {
             | Active::Quote { end, .. }
             | Active::Url { end }
             | Active::Number { end }
-            | Active::Keyword { end, .. } => pos >= *end,
+            | Active::Keyword { end, .. }
+            | Active::Regex { end, .. } => pos >= *end,
             Active::Block { end, .. } => end.is_some_and(|e| pos >= e),
             Active::LineComment => self.in_line_ending(pos) || pos >= self.line.len(),
         }
@@ -405,12 +417,22 @@ impl<'a> Scan<'a> {
             .or_else(|| self.begin_quote(true, pos))
     }
 
-    /// `CColorStrategyPool` in order, as far as this module has them.
+    /// `CColorStrategyPool` in order: the regular expression keywords come first.
     fn begin_any(&self, pos: usize) -> Option<Active> {
-        self.begin_ranged(pos)
+        self.begin_regex(pos)
+            .or_else(|| self.begin_ranged(pos))
             .or_else(|| self.begin_url(pos))
             .or_else(|| self.begin_number(pos))
             .or_else(|| self.begin_keyword(pos))
+    }
+
+    /// `CColor_RegexKeyword::BeginColor`.
+    fn begin_regex(&self, pos: usize) -> Option<Active> {
+        let (index, len) = self.regex.match_at(self.line, pos)?;
+        Some(Active::Regex {
+            index,
+            end: pos + len,
+        })
     }
 
     /// `_IsPosKeywordHead`: the character before is not a keyword character.

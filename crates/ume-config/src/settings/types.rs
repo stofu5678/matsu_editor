@@ -231,6 +231,8 @@ pub struct TypeSettings {
     /// `nVertLineIdx1` to `200`: the columns of vertical lines (1 is the first column). The list
     /// ends at the first 0; see [`TypeSettings::vert_lines`].
     pub vert_line_idx: [i32; MAX_VERT_LINES],
+    /// `nNoteLineOffset`: how far the note lines (`NOT`) are moved down, in pixels.
+    pub note_line_offset: i32,
 
     // --- the outline and the smart indent ---
     /// `nDefaultOutline` ([`outline_type`]).
@@ -314,6 +316,7 @@ impl Default for TypeSettings {
             use_regex_keyword: false,
             regex_keywords: Vec::new(),
             vert_line_idx: [0; MAX_VERT_LINES],
+            note_line_offset: 0,
             default_outline: outline_type::TEXT,
             outline_rule_filename: String::new(),
             smart_indent: smart_indent::NONE,
@@ -517,6 +520,7 @@ impl TypeSettings {
                 }
             }
         }
+        read_i32(profile, s, "nNoteLineOffset", &mut self.note_line_offset);
         // ShareData_IO_RegexKeyword: `RxKey[NNN]=color,pattern`; the first missing number ends it.
         read_bool(profile, s, "bUseRegexKeyword", &mut self.use_regex_keyword);
         for i in 0..MAX_REGEX_KEYWORDS {
@@ -683,6 +687,7 @@ impl TypeSettings {
                 break;
             }
         }
+        profile.set_i32(s, "nNoteLineOffset", self.note_line_offset)?;
         profile.set_bool(s, "bUseRegexKeyword", self.use_regex_keyword)?;
         // Contiguous numbers: reading stops at the first missing one. An undefined keyword (no
         // pattern) is skipped, as Sakura does.
@@ -1005,6 +1010,7 @@ mod tests {
         t.string_line_only = true;
         t.default_outline = outline_type::PYTHON;
         t.vert_line_idx[..3].copy_from_slice(&[7, 8, 0]);
+        t.note_line_offset = -3;
         t.use_regex_keyword = true;
         t.regex_keywords = vec![RegexKeyword {
             color: "RK3".to_owned(),
@@ -1018,6 +1024,7 @@ mod tests {
         assert_eq!(back.string_type, string_type::PYTHON);
         assert!(back.string_line_only);
         assert_eq!(back.default_outline, outline_type::PYTHON);
+        assert_eq!(back.note_line_offset, -3);
         assert_eq!(back.vert_line_idx[..3], [7, 8, 0]);
         // The pattern may have a comma: only the first one splits the color from the pattern.
         assert_eq!(back.regex_keywords, t.regex_keywords);

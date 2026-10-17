@@ -13,6 +13,9 @@
 //!   numbers", "show tabs", "show full-width spaces", "show line ends" and "show EOF" as the
 //!   `disp` flag of `LNO`, `TAB`, `ZEN`, `EOL` and `EOF` (`sakura_core/view/colors/EColorIndexType.h`).
 //! * the status bar: `[Common]` `bDispSTATUSBAR`.
+//! * the ruler and the vertical lines: `[Common]` `nRulerHeight`, `nRulerBottomSpace` and
+//!   `nVertLineOffset`; the columns of the vertical lines and the offset of the note lines are
+//!   per type (`nVertLineIdx`, `nNoteLineOffset`).
 //! * which type a file has: [`super::doc_type`].
 
 use std::sync::Arc;
@@ -93,6 +96,59 @@ impl DiffColor {
     }
 }
 
+/// The search colors that are shown: the first search color, then `FN2` to `FN5`
+/// (`CColor_Found`'s `highlightColors`). A match takes one of them by its number.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FoundColors {
+    entries: [ColorEntry; 5],
+    len: usize,
+}
+
+impl FoundColors {
+    /// The names of the five search colors.
+    const NAMES: [&'static str; 5] = [concat!("FN", "D"), "FN2", "FN3", "FN4", "FN5"];
+
+    /// The colors of `shown` (the entries whose `disp` is on, in order).
+    pub fn new(shown: impl IntoIterator<Item = ColorEntry>) -> Self {
+        let mut list = shown.into_iter();
+        let mut len = 0;
+        let first = list.next();
+        let mut entries = [first.unwrap_or(NO_ENTRY); 5];
+        if first.is_some() {
+            len = 1;
+            for entry in list.take(4) {
+                entries[len] = entry;
+                len += 1;
+            }
+        }
+        Self { entries, len }
+    }
+
+    /// No search color is shown: matches are not marked at all.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// How many are shown.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// The color of the match numbered `slot` (from 0); `None` when none is shown.
+    pub fn get(&self, slot: u8) -> Option<ColorEntry> {
+        (self.len > 0).then(|| self.entries[usize::from(slot) % self.len])
+    }
+}
+
+/// A placeholder for the unused places of [`FoundColors`].
+const NO_ENTRY: ColorEntry = ColorEntry {
+    disp: false,
+    bold: false,
+    underline: false,
+    text: 0,
+    back: 0,
+};
+
 /// The colors the view paints with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Colors {
@@ -133,9 +189,17 @@ pub struct Colors {
     pub tab_entry: ColorEntry,
     pub full_width_space_entry: ColorEntry,
     pub eol_entry: ColorEntry,
-    /// The color of the matches of the search, if any of the five search colors is shown: the first that
-    /// is (`CColor_Found::OnStartScanLogic`).
-    pub found: Option<ColorEntry>,
+    /// The colors of the matches of the search that are shown (`CColor_Found::OnStartScanLogic`).
+    pub found: FoundColors,
+    /// The entries of the ruler `RUL`, the underline of the caret line `UND`, the vertical line
+    /// of the caret column `CVL`, the note lines `NOT`, the vertical lines at given columns `VER`
+    /// and the bracket pair `BRC`: each is drawn only while its `disp` is on.
+    pub ruler_entry: ColorEntry,
+    pub underline_entry: ColorEntry,
+    pub cursor_vline_entry: ColorEntry,
+    pub note_line_entry: ColorEntry,
+    pub vert_line_entry: ColorEntry,
+    pub bracket_entry: ColorEntry,
     /// The background of the row with the caret (`CBK`), if it is shown.
     pub caret_line_back: Option<Rgb>,
     /// The background of the rows with an odd number (`EBK`), if it is shown.
@@ -165,6 +229,30 @@ pub struct ViewSettings {
     /// The rules of the syntax coloring of the type (comments, strings, numbers, keywords).
     pub coloring: Arc<ColorRules>,
     pub show_status_bar: bool,
+    /// `[Common]` `nRulerHeight`: the height of the ruler in pixels, when it is shown.
+    pub ruler_height: u32,
+    /// `[Common]` `nRulerBottomSpace`: the space between the ruler and the text.
+    pub ruler_bottom_space: u32,
+    /// `[Common]` `nVertLineOffset`: how far the vertical lines are moved right, in pixels.
+    pub vert_line_offset: i32,
+    /// `nNoteLineOffset` of the type: how far the note lines are moved down, in pixels.
+    pub note_line_offset: i32,
+    /// `nVertLineIdx` of the type: the columns of the vertical lines; a negative column starts
+    /// a repeating line (see `crate::view::lines::vertical_columns`).
+    pub vert_lines: Vec<i32>,
+}
+
+/// `m_nRulerHeight` of a new `CommonSetting` (`sakura_core/env/CShareData.cpp`).
+const DEFAULT_RULER_HEIGHT: u32 = 13;
+
+/// `m_nVertLineOffset` of a new `CommonSetting`.
+const DEFAULT_VERT_LINE_OFFSET: i32 = -1;
+
+/// A size in pixels of `[Common]`: a value below 0 is 0.
+fn common_size(profile: &Profile, key: &str, default: u32) -> u32 {
+    profile
+        .get_i32("Common", key)
+        .map_or(default, |v| u32::try_from(v).unwrap_or(0))
 }
 
 /// The font size of Sakura's default font, 10 pt (`FontSetting::default`), when the file has none.
@@ -360,10 +448,7 @@ impl ViewSettings {
         let bookmark = entry(names::BOOKMARK);
         let modified = entry(names::LINE_NUMBER_MODIFIED);
         let (diff_append, diff_change, diff_delete) = (entry("DFA"), entry("DFC"), entry("DFD"));
-        let found = [concat!("FN", "D"), "FN2", "FN3", "FN4", "FN5"]
-            .into_iter()
-            .map(entry)
-            .find(|e| e.disp);
+        let found = FoundColors::new(FoundColors::NAMES.into_iter().map(entry).filter(|e| e.disp));
         let shown_back = |name: &str| Some(entry(name)).filter(|e| e.disp).map(|e| rgb_of(e.back));
 
         ViewSettings {
@@ -412,12 +497,45 @@ impl ViewSettings {
                 full_width_space_entry: zen,
                 eol_entry: eol,
                 found,
+                ruler_entry: entry("RUL"),
+                underline_entry: entry("UND"),
+                cursor_vline_entry: entry("CVL"),
+                note_line_entry: entry("NOT"),
+                vert_line_entry: entry(names::VERT_LINE),
+                bracket_entry: entry(names::BRACKET_PAIR),
                 caret_line_back: shown_back("CBK"),
                 even_line_back: shown_back("EBK"),
             },
             coloring: Arc::new(ColorRules::from_type(t, types.keywords())),
             show_status_bar: profile.get_bool("Common", "bDispSTATUSBAR").unwrap_or(true),
+            ruler_height: common_size(profile, "nRulerHeight", DEFAULT_RULER_HEIGHT),
+            ruler_bottom_space: common_size(profile, "nRulerBottomSpace", 0),
+            vert_line_offset: profile
+                .get_i32("Common", "nVertLineOffset")
+                .unwrap_or(DEFAULT_VERT_LINE_OFFSET),
+            note_line_offset: t.note_line_offset,
+            vert_lines: t
+                .vert_line_idx
+                .iter()
+                .copied()
+                .take_while(|&column| column != 0)
+                .collect(),
         }
+    }
+
+    /// The height of the ruler, 0 when it is not shown (`COLORIDX_RULER`'s `disp`).
+    pub fn ruler_px(&self) -> u32 {
+        if self.colors.ruler_entry.disp {
+            self.ruler_height
+        } else {
+            0
+        }
+    }
+
+    /// The space above the first row of text: the ruler, if shown, and the space below it
+    /// (`CTextArea::GetAreaTop`).
+    pub fn top_margin(&self) -> u32 {
+        self.ruler_px() + self.ruler_bottom_space
     }
 
     /// The font size in GPUI pixels.
@@ -725,5 +843,89 @@ mod tests {
         let (text, back) =
             selection_colors(&entry(false, 1, 2), &entry(true, 0x0000_0000, 0x00ff_ffff));
         assert_eq!((text, back), (0x00ff_ffff, 0x0000_0000));
+    }
+
+    #[test]
+    fn the_ruler_and_the_lines_have_sakuras_defaults() {
+        let s = ViewSettings::default();
+        // RUL and UND are shown; CVL, NOT, VER and BRC are not
+        assert!(s.colors.ruler_entry.disp && s.colors.underline_entry.disp);
+        assert!(!s.colors.cursor_vline_entry.disp);
+        assert!(!s.colors.note_line_entry.disp);
+        assert!(!s.colors.vert_line_entry.disp);
+        assert!(!s.colors.bracket_entry.disp);
+        // `sWindow.m_nRulerHeight = 13`, no space under it, the vertical lines move 1 pixel left
+        assert_eq!((s.ruler_height, s.ruler_bottom_space), (13, 0));
+        assert_eq!(s.vert_line_offset, -1);
+        assert_eq!(s.note_line_offset, 0);
+        assert!(s.vert_lines.is_empty());
+        assert_eq!((s.ruler_px(), s.top_margin()), (13, 13));
+    }
+
+    #[test]
+    fn the_common_section_sets_the_ruler_and_the_vertical_line_offset() {
+        let s = settings(
+            "[Common]\r\nnRulerHeight=20\r\nnRulerBottomSpace=4\r\nnVertLineOffset=2\r\n",
+            None,
+            Os::Windows,
+        );
+        assert_eq!((s.ruler_height, s.ruler_bottom_space), (20, 4));
+        assert_eq!(s.vert_line_offset, 2);
+        assert_eq!((s.ruler_px(), s.top_margin()), (20, 24));
+        // a size below 0 is 0
+        let s = settings("[Common]\r\nnRulerHeight=-5\r\n", None, Os::Windows);
+        assert_eq!(s.ruler_height, 0);
+    }
+
+    #[test]
+    fn a_hidden_ruler_takes_no_room_but_its_space_stays() {
+        let s = settings(
+            "[Common]\r\nnRulerBottomSpace=4\r\n[Types(0)]\r\nC[RUL]=0,0,000000,efefef,0\r\n",
+            None,
+            Os::Windows,
+        );
+        assert_eq!((s.ruler_px(), s.top_margin()), (0, 4));
+    }
+
+    #[test]
+    fn the_type_sets_the_vertical_lines_and_the_note_line_offset() {
+        let s = settings(
+            "[Types(0)]\r\nnVertLineIdx1=10\r\nnVertLineIdx2=-20\r\nnVertLineIdx3=60\r\n\
+             nVertLineIdx4=10\r\nnVertLineIdx5=0\r\nnVertLineIdx6=99\r\nnNoteLineOffset=3\r\n\
+             C[VER]=1,1,808080,fffbf0,1\r\n",
+            None,
+            Os::Windows,
+        );
+        // the list ends at the first 0
+        assert_eq!(s.vert_lines, [10, -20, 60, 10]);
+        assert_eq!(s.note_line_offset, 3);
+        let ver = s.colors.vert_line_entry;
+        assert!(ver.disp && ver.bold && ver.underline);
+    }
+
+    #[test]
+    fn the_search_colors_that_are_shown_are_taken_in_order() {
+        let found = |names: &[&str]| {
+            let mut ini = String::from("[Types(0)]\r\n");
+            for (i, name) in [concat!("FN", "D"), "FN2", "FN3", "FN4", "FN5"]
+                .into_iter()
+                .enumerate()
+            {
+                let disp = u8::from(names.contains(&name));
+                ini.push_str(&format!("C[{name}]={disp},0,0000{i:02x},ffffff,0\r\n"));
+            }
+            settings(&ini, None, Os::Windows).colors.found
+        };
+        let none = found(&[]);
+        assert!(none.is_empty());
+        assert_eq!(none.get(0), None);
+        let some = found(&["FN2", "FN4"]);
+        assert_eq!(some.len(), 2);
+        // the match numbered 0 and 2 have the first shown color, 1 the second
+        assert_eq!(some.get(0), some.get(2));
+        assert_ne!(some.get(0), some.get(1));
+        let all = found(&[concat!("FN", "D"), "FN2", "FN3", "FN4", "FN5"]);
+        assert_eq!(all.len(), 5);
+        assert_eq!(all.get(5), all.get(0));
     }
 }

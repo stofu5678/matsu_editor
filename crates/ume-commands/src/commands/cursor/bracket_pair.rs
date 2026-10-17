@@ -17,12 +17,10 @@
 //! Sakura moves with `MoveCursorSelecting(..., m_bSelectingLock)`: while the selection lock is on
 //! (after `F_BEGIN_SEL` or `F_BEGIN_BOX`) the move extends the selection.
 
-use ume_core::buffer::{Document, Pos};
-
 use crate::command::{Arg, Command, Result};
 use crate::context::CommandContext;
 use crate::register_command;
-use crate::text::bracket::{Side, pair_of};
+use crate::text::bracket::search;
 
 #[derive(Default)]
 pub struct BracketPair;
@@ -32,88 +30,16 @@ impl Command for BracketPair {
     const SAKURA: &'static str = "F_BRACKETPAIR";
 
     fn run(&self, cx: &mut CommandContext<'_>, _args: &[Arg]) -> Result {
-        if let Some(target) = find_pair(cx.doc(), cx.caret())? {
+        // `mode = 3`: the whole document, and the char before the caret too.
+        if let Some(pair) = search(cx.doc(), cx.caret(), None)? {
             let extend = cx.extends(false);
-            cx.move_caret(target, extend)?;
+            cx.move_caret(pair.other, extend)?;
         }
         Ok(())
     }
 }
 
 register_command!(BracketPair);
-
-/// The position of the bracket that pairs with the one at (or before) `caret`.
-fn find_pair(doc: &Document, caret: Pos) -> Result<Option<Pos>> {
-    let Some(line) = doc.line(caret.line)? else {
-        return Ok(None);
-    };
-    let at = line.text.get(caret.col..).and_then(|s| s.chars().next());
-    let before = line
-        .text
-        .get(..caret.col)
-        .and_then(|s| s.chars().next_back());
-    // the char at the caret first, then the one before it
-    let (bracket_pos, c) = match (at, before) {
-        (Some(c), _) if pair_of(c).is_some() => (caret, c),
-        (_, Some(c)) if pair_of(c).is_some() => (Pos::new(caret.line, caret.col - c.len_utf8()), c),
-        _ => return Ok(None),
-    };
-    let Some(((open, close), side)) = pair_of(c) else {
-        return Ok(None);
-    };
-    match side {
-        Side::Open => search_forward(doc, bracket_pos, open, close),
-        Side::Close => search_backward(doc, bracket_pos, open, close),
-    }
-}
-
-/// From the opening bracket at `from` to the end of the document.
-fn search_forward(doc: &Document, from: Pos, open: char, close: char) -> Result<Option<Pos>> {
-    let mut level = 0_usize;
-    for line_no in from.line..doc.line_count() {
-        let Some(line) = doc.line(line_no)? else {
-            break;
-        };
-        let start = if line_no == from.line { from.col } else { 0 };
-        for (i, c) in line.text.get(start..).unwrap_or_default().char_indices() {
-            if c == open {
-                level += 1;
-            } else if c == close {
-                level -= 1;
-                if level == 0 {
-                    return Ok(Some(Pos::new(line_no, start + i)));
-                }
-            }
-        }
-    }
-    Ok(None)
-}
-
-/// From the closing bracket at `from` to the start of the document.
-fn search_backward(doc: &Document, from: Pos, open: char, close: char) -> Result<Option<Pos>> {
-    let mut level = 1_usize;
-    for line_no in (0..=from.line).rev() {
-        let Some(line) = doc.line(line_no)? else {
-            continue;
-        };
-        let end = if line_no == from.line {
-            from.col
-        } else {
-            line.text.len()
-        };
-        for (i, c) in line.text[..end].char_indices().rev() {
-            if c == close {
-                level += 1;
-            } else if c == open {
-                level -= 1;
-                if level == 0 {
-                    return Ok(Some(Pos::new(line_no, i)));
-                }
-            }
-        }
-    }
-    Ok(None)
-}
 
 #[cfg(test)]
 mod tests {

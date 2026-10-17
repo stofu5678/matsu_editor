@@ -7346,6 +7346,7 @@ version = "0.0.0"
 dependencies = [
  "ume-config",
  "ume-core",
+ "ume-regex",
  "unicode-width",
 ]
 

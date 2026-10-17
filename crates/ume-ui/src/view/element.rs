@@ -9,6 +9,10 @@
 //! The text is cut into pieces of one color (comments, strings, numbers, keywords, the matches of
 //! the search; see `syntax.rs` for the rules, `ume-coloring` for the strategies), and each piece is
 //! drawn with its own colors, bold and underline. Sakura's `CEditView::DrawLayoutLine` does this.
+//!
+//! Over and around the text it draws the ruler (`ruler.rs`), the vertical lines, the note lines,
+//! the underline of the caret line and the line of the caret column (`lines.rs`), and the
+//! highlight of the bracket pair (`bracket_marks.rs`).
 
 use gpui::{
     App, Bounds, ContentMask, Element, ElementId, ElementInputHandler, Entity, GlobalElementId,
@@ -21,10 +25,11 @@ use ume_layout::RowInfo;
 
 use super::colors::LineColorRequest;
 use super::syntax::{self, Label, Style as TextStyle};
-use super::{EditorView, PaintInfo, diff_mark};
+use super::{EditorView, PaintInfo, bracket_marks, diff_mark, lines, ruler};
 use crate::geometry::{Metrics, SCROLLBAR_WIDTH, Scrollbar};
 use crate::hit::selected_columns;
-use crate::search::highlight::highlight_columns;
+use crate::search::highlight::{highlight_columns, slot_of};
+use crate::settings::view_settings::rgb_of;
 use crate::settings::{Colors, DiffColor, Marks};
 use ume_core::diff::DiffMark;
 
@@ -206,8 +211,53 @@ struct RowPaint {
     marked: Option<(u32, u32)>,
 }
 
+/// A bracket of the pair drawn in the color `BRC`.
+struct BracketPaint {
+    /// The index in `rows`.
+    row: usize,
+    col: u32,
+    cols: u32,
+    /// The fill under the bracket.
+    back: u32,
+    text: ShapedLine,
+}
+
+/// The ruler: its scale, and the numbers of the tens.
+struct RulerPaint {
+    height: f32,
+    background: u32,
+    color: u32,
+    scale: ruler::Scale,
+    numbers: Vec<(f32, ShapedLine)>,
+    /// The mark of the caret: from x, to x, from y, to y; and its color.
+    caret: Option<((f32, f32, f32, f32), u32)>,
+}
+
+/// The lines over the text, in pixels from the left of the text area.
+#[derive(Default)]
+struct LinesPaint {
+    /// The x of the vertical lines at given columns, their color, and whether they are dotted.
+    vertical: Vec<f32>,
+    vertical_color: u32,
+    vertical_dotted: bool,
+    /// The y of a note line inside a row, and its color.
+    note: Option<(f32, u32)>,
+    /// The x of the line of the caret column (and the second one of a bold line), and its color.
+    caret_column: Vec<f32>,
+    caret_column_color: u32,
+    /// The index in `rows` of the caret row, and the color of its underline.
+    underline: Option<(usize, u32)>,
+}
+
 pub(super) struct Prepaint {
     rows: Vec<RowPaint>,
+    /// The space above the first row: the ruler and the space under it.
+    top_margin: f32,
+    /// The height of the ruler (0 when it is not shown), the top part of the margin.
+    ruler_px: f32,
+    ruler: Option<RulerPaint>,
+    lines: LinesPaint,
+    brackets: Vec<BracketPaint>,
     /// The index in `rows`, the column and the width of the caret: `None` for the bar of insert
     /// mode, the columns of the char under the caret for the block of overwrite mode.
     caret: Option<(usize, u32, Option<u32>)>,
@@ -337,7 +387,9 @@ impl Element for EditorElement {
 
         let first_row = (editor.scroll_y / line_height).floor().max(0.0) as usize;
         let y_offset = -(editor.scroll_y - line_height * first_row as f32);
-        let count = (f32::from(bounds.size.height) / line_height).ceil() as usize + 1;
+        let top_margin = settings.top_margin() as f32;
+        let body_height = (f32::from(bounds.size.height) - top_margin).max(0.0);
+        let count = (body_height / line_height).ceil() as usize + 1;
         let rows: Vec<RowInfo> = layout.rows(doc, first_row, count).unwrap_or_default();
 
         let digits = doc.line_count().max(1).to_string().len().max(3);
@@ -355,8 +407,18 @@ impl Element for EditorElement {
         let marked = editor.marked.clone();
         let last_line = doc.line_count().saturating_sub(1);
 
-        let mut found = match editor.search.matcher().filter(|_| editor.search.mark()) {
-            Some(matcher) => highlight_columns(layout, doc, &rows, &**matcher),
+        // The search colors: a whole-word search numbers the words of its key, and each word has
+        // the next color that is shown (`CColor_Found`).
+        let search = &editor.search;
+        let shown_found = colors.found.len();
+        let words = search.plain().filter(|_| search.options().whole_word);
+        let mut found = match search
+            .matcher()
+            .filter(|_| search.mark() && shown_found > 0)
+        {
+            Some(matcher) => highlight_columns(layout, doc, &rows, &**matcher, &|text| {
+                slot_of(words.and_then(|w| w.word_slot(text)), shown_found)
+            }),
             None => Vec::new(),
         }
         .into_iter();
@@ -504,7 +566,7 @@ impl Element for EditorElement {
             } else if let Some(eol) = row.eol {
                 if marks_shown.eol {
                     // The mark is in its own color, or in the color of the text it ends.
-                    let around = syntax::entry_of(&colors, rules, eol_color, false);
+                    let around = syntax::entry_of(&colors, rules, eol_color, None);
                     let mark = syntax::space_style(&colors.eol_entry, &around, &colors);
                     marks.push(Placed {
                         col: row.end_column,
@@ -568,8 +630,136 @@ impl Element for EditorElement {
                     })
             });
 
+        // ---- the ruler, the lines and the bracket pair
+        let view_width = (f32::from(bounds.size.width) - gutter_width - SCROLLBAR_WIDTH).max(1.0);
+        let scroll_x = editor.scroll_x;
+        let max_columns = layout.config().max_columns();
+        let caret_pos = editor.cursor.caret();
+        // Text that is selected, or being selected, has no lines of the caret and no pair
+        // (`IsTextSelecting`).
+        let selecting = editor.cursor.has_selection() || editor.cursor.selecting_lock();
+        let caret_total_column = layout
+            .pos_to_row(doc, caret_pos)
+            .ok()
+            .map(|at| caret_column.max(at.column));
+
+        let mut lines_paint = LinesPaint::default();
+        let vertical = colors.vert_line_entry;
+        if vertical.disp {
+            lines_paint.vertical = lines::vertical_xs(
+                &settings.vert_lines,
+                cell,
+                scroll_x,
+                view_width,
+                max_columns,
+                settings.vert_line_offset,
+                vertical.bold,
+            );
+            lines_paint.vertical_dotted = vertical.underline;
+            // A line in the color of the text's background is drawn by XOR to show.
+            lines_paint.vertical_color = if vertical.text == colors.text_entry.back {
+                lines::exor_color(rgb_of(colors.text_entry.back), rgb_of(vertical.back))
+            } else {
+                rgb_of(vertical.text)
+            };
+        }
+        if colors.note_line_entry.disp {
+            lines_paint.note = Some((
+                lines::note_line_y(settings.note_line_offset, line_height),
+                rgb_of(colors.note_line_entry.text),
+            ));
+        }
+        let caret_line = colors.cursor_vline_entry;
+        if caret_line.disp
+            && !selecting
+            && let Some(x) = caret_total_column
+                .and_then(|c| lines::cursor_vline_x(c, cell, scroll_x, view_width))
+        {
+            lines_paint.caret_column.push(x);
+            if caret_line.bold
+                && let Some(second) = lines::cursor_vline_bold_x(x, view_width)
+            {
+                lines_paint.caret_column.push(second);
+            }
+            lines_paint.caret_column_color = rgb_of(caret_line.text);
+        }
+        if colors.underline_entry.disp
+            && !selecting
+            && let Some((i, _, _)) = caret
+        {
+            lines_paint.underline = Some((i, rgb_of(colors.underline_entry.text)));
+        }
+
+        let ruler_entry = colors.ruler_entry;
+        let ruler_paint = (ruler_entry.disp && settings.ruler_px() > 0).then(|| {
+            let height = settings.ruler_px();
+            let scale = ruler::scale(height, cell, scroll_x, view_width, max_columns);
+            let color = rgb_of(ruler_entry.text);
+            let background = rgb_of(ruler_entry.back);
+            // The numbers are a little smaller than the ruler is high (`lfHeight = 1 - height`).
+            let size = px(height.saturating_sub(1).max(1) as f32);
+            let numbers = scale
+                .ticks
+                .iter()
+                .filter_map(|tick| {
+                    let number: SharedString = tick.label?.to_string().into();
+                    let runs = [run(&font, number.len(), color)];
+                    let shaped = window.text_system().shape_line(number, size, &runs, None);
+                    Some((tick.x + 2.0, shaped))
+                })
+                .collect();
+            let focused = editor.focus_handle.is_focused(window);
+            RulerPaint {
+                height: height as f32,
+                background,
+                color,
+                scale,
+                numbers,
+                caret: caret_total_column
+                    .and_then(|c| ruler::caret_mark(height, c, cell, scroll_x, view_width))
+                    .map(|mark| (mark, ruler::caret_color(background, focused))),
+            }
+        });
+
+        let mut brackets = Vec::new();
+        let bracket_entry = colors.bracket_entry;
+        if bracket_entry.disp && !selecting && editor.focus_handle.is_focused(window) {
+            // Every row whose top is above the bottom edge, the first one being cut by the scroll.
+            let rows_shown = ((body_height - y_offset) / line_height).ceil().max(1.0) as usize;
+            let screen = bracket_marks::Screen {
+                first_row,
+                last_row: first_row + rows_shown - 1,
+                first_col: (scroll_x / cell).floor().max(0.0) as u32,
+                last_col: ((scroll_x + view_width) / cell).floor() as u32,
+            };
+            let bracket_style = TextStyle::of(&bracket_entry, &colors);
+            for mark in bracket_marks::marks(doc, layout, caret_pos, screen) {
+                let Some(row) = mark
+                    .row
+                    .checked_sub(first_row)
+                    .filter(|i| *i < painted.len())
+                else {
+                    continue;
+                };
+                let row_back =
+                    syntax::row_background(&colors, mark.row, caret_row_index == Some(mark.row));
+                brackets.push(BracketPaint {
+                    row,
+                    col: mark.col,
+                    cols: mark.cols,
+                    back: bracket_style.back.unwrap_or(row_back),
+                    text: shape_styled(window, &mark.ch.to_string(), &bracket_style),
+                });
+            }
+        }
+
         Prepaint {
             rows: painted,
+            top_margin,
+            ruler_px: settings.ruler_px() as f32,
+            ruler: ruler_paint,
+            lines: lines_paint,
+            brackets,
             caret,
             colors,
             show_line_numbers,
@@ -608,24 +798,31 @@ impl Element for EditorElement {
             cell_width: p.cell,
             line_height: p.line_height,
             view_width: (f32::from(bounds.size.width) - p.gutter_width - SCROLLBAR_WIDTH).max(1.0),
-            view_height: f32::from(bounds.size.height),
+            view_height: (f32::from(bounds.size.height) - p.top_margin).max(1.0),
         };
         let bar = Scrollbar::new(&metrics, p.total_rows, scroll_y);
 
         let lh = px(p.line_height);
+        let body_top = bounds.top() + px(p.top_margin);
         let origin_x = bounds.left() + px(p.gutter_width);
         let text_bounds = Bounds::new(
-            point(origin_x, bounds.top()),
+            point(origin_x, body_top),
             size(
                 (bounds.size.width - px(p.gutter_width) - px(SCROLLBAR_WIDTH)).max(px(0.)),
-                bounds.size.height,
+                (bounds.size.height - px(p.top_margin)).max(px(0.)),
             ),
         );
         let x_of = |col: u32| origin_x + px(col as f32 * p.cell - scroll_x);
 
         window.paint_quad(fill(bounds, rgb(p.colors.background)));
         window.paint_quad(fill(
-            Bounds::new(bounds.origin, size(px(p.gutter_width), bounds.size.height)),
+            Bounds::new(
+                point(bounds.left(), bounds.top() + px(p.ruler_px)),
+                size(
+                    px(p.gutter_width),
+                    (bounds.size.height - px(p.ruler_px)).max(px(0.)),
+                ),
+            ),
             rgb(if p.show_line_numbers {
                 p.colors.line_number_background
             } else {
@@ -634,7 +831,7 @@ impl Element for EditorElement {
         ));
 
         for (i, row) in p.rows.iter().enumerate() {
-            let y = bounds.top() + px(p.y_offset) + lh * i as f32;
+            let y = body_top + px(p.y_offset) + lh * i as f32;
             if let Some(background) = row.gutter_background {
                 window.paint_quad(fill(
                     Bounds::new(point(bounds.left(), y), size(px(p.gutter_width), lh)),
@@ -679,7 +876,7 @@ impl Element for EditorElement {
             }),
             |window| {
                 for (i, row) in p.rows.iter().enumerate() {
-                    let y = bounds.top() + px(p.y_offset) + lh * i as f32;
+                    let y = body_top + px(p.y_offset) + lh * i as f32;
                     if let Some(back) = row.row_background {
                         window.paint_quad(fill(
                             Bounds::from_corners(
@@ -707,6 +904,39 @@ impl Element for EditorElement {
                             Bounds::from_corners(point(x_of(from), y), point(x_of(to), y + lh)),
                             rgb(color),
                         ));
+                    }
+                    // The note lines go over the backgrounds, under the text.
+                    if let Some((offset, color)) = p.lines.note {
+                        let line_y = y + px(offset);
+                        window.paint_quad(fill(
+                            Bounds::from_corners(
+                                point(text_bounds.left(), line_y),
+                                point(text_bounds.right(), line_y + px(1.)),
+                            ),
+                            rgb(color),
+                        ));
+                    }
+                    if p.lines.vertical_dotted {
+                        for &x in &p.lines.vertical {
+                            let x = origin_x + px(x);
+                            // One pixel in two, on the same pixel rows in every row of text.
+                            let row_top = f32::from(y - bounds.top());
+                            let row_bottom = row_top + p.line_height;
+                            let mut dot = row_top.ceil();
+                            if dot % 2.0 != 0.0 {
+                                dot += 1.0;
+                            }
+                            while dot < row_bottom {
+                                window.paint_quad(fill(
+                                    Bounds::new(
+                                        point(x, bounds.top() + px(dot)),
+                                        size(px(1.), px(1.)),
+                                    ),
+                                    rgb(p.lines.vertical_color),
+                                ));
+                                dot += 2.0;
+                            }
+                        }
                     }
                     for &(from, to, color) in &row.underlines {
                         window.paint_quad(fill(
@@ -785,11 +1015,69 @@ impl Element for EditorElement {
                             rgb(p.colors.text),
                         ));
                     }
+                    // The brackets of the pair: the character again, in the color of `BRC`.
+                    for bracket in p.brackets.iter().filter(|b| b.row == i) {
+                        window.paint_quad(fill(
+                            Bounds::from_corners(
+                                point(x_of(bracket.col), y),
+                                point(x_of(bracket.col + bracket.cols), y + lh),
+                            ),
+                            rgb(bracket.back),
+                        ));
+                        bracket
+                            .text
+                            .paint(
+                                point(x_of(bracket.col), y),
+                                lh,
+                                TextAlign::Left,
+                                None,
+                                window,
+                                cx,
+                            )
+                            .ok();
+                    }
+                }
+                // The vertical lines at given columns, whole (not row by row), over the text as
+                // Sakura draws them; a dotted line was drawn with each row.
+                if !p.lines.vertical_dotted {
+                    for &x in &p.lines.vertical {
+                        window.paint_quad(fill(
+                            Bounds::new(
+                                point(origin_x + px(x), body_top),
+                                size(px(1.), text_bounds.size.height),
+                            ),
+                            rgb(p.lines.vertical_color),
+                        ));
+                    }
+                }
+                // The line of the caret column goes first, so that the underline of the caret
+                // line is over it (`CaretUnderLineON`).
+                for &x in &p.lines.caret_column {
+                    window.paint_quad(fill(
+                        Bounds::new(
+                            point(origin_x + px(x), body_top),
+                            size(px(1.), text_bounds.size.height),
+                        ),
+                        rgb(p.lines.caret_column_color),
+                    ));
+                }
+                if let Some((row_index, color)) = p.lines.underline {
+                    let y = body_top
+                        + px(p.y_offset)
+                        + lh * row_index as f32
+                        + px(lines::underline_y(p.line_height));
+                    window.paint_quad(fill(
+                        Bounds::from_corners(
+                            point(text_bounds.left(), y),
+                            point(text_bounds.right(), y + px(1.)),
+                        ),
+                        rgb(color),
+                    ));
                 }
                 if let Some((i, col, block)) = p.caret
                     && focus_handle.is_focused(window)
                 {
-                    let y = bounds.top() + px(p.y_offset) + lh * i as f32;
+                    let y = body_top + px(p.y_offset) + lh * i as f32;
                     // Sakura: a 2px bar in insert mode, a block as wide as the char in overwrite
                     // mode (`CCaret::ShowEditCaret`). The block is see-through to show the char.
                     let (width, color) = match block {
@@ -807,9 +1095,93 @@ impl Element for EditorElement {
             },
         );
 
+        // The space above the first row and the ruler in it. They are over the rows, because the
+        // text is scrolled by pixels and the first row may reach up into them.
+        if p.top_margin > 0.0 {
+            let band = |top: f32, height: f32| {
+                Bounds::new(
+                    point(bounds.left(), bounds.top() + px(top)),
+                    size(bounds.size.width - px(SCROLLBAR_WIDTH), px(height)),
+                )
+            };
+            window.paint_quad(fill(band(0.0, p.top_margin), rgb(p.colors.background)));
+            if p.show_line_numbers {
+                window.paint_quad(fill(
+                    Bounds::new(
+                        point(bounds.left(), bounds.top() + px(p.ruler_px)),
+                        size(px(p.gutter_width), px(p.top_margin - p.ruler_px)),
+                    ),
+                    rgb(p.colors.line_number_background),
+                ));
+            }
+        }
+        if let Some(ruler) = &p.ruler {
+            let top = bounds.top();
+            window.paint_quad(fill(
+                Bounds::new(
+                    bounds.origin,
+                    size(bounds.size.width - px(SCROLLBAR_WIDTH), px(ruler.height)),
+                ),
+                rgb(ruler.background),
+            ));
+            let strip = Bounds::from_corners(
+                point(origin_x, top),
+                point(text_bounds.right(), top + px(ruler.height)),
+            );
+            window.with_content_mask(Some(ContentMask { bounds: strip }), |window| {
+                let scale = &ruler.scale;
+                // The scale has a line for each column, and none of them touch: they are one
+                // layer, which GPUI draws without working out how each one overlaps the others
+                // (that costs more than drawing them does, with a hundred lines every frame).
+                window.paint_layer(strip, |window| {
+                    window.paint_quad(fill(
+                        Bounds::from_corners(
+                            point(origin_x + px(scale.base_from), top + px(scale.base_y)),
+                            point(origin_x + px(scale.base_to), top + px(scale.base_y + 1.0)),
+                        ),
+                        rgb(ruler.color),
+                    ));
+                    for tick in &scale.ticks {
+                        let x = origin_x + px(tick.x.round());
+                        window.paint_quad(fill(
+                            Bounds::from_corners(
+                                point(x, top + px(tick.top)),
+                                point(x + px(1.), top + px(scale.base_y)),
+                            ),
+                            rgb(ruler.color),
+                        ));
+                    }
+                    for (x, number) in &ruler.numbers {
+                        number
+                            .paint(
+                                point(origin_x + px(*x), top - px(1.)),
+                                px(ruler.height),
+                                TextAlign::Left,
+                                None,
+                                window,
+                                cx,
+                            )
+                            .ok();
+                    }
+                });
+                if let Some(((x0, x1, y0, y1), color)) = ruler.caret {
+                    window.paint_quad(fill(
+                        Bounds::from_corners(
+                            point(origin_x + px(x0), top + px(y0)),
+                            point(origin_x + px(x1), top + px(y1)),
+                        ),
+                        rgb(color),
+                    ));
+                }
+            });
+        }
+
         let track = Bounds::new(
-            point(bounds.right() - px(SCROLLBAR_WIDTH), bounds.top()),
-            size(px(SCROLLBAR_WIDTH), bounds.size.height),
+            point(bounds.right() - px(SCROLLBAR_WIDTH), body_top),
+            size(
+                px(SCROLLBAR_WIDTH),
+                (bounds.size.height - px(p.top_margin)).max(px(0.)),
+            ),
         );
         window.paint_quad(fill(track, rgb(0xf3f3f3)));
         window.paint_quad(
@@ -829,7 +1201,7 @@ impl Element for EditorElement {
 
         let paint_info = PaintInfo {
             origin_x: f32::from(origin_x),
-            origin_y: f32::from(bounds.top()),
+            origin_y: f32::from(body_top),
             scrollbar_left: f32::from(track.left()),
         };
         let widest = p.widest;

@@ -14,13 +14,16 @@
 //! The context tells the layout about each edit as it happens (`RowLayout`), so a command that
 //! edits and then moves vertically sees the new rows.
 
+mod bracket_marks;
 mod colors;
 mod diff_mark;
 mod element;
 mod input;
+mod lines;
 mod mouse;
 pub(crate) mod paging;
 pub(crate) mod pane;
+mod ruler;
 mod settings;
 #[cfg(test)]
 mod settings_tests;
@@ -741,5 +744,7 @@ impl Render for EditorView {
 mod colors_tests;
 #[cfg(test)]
 mod paging_tests;
+#[cfg(test)]
+mod ruler_tests;
 #[cfg(test)]
 mod tests;

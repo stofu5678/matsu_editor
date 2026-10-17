@@ -10,15 +10,21 @@ use ume_layout::{DocumentLayout, RowInfo};
 /// paint, and a line this long is searched whole (matchers see whole lines).
 pub const MAX_HIGHLIGHT_LINE_BYTES: usize = 64 * 1024;
 
-/// For each row, the column ranges `(from, to)` of the matches on it, in order. Empty matches
-/// have no width and are left out. A match that wraps onto the next row is cut at the row end.
+/// A match on a row: the columns it covers, and which of the search colors it is drawn in (0 is
+/// the first, up to 4 for `FN5`, counted over the colors that are shown; see [`slot_of`]).
+pub type RowMatch = (u32, u32, u8);
+
+/// For each row, the matches on it, in order. Empty matches have no width and are left out. A
+/// match that wraps onto the next row is cut at the row end. `slot_of` says which of the search
+/// colors a matched text is drawn in.
 pub fn highlight_columns(
     layout: &DocumentLayout,
     doc: &Document,
     rows: &[RowInfo],
     matcher: &dyn Matcher,
-) -> Vec<Vec<(u32, u32)>> {
-    let mut cached: Option<(usize, Vec<Range>)> = None;
+    slot_of: &dyn Fn(&str) -> u8,
+) -> Vec<Vec<RowMatch>> {
+    let mut cached: Option<(usize, Vec<(Range, u8)>)> = None;
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
         if row.is_eof_row {
@@ -26,12 +32,12 @@ pub fn highlight_columns(
             continue;
         }
         if cached.as_ref().is_none_or(|(line, _)| *line != row.line) {
-            cached = Some((row.line, matches_of_line(doc, row.line, matcher)));
+            cached = Some((row.line, matches_of_line(doc, row.line, matcher, slot_of)));
         }
         let matches = cached.as_ref().map_or(&[][..], |(_, m)| m.as_slice());
         let mut walk = ColumnWalk::new(layout, row);
         let mut cols = Vec::new();
-        for m in matches {
+        for (m, slot) in matches {
             if m.end <= row.start.col {
                 continue;
             }
@@ -42,7 +48,7 @@ pub fn highlight_columns(
             let from = walk.column_at(m.start.max(row.start.col));
             let to = walk.column_at(m.end.min(row.end.col));
             if to > from {
-                cols.push((from, to));
+                cols.push((from, to, *slot));
             }
         }
         out.push(cols);
@@ -88,9 +94,25 @@ impl<'a> ColumnWalk<'a> {
     }
 }
 
+/// The color of a match of a whole-word search (`CEditView::IsSearchString`): the number of the
+/// word of the key it is, counting from 0, and round and round over the colors that are shown
+/// (`CColor_Found::GetStrategyColor`: `(result - 1) % validColorNum`). Any other search has the
+/// first color.
+pub fn slot_of(word_index: Option<usize>, shown: usize) -> u8 {
+    match (word_index, shown) {
+        (Some(i), n) if n > 0 => (i % n) as u8,
+        _ => 0,
+    }
+}
+
 /// The non-empty matches of one line, as byte ranges. A line that cannot be read, is too long, or
 /// makes the matcher fail has none.
-fn matches_of_line(doc: &Document, line: usize, matcher: &dyn Matcher) -> Vec<Range> {
+fn matches_of_line(
+    doc: &Document,
+    line: usize,
+    matcher: &dyn Matcher,
+    slot_of: &dyn Fn(&str) -> u8,
+) -> Vec<(Range, u8)> {
     // the length first: a huge line must not be decoded on every paint
     if !matches!(doc.line_len(line), Ok(Some(len)) if len <= MAX_HIGHLIGHT_LINE_BYTES) {
         return Vec::new();
@@ -103,7 +125,11 @@ fn matches_of_line(doc: &Document, line: usize, matcher: &dyn Matcher) -> Vec<Ra
         .unwrap_or_default()
         .into_iter()
         .filter(|m| !m.is_empty())
-        .map(|m| m.range())
+        .map(|m| {
+            let range = m.range();
+            let slot = slot_of(&text[range.clone()]);
+            (range, slot)
+        })
         .collect()
 }
 
@@ -115,11 +141,23 @@ mod tests {
     use super::*;
 
     fn columns(text: &str, pattern: &str, cfg: LayoutConfig) -> Vec<Vec<(u32, u32)>> {
+        slots(text, pattern, cfg, &|_| 0)
+            .into_iter()
+            .map(|row| row.into_iter().map(|(a, b, _)| (a, b)).collect())
+            .collect()
+    }
+
+    fn slots(
+        text: &str,
+        pattern: &str,
+        cfg: LayoutConfig,
+        slot_of: &dyn Fn(&str) -> u8,
+    ) -> Vec<Vec<RowMatch>> {
         let doc = Document::from_utf8(text.as_bytes().to_vec()).unwrap();
         let layout = DocumentLayout::laid_out(&doc, cfg).unwrap();
         let rows = layout.rows(&doc, 0, 100).unwrap();
         let matcher = PlainMatcher::new(pattern, PlainOptions::default());
-        highlight_columns(&layout, &doc, &rows, &matcher)
+        highlight_columns(&layout, &doc, &rows, &matcher, slot_of)
     }
 
     #[test]
@@ -170,5 +208,25 @@ mod tests {
         let text = "a".repeat(MAX_HIGHLIGHT_LINE_BYTES + 1);
         let rows = columns(&text, "a", LayoutConfig::default());
         assert!(rows[0].is_empty());
+    }
+
+    #[test]
+    fn each_match_gets_the_slot_the_caller_gives_its_text() {
+        let rows = slots("ab xx ab", "ab", LayoutConfig::default(), &|text| {
+            if text == "ab" { 3 } else { 0 }
+        });
+        assert_eq!(rows[0], [(0, 2, 3), (6, 8, 3)]);
+    }
+
+    #[test]
+    fn the_slot_of_a_word_goes_round_the_colors_that_are_shown() {
+        // Sakura: `highlightColors[(m_nSearchResult - 1) % validColorNum]`
+        assert_eq!(slot_of(Some(0), 5), 0);
+        assert_eq!(slot_of(Some(4), 5), 4);
+        assert_eq!(slot_of(Some(5), 5), 0);
+        assert_eq!(slot_of(Some(3), 2), 1);
+        // not a whole-word search, or no color is shown
+        assert_eq!(slot_of(None, 5), 0);
+        assert_eq!(slot_of(Some(2), 0), 0);
     }
 }

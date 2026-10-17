@@ -22,6 +22,8 @@ use ume_config::settings::color::ColorEntry;
 use ume_layout::LayoutConfig;
 
 use crate::segments::{SegmentKind, row_segments_cut};
+#[cfg(test)]
+use crate::settings::view_settings::FoundColors;
 use crate::settings::view_settings::{Colors, Rgb, rgb_of, selection_colors_over};
 
 /// How a piece of text is drawn.
@@ -73,18 +75,21 @@ pub(super) fn row_background(colors: &Colors, row: usize, caret_row: bool) -> Rg
     }
 }
 
-/// The entry a piece of text of the kind `kind` is drawn in, `found` if it is in a match of the
-/// search.
+/// A match of the search on a row: from column, to column, and the number of the search color it
+/// is drawn in (the first is 0; see [`crate::search::highlight::slot_of`]).
+pub(super) type FoundRange = (u32, u32, u8);
+
+/// The entry a piece of text of the kind `kind` is drawn in, or the search color `found` if it is
+/// in a match of the search and a search color is shown.
 pub(super) fn entry_of(
     colors: &Colors,
     rules: &ColorRules,
     kind: ColorKind,
-    found: bool,
+    found: Option<u8>,
 ) -> ColorEntry {
-    match (found, colors.found) {
-        (true, Some(found)) => found,
-        _ => *rules.entry(kind),
-    }
+    found
+        .and_then(|slot| colors.found.get(slot))
+        .unwrap_or_else(|| *rules.entry(kind))
 }
 
 /// The style of selected text over text drawn in `under` on a row whose background is `row_back`
@@ -162,8 +167,8 @@ pub(super) struct Piece {
     pub text: String,
     /// The kind of run the piece is in.
     pub color: ColorKind,
-    /// The piece is in a match of the search.
-    pub found: bool,
+    /// The piece is in a match of the search, in the search color of this number.
+    pub found: Option<u8>,
 }
 
 /// The runs of a row in the bytes of the row: `runs` are the runs of the line (covering the text
@@ -198,13 +203,16 @@ pub(super) fn pieces(
     start_col: u32,
     cfg: &LayoutConfig,
     runs: &[(usize, usize, ColorKind)],
-    found: &[(u32, u32)],
+    found: &[FoundRange],
 ) -> Vec<Piece> {
     let cuts: Vec<usize> = runs.iter().map(|r| r.0).collect();
     // The ranges are in increasing order and do not overlap, so they are searched by bisection.
     let in_found = |col: u32| {
-        let i = found.partition_point(|&(_, to)| to <= col);
-        found.get(i).is_some_and(|&(from, _)| from <= col)
+        let i = found.partition_point(|&(_, to, _)| to <= col);
+        found
+            .get(i)
+            .filter(|&&(from, _, _)| from <= col)
+            .map(|&(_, _, slot)| slot)
     };
     let mut out = Vec::new();
     for seg in row_segments_cut(text, start_col, cfg, &cuts) {
@@ -252,7 +260,7 @@ fn split_text(
     byte: usize,
     col: u32,
     cols: u32,
-    found: &[(u32, u32)],
+    found: &[FoundRange],
     mut emit: impl FnMut(usize, u32, u32, &str),
 ) {
     let chars = text.chars().count() as u32;
@@ -261,12 +269,12 @@ fn split_text(
     }
     let width = (cols / chars).max(1);
     // Only the ranges that touch the segment can cut it.
-    let first = found.partition_point(|&(_, to)| to <= col);
+    let first = found.partition_point(|&(_, to, _)| to <= col);
     let touching = found[first..]
         .iter()
-        .take_while(|&&(from, _)| from < col + cols);
+        .take_while(|&&(from, _, _)| from < col + cols);
     let mut edges: Vec<u32> = touching
-        .flat_map(|&(from, to)| [from, to])
+        .flat_map(|&(from, to, _)| [from, to])
         .filter(|&e| e > col && e < col + cols && (e - col).is_multiple_of(width))
         .map(|e| (e - col) / width)
         .collect();
@@ -320,7 +328,7 @@ pub(super) struct RowInput<'a> {
     /// The runs of the row ([`row_runs`]).
     pub runs: &'a [(usize, usize, ColorKind)],
     /// The column ranges of the matches of the search on the row.
-    pub found: &'a [(u32, u32)],
+    pub found: &'a [FoundRange],
     /// The selected columns of the row.
     pub selected: Option<(u32, u32)>,
     /// The background of the row ([`row_background`]).
@@ -484,29 +492,32 @@ mod tests {
     #[test]
     fn matches_of_the_search_cut_the_text_and_override_the_color() {
         let runs = [(0, 8, ColorKind::Comment)];
-        let pieces = pieces("abcdefgh", 0, &cfg(), &runs, &[(2, 5)]);
-        let got: Vec<(&str, u32, bool)> = pieces
+        let pieces = pieces("abcdefgh", 0, &cfg(), &runs, &[(2, 5, 0)]);
+        let got: Vec<(&str, u32, Option<u8>)> = pieces
             .iter()
             .map(|p| (p.text.as_str(), p.col, p.found))
             .collect();
-        assert_eq!(got, [("ab", 0, false), ("cde", 2, true), ("fgh", 5, false)]);
+        assert_eq!(
+            got,
+            [("ab", 0, None), ("cde", 2, Some(0)), ("fgh", 5, None)]
+        );
         assert!(pieces.iter().all(|p| p.color == ColorKind::Comment));
     }
 
     #[test]
     fn matches_cut_wide_characters_at_their_edges() {
         // Two columns for each character: a match from column 2 to 6 is the 2nd and 3rd.
-        let pieces = pieces("日本語です", 0, &cfg(), &[], &[(2, 6)]);
-        let got: Vec<(&str, u32, u32, bool)> = pieces
+        let pieces = pieces("日本語です", 0, &cfg(), &[], &[(2, 6, 0)]);
+        let got: Vec<(&str, u32, u32, Option<u8>)> = pieces
             .iter()
             .map(|p| (p.text.as_str(), p.col, p.cols, p.found))
             .collect();
         assert_eq!(
             got,
             [
-                ("日", 0, 2, false),
-                ("本語", 2, 4, true),
-                ("です", 6, 4, false)
+                ("日", 0, 2, None),
+                ("本語", 2, 4, Some(0)),
+                ("です", 6, 4, None)
             ]
         );
     }
@@ -515,30 +526,30 @@ mod tests {
     fn thousands_of_matches_on_a_row_are_cut_in_a_short_time() {
         // Every other character is a match: 10 000 matches on a row of 20 000 columns.
         let text = "ab".repeat(10_000);
-        let found: Vec<(u32, u32)> = (0..10_000).map(|i| (2 * i, 2 * i + 1)).collect();
+        let found: Vec<FoundRange> = (0..10_000).map(|i| (2 * i, 2 * i + 1, 0)).collect();
         let started = std::time::Instant::now();
         let pieces = pieces(&text, 0, &cfg(), &[], &found);
         assert_eq!(pieces.len(), 20_000);
-        assert!(pieces[0].found && !pieces[1].found);
+        assert!(pieces[0].found.is_some() && pieces[1].found.is_none());
         assert!(started.elapsed() < std::time::Duration::from_secs(5));
     }
 
     #[test]
     fn a_match_covering_a_tab_marks_the_tab() {
-        let pieces = pieces("a\tb", 0, &cfg(), &[], &[(1, 4)]);
-        assert!(!pieces[0].found);
-        assert!(pieces[1].found);
-        assert!(!pieces[2].found);
+        let pieces = pieces("a\tb", 0, &cfg(), &[], &[(1, 4, 0)]);
+        assert!(pieces[0].found.is_none());
+        assert!(pieces[1].found.is_some());
+        assert!(pieces[2].found.is_none());
     }
 
     #[test]
     fn a_wrapped_row_uses_the_columns_it_starts_at() {
-        let pieces = pieces("ab", 4, &cfg(), &[], &[(5, 6)]);
-        let got: Vec<(&str, u32, bool)> = pieces
+        let pieces = pieces("ab", 4, &cfg(), &[], &[(5, 6, 0)]);
+        let got: Vec<(&str, u32, Option<u8>)> = pieces
             .iter()
             .map(|p| (p.text.as_str(), p.col, p.found))
             .collect();
-        assert_eq!(got, [("a", 4, false), ("b", 5, true)]);
+        assert_eq!(got, [("a", 4, None), ("b", 5, Some(0))]);
     }
 
     #[test]
@@ -549,7 +560,7 @@ mod tests {
         assert_eq!(style.back, None);
         assert_eq!(style.text, 0x008000);
         // The number color too; the match of the search has its own background.
-        let found = entry_of(&colors, &rules, ColorKind::Comment, true);
+        let found = entry_of(&colors, &rules, ColorKind::Comment, Some(0));
         let style = Style::of(&found, &colors);
         assert_eq!(style.back, Some(0xffff00));
         assert_eq!(style.text, 0x000000);
@@ -559,26 +570,45 @@ mod tests {
     fn keywords_and_urls_have_their_entries() {
         let (colors, rules) = defaults();
         let kw = Style::of(
-            &entry_of(&colors, &rules, ColorKind::Keyword(0), false),
+            &entry_of(&colors, &rules, ColorKind::Keyword(0), None),
             &colors,
         );
         assert_eq!(kw.text, 0x0000ff);
-        let url = Style::of(&entry_of(&colors, &rules, ColorKind::Url, false), &colors);
+        let url = Style::of(&entry_of(&colors, &rules, ColorKind::Url, None), &colors);
         assert_eq!(url.text, 0x0000ff);
         assert!(url.underline);
         // KW2 is orange.
         let kw2 = Style::of(
-            &entry_of(&colors, &rules, ColorKind::Keyword(1), false),
+            &entry_of(&colors, &rules, ColorKind::Keyword(1), None),
             &colors,
         );
         assert_eq!(kw2.text, 0xff8000);
     }
 
     #[test]
+    fn matches_take_the_search_colors_by_their_number() {
+        let (mut colors, rules) = defaults();
+        let entry = |text| ColorEntry {
+            disp: true,
+            bold: false,
+            underline: false,
+            text,
+            back: 0x00ff_ffff,
+        };
+        colors.found = FoundColors::new([entry(0x01), entry(0x02)]);
+        let text_of = |slot| entry_of(&colors, &rules, ColorKind::Text, Some(slot)).text;
+        assert_eq!((text_of(0), text_of(1), text_of(2)), (0x01, 0x02, 0x01));
+        // in a row: the second match has the second color
+        let styling = style(&colors, &rules, "ab cd", &[], &[(0, 2, 0), (3, 5, 1)], None);
+        let colors_of: Vec<Rgb> = styling.items.iter().map(|i| i.style.text).collect();
+        assert_eq!(colors_of, [rgb_of(0x01), colors.text, rgb_of(0x02)]);
+    }
+
+    #[test]
     fn a_found_color_that_is_off_leaves_the_syntax_color() {
         let (mut colors, rules) = defaults();
-        colors.found = None;
-        let got = entry_of(&colors, &rules, ColorKind::Comment, true);
+        colors.found = FoundColors::new([]);
+        let got = entry_of(&colors, &rules, ColorKind::Comment, Some(0));
         assert_eq!(got, *rules.entry(ColorKind::Comment));
     }
 
@@ -693,7 +723,7 @@ mod tests {
         rules: &ColorRules,
         text: &str,
         runs: &[(usize, usize, ColorKind)],
-        found: &[(u32, u32)],
+        found: &[FoundRange],
         selected: Option<(u32, u32)>,
     ) -> RowStyling {
         style_row(
@@ -753,7 +783,7 @@ mod tests {
     fn a_match_of_the_search_has_its_own_colors_over_the_syntax_colors() {
         let (colors, rules) = defaults();
         let runs = [(0, 8, ColorKind::Comment)];
-        let styling = style(&colors, &rules, "abcdefgh", &runs, &[(2, 5)], None);
+        let styling = style(&colors, &rules, "abcdefgh", &runs, &[(2, 5, 0)], None);
         assert_eq!(
             texts(&styling),
             [

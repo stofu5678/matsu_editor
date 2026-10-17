@@ -12,6 +12,7 @@ publish.workspace = true
 ume-core = { path = "../ume-core" }
 ume-config = { path = "../ume-config" }
 unicode-width = "0.2"
+ume-regex = { path = "../ume-regex" }
 
 [lints]
 workspace = true

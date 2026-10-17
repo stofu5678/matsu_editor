@@ -340,6 +340,15 @@ impl PlainMatcher {
             .any(|w| w.find(line, 0, self.options.match_case).is_some())
     }
 
+    /// For a whole-word search: which word of the pattern `text` is, counting from 0 over the
+    /// words (not the spaces between them), as `CEditView::IsSearchString` numbers them to pick
+    /// one of the search colors. `None` when `text` is none of them, or the search is not by word.
+    pub fn word_slot(&self, text: &str) -> Option<usize> {
+        self.words
+            .iter()
+            .position(|w| w.is(text, self.options.match_case))
+    }
+
     fn is_word_of_pattern(&self, text: &str) -> bool {
         self.words
             .iter()
