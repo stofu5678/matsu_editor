@@ -14,8 +14,8 @@
 //! | Markdown | md, markdown | (none) |
 //! | Rust | rs | Rust |
 //! | Go | go | Go |
-//! | Ruby | rb, rake, gemspec | Ruby |
-//! | シェルスクリプト | sh, bash, zsh | Shell |
+//! | Ruby | rb, rake, gemspec, Rakefile, Gemfile, Guardfile, Vagrantfile | Ruby |
+//! | シェルスクリプト | sh, bash, zsh, .bashrc, .bash_profile, .zshrc, .profile | Shell |
 //! | YAML | yml, yaml | YAML |
 //!
 //! The Python type of Sakura also gets the set [`ExtraSet::PythonBuiltins`] as its second keyword set.
@@ -23,8 +23,10 @@
 //! The words come from the language specifications named in the files of
 //! [`keyword_data`](super::keyword_data), never from another editor's syntax file. The rules are the ones the
 //! coloring of Sakura can express, with the values of the closest Sakura type: the C-like languages take the
-//! values of "C/C++" (the tab width 4, the C comments, backslash escapes in strings that end with the line,
-//! numbers and bracket pairs shown, the C smart indent); the others take the values of "基本" for what they do
+//! values of "C/C++" (the C comments, backslash escapes in strings that end with the line,
+//! numbers and bracket pairs shown, the C smart indent), except the indentation: it follows each language's
+//! convention (JavaScript, TypeScript, JSON, CSS, Ruby, YAML: 2 spaces; Rust: 4 spaces, with `bInsSpace`
+//! on; Go, Markdown, shell: tab characters, width 4); the others take the values of "基本" for what they do
 //! not say. The outline is "Text" for all of them (Sakura has no outline rule for these languages).
 //!
 //! What the rules cannot say exactly (the coloring of these types is approximate there):
@@ -168,17 +170,30 @@ pub(super) fn extra_types(sets: &KeywordSets) -> Vec<TypeSettings> {
         t
     };
 
-    let javascript = c_like("JavaScript", "js,mjs,cjs,jsx", ExtraSet::JavaScript);
-    let typescript = c_like("TypeScript", "ts,tsx,mts,cts", ExtraSet::TypeScript);
+    // The indentation follows the convention of each language, not the C/C++ type: `bInsSpace` ("insert
+    // spaces for the Tab key", `STypeConfig::m_bInsSpace`) and `nTabSpace` (the width of a tab and of one
+    // indent level). Go uses tab characters (width 4); Rust uses 4 spaces; Markdown and shell scripts keep
+    // Sakura's 4 and tab characters.
+    let spaces = |t: &mut TypeSettings, width: i32| {
+        t.tab_space = width;
+        t.ins_space = true;
+    };
+
+    let mut javascript = c_like("JavaScript", "js,mjs,cjs,jsx", ExtraSet::JavaScript);
+    spaces(&mut javascript, 2);
+    let mut typescript = c_like("TypeScript", "ts,tsx,mts,cts", ExtraSet::TypeScript);
+    spaces(&mut typescript, 2);
 
     // RFC 8259 has no comments, but `.jsonc` has: outside a string, `//` can mean nothing else in JSON.
     let mut json = c_like("JSON", "json,jsonc", ExtraSet::Json);
     json.smart_indent = smart_indent::NONE;
+    spaces(&mut json, 2);
     set_disp(&mut json, names::SINGLE_QUOTE, false);
 
     let mut css = c_like("CSS", "css", ExtraSet::Css);
     css.line_comments[0] = LineComment::default();
     css.smart_indent = smart_indent::NONE;
+    spaces(&mut css, 2);
 
     // The headings (`#` to `######` at the start of a line) are a regular expression keyword. Quotes are
     // ordinary text in prose, as in "テキスト".
@@ -195,10 +210,15 @@ pub(super) fn extra_types(sets: &KeywordSets) -> Vec<TypeSettings> {
 
     let mut rust = c_like("Rust", "rs", ExtraSet::Rust);
     set_disp(&mut rust, names::SINGLE_QUOTE, false);
+    spaces(&mut rust, 4);
 
     let go = c_like("Go", "go", ExtraSet::Go);
 
-    let mut ruby = named(0, "Ruby", "rb,rake,gemspec");
+    let mut ruby = named(
+        0,
+        "Ruby",
+        "rb,rake,gemspec,Rakefile,Gemfile,Guardfile,Vagrantfile",
+    );
     ruby.line_comments[0] = LineComment::new("#", -1);
     ruby.block_comments[0] = BlockComment::new("=begin", "=end");
     ruby.keyword_set_idx[0] = kw(ExtraSet::Ruby);
@@ -206,8 +226,13 @@ pub(super) fn extra_types(sets: &KeywordSets) -> Vec<TypeSettings> {
     set_disp(&mut ruby, names::NUMBER, true);
     set_disp(&mut ruby, names::BRACKET_PAIR, true);
     ruby.string_line_only = true;
+    spaces(&mut ruby, 2);
 
-    let mut shell = named(0, "シェルスクリプト", "sh,bash,zsh");
+    let mut shell = named(
+        0,
+        "シェルスクリプト",
+        "sh,bash,zsh,.bashrc,.bash_profile,.zshrc,.profile",
+    );
     shell.line_comments[0] = LineComment::new("#", -1);
     shell.keyword_set_idx[0] = kw(ExtraSet::Shell);
     shell.default_outline = outline_type::TEXT;
@@ -221,6 +246,8 @@ pub(super) fn extra_types(sets: &KeywordSets) -> Vec<TypeSettings> {
     set_disp(&mut yaml, names::NUMBER, true);
     set_disp(&mut yaml, names::SINGLE_QUOTE, false);
     yaml.string_line_only = true;
+    // YAML does not allow tab characters for indentation.
+    spaces(&mut yaml, 2);
 
     vec![
         javascript, typescript, json, css, markdown, rust, go, ruby, shell, yaml,
@@ -535,7 +562,6 @@ mod tests {
         let cpp = types.get(2).unwrap();
         for name in ["JavaScript", "TypeScript", "Go", "Rust"] {
             let t = types.get(types.index_of_name(name).unwrap()).unwrap();
-            assert_eq!(t.tab_space, cpp.tab_space, "{name}");
             assert_eq!(t.line_comments[0].delimiter, "//", "{name}");
             assert_eq!(t.block_comments[0], BlockComment::new("/*", "*/"), "{name}");
             assert_eq!(t.smart_indent, cpp.smart_indent, "{name}");
@@ -546,6 +572,60 @@ mod tests {
         // A lifetime must not start a string.
         assert!(!rust.colors.get("SQT").unwrap().disp);
         assert!(rust.colors.get("WQT").unwrap().disp);
+    }
+
+    #[test]
+    fn indentation_follows_the_convention_of_each_language() {
+        let types = DocumentTypes::builtin();
+        for (name, width, spaces) in [
+            ("Go", 4, false),
+            ("Rust", 4, true),
+            ("JavaScript", 2, true),
+            ("TypeScript", 2, true),
+            ("JSON", 2, true),
+            ("CSS", 2, true),
+            ("Ruby", 2, true),
+            ("YAML", 2, true),
+            ("Markdown", 4, false),
+            ("シェルスクリプト", 4, false),
+        ] {
+            let t = types.get(types.index_of_name(name).unwrap()).unwrap();
+            assert_eq!((t.tab_space, t.ins_space), (width, spaces), "{name}");
+        }
+        // Sakura's types keep tab characters.
+        assert!(types.iter().take(17).all(|t| !t.ins_space));
+    }
+
+    #[test]
+    fn some_files_have_their_language_by_name() {
+        let types = DocumentTypes::builtin();
+        let name_of = |f: &str| {
+            types
+                .get(types.type_index_for_file_name(f))
+                .unwrap()
+                .type_name
+                .clone()
+        };
+        // A token without a dot is the whole name; one with a leading dot too (not "the extension").
+        for f in [
+            "Rakefile",
+            "Gemfile",
+            "Guardfile",
+            "Vagrantfile",
+            "rakefile",
+        ] {
+            assert_eq!(name_of(f), "Ruby", "{f}");
+        }
+        for f in [".bashrc", ".bash_profile", ".zshrc", ".profile"] {
+            assert_eq!(name_of(f), "シェルスクリプト", "{f}");
+        }
+        // Other names and the extension rules are not disturbed.
+        assert_eq!(name_of("bashrc"), "基本");
+        assert_eq!(name_of("Rakefile.txt"), "テキスト");
+        assert_eq!(name_of("my.profile.txt"), "テキスト");
+        assert_eq!(name_of("x.profile"), "基本");
+        assert_eq!(name_of("run.sh"), "シェルスクリプト");
+        assert_eq!(name_of("a.rb"), "Ruby");
     }
 
     #[test]
