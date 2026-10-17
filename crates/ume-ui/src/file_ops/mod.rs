@@ -27,6 +27,7 @@ pub(crate) mod drop_zone;
 pub(crate) mod external;
 pub(crate) mod header_source;
 pub(crate) mod load;
+pub(crate) mod prefs;
 pub(crate) mod property;
 pub(crate) mod save;
 pub(crate) mod save_as_dialog;

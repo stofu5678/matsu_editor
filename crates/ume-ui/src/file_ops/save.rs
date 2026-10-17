@@ -7,7 +7,8 @@
 //!    A path from the save dialog is followed by the options dialog (encoding, BOM, line ending),
 //!    unless a macro passed the encoding or the line ending (`save_as_dialog`).
 //! 2. A plain save of an unmodified document writes nothing (`DoSaveFlow`, when
-//!    `m_bEnableUnmodifiedOverwrite` is off, which is Sakura's default).
+//!    `m_bEnableUnmodifiedOverwrite` is off, which is Sakura's default; the page ファイル of the
+//!    common settings turns it on).
 //!    In view mode the file itself is never overwritten (`CSaveAgent::OnCheckSave`).
 //! 3. If the line endings are mixed and the save does not convert them, ask whether to unify them
 //!    to the current line ending (Sakura's default asks, `m_bChkEnterAtEnd`).
@@ -164,7 +165,12 @@ pub(crate) async fn save(
     // A document that was named but never written (a missing file that was opened) is saved
     // even when it is empty, so that the file exists afterwards.
     let on_disk = current.as_deref().is_some_and(std::path::Path::is_file);
-    if plain && on_disk && !modified {
+    let overwrite_unmodified = view
+        .read_with(cx, |_, app| {
+            super::prefs::prefs(app).enable_unmodified_overwrite
+        })
+        .unwrap_or(false);
+    if plain && on_disk && !modified && !overwrite_unmodified {
         view.update(cx, |view, cx| {
             view.notice = Some("変更がないので保存しなかった".to_owned());
             cx.notify();

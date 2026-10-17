@@ -2,8 +2,9 @@
 //!
 //! Sakura: `CPropCommon::DoPropertySheet` (`sakura_core/prop/CPropCommon.cpp`) shows one page for
 //! each group of settings, in the order of [`Page::ALL`]; `F_OPTION` opens the page used last
-//! (`m_nPageNum`) and `F_OPTION_GENERAL`, `F_OPTION_WINDOW`, `F_OPTION_TAB` and `F_OPTION_EDIT` open
-//! that page. OK writes the settings and every window takes them at once (`MYWM_CHANGESETTING`);
+//! (`m_nPageNum`) and `F_OPTION_GENERAL`, `F_OPTION_WINDOW`, `F_OPTION_TAB`, `F_OPTION_EDIT`,
+//! `F_OPTION_FILE`, `F_OPTION_BACKUP`, `F_OPTION_FORMAT`, `F_OPTION_GREP`, `F_OPTION_FNAME` and
+//! `F_OPTION_STATUSBAR` open that page. OK writes the settings and every window takes them at once (`MYWM_CHANGESETTING`);
 //! キャンセル changes nothing.
 //!
 //! * [`model`]: the description of a page (its controls, their keys, limits and defaults) and the
@@ -133,6 +134,12 @@ impl Page {
             Page::Window => Some(pages::window::items()),
             Page::Tab => Some(pages::tab::items()),
             Page::Edit => Some(pages::edit::items()),
+            Page::StatusBar => Some(pages::status_bar::items()),
+            Page::File => Some(pages::file::items()),
+            Page::FileName => Some(pages::file_name::items()),
+            Page::Backup => Some(pages::backup::items()),
+            Page::Format => Some(pages::format::items()),
+            Page::Search => Some(pages::search::items()),
             _ => None,
         }
     }
@@ -144,6 +151,10 @@ impl Page {
             Page::Window => pages::window::apply(env, after, before),
             Page::Tab => pages::tab::apply(env, after, before),
             Page::Edit => pages::edit::apply(env, after, before),
+            Page::File => pages::file::apply(env, after, before),
+            Page::Format => pages::format::apply(env, after, before),
+            Page::Search => pages::search::apply(env, after, before),
+            // The other pages have nothing to tell the windows (yet).
             _ => {}
         }
     }
@@ -199,8 +210,8 @@ pub(crate) fn current_dialog(cx: &App) -> Option<Entity<CommonSettingsDialog>> {
 }
 
 /// The profile the dialog starts from: the settings file as it is now (another window may have
-/// written it), with what the windows hold in their own state: the tab mode, and the status bar of
-/// the window the dialog was opened from.
+/// written it), with what the windows hold in their own state: the tab mode, the quote string, and
+/// the status bar of the window the dialog was opened from.
 fn start_profile(cx: &mut App, opener: Option<AnyWindowHandle>) -> Profile {
     let mut profile = crate::history::settings_path(cx)
         .and_then(|path| Profile::load(&path).ok())
@@ -227,6 +238,11 @@ fn start_profile(cx: &mut App, opener: Option<AnyWindowHandle>) -> Profile {
         .map(|(_, view)| view);
     if let Some(view) = opener_view {
         put("bDispSTATUSBAR", view.read(cx).status_bar_shown());
+    }
+    // `F_SET_QUOTESTRING` changes the quote of the session only (`m_szInyouKigou` in memory): the
+    // dialog shows it, so that OK does not take it back.
+    if let Some(quote) = cx.try_global::<crate::clipboard::QuoteString>() {
+        let _ = profile.set(model::SECTION, "szInyouKigou", &quote.0);
     }
     profile
 }
@@ -299,3 +315,5 @@ pub(crate) fn run_command(
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_more_pages;

@@ -102,6 +102,13 @@ pub(crate) struct OutlineOptions {
 
 impl Global for OutlineOptions {}
 
+/// 見出し記号 of the common settings page 書式 (`m_szMidashiKigou`): the characters a line of a
+/// text starts with to be a topic of the outline. Without it the outline uses Sakura's default.
+#[derive(Clone, Debug)]
+pub(crate) struct HeadingMarks(pub(crate) String);
+
+impl Global for HeadingMarks {}
+
 /// The kind of outline for `requested` in the view: the one of the document type, with C/C++ settled
 /// by the file name (`Command_FUNCLIST`).
 pub(crate) fn resolve_kind<T: 'static>(

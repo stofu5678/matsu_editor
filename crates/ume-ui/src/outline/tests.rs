@@ -306,3 +306,20 @@ fn a_kind_that_is_not_ported_says_so(cx: &mut TestAppContext) {
     assert!(p.read_with(cx, |p, _| p.rows().is_empty()));
     assert_eq!(p.read_with(cx, |p, _| p.title()), "PL/SQL 関数一覧");
 }
+
+#[gpui::test]
+fn the_heading_marks_of_the_common_settings_pick_the_topics_of_a_text(cx: &mut TestAppContext) {
+    // 見出し記号 (`m_szMidashiKigou`): a line that starts with one of them is a topic.
+    let handle = window(cx, "■ head\r\nplain\r\n* star\r\n", "a.txt");
+    run(cx, handle, "F_OUTLINE");
+    let text = labels(cx, handle);
+    assert!(text.iter().any(|l| l.contains("head")), "{text:?}");
+    assert!(!text.iter().any(|l| l.contains("star")), "{text:?}");
+    cx.update(|app| app.set_global(super::HeadingMarks("*".to_owned())));
+    let pane = pane(cx, handle).unwrap();
+    pane.update(cx, |p, cx| p.reload(cx));
+    cx.run_until_parked();
+    let text = labels(cx, handle);
+    assert!(text.iter().any(|l| l.contains("star")), "{text:?}");
+    assert!(!text.iter().any(|l| l.contains("head")), "{text:?}");
+}

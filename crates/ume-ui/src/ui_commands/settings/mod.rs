@@ -2,8 +2,14 @@
 
 pub mod changetype;
 pub mod option;
+pub mod option_backup;
 pub mod option_edit;
+pub mod option_file;
+pub mod option_fname;
+pub mod option_format;
 pub mod option_general;
+pub mod option_grep;
+pub mod option_statusbar;
 pub mod option_tab;
 pub mod option_window;
 pub mod set_font_size_down;

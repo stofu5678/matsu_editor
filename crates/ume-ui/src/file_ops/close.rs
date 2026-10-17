@@ -49,11 +49,18 @@ async fn ask_about_changes(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowCo
     }
     let Ok((modified, title)) = view.read_with(cx, |view, app| {
         let shared = view.document().read(app);
-        // A Grep window is closed without the question (`m_bGrepExitConfirm` is off).
-        (
-            shared.model().is_modified() && !view.is_grep_window(),
-            document_title(shared.path()),
-        )
+        // A Grep window asks only when 「Grepモードで保存確認する」 is on, and then always, also
+        // when it is unmodified; any other window asks when it is modified
+        // (`CEditDoc::OnFileClose`, `m_bGrepExitConfirm`).
+        let title = view
+            .grep_title()
+            .unwrap_or_else(|| document_title(shared.path()));
+        let ask = if view.is_grep_window() {
+            crate::search::prefs::prefs(app).grep_exit_confirm
+        } else {
+            shared.model().is_modified()
+        };
+        (ask, title)
     }) else {
         return false;
     };

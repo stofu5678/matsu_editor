@@ -8,14 +8,15 @@
 //!
 //! * Sakura's setting `m_nTimeFormatType` is 0 by default, which means the time format of the
 //!   Windows locale, and the picture `m_szTimeFormat` is used only for type 1. There is no such
-//!   locale here, so this command always uses Sakura's default *picture*,
-//!   `tthh'時'mm'分'ss'秒'`, which gives `午前09時05分07秒`. A setting for the picture will come
-//!   with the settings (`ume-config`).
+//!   locale here, so type 0 uses Sakura's default *picture*,
+//!   `tthh'時'mm'分'ss'秒'`, which gives `午前09時05分07秒`.
+//!   Type 1 uses the picture of the common settings ([`crate::format_options`]).
 //! * A rectangular selection is not implemented.
 
 use crate::command::{Arg, Command, Result};
 use crate::context::CommandContext;
-use crate::convert::datetime::{Clock, DEFAULT_TIME_PICTURE, SystemClock, format_time};
+use crate::convert::datetime::{Clock, SystemClock, format_time};
+use crate::format_options;
 use crate::register_command;
 
 #[derive(Default)]
@@ -26,7 +27,7 @@ impl Command for InsertTime {
     const SAKURA: &'static str = "F_INS_TIME";
 
     fn run(&self, cx: &mut CommandContext<'_>, _args: &[Arg]) -> Result {
-        insert_time(cx, &SystemClock, DEFAULT_TIME_PICTURE)
+        insert_time(cx, &SystemClock, format_options::get().time_picture())
     }
 }
 
@@ -47,6 +48,7 @@ mod tests {
     use ume_core::model::DocumentModel;
 
     use super::*;
+    use crate::convert::datetime::DEFAULT_TIME_PICTURE;
     use crate::convert::datetime::tests::{FixedClock, thursday_morning};
     use crate::layout::PlainLayout;
     use crate::testing::{Editor, parse, render};

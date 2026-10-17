@@ -414,6 +414,36 @@ fn a_grep_window_cannot_be_closed_while_it_searches_and_never_asks_to_save(
 }
 
 #[gpui::test]
+fn a_grep_window_asks_before_it_closes_when_the_setting_says_so(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    let p = Project::new();
+    f.view.update_in(cx, |view, window, cx| {
+        view.start_grep(p.settings("hit").info(), false, window, cx);
+    });
+    settle(cx);
+    // 「Grepモードで保存確認する」 (`m_bGrepExitConfirm`): the question is asked also when nothing
+    // was edited after the search (`CEditDoc::OnFileClose`), with the title of the Grep window.
+    cx.update(|_, app| {
+        app.set_global(crate::search::prefs::SearchPrefs {
+            grep_exit_confirm: true,
+            ..Default::default()
+        })
+    });
+    assert!(!f.modified(cx));
+    f.run(cx, "F_FILECLOSE", &[]);
+    assert!(cx.has_pending_prompt(), "the question is asked");
+    let (message, _) = cx.pending_prompt().unwrap();
+    let title = f.view.read_with(cx, |v, _| v.grep_title().unwrap());
+    assert!(message.contains(&title), "{message}");
+    cx.simulate_prompt_answer("キャンセル");
+    cx.run_until_parked();
+    assert!(
+        f.view.read_with(cx, |v, _| v.is_grep_window()),
+        "still open"
+    );
+}
+
+#[gpui::test]
 fn the_dialog_remembers_the_values_for_the_next_time(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx);
     let p = Project::new();
