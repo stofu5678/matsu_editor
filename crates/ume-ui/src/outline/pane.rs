@@ -44,6 +44,7 @@
 //! Sakura: `sakura_core/outline/CDlgFuncList.cpp`.
 
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 use gpui::{
     App, ClickEvent, ClipboardItem, Context, Entity, FocusHandle, Focusable, InteractiveElement,
@@ -113,6 +114,8 @@ pub(crate) struct OutlinePane {
     generation: u64,
     /// The text changed after the analysis (`m_bFuncInfoArrIsUpToDate` is false).
     stale: bool,
+    /// The file the result was made for.
+    analyzed_path: Option<PathBuf>,
     list_sort: ListSort,
     sort_type: SortType,
     expanded: HashSet<usize>,
@@ -142,6 +145,7 @@ impl OutlinePane {
             analyzing: false,
             generation: 0,
             stale: false,
+            analyzed_path: None,
             list_sort: ListSort::default(),
             sort_type: SortType::default(),
             expanded: HashSet::new(),
@@ -167,7 +171,11 @@ impl OutlinePane {
         let events = cx.subscribe(&document, |this, _, event, cx| match *event {
             // NotifyDocModification: the result stays, but it no longer follows the caret
             DocumentEvent::Changed { .. } => {
-                if !this.stale {
+                // a file loaded into this tab replaces the document (`Refresh` after a load)
+                let path = this.document.read(cx).path().map(Path::to_path_buf);
+                if path != this.analyzed_path {
+                    this.analyze(this.requested, cx);
+                } else if !this.stale {
                     this.stale = true;
                     cx.notify();
                 }
@@ -261,6 +269,7 @@ impl OutlinePane {
         self.outline_type = super::resolve_kind(requested, &view, cx);
         self.generation += 1;
         let generation = self.generation;
+        self.analyzed_path = self.document.read(cx).path().map(Path::to_path_buf);
         let version = self.document.read(cx).version();
         self.analyzing = true;
 
@@ -480,6 +489,7 @@ impl OutlinePane {
         let Some(shown) = &self.shown else {
             return;
         };
+        let mut opened = false;
         let Some(index) = item_at(&shown.analysis.items, caret.line + 1, caret.col + 1) else {
             self.selected = None;
             return;
@@ -492,7 +502,9 @@ impl OutlinePane {
                 };
                 if allow_expand {
                     let (_, parents) = path.split_last().expect("a path has a node");
+                    let before = self.expanded.len();
                     self.expanded.extend(parents.iter().copied());
+                    opened = self.expanded.len() != before;
                     *path.last().expect("a path has a node")
                 } else {
                     // a node that is closed hides what is below: select the highest one
@@ -508,7 +520,10 @@ impl OutlinePane {
             }
         };
         self.selected = Some(key);
-        self.rebuild_rows();
+        // the rows change only when a node opened (a move of the caret in a large list is cheap)
+        if opened {
+            self.rebuild_rows();
+        }
         if let Some(row) = self.selected_row() {
             self.scroll.scroll_to_item(row, ScrollStrategy::Center);
         }
