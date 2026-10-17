@@ -7,9 +7,10 @@
 //! project, and a button that copies the version text to the clipboard.
 //!
 //! Here the dialog shows the same kinds of things for UME Editor: the name and the version, the
-//! repository, the build (profile, OS, CPU), the date the program file was last written, the
-//! license, and a description that says UME Editor follows the design of Sakura Editor and ports
-//! parts of it under the zlib License. The copy button copies the first block (the text of the
+//! repository, the build (profile, OS, CPU), the date the program file was last written, and a
+//! description in the user's words (2026-10-17): the license, that UME Editor is Sakura Editor
+//! made again in Rust with some behavior of its own, that parts of the code are ported under the
+//! zlib License, and the systems it runs on. The copy button copies the first block (the text of the
 //! "Ver." lines), as Sakura's `IDC_BUTTON_COPY` does. Not Sakura's own credits or its build number.
 //!
 //! The dialog is modal: it has the focus, Enter, Space and Esc close it.
@@ -87,14 +88,17 @@ impl AboutInfo {
         text
     }
 
-    /// The description under the version text (`IDS_ABOUT_DESCRIPTION`).
+    /// The description under the version text (`IDS_ABOUT_DESCRIPTION`), in the words the user
+    /// chose (2026-10-17). The license comes from Cargo ("MIT OR Apache-2.0"), written with a
+    /// lower-case "or" as the user wrote it.
     pub(crate) fn description(&self) -> String {
         format!(
-            "ライセンスは {} です。\n\
-             {PRODUCT} は、サクラエディタ (Sakura Editor) の操作感を再現するテキストエディタです。\
-             サクラエディタの設計に基づき、その一部を zlib License のもとで移植しています。\n\
-             このソフトウェアは無保証です。\n",
-            self.license
+            "ライセンスは {} です\n\
+             ウメエディタ({PRODUCT})はサクラエディタ(SAKURA Editor)を元にRustで再実装したテキストエディタです\n\
+             サクラエディタの設計を元に一部独自仕様になっています\n\
+             コードの一部はzlib Licenseの元で移植しています\n\
+             Windows、Mac、Linuxのマルチプラットフォームに対応しています\n",
+            self.license.replace(" OR ", " or ")
         )
     }
 }
@@ -296,12 +300,15 @@ mod tests {
     }
 
     #[test]
-    fn the_description_names_the_license_and_the_origin() {
-        let text = info().description();
-        assert!(text.contains("MIT OR Apache-2.0"));
-        assert!(text.contains("サクラエディタ"));
-        assert!(text.contains("zlib License"));
-        assert!(text.contains("無保証"));
+    fn the_description_is_the_users_text() {
+        assert_eq!(
+            info().description(),
+            "ライセンスは MIT or Apache-2.0 です\n\
+             ウメエディタ(UME Editor)はサクラエディタ(SAKURA Editor)を元にRustで再実装したテキストエディタです\n\
+             サクラエディタの設計を元に一部独自仕様になっています\n\
+             コードの一部はzlib Licenseの元で移植しています\n\
+             Windows、Mac、Linuxのマルチプラットフォームに対応しています\n"
+        );
     }
 
     #[test]
