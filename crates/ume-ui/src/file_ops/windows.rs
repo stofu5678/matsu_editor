@@ -462,7 +462,14 @@ pub(crate) fn open_from_outside_with(
     let mut first = true;
     for (i, path) in paths.into_iter().enumerate() {
         if let Some((handle, found)) = find_open(cx, &path) {
-            launch.jump_in_open_file(&found, cx);
+            // A file that is still being read gets the caret when the read is over.
+            if is_pending(cx, &found.downgrade()) {
+                if let Some(after) = launch.after_load(false) {
+                    start_options::expect(cx, &path, after);
+                }
+            } else {
+                launch.jump_in_open_file(&found, cx);
+            }
             // `reveal` acts later than opening does, so only the last file of the request may use
             // it: the others would come to the front after the document opened after them.
             if i + 1 == count {
