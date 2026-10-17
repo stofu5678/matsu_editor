@@ -645,6 +645,27 @@ impl EditorView {
         }
         let path = self.document.read(cx).path().map(Path::to_path_buf);
         settings.offer_folder(path.as_deref());
+        self.show_grep_panel(settings, replace, window, cx);
+    }
+
+    /// `-GREPDLG`: opens the dialog with `settings` as they are (the conditions of the command
+    /// line, `CNormalProcess::InitializeProcess`).
+    pub(crate) fn open_grep_panel_with(
+        &mut self,
+        settings: GrepSettings,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.show_grep_panel(settings, false, window, cx);
+    }
+
+    fn show_grep_panel(
+        &mut self,
+        settings: GrepSettings,
+        replace: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         // The search panel is for another dialog; only one of them is open.
         self.close_search_panel(window, cx);
         match &self.grep.panel {

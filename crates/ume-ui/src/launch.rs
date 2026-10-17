@@ -1,15 +1,22 @@
 //! Starting UME Editor: one process for each settings file ([ADR-0016]).
 //!
-//! `ume [--separate-process] [--] [path...]`. A launch first looks for a UME Editor that runs with
-//! the same settings file (`ume_platform::instance`). If there is one, the launch hands it the
-//! arguments and the working folder, and ends. If not, it becomes the one that others hand their
-//! launches to. Either way, the files named on a command line, the files of a later launch, and the
-//! files that macOS sends to a running application (Finder, the Dock) all arrive as an
-//! [`OpenRequest`] at the same place: `file_ops::windows::open_from_outside`.
+//! `ume [--separate-process] [Sakura's options] [--] [path...]`. A launch first looks for a UME
+//! Editor that runs with the same settings file (`ume_platform::instance`). If there is one, the
+//! launch hands it the arguments and the working folder, and ends. If not, it becomes the one that
+//! others hand their launches to. Either way, the files named on a command line, the files of a
+//! later launch, and the files that macOS sends to a running application (Finder, the Dock) all
+//! arrive as an [`OpenRequest`] at the same place: `file_ops::windows::open_from_outside`.
+//!
+//! The arguments are read where the documents are opened: a handed-over launch brings its
+//! arguments as they are, and the process that receives them reads them
+//! (`command_line`, Sakura's options). The one option that has to be read
+//! before that is `-PROF=`, because the profile decides the settings file, and the settings file
+//! decides which running UME Editor a launch joins (as Sakura's profiles do).
 //!
 //! `--separate-process` runs this launch as a process of its own, without looking for another and
-//! without being found (tests and development). It is the only option; `--` ends the options, so
-//! that a file whose name starts with `-` can be opened.
+//! without being found (tests and development). `--` ends the options, so that a file whose name
+//! starts with `-` can be opened; it is kept in the arguments that are handed over, because the
+//! receiver reads them again.
 //!
 //! [ADR-0016]: https://github.com/stofu5678/ume_editor/blob/main/docs/adr/0016-single-instance.md
 
@@ -17,6 +24,8 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 use ume_platform::instance::{Joined, Key, Request};
+
+use crate::command_line::{self, CommandLine};
 
 /// The option that runs a launch as a process of its own.
 pub const SEPARATE_PROCESS: &str = "--separate-process";
@@ -26,31 +35,44 @@ pub const SEPARATE_PROCESS: &str = "--separate-process";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OpenRequest {
     pub paths: Vec<PathBuf>,
+    /// Sakura's options of the command line (the files are in `paths`).
+    pub(crate) options: CommandLine,
+    /// The working folder of the launch, for what the options name without a place (the macro,
+    /// the folder of a Grep). Empty for the OS: the folder of this process.
+    pub(crate) cwd: PathBuf,
 }
 
 impl OpenRequest {
-    /// The files of a request from a launch: relative ones are in the launch's working folder.
-    /// (There are no options but `--separate-process` yet, so every argument is a file.)
+    /// The request of a launch: relative files are in the launch's working folder, and the
+    /// options are read (`command_line::parse_with`, with the response file `-@=` read from
+    /// the working folder too).
     pub fn from_launch(request: &Request) -> OpenRequest {
-        let paths = request
-            .args
+        let mut options = command_line::parse_with(&request.args, &mut |path| {
+            let bytes = std::fs::read(request.cwd.join(path)).ok()?;
+            Some(command_line::response_text(&bytes))
+        });
+        let paths = std::mem::take(&mut options.files)
             .iter()
-            .filter(|arg| !arg.is_empty())
-            .map(|arg| request.cwd.join(arg))
+            .map(|file| request.cwd.join(file))
             .collect();
-        OpenRequest { paths }
+        OpenRequest {
+            paths,
+            options,
+            cwd: request.cwd.clone(),
+        }
     }
 
     /// The files of the URLs that macOS passes to a running application. Only `file:` URLs count.
     pub fn from_urls(urls: &[String]) -> OpenRequest {
         OpenRequest {
             paths: urls.iter().filter_map(|u| path_of_file_url(u)).collect(),
+            options: CommandLine::default(),
+            cwd: PathBuf::new(),
         }
     }
 }
 
-/// The arguments without the options of the launch itself, and whether `--separate-process` was
-/// among them.
+/// The arguments without `--separate-process` (before a `--`), and whether it was among them.
 pub fn split_options(args: Vec<OsString>) -> (bool, Vec<OsString>) {
     let mut separate = false;
     let mut rest = Vec::new();
@@ -60,6 +82,7 @@ pub fn split_options(args: Vec<OsString>) -> (bool, Vec<OsString>) {
             rest.push(arg);
         } else if arg == "--" {
             options_end = true;
+            rest.push(arg);
         } else if arg == SEPARATE_PROCESS {
             separate = true;
         } else {
@@ -70,7 +93,7 @@ pub fn split_options(args: Vec<OsString>) -> (bool, Vec<OsString>) {
 }
 
 /// `file:///Users/me/a%20b.txt` is `/Users/me/a b.txt`. Another kind of URL is no file.
-fn path_of_file_url(url: &str) -> Option<PathBuf> {
+pub(crate) fn path_of_file_url(url: &str) -> Option<PathBuf> {
     let rest = url.strip_prefix("file://")?;
     // `file://localhost/path`: the host is this machine. Any other host is not a local file.
     let path = match rest.find('/') {
@@ -104,8 +127,11 @@ pub fn launch(args: Vec<OsString>) {
     let (separate, args) = split_options(args);
     let request = Request::from_current_process(args);
     let (tx, rx) = async_channel::unbounded();
+    let first = OpenRequest::from_launch(&request);
+    // `-PROF=`: before anything looks for the settings file.
+    choose_profile(&first.options);
     // The files of this command line come first, through the entry that the others use.
-    tx.send_blocking(OpenRequest::from_launch(&request)).ok();
+    tx.send_blocking(first).ok();
     let user = crate::settings::UserSettings::load();
     let _receiver = if separate {
         None
@@ -124,6 +150,21 @@ pub fn launch(args: Vec<OsString>) {
         }
     };
     crate::app::run(user, tx, rx);
+}
+
+/// `-PROF=name`: the settings file of the profile, a sub folder of the places for `ume.ini`
+/// (`ume_config::location`). A name that is empty is the default profile; one that would leave
+/// the folder is refused. `-PROFMGR` (the profile manager) is not in UME Editor.
+fn choose_profile(options: &CommandLine) {
+    match options.profile.as_deref() {
+        None | Some("") => {}
+        Some(name) => match command_line::valid_profile_name(name) {
+            Some(name) => {
+                ume_config::location::set_process_profile_name(name);
+            }
+            None => eprintln!("ume: -PROF={name}: not a name for a folder; ignored"),
+        },
+    }
 }
 
 /// Looks for the UME Editor of the settings file `user` uses, and becomes it or reaches it.
@@ -166,7 +207,8 @@ mod tests {
     fn after_two_dashes_everything_is_a_file() {
         let (separate, rest) = split_options(os(&["--", SEPARATE_PROCESS, "--", "-x"]));
         assert!(!separate);
-        assert_eq!(rest, os(&[SEPARATE_PROCESS, "--", "-x"]));
+        // the `--` stays: the process that reads the arguments needs it
+        assert_eq!(rest, os(&["--", SEPARATE_PROCESS, "--", "-x"]));
     }
 
     #[test]

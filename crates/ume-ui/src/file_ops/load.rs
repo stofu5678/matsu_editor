@@ -193,7 +193,10 @@ pub(crate) async fn load_here(
                 view.record_history(cx);
                 true
             });
-            replaced.unwrap_or(false)
+            let replaced = replaced.unwrap_or(false);
+            // the options of a launch (`-X=` `-Y=` `-TYPE=` `-M=`...)
+            super::start_options::after_load(view, cx, path, replaced);
+            replaced
         }
         Err(error) => {
             // a request for view mode is for this read only
@@ -208,6 +211,7 @@ pub(crate) async fn load_here(
             tell(cx, PromptLevel::Critical, &message, Some(&detail)).await;
             // Pending until the error is read: a macro that opened the file waits for the box.
             cx.update(|_, app| windows::finish_pending(app, view)).ok();
+            super::start_options::after_load(view, cx, path, false);
             false
         }
     }

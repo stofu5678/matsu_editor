@@ -12,7 +12,8 @@ use gpui_platform::application;
 
 use crate::custom_menu::{ChainedLists, model::CustomMenuList};
 use crate::document::SharedDocument;
-use crate::file_ops::windows::open_from_outside;
+use crate::file_ops::start_options::LaunchOptions;
+use crate::file_ops::windows::{open_from_outside, open_from_outside_with};
 use crate::launch::OpenRequest;
 use crate::menu::{Entry, MenuAction, Registered, label_with_shortcut, main_menu_with};
 use crate::menu_bar::MenuBar;
@@ -124,7 +125,8 @@ pub(crate) fn run(
         cx.spawn(async move |cx| {
             while let Ok(request) = requests.recv().await {
                 cx.update(|cx| {
-                    if let Err(e) = open_from_outside(cx, request.paths) {
+                    let launch = LaunchOptions::from_request(&request);
+                    if let Err(e) = open_from_outside_with(cx, request.paths, &launch) {
                         eprintln!("ume: cannot open a window: {e}");
                     }
                     // The windows of a launch that was handed over come to the front.
