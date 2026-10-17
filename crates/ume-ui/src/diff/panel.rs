@@ -13,8 +13,8 @@ use std::path::{Path, PathBuf};
 
 use gpui::{
     App, AppContext as _, ClickEvent, Context, Entity, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, KeyDownEvent, ParentElement, Render,
-    StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window, div, px, rgb,
+    IntoElement, KeyDownEvent, ParentElement, Render, StatefulInteractiveElement, Styled,
+    Subscription, WeakEntity, Window, div, px, rgb,
 };
 use gpui_component::button::Button;
 use gpui_component::checkbox::Checkbox;
