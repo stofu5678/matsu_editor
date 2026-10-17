@@ -50,7 +50,13 @@ fn the_output_is_taken_and_the_code_is_zero() {
 #[test]
 fn the_error_comes_with_the_output() {
     // `1>&2` needs the shell on every OS
-    let done = run("echo err 1>&2");
+    // On Windows `echo` can be a program (the one of MSYS is on the PATH of a CI runner), which
+    // does not know `1>&2`: `cmd` is asked for it.
+    let done = run(if cfg!(windows) {
+        "cmd /C \"echo err 1>&2\""
+    } else {
+        "echo err 1>&2"
+    });
     assert_eq!(done.text().trim(), "err");
 }
 
@@ -87,7 +93,7 @@ fn a_folder_that_is_not_there_does_not_start() {
 fn the_command_runs_in_the_folder() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("marker-qzx.txt"), "x").unwrap();
-    let mut spec = Spec::new(if cfg!(windows) { "dir /B" } else { "ls" });
+    let mut spec = Spec::new(if cfg!(windows) { "cmd /C dir /B" } else { "ls" });
     spec.folder = Some(dir.path().to_path_buf());
     let done = finish(start(spec).unwrap());
     assert_eq!(done.text().trim(), "marker-qzx.txt");
@@ -162,8 +168,11 @@ const LONG: &str = if cfg!(windows) {
 #[test]
 fn stopping_ends_a_long_command() {
     let mut run = start(Spec::new(LONG)).unwrap();
-    // it is running
-    assert_eq!(run.poll(Duration::from_millis(300)), None);
+    // it is running (`ping` writes its first line at once)
+    assert!(!matches!(
+        run.poll(Duration::from_millis(300)),
+        Some(Event::Exited(_))
+    ));
     let stopper = run.stopper();
     let begun = Instant::now();
     stopper.stop();

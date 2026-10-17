@@ -34,12 +34,12 @@ const LONG: &str = if cfg!(windows) {
 };
 /// A command that writes the lines a, b, c.
 const ABC: &str = if cfg!(windows) {
-    "echo a&echo b&echo c"
+    "cmd /C \"echo a&echo b&echo c\""
 } else {
     "printf 'a\\nb\\nc\\n'"
 };
 /// Lists the file names of the current folder, one per line.
-const LIST: &str = if cfg!(windows) { "dir /B" } else { "ls" };
+const LIST: &str = if cfg!(windows) { "cmd /C dir /B" } else { "ls" };
 
 // the bits of the option
 const OUT: i64 = 0x01;
