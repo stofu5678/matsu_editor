@@ -129,6 +129,7 @@ fn saving_needs_a_modified_document_outside_view_mode() {
     };
     assert!(enabled(&missing, "F_FILESAVE"));
     std::fs::write(dir.path().join("new.txt"), "").unwrap();
+    super::disk::forget();
     assert!(!enabled(&missing, "F_FILESAVE"));
     assert!(enabled(&base(), "F_FILESAVEAS_DIALOG"));
 }
@@ -475,4 +476,17 @@ fn each_window_has_its_own_state_and_the_bars_are_shared(cx: &mut TestAppContext
     assert_eq!(states_of(cx, first).open_documents, 2);
     assert_eq!(states_of(cx, second).open_documents, 2);
     assert_eq!(states_of(cx, first).toolbar, states_of(cx, second).toolbar);
+}
+
+// The toolbar asks on every repaint: the disk is looked at once a second at most.
+#[test]
+fn what_the_disk_said_is_kept_for_a_moment() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.txt");
+    super::disk::forget();
+    assert!(!super::disk::exists(&path));
+    std::fs::write(&path, "").unwrap();
+    assert!(!super::disk::exists(&path), "kept");
+    super::disk::forget();
+    assert!(super::disk::exists(&path));
 }

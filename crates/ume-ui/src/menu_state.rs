@@ -103,8 +103,10 @@ pub(crate) struct FuncStates {
     pub has_path: bool,
     /// The file is on a UNC path (`PathIsUNCW`).
     pub unc_path: bool,
-    /// The path of the file. Only `F_OPEN_HfromtoC` looks at the disk with it, when its item is
-    /// asked for, not when the snapshot is taken (the macOS menu takes one on every repaint).
+    /// The path of the file. Only `F_FILESAVE` and `F_OPEN_HfromtoC` look at the disk with it,
+    /// when their items are asked for (not when the snapshot is taken: the macOS menu takes one
+    /// on every repaint), and what they find is kept for a second ([`disk`]) because the toolbar
+    /// asks on every repaint.
     pub path: Option<std::path::PathBuf>,
     /// `IsModified`.
     pub modified: bool,
@@ -259,7 +261,7 @@ impl FuncStates {
                 !self.view_mode
                     && (self.modified
                         || self.unmodified_overwrite
-                        || self.path.as_deref().is_some_and(|p| !p.exists()))
+                        || self.path.as_deref().is_some_and(|p| !disk::exists(p)))
             }
             "F_UNDO" => self.can_undo,
             "F_REDO" => self.can_redo,
@@ -296,7 +298,7 @@ impl FuncStates {
             "F_CUT_LINE" | "F_DELETE_LINE" => !self.text_selected,
             // `Command_OPEN_HfromtoC( TRUE )`: the file has a header or source of the same name.
             "F_OPEN_HfromtoC" => self.path.as_deref().is_some_and(|path| {
-                crate::file_ops::header_source::counterpart(path, std::path::Path::exists).is_some()
+                crate::file_ops::header_source::counterpart(path, disk::exists).is_some()
             }),
             // `F_VIEWMODE` is always allowed (commented out in Sakura).
             "F_COPYPATH"
@@ -327,6 +329,46 @@ impl FuncStates {
             | "F_FILENEW_NEWWINDOW" => tab_mode,
             _ => true,
         }
+    }
+}
+
+/// What the disk says about a path, kept for a second: the toolbar asks `IsFuncEnable` each time
+/// the window is drawn, and a `stat` on a slow or network drive would stall the drawing.
+mod disk {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    use std::path::{Path, PathBuf};
+    use std::time::{Duration, Instant};
+
+    const KEEP: Duration = Duration::from_secs(1);
+
+    thread_local! {
+        static SEEN: RefCell<HashMap<PathBuf, (Instant, bool)>> = RefCell::new(HashMap::new());
+    }
+
+    /// `path.exists()`, as it was less than a second ago if it was asked then.
+    pub(super) fn exists(path: &Path) -> bool {
+        let now = Instant::now();
+        SEEN.with(|seen| {
+            let mut seen = seen.borrow_mut();
+            if let Some(&(at, found)) = seen.get(path)
+                && now.duration_since(at) < KEEP
+            {
+                return found;
+            }
+            let found = path.exists();
+            if seen.len() > 64 {
+                seen.clear();
+            }
+            seen.insert(path.to_path_buf(), (now, found));
+            found
+        })
+    }
+
+    /// Forgets what was seen (the tests change the disk within a second).
+    #[cfg(test)]
+    pub(super) fn forget() {
+        SEEN.with(|seen| seen.borrow_mut().clear());
     }
 }
 
