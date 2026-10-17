@@ -460,3 +460,18 @@ fn the_first_choice_is_the_hit_in_the_file_being_edited() {
     assert_eq!(best_item(&items, Path::new("/z/none.txt")), 0);
     assert_eq!(best_item(&[], Path::new("/z/none.txt")), 0);
 }
+
+#[test]
+fn a_sorted_shift_jis_file_is_read_through_not_bisected() {
+    // In Shift_JIS the order of these is 亜 愛 悪, which is not the order of their code points
+    let dir = tempfile::tempdir().unwrap();
+    let mut tags = b"!_TAG_FILE_SORTED\t1\n".to_vec();
+    for name in ["亜", "愛", "悪"] {
+        let line = format!("{name}\tf.c\t1;\"\tf\n");
+        tags.extend_from_slice(&encoding_rs::SHIFT_JIS.encode(&line).0);
+    }
+    write(dir.path(), "tags", tags);
+    for name in ["亜", "愛", "悪"] {
+        assert_eq!(direct(&dir.path().join("x.c"), name).matched, 1, "{name}");
+    }
+}

@@ -276,6 +276,10 @@ impl TagList {
     /// (「候補が空でもジャンプで閉じたときは、オプションを保存する」), the keyword only when a hit is
     /// chosen. Nothing chosen is the same as キャンセル.
     pub(crate) fn choose(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // The list still shows the answer to an older keyword: wait for the new one.
+        if self.busy {
+            return;
+        }
         let chosen = self.selected.and_then(|i| self.page.items.get(i)).cloned();
         if self.form == Form::Keyword {
             let keyword = chosen

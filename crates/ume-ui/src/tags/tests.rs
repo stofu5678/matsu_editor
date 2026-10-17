@@ -528,3 +528,22 @@ mod with_a_fake_ctags {
         assert!(!make_dialog_open(&w, cx));
     }
 }
+
+#[gpui::test]
+fn enter_waits_for_the_list_of_the_new_keyword(cx: &mut TestAppContext) {
+    let (_dir, main) = project("x\n");
+    let w = open(cx, &main);
+    w.run_with(cx, "F_TAGJUMP_KEYWORD", &[Arg::Text("fo".into())]);
+    settle(cx, SHORT_DELAY);
+    w.cx(cx).simulate_input("ob");
+    // the list still answers "fo": Enter does not take it
+    w.cx(cx).simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert!(w.list(cx).is_some());
+    assert_eq!(windows(cx), 1);
+    settle(cx, TYPING_DELAY);
+    w.cx(cx).simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert_eq!(windows(cx), 2);
+    assert_eq!(newest(cx).caret(cx), Pos::new(4, 0));
+}

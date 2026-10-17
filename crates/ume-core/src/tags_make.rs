@@ -31,6 +31,10 @@ pub const CTAGS_COMMAND: &str = if cfg!(windows) { "ctags.exe" } else { "ctags" 
 /// How long the output of the command is kept for the message (`char work[1024]` in Sakura).
 const MAX_OUTPUT: usize = 1000;
 
+/// How many bytes of the output are kept while the rest is read and thrown away (a character
+/// takes up to 4 bytes, and a Shift_JIS or UTF-8 character must not be cut).
+const MAX_OUTPUT_BYTES: usize = MAX_OUTPUT * 4;
+
 /// The choices of the dialog (`m_nTagsOpt`, `m_szTagsCmdLine`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TagsMakeOptions {
@@ -131,6 +135,14 @@ fn folder_entries(folder: &Path) -> Vec<OsString> {
         .filter(|name| !name.to_string_lossy().starts_with('.'))
         .collect();
     names.sort();
+    // a name that begins with `-` would be taken for an option
+    for name in &mut names {
+        if name.to_string_lossy().starts_with('-') {
+            let mut safe = OsString::from("./");
+            safe.push(&*name);
+            *name = safe;
+        }
+    }
     names
 }
 
@@ -202,7 +214,10 @@ fn spawn_reader<R: Read + Send + 'static>(
                 break;
             }
             if let Ok(mut all) = into.lock() {
-                all.extend_from_slice(&buf[..n]);
+                // the pipe is read to the end so that ctags is never blocked, but only the start
+                // of the output is kept
+                let room = MAX_OUTPUT_BYTES.saturating_sub(all.len());
+                all.extend_from_slice(&buf[..n.min(room)]);
             }
         }
     })
@@ -247,6 +262,18 @@ mod tests {
             text(&options),
             ["--excmd=n", "-R", "--languages=C,C++", "a.c", "b.c", "sub"]
         );
+    }
+
+    #[test]
+    fn a_name_that_looks_like_an_option_is_made_a_path() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("--languages=C"), "").unwrap();
+        std::fs::write(dir.path().join("a.c"), "").unwrap();
+        let args: Vec<String> = ctags_arguments(&TagsMakeOptions::default(), dir.path())
+            .into_iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(args, ["--excmd=n", "./--languages=C", "a.c"]);
     }
 
     #[test]
@@ -332,6 +359,21 @@ mod tests {
                 &AtomicBool::new(false),
             );
             assert_eq!(outcome, Outcome::Output("warning".into()));
+        }
+
+        #[test]
+        fn a_flood_of_output_is_drained_and_cut() {
+            let bin = tempfile::tempdir().unwrap();
+            let work = tempfile::tempdir().unwrap();
+            // about 2 MB, more than a pipe holds
+            let ctags = fake(bin.path(), "yes 0123456789 | head -c 2000000");
+            let outcome = run_ctags(
+                &ctags,
+                work.path(),
+                &TagsMakeOptions::default(),
+                &AtomicBool::new(false),
+            );
+            assert!(matches!(outcome, Outcome::Output(m) if m.chars().count() == MAX_OUTPUT));
         }
 
         #[test]

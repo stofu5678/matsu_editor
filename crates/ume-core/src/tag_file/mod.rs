@@ -238,23 +238,28 @@ pub fn find_tags(document: &Path, query: &TagQuery<'_>) -> TagPage {
                     format: header.format,
                 };
                 // An error in the file ends the search of this file, not the whole search.
-                let _ = if header.sorted
+                let bisectable = header.sorted
                     && !header.fold_case
                     && !ignore_case
                     && query.exact
-                    && !query.partial
-                {
-                    search.bisect(&mut reader, query.keyword, &source)
-                } else {
-                    search.scan(
+                    && !query.partial;
+                let after_header = reader.stream_position().unwrap_or(0);
+                let before = search.mark();
+                let done = bisectable
+                    && matches!(search.bisect(&mut reader, query.keyword, &source), Ok(true));
+                if !done {
+                    // A file in Shift_JIS is not sorted by the text we read, so it is read through.
+                    search.reset(before);
+                    let _ = reader.seek(SeekFrom::Start(after_header));
+                    let _ = search.scan(
                         &mut reader,
                         query.keyword,
                         &source,
                         &rule,
                         header.sorted,
                         header.fold_case,
-                    )
-                };
+                    );
+                }
             }
         }
         match next_dir {
@@ -431,6 +436,12 @@ pub(crate) fn decode_text(bytes: &[u8]) -> String {
     }
 }
 
+/// Whether the bytes are UTF-8. A line that is not (Shift_JIS) does not sort in the order of its
+/// decoded text, so the ordering of the file cannot be relied on after it.
+fn is_utf8(bytes: &[u8]) -> bool {
+    std::str::from_utf8(bytes).is_ok()
+}
+
 /// `atoi`.
 fn atoi(s: &str) -> i64 {
     let s = s.trim_start();
@@ -543,6 +554,17 @@ impl<'a> Search<'a> {
         }
     }
 
+    /// The counters, to go back to them.
+    fn mark(&self) -> (usize, usize, bool) {
+        (self.items.len(), self.matched, self.has_next)
+    }
+
+    fn reset(&mut self, (items, matched, has_next): (usize, usize, bool)) {
+        self.items.truncate(items);
+        self.matched = matched;
+        self.has_next = has_next;
+    }
+
     fn finish(mut self) -> TagPage {
         // `AddParamA` puts a hit before the first one whose keyword is greater (`wcscmp`).
         self.items
@@ -598,10 +620,12 @@ impl<'a> Search<'a> {
         fold_case: bool,
     ) -> io::Result<()> {
         let mut buf = Vec::new();
+        let mut legacy = false;
         while read_line(r, &mut buf)? {
             if buf.first().is_none_or(|&b| b < b'!') {
                 continue;
             }
+            legacy |= !is_utf8(&buf);
             let text = decode_text(&buf);
             let Some(line) = parse_line(&text, source.format) else {
                 continue;
@@ -614,7 +638,8 @@ impl<'a> Search<'a> {
                 }
                 // A sorted file has no more hits after the first greater keyword.
                 Ordering::Greater
-                    if !rule.partial
+                    if !legacy
+                        && !rule.partial
                         && ((!rule.ignore_case && sorted) || (rule.ignore_case && fold_case)) =>
                 {
                     break;
@@ -632,7 +657,7 @@ impl<'a> Search<'a> {
         r: &mut R,
         keyword: &str,
         source: &Source<'_>,
-    ) -> io::Result<()> {
+    ) -> io::Result<bool> {
         #[derive(PartialEq)]
         enum Phase {
             Binary,
@@ -652,6 +677,10 @@ impl<'a> Search<'a> {
             let got = read_line(r, &mut buf)?;
             if !got && phase != Phase::Binary {
                 break;
+            }
+            if got && !is_utf8(&buf) {
+                // not in the order of the text: the caller reads the file through
+                return Ok(false);
             }
             let text = decode_text(&buf);
             let line = if got {
@@ -723,7 +752,7 @@ impl<'a> Search<'a> {
                 Phase::StepForward => {}
             }
         }
-        Ok(())
+        Ok(true)
     }
 }
 
