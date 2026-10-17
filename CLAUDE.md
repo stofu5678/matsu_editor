@@ -49,6 +49,7 @@ typos                   # cargo install --locked typos-cli
 - Zed のエディタ部分（GPL / AGPL のクレート）からコードを写さない。参考にしてよいのは GPUI 本体と gpui-component（どちらも Apache-2.0）まで
 - bregonig（サクラが使う正規表現の DLL）のソースは、GPL か Artistic License の選択制で、このリポジトリでは使えない。ソースは読まず、写さない。挙動は説明書（`bregonig.html`）と、実物の bregonig.dll を動かした結果から決める（2026-10-16 にユーザーが判断）
 - サクラエディタ（zlib License）のコードを移植するときは、ファイルの先頭に移植元のファイル名、元の著作権表示、zlib License の全文を残し、改変したことを明記する
+- GPUI の Linux 版が使う wayland-protocols-plasma（MIT）は、KDE の Wayland プロトコルの定義（blur.xml など、LGPL-2.1-or-later）から作ったコードを含む。定義はプロトコルの取り決め（名前と引数の型）なので、そのまま使う（2026-10-17 にユーザーが判断）。THIRD_PARTY_NOTICES.txt に LGPL の本文と事情を載せる。cargo-deny はこれを検出しない（`deny.toml` に同じ注記がある）
 
 ## ほかの OSS への報告
 

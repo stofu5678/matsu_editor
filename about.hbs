@@ -97,6 +97,20 @@ Used by:
 {{/unless}}
 {{/if}}
 {{/each}}
+{{#if (eq id "LGPL-2.1-or-later")}}
+Notice about the Wayland protocol definitions of KDE (Linux builds only): the crate
+wayland-protocols-plasma is MIT, but the Rust code it provides is generated from the protocol
+definitions of KDE's plasma-wayland-protocols, 17 of whose 29 XML files are LGPL-2.1-or-later. The
+Linux backend of GPUI uses `wayland_protocols_plasma::blur::client::org_kde_kwin_blur`, generated
+from blur.xml, so the Linux program contains client code generated from that definition. The
+definitions state the protocol (names and argument types) and are used as they are. This entry
+holds the copyright lines of blur.xml (the entry with the lines "SPDX-FileCopyrightText") and the
+text of the GNU Lesser General Public License 2.1 (the other entry). The source is the crate
+(https://crates.io/crates/wayland-protocols-plasma/0.3.12, directory plasma-wayland-protocols) and
+KDE's repository https://invent.kde.org/libraries/plasma-wayland-protocols. The source code of UME
+Editor is public (https://github.com/stofu5678/ume_editor), so the program can be rebuilt with a
+changed copy of the crate.
+{{/if}}
 {{#if (eq id "MPL-2.0")}}
 The source code of these packages (unmodified) is available from:
 {{#each used_by}}

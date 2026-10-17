@@ -13,6 +13,7 @@ accepted = [
     "ISC",
     "Zlib",
     "Unicode-3.0",
+    "Unicode-DFS-2016",
     "CC0-1.0",
     "0BSD",
     "bzip2-1.0.6",
@@ -426,3 +427,44 @@ license = "MIT"
 [[rust-i18n-support.clarify.git]]
 path = "LICENSE"
 checksum = "d6fde6c28ecbccfc7f6d97c0badbb14bbea2cc8f5e81a8c1537204bdfed9a6d5"
+
+# regex-syntax: the Unicode tables carry the Unicode license (the older version of Unicode-3.0,
+# Unicode-DFS-2016) in src/unicode_tables/LICENSE-UNICODE, which cargo-about does not pick up by
+# itself.
+[regex-syntax.clarify]
+license = "MIT AND Unicode-DFS-2016"
+[[regex-syntax.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb"
+[[regex-syntax.clarify.files]]
+path = "src/unicode_tables/LICENSE-UNICODE"
+license = "Unicode-DFS-2016"
+checksum = "74db5baf44a41b1000312c673544b3374e4198af5605c7f9080a402cec42cfa3"
+
+# wayland-protocols-plasma is MIT, but its code is generated from KDE's protocol definitions, 17 of
+# which are LGPL-2.1-or-later. GPUI's Linux backend uses the one in blur.xml. The user decided to
+# use it as it is (CLAUDE.md, "ライセンスのルール"). LGPL-2.1-or-later is accepted for this crate
+# only, so that its text and the copyright lines of blur.xml reach THIRD_PARTY_NOTICES.txt.
+[wayland-protocols-plasma]
+accepted = ["LGPL-2.1-or-later"]
+[wayland-protocols-plasma.clarify]
+license = "MIT AND LGPL-2.1-or-later"
+[[wayland-protocols-plasma.clarify.files]]
+path = "LICENSE.txt"
+license = "MIT"
+checksum = "1cb6f4dee8c649f175736380495f0af0c753c87f22d50931692968bb24bf2161"
+[[wayland-protocols-plasma.clarify.files]]
+path = "plasma-wayland-protocols/LICENSES/MIT.txt"
+license = "MIT"
+checksum = "8f25018489d6fe0dec34a352314c38dc146247b7de65735790f4398a92afa84b"
+[[wayland-protocols-plasma.clarify.files]]
+path = "plasma-wayland-protocols/LICENSES/LGPL-2.1-or-later.txt"
+license = "LGPL-2.1-or-later"
+checksum = "1ccf09bf2f598308df4bed9cd8e9657dc5cd0973d2800318f2e241486e2edf3f"
+[[wayland-protocols-plasma.clarify.files]]
+path = "plasma-wayland-protocols/src/protocols/blur.xml"
+license = "LGPL-2.1-or-later"
+checksum = "b0889adc71f7bc2164ecb54c1762f97bbed08dcff0d5ec105612f7001ec4ec9a"
+start = "SPDX-FileCopyrightText: 2015 Martin"
+end = "SPDX-License-Identifier: LGPL-2.1-or-later"

@@ -128,3 +128,12 @@ jobs:
       - run: cargo test --workspace --locked
         env:
           UME_REQUIRE_INTERPRETERS: ${{ matrix.require_interpreters }}
+      # freetype-sys bundles FreeType (FTL, not covered by THIRD_PARTY_NOTICES.txt) when the system
+      # has none. The Linux builds must link the system's.
+      - name: Check that FreeType was not bundled
+        if: runner.os == 'Linux'
+        run: |
+          if find target -name 'libfreetype2.a' | grep -q .; then
+            echo "::error::freetype-sys built its bundled FreeType. Install libfreetype-dev."
+            exit 1
+          fi
