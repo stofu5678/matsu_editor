@@ -8,7 +8,8 @@
 //   sakura_core/Funccode_x.hsrc
 //
 // This file is derived from the files above and was modified: the data was converted
-// to Rust tables, names were converted to command IDs, and labels were resolved.
+// to Rust tables, names were converted to command IDs, and labels were resolved (the
+// product name サクラエディタ in a label became ウメエディタ).
 //
 // Copyright (C) 1998-2001, Norio Nakatani
 // Copyright (C) 2000, jepro
@@ -92,7 +93,7 @@ pub static MAIN_MENU: &[MenuItem] = &[
     MenuItem { level: 1, kind: Separator, code: 1, access_key: None, label: None },
     MenuItem { level: 1, kind: Leaf, code: 31380, access_key: Some('G'), label: Some("グループを閉じる") },
     MenuItem { level: 1, kind: Leaf, code: 30194, access_key: Some('Q'), label: Some("編集の全終了") },
-    MenuItem { level: 1, kind: Leaf, code: 30195, access_key: Some('X'), label: Some("サクラエディタの全終了") },
+    MenuItem { level: 1, kind: Leaf, code: 30195, access_key: Some('X'), label: Some("ウメエディタの全終了") },
     MenuItem { level: 0, kind: Node, code: 34053, access_key: Some('E'), label: Some("編集") },
     MenuItem { level: 1, kind: Leaf, code: 30210, access_key: Some('U'), label: Some("元に戻す") },
     MenuItem { level: 1, kind: Leaf, code: 30211, access_key: Some('R'), label: Some("やり直し") },

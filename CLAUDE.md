@@ -7,6 +7,7 @@
 サクラエディタの操作感を macOS・Windows・Linux で再現するテキストエディタ。Rust で書き、MIT OR Apache-2.0 で公開する。
 
 - 名前は、英字で書く場所では「UME Editor」とする（SAKURA Editor に合わせる）。ウィンドウのタイトル、メニュー、README、文書の中の製品名など。小文字しか使えない場所や慣習で小文字にする場所（リポジトリ名の `ume_editor`、クレート名の `ume-*`、アプリの識別子（例: `io.github.stofu5678.ume-editor`））はそのままにする
+- カタカナで書く場所では「ウメエディタ」とする（サクラエディタに合わせる。2026-10-17 にユーザーが判断）。サクラの表示名に「サクラエディタ」が入るもの（メニューの「サクラエディタの全終了」など）は、「ウメエディタ」に置き換える
 - 計画と現在のフェーズ: [docs/roadmap.md](docs/roadmap.md)
 - 決定事項: [docs/adr/](docs/adr/README.md)。ADR と食い違う変更をするときは、先に ADR を更新するか、ユーザーに確認する
 - 初期開発では Windows ARM64 で動かして確かめることを優先する（[ADR-0009](docs/adr/0009-initial-development-target.md)）

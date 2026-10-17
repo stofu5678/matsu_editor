@@ -11,8 +11,8 @@
 use ume_commands::keymap::{Chord, DisplayStyle, KeyMap};
 use ume_commands::sakura::{FUNCTIONS, KEY_PARENTHESES, MAIN_MENU, MenuItem, MenuKind};
 
-/// `F_EXITALL`, "サクラエディタの全終了". Until a command implements it, the item runs the `Exit`
-/// action of the application (which the first window already had).
+/// `F_EXITALL`, "ウメエディタの全終了" (Sakura: "サクラエディタの全終了"). Until a command implements
+/// it, the item runs the `Exit` action of the application (which the first window already had).
 pub const F_EXITALL: u16 = 30195;
 
 /// What an item does when it is chosen.
@@ -401,7 +401,7 @@ mod tests {
         let find = |menus: &[TopMenu]| {
             items(&top(menus, "ファイル(F)").entries)
                 .into_iter()
-                .find(|i| i.label.starts_with("サクラエディタの全終了"))
+                .find(|i| i.label.starts_with("ウメエディタの全終了"))
                 .cloned()
                 .unwrap()
         };

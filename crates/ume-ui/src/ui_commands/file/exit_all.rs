@@ -1,4 +1,4 @@
-//! `F_EXITALL`: closes every window and quits (サクラエディタの全終了).
+//! `F_EXITALL`: closes every window and quits (ウメエディタの全終了; Sakura: サクラエディタの全終了).
 //!
 //! Sakura closes the editor windows and, for `F_EXITALL`, the tray process too. This program has
 //! no tray process, so both are the same: every window with unsaved changes asks, and a
