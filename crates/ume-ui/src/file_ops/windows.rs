@@ -22,6 +22,9 @@ use crate::panes::PaneSet;
 use crate::view::EditorView;
 
 use super::close;
+use super::start_options::{
+    self, LaunchOptions, Placement, set_next_placement, take_next_placement,
+};
 
 /// The editor windows of the application, for the flows that look at more than one.
 #[derive(Default)]
@@ -105,11 +108,18 @@ fn open_window_with(
     build: impl FnOnce(&mut Window, &mut App) -> Entity<Workspace> + 'static,
 ) -> gpui::Result<AnyWindowHandle> {
     let count = window_count(cx);
-    let mut bounds = Bounds::centered(None, size(px(1000.), px(700.)), cx);
+    // `-SX=` `-SY=` `-WX=` `-WY=` of the launch that opens this window.
+    let placement = super::start_options::take_next_placement(cx);
+    let default_size = size(px(1000.), px(700.));
+    let window_size = placement.map_or(default_size, |p| p.size_or(default_size));
+    let mut bounds = Bounds::centered(None, window_size, cx);
     // Windows after the first are shifted so that they do not hide each other.
     let shift = px(30. * (count % 8) as f32);
     bounds.origin.x += shift;
     bounds.origin.y += shift;
+    if let Some(placement) = placement {
+        placement.place(&mut bounds);
+    }
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
         titlebar: Some(gpui::TitlebarOptions {
@@ -385,6 +395,16 @@ pub(crate) fn finish_pending(cx: &mut App, view: &WeakEntity<EditorView>) {
 /// others follow it. A file that is named twice (`a.txt ./a.txt`) is opened once. The window of the
 /// last document opened comes to the front.
 pub(crate) fn open_from_outside(cx: &mut App, paths: Vec<PathBuf>) -> gpui::Result<()> {
+    open_from_outside_with(cx, paths, &LaunchOptions::default())
+}
+
+/// [`open_from_outside`] for a launch with Sakura's command-line options
+/// (`file_ops::start_options` says what each does).
+pub(crate) fn open_from_outside_with(
+    cx: &mut App,
+    paths: Vec<PathBuf>,
+    launch: &LaunchOptions,
+) -> gpui::Result<()> {
     let new_window = crate::tabs::settings::current(cx).new_window;
     let mut from = workspaces(cx)
         .into_iter()
@@ -392,31 +412,57 @@ pub(crate) fn open_from_outside(cx: &mut App, paths: Vec<PathBuf>) -> gpui::Resu
         .rev()
         .find(|handle| Some(*handle) == cx.active_window())
         .or_else(|| workspaces(cx).last().map(|(handle, _)| *handle));
-    let mut open = |cx: &mut App, load: Option<LoadRequest>| -> gpui::Result<()> {
-        let handle = match from {
-            Some(from) => {
-                crate::tabs::flows::open_document(
-                    cx,
-                    None,
-                    from,
-                    new_window,
-                    SharedDocument::empty(),
-                    load,
-                )?
-                .0
-            }
-            None => open_editor_window(cx, SharedDocument::empty(), load)?,
+    // Opens a document; `placement` is for the window if this makes one.
+    let mut open = |cx: &mut App,
+                    load: Option<LoadRequest>,
+                    placement: Placement|
+     -> gpui::Result<(AnyWindowHandle, Option<Entity<EditorView>>)> {
+        set_next_placement(cx, placement);
+        let opened = match from {
+            Some(from) => crate::tabs::flows::open_document(
+                cx,
+                None,
+                from,
+                new_window,
+                SharedDocument::empty(),
+                load,
+            )
+            .map(|(handle, view)| (handle, Some(view))),
+            None => open_editor_window(cx, SharedDocument::empty(), load).map(|handle| {
+                let view = editors(cx)
+                    .into_iter()
+                    .rfind(|(h, _)| *h == handle)
+                    .map(|(_, view)| view);
+                (handle, view)
+            }),
         };
+        // A tab does not take the place of a window.
+        take_next_placement(cx);
+        let (handle, view) = opened?;
         from.get_or_insert(handle);
         activate(cx, handle);
-        Ok(())
+        Ok((handle, view))
     };
+    if launch.is_grep() {
+        // `-GREPMODE`: a window for the result; the files are not opened.
+        let (handle, view) = open(cx, None, launch.placement())?;
+        if let Some(view) = view {
+            launch.start_grep(handle, &view, cx);
+        }
+        return Ok(());
+    }
     if paths.is_empty() {
-        return open(cx, None);
+        let (handle, view) = open(cx, None, launch.placement())?;
+        if let Some(view) = view {
+            launch.start_untitled(handle, &view, cx);
+        }
+        return Ok(());
     }
     let count = paths.len();
+    let mut first = true;
     for (i, path) in paths.into_iter().enumerate() {
         if let Some((handle, found)) = find_open(cx, &path) {
+            launch.jump_in_open_file(&found, cx);
             // `reveal` acts later than opening does, so only the last file of the request may use
             // it: the others would come to the front after the document opened after them.
             if i + 1 == count {
@@ -424,13 +470,27 @@ pub(crate) fn open_from_outside(cx: &mut App, paths: Vec<PathBuf>) -> gpui::Resu
             }
             continue;
         }
-        open(
-            cx,
-            Some(LoadRequest {
-                path,
-                encoding: None,
-            }),
-        )?;
+        if launch.file.view_mode {
+            super::view_mode_request::request(cx, &path);
+        }
+        if let Some(after) = launch.after_load(first) {
+            start_options::expect(cx, &path, after);
+        }
+        let placement = if first {
+            launch.placement()
+        } else {
+            Placement::default()
+        };
+        first = false;
+        let load = LoadRequest {
+            path: path.clone(),
+            encoding: launch.file.encoding,
+        };
+        if let Err(error) = open(cx, Some(load), placement) {
+            start_options::forget(cx, &path);
+            super::view_mode_request::take(cx, &path);
+            return Err(error);
+        }
     }
     Ok(())
 }

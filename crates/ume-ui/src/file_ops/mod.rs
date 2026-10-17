@@ -16,6 +16,7 @@
 //! * [`external`]: handing the file to the OS (file manager, default program, a shell in the folder).
 //! * [`header_source`]: the C/C++ header or source of the same name.
 //! * [`property`]: the text of the file property dialog.
+//! * [`start_options`]: what Sakura's command-line options do to the documents a launch opens.
 //! * [`windows`]: making editor windows, and finding the windows that are open.
 //! * [`ask`]: the prompts and the texts of the questions and the errors.
 //! * [`args`]: the arguments of the commands (Sakura's numbers for encodings and line endings).
@@ -30,6 +31,7 @@ pub(crate) mod property;
 pub(crate) mod save;
 pub(crate) mod save_as_dialog;
 pub(crate) mod save_decoded;
+pub(crate) mod start_options;
 pub(crate) mod tag_jump;
 mod view_ext;
 pub(crate) mod view_mode_request;

@@ -68,8 +68,19 @@ pub struct Environment {
     pub profile_name: Option<String>,
 }
 
+/// The profile of this process (`-PROF=`), set once at the start.
+static PROCESS_PROFILE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Makes `name` the profile of this process: [`Environment::from_process`] has it, so that every
+/// place that looks for the settings file uses the sub folder of the profile. Only the first call
+/// counts (the profile is chosen when the process starts); returns whether this call was it.
+pub fn set_process_profile_name(name: &str) -> bool {
+    PROCESS_PROFILE.set(name.to_owned()).is_ok()
+}
+
 impl Environment {
-    /// Reads the environment of the running process.
+    /// Reads the environment of the running process, with the profile of
+    /// [`set_process_profile_name`].
     pub fn from_process() -> Self {
         let var = |name: &str| {
             std::env::var_os(name)
@@ -84,7 +95,7 @@ impl Environment {
             home,
             app_data: var("APPDATA"),
             xdg_config_home: var("XDG_CONFIG_HOME").filter(|p| p.is_absolute()),
-            profile_name: None,
+            profile_name: PROCESS_PROFILE.get().cloned(),
         }
     }
 }
