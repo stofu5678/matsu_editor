@@ -239,7 +239,10 @@ impl EditorView {
         // is made after the command ends.
         let from = window.window_handle();
         if crate::tabs::settings::current(cx).bound() && !new_window {
+            // A macro that called this waits for the tab to be made and the search to begin.
+            let tracked = crate::macros::track(cx);
             window.defer(cx, move |window, app| {
+                let _tracked = tracked;
                 let opened = crate::tabs::flows::open_document(
                     app,
                     Some(window),

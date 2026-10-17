@@ -587,6 +587,8 @@ impl EditorView {
             }
             // A dialog, a panel or a file that is read: the macro goes on when it is over.
             if let Some(wait) = wait {
+                // The panel has the cancel button, which a key macro that waits needs.
+                self.macros.output.show();
                 self.begin_wait(wait, window, cx, |this, window, cx| {
                     this.drain_key_macro(window, cx);
                 });
