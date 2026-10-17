@@ -253,17 +253,26 @@ fn a_script_waits_for_a_file_in_a_new_window(cx: &mut TestAppContext) {
 }
 
 /// `FileOpen('')` shows the file dialog and the script waits for it. `choose` answers it with a
-/// file; else the dialog is cancelled.
-fn file_open_dialog(cx: &mut TestAppContext, choose: bool) {
+/// file; else the dialog is cancelled. `with_folder` gives the 4th argument (the folder the dialog
+/// starts in).
+fn file_open_dialog(cx: &mut TestAppContext, choose: bool, with_folder: bool) {
     if !available(Language::JavaScript) {
         return;
     }
     let dir = tempfile::tempdir().unwrap();
     let opened = write(dir.path(), "opened.txt", "chosen");
+    let call = if with_folder {
+        format!(
+            "Editor.FileOpen('', 99, 0, {:?})",
+            dir.path().to_string_lossy()
+        )
+    } else {
+        "Editor.FileOpen('')".to_owned()
+    };
     let script = write(
         dir.path(),
         "w.cjs",
-        "Editor.FileOpen(''); console.log('r=after'); Editor.InsText('x');",
+        &format!("{call}; console.log('r=after'); Editor.InsText('x');"),
     );
     let (f, cx) = setup_with_ui(cx, "");
     f.run(cx, F_EXECEXTMACRO, &[text_arg(&script)]);
@@ -283,12 +292,17 @@ fn file_open_dialog(cx: &mut TestAppContext, choose: bool) {
 
 #[gpui::test]
 fn file_open_with_no_name_waits_for_the_file_dialog_and_the_file(cx: &mut TestAppContext) {
-    file_open_dialog(cx, true);
+    file_open_dialog(cx, true, false);
+}
+
+#[gpui::test]
+fn file_open_with_a_start_folder_waits_for_the_file_dialog(cx: &mut TestAppContext) {
+    file_open_dialog(cx, true, true);
 }
 
 #[gpui::test]
 fn file_open_with_no_name_goes_on_when_the_file_dialog_is_cancelled(cx: &mut TestAppContext) {
-    file_open_dialog(cx, false);
+    file_open_dialog(cx, false, false);
 }
 
 #[gpui::test]
@@ -348,6 +362,24 @@ fn work_that_the_user_starts_in_the_dialog_is_waited_for_too(cx: &mut TestAppCon
     assert!(f.running(cx));
     assert!(f.lines(cx).is_empty());
     settle(cx, 40);
+    assert_eq!(f.lines(cx), ["B"]);
+    assert!(!f.running(cx));
+}
+
+#[gpui::test]
+fn a_key_macro_waits_for_the_dialog_of_the_macro_folder(cx: &mut TestAppContext) {
+    // `ExecExternalMacro()` without a name asks for the file in the macro folder; the next step
+    // does not run before the dialog is closed.
+    let dir = tempfile::tempdir().unwrap();
+    let path = write(dir.path(), "w.mac", "ExecExternalMacro();\nChar(66);\n");
+    let (f, cx) = setup_with_ui(cx, "");
+    run_file(&f, cx, &path);
+    assert!(cx.did_prompt_for_paths(), "the dialog is open");
+    assert!(f.running(cx) && waiting(&f, cx));
+    settle(cx, 10);
+    assert!(f.lines(cx).is_empty());
+    cx.simulate_path_prompt_response(|_| None);
+    settle(cx, 3);
     assert_eq!(f.lines(cx), ["B"]);
     assert!(!f.running(cx));
 }
