@@ -18,3 +18,15 @@ pub mod tex;
 pub mod tex2;
 pub mod vb;
 pub mod vb2;
+
+// UME Editor's own sets (ADR-0017), written from language specifications; see `super::extra_types`.
+pub mod css;
+pub mod go;
+pub mod javascript;
+pub mod json;
+pub mod python_builtins;
+pub mod ruby;
+pub mod rust;
+pub mod shell;
+pub mod typescript;
+pub mod yaml;

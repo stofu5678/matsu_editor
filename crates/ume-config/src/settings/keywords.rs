@@ -47,9 +47,12 @@
 
 use std::cmp::Ordering;
 
+use super::extra_types::ExtraSet;
 use super::keyword_data as data;
 use crate::profile::Profile;
 
+/// How many keyword sets Sakura starts with (`CShareData::InitKeyword`).
+pub const SAKURA_KEYWORD_SET_COUNT: usize = 17;
 /// `MAX_SETNUM`: how many keyword sets there can be.
 pub const MAX_KEYWORD_SETS: usize = 100;
 /// `MAX_SETNAMELEN`: the longest name of a set, in UTF-16 units.
@@ -122,15 +125,48 @@ fn compare(a: &str, b: &str, case_sensitive: bool) -> Ordering {
     }
 }
 
-/// All keyword sets, in Sakura's order (the index a type stores is the index here).
+/// All keyword sets, in Sakura's order (the index a type stores is the index here), then UME Editor's own
+/// sets ([`ExtraSet`]) in the numbers after the sets of the file (ADR-0017).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeywordSets {
     sets: Vec<KeywordSet>,
+    /// Where each of [`ExtraSet::ALL`] is, or -1 when there was no number left for it.
+    extra: Vec<i32>,
 }
 
 impl KeywordSets {
-    /// `CShareData::InitKeyword`: the 17 sets Sakura starts with.
+    /// What the editor has without a settings file: the 17 sets of Sakura (`CShareData::InitKeyword`), then
+    /// UME Editor's own.
     pub fn builtin() -> Self {
+        Self::with_extras(Self::sakura_sets())
+    }
+
+    /// Puts UME Editor's own sets after `sets`, as long as there are numbers left (`MAX_KEYWORD_SETS`). A
+    /// file with fewer than 17 sets gets none: the numbers up to 16 must stay free, because the types of
+    /// Sakura still refer to them (as to sets that do not exist).
+    fn with_extras(mut sets: Vec<KeywordSet>) -> Self {
+        let room = sets.len() >= SAKURA_KEYWORD_SET_COUNT;
+        let extra = ExtraSet::ALL
+            .iter()
+            .map(|s| {
+                if room && sets.len() < MAX_KEYWORD_SETS {
+                    sets.push(s.to_set());
+                    i32::try_from(sets.len() - 1).unwrap_or(-1)
+                } else {
+                    -1
+                }
+            })
+            .collect();
+        Self { sets, extra }
+    }
+
+    /// The index of one of UME Editor's own sets, or -1 when it did not fit.
+    pub fn extra_index(&self, set: ExtraSet) -> i32 {
+        self.extra.get(set.ordinal()).copied().unwrap_or(-1)
+    }
+
+    /// `CShareData::InitKeyword`: the 17 sets Sakura starts with.
+    fn sakura_sets() -> Vec<KeywordSet> {
         // (name, case sensitive, words), in the order of `InitKeyword`.
         let table: [(&str, bool, &[&str]); 17] = [
             ("C/C++", true, data::cpp::WORDS),
@@ -151,14 +187,12 @@ impl KeywordSets {
             ("Rich Text", true, data::rtf::WORDS),
             ("Python", true, data::python::WORDS),
         ];
-        Self {
-            sets: table
-                .iter()
-                .map(|(name, case, words)| {
-                    KeywordSet::new(name, *case, words.iter().map(|w| (*w).to_owned()))
-                })
-                .collect(),
-        }
+        table
+            .iter()
+            .map(|(name, case, words)| {
+                KeywordSet::new(name, *case, words.iter().map(|w| (*w).to_owned()))
+            })
+            .collect()
     }
 
     /// The sets of the section `[KeyWords]` (`ShareData_IO_KeyWords`, read side). Like Sakura, a
@@ -188,7 +222,7 @@ impl KeywordSets {
                 KeywordSet::new(&name, case, words)
             })
             .collect();
-        Self { sets }
+        Self::with_extras(sets)
     }
 
     /// How many sets there are.
@@ -261,7 +295,8 @@ mod tests {
     #[test]
     fn the_builtin_sets_have_sakuras_names_and_case_rules() {
         let sets = KeywordSets::builtin();
-        assert_eq!(sets.len(), 17);
+        // Sakura's 17, then UME Editor's own (ADR-0017).
+        assert_eq!(sets.len(), 17 + ExtraSet::ALL.len());
         let names: Vec<&str> = sets.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(&names[..3], ["C/C++", "HTML", "PL/SQL"]);
         assert_eq!(names[16], "Python");
@@ -277,7 +312,7 @@ mod tests {
             assert_eq!(sets.get(i).unwrap().case_sensitive, case, "set {i}");
         }
         assert_eq!(sets.get(-1), None);
-        assert_eq!(sets.get(17), None);
+        assert_eq!(sets.get(27), None);
         assert_eq!(sets.index_of("Perl2"), Some(12));
     }
 
@@ -321,7 +356,9 @@ mod tests {
              szKW[00]=foo\tBar\t\r\nszSN[01]=Other\r\nnCASE[01]=0\r\nnKWN[01]=5\r\nszKW[01]=x\t\t\r\n",
         );
         let sets = KeywordSets::from_profile(&p);
+        // A file with fewer than 17 sets leaves the numbers up to 16 as they are: none of UME Editor's sets.
         assert_eq!(sets.len(), 2);
+        assert_eq!(sets.extra_index(ExtraSet::Rust), -1);
         let mine = sets.get(0).unwrap();
         assert_eq!(mine.name, "Mine");
         assert!(mine.case_sensitive);

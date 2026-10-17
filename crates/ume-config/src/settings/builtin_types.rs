@@ -63,9 +63,12 @@
 //! register them as types (the file `CType_Erlang.cpp` only has the outline of Erlang, and
 //! `CType_CorbaIdl.cpp` only has the keyword set 5, "CORBA IDL", which no built-in type uses).
 //!
-//! The keyword set indexes (`nKeyWordSetIdx`) refer to [`KeywordSets::builtin`](super::KeywordSets).
+//! The keyword set indexes (`nKeyWordSetIdx`) refer to [`KeywordSets::builtin`](super::KeywordSets). The only
+//! difference from Sakura is the second keyword set of Python (ADR-0017). UME Editor's own types are in
+//! [`extra_types`](super::extra_types).
 
 use super::color::names;
+use super::extra_types::ExtraSet;
 use super::type_rules::{BlockComment, LineComment, outline_type, smart_indent, string_type};
 use super::types::TypeSettings;
 
@@ -91,13 +94,13 @@ pub fn added_type_name(index: i32) -> String {
     format!("設定{index}")
 }
 
-fn set_disp(t: &mut TypeSettings, name: &str, disp: bool) {
+pub(super) fn set_disp(t: &mut TypeSettings, name: &str, disp: bool) {
     if let Some(c) = t.colors.get_mut(name) {
         c.disp = disp;
     }
 }
 
-fn named(index: usize, name: &str, exts: &str) -> TypeSettings {
+pub(super) fn named(index: usize, name: &str, exts: &str) -> TypeSettings {
     // `CType::InitTypeConfig`: the defaults, the index and the id, then the type's own values.
     let index = i32::try_from(index).unwrap_or(0);
     TypeSettings {
@@ -313,6 +316,9 @@ fn python() -> TypeSettings {
     t.line_comments[0] = LineComment::new("#", -1);
     t.default_outline = outline_type::PYTHON;
     t.keyword_set_idx[0] = 16;
+    // ADR-0017: the built-in functions are UME Editor's addition. The index is the one the set has when the
+    // file has Sakura's 17 sets only; `DocumentTypes::from_profile` moves it when the file has more.
+    t.keyword_set_idx[1] = ExtraSet::PythonBuiltins.default_index();
     set_disp(&mut t, names::NUMBER, true);
     set_disp(&mut t, names::BRACKET_PAIR, true);
     t.string_type = string_type::PYTHON;

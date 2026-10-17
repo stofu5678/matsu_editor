@@ -8,6 +8,7 @@
 pub mod builtin_types;
 pub mod color;
 pub mod doc_types;
+pub mod extra_types;
 pub mod font;
 pub mod keyword_data;
 pub mod keywords;
@@ -18,6 +19,7 @@ pub mod types;
 pub use builtin_types::builtin_types;
 pub use color::{ColorEntry, ColorSet};
 pub use doc_types::DocumentTypes;
+pub use extra_types::ExtraSet;
 pub use font::{FontSetting, LogFont, ViewFont};
 pub use keywords::{KeywordSet, KeywordSets};
 pub use search_keys::{KeyList, SearchKeys};
