@@ -165,6 +165,26 @@ fn unicode_waits_for_an_odd_byte_and_for_a_cr() {
 }
 
 #[test]
+fn a_bom_at_the_start_of_the_output_is_not_text() {
+    // UTF-8, with the BOM cut in the middle by the reads
+    let mut d = OutputDecoder::new(Encoding::Utf8);
+    assert_eq!(d.push(b"\xEF\xBB"), "");
+    assert_eq!(d.push(b"\xBFab"), "ab");
+    // only the first one: a later U+FEFF is a character
+    assert_eq!(d.push("\u{FEFF}c".as_bytes()), "\u{FEFF}c");
+    // UTF-16
+    let mut d = OutputDecoder::new(Encoding::Utf16Le);
+    assert_eq!(d.push(&[0xFF, 0xFE, b'a', 0]), "a");
+    // an output that is only the BOM
+    let mut d = OutputDecoder::new(Encoding::Utf8);
+    assert_eq!(d.push(b"\xEF\xBB\xBF"), "");
+    assert_eq!(d.finish(), "");
+    // an encoding without a BOM keeps it as it decodes (Shift_JIS has no such character)
+    let mut d = OutputDecoder::new(Encoding::ShiftJis);
+    assert_eq!(d.push(b"ab"), "ab");
+}
+
+#[test]
 fn a_last_odd_byte_of_unicode_gets_a_zero_high_byte() {
     let mut d = OutputDecoder::new(Encoding::Utf16Le);
     assert_eq!(d.push(&[b'a', 0, b'b']), "a");

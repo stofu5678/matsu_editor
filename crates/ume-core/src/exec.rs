@@ -225,6 +225,8 @@ pub fn limit_command(text: &str) -> &str {
 pub struct OutputDecoder {
     encoding: Encoding,
     waiting: Vec<u8>,
+    /// Nothing has been given out yet: a BOM at the start is not text.
+    at_start: bool,
 }
 
 impl OutputDecoder {
@@ -232,6 +234,7 @@ impl OutputDecoder {
         Self {
             encoding,
             waiting: Vec::new(),
+            at_start: true,
         }
     }
 
@@ -242,7 +245,21 @@ impl OutputDecoder {
         let ready = self.waiting.len() - keep;
         let text = self.decode(&self.waiting[..ready]);
         self.waiting.drain(..ready);
-        text
+        self.without_bom(text)
+    }
+
+    /// A program that writes the BOM of UTF-8 or UTF-16 (a filter that was fed the BOM of the
+    /// document, for one) has it taken off once, so that it does not become a character in the
+    /// text.
+    fn without_bom(&mut self, text: String) -> String {
+        if text.is_empty() || !self.at_start {
+            return text;
+        }
+        self.at_start = false;
+        match text.strip_prefix('\u{FEFF}') {
+            Some(rest) if self.encoding.can_have_bom() => rest.to_owned(),
+            _ => text,
+        }
     }
 
     /// The end of the output: what waited (`最後の文字の出力`). A last odd byte of UTF-16 gets a
@@ -256,7 +273,8 @@ impl OutputDecoder {
                 _ => {}
             }
         }
-        self.decode(&rest)
+        let text = self.decode(&rest);
+        self.without_bom(text)
     }
 
     fn decode(&self, bytes: &[u8]) -> String {
