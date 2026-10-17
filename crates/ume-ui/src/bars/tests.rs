@@ -176,7 +176,7 @@ fn the_toggles_write_the_keys_and_every_window_follows(cx: &mut TestAppContext) 
     cx.run_until_parked();
     let shown = |cx: &mut TestAppContext, handle| {
         let ws = workspace(cx, handle);
-        ws.update(cx, |ws, cx| ws.render_toolbar(cx).is_some())
+        ws.update(cx, |ws, cx| ws.render_toolbar(false, cx).is_some())
     };
     assert!(shown(cx, first) && shown(cx, second));
 

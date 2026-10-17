@@ -89,10 +89,11 @@ impl EditorView {
         } else {
             DisplayStyle::Sakura
         };
-        let items: Vec<_> = gpui_items(entries, style)
+        let mut items: Vec<_> = gpui_items(entries, style)
             .into_iter()
             .map(MenuItem::owned)
             .collect();
+        self.mark_menu_items(&mut items, window, cx);
         let at = self
             .custom_menu
             .mouse_at
@@ -125,6 +126,29 @@ impl EditorView {
         });
         cx.notify();
         true
+    }
+
+    /// The check marks and the gray items of the moment (`CreatePopUpMenuSub` asks `IsFuncChecked`
+    /// and `IsFuncEnable` for each item).
+    pub(crate) fn mark_menu_items(
+        &self,
+        items: &mut [gpui::OwnedMenuItem],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // The window keeps the outline pane. (The view is not inside an update of its window here:
+        // a menu opens from a mouse event or a function that was dispatched to the view.)
+        let host = self.split_host.as_ref().and_then(gpui::WeakEntity::upgrade);
+        let outline = host
+            .as_ref()
+            .is_some_and(|workspace| workspace.read(cx).outline.is_some());
+        let documents = host.as_ref().map_or(1, |workspace| {
+            workspace.read(cx).tab_count()
+                + crate::app::documents_elsewhere(cx, workspace.entity_id())
+        });
+        let topmost = crate::window_ops::is_topmost(window, cx);
+        let states = crate::menu_state::FuncStates::of_view(self, outline, topmost, documents, cx);
+        crate::menu_state::apply(items, &states);
     }
 
     /// Closes the popup and gives the focus back to the text.

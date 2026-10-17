@@ -183,6 +183,13 @@ pub(crate) fn with_screen<R>(
     result
 }
 
+/// Whether the OS says `window` is on top of the others (`F_TOPMOST`'s check mark). False where
+/// the OS cannot tell, as in the headless tests.
+pub(crate) fn is_topmost(window: &mut Window, cx: &mut App) -> bool {
+    let current = window.window_handle();
+    Os::new(window, cx).is_topmost(current).unwrap_or(false)
+}
+
 /// The error of a command for a window the OS cannot place.
 pub(crate) fn unavailable(error: Error) -> CommandError {
     match error {
