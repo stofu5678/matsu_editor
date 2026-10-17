@@ -54,6 +54,27 @@ pub(crate) fn reveal(cx: &mut App, handle: AnyWindowHandle, view: Entity<EditorV
     .detach();
 }
 
+/// [`reveal`], then runs the function `code` on the document in its window.
+pub(crate) fn reveal_and_run(
+    cx: &mut App,
+    handle: AnyWindowHandle,
+    view: Entity<EditorView>,
+    code: u16,
+) {
+    cx.spawn(async move |cx| {
+        cx.update(|app| {
+            handle
+                .update(app, |_, window, app| {
+                    show_in_window(&view, window, app);
+                    window.activate_window();
+                    view.update(app, |view, cx| view.run_function(code, &[], window, cx));
+                })
+                .ok();
+        });
+    })
+    .detach();
+}
+
 /// Opens a document the way Sakura's `CControlTray::OpenNewEditor` does
 /// (`sakura_core/_main/CControlTray.cpp`): in tab mode it joins the group of the window `from`
 /// (a new tab there); otherwise, or with `new_window` (`bNewWindow`, `F_FILENEW_NEWWINDOW`), it
