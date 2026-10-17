@@ -247,6 +247,11 @@ impl CommonSettingsDialog {
     /// OK: the values are written and every window takes them; the window closes.
     pub(crate) fn ok(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.commit_inputs(cx);
+        if let Some(message) = super::pages::tab::blocked(cx, &self.values, &self.original) {
+            // Nothing is written; the dialog stays so that the user can choose again.
+            drop(window.prompt(PromptLevel::Info, message, None, &["OK"], cx));
+            return;
+        }
         apply::commit(
             cx,
             &self.controls,

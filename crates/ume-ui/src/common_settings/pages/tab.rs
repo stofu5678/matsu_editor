@@ -152,6 +152,22 @@ fn options(values: &Values) -> TabOptions {
     }
 }
 
+/// Why OK cannot go on: a tab that is being read cannot move to another window, so the bar and
+/// the grouping cannot change meanwhile (the same refusal as `F_SHOWTAB`).
+pub(in crate::common_settings) fn blocked(
+    cx: &mut gpui::App,
+    after: &Values,
+    before: &Values,
+) -> Option<&'static str> {
+    let changes = after.bool("tab_bar") != before.bool("tab_bar")
+        || after.bool("tab_grouped") != before.bool("tab_grouped");
+    let reading = changes
+        && crate::file_ops::windows::workspaces(cx)
+            .into_iter()
+            .any(|(handle, _)| crate::file_ops::windows::has_pending(cx, handle));
+    reading.then_some("ファイルの読み込み中は、タブの表示を切り替えられない")
+}
+
 /// What OK does to the windows: the bar and the grouping are switched for every window at once,
 /// as `F_SHOWTAB` and `F_BIND_WINDOW` do (`ResetGroupId` and a message to all windows).
 pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: Option<&Values>) {

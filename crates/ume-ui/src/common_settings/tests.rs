@@ -586,6 +586,39 @@ fn the_tab_bar_and_the_group_follow_the_page(cx: &mut TestAppContext) {
     assert!(!cx.update(|app| crate::tabs::settings::current(app)).bound());
 }
 
+#[gpui::test]
+fn the_tab_mode_is_not_changed_while_a_file_is_being_read(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, "");
+    let view = editors_of(cx).remove(0);
+    cx.update(|app| {
+        crate::file_ops::windows::begin_pending(
+            app,
+            handle,
+            &view.downgrade(),
+            "/work/slow.txt".into(),
+        )
+    });
+    let bytes = ini.bytes();
+    run(cx, handle, "F_OPTION_TAB");
+    check(cx, "tab_bar", true);
+    with_dialog(cx, |d, window, dcx| d.ok(window, dcx));
+    // The question is answered, the dialog stays and nothing is written.
+    assert!(cx.has_pending_prompt());
+    cx.simulate_prompt_answer("OK");
+    cx.run_until_parked();
+    assert!(is_open(cx));
+    assert_eq!(ini.bytes(), bytes);
+    assert!(
+        !cx.update(|app| crate::tabs::settings::current(app))
+            .show_bar
+    );
+    cancel(cx);
+}
+
+fn editors_of(cx: &mut TestAppContext) -> Vec<Entity<crate::view::EditorView>> {
+    cx.update(editors).into_iter().map(|(_, v)| v).collect()
+}
+
 fn workspaces_count(cx: &mut TestAppContext) -> usize {
     cx.update(workspaces).len()
 }
