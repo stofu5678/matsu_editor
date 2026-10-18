@@ -110,7 +110,7 @@ mod utf8;
 
 use std::fmt;
 
-pub use char_code::{CharCodeOptions, char_code, unicode_code};
+pub use char_code::{CharCodeOptions, char_code, sakura_utf16_len, unicode_code};
 pub use detect::{Certainty, DETECT_SAMPLE_LEN, DetectOptions, Detection, detect};
 
 /// A line ending. Sakura: `EEolType` in sakura_core/basis/CEol.h.

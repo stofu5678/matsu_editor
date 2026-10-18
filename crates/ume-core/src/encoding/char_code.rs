@@ -146,6 +146,20 @@ pub fn unicode_code(first: char, second: Option<char>, options: &CharCodeOptions
     format!("U+{:04X}", unit(first))
 }
 
+/// The number of UTF-16 units Sakura's buffer holds for `text`: a stand-in for an invalid byte is
+/// one unit (U+DC00..), a supplementary character two.
+pub fn sakura_utf16_len(text: &str) -> usize {
+    text.chars()
+        .map(|c| {
+            if stand_in_byte(c).is_some() {
+                1
+            } else {
+                c.len_utf16()
+            }
+        })
+        .sum()
+}
+
 fn utf16_pair(c: char) -> (u16, u16) {
     let mut units = [0u16; 2];
     c.encode_utf16(&mut units);
@@ -169,7 +183,7 @@ fn bytes_code(encoding: Encoding, first: char, second: Option<char>) -> Option<S
     }
     let mut bytes = Vec::new();
     encoding.codec().encode(&text, &mut bytes).ok()?;
-    if encoding == Encoding::Jis {
+    if encoding == Encoding::Jis && !stand_in {
         // The escape sequences (ESC ... a capital letter) are not shown.
         let mut hex = String::new();
         let mut in_escape = false;
@@ -339,6 +353,15 @@ mod tests {
         // The caret before "e" shows "e"; the accent after it shows U+0301.
         assert_eq!(code(Encoding::Utf8, "e\u{301}"), "U+0065");
         assert_eq!(code(Encoding::Utf8, "\u{301}"), "U+0301");
+    }
+
+    #[test]
+    fn a_stand_in_is_one_unit() {
+        let stand_in = char::from_u32(INVALID_BYTE_BASE + 0x81).expect("a scalar value");
+        assert_eq!(sakura_utf16_len(&format!("a{stand_in}😀")), 4);
+        // JIS does not strip an invalid ESC
+        let esc = char::from_u32(INVALID_BYTE_BASE + 0x1B).expect("a scalar value");
+        assert_eq!(code(Encoding::Jis, &esc.to_string()), "?1B");
     }
 
     #[test]

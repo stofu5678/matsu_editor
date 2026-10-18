@@ -7,8 +7,8 @@
 use std::cell::RefCell;
 
 use gpui::App;
-use ume_core::buffer::{Document, Pos, utf16_len};
-use ume_core::encoding::{Encoding, char_code};
+use ume_core::buffer::{Document, Pos};
+use ume_core::encoding::{Encoding, char_code, sakura_utf16_len};
 use ume_core::model::eol_text;
 
 use super::EditorView;
@@ -51,7 +51,7 @@ pub(crate) fn measure(
             let _ = codec.encode(text, &mut bytes);
             size += bytes.len();
         } else {
-            size += utf16_len(text);
+            size += sakura_utf16_len(text);
         }
     };
     for (index, line) in (from.line..).zip(doc.lines(from.line..to.line.saturating_add(1))) {
@@ -96,7 +96,7 @@ impl EditorView {
                 info.start
             };
             let before = doc.text_between(from, caret).unwrap_or_default();
-            u32::try_from(utf16_len(&before)).unwrap_or(u32::MAX)
+            u32::try_from(sakura_utf16_len(&before)).unwrap_or(u32::MAX)
         } else if by_text {
             // The rows before this one in the line, each without its indent.
             let before = info.row_in_line;
@@ -187,6 +187,15 @@ impl EditorView {
     ) -> usize {
         let mut cache = self.selection_count.0.borrow_mut();
         let incremental = encoding.codec().is_stateless();
+        if let Some(c) = cache.as_ref()
+            && c.version == version
+            && c.encoding == encoding
+            && c.by_byte == by_byte
+            && c.from == from
+            && c.to == to
+        {
+            return c.size;
+        }
         let size = match cache.as_ref() {
             Some(c)
                 if incremental
