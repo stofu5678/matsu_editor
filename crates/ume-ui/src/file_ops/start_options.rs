@@ -270,6 +270,7 @@ impl LaunchOptions {
                         encoding,
                         bom: encoding.bom_default_on(),
                         eol: Eol::CrLf,
+                        mime_decode: defaults.mime_decode,
                     }
                 };
                 view.document()
@@ -494,6 +495,7 @@ pub(crate) fn grep_info(args: &GrepArgs, cwd: &Path, clipboard: Option<String>) 
         },
         file_only: args.file_only,
         except_file_regex: args.except_file_regex,
+        mime_decode: false,
         replace: args.replace.as_ref().map(|text| ReplaceInfo {
             text: if args.paste {
                 clipboard.clone().unwrap_or_default()

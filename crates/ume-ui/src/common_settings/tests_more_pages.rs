@@ -223,8 +223,9 @@ fn the_file_page_writes_sakuras_keys_and_keeps_the_rest_of_the_file(cx: &mut Tes
     );
     check(cx, "restore_cur_position", false);
     check(cx, "enable_unmodified_overwrite", true);
-    // A box that is not available does nothing.
     check(cx, "auto_mime_decode", true);
+    check(cx, "no_filter_save_new", false);
+    // A box that is not available does nothing.
     choose(cx, "file_share_mode", 0);
     ok(cx);
 
@@ -262,8 +263,14 @@ fn the_file_page_writes_sakuras_keys_and_keeps_the_rest_of_the_file(cx: &mut Tes
         value(&ini, "Common", "bBackUpType2_Opt1").as_deref(),
         Some("120")
     );
-    assert_eq!(value(&ini, "Common", "bAutoMIMEdecode"), None);
-    assert_eq!(value(&ini, "Common", "bNoFilterSaveNew"), None);
+    assert_eq!(
+        value(&ini, "Common", "bAutoMIMEdecode").as_deref(),
+        Some("1")
+    );
+    assert_eq!(
+        value(&ini, "Common", "bNoFilterSaveNew").as_deref(),
+        Some("0")
+    );
     let after = ini.profile();
     let old: Vec<_> = before.entries("Other").collect();
     let new: Vec<_> = after.entries("Other").collect();
@@ -338,9 +345,12 @@ fn the_options_of_the_watching_the_warnings_and_the_automatic_save_reach_the_win
     let (_ini, handle) = setup(
         cx,
         "[Common]\r\nbCheckFileTimeStamp=0\r\nnAutoloadDelay=4\r\nbAlertIfLargeFile=1\r\n\
-         nAlertFileSize=20\r\nbBackUpType2_Opt1=120\r\nbBackUpType2_Opt3=9\r\n",
+         nAlertFileSize=20\r\nbBackUpType2_Opt1=120\r\nbBackUpType2_Opt3=9\r\n\
+         bAutoMIMEdecode=1\r\nbNoFilterSaveFile=0\r\n",
     );
     let started = cx.update(|app| crate::file_ops::prefs::prefs(app));
+    assert!(started.auto_mime_decode);
+    assert!(started.no_filter_save_new && !started.no_filter_save_file);
     assert!(!started.check_file_time_stamp);
     assert_eq!(started.autoload_delay, 4);
     assert!(started.alert_if_large_file && started.alert_file_size == 20);
@@ -353,6 +363,10 @@ fn the_options_of_the_watching_the_warnings_and_the_automatic_save_reach_the_win
     let now = cx.update(|app| crate::file_ops::prefs::prefs(app));
     assert!(now.check_file_time_stamp && !now.uneditable_if_unwritable && !now.auto_save);
     assert_eq!(now.autoload_delay, 4, "the numbers stay");
+    assert!(
+        now.auto_mime_decode && !now.no_filter_save_file,
+        "so do the others"
+    );
 }
 
 // ---- バックアップ ----

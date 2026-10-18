@@ -33,6 +33,14 @@ pub(crate) struct FilePrefs {
     pub auto_save: bool,
     /// `bBackUpType2_Opt3` (`GetAutoBackupInterval`): the interval of the automatic save, in minutes.
     pub auto_save_interval: i32,
+    /// `m_bNoFilterSaveNew` (`bNoFilterSaveNew`): the save dialog of a document without a file also
+    /// shows all files (`;*.*` after the extensions of the type, `CDocFileOperation::SaveFileDialog`).
+    pub no_filter_save_new: bool,
+    /// `m_bNoFilterSaveFile` (`bNoFilterSaveFile`): the same for a document that has a file.
+    pub no_filter_save_file: bool,
+    /// `m_bAutoMIMEdecode` (`bAutoMIMEdecode`): MIME encoded words in an ISO-2022-JP file are
+    /// decoded when it is read.
+    pub auto_mime_decode: bool,
 }
 
 impl Default for FilePrefs {
@@ -49,6 +57,9 @@ impl Default for FilePrefs {
             alert_file_size: 10,
             auto_save: false,
             auto_save_interval: 5,
+            no_filter_save_new: true,
+            no_filter_save_file: true,
+            auto_mime_decode: false,
         }
     }
 }

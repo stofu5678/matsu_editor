@@ -17,12 +17,17 @@ use ume_config::settings::types::eol_type;
 use ume_config::settings::{DocumentTypes, TypeSettings};
 use ume_core::encoding::{Encoding, Eol};
 
-/// The encoding, BOM and line ending of a new document.
+/// The encoding, BOM and line ending of a new document, and what else a file is opened with that
+/// the settings decide.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NewDocumentDefaults {
     pub encoding: Encoding,
     pub bom: bool,
     pub eol: Eol,
+    /// Decode the MIME encoded words of an ISO-2022-JP file (`bAutoMIMEdecode`). Not a property of
+    /// the document type: `crate::settings::new_document_defaults` takes it from the common
+    /// settings; here it is off.
+    pub mime_decode: bool,
 }
 
 impl Default for NewDocumentDefaults {
@@ -32,6 +37,7 @@ impl Default for NewDocumentDefaults {
             encoding: Encoding::Utf8,
             bom: false,
             eol: Eol::platform_default(),
+            mime_decode: false,
         }
     }
 }
@@ -78,7 +84,12 @@ impl NewDocumentDefaults {
             .and_then(eol_of)
             .or(basic.eoltype.and_then(eol_of))
             .unwrap_or(fallback.eol);
-        Self { encoding, bom, eol }
+        Self {
+            encoding,
+            bom,
+            eol,
+            mime_decode: false,
+        }
     }
 }
 

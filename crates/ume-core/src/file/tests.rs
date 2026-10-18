@@ -1257,3 +1257,63 @@ fn owner_and_group_can_be_kept_and_the_mode_still_is() {
         assert_eq!(dir.names(), ["a.txt"]);
     }
 }
+
+// ---- MIME headers (bAutoMIMEdecode) ----
+
+/// "日本語" as a Base64 encoded word of ISO-2022-JP.
+const MIME_WORD: &[u8] = b"Subject: =?ISO-2022-JP?B?GyRCRnxLXDhsGyhC?=\r\n";
+
+fn open_mime(path: &Path, encoding: Encoding, mime_decode: bool) -> TextFile {
+    let options = OpenOptions {
+        encoding: Some(encoding),
+        mime_decode,
+        ..OpenOptions::default()
+    };
+    open_file(path, &options).unwrap()
+}
+
+#[test]
+fn a_jis_file_has_its_mime_words_decoded_when_the_option_is_on() {
+    let dir = TempDir::new();
+    let path = dir.write("mail.txt", MIME_WORD);
+    assert_eq!(
+        text(&open_mime(&path, Encoding::Jis, true)),
+        "Subject: 日本語\r\n"
+    );
+}
+
+#[test]
+fn mime_decoding_is_off_by_default() {
+    assert!(!OpenOptions::default().mime_decode);
+    let dir = TempDir::new();
+    let path = dir.write("mail.txt", MIME_WORD);
+    assert_eq!(
+        text(&open_mime(&path, Encoding::Jis, false)),
+        "Subject: =?ISO-2022-JP?B?GyRCRnxLXDhsGyhC?=\r\n"
+    );
+}
+
+#[test]
+fn only_jis_files_are_mime_decoded() {
+    let dir = TempDir::new();
+    let path = dir.write("mail.txt", MIME_WORD);
+    assert_eq!(
+        text(&open_mime(&path, Encoding::Utf8, true)),
+        String::from_utf8_lossy(MIME_WORD)
+    );
+}
+
+#[test]
+fn a_detected_jis_file_is_mime_decoded_too() {
+    let dir = TempDir::new();
+    let mut bytes = b"\x1B$BF|K\\8l\x1B(B\r\n".to_vec();
+    bytes.extend_from_slice(MIME_WORD);
+    let path = dir.write("mail.txt", &bytes);
+    let options = OpenOptions {
+        mime_decode: true,
+        ..OpenOptions::default()
+    };
+    let file = open_file(&path, &options).unwrap();
+    assert_eq!(file.encoding, Encoding::Jis);
+    assert_eq!(text(&file), "日本語\r\nSubject: 日本語\r\n");
+}

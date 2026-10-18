@@ -30,6 +30,7 @@ pub fn open_text_file(
     let mut options = OpenOptions {
         encoding,
         default_eol: defaults.eol,
+        mime_decode: defaults.mime_decode,
         ..OpenOptions::default()
     };
     options.detect.default_encoding = defaults.encoding;
@@ -89,6 +90,7 @@ mod tests {
             encoding: Encoding::Utf16Le,
             bom: false,
             eol: Eol::Cr,
+            mime_decode: false,
         };
         let file = open_text_file(path, None, &settings, &mut no_progress).unwrap();
         assert_eq!(file.encoding, Encoding::Utf16Le);
@@ -98,6 +100,29 @@ mod tests {
         let file = open_text_file(path, Some(Encoding::Utf8), &settings, &mut no_progress).unwrap();
         assert_eq!(file.encoding, Encoding::Utf8);
         assert!(!file.bom);
+    }
+
+    #[test]
+    fn mime_words_of_a_jis_file_are_decoded_when_the_settings_say_so() {
+        let dir = temp_dir("mime");
+        let path = dir.join("mail.txt");
+        std::fs::write(&path, b"=?ISO-2022-JP?B?GyRCRnxLXDhsGyhC?=\r\n").unwrap();
+        let text = |defaults: &NewDocumentDefaults| {
+            let file =
+                open_text_file(&path, Some(Encoding::Jis), defaults, &mut no_progress).unwrap();
+            file.document
+                .text_between(
+                    ume_core::buffer::Pos::new(0, 0),
+                    ume_core::buffer::Pos::new(usize::MAX, 0),
+                )
+                .unwrap()
+        };
+        assert_eq!(text(&defaults()), "=?ISO-2022-JP?B?GyRCRnxLXDhsGyhC?=\r\n");
+        let on = NewDocumentDefaults {
+            mime_decode: true,
+            ..defaults()
+        };
+        assert_eq!(text(&on), "日本語\r\n");
     }
 
     #[test]

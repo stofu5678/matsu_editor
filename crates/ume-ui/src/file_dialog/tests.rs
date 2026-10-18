@@ -13,6 +13,7 @@ use ume_config::Profile;
 use ume_platform::dialog::{Kind, Request};
 
 use crate::document::SharedDocument;
+use crate::file_ops::prefs::FilePrefs;
 use crate::history::{HistoryOptions, HistoryState};
 use crate::menu::{Entry, MenuAction};
 use crate::settings::UserSettings;
@@ -167,8 +168,130 @@ fn save_of_a_document_without_a_file_starts_where_the_setting_says(cx: &mut Test
     let request = only(asked());
     assert_eq!(request.kind, Kind::SaveFile);
     assert_eq!(request.start.as_deref(), Some(dir.path()));
-    // Sakura suggests *.txt for a document without a name
-    assert_eq!(request.name.as_deref(), Some("無題.txt"));
+    // Sakura suggests 無題 with the date and the time, and the dialog adds .txt
+    let name = request.name.unwrap();
+    let stamp = name.strip_prefix("無題_").expect(&name);
+    assert_eq!(stamp.len(), "20261019_120000".len(), "{name}");
+    assert!(
+        stamp.chars().all(|c| c.is_ascii_digit() || c == '_'),
+        "{name}"
+    );
+    assert_eq!(request.default_extension.as_deref(), Some("txt"));
+}
+
+/// The patterns of the entry called `name` in the file types of the request.
+fn patterns(request: &Request, name: &str) -> Vec<String> {
+    request
+        .filters
+        .iter()
+        .find(|filter| filter.name == name)
+        .unwrap_or_else(|| panic!("{name} in {:?}", request.filters))
+        .patterns
+        .clone()
+}
+
+fn set_filter_options(cx: &mut VisualTestContext, new: bool, file: bool) {
+    cx.update(|_, app| {
+        app.set_global(FilePrefs {
+            no_filter_save_new: new,
+            no_filter_save_file: file,
+            ..FilePrefs::default()
+        });
+    });
+}
+
+#[gpui::test]
+fn the_save_dialog_of_a_new_document_has_sakuras_three_file_types(cx: &mut TestAppContext) {
+    let dir = TempDir::new().unwrap();
+    let (f, cx) = setup(cx, settings(2, dir.path()));
+    cx.simulate_input("abc");
+    f.run(cx, "F_FILESAVE", &[]);
+    let request = only(asked());
+    let names: Vec<_> = request.filters.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(
+        names,
+        ["ユーザー指定", "テキストファイル", "すべてのファイル"]
+    );
+    // the options are on by default: ;*.* after *.txt
+    assert_eq!(patterns(&request, "ユーザー指定"), ["*.txt", "*.*"]);
+    assert_eq!(patterns(&request, "テキストファイル"), ["*.txt"]);
+    assert_eq!(patterns(&request, "すべてのファイル"), ["*.*"]);
+    assert_eq!(request.selected_filter, 0);
+}
+
+#[gpui::test]
+fn the_option_for_a_new_document_decides_whether_all_files_follow(cx: &mut TestAppContext) {
+    let dir = TempDir::new().unwrap();
+    let (f, cx) = setup(cx, settings(2, dir.path()));
+    cx.simulate_input("abc");
+    // off for new documents, on for the others
+    set_filter_options(cx, false, true);
+    f.run(cx, "F_FILESAVE", &[]);
+    assert_eq!(patterns(&only(asked()), "ユーザー指定"), ["*.txt"]);
+}
+
+#[gpui::test]
+fn the_save_dialog_of_a_file_lists_the_extensions_of_its_type(cx: &mut TestAppContext) {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("メモ.txt");
+    std::fs::write(&file, "abc").unwrap();
+    let (f, cx) = setup(cx, settings(0, dir.path()));
+    f.open(cx, &file);
+    // the type テキスト lists txt, log, 1st, err and ps; the extension of the file goes first
+    f.run(cx, "F_FILESAVEAS_DIALOG", &[]);
+    let request = only(asked());
+    assert_eq!(
+        patterns(&request, "ユーザー指定"),
+        ["*.txt", "*.log", "*.1st", "*.err", "*.ps", "*.*"]
+    );
+    // a name the document has: no default extension of the dialog
+    assert_eq!(request.default_extension, None);
+    // off for the documents that have a file
+    set_filter_options(cx, true, false);
+    f.run(cx, "F_FILESAVEAS_DIALOG", &[]);
+    assert_eq!(
+        patterns(&only(asked()), "ユーザー指定"),
+        ["*.txt", "*.log", "*.1st", "*.err", "*.ps"]
+    );
+}
+
+#[gpui::test]
+fn the_file_of_another_extension_of_the_basic_type_lists_that_extension(cx: &mut TestAppContext) {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("memo.zzz");
+    std::fs::write(&file, "abc").unwrap();
+    let (f, cx) = setup(cx, settings(0, dir.path()));
+    f.open(cx, &file);
+    set_filter_options(cx, true, false);
+    f.run(cx, "F_FILESAVEAS_DIALOG", &[]);
+    assert_eq!(patterns(&only(asked()), "ユーザー指定"), ["*.zzz"]);
+}
+
+#[gpui::test]
+fn the_dialogs_that_are_not_save_dialogs_have_no_file_types(cx: &mut TestAppContext) {
+    let dir = TempDir::new().unwrap();
+    let (f, cx) = setup(cx, settings(2, dir.path()));
+    f.run(cx, "F_FILEOPEN", &[]);
+    let request = only(asked());
+    assert!(request.filters.is_empty());
+    assert_eq!(request.default_extension, None);
+}
+
+#[gpui::test]
+fn the_fallback_dialog_gets_the_default_extension(cx: &mut TestAppContext) {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("memo");
+    let (f, cx) = setup(cx, settings(2, dir.path()));
+    cx.simulate_input("abc");
+    f.run(cx, "F_FILESAVE", &[]);
+    let chosen = target.clone();
+    cx.simulate_new_path_selection(move |_| Some(chosen));
+    cx.run_until_parked();
+    // the options dialog of the Save As: Enter is OK
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert_eq!(std::fs::read(dir.path().join("memo.txt")).unwrap(), b"abc");
+    assert!(!target.exists());
 }
 
 #[gpui::test]

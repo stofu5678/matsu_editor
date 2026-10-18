@@ -55,7 +55,9 @@
 //! The functions return the new text; the commands replace the selection with it (see
 //! [`CommandContext::convert_selection`](crate::context::CommandContext::convert_selection)).
 
-use ume_core::encoding::{DetectOptions, Encoding, detect};
+use ume_core::encoding::{
+    DetectOptions, Encoding, base64_value, decode_base64_digits, detect, mime_header_decode_jis,
+};
 
 /// Shift_JIS bytes of `text` (the stand-ins become their bytes again; characters Shift_JIS has
 /// no code for become `?`, as in Sakura's `UnicodeToCode` with the loss ignored).
@@ -113,130 +115,6 @@ pub fn auto_to_sjis(text: &str, options: &DetectOptions) -> Option<String> {
         | Encoding::Utf7 => Some(decode(detection.encoding, &bytes)),
         _ => None,
     }
-}
-
-// ---- MIME headers ----
-
-fn starts_with_ignore_case(bytes: &[u8], prefix: &[u8]) -> bool {
-    bytes.len() >= prefix.len() && bytes[..prefix.len()].eq_ignore_ascii_case(prefix)
-}
-
-/// The value of a Base64 digit; 255 for anything else (`Base64ToVal`).
-fn base64_value(c: u8) -> u8 {
-    match c {
-        b'A'..=b'Z' => c - b'A',
-        b'a'..=b'z' => c - b'a' + 26,
-        b'0'..=b'9' => c - b'0' + 52,
-        b'+' => 62,
-        b'/' => 63,
-        _ => 255,
-    }
-}
-
-/// Decodes Base64 digits without checking the padding bits (`_DecodeBase64`): the `=` at the end
-/// are dropped, and a last group of 2 or 3 digits gives 1 or 2 bytes.
-fn decode_base64_digits(src: &[u8]) -> Vec<u8> {
-    let mut len = src.len();
-    while len > 0 && src[len - 1] == b'=' {
-        len -= 1;
-    }
-    let src = &src[..len];
-    let mut out = Vec::with_capacity(len / 4 * 3 + 2);
-    for group in src.chunks(4) {
-        let mut data: u32 = 0;
-        for (j, &c) in group.iter().enumerate() {
-            data |= u32::from(base64_value(c)) << ((3 - j) * 6);
-        }
-        for j in 0..group.len() * 6 / 8 {
-            out.push(((data >> (8 * (2 - j))) & 0xFF) as u8);
-        }
-    }
-    out
-}
-
-fn hex_value(c: u8) -> Option<u8> {
-    char::from(c).to_digit(16).map(|v| v as u8)
-}
-
-/// Decodes `=XX` (`_DecodeQP`). Like Sakura, an `=` that has fewer than two bytes after it, not
-/// counting the last byte, is dropped; `_` is not turned into a space.
-fn decode_quoted_printable(src: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(src.len());
-    let mut i = 0;
-    while i < src.len() {
-        if src[i] != b'=' {
-            out.push(src[i]);
-            i += 1;
-            continue;
-        }
-        // `pr + 2 < pS + nLen`
-        if i + 2 < src.len() {
-            match (hex_value(src[i + 1]), hex_value(src[i + 2])) {
-                (Some(h), Some(l)) => out.push(h << 4 | l),
-                _ => out.extend_from_slice(&src[i..i + 3]),
-            }
-            i += 3;
-        } else {
-            i += 1;
-        }
-    }
-    out
-}
-
-/// One encoded word at the start of `src` (`_DecodeMimeHeader`): its charset is ISO-2022-JP or
-/// UTF-8. Returns whether the charset is ISO-2022-JP, the decoded bytes, and the length of the
-/// whole word.
-fn decode_mime_word(src: &[u8]) -> Option<(bool, Vec<u8>, usize)> {
-    // Sakura needs more than the prefix: `pSrc + 14 < pSrc + nSrcLen`.
-    let (is_jis, part1) = if src.len() > 14 && starts_with_ignore_case(src, b"=?ISO-2022-JP?") {
-        (true, 14)
-    } else if src.len() > 8 && starts_with_ignore_case(src, b"=?UTF-8?") {
-        (false, 8)
-    } else {
-        return None;
-    };
-    if part1 + 2 >= src.len() {
-        return None;
-    }
-    let base64 = if starts_with_ignore_case(&src[part1..], b"B?") {
-        true
-    } else if starts_with_ignore_case(&src[part1..], b"Q?") {
-        false
-    } else {
-        return None;
-    };
-    let body_start = part1 + 2;
-    let end = (body_start..src.len() - 1).find(|&i| &src[i..i + 2] == b"?=")?;
-    let body = &src[body_start..end];
-    let decoded = if base64 {
-        decode_base64_digits(body)
-    } else {
-        decode_quoted_printable(body)
-    };
-    Some((is_jis, decoded, end + 2))
-}
-
-/// Replaces the ISO-2022-JP encoded words of mail headers by their bytes
-/// (`CCodeBase::MIMEHeaderDecode` for `CODE_JIS`). Encoded words of UTF-8 stay as they are.
-pub fn mime_header_decode_jis(src: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(src.len());
-    let mut i = 0;
-    while i < src.len() {
-        if src[i] == b'='
-            && let Some((is_jis, decoded, skip)) = decode_mime_word(&src[i..])
-        {
-            if is_jis {
-                out.extend_from_slice(&decoded);
-            } else {
-                out.extend_from_slice(&src[i..i + skip]);
-            }
-            i += skip;
-        } else {
-            out.push(src[i]);
-            i += 1;
-        }
-    }
-    out
 }
 
 // ---- Base64 and uudecode of the selection ----

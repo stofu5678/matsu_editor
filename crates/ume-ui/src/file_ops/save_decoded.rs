@@ -50,7 +50,7 @@ pub(crate) fn save_bytes_as(
         window,
         cx,
         async move |_view, cx: &mut AsyncWindowContext| {
-            let Some(path) = choose_path(cx, current.as_deref(), Some(&name)).await else {
+            let Some(path) = choose_path(cx, current.as_deref(), Some(&name), None).await else {
                 return;
             };
             write(cx, path, data).await;

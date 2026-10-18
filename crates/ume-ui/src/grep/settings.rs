@@ -233,6 +233,7 @@ impl GrepSettings {
             file_only: self.file_only,
             except_file_regex: self.except_file_regex,
             replace: None,
+            mime_decode: false,
         }
     }
 

@@ -5,8 +5,8 @@
 //! bookmarks and the question about the encoding of last time), the drop options, which the
 //! drop of files on a window reads from the settings, the watching of changes, the files that
 //! cannot be written, the automatic save and the two warnings before a file is opened
-//! (`crate::file_watch`). Not available yet: the lock of files, the filter of the save dialog and
-//! the decoding of MIME headers.
+//! (`crate::file_watch`), the file types of the save dialog (`crate::file_dialog::save_types`) and
+//! the decoding of MIME headers of ISO-2022-JP files. Not available yet: the lock of files.
 
 use super::super::Env;
 use super::super::model::{Control, Item, Values};
@@ -139,7 +139,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                     "bNoFilterSaveNew",
                     true,
                 )
-                .unavailable()
                 .into(),
                 Control::check(
                     "no_filter_save_file",
@@ -147,7 +146,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                     "bNoFilterSaveFile",
                     true,
                 )
-                .unavailable()
                 .into(),
             ])],
         ),
@@ -197,7 +195,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                     "bAutoMIMEdecode",
                     false,
                 )
-                .unavailable()
                 .into(),
                 Control::check(
                     "query_if_code_change",
@@ -252,5 +249,8 @@ pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, _before: 
         alert_file_size: after.int("alert_file_size"),
         auto_save: after.bool("auto_save"),
         auto_save_interval: after.int("auto_save_interval"),
+        no_filter_save_new: after.bool("no_filter_save_new"),
+        no_filter_save_file: after.bool("no_filter_save_file"),
+        auto_mime_decode: after.bool("auto_mime_decode"),
     });
 }

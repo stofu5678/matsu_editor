@@ -85,6 +85,7 @@ impl Project {
             layout: Layout::default(),
             file_only: false,
             except_file_regex: false,
+            mime_decode: false,
             replace: Some(ReplaceInfo {
                 text: new.to_owned(),
                 paste: false,
