@@ -360,7 +360,7 @@ impl Workspace {
                 defer_refresh_menu_states(cx, true);
                 // Another program may have changed the file while the window was in the background.
                 let active = this.panes.active().downgrade();
-                crate::file_watch::check_on_activation(active, window, cx);
+                crate::file_watch::spawn_check(active, window, cx);
             }
         })
         .detach();

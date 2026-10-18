@@ -163,6 +163,9 @@ pub(crate) async fn load_here(
     } else {
         None
     };
+    // The time stamp the text will belong to: taken before the read, so that a write that happens
+    // meanwhile shows up as a change at the next check.
+    let stamp = crate::file_watch::state::modified_time(path);
     let mut result = read_file(view, cx, path, encoding).await;
     if encoding.is_none()
         && let Some(old) = previous.as_ref().and_then(encoding_of)
@@ -176,6 +179,7 @@ pub(crate) async fn load_here(
         Ok(file) => {
             cx.update(|_, app| windows::finish_pending(app, view)).ok();
             let mut shared = SharedDocument::from_text_file(file);
+            shared.disk_mut().stamp = stamp;
             // `FileOpen(file, code, 1)` of a macro asked for view mode.
             if cx
                 .update(|_, app| super::view_mode_request::take(app, path))

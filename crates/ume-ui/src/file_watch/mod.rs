@@ -38,21 +38,22 @@ pub(crate) fn start(window: &mut Window, cx: &mut Context<Workspace>) {
         loop {
             cx.background_executor().timer(TICK).await;
             ticks = (ticks + 1) % TICKS_PER_CHECK;
-            let Ok(round) = this.update_in(cx, |workspace, window, cx| {
+            let Ok(editors) = this.update_in(cx, |workspace, window, cx| {
                 let prefs = prefs(cx);
                 let save =
                     save_timer.check(Instant::now(), prefs.auto_save, prefs.auto_save_interval);
                 let editors = save.then(|| workspace.tab_editors());
-                let active = (ticks == 0 && window.is_window_active())
-                    .then(|| workspace.panes.active().downgrade());
-                (editors, active)
+                if ticks == 0 && window.is_window_active() {
+                    // On its own task: a question that waits for the user must not stop the
+                    // automatic save of the other documents (the document itself is guarded by
+                    // `DiskState::pausing`).
+                    let active = workspace.panes.active().downgrade();
+                    spawn_check(active, window, cx);
+                }
+                editors
             }) else {
                 return;
             };
-            let (editors, active) = round;
-            if let Some(active) = active {
-                check::check(&active, cx).await;
-            }
             for editor in editors.into_iter().flatten() {
                 auto_save::save_if_needed(&editor.downgrade(), cx).await;
             }
@@ -61,9 +62,10 @@ pub(crate) fn start(window: &mut Window, cx: &mut Context<Workspace>) {
     .detach();
 }
 
-/// The window became the active one: look at the file at once, not at the next sixth tick
-/// (`WM_SETFOCUS` sets `m_nTimerCount` to 9).
-pub(crate) fn check_on_activation(
+/// Looks at the file of `active` on a task of its own. Also for the window that became the
+/// active one: look at the file at once, not at the next sixth tick (`WM_SETFOCUS` sets
+/// `m_nTimerCount` to 9).
+pub(crate) fn spawn_check(
     active: WeakEntity<EditorView>,
     window: &mut Window,
     cx: &mut Context<Workspace>,
