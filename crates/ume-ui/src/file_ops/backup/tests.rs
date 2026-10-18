@@ -375,6 +375,20 @@ fn the_temporary_file_is_made_exclusively() {
     assert!(first.file_name().unwrap().to_string_lossy().len() < 60);
 }
 
+#[cfg(unix)]
+#[test]
+fn the_backup_has_the_permissions_of_the_file() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = TempDir::new();
+    let target = dir.write("a.txt", "secret");
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
+    let p = prefs(1);
+    let dest = backup_path(&p, &target, None, times()).unwrap();
+    make_backup(&p, &target, &dest, false).unwrap();
+    let mode = fs::metadata(&dest).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600);
+}
+
 #[test]
 fn a_folder_that_is_a_file_fails_the_copy() {
     let dir = TempDir::new();

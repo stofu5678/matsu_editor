@@ -364,11 +364,12 @@ fn copy_to_temporary(target: &Path, dest: &Path) -> io::Result<PathBuf> {
             ".ume-backup-{:x}-{n:x}-{nanos:x}.tmp",
             std::process::id()
         ));
-        let mut file = match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temp)
-        {
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        // Private while it is written; the permissions of `target` are set at the end.
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        let mut file = match options.open(&temp) {
             Ok(file) => file,
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(e) => return Err(e),
