@@ -21,6 +21,7 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use chrono::{Datelike, Local, NaiveDateTime, Timelike};
 use gpui::{App, AsyncWindowContext, Global, PromptLevel};
@@ -305,11 +306,13 @@ pub(crate) fn make_backup(
     // itself (`a.bak` saved with the kind 1), or a generation (`a.b01` saved with the kind 3, which
     // the rotation would move away). The files are compared as the OS sees them, so a hard link to
     // the file is the file.
-    let touched: Vec<PathBuf> = if prefs.kind == 3 || prefs.kind == 6 {
-        (0..=100).map(|n| numbered(dest, n)).collect()
-    } else {
-        vec![dest.to_owned()]
-    };
+    // The destination itself is always one of them: with the detailed format it need not end in
+    // the number of a generation.
+    let generations = prefs.kind == 3 || prefs.kind == 6;
+    let mut touched: Vec<PathBuf> = vec![dest.to_owned()];
+    if generations {
+        touched.extend((0..=100).map(|n| numbered(dest, n)));
+    }
     if touched
         .iter()
         .any(|path| ume_platform::file_id::same_file(target, path))
@@ -318,16 +321,25 @@ pub(crate) fn make_backup(
             "the backup would replace the file itself",
         )));
     }
-    if prefs.kind == 3 || prefs.kind == 6 {
-        rotate_generations(prefs, dest)?;
-    }
     // `CreateDirectory` of the folder of the backup, one level.
     if let Some(parent) = dest.parent().filter(|p| !p.as_os_str().is_empty())
         && !parent.exists()
     {
         let _ = fs::create_dir(parent);
     }
-    copy_over(target, dest).map_err(Failure::Copy)?;
+    // The copy is made first, into a temporary file, so that a copy that fails changes nothing
+    // (no generation has been deleted or moved yet).
+    let temp = copy_to_temporary(target, dest).map_err(Failure::Copy)?;
+    if generations && let Err(failure) = rotate_generations(prefs, dest) {
+        let _ = fs::remove_file(&temp);
+        return Err(failure);
+    }
+    // The name is replaced, not the contents: a file that shares the data of the old backup (a hard
+    // link) is not written to.
+    if let Err(error) = fs::rename(&temp, dest) {
+        let _ = fs::remove_file(&temp);
+        return Err(Failure::Copy(error));
+    }
     if to_trash {
         // The result is not looked at (`SHFileOperation` in Sakura).
         let _ = ume_platform::trash::move_to_trash(dest);
@@ -335,20 +347,44 @@ pub(crate) fn make_backup(
     Ok(())
 }
 
-/// Copies `target` to `dest` through a temporary file in the folder of `dest`, then renames it over
-/// `dest`: the name is replaced, not the contents, so a file that shares `dest`'s data (a hard link)
-/// is not touched, and no half-written backup is left.
-fn copy_over(target: &Path, dest: &Path) -> io::Result<()> {
-    let name = dest
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let temp = dest.with_file_name(format!(".{name}.{}.tmp", std::process::id()));
-    let result = fs::copy(target, &temp).and_then(|_| fs::rename(&temp, dest));
-    if result.is_err() {
-        let _ = fs::remove_file(&temp);
+/// Copies `target` into a new temporary file in the folder of `dest` and returns its path. The
+/// file is made exclusively under a short unique name (it never follows or overwrites what is
+/// there, a symbolic link included), and gets the permissions of `target` as `fs::copy` gives them.
+/// On a failure nothing is left.
+fn copy_to_temporary(target: &Path, dest: &Path) -> io::Result<PathBuf> {
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+    let mut source = fs::File::open(target)?;
+    let permissions = source.metadata()?.permissions();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.subsec_nanos());
+    for _ in 0..100 {
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let temp = dest.with_file_name(format!(
+            ".ume-backup-{:x}-{n:x}-{nanos:x}.tmp",
+            std::process::id()
+        ));
+        let mut file = match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)
+        {
+            Ok(file) => file,
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        };
+        let copied = io::copy(&mut source, &mut file)
+            .and_then(|_| file.sync_all())
+            .and_then(|()| fs::set_permissions(&temp, permissions.clone()));
+        return match copied {
+            Ok(()) => Ok(temp),
+            Err(e) => {
+                let _ = fs::remove_file(&temp);
+                Err(e)
+            }
+        };
     }
-    result
+    Err(io::Error::other("no unique name for the temporary file"))
 }
 
 /// Step 1 to 3 of `MakeBackUp` for the kinds 3 and 6: `.b00` becomes `.b01` and so on, and the

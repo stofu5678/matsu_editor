@@ -313,6 +313,69 @@ fn the_copy_replaces_the_name_of_a_backup_and_leaves_no_temporary_file() {
 }
 
 #[test]
+fn the_detailed_format_that_names_the_file_itself_is_refused() {
+    let dir = TempDir::new();
+    let target = dir.write("a.txt", "keep");
+    let mut p = prefs(3);
+    p.advanced = true;
+    // `$0.*` is `a.txt`: the destination is the file, and does not end in a generation number.
+    p.advanced_format = "$0.*".to_owned();
+    let dest = backup_path(&p, &target, None, times()).unwrap();
+    assert_eq!(dest, target);
+    assert!(matches!(
+        make_backup(&p, &target, &dest, false),
+        Err(Failure::Copy(_))
+    ));
+    assert_eq!(text(&target), "keep");
+    assert_eq!(dir.names(), ["a.txt"]);
+}
+
+#[test]
+fn a_failed_copy_changes_no_generation() {
+    let dir = TempDir::new();
+    let mut p = prefs(3);
+    p.generations = 2;
+    let b00 = dir.write("a.b00", "one");
+    let b01 = dir.write("a.b01", "two");
+    // The file to back up is gone: the copy fails before the generations are touched.
+    let target = dir.path("a.txt");
+    let dest = backup_path(&p, &target, None, times()).unwrap();
+    assert!(matches!(
+        make_backup(&p, &target, &dest, false),
+        Err(Failure::Copy(_))
+    ));
+    assert_eq!(text(&b00), "one");
+    assert_eq!(text(&b01), "two");
+    assert_eq!(dir.names(), ["a.b00", "a.b01"]);
+}
+
+#[test]
+fn a_name_near_the_limit_still_gets_its_backup() {
+    let dir = TempDir::new();
+    // 250 bytes: the backup `.bak` is shorter than the file name's limit of 255.
+    let name = format!("{}.txt", "あ".repeat(80));
+    assert_eq!(name.len(), 244);
+    let target = dir.write(&name, "abc");
+    let p = prefs(1);
+    let dest = backup_path(&p, &target, None, times()).unwrap();
+    make_backup(&p, &target, &dest, false).unwrap();
+    assert_eq!(text(&dest), "abc");
+    assert_eq!(dir.names().len(), 2, "{:?}", dir.names());
+}
+
+#[test]
+fn the_temporary_file_is_made_exclusively() {
+    let dir = TempDir::new();
+    let target = dir.write("a.txt", "abc");
+    let dest = dir.path("a.bak");
+    let first = copy_to_temporary(&target, &dest).unwrap();
+    let second = copy_to_temporary(&target, &dest).unwrap();
+    assert_ne!(first, second);
+    assert_eq!(text(&first), "abc");
+    assert!(first.file_name().unwrap().to_string_lossy().len() < 60);
+}
+
+#[test]
 fn a_folder_that_is_a_file_fails_the_copy() {
     let dir = TempDir::new();
     let target = dir.write("a.txt", "abc");
