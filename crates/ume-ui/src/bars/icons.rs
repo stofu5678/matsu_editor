@@ -187,6 +187,11 @@ pub(crate) fn install_from(settings_dir: Option<&Path>, program_dir: Option<&Pat
 /// Reads `my_icons.bmp` for the application: the folder of the settings file, then the folder
 /// of the program. Call it once when the application starts.
 pub(crate) fn install(user: &crate::settings::UserSettings) {
+    // The tests choose the bitmap with `install_from`; the setup of an application under test must
+    // not put it back while they run in parallel.
+    if cfg!(test) {
+        return;
+    }
     let settings_dir = user.path().and_then(Path::parent);
     let program = std::env::current_exe().ok();
     install_from(settings_dir, program.as_deref().and_then(Path::parent));
