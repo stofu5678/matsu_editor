@@ -333,6 +333,19 @@ fn the_word_file_of_the_type_comes_first_and_its_path_starts_at_the_settings_fol
 }
 
 #[gpui::test]
+fn a_word_file_that_changed_is_read_again(cx: &mut TestAppContext) {
+    let (dir, user) = settings_with("szHokanFile=words.kwd\r\n", &[("words.kwd", b"apple\r\n")]);
+    let (f, cx) = setup_with(cx, "ap", Some(user));
+    f.run(cx, F_HOKAN);
+    // one candidate: inserted
+    assert_eq!(f.text(cx), "apple");
+    std::fs::write(dir.0.join("words.kwd"), b"apple\r\napricot juice\r\n").unwrap();
+    cx.simulate_input(" ap");
+    f.run(cx, F_HOKAN);
+    assert_eq!(f.list(cx), Some((strings(&["apple", "apricot juice"]), 0)));
+}
+
+#[gpui::test]
 fn a_word_file_that_is_not_there_gives_no_candidates_but_the_document_still_does(
     cx: &mut TestAppContext,
 ) {

@@ -28,8 +28,10 @@
 //! beside the list; the keys of the settings `bHokanKey_*` are Sakura's defaults (Enter and Right
 //! on, Tab off), fixed.
 
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, KeyDownEvent, MouseButton,
@@ -127,6 +129,39 @@ fn list_key(key: &str) -> Option<ListKey> {
     })
 }
 
+/// The word file that was read last, with what tells that it has not changed.
+#[derive(Default)]
+struct WordFileCache {
+    path: PathBuf,
+    stamp: Option<(u64, SystemTime)>,
+    lines: Arc<Vec<String>>,
+}
+
+impl WordFileCache {
+    /// The lines of the file at `path`: the kept ones if the file is the same, else the file read
+    /// again. A file that cannot be read has no lines.
+    fn lines(&mut self, path: &Path) -> Arc<Vec<String>> {
+        let stamp = std::fs::metadata(path)
+            .ok()
+            .and_then(|meta| Some((meta.len(), meta.modified().ok()?)));
+        if self.path != path || self.stamp != stamp || stamp.is_none() {
+            self.path = path.to_owned();
+            self.stamp = stamp;
+            self.lines = Arc::new(
+                std::fs::read(path)
+                    .map(|bytes| complete::word_file_lines(&bytes))
+                    .unwrap_or_default(),
+            );
+        }
+        Arc::clone(&self.lines)
+    }
+}
+
+thread_local! {
+    /// The UI runs on one thread; so does the cache.
+    static WORD_FILE_CACHE: RefCell<WordFileCache> = RefCell::new(WordFileCache::default());
+}
+
 /// Where the candidates of the input completion come from, and how they are compared: the
 /// settings of the document type (`CHokanMgr::Search`: `m_szHokanFile`, `m_bHokanLoHiCase`,
 /// `m_bUseHokanByFile`, `m_bUseHokanByKeyword`).
@@ -167,18 +202,20 @@ impl Sources {
 
     /// The lines of the word file, or none when the type has no word file or it cannot be read
     /// (`CDicMgr::HokanSearch` returns at once).
-    fn word_file_lines(&self) -> Vec<String> {
+    ///
+    /// The list is made again for every key typed while it is open, so the lines are kept until
+    /// the file changes (its size or time), instead of reading and decoding it each time as
+    /// Sakura does.
+    fn word_file_lines(&self) -> Arc<Vec<String>> {
         if self.word_file.is_empty() {
-            return Vec::new();
+            return Arc::default();
         }
         let path = Path::new(&self.word_file);
         let path = match (&self.ini_dir, path.is_relative()) {
             (Some(dir), true) => dir.join(path),
             _ => path.to_owned(),
         };
-        std::fs::read(path)
-            .map(|bytes| complete::word_file_lines(&bytes))
-            .unwrap_or_default()
+        WORD_FILE_CACHE.with(|cache| cache.borrow_mut().lines(&path))
     }
 
     /// The words of the keyword sets of the type, in the order of the slots
