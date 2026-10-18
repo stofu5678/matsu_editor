@@ -331,6 +331,30 @@ fn the_detailed_format_that_names_the_file_itself_is_refused() {
 }
 
 #[test]
+fn the_detailed_format_rotates_only_a_name_that_ends_in_a_number() {
+    let dir = TempDir::new();
+    let target = dir.write("a.txt", "new");
+    dir.write("a.b00", "keep0");
+    dir.write("a.b01", "keep1");
+    let mut p = prefs(3);
+    p.generations = 1;
+    p.advanced = true;
+    // The kind is still 3 (the simple controls are hidden), but `$0.bak` is not a generation.
+    p.advanced_format = "$0.bak".to_owned();
+    let dest = backup_path(&p, &target, None, times()).unwrap();
+    make_backup(&p, &target, &dest, false).unwrap();
+    assert_eq!(text(&dir.path("a.b00")), "keep0");
+    assert_eq!(text(&dir.path("a.b01")), "keep1");
+    assert_eq!(text(&dir.path("a.bak")), "new");
+    // `$0.b00` is one.
+    p.advanced_format = "$0.b00".to_owned();
+    let dest = backup_path(&p, &target, None, times()).unwrap();
+    make_backup(&p, &target, &dest, false).unwrap();
+    assert_eq!(text(&dir.path("a.b00")), "new");
+    assert!(!dir.path("a.b01").exists());
+}
+
+#[test]
 fn a_failed_copy_changes_no_generation() {
     let dir = TempDir::new();
     let mut p = prefs(3);

@@ -308,7 +308,17 @@ pub(crate) fn make_backup(
     // the file is the file.
     // The destination itself is always one of them: with the detailed format it need not end in
     // the number of a generation.
-    let generations = prefs.kind == 3 || prefs.kind == 6;
+    // Sakura rotates for the kinds 3 and 6 even with the detailed format ("@todo Advanced modeでの
+    // 世代管理"). Here a detailed name rotates only if it ends in two digits (`$0.b00`): a hidden
+    // choice of the simple controls must not delete the files of `$0.bak`'s neighbours.
+    let generations = (prefs.kind == 3 || prefs.kind == 6)
+        && (!prefs.advanced
+            || dest
+                .to_string_lossy()
+                .chars()
+                .rev()
+                .take(2)
+                .all(|c| c.is_ascii_digit()));
     let mut touched: Vec<PathBuf> = vec![dest.to_owned()];
     if generations {
         touched.extend((0..=100).map(|n| numbered(dest, n)));
