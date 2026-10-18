@@ -10,7 +10,7 @@ use crate::file_ops::prefs::{FilePrefs, prefs};
 
 const MB: u64 = 1 << 20;
 
-/// `STR_NOT_EXSIST_SAVE`.
+/// The message of Sakura for a file that is not there (the string above `STR_LOADAGENT_BIG_WARNING` in `sakura_rc.rc`).
 pub(crate) fn not_exist_message(path: &Path) -> String {
     format!(
         "{}\nというファイルは存在しません。\n\nファイルを保存したときに、ディスク上にこのファイルが作成されます。",

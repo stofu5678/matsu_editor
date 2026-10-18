@@ -82,7 +82,7 @@ pub(crate) fn question(path: &Path, modified: bool) -> (String, String) {
     (message, detail.to_owned())
 }
 
-/// `STR_AUTORELOAD_NOFITY`: the status bar text of 「以後通知メッセージのみ」.
+/// The status bar text (the `STR_AUTORELOAD_` string of `sakura_rc.rc`) of 「以後通知メッセージのみ」.
 pub(crate) fn notify_text(time: SystemTime) -> String {
     let local = chrono::DateTime::<chrono::Local>::from(time);
     format!("★ファイル更新 {}", local.format("%H:%M:%S"))
