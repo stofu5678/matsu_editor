@@ -36,9 +36,11 @@
 //! 1 to 23 are the custom menus a key or a toolbar button opens, and 24 is the tab menu. Each has a name, a
 //! flag for "shown as a submenu in other menus", and up to 48 items: a function and an access key, or a
 //! separator. [`CustomMenus::from_profile`] reads them the way `CShareData_IO::IO_CustMenu` does, over the
-//! defaults of `CShareData::InitPopupMenu`. Nothing is written back: the file keeps what it has.
+//! defaults of `CShareData::InitPopupMenu`; [`CustomMenus::write_to_profile`] writes them back, and
+//! [`CustomMenus::import_profile`] and [`CustomMenus::export_profile`] are the `.mnu` files of the
+//! common settings (`CImpExpCustMenu`).
 
-use crate::profile::Profile;
+use crate::profile::{Profile, ProfileError};
 use crate::value::{parse_bool, parse_long};
 
 /// The section of the file.
@@ -53,6 +55,9 @@ pub const MAX_CUSTOM_MENU_ITEMS: usize = 48;
 pub const INDEX_FOR_RBUTTONUP: usize = 0;
 /// `CUSTMENU_INDEX_FOR_TABWND`: the menu of the tab bar.
 pub const INDEX_FOR_TABWND: usize = 24;
+/// `WSTR_CUSTMENU_HEAD_V2` (`CImpExpManager.cpp`): the version a `.mnu` file names in `[Info]`.
+pub const MNU_VERSION: &str = "SakuraEditorMenu_Ver2";
+const MNU_INFO_SECTION: &str = "Info";
 
 /// One row of a custom menu.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -254,7 +259,13 @@ impl CustomMenus {
     /// is ignored.
     pub fn from_profile(profile: &Profile, by_name: &dyn Fn(&str) -> Option<u16>) -> Self {
         let mut all = Self::default();
-        for (i, menu) in all.menus.iter_mut().enumerate() {
+        all.read_over(profile, by_name);
+        all
+    }
+
+    /// `IO_CustMenu` in reading mode: what `profile` has replaces what `self` has; the rest stays.
+    fn read_over(&mut self, profile: &Profile, by_name: &dyn Fn(&str) -> Option<u16>) {
+        for (i, menu) in self.menus.iter_mut().enumerate() {
             if let Some(name) = profile.get_string(SECTION, &format!("szCMN[{i:02}]")) {
                 menu.name = cut_name(&name);
             }
@@ -285,7 +296,89 @@ impl CustomMenus {
                 }
             }
         }
-        all
+    }
+
+    /// The menus as the common settings edit them: `menus` are menus 0 and up; missing ones are empty menus with the
+    /// default name, extra ones are dropped. A name is cut to its limit and a menu to its 48 items, as reading does.
+    pub fn from_menus(menus: impl IntoIterator<Item = CustomMenu>) -> Self {
+        let mut menus: Vec<CustomMenu> = menus.into_iter().take(MAX_CUSTOM_MENU).collect();
+        menus.resize(MAX_CUSTOM_MENU, CustomMenu::empty());
+        for menu in &mut menus {
+            menu.name = cut_name(&menu.name);
+            menu.items.truncate(MAX_CUSTOM_MENU_ITEMS);
+        }
+        Self { menus }
+    }
+
+    /// All 25 menus in order.
+    pub fn menus(&self) -> &[CustomMenu] {
+        &self.menus
+    }
+
+    /// `IO_CustMenu` in writing mode: every name, flag and item of the 25 menus, over what `profile` has. The
+    /// rest of the file stays. An item is written as its code, or as the name `name_of` gives for it
+    /// (`bOutCmdName`, which the `.mnu` files use); keys of items that are gone are removed.
+    pub fn write_to_profile(
+        &self,
+        profile: &mut Profile,
+        name_of: Option<&dyn Fn(u16) -> Option<String>>,
+    ) -> Result<(), ProfileError> {
+        for (i, menu) in self.menus.iter().enumerate() {
+            profile.set(SECTION, &format!("szCMN[{i:02}]"), &menu.name)?;
+            profile.set(
+                SECTION,
+                &format!("bCMPOP[{i:02}]"),
+                if menu.popup { "1" } else { "0" },
+            )?;
+            profile.set(
+                SECTION,
+                &format!("nCMIN[{i:02}]"),
+                &menu.items.len().to_string(),
+            )?;
+            for (j, item) in menu.items.iter().enumerate() {
+                let function = name_of
+                    .and_then(|name_of| name_of(item.function))
+                    .unwrap_or_else(|| item.function.to_string());
+                profile.set(SECTION, &format!("nCMIF[{i:02}][{j:02}]"), &function)?;
+                let key = item.key.map(String::from).unwrap_or_default();
+                profile.set(SECTION, &format!("nCMIK[{i:02}][{j:02}]"), &key)?;
+            }
+            for j in menu.items.len()..MAX_CUSTOM_MENU_ITEMS {
+                profile.remove(SECTION, &format!("nCMIF[{i:02}][{j:02}]"));
+                profile.remove(SECTION, &format!("nCMIK[{i:02}][{j:02}]"));
+            }
+        }
+        Ok(())
+    }
+
+    /// `CImpExpCustMenu::Export`: the contents of a `.mnu` file, a profile with the version in `[Info]`.
+    pub fn export_profile(
+        &self,
+        name_of: &dyn Fn(u16) -> Option<String>,
+    ) -> Result<Profile, ProfileError> {
+        let mut profile = Profile::new();
+        profile.set(MNU_INFO_SECTION, "MENU_VERSION", MNU_VERSION)?;
+        profile.set(
+            MNU_INFO_SECTION,
+            "MAX_CUSTOM_MENU",
+            &MAX_CUSTOM_MENU.to_string(),
+        )?;
+        self.write_to_profile(&mut profile, Some(name_of))?;
+        Ok(profile)
+    }
+
+    /// `CImpExpCustMenu::Import`: reads a `.mnu` file over these menus (what the file does not have stays).
+    /// Returns `false`, and changes nothing, when the file is not a menu file of this version.
+    pub fn import_profile(
+        &mut self,
+        profile: &Profile,
+        by_name: &dyn Fn(&str) -> Option<u16>,
+    ) -> bool {
+        if profile.get(MNU_INFO_SECTION, "MENU_VERSION") != Some(MNU_VERSION) {
+            return false;
+        }
+        self.read_over(profile, by_name);
+        true
     }
 
     /// The menu `index` (0 to 24), or `None` out of range.
@@ -456,5 +549,82 @@ mod tests {
         let profile = Profile::from_bytes(text.as_bytes());
         let _ = CustomMenus::from_profile(&profile, &names);
         assert_eq!(profile.to_bytes(), text.as_bytes());
+    }
+
+    fn name_of(code: u16) -> Option<String> {
+        (code == 30210).then(|| "Undo".to_owned())
+    }
+
+    #[test]
+    fn written_menus_read_back_and_the_rest_of_the_file_stays() {
+        let mut menus = CustomMenus::default().menus().to_vec();
+        menus[2] = CustomMenu {
+            name: "あ名前".to_owned(),
+            items: vec![
+                CustomMenuItem {
+                    function: 30210,
+                    key: Some('U'),
+                },
+                CustomMenuItem::SEPARATOR,
+            ],
+            popup: false,
+        };
+        let menus = CustomMenus::from_menus(menus);
+        let mut profile = Profile::from_bytes(
+            b"[Other]\nx=1\n[CustMenu]\nnCMIN[02]=5\nnCMIF[02][04]=7\nnCMIK[02][04]=Z\n",
+        );
+        menus.write_to_profile(&mut profile, None).unwrap();
+        assert_eq!(profile.get("Other", "x"), Some("1"));
+        assert_eq!(profile.get(SECTION, "nCMIN[02]"), Some("2"));
+        assert_eq!(profile.get(SECTION, "nCMIF[02][00]"), Some("30210"));
+        assert_eq!(profile.get(SECTION, "nCMIK[02][01]"), Some(""));
+        assert_eq!(profile.get(SECTION, "nCMIF[02][04]"), None, "left over");
+        assert_eq!(profile.get(SECTION, "bCMPOP[02]"), Some("0"));
+        assert_eq!(CustomMenus::from_profile(&profile, &names), menus);
+    }
+
+    #[test]
+    fn from_menus_pads_cuts_and_limits() {
+        let long = CustomMenu {
+            name: "あ".repeat(40),
+            items: vec![CustomMenuItem::SEPARATOR; 60],
+            popup: true,
+        };
+        let menus = CustomMenus::from_menus(vec![long]);
+        assert_eq!(menus.menus().len(), MAX_CUSTOM_MENU);
+        assert_eq!(menus.get(0).unwrap().name.chars().count(), 32);
+        assert_eq!(menus.get(0).unwrap().items.len(), MAX_CUSTOM_MENU_ITEMS);
+        assert!(menus.get(1).unwrap().items.is_empty());
+        assert_eq!(menus.name(1).unwrap(), "メニュー1");
+    }
+
+    #[test]
+    fn a_mnu_file_has_the_version_and_names_for_the_functions() {
+        let menus = CustomMenus::default();
+        let file = menus.export_profile(&name_of).unwrap();
+        assert_eq!(file.get("Info", "MENU_VERSION"), Some(MNU_VERSION));
+        assert_eq!(file.get("Info", "MAX_CUSTOM_MENU"), Some("25"));
+        // The right-click menu starts with F_UNDO, which has a name here; F_REDO does not.
+        assert_eq!(file.get(SECTION, "nCMIF[00][00]"), Some("Undo"));
+        assert_eq!(file.get(SECTION, "nCMIF[00][01]"), Some("30211"));
+        let mut other = CustomMenus::from_menus(vec![]);
+        assert!(other.import_profile(&file, &names));
+        assert_eq!(other.get(0).unwrap().items, menus.get(0).unwrap().items);
+    }
+
+    #[test]
+    fn an_import_keeps_what_the_file_lacks_and_refuses_another_version() {
+        let mut menus = CustomMenus::default();
+        let file = Profile::from_bytes(
+            b"[Info]\nMENU_VERSION=SakuraEditorMenu_Ver2\n[CustMenu]\nszCMN[01]=Imported\n",
+        );
+        assert!(menus.import_profile(&file, &names));
+        assert_eq!(menus.name(1).unwrap(), "Imported");
+        assert_eq!(menus.get(1).unwrap().items.len(), 7, "items stay");
+        let before = menus.clone();
+        let wrong = Profile::from_bytes(b"[Info]\nMENU_VERSION=Other\n[CustMenu]\nszCMN[01]=X\n");
+        assert!(!menus.import_profile(&wrong, &names));
+        assert!(!menus.import_profile(&Profile::from_bytes(b"[CustMenu]\nszCMN[01]=X\n"), &names));
+        assert_eq!(menus, before);
     }
 }
