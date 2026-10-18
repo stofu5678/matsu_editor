@@ -208,7 +208,7 @@ pub(super) fn arrange(numbers: &[i32]) -> Vec<Vec<Item>> {
 /// The tooltip of function `code`: its name and, on the lines after it, the keys bound to it
 /// (`CEditWnd::GetTooltipText`).
 pub(super) fn tooltip_text(code: u16, cx: &App) -> String {
-    let mut text = function_name(code);
+    let mut text = crate::macros::title_in(cx, code).unwrap_or_else(|| function_name(code));
     if text.is_empty() {
         text = FUNCTIONS
             .iter()

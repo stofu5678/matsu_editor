@@ -15,6 +15,7 @@ pub mod font;
 pub mod keyword_data;
 pub mod keyword_file;
 pub mod keywords;
+pub mod macros;
 pub mod search_keys;
 pub mod type_rules;
 pub mod types;

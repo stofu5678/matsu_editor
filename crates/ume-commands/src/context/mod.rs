@@ -137,6 +137,9 @@ pub struct CommandContext<'a> {
     cursor: &'a mut Cursor,
     layout: &'a mut dyn Layout,
     path: Option<&'a Path>,
+    /// The file a save is about to write, while the macro that runs before the save runs
+    /// ([`with_save_path`](Self::with_save_path)).
+    save_path: Option<&'a Path>,
     /// The clipboard, if the caller attached one ([`with_clipboard`](Self::with_clipboard)).
     clipboard: Option<&'a mut dyn Clipboard>,
     /// The cursor when the context was made, to tell what moved.
@@ -164,6 +167,7 @@ impl<'a> CommandContext<'a> {
             cursor,
             layout,
             path,
+            save_path: None,
             clipboard: None,
             start,
             changes: Changes::default(),
@@ -198,6 +202,14 @@ impl<'a> CommandContext<'a> {
     #[must_use]
     pub fn with_view_mode(mut self, view_mode: bool) -> Self {
         self.view_mode = view_mode;
+        self
+    }
+
+    /// Sets the file a save is about to write (`CDocFile::SetSaveFilePath`, which `RunAutoMacro` sets
+    /// for the macro that runs before a save). [`save_path`](Self::save_path) answers it.
+    #[must_use]
+    pub fn with_save_path(mut self, save_path: Option<&'a Path>) -> Self {
+        self.save_path = save_path;
         self
     }
 
@@ -257,6 +269,12 @@ impl<'a> CommandContext<'a> {
     /// The path of the document, or `None` if it has no file yet.
     pub fn path(&self) -> Option<&Path> {
         self.path
+    }
+
+    /// The file that a save writes to (`GetSaveFilename`): the one a macro of 保存前 is told about, else
+    /// the path of the document.
+    pub fn save_path(&self) -> Option<&Path> {
+        self.save_path.or(self.path)
     }
 
     /// The line ending that Enter inserts.

@@ -343,6 +343,9 @@ pub(crate) async fn save(
         return SaveOutcome::Cancelled;
     }
 
+    // 4c. The macro of 保存前 (`RunAutoMacro(nMacroOnSave, path)`), told the file to be written.
+    crate::macros::run_auto(view, cx, crate::macros::Auto::BeforeSave, Some(&path));
+
     // 5. Write.
     let target = path.clone();
     let written = view

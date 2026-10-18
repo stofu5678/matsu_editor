@@ -82,7 +82,9 @@ impl TypeList {
         view.update(cx, |view, cx| {
             view.doc_type.list = None;
             window.focus(&view.focus_handle, cx);
-            view.change_type(number, cx);
+            if view.change_type(number, cx) {
+                view.run_auto_macro(crate::macros::Auto::TypeChanged, None, window, cx);
+            }
             cx.notify();
         })
         .ok();

@@ -215,6 +215,8 @@ pub(crate) async fn load_here(
             if replaced {
                 // `CDocLocker::OnAfterLoad` locked the new document.
                 super::lock::report_failure(view, cx).await;
+                // The type of the file was chosen, and the file is open: the macros of the page マクロ.
+                crate::macros::after_open(view, cx);
             } else if unlocked {
                 super::lock::relock_quietly(view, cx);
             }

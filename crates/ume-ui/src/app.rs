@@ -222,7 +222,9 @@ fn set_menus(cx: &mut App, keymap: &KeyMap) {
         .map(crate::settings::UserSettings::custom_menus)
         .unwrap_or_default();
     let custom = CustomMenuList(&custom_menus);
-    let lists = ChainedLists(&recent, &custom);
+    let macro_list = crate::macros::MacroList(crate::macros::registered_table(cx));
+    let rest = ChainedLists(&custom, &macro_list);
+    let lists = ChainedLists(&recent, &rest);
     for top in main_menu_with(keymap, &Registered, &lists) {
         let mut items = gpui_items(top.entries, style);
         if let Some(states) = &states {

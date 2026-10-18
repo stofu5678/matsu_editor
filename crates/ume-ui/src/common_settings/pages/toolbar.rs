@@ -11,8 +11,9 @@
 //! `[Common]`) and the page draws it itself ([`Item::Custom`]); the choices in the lists are
 //! controls the dialog does not draw ([`Item::Hidden`]), so that the buttons' Alt keys work.
 //!
-//! Not built: the plugin commands (the kind プラグイン has none), the registered macros (the kind
-//! 外部マクロ is empty until macros can be registered), `bToolBarIsFlat` (the buttons are
+//! The kind 外部マクロ lists the 50 registered macros (the page マクロ) with their names.
+//!
+//! Not built: the plugin commands (the kind プラグイン has none), `bToolBarIsFlat` (the buttons are
 //! always flat).
 
 use gpui::{
@@ -32,6 +33,7 @@ use super::super::func_lookup::{KINDS, codes_of_kind};
 use super::super::model::{Control, Item, Value, Values};
 use crate::bars::toolbar::ToolbarButtons;
 use crate::bars::{self, icons};
+use ume_config::settings::macros::RegisteredMacros;
 
 const SECTION: &str = "Toolbar";
 /// `MAX_TOOLBAR_BUTTON_ITEMS` (`CommonSetting.h`).
@@ -54,7 +56,9 @@ pub(super) fn functions_of_kind(kind: i32) -> Vec<(i32, u16)> {
 
 /// What a row of a list shows for button `number` (`DrawToolBarItemList`): the function's name,
 /// or the text of a separator, a wrap or an unknown button; and the icon.
-pub(super) fn row_of(number: i32) -> (String, Option<usize>) {
+///
+/// The name of a registered macro (a button of the kind 外部マクロ) is the one of `macros`.
+pub(super) fn row_of(number: i32, macros: &RegisteredMacros) -> (String, Option<usize>) {
     match number {
         0 => (ITEM_SEPARATOR.to_owned(), None),
         WRAP => (ITEM_WRAP.to_owned(), None),
@@ -65,7 +69,8 @@ pub(super) fn row_of(number: i32) -> (String, Option<usize>) {
                 .filter(|&(_, code)| code != 0);
             match known {
                 Some((index, code)) => {
-                    let mut name = bars::function_name(code);
+                    let mut name = crate::macros::title_of(macros, code)
+                        .unwrap_or_else(|| bars::function_name(code));
                     if name.is_empty() {
                         name = FUNCTIONS
                             .iter()
@@ -342,12 +347,13 @@ const ROW_HEIGHT: f32 = 24.0;
 fn row_element(
     id: (&'static str, usize),
     number: i32,
+    macros: &RegisteredMacros,
     selected: bool,
     scale: f32,
     cx: &mut Context<CommonSettingsDialog>,
     on_click: impl Fn(&mut CommonSettingsDialog, &mut Context<CommonSettingsDialog>) + 'static,
 ) -> AnyElement {
-    let (name, icon) = row_of(number);
+    let (name, icon) = row_of(number, macros);
     let side = icons::logical_size(scale).max(icons::ICON_SIZE as f32);
     let picture = icon.and_then(|i| icons::icon(i, icons::pixel_factor(scale)));
     h_flex()
@@ -400,6 +406,7 @@ fn draw(dialog: &CommonSettingsDialog, cx: &mut Context<CommonSettingsDialog>) -
         .find(|(_, v)| *v == kind)
         .map_or("", |(name, _)| *name);
     let functions = functions_of_kind(kind);
+    let macros = crate::macros::registered_table(cx);
 
     let function_rows = functions
         .iter()
@@ -408,6 +415,7 @@ fn draw(dialog: &CommonSettingsDialog, cx: &mut Context<CommonSettingsDialog>) -
             row_element(
                 ("toolbar-func", i),
                 number,
+                &macros,
                 edit.func_sel == Some(i),
                 scale,
                 cx,
@@ -423,6 +431,7 @@ fn draw(dialog: &CommonSettingsDialog, cx: &mut Context<CommonSettingsDialog>) -
             row_element(
                 ("toolbar-res", i),
                 number,
+                &macros,
                 edit.sel == Some(i),
                 scale,
                 cx,

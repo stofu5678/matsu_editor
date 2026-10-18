@@ -281,6 +281,8 @@ impl LaunchOptions {
                     .update(cx, |shared, cx| shared.set_view_mode(true, cx));
             }
         });
+        // The macro of オープン後 comes before the macro of `-M=` (`CNormalProcess`).
+        crate::macros::run_auto_in(handle, view, crate::macros::Auto::Opened, cx);
         if let Some(m) = &self.macro_ {
             run_macro(m, handle, view, cx);
         }
