@@ -308,7 +308,9 @@ impl EditorView {
         let cursor = &mut self.cursor;
         let (result, changes) = document.update(cx, |shared, cx| {
             let overwrite = shared.overwrite();
-            let view_mode = shared.view_mode();
+            // View mode, or a file that cannot be written (`CEditDoc::IsEditable`).
+            let uneditable = crate::file_ops::prefs::prefs(cx).uneditable_if_unwritable;
+            let view_mode = shared.view_mode() || shared.locked_by_unwritable(uneditable);
             let (model, path) = shared.parts_mut();
             let mut adapter = RowLayout(layout);
             let quote = cx
@@ -592,6 +594,9 @@ impl EditorView {
             // `STR_CAPTION_ACTIVE_VIEW` in `sakura_core/sakura_rc.rc`, which the default title
             // format `$A $V ${R?(ビューモード)$:(上書き禁止)$}` puts after the name.
             title.push_str(" (ビューモード)");
+        } else if shared.disk().unwritable {
+            // `$R` is 1 for a file that cannot be written (`CSakuraEnvironment::_ExParam_Evaluate`).
+            title.push_str(" (上書き禁止)");
         }
         if self.is_recording_key_macro() {
             // `STR_ERR_CSHAREDATA17` in `sakura_core/sakura_rc.rc`: `${M?  【キーマクロの記録中】$}`.

@@ -2,10 +2,11 @@
 //! (`sakura_core/prop/CPropComFile.cpp`).
 //!
 //! Live: saving an unmodified document, the three options of the history (the caret, the
-//! bookmarks and the question about the encoding of last time), and the drop options, which the
-//! drop of files on a window reads from the settings. Not available yet: the lock of files and the
-//! watching of changes, the automatic save, the warnings before a file is opened, the filter of the
-//! save dialog and the decoding of MIME headers.
+//! bookmarks and the question about the encoding of last time), the drop options, which the
+//! drop of files on a window reads from the settings, the watching of changes, the files that
+//! cannot be written, the automatic save and the two warnings before a file is opened
+//! (`crate::file_watch`). Not available yet: the lock of files, the filter of the save dialog and
+//! the decoding of MIME headers.
 
 use super::super::Env;
 use super::super::model::{Control, Item, Values};
@@ -73,7 +74,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                             "bCheckFileTimeStamp",
                             true,
                         )
-                        .unavailable()
                         .when(no_lock)
                         .into(),
                         Control::number(
@@ -84,7 +84,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                             0,
                             i16::MAX as i32,
                         )
-                        .unavailable()
                         .when(watching)
                         .into(),
                     ]),
@@ -94,7 +93,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         "bUneditableIfUnwritable",
                         true,
                     )
-                    .unavailable()
                     .into(),
                 ],
             )],
@@ -115,7 +113,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         BKUP_AUTO,
                         BACKUP_OPT1_DEFAULT,
                     )
-                    .unavailable()
                     .into(),
                     Item::Row(vec![
                         Control::number(
@@ -126,7 +123,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                             1,
                             35791,
                         )
-                        .unavailable()
                         .when(auto_save_is_on)
                         .into(),
                         Item::Label("分ごと"),
@@ -216,7 +212,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                     "bAlertIfFileNotExist",
                     false,
                 )
-                .unavailable()
                 .into(),
                 Item::Row(vec![
                     Control::check(
@@ -225,10 +220,8 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         "bAlertIfLargeFile",
                         false,
                     )
-                    .unavailable()
                     .into(),
                     Control::number("alert_file_size", "", "nAlertFileSize", 10, 1, 2048)
-                        .unavailable()
                         .when(large_file_is_warned)
                         .into(),
                     Item::Label("MBから"),
@@ -250,5 +243,14 @@ pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, _before: 
     );
     env.cx.set_global(FilePrefs {
         enable_unmodified_overwrite: after.bool("enable_unmodified_overwrite"),
+        file_share_mode: after.int("file_share_mode"),
+        check_file_time_stamp: after.bool("check_file_time_stamp"),
+        autoload_delay: after.int("autoload_delay"),
+        uneditable_if_unwritable: after.bool("uneditable_if_unwritable"),
+        alert_if_file_not_exist: after.bool("alert_if_file_not_exist"),
+        alert_if_large_file: after.bool("alert_if_large_file"),
+        alert_file_size: after.int("alert_file_size"),
+        auto_save: after.bool("auto_save"),
+        auto_save_interval: after.int("auto_save_interval"),
     });
 }

@@ -151,11 +151,25 @@ pub(crate) async fn load_here(
     let reading = path.to_owned();
     cx.update(|_, app| windows::begin_pending(app, handle, view, reading))
         .ok();
+    // The warnings of `CLoadAgent::OnCheckLoad`: a file that is not there, a file that is big. The
+    // file is pending already, so that it cannot be opened in a second window meanwhile.
+    if !crate::file_watch::open_checks::allow_open(cx, path).await {
+        cx.update(|_, app| {
+            super::view_mode_request::take(app, path);
+            windows::finish_pending(app, view)
+        })
+        .ok();
+        super::start_options::after_load(view, cx, path, false);
+        return false;
+    }
     let previous = if restore.is_none() {
         cx.update(|_, app| remembered(app, path)).ok().flatten()
     } else {
         None
     };
+    // The time stamp the text will belong to: taken before the read, so that a write that happens
+    // meanwhile shows up as a change at the next check.
+    let stamp = crate::file_watch::state::modified_time(path);
     let mut result = read_file(view, cx, path, encoding).await;
     if encoding.is_none()
         && let Some(old) = previous.as_ref().and_then(encoding_of)
@@ -169,6 +183,7 @@ pub(crate) async fn load_here(
         Ok(file) => {
             cx.update(|_, app| windows::finish_pending(app, view)).ok();
             let mut shared = SharedDocument::from_text_file(file);
+            shared.disk_mut().stamp = stamp;
             // `FileOpen(file, code, 1)` of a macro asked for view mode.
             if cx
                 .update(|_, app| super::view_mode_request::take(app, path))

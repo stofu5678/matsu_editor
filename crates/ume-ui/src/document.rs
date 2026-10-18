@@ -19,6 +19,7 @@ use ume_core::encoding::Encoding;
 use ume_core::file::{Progress, SaveOptions, SaveReport, TextFile, UnmappableReport};
 use ume_core::model::DocumentModel;
 
+use crate::file_watch::state::{self, DiskState, WatchMode};
 use crate::settings::NewDocumentDefaults;
 
 /// What the document tells its views.
@@ -50,6 +51,9 @@ pub struct SharedDocument {
     /// What saving needs besides the text: the encoding, the BOM and the line ending. Its
     /// `document` is a placeholder; the text is `model`'s (see [`with_file`](Self::with_file)).
     file: TextFile,
+    /// The file on disk as this editor last saw it: the time stamp for the watching of changes and
+    /// whether the file can be written (`crate::file_watch`).
+    disk: DiskState,
 }
 
 impl EventEmitter<DocumentEvent> for SharedDocument {}
@@ -65,6 +69,7 @@ impl SharedDocument {
             view_mode: false,
             type_locked: false,
             file,
+            disk: DiskState::default(),
         }
     }
 
@@ -74,6 +79,7 @@ impl SharedDocument {
         let doc = std::mem::take(&mut file.document);
         let mut model = DocumentModel::new(doc);
         model.set_new_line(file.new_line);
+        let disk = DiskState::of_path(file.path.as_deref());
         Self {
             model,
             path: file.path.clone(),
@@ -82,6 +88,7 @@ impl SharedDocument {
             view_mode: false,
             type_locked: false,
             file,
+            disk,
         }
     }
 
@@ -147,12 +154,52 @@ impl SharedDocument {
         options: &SaveOptions,
         progress: Progress<'_>,
     ) -> ume_core::file::Result<SaveReport> {
+        let before = self.path.clone();
         let report = self.with_file(|file| file.save_as(path, options, progress))?;
         self.path = self.file.path.clone();
+        self.disk_after_save(before.as_deref());
         if let Some(eol) = options.eol {
             self.model.set_new_line(eol);
         }
         Ok(report)
+    }
+
+    /// `CAutoReloadAgent::OnAfterSave` and `CDocLocker::OnAfterSave`: the file is what this editor
+    /// wrote, so its time stamp is not a change by another program, and it can be written. Saving
+    /// under another name starts the watching of that file in the default mode.
+    fn disk_after_save(&mut self, before: Option<&Path>) {
+        let mode = if before == self.path.as_deref() {
+            self.disk.mode
+        } else {
+            WatchMode::Query
+        };
+        self.disk = DiskState {
+            stamp: self.path.as_deref().and_then(state::modified_time),
+            mode,
+            ..DiskState::default()
+        };
+    }
+
+    /// The file on disk as this editor last saw it.
+    pub(crate) fn disk(&self) -> &DiskState {
+        &self.disk
+    }
+
+    pub(crate) fn disk_mut(&mut self) -> &mut DiskState {
+        &mut self.disk
+    }
+
+    /// For a document that replaces this one (reopen): the watching goes on in the same mode
+    /// (`CAutoReloadAgent` belongs to the window, not to the file it holds).
+    pub(crate) fn keep_watch_mode(&mut self, from: &DiskState) {
+        self.disk.mode = from.mode;
+        self.disk.delay_count = from.delay_count;
+    }
+
+    /// Whether editing is refused because the file cannot be written
+    /// (`CEditDoc::IsEditable`, with 上書き禁止検出時は編集禁止にする on).
+    pub(crate) fn locked_by_unwritable(&self, uneditable_if_unwritable: bool) -> bool {
+        self.disk.unwritable && uneditable_if_unwritable
     }
 
     /// Writes the document to `path` for `F_PUTFILE`: like [`save_as`](Self::save_as), but the

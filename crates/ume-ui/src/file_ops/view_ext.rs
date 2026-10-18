@@ -37,6 +37,7 @@ impl EditorView {
         let mut new = new;
         if restore.is_some() {
             new.keep_view_mode(self.document.read(cx).view_mode());
+            new.keep_watch_mode(self.document.read(cx).disk());
         }
         let version = self
             .document

@@ -224,7 +224,7 @@ fn the_file_page_writes_sakuras_keys_and_keeps_the_rest_of_the_file(cx: &mut Tes
     check(cx, "restore_cur_position", false);
     check(cx, "enable_unmodified_overwrite", true);
     // A box that is not available does nothing.
-    check(cx, "auto_save", false);
+    check(cx, "auto_mime_decode", true);
     choose(cx, "file_share_mode", 0);
     ok(cx);
 
@@ -262,8 +262,8 @@ fn the_file_page_writes_sakuras_keys_and_keeps_the_rest_of_the_file(cx: &mut Tes
         value(&ini, "Common", "bBackUpType2_Opt1").as_deref(),
         Some("120")
     );
-    assert_eq!(value(&ini, "Common", "bCheckFileTimeStamp"), None);
-    assert_eq!(value(&ini, "Common", "bAlertIfLargeFile"), None);
+    assert_eq!(value(&ini, "Common", "bAutoMIMEdecode"), None);
+    assert_eq!(value(&ini, "Common", "bNoFilterSaveNew"), None);
     let after = ini.profile();
     let old: Vec<_> = before.entries("Other").collect();
     let new: Vec<_> = after.entries("Other").collect();
@@ -329,6 +329,30 @@ fn an_unmodified_document_is_saved_when_the_setting_says_so(cx: &mut TestAppCont
     std::fs::write(&path, b"changed").unwrap();
     run(cx, handle, "F_FILESAVE");
     assert_eq!(std::fs::read(&path).unwrap(), b"changed");
+}
+
+#[gpui::test]
+fn the_options_of_the_watching_the_warnings_and_the_automatic_save_reach_the_windows(
+    cx: &mut TestAppContext,
+) {
+    let (_ini, handle) = setup(
+        cx,
+        "[Common]\r\nbCheckFileTimeStamp=0\r\nnAutoloadDelay=4\r\nbAlertIfLargeFile=1\r\n\
+         nAlertFileSize=20\r\nbBackUpType2_Opt1=120\r\nbBackUpType2_Opt3=9\r\n",
+    );
+    let started = cx.update(|app| crate::file_ops::prefs::prefs(app));
+    assert!(!started.check_file_time_stamp);
+    assert_eq!(started.autoload_delay, 4);
+    assert!(started.alert_if_large_file && started.alert_file_size == 20);
+    assert!(started.auto_save && started.auto_save_interval == 9);
+    run(cx, handle, "F_OPTION_FILE");
+    check(cx, "check_file_time_stamp", true);
+    check(cx, "uneditable_if_unwritable", false);
+    check(cx, "auto_save", false);
+    ok(cx);
+    let now = cx.update(|app| crate::file_ops::prefs::prefs(app));
+    assert!(now.check_file_time_stamp && !now.uneditable_if_unwritable && !now.auto_save);
+    assert_eq!(now.autoload_delay, 4, "the numbers stay");
 }
 
 // ---- バックアップ ----
