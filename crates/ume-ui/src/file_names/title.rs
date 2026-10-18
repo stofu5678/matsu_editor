@@ -6,8 +6,8 @@
 //! headers use; the file name display of [`FileNames`] gives it the short path (`$N`) and the short
 //! folder (`$E`).
 //!
-//! Not supported, as in the print headers: the caret (`$x`, `$y`), the selection (`$C`), the date
-//! and time (`$d`, `$t`, `$D`, `$T`), the document type (`$B`), the number of an untitled document
+//! The caret (`$x`, `$y`) is that of the document, as the print headers take it. Not supported, as
+//! in the print headers: the selection (`$C`), the date and time (`$d`, `$t`, `$D`, `$T`), the document type (`$B`), the number of an untitled document
 //! (`$n`), the path of the program, the settings file and the macro (`$S`, `$I`, `$M`) and the
 //! profile (`$<profile>`); they stay empty. `${I?...}` (the window is a symbol) is never the case.
 //! `${R?...}` has all three cases: the view mode, a file that cannot be written (上書き禁止) and
@@ -67,6 +67,8 @@ pub(crate) struct Subject<'a> {
     pub recording_macro: bool,
     /// The key of the Grep the window shows, for a Grep window.
     pub grep_key: Option<&'a str>,
+    /// The caret: the line and the column, both counted from 0.
+    pub caret: (usize, usize),
 }
 
 /// `ExpandParameter` of `format` for `subject`.
@@ -97,6 +99,8 @@ pub(crate) fn expand(format: &str, subject: &Subject<'_>, names: &FileNames) -> 
         },
         modified: subject.modified,
         recording_macro: subject.recording_macro,
+        caret_x: subject.caret.1 + 1,
+        caret_y: subject.caret.0 + 1,
         ..HeaderContext::default()
     };
     expand_parameter(format, &context, None)

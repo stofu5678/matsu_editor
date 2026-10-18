@@ -601,6 +601,7 @@ impl EditorView {
             unwritable: shared.disk().unwritable,
             recording_macro: self.is_recording_key_macro(),
             grep_key: grep_key.as_deref(),
+            caret: (self.cursor.caret().line, self.cursor.caret().col),
         };
         crate::file_names::title::expand(
             &crate::file_names::title::format(cx, active),

@@ -355,6 +355,7 @@ fn the_title_has_the_marks_of_the_document_and_the_window() {
         unwritable: false,
         recording_macro: true,
         grep_key: None,
+        caret: (0, 0),
     };
     assert_eq!(
         expand(CAPTION_ACTIVE, &marked, &names),
@@ -440,4 +441,14 @@ fn an_unwritable_document_is_marked_and_the_view_mode_comes_first() {
         expand(CAPTION_ACTIVE, &both, &names),
         format!("/a/b.txt - UME Editor {} (ビューモード) ", version())
     );
+}
+
+#[test]
+fn the_caret_of_the_title_counts_from_one() {
+    let names = FileNames::plain();
+    let at = Subject {
+        caret: (4, 9),
+        ..Subject::default()
+    };
+    assert_eq!(expand("$y 行 $x 桁", &at, &names), "5 行 10 桁");
 }
