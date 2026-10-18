@@ -169,3 +169,18 @@ fn the_bar_without_grouping_opens_the_menu_in_the_window_of_the_tab(cx: &mut Tes
     assert!(menu_is_open(cx, second));
     assert!(!menu_is_open(cx, first));
 }
+
+#[gpui::test]
+fn the_bar_without_grouping_opens_the_menu_for_the_document_of_this_window(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_component::init);
+    user_settings(cx, SELECT_ALL_MENU);
+    let first = window(cx, true);
+    tab_mode(cx, true, false);
+    run(cx, first, "F_FILENEW");
+    let vcx = visual(cx, first);
+    let at = tab_center(vcx, 0);
+    right_click(vcx, at);
+    assert!(menu_is_open(cx, first));
+}

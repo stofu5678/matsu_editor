@@ -100,9 +100,9 @@ impl Workspace {
     /// tab menu) at the pointer, so its functions run on that document (`ExecTabCommand`:
     /// `ShowHideWindow( hWnd, TRUE )`, then the function is posted to the window).
     ///
-    /// `tab` is the position of the tab in this window; without it the tab is a document of
-    /// another window (the tabs are not grouped), which is brought to the front, and opens the
-    /// menu where its own window has the pointer.
+    /// `tab` is the position of the tab in this window. Without it the tabs are not grouped: the
+    /// document is the one of this window, or of another window, which is brought to the front and
+    /// opens the menu where its own window has the pointer.
     fn open_tab_menu(
         &mut self,
         tab: Option<usize>,
@@ -113,18 +113,17 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let code = function_code("F_CUSTMENU_24");
-        match tab {
-            Some(tab) => {
-                self.activate_tab(tab, window, cx);
-                let editor = self.editor().clone();
-                // The function may look at the tabs of every window.
-                window.defer(cx, move |window, app| {
-                    editor.update(app, |view, cx| view.run_function_at(code, at, window, cx));
-                });
-            }
-            None if handle == window.window_handle() => {}
-            None => flows::reveal_and_run(cx, handle, view.clone(), code),
+        if let Some(tab) = tab {
+            self.activate_tab(tab, window, cx);
+        } else if handle != window.window_handle() {
+            flows::reveal_and_run(cx, handle, view.clone(), code);
+            return;
         }
+        let editor = self.editor().clone();
+        // The function may look at the tabs of every window.
+        window.defer(cx, move |window, app| {
+            editor.update(app, |view, cx| view.run_function_at(code, at, window, cx));
+        });
     }
 
     /// The tabs the bar shows, or `None` when the bar is hidden.

@@ -67,7 +67,11 @@ pub(crate) fn reveal_and_run(
                 .update(app, |_, window, app| {
                     show_in_window(&view, window, app);
                     window.activate_window();
-                    view.update(app, |view, cx| view.run_function(code, &[], window, cx));
+                    // The function may look at the tabs of every window.
+                    let view = view.clone();
+                    window.defer(app, move |window, app| {
+                        view.update(app, |view, cx| view.run_function(code, &[], window, cx));
+                    });
                 })
                 .ok();
         });
