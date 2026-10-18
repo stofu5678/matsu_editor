@@ -125,7 +125,11 @@ pub async fn show(owner: Owner, request: Request) -> Result<Option<Vec<PathBuf>>
 
 /// `path` with `.extension` added when its file name has no extension: what the Windows dialog does
 /// with the default extension. For a dialog that does not do it itself.
-pub fn with_default_extension(mut path: PathBuf, extension: &str) -> PathBuf {
+///
+/// Such a dialog asked about overwriting the name as it was typed, not the one with the extension.
+/// So a file that is there under the longer name is never taken: the name stays as it was typed
+/// (the Windows dialog would ask).
+pub fn with_default_extension(path: PathBuf, extension: &str) -> PathBuf {
     if path.extension().is_none()
         && !extension.is_empty()
         && let Some(name) = path.file_name()
@@ -133,7 +137,10 @@ pub fn with_default_extension(mut path: PathBuf, extension: &str) -> PathBuf {
         let mut name = name.to_os_string();
         name.push(".");
         name.push(extension);
-        path.set_file_name(name);
+        let longer = path.with_file_name(name);
+        if !longer.exists() {
+            return longer;
+        }
     }
     path
 }

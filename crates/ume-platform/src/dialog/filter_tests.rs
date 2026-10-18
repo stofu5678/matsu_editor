@@ -46,3 +46,20 @@ fn the_default_extension_is_added_to_a_name_without_one() {
         PathBuf::from("/")
     );
 }
+
+#[test]
+fn a_file_that_is_there_under_the_longer_name_is_not_taken() {
+    let dir = std::env::temp_dir().join(format!("ume-dialog-ext-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("memo.txt"), "x").unwrap();
+    // the dialog never asked about overwriting memo.txt
+    assert_eq!(
+        with_default_extension(dir.join("memo"), "txt"),
+        dir.join("memo")
+    );
+    assert_eq!(
+        with_default_extension(dir.join("other"), "txt"),
+        dir.join("other.txt")
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
