@@ -314,8 +314,32 @@ pub(crate) async fn save(
         None => return SaveOutcome::Cancelled,
     }
 
-    // 4b. The backup of the file that is there (`CBackupAgent::OnPreBeforeSave`).
-    if !super::backup::before_save(cx, &path).await {
+    // 4b. The backup of the file that is there (`CBackupAgent::OnPreBeforeSave`). The lock of the
+    // file is let go of while it is copied and taken again after, whatever the answer.
+    let backup_allowed = {
+        let copies = path.exists()
+            && cx
+                .update(|_, app| super::backup::prefs(app).enabled)
+                .unwrap_or(false);
+        if copies {
+            view.update(cx, |view, cx| {
+                view.document().update(cx, |shared, _| shared.unlock_file())
+            })
+            .ok();
+        }
+        let allowed = super::backup::before_save(cx, &path).await;
+        if copies {
+            view.update(cx, |view, cx| {
+                let share_mode = super::prefs::prefs(cx).file_share_mode;
+                view.document()
+                    .update(cx, |shared, _| shared.lock_file(share_mode))
+            })
+            .ok();
+            super::lock::report_failure(view, cx).await;
+        }
+        allowed
+    };
+    if !backup_allowed {
         return SaveOutcome::Cancelled;
     }
 
@@ -326,6 +350,7 @@ pub(crate) async fn save(
         .ok();
     match written {
         Some(Ok(report)) => {
+            super::lock::report_failure(view, cx).await;
             let mut notice = format!("{} に保存した", path.display());
             if report.substituted > 0 {
                 notice.push_str(&format!("（{} 文字を ? にした）", report.substituted));
@@ -339,7 +364,10 @@ pub(crate) async fn save(
             .ok();
             SaveOutcome::Saved
         }
-        Some(Err(error)) => fail(view, cx, &path, &error).await,
+        Some(Err(error)) => {
+            super::lock::report_failure(view, cx).await;
+            fail(view, cx, &path, &error).await
+        }
         None => SaveOutcome::Cancelled,
     }
 }

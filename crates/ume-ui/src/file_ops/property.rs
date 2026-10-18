@@ -2,7 +2,7 @@
 //!
 //! Sakura: `CDlgProperty::SetData` (`sakura_core/dlg/CDlgProperty.cpp`) fills a read-only edit box;
 //! the strings are `STR_DLGFLPROP_*` in `sakura_core/sakura_rc.rc`. Left out: the type of the
-//! document ("設定のタイプ"), the number of commands run, the lock of the file, the MS-DOS name and
+//! document ("設定のタイプ"), the number of commands run, the MS-DOS name and
 //! the attributes that only Windows has (archive, hidden, system, ...). The read-only attribute
 //! is shown on every OS.
 
@@ -35,6 +35,8 @@ pub(crate) struct PropertyInfo {
     pub rows: Option<usize>,
     pub view_mode: bool,
     pub modified: bool,
+    /// The lock this editor holds on the file (`CFile::IsFileLocking`).
+    pub lock: Option<ume_platform::file_lock::ShareMode>,
     pub disk: Option<DiskInfo>,
 }
 
@@ -100,6 +102,8 @@ pub(crate) fn property_text(info: &PropertyInfo) -> String {
     if let Some(disk) = &info.disk {
         // STR_DLGFLPROP_FILE_INFO
         text.push_str("\n--ファイル情報-----------------\n");
+        // STR_DLGFLPROP_W_LOCK, _RW_LOCK and _NOT_LOCK
+        text.push_str(super::lock::property_line(info.lock));
         text.push_str("ファイル属性  ");
         if disk.read_only {
             text.push_str("/読み取り専用");
@@ -135,6 +139,7 @@ mod tests {
             rows: Some(4),
             view_mode: false,
             modified: false,
+            lock: None,
             disk: None,
         }
     }
@@ -185,8 +190,32 @@ mod tests {
             ..info()
         });
         assert!(text.ends_with(
-            "\n--ファイル情報-----------------\nファイル属性  /読み取り専用\n作成日時  2026年1月2日 03:04:05\n更新日時  2026年10月16日 23:59:59\nファイルサイズ  1234 バイト\n"
+            "\n--ファイル情報-----------------\nあなたはこのファイルをロックしていません。\nファイル属性  /読み取り専用\n作成日時  2026年1月2日 03:04:05\n更新日時  2026年10月16日 23:59:59\nファイルサイズ  1234 バイト\n"
         ));
+    }
+
+    #[test]
+    fn the_file_information_tells_the_lock() {
+        use ume_platform::file_lock::ShareMode;
+        let disk = Some(DiskInfo {
+            size: 1,
+            read_only: false,
+            created: None,
+            modified: None,
+            accessed: None,
+        });
+        let text = property_text(&PropertyInfo {
+            lock: Some(ShareMode::DenyWrite),
+            disk: disk.clone(),
+            ..info()
+        });
+        assert!(text.contains("ファイル情報-----------------\nあなたはこのファイルを、他プロセスからの上書き禁止モードでロックしています。\nファイル属性"));
+        let text = property_text(&PropertyInfo {
+            lock: Some(ShareMode::DenyReadWrite),
+            disk,
+            ..info()
+        });
+        assert!(text.contains("他プロセスからの読み書き禁止モードでロックしています。\n"));
     }
 
     #[test]

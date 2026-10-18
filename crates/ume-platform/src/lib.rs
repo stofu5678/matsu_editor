@@ -2,6 +2,9 @@
 //! windows, handing a second launch over to the running UME Editor, and file dialogs that start
 //! in a given folder ([ADR-0011], [ADR-0013]).
 //!
+//! Keeping an open file locked against other programs (`file_lock`) needs no `unsafe`: the
+//! standard library has the share mode of Windows and `flock`.
+//!
 //! Running an external command (`exec`) is the same on every OS but for the shell it falls back to
 //! and the way it ends a process and the ones it started.
 //!
@@ -19,6 +22,7 @@ pub mod dialog;
 pub mod drive;
 pub mod exec;
 pub mod file_id;
+pub mod file_lock;
 pub mod folders;
 pub mod instance;
 #[cfg(not(any(windows, target_os = "macos")))]

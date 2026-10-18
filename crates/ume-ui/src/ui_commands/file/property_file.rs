@@ -53,6 +53,7 @@ impl EditorView {
                 .then(|| self.layout().row_count()),
             view_mode: shared.view_mode(),
             modified: shared.model().is_modified(),
+            lock: shared.held_lock_mode(),
             disk: shared.path().and_then(disk_info),
         }
     }

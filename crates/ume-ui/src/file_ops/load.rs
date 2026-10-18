@@ -170,6 +170,9 @@ pub(crate) async fn load_here(
     // The time stamp the text will belong to: taken before the read, so that a write that happens
     // meanwhile shows up as a change at the next check.
     let stamp = crate::file_watch::state::modified_time(path);
+    // Reading the file again (reopen, reload): its own lock would refuse the read, so it is let
+    // go of until the file is read (`CLoadAgent::OnCheckLoad`).
+    let unlocked = super::lock::release_for_reading(view, cx, path);
     let mut result = read_file(view, cx, path, encoding).await;
     if encoding.is_none()
         && let Some(old) = previous.as_ref().and_then(encoding_of)
@@ -209,6 +212,12 @@ pub(crate) async fn load_here(
                 true
             });
             let replaced = replaced.unwrap_or(false);
+            if replaced {
+                // `CDocLocker::OnAfterLoad` locked the new document.
+                super::lock::report_failure(view, cx).await;
+            } else if unlocked {
+                super::lock::relock_quietly(view, cx);
+            }
             // the options of a launch (`-X=` `-Y=` `-TYPE=` `-M=`...)
             super::start_options::after_load(view, cx, path, replaced);
             replaced
@@ -217,6 +226,9 @@ pub(crate) async fn load_here(
             // a request for view mode is for this read only
             cx.update(|_, app| super::view_mode_request::take(app, path))
                 .ok();
+            if unlocked {
+                super::lock::relock_quietly(view, cx);
+            }
             view.update(cx, |view, cx| {
                 view.notice = None;
                 cx.notify();

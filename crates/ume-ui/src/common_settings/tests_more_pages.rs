@@ -194,6 +194,45 @@ fn each_function_opens_its_page(cx: &mut TestAppContext) {
 // ---- ファイル ----
 
 #[gpui::test]
+fn ok_on_the_file_page_locks_the_open_files_in_the_new_mode(cx: &mut TestAppContext) {
+    use ume_platform::file_lock::{FileLock, ShareMode};
+    let (ini, handle) = setup(cx, "[Common]\r\nnFileShareMode=0\r\n");
+    let _restore = RestoreEditOptions::new();
+    let path = write_file(&ini, "locked.txt", b"abc");
+    let view = view_of(cx, handle);
+    handle
+        .update(cx, |_, window, app| {
+            view.update(app, |view, cx| {
+                view.load_path_here(path.clone(), None, window, cx)
+            })
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let held = |cx: &mut TestAppContext| {
+        view.read_with(cx, |view, app| view.document().read(app).held_lock_mode())
+    };
+    assert_eq!(held(cx), None);
+    assert!(FileLock::acquire(&path, ShareMode::DenyReadWrite).is_ok());
+
+    run(cx, handle, "F_OPTION_FILE");
+    choose(cx, "file_share_mode", 2);
+    ok(cx);
+    assert_eq!(held(cx), Some(ShareMode::DenyReadWrite));
+    assert!(FileLock::acquire(&path, ShareMode::DenyWrite).is_err());
+
+    run(cx, handle, "F_OPTION_FILE");
+    choose(cx, "file_share_mode", 1);
+    ok(cx);
+    assert_eq!(held(cx), Some(ShareMode::DenyWrite));
+
+    run(cx, handle, "F_OPTION_FILE");
+    choose(cx, "file_share_mode", 0);
+    ok(cx);
+    assert_eq!(held(cx), None);
+    assert!(FileLock::acquire(&path, ShareMode::DenyReadWrite).is_ok());
+}
+
+#[gpui::test]
 fn the_file_page_writes_sakuras_keys_and_keeps_the_rest_of_the_file(cx: &mut TestAppContext) {
     let (ini, handle) = setup(
         cx,
@@ -254,11 +293,11 @@ fn the_file_page_writes_sakuras_keys_and_keeps_the_rest_of_the_file(cx: &mut Tes
         value(&ini, "Common", "bEnableUnmodifiedOverwrite").as_deref(),
         Some("1")
     );
-    // The boxes that are not available leave the file as it was.
     assert_eq!(
         value(&ini, "Common", "nFileShareMode").as_deref(),
-        Some("2")
+        Some("0")
     );
+    // The boxes that are not available leave the file as it was.
     assert_eq!(
         value(&ini, "Common", "bBackUpType2_Opt1").as_deref(),
         Some("120")

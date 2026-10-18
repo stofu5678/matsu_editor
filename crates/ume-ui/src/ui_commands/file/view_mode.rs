@@ -7,8 +7,9 @@
 //! deleting, cut, paste, undo, redo, case conversion, replace, ...) are not available. Here the
 //! command context refuses every edit (`CommandContext::with_view_mode`).
 //!
-//! Not done: Sakura also releases the exclusive lock of the file when the mode goes on and takes
-//! it again when it goes off (`DoFileUnlock`, `DoFileLock`); this program does not lock files.
+//! Sakura also releases the exclusive lock of the file when the mode goes on and takes it again
+//! when it goes off, after checking again whether the file can be written (`DoFileUnlock`,
+//! `CheckWritable`, `DoFileLock`; `crate::file_ops::lock`).
 
 use crate::ui_command::{UiCommand, register_ui_command};
 use crate::view::EditorView;
@@ -26,15 +27,21 @@ impl UiCommand for ViewMode {
         &self,
         view: &mut EditorView,
         _: &[Arg],
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<EditorView>,
     ) -> Result {
         // An IME composition is text in the document; end it before the edits are refused.
         view.interrupt_composition(cx);
-        view.document().update(cx, |shared, cx| {
+        let share_mode = crate::file_ops::prefs::prefs(cx).file_share_mode;
+        let failure = view.document().update(cx, |shared, cx| {
             let on = !shared.view_mode();
             shared.set_view_mode(on, cx);
+            shared.relock_checking_writable(share_mode);
+            shared.take_lock_failure()
         });
+        if let Some(failure) = failure {
+            crate::file_ops::lock::report_failure_in(window, cx, failure);
+        }
         Ok(())
     }
 }
