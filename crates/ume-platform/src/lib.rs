@@ -16,6 +16,7 @@
 //! [ADR-0013]: https://github.com/stofu5678/ume_editor/blob/main/docs/adr/0013-module-structure.md
 
 pub mod dialog;
+pub mod drive;
 pub mod exec;
 pub mod folders;
 pub mod instance;
@@ -23,4 +24,5 @@ pub mod instance;
 mod portal;
 pub mod print;
 pub mod shell;
+pub mod trash;
 pub mod window;

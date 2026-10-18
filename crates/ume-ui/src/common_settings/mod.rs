@@ -151,6 +151,7 @@ impl Page {
             Page::Window => pages::window::apply(env, after, before),
             Page::Tab => pages::tab::apply(env, after, before),
             Page::Edit => pages::edit::apply(env, after, before),
+            Page::Backup => pages::backup::apply(env, after, before),
             Page::File => pages::file::apply(env, after, before),
             Page::Format => pages::format::apply(env, after, before),
             Page::Search => pages::search::apply(env, after, before),

@@ -334,7 +334,7 @@ fn an_unmodified_document_is_saved_when_the_setting_says_so(cx: &mut TestAppCont
 // ---- バックアップ ----
 
 #[gpui::test]
-fn the_backup_page_shows_the_packed_numbers_and_never_writes(cx: &mut TestAppContext) {
+fn the_backup_page_shows_the_packed_numbers_and_keeps_the_other_bits(cx: &mut TestAppContext) {
     // `bBackUpType2_Opt1` holds the bits of the date and time (年 32 .. 秒 1) and the bit of the
     // automatic save (64); `_Opt2` the number of generations in the low 16 bits and the first
     // letter of the extension in the next 8.
@@ -355,12 +355,7 @@ fn the_backup_page_shows_the_packed_numbers_and_never_writes(cx: &mut TestAppCon
         with_dialog(cx, |d, _, dcx| d.input_text("backup_folder", dcx)).as_deref(),
         Some("C:\\bak")
     );
-    // No box can be changed, and OK leaves the keys as they are.
-    check(cx, "backup", false);
-    choose(cx, "backup_type", 1);
-    type_in(cx, "backup_folder", "D:\\x");
-    assert!(has(cx, "backup"));
-    assert_eq!(int(cx, "backup_type"), 3);
+    // OK leaves the other bits of the numbers as they are (the automatic save, the letter).
     ok(cx);
     for (key, expected) in [
         ("bBackUp", "1"),
@@ -377,7 +372,35 @@ fn the_backup_page_shows_the_packed_numbers_and_never_writes(cx: &mut TestAppCon
             "{key}"
         );
     }
-    assert_eq!(value(&ini, "Common", "bBackUpDialog"), None);
+}
+
+#[gpui::test]
+fn the_backup_page_is_live_and_keeps_the_extension_kinds(cx: &mut TestAppContext) {
+    let text = "[Common]\r\nbBackUp=1\r\nnBackUpType=6\r\n";
+    let (ini, handle) = setup(cx, text);
+    run(cx, handle, "F_OPTION_BACKUP");
+    let has = |cx: &mut TestAppContext, id: &str| with_dialog(cx, |d, _, _| d.values().bool(id));
+    let int = |cx: &mut TestAppContext, id: &str| with_dialog(cx, |d, _, _| d.values().int(id));
+    // Kind 6 is the generations with the extension kept.
+    assert_eq!(int(cx, "backup_type"), 3);
+    assert!(has(cx, "backup_retain_ext"));
+    // The kind 1 with the check is 5.
+    choose(cx, "backup_type", 1);
+    ok(cx);
+    assert_eq!(value(&ini, "Common", "nBackUpType").as_deref(), Some("5"));
+    // The box of the detailed setting holds the name that the settings make.
+    assert_eq!(
+        value(&ini, "Common", "szBackUpPathAdvanced").as_deref(),
+        Some(".\\$0.*.bak")
+    );
+    // Off: the controls of the page are not usable and keep their values.
+    run(cx, handle, "F_OPTION_BACKUP");
+    check(cx, "backup", false);
+    choose(cx, "backup_type", 2);
+    assert_eq!(int(cx, "backup_type"), 1);
+    ok(cx);
+    assert_eq!(value(&ini, "Common", "bBackUp").as_deref(), Some("0"));
+    assert_eq!(value(&ini, "Common", "nBackUpType").as_deref(), Some("5"));
 }
 
 // ---- 書式 ----

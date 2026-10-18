@@ -7410,6 +7410,7 @@ name = "ume-platform"
 version = "0.0.0"
 dependencies = [
  "block2 0.6.2",
+ "chrono",
  "futures-channel",
  "krilla",
  "libc",

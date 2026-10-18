@@ -37,6 +37,9 @@ separater = "separater"
 # GAE: a name in the copyright notice of a ported file (CEditView_ExecCmd.cpp).
 GAE = "GAE"
 
+# FOF: the prefix of the flags of SHFileOperation (FOF_ALLOWUNDO ...), in the recycle bin of Windows.
+FOF = "FOF"
+
 [default.extend-identifiers]
 # Sakura's macro names (sakura_core/macro/CSMacroMgr.cpp): "UNICODE to SJIS" written as a word.
 CodeCnvUNICODEtoSJIS = "CodeCnvUNICODEtoSJIS"
