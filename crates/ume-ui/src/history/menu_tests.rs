@@ -15,15 +15,25 @@ fn entry(path: &str, code: i32, favorite: bool) -> FileEntry {
 
 #[test]
 fn a_label_has_the_key_the_star_the_path_and_the_encoding() {
-    assert_eq!(label(0, &entry("/a/b.txt", 0, false)), "1 /a/b.txt");
-    assert_eq!(label(1, &entry("/a/b.txt", 99, true)), "2 ★ /a/b.txt");
     assert_eq!(
-        label(8, &entry("C:\\メモ & 日記.txt", 4, false)),
+        label(0, &entry("/a/b.txt", 0, false), "/a/b.txt"),
+        "1 /a/b.txt"
+    );
+    assert_eq!(
+        label(1, &entry("/a/b.txt", 99, true), "/a/b.txt"),
+        "2 ★ /a/b.txt"
+    );
+    assert_eq!(
+        label(
+            8,
+            &entry("C:\\メモ & 日記.txt", 4, false),
+            "C:\\メモ & 日記.txt"
+        ),
         "9 C:\\メモ & 日記.txt  [UTF-8]"
     );
-    assert_eq!(label(9, &entry("x", 3, false)), "A x  [UTF-16]");
-    assert_eq!(label(35, &entry("x", 0, false)), "0 x");
-    assert_eq!(label(36, &entry("x", 0, false)), "1 x");
+    assert_eq!(label(9, &entry("x", 3, false), "x"), "A x  [UTF-16]");
+    assert_eq!(label(35, &entry("x", 0, false), "x"), "0 x");
+    assert_eq!(label(36, &entry("x", 0, false), "x"), "1 x");
 }
 
 fn history_of(count: usize, view: usize) -> History {
@@ -148,4 +158,41 @@ fn no_folders_is_a_disabled_placeholder() {
         submenu(&menus, "最近使ったフォルダー"),
         [Entry::Item(i)] if i.action == MenuAction::Placeholder && !i.enabled
     ));
+}
+
+#[test]
+fn the_menus_show_the_paths_with_the_file_name_display() {
+    use crate::file_names::{FileNames, NoFolders};
+
+    let rows = [vec!["/d/".to_owned(), "データ:".to_owned()]];
+    let names = FileNames::new(true, 100, &rows, &NoFolders, false);
+    let mut h = History::new(3, 2, false);
+    h.add_file(entry("/d/a.txt", 0, false));
+    h.add_file(entry("/e/日本語/long.txt", 4, false));
+    h.files.set_favorite(0, true);
+    h.add_folder("/d/sub");
+    h.add_folder("/e");
+    let lists = RecentLists::new(Some(h)).with_names(names);
+    let menus = main_menu_with(&KeyMap::default(), &Registered, &lists);
+    let files: Vec<_> = recent_items(&menus).into_iter().map(|i| i.label).collect();
+    // The label keeps the star and the encoding; the path is the shown one.
+    assert_eq!(files, ["1 ★ /e/日本語/long.txt  [UTF-8]", "2 データ:a.txt"]);
+    let folders: Vec<_> = submenu(&menus, "最近使ったフォルダー")
+        .iter()
+        .map(|e| match e {
+            Entry::Item(i) => (i.label.clone(), i.action.clone()),
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    // What the item does still uses the path itself.
+    assert_eq!(
+        folders,
+        [
+            ("1 /e".to_owned(), MenuAction::RecentFolder("/e".into())),
+            (
+                "2 データ:sub".to_owned(),
+                MenuAction::RecentFolder("/d/sub".into())
+            ),
+        ]
+    );
 }

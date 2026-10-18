@@ -210,7 +210,12 @@ impl EditorView {
         // the list of Sakura selects the first window when none matches
         let selected =
             best_candidate(path.as_deref(), encoding, &others, false).map(|i| others[i].doc);
-        let label = own_label(path.as_deref(), modified, encoding);
+        let label = own_label(
+            path.as_deref(),
+            &crate::file_names::current(cx),
+            modified,
+            encoding,
+        );
         let editor = cx.weak_entity();
         match &self.diff.compare {
             Some(panel) => {

@@ -259,7 +259,7 @@ fn every_control_has_its_own_name_and_sakuras_key() {
         }
         // 「元の拡張子を保存」 is part of `nBackUpType` (the kinds 5 and 6).
         let part_of_another_key = control.id == "backup_retain_ext";
-        if !matches!(control.kind, Kind::Button { .. } | Kind::Numbers { .. })
+        if !matches!(control.kind, Kind::Button { .. } | Kind::Numbers { .. } | Kind::Table { .. })
             && control.live
             && !part_of_another_key
             // The toolbar page keeps the state of its lists in controls with no key.

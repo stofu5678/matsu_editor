@@ -270,10 +270,21 @@ impl Workspace {
         cx.notify();
     }
 
+    /// The tooltip of a tab (`CTabWnd::GetTabName` with `bFull`, for `TTN_GETDISPINFO`): the path of
+    /// the file with the replacements of 「ファイル名表示」 and, if the setting says so, shortened,
+    /// but not cut to the width; the caption of a document that has no file.
+    pub(crate) fn tooltip_of(view: &EditorView, cx: &gpui::App) -> String {
+        match view.document().read(cx).path() {
+            Some(path) => crate::file_names::current(cx).name_of(Some(path), false),
+            None => Self::caption_of(view, cx),
+        }
+    }
+
     /// The text of the tab in the bar: Sakura's default format
     /// `${w?【Grep】$h$:【アウトプット】$:$f$n$}${U?(更新)$}${R?(ビューモード)$:(上書き禁止)$}${M?【キーマクロの記録中】$}`
     /// (`CShareData::InitShareData`, `sakura_core/env/CShareData.cpp`): the name of the file, or
-    /// `(無題)`, then the marks of unsaved changes, view mode and key macro recording.
+    /// `(無題)`, then the marks of unsaved changes, view mode (or a file that cannot be
+    /// written) and key macro recording.
     pub(crate) fn caption_of(view: &EditorView, cx: &gpui::App) -> String {
         let shared = view.document().read(cx);
         let name = view
@@ -283,8 +294,12 @@ impl Workspace {
         if shared.model().is_modified() {
             caption.push_str("(更新)");
         }
+        // `${R?(ビューモード)$:(上書き禁止)$}`: the view mode, else a file that cannot be written
+        // (`_ExParam_Evaluate`, `$R`).
         if shared.view_mode() {
             caption.push_str("(ビューモード)");
+        } else if shared.disk().unwritable {
+            caption.push_str("(上書き禁止)");
         }
         if view.is_recording_key_macro() {
             caption.push_str("【キーマクロの記録中】");

@@ -7493,6 +7493,7 @@ dependencies = [
  "ume-plugin",
  "ume-print",
  "ume-regex",
+ "unicode-width",
 ]
 
 [[package]]

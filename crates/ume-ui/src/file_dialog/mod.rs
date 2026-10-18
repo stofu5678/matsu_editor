@@ -162,12 +162,12 @@ async fn fallback(app: &AsyncApp, ask: &Ask) -> Answer {
 }
 
 /// Where the meta folders of the settings (`%MYDOC%` ...) come from on this machine.
-struct Meta {
+pub(crate) struct Meta {
     settings_dir: Option<PathBuf>,
 }
 
 impl Meta {
-    fn new(cx: &App) -> Self {
+    pub(crate) fn new(cx: &App) -> Self {
         Self {
             settings_dir: settings_dir(cx),
         }

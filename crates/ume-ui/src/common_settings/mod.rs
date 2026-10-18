@@ -32,6 +32,7 @@ mod apply;
 mod dialog;
 pub(crate) mod model;
 mod pages;
+pub(crate) mod table;
 mod windows;
 
 use gpui::{
@@ -155,6 +156,7 @@ impl Page {
             Page::Edit => pages::edit::apply(env, after, before),
             Page::Backup => pages::backup::apply(env, after, before),
             Page::File => pages::file::apply(env, after, before),
+            Page::FileName => pages::file_name::apply(env, after, before),
             Page::Format => pages::format::apply(env, after, before),
             Page::Search => pages::search::apply(env, after, before),
             Page::StatusBar => pages::status_bar::apply(env, after, before),
@@ -323,3 +325,5 @@ pub(crate) fn run_command(
 mod tests;
 #[cfg(test)]
 mod tests_more_pages;
+#[cfg(test)]
+mod tests_table;

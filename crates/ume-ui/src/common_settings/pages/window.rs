@@ -3,22 +3,20 @@
 //!
 //! Live: the tool bar (`bDispTOOLBAR`), the function key bar (`bDispFUNCKEYWND`, its place and the
 //! group size), the status bar (`bDispSTATUSBAR`) and the synchronized scrolling of the split panes
-//! (`bSplitterWndVScroll`, `bSplitterWndHScroll`), and the icons in menus (`bMenuIcon`). Not available yet: the horizontal scroll bar, the dark mode, the size and position
-//! of the window, the ruler and the line number gaps, the function keys, the language, and the
-//! captions of the title bar (they need `CFormatManager::ExpandParameter`, which only the print
-//! headers have).
+//! (`bSplitterWndVScroll`, `bSplitterWndHScroll`), the icons in menus (`bMenuIcon`) and the title
+//! formats (`szWinCaptionActive`, `szWinCaptionInactive`): the title of a window is the format
+//! expanded by `ExpandParameter` ([`crate::file_names::title`]). Not available yet: the horizontal
+//! scroll bar, the dark mode, the size and position of the window, the ruler and the line number
+//! gaps, the function keys and the language.
 
 use gpui::{App, Global};
 
 use super::super::Env;
 use super::super::model::{Control, Item, Values};
+use crate::file_names::title::{CAPTION_ACTIVE, CAPTION_INACTIVE, TitleFormats};
 
 /// `IDC_SPIN_nRulerHeight_MIN` and `_MAX` (`sakura_core/_main/global.h`).
 const RULER_HEIGHT: (i32, i32) = (2, 32);
-
-/// Sakura's default captions of the title bar (`CShareData::InitShareData`).
-const CAPTION_ACTIVE: &str = "${w?$h$:アウトプット$:${I?$f$n$:$N$n$}$}${U?(更新)$} - $A $V ${R?(ビューモード)$:(上書き禁止)$}${M?  【キーマクロの記録中】$} $<profile>";
-const CAPTION_INACTIVE: &str = "${w?$h$:アウトプット$:$f$n$}${U?(更新)$} - $A $V ${R?(ビューモード)$:(上書き禁止)$}${M?  【キーマクロの記録中】$} $<profile>";
 
 /// What the split panes keep in step (`m_bSplitterWndVScroll`, `m_bSplitterWndHScroll`; both on
 /// by default).
@@ -195,7 +193,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                     "szWinCaptionActive",
                     CAPTION_ACTIVE,
                 )
-                .unavailable()
                 .into(),
                 Control::text(
                     "win_caption_inactive",
@@ -203,7 +200,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                     "szWinCaptionInactive",
                     CAPTION_INACTIVE,
                 )
-                .unavailable()
                 .into(),
             ],
         ),
@@ -214,6 +210,10 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
 /// key bar of the check boxes (`CEditWnd::OnChangeSetting`), and the panes take the synchronized
 /// scrolling.
 pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: Option<&Values>) {
+    env.cx.set_global(TitleFormats {
+        active: after.text("win_caption_active").to_owned(),
+        inactive: after.text("win_caption_inactive").to_owned(),
+    });
     env.cx.set_global(SplitterSync {
         vertical: after.bool("splitter_v_scroll"),
         horizontal: after.bool("splitter_h_scroll"),

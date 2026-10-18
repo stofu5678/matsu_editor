@@ -26,7 +26,6 @@ use super::{
     Candidate, DocRef, Owner, Remembered, Target, best_candidate, candidates, remember, remembered,
 };
 use crate::file_dialog::{self, Ask};
-use crate::file_ops::ask::document_title;
 use crate::search::SearchOptions;
 use crate::view::EditorView;
 
@@ -407,6 +406,7 @@ impl Render for DiffPanel {
 /// encoding unless it is Shift_JIS (`GetMenuFullLabel_WinListNoEscape` without the number).
 pub(crate) fn own_label(
     path: Option<&Path>,
+    names: &crate::file_names::FileNames,
     modified: bool,
     encoding: ume_core::encoding::Encoding,
 ) -> String {
@@ -417,7 +417,7 @@ pub(crate) fn own_label(
     };
     format!(
         "{}{}{}",
-        document_title(path),
+        names.name_of(path, true),
         if modified { " *" } else { "" },
         bracket
     )
@@ -444,7 +444,12 @@ impl EditorView {
         let others = candidates(cx, owner);
         let selected =
             best_candidate(path.as_deref(), encoding, &others, true).map(|i| others[i].doc);
-        let label = own_label(path.as_deref(), modified, encoding);
+        let label = own_label(
+            path.as_deref(),
+            &crate::file_names::current(cx),
+            modified,
+            encoding,
+        );
         let search = self.search.options();
         let editor = cx.weak_entity();
         match &self.diff.panel {

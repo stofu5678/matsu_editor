@@ -174,7 +174,12 @@ impl EditorView {
         self.grep.is_running()
     }
 
-    /// The title of a Grep window, `【Grep】key`, without the name of the program.
+    /// The key the window searched for, or none for a window that is not a Grep window.
+    pub(crate) fn grep_key(&self) -> Option<String> {
+        self.grep.key.clone()
+    }
+
+    /// The text of a Grep window's tab, `【Grep】key`.
     pub(crate) fn grep_title(&self) -> Option<String> {
         self.grep
             .key

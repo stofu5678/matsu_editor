@@ -13,6 +13,7 @@
 use ume_config::history::{FileEntry, FolderEntry, History};
 use ume_core::encoding::Encoding;
 
+use crate::file_names::FileNames;
 use crate::menu::{Item, Lists, MenuAction};
 use crate::window_ops::list::access_key;
 
@@ -24,7 +25,9 @@ pub(crate) const F_FOLDER_USED_RECENTLY: u16 = 29003;
 
 /// The text of a recent file in the menu (`GetMenuFullLabel` with a path). Sakura puts `&` before
 /// the access key and doubles `&` in the path; a GPUI menu has no mnemonics, so neither is done.
-pub(crate) fn label(index: usize, entry: &FileEntry) -> String {
+///
+/// `shown` is the path as 「ファイル名表示」 makes it ([`FileNames::transform`]).
+pub(crate) fn label(index: usize, entry: &FileEntry, shown: &str) -> String {
     let charset = match Encoding::from_sakura_code(entry.encoding_code) {
         Some(Encoding::ShiftJis) | None => String::new(),
         Some(encoding) => encoding.bracket_name(),
@@ -33,29 +36,41 @@ pub(crate) fn label(index: usize, entry: &FileEntry) -> String {
         "{} {}{}{}",
         access_key(index),
         if entry.favorite { "★ " } else { "" },
-        entry.path,
+        shown,
         charset
     )
 }
 
 /// The text of a recent folder in the menu (`GetMenuFullLabel` with a folder: no encoding).
-pub(crate) fn folder_label(index: usize, entry: &FolderEntry) -> String {
+pub(crate) fn folder_label(index: usize, entry: &FolderEntry, shown: &str) -> String {
     format!(
         "{} {}{}",
         access_key(index),
         if entry.favorite { "★ " } else { "" },
-        entry.path
+        shown
     )
 }
 
 /// The run-time lists of the main menu that the history fills in.
 pub(crate) struct RecentLists {
     history: Option<History>,
+    /// How the paths are shown (`GetMenuFullLabel_MRU` shortens them with 「ファイル名表示」).
+    names: FileNames,
 }
 
 impl RecentLists {
+    /// The lists with the paths as they are.
     pub(crate) fn new(history: Option<History>) -> Self {
-        Self { history }
+        Self {
+            history,
+            names: FileNames::plain(),
+        }
+    }
+
+    /// The lists with the paths as `names` shows them.
+    pub(crate) fn with_names(mut self, names: FileNames) -> Self {
+        self.names = names;
+        self
     }
 }
 
@@ -71,7 +86,7 @@ impl Lists for RecentLists {
                 .iter()
                 .enumerate()
                 .map(|(i, entry)| Item {
-                    label: label(i, entry),
+                    label: label(i, entry, &self.names.transform(&entry.path, true)),
                     action: MenuAction::RecentFile(entry.path.clone()),
                     shortcut: None,
                     enabled: true,
@@ -83,7 +98,7 @@ impl Lists for RecentLists {
                 .iter()
                 .enumerate()
                 .map(|(i, entry)| Item {
-                    label: folder_label(i, entry),
+                    label: folder_label(i, entry, &self.names.transform(&entry.path, true)),
                     action: MenuAction::RecentFolder(entry.path.clone()),
                     shortcut: None,
                     enabled: true,

@@ -105,7 +105,8 @@ impl Fixture {
     }
 
     fn title(&self, cx: &mut VisualTestContext) -> String {
-        self.view.read_with(cx, |v, app| v.title(app))
+        self.view
+            .read_with(cx, crate::file_names::title::plain_title)
     }
 
     fn format(&self, cx: &mut VisualTestContext) -> String {
@@ -241,7 +242,7 @@ fn cancelling_the_save_dialog_leaves_the_document_modified(cx: &mut TestAppConte
     cx.simulate_new_path_selection(|_| None);
     cx.run_until_parked();
     assert!(f.modified(cx));
-    assert_eq!(f.title(cx), "(無題) * - UME Editor");
+    assert_eq!(f.title(cx), "(無題)(更新) - UME Editor");
 }
 
 #[gpui::test]

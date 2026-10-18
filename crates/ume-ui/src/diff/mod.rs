@@ -116,6 +116,7 @@ pub(crate) struct Candidate {
 /// The open documents but the document of `owner`, in the order of the window list (whose numbers the
 /// labels use).
 pub(crate) fn candidates(cx: &mut App, owner: Owner) -> Vec<Candidate> {
+    let names = crate::file_names::current(cx);
     editors(cx)
         .into_iter()
         .enumerate()
@@ -133,7 +134,7 @@ pub(crate) fn candidates(cx: &mut App, owner: Owner) -> Vec<Candidate> {
                 doc,
                 label: label(
                     i,
-                    shared.path(),
+                    &names.name_of(shared.path(), true),
                     shared.model().is_modified(),
                     shared.file().encoding,
                 ),

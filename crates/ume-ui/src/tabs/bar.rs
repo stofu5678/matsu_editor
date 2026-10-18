@@ -22,6 +22,7 @@ use gpui::{
     InteractiveElement, IntoElement, MouseButton, ParentElement, Render, SharedString,
     StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px, rgb,
 };
+use gpui_component::tooltip::Tooltip;
 use ume_commands::sakura::FUNCTIONS;
 
 use super::{flows, settings};
@@ -36,6 +37,8 @@ struct Entry {
     handle: AnyWindowHandle,
     view: Entity<EditorView>,
     caption: String,
+    /// The tooltip: the path as 「ファイル名表示」 shows it (`GetTabName` with the full name).
+    tooltip: String,
     active: bool,
     /// The position among the tabs of this window, when it is one of them.
     tab: Option<usize>,
@@ -135,6 +138,7 @@ impl Workspace {
         let own = window.window_handle();
         let entry = |handle, view: Entity<EditorView>, active, tab, cx: &gpui::App| Entry {
             caption: Self::caption_of(view.read(cx), cx),
+            tooltip: Self::tooltip_of(view.read(cx), cx),
             handle,
             view,
             active,
@@ -256,6 +260,7 @@ impl Workspace {
             handle,
             view,
             caption,
+            tooltip,
             active,
             tab,
         } = entry;
@@ -308,6 +313,7 @@ impl Workspace {
             .bg(if active { rgb(0xffffff) } else { rgb(0xd8d8d8) })
             .when(active, |s| s.font_weight(gpui::FontWeight::SEMIBOLD))
             .debug_selector(move || format!("tab-{index}"))
+            .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
             .on_mouse_down(MouseButton::Left, select)
             .on_mouse_up(MouseButton::Right, open_menu)
             // `OnTabMButtonUp`: the middle button closes the tab.

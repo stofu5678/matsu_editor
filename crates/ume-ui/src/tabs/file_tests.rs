@@ -180,3 +180,46 @@ fn the_command_line_of_the_first_launch_makes_one_window_of_tabs(cx: &mut TestAp
     assert_eq!(captions(cx, handle), ["a.txt", "b.txt"]);
     std::fs::remove_dir_all(&dir).ok();
 }
+
+fn tooltips(cx: &mut TestAppContext, handle: AnyWindowHandle) -> Vec<String> {
+    super::tests::workspace(cx, handle).read_with(cx, |ws, app| {
+        ws.tab_editors()
+            .iter()
+            .map(|v| crate::app::Workspace::tooltip_of(v.read(app), app))
+            .collect()
+    })
+}
+
+#[gpui::test]
+fn the_tooltip_of_a_tab_is_the_path_with_the_replacements_and_the_text_is_the_name(
+    cx: &mut TestAppContext,
+) {
+    use crate::file_names::{FileNames, NoFolders};
+
+    let dir = temp_dir("tooltip");
+    let a = dir.join("a.txt");
+    std::fs::write(&a, "alpha").unwrap();
+    let handle = window(cx, true);
+    open_file(cx, handle, &a);
+    // Without the setting the tooltip is the whole path, and that of the untitled document is its
+    // caption (`CTabWnd::GetTabName`).
+    assert_eq!(
+        tooltips(cx, handle),
+        ["(無題)".to_owned(), a.to_string_lossy().into_owned()]
+    );
+    // The list of 「ファイル名表示」: the folder of the file becomes a short name.
+    let from = format!("{}{}", dir.display(), std::path::MAIN_SEPARATOR);
+    let rows = [vec![from, "作業:".to_owned()]];
+    let names = FileNames::new(true, 100, &rows, &NoFolders, false);
+    cx.update(|app| app.set_global(names));
+    assert_eq!(tooltips(cx, handle), ["(無題)", "作業:a.txt"]);
+    // The text of the tab is the name of the file, as before.
+    assert_eq!(captions(cx, handle), ["(無題)", "a.txt"]);
+    // A long path is shortened by the setting, but not cut to the width (`bFitMode` is false).
+    let narrow = FileNames::new(true, 3, &[], &NoFolders, false);
+    cx.update(|app| app.set_global(narrow));
+    let long = tooltips(cx, handle).remove(1);
+    assert!(long.ends_with("a.txt"), "{long}");
+    assert!(long.contains("..."), "{long}");
+    std::fs::remove_dir_all(&dir).ok();
+}

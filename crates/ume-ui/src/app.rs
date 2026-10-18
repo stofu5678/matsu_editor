@@ -214,7 +214,8 @@ fn set_menus(cx: &mut App, keymap: &KeyMap) {
     } else {
         None
     };
-    let recent = crate::history::menu::RecentLists::new(crate::history::current(cx));
+    let recent = crate::history::menu::RecentLists::new(crate::history::current(cx))
+        .with_names(crate::file_names::current(cx));
     // The row for the custom menus (`F_CUSTMENU_LIST`) lists the menus that have items.
     let custom_menus = cx
         .try_global::<crate::settings::UserSettings>()
@@ -351,6 +352,11 @@ impl Workspace {
             .detach();
         cx.observe_global::<crate::tabs::settings::TabOptions>(|_, cx| cx.notify())
             .detach();
+        // The titles and the tooltips of the tabs follow the file name display and the formats.
+        cx.observe_global::<crate::file_names::FileNames>(|_, cx| cx.notify())
+            .detach();
+        cx.observe_global::<crate::file_names::title::TitleFormats>(|_, cx| cx.notify())
+            .detach();
         // The toolbar and the function key bar are shown or hidden for every window at once.
         cx.observe_global::<crate::bars::BarSettings>(|_, cx| cx.notify())
             .detach();
@@ -359,6 +365,8 @@ impl Workspace {
             .detach();
         // macOS: the native menu shows the marks of the active window.
         cx.observe_window_activation(window, |this, window, cx| {
+            // The title has a format for the active window and another for the others.
+            cx.notify();
             if window.is_window_active() {
                 defer_refresh_menu_states(cx, true);
                 // Another program may have changed the file while the window was in the background.
@@ -404,7 +412,7 @@ impl Render for Workspace {
         self.sync_outline(cx);
         let active = self.panes.active().clone();
         let editor = active.read(cx);
-        window.set_window_title(&editor.title(cx));
+        window.set_window_title(&editor.title_for(window.is_window_active(), cx));
         let status = status_text(&editor.status(cx));
         let show_status_bar = editor.status_bar_shown();
         let macro_panel = editor.macro_panel(active.clone());

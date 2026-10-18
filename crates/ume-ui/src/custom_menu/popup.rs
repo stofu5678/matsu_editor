@@ -72,7 +72,8 @@ impl EditorView {
         if menus.get(index).is_none_or(|m| m.items.is_empty()) {
             return false;
         }
-        let recent = RecentLists::new(crate::history::current(cx));
+        let recent = RecentLists::new(crate::history::current(cx))
+            .with_names(crate::file_names::current(cx));
         let custom = CustomMenuList(&menus);
         let lists = ChainedLists(&recent, &custom);
         let entries = model::entries(
