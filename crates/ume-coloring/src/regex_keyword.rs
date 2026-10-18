@@ -118,6 +118,12 @@ pub(crate) fn split_pattern(pattern: &str) -> Option<(&str, bool)> {
     })
 }
 
+/// Whether `pattern` has the form of a regular expression keyword, `/.../k`, `m/.../k`, `m#...#k`
+/// or the same with `ki` (`CRegexKeyword::RegexKeyCheckSyntax`).
+pub fn has_keyword_form(pattern: &str) -> bool {
+    split_pattern(pattern).is_some()
+}
+
 impl RegexKeywords {
     /// The keywords of `t`; none when the type does not use them.
     pub(crate) fn from_type(t: &TypeSettings) -> Self {
@@ -253,6 +259,21 @@ impl LineSearch<'_> {
 mod tests {
     use super::*;
     use ume_config::settings::DocumentTypes;
+
+    #[test]
+    fn the_form_of_a_keyword_is_one_of_sakuras_frames() {
+        for good in [
+            "/a/k", "m/a/k", "m#a/b#k", "/a/ki", "m/a/ki", "m#a#ki", "/a+/k",
+        ] {
+            assert!(has_keyword_form(good), "{good}");
+        }
+        // Nothing between the frame, a frame that is not Sakura's, or none.
+        for bad in [
+            "", "//k", "/a/", "a/k", "/a/g", "m#a/k", "#a#k", "/a/kk", "abc",
+        ] {
+            assert!(!has_keyword_form(bad), "{bad}");
+        }
+    }
 
     fn type_with(patterns: &[(&str, &str)]) -> TypeSettings {
         let types = DocumentTypes::builtin();

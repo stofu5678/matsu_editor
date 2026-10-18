@@ -229,6 +229,43 @@ pub struct RegexKeyword {
     pub pattern: String,
 }
 
+/// `MAX_KEYHELP_FILE`: how many keyword help dictionaries a type can have.
+pub const MAX_KEYHELP_FILES: usize = 20;
+/// `DICT_ABOUT_LEN`: the buffer of the description of a dictionary, with the end mark.
+pub const DICT_ABOUT_LEN: usize = 50;
+
+/// A keyword help dictionary (`KeyHelpInfo`): `KDct[NN]=use,about,path`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeyHelpDict {
+    /// The dictionary is searched (`m_bUse`).
+    pub used: bool,
+    /// The description, made from the first line of the file (`m_szAbout`).
+    pub about: String,
+    /// The path of the dictionary file (`m_szPath`); never empty in a list.
+    pub path: String,
+}
+
+impl KeyHelpDict {
+    /// Reads `use,about,path` (`CDataProfile::IOProfileData` for `KeyHelpInfo`: `%d,%[^,],%[^\n]`, or
+    /// `%d,,%[^\n]` for an empty description). `None` for a value that does not have the form.
+    pub fn parse(value: &str) -> Option<Self> {
+        let (used, rest) = value.split_once(',')?;
+        let used = used.trim().parse::<i32>().ok()? != 0;
+        let (about, path) = rest.split_once(',')?;
+        let path = path.split('\n').next().unwrap_or_default();
+        Some(Self {
+            used,
+            about: about.to_owned(),
+            path: path.to_owned(),
+        })
+    }
+
+    /// The value of `KDct[NN]`.
+    pub fn format(&self) -> String {
+        format!("{},{},{}", i32::from(self.used), self.about, self.path)
+    }
+}
+
 /// The name of the color a regular expression keyword gets when the file does not say
 /// (`COLORIDX_REGEX1`).
 pub const DEFAULT_REGEX_COLOR: &str = "RK1";

@@ -27,5 +27,5 @@ pub use extra_types::ExtraSet;
 pub use font::{FontSetting, LogFont, ViewFont};
 pub use keywords::{KeywordSet, KeywordSets};
 pub use search_keys::{KeyList, SearchKeys};
-pub use type_rules::{BlockComment, LineComment, RegexKeyword};
+pub use type_rules::{BlockComment, KeyHelpDict, LineComment, RegexKeyword};
 pub use types::{NewFileKeys, TypeSettings, types_count};

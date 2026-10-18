@@ -267,11 +267,12 @@ fn the_pages_have_every_control_that_sakura_has() {
     // 支援: the word file with its button and the plugin list, the three check boxes of the
     // input completion, the two help files with their buttons and the viewer box, the warning on
     // saving, the three options of the C/C++ indent and the detection of the indentation style.
-    // 正規表現キーワード and キーワードヘルプ: the list is not here (it has no list control yet);
-    // the other controls are.
+    // 正規表現キーワード: the check box, the list (with its edit boxes and buttons, one control),
+    // インポート and エクスポート. キーワードヘルプ: the check box, the list, the three options of
+    // the search, the right-click menu, インポート and エクスポート.
     assert_eq!(count(3), 16);
-    assert_eq!(count(4), 13);
-    assert_eq!(count(5), 16);
+    assert_eq!(count(4), 4);
+    assert_eq!(count(5), 8);
 }
 
 #[test]
@@ -981,6 +982,8 @@ fn a_type_that_is_not_there_has_no_sheet() {
     assert_eq!(t.tab_space, 4);
 }
 
+mod lists;
+
 // ---- 支援 ----
 
 /// Whether the control of the page the sheet shows can be used now.
@@ -1133,134 +1136,4 @@ fn the_word_file_the_dialog_gives_is_relative_to_the_folder_of_the_settings() {
         path_for_box(Path::new("/tmp/a.kwd"), None),
         Path::new("/tmp/a.kwd").to_string_lossy()
     );
-}
-
-// ---- 正規表現キーワード ----
-
-#[test]
-fn the_color_of_a_regex_keyword_is_one_of_the_items_with_both_colors() {
-    use super::pages::regex::{color_options, first_regex_color};
-    let options = color_options();
-    let has = |label: &str| options.iter().any(|(l, _)| *l == label);
-    // `SetData`: the items that have a text color and a background, in the order of the list.
-    assert!(has("テキスト") && has("コメント") && has("URL") && has("正規表現キーワード10"));
-    assert!(!has("カーソル") && !has("表示範囲(ミニマップ)"));
-    assert!(options.windows(2).all(|w| w[0].1 < w[1].1));
-    // The box starts at 正規表現キーワード1.
-    assert!(
-        options
-            .iter()
-            .any(|(l, n)| *l == "正規表現キーワード1" && *n == first_regex_color())
-    );
-}
-
-#[gpui::test]
-fn the_regex_page_switches_the_keywords_and_keeps_the_list(cx: &mut TestAppContext) {
-    let (ini, a) = setup(
-        cx,
-        "[Types(0)]\r\nbUseRegexKeyword=0\r\nRxKey[000]=URL,/a+/k\r\nRxKey[001]=RK2,/b/k\r\n",
-    );
-    run(cx, a, "F_OPTION_TYPE", &[]);
-    with_dialog(cx, |d, _, dcx| d.select_index(4, dcx));
-    assert_eq!(value(cx, USE_REGEX), Value::Bool(false));
-    assert_eq!(value(cx, REGEX_PATTERN), Value::Text("//k".to_owned()));
-    assert!(usable(cx, USE_REGEX));
-    for id in [
-        REGEX_PATTERN,
-        REGEX_COLOR,
-        REGEX_INS,
-        REGEX_ADD,
-        REGEX_UPD,
-        REGEX_DEL,
-        REGEX_TOP,
-        REGEX_UP,
-        REGEX_DOWN,
-        REGEX_LAST,
-        REGEX_IMPORT,
-        REGEX_EXPORT,
-    ] {
-        assert!(!usable(cx, id), "{id}");
-    }
-    check(cx, USE_REGEX, true);
-    ok(cx);
-    assert_eq!(
-        ini.get("Types(0)", "bUseRegexKeyword").as_deref(),
-        Some("1")
-    );
-    // The keywords of the file are as they were.
-    assert_eq!(
-        ini.get("Types(0)", "RxKey[000]").as_deref(),
-        Some("URL,/a+/k")
-    );
-    assert_eq!(
-        ini.get("Types(0)", "RxKey[001]").as_deref(),
-        Some("RK2,/b/k")
-    );
-    let on = cx.update(|app| {
-        crate::doc_types::with_user(app, |user| {
-            user.document_types().get(0).unwrap().use_regex_keyword
-        })
-    });
-    assert!(on, "the coloring of the windows reads this setting");
-}
-
-// ---- キーワードヘルプ ----
-
-#[gpui::test]
-fn the_keyword_help_page_shows_the_file_greyed_out_and_writes_nothing(cx: &mut TestAppContext) {
-    let (ini, a) = setup(
-        cx,
-        "[Types(0)]\r\nbUseKeyWordHelp=1\r\nbUseKeyHelpAllSearch=1\r\nnKeyHelpRMenuShowType=2\r\n\
-         KDct[00]=1,Memo,dict.txt\r\n",
-    );
-    run(cx, a, "F_OPTION_TYPE", &[]);
-    with_dialog(cx, |d, _, dcx| d.select_index(5, dcx));
-    assert_eq!(value(cx, USE_KEYHELP), Value::Bool(true));
-    assert_eq!(value(cx, KEYHELP_ALL_SEARCH), Value::Bool(true));
-    assert_eq!(value(cx, KEYHELP_KEY_DISP), Value::Bool(false));
-    assert_eq!(value(cx, KEYHELP_RMENU), Value::Int(2));
-    for id in [
-        USE_KEYHELP,
-        KEYHELP_ALL_SEARCH,
-        KEYHELP_KEY_DISP,
-        KEYHELP_PREFIX,
-        KEYHELP_RMENU,
-        KEYHELP_PATH,
-        KEYHELP_REF,
-        KEYHELP_INS,
-        KEYHELP_UPD,
-        KEYHELP_DEL,
-        KEYHELP_TOP,
-        KEYHELP_UP,
-        KEYHELP_DOWN,
-        KEYHELP_LAST,
-        KEYHELP_IMPORT,
-        KEYHELP_EXPORT,
-    ] {
-        assert!(!usable(cx, id), "{id}");
-    }
-    // Another page changes: the keyword help keys are as the file had them.
-    with_dialog(cx, |d, _, dcx| d.select_index(0, dcx));
-    type_in(cx, TAB_SPACE, "8");
-    ok(cx);
-    assert_eq!(ini.get("Types(0)", "bUseKeyWordHelp").as_deref(), Some("1"));
-    assert_eq!(
-        ini.get("Types(0)", "KDct[00]").as_deref(),
-        Some("1,Memo,dict.txt")
-    );
-    assert_eq!(
-        ini.get("Types(0)", "nKeyHelpRMenuShowType").as_deref(),
-        Some("2")
-    );
-}
-
-#[gpui::test]
-fn the_keyword_help_page_has_sakuras_defaults(cx: &mut TestAppContext) {
-    let (_ini, a) = setup(cx, "");
-    run(cx, a, "F_OPTION_TYPE", &[]);
-    with_dialog(cx, |d, _, dcx| d.select_index(5, dcx));
-    assert_eq!(value(cx, USE_KEYHELP), Value::Bool(false));
-    // `KEYHELP_RMENU_TOP`
-    assert_eq!(value(cx, KEYHELP_RMENU), Value::Int(1));
-    cancel(cx);
 }
