@@ -48,8 +48,8 @@
 //! and custom menus (`CEditView::CreatePopUpMenuSub`) and the toolbar (`CMainToolBar`).
 //!
 //! Not here yet:
-//! * `F_SHOWMINIMAP` (no minimap: never checked), `F_SELECT_COUNT_MODE` and `F_TOGGLE_KEY_SEARCH`
-//!   (no command yet: the items stay gray).
+//! * `F_SHOWMINIMAP` (no minimap: never checked) and `F_TOGGLE_KEY_SEARCH` (no command yet: the
+//!   items stay gray).
 //! * The `IsFuncEnable` cases that need state UME does not have: the clipboard (`F_PASTE`, whose
 //!   read is slow on Wayland), the box functions (a fixed-pitch font), the limit of windows
 //!   (there is none), a change of the encoding that makes `F_FILESAVE` write an unmodified file,
@@ -131,6 +131,8 @@ pub(crate) struct FuncStates {
     /// The key macro can be saved (`IsSaveOk`) and there is one to play.
     pub key_macro_saveable: bool,
     pub key_macro_loaded: bool,
+    /// The window counts the selection in bytes (`m_nSelectCountMode`, else the common setting).
+    pub select_count_by_byte: bool,
 }
 
 /// The name of the function with this code (`F_UNDO`), if it is in Sakura's table.
@@ -186,6 +188,10 @@ impl FuncStates {
             grep_window: view.is_grep_window(),
             key_macro_saveable: view.macros.can_save_key_macro(),
             key_macro_loaded: view.macros.has_key_macro(),
+            select_count_by_byte: view
+                .prefs
+                .select_count
+                .by_byte(crate::status_options::current(cx).select_count_by_byte),
         }
     }
 
@@ -228,6 +234,7 @@ impl FuncStates {
                 self.isearch == Some(ISearchMode::Regexp)
             }
             "F_OUTLINE_TOGGLE" => self.outline,
+            "F_SELECT_COUNT_MODE" => self.select_count_by_byte,
             _ => false,
         }
     }

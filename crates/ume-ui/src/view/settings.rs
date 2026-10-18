@@ -31,6 +31,8 @@ pub(crate) struct ViewPrefs {
     /// The zoom of the font size, 1.0 for the size of the file (`m_nCurrentZoom`).
     pub zoom: f64,
     pub show_status_bar: bool,
+    /// How the selection is counted in the status bar (`m_nSelectCountMode`).
+    pub select_count: crate::status_options::SelectCountMode,
     /// The layout was changed while some lines still have estimated row counts: bring the caret
     /// into view again as the counts become exact.
     pub reveal_caret: bool,
@@ -43,6 +45,7 @@ impl ViewPrefs {
             wrap_columns: settings.wrap_columns,
             zoom: 1.0,
             show_status_bar: settings.show_status_bar,
+            select_count: Default::default(),
             reveal_caret: false,
             settings,
         }
@@ -54,6 +57,7 @@ impl EditorView {
     /// temporary changes (zoom, wrap) are reset, as they are when Sakura changes the type.
     pub fn apply_settings(&mut self, settings: ViewSettings, cx: &mut Context<Self>) {
         let status_bar = self.prefs.show_status_bar;
+        let select_count = self.prefs.select_count;
         self.font_size = settings.font_px();
         if let Some(family) = &settings.font_family {
             self.font_family = family.clone().into();
@@ -66,6 +70,7 @@ impl EditorView {
         self.line_color_cache.clear();
         // The status bar is a setting of the window, not of the type; a type change keeps it.
         self.prefs.show_status_bar = status_bar;
+        self.prefs.select_count = select_count;
         self.relayout_in(cx);
         cx.notify();
     }

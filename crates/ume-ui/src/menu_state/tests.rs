@@ -64,6 +64,7 @@ pub(super) fn base() -> FuncStates {
         grep_window: false,
         key_macro_saveable: false,
         key_macro_loaded: false,
+        select_count_by_byte: false,
     }
 }
 
@@ -245,12 +246,7 @@ fn the_other_functions_are_never_checked() {
         ..base()
     };
     // no minimap; the toolbar and the function key bar come in another change
-    for name in [
-        "F_UNDO",
-        "F_FILEOPEN",
-        "F_SHOWMINIMAP",
-        "F_SELECT_COUNT_MODE",
-    ] {
+    for name in ["F_UNDO", "F_FILEOPEN", "F_SHOWMINIMAP"] {
         assert!(!checked(&states, name), "{name}");
     }
     assert!(!states.is_checked(0xFFFF));

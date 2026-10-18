@@ -27,6 +27,7 @@ mod ruler;
 mod settings;
 #[cfg(test)]
 mod settings_tests;
+mod status_info;
 mod syntax;
 
 use std::ops::Range;
@@ -169,6 +170,8 @@ pub struct EditorView {
     pub(crate) notice: Option<String>,
     /// The settings of the file and the temporary changes (`view/settings.rs`).
     pub(crate) prefs: ViewPrefs,
+    /// The size of the selection counted last (`status_info.rs`).
+    selection_count: status_info::SelectionCountCache,
     /// The print preview and the print dialog (`crate::print`).
     pub(crate) print: crate::print::PrintState,
     /// Find and replace: the pattern, the options and the marks (`crate::search`).
@@ -236,6 +239,7 @@ impl EditorView {
             drag: Drag::None,
             notice: None,
             prefs: ViewPrefs::new(Default::default()),
+            selection_count: Default::default(),
             print: Default::default(),
             search: SearchState::default(),
             isearch: None,
@@ -552,9 +556,13 @@ impl EditorView {
 
     pub fn status(&self, cx: &App) -> StatusInfo {
         let shared = self.document.read(cx);
+        let options = crate::status_options::current(cx);
+        let (line, column) = self.status_position(&options, cx);
         StatusInfo {
-            line: self.cursor.caret().line + 1,
-            column: self.caret_column(cx) + 1,
+            line,
+            column,
+            char_code: self.caret_char_code(&options, cx),
+            selection: self.selection_message(&options, cx),
             lines: shared.doc().line_count().max(1),
             modified: shared.model().is_modified(),
             overwrite: shared.overwrite(),
@@ -748,5 +756,7 @@ mod colors_tests;
 mod paging_tests;
 #[cfg(test)]
 mod ruler_tests;
+#[cfg(test)]
+mod status_info_tests;
 #[cfg(test)]
 mod tests;

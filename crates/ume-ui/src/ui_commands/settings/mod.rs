@@ -13,6 +13,7 @@ pub mod option_statusbar;
 pub mod option_tab;
 pub mod option_type;
 pub mod option_window;
+pub mod select_count_mode;
 pub mod set_font_size_down;
 pub mod set_font_size_up;
 pub mod show_funckey;
