@@ -42,6 +42,7 @@ use gpui::{
 use gpui_component::Root;
 use ume_config::Profile;
 use ume_config::settings::builtin_types::{BUILTIN_TYPE_COUNT, added_type_name};
+use ume_config::settings::type_rules::MAX_REGEX_KEYWORDS;
 use ume_config::settings::{DocumentTypes, TypeSettings};
 
 use crate::common_settings::CommonSettingsDialog;
@@ -336,6 +337,19 @@ fn write_type(
         ),
     ];
     merged.write(profile, number)?;
+    // A built-in type starts with keywords that the file does not have. When the user took some
+    // away, a blank key ends the list, so that they do not come back when the file is read.
+    let regex_kept = merged
+        .regex_keywords
+        .iter()
+        .filter(|k| !k.pattern.is_empty())
+        .count();
+    if regex_kept < base.regex_keywords.len() && regex_kept < MAX_REGEX_KEYWORDS {
+        let key = format!("RxKey[{regex_kept:03}]");
+        if profile.get(&section, &key).is_none() {
+            profile.set_string(&section, &key, "")?;
+        }
+    }
     if target.unused_slot {
         return Ok(());
     }

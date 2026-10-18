@@ -602,6 +602,15 @@ impl TypeSettings {
                 None => self.regex_keywords.push(keyword),
             }
         }
+        // The list ends at the first empty pattern (`RegexKeyCompile` counts to it), so a blank
+        // `RxKey[NNN]=` after the last keyword also ends the defaults of a built-in type.
+        if let Some(end) = self
+            .regex_keywords
+            .iter()
+            .position(|k| k.pattern.is_empty())
+        {
+            self.regex_keywords.truncate(end);
+        }
     }
 
     /// Reads type `index` over the defaults of the basic type.
@@ -776,9 +785,16 @@ impl TypeSettings {
             )?;
             written = n + 1;
         }
-        // Sakura writes the file anew: the keys of keywords that are gone must not stay.
+        // Sakura writes the file anew: the keys of keywords that are gone must not stay. The first
+        // of them becomes a blank `RxKey[NNN]=`, which ends the list when it is read: without it
+        // the keywords a built-in type starts with would come back.
         for n in written..MAX_REGEX_KEYWORDS {
-            profile.remove(s, &format!("RxKey[{n:03}]"));
+            let key = format!("RxKey[{n:03}]");
+            if n == written && profile.get(s, &key).is_some() {
+                profile.set_string(s, &key, "")?;
+            } else {
+                profile.remove(s, &key);
+            }
         }
         Ok(())
     }
@@ -1091,11 +1107,19 @@ mod tests {
         t.regex_keywords.remove(1);
         t.write(&mut p, 1).unwrap();
         assert_eq!(p.get("Types(1)", "RxKey[001]"), Some("RK3,/c/k"));
-        assert_eq!(p.get("Types(1)", "RxKey[002]"), None);
+        // The first key that is gone is blank: it ends the list, and nothing is after it.
+        assert_eq!(p.get("Types(1)", "RxKey[002]"), Some(""));
+        assert_eq!(p.get("Types(1)", "RxKey[003]"), None);
         assert_eq!(TypeSettings::read(&p, 1).regex_keywords, t.regex_keywords);
         t.regex_keywords.clear();
         t.write(&mut p, 1).unwrap();
-        assert_eq!(p.get("Types(1)", "RxKey[000]"), None);
+        assert_eq!(p.get("Types(1)", "RxKey[000]"), Some(""));
+        assert_eq!(p.get("Types(1)", "RxKey[001]"), None);
+        assert!(TypeSettings::read(&p, 1).regex_keywords.is_empty());
+        // A list that was never in the file does not get a blank key.
+        let mut fresh = Profile::new();
+        TypeSettings::basic().write(&mut fresh, 1).unwrap();
+        assert_eq!(fresh.get("Types(1)", "RxKey[000]"), None);
     }
 
     #[test]

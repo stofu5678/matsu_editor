@@ -162,13 +162,48 @@ fn a_deleted_keyword_is_gone_from_the_file_and_from_the_windows(cx: &mut TestApp
         ini.get("Types(0)", "RxKey[000]").as_deref(),
         Some("RK2,m#b/c#ki")
     );
-    assert_eq!(ini.get("Types(0)", "RxKey[001]"), None);
+    // The first key that is gone is blank: it ends the list.
+    assert_eq!(ini.get("Types(0)", "RxKey[001]").as_deref(), Some(""));
+    assert_eq!(ini.get("Types(0)", "RxKey[002]"), None);
     let count = cx.update(|app| {
         crate::doc_types::with_user(app, |user| {
             user.document_types().get(0).unwrap().regex_keywords.len()
         })
     });
     assert_eq!(count, 1);
+}
+
+#[gpui::test]
+fn the_keywords_a_built_in_type_starts_with_can_be_deleted(cx: &mut TestAppContext) {
+    // テキスト (Types(1)) has regular expression keywords of its own that the file does not.
+    let (ini, _a) = setup(cx, "");
+    cx.update(|app| open(app, 1, Some(4), None)).unwrap();
+    let started = rows_of(cx, REGEX_LIST).len();
+    assert!(started >= 2, "{started}");
+    // Delete the last one: the others stay.
+    press(cx, REGEX_LIST, Op::Last);
+    press(cx, REGEX_LIST, Op::Delete);
+    ok(cx);
+    let count = |cx: &mut TestAppContext| {
+        cx.update(|app| {
+            crate::doc_types::with_user(app, |user| {
+                user.document_types().get(1).unwrap().regex_keywords.len()
+            })
+        })
+    };
+    assert_eq!(count(cx), started - 1);
+    // Delete them all: none comes back.
+    cx.update(|app| open(app, 1, Some(4), None)).unwrap();
+    for _ in 0..started {
+        press(cx, REGEX_LIST, Op::Delete);
+    }
+    assert!(rows_of(cx, REGEX_LIST).is_empty());
+    ok(cx);
+    assert_eq!(count(cx), 0);
+    assert_eq!(ini.get("Types(1)", "RxKey[000]").as_deref(), Some(""));
+    // and the same when the file is read again
+    let again = ume_config::settings::DocumentTypes::from_profile(&ini.profile());
+    assert!(again.get(1).unwrap().regex_keywords.is_empty());
 }
 
 #[gpui::test]
