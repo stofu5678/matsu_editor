@@ -14,9 +14,10 @@
 //!
 //! # Pages
 //!
-//! スクリーン, カラー and ウィンドウ are here. 支援, 正規表現キーワード and キーワードヘルプ say
-//! that they are not available yet. A control whose feature UME Editor does not have is shown
-//! greyed out with the value of the file and is never written (the rule of the common settings).
+//! All six pages are here. A control whose feature UME Editor does not have is shown greyed out
+//! with the value of the file and is never written (the rule of the common settings). The lists
+//! of 正規表現キーワード and キーワードヘルプ need a list control that the settings dialog does not
+//! have yet; the keywords and the dictionaries of the file stay as they are.
 //!
 //! # The file
 //!

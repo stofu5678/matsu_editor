@@ -20,10 +20,18 @@
 //! * Choosing a candidate deletes the word before the caret and inserts the candidate (the key is
 //!   part of the result: "Ap" and "apple" make "apple"), as one undo step.
 //!
-//! Not done: the word file, the keywords of the document type and the plugins as sources of
-//! candidates (there are no document types yet); the help text (the keyword help dictionary) beside
-//! the list; the keys of the settings `bHokanKey_*` are Sakura's defaults (Enter and Right on, Tab
-//! off), fixed.
+//! The candidates come from where the document type says (the type settings 支援: the word file,
+//! the words of the document, the highlighted keywords) and are compared as it says (英大文字小文字を
+//! 同一視する).
+//!
+//! Not done: the plugins as a source of candidates; the help text (the keyword help dictionary)
+//! beside the list; the keys of the settings `bHokanKey_*` are Sakura's defaults (Enter and Right
+//! on, Tab off), fixed.
+
+use std::cell::RefCell;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::SystemTime;
 
 use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, KeyDownEvent, MouseButton,
@@ -32,6 +40,7 @@ use gpui::{
 use ume_commands::context::Changes;
 use ume_commands::registry::Registry;
 use ume_commands::text::complete;
+use ume_config::settings::DocumentTypes;
 use ume_core::buffer::Pos;
 
 use crate::view::EditorView;
@@ -120,8 +129,110 @@ fn list_key(key: &str) -> Option<ListKey> {
     })
 }
 
+/// The word file that was read last, with what tells that it has not changed.
+#[derive(Default)]
+struct WordFileCache {
+    path: PathBuf,
+    stamp: Option<(u64, SystemTime)>,
+    lines: Arc<Vec<String>>,
+}
+
+impl WordFileCache {
+    /// The lines of the file at `path`: the kept ones if the file is the same, else the file read
+    /// again. A file that cannot be read has no lines.
+    fn lines(&mut self, path: &Path) -> Arc<Vec<String>> {
+        let stamp = std::fs::metadata(path)
+            .ok()
+            .and_then(|meta| Some((meta.len(), meta.modified().ok()?)));
+        if self.path != path || self.stamp != stamp || stamp.is_none() {
+            self.path = path.to_owned();
+            self.stamp = stamp;
+            self.lines = Arc::new(
+                std::fs::read(path)
+                    .map(|bytes| complete::word_file_lines(&bytes))
+                    .unwrap_or_default(),
+            );
+        }
+        Arc::clone(&self.lines)
+    }
+}
+
+thread_local! {
+    /// The UI runs on one thread; so does the cache.
+    static WORD_FILE_CACHE: RefCell<WordFileCache> = RefCell::new(WordFileCache::default());
+}
+
+/// Where the candidates of the input completion come from, and how they are compared: the
+/// settings of the document type (`CHokanMgr::Search`: `m_szHokanFile`, `m_bHokanLoHiCase`,
+/// `m_bUseHokanByFile`, `m_bUseHokanByKeyword`).
+struct Sources {
+    ignore_case: bool,
+    by_file: bool,
+    by_keyword: bool,
+    /// The word file as the type says it (empty: none).
+    word_file: String,
+    /// The folder of the settings file, where a relative path of the word file starts
+    /// (`CTextInputStream_AbsIni`).
+    ini_dir: Option<PathBuf>,
+    types: Arc<DocumentTypes>,
+    type_index: usize,
+}
+
+impl Sources {
+    fn of(type_index: usize, cx: &gpui::App) -> Self {
+        let (types, ini_dir) = crate::doc_types::with_user(cx, |user| {
+            (
+                user.shared_types(),
+                crate::settings::history_file(user)
+                    .and_then(|path| path.parent().map(Path::to_owned)),
+            )
+        });
+        // A type that is not there completes as the defaults of Sakura do.
+        let t = types.get(type_index).cloned().unwrap_or_default();
+        Self {
+            ignore_case: t.hokan_lo_hi_case,
+            by_file: t.use_hokan_by_file,
+            by_keyword: t.use_hokan_by_keyword,
+            word_file: t.hokan_file,
+            ini_dir,
+            types,
+            type_index,
+        }
+    }
+
+    /// The lines of the word file, or none when the type has no word file or it cannot be read
+    /// (`CDicMgr::HokanSearch` returns at once).
+    ///
+    /// The list is made again for every key typed while it is open, so the lines are kept until
+    /// the file changes (its size or time), instead of reading and decoding it each time as
+    /// Sakura does.
+    fn word_file_lines(&self) -> Arc<Vec<String>> {
+        if self.word_file.is_empty() {
+            return Arc::default();
+        }
+        let path = Path::new(&self.word_file);
+        let path = match (&self.ini_dir, path.is_relative()) {
+            (Some(dir), true) => dir.join(path),
+            _ => path.to_owned(),
+        };
+        WORD_FILE_CACHE.with(|cache| cache.borrow_mut().lines(&path))
+    }
+
+    /// The words of the keyword sets of the type, in the order of the slots
+    /// (`CHokanMgr::HokanSearchByKeyword`).
+    fn keywords(&self) -> impl Iterator<Item = &str> {
+        self.types
+            .keyword_sets_of(self.type_index)
+            .into_iter()
+            .flat_map(|(_, set)| set.words().iter().map(String::as_str))
+    }
+}
+
 impl EditorView {
     /// The word before the caret and the candidates for it, or `None` if there is no word.
+    ///
+    /// The order is Sakura's (`CHokanMgr::Search`): the word file, the words of the document, the
+    /// highlighted keywords.
     fn completion_for_caret(&self, cx: &gpui::App) -> Option<Completion> {
         let doc = self.document.read(cx).doc();
         let caret = self.cursor.caret();
@@ -130,13 +241,23 @@ impl EditorView {
         let chars: Vec<char> = line.text.chars().collect();
         let idx = before.chars().count();
         let key = complete::left_word(&chars, idx)?;
-        let items = complete::candidates(
-            |i| doc.line(i).ok().flatten().map(|l| l.text),
-            &key,
-            // `m_bHokanLoHiCase`: off by default (`CType.cpp`)
-            false,
-            (caret.line, idx),
-        );
+        let sources = Sources::of(self.type_index(), cx);
+        let mut items =
+            complete::word_file_candidates(&sources.word_file_lines(), &key, sources.ignore_case);
+        if sources.by_file {
+            let in_document = complete::candidates(
+                |i| doc.line(i).ok().flatten().map(|l| l.text),
+                &key,
+                sources.ignore_case,
+                (caret.line, idx),
+            );
+            items = complete::merge_candidates(items, in_document, Some(complete::MAX_CANDIDATES));
+        }
+        if sources.by_keyword {
+            let keywords =
+                complete::keyword_candidates(sources.keywords(), &key, sources.ignore_case);
+            items = complete::merge_candidates(items, keywords, None);
+        }
         Some(Completion::new(key, items))
     }
 

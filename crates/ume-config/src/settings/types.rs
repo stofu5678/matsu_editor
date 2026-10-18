@@ -206,6 +206,16 @@ pub struct TypeSettings {
     pub kinsoku_kuto: String,
     /// `bChkEnterAtEnd`: warn on saving when line endings are mixed.
     pub warn_mixed_eol: bool,
+    /// `szHokanFile`: the word file of the input completion (入力補完 単語ファイル).
+    pub hokan_file: String,
+    /// `nHokanType`: the plugin that adds candidates to the input completion (0: none).
+    pub hokan_type: i32,
+    /// `bHokanLoHiCase`: the input completion ignores the case of letters.
+    pub hokan_lo_hi_case: bool,
+    /// `bUseHokanByFile`: the input completion offers the words of the document.
+    pub use_hokan_by_file: bool,
+    /// `bUseHokanByKeyword`: the input completion offers the highlighted keywords.
+    pub use_hokan_by_keyword: bool,
     /// `bUseTypeFont`: this type has its own font.
     pub use_type_font: bool,
     /// `lf`, `lfFaceName`, `nPointSize` of this type.
@@ -286,6 +296,12 @@ impl Default for TypeSettings {
             kinsoku_tail: String::new(),
             kinsoku_kuto: DEFAULT_KINSOKU_KUTO.to_owned(),
             warn_mixed_eol: true,
+            // `_DefaultConfig` (`CType.cpp`)
+            hokan_file: String::new(),
+            hokan_type: 0,
+            hokan_lo_hi_case: false,
+            use_hokan_by_file: true,
+            use_hokan_by_keyword: false,
             use_type_font: false,
             // `_DefaultConfig` does not set `m_lf`; an unused, zeroed font.
             font: FontSetting {
@@ -466,6 +482,16 @@ impl TypeSettings {
             KINSOKU_SIZE,
         );
         read_bool(profile, s, "bChkEnterAtEnd", &mut self.warn_mixed_eol);
+        read_string(profile, s, "szHokanFile", &mut self.hokan_file, MAX_PATH);
+        read_i32(profile, s, "nHokanType", &mut self.hokan_type);
+        read_bool(profile, s, "bHokanLoHiCase", &mut self.hokan_lo_hi_case);
+        read_bool(profile, s, "bUseHokanByFile", &mut self.use_hokan_by_file);
+        read_bool(
+            profile,
+            s,
+            "bUseHokanByKeyword",
+            &mut self.use_hokan_by_keyword,
+        );
         read_bool(profile, s, "bUseTypeFont", &mut self.use_type_font);
         self.read_rules(profile, s);
         self.font.read(profile, s, "lf", None, None);
@@ -642,6 +668,11 @@ impl TypeSettings {
         profile.set_string(s, "szKinsokuTail", &self.kinsoku_tail)?;
         profile.set_string(s, "szKinsokuKuto", &self.kinsoku_kuto)?;
         profile.set_bool(s, "bChkEnterAtEnd", self.warn_mixed_eol)?;
+        profile.set_string(s, "szHokanFile", &self.hokan_file)?;
+        profile.set_i32(s, "nHokanType", self.hokan_type)?;
+        profile.set_bool(s, "bHokanLoHiCase", self.hokan_lo_hi_case)?;
+        profile.set_bool(s, "bUseHokanByFile", self.use_hokan_by_file)?;
+        profile.set_bool(s, "bUseHokanByKeyword", self.use_hokan_by_keyword)?;
         profile.set_bool(s, "bUseTypeFont", self.use_type_font)?;
         self.write_rules(profile, s)?;
         // Sakura always writes the font of the type (an all-zero one when the type has none). A type that does
@@ -998,6 +1029,28 @@ mod tests {
         assert_eq!(t.regex_keywords[0].color, "URL");
         assert_eq!(t.regex_keywords[0].pattern, "/a+/k");
         assert_eq!(t.regex_keywords[1].color, "NOT");
+    }
+
+    #[test]
+    fn the_input_completion_settings_are_read_written_and_default_like_sakura() {
+        // `_DefaultConfig`: the words of the document, no word file, no keywords, case matters.
+        let t = TypeSettings::basic();
+        assert_eq!(t.hokan_file, "");
+        assert_eq!(t.hokan_type, 0);
+        assert!(!t.hokan_lo_hi_case && t.use_hokan_by_file && !t.use_hokan_by_keyword);
+        let p = Profile::from_bytes(&utf8(
+            "[Types(2)]\r\nszHokanFile=words.kwd\r\nnHokanType=3\r\nbHokanLoHiCase=1\r\n\
+             bUseHokanByFile=0\r\nbUseHokanByKeyword=1\r\n",
+        ));
+        let t = TypeSettings::read(&p, 2);
+        assert_eq!(t.hokan_file, "words.kwd");
+        assert_eq!(t.hokan_type, 3);
+        assert!(t.hokan_lo_hi_case && !t.use_hokan_by_file && t.use_hokan_by_keyword);
+        let mut out = Profile::new();
+        t.write(&mut out, 2).unwrap();
+        assert_eq!(TypeSettings::read(&out, 2), t);
+        assert_eq!(out.get("Types(2)", "szHokanFile"), Some("words.kwd"));
+        assert_eq!(out.get("Types(2)", "bUseHokanByFile"), Some("0"));
     }
 
     #[test]

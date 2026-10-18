@@ -12,6 +12,7 @@ use ume_core::buffer::{Document, Pos};
 use ume_core::model::DocumentModel;
 
 use crate::document::SharedDocument;
+use crate::settings::UserSettings;
 use crate::view::EditorView;
 
 const F_HOKAN: u16 = 31430;
@@ -25,7 +26,19 @@ struct Fixture {
 
 /// A view over `text` with the caret at the end of the text.
 fn setup<'a>(cx: &'a mut TestAppContext, text: &str) -> (Fixture, &'a mut VisualTestContext) {
+    setup_with(cx, text, None)
+}
+
+/// A view over `text` in an application with the settings `user`.
+fn setup_with<'a>(
+    cx: &'a mut TestAppContext,
+    text: &str,
+    user: Option<UserSettings>,
+) -> (Fixture, &'a mut VisualTestContext) {
     cx.update(gpui_component::init);
+    if let Some(user) = user {
+        cx.update(|app| app.set_global(user));
+    }
     let doc = Document::from_utf8(text.as_bytes().to_vec()).unwrap();
     let document = cx.new(|_| SharedDocument::new(DocumentModel::new(doc), None));
     let shared = document.clone();
@@ -266,6 +279,138 @@ fn the_function_runs_from_a_menu_too(cx: &mut TestAppContext) {
     // running it again makes the list again (the list stays for F_HOKAN)
     f.run(cx, F_HOKAN);
     assert_eq!(f.list(cx), Some((strings(&["apple", "apricot"]), 0)));
+}
+
+// ---- F_HOKAN: the settings of the document type ----
+
+/// A folder that is removed at the end of the test.
+struct TempDir(std::path::PathBuf);
+
+impl TempDir {
+    fn new() -> Self {
+        static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!("ume-ui-hokan-{}-{n}", std::process::id()));
+        std::fs::create_dir_all(&path).unwrap();
+        Self(path)
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Settings read from a file `ume.ini` with `types_0` as its `[Types(0)]` section, in a private
+/// folder that has the files `files` (name and bytes).
+fn settings_with(types_0: &str, files: &[(&str, &[u8])]) -> (TempDir, UserSettings) {
+    let dir = TempDir::new();
+    for (name, bytes) in files {
+        std::fs::write(dir.0.join(name), bytes).unwrap();
+    }
+    let path = dir.0.join("ume.ini");
+    let profile = ume_config::Profile::from_bytes(format!("[Types(0)]\r\n{types_0}").as_bytes());
+    let user = UserSettings::from_profile(profile, Some(path));
+    (dir, user)
+}
+
+#[gpui::test]
+fn the_word_file_of_the_type_comes_first_and_its_path_starts_at_the_settings_folder(
+    cx: &mut TestAppContext,
+) {
+    // `CHokanMgr::Search`: the word file, then the document. A word that is in both is once.
+    let (_dir, user) = settings_with(
+        "szHokanFile=words.kwd\r\n",
+        &[("words.kwd", b"; a comment\r\napple\r\nzebra\r\napricot\r\n")],
+    );
+    let (f, cx) = setup_with(cx, "apex apple\nap", Some(user));
+    f.run(cx, F_HOKAN);
+    assert_eq!(
+        f.list(cx),
+        Some((strings(&["apple", "apricot", "apex"]), 0))
+    );
+}
+
+#[gpui::test]
+fn a_word_file_that_changed_is_read_again(cx: &mut TestAppContext) {
+    let (dir, user) = settings_with("szHokanFile=words.kwd\r\n", &[("words.kwd", b"apple\r\n")]);
+    let (f, cx) = setup_with(cx, "ap", Some(user));
+    f.run(cx, F_HOKAN);
+    // one candidate: inserted
+    assert_eq!(f.text(cx), "apple");
+    std::fs::write(dir.0.join("words.kwd"), b"apple\r\napricot juice\r\n").unwrap();
+    cx.simulate_input(" ap");
+    f.run(cx, F_HOKAN);
+    assert_eq!(f.list(cx), Some((strings(&["apple", "apricot juice"]), 0)));
+}
+
+#[gpui::test]
+fn a_word_file_that_is_not_there_gives_no_candidates_but_the_document_still_does(
+    cx: &mut TestAppContext,
+) {
+    let (_dir, user) = settings_with("szHokanFile=missing.kwd\r\n", &[]);
+    let (f, cx) = setup_with(cx, "apex apple\nap", Some(user));
+    f.run(cx, F_HOKAN);
+    assert_eq!(f.list(cx), Some((strings(&["apex", "apple"]), 0)));
+}
+
+#[gpui::test]
+fn the_words_of_the_document_can_be_left_out(cx: &mut TestAppContext) {
+    let (_dir, user) = settings_with(
+        "szHokanFile=words.kwd\r\nbUseHokanByFile=0\r\n",
+        &[("words.kwd", b"apple\r\napricot\r\n")],
+    );
+    let (f, cx) = setup_with(cx, "apex\nap", Some(user));
+    f.run(cx, F_HOKAN);
+    assert_eq!(f.list(cx), Some((strings(&["apple", "apricot"]), 0)));
+}
+
+#[gpui::test]
+fn the_case_of_letters_is_ignored_when_the_type_says_so(cx: &mut TestAppContext) {
+    let (_dir, user) = settings_with("bHokanLoHiCase=1\r\n", &[]);
+    let (f, cx) = setup_with(cx, "Apple apricot\nap", Some(user));
+    f.run(cx, F_HOKAN);
+    assert_eq!(f.list(cx), Some((strings(&["Apple", "apricot"]), 0)));
+}
+
+#[gpui::test]
+fn the_case_of_letters_matters_by_default(cx: &mut TestAppContext) {
+    // `m_bHokanLoHiCase` is off in `_DefaultConfig`: the only candidate is inserted at once.
+    let (f, cx) = setup(cx, "Apple apricot\nap");
+    f.run(cx, F_HOKAN);
+    assert_eq!(f.list(cx), None);
+    assert_eq!(f.text(cx), "Apple apricot\napricot");
+}
+
+#[gpui::test]
+fn the_highlighted_keywords_of_the_type_are_offered_after_the_words_of_the_document(
+    cx: &mut TestAppContext,
+) {
+    // The keyword set 0 (C/C++) in slot 3 (`nKeywordSelect3`).
+    let (_dir, user) = settings_with("bUseHokanByKeyword=1\r\nnKeywordSelect3=0\r\n", &[]);
+    let (f, cx) = setup_with(cx, "whilst\nwh", Some(user));
+    f.run(cx, F_HOKAN);
+    let (items, _) = f.list(cx).expect("a list");
+    assert_eq!(items[0], "whilst", "the document comes first");
+    assert!(items.contains(&"while".to_owned()), "{items:?}");
+    assert_eq!(
+        items.iter().filter(|w| *w == "while").count(),
+        1,
+        "a keyword is once"
+    );
+}
+
+#[gpui::test]
+fn the_keywords_are_not_offered_by_default(cx: &mut TestAppContext) {
+    // `m_bUseHokanByKeyword` is off in `_DefaultConfig`.
+    let (f, cx) = setup(cx, "whilst\nwh");
+    f.run(cx, F_HOKAN);
+    assert_eq!(
+        f.text(cx),
+        "whilst\nwhilst",
+        "the only candidate is inserted"
+    );
 }
 
 // ---- F_MENU_ALLFUNC ----
