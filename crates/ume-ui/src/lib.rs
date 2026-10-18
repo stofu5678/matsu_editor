@@ -33,6 +33,7 @@ pub mod document;
 mod exec;
 mod file_dialog;
 mod file_ops;
+mod file_watch;
 pub mod geometry;
 pub mod grep;
 mod history;

@@ -355,12 +355,16 @@ impl Workspace {
         cx.observe_global::<crate::bars::BarSettings>(|_, cx| cx.notify())
             .detach();
         // macOS: the native menu shows the marks of the active window.
-        cx.observe_window_activation(window, |_, window, cx| {
+        cx.observe_window_activation(window, |this, window, cx| {
             if window.is_window_active() {
                 defer_refresh_menu_states(cx, true);
+                // Another program may have changed the file while the window was in the background.
+                let active = this.panes.active().downgrade();
+                crate::file_watch::check_on_activation(active, window, cx);
             }
         })
         .detach();
+        crate::file_watch::start(window, cx);
         for (index, pane) in numbered {
             workspace.adopt_into_window(index, pane, window, cx);
         }

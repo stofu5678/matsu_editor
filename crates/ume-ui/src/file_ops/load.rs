@@ -141,6 +141,13 @@ pub(crate) async fn load_here(
     encoding: Option<Encoding>,
     restore: Option<Pos>,
 ) -> bool {
+    // The warnings of `CLoadAgent::OnCheckLoad`: a file that is not there, a file that is big.
+    if !crate::file_watch::open_checks::allow_open(cx, path).await {
+        cx.update(|_, app| super::view_mode_request::take(app, path))
+            .ok();
+        super::start_options::after_load(view, cx, path, false);
+        return false;
+    }
     // The version of the document when the read starts. The window stays usable while a big file
     // is read; if the document changed meanwhile (typing, or another load), the result is
     // dropped instead of replacing what the user did.
