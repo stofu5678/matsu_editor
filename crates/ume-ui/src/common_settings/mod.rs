@@ -178,6 +178,8 @@ pub(crate) fn all_controls() -> Vec<Control> {
 /// Takes the settings of the file into the windows' globals when the application starts. Call it
 /// after the tab settings and the history are installed.
 pub(crate) fn install(cx: &mut App, user: &crate::settings::UserSettings) {
+    // The pages look for the folder of the settings file (`%SAKURADATA%`) in the global.
+    cx.set_global(user.clone());
     let profile = user.profile().cloned().unwrap_or_default();
     let values = Values::load(&all_controls(), &profile);
     let mut env = Env { cx, opener: None };

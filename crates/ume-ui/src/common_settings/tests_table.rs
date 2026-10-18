@@ -338,3 +338,16 @@ fn the_title_formats_of_the_window_page_make_the_title(cx: &mut TestAppContext) 
     );
     assert_eq!(titles(cx), ("[(無題)] (無題).".to_owned(), inactive));
 }
+
+#[gpui::test]
+fn the_folder_of_the_settings_file_is_a_meta_folder_from_the_start(cx: &mut TestAppContext) {
+    // At startup the settings are installed before the application has them as a global: the
+    // replacement of `%SAKURADATA%` must still find its folder.
+    let (ini, _handle) = setup(
+        cx,
+        "[Nickname]\r\nbShortPath=0\r\nArrNum=1\r\nFrom00=%SAKURADATA%\\\r\nTo00=設定:\r\n",
+    );
+    let file = ini.path.to_string_lossy().into_owned();
+    let shown = cx.update(|app| crate::file_names::current(app).transform(&file, true));
+    assert_eq!(shown, "設定:ume.ini");
+}
