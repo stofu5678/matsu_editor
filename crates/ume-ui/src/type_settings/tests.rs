@@ -230,7 +230,7 @@ fn the_pages_are_in_sakuras_order() {
     let titles: Vec<&str> = list.iter().map(|p| p.title).collect();
     assert_eq!(titles, PAGE_TITLES);
     let filled: Vec<bool> = list.iter().map(|p| p.items.is_some()).collect();
-    assert_eq!(filled, [true, true, true, false, false, false]);
+    assert_eq!(filled, [true; 6]);
 }
 
 #[test]
@@ -264,6 +264,14 @@ fn the_pages_have_every_control_that_sakura_has() {
     assert_eq!(count(0), 33);
     assert_eq!(count(1), 30);
     assert_eq!(count(2), 25);
+    // 支援: the word file with its button and the plugin list, the three check boxes of the
+    // input completion, the two help files with their buttons and the viewer box, the warning on
+    // saving, the three options of the C/C++ indent and the detection of the indentation style.
+    // 正規表現キーワード and キーワードヘルプ: the list is not here (it has no list control yet);
+    // the other controls are.
+    assert_eq!(count(3), 16);
+    assert_eq!(count(4), 13);
+    assert_eq!(count(5), 16);
 }
 
 #[test]
@@ -933,13 +941,13 @@ fn a_control_that_is_not_available_is_never_written(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn the_pages_that_are_not_here_say_so(cx: &mut TestAppContext) {
+fn every_page_of_the_sheet_has_its_controls(cx: &mut TestAppContext) {
     let (_ini, a) = setup(cx, "");
     run(cx, a, "F_OPTION_TYPE", &[]);
-    for page in 3..6 {
+    for page in 0..PAGE_TITLES.len() {
         with_dialog(cx, |d, _, dcx| d.select_index(page, dcx));
         assert_eq!(with_dialog(cx, |d, _, _| d.page_index()), page);
-        assert!(with_dialog(cx, |d, _, _| d.page_controls().is_empty()));
+        assert!(!with_dialog(cx, |d, _, _| d.page_controls().is_empty()));
     }
     cancel(cx);
 }
@@ -971,4 +979,288 @@ fn a_type_that_is_not_there_has_no_sheet() {
     assert!(sheet(&Profile::new(), 9999).is_none());
     let t: TypeSettings = TypeSettings::basic();
     assert_eq!(t.tab_space, 4);
+}
+
+// ---- 支援 ----
+
+/// Whether the control of the page the sheet shows can be used now.
+fn usable(cx: &mut TestAppContext, id: &str) -> bool {
+    with_dialog(cx, |d, _, _| {
+        let control = d.page_controls().into_iter().find(|c| c.id == id).unwrap();
+        d.is_usable(&control)
+    })
+}
+
+#[gpui::test]
+fn the_support_page_shows_sakuras_defaults_and_what_the_file_says(cx: &mut TestAppContext) {
+    let (_ini, a) = setup(
+        cx,
+        "[Types(0)]\r\nszHokanFile=words.kwd\r\nbHokanLoHiCase=1\r\nbUseHokanByFile=0\r\n\
+         szExtHelp=ext.chm\r\nbTypeHtmlHelpIsSingle=0\r\nnHokanType=5\r\n",
+    );
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    with_dialog(cx, |d, _, dcx| d.select_index(3, dcx));
+    assert_eq!(value(cx, HOKAN_FILE), Value::Text("words.kwd".to_owned()));
+    assert_eq!(value(cx, HOKAN_LO_HI_CASE), Value::Bool(true));
+    assert_eq!(value(cx, HOKAN_BY_FILE), Value::Bool(false));
+    assert_eq!(value(cx, HOKAN_BY_KEYWORD), Value::Bool(false));
+    // A plugin the list does not have shows as なし (`SetData` selects the first).
+    assert_eq!(value(cx, HOKAN_TYPE), Value::Int(0));
+    assert_eq!(value(cx, EXT_HELP), Value::Text("ext.chm".to_owned()));
+    assert_eq!(value(cx, HTML_HELP_SINGLE), Value::Bool(false));
+    // What the file does not say is Sakura's default (`CType.cpp`).
+    assert_eq!(value(cx, CHK_ENTER_AT_END), Value::Bool(true));
+    assert_eq!(value(cx, INDENT_CPP_STRING), Value::Bool(true));
+    assert_eq!(value(cx, INDENT_CPP_UNDO), Value::Bool(false));
+    assert_eq!(value(cx, DETECT_INDENT), Value::Bool(true));
+    cancel(cx);
+}
+
+#[gpui::test]
+fn the_completion_settings_are_live_and_the_rest_is_greyed_out(cx: &mut TestAppContext) {
+    let (_ini, a) = setup(cx, "");
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    with_dialog(cx, |d, _, dcx| d.select_index(3, dcx));
+    for id in [
+        HOKAN_FILE,
+        HOKAN_FILE_BROWSE,
+        HOKAN_LO_HI_CASE,
+        HOKAN_BY_FILE,
+        HOKAN_BY_KEYWORD,
+    ] {
+        assert!(usable(cx, id), "{id}");
+    }
+    for id in [
+        HOKAN_TYPE,
+        EXT_HELP,
+        EXT_HELP_BROWSE,
+        EXT_HTML_HELP,
+        EXT_HTML_HELP_BROWSE,
+        HTML_HELP_SINGLE,
+        CHK_ENTER_AT_END,
+        INDENT_CPP_STRING,
+        INDENT_CPP_COMMENT,
+        INDENT_CPP_UNDO,
+        DETECT_INDENT,
+    ] {
+        assert!(!usable(cx, id), "{id}");
+    }
+    cancel(cx);
+}
+
+#[gpui::test]
+fn ok_writes_the_completion_settings_and_keeps_what_the_page_cannot_change(
+    cx: &mut TestAppContext,
+) {
+    let (ini, a) = setup(
+        cx,
+        "[Types(0)]\r\nszExtHelp=keep.chm\r\nbTypeHtmlHelpIsSingle=0\r\nbIndentCppUndoSep=1\r\n",
+    );
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    with_dialog(cx, |d, _, dcx| d.select_index(3, dcx));
+    type_in(cx, HOKAN_FILE, "words.kwd");
+    check(cx, HOKAN_LO_HI_CASE, true);
+    check(cx, HOKAN_BY_FILE, false);
+    check(cx, HOKAN_BY_KEYWORD, true);
+    ok(cx);
+    assert_eq!(
+        ini.get("Types(0)", "szHokanFile").as_deref(),
+        Some("words.kwd")
+    );
+    assert_eq!(ini.get("Types(0)", "bHokanLoHiCase").as_deref(), Some("1"));
+    assert_eq!(ini.get("Types(0)", "bUseHokanByFile").as_deref(), Some("0"));
+    assert_eq!(
+        ini.get("Types(0)", "bUseHokanByKeyword").as_deref(),
+        Some("1")
+    );
+    // What the page cannot change is as the file had it.
+    assert_eq!(
+        ini.get("Types(0)", "szExtHelp").as_deref(),
+        Some("keep.chm")
+    );
+    assert_eq!(
+        ini.get("Types(0)", "bTypeHtmlHelpIsSingle").as_deref(),
+        Some("0")
+    );
+    assert_eq!(
+        ini.get("Types(0)", "bIndentCppUndoSep").as_deref(),
+        Some("1")
+    );
+    // The application's settings are the new ones.
+    let (lo_hi, by_file, by_keyword) = cx.update(|app| {
+        crate::doc_types::with_user(app, |user| {
+            let t = user.document_types().get(0).unwrap();
+            (
+                t.hokan_lo_hi_case,
+                t.use_hokan_by_file,
+                t.use_hokan_by_keyword,
+            )
+        })
+    });
+    assert!(lo_hi && !by_file && by_keyword);
+}
+
+#[gpui::test]
+fn the_completion_settings_stay_when_the_page_is_not_touched(cx: &mut TestAppContext) {
+    let (ini, a) = setup(
+        cx,
+        "[Types(0)]\r\nszHokanFile=w.kwd\r\nbHokanLoHiCase=1\r\nnInts=0,80,0,4,-1,-1,0,1,1,0,0,0\r\n",
+    );
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    // Another page changes; the completion settings are written back as they were.
+    type_in(cx, TAB_SPACE, "8");
+    ok(cx);
+    assert_eq!(ini.get("Types(0)", "szHokanFile").as_deref(), Some("w.kwd"));
+    assert_eq!(ini.get("Types(0)", "bHokanLoHiCase").as_deref(), Some("1"));
+    assert_eq!(ini.get("Types(0)", "bUseHokanByFile").as_deref(), Some("1"));
+}
+
+#[test]
+fn the_word_file_the_dialog_gives_is_relative_to_the_folder_of_the_settings() {
+    use super::pages::support::path_for_box;
+    use std::path::Path;
+    let dir = Path::new("/home/u/.config/ume");
+    assert_eq!(
+        path_for_box(Path::new("/home/u/.config/ume/words/a.kwd"), Some(dir)),
+        Path::new("words/a.kwd").to_string_lossy()
+    );
+    // a file elsewhere keeps its whole path, and so does any file when there is no folder
+    assert_eq!(
+        path_for_box(Path::new("/tmp/a.kwd"), Some(dir)),
+        Path::new("/tmp/a.kwd").to_string_lossy()
+    );
+    assert_eq!(
+        path_for_box(Path::new("/tmp/a.kwd"), None),
+        Path::new("/tmp/a.kwd").to_string_lossy()
+    );
+}
+
+// ---- 正規表現キーワード ----
+
+#[test]
+fn the_color_of_a_regex_keyword_is_one_of_the_items_with_both_colors() {
+    use super::pages::regex::{color_options, first_regex_color};
+    let options = color_options();
+    let has = |label: &str| options.iter().any(|(l, _)| *l == label);
+    // `SetData`: the items that have a text color and a background, in the order of the list.
+    assert!(has("テキスト") && has("コメント") && has("URL") && has("正規表現キーワード10"));
+    assert!(!has("カーソル") && !has("表示範囲(ミニマップ)"));
+    assert!(options.windows(2).all(|w| w[0].1 < w[1].1));
+    // The box starts at 正規表現キーワード1.
+    assert!(
+        options
+            .iter()
+            .any(|(l, n)| *l == "正規表現キーワード1" && *n == first_regex_color())
+    );
+}
+
+#[gpui::test]
+fn the_regex_page_switches_the_keywords_and_keeps_the_list(cx: &mut TestAppContext) {
+    let (ini, a) = setup(
+        cx,
+        "[Types(0)]\r\nbUseRegexKeyword=0\r\nRxKey[000]=URL,/a+/k\r\nRxKey[001]=RK2,/b/k\r\n",
+    );
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    with_dialog(cx, |d, _, dcx| d.select_index(4, dcx));
+    assert_eq!(value(cx, USE_REGEX), Value::Bool(false));
+    assert_eq!(value(cx, REGEX_PATTERN), Value::Text("//k".to_owned()));
+    assert!(usable(cx, USE_REGEX));
+    for id in [
+        REGEX_PATTERN,
+        REGEX_COLOR,
+        REGEX_INS,
+        REGEX_ADD,
+        REGEX_UPD,
+        REGEX_DEL,
+        REGEX_TOP,
+        REGEX_UP,
+        REGEX_DOWN,
+        REGEX_LAST,
+        REGEX_IMPORT,
+        REGEX_EXPORT,
+    ] {
+        assert!(!usable(cx, id), "{id}");
+    }
+    check(cx, USE_REGEX, true);
+    ok(cx);
+    assert_eq!(
+        ini.get("Types(0)", "bUseRegexKeyword").as_deref(),
+        Some("1")
+    );
+    // The keywords of the file are as they were.
+    assert_eq!(
+        ini.get("Types(0)", "RxKey[000]").as_deref(),
+        Some("URL,/a+/k")
+    );
+    assert_eq!(
+        ini.get("Types(0)", "RxKey[001]").as_deref(),
+        Some("RK2,/b/k")
+    );
+    let on = cx.update(|app| {
+        crate::doc_types::with_user(app, |user| {
+            user.document_types().get(0).unwrap().use_regex_keyword
+        })
+    });
+    assert!(on, "the coloring of the windows reads this setting");
+}
+
+// ---- キーワードヘルプ ----
+
+#[gpui::test]
+fn the_keyword_help_page_shows_the_file_greyed_out_and_writes_nothing(cx: &mut TestAppContext) {
+    let (ini, a) = setup(
+        cx,
+        "[Types(0)]\r\nbUseKeyWordHelp=1\r\nbUseKeyHelpAllSearch=1\r\nnKeyHelpRMenuShowType=2\r\n\
+         KDct[00]=1,Memo,dict.txt\r\n",
+    );
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    with_dialog(cx, |d, _, dcx| d.select_index(5, dcx));
+    assert_eq!(value(cx, USE_KEYHELP), Value::Bool(true));
+    assert_eq!(value(cx, KEYHELP_ALL_SEARCH), Value::Bool(true));
+    assert_eq!(value(cx, KEYHELP_KEY_DISP), Value::Bool(false));
+    assert_eq!(value(cx, KEYHELP_RMENU), Value::Int(2));
+    for id in [
+        USE_KEYHELP,
+        KEYHELP_ALL_SEARCH,
+        KEYHELP_KEY_DISP,
+        KEYHELP_PREFIX,
+        KEYHELP_RMENU,
+        KEYHELP_PATH,
+        KEYHELP_REF,
+        KEYHELP_INS,
+        KEYHELP_UPD,
+        KEYHELP_DEL,
+        KEYHELP_TOP,
+        KEYHELP_UP,
+        KEYHELP_DOWN,
+        KEYHELP_LAST,
+        KEYHELP_IMPORT,
+        KEYHELP_EXPORT,
+    ] {
+        assert!(!usable(cx, id), "{id}");
+    }
+    // Another page changes: the keyword help keys are as the file had them.
+    with_dialog(cx, |d, _, dcx| d.select_index(0, dcx));
+    type_in(cx, TAB_SPACE, "8");
+    ok(cx);
+    assert_eq!(ini.get("Types(0)", "bUseKeyWordHelp").as_deref(), Some("1"));
+    assert_eq!(
+        ini.get("Types(0)", "KDct[00]").as_deref(),
+        Some("1,Memo,dict.txt")
+    );
+    assert_eq!(
+        ini.get("Types(0)", "nKeyHelpRMenuShowType").as_deref(),
+        Some("2")
+    );
+}
+
+#[gpui::test]
+fn the_keyword_help_page_has_sakuras_defaults(cx: &mut TestAppContext) {
+    let (_ini, a) = setup(cx, "");
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    with_dialog(cx, |d, _, dcx| d.select_index(5, dcx));
+    assert_eq!(value(cx, USE_KEYHELP), Value::Bool(false));
+    // `KEYHELP_RMENU_TOP`
+    assert_eq!(value(cx, KEYHELP_RMENU), Value::Int(1));
+    cancel(cx);
 }

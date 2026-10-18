@@ -4,11 +4,14 @@
 //   https://github.com/sakura-editor/sakura
 //   sakura_core/view/CEditView_CmdHokan.cpp   CEditView::HokanSearchByFile
 //   sakura_core/view/CViewParser.cpp          CViewParser::GetLeftWord
-//   sakura_core/env/CHokanMgr.cpp             CHokanMgr::Search (the limit and the unique list)
+//   sakura_core/env/CHokanMgr.cpp             CHokanMgr::Search, HokanSearchByKeyword (the limit,
+//                                             the unique list, the keywords of the type)
+//   sakura_core/env/CDicMgr.cpp               CDicMgr::HokanSearch (the word file)
+//   sakura_core/io/CTextStream.cpp            CTextInputStream (how the word file is read)
 //
 // This file is derived from the files above and was modified: it is written in Rust, it works on
 // `char`s instead of UTF-16 units and on lines given by the caller instead of the document of the
-// view, and it leaves out the word file, the keywords of the type and the plugins.
+// view, and it leaves out the plugins.
 //
 // Copyright (C) 1998-2001, Norio Nakatani
 // Copyright (C) 2000, jepro, genta
@@ -50,8 +53,11 @@
 //! * Lengths are counted in `char`s, not UTF-16 units (the limit of a word, 1020, and the length
 //!   of the key).
 //! * The case-insensitive comparison (`wmemicmp`) compares the lowercase of each char.
-//! * Only the words of the document are searched. The word file of the document type, the
-//!   highlighted keywords and the plugins are left out (there are no document types yet).
+//! * The plugins (`nHokanType`) are left out. The word file, the words of the document and the
+//!   highlighted keywords of the type are searched by [`word_file_candidates`], [`candidates`] and
+//!   [`keyword_candidates`], and put in Sakura's order by [`merge_candidates`].
+
+use ume_core::encoding::Encoding;
 
 use super::word::{
     CharKind, char_kind, is_line_delimiter, merge_kinds, size_of_char, where_current_word,
@@ -240,6 +246,84 @@ pub fn candidates(
     found
 }
 
+/// The lines of a word file (`CTextInputStream`): UTF-8 when the file starts with the BOM,
+/// Shift_JIS otherwise; a line ends with CRLF, LF or CR (the ending is not part of the line).
+pub fn word_file_lines(bytes: &[u8]) -> Vec<String> {
+    let (bytes, encoding) = match bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
+        Some(rest) => (rest, Encoding::Utf8),
+        None => (bytes, Encoding::ShiftJis),
+    };
+    let mut text = String::new();
+    encoding.codec().decode(bytes, &mut text);
+    let mut lines = Vec::new();
+    let mut rest = text.as_str();
+    while !rest.is_empty() {
+        let end = rest.find(['\r', '\n']).unwrap_or(rest.len());
+        lines.push(rest[..end].to_owned());
+        let after = &rest[end..];
+        rest = after
+            .strip_prefix("\r\n")
+            .or_else(|| after.strip_prefix('\r'))
+            .or_else(|| after.strip_prefix('\n'))
+            .unwrap_or(after);
+    }
+    lines
+}
+
+/// The lines of the word file that start with `key`, in the order of the file, as they are
+/// (a word may be there twice). A line that starts with `;` is a comment, and a line shorter than
+/// the key cannot match.
+///
+/// Sakura: `CDicMgr::HokanSearch`.
+pub fn word_file_candidates(lines: &[String], key: &str, ignore_case: bool) -> Vec<String> {
+    let key: Vec<char> = key.chars().collect();
+    lines
+        .iter()
+        .filter(|line| !line.starts_with(';') && starts_with_key(line, &key, ignore_case))
+        .cloned()
+        .collect()
+}
+
+/// The words that start with `key`, once each, in the order they are given.
+///
+/// Sakura: `CHokanMgr::HokanSearchByKeyword`, which is given the words of the keyword sets of the
+/// type in the order of the slots.
+pub fn keyword_candidates<'a>(
+    words: impl IntoIterator<Item = &'a str>,
+    key: &str,
+    ignore_case: bool,
+) -> Vec<String> {
+    let key: Vec<char> = key.chars().collect();
+    let mut found: Vec<String> = Vec::new();
+    for word in words {
+        if starts_with_key(word, &key, ignore_case) && !found.iter().any(|w| w == word) {
+            found.push(word.to_owned());
+        }
+    }
+    found
+}
+
+/// Adds `more` to `found` without the words `found` has (`vector_ex::push_back_unique`), up to
+/// [`MAX_CANDIDATES`] in all.
+pub fn merge_candidates(mut found: Vec<String>, more: Vec<String>) -> Vec<String> {
+    for word in more {
+        if found.len() >= MAX_CANDIDATES {
+            break;
+        }
+        if !found.contains(&word) {
+            found.push(word);
+        }
+    }
+    found
+}
+
+/// Whether `word` starts with `key` (`wmemcmp` and `wmemicmp` over the length of the key).
+fn starts_with_key(word: &str, key: &[char], ignore_case: bool) -> bool {
+    let mut chars = word.chars();
+    key.iter()
+        .all(|&k| chars.next().is_some_and(|w| same_char(k, w, ignore_case)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -409,5 +493,74 @@ mod tests {
         let long = "a".repeat(MAX_WORD_LEN + 1);
         let text = format!("{long} abc\na|");
         assert_eq!(complete(&text, false), ["abc"]);
+    }
+
+    #[test]
+    fn a_word_file_is_read_as_utf8_with_a_bom_and_as_shift_jis_without() {
+        let mut utf8 = vec![0xEF, 0xBB, 0xBF];
+        utf8.extend_from_slice("alpha\r\nあいう\nbeta\rgamma".as_bytes());
+        assert_eq!(word_file_lines(&utf8), ["alpha", "あいう", "beta", "gamma"]);
+        // "あ" in Shift_JIS is 82 A0
+        assert_eq!(word_file_lines(b"ab\r\n\x82\xA0c\r\n"), ["ab", "あc"]);
+        assert!(word_file_lines(b"").is_empty());
+        // an empty line is a line
+        assert_eq!(word_file_lines(b"a\r\n\r\nb"), ["a", "", "b"]);
+    }
+
+    #[test]
+    fn the_word_file_gives_its_lines_that_start_with_the_key() {
+        let lines: Vec<String> = [
+            "apple",
+            "; apple pie",
+            "Apricot",
+            "ap",
+            "apple",
+            "banana",
+            "",
+        ]
+        .map(str::to_owned)
+        .to_vec();
+        // the order of the file, a comment is not a word, a word twice is listed twice
+        assert_eq!(
+            word_file_candidates(&lines, "ap", false),
+            ["apple", "ap", "apple"]
+        );
+        assert_eq!(
+            word_file_candidates(&lines, "AP", true),
+            ["apple", "Apricot", "ap", "apple"]
+        );
+        // a line as long as the key matches; a shorter one cannot
+        assert_eq!(
+            word_file_candidates(&lines, "apple", false),
+            ["apple", "apple"]
+        );
+        assert!(word_file_candidates(&lines, "apples", false).is_empty());
+        // a key that starts with `;` finds nothing in a comment
+        assert!(word_file_candidates(&lines, ";", false).is_empty());
+    }
+
+    #[test]
+    fn the_keywords_are_listed_once_and_case_follows_the_setting() {
+        let words = ["if", "else", "Iffy", "if", "ifdef"];
+        assert_eq!(keyword_candidates(words, "if", false), ["if", "ifdef"]);
+        assert_eq!(
+            keyword_candidates(words, "IF", true),
+            ["if", "Iffy", "ifdef"]
+        );
+        assert!(keyword_candidates(words, "x", false).is_empty());
+    }
+
+    #[test]
+    fn the_sources_are_merged_in_sakuras_order_without_repeats() {
+        let file = vec!["foo".to_owned(), "foo".to_owned(), "fa".to_owned()];
+        let document = vec!["fa".to_owned(), "fob".to_owned()];
+        let merged = merge_candidates(file, document);
+        // the word file is kept as it is; the document adds what is new
+        assert_eq!(merged, ["foo", "foo", "fa", "fob"]);
+        let merged = merge_candidates(merged, vec!["fob".to_owned(), "for".to_owned()]);
+        assert_eq!(merged, ["foo", "foo", "fa", "fob", "for"]);
+        // the limit counts everything
+        let full: Vec<String> = (0..MAX_CANDIDATES).map(|i| format!("w{i}")).collect();
+        assert_eq!(merge_candidates(full.clone(), vec!["x".to_owned()]), full);
     }
 }

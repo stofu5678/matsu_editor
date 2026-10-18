@@ -3,7 +3,8 @@
 //! ([`store`]).
 //!
 //! `store` follows `GetData` of Sakura's pages (`CPropTypesScreen::GetData`,
-//! `CPropTypesColor::GetData`, `CPropTypesWindow::GetData`). A control that is not available is
+//! `CPropTypesColor::GetData`, `CPropTypesWindow::GetData`, `CPropTypesSupport::GetData`,
+//! `CPropTypesRegex::GetData`). A control that is not available is
 //! not read back: its field stays as it was. The settings of the type that no page shows stay as
 //! they are too.
 
@@ -18,7 +19,10 @@ use ume_core::encoding::{Encoding, Eol};
 
 use super::ids::*;
 use super::pages::color::STRING_TYPES;
+use super::pages::keyhelp::{RMENU_DEFAULT, RMENU_TYPES};
+use super::pages::regex::{NEW_PATTERN, color_options, first_regex_color};
 use super::pages::screen::{OUTLINE_FILE, OUTLINE_STANDARD, OUTLINES, WRAP_METHODS};
+use super::pages::support::HOKAN_TYPES;
 use super::pages::window::{CODES, EOLS};
 use crate::common_settings::model::{Control, Kind, Value, Values};
 
@@ -27,6 +31,8 @@ use crate::common_settings::model::{Control, Kind, Value, Values};
 const TYPE_NAME_BUFFER: usize = 64;
 /// `MAX_TYPES_EXTS`.
 const TYPE_EXTS_BUFFER: usize = 64;
+/// `_MAX_PATH`: the buffer of the word file (`szHokanFile`).
+const PATH_BUFFER: usize = 260;
 /// `MAX_VERTLINES * 15`: the buffer of the text of the vertical lines.
 const VERT_LINES_TEXT: usize = MAX_VERT_LINES * 15;
 
@@ -385,6 +391,86 @@ pub(super) fn load(
         255 - raw_i32(profile, index, "bgImgOpacity", 255).clamp(0, 255),
     );
 
+    // 支援
+    s(&mut v, HOKAN_FILE, &t.hokan_file);
+    // A plugin the list does not have shows as なし, as `SetData` does (nothing is written back).
+    n(&mut v, HOKAN_TYPE, in_list(t.hokan_type, HOKAN_TYPES));
+    b(&mut v, HOKAN_LO_HI_CASE, t.hokan_lo_hi_case);
+    b(&mut v, HOKAN_BY_FILE, t.use_hokan_by_file);
+    b(&mut v, HOKAN_BY_KEYWORD, t.use_hokan_by_keyword);
+    s(&mut v, EXT_HELP, &raw_text(profile, index, "szExtHelp"));
+    s(
+        &mut v,
+        EXT_HTML_HELP,
+        &raw_text(profile, index, "szExtHtmlHelp"),
+    );
+    b(
+        &mut v,
+        HTML_HELP_SINGLE,
+        raw_bool(profile, index, "bTypeHtmlHelpIsSingle", true),
+    );
+    b(&mut v, CHK_ENTER_AT_END, t.warn_mixed_eol);
+    b(
+        &mut v,
+        INDENT_CPP_STRING,
+        raw_bool(profile, index, "bIndentCppStringIgnore", true),
+    );
+    b(
+        &mut v,
+        INDENT_CPP_COMMENT,
+        raw_bool(profile, index, "bIndentCppCommentIgnore", true),
+    );
+    b(
+        &mut v,
+        INDENT_CPP_UNDO,
+        raw_bool(profile, index, "bIndentCppUndoSep", false),
+    );
+    b(
+        &mut v,
+        DETECT_INDENT,
+        raw_bool(profile, index, "bDetectIndentationStyleOnFileLoad", true),
+    );
+
+    // 正規表現キーワード
+    b(&mut v, USE_REGEX, t.use_regex_keyword);
+    s(&mut v, REGEX_PATTERN, NEW_PATTERN);
+    n(
+        &mut v,
+        REGEX_COLOR,
+        in_list(first_regex_color(), color_options()),
+    );
+
+    // キーワードヘルプ
+    b(
+        &mut v,
+        USE_KEYHELP,
+        raw_bool(profile, index, "bUseKeyWordHelp", false),
+    );
+    s(&mut v, KEYHELP_PATH, "");
+    b(
+        &mut v,
+        KEYHELP_ALL_SEARCH,
+        raw_bool(profile, index, "bUseKeyHelpAllSearch", false),
+    );
+    b(
+        &mut v,
+        KEYHELP_KEY_DISP,
+        raw_bool(profile, index, "bUseKeyHelpKeyDisp", false),
+    );
+    b(
+        &mut v,
+        KEYHELP_PREFIX,
+        raw_bool(profile, index, "bUseKeyHelpPrefix", false),
+    );
+    n(
+        &mut v,
+        KEYHELP_RMENU,
+        in_list(
+            raw_i32(profile, index, "nKeyHelpRMenuShowType", RMENU_DEFAULT),
+            RMENU_TYPES,
+        ),
+    );
+
     // Every control must have a value; a page that lists a control `load` forgot would show 0.
     debug_assert!(
         controls
@@ -454,6 +540,15 @@ pub(super) fn store(v: &Values, original: &TypeSettings) -> TypeSettings {
     // `SetData`/`CBN_SELCHANGE`: an encoding without a BOM has none.
     t.default_bom = v.bool(DEFAULT_BOM)
         && Encoding::from_sakura_code(t.default_codetype).is_some_and(Encoding::can_have_bom);
+
+    // 支援 (`CPropTypesSupport::GetData`)
+    t.hokan_file = fit(v.text(HOKAN_FILE), PATH_BUFFER);
+    t.hokan_lo_hi_case = v.bool(HOKAN_LO_HI_CASE);
+    t.use_hokan_by_file = v.bool(HOKAN_BY_FILE);
+    t.use_hokan_by_keyword = v.bool(HOKAN_BY_KEYWORD);
+
+    // 正規表現キーワード (`CPropTypesRegex::GetData`)
+    t.use_regex_keyword = v.bool(USE_REGEX);
     t
 }
 
@@ -494,6 +589,11 @@ pub(super) fn merge(base: &TypeSettings, old: &TypeSettings, new: &TypeSettings)
         default_eoltype,
         default_codetype,
         default_bom,
+        hokan_file,
+        hokan_lo_hi_case,
+        use_hokan_by_file,
+        use_hokan_by_keyword,
+        use_regex_keyword,
     );
     for i in 0..new.block_comments.len() {
         if new.block_comments[i] != old.block_comments[i] {
