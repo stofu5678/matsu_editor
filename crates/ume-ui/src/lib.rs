@@ -44,6 +44,7 @@ pub mod layout_adapter;
 pub mod macros;
 pub mod menu;
 pub mod menu_bar;
+pub(crate) mod menu_icons;
 mod menu_state;
 pub mod open;
 mod outline;

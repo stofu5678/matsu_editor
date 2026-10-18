@@ -354,6 +354,9 @@ impl Workspace {
         // The toolbar and the function key bar are shown or hidden for every window at once.
         cx.observe_global::<crate::bars::BarSettings>(|_, cx| cx.notify())
             .detach();
+        // OK on the toolbar page changes the buttons of every window at once.
+        cx.observe_global::<crate::bars::toolbar::ToolbarButtons>(|_, cx| cx.notify())
+            .detach();
         // macOS: the native menu shows the marks of the active window.
         cx.observe_window_activation(window, |this, window, cx| {
             if window.is_window_active() {
@@ -408,7 +411,7 @@ impl Render for Workspace {
         let ui_font = gpui_component::Theme::global(cx).font_family.clone();
         let tab_bar = self.render_tab_bar(window, cx);
         let topmost = crate::window_ops::is_topmost(window, cx);
-        let toolbar = self.render_toolbar(topmost, cx);
+        let toolbar = self.render_toolbar_at_scale(topmost, window.scale_factor(), cx);
         let funckeys_top = self.render_funckeys(crate::bars::FuncKeyPlace::Top, window, cx);
         let funckeys_bottom = self.render_funckeys(crate::bars::FuncKeyPlace::Bottom, window, cx);
         // A Wayland compositor without server-side decorations, such as WSLg's, leaves the title

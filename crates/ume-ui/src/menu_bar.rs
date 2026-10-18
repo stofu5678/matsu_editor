@@ -201,8 +201,42 @@ pub(crate) fn fill(
 ) -> PopupMenu {
     // The items of an owned menu as a popup menu: what gpui-component's `with_menu_items` does,
     // with its public builders.
+    //
+    // With the icons on (`bMenuIcon`) and an icon among the items, every item is drawn by
+    // `menu_icons::item_element` (a column for the pictures, then the label), and a submenu gets
+    // an invisible icon as wide as that column so that the labels line up.
+    let scale = window.scale_factor();
+    let with_icons = crate::menu_icons::enabled(cx)
+        && items.iter().any(|item| match item {
+            OwnedMenuItem::Action { action, .. } => {
+                function_picture(action.as_ref(), scale).is_some()
+            }
+            _ => false,
+        });
     for item in items {
         menu = match item {
+            OwnedMenuItem::Action {
+                name,
+                action,
+                checked,
+                disabled,
+                ..
+            } if with_icons => {
+                let picture = function_picture(action.as_ref(), scale);
+                menu.menu_element_with_disabled(
+                    Action::boxed_clone(action.as_ref()),
+                    disabled,
+                    move |_, _| {
+                        crate::menu_icons::item_element(
+                            SharedString::from(name.clone()),
+                            picture.clone(),
+                            checked,
+                            disabled,
+                            scale,
+                        )
+                    },
+                )
+            }
             OwnedMenuItem::Action {
                 name,
                 action,
@@ -218,7 +252,10 @@ pub(crate) fn fill(
             OwnedMenuItem::Separator => menu.separator(),
             OwnedMenuItem::Submenu(submenu) => {
                 let context = action_context.cloned();
-                menu.submenu(submenu.name, window, cx, move |sub, window, cx| {
+                let icon = with_icons.then(|| {
+                    gpui_component::Icon::empty().mr(px(crate::menu_icons::submenu_padding(scale)))
+                });
+                menu.submenu_with_icon(icon, submenu.name, window, cx, move |sub, window, cx| {
                     let sub = match &context {
                         Some(handle) => sub.action_context(handle.clone()),
                         None => sub,
@@ -233,6 +270,12 @@ pub(crate) fn fill(
         };
     }
     menu
+}
+
+/// The picture of the icon of the function an item runs, if it runs one that has an icon.
+fn function_picture(action: &dyn Action, scale_factor: f32) -> Option<std::sync::Arc<gpui::Image>> {
+    let run = action.as_any().downcast_ref::<crate::view::RunFunction>()?;
+    crate::menu_icons::picture(run.code, scale_factor)
 }
 
 /// A menu in the menu bar.
@@ -419,6 +462,21 @@ mod tests {
     use super::*;
 
     actions!(menu_bar_tests, [Nothing]);
+
+    #[test]
+    fn an_item_of_a_function_with_an_icon_has_a_picture_and_one_without_has_none() {
+        use crate::view::RunFunction;
+        // F_FILESAVE has a toolbar button, so an icon; a function with no button has none, and
+        // neither has an action that runs no function.
+        let save: Box<dyn Action> = Box::new(RunFunction { code: 30103 });
+        assert!(function_picture(save.as_ref(), 1.0).is_some());
+        assert!(function_picture(save.as_ref(), 2.0).is_some());
+        let none: Box<dyn Action> = Box::new(RunFunction { code: 20001 });
+        assert!(crate::bars::icon_of_function(20001).is_none());
+        assert!(function_picture(none.as_ref(), 1.0).is_none());
+        let other: Box<dyn Action> = Box::new(Nothing);
+        assert!(function_picture(other.as_ref(), 1.0).is_none());
+    }
 
     #[test]
     fn a_menu_uses_the_window_below_it() {

@@ -11,7 +11,7 @@
 //! * [`icons`]: the pictures, cut out of Sakura's `mytool.bmp` (see its `NOTICE`).
 
 pub(crate) mod funckeys;
-mod icons;
+pub(crate) mod icons;
 mod tool_buttons;
 pub(crate) mod toolbar;
 
@@ -101,6 +101,7 @@ fn group_num_of(value: i32) -> usize {
 
 /// Starts the settings and the toolbar's buttons from the file that was read.
 pub(crate) fn install(cx: &mut App, user: &crate::settings::UserSettings) {
+    icons::install(user);
     toolbar::install(cx, user);
     cx.set_global(
         user.profile()
@@ -208,4 +209,22 @@ pub(crate) fn display_style() -> ume_commands::keymap::DisplayStyle {
     } else {
         ume_commands::keymap::DisplayStyle::Sakura
     }
+}
+
+/// `CMenuDrawer::GetIconIdByFuncId`: the icon of function `code`, the picture of the first
+/// toolbar button of the table that stands for it. Functions with no button, and the
+/// placeholders up to `F_DUMMY_MAX_CODE`, have none.
+pub(crate) fn icon_of_function(code: u16) -> Option<usize> {
+    if code <= 10 {
+        return None;
+    }
+    tool_buttons::FUNCTIONS_OF_BUTTONS
+        .iter()
+        .position(|&c| c == code)
+}
+
+/// The function of the toolbar button with the table index `index` (button number minus one), or
+/// `None` past the end of the table. 0 is a free place with no function.
+pub(crate) fn button_function(index: usize) -> Option<u16> {
+    tool_buttons::FUNCTIONS_OF_BUTTONS.get(index).copied()
 }

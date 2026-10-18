@@ -225,10 +225,22 @@ pub(super) fn tooltip_text(code: u16, cx: &App) -> String {
 }
 
 impl Workspace {
-    /// The toolbar, if it is shown.
+    /// The toolbar at 100 %, if it is shown (the tests; the window uses the scale of its screen).
+    #[cfg(test)]
     pub(crate) fn render_toolbar(
         &self,
         topmost: bool,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<AnyElement> {
+        self.render_toolbar_at_scale(topmost, 1.0, cx)
+    }
+
+    /// The toolbar for a screen with `scale_factor`: the icons are made sharp for it
+    /// ([`icons::pixel_factor`]).
+    pub(crate) fn render_toolbar_at_scale(
+        &self,
+        topmost: bool,
+        scale_factor: f32,
         cx: &mut gpui::Context<Self>,
     ) -> Option<AnyElement> {
         if !super::current(cx).toolbar {
@@ -252,7 +264,7 @@ impl Workspace {
                 line_el = line_el.child(match item {
                     Item::Separator => div().w(px(8.)).into_any_element(),
                     Item::Button(button) => {
-                        self.render_tool_button(row, column, button, &states, cx)
+                        self.render_tool_button(row, column, button, &states, scale_factor, cx)
                     }
                 });
             }
@@ -267,12 +279,15 @@ impl Workspace {
         column: usize,
         button: Button,
         states: &crate::menu_state::FuncStates,
+        scale_factor: f32,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let code = button.click_code();
         // A function without a command is gray, and so is one that `IsFuncEnable` refuses.
         let Look { enabled, pressed } = look(code, states);
-        let image = button.icon.and_then(icons::icon);
+        let image = button
+            .icon
+            .and_then(|index| icons::icon(index, icons::pixel_factor(scale_factor)));
         div()
             .id(("tool-button", row * 1000 + column))
             .debug_selector(|| format!("tool-button-{}", button.number))
@@ -299,8 +314,8 @@ impl Workspace {
             .when_some(image, |this, image| {
                 this.child(
                     img(image)
-                        .w(px(icons::ICON_SIZE as f32))
-                        .h(px(icons::ICON_SIZE as f32)),
+                        .w(px(icons::logical_size(scale_factor)))
+                        .h(px(icons::logical_size(scale_factor))),
                 )
             })
             .when(button.code > DUMMY_MAX_CODE, |this| {
