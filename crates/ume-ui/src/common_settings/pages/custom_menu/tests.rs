@@ -678,3 +678,14 @@ fn a_file_that_is_not_a_menu_file_is_refused_and_changes_nothing(cx: &mut TestAp
     });
     assert_eq!(with_dialog(cx, |d, _, _| menus_of(d.values())), before);
 }
+
+#[gpui::test]
+fn changing_the_kind_clears_the_chosen_function(cx: &mut TestAppContext) {
+    let _restore = crate::common_settings::tests::RestoreEditOptions::new();
+    let (_ini, _) = open_page(cx, "");
+    choose_function(cx, 0, 2);
+    assert!(button_is_usable(cx, "custmenu_add"));
+    with_dialog(cx, |d, _, dcx| d.set_int(KIND, 1, dcx));
+    assert!(!button_is_usable(cx, "custmenu_add"));
+    assert_eq!(with_dialog(cx, |d, _, _| d.values().int(FUNC_SEL)), -1);
+}
