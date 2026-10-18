@@ -508,3 +508,31 @@ fn the_automatic_save_leaves_a_file_that_another_program_changed(cx: &mut TestAp
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "two\n");
     assert!(!cx.has_pending_prompt());
 }
+
+#[gpui::test]
+fn a_reload_that_does_not_happen_is_seen_again(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "one\n");
+    let (view, cx) = setup(cx);
+    open(&view, cx, &path);
+    view.update(cx, |view, cx| {
+        view.document().update(cx, |shared, _| {
+            shared.disk_mut().mode = WatchMode::AutoLoad;
+        })
+    });
+    change(&path, "two\n");
+    // The user types while the file is read: the read is dropped.
+    view.update_in(cx, |_, window, cx| {
+        crate::file_ops::start(window, cx, async move |view, cx| check(&view, cx).await)
+    });
+    type_text(&view, cx, "x");
+    cx.run_until_parked();
+    assert_eq!(text(&view, cx), "xone", "the text was kept");
+    // The change is still there: the next look asks (the document is modified now).
+    look(&view, cx);
+    assert!(cx.has_pending_prompt());
+    // and the automatic save does not write over it
+    cx.simulate_prompt_answer(CLOSE);
+    cx.run_until_parked();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "two\n");
+}

@@ -192,7 +192,7 @@ pub(crate) async fn run(
             .ok();
         }
         Action::Reload => {
-            reload(view, cx, WatchMode::AutoLoad).await;
+            reload(view, cx, WatchMode::AutoLoad, stamp).await;
         }
         Action::Ask => {
             let (message, detail) = question(&path, modified);
@@ -215,8 +215,8 @@ pub(crate) async fn run(
                 return;
             }
             match reply {
-                Reply::Reload => reload(view, cx, WatchMode::Query).await,
-                Reply::AutoLoad => reload(view, cx, WatchMode::AutoLoad).await,
+                Reply::Reload => reload(view, cx, WatchMode::Query, stamp).await,
+                Reply::AutoLoad => reload(view, cx, WatchMode::AutoLoad, stamp).await,
                 Reply::NotifyOnly => set_mode(view, cx, WatchMode::Notify),
                 Reply::NoSupervision => set_mode(view, cx, WatchMode::None),
                 Reply::Close => set_mode(view, cx, WatchMode::Query),
@@ -245,9 +245,24 @@ fn set_mode(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext, mode: Wa
 }
 
 /// `ReloadCurrentFile( GetCodeSet() )` and then the mode: the new document takes it over.
-async fn reload(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext, mode: WatchMode) {
+///
+/// If the file is not read (it cannot be read, or the user typed during the read and the result
+/// was dropped), the document still has the old text: the time stamp goes back to `old`, so that
+/// the next check sees the change again.
+async fn reload(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    mode: WatchMode,
+    old: SystemTime,
+) {
     set_mode(view, cx, mode);
-    reopen(view, cx, None, true).await;
+    if !reopen(view, cx, None, true).await {
+        view.update(cx, |view, cx| {
+            view.document()
+                .update(cx, |shared, _| shared.disk_mut().stamp = Some(old))
+        })
+        .ok();
+    }
 }
 
 #[cfg(test)]
