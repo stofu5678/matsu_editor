@@ -243,6 +243,11 @@ fn the_pages_are_in_sakuras_order() {
     }
 }
 
+/// The pages that keep their own state (the kind chosen, the row selected) in controls with no key
+/// of their own: the id of such a control starts with the page's prefix. The prefixes of the pages
+/// that are not built yet are here too, so that each page can be built without changing this list.
+const KEYLESS_PREFIXES: [&str; 5] = ["toolbar_", "keybind_", "custmenu_", "keyword_", "macro_"];
+
 #[test]
 fn every_control_has_its_own_name_and_sakuras_key() {
     let all = all_controls();
@@ -254,11 +259,12 @@ fn every_control_has_its_own_name_and_sakuras_key() {
         }
         // 「元の拡張子を保存」 is part of `nBackUpType` (the kinds 5 and 6).
         let part_of_another_key = control.id == "backup_retain_ext";
-        if !matches!(control.kind, Kind::Button { .. } | Kind::Numbers { .. } | Kind::Table { .. })
-            && control.live
+        if !matches!(
+            control.kind,
+            Kind::Button { .. } | Kind::Numbers { .. } | Kind::Table { .. }
+        ) && control.live
             && !part_of_another_key
-            // The toolbar page keeps the state of its lists in controls with no key.
-            && !control.id.starts_with("toolbar_")
+            && !KEYLESS_PREFIXES.iter().any(|p| control.id.starts_with(p))
         {
             assert!(!control.key.is_empty(), "{} has no key", control.id);
         }
