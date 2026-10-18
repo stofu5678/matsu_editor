@@ -16,6 +16,7 @@ use ume_core::model::DocumentModel;
 
 use super::{EditorView, Redo, Undo};
 use crate::document::SharedDocument;
+use crate::file_names::title::default_title;
 use crate::geometry::Metrics;
 
 struct Fixture {
@@ -392,12 +393,12 @@ fn two_views_of_one_document_stay_in_step(cx: &mut TestAppContext) {
 fn the_title_and_the_status_follow_the_document(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "ab\ncd");
     f.view.read_with(cx, |v, cx| {
-        assert_eq!(v.title(cx), "(無題) - UME Editor");
+        assert_eq!(v.title(cx), default_title("(無題)"));
         assert_eq!(v.status(cx).line, 1);
     });
     cx.simulate_keystrokes("down right x");
     f.view.read_with(cx, |v, cx| {
-        assert_eq!(v.title(cx), "(無題) * - UME Editor");
+        assert_eq!(v.title(cx), default_title("(無題)(更新)"));
         let status = v.status(cx);
         assert_eq!((status.line, status.column, status.lines), (2, 3, 2));
         assert!(status.modified);

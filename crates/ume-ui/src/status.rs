@@ -85,16 +85,6 @@ pub fn eol_name(eol: Eol) -> &'static str {
     }
 }
 
-/// The title of the window: the file name (or 無題 for a new document), a mark when the document
-/// has unsaved changes, and the name of the program.
-pub fn window_title(file_name: Option<&str>, modified: bool) -> String {
-    format!(
-        "{}{} - UME Editor",
-        file_name.unwrap_or("(無題)"),
-        if modified { " *" } else { "" }
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -154,12 +144,5 @@ mod tests {
             file_format_label(Encoding::ShiftJis, false, Eol::Lf),
             "SJIS  LF"
         );
-    }
-
-    #[test]
-    fn the_title_names_the_file_and_the_program() {
-        assert_eq!(window_title(Some("a.txt"), false), "a.txt - UME Editor");
-        assert_eq!(window_title(Some("a.txt"), true), "a.txt * - UME Editor");
-        assert_eq!(window_title(None, false), "(無題) - UME Editor");
     }
 }

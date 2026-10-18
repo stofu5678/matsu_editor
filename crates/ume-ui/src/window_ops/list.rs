@@ -17,7 +17,6 @@
 //!   double click do (the way to choose one that the task asks for).
 
 use std::collections::HashSet;
-use std::path::Path;
 use std::time::Duration;
 
 use gpui::{
@@ -30,7 +29,6 @@ use ume_commands::sakura::FUNCTIONS;
 use ume_core::encoding::Encoding;
 
 use super::run_in_window;
-use crate::file_ops::ask::document_title;
 use crate::file_ops::windows::{editors, workspace_of};
 use crate::view::EditorView;
 
@@ -47,13 +45,9 @@ pub(crate) fn access_key(index: usize) -> char {
 
 /// The text of a window in the list (`CFileNameManager::GetMenuFullLabel`): the access key, the
 /// file name or `(無題)`, ` *` for unsaved changes and the encoding as `  [UTF-8]` unless it is
-/// Shift_JIS (`IsValidCodeTypeExceptSJIS`).
-pub(crate) fn label(
-    index: usize,
-    path: Option<&Path>,
-    modified: bool,
-    encoding: Encoding,
-) -> String {
+/// Shift_JIS (`IsValidCodeTypeExceptSJIS`). `name` is the path as 「ファイル名表示」 shows it (`FileNames::name_of`), which is what the window
+/// list and the DIFF dialogs use.
+pub(crate) fn label(index: usize, name: &str, modified: bool, encoding: Encoding) -> String {
     let bracket = if encoding == Encoding::ShiftJis {
         String::new()
     } else {
@@ -62,7 +56,7 @@ pub(crate) fn label(
     format!(
         "{} {}{}{}",
         access_key(index),
-        document_title(path),
+        name,
         if modified { " *" } else { "" },
         bracket
     )
@@ -90,6 +84,7 @@ struct Row {
 fn rows(cx: &mut App, owner: AnyWindowHandle) -> Vec<Row> {
     // The document the owner shows (its active tab) has the check mark.
     let shown = workspace_of(cx, owner).map(|ws| ws.read(cx).editor().clone());
+    let names = crate::file_names::current(cx);
     editors(cx)
         .into_iter()
         .enumerate()
@@ -97,7 +92,7 @@ fn rows(cx: &mut App, owner: AnyWindowHandle) -> Vec<Row> {
             let shared = view.read(cx).document().read(cx);
             let label = label(
                 i,
-                shared.path(),
+                &names.name_of(shared.path(), true),
                 shared.model().is_modified(),
                 shared.file().encoding,
             );
@@ -502,19 +497,49 @@ mod tests {
 
     #[test]
     fn a_label_has_the_key_the_name_the_mark_and_the_encoding() {
-        let path = Path::new("/home/a/memo.txt");
+        let name = "/home/a/memo.txt";
         assert_eq!(
-            label(0, Some(path), false, Encoding::ShiftJis),
+            label(0, name, false, Encoding::ShiftJis),
             "1 /home/a/memo.txt"
         );
         assert_eq!(
-            label(1, Some(path), true, Encoding::Utf8),
+            label(1, name, true, Encoding::Utf8),
             "2 /home/a/memo.txt *  [UTF-8]"
         );
-        assert_eq!(label(9, None, false, Encoding::ShiftJis), "A (無題)");
+        assert_eq!(label(9, "(無題)", false, Encoding::ShiftJis), "A (無題)");
         assert_eq!(
-            label(2, None, true, Encoding::Utf16Le),
+            label(2, "(無題)", true, Encoding::Utf16Le),
             "3 (無題) *  [UTF-16]"
+        );
+    }
+
+    #[test]
+    fn a_label_shows_the_path_as_the_file_name_display_makes_it() {
+        use crate::file_names::{FileNames, NoFolders};
+
+        let rows = [vec!["/home/a/".to_owned(), "家:".to_owned()]];
+        let names = FileNames::new(true, 100, &rows, &NoFolders, false);
+        let path = std::path::Path::new("/home/a/memo.txt");
+        assert_eq!(
+            label(0, &names.name_of(Some(path), true), true, Encoding::Utf8),
+            "1 家:memo.txt *  [UTF-8]"
+        );
+        // A document with no file is 無題, whatever the list says.
+        assert_eq!(
+            label(1, &names.name_of(None, true), false, Encoding::ShiftJis),
+            "2 (無題)"
+        );
+        // A long path is shortened to the width of the setting.
+        let narrow = FileNames::new(true, 15, &[], &NoFolders, false);
+        let long = std::path::Path::new("C:\\users\\a\\work\\memo.txt");
+        assert_eq!(
+            label(
+                2,
+                &narrow.name_of(Some(long), true),
+                false,
+                Encoding::ShiftJis
+            ),
+            "3 C:\\...\\memo.txt"
         );
     }
 }

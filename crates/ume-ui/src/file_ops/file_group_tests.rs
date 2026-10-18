@@ -65,7 +65,9 @@ impl Win {
     }
 
     fn title(&self, cx: &mut TestAppContext) -> String {
-        self.view.read_with(cx, |view, app| view.title(app))
+        self.view.read_with(cx, |view, app| {
+            crate::file_names::title::plain_title(view, app)
+        })
     }
 
     fn modified(&self, cx: &mut TestAppContext) -> bool {

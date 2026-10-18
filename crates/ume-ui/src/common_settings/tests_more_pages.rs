@@ -79,14 +79,14 @@ fn the_pages_have_every_control_that_sakura_has() {
     // The check boxes, radio buttons, edit boxes, drop-down lists and buttons of the resources
     // (`IDD_PROP_FILE`, `IDD_PROP_BACKUP`, `IDD_PROP_FORMAT`, `IDD_PROP_GREP`, `IDD_PROP_FNAME`,
     // `IDD_PROP_STATUSBAR`) that this dialog draws; the spin buttons are part of their numbers,
-    // the boxes 「表示例」, the version of the regular expression library and the list of
-    // `IDD_PROP_FNAME` with its eight buttons are not drawn.
+    // the boxes 「表示例」 and the version of the regular expression library are not drawn; the
+    // list of `IDD_PROP_FNAME` with its two boxes and eight buttons is one control.
     let count = |page: Page| controls(&page.items().unwrap()).len();
     assert_eq!(count(Page::File), 18);
     assert_eq!(count(Page::Backup), 23);
     assert_eq!(count(Page::Format), 8);
     assert_eq!(count(Page::Search), 9);
-    assert_eq!(count(Page::FileName), 2);
+    assert_eq!(count(Page::FileName), 3);
     assert_eq!(count(Page::StatusBar), 7);
 }
 
@@ -648,7 +648,7 @@ fn the_search_page_leaves_what_is_not_available_alone(cx: &mut TestAppContext) {
 // ---- ファイル名表示 and ステータスバー ----
 
 #[gpui::test]
-fn the_pages_of_the_other_sections_show_the_file_and_never_write(cx: &mut TestAppContext) {
+fn the_pages_of_the_other_sections_write_their_own_sections(cx: &mut TestAppContext) {
     let (ini, handle) = setup(
         cx,
         "[Nickname]\r\nbShortPath=0\r\nnShortPathMaxWidth=60\r\nArrNum=1\r\nFrom00=%DeskTop%\\\r\n\
@@ -678,10 +678,10 @@ fn the_pages_of_the_other_sections_show_the_file_and_never_write(cx: &mut TestAp
         .bool("disp_sel_count_by_byte")));
     check(cx, "disp_col_by_char", false);
     ok(cx);
-    assert_eq!(value(&ini, "Nickname", "bShortPath").as_deref(), Some("0"));
+    assert_eq!(value(&ini, "Nickname", "bShortPath").as_deref(), Some("1"));
     assert_eq!(
         value(&ini, "Nickname", "nShortPathMaxWidth").as_deref(),
-        Some("60")
+        Some("10")
     );
     assert_eq!(
         value(&ini, "Nickname", "From00").as_deref(),

@@ -1,24 +1,69 @@
 //! 「ファイル名表示」: `IDD_PROP_FNAME` (`sakura_core/sakura_rc.rc`), `CPropFileName`
 //! (`sakura_core/prop/CPropComFileName.cpp`).
 //!
-//! Not available yet, all of it: UME Editor shows the full path in the window title, the tabs and
-//! the window list, and does not replace parts of it (`CFileNameManager::GetTransformFileNameFast`,
-//! `sakura_core/env/CFileNameManager.cpp`). The long path is not shortened either. The page shows
-//! the two settings of the file, which Sakura keeps in `[Nickname]` (`ShareData_IO_Nickname`). The
-//! list of replacements (`From00`, `To00`, ...) needs a list control with its buttons, which the
-//! dialog does not have yet; the file keeps it as it is.
+//! The check box and the number of the short form of a long path (`bShortPath`,
+//! `nShortPathMaxWidth`) and the list of replacements (`From00`, `To00` ... and their count
+//! `ArrNum`, at most 16) are in `[Nickname]` (`ShareData_IO_Nickname`). The list is an editable
+//! list ([`crate::common_settings::table`]); OK writes it and the windows show their paths with it
+//! ([`crate::file_names`]).
 
-use super::super::model::{Control, Item};
+use super::super::Env;
+use super::super::model::{Control, Item, Values};
+use super::super::table::{Column, Op, Storage, TableSpec};
+use crate::file_names::{FileNames, Folders};
 
 /// `[Nickname]` of the settings file.
 const SECTION: &str = "Nickname";
+
+/// `MAX_TRANSFORM_FILENAME` (`sakura_core/config/maxdata.h`).
+const MAX_ROWS: usize = 16;
+
+/// The list: `STR_PROPCOMFNM_LIST1` and `LIST2` for the headings, the edit boxes
+/// `置換前(&F)` and `置換後(&R)` of `IDD_PROP_FNAME`. A column takes 60 and 35 percent of the
+/// list (`CPropFileName::DispatchEvent`, `WM_INITDIALOG`); the edit boxes take `_MAX_PATH - 1`.
+static LIST: TableSpec = TableSpec {
+    columns: &[
+        Column {
+            title: "置換前",
+            edit_label: "置換前(&F)",
+            key: "From",
+            width: 60,
+            max_chars: 259,
+        },
+        Column {
+            title: "置換後",
+            edit_label: "置換後(&R)",
+            key: "To",
+            width: 35,
+            max_chars: 259,
+        },
+    ],
+    max_rows: MAX_ROWS,
+    ops: &Op::ALL,
+    // `CShareData::InitShareData`, 「ファイル名表示」.
+    defaults: &[
+        &["%DeskTop%\\", "デスクトップ\\"],
+        &["%Personal%\\", "マイドキュメント\\"],
+        &["%Cache%\\Content.IE5\\", "IEキャッシュ\\"],
+        &["%TEMP%\\", "TEMP\\"],
+        &["%Common DeskTop%\\", "共有デスクトップ\\"],
+        &["%Common Documents%\\", "共有ドキュメント\\"],
+        &["%AppData%\\", "アプリデータ\\"],
+    ],
+    storage: Storage::Numbered {
+        section: SECTION,
+        count_key: "ArrNum",
+        digits: 2,
+    },
+    // `STR_PROPCOMFNM_ERR_REG`
+    full_message: "これ以上登録できません。",
+};
 
 pub(in crate::common_settings) fn items() -> Vec<Item> {
     vec![
         Item::Row(vec![
             Control::check("short_path", "長いパスの省略表示(&L)", "bShortPath", true)
                 .in_section(SECTION)
-                .unavailable()
                 .into(),
             Control::number(
                 "short_path_max_width",
@@ -29,14 +74,23 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                 9999,
             )
             .in_section(SECTION)
-            .unavailable()
             .into(),
         ]),
         Item::Group(
             "ファイル名の簡易表示(&I)",
-            vec![Item::Label(
-                "置換前と置換後の一覧（先頭・上へ・下へ・最終・挿入・追加・更新・削除）は未対応です。\nファイルの [Nickname] の From00, To00 ... はそのまま残ります。",
-            )],
+            vec![Control::table("file_name_list", "", &LIST).into()],
         ),
     ]
+}
+
+/// What OK does to the windows: they show their paths with the new list.
+pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, _before: Option<&Values>) {
+    let names = FileNames::new(
+        after.bool("short_path"),
+        usize::try_from(after.int("short_path_max_width")).unwrap_or(0),
+        after.rows("file_name_list"),
+        &Folders::new(env.cx),
+        !cfg!(windows),
+    );
+    env.cx.set_global(names);
 }

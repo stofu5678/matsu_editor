@@ -28,6 +28,8 @@ ume-regex = { path = "../ume-regex" }
 ume-plugin = { path = "../ume-plugin" }
 # Carries the events of a running macro from the host's threads to the UI thread.
 async-channel = "2"
+# The width of a path in columns (the short form of a long path).
+unicode-width = "0.2"
 # The UI commands register themselves like the core commands (ADR-0013 section 1).
 inventory = "0.3.25"
 # The times in the file property dialog, in the local time zone (as ume-commands does).

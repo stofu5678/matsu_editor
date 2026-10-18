@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use ume_config::{Profile, ProfileError};
 
 use super::dialog::CommonSettingsDialog;
+use super::table::{Row, TableSpec};
 
 /// The section of the settings file that holds the settings of the dialog.
 pub(crate) const SECTION: &str = "Common";
@@ -30,6 +31,8 @@ pub(crate) enum Value {
     Text(String),
     /// An ordered list of numbers that a page edits with its own widget ([`Kind::Numbers`]).
     Numbers(Vec<i32>),
+    /// The rows of an editable list ([`Kind::Table`]).
+    Rows(Vec<Row>),
 }
 
 /// The default of a control: Sakura's value when the file has none.
@@ -110,6 +113,9 @@ pub(crate) enum Kind {
         load: LoadNumbers,
         store: StoreNumbers,
     },
+    /// An editable list: rows of texts with the buttons that change them
+    /// ([`super::table`]). The value is a [`Value::Rows`]; the file keeps it as the spec says.
+    Table { spec: &'static TableSpec },
 }
 
 /// A control of a page.
@@ -243,6 +249,16 @@ impl Control {
     /// A list of numbers edited by a custom widget; `load` and `store` map it to the file.
     pub(crate) const fn numbers(id: &'static str, load: LoadNumbers, store: StoreNumbers) -> Self {
         Self::new(id, "", "", Def::Bool(false), Kind::Numbers { load, store })
+    }
+
+    /// An editable list of rows. `label` is the text above it; it holds no `key` (the spec says
+    /// where the rows are in the file).
+    pub(crate) const fn table(
+        id: &'static str,
+        label: &'static str,
+        spec: &'static TableSpec,
+    ) -> Self {
+        Self::new(id, label, "", Def::Bool(false), Kind::Table { spec })
     }
 
     /// A push button.
@@ -409,6 +425,10 @@ impl Values {
             if matches!(control.kind, Kind::Button { .. }) || map.contains_key(control.id) {
                 continue;
             }
+            if let Kind::Table { spec } = control.kind {
+                map.insert(control.id, Value::Rows(spec.load(profile)));
+                continue;
+            }
             let fallback = control.default.value();
             let value = if let Kind::Numbers { load, .. } = control.kind {
                 Value::Numbers(load(profile))
@@ -448,7 +468,7 @@ impl Values {
                         .get_string(control.section, control.key)
                         .map_or(fallback, Value::Text),
                     Kind::Numbers { .. } => fallback,
-                    Kind::Button { .. } => fallback,
+                    Kind::Button { .. } | Kind::Table { .. } => fallback,
                 }
             };
             map.insert(control.id, value);
@@ -491,6 +511,14 @@ impl Values {
         match self.map.get(id) {
             Some(Value::Text(t)) => t,
             _ => "",
+        }
+    }
+
+    /// The rows of an editable list. A name that is not there has none.
+    pub(crate) fn rows(&self, id: &str) -> &[Row] {
+        match self.map.get(id) {
+            Some(Value::Rows(rows)) => rows,
+            _ => &[],
         }
     }
 
@@ -542,6 +570,16 @@ impl Values {
                 }
                 continue;
             }
+            if let Kind::Table { spec } = control.kind {
+                if control.live
+                    && !done.contains(&control.id)
+                    && let Some(Value::Rows(rows)) = self.map.get(control.id)
+                {
+                    done.push(control.id);
+                    changed |= spec.store(rows, profile)?;
+                }
+                continue;
+            }
             if !control.live
                 || control.key.is_empty()
                 || matches!(control.kind, Kind::Button { .. })
@@ -571,7 +609,7 @@ impl Values {
                 Some(Value::Bool(on)) => (if *on != control.invert { "1" } else { "0" }).to_owned(),
                 Some(Value::Int(i)) => i.to_string(),
                 Some(Value::Text(t)) => t.clone(),
-                Some(Value::Numbers(_)) | None => continue,
+                Some(Value::Numbers(_)) | Some(Value::Rows(_)) | None => continue,
             };
             if profile.get(control.section, control.key) != Some(text.as_str()) {
                 profile.set(control.section, control.key, &text)?;

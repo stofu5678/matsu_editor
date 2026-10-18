@@ -582,27 +582,32 @@ impl EditorView {
         }
     }
 
+    /// The title of the window while it is active (`szWinCaptionActive`).
     pub fn title(&self, cx: &App) -> String {
+        self.title_for(true, cx)
+    }
+
+    /// The title of the window (`CEditWnd::UpdateCaption`): the format of the active or the
+    /// inactive window, expanded for this document (`file_names::title`).
+    pub fn title_for(&self, active: bool, cx: &App) -> String {
         let shared = self.document.read(cx);
-        // A Grep window is `【Grep】key` (`${w?【Grep】$h$:...}`).
-        let grep_title = self.grep_title();
-        let mut title = crate::status::window_title(
-            grep_title.as_deref().or(shared.file_name().as_deref()),
-            shared.model().is_modified(),
-        );
-        if shared.view_mode() {
-            // `STR_CAPTION_ACTIVE_VIEW` in `sakura_core/sakura_rc.rc`, which the default title
-            // format `$A $V ${R?(ビューモード)$:(上書き禁止)$}` puts after the name.
-            title.push_str(" (ビューモード)");
-        } else if shared.disk().unwritable {
-            // `$R` is 1 for a file that cannot be written (`CSakuraEnvironment::_ExParam_Evaluate`).
-            title.push_str(" (上書き禁止)");
-        }
-        if self.is_recording_key_macro() {
-            // `STR_ERR_CSHAREDATA17` in `sakura_core/sakura_rc.rc`: `${M?  【キーマクロの記録中】$}`.
-            title.push_str("  【キーマクロの記録中】");
-        }
-        title
+        let path = shared.path().map(|p| p.to_string_lossy().into_owned());
+        // The key of a Grep window; its title is the key, and the tab shows `【Grep】key`.
+        let grep_key = self.grep_key();
+        let subject = crate::file_names::title::Subject {
+            path: path.as_deref(),
+            modified: shared.model().is_modified(),
+            view_mode: shared.view_mode(),
+            unwritable: shared.disk().unwritable,
+            recording_macro: self.is_recording_key_macro(),
+            grep_key: grep_key.as_deref(),
+            caret: (self.cursor.caret().line, self.cursor.caret().col),
+        };
+        crate::file_names::title::expand(
+            &crate::file_names::title::format(cx, active),
+            &subject,
+            &crate::file_names::current(cx),
+        )
     }
 
     // ---- keys ----

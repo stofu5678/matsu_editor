@@ -367,6 +367,8 @@ fn a_file_that_cannot_be_written_opens_without_editing(cx: &mut TestAppContext) 
     open(&view, cx, &path);
     let title = view.read_with(cx, |v, app| v.title(app));
     assert!(title.contains("(上書き禁止)"), "{title}");
+    let caption = view.read_with(cx, crate::app::Workspace::caption_of);
+    assert_eq!(caption, "a.txt(上書き禁止)");
     type_text(&view, cx, "x");
     assert_eq!(text(&view, cx), "one", "editing is refused");
     // with the option off the file is edited (and saving shows the error)

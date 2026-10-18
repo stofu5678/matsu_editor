@@ -31,6 +31,7 @@ use gpui_component::{Disableable as _, Selectable as _, h_flex, v_flex};
 use ume_config::Profile;
 
 use super::model::{Control, Item, Kind, Value, Values, parse_label};
+use super::table::{self, Op, Refused};
 use super::{LastPage, Page, all_controls, apply};
 use crate::file_dialog::{self, Ask};
 use crate::file_ops::windows::editors;
@@ -76,6 +77,10 @@ pub(crate) struct CommonSettingsDialog {
     inputs: HashMap<&'static str, Entity<InputState>>,
     /// The color pickers by control id.
     pickers: HashMap<&'static str, Entity<ColorPickerState>>,
+    /// The edit boxes under the editable lists by list id and column.
+    table_inputs: HashMap<(&'static str, usize), Entity<InputState>>,
+    /// The selected row of each editable list.
+    table_selected: HashMap<&'static str, Option<usize>>,
     opener: Option<AnyWindowHandle>,
     focus: FocusHandle,
     focused: bool,
@@ -196,8 +201,26 @@ impl CommonSettingsDialog {
     ) -> Self {
         let mut inputs = HashMap::new();
         let mut pickers = HashMap::new();
+        let mut table_inputs = HashMap::new();
+        let mut table_selected = HashMap::new();
         let mut subscriptions = Vec::new();
         for control in &controls {
+            if let Kind::Table { spec } = control.kind {
+                // `SetData`: the first row is selected, and the edit boxes show it.
+                let rows = values.rows(control.id);
+                table_selected.insert(control.id, (!rows.is_empty()).then_some(0));
+                for column in 0..spec.columns.len() {
+                    let initial = rows
+                        .first()
+                        .and_then(|row| row.get(column))
+                        .cloned()
+                        .unwrap_or_default();
+                    let state = cx.new(|cx| InputState::new(window, cx));
+                    state.update(cx, |state, cx| state.set_value(initial, window, cx));
+                    table_inputs.insert((control.id, column), state);
+                }
+                continue;
+            }
             if matches!(control.kind, Kind::Color) {
                 let picker = cx.new(|cx| ColorPickerState::new(window, cx));
                 picker.update(cx, |state, cx| {
@@ -263,6 +286,8 @@ impl CommonSettingsDialog {
             values,
             inputs,
             pickers,
+            table_inputs,
+            table_selected,
             opener,
             focus: cx.focus_handle(),
             focused: false,
@@ -321,6 +346,19 @@ impl CommonSettingsDialog {
     pub(crate) fn input_text(&self, id: &str, cx: &App) -> Option<String> {
         self.inputs
             .get(id)
+            .map(|input| input.read(cx).value().to_string())
+    }
+
+    /// The selected row of an editable list.
+    pub(crate) fn selected_row(&self, id: &str) -> Option<usize> {
+        self.table_selected.get(id).copied().flatten()
+    }
+
+    /// The text in the edit box of one column of an editable list.
+    #[cfg(test)]
+    pub(crate) fn table_input_text(&self, id: &str, column: usize, cx: &App) -> Option<String> {
+        self.table_inputs
+            .get(&(self.control(id)?.id, column))
             .map(|input| input.read(cx).value().to_string())
     }
 
@@ -410,6 +448,136 @@ impl CommonSettingsDialog {
             input.update(cx, |state, cx| state.set_value(text, window, cx));
             cx.notify();
         }
+    }
+
+    fn table_control(&self, id: &str) -> Option<(Control, &'static table::TableSpec)> {
+        let control = self.control(id).filter(|c| self.is_usable(c))?;
+        match control.kind {
+            Kind::Table { spec } => Some((control, spec)),
+            _ => None,
+        }
+    }
+
+    /// Puts the texts of row `row` of the list in its edit boxes, or empties them (`LVN_ITEMCHANGED`
+    /// of `IDC_LIST_FNAME`).
+    fn show_row(
+        &mut self,
+        id: &'static str,
+        row: Option<usize>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let texts = row.and_then(|i| self.values.rows(id).get(i).cloned());
+        for ((table, column), input) in &self.table_inputs {
+            if *table != id {
+                continue;
+            }
+            let text = texts
+                .as_ref()
+                .and_then(|r| r.get(*column).cloned())
+                .unwrap_or_default();
+            input.update(cx, |state, cx| state.set_value(text, window, cx));
+        }
+    }
+
+    /// A click on a row of an editable list.
+    pub(crate) fn select_row(
+        &mut self,
+        id: &'static str,
+        row: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.table_control(id).is_none() || row >= self.values.rows(id).len() {
+            return;
+        }
+        self.table_selected.insert(id, Some(row));
+        self.show_row(id, Some(row), window, cx);
+        cx.notify();
+    }
+
+    /// Types into the edit box of one column of an editable list.
+    #[cfg(test)]
+    pub(crate) fn set_table_input(
+        &mut self,
+        id: &'static str,
+        column: usize,
+        text: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.table_control(id).is_some()
+            && let Some(input) = self.table_inputs.get(&(id, column)).cloned()
+        {
+            let text = text.to_owned();
+            input.update(cx, |state, cx| state.set_value(text, window, cx));
+            cx.notify();
+        }
+    }
+
+    /// A button of an editable list (`CPropFileName::DispatchEvent`, `BN_CLICKED`).
+    pub(crate) fn table_op(
+        &mut self,
+        id: &'static str,
+        op: Op,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((_, spec)) = self.table_control(id) else {
+            return;
+        };
+        if !spec.ops.contains(&op) {
+            return;
+        }
+        let fields: Vec<String> = (0..spec.columns.len())
+            .map(|column| {
+                self.table_inputs
+                    .get(&(id, column))
+                    .map(|input| input.read(cx).value().to_string())
+                    .unwrap_or_default()
+            })
+            .collect();
+        let mut rows = self.values.rows(id).to_vec();
+        let mut selected = self.selected_row(id);
+        match table::apply(spec, &mut rows, &mut selected, op, &fields) {
+            Ok(true) => {
+                self.values.set(id, Value::Rows(rows));
+                self.table_selected.insert(id, selected);
+                self.show_row(id, selected, window, cx);
+                cx.notify();
+            }
+            Ok(false) => {}
+            Err(Refused::Full) => {
+                // Nobody waits for this answer.
+                drop(window.prompt(PromptLevel::Info, spec.full_message, None, &["OK"], cx));
+            }
+        }
+    }
+
+    /// Alt with the letter of a button or of an edit box under an editable list.
+    fn use_table_key(&mut self, key: char, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        for control in self.page_controls() {
+            let Some((control, spec)) = self.table_control(control.id) else {
+                continue;
+            };
+            if let Some(op) = spec
+                .ops
+                .iter()
+                .find(|op| parse_label(op.label()).1 == Some(key))
+            {
+                self.table_op(control.id, *op, window, cx);
+                return true;
+            }
+            let column = spec
+                .columns
+                .iter()
+                .position(|c| parse_label(c.edit_label).1 == Some(key));
+            if let Some(input) = column.and_then(|c| self.table_inputs.get(&(control.id, c))) {
+                input.update(cx, |state, cx| state.focus(window, cx));
+                return true;
+            }
+        }
+        false
     }
 
     /// `PSN_KILLACTIVE` of every page (`GetData`): the edit boxes become values, numbers into their
@@ -547,7 +715,7 @@ impl CommonSettingsDialog {
             .into_iter()
             .find(|c| parse_label(c.label).1 == Some(key) && self.is_usable(c))
         else {
-            return false;
+            return self.use_table_key(key, window, cx);
         };
         match control.kind {
             Kind::Check => {
@@ -572,7 +740,7 @@ impl CommonSettingsDialog {
                 }
             }
             Kind::Button { run } => run(self, window, cx),
-            Kind::Numbers { .. } => {}
+            Kind::Numbers { .. } | Kind::Table { .. } => {}
         }
         true
     }
@@ -806,6 +974,7 @@ impl CommonSettingsDialog {
                     )
                     .into_any_element()
             }
+            Kind::Table { spec } => self.table_element(control, spec, usable, cx),
             Kind::Button { run } => h_flex()
                 .gap_2()
                 .items_center()
@@ -820,6 +989,120 @@ impl CommonSettingsDialog {
             // A list of numbers is drawn by the `Item::Custom` that edits it.
             Kind::Numbers { .. } => div().into_any_element(),
         }
+    }
+
+    /// An editable list: the rows with their headings, the edit boxes of the columns under them,
+    /// and the buttons beside them (the moves above, the changes below, as `IDD_PROP_FNAME`).
+    fn table_element(
+        &self,
+        control: &Control,
+        spec: &'static table::TableSpec,
+        usable: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let id = control.id;
+        let (label, _) = parse_label(control.label);
+        let selected = self.selected_row(id);
+        let heading = h_flex()
+            .bg(rgb(0xe6e6e6))
+            .border_b_1()
+            .border_color(rgb(BORDER))
+            .children(spec.columns.iter().map(|c| {
+                div()
+                    .w(gpui::relative(c.width as f32 / 100.))
+                    .px_2()
+                    .child(c.title)
+            }));
+        let rows: Vec<AnyElement> = self
+            .values
+            .rows(id)
+            .iter()
+            .enumerate()
+            .map(|(index, row)| {
+                h_flex()
+                    .id(SharedString::from(format!("cs-{id}-row-{index}")))
+                    .h(px(20.))
+                    .items_center()
+                    .cursor_pointer()
+                    .when(selected == Some(index), |d| {
+                        d.bg(rgb(SELECTED_BG)).text_color(rgb(0xffffff))
+                    })
+                    .children(spec.columns.iter().zip(row).map(|(c, text)| {
+                        div()
+                            .w(gpui::relative(c.width as f32 / 100.))
+                            .px_2()
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .child(text.clone())
+                    }))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        this.select_row(id, index, window, cx);
+                    }))
+                    .into_any_element()
+            })
+            .collect();
+        let edits = spec.columns.iter().enumerate().filter_map(|(column, c)| {
+            let input = self.table_inputs.get(&(id, column))?;
+            Some(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(div().w(px(90.)).child(parse_label(c.edit_label).0))
+                    .child(div().flex_1().child(Input::new(input).disabled(!usable))),
+            )
+        });
+        let button = |op: Op, cx: &mut Context<Self>| {
+            Button::new(SharedString::from(format!("cs-{id}-{op:?}")))
+                .label(parse_label(op.label()).0)
+                .disabled(!usable)
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.table_op(id, op, window, cx);
+                }))
+        };
+        let (moves, changes): (Vec<Op>, Vec<Op>) = Op::ALL
+            .into_iter()
+            .filter(|op| spec.ops.contains(op))
+            .partition(|op| matches!(op, Op::Top | Op::Up | Op::Down | Op::Last));
+        let moves: Vec<Button> = moves.into_iter().map(|op| button(op, cx)).collect();
+        let changes: Vec<Button> = changes.into_iter().map(|op| button(op, cx)).collect();
+        v_flex()
+            .gap_1()
+            .when(!label.is_empty(), |this| this.child(label.clone()))
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_start()
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .gap_2()
+                            .child(
+                                v_flex()
+                                    .id(Self::element_id(control))
+                                    .h(px(150.))
+                                    .bg(rgb(0xffffff))
+                                    .border_1()
+                                    .border_color(rgb(BORDER))
+                                    .child(heading)
+                                    .child(
+                                        v_flex()
+                                            .id(SharedString::from(format!("cs-{id}-rows")))
+                                            .flex_1()
+                                            .overflow_y_scroll()
+                                            .children(rows),
+                                    ),
+                            )
+                            .children(edits),
+                    )
+                    .child(
+                        v_flex()
+                            .gap_3()
+                            .child(v_flex().gap_1().children(moves))
+                            .child(v_flex().gap_1().children(changes)),
+                    ),
+            )
+            .children((!control.live).then(Self::not_available_note))
+            .into_any_element()
     }
 
     fn item_element(&self, item: &Item, cx: &mut Context<Self>) -> AnyElement {

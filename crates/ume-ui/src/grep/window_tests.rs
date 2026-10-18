@@ -7,6 +7,8 @@ use ume_commands::sakura::FUNCTIONS;
 use ume_core::buffer::{Document, Eol, Pos};
 use ume_core::model::DocumentModel;
 
+use crate::file_names::title::default_title;
+
 use super::settings::GrepSettings;
 use crate::document::SharedDocument;
 use crate::file_ops::windows::editors;
@@ -193,7 +195,7 @@ fn a_grep_window_is_titled_with_the_key_and_is_not_modified(cx: &mut TestAppCont
             v.document().read(app).new_line(),
         )
     });
-    assert_eq!(title, "【Grep】hit - UME Editor");
+    assert_eq!(title, default_title("hit"));
     assert!(grep && !running && !modified && !accepts);
     assert_eq!(caret, Pos::new(0, 0));
     // the line ending of the result is CR LF
@@ -243,7 +245,7 @@ fn the_dialog_runs_the_search_in_an_untitled_window(cx: &mut TestAppContext) {
     assert!(other_views(cx, &f.view).is_empty());
     let text = text_of(&f.view, cx);
     assert!(text.contains("beta hit"), "{text}");
-    assert_eq!(f.title(cx), "【Grep】hit - UME Editor");
+    assert_eq!(f.title(cx), default_title("hit"));
     assert!(!f.modified(cx));
     assert!(!f.running(cx));
 }
@@ -267,7 +269,7 @@ fn a_second_grep_goes_to_the_same_grep_window_below_the_first(cx: &mut TestAppCo
     assert!(both.contains("□検索条件  \"alpha\""));
     assert!(both.ends_with("1 個が検索されました。\r\n"));
     assert!(other_views(cx, &f.view).is_empty(), "no new window");
-    assert_eq!(f.title(cx), "【Grep】alpha - UME Editor");
+    assert_eq!(f.title(cx), default_title("alpha"));
     // the caret is where the second result begins
     let caret = f.view.read_with(cx, |v, _| v.cursor().caret());
     assert_eq!(caret.col, 0);
@@ -407,7 +409,7 @@ fn a_grep_window_cannot_be_closed_while_it_searches_and_never_asks_to_save(
     assert_eq!(text_of(&f.view, cx), "");
     // the window is an ordinary one again: its notes are asked about
     assert!(!f.view.read_with(cx, |v, _| v.is_grep_window()));
-    assert_eq!(f.title(cx), "(無題) - UME Editor");
+    assert_eq!(f.title(cx), default_title("(無題)"));
     cx.simulate_input("notes");
     f.run(cx, "F_FILECLOSE", &[]);
     assert!(cx.has_pending_prompt(), "the notes are asked about");
@@ -607,7 +609,7 @@ fn the_replace_macro_changes_the_files_and_writes_the_result_to_a_new_window(
         "the window it ran in is as it was"
     );
     let title = windows[0].read_with(cx, |v, app| v.title(app));
-    assert_eq!(title, "【Grep】hit - UME Editor");
+    assert_eq!(title, default_title("hit"));
 }
 
 #[gpui::test]
