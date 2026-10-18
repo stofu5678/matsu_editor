@@ -21,10 +21,12 @@ pub(super) fn move_to_trash(path: &Path) -> io::Result<()> {
         .collect();
     from.push(0);
     from.push(0);
-    let mut operation = SHFILEOPSTRUCTW::default();
-    operation.wFunc = FO_DELETE;
-    operation.pFrom = from.as_ptr();
-    operation.fFlags = (FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT) as _;
+    let mut operation = SHFILEOPSTRUCTW {
+        wFunc: FO_DELETE,
+        pFrom: from.as_ptr(),
+        fFlags: (FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT) as _,
+        ..Default::default()
+    };
     // SAFETY: `operation` is filled in and `from` lives through the call.
     let code = unsafe { SHFileOperationW(&mut operation) };
     if code == 0 && operation.fAnyOperationsAborted == 0 {
