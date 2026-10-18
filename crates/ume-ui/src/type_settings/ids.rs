@@ -168,30 +168,13 @@ pub(super) const DETECT_INDENT: &str = "detect_indent";
 
 // ---- 正規表現キーワード ----
 pub(super) const USE_REGEX: &str = "use_regex";
-pub(super) const REGEX_PATTERN: &str = "regex_pattern";
-pub(super) const REGEX_COLOR: &str = "regex_color";
-pub(super) const REGEX_INS: &str = "regex_ins";
-pub(super) const REGEX_ADD: &str = "regex_add";
-pub(super) const REGEX_UPD: &str = "regex_upd";
-pub(super) const REGEX_DEL: &str = "regex_del";
-pub(super) const REGEX_TOP: &str = "regex_top";
-pub(super) const REGEX_UP: &str = "regex_up";
-pub(super) const REGEX_DOWN: &str = "regex_down";
-pub(super) const REGEX_LAST: &str = "regex_last";
+pub(super) const REGEX_LIST: &str = "regex_list";
 pub(super) const REGEX_IMPORT: &str = "regex_import";
 pub(super) const REGEX_EXPORT: &str = "regex_export";
 
 // ---- キーワードヘルプ ----
 pub(super) const USE_KEYHELP: &str = "use_keyhelp";
-pub(super) const KEYHELP_PATH: &str = "keyhelp_path";
-pub(super) const KEYHELP_REF: &str = "keyhelp_ref";
-pub(super) const KEYHELP_INS: &str = "keyhelp_ins";
-pub(super) const KEYHELP_UPD: &str = "keyhelp_upd";
-pub(super) const KEYHELP_DEL: &str = "keyhelp_del";
-pub(super) const KEYHELP_TOP: &str = "keyhelp_top";
-pub(super) const KEYHELP_UP: &str = "keyhelp_up";
-pub(super) const KEYHELP_DOWN: &str = "keyhelp_down";
-pub(super) const KEYHELP_LAST: &str = "keyhelp_last";
+pub(super) const KEYHELP_LIST: &str = "keyhelp_list";
 pub(super) const KEYHELP_IMPORT: &str = "keyhelp_import";
 pub(super) const KEYHELP_EXPORT: &str = "keyhelp_export";
 pub(super) const KEYHELP_ALL_SEARCH: &str = "keyhelp_all_search";

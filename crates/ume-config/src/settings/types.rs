@@ -50,8 +50,9 @@
 use super::color::{ColorSet, names};
 use super::font::FontSetting;
 use super::type_rules::{
-    BLOCK_COMMENT_COUNT, BlockComment, DEFAULT_REGEX_COLOR, LINE_COMMENT_COUNT, LineComment,
-    MAX_REGEX_KEYWORDS, MAX_VERT_LINES, RegexKeyword, outline_type, smart_indent, string_type,
+    BLOCK_COMMENT_COUNT, BlockComment, DEFAULT_REGEX_COLOR, KeyHelpDict, LINE_COMMENT_COUNT,
+    LineComment, MAX_KEYHELP_FILES, MAX_REGEX_KEYWORDS, MAX_VERT_LINES, RegexKeyword, outline_type,
+    smart_indent, string_type,
 };
 use crate::profile::{Profile, ProfileError};
 use crate::value::{parse_long, scan_ints};
@@ -216,6 +217,8 @@ pub struct TypeSettings {
     pub use_hokan_by_file: bool,
     /// `bUseHokanByKeyword`: the input completion offers the highlighted keywords.
     pub use_hokan_by_keyword: bool,
+    /// `m_KeyHelpArr` (`KDct[NN]`): the keyword help dictionaries, the first has the priority.
+    pub key_help: Vec<KeyHelpDict>,
     /// `bUseTypeFont`: this type has its own font.
     pub use_type_font: bool,
     /// `lf`, `lfFaceName`, `nPointSize` of this type.
@@ -302,6 +305,7 @@ impl Default for TypeSettings {
             hokan_lo_hi_case: false,
             use_hokan_by_file: true,
             use_hokan_by_keyword: false,
+            key_help: Vec::new(),
             use_type_font: false,
             // `_DefaultConfig` does not set `m_lf`; an unused, zeroed font.
             font: FontSetting {
@@ -482,6 +486,7 @@ impl TypeSettings {
             KINSOKU_SIZE,
         );
         read_bool(profile, s, "bChkEnterAtEnd", &mut self.warn_mixed_eol);
+        self.read_key_help(profile, s);
         read_string(profile, s, "szHokanFile", &mut self.hokan_file, MAX_PATH);
         read_i32(profile, s, "nHokanType", &mut self.hokan_type);
         read_bool(profile, s, "bHokanLoHiCase", &mut self.hokan_lo_hi_case);
@@ -496,6 +501,44 @@ impl TypeSettings {
         self.read_rules(profile, s);
         self.font.read(profile, s, "lf", None, None);
         self.colors.read(profile, s);
+    }
+
+    /// `ShareData_IO_KeyHelpArr`, read side: the old key `szKeyWordHelpFile` is one dictionary (not
+    /// used) and ends the reading; else `KDct[00]`, `KDct[01]` ... up to the first that is missing,
+    /// does not have the form, or has no path.
+    fn read_key_help(&mut self, profile: &Profile, s: &str) {
+        if let Some(path) = profile.get_string(s, "szKeyWordHelpFile") {
+            self.key_help = vec![KeyHelpDict {
+                used: false,
+                about: String::new(),
+                path,
+            }];
+            return;
+        }
+        self.key_help = (0..MAX_KEYHELP_FILES)
+            .map_while(|i| {
+                profile
+                    .get(s, &format!("KDct[{i:02}]"))
+                    .and_then(KeyHelpDict::parse)
+                    .filter(|dict| !dict.path.is_empty())
+            })
+            .collect();
+    }
+
+    /// `ShareData_IO_KeyHelpArr`, write side: the dictionaries, and no key of a dictionary that
+    /// is gone (Sakura writes the file anew).
+    fn write_key_help(&self, profile: &mut Profile, s: &str) -> Result<(), ProfileError> {
+        profile.remove(s, "szKeyWordHelpFile");
+        for i in 0..MAX_KEYHELP_FILES {
+            let key = format!("KDct[{i:02}]");
+            match self.key_help.get(i) {
+                Some(dict) => profile.set(s, &key, &dict.format())?,
+                None => {
+                    profile.remove(s, &key);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// The coloring rules, the outline and the smart indent of a `Types(N)` section.
@@ -673,6 +716,7 @@ impl TypeSettings {
         profile.set_bool(s, "bHokanLoHiCase", self.hokan_lo_hi_case)?;
         profile.set_bool(s, "bUseHokanByFile", self.use_hokan_by_file)?;
         profile.set_bool(s, "bUseHokanByKeyword", self.use_hokan_by_keyword)?;
+        self.write_key_help(profile, s)?;
         profile.set_bool(s, "bUseTypeFont", self.use_type_font)?;
         self.write_rules(profile, s)?;
         // Sakura always writes the font of the type (an all-zero one when the type has none). A type that does
@@ -1051,6 +1095,60 @@ mod tests {
         assert_eq!(TypeSettings::read(&out, 2), t);
         assert_eq!(out.get("Types(2)", "szHokanFile"), Some("words.kwd"));
         assert_eq!(out.get("Types(2)", "bUseHokanByFile"), Some("0"));
+    }
+
+    #[test]
+    fn the_keyword_help_dictionaries_are_read_and_written_like_sakura() {
+        // `KDct[NN]=use,about,path`; an empty description is allowed, a path may have commas;
+        // the first number that is missing ends the list.
+        let p = Profile::from_bytes(&utf8(
+            "[Types(2)]\r\nKDct[00]=1,Memo,dict one.txt\r\nKDct[01]=0,,a,b.txt\r\n\
+             KDct[03]=1,Lost,c.txt\r\n",
+        ));
+        let t = TypeSettings::read(&p, 2);
+        assert_eq!(
+            t.key_help,
+            [
+                KeyHelpDict {
+                    used: true,
+                    about: "Memo".to_owned(),
+                    path: "dict one.txt".to_owned()
+                },
+                KeyHelpDict {
+                    used: false,
+                    about: String::new(),
+                    path: "a,b.txt".to_owned()
+                },
+            ]
+        );
+        // A line that does not have the form, or has no path, ends the list too.
+        let p = Profile::from_bytes(&utf8(
+            "[Types(2)]\r\nKDct[00]=1,x,a.txt\r\nKDct[01]=bad\r\nKDct[02]=1,x,b.txt\r\n",
+        ));
+        assert_eq!(TypeSettings::read(&p, 2).key_help.len(), 1);
+        // The old key is one dictionary that is not used, and wins over KDct.
+        let p = Profile::from_bytes(&utf8(
+            "[Types(2)]\r\nszKeyWordHelpFile=old.txt\r\nKDct[00]=1,x,new.txt\r\n",
+        ));
+        let old = TypeSettings::read(&p, 2);
+        assert_eq!(old.key_help.len(), 1);
+        assert_eq!(old.key_help[0].path, "old.txt");
+        assert!(!old.key_help[0].used);
+        // Writing keeps the list, drops the keys of dictionaries that are gone and the old key.
+        let mut out = p;
+        let mut t = old;
+        t.key_help.push(KeyHelpDict {
+            used: true,
+            about: "B".to_owned(),
+            path: "b.txt".to_owned(),
+        });
+        t.write(&mut out, 2).unwrap();
+        assert_eq!(out.get("Types(2)", "szKeyWordHelpFile"), None);
+        assert_eq!(out.get("Types(2)", "KDct[01]"), Some("1,B,b.txt"));
+        assert_eq!(TypeSettings::read(&out, 2).key_help, t.key_help);
+        t.key_help.truncate(1);
+        t.write(&mut out, 2).unwrap();
+        assert_eq!(out.get("Types(2)", "KDct[01]"), None);
     }
 
     #[test]

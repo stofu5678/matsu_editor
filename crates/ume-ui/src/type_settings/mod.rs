@@ -15,9 +15,10 @@
 //! # Pages
 //!
 //! All six pages are here. A control whose feature UME Editor does not have is shown greyed out
-//! with the value of the file and is never written (the rule of the common settings). The lists
-//! of 正規表現キーワード and キーワードヘルプ need a list control that the settings dialog does not
-//! have yet; the keywords and the dictionaries of the file stay as they are.
+//! with the value of the file and is never written (the rule of the common settings). The lists of
+//! 正規表現キーワード (`RxKey[NNN]`) and キーワードヘルプ (`KDct[NN]`) are the editable list of the
+//! settings (`crate::common_settings::table`); their rows are kept in the type
+//! ([`TypeSettings::regex_keywords`], [`TypeSettings::key_help`]).
 //!
 //! # The file
 //!

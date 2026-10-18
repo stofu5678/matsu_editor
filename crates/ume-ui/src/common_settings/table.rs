@@ -96,10 +96,6 @@ pub(crate) enum Storage {
     },
     /// A page that keeps its rows its own way. `load` gives `None` when the file has none (the
     /// defaults then); `store` returns whether it changed the file.
-    #[allow(
-        dead_code,
-        reason = "for the pages of the type settings that keep lists"
-    )]
     Custom {
         load: fn(&Profile) -> Option<Vec<Row>>,
         store: fn(&[Row], &mut Profile) -> Result<bool, ProfileError>,
@@ -119,13 +115,28 @@ pub(crate) struct TableSpec {
     pub storage: Storage,
     /// What is said when a row cannot be added (`STR_PROPCOMFNM_ERR_REG`).
     pub full_message: &'static str,
+    /// A page that checks (and completes) a row before 挿入, 追加 and 更新 put it in, as
+    /// `CPropTypesRegex::CheckKeywordList` and the 挿入/更新 of `CPropTypesKeyHelp` do.
+    pub prepare: Option<Prepare>,
 }
+
+/// Checks the row about to be put in. It may complete the row. `rows` are the rows now, and
+/// `updating` the row that the row replaces (`None` for a row that is added). `base` is the folder
+/// that a relative path starts at. The error is what is said to the user; the list stays as it is.
+pub(crate) type Prepare = fn(
+    row: &mut Row,
+    rows: &[Row],
+    updating: Option<usize>,
+    base: Option<&std::path::Path>,
+) -> Result<(), String>;
 
 /// Why a button did nothing that the user should be told.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Refused {
     /// The list is full.
     Full,
+    /// The page's check refused the row, with the words to say.
+    Rejected(String),
 }
 
 impl TableSpec {
@@ -231,12 +242,26 @@ pub(crate) fn numbered_key(prefix: &str, index: usize, digits: usize) -> String 
 /// texts of the edit boxes, `selected` the selected row. Returns whether the rows or the selection
 /// changed, or why the button was refused. After a change `selected` is the row to show in the
 /// edit boxes (`None` clears them).
+#[cfg(test)]
 pub(crate) fn apply(
     spec: &TableSpec,
     rows: &mut Vec<Row>,
     selected: &mut Option<usize>,
     op: Op,
     fields: &[String],
+) -> Result<bool, Refused> {
+    apply_in(spec, rows, selected, op, fields, None)
+}
+
+/// Does what the button `op` does, for a page whose check reads files: `base` is the folder a
+/// relative path starts at.
+pub(crate) fn apply_in(
+    spec: &TableSpec,
+    rows: &mut Vec<Row>,
+    selected: &mut Option<usize>,
+    op: Op,
+    fields: &[String],
+    base: Option<&std::path::Path>,
 ) -> Result<bool, Refused> {
     let count = rows.len();
     // `EditCtl_LimitText`: an edit box takes only so many characters.
@@ -255,13 +280,13 @@ pub(crate) fn apply(
     match op {
         Op::Insert => {
             let at = selected.unwrap_or(count);
-            put(spec, rows, selected, at, row, true)
+            put(spec, rows, selected, at, row, true, base)
         }
-        Op::Add => put(spec, rows, selected, count, row, true),
+        Op::Add => put(spec, rows, selected, count, row, true, base),
         Op::Update => match *selected {
-            Some(at) => put(spec, rows, selected, at, row, false),
+            Some(at) => put(spec, rows, selected, at, row, false, base),
             // "No row is selected because there is none": the button adds the first row.
-            None if count == 0 => put(spec, rows, selected, 0, row, true),
+            None if count == 0 => put(spec, rows, selected, 0, row, true, base),
             None => Ok(false),
         },
         Op::Delete => match *selected {
@@ -291,14 +316,19 @@ fn put(
     rows: &mut Vec<Row>,
     selected: &mut Option<usize>,
     at: usize,
-    row: Row,
+    mut row: Row,
     insert: bool,
+    base: Option<&std::path::Path>,
 ) -> Result<bool, Refused> {
     if row.first().is_none_or(String::is_empty) {
         return Ok(false);
     }
     if insert && rows.len() >= spec.max_rows {
         return Err(Refused::Full);
+    }
+    if let Some(prepare) = spec.prepare {
+        let updating = (!insert).then_some(at);
+        prepare(&mut row, rows, updating, base).map_err(Refused::Rejected)?;
     }
     if insert {
         rows.insert(at.min(rows.len()), row);
@@ -358,6 +388,7 @@ mod tests {
             digits: 2,
         },
         full_message: "これ以上登録できません。",
+        prepare: None,
     };
 
     fn rows(list: &[&str]) -> Vec<Row> {
@@ -378,6 +409,60 @@ mod tests {
         let mut bytes = vec![0xEF, 0xBB, 0xBF];
         bytes.extend_from_slice(text.as_bytes());
         Profile::from_bytes(&bytes)
+    }
+
+    /// A page's check: refuses "bad", completes the second column, and gets the folder.
+    fn check(
+        row: &mut Row,
+        _rows: &[Row],
+        updating: Option<usize>,
+        base: Option<&std::path::Path>,
+    ) -> Result<(), String> {
+        if row[0] == "bad" {
+            return Err("no".to_owned());
+        }
+        row[1] = format!("{updating:?}:{}", base.is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn the_check_of_a_page_refuses_or_completes_a_row_before_it_is_put_in() {
+        let spec = TableSpec {
+            prepare: Some(check),
+            ..SPEC
+        };
+        let mut r = rows(&["a"]);
+        let mut sel = Some(0);
+        assert_eq!(
+            apply(&spec, &mut r, &mut sel, Op::Add, &fields("bad", "x")),
+            Err(Refused::Rejected("no".to_owned()))
+        );
+        assert_eq!(firsts(&r), ["a"]);
+        // The check completes the row; a new row has no row it replaces.
+        apply(&spec, &mut r, &mut sel, Op::Add, &fields("b", "x")).unwrap();
+        assert_eq!(r[1], ["b", "None:false"]);
+        // An update names the row, and the folder is given to the check.
+        let base = std::path::Path::new("/ini");
+        apply_in(
+            &spec,
+            &mut r,
+            &mut sel,
+            Op::Update,
+            &fields("c", ""),
+            Some(base),
+        )
+        .unwrap();
+        assert_eq!(r[1], ["c", "Some(1):true"]);
+        // The check does not see a row that is not put in (an empty first column, a full list).
+        let mut r = rows(&["a", "b", "c", "d"]);
+        assert_eq!(
+            apply(&spec, &mut r, &mut sel, Op::Add, &fields("bad", "")),
+            Err(Refused::Full)
+        );
+        assert_eq!(
+            apply(&spec, &mut r, &mut sel, Op::Add, &fields("", "")),
+            Ok(false)
+        );
     }
 
     #[test]

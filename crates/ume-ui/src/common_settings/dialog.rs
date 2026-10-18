@@ -539,7 +539,11 @@ impl CommonSettingsDialog {
             .collect();
         let mut rows = self.values.rows(id).to_vec();
         let mut selected = self.selected_row(id);
-        match table::apply(spec, &mut rows, &mut selected, op, &fields) {
+        let base = crate::doc_types::with_user(cx, |user| {
+            crate::settings::history_file(user)
+                .and_then(|path| path.parent().map(std::path::Path::to_owned))
+        });
+        match table::apply_in(spec, &mut rows, &mut selected, op, &fields, base.as_deref()) {
             Ok(true) => {
                 self.values.set(id, Value::Rows(rows));
                 self.table_selected.insert(id, selected);
@@ -550,6 +554,9 @@ impl CommonSettingsDialog {
             Err(Refused::Full) => {
                 // Nobody waits for this answer.
                 drop(window.prompt(PromptLevel::Info, spec.full_message, None, &["OK"], cx));
+            }
+            Err(Refused::Rejected(message)) => {
+                drop(window.prompt(PromptLevel::Info, &message, None, &["OK"], cx));
             }
         }
     }

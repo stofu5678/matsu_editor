@@ -14,13 +14,13 @@ use ume_config::settings::type_rules::{
     outline_type,
 };
 use ume_config::settings::types::{MAX_LINE_KETAS as WIDEST_WRAP_COLUMN, eol_type};
-use ume_config::settings::{ColorSet, DocumentTypes, TypeSettings};
+use ume_config::settings::{ColorSet, DocumentTypes, RegexKeyword, TypeSettings};
 use ume_core::encoding::{Encoding, Eol};
 
 use super::ids::*;
 use super::pages::color::STRING_TYPES;
-use super::pages::keyhelp::{RMENU_DEFAULT, RMENU_TYPES};
-use super::pages::regex::{NEW_PATTERN, color_options, first_regex_color};
+use super::pages::keyhelp::{RMENU_DEFAULT, RMENU_TYPES, dict_of, row_of};
+use super::pages::regex::{color_label, color_name};
 use super::pages::screen::{OUTLINE_FILE, OUTLINE_STANDARD, OUTLINES, WRAP_METHODS};
 use super::pages::support::HOKAN_TYPES;
 use super::pages::window::{CODES, EOLS};
@@ -433,11 +433,14 @@ pub(super) fn load(
 
     // 正規表現キーワード
     b(&mut v, USE_REGEX, t.use_regex_keyword);
-    s(&mut v, REGEX_PATTERN, NEW_PATTERN);
-    n(
-        &mut v,
-        REGEX_COLOR,
-        in_list(first_regex_color(), color_options()),
+    v.set(
+        REGEX_LIST,
+        Value::Rows(
+            t.regex_keywords
+                .iter()
+                .map(|k| vec![k.pattern.clone(), color_label(&k.color).to_owned()])
+                .collect(),
+        ),
     );
 
     // キーワードヘルプ
@@ -446,7 +449,10 @@ pub(super) fn load(
         USE_KEYHELP,
         raw_bool(profile, index, "bUseKeyWordHelp", false),
     );
-    s(&mut v, KEYHELP_PATH, "");
+    v.set(
+        KEYHELP_LIST,
+        Value::Rows(t.key_help.iter().map(row_of).collect()),
+    );
     b(
         &mut v,
         KEYHELP_ALL_SEARCH,
@@ -549,6 +555,23 @@ pub(super) fn store(v: &Values, original: &TypeSettings) -> TypeSettings {
 
     // 正規表現キーワード (`CPropTypesRegex::GetData`)
     t.use_regex_keyword = v.bool(USE_REGEX);
+    t.regex_keywords = v
+        .rows(REGEX_LIST)
+        .iter()
+        .filter(|row| !row[0].is_empty())
+        .map(|row| RegexKeyword {
+            color: color_name(&row[1]).to_owned(),
+            pattern: row[0].clone(),
+        })
+        .collect();
+
+    // キーワードヘルプ (`CPropTypesKeyHelp::GetData`)
+    t.key_help = v
+        .rows(KEYHELP_LIST)
+        .iter()
+        .filter(|row| !row[0].is_empty())
+        .map(dict_of)
+        .collect();
     t
 }
 
@@ -594,6 +617,8 @@ pub(super) fn merge(base: &TypeSettings, old: &TypeSettings, new: &TypeSettings)
         use_hokan_by_file,
         use_hokan_by_keyword,
         use_regex_keyword,
+        regex_keywords,
+        key_help,
     );
     for i in 0..new.block_comments.len() {
         if new.block_comments[i] != old.block_comments[i] {
