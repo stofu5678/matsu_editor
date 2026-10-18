@@ -62,6 +62,9 @@ const KEY_CLOSE_ONE_WIN: &str = "bTab_CloseOneWin";
 const KEY_SAME_WIDTH: &str = "bSameTabWidth";
 const KEY_DISP_CLOSE: &str = "bDispTabClose";
 const KEY_CHANGE_BY_WHEEL: &str = "bChgWndByWheel";
+/// `bSortTabList` and `bTab_ListFull`: the tab list is sorted, and shows the paths.
+const KEY_SORT_LIST: &str = "bSortTabList";
+const KEY_LIST_FULL: &str = "bTab_ListFull";
 
 /// `EDispTabClose`: when a tab shows its close button (`sakura_core/env/CommonSetting.h`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -101,6 +104,11 @@ pub(crate) struct TabOptions {
     pub disp_close: DispTabClose,
     /// `m_bChgWndByWheel`: the wheel over the bar goes to the next or previous window.
     pub change_by_wheel: bool,
+    /// `m_bSortTabList`: the tab list is sorted by the text of its items.
+    pub sort_list: bool,
+    /// `m_bTab_ListFull`: the tab list shows the paths, not the captions. The item of the list
+    /// that switches the display changes it (not the common settings).
+    pub list_full: bool,
 }
 
 impl Default for TabOptions {
@@ -111,6 +119,8 @@ impl Default for TabOptions {
             same_width: false,
             disp_close: DispTabClose::No,
             change_by_wheel: false,
+            sort_list: true,
+            list_full: false,
         }
     }
 }
@@ -129,6 +139,8 @@ impl TabOptions {
                 .get_i32("Common", KEY_DISP_CLOSE)
                 .map_or(default.disp_close, DispTabClose::from_code),
             change_by_wheel: get(KEY_CHANGE_BY_WHEEL, default.change_by_wheel),
+            sort_list: get(KEY_SORT_LIST, default.sort_list),
+            list_full: get(KEY_LIST_FULL, default.list_full),
         }
     }
 }
@@ -153,6 +165,22 @@ pub(crate) fn install(cx: &mut App, user: &crate::settings::UserSettings) {
         user.profile()
             .map_or_else(TabOptions::default, TabOptions::from_profile),
     );
+}
+
+/// The item of the tab list that switches between the captions and the paths keeps the choice
+/// (`m_bTab_ListFull`, written with the other settings).
+pub(crate) fn set_list_full(cx: &mut App, full: bool) {
+    let mut options = options(cx);
+    options.list_full = full;
+    cx.set_global(options);
+    crate::history::write_settings(cx, |profile| {
+        let value = if full { "1" } else { "0" };
+        if profile.get("Common", KEY_LIST_FULL) == Some(value) {
+            return Ok(false);
+        }
+        profile.set("Common", KEY_LIST_FULL, value)?;
+        Ok(true)
+    });
 }
 
 /// Changes the settings: windows notice (`observe_global`), and the file keeps them.

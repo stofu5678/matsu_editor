@@ -5,9 +5,11 @@
 //! * A click makes the tab active (`OnTabLButtonUp`); the close button and a click with the
 //!   middle button close the document with the question about saving (`F_WINCLOSE`,
 //!   `OnTabLButtonUp`, `OnTabMButtonUp`); a double click on the bar beside the tabs makes a new
-//!   document (`OnLButtonDblClk`: `F_FILENEW`); the button at the right end lists the documents
-//!   (`TabListMenu`; here it is the window list, `F_WINLIST`); a right click on a tab opens
-//!   custom menu 24, the tab menu, for that tab (`OnTabRButtonUp`, `ExecTabCommand`).
+//!   document (`OnLButtonDblClk`: `F_FILENEW`); a right click on a tab opens custom menu 24, the
+//!   tab menu, for that tab (`OnTabRButtonUp`, `ExecTabCommand`).
+//! * The two buttons at the right end: ▼ lists the tabs by their captions on a left click and by
+//!   their paths on a right click ([`super::list`], `OnLButtonDown`, `OnRButtonDown`), and × closes
+//!   what the settings say (`OnLButtonUp`: [`close_function`]).
 //! * A tab can be dragged to another place of the bar (`ReorderTab`). Dragging a tab out of the
 //!   window to make a new one (`SeparateGroup` on a drop outside the bar) needs the OS to move a
 //!   drag across windows, which GPUI cannot do: `F_TAB_SEPARATE` does it.
@@ -25,6 +27,7 @@ use gpui::{
 use gpui_component::tooltip::Tooltip;
 use ume_commands::sakura::FUNCTIONS;
 
+use super::list::{self, Start};
 use super::{flows, settings};
 use crate::app::Workspace;
 use crate::file_ops::close::confirm_and_close_window;
@@ -65,6 +68,32 @@ impl Render for DraggedTab {
     }
 }
 
+/// What the close button at the right end of the bar closes (`CTabWnd::OnLButtonUp`): in the tab
+/// mode the current tab, or the whole group with `bTab_CloseOneWin`; else every editor (the close
+/// button of the window closes one).
+pub(crate) fn close_function(
+    tab: settings::TabSettings,
+    options: settings::TabOptions,
+) -> &'static str {
+    match (tab.bound(), options.close_one_win) {
+        (true, false) => "F_WINCLOSE",
+        (true, true) => "F_GROUPCLOSE",
+        (false, _) => "F_EXITALLEDITORS",
+    }
+}
+
+/// The tooltip of the close button (`OnMouseMove`: `STR_TABWND_CLOSETAB`, the name of the function).
+fn close_tooltip(function: &str) -> &'static str {
+    match function {
+        "F_WINCLOSE" => "タブを閉じる",
+        "F_GROUPCLOSE" => "グループを閉じる",
+        _ => "編集の全終了",
+    }
+}
+
+/// `STR_TABWND_LR_INFO`: the tooltip of the ▼ button.
+const LIST_TOOLTIP: &str = "左クリック: タブ名一覧\n右クリック: パス名一覧";
+
 fn function_code(name: &str) -> u16 {
     FUNCTIONS
         .iter()
@@ -96,6 +125,14 @@ impl Workspace {
         let editor = self.editor().clone();
         window.defer(cx, move |window, app| {
             editor.update(app, |view, cx| view.run_function(code, &[], window, cx));
+        });
+    }
+
+    /// Opens the tab list over the active view once this event is handled.
+    fn open_tab_list(&self, start: Start, window: &mut Window, cx: &mut Context<Self>) {
+        let editor = self.editor().clone();
+        window.defer(cx, move |window, app| {
+            editor.update(app, |view, cx| list::open(view, start, window, cx));
         });
     }
 
@@ -194,15 +231,43 @@ impl Workspace {
         for (i, entry) in entries.iter().cloned().enumerate() {
             bar = bar.child(self.render_tab(i, entry, own, options, cx));
         }
+        // `OnLButtonDown`: the list of the captions opens on the press, as a menu does.
         let list_button = div()
             .id("tab-list")
+            .debug_selector(|| "tab-list-button".to_owned())
             .px_2()
             .py_0p5()
             .cursor_pointer()
             .hover(|s| s.bg(rgb(0xd0d0d0)))
+            .tooltip(|window, cx| Tooltip::new(LIST_TOOLTIP).build(window, cx))
             .child("▼")
-            .on_click(cx.listener(|this, _, window, cx| {
-                this.run_after_event(function_code("F_WINLIST"), window, cx);
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _: &gpui::MouseDownEvent, window, cx| {
+                    this.open_tab_list(Start::BUTTON, window, cx);
+                    cx.stop_propagation();
+                }),
+            )
+            // `OnRButtonDown`: the list of the paths.
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|this, _: &gpui::MouseDownEvent, window, cx| {
+                    this.open_tab_list(Start::BUTTON_PATHS, window, cx);
+                    cx.stop_propagation();
+                }),
+            );
+        let close_name = close_function(settings::current(cx), options);
+        let close_button = div()
+            .id("tab-bar-close")
+            .debug_selector(|| "tab-bar-close".to_owned())
+            .px_2()
+            .py_0p5()
+            .cursor_pointer()
+            .hover(|s| s.bg(rgb(0xd0d0d0)))
+            .tooltip(move |window, cx| Tooltip::new(close_tooltip(close_name)).build(window, cx))
+            .child("×")
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.run_after_event(function_code(close_name), window, cx);
             }));
         // `m_bChgWndByWheel`: the wheel over the bar goes to the next or previous window
         // (`CEditWnd::DoMouseWheel`: a turn toward the user is the next one).
@@ -244,6 +309,7 @@ impl Workspace {
                     ),
             )
             .child(list_button)
+            .child(close_button)
             .into_any_element(),
         )
     }

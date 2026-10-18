@@ -7,13 +7,13 @@ use super::tests::{active_tab, active_view, captions, run, tab_count, window, wi
 use crate::document::SharedDocument;
 use crate::file_ops::windows::{LoadRequest, find_tab_of};
 
-fn temp_dir(name: &str) -> std::path::PathBuf {
+pub(super) fn temp_dir(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("ume-ui-tabs-{}-{name}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
 
-fn open_file(cx: &mut TestAppContext, handle: AnyWindowHandle, path: &std::path::Path) {
+pub(super) fn open_file(cx: &mut TestAppContext, handle: AnyWindowHandle, path: &std::path::Path) {
     let request = LoadRequest {
         path: path.to_owned(),
         encoding: None,

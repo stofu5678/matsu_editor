@@ -735,6 +735,7 @@ fn the_options_of_the_tabs_are_written_and_taken(cx: &mut TestAppContext) {
             same_width: true,
             disp_close: DispTabClose::Auto,
             change_by_wheel: true,
+            ..TabOptions::default()
         }
     );
     for (key, value) in [
@@ -748,7 +749,48 @@ fn the_options_of_the_tabs_are_written_and_taken(cx: &mut TestAppContext) {
     }
     // Not available yet: not written.
     assert_eq!(ini.get("bDispTabIcon"), None);
-    assert_eq!(ini.get("szTabWndCaption"), None);
+}
+
+fn active_editor(
+    cx: &mut TestAppContext,
+    handle: AnyWindowHandle,
+) -> Entity<crate::view::EditorView> {
+    cx.update(|app| crate::file_ops::windows::workspace_of(app, handle))
+        .unwrap()
+        .read_with(cx, |ws, _| ws.editor().clone())
+}
+
+#[gpui::test]
+fn the_sort_and_the_caption_of_the_tabs_are_live_and_taken_at_once(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, "[Common]\r\nbDispTabWnd=1\r\nbTab_ListFull=1\r\n");
+    let view = active_editor(cx, handle);
+    let caption = |cx: &mut TestAppContext| view.read_with(cx, crate::app::Workspace::caption_of);
+    assert_eq!(caption(cx), "(無題)");
+    assert!(cx.update(|app| crate::tabs::settings::options(app).sort_list));
+    run(cx, handle, "F_OPTION_TAB");
+    assert!(with_dialog(cx, |d, _, _| d
+        .page_controls()
+        .iter()
+        .filter(|c| c.id == "tab_sort_list" || c.id == "tab_caption")
+        .all(|c| c.live)));
+    check(cx, "tab_sort_list", false);
+    type_in(cx, "tab_caption", "<$f>${U?*$}");
+    ok(cx);
+    assert_eq!(ini.get("bSortTabList").as_deref(), Some("0"));
+    assert_eq!(ini.get("szTabWndCaption").as_deref(), Some("<$f>${U?*$}"));
+    // The sorting is taken, the choice of the list the dialog does not have is kept.
+    let options = cx.update(|app| crate::tabs::settings::options(app));
+    assert!(!options.sort_list);
+    assert!(options.list_full);
+    assert_eq!(caption(cx), "<(無題)>");
+}
+
+#[gpui::test]
+fn a_caption_format_in_the_file_is_in_use_from_the_start(cx: &mut TestAppContext) {
+    let (_ini, handle) = setup(cx, "[Common]\r\nbDispTabWnd=1\r\nszTabWndCaption=[$f]\r\n");
+    let view = active_editor(cx, handle);
+    let caption = view.read_with(cx, crate::app::Workspace::caption_of);
+    assert_eq!(caption, "[(無題)]");
 }
 
 #[gpui::test]

@@ -173,7 +173,7 @@ fn the_window_list_starts_on_the_active_tab(cx: &mut TestAppContext) {
         ws.activate_tab(1, window, cx)
     });
     cx.run_until_parked();
-    run(cx, handle, "F_WINLIST");
+    run(cx, handle, "F_DLGWINLIST");
     let list = super::tests::active_view(cx, handle)
         .read_with(cx, |v, _| v.window_list.clone())
         .expect("the list is open");
