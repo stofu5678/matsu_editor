@@ -15,8 +15,8 @@
 use std::sync::Arc;
 
 use gpui::{
-    AnyElement, App, Global, Image, IntoElement, ParentElement as _, SharedString, Styled as _,
-    div, img, px, rgb,
+    AnyElement, App, Global, Image, InteractiveElement as _, IntoElement, ParentElement as _,
+    SharedString, StatefulInteractiveElement as _, Styled as _, div, img, px, rgb,
 };
 use gpui_component::{Icon, IconName, Sizable as _, h_flex};
 
@@ -96,7 +96,10 @@ pub(crate) fn item_element(
         None if checked => column.child(Icon::new(IconName::Check).xsmall()),
         None => column,
     };
+    // An element item has no accessible name of its own (gpui-component's `a11y_label`).
     h_flex()
+        .id("menu-item-label")
+        .aria_label(label.clone())
         .gap(px(GAP))
         .items_center()
         .child(column)
