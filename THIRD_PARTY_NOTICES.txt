@@ -2418,7 +2418,7 @@ ISC License (ISC)
 --------------------------------------------------------------------------------
 
 Used by:
-  * gpui-kit-assets 0.7.1 - https://github.com/longbridge/gpui-kit
+  * gpui-kit-assets 0.7.2 - https://github.com/longbridge/gpui-kit
 
 Copyright (c) 2026 Lucide Icons and Contributors
 
@@ -4277,7 +4277,7 @@ MIT License (MIT)
 --------------------------------------------------------------------------------
 
 Used by:
-  * gpui-kit-assets 0.7.1 - https://github.com/longbridge/gpui-kit
+  * gpui-kit-assets 0.7.2 - https://github.com/longbridge/gpui-kit
 
 Copyright (c) 2013-present Cole Bemis
 
