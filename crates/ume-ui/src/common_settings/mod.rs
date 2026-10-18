@@ -155,6 +155,7 @@ impl Page {
             Page::File => pages::file::apply(env, after, before),
             Page::Format => pages::format::apply(env, after, before),
             Page::Search => pages::search::apply(env, after, before),
+            Page::StatusBar => pages::status_bar::apply(env, after, before),
             // The other pages have nothing to tell the windows (yet).
             _ => {}
         }

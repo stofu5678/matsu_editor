@@ -97,6 +97,7 @@
 //! in UTF-16), so that decoding a range that starts at a boundary gives the same result as
 //! decoding the whole.
 
+mod char_code;
 mod codepage;
 mod cp932;
 mod detect;
@@ -109,6 +110,7 @@ mod utf8;
 
 use std::fmt;
 
+pub use char_code::{CharCodeOptions, char_code, sakura_utf16_len, unicode_code};
 pub use detect::{Certainty, DETECT_SAMPLE_LEN, DetectOptions, Detection, detect};
 
 /// A line ending. Sakura: `EEolType` in sakura_core/basis/CEol.h.

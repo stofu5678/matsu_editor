@@ -4,7 +4,7 @@ use ume_core::buffer::Eol;
 use ume_core::encoding::Encoding;
 
 /// What the status bar shows about the editor.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct StatusInfo {
     /// The line of the caret, counted from 1 (the logical line, not the screen row).
     pub line: usize,
@@ -18,6 +18,11 @@ pub struct StatusInfo {
     /// The encoding (with BOM) and the line ending of the file, such as `UTF-8 BOM付  CRLF`
     /// ([`file_format_label`]). Empty when there is nothing to show.
     pub file_format: String,
+    /// The code of the character at the caret, or the name of the line ending when the caret is at
+    /// it (`EditorView::caret_char_code`). Empty at the end of the file.
+    pub char_code: String,
+    /// What Sakura prints in the first part while text is selected (`PrintSelectionInfoMsg`).
+    pub selection: Option<String>,
     /// A message about the last command, such as "not implemented yet".
     pub notice: Option<String>,
 }
@@ -33,9 +38,17 @@ pub fn status_text(info: &StatusInfo) -> String {
         if info.overwrite { "上書" } else { "挿入" },
         info.lines
     );
+    if !info.char_code.is_empty() {
+        text.push_str("  |  ");
+        text.push_str(&info.char_code);
+    }
     if !info.file_format.is_empty() {
         text.push_str("  |  ");
         text.push_str(&info.file_format);
+    }
+    if let Some(selection) = &info.selection {
+        text.push_str("  |  ");
+        text.push_str(selection);
     }
     if info.modified {
         text.push_str("  |  変更あり");
@@ -94,8 +107,7 @@ mod tests {
             lines: 100,
             modified: false,
             overwrite: false,
-            file_format: String::new(),
-            notice: None,
+            ..StatusInfo::default()
         };
         assert_eq!(status_text(&info), "3 行  12 桁  |  挿入  |  全 100 行");
         let info = StatusInfo {
@@ -118,8 +130,7 @@ mod tests {
             lines: 1,
             modified: false,
             overwrite: true,
-            file_format: String::new(),
-            notice: None,
+            ..StatusInfo::default()
         };
         assert_eq!(status_text(&info), "1 行  1 桁  |  上書  |  全 1 行");
     }
@@ -133,7 +144,7 @@ mod tests {
             modified: false,
             overwrite: false,
             file_format: file_format_label(Encoding::Utf8, true, Eol::CrLf),
-            notice: None,
+            ..StatusInfo::default()
         };
         assert_eq!(
             status_text(&info),

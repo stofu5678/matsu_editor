@@ -663,15 +663,19 @@ fn the_pages_of_the_other_sections_show_the_file_and_never_write(cx: &mut TestAp
         value(&ini, "Nickname", "From00").as_deref(),
         Some("%DeskTop%\\")
     );
+    // The page is live: the box that was turned off is written, the others stay as they were.
     assert_eq!(
         value(&ini, "Statusbar", "DispColByChar").as_deref(),
-        Some("1")
+        Some("0")
     );
     assert_eq!(
         value(&ini, "Statusbar", "DispUtf8Codepoint").as_deref(),
         Some("0")
     );
-    assert_eq!(value(&ini, "Statusbar", "DispSurrogatePairCodepoint"), None);
+    assert_eq!(
+        value(&ini, "Statusbar", "DispSurrogatePairCodepoint").as_deref(),
+        Some("1")
+    );
     assert_eq!(value(&ini, "Common", "DispColByChar"), None);
 }
 
