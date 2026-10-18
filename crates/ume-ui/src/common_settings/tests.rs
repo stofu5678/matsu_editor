@@ -225,27 +225,22 @@ fn the_pages_are_in_sakuras_order() {
             "プラグイン",
         ]
     );
-    let filled: Vec<Page> = Page::ALL
-        .iter()
-        .copied()
-        .filter(|p| p.items().is_some())
-        .collect();
-    assert_eq!(
-        filled,
-        [
-            Page::General,
-            Page::Window,
-            Page::Toolbar,
-            Page::Tab,
-            Page::StatusBar,
-            Page::Edit,
-            Page::File,
-            Page::FileName,
-            Page::Backup,
-            Page::Format,
-            Page::Search,
-        ]
-    );
+    // The pages that are built; the others are added one by one, each by its own module.
+    for page in [
+        Page::General,
+        Page::Window,
+        Page::Toolbar,
+        Page::Tab,
+        Page::StatusBar,
+        Page::Edit,
+        Page::File,
+        Page::FileName,
+        Page::Backup,
+        Page::Format,
+        Page::Search,
+    ] {
+        assert!(page.items().is_some(), "{}", page.title());
+    }
 }
 
 #[test]

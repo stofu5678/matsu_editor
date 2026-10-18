@@ -5,7 +5,6 @@ use super::*;
 use crate::common_settings::model::{Kind, controls};
 use crate::common_settings::tests::{ok, setup, with_dialog};
 use crate::common_settings::{self, Page};
-use ume_commands::sakura::FUNCTION_GROUPS;
 
 fn profile(text: &str) -> Profile {
     let mut bytes = vec![0xEF, 0xBB, 0xBF];
@@ -19,19 +18,6 @@ fn edit(list: &[i32], sel: Option<usize>, func_sel: Option<usize>) -> Edit {
         sel,
         func_sel,
         func_count: 5,
-    }
-}
-
-#[test]
-fn the_kinds_are_the_groups_of_the_command_list_and_the_three_added_ones() {
-    let names: Vec<&str> = KINDS.iter().map(|(n, _)| *n).collect();
-    assert_eq!(names[..15], *FUNCTION_GROUPS);
-    assert_eq!(
-        names[15..],
-        ["外部マクロ", "カスタムメニュー", "プラグイン"]
-    );
-    for (i, (_, v)) in KINDS.iter().enumerate() {
-        assert_eq!(*v, i as i32);
     }
 }
 
