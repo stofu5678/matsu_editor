@@ -21,6 +21,8 @@ krilla = "0.8.2"
 [target.'cfg(not(any(windows, target_os = "macos")))'.dependencies]
 zbus = { version = "5.19", default-features = false, features = ["async-io"] }
 tempfile = "3.27"
+# The deletion date in the info file of the trash (src/trash/unix.rs), in the local time zone.
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 
 # macOS and Linux: the user id, to check that the socket directory is the user's (src/instance/unix.rs).
 [target.'cfg(unix)'.dependencies]
@@ -59,7 +61,7 @@ windows-sys = { version = "0.61", features = [
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSGeometry", "NSObject", "NSRange", "NSString", "NSURL", "NSDictionary"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSError", "NSFileManager", "NSGeometry", "NSObject", "NSRange", "NSString", "NSURL", "NSDictionary"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = [
     "std",
     "objc2-core-foundation",

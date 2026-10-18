@@ -256,7 +256,9 @@ fn every_control_has_its_own_name_and_sakuras_key() {
         if !is_group_member {
             assert!(seen.insert(control.id), "{} is there twice", control.id);
         }
-        if !matches!(control.kind, Kind::Button { .. }) && control.live {
+        // 「元の拡張子を保存」 is part of `nBackUpType` (the kinds 5 and 6).
+        let part_of_another_key = control.id == "backup_retain_ext";
+        if !matches!(control.kind, Kind::Button { .. }) && control.live && !part_of_another_key {
             assert!(!control.key.is_empty(), "{} has no key", control.id);
         }
     }

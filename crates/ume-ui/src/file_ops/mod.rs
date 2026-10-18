@@ -23,6 +23,7 @@
 
 pub(crate) mod args;
 pub(crate) mod ask;
+pub(crate) mod backup;
 pub(crate) mod close;
 pub(crate) mod drop_zone;
 pub(crate) mod external;

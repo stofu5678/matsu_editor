@@ -237,10 +237,15 @@ pub(crate) fn start_folder(cx: &App, document: Option<&Path>) -> Option<PathBuf>
     })
 }
 
+/// The text of a settings box with its meta folders (`%MYDOC%` ...) expanded, as the file has it.
+pub(crate) fn expanded_text(cx: &App, text: &str) -> String {
+    ume_config::dialog_dir::expand_meta(text, &Meta::new(cx)).text
+}
+
 /// The folder that the text of a settings box names (「指定フォルダー」): its meta folders
 /// (`%MYDOC%` ...) expanded, `None` when there is no such folder.
 pub(crate) fn expanded_folder(cx: &App, text: &str) -> Option<PathBuf> {
-    let expanded = ume_config::dialog_dir::expand_meta(text, &Meta::new(cx)).text;
+    let expanded = expanded_text(cx, text);
     // The settings file of Windows holds backslashes; on the other OSes they are separators too.
     let native = if cfg!(windows) {
         expanded

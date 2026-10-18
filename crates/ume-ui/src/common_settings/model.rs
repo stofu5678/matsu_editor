@@ -417,7 +417,12 @@ impl Values {
             };
             map.insert(control.id, value);
         }
-        Self { map }
+        let mut values = Self { map };
+        // The page バックアップ shows the kinds 5 and 6 as 1 and 3 with a check box.
+        if values.map.contains_key(super::pages::backup::RETAIN_EXT) {
+            super::pages::backup::after_load(&mut values);
+        }
+        values
     }
 
     pub(crate) fn get(&self, id: &str) -> Option<&Value> {
@@ -463,6 +468,19 @@ impl Values {
     /// Writes the controls that are live into `profile`. Returns whether the file would change.
     /// A key that already has the value is left as it is, byte for byte.
     pub(crate) fn store(
+        &self,
+        controls: &[Control],
+        profile: &mut Profile,
+    ) -> Result<bool, ProfileError> {
+        if self.map.contains_key(super::pages::backup::RETAIN_EXT) {
+            let mut folded = self.clone();
+            super::pages::backup::before_store(&mut folded);
+            return folded.store_values(controls, profile);
+        }
+        self.store_values(controls, profile)
+    }
+
+    fn store_values(
         &self,
         controls: &[Control],
         profile: &mut Profile,

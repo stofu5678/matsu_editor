@@ -14,7 +14,8 @@
 //!    to the current line ending (Sakura's default asks, `m_bChkEnterAtEnd`).
 //! 4. If the encoding cannot write some characters, show the first place and ask: continue
 //!    (they become `?`), stop, or go to the place.
-//! 5. Write. A failure shows the error; the old file is as it was (ADR-0005).
+//! 5. Make the backup of the file that is there, if the common settings say so (`backup`), then
+//!    write. A failure shows the error; the old file is as it was (ADR-0005).
 
 use std::path::PathBuf;
 
@@ -302,6 +303,11 @@ pub(crate) async fn save(
         Some(Ok(_)) => {}
         Some(Err(error)) => return fail(view, cx, &path, &error).await,
         None => return SaveOutcome::Cancelled,
+    }
+
+    // 4b. The backup of the file that is there (`CBackupAgent::OnPreBeforeSave`).
+    if !super::backup::before_save(cx, &path).await {
+        return SaveOutcome::Cancelled;
     }
 
     // 5. Write.
