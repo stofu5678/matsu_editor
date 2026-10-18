@@ -301,11 +301,21 @@ pub(crate) fn make_backup(
     dest: &Path,
     to_trash: bool,
 ) -> Result<(), Failure> {
-    // A name that is the file itself (`a.bak` saved with the kind 1) must not be rotated or copied
-    // onto itself: that would lose the file. (Symbolic links are followed; hard links are not.)
-    if super::windows::same_file(target, dest) {
+    // The file must not be one of the files that the backup deletes, moves or overwrites: the name
+    // itself (`a.bak` saved with the kind 1), or a generation (`a.b01` saved with the kind 3, which
+    // the rotation would move away). The files are compared as the OS sees them, so a hard link to
+    // the file is the file.
+    let touched: Vec<PathBuf> = if prefs.kind == 3 || prefs.kind == 6 {
+        (0..=100).map(|n| numbered(dest, n)).collect()
+    } else {
+        vec![dest.to_owned()]
+    };
+    if touched
+        .iter()
+        .any(|path| ume_platform::file_id::same_file(target, path))
+    {
         return Err(Failure::Copy(io::Error::other(
-            "the backup would be the file itself",
+            "the backup would replace the file itself",
         )));
     }
     if prefs.kind == 3 || prefs.kind == 6 {
@@ -317,12 +327,28 @@ pub(crate) fn make_backup(
     {
         let _ = fs::create_dir(parent);
     }
-    fs::copy(target, dest).map_err(Failure::Copy)?;
+    copy_over(target, dest).map_err(Failure::Copy)?;
     if to_trash {
         // The result is not looked at (`SHFileOperation` in Sakura).
         let _ = ume_platform::trash::move_to_trash(dest);
     }
     Ok(())
+}
+
+/// Copies `target` to `dest` through a temporary file in the folder of `dest`, then renames it over
+/// `dest`: the name is replaced, not the contents, so a file that shares `dest`'s data (a hard link)
+/// is not touched, and no half-written backup is left.
+fn copy_over(target: &Path, dest: &Path) -> io::Result<()> {
+    let name = dest
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let temp = dest.with_file_name(format!(".{name}.{}.tmp", std::process::id()));
+    let result = fs::copy(target, &temp).and_then(|_| fs::rename(&temp, dest));
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    result
 }
 
 /// Step 1 to 3 of `MakeBackUp` for the kinds 3 and 6: `.b00` becomes `.b01` and so on, and the

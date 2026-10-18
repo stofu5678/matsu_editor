@@ -246,6 +246,73 @@ fn a_backup_that_is_the_file_itself_is_refused_and_the_file_stays() {
 }
 
 #[test]
+fn a_file_named_like_a_generation_is_not_rotated_away() {
+    let dir = TempDir::new();
+    let mut p = prefs(3);
+    p.generations = 1;
+    // Saving `a.b01`: the destination `a.b00` is not the file, but the rotation would move it.
+    let target = dir.write("a.b01", "source");
+    let other = dir.write("a.b00", "other");
+    let dest = backup_path(&p, &target, None, times()).unwrap();
+    assert_eq!(dest, other);
+    assert!(matches!(
+        make_backup(&p, &target, &dest, false),
+        Err(Failure::Copy(_))
+    ));
+    assert_eq!(text(&target), "source");
+    assert_eq!(text(&other), "other");
+    assert_eq!(dir.names(), ["a.b00", "a.b01"]);
+}
+
+#[test]
+fn a_backup_that_is_a_hard_link_to_the_file_does_not_empty_it() {
+    let dir = TempDir::new();
+    let target = dir.write("a.txt", "precious");
+    let p = prefs(1);
+    // Another name of the same file: refused, nothing changes.
+    let link = dir.path("a.bak");
+    fs::hard_link(&target, &link).unwrap();
+    let dest = backup_path(&p, &target, None, times()).unwrap();
+    assert_eq!(dest, link);
+    assert!(matches!(
+        make_backup(&p, &target, &dest, false),
+        Err(Failure::Copy(_))
+    ));
+    assert_eq!(text(&target), "precious");
+    assert_eq!(text(&link), "precious");
+
+    // A hard link to the file under the name of an old backup: the name is replaced, the
+    // contents shared with the file are not written to.
+    let other = dir.write("b.txt", "old");
+    let old_backup = dir.path("b.bak");
+    fs::hard_link(&other, &old_backup).unwrap();
+    let dest = backup_path(&p, &other, None, times()).unwrap();
+    assert_eq!(dest, old_backup);
+    // The file is saved as `b.txt`; its backup `b.bak` shares the data with it.
+    assert!(matches!(
+        make_backup(&p, &other, &dest, false),
+        Err(Failure::Copy(_))
+    ));
+    assert_eq!(text(&other), "old");
+}
+
+#[test]
+fn the_copy_replaces_the_name_of_a_backup_and_leaves_no_temporary_file() {
+    let dir = TempDir::new();
+    let target = dir.write("a.txt", "new");
+    // An old backup that another name shares: its data stays as it was.
+    let old = dir.write("a.bak", "old");
+    let keeper = dir.path("keeper");
+    fs::hard_link(&old, &keeper).unwrap();
+    let p = prefs(1);
+    let dest = backup_path(&p, &target, None, times()).unwrap();
+    make_backup(&p, &target, &dest, false).unwrap();
+    assert_eq!(text(&dest), "new");
+    assert_eq!(text(&keeper), "old");
+    assert_eq!(dir.names(), ["a.bak", "a.txt", "keeper"]);
+}
+
+#[test]
 fn a_folder_that_is_a_file_fails_the_copy() {
     let dir = TempDir::new();
     let target = dir.write("a.txt", "abc");

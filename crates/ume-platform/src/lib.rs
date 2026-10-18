@@ -18,6 +18,7 @@
 pub mod dialog;
 pub mod drive;
 pub mod exec;
+pub mod file_id;
 pub mod folders;
 pub mod instance;
 #[cfg(not(any(windows, target_os = "macos")))]
