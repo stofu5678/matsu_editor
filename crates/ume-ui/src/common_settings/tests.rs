@@ -235,6 +235,7 @@ fn the_pages_are_in_sakuras_order() {
         [
             Page::General,
             Page::Window,
+            Page::Toolbar,
             Page::Tab,
             Page::StatusBar,
             Page::Edit,
@@ -258,7 +259,12 @@ fn every_control_has_its_own_name_and_sakuras_key() {
         }
         // 「元の拡張子を保存」 is part of `nBackUpType` (the kinds 5 and 6).
         let part_of_another_key = control.id == "backup_retain_ext";
-        if !matches!(control.kind, Kind::Button { .. }) && control.live && !part_of_another_key {
+        if !matches!(control.kind, Kind::Button { .. } | Kind::Numbers { .. })
+            && control.live
+            && !part_of_another_key
+            // The toolbar page keeps the state of its lists in controls with no key.
+            && !control.id.starts_with("toolbar_")
+        {
             assert!(!control.key.is_empty(), "{} has no key", control.id);
         }
     }
@@ -1046,4 +1052,32 @@ fn text_that_is_not_a_number_is_zero() {
     assert_eq!(parse_number("４"), 0);
     assert_eq!(parse_number("99999999999"), 0);
     assert_eq!(parse_number(""), 0);
+}
+
+#[gpui::test]
+fn the_icons_in_menus_follow_the_check_box_in_every_window(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, "[Other]\r\nx=1\r\n");
+    // Sakura's default is on.
+    assert!(cx.update(|app| crate::menu_icons::enabled(app)));
+    run(cx, handle, "F_OPTION_WINDOW");
+    assert!(with_dialog(cx, |d, _, _| d.values().bool("menu_icon")));
+    check(cx, "menu_icon", false);
+    ok(cx);
+    assert!(!cx.update(|app| crate::menu_icons::enabled(app)));
+    assert_eq!(ini.get("bMenuIcon").as_deref(), Some("0"));
+    assert_eq!(
+        ini.profile().get("Other", "x"),
+        Some("1"),
+        "the rest of the file stays"
+    );
+    run(cx, handle, "F_OPTION_WINDOW");
+    check(cx, "menu_icon", true);
+    ok(cx);
+    assert!(cx.update(|app| crate::menu_icons::enabled(app)));
+}
+
+#[gpui::test]
+fn the_application_starts_with_the_icons_off_when_the_file_says_so(cx: &mut TestAppContext) {
+    let (_ini, _handle) = setup(cx, "[Common]\r\nbMenuIcon=0\r\n");
+    assert!(!cx.update(|app| crate::menu_icons::enabled(app)));
 }

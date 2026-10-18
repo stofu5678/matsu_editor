@@ -79,6 +79,9 @@ pub(crate) struct CommonSettingsDialog {
     opener: Option<AnyWindowHandle>,
     focus: FocusHandle,
     focused: bool,
+    /// The scale factor of the window, as of the last paint (pictures in a page are made sharp
+    /// for it).
+    scale_factor: f32,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -263,6 +266,7 @@ impl CommonSettingsDialog {
             opener,
             focus: cx.focus_handle(),
             focused: false,
+            scale_factor: 1.0,
             _subscriptions: subscriptions,
         }
     }
@@ -280,7 +284,12 @@ impl CommonSettingsDialog {
         self.page
     }
 
-    #[cfg(test)]
+    /// The scale factor of the window.
+    pub(crate) fn scale_factor(&self) -> f32 {
+        self.scale_factor
+    }
+
+    /// The values the controls hold now, for a custom widget to read.
     pub(crate) fn values(&self) -> &Values {
         &self.values
     }
@@ -369,6 +378,14 @@ impl CommonSettingsDialog {
         if let Some(control) = self.control(id).filter(|c| self.is_usable(c)) {
             self.values.set(id, Value::Int(value));
             (control.changed)(&mut self.values, id);
+            cx.notify();
+        }
+    }
+
+    /// A list of numbers that a custom widget edits ([`Kind::Numbers`]).
+    pub(crate) fn set_numbers(&mut self, id: &'static str, list: Vec<i32>, cx: &mut Context<Self>) {
+        if self.control(id).is_some_and(|c| self.is_usable(&c)) {
+            self.values.set(id, Value::Numbers(list));
             cx.notify();
         }
     }
@@ -555,6 +572,7 @@ impl CommonSettingsDialog {
                 }
             }
             Kind::Button { run } => run(self, window, cx),
+            Kind::Numbers { .. } => {}
         }
         true
     }
@@ -799,6 +817,8 @@ impl CommonSettingsDialog {
                 )
                 .children(note)
                 .into_any_element(),
+            // A list of numbers is drawn by the `Item::Custom` that edits it.
+            Kind::Numbers { .. } => div().into_any_element(),
         }
     }
 
@@ -809,6 +829,8 @@ impl CommonSettingsDialog {
                 .text_color(rgb(MUTED))
                 .child(parse_label(text).0)
                 .into_any_element(),
+            Item::Custom(draw) => draw(self, cx),
+            Item::Hidden(_) => div().into_any_element(),
             Item::Group(title, items) => {
                 let children: Vec<AnyElement> = items
                     .iter()
@@ -897,6 +919,7 @@ impl Render for CommonSettingsDialog {
             window.focus(&self.focus, cx);
         }
         self.sync_pickers(window, cx);
+        self.scale_factor = window.scale_factor();
         let ui_font = gpui_component::Theme::global(cx).font_family.clone();
         let pages: Vec<AnyElement> = self
             .pages

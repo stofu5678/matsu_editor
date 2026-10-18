@@ -28,6 +28,8 @@ pub(crate) enum Value {
     Bool(bool),
     Int(i32),
     Text(String),
+    /// An ordered list of numbers that a page edits with its own widget ([`Kind::Numbers`]).
+    Numbers(Vec<i32>),
 }
 
 /// The default of a control: Sakura's value when the file has none.
@@ -60,6 +62,13 @@ pub(crate) type Enabled = fn(&Values) -> bool;
 pub(crate) fn always(_: &Values) -> bool {
     true
 }
+
+/// How a [`Kind::Numbers`] control reads its list from the settings file.
+pub(crate) type LoadNumbers = fn(&Profile) -> Vec<i32>;
+
+/// How a [`Kind::Numbers`] control writes its list to the settings file (keys, sections and all);
+/// returns whether the file changed.
+pub(crate) type StoreNumbers = fn(&[i32], &mut Profile) -> Result<bool, ProfileError>;
 
 /// What a change of a control does to the other values of the dialog (the `CBN_SELCHANGE` and
 /// `BN_CLICKED` handlers of Sakura's pages that set other controls). It gets the values and the id
@@ -94,6 +103,13 @@ pub(crate) enum Kind {
     Text,
     /// A push button.
     Button { run: ButtonAction },
+    /// A list of numbers that a page edits with a widget of its own ([`Item::Custom`]): the
+    /// toolbar's buttons. The list is not one key but several, so the control says how to read
+    /// and write them. The dialog draws nothing for the control itself.
+    Numbers {
+        load: LoadNumbers,
+        store: StoreNumbers,
+    },
 }
 
 /// A control of a page.
@@ -224,6 +240,11 @@ impl Control {
         Self::new(id, label, key, Def::Text(default), Kind::Text)
     }
 
+    /// A list of numbers edited by a custom widget; `load` and `store` map it to the file.
+    pub(crate) const fn numbers(id: &'static str, load: LoadNumbers, store: StoreNumbers) -> Self {
+        Self::new(id, "", "", Def::Bool(false), Kind::Numbers { load, store })
+    }
+
     /// A push button.
     pub(crate) const fn button(id: &'static str, label: &'static str, run: ButtonAction) -> Self {
         Self::new(id, label, "", Def::Bool(false), Kind::Button { run })
@@ -310,7 +331,18 @@ pub(crate) enum Item {
     Row(Vec<Item>),
     /// A text that does not change (`LTEXT`).
     Label(&'static str),
+    /// Something the dialog has no control for, drawn by the page (two lists with buttons between
+    /// them). Its state lives in controls of the page that the dialog does not draw (list the
+    /// controls in the page's items with [`Item::Hidden`]).
+    Custom(CustomDraw),
+    /// Controls that hold state for a [`Item::Custom`]; they are not drawn.
+    Hidden(Vec<Control>),
 }
+
+/// Draws a [`Item::Custom`]. It reads the values of the dialog and changes them through the
+/// dialog's `set_*` methods.
+pub(crate) type CustomDraw =
+    fn(&CommonSettingsDialog, &mut gpui::Context<CommonSettingsDialog>) -> gpui::AnyElement;
 
 impl From<Control> for Item {
     fn from(control: Control) -> Self {
@@ -326,7 +358,8 @@ pub(crate) fn controls(items: &[Item]) -> Vec<Control> {
                 Item::Control(c) => out.push(*c),
                 Item::Group(_, inner) | Item::Row(inner) => walk(inner, out),
                 Item::Columns(columns) => columns.iter().for_each(|c| walk(c, out)),
-                Item::Label(_) => {}
+                Item::Hidden(list) => out.extend(list.iter().copied()),
+                Item::Label(_) | Item::Custom(_) => {}
             }
         }
     }
@@ -377,7 +410,9 @@ impl Values {
                 continue;
             }
             let fallback = control.default.value();
-            let value = if control.key.is_empty() {
+            let value = if let Kind::Numbers { load, .. } = control.kind {
+                Value::Numbers(load(profile))
+            } else if control.key.is_empty() {
                 fallback
             } else {
                 match control.kind {
@@ -412,6 +447,7 @@ impl Values {
                     Kind::Text => profile
                         .get_string(control.section, control.key)
                         .map_or(fallback, Value::Text),
+                    Kind::Numbers { .. } => fallback,
                     Kind::Button { .. } => fallback,
                 }
             };
@@ -439,6 +475,14 @@ impl Values {
         match self.map.get(id) {
             Some(Value::Int(i)) => *i,
             _ => 0,
+        }
+    }
+
+    /// A list of numbers. A name that is not there is empty.
+    pub(crate) fn numbers(&self, id: &str) -> &[i32] {
+        match self.map.get(id) {
+            Some(Value::Numbers(list)) => list,
+            _ => &[],
         }
     }
 
@@ -488,6 +532,16 @@ impl Values {
         let mut done: Vec<&str> = Vec::new();
         let mut changed = false;
         for control in controls {
+            if let Kind::Numbers { store, .. } = control.kind {
+                if control.live
+                    && !done.contains(&control.id)
+                    && let Some(Value::Numbers(list)) = self.map.get(control.id)
+                {
+                    done.push(control.id);
+                    changed |= store(list, profile)?;
+                }
+                continue;
+            }
             if !control.live
                 || control.key.is_empty()
                 || matches!(control.kind, Kind::Button { .. })
@@ -517,7 +571,7 @@ impl Values {
                 Some(Value::Bool(on)) => (if *on != control.invert { "1" } else { "0" }).to_owned(),
                 Some(Value::Int(i)) => i.to_string(),
                 Some(Value::Text(t)) => t.clone(),
-                None => continue,
+                Some(Value::Numbers(_)) | None => continue,
             };
             if profile.get(control.section, control.key) != Some(text.as_str()) {
                 profile.set(control.section, control.key, &text)?;

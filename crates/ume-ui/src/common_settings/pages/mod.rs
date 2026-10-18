@@ -9,4 +9,5 @@ pub(super) mod general;
 pub(super) mod search;
 pub(super) mod status_bar;
 pub(super) mod tab;
+pub(super) mod toolbar;
 pub(super) mod window;

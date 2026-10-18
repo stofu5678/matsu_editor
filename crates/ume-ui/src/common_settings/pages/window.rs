@@ -3,7 +3,7 @@
 //!
 //! Live: the tool bar (`bDispTOOLBAR`), the function key bar (`bDispFUNCKEYWND`, its place and the
 //! group size), the status bar (`bDispSTATUSBAR`) and the synchronized scrolling of the split panes
-//! (`bSplitterWndVScroll`, `bSplitterWndHScroll`). Not available yet: the horizontal scroll bar, the icons in menus, the dark mode, the size and position
+//! (`bSplitterWndVScroll`, `bSplitterWndHScroll`), and the icons in menus (`bMenuIcon`). Not available yet: the horizontal scroll bar, the dark mode, the size and position
 //! of the window, the ruler and the line number gaps, the function keys, the language, and the
 //! captions of the title bar (they need `CFormatManager::ExpandParameter`, which only the print
 //! headers have).
@@ -88,7 +88,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                 ],
                 vec![
                     Control::check("menu_icon", "アイコン付きメニュー(&I)", "bMenuIcon", true)
-                        .unavailable()
                         .into(),
                     Control::button("win_size", "位置と大きさの設定(&W)...", |_, _, _| {})
                         .unavailable()
@@ -219,6 +218,8 @@ pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: O
         vertical: after.bool("splitter_v_scroll"),
         horizontal: after.bool("splitter_h_scroll"),
     });
+    // The menus that open from now on show the icons or not (`m_bMenuIcon`).
+    crate::menu_icons::set(env.cx, after.bool("menu_icon"));
     // At startup the bars take the file as it is (`crate::bars::install`); OK takes the dialog.
     if before.is_some() {
         crate::bars::set(
