@@ -79,6 +79,22 @@ fn look(view: &Entity<EditorView>, cx: &mut VisualTestContext) {
     cx.run_until_parked();
 }
 
+/// One automatic save of the window's document, as the timer does it.
+async fn save_if_needed(view: &gpui::WeakEntity<EditorView>, cx: &mut gpui::AsyncWindowContext) {
+    let prefs = cx
+        .update(|_, app| crate::file_ops::prefs::prefs(app))
+        .unwrap();
+    let begun = view
+        .update(cx, |view, cx| {
+            view.document()
+                .update(cx, |shared, _| super::auto_save::begin(shared, &prefs))
+        })
+        .unwrap();
+    if begun {
+        super::auto_save::run(view, cx).await;
+    }
+}
+
 fn text(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> String {
     view.read_with(cx, |view, app| {
         let doc = view.document().read(app).doc();
@@ -426,7 +442,7 @@ fn the_automatic_save_writes_a_modified_document_with_a_name(cx: &mut TestAppCon
     let run = |view: &Entity<EditorView>, cx: &mut VisualTestContext| {
         view.update_in(cx, |_, window, cx| {
             crate::file_ops::start(window, cx, async move |view, cx| {
-                super::auto_save::save_if_needed(&view, cx).await
+                save_if_needed(&view, cx).await
             })
         });
         cx.run_until_parked();
@@ -442,9 +458,13 @@ fn the_automatic_save_writes_a_modified_document_with_a_name(cx: &mut TestAppCon
     run(&view, cx);
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "changed by hand\n");
     // modified with a name: written
+    open(&view, cx, &path);
     type_text(&view, cx, "x");
     run(&view, cx);
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), "xone\n");
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "xchanged by hand\n"
+    );
     assert!(!view.read_with(cx, |v, app| v.document().read(app).model().is_modified()));
 }
 
@@ -460,7 +480,7 @@ fn the_automatic_save_waits_while_the_question_about_a_change_is_open(cx: &mut T
     assert!(cx.has_pending_prompt());
     view.update_in(cx, |_, window, cx| {
         crate::file_ops::start(window, cx, async move |view, cx| {
-            super::auto_save::save_if_needed(&view, cx).await
+            save_if_needed(&view, cx).await
         })
     });
     cx.run_until_parked();
@@ -471,4 +491,23 @@ fn the_automatic_save_waits_while_the_question_about_a_change_is_open(cx: &mut T
     );
     answer(cx, RELOAD);
     assert_eq!(text(&view, cx), "two");
+}
+
+#[gpui::test]
+fn the_automatic_save_leaves_a_file_that_another_program_changed(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "one\n");
+    let (view, cx) = setup(cx);
+    open(&view, cx, &path);
+    type_text(&view, cx, "x");
+    // changed, and the window has not looked yet
+    change(&path, "two\n");
+    view.update_in(cx, |_, window, cx| {
+        crate::file_ops::start(window, cx, async move |view, cx| {
+            save_if_needed(&view, cx).await
+        })
+    });
+    cx.run_until_parked();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "two\n");
+    assert!(!cx.has_pending_prompt());
 }

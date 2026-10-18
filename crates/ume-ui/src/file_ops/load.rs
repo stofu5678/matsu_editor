@@ -141,13 +141,6 @@ pub(crate) async fn load_here(
     encoding: Option<Encoding>,
     restore: Option<Pos>,
 ) -> bool {
-    // The warnings of `CLoadAgent::OnCheckLoad`: a file that is not there, a file that is big.
-    if !crate::file_watch::open_checks::allow_open(cx, path).await {
-        cx.update(|_, app| super::view_mode_request::take(app, path))
-            .ok();
-        super::start_options::after_load(view, cx, path, false);
-        return false;
-    }
     // The version of the document when the read starts. The window stays usable while a big file
     // is read; if the document changed meanwhile (typing, or another load), the result is
     // dropped instead of replacing what the user did.
@@ -158,6 +151,17 @@ pub(crate) async fn load_here(
     let reading = path.to_owned();
     cx.update(|_, app| windows::begin_pending(app, handle, view, reading))
         .ok();
+    // The warnings of `CLoadAgent::OnCheckLoad`: a file that is not there, a file that is big. The
+    // file is pending already, so that it cannot be opened in a second window meanwhile.
+    if !crate::file_watch::open_checks::allow_open(cx, path).await {
+        cx.update(|_, app| {
+            super::view_mode_request::take(app, path);
+            windows::finish_pending(app, view)
+        })
+        .ok();
+        super::start_options::after_load(view, cx, path, false);
+        return false;
+    }
     let previous = if restore.is_none() {
         cx.update(|_, app| remembered(app, path)).ok().flatten()
     } else {

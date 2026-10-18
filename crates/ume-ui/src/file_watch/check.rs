@@ -91,7 +91,10 @@ pub(crate) fn notify_text(time: SystemTime) -> String {
 /// `_ToDoChecking` and the delay of `CheckFileTimeStamp`, for the document of the window: whether
 /// to look at the file now. If so, the document is marked as pausing, so that no second check
 /// starts while this one waits for the disk or the user.
-fn begin(shared: &mut SharedDocument, prefs: &FilePrefs) -> Option<(PathBuf, SystemTime)> {
+pub(crate) fn begin(
+    shared: &mut SharedDocument,
+    prefs: &FilePrefs,
+) -> Option<(PathBuf, SystemTime)> {
     let disk = shared.disk_mut();
     // 未編集で再ロード時の遅延: the checks between two automatic reloads.
     if disk.mode == WatchMode::AutoLoad {
@@ -114,20 +117,40 @@ fn begin(shared: &mut SharedDocument, prefs: &FilePrefs) -> Option<(PathBuf, Sys
     Some((path, stamp))
 }
 
+/// [`begin`] on the document of `view`.
+pub(crate) fn begin_in(
+    view: &gpui::Entity<EditorView>,
+    cx: &mut gpui::App,
+) -> Option<(PathBuf, SystemTime)> {
+    let prefs = prefs(cx);
+    let document = view.read(cx).document().clone();
+    document.update(cx, |shared, _| begin(shared, &prefs))
+}
+
 /// Looks at the file of the window's document and does what Sakura does if another program
 /// changed it. Returns at once when there is nothing to do.
+#[cfg(test)]
 pub(crate) async fn check(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) {
-    let prefs = cx.update(|_, app| prefs(app)).unwrap_or_default();
     let started = view
         .update(cx, |view, cx| {
+            let prefs = prefs(cx);
             view.document()
                 .update(cx, |shared, _| begin(shared, &prefs))
         })
         .ok()
         .flatten();
-    let Some((path, stamp)) = started else {
-        return;
-    };
+    if let Some((path, stamp)) = started {
+        run(view, cx, path, stamp).await;
+    }
+}
+
+/// The rest of the check, for a document that [`begin`] marked as pausing.
+pub(crate) async fn run(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    path: PathBuf,
+    stamp: SystemTime,
+) {
     // The disk may be slow (a network drive): ask it off the window's thread.
     let asked = path.clone();
     let now = cx
