@@ -301,6 +301,13 @@ pub(crate) fn make_backup(
     dest: &Path,
     to_trash: bool,
 ) -> Result<(), Failure> {
+    // A name that is the file itself (`a.bak` saved with the kind 1) must not be rotated or copied
+    // onto itself: that would lose the file. (Symbolic links are followed; hard links are not.)
+    if super::windows::same_file(target, dest) {
+        return Err(Failure::Copy(io::Error::other(
+            "the backup would be the file itself",
+        )));
+    }
     if prefs.kind == 3 || prefs.kind == 6 {
         rotate_generations(prefs, dest)?;
     }

@@ -317,16 +317,13 @@ pub(in crate::common_settings) fn before_store(values: &mut Values) {
 /// What OK does to the windows: the backup of the next save.
 pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, _before: Option<&Values>) {
     // The first letter of the extension is in the number of the generations, which the page only
-    // shows the low bits of: read it from the file.
-    let opt2 = env
+    // shows the low bits of: read it from the file. At startup the file is not a global yet;
+    // `install` then sets the letter ([`set_ext_char`]).
+    let ext_char = env
         .cx
         .try_global::<crate::settings::UserSettings>()
         .and_then(|user| user.profile())
-        .and_then(|profile| profile.get_i32(super::super::model::SECTION, OPT2))
-        .unwrap_or(OPT2_DEFAULT);
-    let ext_char = char::from_u32(((opt2 >> 16) & 0xff) as u32)
-        .filter(|c| *c != '\0')
-        .unwrap_or('b');
+        .map_or('b', ext_char_of);
     let mut date_bits = 0;
     for (id, flag) in [
         ("backup_year", YEAR),
@@ -355,4 +352,21 @@ pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, _before: 
         advanced: after.bool("backup_advanced"),
         advanced_format: after.text("backup_file").to_owned(),
     });
+}
+
+/// `GetBackupExtChar` of the file's `bBackUpType2_Opt2`.
+fn ext_char_of(profile: &ume_config::Profile) -> char {
+    let opt2 = profile
+        .get_i32(super::super::model::SECTION, OPT2)
+        .unwrap_or(OPT2_DEFAULT);
+    char::from_u32(((opt2 >> 16) & 0xff) as u32)
+        .filter(|c| *c != '\0')
+        .unwrap_or('b')
+}
+
+/// Takes the first letter of the extension from the file that the application started with.
+pub(in crate::common_settings) fn set_ext_char(cx: &mut gpui::App, profile: &ume_config::Profile) {
+    let mut prefs = crate::file_ops::backup::prefs(cx);
+    prefs.ext_char = ext_char_of(profile);
+    cx.set_global(prefs);
 }

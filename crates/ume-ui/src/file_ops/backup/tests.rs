@@ -228,6 +228,24 @@ fn a_backup_makes_the_folder_one_level_deep() {
 }
 
 #[test]
+fn a_backup_that_is_the_file_itself_is_refused_and_the_file_stays() {
+    let dir = TempDir::new();
+    // Saving `a.bak` with the kind 1, and `a.b00` with the kind 3.
+    for (name, kind) in [("a.bak", 1), ("a.b00", 3)] {
+        let target = dir.write(name, "keep");
+        let p = prefs(kind);
+        let dest = backup_path(&p, &target, None, times()).unwrap();
+        assert_eq!(dest, target);
+        assert!(matches!(
+            make_backup(&p, &target, &dest, false),
+            Err(Failure::Copy(_))
+        ));
+        assert_eq!(text(&target), "keep");
+    }
+    assert_eq!(dir.names(), ["a.b00", "a.bak"]);
+}
+
+#[test]
 fn a_folder_that_is_a_file_fails_the_copy() {
     let dir = TempDir::new();
     let target = dir.write("a.txt", "abc");

@@ -181,6 +181,8 @@ pub(crate) fn install(cx: &mut App, user: &crate::settings::UserSettings) {
             page.apply(&mut env, &values, None);
         }
     }
+    // The letter of the generations is in the file only (the settings are not a global yet).
+    pages::backup::set_ext_char(env.cx, &profile);
 }
 
 /// The page used last (`CPropCommon::m_nPageNum`): `F_OPTION` opens it again.

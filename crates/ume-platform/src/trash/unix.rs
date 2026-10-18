@@ -2,6 +2,7 @@
 
 use std::fs;
 use std::io::{self, Write as _};
+use std::os::unix::fs::DirBuilderExt as _;
 use std::path::{Path, PathBuf};
 
 /// The trash folder of the user.
@@ -30,8 +31,13 @@ pub(super) fn move_into(path: &Path, trash: &Path) -> io::Result<()> {
         .into_owned();
     let files = trash.join("files");
     let info = trash.join("info");
-    fs::create_dir_all(&files)?;
-    fs::create_dir_all(&info)?;
+    // Private, whatever the umask is: the trash holds what the user took away.
+    for dir in [&files, &info] {
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(dir)?;
+    }
 
     // A name that neither folder has yet; the info file is made first and kept by `create_new`, so
     // that two programs do not take the same name.
