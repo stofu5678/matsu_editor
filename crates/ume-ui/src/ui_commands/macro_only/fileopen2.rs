@@ -130,7 +130,8 @@ fn goes_into_this_window(view: &EditorView, path: &Path, cx: &mut Context<Editor
 /// bookmarks are restored; it goes to the front of the history. A failure is shown.
 ///
 /// Returns false, having done nothing, when the user has to be asked which encoding to use
-/// (`bQueryIfCodeChange`): the asynchronous flow asks.
+/// (`bQueryIfCodeChange`) or whether to open the file (the warnings of `open_checks`): the
+/// asynchronous flow asks.
 fn read_here(
     view: &mut EditorView,
     path: &Path,
@@ -139,6 +140,10 @@ fn read_here(
     window: &mut Window,
     cx: &mut Context<EditorView>,
 ) -> bool {
+    // The warnings before opening ask the user: the asynchronous flow does that.
+    if crate::file_watch::open_checks::needs_warning(cx, path) {
+        return false;
+    }
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
     let defaults = crate::settings::new_document_defaults(cx, name.as_deref());
     let read = |encoding| {

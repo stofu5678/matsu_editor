@@ -32,6 +32,14 @@ pub(crate) fn is_big(prefs: &FilePrefs, len: u64) -> bool {
     prefs.alert_if_large_file && (len / MB) >= u64::try_from(prefs.alert_file_size).unwrap_or(0)
 }
 
+/// Whether opening `path` needs one of the warnings. A fast path that opens a file without the
+/// asynchronous flow of `load_here` uses it to leave the file to that flow.
+pub(crate) fn needs_warning(cx: &gpui::App, path: &Path) -> bool {
+    let prefs = prefs(cx);
+    (prefs.alert_if_file_not_exist && !path.exists())
+        || std::fs::metadata(path).is_ok_and(|meta| is_big(&prefs, meta.len()))
+}
+
 /// Runs the checks for `path`. `false` if the user said not to open the file.
 pub(crate) async fn allow_open(cx: &mut AsyncWindowContext, path: &Path) -> bool {
     let prefs = cx.update(|_, app| prefs(app)).unwrap_or_default();

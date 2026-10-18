@@ -447,3 +447,28 @@ fn the_automatic_save_writes_a_modified_document_with_a_name(cx: &mut TestAppCon
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "xone\n");
     assert!(!view.read_with(cx, |v, app| v.document().read(app).model().is_modified()));
 }
+
+#[gpui::test]
+fn the_automatic_save_waits_while_the_question_about_a_change_is_open(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "one\n");
+    let (view, cx) = setup(cx);
+    open(&view, cx, &path);
+    type_text(&view, cx, "x");
+    change(&path, "two\n");
+    look(&view, cx);
+    assert!(cx.has_pending_prompt());
+    view.update_in(cx, |_, window, cx| {
+        crate::file_ops::start(window, cx, async move |view, cx| {
+            super::auto_save::save_if_needed(&view, cx).await
+        })
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "two\n",
+        "nothing was overwritten"
+    );
+    answer(cx, RELOAD);
+    assert_eq!(text(&view, cx), "two");
+}

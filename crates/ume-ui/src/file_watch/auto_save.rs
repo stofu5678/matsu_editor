@@ -15,7 +15,9 @@ pub(crate) async fn save_if_needed(view: &WeakEntity<EditorView>, cx: &mut Async
     let wanted = view
         .read_with(cx, |view, app| {
             let shared = view.document().read(app);
-            shared.model().is_modified() && shared.path().is_some()
+            // A document whose file is being looked at waits: the question may reload the file,
+            // and the save would overwrite what another program wrote.
+            shared.model().is_modified() && shared.path().is_some() && !shared.disk().pausing
         })
         .unwrap_or(false);
     if wanted {
