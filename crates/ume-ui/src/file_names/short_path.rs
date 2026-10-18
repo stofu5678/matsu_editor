@@ -127,7 +127,8 @@ pub(super) fn short_path(path: &str, limit: usize, fit: bool) -> String {
             break;
         }
         // The folders in between are left out: C:\...\dir\file.ext
-        let mut shown: Vec<char> = path[..=left].to_vec();
+        // (When `right` is `left`, the separator is in `path[right..]` already: Sakura repeats it.)
+        let mut shown: Vec<char> = path[..if left == right { left } else { left + 1 }].to_vec();
         if left + 1 < right {
             shown.extend("...".chars());
         }

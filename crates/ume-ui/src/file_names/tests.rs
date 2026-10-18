@@ -452,3 +452,13 @@ fn the_caret_of_the_title_counts_from_one() {
     };
     assert_eq!(expand("$y 行 $x 桁", &at, &names), "5 行 10 桁");
 }
+
+#[test]
+fn the_separator_after_the_head_is_not_repeated() {
+    // A folder path with one folder after the head: `C:\` once, not twice.
+    assert_eq!(
+        short_path("C:\\longfolder\\", 10, false),
+        "C:\\longfolder\\"
+    );
+    assert_eq!(short_path("C:\\longfolder\\", 10, true), "C:\\long...");
+}
