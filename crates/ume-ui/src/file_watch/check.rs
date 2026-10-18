@@ -151,6 +151,10 @@ pub(crate) async fn run(
     path: PathBuf,
     stamp: SystemTime,
 ) {
+    // The pause is lifted through the document, which outlives the pane that started the check.
+    let Ok(document) = view.read_with(cx, |view, _| view.document().downgrade()) else {
+        return;
+    };
     // The disk may be slow (a network drive): ask it off the window's thread.
     let asked = path.clone();
     let now = cx
@@ -158,7 +162,7 @@ pub(crate) async fn run(
         .spawn(async move { modified_time(&asked) })
         .await;
     let Some(now) = now.filter(|now| *now != stamp) else {
-        resume(view, cx);
+        resume(&document, cx);
         return;
     };
     // The document may have been replaced while the disk was asked: then this change is not
@@ -176,7 +180,7 @@ pub(crate) async fn run(
         .ok()
         .flatten();
     let Some((mode, modified)) = settled else {
-        resume(view, cx);
+        resume(&document, cx);
         return;
     };
     match action_for(mode, modified) {
@@ -199,6 +203,17 @@ pub(crate) async fn run(
                 Ok(index) => REPLIES.get(index).copied().unwrap_or(Reply::Close),
                 Err(_) => Reply::Close,
             };
+            // The window may have loaded another file while the question was open.
+            let same = view
+                .read_with(cx, |view, app| {
+                    let shared = view.document().read(app);
+                    shared.path() == Some(path.as_path()) && shared.disk().stamp == Some(now)
+                })
+                .unwrap_or(false);
+            if !same {
+                resume(&document, cx);
+                return;
+            }
             match reply {
                 Reply::Reload => reload(view, cx, WatchMode::Query).await,
                 Reply::AutoLoad => reload(view, cx, WatchMode::AutoLoad).await,
@@ -208,16 +223,14 @@ pub(crate) async fn run(
             }
         }
     }
-    resume(view, cx);
+    resume(&document, cx);
 }
 
 /// `ResumeWatching`.
-fn resume(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) {
-    view.update(cx, |view, cx| {
-        view.document()
-            .update(cx, |shared, _| shared.disk_mut().pausing = false)
-    })
-    .ok();
+pub(crate) fn resume(document: &WeakEntity<SharedDocument>, cx: &mut AsyncWindowContext) {
+    document
+        .update(cx, |shared, _| shared.disk_mut().pausing = false)
+        .ok();
 }
 
 fn set_mode(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext, mode: WatchMode) {

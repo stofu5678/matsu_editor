@@ -81,13 +81,10 @@ fn look(view: &Entity<EditorView>, cx: &mut VisualTestContext) {
 
 /// One automatic save of the window's document, as the timer does it.
 async fn save_if_needed(view: &gpui::WeakEntity<EditorView>, cx: &mut gpui::AsyncWindowContext) {
-    let prefs = cx
-        .update(|_, app| crate::file_ops::prefs::prefs(app))
-        .unwrap();
     let begun = view
         .update(cx, |view, cx| {
             view.document()
-                .update(cx, |shared, _| super::auto_save::begin(shared, &prefs))
+                .update(cx, |shared, _| super::auto_save::begin(shared))
         })
         .unwrap();
     if begun {

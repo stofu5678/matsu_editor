@@ -7,7 +7,8 @@
 
 use gpui::{App, AsyncWindowContext, Entity, WeakEntity};
 
-use super::state::modified_time;
+use super::check::resume;
+use super::state::{WatchMode, modified_time};
 use crate::document::SharedDocument;
 use crate::file_ops::prefs::{FilePrefs, prefs};
 use crate::file_ops::save::{SaveRequest, save};
@@ -16,26 +17,9 @@ use crate::view::EditorView;
 /// Whether the document is to be saved now, and if so marks it as pausing: the check for changes
 /// of its file waits until the save is done (`OnBeforeSave` / `OnAfterSave` of
 /// `CAutoReloadAgent`), and a second automatic save does not start while the first one asks a
-/// question.
-///
-/// A document waits while its file is being looked at (the question may reload the file), and
-/// while the file has been changed by another program and the window has not asked yet: the save
-/// would overwrite what the other program wrote. The next interval tries again.
-pub(crate) fn begin(shared: &mut SharedDocument, prefs: &FilePrefs) -> bool {
-    let Some(path) = shared.path() else {
-        return false;
-    };
-    let disk = shared.disk();
-    if !shared.model().is_modified() || disk.pausing {
-        return false;
-    }
-    let watched = prefs.check_file_time_stamp
-        && prefs.file_share_mode == 0
-        && disk.mode != super::state::WatchMode::None;
-    if watched
-        && let (Some(stamp), Some(now)) = (disk.stamp, modified_time(path))
-        && stamp != now
-    {
+/// question. A document waits while its file is being looked at: the question may reload the file.
+pub(crate) fn begin(shared: &mut SharedDocument) -> bool {
+    if shared.path().is_none() || !shared.model().is_modified() || shared.disk().pausing {
         return false;
     }
     shared.disk_mut().pausing = true;
@@ -44,17 +28,47 @@ pub(crate) fn begin(shared: &mut SharedDocument, prefs: &FilePrefs) -> bool {
 
 /// [`begin`] on the document of `view`.
 pub(crate) fn begin_in(view: &Entity<EditorView>, cx: &mut App) -> bool {
-    let prefs = prefs(cx);
     let document = view.read(cx).document().clone();
-    document.update(cx, |shared, _| begin(shared, &prefs))
+    document.update(cx, |shared, _| begin(shared))
 }
 
-/// Saves the document that [`begin`] marked, then lets the watching go on.
+/// The time stamp the file is expected to have, when the file is watched: if the file has another
+/// one, a program changed it and the window has not asked yet, so a save would overwrite what the
+/// other program wrote.
+fn expected_stamp(
+    shared: &SharedDocument,
+    prefs: &FilePrefs,
+) -> Option<(std::path::PathBuf, std::time::SystemTime)> {
+    let disk = shared.disk();
+    let watched =
+        prefs.check_file_time_stamp && prefs.file_share_mode == 0 && disk.mode != WatchMode::None;
+    Some((shared.path()?.to_owned(), disk.stamp.filter(|_| watched)?))
+}
+
+/// Saves the document that [`begin`] marked, then lets the watching go on. The next interval
+/// tries again if the file was changed meanwhile.
 pub(crate) async fn run(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) {
-    save(view, cx, SaveRequest::quiet()).await;
-    view.update(cx, |view, cx| {
-        view.document()
-            .update(cx, |shared, _| shared.disk_mut().pausing = false)
-    })
-    .ok();
+    let Ok(document) = view.read_with(cx, |view, _| view.document().downgrade()) else {
+        return;
+    };
+    let prefs = cx.update(|_, app| prefs(app)).unwrap_or_default();
+    let expected = document
+        .read_with(cx, |shared, _| expected_stamp(shared, &prefs))
+        .ok()
+        .flatten();
+    let changed = match expected {
+        Some((path, stamp)) => {
+            // The disk may be slow (a network drive): ask it off the window's thread.
+            let now = cx
+                .background_executor()
+                .spawn(async move { modified_time(&path) })
+                .await;
+            now.is_some_and(|now| now != stamp)
+        }
+        None => false,
+    };
+    if !changed {
+        save(view, cx, SaveRequest::quiet()).await;
+    }
+    resume(&document, cx);
 }
