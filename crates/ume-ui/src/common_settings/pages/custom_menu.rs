@@ -217,7 +217,12 @@ pub(in crate::common_settings) fn items() -> Option<Vec<Item>> {
             .into(),
         ]),
         Item::Hidden(vec![
-            Control::choice(MENU, "選択(&C)", "", 0, &[]),
+            Control::choice(MENU, "", "", 0, &[]),
+            // Alt+C: the next menu (a drop-down list goes to its next choice).
+            Control::button("custmenu_next_menu", "選択(&C)", |d, window, cx| {
+                let next = (current_menu(d.values()) + 1) % MAX_CUSTOM_MENU;
+                d.select_menu(next, window, cx)
+            }),
             Control::choice(KIND, "種別(&K)", "", 0, &PAGE_KINDS).on_change(clear_function_choice),
             Control::choice(FUNC_SEL, "", "", -1, &[]),
             Control::choice(RES_SEL, "", "", -1, &[]),

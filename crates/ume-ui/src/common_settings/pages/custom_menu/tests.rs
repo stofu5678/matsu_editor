@@ -680,6 +680,26 @@ fn a_file_that_is_not_a_menu_file_is_refused_and_changes_nothing(cx: &mut TestAp
 }
 
 #[gpui::test]
+fn the_alt_keys_of_the_labels_work_without_a_panic(cx: &mut TestAppContext) {
+    let _restore = crate::common_settings::tests::RestoreEditOptions::new();
+    let (_ini, _) = open_page(cx, "[CustMenu]\r\nszCMN[01]=One\r\n");
+    // Alt+C goes to the next menu and shows its name.
+    assert!(with_dialog(cx, |d, window, dcx| d.use_access_key('c', window, dcx)));
+    assert_eq!(with_dialog(cx, |d, _, _| current_menu(d.values())), 1);
+    assert_eq!(
+        with_dialog(cx, |d, _, dcx| d.input_text(NAME, dcx)).unwrap(),
+        "One"
+    );
+    // Alt+K is the kind, Alt+D 削除 (no row is selected: not used).
+    assert!(with_dialog(cx, |d, window, dcx| d.use_access_key('k', window, dcx)));
+    assert_eq!(with_dialog(cx, |d, _, _| d.values().int(KIND)), 1);
+    assert!(!with_dialog(cx, |d, window, dcx| d.use_access_key('d', window, dcx)));
+    select_row(cx, 0);
+    assert!(with_dialog(cx, |d, window, dcx| d.use_access_key('d', window, dcx)));
+    assert_eq!(items_now(cx).len(), 6);
+}
+
+#[gpui::test]
 fn changing_the_kind_clears_the_chosen_function(cx: &mut TestAppContext) {
     let _restore = crate::common_settings::tests::RestoreEditOptions::new();
     let (_ini, _) = open_page(cx, "");
