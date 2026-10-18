@@ -92,6 +92,19 @@ impl EditorView {
             .ok();
     }
 
+    /// Runs the function `code` as if a mouse event at `at` ran it: a menu it opens starts there.
+    pub(crate) fn run_function_at(
+        &mut self,
+        code: u16,
+        at: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.custom_menu.mouse_at = Some(at);
+        self.run_function(code, &[], window, cx);
+        self.custom_menu.mouse_at = None;
+    }
+
     pub(crate) fn on_right_mouse_up(
         &mut self,
         event: &MouseUpEvent,
@@ -113,8 +126,6 @@ impl EditorView {
             return;
         };
         // The function (F_MENU_RBUTTON, by default) opens its menu at the pointer.
-        self.custom_menu.mouse_at = Some(event.position);
-        self.run_function(code, &[], window, cx);
-        self.custom_menu.mouse_at = None;
+        self.run_function_at(code, event.position, window, cx);
     }
 }

@@ -22,6 +22,8 @@ mod drop_tests;
 #[cfg(test)]
 mod file_tests;
 pub(crate) mod flows;
+#[cfg(test)]
+mod menu_tests;
 pub(crate) mod order;
 #[cfg(test)]
 mod pending_tests;

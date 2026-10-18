@@ -6,7 +6,8 @@
 //!   middle button close the document with the question about saving (`F_WINCLOSE`,
 //!   `OnTabLButtonUp`, `OnTabMButtonUp`); a double click on the bar beside the tabs makes a new
 //!   document (`OnLButtonDblClk`: `F_FILENEW`); the button at the right end lists the documents
-//!   (`TabListMenu`; here it is the window list, `F_WINLIST`).
+//!   (`TabListMenu`; here it is the window list, `F_WINLIST`); a right click on a tab opens
+//!   custom menu 24, the tab menu, for that tab (`OnTabRButtonUp`, `ExecTabCommand`).
 //! * A tab can be dragged to another place of the bar (`ReorderTab`). Dragging a tab out of the
 //!   window to make a new one (`SeparateGroup` on a drop outside the bar) needs the OS to move a
 //!   drag across windows, which GPUI cannot do: `F_TAB_SEPARATE` does it.
@@ -92,6 +93,36 @@ impl Workspace {
         let editor = self.editor().clone();
         window.defer(cx, move |window, app| {
             editor.update(app, |view, cx| view.run_function(code, &[], window, cx));
+        });
+    }
+
+    /// A right click on a tab: makes that document the active one, then shows custom menu 24 (the
+    /// tab menu) at the pointer, so its functions run on that document (`ExecTabCommand`:
+    /// `ShowHideWindow( hWnd, TRUE )`, then the function is posted to the window).
+    ///
+    /// `tab` is the position of the tab in this window. Without it the tabs are not grouped: the
+    /// document is the one of this window, or of another window, which is brought to the front and
+    /// opens the menu where its own window has the pointer.
+    fn open_tab_menu(
+        &mut self,
+        tab: Option<usize>,
+        handle: AnyWindowHandle,
+        view: &Entity<EditorView>,
+        at: gpui::Point<gpui::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let code = function_code("F_CUSTMENU_24");
+        if let Some(tab) = tab {
+            self.activate_tab(tab, window, cx);
+        } else if handle != window.window_handle() {
+            flows::reveal_and_run(cx, handle, view.clone(), code);
+            return;
+        }
+        let editor = self.editor().clone();
+        // The function may look at the tabs of every window.
+        window.defer(cx, move |window, app| {
+            editor.update(app, |view, cx| view.run_function_at(code, at, window, cx));
         });
     }
 
@@ -250,6 +281,15 @@ impl Workspace {
             }
         };
         let close_for_button = close.clone();
+        // `OnTabRButtonUp`: `ExecTabCommand( F_CUSTMENU_BASE + CUSTMENU_INDEX_FOR_TABWND )` activates
+        // the tab, then sends the function to its window, which opens the menu at the pointer.
+        let open_menu = {
+            let view = view.clone();
+            cx.listener(move |this, event: &gpui::MouseUpEvent, window, cx| {
+                this.open_tab_menu(tab, handle, &view, event.position, window, cx);
+                cx.stop_propagation();
+            })
+        };
         let group = SharedString::from(format!("tab-group-{index}"));
         let mut element = div()
             .id(("tab", index))
@@ -267,7 +307,9 @@ impl Workspace {
             .border_color(rgb(0xc0c0c0))
             .bg(if active { rgb(0xffffff) } else { rgb(0xd8d8d8) })
             .when(active, |s| s.font_weight(gpui::FontWeight::SEMIBOLD))
+            .debug_selector(move || format!("tab-{index}"))
             .on_mouse_down(MouseButton::Left, select)
+            .on_mouse_up(MouseButton::Right, open_menu)
             // `OnTabMButtonUp`: the middle button closes the tab.
             .on_mouse_up(MouseButton::Middle, move |_, window, cx| close(window, cx))
             .child(
