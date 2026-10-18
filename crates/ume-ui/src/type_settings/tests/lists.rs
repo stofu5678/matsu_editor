@@ -154,6 +154,24 @@ fn the_regex_buttons_edit_the_list_and_ok_writes_the_keywords(cx: &mut TestAppCo
 }
 
 #[gpui::test]
+fn a_deleted_keyword_is_gone_from_the_file_and_from_the_windows(cx: &mut TestAppContext) {
+    let ini = open_page(cx, REGEX_FILE, 4);
+    press(cx, REGEX_LIST, Op::Delete);
+    ok(cx);
+    assert_eq!(
+        ini.get("Types(0)", "RxKey[000]").as_deref(),
+        Some("RK2,m#b/c#ki")
+    );
+    assert_eq!(ini.get("Types(0)", "RxKey[001]"), None);
+    let count = cx.update(|app| {
+        crate::doc_types::with_user(app, |user| {
+            user.document_types().get(0).unwrap().regex_keywords.len()
+        })
+    });
+    assert_eq!(count, 1);
+}
+
+#[gpui::test]
 fn a_keyword_that_is_not_framed_or_is_there_already_is_refused(cx: &mut TestAppContext) {
     let _ini = open_page(cx, REGEX_FILE, 4);
     let before = rows_of(cx, REGEX_LIST);

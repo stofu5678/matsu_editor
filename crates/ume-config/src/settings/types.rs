@@ -767,12 +767,18 @@ impl TypeSettings {
         // Contiguous numbers: reading stops at the first missing one. An undefined keyword (no
         // pattern) is skipped, as Sakura does.
         let defined = self.regex_keywords.iter().filter(|k| !k.pattern.is_empty());
+        let mut written = 0;
         for (n, k) in defined.take(MAX_REGEX_KEYWORDS).enumerate() {
             profile.set_string(
                 s,
                 &format!("RxKey[{n:03}]"),
                 &format!("{},{}", k.color, k.pattern),
             )?;
+            written = n + 1;
+        }
+        // Sakura writes the file anew: the keys of keywords that are gone must not stay.
+        for n in written..MAX_REGEX_KEYWORDS {
+            profile.remove(s, &format!("RxKey[{n:03}]"));
         }
         Ok(())
     }
@@ -1073,6 +1079,23 @@ mod tests {
         assert_eq!(t.regex_keywords[0].color, "URL");
         assert_eq!(t.regex_keywords[0].pattern, "/a+/k");
         assert_eq!(t.regex_keywords[1].color, "NOT");
+    }
+
+    #[test]
+    fn a_regex_keyword_that_is_gone_is_removed_from_the_file() {
+        let mut p = Profile::from_bytes(&utf8(
+            "[Types(1)]\r\nRxKey[000]=URL,/a/k\r\nRxKey[001]=RK2,/b/k\r\nRxKey[002]=RK3,/c/k\r\n",
+        ));
+        let mut t = TypeSettings::read(&p, 1);
+        assert_eq!(t.regex_keywords.len(), 3);
+        t.regex_keywords.remove(1);
+        t.write(&mut p, 1).unwrap();
+        assert_eq!(p.get("Types(1)", "RxKey[001]"), Some("RK3,/c/k"));
+        assert_eq!(p.get("Types(1)", "RxKey[002]"), None);
+        assert_eq!(TypeSettings::read(&p, 1).regex_keywords, t.regex_keywords);
+        t.regex_keywords.clear();
+        t.write(&mut p, 1).unwrap();
+        assert_eq!(p.get("Types(1)", "RxKey[000]"), None);
     }
 
     #[test]
