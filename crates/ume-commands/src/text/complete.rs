@@ -303,11 +303,16 @@ pub fn keyword_candidates<'a>(
     found
 }
 
-/// Adds `more` to `found` without the words `found` has (`vector_ex::push_back_unique`), up to
-/// [`MAX_CANDIDATES`] in all.
-pub fn merge_candidates(mut found: Vec<String>, more: Vec<String>) -> Vec<String> {
+/// Adds `more` to `found` without the words `found` has (`vector_ex::push_back_unique`). With a
+/// `limit`, nothing is added once `found` has that many words (the search of the document stops at
+/// [`MAX_CANDIDATES`] in all, the word file and the keywords have no limit).
+pub fn merge_candidates(
+    mut found: Vec<String>,
+    more: Vec<String>,
+    limit: Option<usize>,
+) -> Vec<String> {
     for word in more {
-        if found.len() >= MAX_CANDIDATES {
+        if limit.is_some_and(|limit| found.len() >= limit) {
             break;
         }
         if !found.contains(&word) {
@@ -554,13 +559,18 @@ mod tests {
     fn the_sources_are_merged_in_sakuras_order_without_repeats() {
         let file = vec!["foo".to_owned(), "foo".to_owned(), "fa".to_owned()];
         let document = vec!["fa".to_owned(), "fob".to_owned()];
-        let merged = merge_candidates(file, document);
+        let merged = merge_candidates(file, document, Some(MAX_CANDIDATES));
         // the word file is kept as it is; the document adds what is new
         assert_eq!(merged, ["foo", "foo", "fa", "fob"]);
-        let merged = merge_candidates(merged, vec!["fob".to_owned(), "for".to_owned()]);
+        let merged = merge_candidates(merged, vec!["fob".to_owned(), "for".to_owned()], None);
         assert_eq!(merged, ["foo", "foo", "fa", "fob", "for"]);
-        // the limit counts everything
+        // the limit of the document counts everything; the keywords have none
         let full: Vec<String> = (0..MAX_CANDIDATES).map(|i| format!("w{i}")).collect();
-        assert_eq!(merge_candidates(full.clone(), vec!["x".to_owned()]), full);
+        let more = vec!["x".to_owned()];
+        assert_eq!(
+            merge_candidates(full.clone(), more.clone(), Some(MAX_CANDIDATES)),
+            full
+        );
+        assert_eq!(merge_candidates(full, more, None).len(), MAX_CANDIDATES + 1);
     }
 }

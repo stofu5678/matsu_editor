@@ -214,12 +214,12 @@ impl EditorView {
                 sources.ignore_case,
                 (caret.line, idx),
             );
-            items = complete::merge_candidates(items, in_document);
+            items = complete::merge_candidates(items, in_document, Some(complete::MAX_CANDIDATES));
         }
         if sources.by_keyword {
             let keywords =
                 complete::keyword_candidates(sources.keywords(), &key, sources.ignore_case);
-            items = complete::merge_candidates(items, keywords);
+            items = complete::merge_candidates(items, keywords, None);
         }
         Some(Completion::new(key, items))
     }
