@@ -33,6 +33,9 @@ use crate::document::SharedDocument;
 use crate::file_ops::windows::{editors, open_editor_window};
 use crate::view::EditorView;
 
+/// The extension whose document type a Grep window takes (`Command_GREP`).
+const GREP_TYPE_EXT: &str = "grepout";
+
 /// The title of the message boxes of Grep.
 const BOX_TITLE: &str = "UME Editor";
 
@@ -231,11 +234,50 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        self.start_grep_in(info, new_window, true, window, cx)
+    }
+
+    /// [`start_grep`](Self::start_grep). `command`: the Grep is the command `F_GREP` (the dialog,
+    /// a key, a macro) and not the `-GREPMODE` of the command line, which calls `DoGrep` directly.
+    /// Only the command gives an empty window the type `grepout` and runs the macro of
+    /// タイプ変更後 (`Command_GREP` calls `OnChangeType`).
+    pub(crate) fn start_grep_in(
+        &mut self,
+        info: GrepInfo,
+        new_window: bool,
+        command: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         if let Err(error) = engine::check(&info) {
             self.grep_error_box(&error, window, cx);
             return false;
         }
         if !new_window && self.grep_output_here(cx) {
+            if command
+                && self.use_grep_type(cx)
+                && self.run_auto_macro(crate::macros::Auto::TypeChanged, None, window, cx)
+            {
+                // The macro of タイプ変更後 goes on beside the window (a script, or a key macro
+                // that waits for a dialog): the search begins when it has ended, as in Sakura,
+                // where the call does not return before. A macro that called this waits for the
+                // search to begin.
+                let tracked = crate::macros::track(cx);
+                cx.spawn(async move |this, cx| {
+                    while this
+                        .read_with(cx, |view, _| view.macros.is_suspended())
+                        .unwrap_or(false)
+                    {
+                        cx.background_executor()
+                            .timer(Duration::from_millis(50))
+                            .await;
+                    }
+                    let _tracked = tracked;
+                    this.update(cx, |view, cx| view.begin_grep(info, cx)).ok();
+                })
+                .detach();
+                return true;
+            }
             self.begin_grep(info, cx);
             return true;
         }
@@ -257,7 +299,10 @@ impl EditorView {
                     None,
                 );
                 if let Ok((_, target)) = opened {
-                    target.update(app, |view, cx| view.begin_grep(info, cx));
+                    target.update(app, |view, cx| {
+                        view.use_grep_type(cx);
+                        view.begin_grep(info, cx);
+                    });
                 }
             });
             return true;
@@ -269,7 +314,10 @@ impl EditorView {
                     .find(|(h, _)| *h == handle)
                     .map(|(_, view)| view);
                 if let Some(target) = target {
-                    target.update(cx, |view, cx| view.begin_grep(info, cx));
+                    target.update(cx, |view, cx| {
+                        view.use_grep_type(cx);
+                        view.begin_grep(info, cx);
+                    });
                     true
                 } else {
                     false
@@ -356,6 +404,21 @@ impl EditorView {
             cx,
         );
         crate::macros::keep_box(answer, window, cx);
+    }
+
+    /// An empty window without changes takes the type of the extension `grepout` and keeps it
+    /// (`Command_GREP`: `SetDocumentTypeIdx`, `LockDocumentType`, `OnChangeType`). A window that
+    /// the Grep opened for its result has the type as well (`-GREPMODE` gives `-TYPE=grepout`).
+    /// Returns whether the type was applied.
+    fn use_grep_type(&mut self, cx: &mut Context<Self>) -> bool {
+        let shared = self.document.read(cx);
+        if shared.model().is_modified() || shared.doc().line_count() != 0 {
+            return false;
+        }
+        let index = crate::doc_types::with_user(cx, |user| {
+            user.document_types().type_index_for_ext(GREP_TYPE_EXT)
+        });
+        self.change_type(i64::try_from(index).unwrap_or(0) + 1, cx)
     }
 
     /// Starts the search with the result in this window. The search runs on a background task;

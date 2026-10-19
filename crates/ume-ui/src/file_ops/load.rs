@@ -204,6 +204,10 @@ pub(crate) async fn load_here(
                     return false;
                 }
                 view.load_document(shared, restore, cx);
+                // `-TYPE=` decides the type before the macro of オープン後 runs.
+                if let Some(ext) = super::start_options::expected_type(cx, path) {
+                    view.apply_launch_type(&ext, cx);
+                }
                 if let Some(entry) = &previous {
                     let options = crate::history::options(cx);
                     view.restore_from_history(entry, options, cx);
