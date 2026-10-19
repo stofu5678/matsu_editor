@@ -314,6 +314,8 @@ pub struct Workspace {
     /// The outline pane docked at the right of the window, while it is open (`crate::outline`).
     pub(crate) outline: Option<Entity<crate::outline::pane::OutlinePane>>,
     pub(crate) menu_bar: Entity<MenuBar>,
+    /// The search box of the toolbar (`F_SEARCH_BOX`), shown where the toolbar has it.
+    pub(crate) search_box: Entity<crate::bars::search_box::SearchBox>,
     /// The files that are being dragged over the window (`crate::file_ops::drop_zone`).
     pub(crate) file_drop: Option<Vec<std::path::PathBuf>>,
 }
@@ -341,6 +343,7 @@ impl Workspace {
             tabs: crate::tabs::Tabs::new(),
             outline: None,
             menu_bar: MenuBar::new(cx),
+            search_box: crate::bars::search_box::SearchBox::new(cx.weak_entity(), window, cx),
             file_drop: None,
         };
         // The menu bar asks this window for the marks of its items when a menu opens.

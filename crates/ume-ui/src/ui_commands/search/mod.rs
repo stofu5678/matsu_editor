@@ -27,6 +27,7 @@ pub mod outline_toggle;
 pub mod replace;
 pub mod replace_all;
 pub mod replace_dialog;
+pub mod search_box;
 pub mod search_clearmark;
 pub mod search_dialog;
 pub mod search_next;

@@ -13,7 +13,7 @@
 
 use std::path::{Path, PathBuf};
 
-use gpui::{App, Global};
+use gpui::{App, BorrowAppContext as _, Global};
 use ume_config::Profile;
 use ume_config::history::update_profile;
 use ume_config::settings::SearchKeys;
@@ -126,15 +126,17 @@ pub fn replace_keys(cx: &App) -> Vec<String> {
 
 /// `AddToSearchKeyArr`. Returns the sequence number to put in the view that searched.
 pub fn remember_search(cx: &mut App, text: &str) -> u64 {
-    let history = cx.default_global::<SearchHistory>();
-    history.keys.add_search(text);
-    history.search_sequence += 1;
-    // Also when the string is already first here: another process may have put another one on
-    // top since, and this search is the latest use.
-    history.persist(|keys| {
-        keys.add_search(text);
-    });
-    history.search_sequence
+    // `update_global` tells the observers (the search boxes of the toolbars) about the news.
+    cx.update_default_global(|history: &mut SearchHistory, _| {
+        history.keys.add_search(text);
+        history.search_sequence += 1;
+        // Also when the string is already first here: another process may have put another one on
+        // top since, and this search is the latest use.
+        history.persist(|keys| {
+            keys.add_search(text);
+        });
+        history.search_sequence
+    })
 }
 
 /// `AddToReplaceKeyArr`. Returns the sequence number to put in the view that replaced.

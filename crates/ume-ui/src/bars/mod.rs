@@ -12,6 +12,8 @@
 
 pub(crate) mod funckeys;
 pub(crate) mod icons;
+mod open_menu;
+pub(crate) mod search_box;
 mod tool_buttons;
 pub(crate) mod toolbar;
 
