@@ -54,6 +54,9 @@ const WORDS_FULL: &str = "登録できるキーワード数が上限に達して
 /// `STR_PROPCOMKEYWORD_DEL`
 const CLEAN_QUESTION: &str =
     "現在の設定では強調キーワードとして表示できないキーワードを削除しますか？";
+/// What OK says when the sets in the file are not the ones the dialog started from (not in Sakura, whose
+/// sets are in shared memory).
+const CHANGED_ELSEWHERE: &str = "強調キーワードのセットが、このダイアログを開いたあとに別の場所で変更されたため、セットは保存しませんでした。\nダイアログを開き直してください。";
 /// `STR_IMPEXP_KEYWORD`
 const IMPORT_FULL: &str =
     "キーワードの数が上限に達したため、いくつかのキーワードを追加できませんでした。";
@@ -199,6 +202,26 @@ pub(in crate::common_settings) fn items() -> Option<Vec<Item>> {
 pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: Option<&Values>) {
     let Some(before) = before else { return };
     if after.rows(SETS) == before.rows(SETS) {
+        return;
+    }
+    // The file had other sets than the dialog started from (it was changed meanwhile): `store` wrote nothing.
+    let wanted = entry::signature(from_rows(after.rows(SETS)).iter().map(|e| e.name.as_str()));
+    let now = crate::doc_types::with_user(env.cx, |user| {
+        entry::signature(
+            user.document_types()
+                .keywords()
+                .iter()
+                .map(|s| s.name.as_str()),
+        )
+    });
+    if wanted != now {
+        if let Some(opener) = env.opener {
+            opener
+                .update(env.cx, |_, window, cx| {
+                    drop(window.prompt(PromptLevel::Info, CHANGED_ELSEWHERE, None, &["OK"], cx));
+                })
+                .ok();
+        }
         return;
     }
     // `MYWM_CHANGESETTING`: every view takes the settings of its type again (the sets are shared by the types,

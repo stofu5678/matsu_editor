@@ -9,10 +9,10 @@ use ume_config::settings::DocumentTypes;
 use ume_config::settings::keywords::{KeywordSets, MAX_KEYWORD_SETS, store_sets};
 use ume_config::{Profile, ProfileError};
 
-use super::entry::{drafts_of, entries_of, from_rows, renumber, rows_of};
+use super::entry::{drafts_of, entries_of, from_rows, renumber, rows_of, signature};
 use crate::common_settings::table::{Column, Row, Storage, TableSpec};
 
-/// The columns of the hidden list: where the set was, its name, the case rule, and its keywords. The list is
+/// The columns of the hidden list: where the set was, its name, the case rule, its keywords, and what the sets of the file were. The list is
 /// never drawn: the page draws the sets itself.
 const COLUMNS: &[Column] = &[Column {
     title: "",
@@ -20,7 +20,7 @@ const COLUMNS: &[Column] = &[Column {
     key: "",
     width: 0,
     max_chars: 0,
-}; 4];
+}; 5];
 
 pub(super) static SETS: TableSpec = TableSpec {
     columns: COLUMNS,
@@ -42,6 +42,15 @@ fn load(profile: &Profile) -> Option<Vec<Row>> {
 fn store(rows: &[Row], profile: &mut Profile) -> Result<bool, ProfileError> {
     let old = entries_of(&KeywordSets::from_profile(profile));
     let entries = from_rows(rows);
+    // The dialog started from other sets than the file has now (it was changed meanwhile): the numbers of the
+    // dialog do not fit it, so nothing is written (the page tells the user, `apply`).
+    let file = signature(old.iter().map(|e| e.name.as_str()));
+    if entries
+        .first()
+        .is_some_and(|e| !e.snapshot.is_empty() && e.snapshot != file)
+    {
+        return Ok(false);
+    }
     if entries == old {
         return Ok(false);
     }
