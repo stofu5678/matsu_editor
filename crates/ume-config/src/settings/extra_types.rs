@@ -106,7 +106,8 @@ impl ExtraSet {
         Self::ALL.get(i).copied()
     }
 
-    fn name(self) -> &'static str {
+    /// The name of the set, which is also how a settings file that has it is told from one that has not.
+    pub(super) fn name(self) -> &'static str {
         match self {
             ExtraSet::PythonBuiltins => "Python built-ins",
             ExtraSet::JavaScript => "JavaScript",

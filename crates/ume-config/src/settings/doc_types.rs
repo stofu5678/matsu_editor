@@ -130,7 +130,7 @@ fn glob_match(pattern: &str, text: &str) -> bool {
 /// Does the settings file leave the type number `index` unused? That is the case when it has no
 /// `Types(index)` section, or the section is what Sakura writes for a number it does not use: the name
 /// `設定N` (or none) and no extensions.
-fn is_unused_slot(profile: &Profile, index: i32) -> bool {
+pub fn is_unused_slot(profile: &Profile, index: i32) -> bool {
     let section = TypeSettings::section_name(index);
     if profile.entries(&section).next().is_none() {
         return true;
