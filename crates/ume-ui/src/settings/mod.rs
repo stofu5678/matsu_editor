@@ -224,6 +224,19 @@ impl UserSettings {
         }
     }
 
+    /// The main menu (`[MainMenu]`): Sakura's default (`MainMenu.ini`) when the file has no menu, with the
+    /// items that newer versions added to a menu an older version wrote.
+    pub fn main_menu(&self) -> ume_config::settings::MainMenu {
+        match &self.profile {
+            Some(profile) => ume_config::settings::MainMenu::from_profile(
+                profile,
+                &|name| ume_commands::macro_names::by_name(name).map(|f| f.code),
+                crate::menu::default_main_menu(),
+            ),
+            None => crate::menu::default_main_menu().clone(),
+        }
+    }
+
     /// The user's key bindings (`[KeyBind]`), to put over Sakura's table. Empty without a file.
     pub fn key_rows(&self) -> Vec<UserRow> {
         match &self.profile {

@@ -223,7 +223,7 @@ fn parse_key(value: &str) -> Option<Option<char>> {
 /// `GetFunctionStrToFunctionCode` (`CShareData_IO.cpp`): a number of one or two digits is the code itself;
 /// a name with a `/` is a plug-in command (not supported here: `F_DEFAULT`); anything else is a macro
 /// name, which `by_name` turns into a code. A name that is unknown gives 0 (`F_DEFAULT`), a separator.
-fn parse_function(value: &str, by_name: &dyn Fn(&str) -> Option<u16>) -> u16 {
+pub(super) fn parse_function(value: &str, by_name: &dyn Fn(&str) -> Option<u16>) -> u16 {
     let bytes = value.as_bytes();
     let is_digit = |i: usize| bytes.get(i).is_some_and(u8::is_ascii_digit);
     if value.contains('/') {
