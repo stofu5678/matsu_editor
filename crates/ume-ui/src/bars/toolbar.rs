@@ -313,7 +313,6 @@ impl Workspace {
                     .hover(|s| s.bg(rgb(0xd8e6f5)))
                     .active(|s| s.bg(rgb(0xb8d0ec)))
                     .on_click(cx.listener(move |this, _, window, cx| {
-                        this.leave_search_box(window, cx);
                         this.run_after_event(code, window, cx);
                     }))
             })
@@ -380,8 +379,9 @@ impl Workspace {
     /// box to the view first, so that the keys that follow go to the text.
     pub(crate) fn leave_search_box(&self, window: &mut Window, cx: &mut Context<Self>) {
         if self.search_box.read(cx).is_focused(window, cx) {
-            let handle = self.editor().read(cx).focus_handle.clone();
-            window.focus(&handle, cx);
+            let editor = self.editor().clone();
+            self.search_box
+                .update(cx, |b, cx| b.leave(&editor, window, cx));
         }
     }
 

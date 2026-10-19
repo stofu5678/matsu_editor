@@ -153,15 +153,26 @@ impl SearchBox {
             .map(|workspace| workspace.read(cx).editor().clone())
     }
 
-    /// Gives the focus back to the text.
+    /// Gives the focus back to the text of the active pane.
     fn focus_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.dropdown = None;
-        // `CBN_KILLFOCUS`; the blur event of the field comes later.
-        self.take_as_key(cx);
         if let Some(editor) = self.editor(cx) {
-            let handle = editor.read(cx).focus_handle.clone();
-            window.focus(&handle, cx);
+            self.leave(&editor, window, cx);
         }
+    }
+
+    /// Gives the focus to `editor` and takes the text of the box as the search key (`CBN_KILLFOCUS`;
+    /// the blur event of the field comes later and finds nothing to do). `editor` is the pane of
+    /// the window that asks, which may be being updated.
+    pub(crate) fn leave(
+        &mut self,
+        editor: &Entity<EditorView>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.dropdown = None;
+        self.take_as_key(cx);
+        let handle = editor.read(cx).focus_handle.clone();
+        window.focus(&handle, cx);
         cx.notify();
     }
 
@@ -169,6 +180,12 @@ impl SearchBox {
     fn make_key(editor: &mut EditorView, text: &str, cx: &mut Context<EditorView>) {
         if text.encode_utf16().count() < MAX_PATH {
             let sequence = history::remember_search(cx, text);
+            editor.search.set_key_sequence(Some(sequence));
+        } else if let Some((_, sequence)) =
+            history::newer_search_key(cx, editor.search.key_sequence())
+        {
+            // Not for the history, but this key is the newest one for the view: the box does not
+            // swap it for an older string.
             editor.search.set_key_sequence(Some(sequence));
         }
         editor.search.set_pattern(text);

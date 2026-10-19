@@ -139,7 +139,49 @@ fn a_string_of_max_path_or_more_is_searched_but_not_remembered(cx: &mut TestAppC
     write(cx, handle, &format!("x{long}"));
     search_in_box(cx, handle, &long);
     assert!(search_keys(cx).is_empty());
+    assert_eq!(box_text(cx, handle), long);
     assert_eq!(selection(cx, &editor).map(|(a, _)| a), Some(Pos::new(0, 1)));
+}
+
+#[gpui::test]
+fn a_long_string_is_not_swapped_for_an_older_one_of_the_history(cx: &mut TestAppContext) {
+    let (_ini, handle) = setup(cx, &toolbar());
+    cx.update(|app| {
+        crate::search::history::remember_search(app, "older");
+    });
+    let long = "a".repeat(300);
+    write(cx, handle, &long);
+    search_in_box(cx, handle, &long);
+    assert_eq!(search_keys(cx), ["older"]);
+    assert_eq!(box_text(cx, handle), long);
+}
+
+#[gpui::test]
+fn a_function_key_clicked_while_the_box_has_text_uses_it_and_takes_the_focus(
+    cx: &mut TestAppContext,
+) {
+    let (_ini, handle) = setup(
+        cx,
+        &format!("{}[Common]\r\nbDispFUNCKEYWND=1\r\n", toolbar()),
+    );
+    let editor = view(cx, handle);
+    write(cx, handle, "foo bar");
+    run(cx, handle, "F_SEARCH_BOX");
+    {
+        let cx2 = &mut VisualTestContext::from_window(handle, cx);
+        cx2.simulate_input("bar");
+    }
+    // F3 is the next search in Sakura's key map.
+    let cx2 = &mut VisualTestContext::from_window(handle, cx);
+    click(cx2, "function-key-2".into(), Modifiers::none());
+    cx2.run_until_parked();
+    assert_eq!(pattern(cx, &editor), "bar");
+    assert_eq!(
+        selection(cx, &editor),
+        Some((Pos::new(0, 4), Pos::new(0, 7)))
+    );
+    let cx2 = &mut VisualTestContext::from_window(handle, cx);
+    assert!(editor_has_focus(cx2, &editor));
 }
 
 #[gpui::test]

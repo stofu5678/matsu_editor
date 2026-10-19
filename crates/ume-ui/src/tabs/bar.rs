@@ -122,6 +122,8 @@ impl Workspace {
     /// Runs a function of Sakura on the active view once this event is handled: the function may
     /// look at the tabs of every window, which cannot happen while this window is borrowed.
     pub(crate) fn run_after_event(&self, code: u16, window: &mut Window, cx: &mut Context<Self>) {
+        // From the search box the focus goes to the view first (`CEditWnd::OnCommand`).
+        self.leave_search_box(window, cx);
         let editor = self.editor().clone();
         window.defer(cx, move |window, app| {
             editor.update(app, |view, cx| view.run_function(code, &[], window, cx));
