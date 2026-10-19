@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use gpui::{AnyWindowHandle, Context, Entity, TestAppContext, VisualTestContext, Window};
+use gpui::{AnyWindowHandle, Context, Entity, TestAppContext, VisualTestContext, Window, px, size};
 use ume_commands::edit_options::{self, EditOptions};
 use ume_commands::sakura::FUNCTIONS;
 use ume_config::Profile;
@@ -194,6 +194,27 @@ pub(super) fn type_in(cx: &mut TestAppContext, id: &'static str, text: &str) {
 
 pub(super) fn visual(cx: &mut TestAppContext, handle: AnyWindowHandle) -> &mut VisualTestContext {
     VisualTestContext::from_window(handle, cx).into_mut()
+}
+
+#[gpui::test]
+fn a_page_taller_than_the_window_scrolls_from_its_top(cx: &mut TestAppContext) {
+    let (_ini, handle) = setup(cx, "");
+    run(cx, handle, "F_OPTION_GENERAL");
+    let dialog_window = cx.update(|app| dialog_window(app)).unwrap();
+    let cx = visual(cx, dialog_window);
+    // 全般 is much taller than this window.
+    let height = px(300.);
+    cx.simulate_resize(size(px(800.), height));
+    cx.run_until_parked();
+    let body = cx.debug_bounds("cs-body").expect("the body of the page");
+    assert!(
+        body.top() >= px(0.),
+        "the top of the page is cut off: {body:?}"
+    );
+    assert!(
+        body.bottom() <= height,
+        "the body is taller than the window: {body:?}"
+    );
 }
 
 // ---- the pages ----

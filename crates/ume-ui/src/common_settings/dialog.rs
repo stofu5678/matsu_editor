@@ -1322,6 +1322,10 @@ impl Render for CommonSettingsDialog {
                 h_flex()
                     .flex_1()
                     .min_h_0()
+                    // `h_flex` centers its children. The body takes the whole height instead, so
+                    // that a page taller than the window scrolls from its top: centered, it was as
+                    // tall as the page and cut at the top and the bottom, with nothing to scroll.
+                    .items_stretch()
                     .child(
                         v_flex()
                             .w(px(150.))
@@ -1334,6 +1338,7 @@ impl Render for CommonSettingsDialog {
                     .child(
                         div()
                             .id("cs-body")
+                            .debug_selector(|| "cs-body".to_owned())
                             .flex_1()
                             .p_3()
                             .overflow_y_scroll()
