@@ -6,15 +6,16 @@
 //!   extensions of the type of the document, see `ume_config::save_filter`), テキストファイル
 //!   (`*.txt`) and すべてのファイル (`*.*`). The first is the one shown. A type that has no
 //!   extensions leaves the first entry out (Sakura gives the dialog an empty one).
+//! * Every save dialog has the default extension `txt` (`SetDefaultExtension(L"txt")`, whatever
+//!   the document is); the dialog changes it to the extension of the file type chosen.
 //! * A document without a file is offered `無題_<date>_<time>` (`STR_NO_TITLE2` and
-//!   `_%Y%m%d_%H%M%S`) and the extension `txt` is added to a name typed without one
-//!   (`SetDefaultExtension`). Sakura puts the number of the window after 無題 (`m_nId`); UME
+//!   `_%Y%m%d_%H%M%S`). Sakura puts the number of the window after 無題 (`m_nId`); UME
 //!   Editor has no such number, and the name goes without it (Sakura does the same for a window
 //!   that has none).
 //!
 //! The list is shown by the dialogs of the OS (`ume_platform::dialog`); GPUI's dialog, the
 //! fallback, has no list: it shows every file, and the default extension is added to the name it
-//! answers (`ume_platform::dialog::with_default_extension`).
+//! answers (`ume_platform::dialog::with_default_extension`), the one of the type shown first.
 
 use std::path::Path;
 
@@ -84,7 +85,7 @@ pub(crate) fn for_document(cx: &App, type_index: usize, path: Option<&Path>) -> 
     .wildcard();
     SaveTypes {
         filters: filters(&wildcard),
-        default_extension: path.is_none().then(|| DEFAULT_EXTENSION.to_owned()),
+        default_extension: Some(DEFAULT_EXTENSION.to_owned()),
     }
 }
 

@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use gpui::{App, AsyncApp, PathPromptOptions, Window};
 use raw_window_handle::HasWindowHandle;
 use ume_config::dialog_dir::{DialogDirSetting, MetaSource, Surroundings};
-use ume_platform::dialog::{Kind, Owner, Request, with_default_extension};
+use ume_platform::dialog::{Kind, Owner, Request, extension_for_filter, with_default_extension};
 
 use crate::settings::UserSettings;
 
@@ -126,11 +126,15 @@ pub(crate) fn ask(window: &Window, cx: &mut App, ask: Ask) -> impl Future<Output
                 // GPUI's dialog does not add the default extension, as the one of Windows does
                 match (&ask.types, ask.kind) {
                     (Some(types), Kind::SaveFile) => {
-                        let extension = types.default_extension.as_deref();
+                        // no list is shown: the type shown first decides
+                        let extension = types
+                            .default_extension
+                            .as_deref()
+                            .map(|fallback| extension_for_filter(types.filters.first(), fallback));
                         paths.map(|paths| {
                             paths
                                 .into_iter()
-                                .map(|path| match extension {
+                                .map(|path| match &extension {
                                     Some(extension) => with_default_extension(path, extension),
                                     None => path,
                                 })

@@ -123,6 +123,15 @@ pub async fn show(owner: Owner, request: Request) -> Result<Option<Vec<PathBuf>>
     os::show(owner, request).await
 }
 
+/// The default extension for a dialog that does not do it itself: the dialog of Windows changes
+/// it to that of the file type the user chooses (`IFileDialog::SetDefaultExtension`), so this is
+/// the first extension the chosen type names (`*.c;*.h` gives `c`), else `fallback`.
+pub fn extension_for_filter(filter: Option<&FileFilter>, fallback: &str) -> String {
+    filter
+        .and_then(|filter| filter.extensions().first().map(|ext| (*ext).to_owned()))
+        .unwrap_or_else(|| fallback.to_owned())
+}
+
 /// `path` with `.extension` added when its file name has no extension: what the Windows dialog does
 /// with the default extension. For a dialog that does not do it itself.
 ///

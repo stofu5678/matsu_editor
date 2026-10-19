@@ -244,8 +244,8 @@ fn the_save_dialog_of_a_file_lists_the_extensions_of_its_type(cx: &mut TestAppCo
         patterns(&request, "ユーザー指定"),
         ["*.txt", "*.log", "*.1st", "*.err", "*.ps", "*.*"]
     );
-    // a name the document has: no default extension of the dialog
-    assert_eq!(request.default_extension, None);
+    // Sakura gives every save dialog the default extension
+    assert_eq!(request.default_extension.as_deref(), Some("txt"));
     // off for the documents that have a file
     set_filter_options(cx, true, false);
     f.run(cx, "F_FILESAVEAS_DIALOG", &[]);
@@ -292,6 +292,22 @@ fn the_fallback_dialog_gets_the_default_extension(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert_eq!(std::fs::read(dir.path().join("memo.txt")).unwrap(), b"abc");
     assert!(!target.exists());
+}
+
+#[gpui::test]
+fn the_fallback_dialog_adds_the_extension_of_the_type_of_a_named_document(cx: &mut TestAppContext) {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("a.c");
+    std::fs::write(&file, "abc").unwrap();
+    let (f, cx) = setup(cx, settings(0, dir.path()));
+    f.open(cx, &file);
+    f.run(cx, "F_FILESAVEAS_DIALOG", &[]);
+    let chosen = dir.path().join("bar");
+    cx.simulate_new_path_selection(move |_| Some(chosen));
+    cx.run_until_parked();
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert_eq!(std::fs::read(dir.path().join("bar.c")).unwrap(), b"abc");
 }
 
 #[gpui::test]

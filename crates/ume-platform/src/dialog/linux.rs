@@ -8,7 +8,10 @@ use std::path::{Path, PathBuf};
 use raw_window_handle::RawWindowHandle;
 use zbus::zvariant::Value;
 
-use super::{Error, FileFilter, Kind, Request, path_from_file_uri, with_default_extension};
+use super::{
+    Error, FileFilter, Kind, Request, extension_for_filter, path_from_file_uri,
+    with_default_extension,
+};
 use crate::portal::{Answer, Failure, Portal};
 
 const INTERFACE: &str = "org.freedesktop.portal.FileChooser";
@@ -103,13 +106,33 @@ pub(super) async fn show(owner: Owner, request: Request) -> Result<Option<Vec<Pa
         Ok(Answer::Done(results)) => Ok(paths_of(&results).map(|paths| {
             // the portal does not add the default extension, as the dialog of Windows does
             match (&request.default_extension, request.kind) {
-                (Some(extension), Kind::SaveFile) => paths
-                    .into_iter()
-                    .map(|path| with_default_extension(path, extension))
-                    .collect(),
+                (Some(fallback), Kind::SaveFile) => {
+                    let extension =
+                        extension_for_filter(chosen_filter(&request, &results), fallback);
+                    paths
+                        .into_iter()
+                        .map(|path| with_default_extension(path, &extension))
+                        .collect()
+                }
                 _ => paths,
             }
         })),
+    }
+}
+
+/// The filter the user chose: the `current_filter` of the answer (found by its name), else the one
+/// the dialog showed first.
+fn chosen_filter<'a>(
+    request: &'a Request,
+    results: &HashMap<String, zbus::zvariant::OwnedValue>,
+) -> Option<&'a FileFilter> {
+    let name = results
+        .get("current_filter")
+        .and_then(|value| <(String, Vec<(u32, String)>)>::try_from(value.try_clone().ok()?).ok())
+        .map(|(name, _)| name);
+    match name {
+        Some(name) => request.filters.iter().find(|f| f.name == name),
+        None => request.filters.get(request.selected_filter),
     }
 }
 
@@ -144,6 +167,42 @@ mod tests {
         );
         let list = Value::from(vec![filter_tuple(&filter)]);
         assert_eq!(list.value_signature().to_string(), "a(sa(us))");
+    }
+
+    #[test]
+    fn the_extension_follows_the_filter_the_portal_says_was_chosen() {
+        let filter = |name: &str, patterns: &[&str]| FileFilter {
+            name: name.to_owned(),
+            patterns: patterns.iter().map(|p| (*p).to_owned()).collect(),
+        };
+        let request = Request {
+            kind: Kind::SaveFile,
+            start: None,
+            name: None,
+            title: String::new(),
+            filters: vec![
+                filter("ユーザー指定", &["*.c", "*.h"]),
+                filter("すべてのファイル", &["*.*"]),
+            ],
+            selected_filter: 0,
+            default_extension: Some("txt".to_owned()),
+        };
+        let extension = |chosen: Option<&FileFilter>| {
+            let mut results = HashMap::new();
+            if let Some(f) = chosen {
+                results.insert(
+                    "current_filter".to_owned(),
+                    Value::from(filter_tuple(f)).try_into().unwrap(),
+                );
+            }
+            extension_for_filter(chosen_filter(&request, &results), "txt")
+        };
+        assert_eq!(extension(Some(&request.filters[0])), "c");
+        assert_eq!(extension(Some(&request.filters[1])), "txt");
+        // no `current_filter`: the one shown first
+        assert_eq!(extension(None), "c");
+        let path = with_default_extension(PathBuf::from("/nonexistent-ume/bar"), "c");
+        assert_eq!(path, PathBuf::from("/nonexistent-ume/bar.c"));
     }
 
     #[test]
