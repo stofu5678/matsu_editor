@@ -75,7 +75,7 @@ pub(crate) struct Subject<'a> {
 pub(crate) fn expand(format: &str, subject: &Subject<'_>, names: &FileNames) -> String {
     let folder = subject
         .path
-        .and_then(|path| path.rfind(['\\', '/']).map(|i| &path[..=i]));
+        .and_then(|path| path.rfind(std::path::is_separator).map(|i| &path[..=i]));
     let context = HeaderContext {
         app_name: crate::support::about::PRODUCT.to_owned(),
         version: env!("CARGO_PKG_VERSION").to_owned(),

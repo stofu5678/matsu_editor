@@ -273,7 +273,14 @@ fn expand_one(c: char, ctx: &HeaderContext, page: Option<&PageInfo<'_>>) -> Opti
         'F' => or_no_title(&|p| p.to_string()),
         'f' => or_no_title(&|p| file_name(p).to_string()),
         'g' => or_no_title(&|p| file_stem(file_name(p))),
-        '/' => or_no_title(&|p| p.replace('\\', "/")),
+        // A backslash is a separator only on Windows; elsewhere it is part of a name.
+        '/' => or_no_title(&|p| {
+            if cfg!(windows) {
+                p.replace('\\', "/")
+            } else {
+                p.to_owned()
+            }
+        }),
         'N' => or_no_title(&|p| ctx.file_path_short.clone().unwrap_or_else(|| p.to_string())),
         // Only a document without a file, in an ordinary window, has a number.
         'n' => match (path, ctx.window, ctx.untitled_number) {
@@ -326,7 +333,7 @@ fn limit_grep_key(key: &str) -> String {
 
 /// The name after the last separator (`GetFileName`).
 fn file_name(path: &str) -> &str {
-    path.rsplit(['\\', '/']).next().unwrap_or(path)
+    path.rsplit(std::path::is_separator).next().unwrap_or(path)
 }
 
 /// The name without the extension: it ends at the last `.`, which is not the first character
@@ -345,7 +352,8 @@ fn file_stem(name: &str) -> String {
 
 /// The folder with its last separator (`$e`), or nothing for a name without one.
 fn folder(path: &str) -> &str {
-    path.rfind(['\\', '/']).map_or("", |i| &path[..=i])
+    path.rfind(std::path::is_separator)
+        .map_or("", |i| &path[..=i])
 }
 
 /// The extension without the dot (`$b`); the whole name of `.profile` is one.
@@ -434,6 +442,7 @@ mod tests {
         expand_parameter(form, ctx, Some(&page))
     }
 
+    #[cfg(windows)]
     #[test]
     fn file_names() {
         // The examples of HLP000284.html, with D:\source\Main.cpp.
@@ -453,6 +462,21 @@ mod tests {
             ..c
         };
         assert_eq!(ex("$N|$E", &short), r"ソース\Main.cpp|ソース\");
+    }
+
+    /// Elsewhere a backslash is a character of the name, not a separator.
+    #[cfg(not(windows))]
+    #[test]
+    fn a_backslash_is_part_of_the_name_outside_windows() {
+        let c = HeaderContext {
+            file_path: Some(r"dir/a\b.txt".into()),
+            ..HeaderContext::default()
+        };
+        assert_eq!(ex("$f", &c), r"a\b.txt");
+        assert_eq!(ex("$g", &c), r"a\b");
+        assert_eq!(ex("$b", &c), "txt");
+        assert_eq!(ex("$e", &c), "dir/");
+        assert_eq!(ex("$/", &c), r"dir/a\b.txt");
     }
 
     #[test]

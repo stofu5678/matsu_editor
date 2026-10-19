@@ -5,8 +5,9 @@
 //! window for a file from outside (`bNewWindow`), what happens when the last file closes and when
 //! the close button of the window is used (`bTab_RetainEmptyWin`, `bTab_CloseOneWin`), the width of
 //! the tabs (`bSameTabWidth`), their close buttons (`bDispTabClose`) and the wheel over the bar
-//! (`bChgWndByWheel`). Not available yet: the icons, the font, the sorted list, the rows, the
-//! place and the caption of the tabs (the caption needs `CFormatManager::ExpandParameter`).
+//! (`bChgWndByWheel`), the sorting of the tab list (`bSortTabList`) and the caption of the tabs
+//! (`szTabWndCaption`, expanded like the title of the window). Not available yet: the icons, the
+//! font, the rows and the place of the tabs.
 //!
 //! `EnableTabPropInput` (`CPropComTab.cpp`) says which controls can be used: all of them need the
 //! bar; the last three of the mode need the grouping too.
@@ -15,6 +16,7 @@ use gpui::AnyWindowHandle;
 
 use super::super::Env;
 use super::super::model::{Control, Item, Values};
+use crate::tabs::caption::{self, TabCaption};
 use crate::tabs::flows;
 use crate::tabs::settings::{self, DispTabClose, TabOptions};
 
@@ -22,9 +24,6 @@ use crate::tabs::settings::{self, DispTabClose, TabOptions};
 const DISP_CLOSE: &[(&str, i32)] = &[("なし", 0), ("常に表示", 1), ("自動表示", 2)];
 /// `TabPosArr`: the tab place (`TabPosition_Top`, `TabPosition_Bottom`).
 const POSITION: &[(&str, i32)] = &[("上", 0), ("下", 1)];
-
-/// Sakura's default format of the tab caption (`CShareData::InitShareData`).
-const CAPTION: &str = "${w?【Grep】$h$:【アウトプット】$:$f$n$}${U?(更新)$}${R?(ビューモード)$:(上書き禁止)$}${M?【キーマクロの記録中】$}";
 
 fn bar_is_shown(values: &Values) -> bool {
     values.bool("tab_bar")
@@ -107,7 +106,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         "bSortTabList",
                         true,
                     )
-                    .unavailable()
                     .when(bar_is_shown)
                     .into(),
                     Control::check("tab_multi_line", "多段(&M)", "bTabMultiLine", false)
@@ -119,10 +117,14 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         .when(bar_is_shown)
                         .into(),
                 ]),
-                Control::text("tab_caption", "タイトル(&T)", "szTabWndCaption", CAPTION)
-                    .unavailable()
-                    .when(bar_is_shown)
-                    .into(),
+                Control::text(
+                    "tab_caption",
+                    "タイトル(&T)",
+                    "szTabWndCaption",
+                    caption::DEFAULT,
+                )
+                .when(bar_is_shown)
+                .into(),
             ],
         ),
         Item::Group(
@@ -149,6 +151,9 @@ fn options(values: &Values) -> TabOptions {
         same_width: values.bool("tab_same_width"),
         disp_close: DispTabClose::from_code(values.int("tab_disp_close")),
         change_by_wheel: values.bool("tab_change_by_wheel"),
+        sort_list: values.bool("tab_sort_list"),
+        // The list switches this itself; the page does not have it.
+        list_full: false,
     }
 }
 
@@ -171,7 +176,12 @@ pub(in crate::common_settings) fn blocked(
 /// What OK does to the windows: the bar and the grouping are switched for every window at once,
 /// as `F_SHOWTAB` and `F_BIND_WINDOW` do (`ResetGroupId` and a message to all windows).
 pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: Option<&Values>) {
-    env.cx.set_global(options(after));
+    let mut tab_options = options(after);
+    tab_options.list_full = settings::options(env.cx).list_full;
+    // The caption first: the windows draw again when the options are set.
+    env.cx
+        .set_global(TabCaption(after.text("tab_caption").to_owned()));
+    env.cx.set_global(tab_options);
     let (show_bar, grouped, new_window) = (
         after.bool("tab_bar"),
         after.bool("tab_grouped"),

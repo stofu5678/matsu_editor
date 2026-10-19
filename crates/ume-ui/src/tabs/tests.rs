@@ -557,7 +557,8 @@ fn a_split_tab_keeps_its_panes_when_it_moves_to_another_window(cx: &mut TestAppC
 #[gpui::test]
 fn the_window_list_has_a_row_for_every_tab(cx: &mut TestAppContext) {
     let handle = tabs(cx, 3);
-    run(cx, handle, "F_WINLIST");
+    // The popup is the tab list while the bar is shown; the dialog is the window list.
+    run(cx, handle, "F_DLGWINLIST");
     let has_list = active_view(cx, handle).read_with(cx, |v, _| v.window_list.is_some());
     assert!(has_list);
     assert_eq!(cx.update(|app| editors(app).len()), 3);

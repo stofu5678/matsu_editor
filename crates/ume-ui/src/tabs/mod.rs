@@ -17,11 +17,15 @@
 //! pattern and the status bar follow the user from tab to tab.
 
 pub(crate) mod bar;
+pub(crate) mod caption;
 #[cfg(test)]
 mod drop_tests;
 #[cfg(test)]
 mod file_tests;
 pub(crate) mod flows;
+pub(crate) mod list;
+#[cfg(test)]
+mod list_tests;
 #[cfg(test)]
 mod menu_tests;
 pub(crate) mod order;
@@ -280,31 +284,12 @@ impl Workspace {
         }
     }
 
-    /// The text of the tab in the bar: Sakura's default format
-    /// `${w?【Grep】$h$:【アウトプット】$:$f$n$}${U?(更新)$}${R?(ビューモード)$:(上書き禁止)$}${M?【キーマクロの記録中】$}`
-    /// (`CShareData::InitShareData`, `sakura_core/env/CShareData.cpp`): the name of the file, or
-    /// `(無題)`, then the marks of unsaved changes, view mode (or a file that cannot be
-    /// written) and key macro recording.
+    /// The text of the tab in the bar (`CTabWnd::GetTabName`): the format of the tab caption
+    /// (`szTabWndCaption`, [`caption`]) expanded for the document. Sakura's default format makes
+    /// the name of the file, or `(無題)`, then the marks of unsaved changes, view mode (or a file
+    /// that cannot be written) and key macro recording.
     pub(crate) fn caption_of(view: &EditorView, cx: &gpui::App) -> String {
-        let shared = view.document().read(cx);
-        let name = view
-            .grep_title()
-            .unwrap_or_else(|| shared.file_name().unwrap_or_else(|| "(無題)".to_owned()));
-        let mut caption = name;
-        if shared.model().is_modified() {
-            caption.push_str("(更新)");
-        }
-        // `${R?(ビューモード)$:(上書き禁止)$}`: the view mode, else a file that cannot be written
-        // (`_ExParam_Evaluate`, `$R`).
-        if shared.view_mode() {
-            caption.push_str("(ビューモード)");
-        } else if shared.disk().unwritable {
-            caption.push_str("(上書き禁止)");
-        }
-        if view.is_recording_key_macro() {
-            caption.push_str("【キーマクロの記録中】");
-        }
-        caption
+        view.expand_format(&caption::format(cx), cx)
     }
 }
 

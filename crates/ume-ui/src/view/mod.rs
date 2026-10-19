@@ -190,6 +190,8 @@ pub struct EditorView {
     pub(crate) support: crate::support::Support,
     /// The window list (popup or dialog) over the view, while one is open.
     pub(crate) window_list: Option<Entity<crate::window_ops::list::WindowList>>,
+    /// The tab list (`CTabWnd::TabListMenu`) over the view, while one is open.
+    pub(crate) tab_list: Option<Entity<crate::tabs::list::TabList>>,
     /// The DIFF and compare dialogs, while one is open (`crate::diff`).
     pub(crate) diff: crate::diff::DiffState,
     /// Whether the user chose the document type, and the list of types (`crate::doc_types`).
@@ -249,6 +251,7 @@ impl EditorView {
             save_as_dialog: None,
             support: Default::default(),
             window_list: None,
+            tab_list: None,
             diff: Default::default(),
             doc_type: Default::default(),
             custom_menu: Default::default(),
@@ -590,6 +593,12 @@ impl EditorView {
     /// The title of the window (`CEditWnd::UpdateCaption`): the format of the active or the
     /// inactive window, expanded for this document (`file_names::title`).
     pub fn title_for(&self, active: bool, cx: &App) -> String {
+        self.expand_format(&crate::file_names::title::format(cx, active), cx)
+    }
+
+    /// `ExpandParameter` of a title or caption `format` for this document: the title of the
+    /// window and the caption of the tab (`file_names::title`).
+    pub(crate) fn expand_format(&self, format: &str, cx: &App) -> String {
         let shared = self.document.read(cx);
         let path = shared.path().map(|p| p.to_string_lossy().into_owned());
         // The key of a Grep window; its title is the key, and the tab shows `【Grep】key`.
@@ -603,11 +612,7 @@ impl EditorView {
             grep_key: grep_key.as_deref(),
             caret: (self.cursor.caret().line, self.cursor.caret().col),
         };
-        crate::file_names::title::expand(
-            &crate::file_names::title::format(cx, active),
-            &subject,
-            &crate::file_names::current(cx),
-        )
+        crate::file_names::title::expand(format, &subject, &crate::file_names::current(cx))
     }
 
     // ---- keys ----
@@ -750,6 +755,7 @@ impl Render for EditorView {
             .children(self.grep_progress_bar(cx))
             .children(self.support_overlays(cx))
             .children(self.window_list.clone())
+            .children(self.tab_list.clone())
             .children(self.diff.panel.clone())
             .children(self.diff.compare.clone())
             .children(self.doc_type.list.clone())

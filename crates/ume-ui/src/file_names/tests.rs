@@ -329,6 +329,7 @@ fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
+#[cfg(windows)]
 #[test]
 fn the_active_title_shows_the_short_path_and_the_inactive_one_the_name() {
     let names = windows_names(true, 100, &sakura_rows());
@@ -393,6 +394,7 @@ fn a_grep_window_shows_its_key() {
     );
 }
 
+#[cfg(windows)]
 #[test]
 fn the_folder_of_the_title_is_shortened_too() {
     let names = windows_names(false, 100, &sakura_rows());

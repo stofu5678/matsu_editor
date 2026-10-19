@@ -168,7 +168,10 @@ impl EditorView {
             (self.panel.is_some(), SEARCH_PANEL),
             (self.grep.panel.is_some(), GREP_PANEL),
             (self.save_as_dialog.is_some(), SAVE_AS_DIALOG),
-            (self.window_list.is_some(), WINDOW_LIST),
+            (
+                self.window_list.is_some() || self.tab_list.is_some(),
+                WINDOW_LIST,
+            ),
             (self.support.command_list.is_some(), COMMAND_LIST),
             (self.support.about.is_some(), ABOUT_DIALOG),
             (self.diff.panel.is_some(), DIFF_PANEL),
