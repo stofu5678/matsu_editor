@@ -16,6 +16,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::BringWindowToTop;
 
 use super::HelpError;
 
+/// `HH_DISPLAY_TOPIC`
+const HH_DISPLAY_TOPIC: u32 = 0x0000;
 /// `HH_KEYWORD_LOOKUP`
 const HH_KEYWORD_LOOKUP: u32 = 0x000D;
 
@@ -69,6 +71,13 @@ pub(super) fn keyword_lookup(file: &Path, keyword: &str) -> Result<(), HelpError
     // No owner window: `hwndCaller` only says who owns the viewer, it does not ask for another
     // one. The viewer is the one of this process (see `keyword_lookup` in `mod.rs`).
     let caller: HWND = null_mut();
+    // The file is opened first and then looked up in, the two calls Sakura's default (one viewer
+    // for all) makes in the process of the tray: `MYWM_HTMLHELP` in `sakura_core/_main/
+    // CControlTray.cpp` (`HH_DISPLAY_TOPIC`, then `HH_KEYWORD_LOOKUP` with `fIndexOnFail`).
+    // `Command_EXTHTMLHELP` in `sakura_core/cmd/CViewCommander_Support.cpp` sends it there when
+    // `m_bHtmlHelpIsSingle` is on, which is the default (`CShareData::InitShareData`).
+    // SAFETY: the string lives until the call returns, and no data is passed.
+    unsafe { html_help(caller, path.as_ptr(), HH_DISPLAY_TOPIC, 0) };
     // SAFETY: the strings and the structure live until the call returns, and the viewer copies
     // what it keeps.
     let window = unsafe {

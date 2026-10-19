@@ -32,7 +32,7 @@ pub fn is_html_help_file(path: &Path) -> bool {
 }
 
 /// Opens `file` at `keyword` (`HH_KEYWORD_LOOKUP`, with the index shown when the keyword is not
-/// there).
+/// there), after opening the file with `HH_DISPLAY_TOPIC` as Sakura's single viewer does.
 ///
 /// There is no choice of one viewer or one for each window (`m_bHtmlHelpIsSingle`): Sakura's
 /// windows are processes of their own, each with its own viewer unless the process in the tray
