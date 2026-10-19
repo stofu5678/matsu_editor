@@ -122,6 +122,11 @@ impl BoxArea {
         Self::between(corner(anchor, anchor_col)?, corner(caret, caret_col)?)
     }
 
+    /// The top row of the box and the display columns `from..to` it covers there.
+    pub fn top_row(&self) -> (usize, u32, u32) {
+        (self.first_row, self.from, self.to)
+    }
+
     /// The columns of the row `row` that the box covers, or `None`.
     pub fn columns_on(&self, row: usize) -> Option<(u32, u32)> {
         (self.first_row..=self.last_row)

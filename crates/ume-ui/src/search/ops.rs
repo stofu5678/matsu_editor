@@ -109,10 +109,7 @@ impl EditorView {
     pub(crate) fn search_seed(&self, cx: &gpui::App) -> Option<String> {
         let doc = self.document.read(cx).doc();
         let caret = self.cursor.caret();
-        let selected = self
-            .cursor
-            .selection()
-            .and_then(|(a, b)| first_line_of_selection(doc, a, b));
+        let selected = self.selected_first_line(cx);
         let line = doc
             .line(caret.line)
             .ok()
@@ -435,17 +432,26 @@ impl EditorView {
         cx.notify();
     }
 
-    /// The selection up to the end of its first line, if there is a selection
-    /// (`CEditView::GetSelectedDataOne`).
+    /// The first line of the selection, if there is a selection (`CEditView::GetSelectedDataOne`):
+    /// of a selection by lines the text up to the end of its first line; of a box selection the
+    /// text of its top row between the columns of the box.
     pub(crate) fn selected_first_line(&self, cx: &gpui::App) -> Option<String> {
+        let doc = self.document.read(cx).doc();
+        if self.cursor.is_box() {
+            let (row, from, to) =
+                crate::hit::BoxArea::of_cursor(&self.layout, doc, &self.cursor)?.top_row();
+            let from = self.layout.row_to_pos(doc, row, from).ok()?.pos;
+            let to = self.layout.row_to_pos(doc, row, to).ok()?.pos.max(from);
+            let capped = Pos::new(from.line, from.col.saturating_add(MAX_SEED_BYTES));
+            return doc.text_between(from, to.min(capped)).ok();
+        }
         let (a, b) = self.cursor.selection()?;
-        first_line_of_selection(self.document.read(cx).doc(), a, b)
+        first_line_of_selection(doc, a, b)
     }
 
     /// The first line of the selection, if there is a selection.
     fn search_seed_selection(&self, cx: &gpui::App) -> Option<String> {
-        let (a, b) = self.cursor.selection()?;
-        let text = first_line_of_selection(self.document.read(cx).doc(), a, b)?;
+        let text = self.selected_first_line(cx)?;
         seed_text(Some(&text), "", 0)
     }
 

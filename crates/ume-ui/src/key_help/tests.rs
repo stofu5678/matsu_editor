@@ -598,3 +598,41 @@ fn the_tip_comes_when_a_selection_by_the_mouse_ends(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert_eq!(f.tip(cx).as_deref(), Some("the first letter\nsecond line"));
 }
+
+// ---- a box selection ----
+
+/// A box over "alpha" in the first two rows of "alpha trailing".
+fn box_over_alpha(f: &Fixture, cx: &mut VisualTestContext) {
+    f.run(cx, "F_BEGIN_BOX", &[]);
+    for _ in 0..5 {
+        f.run(cx, "F_RIGHT_BOX", &[]);
+    }
+    f.run(cx, "F_DOWN_BOX", &[]);
+}
+
+#[gpui::test]
+fn a_box_selection_looks_up_the_text_of_its_top_row_between_its_columns(cx: &mut TestAppContext) {
+    // `GetSelectedDataOne`: "alpha", not "alpha trailing"
+    let (_files, user) = settings(ON);
+    let (f, cx) = setup(cx, "alpha trailing\nalpha trailing", user);
+    box_over_alpha(&f, cx);
+    assert_eq!(
+        f.view
+            .read_with(cx, |v, app| v.selected_first_line(app))
+            .as_deref(),
+        Some("alpha")
+    );
+    rest(cx, 120.0, 50.0, 400);
+    assert_eq!(f.tip(cx).as_deref(), Some("the first letter\nsecond line"));
+}
+
+#[gpui::test]
+fn the_search_text_from_a_box_selection_is_the_text_of_its_top_row(cx: &mut TestAppContext) {
+    let (_files, user) = settings(ON);
+    let (f, cx) = setup(cx, "alpha trailing\nalpha trailing", user);
+    box_over_alpha(&f, cx);
+    assert_eq!(
+        f.view.read_with(cx, |v, app| v.search_seed(app)).as_deref(),
+        Some("alpha")
+    );
+}
