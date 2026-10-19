@@ -46,8 +46,8 @@ pub(crate) fn with_key_map<R>(cx: &App, f: impl FnOnce(&KeyMap) -> R) -> R {
     }
 }
 
-/// Makes `map` the key map of the application (the tests of the function key bar set one).
-#[cfg(test)]
+/// Makes `map` the key map of the application (the menus and the function key bar read it): the
+/// common settings do so at OK, the tests of the function key bar set one.
 pub(crate) fn set_key_map(cx: &mut App, map: KeyMap) {
     cx.set_global(MenuKeyMap(map));
 }
