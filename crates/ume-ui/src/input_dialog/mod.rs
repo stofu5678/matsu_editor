@@ -106,10 +106,12 @@ impl InputDialog {
         match limit_edit(&self.accepted, &text, self.max_len) {
             Some((kept, caret)) => {
                 self.accepted.clone_from(&kept);
-                // `replace_all` keeps the undo history (`set_value` clears it); the caret goes
-                // back to where the refused edit was, not to the end of the text.
+                // The caret goes back to where the refused edit was, not to the end of the text.
+                // `set_value` clears the undo history: the field has no way to refuse an edit
+                // before it is recorded, and `replace_all`, which keeps the history, records the
+                // correction as a step whose undo brings the refused text back (and is cut again).
                 self.input.update(cx, |state, cx| {
-                    state.replace_all(kept, window, cx);
+                    state.set_value(kept, window, cx);
                     state.set_selected_range(caret..caret, cx);
                 });
             }
