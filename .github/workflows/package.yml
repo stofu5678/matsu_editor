@@ -1,6 +1,6 @@
 name: Package
 
-# Reusable workflow: build `ume` in release mode on the five targets and package it.
+# Reusable workflow: build `ume` and `ume-script` in release mode on the five targets and package them.
 # It publishes nothing. The caller decides what to do with the artifacts
 # (docs/release.md). Archive names are `ume-<target>.zip` (Windows) or
 # `ume-<target>.tar.gz`; the caller adds the nightly or version label.
@@ -55,20 +55,37 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: release
-      - run: cargo build --release --locked -p ume
+      # `ume-script` runs the macros of the bundled engines (Lua, QuickJS, mruby, MicroPython);
+      # the editor looks for it next to its own executable (crates/ume-plugin/src/session.rs).
+      - run: cargo build --release --locked -p ume -p ume-script
+      # freetype-sys bundles FreeType (FTL, not covered by THIRD_PARTY_NOTICES.txt) when the system
+      # has none. The Linux packages must link the system's, as ci.yml checks for the tests.
+      - name: Check that FreeType was not bundled
+        if: runner.os == 'Linux'
+        run: |
+          if find target -name 'libfreetype2.a' | grep -q .; then
+            echo "::error::freetype-sys built its bundled FreeType. Install libfreetype-dev."
+            exit 1
+          fi
       - name: Stage the files
         env:
           TARGET: ${{ matrix.name }}
-          EXE: ${{ runner.os == 'Windows' && 'ume.exe' || 'ume' }}
+          SUFFIX: ${{ runner.os == 'Windows' && '.exe' || '' }}
         run: |
           dir="ume-$TARGET"
           mkdir -p "dist/$dir"
-          cp "target/release/$EXE" LICENSE-MIT LICENSE-APACHE "dist/$dir/"
+          # THIRD_PARTY_NOTICES.txt goes next to the programs: the licenses of the code they include
+          # ask for it (README.md, "Third-party notices").
+          cp "target/release/ume$SUFFIX" "target/release/ume-script$SUFFIX" \
+            LICENSE-MIT LICENSE-APACHE THIRD_PARTY_NOTICES.txt "dist/$dir/"
           {
             echo "UME Editor ($TARGET)"
             echo
-            echo "Run $EXE with a file path. Licensed under MIT OR Apache-2.0"
-            echo "(LICENSE-MIT, LICENSE-APACHE). https://github.com/${GITHUB_REPOSITORY}"
+            echo "Run ume$SUFFIX with a file path. ume-script$SUFFIX runs the macros of the bundled"
+            echo "languages (Lua, JavaScript, Ruby, Python); keep it next to ume$SUFFIX."
+            echo "Licensed under MIT OR Apache-2.0 (LICENSE-MIT, LICENSE-APACHE)."
+            echo "THIRD_PARTY_NOTICES.txt has the notices and licenses of the code the programs include."
+            echo "https://github.com/${GITHUB_REPOSITORY}"
           } > "dist/$dir/README.txt"
       - name: Archive (zip)
         if: runner.os == 'Windows'

@@ -5,7 +5,7 @@
 | ファイル | 役割 |
 |---|---|
 | `.github/workflows/release.yml` | main への push のたびに動く。リリース PR の更新、毎日版の公開、版のリリースへの添付 |
-| `.github/workflows/package.yml` | 5 つの対象で `ume` をリリースビルドして、アーカイブにする（再利用する部品。公開はしない） |
+| `.github/workflows/package.yml` | 5 つの対象で `ume` と `ume-script` をリリースビルドして、アーカイブにする（再利用する部品。公開はしない） |
 | `.github/workflows/package-check.yml` | リリース関係のファイルを変える PR で、`package.yml` だけを動かす（公開しない） |
 | `release-please-config.json`・`.release-please-manifest.json` | release-please の設定と、今の版 |
 
@@ -26,7 +26,7 @@
 | Linux x64 | `ume-<版>-linux-x64.tar.gz` |
 | Linux ARM64 | `ume-<版>-linux-arm64.tar.gz` |
 
-`<版>` は、毎日版では `nightly`、版のリリースではタグ（例: `v0.1.0`）。中身は `ume-<対象>/` のディレクトリで、実行ファイル（`ume` / `ume.exe`）、`LICENSE-MIT`、`LICENSE-APACHE`、短い `README.txt` が入る。署名はまだない。
+`<版>` は、毎日版では `nightly`、版のリリースではタグ（例: `v0.1.0`）。中身は `ume-<対象>/` のディレクトリで、実行ファイル（`ume` / `ume.exe`）、同梱のマクロのエンジンを動かす `ume-script`（`ume-script.exe`。`ume` は自分の隣にあるものを使う）、`LICENSE-MIT`、`LICENSE-APACHE`、`THIRD_PARTY_NOTICES.txt`（プログラムに入っている第三者のコードの著作権表示とライセンス。ライセンスが配布物に添えることを求める）、短い `README.txt` が入る。Linux では、FreeType を同梱してビルドしていないことを確かめる（同梱の FreeType のライセンスは `THIRD_PARTY_NOTICES.txt` に含まれないため。CI のテストと同じ確認）。署名はまだない。
 
 ## 版のリリース
 
