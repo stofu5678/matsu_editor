@@ -45,6 +45,9 @@ impl UiCommand for SetFontSize {
         match mode {
             2 => view.set_temporary_font_size(size, shift, cx),
             0 | 1 => {
+                // The zoom table starts from the size of the font this window shows even in mode 0
+                // (`GetEditWindow()->GetFontPointSize( false )`, `sakura_core/window/CEditWnd.cpp`): the
+                // type's font size if the type has its own font.
                 let truetype = if mode == 0 {
                     is_truetype(apply::common_font(cx).font.log_font.out_precision)
                 } else {

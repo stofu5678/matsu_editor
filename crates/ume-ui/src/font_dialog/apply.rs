@@ -135,5 +135,7 @@ pub(crate) fn set_type_size(cx: &mut App, index: usize, tenths: i32) {
         t.write(profile, number)?;
         Ok(true)
     });
-    crate::doc_types::refresh_open_views(cx, index);
+    // Only the font is read again (`OnChangeSetting( true, false )`): a temporary wrap stays, and a
+    // temporary size ends because the size of the font of the file changed.
+    refresh_views(cx);
 }

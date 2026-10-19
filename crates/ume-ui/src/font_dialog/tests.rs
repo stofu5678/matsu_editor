@@ -682,3 +682,23 @@ fn a_huge_shift_from_a_script_does_not_panic(cx: &mut TestAppContext) {
     set_font_size(cx, a, 0, i64::from(i32::MIN), 2);
     assert_eq!(shown(cx, &view).3, points_to_px(10));
 }
+
+#[gpui::test]
+fn changing_the_size_of_the_settings_keeps_the_temporary_wrap(cx: &mut TestAppContext) {
+    // `PM_CHANGESETTING_FONTSIZE` reads the font again (`OnChangeSetting( true, false )`); a wrap
+    // method set for the window only (`F_TMPWRAPWINDOW`) is not part of it.
+    for mode in [0, 1] {
+        let (_ini, a) = setup(cx, FONT);
+        let view = view_of(cx, a);
+        run(cx, a, "F_TMPWRAPWINDOW", &[]);
+        let wrap = |cx: &mut TestAppContext| view.read_with(cx, |v, _| v.prefs.wrap_method);
+        assert_eq!(wrap(cx), crate::settings::WrapMethod::WindowWidth);
+        set_font_size(cx, a, 0, 1, mode);
+        assert_eq!(shown(cx, &view).3, points_to_px(110), "mode {mode}");
+        assert_eq!(
+            wrap(cx),
+            crate::settings::WrapMethod::WindowWidth,
+            "mode {mode}"
+        );
+    }
+}
