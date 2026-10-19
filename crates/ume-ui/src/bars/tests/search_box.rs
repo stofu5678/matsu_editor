@@ -418,6 +418,25 @@ fn the_text_is_the_key_of_the_tab_that_was_active_when_the_box_got_the_focus(
     assert_eq!(pattern(cx, &second), "");
 }
 
+#[gpui::test]
+fn f3_in_the_box_takes_the_text_and_searches_on_in_the_view(cx: &mut TestAppContext) {
+    let (_ini, handle) = setup(cx, &toolbar());
+    let editor = view(cx, handle);
+    write(cx, handle, "bar bar");
+    run(cx, handle, "F_SEARCH_BOX");
+    let cx2 = &mut VisualTestContext::from_window(handle, cx);
+    cx2.simulate_input("bar");
+    cx2.simulate_keystrokes("f3");
+    cx2.run_until_parked();
+    assert_eq!(pattern(cx, &editor), "bar");
+    assert_eq!(
+        selection(cx, &editor),
+        Some((Pos::new(0, 0), Pos::new(0, 3)))
+    );
+    let cx2 = &mut VisualTestContext::from_window(handle, cx);
+    assert!(editor_has_focus(cx2, &editor));
+}
+
 // ---- the drop-down arrow of the open button ----
 
 fn history_with(files: &[&str], folders: &[&str]) -> History {

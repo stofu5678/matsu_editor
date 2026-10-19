@@ -35,6 +35,8 @@ pub(crate) const WIDTH: f32 = 160.0;
 const HEIGHT: f32 = 22.0;
 /// `F_SEARCH_NEXT`.
 const SEARCH_NEXT: u16 = 30902;
+/// `F_SEARCH_PREV`.
+const SEARCH_PREV: u16 = 30903;
 /// `F_SEARCH_BOX`.
 const SEARCH_BOX: u16 = 30908;
 
@@ -341,7 +343,7 @@ impl SearchBox {
     }
 
     /// Up and Down go through the history or the open list; F4 and Alt+Down open and close the
-    /// list. (Tab, Escape and Enter are actions of the edit field, see [`Render`].) Returns whether
+    /// list; F3 and Shift+F3 search on. (Tab, Escape and Enter are actions of the edit field, see [`Render`].) Returns whether
     /// the key was used.
     fn on_key(
         &mut self,
@@ -354,6 +356,14 @@ impl SearchBox {
         let plain = !m.alt && !m.control && !m.platform && !m.shift;
         let keys = history::search_keys(cx);
         match key {
+            // F3 and Shift+F3 keep searching, as they do in the find panel: the text is taken as
+            // the key first.
+            "f3" if !m.alt && !m.control && !m.platform => {
+                let code = if m.shift { SEARCH_PREV } else { SEARCH_NEXT };
+                self.run_in_editor(window, cx, move |editor, window, cx| {
+                    editor.run_function(code, &[], window, cx);
+                });
+            }
             "f4" if plain => self.toggle_dropdown(cx),
             "down" if m.alt => self.toggle_dropdown(cx),
             "down" | "up" if plain && self.dropdown.is_none() => {
