@@ -14,8 +14,12 @@ use gpui::{AnyElement, Context, Entity, IntoElement as _};
 use crate::view::EditorView;
 
 pub(crate) mod about;
+pub(crate) mod browse;
 pub(crate) mod command_list;
 pub(crate) mod completion;
+pub(crate) mod help;
+pub(crate) mod help_flow;
+pub(crate) mod prefs;
 
 /// What the view shows of the support group.
 #[derive(Default)]
@@ -34,6 +38,8 @@ pub(crate) struct Support {
     pub exec_dialog: Option<Entity<crate::exec::dialog::ExecDialog>>,
     /// The box of a command that runs, with its 中断 button.
     pub exec_running: Option<Entity<crate::exec::running::ExecRunning>>,
+    /// The keyword help: what was looked up and the tip (`crate::key_help`).
+    pub key_help: crate::key_help::KeyHelpState,
 }
 
 impl EditorView {
@@ -41,6 +47,7 @@ impl EditorView {
     pub(crate) fn support_overlays(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let mut out = Vec::new();
         out.extend(self.render_completion(cx));
+        out.extend(self.render_key_help(cx));
         out.extend(
             self.support
                 .command_list
@@ -66,5 +73,7 @@ impl EditorView {
     }
 }
 
+#[cfg(test)]
+mod help_tests;
 #[cfg(test)]
 mod tests;

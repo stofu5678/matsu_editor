@@ -48,8 +48,7 @@
 //! and custom menus (`CEditView::CreatePopUpMenuSub`) and the toolbar (`CMainToolBar`).
 //!
 //! Not here yet:
-//! * `F_SHOWMINIMAP` (no minimap: never checked) and `F_TOGGLE_KEY_SEARCH` (no command yet: the
-//!   items stay gray).
+//! * `F_SHOWMINIMAP` (no minimap: never checked; the items stay gray).
 //! * The `IsFuncEnable` cases that need state UME does not have: the clipboard (`F_PASTE`, whose
 //!   read is slow on Wayland), the box functions (a fixed-pitch font), the limit of windows
 //!   (there is none), and whether PowerShell is installed. Another
@@ -134,6 +133,8 @@ pub(crate) struct FuncStates {
     pub key_macro_loaded: bool,
     /// The window counts the selection in bytes (`m_nSelectCountMode`, else the common setting).
     pub select_count_by_byte: bool,
+    /// The keyword help looks up the word at the caret (`m_bUseCaretKeyWord`).
+    pub key_search: bool,
 }
 
 /// The name of the function with this code (`F_UNDO`), if it is in Sakura's table.
@@ -194,6 +195,7 @@ impl FuncStates {
                 .prefs
                 .select_count
                 .by_byte(crate::status_options::current(cx).select_count_by_byte),
+            key_search: crate::key_help::caret_key_word(cx),
         }
     }
 
@@ -237,6 +239,7 @@ impl FuncStates {
             }
             "F_OUTLINE_TOGGLE" => self.outline,
             "F_SELECT_COUNT_MODE" => self.select_count_by_byte,
+            "F_TOGGLE_KEY_SEARCH" => self.key_search,
             _ => false,
         }
     }

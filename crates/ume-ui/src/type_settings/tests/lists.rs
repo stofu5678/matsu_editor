@@ -266,7 +266,7 @@ fn the_regex_keywords_stay_when_another_page_changes(cx: &mut TestAppContext) {
 const DICT: &[u8] = b"\xEF\xBB\xBF\xE8\xBE\x9E\xE6\x9B\xB8, one\r\nword /// meaning\r\n";
 
 #[gpui::test]
-fn the_keyword_help_list_shows_the_file_and_the_options_are_greyed_out(cx: &mut TestAppContext) {
+fn the_keyword_help_page_shows_the_file_and_writes_what_is_changed(cx: &mut TestAppContext) {
     let ini = open_page(
         cx,
         "[Types(0)]\r\nbUseKeyWordHelp=1\r\nbUseKeyHelpAllSearch=1\r\nnKeyHelpRMenuShowType=2\r\n\
@@ -284,10 +284,44 @@ fn the_keyword_help_list_shows_the_file_and_the_options_are_greyed_out(cx: &mut 
             strings(&["other.txt", "", "×"]),
         ]
     );
-    assert!(usable(cx, KEYHELP_LIST));
-    // The feature is not here: its settings and the buttons of the files are greyed out.
+    // The feature is on: everything on the page can be used.
     for id in [
         USE_KEYHELP,
+        KEYHELP_LIST,
+        KEYHELP_ALL_SEARCH,
+        KEYHELP_KEY_DISP,
+        KEYHELP_PREFIX,
+        KEYHELP_RMENU,
+        KEYHELP_IMPORT,
+        KEYHELP_EXPORT,
+    ] {
+        assert!(usable(cx, id), "{id}");
+    }
+    with_dialog(cx, |d, _, dcx| {
+        d.set_bool(KEYHELP_KEY_DISP, true, dcx);
+        d.set_bool(KEYHELP_PREFIX, true, dcx);
+        d.set_bool(KEYHELP_ALL_SEARCH, false, dcx);
+        d.set_int(KEYHELP_RMENU, 0, dcx);
+    });
+    ok(cx);
+    let get = |key: &str| ini.get("Types(0)", key).unwrap_or_default();
+    assert_eq!(get("bUseKeyWordHelp"), "1");
+    assert_eq!(get("bUseKeyHelpAllSearch"), "0");
+    assert_eq!(get("bUseKeyHelpKeyDisp"), "1");
+    assert_eq!(get("bUseKeyHelpPrefix"), "1");
+    assert_eq!(get("nKeyHelpRMenuShowType"), "0");
+    assert_eq!(get("KDct[00]"), "1,Memo,dict.txt");
+    assert_eq!(get("KDct[01]"), "0,,other.txt");
+}
+
+#[gpui::test]
+fn everything_on_the_keyword_help_page_is_grey_while_the_feature_is_off(cx: &mut TestAppContext) {
+    // `IDC_CHECK_KEYHELP`, `BN_CLICKED`: the list, its buttons and the options are disabled
+    let _ini = open_page(cx, "[Types(0)]\r\nKDct[00]=1,Memo,dict.txt\r\n", 5);
+    assert_eq!(value(cx, USE_KEYHELP), Value::Bool(false));
+    assert!(usable(cx, USE_KEYHELP));
+    for id in [
+        KEYHELP_LIST,
         KEYHELP_ALL_SEARCH,
         KEYHELP_KEY_DISP,
         KEYHELP_PREFIX,
@@ -297,23 +331,50 @@ fn the_keyword_help_list_shows_the_file_and_the_options_are_greyed_out(cx: &mut 
     ] {
         assert!(!usable(cx, id), "{id}");
     }
-    // Another page changes: the keys of the page are as the file had them.
-    with_dialog(cx, |d, _, dcx| d.select_index(0, dcx));
-    type_in(cx, TAB_SPACE, "8");
+    with_dialog(cx, |d, _, dcx| d.set_bool(USE_KEYHELP, true, dcx));
+    assert!(usable(cx, KEYHELP_LIST) && usable(cx, KEYHELP_RMENU));
+}
+
+#[gpui::test]
+fn the_list_is_exported_and_imported_as_a_text_file(cx: &mut TestAppContext) {
+    let ini = open_page(
+        cx,
+        "[Types(0)]\r\nbUseKeyWordHelp=1\r\nKDct[00]=1,Memo,dict.txt\r\nKDct[01]=0,,other.txt\r\n",
+        5,
+    );
+    std::fs::write(ini_dir(&ini).join("dict.txt"), DICT).unwrap();
+    let file = ini_dir(&ini).join("list.txt");
+    with_dialog(cx, |d, window, dcx| {
+        super::super::pages::keyhelp::export_file(d, &file, window, dcx)
+    });
+    let bytes = std::fs::read(&file).unwrap();
+    assert_eq!(&bytes[..3], [0xEF, 0xBB, 0xBF]);
+    assert_eq!(
+        String::from_utf8(bytes[3..].to_vec()).unwrap(),
+        "// キーワード辞書設定 Ver1\nKDct[00]=1,Memo,dict.txt\nKDct[01]=0,,other.txt\n"
+    );
+    // Import replaces the list; a dictionary that is not there is kept, off, with a note.
+    std::fs::write(
+        &file,
+        "// head\nKDct[00]=1,Jp,dict.txt\nKDct[01]=1,Lost,gone.txt\nbad line\n",
+    )
+    .unwrap();
+    with_dialog(cx, |d, window, dcx| {
+        super::super::pages::keyhelp::import_file(d, &file, window, dcx)
+    });
+    assert_eq!(
+        rows_of(cx, KEYHELP_LIST),
+        [
+            strings(&["dict.txt", "Jp", "○"]),
+            strings(&["gone.txt", "【辞書ファイルが見つかりません】", "×"]),
+        ]
+    );
     ok(cx);
-    assert_eq!(ini.get("Types(0)", "bUseKeyWordHelp").as_deref(), Some("1"));
     assert_eq!(
         ini.get("Types(0)", "KDct[00]").as_deref(),
-        Some("1,Memo,dict.txt")
+        Some("1,Jp,dict.txt")
     );
-    assert_eq!(
-        ini.get("Types(0)", "KDct[01]").as_deref(),
-        Some("0,,other.txt")
-    );
-    assert_eq!(
-        ini.get("Types(0)", "nKeyHelpRMenuShowType").as_deref(),
-        Some("2")
-    );
+    assert_eq!(ini.get("Types(0)", "KDct[02]"), None);
 }
 
 #[gpui::test]
@@ -328,6 +389,7 @@ fn a_dictionary_is_checked_and_described_when_it_is_put_in_the_list(cx: &mut Tes
     .unwrap();
     run(cx, a, "F_OPTION_TYPE", &[]);
     with_dialog(cx, |d, _, dcx| d.select_index(5, dcx));
+    with_dialog(cx, |d, _, dcx| d.set_bool(USE_KEYHELP, true, dcx));
     assert!(rows_of(cx, KEYHELP_LIST).is_empty());
     // 挿入: a relative path starts at the folder of the settings file; the description is the
     // first line with the commas turned into dots, and the dictionary is used.
@@ -372,6 +434,7 @@ fn updating_a_dictionary_reads_its_first_line_again(cx: &mut TestAppContext) {
     std::fs::write(ini_dir(&ini).join("d.txt"), DICT).unwrap();
     run(cx, a, "F_OPTION_TYPE", &[]);
     with_dialog(cx, |d, _, dcx| d.select_index(5, dcx));
+    with_dialog(cx, |d, _, dcx| d.set_bool(USE_KEYHELP, true, dcx));
     // The dictionary keeps its own path (that is not a repeat) and is used again (`UPD`).
     fill(cx, KEYHELP_LIST, &["d.txt", "", ""]);
     press(cx, KEYHELP_LIST, Op::Update);
@@ -392,6 +455,7 @@ fn the_keyword_help_list_has_no_add_button_and_stops_at_twenty(cx: &mut TestAppC
     std::fs::write(ini_dir(&ini).join("d.txt"), DICT).unwrap();
     run(cx, a, "F_OPTION_TYPE", &[]);
     with_dialog(cx, |d, _, dcx| d.select_index(5, dcx));
+    with_dialog(cx, |d, _, dcx| d.set_bool(USE_KEYHELP, true, dcx));
     // `IDD_PROP_KEYHELP` has 挿入 but no 追加.
     fill(cx, KEYHELP_LIST, &["d.txt", "", ""]);
     press(cx, KEYHELP_LIST, Op::Add);

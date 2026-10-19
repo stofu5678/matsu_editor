@@ -476,6 +476,24 @@ impl CommonSettingsDialog {
         }
     }
 
+    /// Puts new rows into an editable list after an import (`SetData`): no row is selected and the
+    /// edit boxes are empty.
+    pub(crate) fn replace_rows(
+        &mut self,
+        id: &'static str,
+        rows: Vec<table::Row>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.table_control(id).is_none() {
+            return;
+        }
+        self.values.set(id, Value::Rows(rows));
+        self.table_selected.insert(id, None);
+        self.show_row(id, None, window, cx);
+        cx.notify();
+    }
+
     /// A color (`COLORREF`).
     pub(crate) fn set_color(&mut self, id: &'static str, color: i32, cx: &mut Context<Self>) {
         self.set_int(id, color, cx);

@@ -435,6 +435,13 @@ impl EditorView {
         cx.notify();
     }
 
+    /// The selection up to the end of its first line, if there is a selection
+    /// (`CEditView::GetSelectedDataOne`).
+    pub(crate) fn selected_first_line(&self, cx: &gpui::App) -> Option<String> {
+        let (a, b) = self.cursor.selection()?;
+        first_line_of_selection(self.document.read(cx).doc(), a, b)
+    }
+
     /// The first line of the selection, if there is a selection.
     fn search_seed_selection(&self, cx: &gpui::App) -> Option<String> {
         let (a, b) = self.cursor.selection()?;

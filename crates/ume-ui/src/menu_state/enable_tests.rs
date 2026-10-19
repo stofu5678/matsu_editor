@@ -432,7 +432,7 @@ fn a_toolbar_button_is_gray_or_pressed_by_the_state() {
     assert_eq!(look(view_mode, &view), look_of(true, true));
     assert_eq!(look(view_mode, &base()), look_of(true, false));
     // a function with no command stays gray, and the empty button too
-    assert!(!look(code("F_TOGGLE_KEY_SEARCH"), &base()).enabled);
+    assert!(!look(code("F_SHOWMINIMAP"), &base()).enabled);
     assert!(!look(0, &base()).enabled);
 }
 

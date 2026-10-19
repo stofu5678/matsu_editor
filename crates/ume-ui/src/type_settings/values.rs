@@ -19,7 +19,7 @@ use ume_core::encoding::{Encoding, Eol};
 
 use super::ids::*;
 use super::pages::color::STRING_TYPES;
-use super::pages::keyhelp::{RMENU_DEFAULT, RMENU_TYPES, dict_of, row_of};
+use super::pages::keyhelp::{RMENU_TYPES, dict_of, row_of};
 use super::pages::regex::{color_label, color_name};
 use super::pages::screen::{OUTLINE_FILE, OUTLINE_STANDARD, OUTLINES, WRAP_METHODS};
 use super::pages::support::HOKAN_TYPES;
@@ -399,17 +399,9 @@ pub(super) fn load(
     b(&mut v, HOKAN_LO_HI_CASE, t.hokan_lo_hi_case);
     b(&mut v, HOKAN_BY_FILE, t.use_hokan_by_file);
     b(&mut v, HOKAN_BY_KEYWORD, t.use_hokan_by_keyword);
-    s(&mut v, EXT_HELP, &raw_text(profile, index, "szExtHelp"));
-    s(
-        &mut v,
-        EXT_HTML_HELP,
-        &raw_text(profile, index, "szExtHtmlHelp"),
-    );
-    b(
-        &mut v,
-        HTML_HELP_SINGLE,
-        raw_bool(profile, index, "bTypeHtmlHelpIsSingle", true),
-    );
+    s(&mut v, EXT_HELP, &t.ext_help);
+    s(&mut v, EXT_HTML_HELP, &t.ext_html_help);
+    b(&mut v, HTML_HELP_SINGLE, t.html_help_is_single);
     b(&mut v, CHK_ENTER_AT_END, t.warn_mixed_eol);
     b(
         &mut v,
@@ -445,37 +437,18 @@ pub(super) fn load(
     );
 
     // キーワードヘルプ
-    b(
-        &mut v,
-        USE_KEYHELP,
-        raw_bool(profile, index, "bUseKeyWordHelp", false),
-    );
+    b(&mut v, USE_KEYHELP, t.use_key_word_help);
     v.set(
         KEYHELP_LIST,
         Value::Rows(t.key_help.iter().map(row_of).collect()),
     );
-    b(
-        &mut v,
-        KEYHELP_ALL_SEARCH,
-        raw_bool(profile, index, "bUseKeyHelpAllSearch", false),
-    );
-    b(
-        &mut v,
-        KEYHELP_KEY_DISP,
-        raw_bool(profile, index, "bUseKeyHelpKeyDisp", false),
-    );
-    b(
-        &mut v,
-        KEYHELP_PREFIX,
-        raw_bool(profile, index, "bUseKeyHelpPrefix", false),
-    );
+    b(&mut v, KEYHELP_ALL_SEARCH, t.use_key_help_all_search);
+    b(&mut v, KEYHELP_KEY_DISP, t.use_key_help_key_disp);
+    b(&mut v, KEYHELP_PREFIX, t.use_key_help_prefix);
     n(
         &mut v,
         KEYHELP_RMENU,
-        in_list(
-            raw_i32(profile, index, "nKeyHelpRMenuShowType", RMENU_DEFAULT),
-            RMENU_TYPES,
-        ),
+        in_list(t.key_help_rmenu_show_type, RMENU_TYPES),
     );
 
     // Every control must have a value; a page that lists a control `load` forgot would show 0.
@@ -555,6 +528,9 @@ pub(super) fn store(v: &Values, original: &TypeSettings) -> TypeSettings {
     t.hokan_lo_hi_case = v.bool(HOKAN_LO_HI_CASE);
     t.use_hokan_by_file = v.bool(HOKAN_BY_FILE);
     t.use_hokan_by_keyword = v.bool(HOKAN_BY_KEYWORD);
+    t.ext_help = fit(v.text(EXT_HELP), PATH_BUFFER);
+    t.ext_html_help = fit(v.text(EXT_HTML_HELP), PATH_BUFFER);
+    t.html_help_is_single = v.bool(HTML_HELP_SINGLE);
 
     // 正規表現キーワード (`CPropTypesRegex::GetData`)
     t.use_regex_keyword = v.bool(USE_REGEX);
@@ -569,6 +545,11 @@ pub(super) fn store(v: &Values, original: &TypeSettings) -> TypeSettings {
         .collect();
 
     // キーワードヘルプ (`CPropTypesKeyHelp::GetData`)
+    t.use_key_word_help = v.bool(USE_KEYHELP);
+    t.use_key_help_all_search = v.bool(KEYHELP_ALL_SEARCH);
+    t.use_key_help_key_disp = v.bool(KEYHELP_KEY_DISP);
+    t.use_key_help_prefix = v.bool(KEYHELP_PREFIX);
+    t.key_help_rmenu_show_type = in_list(v.int(KEYHELP_RMENU), RMENU_TYPES);
     t.key_help = v
         .rows(KEYHELP_LIST)
         .iter()
@@ -618,6 +599,14 @@ pub(super) fn merge(base: &TypeSettings, old: &TypeSettings, new: &TypeSettings)
         default_codetype,
         default_bom,
         hokan_file,
+        ext_help,
+        ext_html_help,
+        html_help_is_single,
+        use_key_word_help,
+        use_key_help_all_search,
+        use_key_help_key_disp,
+        use_key_help_prefix,
+        key_help_rmenu_show_type,
         hokan_lo_hi_case,
         use_hokan_by_file,
         use_hokan_by_keyword,

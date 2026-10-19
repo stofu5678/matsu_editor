@@ -66,6 +66,7 @@ pub(super) fn base() -> FuncStates {
         key_macro_saveable: false,
         key_macro_loaded: false,
         select_count_by_byte: false,
+        key_search: false,
     }
 }
 

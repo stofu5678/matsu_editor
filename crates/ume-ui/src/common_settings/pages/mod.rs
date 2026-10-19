@@ -13,6 +13,7 @@ pub(super) mod macros;
 pub(super) mod main_menu;
 pub(super) mod search;
 pub(super) mod status_bar;
+pub(super) mod support;
 pub(super) mod tab;
 pub(super) mod toolbar;
 pub(super) mod window;
