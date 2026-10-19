@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 
 use gpui::{TestAppContext, VisualTestContext};
 use ume_commands::command::Arg;
+use ume_commands::keymap::{Key, KeyMap, KeyMapOptions, Platform, UserRow};
 use ume_commands::sakura::FUNCTIONS;
 use ume_config::Profile;
 use ume_config::settings::macros::{RegisteredMacros, function_of_index};
@@ -64,6 +65,26 @@ fn a_registered_macro_runs_by_its_function_code(cx: &mut TestAppContext) {
     // The function is 31600 + 2.
     assert_eq!(function_of_index(2), Some(31602));
     assert!(!f.running(cx));
+}
+
+#[gpui::test]
+fn a_key_runs_the_registered_macro_it_is_bound_to(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), "a.mac", "Char(65);\n");
+    let (f, cx) = setup(cx, "");
+    settings(cx, dir.path(), "Name[001]=\nFile[001]=a.mac\n");
+    // F2 without modifiers runs macro 1, as a `KeyBind` row of the 「キー割り当て」 page says.
+    let mut map = KeyMap::new(KeyMapOptions::for_platform(Platform::Other));
+    let mut functions = [0u16; 8];
+    functions[0] = function_of_index(1).unwrap();
+    map.apply_user_rows(&[UserRow {
+        key: Key::function(2).unwrap(),
+        functions,
+    }]);
+    f.view.update(cx, |view, _| view.keymap = map);
+    cx.simulate_keystrokes("f2");
+    cx.run_until_parked();
+    assert_eq!(lines(&f, cx), ["A"]);
 }
 
 #[gpui::test]
@@ -238,9 +259,7 @@ fn auto_macros(cx: &mut VisualTestContext, dir: &Path, which: &str) {
 }
 
 #[gpui::test]
-fn the_macro_of_opening_runs_after_the_type_is_chosen_and_the_file_is_open(
-    cx: &mut TestAppContext,
-) {
+fn opening_a_file_runs_the_macro_of_opening_but_not_the_one_of_the_type(cx: &mut TestAppContext) {
     let dir = tempfile::tempdir().unwrap();
     let file = write(dir.path(), "x.txt", "abc");
     let (f, cx) = setup(cx, "");
@@ -251,8 +270,9 @@ fn the_macro_of_opening_runs_after_the_type_is_chosen_and_the_file_is_open(
         &[Arg::Text(file.display().to_string())],
     );
     cx.run_until_parked();
-    // タイプ変更後 (T) comes first, then オープン後 (O); the caret is at the top of the file.
-    assert_eq!(lines(&f, cx), ["TOabc"]);
+    // Only オープン後 (O), at the top of the file: Sakura chooses the type of a file it reads without
+    // the macro of タイプ変更後 (`CLoadAgent::OnLoad`).
+    assert_eq!(lines(&f, cx), ["Oabc"]);
 }
 
 #[gpui::test]

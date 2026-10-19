@@ -13,12 +13,11 @@
 //! * Only a key macro (`.mac`) is kept after it is read, so 実行時に読み込み matters for it. A script is
 //!   read from its file each time it runs.
 //! * A script runs beside the window, not before the next line of the caller. The save waits for the
-//!   macro of 保存前 to end (`run_before_save`), so the file is written after the macro as in Sakura;
-//!   the macros of タイプ変更後 and オープン後 are waited for in the same way when a file is opened.
-//!   The macro of オープン後 that follows a close, a save under a name or the start of an untitled
-//!   window is waited for before what comes next (`-M=`). The macros called by `F_CHANGETYPE` and by
-//!   a key are not waited for.
-//! * The type chosen by `-TYPE=` of the command line is applied after the macros of opening run.
+//!   macro of 保存前 to end (`run_before_save`), so the file is written after the macro as in Sakura.
+//!   The macro of オープン後 that follows a read, a close, a save under a name or the start of an
+//!   untitled window is waited for in the same way before what comes next (`-M=`). The macros called
+//!   by `F_CHANGETYPE` and by a key are not waited for.
+//! * The type chosen by `-TYPE=` of the command line is applied after the macro of オープン後 runs.
 //! * `bRunning` of `RunAutoMacro` (an automatic macro does not start another) is "no macro runs in
 //!   this window".
 
@@ -313,21 +312,13 @@ pub(crate) async fn run_before_save(
     }
 }
 
-/// What follows a file that was read into the window: its type is chosen (`OnChangeType`), then the
-/// 開いた後 macro runs (`FileLoad`). Each waits for the one before it, so that both run, and the macro
-/// of the command line (`-M=`) that follows is not refused.
-pub(crate) async fn after_open(view: &gpui::WeakEntity<EditorView>, cx: &mut AsyncWindowContext) {
-    if run_auto(view, cx, Auto::TypeChanged, None) {
-        wait_for_the_macro(view, cx).await;
-    }
-    // `-M=` of the command line runs after it (`CNormalProcess`).
-    if run_auto(view, cx, Auto::Opened, None) {
-        wait_for_the_macro(view, cx).await;
-    }
-}
-
-/// The macro of オープン後 alone, for a document that changed without a read: it was saved under
-/// another name (`FileSaveAs`) or closed to an untitled one (`FileClose`).
+/// The macro of オープン後, after a file was read into the window (`FileLoad`), saved under another
+/// name (`FileSaveAs`) or closed to an untitled one (`FileClose`). It is waited for, so that the
+/// macro of the command line (`-M=`) that follows is not refused (`CNormalProcess`).
+///
+/// A read chooses the type of the file without the macro of タイプ変更後: `CLoadAgent::OnLoad` sets the
+/// type, and `CEditDoc::OnChangeType`, which runs that macro, is called only by `F_CHANGETYPE` and by
+/// the start of a Grep (`sakura_core/cmd/CViewCommander_Settings.cpp`, `CViewCommander_Grep.cpp`).
 pub(crate) async fn run_opened(view: &gpui::WeakEntity<EditorView>, cx: &mut AsyncWindowContext) {
     if run_auto(view, cx, Auto::Opened, None) {
         wait_for_the_macro(view, cx).await;

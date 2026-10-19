@@ -659,6 +659,13 @@ impl EditorView {
                     cx.stop_propagation();
                     return;
                 }
+                // A registered macro (`F_USERMACRO_0 + n`) is not in Sakura's table of functions;
+                // it runs as from a menu (`run_function`).
+                if let Some(index) = ume_config::settings::macros::index_of_function(code) {
+                    self.run_registered_macro(index, true, window, cx);
+                    cx.stop_propagation();
+                    return;
+                }
                 // Sakura's Tab key is `F_INDENT_TAB`, which types a tab when nothing is selected.
                 // The command comes later; until then the key types the tab.
                 if code == F_INDENT_TAB
