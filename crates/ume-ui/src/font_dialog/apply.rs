@@ -121,7 +121,22 @@ pub(crate) fn set_common_size(cx: &mut App, tenths: i32) {
 /// `Command_SETFONTSIZE` in mode 1: the size of the font of document type `index`, which gets its
 /// own font if it has none (`m_bUseTypeFont = true`, the face of the font the view showed).
 pub(crate) fn set_type_size(cx: &mut App, index: usize, tenths: i32) {
-    let font = resized(&font_of_type(cx, index), tenths);
+    let mut base = font_of_type(cx, index);
+    // A view with no font in the file shows the program's own font: the type keeps that face, not
+    // Sakura's default one.
+    let has_own = cx
+        .try_global::<UserSettings>()
+        .and_then(|user| user.document_types().get(index))
+        .is_some_and(|t| t.use_type_font);
+    let has_face = cx
+        .try_global::<UserSettings>()
+        .and_then(UserSettings::profile)
+        .and_then(|p| p.get(ViewFont::SECTION, "lfFaceName"))
+        .is_some_and(|face| !face.is_empty());
+    if !has_own && !has_face {
+        base.log_font.face_name = crate::view::FONT_FAMILY.to_owned();
+    }
+    let font = resized(&base, tenths);
     let Ok(number) = i32::try_from(index) else {
         return;
     };

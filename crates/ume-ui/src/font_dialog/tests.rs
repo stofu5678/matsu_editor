@@ -702,3 +702,13 @@ fn changing_the_size_of_the_settings_keeps_the_temporary_wrap(cx: &mut TestAppCo
         );
     }
 }
+
+#[gpui::test]
+fn a_type_font_made_from_no_font_in_the_file_keeps_the_programs_face(cx: &mut TestAppContext) {
+    let (ini, a) = setup(cx, "");
+    set_font_size(cx, a, 200, 0, 1);
+    assert_eq!(
+        ini.get("Types(0)", "lfFaceName").as_deref(),
+        Some(crate::view::FONT_FAMILY)
+    );
+}
