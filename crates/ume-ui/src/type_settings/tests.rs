@@ -637,7 +637,7 @@ fn the_new_file_keys_are_written_when_the_user_changes_them(cx: &mut TestAppCont
     let b = open_window(cx);
     let view = view_of(cx, b);
     assert_eq!(
-        view.read_with(cx, |v, app| v.status(app).file_format),
+        view.read_with(cx, |v, app| v.status(app).file_format()),
         other_label
     );
 

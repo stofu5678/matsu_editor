@@ -56,6 +56,7 @@ pub mod search;
 pub mod segments;
 pub mod settings;
 pub mod status;
+mod status_bar;
 mod status_options;
 mod support;
 mod tabs;

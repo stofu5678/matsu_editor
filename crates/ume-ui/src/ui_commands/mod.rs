@@ -11,6 +11,7 @@ pub mod file;
 pub mod history;
 pub mod macro_only;
 pub mod macros;
+pub mod mode;
 pub mod search;
 pub mod select;
 pub mod settings;

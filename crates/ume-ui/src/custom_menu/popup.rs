@@ -87,6 +87,31 @@ impl EditorView {
                 lists: &lists,
             },
         );
+        self.open_menu_entries(entries, window, cx);
+        true
+    }
+
+    /// [`open_menu_entries`](Self::open_menu_entries) at `at`, the place of a right click.
+    pub(crate) fn open_menu_entries_at(
+        &mut self,
+        entries: Vec<crate::menu::Entry>,
+        at: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.custom_menu.mouse_at = Some(at);
+        self.open_menu_entries(entries, window, cx);
+        self.custom_menu.mouse_at = None;
+    }
+
+    /// Shows `entries` in a popup at the pointer (or at the place of the right click that is
+    /// being handled), 4 pixels higher. The status bar's line ending menu uses it too.
+    pub(crate) fn open_menu_entries(
+        &mut self,
+        entries: Vec<crate::menu::Entry>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let style = if cfg!(target_os = "macos") {
             DisplayStyle::Mac
         } else {
@@ -128,7 +153,6 @@ impl EditorView {
             _dismiss: dismiss,
         });
         cx.notify();
-        true
     }
 
     /// The check marks and the gray items of the moment (`CreatePopUpMenuSub` asks `IsFuncChecked`

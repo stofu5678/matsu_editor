@@ -110,7 +110,8 @@ impl Fixture {
     }
 
     fn format(&self, cx: &mut VisualTestContext) -> String {
-        self.view.read_with(cx, |v, app| v.status(app).file_format)
+        self.view
+            .read_with(cx, |v, app| v.status(app).file_format())
     }
 
     fn notice(&self, cx: &mut VisualTestContext) -> Option<String> {

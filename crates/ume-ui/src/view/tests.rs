@@ -431,7 +431,7 @@ fn the_status_bar_shows_the_mode(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("insert");
     f.view.read_with(cx, |v, cx| {
         assert!(v.status(cx).overwrite);
-        assert!(crate::status::status_text(&v.status(cx)).contains("上書"));
+        assert_eq!(v.status(cx).text(crate::status::Part::Mode), "上書");
     });
 }
 

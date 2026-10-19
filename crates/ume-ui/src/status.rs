@@ -1,10 +1,15 @@
-//! The text of the status bar and the title of the window.
+//! What the status bar says, part by part.
+//!
+//! Sakura's status bar has eight parts (`CEditWnd::OnSize`, `pszLabel`, in
+//! `sakura_core/window/CEditWnd.cpp`; the texts are made by `CCaret::ShowCaretPosInfo`):
+//! the message, the line and column, the line ending, the code at the caret, the encoding, REC,
+//! the typing mode and the zoom of the font. `crate::status_bar` draws them.
 
 use ume_core::buffer::Eol;
 use ume_core::encoding::Encoding;
 
 /// What the status bar shows about the editor.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct StatusInfo {
     /// The line of the caret, counted from 1 (the logical line, not the screen row).
     pub line: usize,
@@ -15,9 +20,10 @@ pub struct StatusInfo {
     pub modified: bool,
     /// Overwrite mode (the Insert key); else insert mode.
     pub overwrite: bool,
-    /// The encoding (with BOM) and the line ending of the file, such as `UTF-8 BOM付  CRLF`
-    /// ([`file_format_label`]). Empty when there is nothing to show.
-    pub file_format: String,
+    /// The name of the encoding, with " BOM付" when the document has a BOM ([`charset_label`]).
+    pub charset: String,
+    /// The name of the line ending that Enter inserts ([`eol_name`]).
+    pub eol: String,
     /// The code of the character at the caret, or the name of the line ending when the caret is at
     /// it (`EditorView::caret_char_code`). Empty at the end of the file.
     pub char_code: String,
@@ -25,51 +31,131 @@ pub struct StatusInfo {
     pub selection: Option<String>,
     /// A message about the last command, such as "not implemented yet".
     pub notice: Option<String>,
+    /// Whether this window is recording a key macro (REC is drawn dark then, gray otherwise).
+    pub recording: bool,
+    /// The zoom of the font, 1.0 for 100 % (`CEditWnd::GetFontZoom`).
+    pub zoom: f64,
 }
 
-/// Sakura's status bar shows the line and the column ("1 行 1 桁") and the typing mode, "挿入" or
-/// "上書" (`STR_INS_MODE_INS` and `STR_INS_MODE_OVR` in `sakura_core/sakura_rc.rc`, shown by
-/// `CCaret::ShowCaretPosInfo`). The rest is ours.
-pub fn status_text(info: &StatusInfo) -> String {
-    let mut text = format!(
-        "{} 行  {} 桁  |  {}  |  全 {} 行",
-        info.line,
-        info.column,
-        if info.overwrite { "上書" } else { "挿入" },
-        info.lines
-    );
-    if !info.char_code.is_empty() {
-        text.push_str("  |  ");
-        text.push_str(&info.char_code);
+impl Default for StatusInfo {
+    fn default() -> Self {
+        Self {
+            line: 0,
+            column: 0,
+            lines: 0,
+            modified: false,
+            overwrite: false,
+            charset: String::new(),
+            eol: String::new(),
+            char_code: String::new(),
+            selection: None,
+            notice: None,
+            recording: false,
+            zoom: 1.0,
+        }
     }
-    if !info.file_format.is_empty() {
-        text.push_str("  |  ");
-        text.push_str(&info.file_format);
-    }
-    if let Some(selection) = &info.selection {
-        text.push_str("  |  ");
-        text.push_str(selection);
-    }
-    if info.modified {
-        text.push_str("  |  変更あり");
-    }
-    if let Some(notice) = &info.notice {
-        text.push_str("  |  ");
-        text.push_str(notice);
-    }
-    text
 }
 
-/// The encoding, the BOM and the line ending as the status bar shows them. Sakura shows the name of
-/// the encoding with " BOM付" when the document has a BOM, and the name of the line ending
+/// The parts of the status bar, left to right (the index is `dwItemSpec` of the click).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Part {
+    Message,
+    Position,
+    Eol,
+    CharCode,
+    Charset,
+    Rec,
+    Mode,
+    Zoom,
+}
+
+impl Part {
+    pub const ALL: [Part; 8] = [
+        Part::Message,
+        Part::Position,
+        Part::Eol,
+        Part::CharCode,
+        Part::Charset,
+        Part::Rec,
+        Part::Mode,
+        Part::Zoom,
+    ];
+
+    /// The widest text of the part, which its width is made from (`pszLabel`). The message part
+    /// takes what is left.
+    pub fn width_label(self) -> &'static str {
+        match self {
+            Part::Message => "",
+            Part::Position => "99999 行 9999 列",
+            Part::Eol => "CRLF",
+            Part::CharCode => "AAAAAAAAAAAA",
+            Part::Charset => "UTF-16 BOM付",
+            Part::Rec => "REC",
+            Part::Mode => "上書",
+            Part::Zoom => "9999 %",
+        }
+    }
+}
+
+impl StatusInfo {
+    /// The text of `part`. REC is always "REC"; whether it is lit is [`recording`](Self::recording).
+    pub fn text(&self, part: Part) -> String {
+        match part {
+            Part::Message => self.message(),
+            Part::Position => self.position_text(),
+            Part::Eol => self.eol.clone(),
+            Part::CharCode => self.char_code.clone(),
+            Part::Charset => self.charset.clone(),
+            Part::Rec => "REC".to_owned(),
+            Part::Mode => self.mode_text().to_owned(),
+            Part::Zoom => self.zoom_text(),
+        }
+    }
+
+    /// The first part: the size of the selection (`PrintSelectionInfoMsg`) and the message about
+    /// the last command, such as the pattern of the incremental search.
+    pub fn message(&self) -> String {
+        match (&self.selection, &self.notice) {
+            (Some(selection), Some(notice)) => format!("{selection}  {notice}"),
+            (Some(text), None) | (None, Some(text)) => text.clone(),
+            (None, None) => String::new(),
+        }
+    }
+
+    /// `STR_STATUS_ROW_COL`: "%5d 行 %4d 桁".
+    pub fn position_text(&self) -> String {
+        format!("{:>5} 行 {:>4} 桁", self.line, self.column)
+    }
+
+    /// `STR_INS_MODE_INS` and `STR_INS_MODE_OVR`.
+    pub fn mode_text(&self) -> &'static str {
+        if self.overwrite { "上書" } else { "挿入" }
+    }
+
+    /// `STR_STATUS_FONTZOOM_0` ("%4.0f %%"), and `STR_STATUS_FONTZOOM_1` ("%4.1f %%") below 5 %.
+    pub fn zoom_text(&self) -> String {
+        let percent = self.zoom * 100.0;
+        if percent < 5.0 {
+            format!("{percent:>4.1} %")
+        } else {
+            format!("{percent:>4.0} %")
+        }
+    }
+
+    /// The encoding and the line ending together, such as `UTF-8 BOM付  CRLF`.
+    pub fn file_format(&self) -> String {
+        format!("{}  {}", self.charset, self.eol)
+    }
+}
+
+/// The name of the encoding with " BOM付" when the document has a BOM
 /// (`CCaret::ShowCaretPosInfo`, `sakura_core/view/CCaret.cpp`; `STR_CARET_WITHBOM` in
-/// `sakura_core/sakura_rc.rc`; `CEol::GetName`, `sakura_core/basis/CEol.cpp`).
-pub fn file_format_label(encoding: Encoding, bom: bool, eol: Eol) -> String {
+/// `sakura_core/sakura_rc.rc`).
+pub fn charset_label(encoding: Encoding, bom: bool) -> String {
     format!(
-        "{}{}  {}",
+        "{}{}",
         encoding.combo_name(),
-        if bom { " BOM付" } else { "" },
-        eol_name(eol)
+        if bom { " BOM付" } else { "" }
     )
 }
 
@@ -89,60 +175,99 @@ pub fn eol_name(eol: Eol) -> &'static str {
 mod tests {
     use super::*;
 
-    #[test]
-    fn the_status_shows_line_and_column() {
-        let info = StatusInfo {
+    fn info() -> StatusInfo {
+        StatusInfo {
             line: 3,
             column: 12,
             lines: 100,
-            modified: false,
-            overwrite: false,
+            charset: charset_label(Encoding::Utf8, true),
+            eol: "CRLF".to_owned(),
+            char_code: "U+3042".to_owned(),
             ..StatusInfo::default()
-        };
-        assert_eq!(status_text(&info), "3 行  12 桁  |  挿入  |  全 100 行");
-        let info = StatusInfo {
-            modified: true,
-            notice: Some("未実装".into()),
-            ..info
-        };
-        assert_eq!(
-            status_text(&info),
-            "3 行  12 桁  |  挿入  |  全 100 行  |  変更あり  |  未実装"
-        );
+        }
     }
 
     #[test]
-    fn the_status_shows_the_typing_mode() {
-        // Sakura: STR_INS_MODE_OVR in sakura_core/sakura_rc.rc
-        let info = StatusInfo {
-            line: 1,
-            column: 1,
-            lines: 1,
-            modified: false,
+    fn the_parts_have_sakuras_texts() {
+        let i = info();
+        // STR_STATUS_ROW_COL "%5d 行 %4d 桁"
+        assert_eq!(i.text(Part::Position), "    3 行   12 桁");
+        assert_eq!(i.text(Part::Eol), "CRLF");
+        assert_eq!(i.text(Part::CharCode), "U+3042");
+        assert_eq!(i.text(Part::Charset), "UTF-8 BOM付");
+        assert_eq!(i.text(Part::Rec), "REC");
+        assert_eq!(i.text(Part::Mode), "挿入");
+        assert_eq!(i.text(Part::Zoom), " 100 %");
+        assert_eq!(i.text(Part::Message), "");
+        assert_eq!(i.file_format(), "UTF-8 BOM付  CRLF");
+    }
+
+    #[test]
+    fn overwrite_mode_says_so() {
+        // STR_INS_MODE_OVR
+        let i = StatusInfo {
             overwrite: true,
-            ..StatusInfo::default()
+            ..info()
         };
-        assert_eq!(status_text(&info), "1 行  1 桁  |  上書  |  全 1 行");
+        assert_eq!(i.text(Part::Mode), "上書");
     }
 
     #[test]
-    fn the_status_shows_the_encoding_and_the_line_ending() {
-        let info = StatusInfo {
-            line: 1,
-            column: 1,
-            lines: 2,
-            modified: false,
-            overwrite: false,
-            file_format: file_format_label(Encoding::Utf8, true, Eol::CrLf),
-            ..StatusInfo::default()
+    fn the_zoom_has_a_decimal_below_five_percent() {
+        let zoom = |z: f64| StatusInfo { zoom: z, ..info() }.text(Part::Zoom);
+        assert_eq!(zoom(1.5), " 150 %");
+        assert_eq!(zoom(0.1), "  10 %");
+        assert_eq!(zoom(0.04), " 4.0 %");
+        assert_eq!(zoom(0.011), " 1.1 %");
+        assert_eq!(zoom(0.05), "   5 %");
+        assert_eq!(zoom(90.0), "9000 %");
+    }
+
+    #[test]
+    fn the_message_part_holds_the_selection_and_the_notice() {
+        let i = StatusInfo {
+            selection: Some("3 chars (1 lines) selected.".to_owned()),
+            ..info()
+        };
+        assert_eq!(i.text(Part::Message), "3 chars (1 lines) selected.");
+        let i = StatusInfo {
+            selection: None,
+            notice: Some("I-Search: abc".to_owned()),
+            ..i
+        };
+        assert_eq!(i.text(Part::Message), "I-Search: abc");
+        let i = StatusInfo {
+            selection: Some("1 chars (1 lines) selected.".to_owned()),
+            ..i
         };
         assert_eq!(
-            status_text(&info),
-            "1 行  1 桁  |  挿入  |  全 2 行  |  UTF-8 BOM付  CRLF"
+            i.text(Part::Message),
+            "1 chars (1 lines) selected.  I-Search: abc"
         );
+    }
+
+    #[test]
+    fn the_labels_are_sakuras_widest_texts() {
+        let labels: Vec<_> = Part::ALL.iter().map(|p| p.width_label()).collect();
         assert_eq!(
-            file_format_label(Encoding::ShiftJis, false, Eol::Lf),
-            "SJIS  LF"
+            labels,
+            [
+                "",
+                "99999 行 9999 列",
+                "CRLF",
+                "AAAAAAAAAAAA",
+                "UTF-16 BOM付",
+                "REC",
+                "上書",
+                "9999 %"
+            ]
         );
+    }
+
+    #[test]
+    fn the_encoding_and_the_line_ending_are_named_as_sakura_does() {
+        assert_eq!(charset_label(Encoding::ShiftJis, false), "SJIS");
+        assert_eq!(charset_label(Encoding::Utf16Le, true), "UTF-16 BOM付");
+        assert_eq!(eol_name(Eol::Nel), "NEL");
     }
 }

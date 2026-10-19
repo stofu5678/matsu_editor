@@ -129,6 +129,18 @@ impl EditorView {
         }
     }
 
+    /// The text of the line from the caret to the end of the line, without the line ending; `None`
+    /// when the caret is at the end of the line or of the file (`ShowCodeBox` shows nothing then).
+    pub(crate) fn caret_char_rest(&self, cx: &App) -> Option<String> {
+        let shared = self.document.read(cx);
+        let caret = self.cursor.caret();
+        let line = shared.doc().line(caret.line).ok()??;
+        line.text
+            .get(caret.col..)
+            .filter(|rest| !rest.is_empty())
+            .map(str::to_owned)
+    }
+
     /// The message of the selection (`PrintSelectionInfoMsg`), or `None` when it is empty.
     pub(crate) fn selection_message(&self, options: &StatusbarOptions, cx: &App) -> Option<String> {
         let doc = self.doc(cx);

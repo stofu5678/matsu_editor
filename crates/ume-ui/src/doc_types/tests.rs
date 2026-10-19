@@ -198,14 +198,14 @@ fn an_empty_untitled_document_takes_the_line_ending_of_the_type(cx: &mut TestApp
     let view = view_of(cx);
     run(&view, cx, "F_CHANGETYPE", &[Arg::Int(3)]);
     assert_eq!(
-        view.read_with(cx, |v, app| v.status(app).file_format),
+        view.read_with(cx, |v, app| v.status(app).file_format()),
         "UTF-8  CR"
     );
     // A document with text keeps its line ending when the type changes.
     cx.simulate_input("x");
     run(&view, cx, "F_CHANGETYPE", &[Arg::Int(1)]);
     assert_eq!(
-        view.read_with(cx, |v, app| v.status(app).file_format),
+        view.read_with(cx, |v, app| v.status(app).file_format()),
         "UTF-8  CR"
     );
 }
