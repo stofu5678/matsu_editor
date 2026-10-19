@@ -11,7 +11,7 @@
 
 use futures_channel::oneshot;
 use ume_config::settings::{FontSetting, LogFont};
-use windows_sys::Win32::Graphics::Gdi::LOGFONTW;
+use windows_sys::Win32::Graphics::Gdi::{GetDC, GetDeviceCaps, LOGFONTW, LOGPIXELSY, ReleaseDC};
 use windows_sys::Win32::UI::Controls::Dialogs::{
     CF_EFFECTS, CF_FIXEDPITCHONLY, CF_INITTOLOGFONTSTRUCT, CF_SCREENFONTS, CHOOSEFONTW, ChooseFontW,
 };
@@ -69,8 +69,24 @@ fn from_logfont(font: &LOGFONTW) -> LogFont {
     }
 }
 
+/// The vertical resolution of the screen, which `ChooseFontW` turns the height into points with.
+fn screen_dpi() -> i32 {
+    // SAFETY: the device context of the whole screen is released at once.
+    unsafe {
+        let dc = GetDC(std::ptr::null_mut());
+        let dpi = GetDeviceCaps(dc, LOGPIXELSY as i32);
+        ReleaseDC(std::ptr::null_mut(), dc);
+        if dpi > 0 { dpi } else { 96 }
+    }
+}
+
 fn run(owner: Owner, request: &Request) -> Result<Option<FontSetting>, Error> {
     let mut log_font = to_logfont(&request.initial.log_font);
+    // `CF_INITTOLOGFONTSTRUCT` starts at the height; the point size is what the file means, and the
+    // height of a file may come from another resolution.
+    if request.initial.point_size != 0 {
+        log_font.lfHeight = request.initial.height_for_dpi(screen_dpi());
+    }
     let mut flags = CF_SCREENFONTS | CF_INITTOLOGFONTSTRUCT | CF_EFFECTS;
     if request.fixed_pitch_only {
         flags |= CF_FIXEDPITCHONLY;
