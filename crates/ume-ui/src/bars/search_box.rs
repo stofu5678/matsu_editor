@@ -77,7 +77,11 @@ impl SearchBox {
                     window,
                     |this: &mut Self, _, event: &InputEvent, window, cx| match event {
                         InputEvent::PressEnter { .. } => this.press_enter(window, cx),
-                        InputEvent::Blur => this.take_as_key(cx),
+                        InputEvent::Blur => {
+                            this.dropdown = None;
+                            this.take_as_key(cx);
+                            cx.notify();
+                        }
                         _ => {}
                     },
                 ),
@@ -276,7 +280,7 @@ impl SearchBox {
         let plain = !m.alt && !m.control && !m.platform && !m.shift;
         let keys = history::search_keys(cx);
         match key {
-            "f4" => self.toggle_dropdown(cx),
+            "f4" if plain => self.toggle_dropdown(cx),
             "down" if m.alt => self.toggle_dropdown(cx),
             "down" | "up" if plain && self.dropdown.is_none() => {
                 self.step(key == "down", window, cx);
@@ -311,7 +315,11 @@ impl Focusable for SearchBox {
 }
 
 impl Render for SearchBox {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // The list belongs to the edit field: it closes when the focus is elsewhere.
+        if self.dropdown.is_some() && !self.is_focused(window, cx) {
+            self.dropdown = None;
+        }
         let list = self.dropdown.map(|highlight| {
             let entries = history::search_keys(cx)
                 .into_iter()

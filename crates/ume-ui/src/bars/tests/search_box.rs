@@ -277,6 +277,41 @@ fn up_and_down_go_through_the_history_and_escape_closes_the_list(cx: &mut TestAp
     );
 }
 
+#[gpui::test]
+fn the_list_closes_when_the_focus_leaves_the_box(cx: &mut TestAppContext) {
+    let (_ini, handle) = setup(cx, &toolbar());
+    cx.update(|app| {
+        crate::search::history::remember_search(app, "one");
+    });
+    let editor = view(cx, handle);
+    let search_box = search_box(cx, handle);
+    run(cx, handle, "F_SEARCH_BOX");
+    let cx = &mut VisualTestContext::from_window(handle, cx);
+    cx.simulate_keystrokes("f4");
+    assert_eq!(search_box.read_with(cx, |b, _| b.open_entry()), Some(0));
+    // A click on the text takes the focus (the list is not over this place).
+    cx.simulate_click(
+        gpui::point(gpui::px(400.), gpui::px(400.)),
+        Modifiers::none(),
+    );
+    cx.run_until_parked();
+    assert!(editor_has_focus(cx, &editor));
+    assert_eq!(search_box.read_with(cx, |b, _| b.open_entry()), None);
+}
+
+#[gpui::test]
+fn f4_with_a_modifier_is_not_the_lists_key(cx: &mut TestAppContext) {
+    let (_ini, handle) = setup(cx, &toolbar());
+    cx.update(|app| {
+        crate::search::history::remember_search(app, "one");
+    });
+    let search_box = search_box(cx, handle);
+    run(cx, handle, "F_SEARCH_BOX");
+    let cx = &mut VisualTestContext::from_window(handle, cx);
+    cx.simulate_keystrokes("ctrl-f4");
+    assert_eq!(search_box.read_with(cx, |b, _| b.open_entry()), None);
+}
+
 // ---- the drop-down arrow of the open button ----
 
 fn history_with(files: &[&str], folders: &[&str]) -> History {
