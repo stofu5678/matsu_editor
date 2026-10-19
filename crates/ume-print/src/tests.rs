@@ -560,7 +560,7 @@ fn header_parts_and_variables() {
     let lay = layout(&src, &s, Paper::A4);
     assert_eq!(lay.page_count(), 3);
     let ctx = HeaderContext {
-        file_path: Some(r"C:\a\b.txt".into()),
+        file_path: Some("C:/a/b.txt".into()),
         ..HeaderContext::default()
     };
     let p = lay.page(1, &src, &ctx).unwrap();

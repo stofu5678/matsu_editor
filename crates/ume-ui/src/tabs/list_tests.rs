@@ -373,3 +373,14 @@ fn a_users_format_makes_the_caption_of_every_tab(cx: &mut TestAppContext) {
     );
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// Outside Windows a backslash is a character of the file name, not a separator.
+#[cfg(not(windows))]
+#[gpui::test]
+fn a_backslash_in_a_file_name_stays_in_the_caption_and_the_list(cx: &mut TestAppContext) {
+    let (handle, dir) = window_with_files(cx, "caption-backslash", &["a\\b.txt"]);
+    assert_eq!(captions(cx, handle), ["(無題)", "a\\b.txt"]);
+    run(cx, handle, "F_WINLIST");
+    assert_eq!(shape(cx, handle)[2..], ["(無題)", "*a\\b.txt"]);
+    std::fs::remove_dir_all(&dir).ok();
+}

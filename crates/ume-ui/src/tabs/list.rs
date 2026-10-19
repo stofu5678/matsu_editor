@@ -68,6 +68,10 @@ pub(crate) struct Layout {
 
 /// `compTABMENU_DATA`: the words are sorted as `lstrcmp` does, "ABC" next to "abc" (the lower case
 /// first) and "XYZ" after them; equal texts keep their order.
+///
+/// Sakura's `std::sort` calls `compTABMENU_DATA` and uses its int as "less", and ties are broken by
+/// `iItem`, so any two items are "less" both ways: not a valid order, and real Sakura's sorted
+/// list is whatever the sort makes of it. This follows what the comparator means, on purpose.
 fn compare<T>(a: &(usize, Item<T>), b: &(usize, Item<T>)) -> std::cmp::Ordering {
     let fold = |s: &str| s.chars().flat_map(char::to_lowercase).collect::<String>();
     fold(&a.1.text)
