@@ -37,7 +37,7 @@ use gpui::{
     deferred, div, point, px, rgb,
 };
 use ume_commands::text::complete;
-use ume_config::settings::FontSetting;
+use ume_config::settings::{DocumentTypes, FontSetting};
 use ume_core::tag_jump::TagTarget;
 
 use crate::view::EditorView;
@@ -147,10 +147,20 @@ fn ini_dir(cx: &App) -> Option<PathBuf> {
     })
 }
 
-/// Which settings a lookup was made with: the settings of the application as they were read
-/// (a new value each time the type settings or the file change) and the type of the document. A
-/// result is used again only while this is the same.
-type Setup = (usize, usize);
+/// Which settings a lookup was made with: the types of the application as they were read (a new
+/// value each time the type settings or the file change; it is kept, so that no other one can take
+/// its place) and the type of the document. A result is used again only while this is the same.
+#[derive(Clone)]
+struct Setup {
+    types: Arc<DocumentTypes>,
+    index: usize,
+}
+
+impl PartialEq for Setup {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.types, &other.types) && self.index == other.index
+    }
+}
 
 /// The tip that is shown.
 pub(crate) struct Tip {
@@ -189,9 +199,10 @@ impl KeyHelpState {
 impl EditorView {
     /// The settings a lookup is made with now ([`Setup`]).
     fn key_help_setup(&self, cx: &App) -> Setup {
-        let index = self.type_index();
-        let types = crate::doc_types::with_user(cx, |user| user.shared_types());
-        (Arc::as_ptr(&types) as *const () as usize, index)
+        Setup {
+            types: crate::doc_types::with_user(cx, |user| user.shared_types()),
+            index: self.type_index(),
+        }
     }
 
     /// Whether the keyword help of this view's type is on.
