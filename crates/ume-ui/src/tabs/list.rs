@@ -351,6 +351,8 @@ impl Render for TabList {
                 .position(|row| matches!(row, Row::Tab(item) if item.current))
                 .or_else(|| rows.iter().position(|r| !matches!(r, Row::Separator)))
                 .unwrap_or(0);
+            // A long list opens scrolled to the tab of this window.
+            self.scroll.scroll_to_item(self.selected);
         }
         self.selected = self.selected.min(rows.len().saturating_sub(1));
         let items: Vec<_> = rows
