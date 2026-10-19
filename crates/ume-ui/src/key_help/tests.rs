@@ -576,3 +576,25 @@ fn the_tip_uses_the_font_of_the_page_as_soon_as_it_is_set(cx: &mut TestAppContex
     assert_eq!(family.as_ref(), "Sample Face");
     assert_eq!(size, crate::settings::view_settings::points_to_px(120));
 }
+
+#[gpui::test]
+fn the_tip_comes_when_a_selection_by_the_mouse_ends(cx: &mut TestAppContext) {
+    let (_files, user) = settings(ON);
+    let (f, cx) = setup(cx, "alpha beta", user);
+    cx.simulate_keystrokes("shift-right shift-right shift-right shift-right shift-right");
+    // the button is down while the pointer moves: no tip
+    let at = point(px(120.), px(50.));
+    cx.simulate_event(gpui::MouseMoveEvent {
+        position: at,
+        pressed_button: Some(gpui::MouseButton::Left),
+        modifiers: Modifiers::default(),
+    });
+    cx.executor().advance_clock(Duration::from_millis(400));
+    cx.run_until_parked();
+    assert_eq!(f.tip(cx), None);
+    // the button goes up and the pointer rests
+    cx.simulate_mouse_up(at, gpui::MouseButton::Left, Modifiers::default());
+    cx.executor().advance_clock(Duration::from_millis(400));
+    cx.run_until_parked();
+    assert_eq!(f.tip(cx).as_deref(), Some("the first letter\nsecond line"));
+}

@@ -141,7 +141,14 @@ impl EditorView {
         }
     }
 
-    pub(crate) fn on_mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn on_mouse_up(
+        &mut self,
+        _: &MouseUpEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // The selection by the mouse is done: the tip may come for what is selected.
+        self.key_help_restart(window, cx);
         if self.drag != Drag::None {
             self.drag = Drag::None;
             cx.notify();
