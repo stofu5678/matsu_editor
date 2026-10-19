@@ -178,8 +178,10 @@ fn install(window: &mut Window, cx: &mut App, workspace: &Entity<Workspace>) {
             return false;
         }
         let needs_question = |view: &Entity<EditorView>, cx: &App| {
+            let shared = view.read(cx).document().read(cx);
+            // a changed encoding is asked about too (`CDocFile::IsChgCodeSet`)
             !view.read(cx).is_grep_window()
-                && view.read(cx).document().read(cx).model().is_modified()
+                && (shared.model().is_modified() || shared.format_changed())
         };
         if !views.iter().any(|v| needs_question(v, cx)) {
             for view in &views {

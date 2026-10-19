@@ -679,6 +679,27 @@ fn closing_a_modified_window_asks_first(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn closing_a_window_whose_encoding_was_changed_asks_first(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "日本語".as_bytes());
+    cx.update(gpui_component::init);
+    let handle = cx
+        .update(|cx| open_editor_window(cx, SharedDocument::empty(), None))
+        .unwrap();
+    let cx = &mut VisualTestContext::from_window(handle, cx);
+    let editor = cx.update(|_, app| super::windows::editors(app)[0].1.clone());
+    let f = Fixture { view: editor };
+    f.open(cx, &path, Some(UTF8));
+    // `IsChgCodeSet`: the text is unmodified, the encoding is not the one that was read
+    f.run(cx, "F_CHG_CHARSET", &[Arg::Int(SJIS)]);
+    assert!(!cx.simulate_close(), "the window waits for the answer");
+    cx.run_until_parked();
+    answer(cx, DONT_SAVE);
+    assert!(!cx.windows().contains(&handle));
+    assert_eq!(read(&path), "日本語".as_bytes());
+}
+
+#[gpui::test]
 fn win_close_and_save_close(cx: &mut TestAppContext) {
     let dir = TempDir::new();
     let path = dir.path("s.txt");
