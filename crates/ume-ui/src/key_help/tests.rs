@@ -49,10 +49,15 @@ fn settings(types_0: &str) -> (Files, UserSettings) {
         dir: tempfile::tempdir().unwrap(),
     };
     files.write("dict.txt", DICT);
+    let user = user_for(&files, types_0);
+    (files, user)
+}
+
+/// The settings as the application reads them (again) in the folder of `files`.
+fn user_for(files: &Files, types_0: &str) -> UserSettings {
     let path = files.dir.path().join("ume.ini");
     let profile = ume_config::Profile::from_bytes(format!("[Types(0)]\r\n{types_0}").as_bytes());
-    let user = UserSettings::from_profile(profile, Some(path));
-    (files, user)
+    UserSettings::from_profile(profile, Some(path))
 }
 
 /// The type with the keyword help on and the dictionary.
@@ -484,4 +489,51 @@ fn no_meaning_is_looked_up_beside_the_list_when_the_help_is_off(cx: &mut TestApp
         .view
         .read_with(cx, |v, app| v.completion_help("alpha", app));
     assert_eq!(help, None);
+}
+
+// ---- the settings change ----
+
+#[gpui::test]
+fn a_change_of_the_settings_makes_a_word_that_was_not_found_be_searched_again(
+    cx: &mut TestAppContext,
+) {
+    let (files, user) = settings(ON);
+    let (f, cx) = setup(cx, "gamma beta", user);
+    cx.update(|_, app| set_caret_key_word(app, true));
+    rest(cx, 120.0, 50.0, 400);
+    assert_eq!(f.tip(cx), None);
+    files.write("dict.txt", "gamma /// third\r\n".as_bytes());
+    // the same key is not searched again ...
+    rest(cx, 130.0, 50.0, 400);
+    assert_eq!(f.tip(cx), None);
+    // ... until the settings are read again (OK of the type settings)
+    cx.update(|_, app| app.set_global(user_for(&files, ON)));
+    rest(cx, 140.0, 50.0, 400);
+    assert_eq!(f.tip(cx).as_deref(), Some("third"));
+}
+
+#[gpui::test]
+fn a_change_of_the_settings_changes_the_meaning_beside_the_list(cx: &mut TestAppContext) {
+    let (files, user) = settings(ON);
+    let (f, cx) = setup(cx, "alpha", user);
+    let help = |f: &Fixture, cx: &mut VisualTestContext| {
+        f.view
+            .read_with(cx, |v, app| v.completion_help("alpha", app))
+    };
+    assert_eq!(
+        help(&f, cx).as_deref(),
+        Some("the first letter\nsecond line")
+    );
+    files.write("dict.txt", "alpha /// changed\r\n".as_bytes());
+    // the word is kept for the list that is open ...
+    assert_eq!(
+        help(&f, cx).as_deref(),
+        Some("the first letter\nsecond line")
+    );
+    // ... and looked up again with the new settings
+    cx.update(|_, app| app.set_global(user_for(&files, ON)));
+    assert_eq!(help(&f, cx).as_deref(), Some("changed"));
+    // the type has the help off now
+    cx.update(|_, app| app.set_global(user_for(&files, "")));
+    assert_eq!(help(&f, cx), None);
 }

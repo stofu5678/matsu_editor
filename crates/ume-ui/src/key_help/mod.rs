@@ -8,7 +8,7 @@
 //!   pick the key and look it up ([`lookup`]): the selection up to the end of its first line (at
 //!   most 101 characters), else the word at the caret when 「キャレット位置の単語を辞書検索」
 //!   (`m_bUseCaretKeyWord`, `F_TOGGLE_KEY_SEARCH`) is on. A key that was searched and not found is
-//!   not searched again until it changes.
+//!   not searched again until it changes (or the settings of the type do).
 //! * `CEditView::OnTimer` (`sakura_core/view/CEditView.cpp`) shows the tip when the mouse has not
 //!   moved for 300 ms in the window and no menu is open; the tip hangs from the pointer, one row
 //!   lower (`CTipWnd::Show`). A move of the pointer hides it.
@@ -147,6 +147,11 @@ fn ini_dir(cx: &App) -> Option<PathBuf> {
     })
 }
 
+/// Which settings a lookup was made with: the settings of the application as they were read
+/// (a new value each time the type settings or the file change) and the type of the document. A
+/// result is used again only while this is the same.
+type Setup = (usize, usize);
+
 /// The tip that is shown.
 pub(crate) struct Tip {
     pub text: String,
@@ -158,8 +163,8 @@ pub(crate) struct Tip {
 /// `m_nSearchDict`, `m_nSearchLine`).
 #[derive(Default)]
 pub(crate) struct KeyHelpState {
-    /// The key searched last and whether it was found.
-    searched: Option<(String, bool)>,
+    /// The key searched last, whether it was found, and the settings it was searched with.
+    searched: Option<(Setup, String, bool)>,
     /// The result of the last search that found something.
     found: Option<lookup::Found>,
     /// The tip, while it is shown.
@@ -170,7 +175,7 @@ pub(crate) struct KeyHelpState {
     pointer: Option<Point<Pixels>>,
     /// The meaning shown beside the list of the input completion for the word that was chosen
     /// last, and that word (a search runs only when the choice changes).
-    beside_list: RefCell<Option<(String, Option<String>)>>,
+    beside_list: RefCell<Option<(Setup, String, Option<String>)>>,
 }
 
 impl KeyHelpState {
@@ -182,6 +187,13 @@ impl KeyHelpState {
 }
 
 impl EditorView {
+    /// The settings a lookup is made with now ([`Setup`]).
+    fn key_help_setup(&self, cx: &App) -> Setup {
+        let index = self.type_index();
+        let types = crate::doc_types::with_user(cx, |user| user.shared_types());
+        (Arc::as_ptr(&types) as *const () as usize, index)
+    }
+
     /// Whether the keyword help of this view's type is on.
     fn key_help_enabled(&self, cx: &App) -> bool {
         let index = self.type_index();
@@ -302,9 +314,10 @@ impl EditorView {
         if key.is_empty() {
             return false;
         }
+        let setup = self.key_help_setup(cx);
         let state = &mut self.support.key_help;
-        // Already searched and not found.
-        if matches!(&state.searched, Some((k, false)) if *k == key) {
+        // Already searched and not found (with these settings).
+        if matches!(&state.searched, Some((s, k, false)) if *s == setup && *k == key) {
             return false;
         }
         let ini = ini_dir(cx);
@@ -315,7 +328,7 @@ impl EditorView {
             dicts: &t.key_help,
         };
         let found = lookup::key_search(&options, &key, |path| dict_lines(path, ini.as_deref()));
-        state.searched = Some((key, found.is_some()));
+        state.searched = Some((setup, key, found.is_some()));
         let hit = found.is_some();
         state.found = found;
         hit
@@ -429,7 +442,9 @@ impl EditorView {
         if !self.key_help_enabled(cx) {
             return None;
         }
-        if let Some((key, text)) = &*self.support.key_help.beside_list.borrow()
+        let setup = self.key_help_setup(cx);
+        if let Some((kept, key, text)) = &*self.support.key_help.beside_list.borrow()
+            && *kept == setup
             && key == word
         {
             return text.clone();
@@ -444,7 +459,8 @@ impl EditorView {
         };
         let text = lookup::key_search(&options, word, |path| dict_lines(path, ini.as_deref()))
             .map(|found| found.text);
-        *self.support.key_help.beside_list.borrow_mut() = Some((word.to_owned(), text.clone()));
+        *self.support.key_help.beside_list.borrow_mut() =
+            Some((setup, word.to_owned(), text.clone()));
         text
     }
 
