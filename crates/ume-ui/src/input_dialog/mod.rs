@@ -44,6 +44,8 @@ pub(crate) struct InputDialog {
     message: SharedString,
     input: Entity<InputState>,
     max_len: usize,
+    /// The text of the field after the last change, within the maximum length.
+    accepted: String,
     /// Sends the answer once; dropping it unanswered (the window closed) is a cancel.
     answer: Option<async_channel::Sender<Option<String>>>,
     ok_focus: FocusHandle,
@@ -61,6 +63,7 @@ impl InputDialog {
     ) -> Self {
         let input = cx.new(|cx| InputState::new(window, cx));
         let default = truncate_utf16(&request.default, request.max_len).to_owned();
+        let accepted = default.clone();
         input.update(cx, |state, cx| state.set_value(default, window, cx));
         let subscription = cx.subscribe_in(
             &input,
@@ -77,6 +80,7 @@ impl InputDialog {
             message: request.message.into(),
             input,
             max_len: request.max_len,
+            accepted,
             answer: Some(answer),
             ok_focus: cx.focus_handle(),
             cancel_focus: cx.focus_handle(),
@@ -96,14 +100,16 @@ impl InputDialog {
     }
 
     /// Keeps the field within the maximum length: what is typed or pasted beyond it is cut off
-    /// (the edit control of Sakura's dialog refuses it).
+    /// (the edit control of Sakura's dialog refuses it), and the text that was there stays.
     fn limit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let text = self.text(cx);
-        let kept = truncate_utf16(&text, self.max_len);
-        if kept.len() != text.len() {
-            let kept = kept.to_owned();
-            self.input
-                .update(cx, |state, cx| state.set_value(kept, window, cx));
+        match limit_edit(&self.accepted, &text, self.max_len) {
+            Some(kept) => {
+                self.accepted.clone_from(&kept);
+                self.input
+                    .update(cx, |state, cx| state.set_value(kept, window, cx));
+            }
+            None => self.accepted = text,
         }
     }
 
@@ -166,6 +172,42 @@ impl Focusable for InputDialog {
     fn focus_handle(&self, cx: &gpui::App) -> FocusHandle {
         self.input.read(cx).focus_handle(cx)
     }
+}
+
+/// The field after an edit from `before` to `after`, when `after` is longer than `max` UTF-16 code
+/// units: the part that was inserted is cut so that the whole fits, and the text around it stays
+/// (inserting `X` at the start of a full field gives nothing, not a field without its last
+/// character). `None` when `after` fits.
+fn limit_edit(before: &str, after: &str, max: usize) -> Option<String> {
+    if after.encode_utf16().count() <= max {
+        return None;
+    }
+    // The edit replaced the middle of `before`: what the two have in common at the start and at
+    // the end stays, and the rest of `after` is what was inserted.
+    let prefix = before
+        .char_indices()
+        .zip(after.chars())
+        .take_while(|((_, a), b)| a == b)
+        .map(|((at, a), _)| at + a.len_utf8())
+        .last()
+        .unwrap_or(0);
+    let (before_rest, after_rest) = (&before[prefix..], &after[prefix..]);
+    let suffix = before_rest
+        .chars()
+        .rev()
+        .zip(after_rest.chars().rev())
+        .take_while(|(a, b)| a == b)
+        .map(|(a, _)| a.len_utf8())
+        .sum::<usize>();
+    let inserted = &after_rest[..after_rest.len() - suffix];
+    let tail = &before_rest[before_rest.len() - suffix..];
+    let units = |text: &str| text.encode_utf16().count();
+    let others = units(&before[..prefix]) + units(tail);
+    let room = max.saturating_sub(others);
+    let mut kept = String::from(&before[..prefix]);
+    kept.push_str(truncate_utf16(inserted, room));
+    kept.push_str(tail);
+    Some(kept)
 }
 
 const PANEL_TEXT: u32 = 0x222222;

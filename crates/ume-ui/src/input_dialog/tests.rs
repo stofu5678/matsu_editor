@@ -7,7 +7,7 @@ use gpui::{AppContext as _, Entity, TestAppContext, VisualTestContext};
 use ume_core::buffer::Document;
 use ume_core::model::DocumentModel;
 
-use super::InputRequest;
+use super::{InputRequest, limit_edit};
 use crate::document::SharedDocument;
 use crate::view::EditorView;
 
@@ -138,4 +138,38 @@ fn a_second_dialog_is_cancelled_while_one_is_open(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("escape");
     cx.run_until_parked();
     assert_eq!(*first.borrow(), Some(None));
+}
+
+#[test]
+fn an_edit_that_does_not_fit_keeps_the_text_around_it() {
+    // It fits: nothing to do.
+    assert_eq!(limit_edit("abc", "abXc", 4), None);
+    // Typed at the end: the new characters that do not fit are cut.
+    assert_eq!(limit_edit("abc", "abcdef", 5).as_deref(), Some("abcde"));
+    // Typed at the start of a full field: the old text stays, the new character is refused.
+    assert_eq!(limit_edit("abcde", "Xabcde", 5).as_deref(), Some("abcde"));
+    // Typed in the middle: the end stays.
+    assert_eq!(limit_edit("abcde", "abXcde", 5).as_deref(), Some("abcde"));
+    assert_eq!(limit_edit("abcd", "abXYcd", 5).as_deref(), Some("abXcd"));
+    // A pasted text over a selection: what fits of it is taken.
+    assert_eq!(limit_edit("abcde", "aXYZWde", 5).as_deref(), Some("aXYde"));
+    // Japanese, and a character outside the BMP (two units) is not split.
+    assert_eq!(
+        limit_edit("あいう", "あXいう", 3).as_deref(),
+        Some("あいう")
+    );
+    assert_eq!(limit_edit("a", "a𠮷𠮷", 3).as_deref(), Some("a𠮷"));
+    assert_eq!(limit_edit("", "あいうえお", 3).as_deref(), Some("あいう"));
+}
+
+#[gpui::test]
+fn text_typed_in_front_of_a_full_field_is_refused(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx);
+    let slot = open(&view, cx, request("abcde", 5));
+    cx.simulate_keystrokes("home");
+    cx.simulate_input("X");
+    assert_eq!(field_text(&view, cx), "abcde");
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert_eq!(*slot.borrow(), Some(Some("abcde".to_owned())));
 }

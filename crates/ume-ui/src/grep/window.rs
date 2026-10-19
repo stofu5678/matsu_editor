@@ -88,6 +88,9 @@ pub struct GrepWindow {
     key: Option<String>,
     /// The flag that stops the search that is running.
     running: Option<Arc<AtomicBool>>,
+    /// The macro of タイプ変更後 runs before a search that is about to begin here: the window is
+    /// taken, as if the search ran.
+    starting: bool,
     /// The file being searched and the hits so far, for the bar that stops the search.
     progress: Option<(String, usize)>,
     /// The line where the result of the search that runs (or ran last) begins.
@@ -215,7 +218,7 @@ impl EditorView {
     /// Whether `Command_GREP` writes the result here: this is a Grep window that is not
     /// searching, or an untitled window without changes.
     pub(crate) fn grep_output_here(&self, cx: &App) -> bool {
-        if self.grep.is_running() {
+        if self.grep.is_running() || self.grep.starting {
             return false;
         }
         let shared = self.document.read(cx);
@@ -260,9 +263,9 @@ impl EditorView {
             {
                 // The macro of タイプ変更後 goes on beside the window (a script, or a key macro
                 // that waits for a dialog): the search begins when it has ended, as in Sakura,
-                // where the call does not return before. A macro that called this waits for the
-                // search to begin.
-                let tracked = crate::macros::track(cx);
+                // where the call does not return before. (The macro cannot have been started by
+                // a call that waits for this: a window with a macro refuses a second one.)
+                self.grep.starting = true;
                 cx.spawn(async move |this, cx| {
                     while this
                         .read_with(cx, |view, _| view.macros.is_suspended())
@@ -272,8 +275,11 @@ impl EditorView {
                             .timer(Duration::from_millis(50))
                             .await;
                     }
-                    let _tracked = tracked;
-                    this.update(cx, |view, cx| view.begin_grep(info, cx)).ok();
+                    this.update(cx, |view, cx| {
+                        view.grep.starting = false;
+                        view.begin_grep(info, cx);
+                    })
+                    .ok();
                 })
                 .detach();
                 return true;

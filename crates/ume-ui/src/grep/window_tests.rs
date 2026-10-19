@@ -1,6 +1,8 @@
 //! Tests of Grep in GPUI's headless test window: the dialog, the window of the result, and the
 //! search that runs on a background task. The files are real files in a temporary folder.
 
+use std::time::Duration;
+
 use gpui::{AppContext as _, Entity, TestAppContext, VisualTestContext};
 use ume_commands::command::Arg;
 use ume_commands::sakura::FUNCTIONS;
@@ -787,8 +789,13 @@ const GREP_TYPE: usize = 17;
 /// A settings file with a document type for `grepout` and the macro of タイプ変更後, which puts a
 /// T at the caret.
 fn grep_type_settings(cx: &mut VisualTestContext) -> tempfile::TempDir {
+    grep_type_settings_with(cx, "Char(84);\n")
+}
+
+/// [`grep_type_settings`] with a macro of its own.
+fn grep_type_settings_with(cx: &mut VisualTestContext, macro_text: &str) -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("t.mac"), "Char(84);\n").unwrap();
+    std::fs::write(dir.path().join("t.mac"), macro_text).unwrap();
     let text = format!(
         "[Folders]\r\nszMACROFOLDER={}\r\n[Macro]\r\nName[001]=\r\nFile[001]=t.mac\r\n\
          nMacroOnTypeChanged=1\r\n[Other]\r\nnTypesCount=18\r\n[Types(17)]\r\n\
@@ -866,4 +873,37 @@ fn the_window_made_for_a_result_has_the_grepout_type_without_the_macro(cx: &mut 
     let text = text_of(&others[0], cx);
     assert!(!text.starts_with('T'), "{text}");
     assert!(text.contains("beta hit"), "{text}");
+}
+
+#[gpui::test]
+fn a_second_grep_does_not_join_the_one_that_waits_for_the_macro(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    // The macro opens the list of the types and waits for it.
+    let _macros = grep_type_settings_with(cx, "TypeList();\nChar(84);\n");
+    let p = Project::new();
+    f.view.update_in(cx, |view, window, cx| {
+        view.start_grep(p.settings("hit").info(), false, window, cx);
+    });
+    settle(cx);
+    assert!(f.view.read_with(cx, |v, _| v.doc_type.list.is_some()));
+    assert!(!f.running(cx), "the search waits for the macro");
+    // The window is taken: another Grep takes a new window.
+    f.view.update_in(cx, |view, window, cx| {
+        view.start_grep(p.settings("alpha").info(), false, window, cx);
+    });
+    settle(cx);
+    assert_eq!(other_views(cx, &f.view).len(), 1);
+    f.view.update(cx, |v, cx| {
+        v.doc_type.list = None;
+        cx.notify();
+    });
+    cx.executor().allow_parking();
+    for _ in 0..20 {
+        cx.executor().advance_clock(Duration::from_millis(100));
+        settle(cx);
+    }
+    let text = text_of(&f.view, cx);
+    assert!(text.starts_with('T'), "{text}");
+    assert_eq!(text.matches("□検索条件").count(), 1, "{text}");
+    assert!(text.contains("\"hit\""), "{text}");
 }
