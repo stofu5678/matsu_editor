@@ -1,0 +1,144 @@
+name: Release
+
+# On every push to main (ADR-0014, docs/release.md):
+#   - release-please keeps a release PR up to date (version from Conventional Commits).
+#   - the five packages are built and published as the moving prerelease `nightly`.
+#   - when the release PR was just merged, the same packages are attached to the new version release.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# One run at a time. A newer run waits (and replaces older waiting runs) so the
+# `nightly` tag never moves backwards.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      # Set RELEASE_PLEASE_TOKEN (a GitHub App token or a fine-grained token) to make the
+      # release PR run CI and merge itself. Without it everything below still works with
+      # GITHUB_TOKEN, but the release PR needs a manual merge (docs/release.md).
+      HAS_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN != '' }}
+      GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+    outputs:
+      release_created: ${{ steps.rp.outputs.release_created }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
+      sha: ${{ steps.rp.outputs.sha }}
+    steps:
+      - uses: googleapis/release-please-action@v4.4.1
+        id: rp
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      # The version bump changes the workspace crates in Cargo.lock; `--locked` builds fail
+      # without this. release-please rewrites its branch on every run, so redo it each time.
+      - uses: actions/checkout@v7
+        if: steps.rp.outputs.prs_created == 'true'
+        with:
+          ref: ${{ fromJSON(steps.rp.outputs.pr).headBranchName }}
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+      - uses: dtolnay/rust-toolchain@1.99.0
+        if: steps.rp.outputs.prs_created == 'true'
+      - name: Update Cargo.lock in the release PR
+        if: steps.rp.outputs.prs_created == 'true'
+        run: |
+          cargo update --workspace
+          if ! git diff --quiet Cargo.lock; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add Cargo.lock
+            git commit -m "chore: update Cargo.lock for the release"
+            git push
+          fi
+      - name: Merge the release PR when it passes
+        if: steps.rp.outputs.prs_created == 'true' && env.HAS_TOKEN == 'true'
+        env:
+          PR_NUMBER: ${{ fromJSON(steps.rp.outputs.pr).number }}
+        run: gh pr merge "$PR_NUMBER" --auto --squash --repo "$GITHUB_REPOSITORY"
+
+  # The nightly build is of the commit that triggered this run.
+  package:
+    uses: ./.github/workflows/package.yml
+
+  # The version build is of the commit release-please tagged, which can differ from the
+  # triggering commit when pushes come close together (a newer run replaced this one).
+  package-release:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    uses: ./.github/workflows/package.yml
+    with:
+      ref: ${{ needs.release-please.outputs.sha }}
+      artifact-prefix: release
+
+  nightly:
+    needs: package
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: package-*
+          path: artifacts
+          merge-multiple: true
+      - name: Name the files
+        run: |
+          mkdir out
+          for f in artifacts/ume-*; do
+            name=$(basename "$f")
+            mv "$f" "out/ume-nightly-${name#ume-}"
+          done
+          ls -l out
+      - name: Publish the nightly prerelease
+        run: |
+          subject=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA" --jq '.commit.message | split("\n")[0]')
+          notes="Built from ${SHA} (${subject}). This prerelease is replaced on every push to main."
+          if gh release view nightly --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # Move the tag, then replace the assets.
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/nightly" -f sha="$SHA" -F force=true
+            gh release edit nightly --repo "$GITHUB_REPOSITORY" --prerelease --latest=false \
+              --title "Nightly" --notes "$notes"
+          else
+            gh release create nightly --repo "$GITHUB_REPOSITORY" --target "$SHA" \
+              --prerelease --latest=false --title "Nightly" --notes "$notes"
+          fi
+          gh release upload nightly out/* --repo "$GITHUB_REPOSITORY" --clobber
+
+  release:
+    needs: [release-please, package-release]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ needs.release-please.outputs.tag_name }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: release-*
+          path: artifacts
+          merge-multiple: true
+      - name: Attach the packages to the release
+        run: |
+          mkdir out
+          for f in artifacts/ume-*; do
+            name=$(basename "$f")
+            mv "$f" "out/ume-${TAG}-${name#ume-}"
+          done
+          ls -l out
+          gh release upload "$TAG" out/* --repo "$GITHUB_REPOSITORY" --clobber
