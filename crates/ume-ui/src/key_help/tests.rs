@@ -552,3 +552,27 @@ fn moving_the_caret_with_the_keyboard_shows_the_help_of_the_new_word(cx: &mut Te
     cx.run_until_parked();
     assert_eq!(f.tip(cx).as_deref(), Some("second"));
 }
+
+#[gpui::test]
+fn the_tip_uses_the_font_of_the_page_as_soon_as_it_is_set(cx: &mut TestAppContext) {
+    let (_files, user) = settings(ON);
+    let (f, cx) = setup(cx, "alpha", user);
+    let text_font = f.view.read_with(cx, |v, _| v.font());
+    let tip_font = |f: &Fixture, cx: &mut VisualTestContext| {
+        f.view.read_with(cx, |v, app| v.key_help_font(app))
+    };
+    // no font of the page: the font of the text
+    assert_eq!(tip_font(&f, cx), text_font);
+    let mut font = ume_config::settings::FontSetting::default();
+    font.log_font.face_name = "Sample Face".to_owned();
+    font.point_size = 120;
+    cx.update(|_, app| {
+        app.set_global(crate::support::prefs::HelperPrefs {
+            key_help_font: Some(font),
+            ..Default::default()
+        });
+    });
+    let (family, size) = tip_font(&f, cx);
+    assert_eq!(family.as_ref(), "Sample Face");
+    assert_eq!(size, crate::settings::view_settings::points_to_px(120));
+}

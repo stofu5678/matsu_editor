@@ -12,7 +12,7 @@ use crate::support::prefs;
 const INI: &str = "[Other]\r\nx=1\r\n\
 [Common]\r\nbHokanKey_RETURN=0\r\nbHokanKey_TAB=1\r\nbHokanKey_RIGHT=0\r\n\
 szExtHelp=a.chm\r\nszExtHtmlHelp=b.chm\r\nbHtmlHelpIsSingle=0\r\n\
-szMigemoDll=migemo.dll\r\nszMigemoDict=dict\r\nkhlfFaceName=Meiryo\r\nkhps=90\r\n";
+szMigemoDll=migemo.dll\r\nszMigemoDict=dict\r\nkhlf=-12,0,0,0,400,0,0,0,128,3,2,1,49\r\nkhlfFaceName=Meiryo\r\nkhps=90\r\n";
 
 fn open_page(cx: &mut TestAppContext, handle: gpui::AnyWindowHandle) {
     run(cx, handle, "F_OPTION");
@@ -52,15 +52,17 @@ fn the_page_has_the_controls_of_the_resource() {
         "bHtmlHelpIsSingle",
         "szMigemoDll",
         "szMigemoDict",
-        "khlfFaceName",
     ] {
         assert!(keys.contains(&key), "{key}");
     }
-    // Only the migemo and the font are not available; the buttons of the files are.
+    // Only the migemo is not available; the font and the buttons of the files are.
     for c in &list {
-        let off = c.id.starts_with("helper_migemo") || c.id.starts_with("helper_font");
-        assert_eq!(c.live, !off, "{}", c.id);
+        assert_eq!(c.live, !c.id.starts_with("helper_migemo"), "{}", c.id);
     }
+    assert!(
+        list.iter()
+            .any(|c| matches!(c.kind, Kind::Font { key_lf: "khlf", .. }))
+    );
     assert!(all_controls().iter().any(|c| c.id == EXT_HELP));
     assert!(matches!(
         list.iter().find(|c| c.id == EXT_HTML_HELP).unwrap().kind,
@@ -75,7 +77,11 @@ fn the_page_shows_the_file_and_the_defaults_are_sakuras(cx: &mut TestAppContext)
     assert_eq!(text(cx, EXT_HELP), "a.chm");
     assert_eq!(text(cx, EXT_HTML_HELP), "b.chm");
     assert_eq!(text(cx, "helper_migemo_dll"), "migemo.dll");
-    assert_eq!(text(cx, "helper_font"), "Meiryo");
+    let font = with_dialog(cx, |d, _, _| d.values().font(super::FONT));
+    assert_eq!(
+        (font.log_font.face_name.as_str(), font.point_size),
+        ("Meiryo", 90)
+    );
     let v = |cx: &mut TestAppContext, id| with_dialog(cx, |d, _, _| d.values().bool(id));
     assert!(!v(cx, "helper_hokan_return") && v(cx, "helper_hokan_tab"));
     assert!(!v(cx, "helper_hokan_right") && !v(cx, "helper_html_help_single"));
@@ -139,12 +145,29 @@ fn what_is_not_available_stays_as_the_file_has_it(cx: &mut TestAppContext) {
     open_page(cx, handle);
     // a change of an unavailable box does nothing
     type_in(cx, "helper_migemo_dll", "other.dll");
-    type_in(cx, "helper_font", "Other");
     check(cx, "helper_hokan_tab", false);
     ok(cx);
     assert_eq!(get(&ini, "szMigemoDll").as_deref(), Some("migemo.dll"));
     assert_eq!(get(&ini, "szMigemoDict").as_deref(), Some("dict"));
+    // the font is not changed either
     assert_eq!(get(&ini, "khlfFaceName").as_deref(), Some("Meiryo"));
     assert_eq!(get(&ini, "khps").as_deref(), Some("90"));
     assert_eq!(get(&ini, "bHokanKey_TAB").as_deref(), Some("0"));
+}
+
+#[gpui::test]
+fn the_chosen_font_is_written_as_khlf_and_the_tip_takes_it_at_once(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, "[Other]\r\nx=1\r\n");
+    assert_eq!(current(cx).key_help_font, None);
+    open_page(cx, handle);
+    let mut font = ume_config::settings::FontSetting::default();
+    font.log_font.face_name = "Meiryo".to_owned();
+    font.point_size = 120;
+    // what the font dialog gives (`IDC_BUTTON_KEYWORDHELPFONT`)
+    with_dialog(cx, |d, _, dcx| d.set_font(super::FONT, font.clone(), dcx));
+    ok(cx);
+    assert_eq!(get(&ini, "khps").as_deref(), Some("120"));
+    assert_eq!(get(&ini, "khlfFaceName").as_deref(), Some("Meiryo"));
+    assert!(get(&ini, "khlf").is_some());
+    assert_eq!(current(cx).key_help_font, Some(font));
 }

@@ -6,6 +6,7 @@
 //! font from the file ([`crate::key_help`]) and there is no migemo.
 
 use gpui::{App, Global};
+use ume_config::settings::FontSetting;
 
 /// What the page says. Sakura's defaults (`CShareData::InitShareData`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -22,6 +23,8 @@ pub(crate) struct HelperPrefs {
     pub ext_html_help: String,
     /// `m_bHtmlHelpIsSingle`: one viewer for the HTML help.
     pub html_help_is_single: bool,
+    /// `m_lf`, `m_nPointSize`: the font of the keyword help tip (`None`: the font of the text).
+    pub key_help_font: Option<FontSetting>,
 }
 
 impl Default for HelperPrefs {
@@ -33,6 +36,7 @@ impl Default for HelperPrefs {
             ext_help: String::new(),
             ext_html_help: String::new(),
             html_help_is_single: true,
+            key_help_font: None,
         }
     }
 }

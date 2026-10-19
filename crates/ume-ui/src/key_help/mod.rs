@@ -37,7 +37,7 @@ use gpui::{
     deferred, div, point, px, rgb,
 };
 use ume_commands::text::complete;
-use ume_config::settings::{DocumentTypes, FontSetting};
+use ume_config::settings::DocumentTypes;
 use ume_core::tag_jump::TagTarget;
 
 use crate::view::EditorView;
@@ -449,13 +449,7 @@ impl EditorView {
     /// text.
     fn key_help_font(&self, cx: &App) -> (SharedString, f32) {
         let (family, size) = self.font();
-        let font = crate::doc_types::with_user(cx, |user| {
-            let mut font = FontSetting::default();
-            let read = user
-                .profile()
-                .is_some_and(|p| font.read(p, "Common", "khlf", Some("khps"), None));
-            read.then_some(font)
-        });
+        let font = crate::support::prefs::current(cx).key_help_font;
         let Some(font) = font else {
             return (family, size);
         };

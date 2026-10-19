@@ -7,12 +7,13 @@
 //! the choice of one viewer (`F_EXTHELP1`, `F_EXTHTMLHELP`, [`crate::support::help`]). A type can
 //! have its own help files (the type settings, 支援).
 //!
-//! The font of the keyword help is shown from the file (`khlf`) and used by the tip
-//! ([`crate::key_help`]); the button that changes it is not available yet (the font dialog is
-//! another feature). Not available: the DLL and the dictionary of migemo (UME Editor has no
-//! migemo).
+//! The font of the keyword help (`khlf`, `khps`) is chosen with the font dialog, shown next to
+//! the button as `SetFontLabel` does, and used by the tip from OK on ([`crate::key_help`]). Not
+//! available: the DLL and the dictionary of migemo (UME Editor has no migemo).
 
 use super::super::CommonSettingsDialog;
+use ume_config::settings::FontSetting;
+
 use super::super::Env;
 use super::super::model::{Control, Item, Values};
 use crate::support::browse::browse_into;
@@ -43,6 +44,35 @@ fn browse_ext_html_help(
         EXT_HTML_HELP,
         "外部HTMLヘルプファイルの選択",
     );
+}
+
+/// The font of the keyword help (`m_sHelper.m_lf`, `m_nPointSize`): not drawn, the button and the
+/// label use it.
+const FONT: &str = "helper_font_value";
+
+/// `IDC_BUTTON_KEYWORDHELPFONT` (`CPropHelper::DispatchEvent`): the font dialog starts with the
+/// font of the file; when it has none, with the default font.
+fn choose_font(
+    dialog: &mut CommonSettingsDialog,
+    window: &mut gpui::Window,
+    cx: &mut gpui::Context<CommonSettingsDialog>,
+) {
+    let font = dialog.values().font(FONT);
+    let initial = if font.log_font.face_name.is_empty() {
+        FontSetting::default()
+    } else {
+        font
+    };
+    dialog.choose_font(FONT, initial, window, cx);
+}
+
+/// `IDC_STATIC_KEYWORDHELPFONT`: the face and the size of the font.
+fn font_label(
+    dialog: &CommonSettingsDialog,
+    cx: &mut gpui::Context<CommonSettingsDialog>,
+) -> gpui::AnyElement {
+    let font = dialog.values().font(FONT);
+    super::super::model::font_label(Some(&font), cx)
 }
 
 fn no_action(
@@ -90,12 +120,9 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
         Item::Group(
             "キーワードヘルプ",
             vec![Item::Row(vec![
-                Control::text("helper_font", "", "khlfFaceName", "")
-                    .unavailable()
-                    .into(),
-                Control::button("helper_font_button", "フォント(&F)...", no_action)
-                    .unavailable()
-                    .into(),
+                Item::Custom(font_label),
+                Control::button("helper_font_button", "フォント(&F)...", choose_font).into(),
+                Item::Hidden(vec![Control::font(FONT, "khlf", Some("khps"), None)]),
             ])],
         ),
         Item::Group(
@@ -131,6 +158,7 @@ fn prefs(values: &Values) -> HelperPrefs {
         ext_help: values.text(EXT_HELP).to_owned(),
         ext_html_help: values.text(EXT_HTML_HELP).to_owned(),
         html_help_is_single: values.bool("helper_html_help_single"),
+        key_help_font: Some(values.font(FONT)).filter(|f| !f.log_font.face_name.is_empty()),
     }
 }
 
