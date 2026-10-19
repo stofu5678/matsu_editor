@@ -8,6 +8,11 @@
 //! untitled and unmodified, else in a new window, or a new tab in tab mode; a file that is open already is brought to
 //! the front), and in view mode when the third argument is not 0.
 //!
+//! Called without arguments by a key, a menu or the toolbar it shows the open dialog, as
+//! `F_FILEOPEN` does (Sakura reads the macro name `FileOpen` of a `.key` file as this function and
+//! runs it with no arguments); only a macro without a file name is an error
+//! (`STR_ERR_DLGMACRO14`, `CMacro.cpp`). A macro is told apart by `is_macro_running`.
+//!
 //! # The macro waits in all three cases
 //!
 //! Sakura reads a file that goes into this window before `FileOpen` returns, so the calls after
@@ -59,6 +64,17 @@ impl UiCommand for FileOpen2 {
         window: &mut Window,
         cx: &mut Context<EditorView>,
     ) -> Result {
+        if args.is_empty() && !view.is_macro_running() {
+            // A key, a menu or the toolbar (`[KeyBind]` names `F_FILEOPEN` as `FileOpen`, which
+            // `GetFuncInfoByName` reads as this function): `HandleCommand` calls
+            // `Command_FILEOPEN( nullptr, ... )`, which shows the open dialog.
+            start(window, cx, async move |view, cx| {
+                if let Some(paths) = choose_files(&view, cx, None).await {
+                    open_paths(&view, cx, paths, None).await;
+                }
+            });
+            return Ok(());
+        }
         if args.is_empty() {
             return Err(CommandError::BadArgs(
                 "FileOpen needs the file name as argument 1".to_owned(),

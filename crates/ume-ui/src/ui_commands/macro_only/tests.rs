@@ -715,9 +715,25 @@ fn file_open_of_a_file_that_cannot_be_read_is_shown_and_the_macro_goes_on(cx: &m
 #[gpui::test]
 fn file_open_needs_a_file_name_argument(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "");
-    assert!(!f.run(cx, "F_FILEOPEN2", &[]));
     assert!(!f.run(cx, "F_FILEOPEN2", &[Arg::Int(1)]));
     assert!(!f.run(cx, "F_FILEOPEN2", &[text("x"), text("y")]));
+}
+
+#[gpui::test]
+fn a_key_bound_to_file_open_shows_the_open_dialog(cx: &mut TestAppContext) {
+    use ume_commands::keymap::user::parse_entries;
+    use ume_commands::keymap::{KeyMap, KeyMapOptions, Platform};
+    // A `[KeyBind]` row with the macro name `FileOpen`, which Sakura reads as `F_FILEOPEN2`.
+    let (rows, warnings) = parse_entries([("KeyBind[000]", "0071,FileOpen,0,0,0,0,0,0,0,F2")]);
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let mut map = KeyMap::new(KeyMapOptions::for_platform(Platform::Other));
+    map.apply_user_rows(&rows);
+    let (f, cx) = setup(cx, "");
+    f.view.update(cx, |view, _| view.keymap = map);
+    cx.simulate_keystrokes("f2");
+    cx.run_until_parked();
+    assert!(cx.did_prompt_for_paths(), "the open dialog");
+    assert_eq!(f.output(cx), "", "not an error");
 }
 
 #[gpui::test]
