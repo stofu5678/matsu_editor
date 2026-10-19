@@ -178,6 +178,11 @@ impl Focusable for InputDialog {
 /// units: the part that was inserted is cut so that the whole fits, and the text around it stays
 /// (inserting `X` at the start of a full field gives nothing, not a field without its last
 /// character). `None` when `after` fits.
+///
+/// The change event of the field does not say what range was edited, so the range is inferred
+/// from the common start and end of the two texts. When a selection is replaced by a text that
+/// begins or ends with the selected text itself, the old text is taken as untouched and the
+/// replacement is refused; the text that was there is never lost.
 fn limit_edit(before: &str, after: &str, max: usize) -> Option<String> {
     if after.encode_utf16().count() <= max {
         return None;
