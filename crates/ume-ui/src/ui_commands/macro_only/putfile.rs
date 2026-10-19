@@ -83,7 +83,7 @@ impl UiCommand for PutFile {
             .document()
             .update(cx, |shared, _| shared.take_lock_failure());
         if let Some(failure) = failure {
-            crate::file_ops::lock::report_failure_in(window, cx, failure);
+            crate::file_ops::lock::report_failure_in_view(&failure, window, cx);
         }
         Ok(())
     }

@@ -23,7 +23,7 @@
 
 use std::path::{Path, PathBuf};
 
-use gpui::{App, AsyncWindowContext, PromptLevel, WeakEntity, Window};
+use gpui::{App, AsyncWindowContext, Context, PromptLevel, WeakEntity, Window};
 use ume_platform::file_lock::{FileLock, ShareMode};
 
 use super::ask::tell;
@@ -161,6 +161,17 @@ pub(crate) fn report_failure_in(window: &mut Window, cx: &mut App, failure: Lock
             tell(cx, PromptLevel::Warning, &failure.message(), None).await;
         })
         .detach();
+}
+
+/// [`report_failure`] for a command of the view: a macro that called the command waits until the
+/// box is closed (Sakura's boxes are modal).
+pub(crate) fn report_failure_in_view(
+    failure: &LockFailure,
+    window: &mut Window,
+    cx: &mut Context<EditorView>,
+) {
+    let answer = window.prompt(PromptLevel::Warning, &failure.message(), None, &["OK"], cx);
+    crate::macros::keep_box(answer, window, cx);
 }
 
 /// Releases the lock of the document of `view` if it holds `path`, before the file is read again.

@@ -40,7 +40,7 @@ impl UiCommand for ViewMode {
             shared.take_lock_failure()
         });
         if let Some(failure) = failure {
-            crate::file_ops::lock::report_failure_in(window, cx, failure);
+            crate::file_ops::lock::report_failure_in_view(&failure, window, cx);
         }
         Ok(())
     }
