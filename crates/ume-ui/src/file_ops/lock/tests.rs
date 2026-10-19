@@ -90,6 +90,14 @@ fn text(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> String {
     })
 }
 
+/// Lets go of the lock, so that the test can read the file (Windows refuses a read while the
+/// lock denies it).
+fn unlock(view: &Entity<EditorView>, cx: &mut VisualTestContext) {
+    view.update(cx, |view, cx| {
+        view.document().update(cx, |shared, _| shared.unlock_file())
+    });
+}
+
 /// Whether another program could lock the file in both modes.
 fn free(path: &Path) -> bool {
     FileLock::acquire(path, ShareMode::DenyReadWrite).is_ok()
@@ -191,9 +199,10 @@ fn save_while_locked(cx: &mut TestAppContext, number: i32, mode: ShareMode) {
     cx.simulate_input("x");
     run(&view, cx, "F_FILESAVE");
     assert!(!cx.has_pending_prompt());
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), "xabc");
     assert_eq!(held(&view, cx), Some(mode), "locked again after the save");
     assert!(FileLock::acquire(&path, ShareMode::DenyReadWrite).is_err());
+    unlock(&view, cx);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "xabc");
 }
 
 #[gpui::test]
@@ -225,10 +234,11 @@ fn saving_under_another_name_locks_the_new_file(cx: &mut TestAppContext) {
         })
     });
     cx.run_until_parked();
-    assert_eq!(std::fs::read_to_string(&other).unwrap(), "xabc");
     assert!(FileLock::acquire(&other, ShareMode::DenyReadWrite).is_err());
     // The old file is let go of.
     assert!(free(&path));
+    unlock(&view, cx);
+    assert_eq!(std::fs::read_to_string(&other).unwrap(), "xabc");
 }
 
 #[gpui::test]
@@ -249,8 +259,34 @@ fn the_backup_is_made_while_the_file_is_locked(cx: &mut TestAppContext) {
     run(&view, cx, "F_FILESAVE");
     assert!(!cx.has_pending_prompt());
     assert_eq!(std::fs::read_to_string(dir.0.join("a.bak")).unwrap(), "old");
-    assert_eq!(std::fs::read_to_string(&path).unwrap(), "newold");
     assert_eq!(held(&view, cx), Some(ShareMode::DenyReadWrite));
+    unlock(&view, cx);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "newold");
+}
+
+#[gpui::test]
+fn put_file_to_the_locked_file_works_and_locks_it_again(cx: &mut TestAppContext) {
+    use ume_commands::command::Arg;
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "abc");
+    let (view, cx) = setup(cx, 2);
+    open(&view, cx, &path);
+    let code = FUNCTIONS
+        .iter()
+        .find(|f| f.name == "F_PUTFILE")
+        .unwrap()
+        .code;
+    let target = Arg::Text(path.display().to_string());
+    cx.simulate_input("x");
+    view.update_in(cx, |view, window, cx| {
+        view.run_function(code, &[target, Arg::Int(4)], window, cx)
+    });
+    cx.run_until_parked();
+    assert!(!cx.has_pending_prompt());
+    assert_eq!(held(&view, cx), Some(ShareMode::DenyReadWrite));
+    assert!(!free(&path));
+    unlock(&view, cx);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "xabc");
 }
 
 #[gpui::test]

@@ -231,6 +231,28 @@ impl SharedDocument {
         self.lock.mode()
     }
 
+    /// Before something else writes `target` (`F_PUTFILE`): lets go of the lock if `target` is the
+    /// file of this document, whose own lock would refuse the write (Windows) or be lost with the
+    /// replaced file. Returns whether it did, for [`restore_lock`](Self::restore_lock).
+    pub(crate) fn release_lock_for(&mut self, target: &Path) -> bool {
+        let same = self.lock.is_locked()
+            && self
+                .path
+                .as_deref()
+                .is_some_and(|path| ume_platform::file_id::same_file(path, target));
+        if same {
+            self.lock.release();
+        }
+        same
+    }
+
+    /// Takes the lock back after [`release_lock_for`](Self::release_lock_for) said it let go.
+    pub(crate) fn restore_lock(&mut self, released: bool) {
+        if released {
+            self.lock_file(self.lock.mode());
+        }
+    }
+
     /// `CDocLocker::OnAfterLoad`: a file that cannot be written is not locked.
     pub(crate) fn lock_after_load(&mut self, mode: i32) {
         if self.disk.unwritable {
