@@ -134,6 +134,7 @@ impl Page {
         match self {
             Page::General => Some(pages::general::items()),
             Page::Window => Some(pages::window::items()),
+            Page::MainMenu => pages::main_menu::items(),
             Page::Toolbar => Some(pages::toolbar::items()),
             Page::Tab => Some(pages::tab::items()),
             Page::Edit => Some(pages::edit::items()),
@@ -156,6 +157,7 @@ impl Page {
         match self {
             Page::General => pages::general::apply(env, after, before),
             Page::Window => pages::window::apply(env, after, before),
+            Page::MainMenu => pages::main_menu::apply(env, after, before),
             Page::Toolbar => pages::toolbar::apply(env, after, before),
             Page::Tab => pages::tab::apply(env, after, before),
             Page::Edit => pages::edit::apply(env, after, before),

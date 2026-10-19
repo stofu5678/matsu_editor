@@ -8,8 +8,12 @@
 //! menu from the table; `CKeyBind::MakeMenuLabel` (`sakura_core/func/CKeyBind.cpp`) puts the access
 //! key in the label; `CKeyBind::GetMenuLabel` adds the shortcut after a tab.
 
+use std::sync::OnceLock;
+
 use ume_commands::keymap::{Chord, DisplayStyle, KeyMap};
-use ume_commands::sakura::{FUNCTIONS, KEY_PARENTHESES, MAIN_MENU, MenuItem, MenuKind};
+use ume_commands::sakura::{FUNCTIONS, KEY_PARENTHESES, MAIN_MENU, MenuKind};
+use ume_config::settings::main_menu::{F_NODE, MAX_MAINMENU_TOP};
+use ume_config::settings::{CustomMenus, MainMenu, MenuRow, RowKind};
 
 /// `F_EXITALL`, "ウメエディタの全終了" (Sakura: "サクラエディタの全終了"). Until a command implements
 /// it, the item runs the `Exit` action of the application (which the first window already had).
@@ -58,21 +62,30 @@ pub struct TopMenu {
 }
 
 /// The label Sakura shows for `name` with the access key `key` (`CKeyBind::MakeMenuLabel` with
-/// the "key in parentheses" setting, [`KEY_PARENTHESES`], on). A GPUI menu has no mnemonic mark,
-/// so the `&` that Sakura puts in front of the key is left out.
+/// the "key in parentheses" setting on). See [`menu_label_with`].
+pub fn menu_label(name: &str, key: Option<char>) -> String {
+    menu_label_with(name, key, true)
+}
+
+/// The label Sakura shows for `name` with the access key `key` (`CKeyBind::MakeMenuLabel`).
+/// `parentheses` is the setting `bKeyParentheses` of the main menu. A GPUI menu has no mnemonic
+/// mark, so the `&` that Sakura puts in front of the key is left out.
 ///
+/// * Without `parentheses`, a name that has the key (or its lower case) as a letter already shows
+///   it: the label is the name.
 /// * If the name has a `(` followed by the key, the name already says it: `開く(O)` stays.
 /// * A name that ends in `...` gets the key before the dots: `開く...` becomes `開く(O)...`.
 /// * Otherwise `(K)` goes at the end.
 ///
 /// `&&` in the name is a literal `&` (the string table's escape).
-pub fn menu_label(name: &str, key: Option<char>) -> String {
+pub fn menu_label_with(name: &str, key: Option<char>, parentheses: bool) -> String {
     let plain = name.replace("&&", "&");
     let Some(key) = key else {
         return plain;
     };
-    // The other style (a letter of the name as the key) is not built.
-    const { assert!(KEY_PARENTHESES) };
+    if !parentheses && (plain.contains(key) || key.to_lowercase().any(|c| plain.contains(c))) {
+        return plain;
+    }
     if let Some(open) = plain.find('(')
         && plain[open..].contains(key)
     {
@@ -112,30 +125,47 @@ impl Available for Registered {
     }
 }
 
-fn name_of(item: &MenuItem) -> String {
-    let label = item.label.or_else(|| {
-        FUNCTIONS
+/// Sakura's default main menu (`MainMenu.ini`) as rows: nodes and functions take their names from
+/// the function's label, so no row has a name of its own.
+pub fn default_main_menu() -> &'static MainMenu {
+    static DEFAULT: OnceLock<MainMenu> = OnceLock::new();
+    DEFAULT.get_or_init(|| MainMenu {
+        rows: MAIN_MENU
             .iter()
-            .find(|f| f.code == item.code)
-            .and_then(|f| f.label)
-    });
-    menu_label(label.unwrap_or("-- undefined name --"), item.access_key)
+            .map(|item| MenuRow {
+                level: usize::from(item.level),
+                kind: match item.kind {
+                    MenuKind::Node => RowKind::Node,
+                    MenuKind::Leaf => RowKind::Leaf,
+                    MenuKind::Separator => RowKind::Separator,
+                    MenuKind::Special => RowKind::Special,
+                },
+                function: item.code,
+                key: item.access_key,
+                name: String::new(),
+            })
+            .collect(),
+        key_parentheses: KEY_PARENTHESES,
+    })
 }
 
-fn leaf(item: &MenuItem, keymap: &KeyMap, available: &dyn Available) -> Entry {
-    let (action, enabled) = if available.is_available(item.code) {
-        (MenuAction::Function(item.code), true)
-    } else if item.code == F_EXITALL {
-        (MenuAction::Exit, true)
+/// The label of function `code` in the table (`LS(code)`, `Funccode2Name`).
+fn function_label(code: u16) -> Option<&'static str> {
+    FUNCTIONS
+        .iter()
+        .find(|f| f.code == code)
+        .and_then(|f| f.label)
+}
+
+/// The name of a row as the menu shows it (`LayoutMainMenu`, `InitMenu`, `InitMenu_Function`): a node
+/// with its own name (or `F_NODE`) shows it, any other row the label of its function.
+fn name_of(row: &MenuRow, parentheses: bool) -> String {
+    let label = if row.kind == RowKind::Node && (row.function == F_NODE || !row.name.is_empty()) {
+        row.name.as_str()
     } else {
-        (MenuAction::Function(item.code), false)
+        function_label(row.function).unwrap_or("-- undefined name --")
     };
-    Entry::Item(Item {
-        label: name_of(item),
-        action,
-        shortcut: keymap.shortcut_for(item.code),
-        enabled,
-    })
+    menu_label_with(label, row.key, parentheses)
 }
 
 /// The items of the lists that Sakura fills in at run time (`MenuKind::Special`): the recent files,
@@ -154,48 +184,94 @@ impl Lists for NoLists {
     }
 }
 
-/// Builds the entries of the items after `*at` that are deeper than `level`.
-fn entries(
-    at: &mut usize,
-    level: u8,
-    keymap: &KeyMap,
-    available: &dyn Available,
-    lists: &dyn Lists,
-) -> Vec<Entry> {
-    let mut out = Vec::new();
-    while let Some(item) = MAIN_MENU.get(*at) {
-        if item.level <= level {
-            break;
-        }
-        *at += 1;
-        out.push(match item.kind {
-            MenuKind::Separator => Entry::Separator,
-            MenuKind::Leaf => leaf(item, keymap, available),
-            // The list of recent files, windows and so on: the items go into this menu.
-            MenuKind::Special => {
-                let items = lists.items(item.code);
-                if !items.is_empty() {
-                    out.extend(items.into_iter().map(Entry::Item));
-                    continue;
-                }
-                Entry::Item(Item {
-                    label: "(なし)".to_owned(),
-                    action: MenuAction::Placeholder,
-                    shortcut: None,
-                    enabled: false,
-                })
-            }
-            MenuKind::Node => Entry::Submenu {
-                label: name_of(item),
-                entries: entries(at, item.level, keymap, available, lists),
-            },
-        });
-    }
-    out
+/// What the menus are built with.
+struct Build<'a> {
+    parentheses: bool,
+    keymap: &'a KeyMap,
+    available: &'a dyn Available,
+    lists: &'a dyn Lists,
+    /// The names of the custom menus, which a function row of one shows (`InitMenu_Function`).
+    custom_menus: &'a CustomMenus,
 }
 
-/// Sakura's main menu: the menus of the menu bar, in order. The lists that Sakura fills in at run
-/// time are empty.
+impl Build<'_> {
+    /// A function row (`InitMenu_Function`). The function of a custom menu shows the name of the menu
+    /// and is grayed out when the menu has no items.
+    fn leaf(&self, row: &MenuRow) -> Entry {
+        let custom = crate::custom_menu::model::menu_index(row.function);
+        let (action, enabled) = if let Some(index) = custom {
+            let has_items = self
+                .custom_menus
+                .get(index)
+                .is_some_and(|m| !m.items.is_empty());
+            (
+                MenuAction::Function(row.function),
+                has_items && self.available.is_available(row.function),
+            )
+        } else if self.available.is_available(row.function) {
+            (MenuAction::Function(row.function), true)
+        } else if row.function == F_EXITALL {
+            (MenuAction::Exit, true)
+        } else {
+            (MenuAction::Function(row.function), false)
+        };
+        let label = match custom.and_then(|index| self.custom_menus.name(index)) {
+            Some(name) => menu_label_with(&name, row.key, self.parentheses),
+            None => name_of(row, self.parentheses),
+        };
+        Entry::Item(Item {
+            label,
+            action,
+            shortcut: self.keymap.shortcut_for(row.function),
+            enabled,
+        })
+    }
+
+    /// The entries of a list that Sakura fills in at run time: its items, or a disabled "(なし)".
+    fn special(&self, code: u16) -> Vec<Entry> {
+        let items = self.lists.items(code);
+        if !items.is_empty() {
+            return items.into_iter().map(Entry::Item).collect();
+        }
+        vec![Entry::Item(Item {
+            label: "(なし)".to_owned(),
+            action: MenuAction::Placeholder,
+            shortcut: None,
+            enabled: false,
+        })]
+    }
+
+    /// Builds the entries of the rows after `*at` that are deeper than `level`. A row more than one
+    /// level below the row before it ends the menu (`InitMenu` stops there: it has no submenu to put
+    /// the row in).
+    fn entries(&self, rows: &[MenuRow], at: &mut usize, level: usize) -> Vec<Entry> {
+        let mut out = Vec::new();
+        while let Some(row) = rows.get(*at) {
+            if row.level <= level {
+                break;
+            }
+            if row.level > level + 1 {
+                *at = rows.len();
+                break;
+            }
+            *at += 1;
+            match row.kind {
+                RowKind::Separator => out.push(Entry::Separator),
+                RowKind::Leaf => out.push(self.leaf(row)),
+                // The list of recent files, windows and so on: the items go into this menu.
+                RowKind::Special => out.extend(self.special(row.function)),
+                RowKind::Node => out.push(Entry::Submenu {
+                    label: name_of(row, self.parentheses),
+                    entries: self.entries(rows, at, row.level),
+                }),
+            }
+        }
+        out
+    }
+}
+
+/// Sakura's default main menu: the menus of the menu bar, in order. The lists that Sakura fills in
+/// at run time are empty.
 pub fn main_menu(keymap: &KeyMap, available: &dyn Available) -> Vec<TopMenu> {
     main_menu_with(keymap, available, &NoLists)
 }
@@ -206,17 +282,58 @@ pub fn main_menu_with(
     available: &dyn Available,
     lists: &dyn Lists,
 ) -> Vec<TopMenu> {
-    let mut tops = Vec::new();
-    let mut at = 0;
-    while let Some(item) = MAIN_MENU.get(at) {
-        at += 1;
-        debug_assert_eq!(item.level, 0, "the table starts each menu at level 0");
-        tops.push(TopMenu {
-            label: name_of(item),
-            entries: entries(&mut at, 0, keymap, available, lists),
+    main_menu_for(
+        default_main_menu(),
+        keymap,
+        available,
+        lists,
+        &CustomMenus::default(),
+    )
+}
+
+/// The menus of the menu bar for `menu` (`CEditWnd::LayoutMainMenu` and `InitMenu`): each row of
+/// level 0 starts a menu, up to [`MAX_MAINMENU_TOP`]; the rows after it, until the next one, are in
+/// it. A node is a menu and a list that Sakura fills in at run time is a menu with its items. A
+/// function or a separator on the menu bar is not shown (a menu bar here holds menus only).
+/// `custom_menus` names the custom menus that function rows open.
+pub fn main_menu_for(
+    menu: &MainMenu,
+    keymap: &KeyMap,
+    available: &dyn Available,
+    lists: &dyn Lists,
+    custom_menus: &CustomMenus,
+) -> Vec<TopMenu> {
+    let build = Build {
+        parentheses: menu.key_parentheses,
+        keymap,
+        available,
+        lists,
+        custom_menus,
+    };
+    let tops: Vec<usize> = menu
+        .rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| row.level == 0)
+        .map(|(i, _)| i)
+        .take(MAX_MAINMENU_TOP)
+        .collect();
+    let mut out = Vec::new();
+    for (n, &start) in tops.iter().enumerate() {
+        let end = tops.get(n + 1).copied().unwrap_or(menu.rows.len());
+        let head = &menu.rows[start];
+        let body = &menu.rows[start + 1..end];
+        let entries = match head.kind {
+            RowKind::Node => build.entries(body, &mut 0, 0),
+            RowKind::Special => build.special(head.function),
+            RowKind::Leaf | RowKind::Separator => continue,
+        };
+        out.push(TopMenu {
+            label: name_of(head, build.parentheses),
+            entries,
         });
     }
-    tops
+    out
 }
 
 /// The text of the shortcut as the menu shows it: Mac symbols on macOS, Sakura's `Ctrl+O` style
@@ -420,5 +537,207 @@ mod tests {
         let menus = main_menu(&keymap(), &Registered);
         let edit = items(&top(&menus, "編集(E)").entries);
         assert!(edit[0].enabled && edit[1].enabled);
+    }
+
+    // ---- the menu of the user ([MainMenu]) ----
+
+    fn node(level: usize, function: u16, name: &str, key: Option<char>) -> MenuRow {
+        MenuRow {
+            level,
+            kind: RowKind::Node,
+            function,
+            key,
+            name: name.to_owned(),
+        }
+    }
+
+    fn function(level: usize, function: u16, key: Option<char>) -> MenuRow {
+        MenuRow {
+            key,
+            ..MenuRow::leaf(level, function)
+        }
+    }
+
+    fn special(level: usize, function: u16) -> MenuRow {
+        MenuRow {
+            kind: RowKind::Special,
+            ..MenuRow::leaf(level, function)
+        }
+    }
+
+    fn user(rows: Vec<MenuRow>, key_parentheses: bool) -> Vec<TopMenu> {
+        let menu = MainMenu {
+            rows,
+            key_parentheses,
+        };
+        main_menu_for(&menu, &keymap(), &all, &NoLists, &CustomMenus::default())
+    }
+
+    #[test]
+    fn the_default_rows_are_the_table() {
+        // A row of the default menu has no name of its own: it shows the label of its function, and
+        // that is the label of the table.
+        for item in MAIN_MENU {
+            if let Some(label) = item.label {
+                assert_eq!(function_label(item.code), Some(label), "{}", item.code);
+            }
+        }
+        let menu = default_main_menu();
+        assert_eq!(menu.rows.len(), MAIN_MENU.len());
+        assert!(menu.key_parentheses);
+        // The 共通設定 stays in it (OK of the page adds it when it is missing).
+        assert!(menu.rows.iter().any(|r| r.function == 31112));
+    }
+
+    #[test]
+    fn a_users_menu_has_levels_separators_lists_and_access_keys() {
+        let menus = user(
+            vec![
+                node(0, 0, "My && File", Some('F')),
+                function(1, 30102, Some('O')),
+                MenuRow::separator(1),
+                node(1, 34005, "", Some('W')),
+                function(2, 30119, Some('W')),
+                special(1, 29002),
+                function(1, 30103, None),
+                node(0, 34059, "", Some('H')),
+                function(1, 31455, Some('A')),
+            ],
+            true,
+        );
+        assert_eq!(menus.len(), 2);
+        assert_eq!(menus[0].label, "My & File(F)");
+        assert_eq!(menus[1].label, "ヘルプ(H)");
+        let entries = &menus[0].entries;
+        assert!(
+            matches!(&entries[0], Entry::Item(i) if i.label == "開く(O)..." && i.action == MenuAction::Function(30102))
+        );
+        assert_eq!(entries[1], Entry::Separator);
+        // A node that takes its name from its function.
+        assert!(
+            matches!(&entries[2], Entry::Submenu { label, entries } if label == "開き直す(W)" && entries.len() == 1)
+        );
+        // A list that Sakura fills in at run time is a disabled "(なし)" without items.
+        assert!(matches!(&entries[3], Entry::Item(i) if i.action == MenuAction::Placeholder));
+        // A function without a key shows no key.
+        assert!(matches!(&entries[4], Entry::Item(i) if i.label == "上書き保存"));
+        assert_eq!(entries.len(), 5);
+    }
+
+    #[test]
+    fn without_parentheses_a_letter_of_the_name_is_the_access_key() {
+        let rows = vec![
+            node(0, 0, "File", Some('F')),
+            function(1, 30101, Some('N')),
+            function(1, 30102, Some('o')),
+            function(1, 30103, Some('K')),
+        ];
+        let with = user(rows.clone(), true);
+        assert_eq!(with[0].label, "File(F)");
+        let without = user(rows, false);
+        // `File` has an F, `新規作成` has no N: the key is added after the name; 開く... has no o.
+        assert_eq!(without[0].label, "File");
+        let labels: Vec<_> = items(&without[0].entries)
+            .iter()
+            .map(|i| i.label.clone())
+            .collect();
+        assert_eq!(labels, ["新規作成(N)", "開く(o)...", "上書き保存(K)"]);
+        // The key itself, or its lower case, must be in the name (`wcschr` twice in `MakeMenuLabel`).
+        assert_eq!(menu_label_with("Save", Some('S'), false), "Save");
+        assert_eq!(menu_label_with("Save", Some('A'), false), "Save");
+        assert_eq!(menu_label_with("Save", Some('s'), false), "Save(s)");
+        assert_eq!(
+            menu_label_with("開く(O)...", Some('O'), false),
+            "開く(O)..."
+        );
+    }
+
+    #[test]
+    fn a_list_on_the_menu_bar_is_a_menu_and_a_function_there_is_left_out() {
+        let menus = user(
+            vec![
+                function(0, 30101, Some('N')),
+                MenuRow::separator(0),
+                special(0, 29001),
+                node(0, 0, "Mine", None),
+                function(1, 30102, None),
+            ],
+            true,
+        );
+        let labels: Vec<_> = menus.iter().map(|m| m.label.as_str()).collect();
+        assert_eq!(labels, ["ウィンドウリスト", "Mine"]);
+        assert_eq!(menus[0].entries.len(), 1, "the (なし) of the empty list");
+    }
+
+    #[test]
+    fn at_most_twenty_menus_show_and_a_row_two_levels_down_ends_its_menu() {
+        let rows: Vec<MenuRow> = (0..25)
+            .map(|i| node(0, 0, &format!("m{i}"), None))
+            .collect();
+        assert_eq!(user(rows, true).len(), 20);
+        let menus = user(
+            vec![
+                node(0, 0, "A", None),
+                function(1, 30101, None),
+                function(3, 30102, None),
+                function(1, 30103, None),
+                node(0, 0, "B", None),
+                function(1, 30104, None),
+            ],
+            true,
+        );
+        assert_eq!(menus[0].entries.len(), 1, "InitMenu stops at the row");
+        assert_eq!(menus[1].entries.len(), 1, "the next menu is not affected");
+    }
+
+    #[test]
+    fn the_lists_fill_in_the_special_rows_of_a_users_menu() {
+        struct One;
+        impl Lists for One {
+            fn items(&self, code: u16) -> Vec<Item> {
+                (code == 29002)
+                    .then(|| Item {
+                        label: "recent".to_owned(),
+                        action: MenuAction::RecentFile("x".to_owned()),
+                        shortcut: None,
+                        enabled: true,
+                    })
+                    .into_iter()
+                    .collect()
+            }
+        }
+        let menu = MainMenu {
+            rows: vec![node(0, 0, "A", None), special(1, 29002)],
+            key_parentheses: true,
+        };
+        let menus = main_menu_for(&menu, &keymap(), &all, &One, &CustomMenus::default());
+        assert!(matches!(&menus[0].entries[0], Entry::Item(i) if i.label == "recent"));
+    }
+
+    #[test]
+    fn a_custom_menu_row_shows_the_name_of_the_menu_and_is_grayed_out_when_it_is_empty() {
+        let mut menus = CustomMenus::default().menus().to_vec();
+        menus[3].name = "Build".to_owned();
+        let menus = CustomMenus::from_menus(menus);
+        let menu = MainMenu {
+            rows: vec![
+                node(0, 0, "A", None),
+                // `F_CUSTMENU_1` is empty, `F_CUSTMENU_3` is named but empty too, the right-click menu has items.
+                function(1, 31503, Some('B')),
+                function(1, 31501, None),
+                function(1, 31580, None),
+            ],
+            key_parentheses: true,
+        };
+        let built = main_menu_for(&menu, &keymap(), &all, &NoLists, &menus);
+        let found = items(&built[0].entries);
+        assert_eq!(
+            (found[0].label.as_str(), found[0].enabled),
+            ("Build(B)", false)
+        );
+        // Menu 1 has Sakura's seven items.
+        assert!(found[1].enabled);
+        assert_eq!(found[2].label, "右クリックメニュー");
+        assert!(found[2].enabled);
     }
 }

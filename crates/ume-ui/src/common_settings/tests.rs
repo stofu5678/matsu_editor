@@ -246,7 +246,15 @@ fn the_pages_are_in_sakuras_order() {
 /// The pages that keep their own state (the kind chosen, the row selected) in controls with no key
 /// of their own: the id of such a control starts with the page's prefix. The prefixes of the pages
 /// that are not built yet are here too, so that each page can be built without changing this list.
-const KEYLESS_PREFIXES: [&str; 5] = ["toolbar_", "keybind_", "custmenu_", "keyword_", "macro_"];
+const KEYLESS_PREFIXES: [&str; 7] = [
+    "toolbar_",
+    "keybind_",
+    "custmenu_",
+    "keyword_",
+    "macro_",
+    "mainmenu_",
+    "helper_",
+];
 
 #[test]
 fn every_control_has_its_own_name_and_sakuras_key() {

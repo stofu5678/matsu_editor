@@ -15,7 +15,7 @@ use crate::document::SharedDocument;
 use crate::file_ops::start_options::LaunchOptions;
 use crate::file_ops::windows::{open_from_outside, open_from_outside_with};
 use crate::launch::OpenRequest;
-use crate::menu::{Entry, MenuAction, Registered, label_with_shortcut, main_menu_with};
+use crate::menu::{Entry, MenuAction, Registered, label_with_shortcut, main_menu_for};
 use crate::menu_bar::MenuBar;
 use crate::panes::PaneSet;
 use crate::status::status_text;
@@ -33,7 +33,7 @@ actions!(
 
 /// The key map the menus show the shortcuts of, kept so that the menus can be made again when the
 /// history changes.
-struct MenuKeyMap(KeyMap);
+pub(crate) struct MenuKeyMap(pub(crate) KeyMap);
 
 impl gpui::Global for MenuKeyMap {}
 
@@ -225,7 +225,12 @@ fn set_menus(cx: &mut App, keymap: &KeyMap) {
     let macro_list = crate::macros::MacroList(crate::macros::registered_table(cx));
     let rest = ChainedLists(&custom, &macro_list);
     let lists = ChainedLists(&recent, &rest);
-    for top in main_menu_with(keymap, &Registered, &lists) {
+    // The menu of the user (`[MainMenu]`), Sakura's default without one.
+    let main_menu = cx
+        .try_global::<crate::settings::UserSettings>()
+        .map(crate::settings::UserSettings::main_menu)
+        .unwrap_or_else(|| crate::menu::default_main_menu().clone());
+    for top in main_menu_for(&main_menu, keymap, &Registered, &lists, &custom_menus) {
         let mut items = gpui_items(top.entries, style);
         if let Some(states) = &states {
             crate::menu_state::apply_to_menu_items(&mut items, states);
