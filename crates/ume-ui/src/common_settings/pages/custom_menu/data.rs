@@ -95,9 +95,11 @@ pub(super) fn load(profile: &Profile) -> Vec<i32> {
 /// that the file keeps its bytes (and Sakura's defaults are not written out).
 pub(super) fn store(data: &[i32], profile: &mut Profile) -> Result<bool, ProfileError> {
     let menus = menus_of(data);
-    if CustomMenus::from_profile(profile, &code_of_name) == menus {
+    let current = CustomMenus::from_profile(profile, &code_of_name);
+    if current == menus {
         return Ok(false);
     }
-    menus.write_to_profile(profile, None)?;
+    // Menus and items that did not change keep the file's text (a plug-in command reads as a separator).
+    menus.write_to_profile(profile, None, Some(&current))?;
     Ok(true)
 }

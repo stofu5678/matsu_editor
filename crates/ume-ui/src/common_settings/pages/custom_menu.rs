@@ -195,7 +195,7 @@ pub(in crate::common_settings) fn items() -> Option<Vec<Item>> {
         Item::Custom(draw::lists),
         Item::Row(vec![
             Control::text(KEY, "アクセスキー(&Y)", "", "").into(),
-            Control::button("custmenu_set_key", "設定(&K)", |d, window, cx| {
+            Control::button("custmenu_set_key", "設定(&G)", |d, window, cx| {
                 d.set_item_key(window, cx)
             })
             .when(can_set_key)

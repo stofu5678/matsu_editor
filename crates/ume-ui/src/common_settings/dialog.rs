@@ -717,13 +717,19 @@ impl CommonSettingsDialog {
             }
             _ => {}
         }
-        let Some(control) = self
+        let mut usable = self
             .page_controls()
             .into_iter()
-            .find(|c| parse_label(c.label).1 == Some(key) && self.is_usable(c))
-        else {
+            .filter(|c| parse_label(c.label).1 == Some(key) && self.is_usable(c));
+        let Some(control) = usable.next() else {
             return self.use_table_key(key, window, cx);
         };
+        // A mnemonic that several controls share only moves the focus between them in a Windows
+        // dialog (`IsDialogMessage`); it clicks none of them. These controls have no focus to
+        // move, so nothing is done (the custom menu page has two controls with S).
+        if usable.next().is_some() {
+            return true;
+        }
         match control.kind {
             Kind::Check => {
                 let on = self.values.bool(control.id);

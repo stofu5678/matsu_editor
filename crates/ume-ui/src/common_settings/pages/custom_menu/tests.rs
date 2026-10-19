@@ -234,9 +234,9 @@ fn the_menus_are_written_to_cust_menu_and_the_rest_of_the_file_stays() {
     assert_eq!(p.get("CustMenu", "nCMIK[02][02]"), None);
     assert_eq!(p.get("Other", "x"), Some("1"));
     assert_eq!(p.get("Common", "bA"), Some("1"));
-    // The right-click menu and the tab menu are written too.
-    assert_eq!(p.get("CustMenu", "nCMIN[00]"), Some("30"));
-    assert_eq!(p.get("CustMenu", "nCMIN[24]"), Some("27"));
+    // Menus that did not change are not written.
+    assert_eq!(p.get("CustMenu", "nCMIN[00]"), None);
+    assert_eq!(p.get("CustMenu", "nCMIN[24]"), None);
     // Reading it again gives the menus.
     assert_eq!(data::menus_of(&data::load(&p)).menus(), &menus[..]);
     assert!(!data::store(&data::encode(&menus), &mut p).unwrap());
@@ -545,7 +545,7 @@ fn ok_writes_the_menus_and_every_window_takes_them_at_once(cx: &mut TestAppConte
     assert_eq!(p.get("Other", "x"), Some("1"));
     assert_eq!(p.get("Common", "bA"), Some("1"));
     // The box of the name was not written as menu 0's name.
-    assert_eq!(p.get("CustMenu", "szCMN[00]"), Some(""));
+    assert_eq!(p.get("CustMenu", "szCMN[00]"), None);
 
     let menus = custom_menus(cx);
     assert_eq!(menus.name(5).as_deref(), Some("Five"));
@@ -697,6 +697,57 @@ fn the_alt_keys_of_the_labels_work_without_a_panic(cx: &mut TestAppContext) {
     select_row(cx, 0);
     assert!(with_dialog(cx, |d, window, dcx| d.use_access_key('d', window, dcx)));
     assert_eq!(items_now(cx).len(), 6);
+}
+
+#[gpui::test]
+fn a_letter_that_two_controls_share_uses_neither(cx: &mut TestAppContext) {
+    let _restore = crate::common_settings::tests::RestoreEditOptions::new();
+    let (_ini, _) = open_page(cx, "");
+    // 「---(&S)」 and 「サブメニューとして表示(&S)」 share S (Sakura's resource has both): a Windows
+    // dialog only moves the focus between them, so Alt+S changes neither the menu nor the flag.
+    select_row(cx, 0);
+    let popup = |cx: &mut TestAppContext| {
+        with_dialog(cx, |d, _, _| menus_of(d.values()).get(0).unwrap().popup)
+    };
+    let before = (items_now(cx), popup(cx));
+    assert!(with_dialog(cx, |d, window, dcx| d.use_access_key('s', window, dcx)));
+    assert_eq!((items_now(cx), popup(cx)), before);
+    // 設定 of the access key has a letter of its own.
+    with_dialog(cx, |d, window, dcx| d.set_input(KEY, "Q", window, dcx));
+    assert!(with_dialog(cx, |d, window, dcx| d.use_access_key('g', window, dcx)));
+    assert_eq!(items_now(cx)[0].key, Some('Q'));
+    // Alt+K is the kind alone.
+    assert!(with_dialog(cx, |d, window, dcx| d.use_access_key('k', window, dcx)));
+    assert_eq!(with_dialog(cx, |d, _, _| d.values().int(KIND)), 1);
+}
+
+#[gpui::test]
+fn items_the_page_cannot_read_stay_in_the_file_when_another_menu_changes(cx: &mut TestAppContext) {
+    let _restore = crate::common_settings::tests::RestoreEditOptions::new();
+    let (ini, _) = open_page(
+        cx,
+        "[CustMenu]\r\nnCMIN[05]=2\r\nnCMIF[05][00]=Plugin/Cmd\r\nnCMIK[05][00]=P\r\n\
+         nCMIF[05][01]=30210\r\nnCMIN[07]=1\r\nnCMIF[07][00]=NoSuchMacro\r\n",
+    );
+    // Both read as separators, which is what the page shows.
+    choose_menu(cx, 5);
+    assert!(items_now(cx)[0].is_separator());
+    // Menu 5 changes in its second row only; menu 2 gets an item.
+    select_row(cx, 1);
+    press(cx, "custmenu_delete");
+    choose_menu(cx, 2);
+    choose_function(cx, 0, 0);
+    press(cx, "custmenu_add");
+    ok(cx);
+    let p = ini.profile();
+    assert_eq!(p.get("CustMenu", "nCMIN[02]"), Some("1"));
+    // The untouched menu keeps its text.
+    assert_eq!(p.get("CustMenu", "nCMIF[07][00]"), Some("NoSuchMacro"));
+    // The changed menu keeps the text of the item that did not change.
+    assert_eq!(p.get("CustMenu", "nCMIN[05]"), Some("1"));
+    assert_eq!(p.get("CustMenu", "nCMIF[05][00]"), Some("Plugin/Cmd"));
+    assert_eq!(p.get("CustMenu", "nCMIK[05][00]"), Some("P"));
+    assert_eq!(p.get("CustMenu", "nCMIF[05][01]"), None);
 }
 
 #[gpui::test]

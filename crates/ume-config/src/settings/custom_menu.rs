@@ -318,12 +318,22 @@ impl CustomMenus {
     /// `IO_CustMenu` in writing mode: every name, flag and item of the 25 menus, over what `profile` has. The
     /// rest of the file stays. An item is written as its code, or as the name `name_of` gives for it
     /// (`bOutCmdName`, which the `.mnu` files use); keys of items that are gone are removed.
+    ///
+    /// `previous` is what reading the file gave before: a menu equal to its previous one is not written, and an
+    /// item equal to the previous item at its place keeps the text the file has. That text may be one that reading
+    /// turns into a separator (a plug-in command, a macro name UME does not know), which writing the item
+    /// would lose.
     pub fn write_to_profile(
         &self,
         profile: &mut Profile,
         name_of: Option<&dyn Fn(u16) -> Option<String>>,
+        previous: Option<&CustomMenus>,
     ) -> Result<(), ProfileError> {
         for (i, menu) in self.menus.iter().enumerate() {
+            let before = previous.and_then(|p| p.menus.get(i));
+            if before == Some(menu) {
+                continue;
+            }
             profile.set(SECTION, &format!("szCMN[{i:02}]"), &menu.name)?;
             profile.set(
                 SECTION,
@@ -336,6 +346,9 @@ impl CustomMenus {
                 &menu.items.len().to_string(),
             )?;
             for (j, item) in menu.items.iter().enumerate() {
+                if before.and_then(|b| b.items.get(j)) == Some(item) {
+                    continue;
+                }
                 let function = name_of
                     .and_then(|name_of| name_of(item.function))
                     .unwrap_or_else(|| item.function.to_string());
@@ -363,7 +376,7 @@ impl CustomMenus {
             "MAX_CUSTOM_MENU",
             &MAX_CUSTOM_MENU.to_string(),
         )?;
-        self.write_to_profile(&mut profile, Some(name_of))?;
+        self.write_to_profile(&mut profile, Some(name_of), None)?;
         Ok(profile)
     }
 
@@ -573,7 +586,7 @@ mod tests {
         let mut profile = Profile::from_bytes(
             b"[Other]\nx=1\n[CustMenu]\nnCMIN[02]=5\nnCMIF[02][04]=7\nnCMIK[02][04]=Z\n",
         );
-        menus.write_to_profile(&mut profile, None).unwrap();
+        menus.write_to_profile(&mut profile, None, None).unwrap();
         assert_eq!(profile.get("Other", "x"), Some("1"));
         assert_eq!(profile.get(SECTION, "nCMIN[02]"), Some("2"));
         assert_eq!(profile.get(SECTION, "nCMIF[02][00]"), Some("30210"));
