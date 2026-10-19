@@ -58,7 +58,9 @@ fn bom_to_set(args: &[Arg]) -> bool {
 fn apply(view: &mut EditorView, encoding: Encoding, bom: bool, cx: &mut Context<EditorView>) {
     view.document().update(cx, |shared, cx| {
         shared.set_format(encoding, bom && encoding.can_have_bom());
-        cx.notify();
+        // A change like an edit: the flows that ask about every window (`F_EXITALL`) compare the
+        // version after their questions, and the new format needs saving (`IsChgCodeSet`).
+        shared.changed(cx);
     });
     cx.notify();
 }

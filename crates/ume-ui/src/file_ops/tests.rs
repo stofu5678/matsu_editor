@@ -907,6 +907,36 @@ fn exit_all_asks_again_when_a_checked_window_changed(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn exit_all_asks_again_when_a_checked_window_changed_its_encoding(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "日本語".as_bytes());
+    cx.update(gpui_component::init);
+    let a = cx
+        .update(|cx| open_editor_window(cx, SharedDocument::empty(), None))
+        .unwrap();
+    let b = cx
+        .update(|cx| open_editor_window(cx, SharedDocument::empty(), None))
+        .unwrap();
+    let cx_a = &mut VisualTestContext::from_window(a, cx);
+    let editor_a = cx_a.update(|_, app| super::windows::editors(app)[0].1.clone());
+    let f = Fixture { view: editor_a };
+    f.open(cx_a, &path, Some(UTF8));
+    let cx_b = &mut VisualTestContext::from_window(b, cx_a);
+    cx_b.simulate_input("b");
+    f.run(cx_b, "F_EXITALL", &[]);
+    // The first window is unmodified and passes; the second one is asked.
+    assert!(cx_b.has_pending_prompt());
+    // The encoding of the first window is changed while that question is open.
+    f.run(cx_b, "F_CHG_CHARSET", &[Arg::Int(SJIS)]);
+    answer(cx_b, DONT_SAVE);
+    // Quitting now would lose the change: the first window is asked again.
+    assert!(cx_b.has_pending_prompt());
+    answer(cx_b, CANCEL);
+    assert!(cx_b.windows().contains(&a));
+    assert_eq!(read(&path), "日本語".as_bytes());
+}
+
+#[gpui::test]
 fn the_same_file_on_the_command_line_gets_one_window(cx: &mut TestAppContext) {
     let dir = TempDir::new();
     let path = dir.write("a.txt", b"abc");
