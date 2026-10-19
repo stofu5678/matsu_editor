@@ -154,6 +154,7 @@ pub(super) fn lists(
     let values = dialog.values();
     let edit = edit_of(values);
     let menus = menus_of(values);
+    let macros = crate::macros::registered_table(cx);
     let functions = functions_of_kind(values.int(KIND));
 
     let function_rows = functions
@@ -162,7 +163,7 @@ pub(super) fn lists(
         .map(|(i, &code)| {
             row_element(
                 ("custmenu-func", i),
-                function_name(code, &menus),
+                function_name(code, &menus, &macros),
                 edit.func_sel == Some(i),
                 cx,
                 move |this, _, cx| this.set_int(super::FUNC_SEL, i as i32, cx),
@@ -176,7 +177,7 @@ pub(super) fn lists(
         .map(|(i, item)| {
             row_element(
                 ("custmenu-res", i),
-                row_text(item, &menus),
+                row_text(item, &menus, &macros),
                 edit.sel == Some(i),
                 cx,
                 move |this, window, cx| this.select_item(i, window, cx),

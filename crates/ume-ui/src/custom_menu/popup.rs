@@ -92,13 +92,15 @@ impl EditorView {
         let recent = RecentLists::new(crate::history::current(cx))
             .with_names(crate::file_names::current(cx));
         let custom = CustomMenuList(&menus);
-        let macro_list = crate::macros::MacroList(crate::macros::registered_table(cx));
+        let macros = crate::macros::registered_table(cx);
+        let macro_list = crate::macros::MacroList(macros.clone());
         let rest = ChainedLists(&custom, &macro_list);
         let lists = ChainedLists(&recent, &rest);
         let entries = model::entries(
             index,
             &model::Context {
                 menus: &menus,
+                macros: &macros,
                 keymap: &self.keymap,
                 available: &Registered,
                 lists: &lists,

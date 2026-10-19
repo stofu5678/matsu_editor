@@ -4,6 +4,7 @@
 pub(super) mod color;
 pub(super) mod keyhelp;
 pub(super) mod regex;
+mod regex_file;
 pub(super) mod screen;
 pub(super) mod support;
 pub(super) mod window;

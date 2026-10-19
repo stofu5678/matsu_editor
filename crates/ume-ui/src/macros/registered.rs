@@ -100,12 +100,6 @@ pub(crate) fn title_of(table: &RegisteredMacros, code: u16) -> Option<String> {
     })
 }
 
-/// [`title_of`] for the settings now. Not a registered macro: `None`, without reading the settings.
-pub(crate) fn title_in(cx: &App, code: u16) -> Option<String> {
-    ume_config::settings::macros::index_of_function(code)?;
-    title_of(&table(cx), code)
-}
-
 /// `F_USERMACRO_LIST` of the main menu (`CEditWnd::InitMenu_Special`): the macros that have a file,
 /// each calling its function. A macro with a file and no name shows the file.
 pub(crate) struct MacroList(pub RegisteredMacros);

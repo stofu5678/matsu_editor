@@ -308,6 +308,7 @@ pub(crate) fn macro_folder(cx: &App) -> Option<PathBuf> {
     )
 }
 
+pub(crate) mod import_folder;
 pub(crate) mod save_types;
 #[cfg(test)]
 pub(crate) mod tests;

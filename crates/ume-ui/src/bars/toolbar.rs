@@ -22,11 +22,10 @@ use gpui::{
     StatefulInteractiveElement, Styled, div, img, prelude::FluentBuilder, px, rgb,
 };
 use gpui_component::tooltip::Tooltip;
-use ume_commands::sakura::FUNCTIONS;
 use ume_config::Profile;
 
 use super::tool_buttons::{DEFAULT_BUTTONS, FUNCTIONS_OF_BUTTONS, MAX_BUTTONS, WRAP};
-use super::{display_style, function_name, icons, is_available};
+use super::{display_style, icons, is_available};
 use crate::app::Workspace;
 
 /// `F_DUMMY_MAX_CODE`: the function codes up to this one are placeholders with no picture.
@@ -208,13 +207,7 @@ pub(super) fn arrange(numbers: &[i32]) -> Vec<Vec<Item>> {
 /// The tooltip of function `code`: its name and, on the lines after it, the keys bound to it
 /// (`CEditWnd::GetTooltipText`).
 pub(super) fn tooltip_text(code: u16, cx: &App) -> String {
-    let mut text = crate::macros::title_in(cx, code).unwrap_or_else(|| function_name(code));
-    if text.is_empty() {
-        text = FUNCTIONS
-            .iter()
-            .find(|f| f.code == code)
-            .map_or_else(String::new, |f| f.name.to_owned());
-    }
+    let mut text = crate::func_name::FuncNames::new().name(cx, code);
     let style = display_style();
     let chords = crate::app::with_key_map(cx, |map| map.shortcuts_for(code));
     for chord in chords {

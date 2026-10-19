@@ -24,7 +24,7 @@ use gpui::{
 use gpui_component::button::Button;
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::{Disableable as _, h_flex, v_flex};
-use ume_commands::sakura::FUNCTIONS;
+use ume_config::settings::CustomMenus;
 use ume_config::settings::macros::RegisteredMacros;
 use ume_config::{Profile, ProfileError};
 
@@ -57,7 +57,8 @@ pub(super) fn functions_of_kind(kind: i32) -> Vec<(i32, u16)> {
 /// What a row of a list shows for button `number` (`DrawToolBarItemList`): the function's name,
 /// or the text of a separator, a wrap or an unknown button; and the icon.
 ///
-/// The name of a registered macro (a button of the kind 外部マクロ) is the one of `macros`.
+/// The name of a registered macro (a button of the kind 外部マクロ) is the one of `macros`. No button of the
+/// table is a custom menu, so the names of the menus are not needed.
 pub(super) fn row_of(number: i32, macros: &RegisteredMacros) -> (String, Option<usize>) {
     match number {
         0 => (ITEM_SEPARATOR.to_owned(), None),
@@ -69,14 +70,8 @@ pub(super) fn row_of(number: i32, macros: &RegisteredMacros) -> (String, Option<
                 .filter(|&(_, code)| code != 0);
             match known {
                 Some((index, code)) => {
-                    let mut name = crate::macros::title_of(macros, code)
-                        .unwrap_or_else(|| bars::function_name(code));
-                    if name.is_empty() {
-                        name = FUNCTIONS
-                            .iter()
-                            .find(|f| f.code == code)
-                            .map_or_else(String::new, |f| f.name.to_owned());
-                    }
+                    let name =
+                        crate::func_name::funccode_to_name(code, &CustomMenus::default(), macros);
                     (name, bars::icon_of_function(code).filter(|&i| i == index))
                 }
                 None => (ITEM_UNKNOWN.to_owned(), None),

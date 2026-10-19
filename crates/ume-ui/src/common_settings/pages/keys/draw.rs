@@ -13,11 +13,12 @@ use gpui_component::{Disableable as _, h_flex, v_flex};
 use super::super::super::dialog::CommonSettingsDialog;
 use super::super::super::func_lookup::{KINDS, codes_of_kind};
 use super::super::super::model::{Kind, parse_label};
+use super::UNASSIGNED;
 use super::bindings::{self, modifier_prefix};
-use super::names::{Names, UNASSIGNED};
 use super::{
     ALT_ID, CTRL_ID, FUNC_SEL, KEY_SEL, KIND, SHIFT_ID, SHOWN_FUNC, bindings_of, mods_of, selected,
 };
+use crate::func_name::FuncNames;
 
 const SELECTED_BG: u32 = 0x2f6fd0;
 const LIST_BORDER: u32 = 0xaaaaaa;
@@ -92,7 +93,7 @@ pub(super) fn draw(
     let codes = codes_of_kind(kind);
     let func_sel = selected(values, FUNC_SEL, codes.len());
     let key_sel = selected(values, KEY_SEL, table.rows.len());
-    let names = Names::new();
+    let names = FuncNames::new();
 
     let function_rows = codes
         .iter()
@@ -100,7 +101,7 @@ pub(super) fn draw(
         .map(|(i, &code)| {
             row(
                 ("keybind-func", i),
-                names.of(code, cx),
+                names.name(cx, code),
                 func_sel == Some(i),
                 cx,
                 move |this, cx| this.select_function(i, cx),
@@ -150,7 +151,7 @@ pub(super) fn draw(
     // The function of the selected key.
     let key_function = key_sel.map_or_else(String::new, |key| match table.function(key, mods) {
         0 => UNASSIGNED.to_owned(),
-        code => names.of(code, cx),
+        code => names.name(cx, code),
     });
     let unusable = key_sel
         .and_then(|key| table.rows.get(key))

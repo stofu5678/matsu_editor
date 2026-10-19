@@ -17,7 +17,7 @@ use gpui::{
 };
 use ume_commands::keymap::{Chord, Key, Modifiers, Resolved};
 
-use super::{function_name, is_available};
+use super::is_available;
 use crate::app::Workspace;
 
 /// The number of buttons.
@@ -44,7 +44,11 @@ pub(super) fn modifiers_of(held: gpui::Modifiers) -> Modifiers {
 }
 
 /// The 12 buttons for the modifiers held now, from `map` (`CFuncKeyWnd::OnTimer`).
-pub(super) fn labels(map: &ume_commands::keymap::KeyMap, held: Modifiers) -> Vec<FuncKey> {
+pub(super) fn labels(
+    map: &ume_commands::keymap::KeyMap,
+    held: Modifiers,
+    name: &dyn Fn(u16) -> String,
+) -> Vec<FuncKey> {
     (1..=COUNT)
         .map(|n| {
             let code = Key::function(n)
@@ -54,11 +58,7 @@ pub(super) fn labels(map: &ume_commands::keymap::KeyMap, held: Modifiers) -> Vec
                     Resolved::Unbound | Resolved::PassThrough => None,
                 })
                 .unwrap_or(0);
-            let label = if code == 0 {
-                String::new()
-            } else {
-                function_name(code)
-            };
+            let label = if code == 0 { String::new() } else { name(code) };
             FuncKey { code, label }
         })
         .collect()
@@ -83,7 +83,8 @@ impl Workspace {
             return None;
         }
         let held = modifiers_of(window.modifiers());
-        let keys = crate::app::with_key_map(cx, |map| labels(map, held));
+        let names = crate::func_name::FuncNames::new();
+        let keys = crate::app::with_key_map(cx, |map| labels(map, held, &|c| names.name(cx, c)));
         let mut bar = div()
             .id("function-key-bar")
             .debug_selector(|| "function-key-bar".into())
@@ -153,27 +154,35 @@ mod tests {
         KeyMap::new(KeyMapOptions::for_platform(Platform::Other))
     }
 
+    fn names(code: u16) -> String {
+        crate::func_name::funccode_to_name(
+            code,
+            &ume_config::settings::CustomMenus::default(),
+            &ume_config::settings::macros::RegisteredMacros::default(),
+        )
+    }
+
     fn name_of(keys: &[FuncKey], n: usize) -> &str {
         &keys[n - 1].label
     }
 
     #[test]
     fn the_labels_are_the_functions_of_f1_to_f12() {
-        let keys = labels(&map(), Modifiers::NONE);
+        let keys = labels(&map(), Modifiers::NONE, &names);
         assert_eq!(keys.len(), 12);
         // Sakura's default table: F3 is "next search", F4 is "close"... whichever the table says.
         let f3 = map().resolve(Chord::new(Key::function(3).unwrap(), Modifiers::NONE));
         let Resolved::Code(code) = f3 else { panic!() };
         assert_eq!(keys[2].code, code);
-        assert_eq!(name_of(&keys, 3), function_name(code));
+        assert_eq!(name_of(&keys, 3), names(code));
         assert!(!name_of(&keys, 3).is_empty());
     }
 
     #[test]
     fn the_labels_change_with_shift_and_ctrl() {
-        let none = labels(&map(), Modifiers::NONE);
-        let shift = labels(&map(), Modifiers::SHIFT);
-        let ctrl = labels(&map(), Modifiers::CTRL);
+        let none = labels(&map(), Modifiers::NONE, &names);
+        let shift = labels(&map(), Modifiers::SHIFT, &names);
+        let ctrl = labels(&map(), Modifiers::CTRL, &names);
         // Sakura's default: F3 searches forward, Shift+F3 backward, Ctrl+F3 clears the marks.
         assert_ne!(none[2].code, shift[2].code);
         assert_ne!(none[2].code, ctrl[2].code);
@@ -186,7 +195,7 @@ mod tests {
     fn a_key_without_a_function_has_an_empty_label() {
         // Sakura's default table has nothing on Ctrl+Shift+Alt+F1.
         let all = Modifiers::CTRL.with_shift().with_alt();
-        let keys = labels(&map(), all);
+        let keys = labels(&map(), all, &names);
         assert_eq!(
             keys[0],
             FuncKey {
@@ -206,10 +215,10 @@ mod tests {
             key: Key::function(1).unwrap(),
             functions,
         }]);
-        let keys = labels(&map, Modifiers::NONE);
+        let keys = labels(&map, Modifiers::NONE, &names);
         assert_eq!(keys[0].code, 30101);
         assert_eq!(keys[0].label, "新規作成");
-        assert_eq!(labels(&map, Modifiers::SHIFT)[0].code, 0);
+        assert_eq!(labels(&map, Modifiers::SHIFT, &names)[0].code, 0);
     }
 
     #[test]

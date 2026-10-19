@@ -34,6 +34,7 @@ mod func_lookup;
 pub(crate) mod model;
 mod pages;
 pub(crate) mod table;
+pub(crate) mod transfer;
 mod windows;
 
 use gpui::{
@@ -338,5 +339,7 @@ pub(crate) fn run_command(
 mod tests;
 #[cfg(test)]
 mod tests_more_pages;
+#[cfg(test)]
+mod tests_polish;
 #[cfg(test)]
 mod tests_table;

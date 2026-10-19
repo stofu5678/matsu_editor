@@ -88,11 +88,8 @@ fn the_regex_list_shows_the_keywords_of_the_file_with_their_colors(cx: &mut Test
         first,
         (Some(0), Some("/a+/k".to_owned()), Some("URL".to_owned()))
     );
-    for id in [USE_REGEX, REGEX_LIST] {
+    for id in [USE_REGEX, REGEX_LIST, REGEX_IMPORT, REGEX_EXPORT] {
         assert!(usable(cx, id), "{id}");
-    }
-    for id in [REGEX_IMPORT, REGEX_EXPORT] {
-        assert!(!usable(cx, id), "{id}");
     }
 }
 

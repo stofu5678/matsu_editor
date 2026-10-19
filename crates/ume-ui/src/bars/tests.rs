@@ -397,3 +397,54 @@ fn the_function_key_bar_is_over_the_document_at_the_top_and_under_it_at_the_bott
     assert_eq!(text(cx, &editor), "");
     assert_eq!(cx.update(|_, app| editors(app).len()), 1);
 }
+
+#[gpui::test]
+fn registered_macros_and_custom_menus_are_named_on_the_bars(cx: &mut TestAppContext) {
+    let (_ini, _handle) = setup(
+        cx,
+        "[Macro]\r\nName[001]=MyMacro\r\nFile[001]=a.mac\r\nName[002]=\r\nFile[002]=b.mac\r\n\
+         [CustMenu]\r\nszCMN[01]=My menu\r\n",
+    );
+    // F1: macro 1 (has a name), F2: macro 2 (the file only), F3: macro 3 (not registered),
+    // F4: custom menu 1, F5: the right-click menu.
+    let mut map = KeyMap::new(KeyMapOptions::for_platform(Platform::Other));
+    let rows: Vec<UserRow> = [31601u16, 31602, 31603, 31501, 31580]
+        .into_iter()
+        .enumerate()
+        .map(|(i, code)| {
+            let mut functions = [0u16; 8];
+            functions[0] = code;
+            UserRow {
+                key: Key::function(i as u8 + 1).unwrap(),
+                functions,
+            }
+        })
+        .collect();
+    map.apply_user_rows(&rows);
+    let keys = cx.update(|app| {
+        let names = crate::func_name::FuncNames::new();
+        super::funckeys::labels(&map, ume_commands::keymap::Modifiers::NONE, &|c| {
+            names.name(app, c)
+        })
+    });
+    let labels: Vec<&str> = keys.iter().take(5).map(|k| k.label.as_str()).collect();
+    assert_eq!(
+        labels,
+        [
+            "MyMacro",
+            "b.mac",
+            "マクロ 3 (未登録)",
+            "My menu",
+            "右クリックメニュー"
+        ]
+    );
+    // The tooltips of the toolbar say the same (the keys are listed after the name).
+    let tip = |cx: &mut TestAppContext, code| {
+        let text = cx.update(|app| super::toolbar::tooltip_text(code, app));
+        text.lines().next().unwrap_or_default().to_owned()
+    };
+    assert_eq!(tip(cx, 31601), "MyMacro");
+    assert_eq!(tip(cx, 31603), "マクロ 3 (未登録)");
+    assert_eq!(tip(cx, 31501), "My menu");
+    assert_eq!(tip(cx, code_of("F_FILESAVE")), "上書き保存");
+}
