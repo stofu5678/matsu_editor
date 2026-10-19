@@ -672,3 +672,13 @@ fn f_setfontsizeup_and_down_are_set_font_size_in_mode_2(cx: &mut TestAppContext)
     set_font_size(cx, a, 0, 1, 2);
     assert_eq!(shown(cx, &view).3, points_to_px(110));
 }
+
+#[gpui::test]
+fn a_huge_shift_from_a_script_does_not_panic(cx: &mut TestAppContext) {
+    let (_ini, a) = setup(cx, FONT);
+    let view = view_of(cx, a);
+    set_font_size(cx, a, 0, i64::from(i32::MAX), 2);
+    assert_eq!(shown(cx, &view).3, points_to_px(720));
+    set_font_size(cx, a, 0, i64::from(i32::MIN), 2);
+    assert_eq!(shown(cx, &view).3, points_to_px(10));
+}

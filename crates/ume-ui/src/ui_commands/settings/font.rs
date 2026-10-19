@@ -28,6 +28,8 @@ impl UiCommand for Font {
         cx: &mut Context<EditorView>,
     ) -> Result {
         let owner = font_dialog::owner_of(window);
+        // A macro waits until the dialog is closed (the guard goes with `done`, answered or not).
+        let tracked = crate::macros::track(cx);
         // Every window changes, so this view must not be borrowed meanwhile.
         view.defer_in_window(window, cx, move |_, app| {
             let current = apply::common_font(app).font;
@@ -35,7 +37,10 @@ impl UiCommand for Font {
                 app,
                 owner,
                 current,
-                Box::new(|app, font| apply::set_common_font(app, &font)),
+                Box::new(move |app, font| {
+                    let _tracked = tracked;
+                    apply::set_common_font(app, &font);
+                }),
             );
         })
     }

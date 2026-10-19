@@ -43,6 +43,11 @@ async fn native_dialog(
     }
     #[cfg(not(test))]
     {
+        // `CF_INITTOLOGFONTSTRUCT` starts at the height; the point size is what the file means.
+        let mut font = font;
+        if font.point_size != 0 {
+            font.log_font.height = font.height_for_dpi(crate::settings::view_settings::DPI);
+        }
         ume_platform::font_dialog::choose(
             owner,
             ume_platform::font_dialog::Request {

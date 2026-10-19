@@ -263,6 +263,8 @@ impl EditorView {
             return None;
         }
         let base = f64::from(self.prefs.settings.point_size);
+        // The table has 72 steps; a shift from a script can be any number.
+        let shift = shift.clamp(-100, 100);
         let (tenths, zoom) = zoomed_value(&FONT_ZOOM, base, zoom, shift)?;
         Some((tenths as i32, zoom))
     }
