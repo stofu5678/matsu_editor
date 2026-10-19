@@ -29,8 +29,23 @@ impl Owner {
 }
 
 /// A filter as the portal takes it: `(name, [(0, glob)])` (`(sa(us))`; 0 is a glob, 1 a MIME type).
+/// `*.*` means every file for Windows, but a glob of the portal needs a dot in the name for it, so
+/// it is sent as `*`.
 fn filter_tuple(filter: &FileFilter) -> (String, Vec<(u32, String)>) {
-    let globs = filter.patterns.iter().map(|p| (0, p.clone())).collect();
+    let globs = filter
+        .patterns
+        .iter()
+        .map(|p| {
+            (
+                0,
+                if p == "*.*" {
+                    "*".to_owned()
+                } else {
+                    p.clone()
+                },
+            )
+        })
+        .collect();
     (filter.name.clone(), globs)
 }
 
@@ -123,6 +138,10 @@ mod tests {
         // `current_filter` is `(sa(us))`, and `filters` is a list of them: `a(sa(us))`
         let value = Value::from(filter_tuple(&filter));
         assert_eq!(value.value_signature().to_string(), "(sa(us))");
+        assert_eq!(
+            filter_tuple(&filter).1,
+            [(0, "*.cpp".to_owned()), (0, "*".to_owned())]
+        );
         let list = Value::from(vec![filter_tuple(&filter)]);
         assert_eq!(list.value_signature().to_string(), "a(sa(us))");
     }
