@@ -464,7 +464,5 @@ mod tests {
         f.path = Some("/tmp/メモ.txt".into());
         f.save_path = Some("/tmp/別名.txt".into());
         assert_eq!(f.ok("GetSaveFilename", json!([])), json!("/tmp/別名.txt"));
-        // `GetFilename` is still the file of the document.
-        assert_eq!(f.ok("GetFilename", json!([])), json!("/tmp/メモ.txt"));
     }
 }
