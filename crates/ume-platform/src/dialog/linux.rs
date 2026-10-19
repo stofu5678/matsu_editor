@@ -96,7 +96,8 @@ fn choices_of(extras: &[Extra]) -> Vec<Choice> {
 }
 
 /// What the user chose, from the `choices` of the answer (`a(ss)`: id and option id). A choice the
-/// answer leaves out keeps the value it started with; an answer without `choices` gives none.
+/// answer leaves out keeps the value it started with; an answer without `choices`, or
+/// with none of ours, gives none.
 fn values_of(
     extras: &[Extra],
     results: &HashMap<String, zbus::zvariant::OwnedValue>,
@@ -109,6 +110,12 @@ fn values_of(
     else {
         return Vec::new();
     };
+    // An empty array, or one that answers none of our ids, is a portal that showed no fields too.
+    // If only some ids come back, the others keep their starting value: the user could still
+    // have seen and left them alone, and dropping the whole answer would ask twice.
+    if !(0..extras.len()).any(|i| answered.iter().any(|(id, _)| *id == i.to_string())) {
+        return Vec::new();
+    }
     extras
         .iter()
         .enumerate()
@@ -350,6 +357,14 @@ mod tests {
             [ExtraValue::Combo(1), ExtraValue::Check(true)]
         );
         assert_eq!(values_of(&extras, &HashMap::new()), []);
+        // an empty array, or ids that are not ours: the portal showed no fields
+        assert_eq!(values_of(&extras, &answer(&[])), []);
+        assert_eq!(values_of(&extras, &answer(&[("9", "0")])), []);
+        // only some of the ids: the others keep their start
+        assert_eq!(
+            values_of(&extras, &answer(&[("1", "false")])),
+            [ExtraValue::Combo(1), ExtraValue::Check(false)]
+        );
     }
 
     #[test]
