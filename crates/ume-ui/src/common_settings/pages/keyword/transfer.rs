@@ -8,26 +8,23 @@ use ume_config::settings::keyword_file;
 
 use super::{CANNOT_OPEN, EXPORTED, IMPORT_FULL, current, entry, say};
 use crate::common_settings::dialog::CommonSettingsDialog;
-use crate::file_dialog::{self, Ask};
+use crate::file_dialog::Ask;
+
+/// `GetDefaultExtension` of `CImpExpKeyWord`.
+const WILDCARD: &str = "*.kwd";
 
 impl CommonSettingsDialog {
     /// インポート: asks for a file and adds its keywords to the chosen set.
     pub(super) fn keyword_import(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let receiver = file_dialog::ask(
+        self.pick_settings_file(
+            Ask::open(false).titled("キーワードのインポート", "選択"),
+            WILDCARD,
             window,
             cx,
-            Ask::open(false).titled("キーワードのインポート", "選択"),
+            |this, path, window, cx| {
+                this.keyword_import_from(path, window, cx);
+            },
         );
-        cx.spawn_in(window, async move |this, cx| {
-            let chosen = receiver.await.ok().flatten();
-            if let Some(path) = chosen.and_then(|paths| paths.into_iter().next()) {
-                this.update_in(cx, |this, window, cx| {
-                    this.keyword_import_from(&path, window, cx);
-                })
-                .ok();
-            }
-        })
-        .detach();
     }
 
     /// Adds the keywords of the file `path` to the chosen set, and takes the case rule of the file
@@ -70,23 +67,17 @@ impl CommonSettingsDialog {
             .get(at)
             .and_then(|row| row.get(1))
             .map(|name| keyword_file::export_file_name(name));
-        let receiver = file_dialog::ask(
-            window,
-            cx,
+        self.pick_settings_file(
             Ask::save()
                 .name(name)
                 .titled("キーワードのエクスポート", "保存"),
+            WILDCARD,
+            window,
+            cx,
+            |this, path, window, cx| {
+                this.keyword_export_to(path, window, cx);
+            },
         );
-        cx.spawn_in(window, async move |this, cx| {
-            let chosen = receiver.await.ok().flatten();
-            if let Some(path) = chosen.and_then(|paths| paths.into_iter().next()) {
-                this.update_in(cx, |this, window, cx| {
-                    this.keyword_export_to(&path, window, cx);
-                })
-                .ok();
-            }
-        })
-        .detach();
     }
 
     /// Writes the chosen set to the file `path` (`CImpExpKeyWord::Export`). Returns whether it was written.

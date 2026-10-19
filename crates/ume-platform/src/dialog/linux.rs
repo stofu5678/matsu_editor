@@ -76,14 +76,14 @@ pub(super) async fn show(owner: Owner, request: Request) -> Result<Option<Vec<Pa
                 Kind::Folder => {
                     options.insert("directory", true.into());
                 }
-                Kind::SaveFile => {
-                    if !request.filters.is_empty() {
-                        let filters: Vec<_> = request.filters.iter().map(filter_tuple).collect();
-                        options.insert("filters", Value::from(filters));
-                        if let Some(current) = request.filters.get(request.selected_filter) {
-                            options.insert("current_filter", Value::from(filter_tuple(current)));
-                        }
-                    }
+                Kind::SaveFile => {}
+            }
+            // The open dialog has the list of file types too (`DoModal_GetOpenFileName`).
+            if request.kind != Kind::Folder && !request.filters.is_empty() {
+                let filters: Vec<_> = request.filters.iter().map(filter_tuple).collect();
+                options.insert("filters", Value::from(filters));
+                if let Some(current) = request.filters.get(request.selected_filter) {
+                    options.insert("current_filter", Value::from(filter_tuple(current)));
                 }
             }
             if let Some(folder) = request.start.as_deref() {

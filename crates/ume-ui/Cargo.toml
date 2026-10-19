@@ -16,6 +16,8 @@ ume-core = { path = "../ume-core" }
 ume-layout = { path = "../ume-layout" }
 ume-commands = { path = "../ume-commands" }
 ume-config = { path = "../ume-config" }
+# The files of Sakura that are in Shift_JIS (the import of the settings).
+encoding_rs = "0.8.35"
 # The syntax coloring of the text: comments, strings, numbers, keywords (Sakura's color strategies).
 ume-coloring = { path = "../ume-coloring" }
 ume-platform = { path = "../ume-platform" }

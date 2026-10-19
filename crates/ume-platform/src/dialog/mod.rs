@@ -81,11 +81,11 @@ pub struct Request {
     pub name: Option<String>,
     /// The title of the dialog.
     pub title: String,
-    /// The list of file types of a save dialog; empty for no list (and for every other kind of
-    /// dialog). Windows shows it as the list next to the name (`IFileDialog::SetFileTypes`), the
+    /// The list of file types of a save dialog or an open dialog; empty for no list (and for the dialog
+    /// that picks a folder). Windows shows it as the list next to the name (`IFileDialog::SetFileTypes`), the
     /// portal as its filters (`filters`, `current_filter`). The panel of macOS has no list: it
     /// takes the extensions of the selected type (`allowedFileTypes`) and lets other names be
-    /// typed. GPUI's dialog, the fallback, has none of this.
+    /// typed (its open panel has no list at all). GPUI's dialog, the fallback, has none of this.
     pub filters: Vec<FileFilter>,
     /// The entry of [`filters`](Self::filters) shown first.
     pub selected_filter: usize,

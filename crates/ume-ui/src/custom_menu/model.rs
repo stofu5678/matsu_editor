@@ -51,6 +51,7 @@ use ume_commands::keymap::KeyMap;
 use ume_commands::sakura::{FUNCTIONS, FunctionKind};
 use ume_config::settings::CustomMenus;
 use ume_config::settings::custom_menu::INDEX_FOR_RBUTTONUP;
+use ume_config::settings::macros::RegisteredMacros;
 
 use crate::menu::{Available, Entry, Item, Lists, MenuAction, menu_label};
 
@@ -62,9 +63,6 @@ pub(crate) const F_CUSTMENU_BASE: u16 = 31500;
 pub(crate) const F_CUSTMENU_LAST: u16 = 31524;
 /// `F_CUSTMENU_LIST`, the row of the main menu that stands for the custom menus.
 pub(crate) const F_CUSTMENU_LIST: u16 = 29004;
-
-/// What `Funccode2Name` gives a code that has no name (`F_DISABLE`'s string).
-const UNKNOWN_NAME: &str = "-- 不明 --";
 
 /// The custom menu that function `code` opens: 0 for `F_MENU_RBUTTON`, `n` for `F_CUSTMENU_n`.
 pub(crate) fn menu_index(code: u16) -> Option<usize> {
@@ -94,6 +92,7 @@ fn is_special(code: u16) -> bool {
 /// Everything the model needs besides the menu itself.
 pub(crate) struct Context<'a> {
     pub menus: &'a CustomMenus,
+    pub macros: &'a RegisteredMacros,
     pub keymap: &'a KeyMap,
     pub available: &'a dyn Available,
     pub lists: &'a dyn Lists,
@@ -102,15 +101,7 @@ pub(crate) struct Context<'a> {
 impl Context<'_> {
     /// `CFuncLookup::Funccode2Name`, for the codes a custom menu can hold.
     fn function_name(&self, code: u16) -> String {
-        if let Some(index) = menu_index(code) {
-            return self.menus.name(index).unwrap_or_default();
-        }
-        FUNCTIONS
-            .iter()
-            .find(|f| f.code == code)
-            .and_then(|f| f.label)
-            .unwrap_or(UNKNOWN_NAME)
-            .to_owned()
+        crate::func_name::funccode_to_name(code, self.menus, self.macros)
     }
 
     /// Whether the function can run: a function without a command is grayed out, and so is a row that

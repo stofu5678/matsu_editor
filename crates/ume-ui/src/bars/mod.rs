@@ -191,17 +191,6 @@ pub(crate) fn is_available(code: u16) -> bool {
     code != 0 && crate::menu::Registered.is_available(code)
 }
 
-/// The name of function `code` as Sakura's `CFuncLookup::Funccode2Name` gives it for the tooltips
-/// and the function key buttons (the label in the table; `&&` is a literal `&`).
-pub(crate) fn function_name(code: u16) -> String {
-    ume_commands::sakura::FUNCTIONS
-        .iter()
-        .find(|f| f.code == code)
-        .and_then(|f| f.label)
-        .map(|label| crate::menu::menu_label(label, None))
-        .unwrap_or_default()
-}
-
 /// How the shortcuts are written: as the menus do.
 pub(crate) fn display_style() -> ume_commands::keymap::DisplayStyle {
     if cfg!(target_os = "macos") {

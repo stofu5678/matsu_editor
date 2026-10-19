@@ -36,6 +36,7 @@ mod file_names;
 mod file_ops;
 mod file_watch;
 mod font_dialog;
+mod func_name;
 pub mod geometry;
 pub mod grep;
 mod history;

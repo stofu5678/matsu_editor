@@ -14,14 +14,14 @@
 //! On macOS the page edits Sakura's table, as on every OS; UME Editor's macOS rules are put over
 //! the user's rows when the key map is made (`UserSettings::key_map`).
 //!
-//! Not built: インポート and エクスポート of `.key` files (they need the macro names of the
-//! functions that `CImpExpKeybind` writes, and a file dialog for the page); the access keys of
-//! the lists (`(&F)`, `(&Y)`, `(&G)`); the functions of the kinds 外部マクロ and プラグイン (no
-//! macro can be registered, and there are no plugins).
+//! インポート and エクスポート read and write `.key` files ([`transfer`]).
+//!
+//! Not built: the access keys of the lists (`(&F)`, `(&Y)`, `(&G)`); the functions of the kind
+//! プラグイン (there are no plugins).
 
 mod bindings;
 mod draw;
-mod names;
+mod transfer;
 
 use ume_commands::keymap::Platform;
 
@@ -31,6 +31,9 @@ use super::super::func_lookup::{KINDS, codes_of_kind};
 use super::super::model::{Control, Item, Value, Values};
 use crate::settings::UserSettings;
 use bindings::{ALT, Assigned, Bindings, CTRL, SHIFT};
+
+/// `STR_PROPCOMKEYBIND_UNASSIGN`: what the function of a key is when it has none.
+pub(super) const UNASSIGNED: &str = "未割当";
 
 pub(super) const KIND: &str = "keybind_kind";
 pub(super) const FUNC_SEL: &str = "keybind_func_sel";
@@ -117,8 +120,16 @@ pub(in crate::common_settings) fn items() -> Option<Vec<Item>> {
                 d.release_key(cx)
             })
             .when(can_release),
-            Control::button("keybind_import", "インポート(&I)...", |_, _, _| {}).unavailable(),
-            Control::button("keybind_export", "エクスポート(&X)...", |_, _, _| {}).unavailable(),
+            Control::button(
+                "keybind_import",
+                "インポート(&I)...",
+                |d, window, cx| d.import_keys(window, cx),
+            ),
+            Control::button(
+                "keybind_export",
+                "エクスポート(&X)...",
+                |d, window, cx| d.export_keys(window, cx),
+            ),
         ]),
         Item::Custom(draw::draw),
     ])

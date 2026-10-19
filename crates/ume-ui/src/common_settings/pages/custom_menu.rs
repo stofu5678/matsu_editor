@@ -32,12 +32,12 @@ mod transfer;
 use gpui::{Context, Window};
 use ume_config::settings::CustomMenus;
 use ume_config::settings::custom_menu::MAX_CUSTOM_MENU;
+use ume_config::settings::macros::RegisteredMacros;
 
 use super::super::Env;
 use super::super::dialog::CommonSettingsDialog;
 use super::super::func_lookup::{KINDS, codes_of_kind};
 use super::super::model::{Control, Item, Value, Values};
-use crate::custom_menu::model::menu_index;
 use edit::Edit;
 
 const SECTION: &str = "CustMenu";
@@ -66,8 +66,6 @@ static PAGE_KINDS: [(&str, i32); 19] = {
 const SPECIAL_CODES: [u16; 6] = [29001, 29002, 29003, 29004, 29005, 29006];
 /// `STR_PROPCOMCUSTMENU_SEP`.
 const SEPARATOR_TEXT: &str = "─────────────";
-/// `F_DISABLE`'s string, which `CFuncLookup::Funccode2Name` gives a code with no name.
-const UNKNOWN_NAME: &str = "-- 不明 --";
 
 /// The functions of kind `kind` in the order of the list (`CFuncLookup::Pos2FuncCode`, and
 /// the special function list for 特別機能).
@@ -80,22 +78,21 @@ fn functions_of_kind(kind: i32) -> Vec<u16> {
 }
 
 /// `CFuncLookup::Funccode2Name`: the name of function `code`; a custom menu has its own name.
-fn function_name(code: u16, menus: &CustomMenus) -> String {
-    if let Some(name) = menu_index(code).and_then(|index| menus.name(index)) {
-        return name;
-    }
-    Some(crate::bars::function_name(code))
-        .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| UNKNOWN_NAME.to_owned())
+fn function_name(code: u16, menus: &CustomMenus, macros: &RegisteredMacros) -> String {
+    crate::func_name::funccode_to_name(code, menus, macros)
 }
 
 /// The text of a row of the menu's list (`SetDataMenuList`): the name, then the access key in
 /// parentheses; a separator is a line.
-fn row_text(item: &ume_config::settings::CustomMenuItem, menus: &CustomMenus) -> String {
+fn row_text(
+    item: &ume_config::settings::CustomMenuItem,
+    menus: &CustomMenus,
+    macros: &RegisteredMacros,
+) -> String {
     let name = if item.is_separator() {
         SEPARATOR_TEXT.to_owned()
     } else {
-        function_name(item.function, menus)
+        function_name(item.function, menus, macros)
     };
     match item.key {
         Some(key) => format!("{name}({key})"),

@@ -15,7 +15,7 @@
 //! The color is typed in an edit box here (Sakura has a drop-down list): a name that is not in
 //! the list of colors a keyword may have becomes 正規表現キーワード1.
 //!
-//! Not available yet: インポート and エクスポート of the list (`CImpExpRegex`).
+//! インポート and エクスポート read and write `.rkw` files ([`super::regex_file`]).
 
 use std::path::Path;
 use std::sync::OnceLock;
@@ -26,7 +26,6 @@ use ume_config::settings::type_rules::MAX_REGEX_KEYWORDS;
 
 use super::super::ids::*;
 use super::color::COLOR_ITEMS;
-use crate::common_settings::CommonSettingsDialog;
 use crate::common_settings::model::{Control, Item};
 use crate::common_settings::table::{Column, Op, Row, Storage, TableSpec};
 
@@ -129,13 +128,6 @@ pub(in crate::type_settings) fn color_name(label: &str) -> &'static str {
         .map_or("RK1", |(name, _)| name)
 }
 
-fn no_action(
-    _: &mut CommonSettingsDialog,
-    _: &mut gpui::Window,
-    _: &mut gpui::Context<CommonSettingsDialog>,
-) {
-}
-
 pub(in crate::type_settings) fn items() -> Vec<Item> {
     vec![
         Item::Row(vec![
@@ -145,12 +137,16 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
         Control::table(REGEX_LIST, "正規表現キーワード(&K)", &LIST).into(),
         Item::Row(vec![
             Item::Label("[色指定]で「URL」を選択するとマッチ文字列がクリッカブルになります"),
-            Control::button(REGEX_IMPORT, "インポート(&I)...", no_action)
-                .unavailable()
-                .into(),
-            Control::button(REGEX_EXPORT, "エクスポート(&X)...", no_action)
-                .unavailable()
-                .into(),
+            Control::button(REGEX_IMPORT, "インポート(&I)...", |d, window, cx| {
+                d.regex_import(window, cx)
+            })
+            .into(),
+            Control::button(
+                REGEX_EXPORT,
+                "エクスポート(&X)...",
+                |d, window, cx| d.regex_export(window, cx),
+            )
+            .into(),
         ]),
     ]
 }

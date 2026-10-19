@@ -257,10 +257,31 @@ pub(crate) fn run_command(
     window: &mut gpui::Window,
     cx: &mut Context<crate::view::EditorView>,
 ) -> ume_commands::command::Result {
+    run_command_at(view, window, cx, None)
+}
+
+/// The pages of the sheet by their position in [`PAGE_TITLES`], for the commands that open the sheet
+/// at one (`F_TYPE_SCREEN` ...).
+pub(crate) mod page {
+    pub(crate) const SCREEN: usize = 0;
+    pub(crate) const COLOR: usize = 1;
+    pub(crate) const WINDOW: usize = 2;
+    pub(crate) const HELPER: usize = 3;
+    pub(crate) const REGEX_KEYWORD: usize = 4;
+    pub(crate) const KEYHELP: usize = 5;
+}
+
+/// [`run_command`] at `page` (`None`: the page used last).
+pub(crate) fn run_command_at(
+    view: &crate::view::EditorView,
+    window: &mut gpui::Window,
+    cx: &mut Context<crate::view::EditorView>,
+    page: Option<usize>,
+) -> ume_commands::command::Result {
     let opener = window.window_handle();
     let index = view.type_index();
     view.defer_in_window(window, cx, move |_, app| {
-        open(app, index, None, Some(opener));
+        open(app, index, page, Some(opener));
     })
 }
 

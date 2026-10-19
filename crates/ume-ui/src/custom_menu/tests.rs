@@ -42,6 +42,7 @@ fn build_with(
         index,
         &Context {
             menus,
+            macros: &Default::default(),
             keymap: &keymap(),
             available,
             lists,

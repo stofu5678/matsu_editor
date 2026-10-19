@@ -2,6 +2,7 @@ use gpui::{AnyWindowHandle, TestAppContext};
 use ume_config::Profile;
 use ume_config::settings::CustomMenus;
 use ume_config::settings::custom_menu::{CustomMenu, CustomMenuItem};
+use ume_config::settings::macros::RegisteredMacros;
 
 use super::*;
 use crate::common_settings::model::{Kind, controls};
@@ -159,8 +160,14 @@ fn the_kinds_are_the_function_lookups_and_the_special_functions() {
     assert!(functions_of_kind(99).is_empty());
     // Their names are the labels of the table.
     let menus = CustomMenus::default();
-    assert_eq!(function_name(29001, &menus), "ウィンドウリスト");
-    assert_eq!(function_name(29004, &menus), "カスタムメニューリスト");
+    assert_eq!(
+        function_name(29001, &menus, &RegisteredMacros::default()),
+        "ウィンドウリスト"
+    );
+    assert_eq!(
+        function_name(29004, &menus, &RegisteredMacros::default()),
+        "カスタムメニューリスト"
+    );
 }
 
 #[test]
@@ -168,19 +175,64 @@ fn a_custom_menu_function_has_the_name_of_its_menu() {
     let mut named = CustomMenus::default().menus().to_vec();
     named[3].name = "My menu".to_owned();
     let menus = CustomMenus::from_menus(named);
-    assert_eq!(function_name(31503, &menus), "My menu");
-    assert_eq!(function_name(31580, &menus), "右クリックメニュー");
-    assert_eq!(function_name(31524, &menus), "タブメニュー");
-    assert_eq!(function_name(31504, &menus), "メニュー4");
-    assert_eq!(function_name(9999, &menus), "-- 不明 --");
+    assert_eq!(
+        function_name(31503, &menus, &RegisteredMacros::default()),
+        "My menu"
+    );
+    assert_eq!(
+        function_name(31580, &menus, &RegisteredMacros::default()),
+        "右クリックメニュー"
+    );
+    assert_eq!(
+        function_name(31524, &menus, &RegisteredMacros::default()),
+        "タブメニュー"
+    );
+    assert_eq!(
+        function_name(31504, &menus, &RegisteredMacros::default()),
+        "メニュー4"
+    );
+    assert_eq!(
+        function_name(9999, &menus, &RegisteredMacros::default()),
+        "-- 不明 --"
+    );
+}
+
+#[test]
+fn a_registered_macro_has_its_name_not_unknown() {
+    let menus = CustomMenus::default();
+    let mut macros = RegisteredMacros::default();
+    macros.macros[2].name = "名前".into();
+    macros.macros[2].file = "c.mac".into();
+    macros.macros[3].file = "d.mac".into();
+    assert_eq!(function_name(31602, &menus, &macros), "名前");
+    assert_eq!(function_name(31603, &menus, &macros), "d.mac");
+    assert_eq!(function_name(31600, &menus, &macros), "マクロ 0 (未登録)");
+    let item = CustomMenuItem {
+        function: 31602,
+        key: Some('M'),
+    };
+    assert_eq!(row_text(&item, &menus, &macros), "名前(M)");
 }
 
 #[test]
 fn a_row_shows_the_name_the_key_in_parentheses_or_a_line() {
     let menus = CustomMenus::default();
-    assert_eq!(row_text(&item(30102, Some('O')), &menus), "開く...(O)");
-    assert_eq!(row_text(&item(30102, None), &menus), "開く...");
-    assert_eq!(row_text(&item(0, None), &menus), SEPARATOR_TEXT);
+    assert_eq!(
+        row_text(
+            &item(30102, Some('O')),
+            &menus,
+            &RegisteredMacros::default()
+        ),
+        "開く...(O)"
+    );
+    assert_eq!(
+        row_text(&item(30102, None), &menus, &RegisteredMacros::default()),
+        "開く..."
+    );
+    assert_eq!(
+        row_text(&item(0, None), &menus, &RegisteredMacros::default()),
+        SEPARATOR_TEXT
+    );
 }
 
 // ---- the file ----
@@ -449,7 +501,11 @@ fn the_name_the_submenu_flag_and_the_access_key_are_set_per_item_and_menu(cx: &m
     press(cx, "custmenu_set_name");
     assert_eq!(custom_name(cx, 3), "Work");
     assert_eq!(
-        function_name(31503, &with_dialog(cx, |d, _, _| menus_of(d.values()))),
+        function_name(
+            31503,
+            &with_dialog(cx, |d, _, _| menus_of(d.values())),
+            &RegisteredMacros::default()
+        ),
         "Work"
     );
     // Another menu has its own name; coming back shows this one in the box.
@@ -502,7 +558,11 @@ fn the_name_the_submenu_flag_and_the_access_key_are_set_per_item_and_menu(cx: &m
     // The list shows the key in parentheses.
     let text = with_dialog(cx, |d, _, _| {
         let menus = menus_of(d.values());
-        row_text(&edit_of(d.values()).items[1], &menus)
+        row_text(
+            &edit_of(d.values()).items[1],
+            &menus,
+            &RegisteredMacros::default(),
+        )
     });
     assert_eq!(text, "やり直し(R)");
 }

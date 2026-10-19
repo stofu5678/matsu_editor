@@ -984,6 +984,7 @@ fn a_type_that_is_not_there_has_no_sheet() {
 }
 
 mod lists;
+mod transfer;
 
 // ---- 支援 ----
 

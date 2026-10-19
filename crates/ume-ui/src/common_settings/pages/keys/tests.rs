@@ -198,7 +198,7 @@ fn the_page_edits_sakuras_table_whatever_the_os() {
 }
 
 #[test]
-fn the_page_has_every_control_of_sakura_and_the_import_and_export_are_not_built() {
+fn the_page_has_every_control_of_sakura() {
     let list = controls(&items().unwrap());
     for id in [
         KIND,
@@ -218,9 +218,6 @@ fn the_page_has_every_control_of_sakura_and_the_import_and_export_are_not_built(
         list.iter()
             .any(|c| matches!(c.kind, Kind::Numbers { .. }) && c.id == ROWS)
     );
-    for id in ["keybind_import", "keybind_export"] {
-        assert!(!list.iter().find(|c| c.id == id).unwrap().live, "{id}");
-    }
     // Only the table is written to the file.
     assert!(
         list.iter()
@@ -318,9 +315,8 @@ fn the_buttons_follow_the_selections_as_in_sakura(cx: &mut TestAppContext) {
     // A kind with no function selected again: 割当 cannot be used.
     with_dialog(cx, |d, _, dcx| d.set_int(KIND, 1, dcx));
     assert!(!is_usable(cx, "keybind_assign"));
-    // The buttons that are not built stay greyed.
-    assert!(!is_usable(cx, "keybind_import"));
-    assert!(!is_usable(cx, "keybind_export"));
+    assert!(is_usable(cx, "keybind_import"));
+    assert!(is_usable(cx, "keybind_export"));
     cancel(cx);
 }
 
@@ -328,8 +324,9 @@ fn the_buttons_follow_the_selections_as_in_sakura(cx: &mut TestAppContext) {
 fn both_lookups_follow_assign_and_release(cx: &mut TestAppContext) {
     let _restore = RestoreEditOptions::new();
     let (_ini, _first) = open_page(cx, "");
-    let names =
-        |cx: &mut TestAppContext, code: u16| cx.update(|app| names::Names::new().of(code, app));
+    let names = |cx: &mut TestAppContext, code: u16| {
+        cx.update(|app| crate::func_name::FuncNames::new().name(app, code))
+    };
     // Function to keys: Ctrl+S is the key of 上書き保存.
     pick_function(cx, FILE_SAVE);
     assert_eq!(shown(cx), ["Ctrl+S"]);
@@ -388,8 +385,9 @@ fn the_kind_empties_the_function_list_but_not_the_keys(cx: &mut TestAppContext) 
 #[gpui::test]
 fn the_names_of_the_custom_menus_are_the_names_set_for_them(cx: &mut TestAppContext) {
     let (_ini, _first) = setup(cx, "[CustMenu]\r\nszCMN[01]=My menu\r\n");
-    let name =
-        |cx: &mut TestAppContext, code: u16| cx.update(|app| names::Names::new().of(code, app));
+    let name = |cx: &mut TestAppContext, code: u16| {
+        cx.update(|app| crate::func_name::FuncNames::new().name(app, code))
+    };
     assert_eq!(name(cx, 31580), "右クリックメニュー");
     assert_eq!(name(cx, 31501), "My menu");
     assert_eq!(name(cx, 31502), "メニュー2");
@@ -553,4 +551,159 @@ fn an_entry_the_file_has_twice_does_not_win_over_the_table_written() {
     t.set_function(q, CTRL, FILE_SAVE);
     assert!(store(&t.to_numbers(), &mut p).unwrap());
     assert_eq!(table(&p), t);
+}
+
+// ---- the .key files ----
+
+fn key_file_text(path: &std::path::Path) -> String {
+    String::from_utf8_lossy(&std::fs::read(path).unwrap()).into_owned()
+}
+
+#[gpui::test]
+fn a_key_file_has_macro_names_and_numbers_and_reads_back(cx: &mut TestAppContext) {
+    let _restore = RestoreEditOptions::new();
+    let (ini, _first) = open_page(cx, "");
+    let file = ini.dir.0.join("keys.key");
+    assert!(with_dialog(cx, |d, window, dcx| d.export_key_file(&file, window, dcx)));
+    let text = key_file_text(&file);
+    assert!(text.contains("[Info]"), "{text}");
+    assert!(
+        text.contains("KEYBIND_VERSION=SakuraKeyBind_Ver4"),
+        "{text}"
+    );
+    assert!(text.contains("KEYBIND_COUNT=100"), "{text}");
+    // Ctrl+S is F_FILESAVE, which has the macro name FileSave; Alt+Shift+S (31142) has none.
+    let s_row = text
+        .lines()
+        .find(|l| l.contains("=0053,"))
+        .expect("the row of S");
+    assert!(s_row.contains(",FileSave,"), "{s_row}");
+    assert!(s_row.contains(",31142,"), "{s_row}");
+    // Take Ctrl+S away, then read the file: the key is Ctrl+S again.
+    pick_key(cx, Key::Letter('S'), CTRL);
+    press(cx, "keybind_release");
+    let s = values(cx, |v| index_of(&bindings_of(v), Key::Letter('S')));
+    assert_eq!(values(cx, |v| bindings_of(v).function(s, CTRL)), 0);
+    assert!(with_dialog(cx, |d, window, dcx| d.import_key_file(&file, window, dcx)));
+    assert_eq!(values(cx, |v| bindings_of(v).function(s, CTRL)), FILE_SAVE);
+    cancel(cx);
+}
+
+#[gpui::test]
+fn a_key_file_with_numbers_or_sakuras_names_is_read(cx: &mut TestAppContext) {
+    let _restore = RestoreEditOptions::new();
+    let (ini, _first) = open_page(cx, "");
+    let file = ini.dir.0.join("mixed.key");
+    // Ctrl+S: a name; Ctrl+J: a number; Ctrl+Q: S_ with a name; the count is the number of rows.
+    std::fs::write(
+        &file,
+        "[Info]\r\nKEYBIND_VERSION=SakuraKeyBind_Ver3\r\nKEYBIND_COUNT=3\r\n[KeyBind]\r\n\
+         KeyBind[000]=0053,0,0,SearchNext,0,0,0,0,0,S\r\n\
+         KeyBind[001]=004a,0,0,30102,0,0,0,0,0,J\r\n\
+         KeyBind[002]=0051,0,0,S_SearchPrev,0,0,0,0,0,Q\r\n",
+    )
+    .unwrap();
+    assert!(with_dialog(cx, |d, window, dcx| d.import_key_file(&file, window, dcx)));
+    let function = |cx: &mut TestAppContext, key: Key| {
+        values(cx, |v| {
+            let t = bindings_of(v);
+            t.function(index_of(&t, key), CTRL)
+        })
+    };
+    assert_eq!(function(cx, Key::Letter('S')), 30902);
+    assert_eq!(function(cx, Key::Letter('J')), 30102);
+    assert_eq!(function(cx, Key::Letter('Q')), 30903);
+    // A key the file does not have stays.
+    assert_eq!(function(cx, Key::Letter('A')), code_of("F_SELECTALL"));
+    cancel(cx);
+}
+
+#[gpui::test]
+fn a_file_that_is_not_a_key_file_changes_nothing(cx: &mut TestAppContext) {
+    let _restore = RestoreEditOptions::new();
+    let (ini, _first) = open_page(cx, "");
+    let before = values(cx, |v| v.numbers(ROWS).to_vec());
+    let wrong_version = ini.dir.0.join("v.key");
+    std::fs::write(
+        &wrong_version,
+        "[Info]\r\nKEYBIND_VERSION=Other\r\n[KeyBind]\r\nKeyBind[000]=0053,0,0,30102,0,0,0,0,0,S\r\n",
+    )
+    .unwrap();
+    let too_many = ini.dir.0.join("c.key");
+    std::fs::write(
+        &too_many,
+        "[Info]\r\nKEYBIND_VERSION=SakuraKeyBind_Ver4\r\nKEYBIND_COUNT=257\r\n[KeyBind]\r\nKeyBind[000]=0053,0,0,30102,0,0,0,0,0,S\r\n",
+    )
+    .unwrap();
+    let missing = ini.dir.0.join("missing.key");
+    for file in [&wrong_version, &too_many, &missing] {
+        assert!(!with_dialog(cx, |d, window, dcx| d.import_key_file(file, window, dcx)));
+    }
+    assert_eq!(values(cx, |v| v.numbers(ROWS).to_vec()), before);
+    cancel(cx);
+}
+
+#[test]
+fn reading_a_key_file_overwrites_whole_rows_and_skips_unknown_keys() {
+    let base = table(&Profile::new());
+    let file = profile(
+        "[Info]\r\nKEYBIND_VERSION=SakuraKeyBind_Ver4\r\n[KeyBind]\r\n\
+         KeyBind[000]=0053,0,0,0,0,0,0,0,0,S\r\n\
+         KeyBind[001]=7777,0,0,30102,0,0,0,0,0,?\r\n",
+    );
+    let read = transfer::read_key_file(&file, &base).unwrap();
+    let s = index_of(&read, Key::Letter('S'));
+    // The row of S in the file has no functions: Ctrl+S is released, not kept.
+    assert_eq!(read.function(s, CTRL), 0);
+    assert_eq!(read.rows.len(), base.rows.len());
+}
+
+#[test]
+fn the_exported_file_reads_back_to_the_same_table() {
+    let base = table(&Profile::new());
+    let file = transfer::key_file(&base);
+    let bytes = file.to_sakura_bytes(Some("SakuraKeyBind_Ver4"));
+    let again = Profile::from_bytes(&bytes);
+    let mut other = base.clone();
+    for row in &mut other.rows {
+        row.functions = [0; 8];
+    }
+    assert_eq!(transfer::read_key_file(&again, &other).unwrap(), base);
+}
+
+#[gpui::test]
+fn the_dialogs_list_the_key_files_and_remember_the_folder(cx: &mut TestAppContext) {
+    let _restore = RestoreEditOptions::new();
+    let (ini, _first) = open_page(cx, "");
+    crate::file_dialog::tests::asked();
+    press(cx, "keybind_import");
+    let request = crate::file_dialog::tests::asked().pop().expect("a dialog");
+    let names: Vec<_> = request.filters.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(
+        names,
+        ["ユーザー指定", "テキストファイル", "すべてのファイル"]
+    );
+    assert_eq!(request.filters[0].patterns, ["*.key"]);
+    // Nothing was chosen before: the folder of the settings file.
+    assert_eq!(request.start.as_deref(), Some(ini.dir.0.as_path()));
+    // Export to a name in another folder; the folder is the import folder from then on.
+    let other = tempfile::tempdir().unwrap();
+    let target = other.path().join("my.key");
+    press(cx, "keybind_export");
+    let request = crate::file_dialog::tests::asked().pop().expect("a dialog");
+    assert_eq!(request.filters[0].patterns, ["*.key"]);
+    let chosen = target.clone();
+    cx.simulate_new_path_selection(move |_| Some(chosen));
+    cx.run_until_parked();
+    assert!(target.exists());
+    let remembered = ini
+        .profile()
+        .get("Folders", "szIMPORTFOLDER")
+        .map(str::to_owned);
+    let want = format!("{}{}", other.path().display(), std::path::MAIN_SEPARATOR);
+    assert_eq!(remembered.as_deref(), Some(want.as_str()));
+    press(cx, "keybind_import");
+    let request = crate::file_dialog::tests::asked().pop().expect("a dialog");
+    assert_eq!(request.start.as_deref(), Some(other.path()));
+    cancel(cx);
 }

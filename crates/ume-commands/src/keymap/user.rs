@@ -11,6 +11,7 @@
 use std::fmt;
 
 use super::key::Key;
+use crate::macro_names;
 use crate::sakura::{FUNCTIONS, FunctionKind};
 
 /// One row of the key table: a key and the function codes of its 8 modifier combinations
@@ -63,15 +64,16 @@ fn strip_f_prefix(name: &str) -> &str {
 
 /// Reads a function: a number, or a name (`F_FILESAVE`, `FileSave`, or our ID `file_save`; case
 /// does not matter). Sakura's `GetFunctionStrToFunctionCode` takes anything that starts with a
-/// digit as a number and the rest as macro names. Only the names that equal a function constant
-/// without `F_` are known here; Sakura's other macro names (`SearchNext` for `F_SEARCH_NEXT`,
-/// from `sakura_core/macro/CSMacroMgr.cpp`) need a table that the generator does not make yet,
-/// so `.key` files that were exported with names are a follow-up. Files with numbers (what
-/// `sakura.ini` has) are read in full.
+/// digit as a number and the rest as macro names (`CSMacroMgr::GetFuncInfoByName`, here
+/// [`macro_names::by_name`]: `SearchNext` for `F_SEARCH_NEXT`, with or without `S_`). The names that equal
+/// a function constant without `F_` and our own IDs are read too, after the macro names.
 pub fn parse_function(token: &str) -> Option<u16> {
     let token = token.trim();
     if token.starts_with(|c: char| c.is_ascii_digit()) {
         return token.parse().ok();
+    }
+    if let Some(row) = macro_names::by_name(token) {
+        return Some(row.code);
     }
     let bare = strip_f_prefix(token);
     FUNCTIONS
@@ -132,12 +134,33 @@ pub fn parse_entries<'a>(
 
 /// Writes rows as `KeyBind[NNN]` entries with numeric function codes, like `sakura.ini`.
 pub fn format_entries(rows: &[UserRow]) -> Vec<(String, String)> {
+    format_entries_with(rows, &|_| None)
+}
+
+/// Writes rows as the entries of a `.key` file: the functions by their macro names where they have
+/// one, as numbers otherwise (`ShareData_IO_KeyBind` with `bOutCmdName`, `CSMacroMgr::GetFuncInfoByID`).
+pub fn format_entries_named(rows: &[UserRow]) -> Vec<(String, String)> {
+    format_entries_with(rows, &|code| {
+        // `GetFuncInfoByID` finds nothing for 0 or less.
+        (code != 0)
+            .then(|| macro_names::by_code(code).map(|row| row.name.to_owned()))
+            .flatten()
+    })
+}
+
+fn format_entries_with(
+    rows: &[UserRow],
+    name_of: &dyn Fn(u16) -> Option<String>,
+) -> Vec<(String, String)> {
     rows.iter()
         .enumerate()
         .map(|(i, row)| {
             let mut value = format!("{:04x}", row.key.code());
             for f in row.functions {
-                value.push_str(&format!(",{f}"));
+                match name_of(f) {
+                    Some(name) => value.push_str(&format!(",{name}")),
+                    None => value.push_str(&format!(",{f}")),
+                }
             }
             value.push(',');
             value.push_str(row.key.name());
@@ -162,6 +185,40 @@ mod tests {
         assert_eq!(parse_function("word_cut"), Some(30232));
         assert_eq!(parse_function("Plugin/Command"), None);
         assert_eq!(parse_function("NoSuchThing"), None);
+    }
+
+    #[test]
+    fn sakuras_macro_names_are_read() {
+        // CSMacroMgr.cpp: {F_SEARCH_NEXT, L"SearchNext", ...}, {F_FILEOPEN, L"FileOpen", ...}
+        assert_eq!(parse_function("SearchNext"), Some(30902));
+        assert_eq!(parse_function("S_SearchNext"), Some(30902));
+        // The macro table is case sensitive; the names of the function constants are the fallback.
+        assert_eq!(parse_function("search_next"), Some(30902));
+        assert_eq!(parse_function("searchnext"), None);
+    }
+
+    #[test]
+    fn the_default_table_round_trips_with_names() {
+        let map = KeyMap::new(KeyMapOptions::for_platform(Platform::Other));
+        let rows = map.rows();
+        let entries = format_entries_named(&rows);
+        // F3 searches forward: ShareData_IO_KeyBind writes the macro name where there is one.
+        assert!(
+            entries
+                .iter()
+                .any(|(_, v)| v.starts_with("0072,SearchNext,")),
+            "{entries:?}"
+        );
+        assert!(
+            entries[11].1.starts_with("0070,ExtHtmlHelp,CommandList,"),
+            "{}",
+            entries[11].1
+        );
+        // A function with no macro name, and 0, are numbers.
+        let (back, warnings) = parse_entries(entries.iter().map(|(k, v)| (k.as_str(), v.as_str())));
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(back, rows);
+        assert!(entries.iter().any(|(_, v)| v.contains(",0,")));
     }
 
     #[test]

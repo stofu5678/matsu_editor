@@ -139,26 +139,28 @@ fn run(owner: Owner, request: &Request) -> Result<Option<Vec<PathBuf>>, Error> {
             .iter()
             .map(|filter| HSTRING::from(filter.patterns.join(";")))
             .collect();
-        if request.kind == Kind::SaveFile {
-            if let Some(extension) = &request.default_extension {
-                dialog
-                    .SetDefaultExtension(&HSTRING::from(extension.as_str()))
-                    .map_err(failed)?;
-            }
-            if !names.is_empty() {
-                let types: Vec<COMDLG_FILTERSPEC> = names
-                    .iter()
-                    .zip(&specs)
-                    .map(|(name, spec)| COMDLG_FILTERSPEC {
-                        pszName: PCWSTR(name.as_ptr()),
-                        pszSpec: PCWSTR(spec.as_ptr()),
-                    })
-                    .collect();
-                dialog.SetFileTypes(&types).map_err(failed)?;
-                // the index is 1-based
-                let selected = request.selected_filter.min(types.len() - 1) + 1;
-                dialog.SetFileTypeIndex(selected as u32).map_err(failed)?;
-            }
+        if request.kind == Kind::SaveFile
+            && let Some(extension) = &request.default_extension
+        {
+            dialog
+                .SetDefaultExtension(&HSTRING::from(extension.as_str()))
+                .map_err(failed)?;
+        }
+        // The open dialog has the list too (`DoModal_GetOpenFileName`); the dialog that picks a
+        // folder does not.
+        if request.kind != Kind::Folder && !names.is_empty() {
+            let types: Vec<COMDLG_FILTERSPEC> = names
+                .iter()
+                .zip(&specs)
+                .map(|(name, spec)| COMDLG_FILTERSPEC {
+                    pszName: PCWSTR(name.as_ptr()),
+                    pszSpec: PCWSTR(spec.as_ptr()),
+                })
+                .collect();
+            dialog.SetFileTypes(&types).map_err(failed)?;
+            // the index is 1-based
+            let selected = request.selected_filter.min(types.len() - 1) + 1;
+            dialog.SetFileTypeIndex(selected as u32).map_err(failed)?;
         }
         if let Some(name) = &request.name {
             dialog
