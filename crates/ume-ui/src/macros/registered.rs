@@ -12,9 +12,10 @@
 //!
 //! * Only a key macro (`.mac`) is kept after it is read, so 実行時に読み込み matters for it. A script is
 //!   read from its file each time it runs.
-//! * A script runs beside the window, not before the next line of the caller. A script of 保存前
-//!   therefore runs while the save goes on; a key macro (which plays at once) finishes before the
-//!   file is written, as in Sakura.
+//! * A script runs beside the window, not before the next line of the caller. The save waits for the
+//!   macro of 保存前 to end (`run_before_save`), so the file is written after the macro as in Sakura;
+//!   the macro of オープン後 and of タイプ変更後 are not waited for.
+//! * The type chosen by `-TYPE=` of the command line is applied after the macros of opening run.
 //! * `bRunning` of `RunAutoMacro` (an automatic macro does not start another) is "no macro runs in
 //!   this window".
 
@@ -233,50 +234,75 @@ impl EditorView {
     /// `CEditDoc::RunAutoMacro`: runs the macro the settings name for `when`, unless it has no file,
     /// another macro runs in this window, or Shift is held. `save_path` is the file a save will
     /// write (`GetSaveFilename` answers it while the macro runs). A failure is told as for a macro
-    /// that a key runs.
+    /// that a key runs. Returns whether the macro started and is still going (a script, or a key
+    /// macro that waits for a dialog).
     pub(crate) fn run_auto_macro(
         &mut self,
         when: Auto,
         save_path: Option<&Path>,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) {
+    ) -> bool {
         let settings = table(cx);
         let Some(index) = when
             .index(&settings)
             .filter(|&i| settings.get(i).is_some_and(|rec| rec.is_enabled()))
         else {
-            return;
+            return false;
         };
         if self.macros.busy() || self.macros.is_suspended() || window.modifiers().shift {
-            return;
+            return false;
         }
         self.macros.registered.save_path = save_path.map(Path::to_owned);
         self.run_registered_macro(index, false, window, cx);
         // A macro that has ended (or did not start) leaves nothing to clear later; one that goes
         // on is cleared where it ends.
-        if !self.macros.is_suspended() {
+        if self.macros.is_suspended() {
+            true
+        } else {
             self.macros.registered.clear_save_path();
+            false
         }
     }
 }
 
 /// [`EditorView::run_auto_macro`] from an async flow (loading, saving) of the window.
-pub(crate) fn run_auto(
+fn run_auto(
     view: &gpui::WeakEntity<EditorView>,
     cx: &mut AsyncWindowContext,
     when: Auto,
     save_path: Option<&Path>,
-) {
+) -> bool {
     let Some(view) = view.upgrade() else {
-        return;
+        return false;
     };
     cx.update(|window, app| {
         view.update(app, |view, cx| {
             view.run_auto_macro(when, save_path, window, cx)
-        });
+        })
     })
-    .ok();
+    .unwrap_or(false)
+}
+
+/// The macro of 保存前 (`DoSaveFlow`): it runs to its end before the file is written, as in Sakura, where
+/// the call does not return before. A script and a key macro that waits for a dialog go on beside the
+/// window, so the save waits for them (the button 中止 of the panel stops a macro that does not end).
+pub(crate) async fn run_before_save(
+    view: &gpui::WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    path: &Path,
+) {
+    if !run_auto(view, cx, Auto::BeforeSave, Some(path)) {
+        return;
+    }
+    while view
+        .read_with(cx, |view, _| view.macros.is_suspended())
+        .unwrap_or(false)
+    {
+        cx.background_executor()
+            .timer(std::time::Duration::from_millis(50))
+            .await;
+    }
 }
 
 /// What follows a file that was read into the window: its type is chosen (`OnChangeType`), then the

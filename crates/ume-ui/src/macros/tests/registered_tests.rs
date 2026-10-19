@@ -312,6 +312,42 @@ fn the_macro_of_saving_runs_before_the_file_is_written(cx: &mut TestAppContext) 
 }
 
 #[gpui::test]
+fn the_save_waits_for_a_macro_of_saving_that_waits_for_a_dialog(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let file = write(dir.path(), "x.txt", "abc");
+    write(dir.path(), "w.mac", "TypeList();\nChar(83);\n");
+    let (f, cx) = setup(cx, "");
+    settings(
+        cx,
+        dir.path(),
+        "Name[000]=\nFile[000]=w.mac\nnMacroOnSave=0\n",
+    );
+    f.run(
+        cx,
+        code_of("F_FILEOPEN"),
+        &[Arg::Text(file.display().to_string())],
+    );
+    cx.run_until_parked();
+    cx.simulate_input("x");
+    f.run(cx, code_of("F_FILESAVE"), &[]);
+    cx.run_until_parked();
+    // The macro waits for the dialog of the type list: nothing is written yet.
+    assert!(f.view.read_with(cx, |v, _| v.doc_type.list.is_some()));
+    assert_eq!(std::fs::read(&file).unwrap(), b"abc");
+    f.view.update(cx, |v, cx| {
+        v.doc_type.list = None;
+        cx.notify();
+    });
+    cx.executor().allow_parking();
+    for _ in 0..20 {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(100));
+        cx.run_until_parked();
+    }
+    assert_eq!(std::fs::read(&file).unwrap(), b"xSabc");
+}
+
+#[gpui::test]
 fn no_macro_runs_by_itself_when_none_is_named_or_the_slot_is_empty(cx: &mut TestAppContext) {
     let dir = tempfile::tempdir().unwrap();
     let file = write(dir.path(), "x.txt", "abc");
