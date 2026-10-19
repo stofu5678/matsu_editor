@@ -542,3 +542,15 @@ fn a_cell_that_did_not_change_keeps_its_token_in_a_row_that_did() {
     assert_eq!(row, format!("0051,0,Nope,Plugin/Cmd,0,{FILE_SAVE},0,0,0,Q"));
     assert_eq!(table(&p).function(q, ALT), FILE_SAVE);
 }
+
+#[test]
+fn an_entry_the_file_has_twice_does_not_win_over_the_table_written() {
+    let mut p = profile(
+        "[KeyBind]\r\nKeyBind[000]=0051,0,0,0,0,0,0,0,0,Q\r\nKeyBind[000]=0051,0,0,1,0,0,0,0,0,Q\r\n",
+    );
+    let mut t = table(&p);
+    let q = index_of(&t, Key::Letter('Q'));
+    t.set_function(q, CTRL, FILE_SAVE);
+    assert!(store(&t.to_numbers(), &mut p).unwrap());
+    assert_eq!(table(&p), t);
+}

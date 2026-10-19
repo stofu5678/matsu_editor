@@ -46,6 +46,18 @@ pub(super) fn store(list: &[i32], profile: &mut Profile) -> Result<bool, Profile
         }
     }
     let mut changed = false;
+    // `Profile::set` changes the first entry of a name, but a reader takes the last: a name that
+    // the file has twice is cleared first, so that the table written below is the one read.
+    let names: Vec<String> = profile
+        .entries(SECTION)
+        .map(|(name, _)| name.to_owned())
+        .collect();
+    for (i, name) in names.iter().enumerate() {
+        if names[..i].contains(name) {
+            while profile.remove(SECTION, name) {}
+            changed = true;
+        }
+    }
     for ((name, formatted), row) in format_entries(&rows).into_iter().zip(&rows) {
         let value = old
             .iter()
