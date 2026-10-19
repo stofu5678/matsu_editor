@@ -626,7 +626,7 @@ impl EditorView {
     // ---- keys ----
 
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        self.hide_key_help(cx);
+        self.key_help_restart(window, cx);
         // The completion list takes its keys first (Sakura: `CHokanMgr::KeyProc`).
         if self.completion_key(event, cx) {
             cx.stop_propagation();

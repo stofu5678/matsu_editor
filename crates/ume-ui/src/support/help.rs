@@ -174,7 +174,10 @@ pub(crate) fn perform(cx: &mut App, opening: Opening) -> Opened {
             keyword,
             single,
         } => {
-            if ume_platform::help::keyword_lookup(&file, &keyword, single).is_ok() {
+            // `single` (one viewer for all windows) is what UME Editor always does: its windows
+            // are one process (`ume_platform::help::keyword_lookup`).
+            let _ = single;
+            if ume_platform::help::keyword_lookup(&file, &keyword).is_ok() {
                 return Opened {
                     keyword_lost: false,
                 };

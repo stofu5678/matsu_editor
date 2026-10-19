@@ -537,3 +537,18 @@ fn a_change_of_the_settings_changes_the_meaning_beside_the_list(cx: &mut TestApp
     cx.update(|_, app| app.set_global(user_for(&files, "")));
     assert_eq!(help(&f, cx), None);
 }
+
+#[gpui::test]
+fn moving_the_caret_with_the_keyboard_shows_the_help_of_the_new_word(cx: &mut TestAppContext) {
+    // `HandleCommand` hides the tip and starts the timer again; the pointer stays in the window
+    let (_files, user) = settings(ON);
+    let (f, cx) = setup(cx, "alpha beta", user);
+    cx.update(|_, app| set_caret_key_word(app, true));
+    rest(cx, 120.0, 50.0, 400);
+    assert_eq!(f.tip(cx).as_deref(), Some("the first letter\nsecond line"));
+    cx.simulate_keystrokes("ctrl-end");
+    assert_eq!(f.tip(cx), None);
+    cx.executor().advance_clock(Duration::from_millis(400));
+    cx.run_until_parked();
+    assert_eq!(f.tip(cx).as_deref(), Some("second"));
+}

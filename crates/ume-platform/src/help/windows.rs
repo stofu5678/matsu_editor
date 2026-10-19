@@ -12,7 +12,7 @@ use std::ptr::{null, null_mut};
 
 use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
-use windows_sys::Win32::UI::WindowsAndMessaging::{BringWindowToTop, GetDesktopWindow};
+use windows_sys::Win32::UI::WindowsAndMessaging::BringWindowToTop;
 
 use super::HelpError;
 
@@ -39,7 +39,7 @@ fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
 }
 
-pub(super) fn keyword_lookup(file: &Path, keyword: &str, single: bool) -> Result<(), HelpError> {
+pub(super) fn keyword_lookup(file: &Path, keyword: &str) -> Result<(), HelpError> {
     let library = wide("hhctrl.ocx");
     // SAFETY: a NUL-terminated UTF-16 string that lives until the call returns. The library stays
     // loaded: the viewer window it makes needs it.
@@ -66,13 +66,9 @@ pub(super) fn keyword_lookup(file: &Path, keyword: &str, single: bool) -> Result
         // The index is shown when the keyword is not there.
         f_index_on_fail: 1,
     };
-    // One viewer for all: the desktop is the owner every call has; else each call is its own.
-    let caller = if single {
-        // SAFETY: no arguments.
-        unsafe { GetDesktopWindow() }
-    } else {
-        null_mut()
-    };
+    // No owner window: `hwndCaller` only says who owns the viewer, it does not ask for another
+    // one. The viewer is the one of this process (see `keyword_lookup` in `mod.rs`).
+    let caller: HWND = null_mut();
     // SAFETY: the strings and the structure live until the call returns, and the viewer copies
     // what it keeps.
     let window = unsafe {

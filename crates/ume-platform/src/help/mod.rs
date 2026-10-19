@@ -32,16 +32,20 @@ pub fn is_html_help_file(path: &Path) -> bool {
 }
 
 /// Opens `file` at `keyword` (`HH_KEYWORD_LOOKUP`, with the index shown when the keyword is not
-/// there). With `single` every call uses the same viewer window (`m_bHtmlHelpIsSingle`, which
-/// Sakura does by asking the process in the tray to start it); else each call starts a viewer.
+/// there).
+///
+/// There is no choice of one viewer or one for each window (`m_bHtmlHelpIsSingle`): Sakura's
+/// windows are processes of their own, each with its own viewer unless the process in the tray
+/// opens the help for all of them. UME Editor's windows are one process, so its viewer is always
+/// the one of the process, as with that option on.
 #[cfg(windows)]
-pub fn keyword_lookup(file: &Path, keyword: &str, single: bool) -> Result<(), HelpError> {
-    windows::keyword_lookup(file, keyword, single)
+pub fn keyword_lookup(file: &Path, keyword: &str) -> Result<(), HelpError> {
+    windows::keyword_lookup(file, keyword)
 }
 
 /// Opens `file` at `keyword`: not on this system.
 #[cfg(not(windows))]
-pub fn keyword_lookup(_file: &Path, _keyword: &str, _single: bool) -> Result<(), HelpError> {
+pub fn keyword_lookup(_file: &Path, _keyword: &str) -> Result<(), HelpError> {
     Err(HelpError::Unsupported)
 }
 
@@ -63,7 +67,7 @@ mod tests {
     #[test]
     fn there_is_no_keyword_lookup_outside_windows() {
         assert_eq!(
-            keyword_lookup(Path::new("a.chm"), "word", false),
+            keyword_lookup(Path::new("a.chm"), "word"),
             Err(HelpError::Unsupported)
         );
     }

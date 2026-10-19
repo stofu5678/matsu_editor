@@ -238,13 +238,31 @@ impl EditorView {
             return;
         }
         state.pointer = Some(position);
-        state.moves += 1;
-        let moves = state.moves;
-        self.hide_key_help(cx);
-        // A selection by the mouse shows no tip; nothing is looked for when the feature is off.
-        if dragging || !self.key_help_enabled(cx) {
+        // A selection by the mouse shows no tip: the timers that are out are overtaken.
+        if dragging {
+            state.moves += 1;
+            self.hide_key_help(cx);
             return;
         }
+        self.key_help_restart(window, cx);
+    }
+
+    /// Hides the tip and starts the wait for a new one (`CViewCommander::HandleCommand` and
+    /// `OnMOUSEMOVE`: `m_cTipWnd.Hide(); m_dwTipTimer = GetTickCount()`): after [`REST`] the word
+    /// is looked up again. A key calls this too, so that moving the caret to another word with
+    /// the keyboard shows the help of that word.
+    pub(crate) fn key_help_restart(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.support.key_help.moves += 1;
+        let moves = self.support.key_help.moves;
+        self.hide_key_help(cx);
+        if !self.key_help_enabled(cx) {
+            return;
+        }
+        let position = self
+            .support
+            .key_help
+            .pointer
+            .unwrap_or_else(|| window.mouse_position());
         cx.spawn_in(window, async move |this, cx| {
             cx.background_executor().timer(REST).await;
             this.update_in(cx, |this, window, cx| {
@@ -270,6 +288,12 @@ impl EditorView {
         }
         // The caret has the focus, and no menu is open (`m_bInMenuLoop`).
         if !self.focus_handle.is_focused(window) || self.custom_menu_is_open() {
+            return;
+        }
+        // The pointer is in the window (`PtInRect`).
+        let size = window.viewport_size();
+        let mouse = window.mouse_position();
+        if mouse.x < px(0.) || mouse.y < px(0.) || mouse.x > size.width || mouse.y > size.height {
             return;
         }
         if !self.key_help_lookup(cx) {
