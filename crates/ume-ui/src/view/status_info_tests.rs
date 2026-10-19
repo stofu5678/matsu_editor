@@ -68,16 +68,16 @@ fn an_empty_document_has_no_code(cx: &mut TestAppContext) {
     let (v, cx) = setup(cx, "");
     assert_eq!(code(&v, cx), "");
     v.read_with(cx, |v, cx| {
-        assert!(crate::status::status_text(&v.status(cx)).starts_with("1 行  1 桁"));
+        assert_eq!(v.status(cx).position_text(), "    1 行    1 桁");
     });
 }
 
 #[gpui::test]
-fn the_code_is_in_the_status_text(cx: &mut TestAppContext) {
+fn the_code_is_a_part_of_the_status_bar(cx: &mut TestAppContext) {
     let (v, cx) = setup(cx, "あ");
     v.read_with(cx, |v, cx| {
-        let text = crate::status::status_text(&v.status(cx));
-        assert!(text.contains("  |  U+3042  |  "), "{text}");
+        let status = v.status(cx);
+        assert_eq!(status.text(crate::status::Part::CharCode), "U+3042");
     });
 }
 

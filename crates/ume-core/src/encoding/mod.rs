@@ -111,7 +111,7 @@ mod utf8;
 
 use std::fmt;
 
-pub use char_code::{CharCodeOptions, char_code, sakura_utf16_len, unicode_code};
+pub use char_code::{CharCodeOptions, char_code, sakura_utf16_len, try_char_code, unicode_code};
 pub use detect::{Certainty, DETECT_SAMPLE_LEN, DetectOptions, Detection, detect};
 pub use mime::{base64_value, decode_base64_digits, mime_header_decode_jis};
 

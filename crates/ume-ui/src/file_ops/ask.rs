@@ -65,6 +65,14 @@ pub(crate) fn save_before_close_message(title: &str) -> String {
     format!("{title}\nは変更されています。 閉じる前に保存しますか？")
 }
 
+/// `STR_CHANGE_CHARSET`: asked before a document is closed whose text is unmodified but whose
+/// encoding or BOM was changed.
+pub(crate) fn charset_change_message(title: &str) -> String {
+    format!(
+        "{title}\nはテキストの変更は有りませんが、\n文字コードセットが変更されています。\n閉じる前に保存しますか？"
+    )
+}
+
 /// `STR_ERR_CEDITVIEW_CMD29`: asked before reloading a modified file.
 pub(crate) fn reload_message(title: &str) -> String {
     format!(

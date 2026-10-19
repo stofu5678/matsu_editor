@@ -52,6 +52,7 @@ pub(super) fn base() -> FuncStates {
         unc_path: false,
         path: None,
         modified: false,
+        format_changed: false,
         has_search_keys: false,
         has_search_start: false,
         open_documents: 1,

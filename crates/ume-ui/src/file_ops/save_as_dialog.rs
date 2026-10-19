@@ -27,7 +27,8 @@ use std::task::{Poll, Waker};
 use gpui::{
     AppContext as _, AsyncWindowContext, ClickEvent, Context, FocusHandle, Focusable,
     InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render, ScrollHandle,
-    StatefulInteractiveElement, Styled, WeakEntity, Window, div, px, rgb, rgba,
+    StatefulInteractiveElement, Styled, WeakEntity, Window, div, prelude::FluentBuilder, px, rgb,
+    rgba,
 };
 use ume_core::buffer::Eol;
 use ume_core::encoding::Encoding;
@@ -203,6 +204,9 @@ const FIELDS: [Field; 5] = [
 
 pub(crate) struct SaveAsDialog {
     state: State,
+    /// Whether the dialog has the line ending (the Save As); 文字コードセット指定 has not
+    /// (`IDD_SETCHARSET` has the encoding and the BOM only).
+    with_eol: bool,
     view: WeakEntity<EditorView>,
     answer: Option<AnswerSender>,
     encoding_focus: FocusHandle,
@@ -216,12 +220,14 @@ pub(crate) struct SaveAsDialog {
 impl SaveAsDialog {
     fn new(
         state: State,
+        with_eol: bool,
         view: WeakEntity<EditorView>,
         answer: AnswerSender,
         cx: &mut Context<Self>,
     ) -> Self {
         let dialog = Self {
             state,
+            with_eol,
             view,
             answer: Some(answer),
             encoding_focus: cx.focus_handle(),
@@ -250,6 +256,7 @@ impl SaveAsDialog {
         FIELDS
             .into_iter()
             .filter(|f| *f != Field::Bom || self.state.bom_enabled())
+            .filter(|f| *f != Field::Eol || self.with_eol)
             .collect()
     }
 
@@ -480,12 +487,18 @@ impl Render for SaveAsDialog {
             .border_color(rgb(0x888888))
             .text_color(rgb(PANEL_TEXT))
             .text_size(px(14.))
-            .child("名前を付けて保存")
+            .child(if self.with_eol {
+                "名前を付けて保存"
+            } else {
+                // `IDD_SETCHARSET`
+                "文字コードの指定"
+            })
             .child(label("文字コードセット"))
             .child(list)
             .child(div().mt_2().child(bom))
-            .child(label("改行コード"))
-            .child(eol)
+            .when(self.with_eol, |this| {
+                this.child(label("改行コード")).child(eol)
+            })
             .child(
                 div()
                     .mt_4()
@@ -518,7 +531,27 @@ pub(crate) async fn ask_options(
     current: (Encoding, bool),
     eol: Option<Eol>,
 ) -> Option<SaveChoice> {
-    let state = State::new(encoding_choices(), current, eol);
+    ask(view, cx, State::new(encoding_choices(), current, eol), true).await
+}
+
+/// The dialog of 文字コードセット指定 (`CDlgSetCharSet`): the encoding and the BOM of `current`,
+/// asked in the same dialog as the Save As, without the line ending. `None` if cancelled.
+pub(crate) async fn ask_charset(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    current: (Encoding, bool),
+) -> Option<(Encoding, bool)> {
+    let state = State::new(encoding_choices(), current, None);
+    let choice = ask(view, cx, state, false).await?;
+    Some((choice.encoding, choice.bom))
+}
+
+async fn ask(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    state: State,
+    with_eol: bool,
+) -> Option<SaveChoice> {
     let (sender, wait) = answer_channel();
     let weak = view.clone();
     let opened = view
@@ -526,7 +559,7 @@ pub(crate) async fn ask_options(
             if view.save_as_dialog.is_some() {
                 return false;
             }
-            let dialog = cx.new(|cx| SaveAsDialog::new(state, weak, sender, cx));
+            let dialog = cx.new(|cx| SaveAsDialog::new(state, with_eol, weak, sender, cx));
             let first = dialog.read(cx).encoding_focus.clone();
             window.focus(&first, cx);
             view.save_as_dialog = Some(dialog);

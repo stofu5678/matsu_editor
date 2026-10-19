@@ -580,11 +580,10 @@ impl EditorView {
             lines: shared.doc().line_count().max(1),
             modified: shared.model().is_modified(),
             overwrite: shared.overwrite(),
-            file_format: crate::status::file_format_label(
-                shared.file().encoding,
-                shared.file().bom,
-                shared.new_line(),
-            ),
+            charset: crate::status::charset_label(shared.file().encoding, shared.file().bom),
+            eol: crate::status::eol_name(shared.new_line()).to_owned(),
+            recording: self.is_recording_key_macro(),
+            zoom: self.prefs.zoom,
             // the incremental search shows its pattern where the notice goes
             notice: self
                 .isearch

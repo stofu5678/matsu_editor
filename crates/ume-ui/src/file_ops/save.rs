@@ -6,7 +6,8 @@
 //!    a document without a file).
 //!    A path from the save dialog is followed by the options dialog (encoding, BOM, line ending),
 //!    unless a macro passed the encoding or the line ending (`save_as_dialog`).
-//! 2. A plain save of an unmodified document writes nothing (`DoSaveFlow`, when
+//! 2. A plain save of an unmodified document whose encoding and BOM are as they were read writes
+//!    nothing (`DoSaveFlow`, `bChgCodeSet`, when
 //!    `m_bEnableUnmodifiedOverwrite` is off, which is Sakura's default; the page ファイル of the
 //!    common settings turns it on).
 //!    In view mode the file itself is never overwritten (`CSaveAgent::OnCheckSave`).
@@ -127,7 +128,8 @@ pub(crate) async fn save(
         let shared = view.document().read(app);
         (
             shared.path().map(PathBuf::from),
-            shared.model().is_modified(),
+            // a change of the encoding or the BOM is saved too (`CDocFile::IsChgCodeSet`)
+            shared.model().is_modified() || shared.format_changed(),
         )
     }) else {
         return SaveOutcome::Cancelled;

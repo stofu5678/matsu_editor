@@ -55,7 +55,7 @@ fn view_of(cx: &mut VisualTestContext) -> Entity<EditorView> {
 }
 
 fn format(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> String {
-    view.read_with(cx, |v, app| v.status(app).file_format)
+    view.read_with(cx, |v, app| v.status(app).file_format())
 }
 
 fn run(view: &Entity<EditorView>, cx: &mut VisualTestContext, function: &str, args: &[Arg]) {

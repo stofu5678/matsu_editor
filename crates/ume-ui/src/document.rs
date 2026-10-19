@@ -52,6 +52,9 @@ pub struct SharedDocument {
     /// What saving needs besides the text: the encoding, the BOM and the line ending. Its
     /// `document` is a placeholder; the text is `model`'s (see [`with_file`](Self::with_file)).
     file: TextFile,
+    /// The encoding and the BOM the file had when it was read or last written
+    /// (`eCharCodeLoad`, `bBomExistLoad`), to tell that `F_CHG_CHARSET` changed them.
+    loaded_format: (Encoding, bool),
     /// The file on disk as this editor last saw it: the time stamp for the watching of changes and
     /// whether the file can be written (`crate::file_watch`).
     disk: DiskState,
@@ -72,6 +75,7 @@ impl SharedDocument {
             overwrite: false,
             view_mode: false,
             type_locked: false,
+            loaded_format: (file.encoding, file.bom),
             file,
             disk: DiskState::default(),
             lock: FileLockState::default(),
@@ -92,6 +96,7 @@ impl SharedDocument {
             overwrite: false,
             view_mode: false,
             type_locked: false,
+            loaded_format: (file.encoding, file.bom),
             file,
             disk,
             lock: FileLockState::default(),
@@ -119,6 +124,18 @@ impl SharedDocument {
         self.set_format(defaults.encoding, defaults.bom);
         self.file.new_line = defaults.eol;
         self.model.set_new_line(defaults.eol);
+    }
+
+    /// Whether the encoding or the BOM was changed since the file was read or written, for a file
+    /// that is on disk (`CDocFile::IsChgCodeSet`). Such a document is saved and asked about on
+    /// close even when its text is unmodified.
+    pub fn format_changed(&self) -> bool {
+        self.disk.stamp.is_some() && (self.file.encoding, self.file.bom) != self.loaded_format
+    }
+
+    /// `CDocFile::CancelChgCodeSet`: gives up the change of the encoding and the BOM.
+    pub(crate) fn cancel_format_change(&mut self) {
+        (self.file.encoding, self.file.bom) = self.loaded_format;
     }
 
     /// Sets what a plain save writes (reopening or `F_FILE_REOPEN_*` of a file that is not there).
@@ -163,6 +180,7 @@ impl SharedDocument {
         let before = self.path.clone();
         let report = self.with_file(|file| file.save_as(path, options, progress))?;
         self.path = self.file.path.clone();
+        self.loaded_format = (self.file.encoding, self.file.bom);
         self.disk_after_save(before.as_deref());
         if let Some(eol) = options.eol {
             self.model.set_new_line(eol);

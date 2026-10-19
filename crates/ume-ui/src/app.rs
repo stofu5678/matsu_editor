@@ -5,7 +5,7 @@
 use gpui::{
     App, AppContext as _, Context, Decorations, Entity, Focusable, InteractiveElement as _,
     IntoElement, Menu, MenuItem, ParentElement, Render, Styled, Window, actions, div,
-    prelude::FluentBuilder, px, rgb,
+    prelude::FluentBuilder, rgb,
 };
 use gpui_component::{GlobalState, TitleBar};
 use gpui_platform::application;
@@ -18,7 +18,6 @@ use crate::launch::OpenRequest;
 use crate::menu::{Entry, MenuAction, Registered, label_with_shortcut, main_menu_for};
 use crate::menu_bar::MenuBar;
 use crate::panes::PaneSet;
-use crate::status::status_text;
 use crate::view::{EditorView, OpenRecentFile, OpenRecentFolder, RunFunction};
 use ume_commands::keymap::{DisplayStyle, KeyMap};
 
@@ -420,10 +419,15 @@ impl Render for Workspace {
         let active = self.panes.active().clone();
         let editor = active.read(cx);
         window.set_window_title(&editor.title_for(window.is_window_active(), cx));
-        let status = status_text(&editor.status(cx));
+        let status = editor.status(cx);
         let show_status_bar = editor.status_bar_shown();
         let macro_panel = editor.macro_panel(active.clone());
         let ui_font = gpui_component::Theme::global(cx).font_family.clone();
+        let status_bar = if show_status_bar {
+            Some(self.render_status_bar(&status, &ui_font, window, cx))
+        } else {
+            None
+        };
         let tab_bar = self.render_tab_bar(window, cx);
         let topmost = crate::window_ops::is_topmost(window, cx);
         let toolbar = self.render_toolbar_at_scale(topmost, window.scale_factor(), cx);
@@ -475,17 +479,7 @@ impl Render for Workspace {
             )
             .children(macro_panel)
             .children(funckeys_bottom)
-            .when(show_status_bar, |this| {
-                this.child(
-                    div()
-                        .px_2()
-                        .py_0p5()
-                        .text_size(px(12.))
-                        .bg(rgb(0xe8e8e8))
-                        .text_color(rgb(0x333333))
-                        .child(status),
-                )
-            })
+            .children(status_bar)
     }
 }
 

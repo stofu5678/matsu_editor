@@ -6,7 +6,7 @@
 
 use gpui::{App, AsyncWindowContext, Entity, PromptLevel, WeakEntity, Window};
 
-use super::ask::{Answer, ask, document_title, save_before_close_message};
+use super::ask::{Answer, ask, charset_change_message, document_title, save_before_close_message};
 use super::load::{choose_files, load_here, open_paths};
 use super::save::{SaveRequest, save};
 use crate::document::SharedDocument;
@@ -47,7 +47,7 @@ async fn ask_about_changes(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowCo
     if grep_blocks_close(view, cx) {
         return false;
     }
-    let Ok((modified, title)) = view.read_with(cx, |view, app| {
+    let Ok((modified, title, only_format)) = view.read_with(cx, |view, app| {
         let shared = view.document().read(app);
         // A Grep window asks only when 「Grepモードで保存確認する」 is on, and then always, also
         // when it is unmodified; any other window asks when it is modified
@@ -55,12 +55,15 @@ async fn ask_about_changes(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowCo
         let title = view
             .grep_title()
             .unwrap_or_else(|| document_title(shared.path()));
+        // Only the encoding or the BOM changed (`IsChgCodeSet`): asked with its own message.
+        let only_format =
+            !view.is_grep_window() && !shared.model().is_modified() && shared.format_changed();
         let ask = if view.is_grep_window() {
             crate::search::prefs::prefs(app).grep_exit_confirm
         } else {
-            shared.model().is_modified()
+            shared.model().is_modified() || shared.format_changed()
         };
-        (ask, title)
+        (ask, title, only_format)
     }) else {
         return false;
     };
@@ -78,7 +81,11 @@ async fn ask_about_changes(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowCo
     match ask(
         cx,
         PromptLevel::Warning,
-        &save_before_close_message(&title),
+        &if only_format {
+            charset_change_message(&title)
+        } else {
+            save_before_close_message(&title)
+        },
         None,
         ["保存する(Y)", "保存しない(N)", "キャンセル"],
     )
@@ -86,7 +93,20 @@ async fn ask_about_changes(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowCo
     {
         Answer::Yes => save(view, cx, SaveRequest::default()).await.is_safe(),
         Answer::No => true,
-        Answer::Cancel => false,
+        Answer::Cancel => {
+            if only_format {
+                // `CancelChgCodeSet`: the change of the encoding is given up.
+                view.update(cx, |view, cx| {
+                    view.document().update(cx, |shared, cx| {
+                        shared.cancel_format_change();
+                        cx.notify();
+                    });
+                    cx.notify();
+                })
+                .ok();
+            }
+            false
+        }
     }
 }
 

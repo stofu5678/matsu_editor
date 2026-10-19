@@ -104,6 +104,16 @@ pub fn char_code(encoding: Encoding, text: &str, options: &CharCodeOptions) -> S
         return String::new();
     };
     let second = chars.next();
+    try_char_code(encoding, text, options).unwrap_or_else(|| unicode_code(first, second, options))
+}
+
+/// [`char_code`] without the fall back to the code point: `None` for an empty `text` and for a
+/// character that `encoding` cannot write when the code is its bytes (`RESULT_LOSESOME`, which
+/// `ShowCodeBox` in `sakura_core/window/CEditWnd.cpp` shows as `-`).
+pub fn try_char_code(encoding: Encoding, text: &str, options: &CharCodeOptions) -> Option<String> {
+    let mut chars = text.chars();
+    let first = chars.next()?;
+    let second = chars.next();
     let by_bytes = match encoding {
         Encoding::Utf8 | Encoding::Cesu8 => !options.utf8_codepoint,
         Encoding::ShiftJis | Encoding::Latin1 => !options.unicode_in_sjis,
@@ -111,10 +121,10 @@ pub fn char_code(encoding: Encoding, text: &str, options: &CharCodeOptions) -> S
         Encoding::Jis => !options.unicode_in_jis,
         _ => false,
     };
-    if by_bytes && let Some(code) = bytes_code(encoding, first, second) {
-        return code;
+    if by_bytes {
+        return bytes_code(encoding, first, second);
     }
-    unicode_code(first, second, options)
+    Some(unicode_code(first, second, options))
 }
 
 /// `CCodeBase::UnicodeToHex`: the code point. A base character with a variation selector shows
@@ -238,6 +248,25 @@ mod tests {
             utf8_codepoint: true,
             surrogate_codepoint: true,
         }
+    }
+
+    #[test]
+    fn try_char_code_does_not_fall_back_to_the_code_point() {
+        let off = CharCodeOptions {
+            unicode_in_sjis: false,
+            unicode_in_jis: false,
+            unicode_in_euc: false,
+            utf8_codepoint: false,
+            surrogate_codepoint: false,
+        };
+        // Latin1 cannot write あ: `char_code` shows the code point, this says so
+        assert_eq!(try_char_code(Encoding::Latin1, "あ", &off), None);
+        assert_eq!(char_code(Encoding::Latin1, "あ", &off), "U+3042");
+        assert_eq!(
+            try_char_code(Encoding::ShiftJis, "あ", &off).as_deref(),
+            Some("82A0")
+        );
+        assert_eq!(try_char_code(Encoding::Utf8, "", &off), None);
     }
 
     #[test]

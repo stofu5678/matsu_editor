@@ -110,7 +110,8 @@ impl Fixture {
     }
 
     fn format(&self, cx: &mut VisualTestContext) -> String {
-        self.view.read_with(cx, |v, app| v.status(app).file_format)
+        self.view
+            .read_with(cx, |v, app| v.status(app).file_format())
     }
 
     fn notice(&self, cx: &mut VisualTestContext) -> Option<String> {
@@ -678,6 +679,27 @@ fn closing_a_modified_window_asks_first(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn closing_a_window_whose_encoding_was_changed_asks_first(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "日本語".as_bytes());
+    cx.update(gpui_component::init);
+    let handle = cx
+        .update(|cx| open_editor_window(cx, SharedDocument::empty(), None))
+        .unwrap();
+    let cx = &mut VisualTestContext::from_window(handle, cx);
+    let editor = cx.update(|_, app| super::windows::editors(app)[0].1.clone());
+    let f = Fixture { view: editor };
+    f.open(cx, &path, Some(UTF8));
+    // `IsChgCodeSet`: the text is unmodified, the encoding is not the one that was read
+    f.run(cx, "F_CHG_CHARSET", &[Arg::Int(SJIS)]);
+    assert!(!cx.simulate_close(), "the window waits for the answer");
+    cx.run_until_parked();
+    answer(cx, DONT_SAVE);
+    assert!(!cx.windows().contains(&handle));
+    assert_eq!(read(&path), "日本語".as_bytes());
+}
+
+#[gpui::test]
 fn win_close_and_save_close(cx: &mut TestAppContext) {
     let dir = TempDir::new();
     let path = dir.path("s.txt");
@@ -882,6 +904,36 @@ fn exit_all_asks_again_when_a_checked_window_changed(cx: &mut TestAppContext) {
     answer(cx_a, CANCEL);
     assert!(cx_a.windows().contains(&a));
     assert_eq!(f.lines(cx_a), ["amore"]);
+}
+
+#[gpui::test]
+fn exit_all_asks_again_when_a_checked_window_changed_its_encoding(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "日本語".as_bytes());
+    cx.update(gpui_component::init);
+    let a = cx
+        .update(|cx| open_editor_window(cx, SharedDocument::empty(), None))
+        .unwrap();
+    let b = cx
+        .update(|cx| open_editor_window(cx, SharedDocument::empty(), None))
+        .unwrap();
+    let cx_a = &mut VisualTestContext::from_window(a, cx);
+    let editor_a = cx_a.update(|_, app| super::windows::editors(app)[0].1.clone());
+    let f = Fixture { view: editor_a };
+    f.open(cx_a, &path, Some(UTF8));
+    let cx_b = &mut VisualTestContext::from_window(b, cx_a);
+    cx_b.simulate_input("b");
+    f.run(cx_b, "F_EXITALL", &[]);
+    // The first window is unmodified and passes; the second one is asked.
+    assert!(cx_b.has_pending_prompt());
+    // The encoding of the first window is changed while that question is open.
+    f.run(cx_b, "F_CHG_CHARSET", &[Arg::Int(SJIS)]);
+    answer(cx_b, DONT_SAVE);
+    // Quitting now would lose the change: the first window is asked again.
+    assert!(cx_b.has_pending_prompt());
+    answer(cx_b, CANCEL);
+    assert!(cx_b.windows().contains(&a));
+    assert_eq!(read(&path), "日本語".as_bytes());
 }
 
 #[gpui::test]

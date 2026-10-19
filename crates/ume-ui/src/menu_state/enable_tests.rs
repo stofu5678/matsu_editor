@@ -115,6 +115,12 @@ fn saving_needs_a_modified_document_outside_view_mode() {
         ..base()
     };
     flips("F_FILESAVE", &base(), &modified);
+    // a changed encoding or BOM (`IsChgCodeSet`) makes an unmodified document saveable too
+    let recoded = FuncStates {
+        format_changed: true,
+        ..base()
+    };
+    flips("F_FILESAVE", &base(), &recoded);
     let view = FuncStates {
         view_mode: true,
         ..modified.clone()
