@@ -69,9 +69,13 @@ impl gpui::Global for UserSettings {}
 /// The defaults of a new document for a file called `file_name`, from the settings file the
 /// application read at startup (Sakura's, with the line ending of the OS, without one).
 pub fn new_document_defaults(cx: &gpui::App, file_name: Option<&str>) -> NewDocumentDefaults {
-    cx.try_global::<UserSettings>()
+    let mut defaults = cx
+        .try_global::<UserSettings>()
         .map(|user| user.new_document_defaults(file_name))
-        .unwrap_or_default()
+        .unwrap_or_default();
+    // 「MIMEエンコードされたヘッダをデコードする」 is a common setting, not a type's
+    defaults.mime_decode = crate::file_ops::prefs::prefs(cx).auto_mime_decode;
+    defaults
 }
 
 impl UserSettings {

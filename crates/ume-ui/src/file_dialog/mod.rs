@@ -7,6 +7,10 @@
 //!
 //! * [`start_folder`] chooses the folder: the pure rules are `ume_config::dialog_dir`.
 //! * [`ask`] shows a dialog and gives the paths chosen.
+//! * [`save_types`] makes the file types and the first name of the save dialog.
+//!
+//! GPUI's save dialog has no list of file types: when it is the fallback, the user sees every
+//! file, and the default extension is added to the name it answers.
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -14,7 +18,7 @@ use std::path::{Path, PathBuf};
 use gpui::{App, AsyncApp, PathPromptOptions, Window};
 use raw_window_handle::HasWindowHandle;
 use ume_config::dialog_dir::{DialogDirSetting, MetaSource, Surroundings};
-use ume_platform::dialog::{Kind, Owner, Request};
+use ume_platform::dialog::{Kind, Owner, Request, extension_for_filter, with_default_extension};
 
 use crate::settings::UserSettings;
 
@@ -30,6 +34,8 @@ pub(crate) struct Ask {
     title: String,
     /// The label of the button of GPUI's dialog (`PathPromptOptions::prompt`).
     prompt: Option<String>,
+    /// The file types and the default extension of a save dialog.
+    types: Option<save_types::SaveTypes>,
 }
 
 impl Ask {
@@ -55,7 +61,14 @@ impl Ask {
             name: None,
             title: title.to_owned(),
             prompt: None,
+            types: None,
         }
+    }
+
+    /// The list of file types of a save dialog, and the extension a name typed without one gets.
+    pub(crate) fn save_types(mut self, types: save_types::SaveTypes) -> Self {
+        self.types = Some(types);
+        self
     }
 
     /// The folder the dialog starts in. `None`: where the OS wants.
@@ -83,6 +96,12 @@ impl Ask {
             start: self.start.clone().filter(|dir| dir.is_dir()),
             name: self.name.clone(),
             title: self.title.clone(),
+            filters: self.types.iter().flat_map(|t| t.filters.clone()).collect(),
+            selected_filter: 0,
+            default_extension: self
+                .types
+                .as_ref()
+                .and_then(|t| t.default_extension.clone()),
         }
     }
 }
@@ -103,7 +122,28 @@ pub(crate) fn ask(window: &Window, cx: &mut App, ask: Ask) -> impl Future<Output
         // dialog is still there.
         match native(owner, request).await {
             Ok(paths) => Ok(paths),
-            Err(_) => fallback(&app, &ask).await,
+            Err(_) => fallback(&app, &ask).await.map(|paths| {
+                // GPUI's dialog does not add the default extension, as the one of Windows does
+                match (&ask.types, ask.kind) {
+                    (Some(types), Kind::SaveFile) => {
+                        // no list is shown: the type shown first decides
+                        let extension = types
+                            .default_extension
+                            .as_deref()
+                            .map(|fallback| extension_for_filter(types.filters.first(), fallback));
+                        paths.map(|paths| {
+                            paths
+                                .into_iter()
+                                .map(|path| match &extension {
+                                    Some(extension) => with_default_extension(path, extension),
+                                    None => path,
+                                })
+                                .collect()
+                        })
+                    }
+                    _ => paths,
+                }
+            }),
         }
     }
 }
@@ -268,5 +308,6 @@ pub(crate) fn macro_folder(cx: &App) -> Option<PathBuf> {
     )
 }
 
+pub(crate) mod save_types;
 #[cfg(test)]
 pub(crate) mod tests;

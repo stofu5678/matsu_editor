@@ -79,6 +79,7 @@ impl Project {
             file_only: false,
             except_file_regex: false,
             replace: None,
+            mime_decode: false,
         }
     }
 }
@@ -357,6 +358,28 @@ fn a_fixed_encoding_reads_every_file_in_it_and_the_lines_have_no_name() {
     info.charset = Some(Encoding::Utf8);
     let (text, outcome) = grep(&info);
     assert_eq!(outcome.hits, 0, "{text}");
+}
+
+#[test]
+fn a_mime_word_in_a_jis_file_is_searched_decoded_when_the_option_is_on() {
+    let p = Project::new();
+    // "Subject: 日本語" with the word in Base64
+    p.write(
+        "mail.txt",
+        b"Subject: =?ISO-2022-JP?B?GyRCRnxLXDhsGyhC?=\r\n",
+    );
+    let mut info = p.info("日本語");
+    info.charset = Some(Encoding::Jis);
+    let (_, outcome) = grep(&info);
+    assert_eq!(outcome.hits, 0, "off by default");
+    info.mime_decode = true;
+    let (text, outcome) = grep(&info);
+    assert_eq!(outcome.hits, 1, "{text}");
+    assert!(text.contains("Subject: 日本語"), "{text}");
+    // another encoding is not touched
+    info.charset = Some(Encoding::Utf8);
+    let (_, outcome) = grep(&info);
+    assert_eq!(outcome.hits, 0);
 }
 
 #[test]

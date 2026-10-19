@@ -87,23 +87,31 @@ impl SaveOutcome {
 
 /// Shows the save dialog. `None` if the user cancelled. The dialog starts in the folder of the
 /// `current` file, else where 「ファイルダイアログの初期位置」 says (`GetDlgInitialDir`), and suggests
-/// `name`, else the name of the current file, else `無題.txt`.
+/// `name`, else the name of the current file, else `無題_<date>_<time>` (`SaveFileDialog`).
+///
+/// `document_type` is the type of the document when the dialog is its 名前を付けて保存: the dialog
+/// then has the file types of Sakura's (`file_dialog::save_types`). `None` for a file that is
+/// not a document (the decoded data of `save_decoded`), which Sakura saves without them.
 pub(crate) async fn choose_path(
     cx: &mut AsyncWindowContext,
     current: Option<&std::path::Path>,
     name: Option<&str>,
+    document_type: Option<usize>,
 ) -> Option<PathBuf> {
-    // Sakura suggests *.txt for a document without a name (`SaveFileDialog`).
     let name = name.map(str::to_owned).unwrap_or_else(|| {
         current.and_then(|p| p.file_name()).map_or_else(
-            || "無題.txt".to_owned(),
+            || file_dialog::save_types::untitled_name(chrono::Local::now().naive_local()),
             |n| n.to_string_lossy().into_owned(),
         )
     });
     let answer = cx
         .update(|window, app| {
             let start = file_dialog::start_folder(app, current);
-            file_dialog::ask(window, app, Ask::save().start(start).name(Some(name)))
+            let mut ask = Ask::save().start(start).name(Some(name));
+            if let Some(index) = document_type {
+                ask = ask.save_types(file_dialog::save_types::for_document(app, index, current));
+            }
+            file_dialog::ask(window, app, ask)
         })
         .ok()?;
     answer.await.ok().flatten()?.pop()
@@ -151,7 +159,8 @@ pub(crate) async fn save(
         if busy {
             return SaveOutcome::Cancelled;
         }
-        match choose_path(cx, current.as_deref(), None).await {
+        let document_type = view.read_with(cx, |view, _| view.type_index()).ok();
+        match choose_path(cx, current.as_deref(), None, document_type).await {
             Some(path) => {
                 from_dialog = true;
                 path

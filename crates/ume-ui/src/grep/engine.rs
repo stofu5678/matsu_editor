@@ -106,6 +106,10 @@ pub struct GrepInfo {
     pub except_file_regex: bool,
     /// Grep 置換: what to replace the hits with (`bGrepReplace`).
     pub replace: Option<ReplaceInfo>,
+    /// Decode the MIME encoded words of ISO-2022-JP files (`bAutoMIMEdecode`: Sakura gives the
+    /// common setting to `CFileLoad::FileOpen` in `CGrepAgent::DoGrep`). Not in the dialog: the
+    /// window sets it from the common settings when the search starts.
+    pub mime_decode: bool,
 }
 
 /// The parts of a Grep 置換 that a Grep does not have (`cmGrepRep`, `bGrepPaste`, `bGrepBackup`).
@@ -500,6 +504,7 @@ impl Runner<'_> {
     fn open(&mut self, path: &str) -> Result<Option<TextFile>, Stopped> {
         let mut options = OpenOptions {
             encoding: self.info.charset,
+            mime_decode: self.info.mime_decode,
             ..OpenOptions::default()
         };
         options.detect = DetectOptions::default();

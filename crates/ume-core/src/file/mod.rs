@@ -54,7 +54,7 @@ pub use save::{
 };
 
 use crate::buffer::{Document, EncodingCodec, Eol};
-use crate::encoding::{DetectOptions, Detection, Encoding, detect};
+use crate::encoding::{DetectOptions, Detection, Encoding, detect, mime_header_decode_jis};
 use source::FileBytes;
 
 /// The size of one read while loading, and the unit of progress and cancellation.
@@ -82,6 +82,10 @@ pub struct OpenOptions {
     /// Refuse files larger than this many bytes. `None` (the default) means no limit, as in
     /// 64-bit Sakura (ADR-0012).
     pub max_len: Option<u64>,
+    /// Decode the MIME encoded words (`=?ISO-2022-JP?B?...?=`) of an ISO-2022-JP file before
+    /// reading it (`bAutoMIMEdecode`, 「MIMEエンコードされたヘッダを デコードする」). Other encodings are
+    /// not touched: only `CJis` takes the option (`CJis::JISToUnicode`, `CCodeFactory`).
+    pub mime_decode: bool,
 }
 
 impl Default for OpenOptions {
@@ -91,6 +95,7 @@ impl Default for OpenOptions {
             detect: DetectOptions::default(),
             default_eol: Eol::platform_default(),
             max_len: None,
+            mime_decode: false,
         }
     }
 }
@@ -166,7 +171,7 @@ pub fn open_file_with(
     if len > max {
         return Err(FileError::TooLarge { len, max });
     }
-    let bytes = read_all(&mut file, len, max, progress)?;
+    let mut bytes = read_all(&mut file, len, max, progress)?;
     drop(file);
 
     let (encoding, bom, detection) = match options.encoding {
@@ -176,6 +181,11 @@ pub fn open_file_with(
             (d.encoding, d.bom, Some(d))
         }
     };
+    // `CFileLoad::FileOpen` hands the option to the code base of the encoding, and only ISO-2022-JP
+    // uses it. The detection above looked at the bytes as they are in the file, as Sakura's does.
+    if options.mime_decode && encoding == Encoding::Jis {
+        bytes = mime_header_decode_jis(&bytes);
+    }
     let bom_len = if bom { encoding.bom().len() } else { 0 };
     // The first line ending, read from the bytes: `Document::line` would decode the whole first
     // line, which is the whole file when it has no line break.

@@ -234,6 +234,36 @@ fn saving_an_untitled_document_asks_for_a_name(cx: &mut TestAppContext) {
     assert!(f.notice(cx).unwrap().contains("saved.txt"));
 }
 
+/// `CODE_JIS` of `F_FILEOPEN`'s second argument.
+const JIS: i64 = 1;
+const MIME_MAIL: &[u8] = b"=?ISO-2022-JP?B?GyRCRnxLXDhsGyhC?=";
+
+#[gpui::test]
+fn opening_a_jis_file_keeps_its_mime_words_by_default(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("mail.txt", MIME_MAIL);
+    let (f, cx) = setup(cx);
+    f.open(cx, &path, Some(JIS));
+    assert_eq!(f.lines(cx), ["=?ISO-2022-JP?B?GyRCRnxLXDhsGyhC?="]);
+}
+
+#[gpui::test]
+fn opening_a_jis_file_decodes_its_mime_words_when_the_common_setting_is_on(
+    cx: &mut TestAppContext,
+) {
+    let dir = TempDir::new();
+    let path = dir.write("mail.txt", MIME_MAIL);
+    let (f, cx) = setup(cx);
+    cx.update(|_, app| {
+        app.set_global(super::prefs::FilePrefs {
+            auto_mime_decode: true,
+            ..super::prefs::FilePrefs::default()
+        });
+    });
+    f.open(cx, &path, Some(JIS));
+    assert_eq!(f.lines(cx), ["日本語"]);
+}
+
 #[gpui::test]
 fn cancelling_the_save_dialog_leaves_the_document_modified(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx);

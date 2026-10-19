@@ -20,13 +20,14 @@ use windows::Win32::System::Com::{
     CLSCTX_ALL, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree,
     CoUninitialize,
 };
+use windows::Win32::UI::Shell::Common::COMDLG_FILTERSPEC;
 use windows::Win32::UI::Shell::{
     FOS_ALLOWMULTISELECT, FOS_FILEMUSTEXIST, FOS_FORCEFILESYSTEM, FOS_NOCHANGEDIR,
     FOS_OVERWRITEPROMPT, FOS_PATHMUSTEXIST, FOS_PICKFOLDERS, FileOpenDialog, FileSaveDialog,
     IFileDialog, IFileOpenDialog, IFileSaveDialog, IShellItem, SHCreateItemFromParsingName,
     SIGDN_FILESYSPATH,
 };
-use windows::core::{HRESULT, HSTRING};
+use windows::core::{HRESULT, HSTRING, PCWSTR};
 
 use super::{Error, Kind, Request};
 
@@ -121,6 +122,39 @@ fn run(owner: Owner, request: &Request) -> Result<Option<Vec<PathBuf>>, Error> {
         dialog
             .SetTitle(&HSTRING::from(request.title.as_str()))
             .map_err(failed)?;
+        // The list of file types of the save dialog (`DoModalSaveDlgImpl1`: `SetDefaultExtension`,
+        // `SetFileTypes`). The strings live until the dialog is closed.
+        let names: Vec<HSTRING> = request
+            .filters
+            .iter()
+            .map(|filter| HSTRING::from(filter.name.as_str()))
+            .collect();
+        let specs: Vec<HSTRING> = request
+            .filters
+            .iter()
+            .map(|filter| HSTRING::from(filter.patterns.join(";")))
+            .collect();
+        if request.kind == Kind::SaveFile {
+            if let Some(extension) = &request.default_extension {
+                dialog
+                    .SetDefaultExtension(&HSTRING::from(extension.as_str()))
+                    .map_err(failed)?;
+            }
+            if !names.is_empty() {
+                let types: Vec<COMDLG_FILTERSPEC> = names
+                    .iter()
+                    .zip(&specs)
+                    .map(|(name, spec)| COMDLG_FILTERSPEC {
+                        pszName: PCWSTR(name.as_ptr()),
+                        pszSpec: PCWSTR(spec.as_ptr()),
+                    })
+                    .collect();
+                dialog.SetFileTypes(&types).map_err(failed)?;
+                // the index is 1-based
+                let selected = request.selected_filter.min(types.len() - 1) + 1;
+                dialog.SetFileTypeIndex(selected as u32).map_err(failed)?;
+            }
+        }
         if let Some(name) = &request.name {
             dialog
                 .SetFileName(&HSTRING::from(name.as_str()))

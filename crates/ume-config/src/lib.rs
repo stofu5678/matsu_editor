@@ -13,6 +13,7 @@ pub mod dialog_dir;
 pub mod history;
 pub mod location;
 pub mod profile;
+pub mod save_filter;
 pub mod settings;
 pub mod value;
 

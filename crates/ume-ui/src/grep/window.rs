@@ -360,7 +360,8 @@ impl EditorView {
 
     /// Starts the search with the result in this window. The search runs on a background task;
     /// the window gets the pieces of the result as they come.
-    pub(crate) fn begin_grep(&mut self, info: GrepInfo, cx: &mut Context<Self>) {
+    pub(crate) fn begin_grep(&mut self, mut info: GrepInfo, cx: &mut Context<Self>) {
+        info.mime_decode = crate::file_ops::prefs::prefs(cx).auto_mime_decode;
         // The key is marked in the result (`m_strCurSearchKey`, `m_bCurSrchKeyMark`).
         self.search.set_options(info.options);
         self.search.set_pattern(&info.key);

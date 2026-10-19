@@ -43,6 +43,33 @@ pub enum Kind {
     Folder,
 }
 
+/// One entry of the list of file types of a save dialog (Sakura's `COMDLG_FILTERSPEC`), for
+/// example "ユーザー指定" with `*.cpp` and `*.h`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileFilter {
+    /// What the list shows.
+    pub name: String,
+    /// The wildcards, one by one (`*.txt`, `*.*`).
+    pub patterns: Vec<String>,
+}
+
+impl FileFilter {
+    /// The extensions of the patterns that name one (`*.txt` gives `txt`). A pattern with another
+    /// wildcard in the extension (`*.t?t`) or without an extension (`Make*`) gives none.
+    pub fn extensions(&self) -> Vec<&str> {
+        self.patterns
+            .iter()
+            .filter_map(|pattern| pattern.strip_prefix("*."))
+            .filter(|ext| !ext.is_empty() && !ext.contains(['*', '?', '.', '/', '\\']))
+            .collect()
+    }
+
+    /// Whether the filter shows every file (`*.*` or `*`).
+    pub fn matches_all(&self) -> bool {
+        self.patterns.iter().any(|p| p == "*.*" || p == "*")
+    }
+}
+
 /// What to ask the user.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Request {
@@ -54,6 +81,18 @@ pub struct Request {
     pub name: Option<String>,
     /// The title of the dialog.
     pub title: String,
+    /// The list of file types of a save dialog; empty for no list (and for every other kind of
+    /// dialog). Windows shows it as the list next to the name (`IFileDialog::SetFileTypes`), the
+    /// portal as its filters (`filters`, `current_filter`). The panel of macOS has no list: it
+    /// takes the extensions of the selected type (`allowedFileTypes`) and lets other names be
+    /// typed. GPUI's dialog, the fallback, has none of this.
+    pub filters: Vec<FileFilter>,
+    /// The entry of [`filters`](Self::filters) shown first.
+    pub selected_filter: usize,
+    /// The extension (`txt`, no dot) added to a name typed without one (a save dialog;
+    /// `IFileDialog::SetDefaultExtension`). Windows and macOS do it in the dialog; the portal
+    /// does not, so [`show`] does it for the portal.
+    pub default_extension: Option<String>,
 }
 
 /// Why no dialog came up, or why it failed.
@@ -82,6 +121,37 @@ impl std::error::Error for Error {}
 /// belongs to the main thread and the future must be polled there.
 pub async fn show(owner: Owner, request: Request) -> Result<Option<Vec<PathBuf>>, Error> {
     os::show(owner, request).await
+}
+
+/// The default extension for a dialog that does not do it itself: the dialog of Windows changes
+/// it to that of the file type the user chooses (`IFileDialog::SetDefaultExtension`), so this is
+/// the first extension the chosen type names (`*.c;*.h` gives `c`), else `fallback`.
+pub fn extension_for_filter(filter: Option<&FileFilter>, fallback: &str) -> String {
+    filter
+        .and_then(|filter| filter.extensions().first().map(|ext| (*ext).to_owned()))
+        .unwrap_or_else(|| fallback.to_owned())
+}
+
+/// `path` with `.extension` added when its file name has no extension: what the Windows dialog does
+/// with the default extension. For a dialog that does not do it itself.
+///
+/// Such a dialog asked about overwriting the name as it was typed, not the one with the extension.
+/// So a file that is there under the longer name is never taken: the name stays as it was typed
+/// (the Windows dialog would ask).
+pub fn with_default_extension(path: PathBuf, extension: &str) -> PathBuf {
+    if path.extension().is_none()
+        && !extension.is_empty()
+        && let Some(name) = path.file_name()
+    {
+        let mut name = name.to_os_string();
+        name.push(".");
+        name.push(extension);
+        let longer = path.with_file_name(name);
+        if !longer.exists() {
+            return longer;
+        }
+    }
+    path
 }
 
 /// The path of a `file://` URI that a portal returns: the percent-escapes are decoded to bytes,
@@ -114,5 +184,7 @@ pub(crate) fn path_from_file_uri(uri: &str) -> Option<PathBuf> {
     Some(PathBuf::from(std::ffi::OsString::from_vec(out)))
 }
 
+#[cfg(test)]
+mod filter_tests;
 #[cfg(all(test, unix))]
 mod tests;

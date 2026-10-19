@@ -8,7 +8,10 @@ use std::path::{Path, PathBuf};
 use raw_window_handle::RawWindowHandle;
 use zbus::zvariant::Value;
 
-use super::{Error, Kind, Request, path_from_file_uri};
+use super::{
+    Error, FileFilter, Kind, Request, extension_for_filter, path_from_file_uri,
+    with_default_extension,
+};
 use crate::portal::{Answer, Failure, Portal};
 
 const INTERFACE: &str = "org.freedesktop.portal.FileChooser";
@@ -26,6 +29,27 @@ impl Owner {
             _ => String::new(),
         })
     }
+}
+
+/// A filter as the portal takes it: `(name, [(0, glob)])` (`(sa(us))`; 0 is a glob, 1 a MIME type).
+/// `*.*` means every file for Windows, but a glob of the portal needs a dot in the name for it, so
+/// it is sent as `*`.
+fn filter_tuple(filter: &FileFilter) -> (String, Vec<(u32, String)>) {
+    let globs = filter
+        .patterns
+        .iter()
+        .map(|p| {
+            (
+                0,
+                if p == "*.*" {
+                    "*".to_owned()
+                } else {
+                    p.clone()
+                },
+            )
+        })
+        .collect();
+    (filter.name.clone(), globs)
 }
 
 /// `current_folder` is a byte string that ends with NUL (`ay`).
@@ -52,7 +76,15 @@ pub(super) async fn show(owner: Owner, request: Request) -> Result<Option<Vec<Pa
                 Kind::Folder => {
                     options.insert("directory", true.into());
                 }
-                Kind::SaveFile => {}
+                Kind::SaveFile => {
+                    if !request.filters.is_empty() {
+                        let filters: Vec<_> = request.filters.iter().map(filter_tuple).collect();
+                        options.insert("filters", Value::from(filters));
+                        if let Some(current) = request.filters.get(request.selected_filter) {
+                            options.insert("current_filter", Value::from(filter_tuple(current)));
+                        }
+                    }
+                }
             }
             if let Some(folder) = request.start.as_deref() {
                 options.insert("current_folder", Value::from(folder_bytes(folder)));
@@ -71,7 +103,36 @@ pub(super) async fn show(owner: Owner, request: Request) -> Result<Option<Vec<Pa
         Err(Failure::Answer(why)) => Err(Error::Failed(why)),
         Ok(Answer::Cancelled) => Ok(None),
         Ok(Answer::Failed) => Err(Error::Failed("ポータルが失敗を返した".to_owned())),
-        Ok(Answer::Done(results)) => Ok(paths_of(&results)),
+        Ok(Answer::Done(results)) => Ok(paths_of(&results).map(|paths| {
+            // the portal does not add the default extension, as the dialog of Windows does
+            match (&request.default_extension, request.kind) {
+                (Some(fallback), Kind::SaveFile) => {
+                    let extension =
+                        extension_for_filter(chosen_filter(&request, &results), fallback);
+                    paths
+                        .into_iter()
+                        .map(|path| with_default_extension(path, &extension))
+                        .collect()
+                }
+                _ => paths,
+            }
+        })),
+    }
+}
+
+/// The filter the user chose: the `current_filter` of the answer (found by its name), else the one
+/// the dialog showed first.
+fn chosen_filter<'a>(
+    request: &'a Request,
+    results: &HashMap<String, zbus::zvariant::OwnedValue>,
+) -> Option<&'a FileFilter> {
+    let name = results
+        .get("current_filter")
+        .and_then(|value| <(String, Vec<(u32, String)>)>::try_from(value.try_clone().ok()?).ok())
+        .map(|(name, _)| name);
+    match name {
+        Some(name) => request.filters.iter().find(|f| f.name == name),
+        None => request.filters.get(request.selected_filter),
     }
 }
 
@@ -90,6 +151,59 @@ fn paths_of(results: &HashMap<String, zbus::zvariant::OwnedValue>) -> Option<Vec
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_filter_is_a_name_and_globs_for_the_portal() {
+        let filter = FileFilter {
+            name: "ユーザー指定".to_owned(),
+            patterns: vec!["*.cpp".to_owned(), "*.*".to_owned()],
+        };
+        // `current_filter` is `(sa(us))`, and `filters` is a list of them: `a(sa(us))`
+        let value = Value::from(filter_tuple(&filter));
+        assert_eq!(value.value_signature().to_string(), "(sa(us))");
+        assert_eq!(
+            filter_tuple(&filter).1,
+            [(0, "*.cpp".to_owned()), (0, "*".to_owned())]
+        );
+        let list = Value::from(vec![filter_tuple(&filter)]);
+        assert_eq!(list.value_signature().to_string(), "a(sa(us))");
+    }
+
+    #[test]
+    fn the_extension_follows_the_filter_the_portal_says_was_chosen() {
+        let filter = |name: &str, patterns: &[&str]| FileFilter {
+            name: name.to_owned(),
+            patterns: patterns.iter().map(|p| (*p).to_owned()).collect(),
+        };
+        let request = Request {
+            kind: Kind::SaveFile,
+            start: None,
+            name: None,
+            title: String::new(),
+            filters: vec![
+                filter("ユーザー指定", &["*.c", "*.h"]),
+                filter("すべてのファイル", &["*.*"]),
+            ],
+            selected_filter: 0,
+            default_extension: Some("txt".to_owned()),
+        };
+        let extension = |chosen: Option<&FileFilter>| {
+            let mut results = HashMap::new();
+            if let Some(f) = chosen {
+                results.insert(
+                    "current_filter".to_owned(),
+                    Value::from(filter_tuple(f)).try_into().unwrap(),
+                );
+            }
+            extension_for_filter(chosen_filter(&request, &results), "txt")
+        };
+        assert_eq!(extension(Some(&request.filters[0])), "c");
+        assert_eq!(extension(Some(&request.filters[1])), "txt");
+        // no `current_filter`: the one shown first
+        assert_eq!(extension(None), "c");
+        let path = with_default_extension(PathBuf::from("/nonexistent-ume/bar"), "c");
+        assert_eq!(path, PathBuf::from("/nonexistent-ume/bar.c"));
+    }
 
     #[test]
     fn the_folder_ends_with_nul() {

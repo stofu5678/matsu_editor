@@ -16,7 +16,7 @@ use futures_channel::oneshot;
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2_app_kit::{NSModalResponse, NSOpenPanel, NSSavePanel, NSWindow};
-use objc2_foundation::{NSString, NSURL};
+use objc2_foundation::{NSArray, NSString, NSURL};
 use raw_window_handle::RawWindowHandle;
 
 use super::{Error, Kind, Request};
@@ -60,6 +60,9 @@ pub(super) async fn show(owner: Owner, request: Request) -> Result<Option<Vec<Pa
         let url = NSURL::fileURLWithPath_isDirectory(&NSString::from_str(start), true);
         save.setDirectoryURL(Some(&url));
     }
+    if request.kind == Kind::SaveFile {
+        restrict_to_file_types(&save, &request);
+    }
     let done = Cell::new(Some(done));
     let panel = save.clone();
     let handler = RcBlock::new(move |response: NSModalResponse| {
@@ -88,6 +91,27 @@ pub(super) async fn show(owner: Owner, request: Request) -> Result<Option<Vec<Pa
         .await
         .map_err(|_| Error::Failed("the panel was dropped".to_owned()))?;
     Ok(chosen.filter(|paths| !paths.is_empty()))
+}
+
+/// The panel has no list of file types. The selected type gives the extensions the name may have
+/// (`allowedFileTypes`): the panel adds the first to a name typed without one, and other names are
+/// still allowed, also when the type has `*.*` next to its extensions. A type that names no extension
+/// (`*.*` alone) gives the default extension to add.
+fn restrict_to_file_types(panel: &NSSavePanel, request: &Request) {
+    let chosen = request.filters.get(request.selected_filter);
+    let mut extensions: Vec<&str> = chosen.map_or_else(Vec::new, |filter| filter.extensions());
+    if extensions.is_empty() {
+        extensions.extend(request.default_extension.as_deref());
+    }
+    if extensions.is_empty() {
+        return;
+    }
+    let types: Vec<Retained<NSString>> = extensions.into_iter().map(NSString::from_str).collect();
+    let types = NSArray::from_retained_slice(&types);
+    // `allowedContentTypes` needs UTType; the extensions are all this needs.
+    #[allow(deprecated)]
+    panel.setAllowedFileTypes(Some(&types));
+    panel.setAllowsOtherFileTypes(true);
 }
 
 fn path_of(url: &NSURL) -> Option<PathBuf> {
