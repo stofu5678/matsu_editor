@@ -131,16 +131,6 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let style = if cfg!(target_os = "macos") {
-            DisplayStyle::Mac
-        } else {
-            DisplayStyle::Sakura
-        };
-        let mut items: Vec<_> = gpui_items(entries, style)
-            .into_iter()
-            .map(MenuItem::owned)
-            .collect();
-        self.mark_menu_items(&mut items, window, cx);
         let at = self
             .custom_menu
             .mouse_at
@@ -153,6 +143,30 @@ impl EditorView {
                 let p = window.mouse_position();
                 point(p.x, p.y - px(ABOVE_POINTER))
             });
+        self.open_popup_menu(entries, at, window, cx);
+    }
+
+    /// Shows `entries` as a popup menu whose top left corner is at `at`, a point of the window.
+    /// The items run as those of the main menu do: the functions through
+    /// [`RunFunction`](crate::view::RunFunction), the recent files and folders through their own
+    /// actions.
+    pub(crate) fn open_popup_menu(
+        &mut self,
+        entries: Vec<crate::menu::Entry>,
+        at: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let style = if cfg!(target_os = "macos") {
+            DisplayStyle::Mac
+        } else {
+            DisplayStyle::Sakura
+        };
+        let mut items: Vec<_> = gpui_items(entries, style)
+            .into_iter()
+            .map(MenuItem::owned)
+            .collect();
+        self.mark_menu_items(&mut items, window, cx);
         let handle = self.focus_handle.clone();
         let max_height = popup_max_height(window.viewport_size().height, at.y);
         let popup = PopupMenu::build(window, cx, |menu, window, cx| {

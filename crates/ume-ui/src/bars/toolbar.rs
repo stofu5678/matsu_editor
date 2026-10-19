@@ -10,16 +10,22 @@
 //! * A click runs the button's function on the active view. A button whose function has no
 //!   command here is grayed out. The tooltip is the name of the function and the keys bound to it
 //!   (`CEditWnd::GetTooltipText`).
-//! * Not built: the search box (`F_SEARCH_BOX`), the drop-down arrow of the open button
-//!   (`F_FILEOPEN_DROPDOWN`: the button itself opens a file, as `Command_FILEOPEN` does), the
-//!   and plugin buttons.
+//! * The search box (`F_SEARCH_BOX`) is a field with the search history, where the list has it
+//!   ([`super::search_box`]). The open button (`F_FILEOPEN_DROPDOWN`) has a drop-down arrow beside
+//!   it that shows the recent files and folders ([`super::open_menu`]); the button itself opens a
+//!   file, as `Command_FILEOPEN` does.
+//! * Not built: the plugin buttons.
 //! * A button is pressed while `IsFuncChecked` says so (`TBSTATE_CHECKED`, `CMainToolBar.cpp`) and
 //!   gray while `IsFuncEnable` says no (`TBSTATE_ENABLED`): the state of the window the toolbar
 //!   is in ([`crate::menu_state::FuncStates`]), read each time the window is drawn.
 
+use std::cell::Cell;
+use std::rc::Rc;
+
 use gpui::{
-    AnyElement, App, Global, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, div, img, prelude::FluentBuilder, px, rgb,
+    AnyElement, App, Bounds, Context, Global, InteractiveElement, IntoElement, ParentElement,
+    Pixels, Point, StatefulInteractiveElement, Styled, Window, canvas, div, img, point,
+    prelude::FluentBuilder, px, rgb,
 };
 use gpui_component::tooltip::Tooltip;
 use ume_config::Profile;
@@ -140,6 +146,8 @@ pub(crate) fn look(code: u16, states: &crate::menu_state::FuncStates) -> Look {
 pub(super) enum Item {
     Separator,
     Button(Button),
+    /// The search box (`F_SEARCH_BOX`).
+    SearchBox,
 }
 
 /// `CMenuDrawer::getButton`: what a number stands for. A number outside the table is an undefined
@@ -170,14 +178,18 @@ fn item_of(number: i32) -> Item {
 
 /// The lines of the toolbar for the button numbers (`CMainToolBar::CreateToolBar`): separators
 /// that follow each other become one, the wrap button ends the line at the button before it
-/// (and removes the separator in between), and the search box is left out.
+/// (and removes the separator in between), and only the first search box is made
+/// (`if( m_hwndSearchBox ) break;`).
 pub(super) fn arrange(numbers: &[i32]) -> Vec<Vec<Item>> {
     // Each item with whether a line ends after it.
     let mut cells: Vec<(Item, bool)> = Vec::new();
     for &number in numbers {
-        let item = item_of(number);
+        let mut item = item_of(number);
         if matches!(item, Item::Button(b) if b.code == SEARCH_BOX) {
-            continue;
+            if cells.iter().any(|(cell, _)| *cell == Item::SearchBox) {
+                continue;
+            }
+            item = Item::SearchBox;
         }
         let is_separator = matches!(item, Item::Separator) || number == i32::from(WRAP);
         if is_separator && matches!(cells.last(), Some((Item::Separator, _))) {
@@ -256,6 +268,7 @@ impl Workspace {
             for (column, item) in line.into_iter().enumerate() {
                 line_el = line_el.child(match item {
                     Item::Separator => div().w(px(8.)).into_any_element(),
+                    Item::SearchBox => self.search_box.clone().into_any_element(),
                     Item::Button(button) => {
                         self.render_tool_button(row, column, button, &states, scale_factor, cx)
                     }
@@ -281,7 +294,7 @@ impl Workspace {
         let image = button
             .icon
             .and_then(|index| icons::icon(index, icons::pixel_factor(scale_factor)));
-        div()
+        let main = div()
             .id(("tool-button", row * 1000 + column))
             .debug_selector(|| format!("tool-button-{}", button.number))
             .flex()
@@ -317,7 +330,86 @@ impl Workspace {
                     Tooltip::new(tooltip_text(shown, cx)).build(window, cx)
                 })
             })
+            .into_any_element();
+        if button.code != FILEOPEN_DROPDOWN {
+            return main;
+        }
+        // `TBSTYLE_DROPDOWN`: the arrow beside the button shows the menu under the whole button
+        // (`CreateFileDropDownMenu`: `rc.left`, `rc.bottom`).
+        let bounds = Rc::new(Cell::new(Bounds::<Pixels>::default()));
+        let place = bounds.clone();
+        let arrow = div()
+            .id(("tool-dropdown", row * 1000 + column))
+            .debug_selector(|| format!("tool-dropdown-{}", button.number))
+            .flex()
+            .items_center()
+            .justify_center()
+            .w(px(12.))
+            .h(px(22.))
+            .rounded_sm()
+            .text_size(px(7.))
+            .child("▼")
+            .when(enabled, |this| {
+                this.cursor_pointer()
+                    .hover(|s| s.bg(rgb(0xd8e6f5)))
+                    .active(|s| s.bg(rgb(0xb8d0ec)))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        let rect = bounds.get();
+                        this.leave_search_box(window, cx);
+                        this.open_file_dropdown(point(rect.left(), rect.bottom()), window, cx);
+                    }))
+            })
+            .when(!enabled, |this| this.opacity(0.4));
+        div()
+            .relative()
+            .flex()
+            .items_center()
+            .child(main)
+            .child(arrow)
+            // Tells the arrow where the button is.
+            .child(
+                canvas(move |rect, _, _| place.set(rect), |_, (), _, _| {})
+                    .absolute()
+                    .size_full(),
+            )
             .into_any_element()
+    }
+
+    /// `CEditWnd::OnCommand`: a command from the toolbar or a menu moves the focus from the search
+    /// box to the view first, so that the keys that follow go to the text.
+    pub(crate) fn leave_search_box(&self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.search_box.read(cx).is_focused(window, cx) {
+            let editor = self.editor().clone();
+            self.search_box
+                .update(cx, |b, cx| b.leave(&editor, window, cx));
+        }
+    }
+
+    /// Whether this window shows the search box: the toolbar is shown and has `F_SEARCH_BOX`.
+    pub(crate) fn has_search_box(&self, cx: &App) -> bool {
+        super::current(cx).toolbar
+            && arrange(&buttons(cx).0)
+                .iter()
+                .flatten()
+                .any(|item| *item == Item::SearchBox)
+    }
+
+    /// `Command_SEARCH_BOX`: moves the focus into the search box, if there is one.
+    pub(crate) fn focus_search_box(&self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.has_search_box(cx) {
+            let editor = self.editor().clone();
+            self.search_box
+                .update(cx, |b, cx| b.focus_with(&editor, window, cx));
+        }
+    }
+
+    /// `TBN_DROPDOWN`: the menu of the recent files and folders with its corner at `at`, once this
+    /// event is handled.
+    fn open_file_dropdown(&self, at: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
+        let editor = self.editor().clone();
+        window.defer(cx, move |window, app| {
+            editor.update(app, |view, cx| view.show_file_dropdown(at, window, cx));
+        });
     }
 }
 
@@ -333,6 +425,7 @@ mod tests {
                     .map(|item| match item {
                         Item::Separator => None,
                         Item::Button(b) => Some(b.code),
+                        Item::SearchBox => Some(SEARCH_BOX),
                     })
                     .collect()
             })
@@ -406,7 +499,7 @@ mod tests {
     }
 
     #[test]
-    fn numbers_outside_the_table_are_undefined_buttons_and_the_search_box_is_left_out() {
+    fn numbers_outside_the_table_are_undefined_buttons_and_only_the_first_search_box_is_made() {
         assert_eq!(
             buttons_of(&[-5, 9999, 3]),
             [vec![Some(0), Some(0), Some(30103)]]
@@ -417,8 +510,8 @@ mod tests {
             .map(|i| i as i32 + 1)
             .unwrap();
         assert_eq!(
-            buttons_of(&[3, search_box_number, 33]),
-            [vec![Some(30103), Some(30210)]]
+            buttons_of(&[3, search_box_number, 33, search_box_number]),
+            [vec![Some(30103), Some(SEARCH_BOX), Some(30210)]]
         );
     }
 

@@ -18,6 +18,8 @@ use crate::history::{HistoryOptions, HistoryState};
 use crate::settings::UserSettings;
 use crate::view::EditorView;
 
+mod search_box;
+
 /// A folder that is removed at the end of the test.
 struct TempDir(PathBuf);
 
