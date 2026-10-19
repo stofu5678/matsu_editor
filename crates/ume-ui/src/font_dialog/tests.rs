@@ -512,7 +512,7 @@ fn the_font_of_the_tabs_is_chosen_in_the_common_settings_and_written(cx: &mut Te
         ini.get("Common", "lfTabFont").as_deref(),
         Some("-12,0,0,0,700,0,0,0,128,3,2,1,49")
     );
-    // The tab bar draws with it: the height of the LOGFONT is the size in pixels.
+    // The tab bar draws with it: 9 pt is 12 pixels.
     let font = cx.update(|app| crate::tabs::settings::tab_font(app));
     assert_eq!(font.family().as_deref(), Some("TabFace"));
     assert_eq!(font.size_px(), Some(12.0));
@@ -529,6 +529,7 @@ fn the_tab_font_is_read_from_the_common_section() {
     );
     let font = TabFont::from_profile(&Profile::from_bytes(&bytes));
     assert_eq!(font.family().as_deref(), Some("Sans"));
+    // 11 pt at 96 dpi
     assert_eq!(font.size_px(), Some(15.0));
     assert_eq!(font.weight(), Some(400.0));
     assert!(font.italic());

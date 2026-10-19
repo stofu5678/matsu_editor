@@ -176,18 +176,17 @@ impl TabFont {
         )
     }
 
-    /// The size of the text in pixels. Sakura creates the font from the `LOGFONT` (`CreateFontIndirect`),
-    /// so the height decides (`CTabWnd::TAB_FONT_HEIGHT`); the point size is used for a font with no height.
+    /// The size of the text in pixels: the point size at 96 dpi (GPUI's pixels are logical, and the
+    /// height of a `LOGFONT` is in device pixels, so it would be too large on a screen of high
+    /// resolution); the height is used for a font with no point size.
     pub(crate) fn size_px(&self) -> Option<f32> {
         let font = self.0.as_ref()?;
-        let height = font.log_font.height.unsigned_abs();
-        if height > 0 {
-            Some(height as f32)
-        } else {
-            Some(crate::settings::view_settings::points_to_px(
-                font.point_size_for_dpi(crate::settings::view_settings::DPI),
-            ))
+        if font.point_size <= 0 && font.log_font.height != 0 {
+            return Some(font.log_font.height.unsigned_abs() as f32);
         }
+        Some(crate::settings::view_settings::points_to_px(
+            font.point_size_for_dpi(crate::settings::view_settings::DPI),
+        ))
     }
 
     /// The weight of the text (`lfWeight`); 0 is normal.
