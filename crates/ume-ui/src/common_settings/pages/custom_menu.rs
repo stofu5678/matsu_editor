@@ -62,7 +62,7 @@ static PAGE_KINDS: [(&str, i32); 19] = {
     kinds[SPECIAL_KIND as usize] = ("特別機能", SPECIAL_KIND);
     kinds
 };
-/// `nsFuncCode::pnFuncList_Special` (`F_WINDOW_LIST` to `F_PLUGIN_LIST`).
+/// The special function list of `sakura_core/func/Funccode.cpp` (`F_WINDOW_LIST` to `F_PLUGIN_LIST`).
 const SPECIAL_CODES: [u16; 6] = [29001, 29002, 29003, 29004, 29005, 29006];
 /// `STR_PROPCOMCUSTMENU_SEP`.
 const SEPARATOR_TEXT: &str = "─────────────";
@@ -70,7 +70,7 @@ const SEPARATOR_TEXT: &str = "─────────────";
 const UNKNOWN_NAME: &str = "-- 不明 --";
 
 /// The functions of kind `kind` in the order of the list (`CFuncLookup::Pos2FuncCode`, and
-/// `pnFuncList_Special` for 特別機能).
+/// the special function list for 特別機能).
 fn functions_of_kind(kind: i32) -> Vec<u16> {
     if kind == SPECIAL_KIND {
         SPECIAL_CODES.to_vec()
