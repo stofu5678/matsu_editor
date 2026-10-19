@@ -60,7 +60,7 @@ use output::PanelActions;
 pub(crate) use output::{Kind, Output};
 pub(crate) use registered::table as registered_table;
 pub(crate) use registered::{
-    Auto, MacroList, after_open, run_auto_in, run_before_save, title_in, title_of,
+    Auto, MacroList, after_open, run_auto_in, run_before_save, run_opened, title_in, title_of,
 };
 pub(crate) use wait::{FlowGuard, follow, keep_box, track};
 

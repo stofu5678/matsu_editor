@@ -348,6 +348,116 @@ fn the_save_waits_for_a_macro_of_saving_that_waits_for_a_dialog(cx: &mut TestApp
 }
 
 #[gpui::test]
+fn the_macro_after_the_macro_of_opening_waits_for_it(cx: &mut TestAppContext) {
+    // The start of an untitled window: `-M=` must not be refused because the hook still runs.
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), "w.mac", "TypeList();\nChar(66);\n");
+    let (f, cx) = setup(cx, "");
+    settings(
+        cx,
+        dir.path(),
+        "Name[000]=\nFile[000]=w.mac\nnMacroOnOpened=0\n",
+    );
+    let ran = std::rc::Rc::new(std::cell::Cell::new(false));
+    let flag = ran.clone();
+    let (window, view) = (cx.windows()[0], f.view.clone());
+    // After the update of the window ends, as the real call is made.
+    cx.update(|_, app| {
+        app.defer(move |app| {
+            super::super::run_auto_in(window, &view, super::super::Auto::Opened, app, move |_| {
+                flag.set(true)
+            })
+        })
+    });
+    cx.run_until_parked();
+    assert!(f.view.read_with(cx, |v, _| v.doc_type.list.is_some()));
+    assert!(!ran.get(), "it waits for the dialog of the hook");
+    f.view.update(cx, |v, cx| {
+        v.doc_type.list = None;
+        cx.notify();
+    });
+    cx.executor().allow_parking();
+    for _ in 0..20 {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(100));
+        cx.run_until_parked();
+    }
+    assert!(ran.get());
+    assert_eq!(lines(&f, cx), ["B"]);
+}
+
+#[gpui::test]
+fn the_questions_of_the_save_are_asked_again_when_the_macro_changed_the_text(
+    cx: &mut TestAppContext,
+) {
+    let dir = tempfile::tempdir().unwrap();
+    let file = write(dir.path(), "x.txt", "abc");
+    // An emoji: Shift_JIS cannot hold it.
+    write(dir.path(), "e.mac", "Char(128512);\n");
+    let (f, cx) = setup(cx, "");
+    settings(
+        cx,
+        dir.path(),
+        "Name[000]=\nFile[000]=e.mac\nnMacroOnSave=0\n",
+    );
+    f.run(
+        cx,
+        code_of("F_FILEOPEN"),
+        &[Arg::Text(file.display().to_string()), Arg::Int(0)],
+    );
+    cx.run_until_parked();
+    cx.simulate_input("x");
+    f.run(cx, code_of("F_FILESAVE"), &[]);
+    cx.run_until_parked();
+    assert!(
+        cx.has_pending_prompt(),
+        "the emoji the macro added is asked about"
+    );
+    cx.simulate_prompt_answer("続行(Y)");
+    cx.run_until_parked();
+    assert_eq!(std::fs::read(&file).unwrap(), b"x?abc");
+}
+
+#[gpui::test]
+fn closing_the_file_runs_the_macro_of_opening_for_the_untitled_document(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let file = write(dir.path(), "x.txt", "abc");
+    let (f, cx) = setup(cx, "");
+    auto_macros(cx, dir.path(), "");
+    f.run(
+        cx,
+        code_of("F_FILEOPEN"),
+        &[Arg::Text(file.display().to_string())],
+    );
+    cx.run_until_parked();
+    // The macro is set after the file is open, so that only the close runs it.
+    auto_macros(cx, dir.path(), "nMacroOnOpened=0\n");
+    f.run(cx, code_of("F_FILECLOSE"), &[]);
+    cx.run_until_parked();
+    assert_eq!(lines(&f, cx), ["O"]);
+}
+
+#[gpui::test]
+fn saving_under_a_name_runs_the_macro_of_opening_but_a_plain_save_does_not(
+    cx: &mut TestAppContext,
+) {
+    let dir = tempfile::tempdir().unwrap();
+    let other = dir.path().join("other.txt");
+    let (f, cx) = setup(cx, "abc");
+    auto_macros(cx, dir.path(), "nMacroOnOpened=0\n");
+    f.run(
+        cx,
+        code_of("F_FILESAVEAS"),
+        &[Arg::Text(other.display().to_string())],
+    );
+    cx.run_until_parked();
+    assert_eq!(lines(&f, cx), ["Oabc"]);
+    f.run(cx, code_of("F_FILESAVE"), &[]);
+    cx.run_until_parked();
+    assert_eq!(lines(&f, cx), ["Oabc"], "a plain save runs nothing");
+}
+
+#[gpui::test]
 fn no_macro_runs_by_itself_when_none_is_named_or_the_slot_is_empty(cx: &mut TestAppContext) {
     let dir = tempfile::tempdir().unwrap();
     let file = write(dir.path(), "x.txt", "abc");

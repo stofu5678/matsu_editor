@@ -191,12 +191,18 @@ pub(crate) async fn close_file(view: &WeakEntity<EditorView>, cx: &mut AsyncWind
     if !confirm_discard(view, cx).await {
         return false;
     }
-    view.update(cx, |view, cx| {
-        let mut untitled = SharedDocument::empty();
-        untitled.set_new_document_defaults(&crate::settings::new_document_defaults(cx, None));
-        view.load_document(untitled, None, cx);
-    })
-    .is_ok()
+    let closed = view
+        .update(cx, |view, cx| {
+            let mut untitled = SharedDocument::empty();
+            untitled.set_new_document_defaults(&crate::settings::new_document_defaults(cx, None));
+            view.load_document(untitled, None, cx);
+        })
+        .is_ok();
+    if closed {
+        // `CDocFileOperation::FileClose`: the macro of オープン後 runs for the untitled document.
+        crate::macros::run_opened(view, cx).await;
+    }
+    closed
 }
 
 /// `F_FILECLOSE_OPEN`: asks about the changes, shows the open dialog, and replaces the document

@@ -15,8 +15,9 @@
 //! * A script runs beside the window, not before the next line of the caller. The save waits for the
 //!   macro of 保存前 to end (`run_before_save`), so the file is written after the macro as in Sakura;
 //!   the macros of タイプ変更後 and オープン後 are waited for in the same way when a file is opened.
-//!   The macros called in other places (a key, the start of an untitled window, `F_CHANGETYPE`)
-//!   are not waited for.
+//!   The macro of オープン後 that follows a close, a save under a name or the start of an untitled
+//!   window is waited for before what comes next (`-M=`). The macros called by `F_CHANGETYPE` and by
+//!   a key are not waited for.
 //! * The type chosen by `-TYPE=` of the command line is applied after the macros of opening run.
 //! * `bRunning` of `RunAutoMacro` (an automatic macro does not start another) is "no macro runs in
 //!   this window".
@@ -325,17 +326,41 @@ pub(crate) async fn after_open(view: &gpui::WeakEntity<EditorView>, cx: &mut Asy
     }
 }
 
+/// The macro of オープン後 alone, for a document that changed without a read: it was saved under
+/// another name (`FileSaveAs`) or closed to an untitled one (`FileClose`).
+pub(crate) async fn run_opened(view: &gpui::WeakEntity<EditorView>, cx: &mut AsyncWindowContext) {
+    if run_auto(view, cx, Auto::Opened, None) {
+        wait_for_the_macro(view, cx).await;
+    }
+}
+
 /// [`EditorView::run_auto_macro`] for a window that is open already (the start of an untitled
-/// window).
+/// window, or a file that was closed). `then` runs when the macro has ended (at once when none
+/// started), so that the macro of the command line (`-M=`) that follows is not refused.
 pub(crate) fn run_auto_in(
     handle: gpui::AnyWindowHandle,
     view: &gpui::Entity<EditorView>,
     when: Auto,
     cx: &mut App,
+    then: impl FnOnce(&mut App) + 'static,
 ) {
-    handle
+    let running = handle
         .update(cx, |_, window, cx| {
-            view.update(cx, |view, cx| view.run_auto_macro(when, None, window, cx));
+            view.update(cx, |view, cx| view.run_auto_macro(when, None, window, cx))
         })
-        .ok();
+        .unwrap_or(false);
+    if !running {
+        then(cx);
+        return;
+    }
+    let view = view.clone();
+    cx.spawn(async move |cx| {
+        while view.read_with(cx, |view, _| view.macros.is_suspended()) {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(50))
+                .await;
+        }
+        cx.update(then);
+    })
+    .detach();
 }
