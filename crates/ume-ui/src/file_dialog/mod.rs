@@ -18,7 +18,9 @@ use std::path::{Path, PathBuf};
 use gpui::{App, AsyncApp, PathPromptOptions, Window};
 use raw_window_handle::HasWindowHandle;
 use ume_config::dialog_dir::{DialogDirSetting, MetaSource, Surroundings};
-use ume_platform::dialog::{Kind, Owner, Request, extension_for_filter, with_default_extension};
+use ume_platform::dialog::{
+    Chosen, Kind, Owner, Request, extension_for_filter, with_default_extension,
+};
 
 use crate::settings::UserSettings;
 
@@ -36,6 +38,8 @@ pub(crate) struct Ask {
     prompt: Option<String>,
     /// The file types and the default extension of a save dialog.
     types: Option<save_types::SaveTypes>,
+    /// The encoding, BOM and line ending next to the name of a save dialog.
+    fields: Option<save_fields::SaveFields>,
 }
 
 impl Ask {
@@ -62,7 +66,15 @@ impl Ask {
             title: title.to_owned(),
             prompt: None,
             types: None,
+            fields: None,
         }
+    }
+
+    /// The fields next to the name of a save dialog. A dialog that cannot show them (the panel of
+    /// GPUI, the fallback) answers without values: the caller then asks another way.
+    pub(crate) fn save_fields(mut self, fields: save_fields::SaveFields) -> Self {
+        self.fields = Some(fields);
+        self
     }
 
     /// The list of file types of a save dialog, and the extension a name typed without one gets.
@@ -102,6 +114,11 @@ impl Ask {
                 .types
                 .as_ref()
                 .and_then(|t| t.default_extension.clone()),
+            extras: self
+                .fields
+                .as_ref()
+                .map_or_else(Vec::new, |fields| fields.extras.clone()),
+            follow: self.fields.as_ref().map(|fields| fields.follow.clone()),
         }
     }
 }
@@ -109,6 +126,21 @@ impl Ask {
 /// Shows the dialog, modal to `window`, and answers when the user closes it. The returned future does
 /// not borrow anything: it can be awaited after the command has returned.
 pub(crate) fn ask(window: &Window, cx: &mut App, ask: Ask) -> impl Future<Output = Answer> + use<> {
+    let chosen = ask_chosen(window, cx, ask);
+    async move { Ok(chosen.await?.map(|chosen| chosen.paths)) }
+}
+
+/// What [`ask_chosen`] gives: the paths chosen (`None` when the user cancels), with the values of
+/// the fields of [`Ask::save_fields`], or the text of the error. The values are empty when the
+/// dialog showed no fields.
+pub(crate) type ChosenAnswer = Result<Option<Chosen>, String>;
+
+/// [`ask`] with the values of the fields next to the name.
+pub(crate) fn ask_chosen(
+    window: &Window,
+    cx: &mut App,
+    ask: Ask,
+) -> impl Future<Output = ChosenAnswer> + use<> {
     let owner = HasWindowHandle::window_handle(window)
         .ok()
         .map(|handle| Owner::from_handle(handle.as_raw()))
@@ -121,10 +153,10 @@ pub(crate) fn ask(window: &Window, cx: &mut App, ask: Ask) -> impl Future<Output
         // Whatever stopped the dialog of the OS (it does not exist here, or it failed), GPUI's
         // dialog is still there.
         match native(owner, request).await {
-            Ok(paths) => Ok(paths),
+            Ok(chosen) => Ok(chosen),
             Err(_) => fallback(&app, &ask).await.map(|paths| {
                 // GPUI's dialog does not add the default extension, as the one of Windows does
-                match (&ask.types, ask.kind) {
+                let paths = match (&ask.types, ask.kind) {
                     (Some(types), Kind::SaveFile) => {
                         // no list is shown: the type shown first decides
                         let extension = types
@@ -142,28 +174,37 @@ pub(crate) fn ask(window: &Window, cx: &mut App, ask: Ask) -> impl Future<Output
                         })
                     }
                     _ => paths,
-                }
+                };
+                // and has no fields: the values are left empty
+                paths.map(|paths| Chosen {
+                    paths,
+                    extras: Vec::new(),
+                })
             }),
         }
     }
 }
 
-/// The dialog of the OS. The tests of the windows have no desktop to show it on.
+/// The dialog of the OS. The tests of the windows have no desktop to show it on, except for the
+/// answer a test prepared ([`tests::answer_with`]).
 async fn native(
     owner: Owner,
     request: Request,
-) -> Result<Option<Vec<PathBuf>>, ume_platform::dialog::Error> {
+) -> Result<Option<Chosen>, ume_platform::dialog::Error> {
     #[cfg(test)]
     {
         let _ = owner;
-        Err(ume_platform::dialog::Error::Unavailable(format!(
-            "no desktop in the tests ({:?})",
-            request.kind
-        )))
+        match tests::prepared_answer(&request) {
+            Some(answer) => Ok(answer),
+            None => Err(ume_platform::dialog::Error::Unavailable(format!(
+                "no desktop in the tests ({:?})",
+                request.kind
+            ))),
+        }
     }
     #[cfg(not(test))]
     {
-        ume_platform::dialog::show(owner, request).await
+        ume_platform::dialog::show_with_extras(owner, request).await
     }
 }
 
@@ -309,6 +350,7 @@ pub(crate) fn macro_folder(cx: &App) -> Option<PathBuf> {
 }
 
 pub(crate) mod import_folder;
+pub(crate) mod save_fields;
 pub(crate) mod save_types;
 #[cfg(test)]
 pub(crate) mod tests;

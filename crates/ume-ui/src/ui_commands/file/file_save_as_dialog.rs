@@ -3,9 +3,10 @@
 //! Sakura: `Command_FILESAVEAS_DIALOG` (`sakura_core/cmd/CViewCommander_File.cpp`). Arguments, as
 //! in the macro `S_FileSaveAsDialog`: the default file name (not used yet), the encoding number
 //! (99 or none: keep the document's), the line ending (0 or none: do not change, 1 CRLF, 2 LF,
-//! 3 CR). The native dialog has no place for the encoding, the BOM and the line ending, which
-//! Sakura's dialog has, so a small dialog of the window asks for them after the path
-//! (`file_ops::save_as_dialog`). A macro that passes the encoding or the line ending skips it.
+//! 3 CR). The save dialog has the encoding, the BOM and the line ending in itself, as Sakura's
+//! does (`file_dialog::save_fields`); where it cannot (GPUI's dialog), a small dialog of the window
+//! asks for them after the path (`file_ops::save_as_dialog`). A macro that passes the encoding or
+//! the line ending skips both.
 
 use crate::file_ops::args::{encoding_arg, eol_arg};
 use crate::file_ops::save::{SaveRequest, save};

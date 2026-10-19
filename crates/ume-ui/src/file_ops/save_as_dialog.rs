@@ -1,9 +1,11 @@
 //! The options of "名前を付けて保存": the encoding, the BOM and the line ending.
 //!
 //! Sakura adds these three controls to the save dialog (`sakura_core/dlg/CDlgOpenFile_*.cpp`:
-//! `IDC_COMBO_CODE`, `IDC_CHECK_BOM`, `IDC_COMBO_EOL`). The native dialogs of the OS cannot take
-//! extra fields, so this small dialog is drawn in the editor window right after the path has been
-//! chosen. It is modal to the window: it covers the view, and the view takes no keys meanwhile.
+//! `IDC_COMBO_CODE`, `IDC_CHECK_BOM`, `IDC_COMBO_EOL`). The dialogs of the OS show them in the
+//! save dialog itself (`file_dialog::save_fields`); this small dialog is for what cannot: GPUI's
+//! dialog, the fallback when the OS has none, and the 文字コードセット指定 dialog. It is drawn in
+//! the editor window right after the path has been chosen. It is modal to the window: it covers
+//! the view, and the view takes no keys meanwhile.
 //!
 //! Behavior taken from Sakura:
 //!
@@ -43,12 +45,26 @@ pub(crate) fn encoding_choices() -> Vec<Encoding> {
 }
 
 /// The line ending choices (`pEolNameArr`). `None` is "変換なし": keep the endings as they are.
-const EOL_CHOICES: [(&str, Option<Eol>); 4] = [
+pub(crate) const EOL_CHOICES: [(&str, Option<Eol>); 4] = [
     ("変換なし", None),
     ("CR+LF", Some(Eol::CrLf)),
     ("LF (UNIX)", Some(Eol::Lf)),
     ("CR (Mac)", Some(Eol::Cr)),
 ];
+
+/// The state of the BOM check box after the encoding `chosen` was picked in the list, as
+/// `(enabled, checked)` (`OnItemSelected` for `COMBO_CODE`): off and disabled for an encoding that
+/// cannot have a BOM; the document's own BOM for the encoding it has now (`current`); the default
+/// of the encoding for any other.
+pub(crate) fn bom_after_select(current: (Encoding, bool), chosen: Encoding) -> (bool, bool) {
+    if !chosen.can_have_bom() {
+        (false, false)
+    } else if chosen == current.0 {
+        (true, current.1)
+    } else {
+        (true, chosen.bom_default_on())
+    }
+}
 
 /// What the user chose.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,14 +116,7 @@ impl State {
             return;
         }
         self.selected = index;
-        let encoding = self.encoding();
-        self.bom = if !encoding.can_have_bom() {
-            false
-        } else if encoding == self.current.0 {
-            self.current.1
-        } else {
-            encoding.bom_default_on()
-        };
+        self.bom = bom_after_select(self.current, self.encoding()).1;
     }
 
     fn move_encoding(&mut self, delta: isize) {

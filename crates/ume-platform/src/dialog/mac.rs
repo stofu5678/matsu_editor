@@ -19,7 +19,8 @@ use objc2_app_kit::{NSModalResponse, NSOpenPanel, NSSavePanel, NSWindow};
 use objc2_foundation::{NSArray, NSString, NSURL};
 use raw_window_handle::RawWindowHandle;
 
-use super::{Error, Kind, Request};
+use super::mac_fields::Fields;
+use super::{Chosen, Error, Kind, Request};
 
 /// `NSModalResponseOK`.
 const OK: NSModalResponse = 1;
@@ -34,7 +35,7 @@ impl Owner {
     }
 }
 
-pub(super) async fn show(owner: Owner, request: Request) -> Result<Option<Vec<PathBuf>>, Error> {
+pub(super) async fn show(owner: Owner, request: Request) -> Result<Option<Chosen>, Error> {
     let mtm = MainThreadMarker::new().ok_or_else(|| {
         Error::Unavailable("AppKit's panels belong to the main thread".to_owned())
     })?;
@@ -63,21 +64,37 @@ pub(super) async fn show(owner: Owner, request: Request) -> Result<Option<Vec<Pa
     if request.kind == Kind::SaveFile {
         restrict_to_file_types(&save, &request);
     }
+    // Sakura's fields next to the name (a save panel only). The fields are read in the handler,
+    // which also keeps them alive until the panel closes.
+    let fields = if request.kind == Kind::SaveFile {
+        Fields::new(mtm, &request.extras, request.follow.as_ref())
+    } else {
+        None
+    };
+    if let Some(fields) = &fields {
+        save.setAccessoryView(Some(&fields.view));
+    }
     let done = Cell::new(Some(done));
     let panel = save.clone();
     let handler = RcBlock::new(move |response: NSModalResponse| {
-        let chosen = (response == OK).then(|| match &open {
-            Some(open) => open
-                .URLs()
-                .to_vec()
-                .iter()
-                .filter_map(|url| path_of(url))
-                .collect(),
-            None => panel
-                .URL()
-                .and_then(|url| path_of(&url))
-                .into_iter()
-                .collect(),
+        let chosen = (response == OK).then(|| {
+            let paths = match &open {
+                Some(open) => open
+                    .URLs()
+                    .to_vec()
+                    .iter()
+                    .filter_map(|url| path_of(url))
+                    .collect(),
+                None => panel
+                    .URL()
+                    .and_then(|url| path_of(&url))
+                    .into_iter()
+                    .collect(),
+            };
+            Chosen {
+                paths,
+                extras: fields.as_ref().map_or_else(Vec::new, Fields::values),
+            }
         });
         if let Some(done) = done.take() {
             done.send(chosen).ok();
@@ -87,10 +104,10 @@ pub(super) async fn show(owner: Owner, request: Request) -> Result<Option<Vec<Pa
         Some(window) => save.beginSheetModalForWindow_completionHandler(window, &handler),
         None => save.beginWithCompletionHandler(&handler),
     }
-    let chosen: Option<Vec<PathBuf>> = answer
+    let chosen: Option<Chosen> = answer
         .await
         .map_err(|_| Error::Failed("the panel was dropped".to_owned()))?;
-    Ok(chosen.filter(|paths| !paths.is_empty()))
+    Ok(chosen.filter(|chosen| !chosen.paths.is_empty()))
 }
 
 /// The panel has no list of file types. The selected type gives the extensions the name may have

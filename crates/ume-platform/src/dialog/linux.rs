@@ -9,8 +9,8 @@ use raw_window_handle::RawWindowHandle;
 use zbus::zvariant::Value;
 
 use super::{
-    Error, FileFilter, Kind, Request, extension_for_filter, path_from_file_uri,
-    with_default_extension,
+    Chosen, Error, Extra, ExtraValue, FileFilter, Kind, Request, extension_for_filter,
+    path_from_file_uri, with_default_extension,
 };
 use crate::portal::{Answer, Failure, Portal};
 
@@ -60,7 +60,90 @@ fn folder_bytes(folder: &Path) -> Vec<u8> {
     bytes
 }
 
-pub(super) async fn show(owner: Owner, request: Request) -> Result<Option<Vec<PathBuf>>, Error> {
+/// A choice as the portal takes it: `(id, label, [(option id, option label)], initial option id)`
+/// (`(ssa(ss)s)`). A list has its items as options; a check box has none and is `"true"` or
+/// `"false"`. The id is the index into [`Request::extras`].
+type Choice = (String, String, Vec<(String, String)>, String);
+
+fn choices_of(extras: &[Extra]) -> Vec<Choice> {
+    extras
+        .iter()
+        .enumerate()
+        .map(|(i, extra)| match extra {
+            Extra::Combo {
+                label,
+                items,
+                selected,
+            } => (
+                i.to_string(),
+                label.clone(),
+                items
+                    .iter()
+                    .enumerate()
+                    .map(|(n, item)| (n.to_string(), item.clone()))
+                    .collect(),
+                selected.to_string(),
+            ),
+            // The portal cannot disable a check box: `enabled` is for the dialog of Windows.
+            Extra::Check { label, checked, .. } => (
+                i.to_string(),
+                label.clone(),
+                Vec::new(),
+                checked.to_string(),
+            ),
+        })
+        .collect()
+}
+
+/// What the user chose, from the `choices` of the answer (`a(ss)`: id and option id). A choice the
+/// answer leaves out keeps the value it started with; an answer without `choices`, or
+/// with none of ours, gives none.
+fn values_of(
+    extras: &[Extra],
+    results: &HashMap<String, zbus::zvariant::OwnedValue>,
+) -> Vec<ExtraValue> {
+    // A portal that ignores `choices` showed no fields and answers without them: no values, so
+    // that the caller asks another way.
+    let Some(answered) = results
+        .get("choices")
+        .and_then(|value| <Vec<(String, String)>>::try_from(value.try_clone().ok()?).ok())
+    else {
+        return Vec::new();
+    };
+    // An empty array, or one that answers none of our ids, is a portal that showed no fields too.
+    // If only some ids come back, the others keep their starting value: the user could still
+    // have seen and left them alone, and dropping the whole answer would ask twice.
+    if !(0..extras.len()).any(|i| answered.iter().any(|(id, _)| *id == i.to_string())) {
+        return Vec::new();
+    }
+    extras
+        .iter()
+        .enumerate()
+        .map(|(i, extra)| {
+            let id = i.to_string();
+            let chosen = answered
+                .iter()
+                .rev()
+                .find(|(answer_id, _)| *answer_id == id)
+                .map(|(_, option)| option.as_str());
+            match extra {
+                Extra::Combo {
+                    items, selected, ..
+                } => ExtraValue::Combo(
+                    chosen
+                        .and_then(|option| option.parse::<usize>().ok())
+                        .filter(|n| *n < items.len())
+                        .unwrap_or(*selected),
+                ),
+                Extra::Check { checked, .. } => {
+                    ExtraValue::Check(chosen.map_or(*checked, |option| option == "true"))
+                }
+            }
+        })
+        .collect()
+}
+
+pub(super) async fn show(owner: Owner, request: Request) -> Result<Option<Chosen>, Error> {
     let portal = Portal::new(INTERFACE).await.map_err(Error::Unavailable)?;
     let method = match request.kind {
         Kind::SaveFile => "SaveFile",
@@ -86,6 +169,9 @@ pub(super) async fn show(owner: Owner, request: Request) -> Result<Option<Vec<Pa
                     options.insert("current_filter", Value::from(filter_tuple(current)));
                 }
             }
+            if request.kind == Kind::SaveFile && !request.extras.is_empty() {
+                options.insert("choices", Value::from(choices_of(&request.extras)));
+            }
             if let Some(folder) = request.start.as_deref() {
                 options.insert("current_folder", Value::from(folder_bytes(folder)));
             }
@@ -105,7 +191,7 @@ pub(super) async fn show(owner: Owner, request: Request) -> Result<Option<Vec<Pa
         Ok(Answer::Failed) => Err(Error::Failed("ポータルが失敗を返した".to_owned())),
         Ok(Answer::Done(results)) => Ok(paths_of(&results).map(|paths| {
             // the portal does not add the default extension, as the dialog of Windows does
-            match (&request.default_extension, request.kind) {
+            let paths = match (&request.default_extension, request.kind) {
                 (Some(fallback), Kind::SaveFile) => {
                     let extension =
                         extension_for_filter(chosen_filter(&request, &results), fallback);
@@ -115,7 +201,13 @@ pub(super) async fn show(owner: Owner, request: Request) -> Result<Option<Vec<Pa
                         .collect()
                 }
                 _ => paths,
-            }
+            };
+            let extras = if request.kind == Kind::SaveFile {
+                values_of(&request.extras, &results)
+            } else {
+                Vec::new()
+            };
+            Chosen { paths, extras }
         })),
     }
 }
@@ -186,6 +278,8 @@ mod tests {
             ],
             selected_filter: 0,
             default_extension: Some("txt".to_owned()),
+            extras: Vec::new(),
+            follow: None,
         };
         let extension = |chosen: Option<&FileFilter>| {
             let mut results = HashMap::new();
@@ -203,6 +297,74 @@ mod tests {
         assert_eq!(extension(None), "c");
         let path = with_default_extension(PathBuf::from("/nonexistent-ume/bar"), "c");
         assert_eq!(path, PathBuf::from("/nonexistent-ume/bar.c"));
+    }
+
+    fn extras() -> Vec<Extra> {
+        vec![
+            Extra::Combo {
+                label: "文字コードセット".to_owned(),
+                items: vec!["SJIS".to_owned(), "UTF-8".to_owned()],
+                selected: 1,
+            },
+            Extra::Check {
+                label: "BOM".to_owned(),
+                checked: true,
+                enabled: true,
+            },
+        ]
+    }
+
+    #[test]
+    fn the_fields_are_choices_of_the_portal() {
+        let choices = choices_of(&extras());
+        // `choices` is `a(ssa(ss)s)`
+        let value = Value::from(choices.clone());
+        assert_eq!(value.value_signature().to_string(), "a(ssa(ss)s)");
+        assert_eq!(choices[0].0, "0");
+        assert_eq!(choices[0].2.len(), 2);
+        assert_eq!(choices[0].3, "1");
+        // a check box has no options and starts as "true" or "false"
+        assert_eq!(
+            choices[1],
+            (
+                "1".to_owned(),
+                "BOM".to_owned(),
+                Vec::new(),
+                "true".to_owned()
+            )
+        );
+    }
+
+    #[test]
+    fn the_choices_of_the_answer_are_the_values() {
+        let extras = extras();
+        let answer = |pairs: &[(&str, &str)]| {
+            let mut results = HashMap::new();
+            let pairs: Vec<(String, String)> = pairs
+                .iter()
+                .map(|(a, b)| ((*a).to_owned(), (*b).to_owned()))
+                .collect();
+            results.insert("choices".to_owned(), Value::from(pairs).try_into().unwrap());
+            results
+        };
+        assert_eq!(
+            values_of(&extras, &answer(&[("0", "0"), ("1", "false")])),
+            [ExtraValue::Combo(0), ExtraValue::Check(false)]
+        );
+        // a choice the answer leaves out, or an option that is not one, keeps its start
+        assert_eq!(
+            values_of(&extras, &answer(&[("0", "7")])),
+            [ExtraValue::Combo(1), ExtraValue::Check(true)]
+        );
+        assert_eq!(values_of(&extras, &HashMap::new()), []);
+        // an empty array, or ids that are not ours: the portal showed no fields
+        assert_eq!(values_of(&extras, &answer(&[])), []);
+        assert_eq!(values_of(&extras, &answer(&[("9", "0")])), []);
+        // only some of the ids: the others keep their start
+        assert_eq!(
+            values_of(&extras, &answer(&[("1", "false")])),
+            [ExtraValue::Combo(1), ExtraValue::Check(false)]
+        );
     }
 
     #[test]

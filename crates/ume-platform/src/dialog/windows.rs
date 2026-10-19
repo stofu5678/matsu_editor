@@ -22,14 +22,16 @@ use windows::Win32::System::Com::{
 };
 use windows::Win32::UI::Shell::Common::COMDLG_FILTERSPEC;
 use windows::Win32::UI::Shell::{
-    FOS_ALLOWMULTISELECT, FOS_FILEMUSTEXIST, FOS_FORCEFILESYSTEM, FOS_NOCHANGEDIR,
-    FOS_OVERWRITEPROMPT, FOS_PATHMUSTEXIST, FOS_PICKFOLDERS, FileOpenDialog, FileSaveDialog,
-    IFileDialog, IFileOpenDialog, IFileSaveDialog, IShellItem, SHCreateItemFromParsingName,
-    SIGDN_FILESYSPATH,
+    CDCS_ENABLEDVISIBLE, CDCS_VISIBLE, FDE_OVERWRITE_RESPONSE, FDE_SHAREVIOLATION_RESPONSE,
+    FDEOR_DEFAULT, FDESVR_DEFAULT, FOS_ALLOWMULTISELECT, FOS_FILEMUSTEXIST, FOS_FORCEFILESYSTEM,
+    FOS_NOCHANGEDIR, FOS_OVERWRITEPROMPT, FOS_PATHMUSTEXIST, FOS_PICKFOLDERS, FileOpenDialog,
+    FileSaveDialog, IFileDialog, IFileDialogControlEvents, IFileDialogControlEvents_Impl,
+    IFileDialogCustomize, IFileDialogEvents, IFileDialogEvents_Impl, IFileOpenDialog,
+    IFileSaveDialog, IShellItem, SHCreateItemFromParsingName, SIGDN_FILESYSPATH,
 };
-use windows::core::{HRESULT, HSTRING, PCWSTR};
+use windows::core::{BOOL, HRESULT, HSTRING, PCWSTR, Ref, implement};
 
-use super::{Error, Kind, Request};
+use super::{Chosen, Error, Extra, ExtraValue, Follow, Kind, Request};
 
 /// The window the dialog belongs to: a number rather than a handle, so that it can go to the
 /// thread that shows the dialog. 0 (no owner) for a handle that is not a Win32 window.
@@ -50,7 +52,7 @@ impl Owner {
     }
 }
 
-pub(super) async fn show(owner: Owner, request: Request) -> Result<Option<Vec<PathBuf>>, Error> {
+pub(super) async fn show(owner: Owner, request: Request) -> Result<Option<Chosen>, Error> {
     let (done, answer) = oneshot::channel();
     std::thread::Builder::new()
         .name("file dialog".to_owned())
@@ -87,7 +89,7 @@ fn failed(error: windows::core::Error) -> Error {
     Error::Failed(error.to_string())
 }
 
-fn run(owner: Owner, request: &Request) -> Result<Option<Vec<PathBuf>>, Error> {
+fn run(owner: Owner, request: &Request) -> Result<Option<Chosen>, Error> {
     let _apartment = Apartment::enter()?;
     // SAFETY: the dialog objects are created and used on this thread only, inside the apartment
     // above; every pointer handed to COM is a live `HSTRING` or a value on the stack.
@@ -176,7 +178,27 @@ fn run(owner: Owner, request: &Request) -> Result<Option<Vec<PathBuf>>, Error> {
                 dialog.SetFolder(&folder).map_err(failed)?;
             }
         }
-        if let Err(error) = dialog.Show(hwnd) {
+        // Sakura's `Customize` (`IFileDialogCustomize`), and the events that keep the BOM in step
+        // with the encoding (`OnItemSelected`). The events are let go of when the dialog closes.
+        let customize = (request.kind == Kind::SaveFile && !request.extras.is_empty())
+            .then(|| add_extras(&dialog, request))
+            .transpose()?;
+        let events: Option<(IFileDialogEvents, u32)> = match (&customize, &request.follow) {
+            (Some(_), Some(follow)) => {
+                let sink: IFileDialogEvents = Sink {
+                    follow: follow.clone(),
+                }
+                .into();
+                let cookie = dialog.Advise(&sink).map_err(failed)?;
+                Some((sink, cookie))
+            }
+            _ => None,
+        };
+        let shown = dialog.Show(hwnd);
+        if let Some((_sink, cookie)) = events {
+            dialog.Unadvise(cookie).ok();
+        }
+        if let Err(error) = shown {
             return if error.code() == HRESULT::from_win32(ERROR_CANCELLED.0) {
                 Ok(None)
             } else {
@@ -193,7 +215,205 @@ fn run(owner: Owner, request: &Request) -> Result<Option<Vec<PathBuf>>, Error> {
             }
             None => paths.push(path_of(&dialog.GetResult().map_err(failed)?)?),
         }
-        Ok((!paths.is_empty()).then_some(paths))
+        let extras = match &customize {
+            Some(customize) => read_extras(customize, &request.extras)?,
+            None => Vec::new(),
+        };
+        Ok((!paths.is_empty()).then_some(Chosen { paths, extras }))
+    }
+}
+
+/// The id of the control for the field at `index`.
+fn control_id(index: usize) -> u32 {
+    1000 + index as u32
+}
+
+/// The id of the visual group of the list at `index`: every control of the dialog, a group too,
+/// needs an id of its own (Sakura's `LABEL_CODE` is not `COMBO_CODE`).
+fn group_id(index: usize) -> u32 {
+    2000 + index as u32
+}
+
+/// Adds the fields to the save dialog as Sakura does: a visual group for each list, with the check
+/// boxes that follow it inside (`CDlgOpenFile_CommonItemDialog::Customize`). Code pages are all in
+/// the list: Sakura's `C&P` check box, which adds them to the list later, is left out.
+///
+/// # Safety
+///
+/// Called from a thread in a COM apartment, before the dialog is shown.
+unsafe fn add_extras(
+    dialog: &IFileDialog,
+    request: &Request,
+) -> Result<IFileDialogCustomize, Error> {
+    // SAFETY: the labels are live `HSTRING`s for the calls; COM copies them.
+    unsafe {
+        let customize: IFileDialogCustomize =
+            windows::core::Interface::cast(dialog).map_err(failed)?;
+        let mut open_group = false;
+        for (index, extra) in request.extras.iter().enumerate() {
+            let id = control_id(index);
+            match extra {
+                Extra::Combo {
+                    label,
+                    items,
+                    selected,
+                } => {
+                    if open_group {
+                        customize.EndVisualGroup().map_err(failed)?;
+                    }
+                    customize
+                        .StartVisualGroup(group_id(index), &HSTRING::from(label.as_str()))
+                        .map_err(failed)?;
+                    open_group = true;
+                    customize.AddComboBox(id).map_err(failed)?;
+                    for (n, item) in items.iter().enumerate() {
+                        customize
+                            .AddControlItem(id, n as u32, &HSTRING::from(item.as_str()))
+                            .map_err(failed)?;
+                    }
+                    customize
+                        .SetSelectedControlItem(id, *selected as u32)
+                        .map_err(failed)?;
+                }
+                Extra::Check {
+                    label,
+                    checked,
+                    enabled,
+                } => {
+                    customize
+                        .AddCheckButton(id, &HSTRING::from(label.as_str()), *checked)
+                        .map_err(failed)?;
+                    if !enabled {
+                        customize
+                            .SetControlState(id, CDCS_VISIBLE)
+                            .map_err(failed)?;
+                    }
+                }
+            }
+        }
+        if open_group {
+            customize.EndVisualGroup().map_err(failed)?;
+        }
+        Ok(customize)
+    }
+}
+
+/// The value of every field, after the dialog was accepted.
+///
+/// # Safety
+///
+/// Called from a thread in a COM apartment, with the dialog's `customize`.
+unsafe fn read_extras(
+    customize: &IFileDialogCustomize,
+    extras: &[Extra],
+) -> Result<Vec<ExtraValue>, Error> {
+    // SAFETY: plain calls on a live interface.
+    unsafe {
+        extras
+            .iter()
+            .enumerate()
+            .map(|(index, extra)| {
+                let id = control_id(index);
+                Ok(match extra {
+                    Extra::Combo { .. } => ExtraValue::Combo(
+                        customize.GetSelectedControlItem(id).map_err(failed)? as usize,
+                    ),
+                    Extra::Check { .. } => ExtraValue::Check(
+                        customize.GetCheckButtonState(id).map_err(failed)?.as_bool(),
+                    ),
+                })
+            })
+            .collect()
+    }
+}
+
+/// The events of the dialog: choosing an item of the list changes the check box that follows it
+/// (`CDlgOpenFile_CommonItemDialog::OnItemSelected`). Everything else is left alone.
+#[implement(IFileDialogEvents, IFileDialogControlEvents)]
+struct Sink {
+    follow: Follow,
+}
+
+impl IFileDialogEvents_Impl for Sink_Impl {
+    fn OnFileOk(&self, _: Ref<IFileDialog>) -> windows::core::Result<()> {
+        Ok(())
+    }
+    fn OnFolderChanging(
+        &self,
+        _: Ref<IFileDialog>,
+        _: Ref<IShellItem>,
+    ) -> windows::core::Result<()> {
+        Ok(())
+    }
+    fn OnFolderChange(&self, _: Ref<IFileDialog>) -> windows::core::Result<()> {
+        Ok(())
+    }
+    fn OnSelectionChange(&self, _: Ref<IFileDialog>) -> windows::core::Result<()> {
+        Ok(())
+    }
+    fn OnShareViolation(
+        &self,
+        _: Ref<IFileDialog>,
+        _: Ref<IShellItem>,
+    ) -> windows::core::Result<FDE_SHAREVIOLATION_RESPONSE> {
+        Ok(FDESVR_DEFAULT)
+    }
+    fn OnTypeChange(&self, _: Ref<IFileDialog>) -> windows::core::Result<()> {
+        Ok(())
+    }
+    fn OnOverwrite(
+        &self,
+        _: Ref<IFileDialog>,
+        _: Ref<IShellItem>,
+    ) -> windows::core::Result<FDE_OVERWRITE_RESPONSE> {
+        Ok(FDEOR_DEFAULT)
+    }
+}
+
+impl IFileDialogControlEvents_Impl for Sink_Impl {
+    fn OnItemSelected(
+        &self,
+        pfdc: Ref<IFileDialogCustomize>,
+        control: u32,
+        item: u32,
+    ) -> windows::core::Result<()> {
+        if control == control_id(self.follow.combo)
+            && let Some(customize) = pfdc.as_ref()
+        {
+            let (enabled, checked) = (self.follow.rule)(item as usize);
+            let check = control_id(self.follow.check);
+            // SAFETY: called by the dialog, on its thread, with its own interface.
+            unsafe {
+                customize.SetControlState(
+                    check,
+                    if enabled {
+                        CDCS_ENABLEDVISIBLE
+                    } else {
+                        CDCS_VISIBLE
+                    },
+                )?;
+                customize.SetCheckButtonState(check, checked)?;
+            }
+        }
+        Ok(())
+    }
+    fn OnButtonClicked(&self, _: Ref<IFileDialogCustomize>, _: u32) -> windows::core::Result<()> {
+        Ok(())
+    }
+    fn OnCheckButtonToggled(
+        &self,
+        _: Ref<IFileDialogCustomize>,
+        _: u32,
+        _: BOOL,
+    ) -> windows::core::Result<()> {
+        Ok(())
+    }
+    fn OnControlActivating(
+        &self,
+        _: Ref<IFileDialogCustomize>,
+        _: u32,
+    ) -> windows::core::Result<()> {
+        Ok(())
     }
 }
 
