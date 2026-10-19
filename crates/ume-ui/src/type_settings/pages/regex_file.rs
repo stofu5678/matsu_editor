@@ -57,13 +57,12 @@ fn label_of(color: &str) -> Option<&'static str> {
     })
 }
 
-/// Decodes the file as `CTextInputStream` does for the files of Sakura: UTF-8 (with a BOM or not), else
-/// Shift_JIS.
+/// Decodes the file as `CTextInputStream` does for the files of Sakura (like the `.kwd` files): UTF-8 when
+/// it starts with a BOM, else Shift_JIS.
 fn decode(bytes: &[u8]) -> String {
-    let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
-    match std::str::from_utf8(bytes) {
-        Ok(text) => text.to_owned(),
-        Err(_) => encoding_rs::SHIFT_JIS
+    match bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
+        Some(rest) => String::from_utf8_lossy(rest).into_owned(),
+        None => encoding_rs::SHIFT_JIS
             .decode_without_bom_handling(bytes)
             .0
             .into_owned(),
@@ -160,7 +159,7 @@ impl CommonSettingsDialog {
             return false;
         };
         let imported = parse(&bytes);
-        self.set_rows(REGEX_LIST, imported.rows, cx);
+        self.replace_table_rows(REGEX_LIST, imported.rows, window, cx);
         if let Some(message) = imported.message {
             say(message, window, cx);
         }
@@ -209,6 +208,13 @@ impl CommonSettingsDialog {
 mod tests {
     use super::*;
 
+    /// A file as Sakura writes it: UTF-8 with a BOM.
+    fn utf8(text: &str) -> Vec<u8> {
+        let mut bytes = vec![0xEF, 0xBB, 0xBF];
+        bytes.extend_from_slice(text.as_bytes());
+        bytes
+    }
+
     fn rows(list: &[(&str, &str)]) -> Vec<Row> {
         list.iter()
             .map(|(k, c)| vec![(*k).to_owned(), (*c).to_owned()])
@@ -219,7 +225,7 @@ mod tests {
     fn a_file_is_read_line_by_line() {
         let text =
             "// 正規表現キーワード Ver1\r\nRxKey[000]=RK1,/a+/k\r\nRxKey[001]=RK2,/日本語/k\r\n";
-        let imported = parse(text.as_bytes());
+        let imported = parse(&utf8(text));
         assert_eq!(imported.message, None);
         assert_eq!(imported.rows.len(), 2);
         assert_eq!(imported.rows[0][0], "/a+/k");
@@ -231,7 +237,7 @@ mod tests {
     #[test]
     fn a_keyword_that_is_not_framed_is_left_out_with_a_message() {
         let text = "RxKey[000]=RK1,abc\nRxKey[001]=RK1,/ok/k\nRxKey[002]=RK1,\n";
-        let imported = parse(text.as_bytes());
+        let imported = parse(&utf8(text));
         assert_eq!(imported.rows, rows(&[("/ok/k", color_label("RK1"))]));
         assert_eq!(imported.message, Some(INVALID));
     }
@@ -240,17 +246,17 @@ mod tests {
     fn lines_that_are_not_keywords_and_unknown_colors_are_skipped() {
         let text =
             "x\nRxKey[0]=RK1,/a/k\nRxKey[000]=NOPE,/a/k\nRxKey[000] RK1,/a/k\nRxKey[000]=RK1/a/k\n";
-        let imported = parse(text.as_bytes());
+        let imported = parse(&utf8(text));
         assert!(imported.rows.is_empty());
         assert_eq!(imported.message, None);
     }
 
     #[test]
     fn the_color_may_be_the_name_on_the_list() {
-        let imported = parse("RxKey[000]=正規表現キーワード3,/a/k\n".as_bytes());
+        let imported = parse(&utf8("RxKey[000]=正規表現キーワード3,/a/k\n"));
         assert_eq!(imported.rows[0][1], color_label("RK3"));
         // A color a keyword may not have becomes 正規表現キーワード1.
-        let imported = parse("RxKey[000]=CAR,/a/k\n".as_bytes());
+        let imported = parse(&utf8("RxKey[000]=CAR,/a/k\n"));
         assert_eq!(imported.rows[0][1], color_label("RK1"));
     }
 
@@ -260,14 +266,14 @@ mod tests {
         for i in 0..MAX_REGEX_KEYWORDS + 3 {
             text.push_str(&format!("RxKey[{i:03}]=RK1,/{i}/k\n"));
         }
-        let imported = parse(text.as_bytes());
+        let imported = parse(&utf8(&text));
         assert_eq!(imported.rows.len(), MAX_REGEX_KEYWORDS);
         assert_eq!(imported.message, Some(TOO_MANY));
         let long = format!(
             "RxKey[000]=RK1,/{}/k\nRxKey[001]=RK1,/b/k\n",
             "a".repeat(1000)
         );
-        let imported = parse(long.as_bytes());
+        let imported = parse(&utf8(&long));
         assert_eq!(imported.rows, rows(&[("/b/k", color_label("RK1"))]));
         assert_eq!(imported.message, Some(TOO_LONG));
     }

@@ -81,6 +81,9 @@ fn the_regex_keywords_go_to_a_file_and_come_back(cx: &mut TestAppContext) {
         d.set_rows(REGEX_LIST, vec![strings(&["/z/k", "テキスト"])], dcx)
     });
     assert_eq!(rows(cx).len(), 1);
+    with_dialog(cx, |d, window, dcx| {
+        d.set_table_input(REGEX_LIST, 0, "/stale/k", window, dcx)
+    });
     assert!(with_dialog(cx, |d, window, dcx| d.regex_import_from(&file, window, dcx)));
     assert_eq!(
         rows(cx),
@@ -89,6 +92,14 @@ fn the_regex_keywords_go_to_a_file_and_come_back(cx: &mut TestAppContext) {
             strings(&["m#b/c#ki", "正規表現キーワード2"]),
         ]
     );
+    // The first row is selected and shown in the edit boxes, not the keyword that was typed before.
+    let shown = with_dialog(cx, |d, _, dcx| {
+        (
+            d.selected_row(REGEX_LIST),
+            d.table_input_text(REGEX_LIST, 0, dcx),
+        )
+    });
+    assert_eq!(shown, (Some(0), Some("/a+/k".to_owned())));
     // A file that is not there is not read, and the list stays.
     assert!(!with_dialog(cx, |d, window, dcx| d.regex_import_from(
         &dir.join("missing.rkw"),

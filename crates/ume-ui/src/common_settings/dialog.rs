@@ -544,6 +544,25 @@ impl CommonSettingsDialog {
         cx.notify();
     }
 
+    /// Replaces all the rows of an editable list (an import) and selects the first one, with its
+    /// texts in the edit boxes (`SetDataKeywordList`: `ListView_SetItemState( 0, ... )`).
+    pub(crate) fn replace_table_rows(
+        &mut self,
+        id: &'static str,
+        rows: Vec<table::Row>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.table_control(id).is_none() {
+            return;
+        }
+        let selected = (!rows.is_empty()).then_some(0);
+        self.values.set(id, Value::Rows(rows));
+        self.table_selected.insert(id, selected);
+        self.show_row(id, selected, window, cx);
+        cx.notify();
+    }
+
     /// Types into the edit box of one column of an editable list.
     #[cfg(test)]
     pub(crate) fn set_table_input(
