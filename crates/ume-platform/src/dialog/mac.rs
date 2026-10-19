@@ -95,14 +95,11 @@ pub(super) async fn show(owner: Owner, request: Request) -> Result<Option<Vec<Pa
 
 /// The panel has no list of file types. The selected type gives the extensions the name may have
 /// (`allowedFileTypes`): the panel adds the first to a name typed without one, and other names are
-/// still allowed. A type that shows every file (`*.*`) restricts nothing, and then the default
-/// extension is the one that is added.
+/// still allowed, also when the type has `*.*` next to its extensions. A type that names no extension
+/// (`*.*` alone) gives the default extension to add.
 fn restrict_to_file_types(panel: &NSSavePanel, request: &Request) {
     let chosen = request.filters.get(request.selected_filter);
-    let mut extensions: Vec<&str> = match chosen {
-        Some(filter) if !filter.matches_all() => filter.extensions(),
-        _ => Vec::new(),
-    };
+    let mut extensions: Vec<&str> = chosen.map_or_else(Vec::new, |filter| filter.extensions());
     if extensions.is_empty() {
         extensions.extend(request.default_extension.as_deref());
     }
