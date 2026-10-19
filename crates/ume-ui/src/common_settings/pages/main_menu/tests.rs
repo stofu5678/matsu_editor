@@ -811,6 +811,7 @@ fn a_menu_in_the_file_is_what_the_page_starts_from(cx: &mut TestAppContext) {
         &KeyMap::default(),
         &crate::menu::Registered,
         &crate::menu::NoLists,
+        &Default::default(),
     );
     assert_eq!(menus.len(), 1);
     assert_eq!(menus[0].label, "Only & menu(X)");

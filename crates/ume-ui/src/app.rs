@@ -230,7 +230,7 @@ fn set_menus(cx: &mut App, keymap: &KeyMap) {
         .try_global::<crate::settings::UserSettings>()
         .map(crate::settings::UserSettings::main_menu)
         .unwrap_or_else(|| crate::menu::default_main_menu().clone());
-    for top in main_menu_for(&main_menu, keymap, &Registered, &lists) {
+    for top in main_menu_for(&main_menu, keymap, &Registered, &lists, &custom_menus) {
         let mut items = gpui_items(top.entries, style);
         if let Some(states) = &states {
             crate::menu_state::apply_to_menu_items(&mut items, states);

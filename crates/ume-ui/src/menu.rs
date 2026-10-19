@@ -13,7 +13,7 @@ use std::sync::OnceLock;
 use ume_commands::keymap::{Chord, DisplayStyle, KeyMap};
 use ume_commands::sakura::{FUNCTIONS, KEY_PARENTHESES, MAIN_MENU, MenuKind};
 use ume_config::settings::main_menu::{F_NODE, MAX_MAINMENU_TOP};
-use ume_config::settings::{MainMenu, MenuRow, RowKind};
+use ume_config::settings::{CustomMenus, MainMenu, MenuRow, RowKind};
 
 /// `F_EXITALL`, "ウメエディタの全終了" (Sakura: "サクラエディタの全終了"). Until a command implements
 /// it, the item runs the `Exit` action of the application (which the first window already had).
@@ -168,22 +168,6 @@ fn name_of(row: &MenuRow, parentheses: bool) -> String {
     menu_label_with(label, row.key, parentheses)
 }
 
-fn leaf(row: &MenuRow, parentheses: bool, keymap: &KeyMap, available: &dyn Available) -> Entry {
-    let (action, enabled) = if available.is_available(row.function) {
-        (MenuAction::Function(row.function), true)
-    } else if row.function == F_EXITALL {
-        (MenuAction::Exit, true)
-    } else {
-        (MenuAction::Function(row.function), false)
-    };
-    Entry::Item(Item {
-        label: name_of(row, parentheses),
-        action,
-        shortcut: keymap.shortcut_for(row.function),
-        enabled,
-    })
-}
-
 /// The items of the lists that Sakura fills in at run time (`MenuKind::Special`): the recent files,
 /// the windows, ... `items` gives the items for the row with this function code. A list with no
 /// items shows a disabled "(なし)".
@@ -206,9 +190,43 @@ struct Build<'a> {
     keymap: &'a KeyMap,
     available: &'a dyn Available,
     lists: &'a dyn Lists,
+    /// The names of the custom menus, which a function row of one shows (`InitMenu_Function`).
+    custom_menus: &'a CustomMenus,
 }
 
 impl Build<'_> {
+    /// A function row (`InitMenu_Function`). The function of a custom menu shows the name of the menu
+    /// and is grayed out when the menu has no items.
+    fn leaf(&self, row: &MenuRow) -> Entry {
+        let custom = crate::custom_menu::model::menu_index(row.function);
+        let (action, enabled) = if let Some(index) = custom {
+            let has_items = self
+                .custom_menus
+                .get(index)
+                .is_some_and(|m| !m.items.is_empty());
+            (
+                MenuAction::Function(row.function),
+                has_items && self.available.is_available(row.function),
+            )
+        } else if self.available.is_available(row.function) {
+            (MenuAction::Function(row.function), true)
+        } else if row.function == F_EXITALL {
+            (MenuAction::Exit, true)
+        } else {
+            (MenuAction::Function(row.function), false)
+        };
+        let label = match custom.and_then(|index| self.custom_menus.name(index)) {
+            Some(name) => menu_label_with(&name, row.key, self.parentheses),
+            None => name_of(row, self.parentheses),
+        };
+        Entry::Item(Item {
+            label,
+            action,
+            shortcut: self.keymap.shortcut_for(row.function),
+            enabled,
+        })
+    }
+
     /// The entries of a list that Sakura fills in at run time: its items, or a disabled "(なし)".
     fn special(&self, code: u16) -> Vec<Entry> {
         let items = self.lists.items(code);
@@ -239,7 +257,7 @@ impl Build<'_> {
             *at += 1;
             match row.kind {
                 RowKind::Separator => out.push(Entry::Separator),
-                RowKind::Leaf => out.push(leaf(row, self.parentheses, self.keymap, self.available)),
+                RowKind::Leaf => out.push(self.leaf(row)),
                 // The list of recent files, windows and so on: the items go into this menu.
                 RowKind::Special => out.extend(self.special(row.function)),
                 RowKind::Node => out.push(Entry::Submenu {
@@ -264,24 +282,33 @@ pub fn main_menu_with(
     available: &dyn Available,
     lists: &dyn Lists,
 ) -> Vec<TopMenu> {
-    main_menu_for(default_main_menu(), keymap, available, lists)
+    main_menu_for(
+        default_main_menu(),
+        keymap,
+        available,
+        lists,
+        &CustomMenus::default(),
+    )
 }
 
 /// The menus of the menu bar for `menu` (`CEditWnd::LayoutMainMenu` and `InitMenu`): each row of
 /// level 0 starts a menu, up to [`MAX_MAINMENU_TOP`]; the rows after it, until the next one, are in
 /// it. A node is a menu and a list that Sakura fills in at run time is a menu with its items. A
 /// function or a separator on the menu bar is not shown (a menu bar here holds menus only).
+/// `custom_menus` names the custom menus that function rows open.
 pub fn main_menu_for(
     menu: &MainMenu,
     keymap: &KeyMap,
     available: &dyn Available,
     lists: &dyn Lists,
+    custom_menus: &CustomMenus,
 ) -> Vec<TopMenu> {
     let build = Build {
         parentheses: menu.key_parentheses,
         keymap,
         available,
         lists,
+        custom_menus,
     };
     let tops: Vec<usize> = menu
         .rows
@@ -543,7 +570,7 @@ mod tests {
             rows,
             key_parentheses,
         };
-        main_menu_for(&menu, &keymap(), &all, &NoLists)
+        main_menu_for(&menu, &keymap(), &all, &NoLists, &CustomMenus::default())
     }
 
     #[test]
@@ -615,8 +642,10 @@ mod tests {
             .map(|i| i.label.clone())
             .collect();
         assert_eq!(labels, ["新規作成(N)", "開く(o)...", "上書き保存(K)"]);
-        assert_eq!(menu_label_with("Save", Some('s'), false), "Save");
+        // The key itself, or its lower case, must be in the name (`wcschr` twice in `MakeMenuLabel`).
         assert_eq!(menu_label_with("Save", Some('S'), false), "Save");
+        assert_eq!(menu_label_with("Save", Some('A'), false), "Save");
+        assert_eq!(menu_label_with("Save", Some('s'), false), "Save(s)");
         assert_eq!(
             menu_label_with("開く(O)...", Some('O'), false),
             "開く(O)..."
@@ -681,7 +710,34 @@ mod tests {
             rows: vec![node(0, 0, "A", None), special(1, 29002)],
             key_parentheses: true,
         };
-        let menus = main_menu_for(&menu, &keymap(), &all, &One);
+        let menus = main_menu_for(&menu, &keymap(), &all, &One, &CustomMenus::default());
         assert!(matches!(&menus[0].entries[0], Entry::Item(i) if i.label == "recent"));
+    }
+
+    #[test]
+    fn a_custom_menu_row_shows_the_name_of_the_menu_and_is_grayed_out_when_it_is_empty() {
+        let mut menus = CustomMenus::default().menus().to_vec();
+        menus[3].name = "Build".to_owned();
+        let menus = CustomMenus::from_menus(menus);
+        let menu = MainMenu {
+            rows: vec![
+                node(0, 0, "A", None),
+                // `F_CUSTMENU_1` is empty, `F_CUSTMENU_3` is named but empty too, the right-click menu has items.
+                function(1, 31503, Some('B')),
+                function(1, 31501, None),
+                function(1, 31580, None),
+            ],
+            key_parentheses: true,
+        };
+        let built = main_menu_for(&menu, &keymap(), &all, &NoLists, &menus);
+        let found = items(&built[0].entries);
+        assert_eq!(
+            (found[0].label.as_str(), found[0].enabled),
+            ("Build(B)", false)
+        );
+        // Menu 1 has Sakura's seven items.
+        assert!(found[1].enabled);
+        assert_eq!(found[2].label, "右クリックメニュー");
+        assert!(found[2].enabled);
     }
 }
