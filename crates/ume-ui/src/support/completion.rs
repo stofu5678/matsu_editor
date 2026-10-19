@@ -263,6 +263,8 @@ impl EditorView {
     /// `F_HOKAN` (`Command_HOKAN` and `ShowHokanMgr` with `bAutoDecided`).
     pub(crate) fn start_completion(&mut self, cx: &mut Context<Self>) {
         self.support.completion = None;
+        // The meanings beside the list of the last session may be old (the dictionaries change).
+        self.support.key_help.forget_beside_list();
         let Some(found) = self.completion_for_caret(cx) else {
             self.notice = Some(NOT_COMPLETABLE.to_owned());
             cx.notify();

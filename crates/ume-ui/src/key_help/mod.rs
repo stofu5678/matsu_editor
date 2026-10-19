@@ -189,6 +189,11 @@ pub(crate) struct KeyHelpState {
 }
 
 impl KeyHelpState {
+    /// Forgets the meaning kept for the list of the input completion.
+    pub(crate) fn forget_beside_list(&self) {
+        self.beside_list.borrow_mut().take();
+    }
+
     /// The text of the last result, with line breaks as the clipboard has them (`cInfo.Replace(
     /// L"\n", L"\r\n" )`).
     pub(crate) fn clipboard_text(&self) -> Option<String> {
@@ -217,6 +222,8 @@ impl EditorView {
 
     /// Hides the tip. Returns whether one was shown.
     pub(crate) fn hide_key_help(&mut self, cx: &mut Context<Self>) -> bool {
+        // The timers that are out are overtaken: a click, a key or the wheel ends the wait.
+        self.support.key_help.moves += 1;
         let shown = self.support.key_help.tip.take().is_some();
         if shown {
             cx.notify();
@@ -252,9 +259,8 @@ impl EditorView {
     /// is looked up again. A key calls this too, so that moving the caret to another word with
     /// the keyboard shows the help of that word.
     pub(crate) fn key_help_restart(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.support.key_help.moves += 1;
-        let moves = self.support.key_help.moves;
         self.hide_key_help(cx);
+        let moves = self.support.key_help.moves;
         if !self.key_help_enabled(cx) {
             return;
         }
@@ -284,6 +290,10 @@ impl EditorView {
     ) {
         let state = &self.support.key_help;
         if state.moves != moves || state.tip.is_some() {
+            return;
+        }
+        // Not while the mouse selects or drags the scroll bar (the button is down).
+        if self.drag != crate::view::Drag::None {
             return;
         }
         // The caret has the focus, and no menu is open (`m_bInMenuLoop`).

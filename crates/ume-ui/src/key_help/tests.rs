@@ -636,3 +636,69 @@ fn the_search_text_from_a_box_selection_is_the_text_of_its_top_row(cx: &mut Test
         Some("alpha")
     );
 }
+
+// ---- the life of the tip ----
+
+#[gpui::test]
+fn a_function_from_a_menu_or_a_macro_shows_the_help_of_the_new_word(cx: &mut TestAppContext) {
+    let (_files, user) = settings(ON);
+    let (f, cx) = setup(cx, "alpha beta", user);
+    cx.update(|_, app| set_caret_key_word(app, true));
+    rest(cx, 120.0, 50.0, 400);
+    assert_eq!(f.tip(cx).as_deref(), Some("the first letter\nsecond line"));
+    // not a key: `run_function`, as a menu item or a macro runs it
+    f.run(cx, "F_GOFILEEND", &[]);
+    assert_eq!(f.tip(cx), None);
+    cx.executor().advance_clock(Duration::from_millis(400));
+    cx.run_until_parked();
+    assert_eq!(f.tip(cx).as_deref(), Some("second"));
+}
+
+#[gpui::test]
+fn a_click_ends_the_wait_and_the_button_down_shows_no_tip(cx: &mut TestAppContext) {
+    let (_files, user) = settings(ON);
+    let (f, cx) = setup(cx, "alpha beta", user);
+    cx.simulate_keystrokes("shift-right shift-right shift-right shift-right shift-right");
+    let at = point(px(120.), px(50.));
+    rest(cx, 120.0, 50.0, 100);
+    cx.simulate_mouse_down(at, gpui::MouseButton::Left, Modifiers::default());
+    cx.executor().advance_clock(Duration::from_millis(400));
+    cx.run_until_parked();
+    assert_eq!(f.tip(cx), None);
+}
+
+#[gpui::test]
+fn a_tip_goes_when_the_view_loses_the_focus(cx: &mut TestAppContext) {
+    let (_files, user) = settings(ON);
+    let (f, cx) = setup(cx, "alpha beta", user);
+    cx.simulate_keystrokes("shift-right shift-right shift-right shift-right shift-right");
+    rest(cx, 120.0, 50.0, 400);
+    assert!(f.tip(cx).is_some());
+    cx.update(|window, app| window.blur(app));
+    cx.run_until_parked();
+    f.view.update(cx, |_, cx| cx.notify());
+    cx.run_until_parked();
+    assert_eq!(f.tip(cx), None);
+}
+
+#[gpui::test]
+fn the_meaning_beside_the_list_is_looked_up_again_in_a_new_session(cx: &mut TestAppContext) {
+    let (files, user) = settings(ON);
+    let (f, cx) = setup(cx, "alpha", user);
+    let help = |f: &Fixture, cx: &mut VisualTestContext| {
+        f.view
+            .read_with(cx, |v, app| v.completion_help("alpha", app))
+    };
+    assert_eq!(
+        help(&f, cx).as_deref(),
+        Some("the first letter\nsecond line")
+    );
+    files.write("dict.txt", "alpha /// edited\r\n".as_bytes());
+    assert_eq!(
+        help(&f, cx).as_deref(),
+        Some("the first letter\nsecond line")
+    );
+    // the list is asked for again
+    f.run(cx, "F_HOKAN", &[]);
+    assert_eq!(help(&f, cx).as_deref(), Some("edited"));
+}

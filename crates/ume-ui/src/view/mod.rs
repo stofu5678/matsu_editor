@@ -404,6 +404,8 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        // Whatever runs the function (a menu, a macro), the tip goes and the wait starts again.
+        self.key_help_restart(window, cx);
         if let Some(reg) = Registry::global().get_by_code(code) {
             self.run_registration(reg, args, cx)
         } else if let Some(reg) = UiRegistry::global().get_by_code(code) {
@@ -714,6 +716,10 @@ impl Focusable for EditorView {
 
 impl Render for EditorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // A tip does not outlive the focus of the view (another pane, a panel).
+        if self.support.key_help.tip.is_some() && !self.focus_handle.is_focused(window) {
+            self.support.key_help.tip = None;
+        }
         self.follow_window_width(cx);
         self.advance_layout(window, cx);
         self.advance_colors(window, cx);
