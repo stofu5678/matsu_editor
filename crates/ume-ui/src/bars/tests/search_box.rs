@@ -312,13 +312,20 @@ fn up_and_down_go_through_the_history_and_escape_closes_the_list(cx: &mut TestAp
     assert_eq!(search_box.read_with(cx, |b, app| b.text(app)), "b");
     cx.simulate_keystrokes("up up");
     assert_eq!(search_box.read_with(cx, |b, app| b.text(app)), "c");
-    // Alt+Down opens the list; Down moves in it; Enter takes the entry without searching.
-    cx.simulate_keystrokes("alt-down down enter");
+    // Alt+Down opens the list on the entry equal to the text; Down moves in it and puts the entry
+    // in the box at once.
+    cx.simulate_keystrokes("alt-down");
+    assert_eq!(search_box.read_with(cx, |b, _| b.open_entry()), Some(0));
+    cx.simulate_keystrokes("down");
     assert_eq!(search_box.read_with(cx, |b, app| b.text(app)), "b");
-    assert_eq!(search_box.read_with(cx, |b, _| b.open_entry()), None);
-    cx.simulate_keystrokes("f4");
+    assert_eq!(search_box.read_with(cx, |b, _| b.open_entry()), Some(1));
+    // Alt+Shift+Down is not the key of the list.
     cx.simulate_keystrokes("escape");
-    assert_eq!(search_box.read_with(cx, |b, _| b.open_entry()), None);
+    cx.simulate_keystrokes("alt-shift-down");
+    assert!(!search_box.read_with(cx, |b, _| b.is_open()));
+    cx.simulate_keystrokes("f4 escape");
+    assert!(!search_box.read_with(cx, |b, _| b.is_open()));
+    assert_eq!(search_box.read_with(cx, |b, app| b.text(app)), "b");
     assert!(
         box_has_focus(cx, &search_box),
         "Escape closed the list only"
@@ -336,7 +343,7 @@ fn the_list_closes_when_the_focus_leaves_the_box(cx: &mut TestAppContext) {
     run(cx, handle, "F_SEARCH_BOX");
     let cx = &mut VisualTestContext::from_window(handle, cx);
     cx.simulate_keystrokes("f4");
-    assert_eq!(search_box.read_with(cx, |b, _| b.open_entry()), Some(0));
+    assert!(search_box.read_with(cx, |b, _| b.is_open()));
     // A click on the text takes the focus (the list is not over this place).
     cx.simulate_click(
         gpui::point(gpui::px(400.), gpui::px(400.)),
@@ -345,6 +352,56 @@ fn the_list_closes_when_the_focus_leaves_the_box(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert!(editor_has_focus(cx, &editor));
     assert_eq!(search_box.read_with(cx, |b, _| b.open_entry()), None);
+}
+
+#[gpui::test]
+fn enter_with_the_list_open_searches_the_typed_text(cx: &mut TestAppContext) {
+    let (_ini, handle) = setup(cx, &toolbar());
+    cx.update(|app| {
+        crate::search::history::remember_search(app, "zzz");
+    });
+    let editor = view(cx, handle);
+    write(cx, handle, "foo");
+    run(cx, handle, "F_SEARCH_BOX");
+    let search_box = search_box(cx, handle);
+    let cx2 = &mut VisualTestContext::from_window(handle, cx);
+    cx2.simulate_keystrokes("secondary-a");
+    cx2.simulate_input("foo");
+    // The text is not in the history: the list opens with nothing highlighted.
+    cx2.simulate_keystrokes("f4");
+    assert!(search_box.read_with(cx2, |b, _| b.is_open()));
+    assert_eq!(search_box.read_with(cx2, |b, _| b.open_entry()), None);
+    cx2.simulate_keystrokes("enter");
+    cx2.run_until_parked();
+    assert_eq!(pattern(cx, &editor), "foo");
+    assert_eq!(
+        selection(cx, &editor),
+        Some((Pos::new(0, 0), Pos::new(0, 3)))
+    );
+}
+
+#[gpui::test]
+fn enter_after_down_in_the_list_searches_that_entry(cx: &mut TestAppContext) {
+    let (_ini, handle) = setup(cx, &toolbar());
+    cx.update(|app| {
+        crate::search::history::remember_search(app, "bar");
+        crate::search::history::remember_search(app, "zzz");
+    });
+    let editor = view(cx, handle);
+    write(cx, handle, "foo bar");
+    run(cx, handle, "F_SEARCH_BOX");
+    let cx2 = &mut VisualTestContext::from_window(handle, cx);
+    cx2.simulate_keystrokes("secondary-a");
+    cx2.simulate_input("foo");
+    cx2.simulate_keystrokes("f4");
+    // Down: the first entry ("zzz"), down again: "bar".
+    cx2.simulate_keystrokes("down down enter");
+    cx2.run_until_parked();
+    assert_eq!(pattern(cx, &editor), "bar");
+    assert_eq!(
+        selection(cx, &editor),
+        Some((Pos::new(0, 4), Pos::new(0, 7)))
+    );
 }
 
 #[gpui::test]

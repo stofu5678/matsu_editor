@@ -43,8 +43,9 @@ const SEARCH_BOX: u16 = 30908;
 pub(crate) struct SearchBox {
     workspace: WeakEntity<Workspace>,
     input: Entity<InputState>,
-    /// The entry of the open list that Enter takes.
-    dropdown: Option<usize>,
+    /// Whether the list is open, and the entry of the open list that is highlighted (the one equal
+    /// to the text when it opens, as a combo box does; none if the text is not in the history).
+    dropdown: Option<Option<usize>>,
     list_scroll: ScrollHandle,
     /// The pane that was the active one when the field got the focus: the text is its search key
     /// when the focus leaves, even if the focus leaves because another tab became the active one.
@@ -231,14 +232,10 @@ impl SearchBox {
         });
     }
 
-    /// Enter in the edit field: with the list open it takes the highlighted string (as a combo box
-    /// does), else it searches.
+    /// Enter in the edit field: it closes the list and searches for the text of the box, whatever
+    /// the list is doing (`ProcSearchBox` looks at the key only).
     fn press_enter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let keys = history::search_keys(cx);
-        match self.dropdown.and_then(|i| keys.get(i)) {
-            Some(text) => self.pick(text.clone(), window, cx),
-            None => self.search(window, cx),
-        }
+        self.search(window, cx);
     }
 
     /// `ProcSearchBox` (Enter): the text is the search key, and the search goes forward.
@@ -307,10 +304,12 @@ impl SearchBox {
         } else {
             let keys = history::search_keys(cx);
             let current = self.text(cx);
-            self.dropdown =
-                (!keys.is_empty()).then(|| keys.iter().position(|k| *k == current).unwrap_or(0));
-            if let Some(highlight) = self.dropdown {
-                self.list_scroll.scroll_to_item(highlight);
+            if !keys.is_empty() {
+                let highlight = keys.iter().position(|k| *k == current);
+                self.dropdown = Some(highlight);
+                if let Some(highlight) = highlight {
+                    self.list_scroll.scroll_to_item(highlight);
+                }
             }
         }
         cx.notify();
@@ -365,19 +364,22 @@ impl SearchBox {
                 });
             }
             "f4" if plain => self.toggle_dropdown(cx),
-            "down" if m.alt => self.toggle_dropdown(cx),
+            "down" if m.alt && !m.control && !m.platform && !m.shift => self.toggle_dropdown(cx),
             "down" | "up" if plain && self.dropdown.is_none() => {
                 self.step(key == "down", window, cx);
             }
             "down" | "up" if plain && !keys.is_empty() => {
-                let open = self.dropdown.unwrap_or(0);
-                let highlight = if key == "down" {
-                    (open + 1).min(keys.len() - 1)
-                } else {
-                    open.saturating_sub(1)
+                // The highlighted string is in the box at once.
+                let highlight = match (self.dropdown.flatten(), key == "down") {
+                    (None, _) => 0,
+                    (Some(i), true) => (i + 1).min(keys.len() - 1),
+                    (Some(i), false) => i.saturating_sub(1),
                 };
-                self.dropdown = Some(highlight);
+                self.dropdown = Some(Some(highlight));
                 self.list_scroll.scroll_to_item(highlight);
+                let text = keys[highlight].clone();
+                self.input
+                    .update(cx, |state, cx| state.set_value(text, window, cx));
                 cx.notify();
             }
             _ => return false,
@@ -387,8 +389,14 @@ impl SearchBox {
 
     /// The highlighted entry of the open list, for the tests.
     #[cfg(test)]
+    pub(crate) fn is_open(&self) -> bool {
+        self.dropdown.is_some()
+    }
+
+    /// The highlighted entry of the open list, for the tests.
+    #[cfg(test)]
     pub(crate) fn open_entry(&self) -> Option<usize> {
-        self.dropdown
+        self.dropdown.flatten()
     }
 }
 
@@ -416,7 +424,7 @@ impl Render for SearchBox {
                         .px_2()
                         .h(px(20.))
                         .truncate()
-                        .when(i == highlight, |d| d.bg(rgb(0xcce4f7)))
+                        .when(Some(i) == highlight, |d| d.bg(rgb(0xcce4f7)))
                         .hover(|d| d.bg(rgb(0xe5f1fb)))
                         .child(SharedString::from(text))
                         .on_click(cx.listener(move |this, _, window, cx| {
