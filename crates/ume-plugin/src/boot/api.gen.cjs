@@ -336,6 +336,19 @@ module.exports = function install(call) {
       return call('GetSaveFilename', args);
     },
     /**
+     * ChangeInsertSpace(value: int) -> int
+     *
+     * Whether the Tab key inserts spaces instead of a tab character, before the call (1 or 0). 0
+     * turns it off, 1 turns it on for this window (not saved); any other value only reads. Only
+     * the low 16 bits of the value count, as in Sakura.
+     */
+    ChangeInsertSpace(value) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('ChangeInsertSpace', args);
+    },
+    /**
      * LayoutToLogicLineNum(layoutLine: int) -> int
      *
      * The logical line (up to a line break) that a layout line (a row on the screen) belongs to,
@@ -810,6 +823,37 @@ module.exports = function install(call) {
       const args = Array.prototype.slice.call(arguments);
       while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
       return call('FolderDialog', args);
+    },
+    /**
+     * InputBox(message: string, defaultValue: string?, maxLength: int?) -> string
+     *
+     * Shows a dialog with a text field and waits. The message is shown above the field, the
+     * default value is in the field, and the text cannot be longer than the maximum length (in
+     * UTF-16 code units; 0 or less, or no value, is 260). Returns the text of the field when OK
+     * is pressed, or an empty string when the dialog is cancelled.
+     */
+    InputBox(message, defaultValue, maxLength) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('InputBox', args);
+    },
+    /**
+     * CreateMenu(position: int, menu: string) -> int
+     *
+     * Shows a pop-up menu and waits. The position is 1 for the caret (the pointer when the caret
+     * is out of the view) and anything else for the pointer. The menu is a list of items
+     * separated by commas; an item can start with flags in brackets: C checked, D disabled, R
+     * radio, S opens a submenu, E ends a submenu (one for each E), B (a new column) is ignored.
+     * A lone - is a separator. Write [][text] for a text that starts with a bracket. Returns the
+     * number of the item chosen, counted from 1 over the items only (separators and submenus are
+     * not counted), or 0 when the menu is closed without a choice or has no item.
+     */
+    CreateMenu(position, menu) {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('CreateMenu', args);
     },
     /**
      * Sleep(milliseconds: int) -> int
@@ -4826,42 +4870,6 @@ module.exports = function install(call) {
       const args = Array.prototype.slice.call(arguments);
       while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
       return call('SetViewLeft', args);
-    },
-    /**
-     * InputBox(arg1: string?, arg2: string?, arg3: int?) -> string
-     *
-     * Sakura's F_INPUTBOX (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    InputBox(arg1, arg2, arg3) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('InputBox', args);
-    },
-    /**
-     * CreateMenu(arg1: int?, arg2: string?) -> int
-     *
-     * Sakura's F_CREATEMENU (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    CreateMenu(arg1, arg2) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('CreateMenu', args);
-    },
-    /**
-     * ChangeInsertSpace(arg1: int?) -> int
-     *
-     * Sakura's F_CHGINSSPACE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    ChangeInsertSpace(arg1) {
-      // A trailing undefined is a missing argument, not a null.
-      const args = Array.prototype.slice.call(arguments);
-      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-      return call('ChangeInsertSpace', args);
     },
   };
   // Any other name that starts like a Sakura macro name (an upper case letter or a digit) is

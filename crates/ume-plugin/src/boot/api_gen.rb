@@ -232,6 +232,15 @@ module UmeEditorApi
       @call.call('GetSaveFilename', _pack())
     end
 
+    # ChangeInsertSpace(value: int) -> int
+    #
+    # Whether the Tab key inserts spaces instead of a tab character, before the call (1 or 0). 0
+    # turns it off, 1 turns it on for this window (not saved); any other value only reads. Only
+    # the low 16 bits of the value count, as in Sakura.
+    def ChangeInsertSpace(value)
+      @call.call('ChangeInsertSpace', _pack(value))
+    end
+
     # LayoutToLogicLineNum(layoutLine: int) -> int
     #
     # The logical line (up to a line break) that a layout line (a row on the screen) belongs to,
@@ -550,6 +559,29 @@ module UmeEditorApi
     # has one; the default folder is not used.
     def FolderDialog(message = UNSET, defaultFolder = UNSET)
       @call.call('FolderDialog', _pack(message, defaultFolder))
+    end
+
+    # InputBox(message: string, defaultValue: string?, maxLength: int?) -> string
+    #
+    # Shows a dialog with a text field and waits. The message is shown above the field, the
+    # default value is in the field, and the text cannot be longer than the maximum length (in
+    # UTF-16 code units; 0 or less, or no value, is 260). Returns the text of the field when OK
+    # is pressed, or an empty string when the dialog is cancelled.
+    def InputBox(message, defaultValue = UNSET, maxLength = UNSET)
+      @call.call('InputBox', _pack(message, defaultValue, maxLength))
+    end
+
+    # CreateMenu(position: int, menu: string) -> int
+    #
+    # Shows a pop-up menu and waits. The position is 1 for the caret (the pointer when the caret
+    # is out of the view) and anything else for the pointer. The menu is a list of items
+    # separated by commas; an item can start with flags in brackets: C checked, D disabled, R
+    # radio, S opens a submenu, E ends a submenu (one for each E), B (a new column) is ignored.
+    # A lone - is a separator. Write [][text] for a text that starts with a bracket. Returns the
+    # number of the item chosen, counted from 1 over the items only (separators and submenus are
+    # not counted), or 0 when the menu is closed without a choice or has no item.
+    def CreateMenu(position, menu)
+      @call.call('CreateMenu', _pack(position, menu))
     end
 
     # Sleep(milliseconds: int) -> int
@@ -3330,30 +3362,6 @@ module UmeEditorApi
     # editor does not have yet answers the error -32001 (not implemented).
     def SetViewLeft(arg1 = UNSET)
       @call.call('SetViewLeft', _pack(arg1))
-    end
-
-    # InputBox(arg1: string?, arg2: string?, arg3: int?) -> string
-    #
-    # Sakura's F_INPUTBOX (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-    # editor answers the error -32001 (not implemented) while it cannot answer it.
-    def InputBox(arg1 = UNSET, arg2 = UNSET, arg3 = UNSET)
-      @call.call('InputBox', _pack(arg1, arg2, arg3))
-    end
-
-    # CreateMenu(arg1: int?, arg2: string?) -> int
-    #
-    # Sakura's F_CREATEMENU (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-    # editor answers the error -32001 (not implemented) while it cannot answer it.
-    def CreateMenu(arg1 = UNSET, arg2 = UNSET)
-      @call.call('CreateMenu', _pack(arg1, arg2))
-    end
-
-    # ChangeInsertSpace(arg1: int?) -> int
-    #
-    # Sakura's F_CHGINSSPACE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-    # editor answers the error -32001 (not implemented) while it cannot answer it.
-    def ChangeInsertSpace(arg1 = UNSET)
-      @call.call('ChangeInsertSpace', _pack(arg1))
     end
 
     # Any other name that starts like a Sakura macro name (an upper case letter or a digit) is

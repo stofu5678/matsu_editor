@@ -624,6 +624,35 @@ fn the_macro_runs_after_the_load(cx: &mut TestAppContext) {
     assert_eq!(all_text(&view, cx), "Babc\n", "{output}");
 }
 
+/// `-TYPE=` is decided when the file is read, before the macro of オープン後: the macro sees the
+/// type (`SetDocumentTypeWhenCreate`, `sLoadInfo.nType`). Here the macro turns the tabs of the text
+/// into spaces by the tab width of the type: 8 for the type of `.txt`, 2 for `cpp`.
+#[gpui::test]
+fn the_macro_of_opening_sees_the_type_of_the_type_option(cx: &mut TestAppContext) {
+    init(cx);
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", b"a\tb\n");
+    dir.write("open.mac", b"SelectAll();\nTABToSPACE();\n");
+    let ini = format!(
+        "[Folders]\r\nszMACROFOLDER={}\r\n[Macro]\r\nName[000]=\r\nFile[000]=open.mac\r\n\
+         nMacroOnOpened=0\r\n[Other]\r\nnTypesCount=17\r\n\
+         [Types(1)]\r\nnInts=1,120,0,8,-1,-1,0,1,1,0,0,0\r\n\
+         [Types(2)]\r\nnInts=2,10240,0,2,0,-1,0,1,1,0,0,0\r\n",
+        dir.0.display()
+    );
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(ini.as_bytes());
+    let profile = ume_config::Profile::from_bytes(&bytes);
+    cx.update(|app| {
+        app.set_global(crate::settings::UserSettings::from_profile(profile, None));
+    });
+    launch(cx, &dir, &["-TYPE=cpp", "a.txt"]);
+    let view = view_of(cx, &path);
+    let output = view.read_with(cx, |v, _| v.macro_output_text());
+    // Width 2: "a", a tab to column 2 is one space. (With the type of the file it would be seven.)
+    assert_eq!(all_text(&view, cx), "a b\n", "{output}");
+}
+
 #[gpui::test]
 fn the_macro_text_of_mtype_is_told_not_to_be_done(cx: &mut TestAppContext) {
     init(cx);

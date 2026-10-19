@@ -351,6 +351,19 @@ final class Editor
     }
 
     /**
+     * ChangeInsertSpace(value: int) -> int
+     *
+     * Whether the Tab key inserts spaces instead of a tab character, before the call (1 or 0). 0
+     * turns it off, 1 turns it on for this window (not saved); any other value only reads. Only
+     * the low 16 bits of the value count, as in Sakura.
+     */
+    public static function ChangeInsertSpace($value)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ChangeInsertSpace', func_get_args());
+    }
+
+    /**
      * LayoutToLogicLineNum(layoutLine: int) -> int
      *
      * The logical line (up to a line break) that a layout line (a row on the screen) belongs to,
@@ -824,6 +837,37 @@ final class Editor
     {
         // func_get_args() holds only the arguments that were given.
         return (self::$call)('FolderDialog', func_get_args());
+    }
+
+    /**
+     * InputBox(message: string, defaultValue: string?, maxLength: int?) -> string
+     *
+     * Shows a dialog with a text field and waits. The message is shown above the field, the
+     * default value is in the field, and the text cannot be longer than the maximum length (in
+     * UTF-16 code units; 0 or less, or no value, is 260). Returns the text of the field when OK
+     * is pressed, or an empty string when the dialog is cancelled.
+     */
+    public static function InputBox($message, $defaultValue = null, $maxLength = null)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('InputBox', func_get_args());
+    }
+
+    /**
+     * CreateMenu(position: int, menu: string) -> int
+     *
+     * Shows a pop-up menu and waits. The position is 1 for the caret (the pointer when the caret
+     * is out of the view) and anything else for the pointer. The menu is a list of items
+     * separated by commas; an item can start with flags in brackets: C checked, D disabled, R
+     * radio, S opens a submenu, E ends a submenu (one for each E), B (a new column) is ignored.
+     * A lone - is a separator. Write [][text] for a text that starts with a bracket. Returns the
+     * number of the item chosen, counted from 1 over the items only (separators and submenus are
+     * not counted), or 0 when the menu is closed without a choice or has no item.
+     */
+    public static function CreateMenu($position, $menu)
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CreateMenu', func_get_args());
     }
 
     /**
@@ -4840,42 +4884,6 @@ final class Editor
     {
         // func_get_args() holds only the arguments that were given.
         return (self::$call)('SetViewLeft', func_get_args());
-    }
-
-    /**
-     * InputBox(arg1: string?, arg2: string?, arg3: int?) -> string
-     *
-     * Sakura's F_INPUTBOX (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function InputBox($arg1 = null, $arg2 = null, $arg3 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('InputBox', func_get_args());
-    }
-
-    /**
-     * CreateMenu(arg1: int?, arg2: string?) -> int
-     *
-     * Sakura's F_CREATEMENU (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function CreateMenu($arg1 = null, $arg2 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('CreateMenu', func_get_args());
-    }
-
-    /**
-     * ChangeInsertSpace(arg1: int?) -> int
-     *
-     * Sakura's F_CHGINSSPACE (sakura_core/macro/CSMacroMgr.cpp). A function with a result. This
-     * editor answers the error -32001 (not implemented) while it cannot answer it.
-     */
-    public static function ChangeInsertSpace($arg1 = null)
-    {
-        // func_get_args() holds only the arguments that were given.
-        return (self::$call)('ChangeInsertSpace', func_get_args());
     }
 
     /**

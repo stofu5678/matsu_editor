@@ -337,7 +337,8 @@ impl LaunchOptions {
         handle
             .update(cx, |_, window, cx| {
                 view.update(cx, |view, cx| {
-                    view.start_grep(info, false, window, cx);
+                    // `DoGrep` is called directly: no `Command_GREP`, so no type change.
+                    view.start_grep_in(info, false, false, window, cx);
                 });
             })
             .ok();
@@ -366,6 +367,14 @@ pub(crate) fn expect(cx: &mut App, path: &Path, after: AfterLoad) {
         .insert(path.to_owned(), after);
 }
 
+/// The `-TYPE=` that the launch waiting for `path` asked for. The type is chosen when the file
+/// has been read and before the macro of オープン後 runs, as Sakura does with
+/// `SetDocumentTypeWhenCreate` (`sLoadInfo.nType`, `CLoadAgent::OnLoad`), so that the macro
+/// sees it.
+pub(crate) fn expected_type(cx: &App, path: &Path) -> Option<String> {
+    cx.try_global::<Expected>()?.0.get(path)?.doc_type.clone()
+}
+
 /// The request for `path` is not needed any more (the window could not be made).
 pub(crate) fn forget(cx: &mut App, path: &Path) {
     cx.default_global::<Expected>().0.remove(path);
@@ -390,12 +399,8 @@ pub(crate) fn after_load(
             return;
         };
         if loaded {
-            view.update(app, |view, cx| {
-                if let Some(ext) = &after.doc_type {
-                    view.apply_launch_type(ext, cx);
-                }
-                view.go_by_launch(&after.file, false, cx);
-            });
+            // `-TYPE=` was applied when the file was read (see `expected_type`).
+            view.update(app, |view, cx| view.go_by_launch(&after.file, false, cx));
         }
         if let Some(m) = &after.macro_ {
             run_macro_in(m, &view, window, app);

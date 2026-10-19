@@ -156,6 +156,12 @@ def install(call):
             registered macro of 保存前), where it is the file being saved."""
             return call("GetSaveFilename", _pack())
 
+        def ChangeInsertSpace(self, value: int) -> int:
+            """Whether the Tab key inserts spaces instead of a tab character, before the call
+            (1 or 0). 0 turns it off, 1 turns it on for this window (not saved); any other
+            value only reads. Only the low 16 bits of the value count, as in Sakura."""
+            return call("ChangeInsertSpace", _pack(value))
+
         def LayoutToLogicLineNum(self, layoutLine: int) -> int:
             """The logical line (up to a line break) that a layout line (a row on the screen)
             belongs to, both counted from 1. The line after the last layout line gives the
@@ -370,6 +376,25 @@ def install(call):
             the dialog is cancelled. The message becomes the prompt text of the platform
             dialog where it has one; the default folder is not used."""
             return call("FolderDialog", _pack(message, defaultFolder))
+
+        def InputBox(self, message: str, defaultValue: str = _UNSET, maxLength: int = _UNSET) -> str:
+            """Shows a dialog with a text field and waits. The message is shown above the
+            field, the default value is in the field, and the text cannot be longer than the
+            maximum length (in UTF-16 code units; 0 or less, or no value, is 260). Returns
+            the text of the field when OK is pressed, or an empty string when the dialog is
+            cancelled."""
+            return call("InputBox", _pack(message, defaultValue, maxLength))
+
+        def CreateMenu(self, position: int, menu: str) -> int:
+            """Shows a pop-up menu and waits. The position is 1 for the caret (the pointer when
+            the caret is out of the view) and anything else for the pointer. The menu is a
+            list of items separated by commas; an item can start with flags in brackets: C
+            checked, D disabled, R radio, S opens a submenu, E ends a submenu (one for each
+            E), B (a new column) is ignored. A lone - is a separator. Write [][text] for a
+            text that starts with a bracket. Returns the number of the item chosen, counted
+            from 1 over the items only (separators and submenus are not counted), or 0 when
+            the menu is closed without a choice or has no item."""
+            return call("CreateMenu", _pack(position, menu))
 
         def Sleep(self, milliseconds: int) -> int:
             """Waits for the given number of milliseconds (the window stays alive, and the
@@ -2429,24 +2454,6 @@ def install(call):
             command that this editor does not have yet answers the error -32001 (not
             implemented)."""
             return call("SetViewLeft", _pack(arg1))
-
-        def InputBox(self, arg1: str = _UNSET, arg2: str = _UNSET, arg3: int = _UNSET) -> str:
-            """Sakura's F_INPUTBOX (sakura_core/macro/CSMacroMgr.cpp). A function with a
-            result. This editor answers the error -32001 (not implemented) while it cannot
-            answer it."""
-            return call("InputBox", _pack(arg1, arg2, arg3))
-
-        def CreateMenu(self, arg1: int = _UNSET, arg2: str = _UNSET) -> int:
-            """Sakura's F_CREATEMENU (sakura_core/macro/CSMacroMgr.cpp). A function with a
-            result. This editor answers the error -32001 (not implemented) while it cannot
-            answer it."""
-            return call("CreateMenu", _pack(arg1, arg2))
-
-        def ChangeInsertSpace(self, arg1: int = _UNSET) -> int:
-            """Sakura's F_CHGINSSPACE (sakura_core/macro/CSMacroMgr.cpp). A function with a
-            result. This editor answers the error -32001 (not implemented) while it cannot
-            answer it."""
-            return call("ChangeInsertSpace", _pack(arg1))
 
     def _fallback(self, name):
         # Any other name that starts like a Sakura macro name (an upper case letter or a digit)

@@ -157,6 +157,8 @@ pub struct Requests {
     pub tab_width: Option<u32>,
     /// `ChangeWrapColumn`: wrap at this column (this view only).
     pub wrap_columns: Option<u32>,
+    /// `ChangeInsertSpace`: the Tab key inserts spaces (this view only).
+    pub ins_space: Option<bool>,
 }
 
 /// The decision of a document type for an extension (`CDocTypeManager::GetDocumentTypeOfExt`):
@@ -175,6 +177,8 @@ pub struct HostEnv {
     pub status_bar_shown: bool,
     /// The wrap column in use (`CLayoutMgr::GetMaxLineKetas`), or `None` without a window.
     pub wrap_columns: Option<u32>,
+    /// `m_bInsSpace`: the Tab key inserts spaces, or `None` without a window.
+    pub ins_space: Option<bool>,
     /// A key macro is being recorded in this window (`$M?` of `ExpandParameter`).
     pub recording_key_macro: bool,
     /// The full path of the macro file that runs (`$M` of `ExpandParameter`).
@@ -195,6 +199,7 @@ impl HostEnv {
             view: None,
             status_bar_shown: false,
             wrap_columns: None,
+            ins_space: None,
             recording_key_macro: false,
             macro_path: None,
             current_type: 0,

@@ -223,6 +223,8 @@ pub struct ViewSettings {
     /// `OUT_PS_ONLY_PRECIS`): `Command_SETFONTSIZE` changes the size of such fonts only.
     pub font_truetype: bool,
     pub tab_width: u32,
+    /// `bInsSpace`: the Tab key inserts spaces (`ChangeInsertSpace` changes it for this view).
+    pub ins_space: bool,
     pub word_wrap: bool,
     pub wrap_method: WrapMethod,
     /// The wrap column of [`WrapMethod::SettingWidth`] (`nMaxLineKetas`).
@@ -479,6 +481,7 @@ impl ViewSettings {
             font_italic: font.log_font.italic != 0,
             font_truetype: crate::font_dialog::model::is_truetype(font.log_font.out_precision),
             tab_width: u32::try_from(t.tab_space).unwrap_or(4).max(1),
+            ins_space: t.ins_space,
             word_wrap: t.word_wrap,
             wrap_method: WrapMethod::from_setting(t.text_wrap_method),
             wrap_columns: max_columns,

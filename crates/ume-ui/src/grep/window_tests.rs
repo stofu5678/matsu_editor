@@ -1,6 +1,8 @@
 //! Tests of Grep in GPUI's headless test window: the dialog, the window of the result, and the
 //! search that runs on a background task. The files are real files in a temporary folder.
 
+use std::time::Duration;
+
 use gpui::{AppContext as _, Entity, TestAppContext, VisualTestContext};
 use ume_commands::command::Arg;
 use ume_commands::sakura::FUNCTIONS;
@@ -777,4 +779,131 @@ fn a_replacement_is_not_recorded_in_a_key_macro(cx: &mut TestAppContext) {
     let saved = String::from_utf8_lossy(&std::fs::read(&path).unwrap()).into_owned();
     // `GrepReplace` is not a function of key macros (`MacroFunction::key_macro`)
     assert!(!saved.contains("Grep"), "{saved}");
+}
+
+// ---- the type of a Grep window (`Command_GREP`: grepout, and the macro of タイプ変更後) ----
+
+/// The index of the type that has the extension `grepout` in `grep_type_settings`.
+const GREP_TYPE: usize = 17;
+
+/// A settings file with a document type for `grepout` and the macro of タイプ変更後, which puts a
+/// T at the caret.
+fn grep_type_settings(cx: &mut VisualTestContext) -> tempfile::TempDir {
+    grep_type_settings_with(cx, "Char(84);\n")
+}
+
+/// [`grep_type_settings`] with a macro of its own.
+fn grep_type_settings_with(cx: &mut VisualTestContext, macro_text: &str) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("t.mac"), macro_text).unwrap();
+    let text = format!(
+        "[Folders]\r\nszMACROFOLDER={}\r\n[Macro]\r\nName[001]=\r\nFile[001]=t.mac\r\n\
+         nMacroOnTypeChanged=1\r\n[Other]\r\nnTypesCount=18\r\n[Types(17)]\r\n\
+         szTypeName=Grep結果\r\nszTypeExts=grepout\r\n",
+        dir.path().display()
+    );
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(text.as_bytes());
+    let profile = ume_config::Profile::from_bytes(&bytes);
+    cx.update(|_, app| app.set_global(crate::settings::UserSettings::from_profile(profile, None)));
+    dir
+}
+
+fn type_state(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> (usize, bool) {
+    view.read_with(cx, |v, app| {
+        (
+            v.view_settings().type_index,
+            v.document().read(app).type_locked(),
+        )
+    })
+}
+
+#[gpui::test]
+fn a_grep_in_an_empty_window_gives_it_the_grepout_type_and_runs_the_macro_first(
+    cx: &mut TestAppContext,
+) {
+    let (f, cx) = setup(cx);
+    let _macros = grep_type_settings(cx);
+    let p = Project::new();
+    assert_eq!(type_state(&f.view, cx), (0, false));
+    f.view.update_in(cx, |view, window, cx| {
+        view.start_grep(p.settings("hit").info(), false, window, cx);
+    });
+    settle(cx);
+    assert_eq!(type_state(&f.view, cx), (GREP_TYPE, true));
+    // The macro of タイプ変更後 ran before the search: its T is at the top, the result follows.
+    let text = text_of(&f.view, cx);
+    assert!(text.starts_with('T'), "{text}");
+    assert!(text.contains("beta hit"), "{text}");
+    assert!(!f.running(cx));
+}
+
+#[gpui::test]
+fn a_grep_of_the_command_line_does_not_change_the_type_again(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    let _macros = grep_type_settings(cx);
+    let p = Project::new();
+    // `-GREPMODE` calls `DoGrep` directly: no `Command_GREP`, no `OnChangeType`.
+    f.view.update_in(cx, |view, window, cx| {
+        view.start_grep_in(p.settings("hit").info(), false, false, window, cx);
+    });
+    settle(cx);
+    assert_eq!(type_state(&f.view, cx), (0, false));
+    let text = text_of(&f.view, cx);
+    assert!(!text.starts_with('T'), "{text}");
+    assert!(text.contains("beta hit"), "{text}");
+}
+
+#[gpui::test]
+fn the_window_made_for_a_result_has_the_grepout_type_without_the_macro(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    let _macros = grep_type_settings(cx);
+    let p = Project::new();
+    cx.simulate_input("my notes");
+    f.view.update_in(cx, |view, window, cx| {
+        view.start_grep(p.settings("hit").info(), false, window, cx);
+    });
+    settle(cx);
+    // The notes keep their window and their type.
+    assert_eq!(type_state(&f.view, cx), (0, false));
+    let others = other_views(cx, &f.view);
+    assert_eq!(others.len(), 1);
+    // A new window gets the type as a process with `-TYPE=grepout` does: the macro is not run.
+    assert_eq!(type_state(&others[0], cx), (GREP_TYPE, true));
+    let text = text_of(&others[0], cx);
+    assert!(!text.starts_with('T'), "{text}");
+    assert!(text.contains("beta hit"), "{text}");
+}
+
+#[gpui::test]
+fn a_second_grep_does_not_join_the_one_that_waits_for_the_macro(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    // The macro opens the list of the types and waits for it.
+    let _macros = grep_type_settings_with(cx, "TypeList();\nChar(84);\n");
+    let p = Project::new();
+    f.view.update_in(cx, |view, window, cx| {
+        view.start_grep(p.settings("hit").info(), false, window, cx);
+    });
+    settle(cx);
+    assert!(f.view.read_with(cx, |v, _| v.doc_type.list.is_some()));
+    assert!(!f.running(cx), "the search waits for the macro");
+    // The window is taken: another Grep takes a new window.
+    f.view.update_in(cx, |view, window, cx| {
+        view.start_grep(p.settings("alpha").info(), false, window, cx);
+    });
+    settle(cx);
+    assert_eq!(other_views(cx, &f.view).len(), 1);
+    f.view.update(cx, |v, cx| {
+        v.doc_type.list = None;
+        cx.notify();
+    });
+    cx.executor().allow_parking();
+    for _ in 0..20 {
+        cx.executor().advance_clock(Duration::from_millis(100));
+        settle(cx);
+    }
+    let text = text_of(&f.view, cx);
+    assert!(text.starts_with('T'), "{text}");
+    assert_eq!(text.matches("□検索条件").count(), 1, "{text}");
+    assert!(text.contains("\"hit\""), "{text}");
 }
