@@ -96,15 +96,19 @@ fn choices_of(extras: &[Extra]) -> Vec<Choice> {
 }
 
 /// What the user chose, from the `choices` of the answer (`a(ss)`: id and option id). A choice the
-/// answer leaves out keeps the value it started with.
+/// answer leaves out keeps the value it started with; an answer without `choices` gives none.
 fn values_of(
     extras: &[Extra],
     results: &HashMap<String, zbus::zvariant::OwnedValue>,
 ) -> Vec<ExtraValue> {
-    let answered: Vec<(String, String)> = results
+    // A portal that ignores `choices` showed no fields and answers without them: no values, so
+    // that the caller asks another way.
+    let Some(answered) = results
         .get("choices")
         .and_then(|value| <Vec<(String, String)>>::try_from(value.try_clone().ok()?).ok())
-        .unwrap_or_default();
+    else {
+        return Vec::new();
+    };
     extras
         .iter()
         .enumerate()
@@ -345,10 +349,7 @@ mod tests {
             values_of(&extras, &answer(&[("0", "7")])),
             [ExtraValue::Combo(1), ExtraValue::Check(true)]
         );
-        assert_eq!(
-            values_of(&extras, &HashMap::new()),
-            [ExtraValue::Combo(1), ExtraValue::Check(true)]
-        );
+        assert_eq!(values_of(&extras, &HashMap::new()), []);
     }
 
     #[test]

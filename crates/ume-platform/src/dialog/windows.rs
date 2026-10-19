@@ -228,6 +228,12 @@ fn control_id(index: usize) -> u32 {
     1000 + index as u32
 }
 
+/// The id of the visual group of the list at `index`: every control of the dialog, a group too,
+/// needs an id of its own (Sakura's `LABEL_CODE` is not `COMBO_CODE`).
+fn group_id(index: usize) -> u32 {
+    2000 + index as u32
+}
+
 /// Adds the fields to the save dialog as Sakura does: a visual group for each list, with the check
 /// boxes that follow it inside (`CDlgOpenFile_CommonItemDialog::Customize`). Code pages are all in
 /// the list: Sakura's `C&P` check box, which adds them to the list later, is left out.
@@ -256,7 +262,7 @@ unsafe fn add_extras(
                         customize.EndVisualGroup().map_err(failed)?;
                     }
                     customize
-                        .StartVisualGroup(id, &HSTRING::from(label.as_str()))
+                        .StartVisualGroup(group_id(index), &HSTRING::from(label.as_str()))
                         .map_err(failed)?;
                     open_group = true;
                     customize.AddComboBox(id).map_err(failed)?;
