@@ -458,6 +458,30 @@ fn saving_under_a_name_runs_the_macro_of_opening_but_a_plain_save_does_not(
 }
 
 #[gpui::test]
+fn a_new_document_runs_the_macro_of_opening(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let (f, cx) = setup(cx, "");
+    cx.update(|_, app| gpui_component::init(app));
+    auto_macros(cx, dir.path(), "nMacroOnOpened=0\n");
+    let before = cx.update(|_, app| crate::file_ops::windows::editors(app).len());
+    f.run(cx, code_of("F_FILENEW_NEWWINDOW"), &[]);
+    cx.run_until_parked();
+    let views = cx.update(|_, app| crate::file_ops::windows::editors(app));
+    assert_eq!(views.len(), before + 1);
+    let (_, view) = views.last().unwrap();
+    let text = view.read_with(cx, |view, app| {
+        view.document()
+            .read(app)
+            .doc()
+            .line(0)
+            .unwrap()
+            .unwrap()
+            .text
+    });
+    assert_eq!(text, "O");
+}
+
+#[gpui::test]
 fn no_macro_runs_by_itself_when_none_is_named_or_the_slot_is_empty(cx: &mut TestAppContext) {
     let dir = tempfile::tempdir().unwrap();
     let file = write(dir.path(), "x.txt", "abc");

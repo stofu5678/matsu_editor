@@ -28,15 +28,15 @@ impl UiCommand for FileNew {
     ) -> Result {
         let from = window.window_handle();
         view.defer_in_window(window, cx, move |window, app| {
-            open_document(
+            let opened = open_document(
                 app,
                 Some(window),
                 from,
                 false,
                 SharedDocument::empty(),
                 None,
-            )
-            .ok();
+            );
+            crate::macros::run_opened_in_new(app, opened.ok());
         })
     }
 }

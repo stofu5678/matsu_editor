@@ -364,3 +364,15 @@ pub(crate) fn run_auto_in(
     })
     .detach();
 }
+
+/// `F_FILENEW` and `F_FILENEW_NEWWINDOW`: the new untitled document runs the macro of オープン後 (Sakura
+/// starts a process, and `CNormalProcess` runs it). It runs once the command has ended, because
+/// the window of a new tab is the one that the command is working in.
+pub(crate) fn run_opened_in_new(
+    cx: &mut App,
+    opened: Option<(gpui::AnyWindowHandle, gpui::Entity<EditorView>)>,
+) {
+    if let Some((handle, view)) = opened {
+        cx.defer(move |cx| run_auto_in(handle, &view, Auto::Opened, cx, |_| {}));
+    }
+}
