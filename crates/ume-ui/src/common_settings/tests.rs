@@ -367,7 +367,7 @@ fn a_second_function_brings_the_open_dialog_to_its_page(cx: &mut TestAppContext)
 fn a_page_that_is_not_there_yet_says_so(cx: &mut TestAppContext) {
     let (_ini, handle) = setup(cx, "");
     run(cx, handle, "F_OPTION");
-    with_dialog(cx, |d, _, dcx| d.select_page(Page::Keys, dcx));
+    with_dialog(cx, |d, _, dcx| d.select_page(Page::Plugin, dcx));
     assert!(with_dialog(cx, |d, _, _| d.page_controls()).is_empty());
     // It still draws, and OK from there writes the other pages as they were.
     cx.run_until_parked();
@@ -1031,9 +1031,9 @@ fn the_access_keys_choose_radio_buttons_and_fill_boxes(cx: &mut TestAppContext) 
 #[gpui::test]
 fn alt_x_is_cancel_and_alt_o_is_ok_where_no_label_has_the_letter(cx: &mut TestAppContext) {
     let (ini, handle) = setup(cx, "");
-    // The page 「キー割り当て」 is not there yet and has no labels.
+    // The page 「プラグイン」 is not there yet and has no labels.
     run(cx, handle, "F_OPTION");
-    with_dialog(cx, |d, _, dcx| d.select_page(Page::Keys, dcx));
+    with_dialog(cx, |d, _, dcx| d.select_page(Page::Plugin, dcx));
     with_dialog(cx, |d, w, dcx| d.use_access_key('x', w, dcx));
     assert!(!is_open(cx));
     assert_eq!(ini.get("bDispSTATUSBAR"), None);

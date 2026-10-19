@@ -60,15 +60,25 @@ pub(super) fn store(list: &[i32], profile: &mut Profile) -> Result<bool, Profile
             changed = true;
         }
     }
-    // Entries left over from a longer table go. They are written in order, so the first missing
-    // one ends them.
-    for i in rows.len().. {
-        if !profile.remove(SECTION, &format!("KeyBind[{i:03}]")) {
-            break;
-        }
-        changed = true;
+    // Entries past the end of the table go, gaps or not: a later row of a key would win over the
+    // one written above when the file is read.
+    let leftovers: Vec<String> = profile
+        .entries(SECTION)
+        .filter(|(name, _)| entry_number(name).is_some_and(|n| n >= rows.len()))
+        .map(|(name, _)| name.to_owned())
+        .collect();
+    for name in leftovers {
+        changed |= profile.remove(SECTION, &name);
     }
     Ok(changed)
+}
+
+/// The number in `KeyBind[NNN]`.
+fn entry_number(name: &str) -> Option<usize> {
+    name.strip_prefix("KeyBind[")?
+        .strip_suffix(']')?
+        .parse()
+        .ok()
 }
 
 /// What a key cannot do in UME Editor, if anything: the reason the page shows. The assignment is

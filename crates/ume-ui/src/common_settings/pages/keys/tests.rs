@@ -151,11 +151,8 @@ fn a_row_that_did_not_change_keeps_its_text_and_shorter_tables_remove_the_leftov
     let texts: Vec<_> = p.entries("KeyBind").map(|(_, v)| v.to_owned()).collect();
     assert!(texts.contains(&"0053,0,0,F_FILESAVE,0,0,0,0,0,S".to_owned()));
     assert!(texts.contains(&"0051,0,0,Plugin/Cmd,0,0,0,0,0,Q".to_owned()));
-    // The entry far past the table is not touched (only the run after the table is removed).
-    assert_eq!(
-        p.get("KeyBind", "KeyBind[200]"),
-        Some("0041,0,0,0,0,0,0,0,0,A")
-    );
+    // An entry far past the table goes too: it would win over the row of its key.
+    assert_eq!(p.get("KeyBind", "KeyBind[200]"), None);
     // The rows after the end of the table go.
     let mut p = profile("[KeyBind]\r\nKeyBind[100]=0041,0,0,0,0,0,0,0,0,A\r\n");
     let mut t = table(&p);
