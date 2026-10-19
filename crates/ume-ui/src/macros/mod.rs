@@ -33,6 +33,7 @@
 //!   has no way to stop a macro.
 
 mod host;
+mod menu_call;
 mod output;
 mod registered;
 mod ui_calls;

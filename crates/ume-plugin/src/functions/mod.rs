@@ -27,6 +27,7 @@ mod clipboard;
 mod cookie;
 mod expand;
 mod layout;
+pub mod menu;
 mod misc;
 mod state;
 pub mod window;

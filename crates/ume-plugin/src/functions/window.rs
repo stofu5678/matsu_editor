@@ -7,13 +7,14 @@
 //! is answered. Without a window these functions answer [`crate::bridge::UNAVAILABLE`] (they are
 //! in [`FUNCS`] so that the catalog and the generated code know their parameter names).
 //!
-//! Not here: `InputBox` (a dialog with a text field, which the window does not have yet) and
-//! `CreateMenu` (a pop-up menu built from a string). They stay "not implemented".
+//! `InputBox` (a dialog with a text field) and `CreateMenu` (a pop-up menu built from a string,
+//! see [`super::menu`]) wait for the user the same way.
 //!
 //! Sakura: `sakura_core/macro/CMacro.cpp`, `HandleFunction` (`F_MESSAGEBOX` and the others).
 
 use serde_json::Value;
 
+use super::menu::{self, MenuNode};
 use super::{EditorFunc, unavailable};
 use crate::api::{Args, Ty, check_params, opt, req};
 use crate::host::Editor;
@@ -139,6 +140,20 @@ pub enum Deferred {
     Folder { message: String, default: String },
     /// Wait for this many milliseconds. The result is 0.
     Sleep { millis: u64 },
+    /// The text input dialog. The result is the text, or an empty string when it is cancelled.
+    /// `default` is already cut to `max_len` (UTF-16 code units, as Sakura's edit control counts).
+    Input {
+        message: String,
+        default: String,
+        max_len: usize,
+    },
+    /// A pop-up menu. The result is the number of the item chosen ([`MenuNode::Item::number`]),
+    /// or 0 when the menu is closed without a choice. `at_caret`: show it at the caret (else at
+    /// the pointer).
+    Menu {
+        at_caret: bool,
+        nodes: Vec<MenuNode>,
+    },
 }
 
 /// A call that waits: the id to answer under, and what to wait for.
@@ -174,6 +189,21 @@ fn message_kind(method: &str, params: &[Value]) -> Option<(Buttons, Icon)> {
 
 /// Longest default path for the file dialogs (`MAX_PATH`; CMacro.cpp refuses a longer one).
 const MAX_PATH: usize = 260;
+
+/// The longest input of `InputBox` when the macro gives no length (`_MAX_PATH`).
+const INPUT_DEFAULT_LEN: usize = 260;
+
+/// `text` cut to at most `max` UTF-16 code units, without splitting a character.
+pub fn truncate_utf16(text: &str, max: usize) -> &str {
+    let mut units = 0;
+    for (at, c) in text.char_indices() {
+        units += c.len_utf16();
+        if units > max {
+            return &text[..at];
+        }
+    }
+    text
+}
 
 /// Whether the message line is a call that waits, and if so what it waits for.
 ///
@@ -230,6 +260,25 @@ pub fn parse(text: &str) -> Option<std::result::Result<Pending, String>> {
                     default,
                 }
             }
+            "InputBox" => {
+                // F_INPUTBOX: a length of 0 or less is _MAX_PATH; the default text is cut to it.
+                let max_len = params
+                    .get(2)
+                    .and_then(Value::as_i64)
+                    .and_then(|n| usize::try_from(n).ok())
+                    .filter(|&n| n > 0)
+                    .unwrap_or(INPUT_DEFAULT_LEN);
+                let default = text_at(1);
+                Deferred::Input {
+                    message: text_at(0),
+                    default: truncate_utf16(&default, max_len).to_owned(),
+                    max_len,
+                }
+            }
+            "CreateMenu" => Deferred::Menu {
+                at_caret: params.first().and_then(Value::as_i64) == Some(1),
+                nodes: menu::parse(&text_at(1)),
+            },
             "Sleep" => Deferred::Sleep {
                 millis: params
                     .first()
@@ -328,6 +377,34 @@ pub const FUNCS: &[EditorFunc] = &[
         doc: "Lets the user choose a folder and returns its full path, or an empty string when \
               the dialog is cancelled. The message becomes the prompt text of the platform \
               dialog where it has one; the default folder is not used.",
+        run: needs_window,
+    },
+    EditorFunc {
+        name: "InputBox",
+        params: &[
+            req("message", Ty::Str),
+            opt("defaultValue", Ty::Str),
+            opt("maxLength", Ty::Int),
+        ],
+        result: Ty::Str,
+        doc: "Shows a dialog with a text field and waits. The message is shown above the field, \
+              the default value is in the field, and the text cannot be longer than the maximum \
+              length (in UTF-16 code units; 0 or less, or no value, is 260). Returns the text \
+              of the field when OK is pressed, or an empty string when the dialog is cancelled.",
+        run: needs_window,
+    },
+    EditorFunc {
+        name: "CreateMenu",
+        params: &[req("position", Ty::Int), req("menu", Ty::Str)],
+        result: Ty::Int,
+        doc: "Shows a pop-up menu and waits. The position is 1 for the caret (the pointer when \
+              the caret is out of the view) and anything else for the pointer. The menu is a \
+              list of items separated by commas; an item can start with flags in brackets: C \
+              checked, D disabled, R radio, S opens a submenu, E ends a submenu (one for each \
+              E), B (a new column) is ignored. A lone - is a separator. Write [][text] for a \
+              text that starts with a bracket. Returns the number of the item chosen, counted \
+              from 1 over the items only (separators and submenus are not counted), or 0 when \
+              the menu is closed without a choice or has no item.",
         run: needs_window,
     },
     EditorFunc {
@@ -467,6 +544,76 @@ mod tests {
             pending("Sleep", json!([-5])).what,
             Deferred::Sleep { millis: 0 }
         );
+    }
+
+    #[test]
+    fn input_box_takes_the_message_the_default_and_the_length() {
+        assert_eq!(
+            pending("InputBox", json!(["名前は？"])).what,
+            Deferred::Input {
+                message: "名前は？".into(),
+                default: String::new(),
+                max_len: 260
+            }
+        );
+        assert_eq!(
+            pending("InputBox", json!(["m", "既定値", 10])).what,
+            Deferred::Input {
+                message: "m".into(),
+                default: "既定値".into(),
+                max_len: 10
+            }
+        );
+        // 0 or less is the default length
+        for length in [0, -3] {
+            let Deferred::Input { max_len, .. } =
+                pending("InputBox", json!(["m", "", length])).what
+            else {
+                panic!()
+            };
+            assert_eq!(max_len, 260, "{length}");
+        }
+    }
+
+    #[test]
+    fn the_default_of_input_box_is_cut_to_the_length_in_utf16_units() {
+        let Deferred::Input { default, .. } =
+            pending("InputBox", json!(["m", "あいうえお", 3])).what
+        else {
+            panic!()
+        };
+        assert_eq!(default, "あいう");
+        // a character outside the BMP is two units: it is not split
+        let Deferred::Input { default, .. } = pending("InputBox", json!(["m", "a𠮷b", 2])).what
+        else {
+            panic!()
+        };
+        assert_eq!(default, "a");
+        assert_eq!(truncate_utf16("a𠮷b", 3), "a𠮷");
+        assert_eq!(truncate_utf16("abc", 10), "abc");
+        assert_eq!(truncate_utf16("abc", 0), "");
+    }
+
+    #[test]
+    fn create_menu_takes_the_place_and_the_menu_string() {
+        let p = pending("CreateMenu", json!([1, "[C]あ,-,い"]));
+        let Deferred::Menu { at_caret, nodes } = p.what else {
+            panic!()
+        };
+        assert!(at_caret);
+        assert_eq!(menu::item_count(&nodes), 2);
+        for place in [0, 2, -1] {
+            let Deferred::Menu { at_caret, .. } = pending("CreateMenu", json!([place, "a"])).what
+            else {
+                panic!()
+            };
+            assert!(!at_caret, "{place}");
+        }
+        // both arguments are needed
+        let line = parse(&request("CreateMenu", json!([1])))
+            .unwrap()
+            .unwrap_err();
+        assert!(line.contains("-32602"), "{line}");
     }
 
     #[test]

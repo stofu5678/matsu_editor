@@ -1112,24 +1112,6 @@ fn expand_parameter_knows_the_macro_file(cx: &mut TestAppContext) {
     );
 }
 
-#[gpui::test]
-fn functions_without_a_window_part_say_so_clearly(cx: &mut TestAppContext) {
-    // InputBox has no dialog yet: the macro gets the "not implemented" error, and ends with it.
-    if !available(Language::JavaScript) {
-        return;
-    }
-    let (f, cx) = setup(cx, "");
-    let output = f.script(
-        cx,
-        "try { Editor.InputBox('x'); } catch (e) { console.log('r=' + e.code + ' ' + e.message); }",
-    );
-    let line = results(&output);
-    let [text] = line.as_slice() else {
-        panic!("{output}");
-    };
-    assert!(text.starts_with("-32001 "), "{output}");
-}
-
 /// `IsCurTypeExt` and `IsSameTypeExt` compare the document types of the extensions
 /// (`GetDocumentTypeOfExt`): the built-in types of Sakura, also without a settings file.
 #[gpui::test]
@@ -1152,6 +1134,8 @@ fn the_extension_functions_use_the_document_types(cx: &mut TestAppContext) {
 mod wait_tests;
 
 mod wait_tab_tests;
+
+mod input_box_tests;
 
 /// The warning of a lock that failed is a box of the command: the macro that opened the file
 /// waits until it is closed. The other lock is held by the test, which `flock` honors on macOS

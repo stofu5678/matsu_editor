@@ -285,7 +285,34 @@ fn change_wrap_column(ed: &mut Editor, args: &Args) -> Result {
     Ok(i64::from(old).into())
 }
 
+/// F_CHGINSSPACE: answers whether the Tab key inserts spaces (`m_bInsSpace`), and sets it to
+/// the argument: 0 off, 1 on, anything else only reads. Sakura reads the argument from
+/// `VARIANT::iVal`, the low 16 bits of the number, so 65536 is 0 and 65537 is 1
+/// (`sakura_core/macro/CMacro.cpp`, `F_CHGINSSPACE`). The change is for this view only (Sakura
+/// changes the type settings in memory).
+fn change_insert_space(ed: &mut Editor, args: &Args) -> Result {
+    let old = ed
+        .env
+        .ins_space
+        .ok_or_else(|| unavailable("the insert-spaces setting"))?;
+    match args.int(0) as i16 {
+        0 => ed.env.requests.ins_space = Some(false),
+        1 => ed.env.requests.ins_space = Some(true),
+        _ => {}
+    }
+    Ok(i64::from(old).into())
+}
+
 pub const FUNCS: &[EditorFunc] = &[
+    EditorFunc {
+        name: "ChangeInsertSpace",
+        params: &[req("value", Ty::Int)],
+        result: Ty::Int,
+        doc: "Whether the Tab key inserts spaces instead of a tab character, before the call \
+              (1 or 0). 0 turns it off, 1 turns it on for this window (not saved); any other \
+              value only reads. Only the low 16 bits of the value count, as in Sakura.",
+        run: change_insert_space,
+    },
     EditorFunc {
         name: "LayoutToLogicLineNum",
         params: &[req("layoutLine", Ty::Int)],
@@ -565,6 +592,32 @@ mod tests {
         f.env.requests.tab_width = None;
         assert_eq!(f.ok("ChangeTabWidth", json!([8])), json!(4));
         assert_eq!(f.env.requests.tab_width, Some(8));
+    }
+
+    #[test]
+    fn the_insert_space_setting_is_read_and_changed_by_request() {
+        let mut f = Fixture::new("");
+        assert_eq!(
+            f.call("ChangeInsertSpace", json!([1])).unwrap_err().code,
+            crate::bridge::UNAVAILABLE
+        );
+        f.env.ins_space = Some(false);
+        // other values only read
+        for value in [2, -1, 100] {
+            assert_eq!(f.ok("ChangeInsertSpace", json!([value])), json!(0));
+            assert_eq!(f.env.requests.ins_space, None, "{value}");
+        }
+        assert_eq!(f.ok("ChangeInsertSpace", json!([1])), json!(0));
+        assert_eq!(f.env.requests.ins_space, Some(true));
+        f.env.ins_space = Some(true);
+        assert_eq!(f.ok("ChangeInsertSpace", json!([0])), json!(1));
+        assert_eq!(f.env.requests.ins_space, Some(false));
+        // Sakura looks at the low 16 bits (VARIANT::iVal)
+        f.env.requests.ins_space = None;
+        assert_eq!(f.ok("ChangeInsertSpace", json!([65536])), json!(1));
+        assert_eq!(f.env.requests.ins_space, Some(false));
+        assert_eq!(f.ok("ChangeInsertSpace", json!([65537])), json!(1));
+        assert_eq!(f.env.requests.ins_space, Some(true));
     }
 
     #[test]

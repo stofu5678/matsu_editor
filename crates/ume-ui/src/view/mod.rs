@@ -186,6 +186,8 @@ pub struct EditorView {
     pub(crate) macros: MacroState,
     /// The Save As options dialog that covers the view, while one is open.
     pub(crate) save_as_dialog: Option<Entity<crate::file_ops::save_as_dialog::SaveAsDialog>>,
+    /// The text input dialog (`InputBox`), while it is open.
+    pub(crate) input_dialog: Option<Entity<crate::input_dialog::InputDialog>>,
     /// The completion list, the command list and the version dialog (`crate::support`).
     pub(crate) support: crate::support::Support,
     /// The window list (popup or dialog) over the view, while one is open.
@@ -249,6 +251,7 @@ impl EditorView {
             grep: Default::default(),
             macros: MacroState::default(),
             save_as_dialog: None,
+            input_dialog: None,
             support: Default::default(),
             window_list: None,
             tab_list: None,
@@ -775,6 +778,7 @@ impl Render for EditorView {
             .children(self.custom_menu_popup(window, cx))
             // Above the window list: Save from the list can ask for the options.
             .children(self.save_as_dialog.clone())
+            .children(self.input_dialog.clone())
             .into_any_element()
     }
 }

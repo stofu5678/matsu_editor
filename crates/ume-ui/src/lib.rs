@@ -39,6 +39,7 @@ pub mod geometry;
 pub mod grep;
 mod history;
 pub mod hit;
+mod input_dialog;
 pub mod keys;
 pub mod launch;
 pub mod layout_adapter;

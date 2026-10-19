@@ -43,6 +43,23 @@ struct OpenPopup {
 }
 
 impl CustomMenuState {
+    /// Shows `popup` at `at` in place of the one that is open (the menu of a macro's `CreateMenu`
+    /// uses the same place). `window_height` is the height the popup was sized for.
+    pub(crate) fn show(
+        &mut self,
+        popup: Entity<PopupMenu>,
+        at: Point<Pixels>,
+        window_height: Pixels,
+        dismiss: Subscription,
+    ) {
+        self.open = Some(OpenPopup {
+            popup,
+            at,
+            window_height,
+            _dismiss: dismiss,
+        });
+    }
+
     /// Whether a popup is open.
     #[cfg(test)]
     pub(crate) fn is_open(&self) -> bool {

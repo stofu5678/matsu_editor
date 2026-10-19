@@ -20,6 +20,7 @@ use ume_plugin::host::{HostEnv, ViewInfo};
 
 use super::{EditorView, dialog_error};
 use crate::file_dialog::{self, Answer, Ask};
+use crate::input_dialog::InputRequest;
 
 /// The caption of the message boxes (Sakura shows "sakura macro").
 const CAPTION: &str = "UME Editor マクロ";
@@ -62,6 +63,7 @@ impl EditorView {
         });
         env.status_bar_shown = self.prefs.show_status_bar;
         env.wrap_columns = Some(self.layout.config().max_columns());
+        env.ins_space = Some(self.prefs.settings.ins_space);
         env.recording_key_macro = self.macros.recorder.is_recording();
         env.macro_path = self
             .macros
@@ -83,6 +85,10 @@ impl EditorView {
         self.macros.host_state = env.state;
         if let Some(width) = env.requests.tab_width {
             self.set_tab_width(width, cx);
+        }
+        if let Some(ins_space) = env.requests.ins_space {
+            // `ChangeInsertSpace`: only a flag of this view (the Tab key does not read it yet).
+            self.prefs.settings.ins_space = ins_space;
         }
         if let Some(columns) = env.requests.wrap_columns {
             self.set_wrap_columns(columns, cx);
@@ -156,6 +162,29 @@ impl EditorView {
                 let ask = Ask::save().start(folder).name(name);
                 let answer = file_dialog::ask(window, cx, ask);
                 self.wait_for(serial, pending, window, cx, path_answer(answer));
+            }
+            Deferred::Input {
+                message,
+                default,
+                max_len,
+            } => {
+                let request = InputRequest {
+                    title: CAPTION.to_owned(),
+                    message,
+                    default,
+                    max_len,
+                };
+                let answer = self.open_input_dialog(request, window, cx);
+                // Cancel is an empty string (F_INPUTBOX).
+                self.wait_for(serial, pending, window, cx, async move {
+                    Ok(Value::from(answer.await.unwrap_or_default()))
+                });
+            }
+            Deferred::Menu { at_caret, nodes } => {
+                let answer = self.open_macro_menu(at_caret, &nodes, window, cx);
+                self.wait_for(serial, pending, window, cx, async move {
+                    Ok(Value::from(answer.await))
+                });
             }
             Deferred::Sleep { millis } => {
                 let timer = cx

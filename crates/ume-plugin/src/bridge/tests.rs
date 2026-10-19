@@ -152,10 +152,9 @@ fn a_name_without_a_command_says_so() {
     assert_eq!(err.code, NOT_IMPLEMENTED);
     assert!(err.message.contains("FileSave"), "{}", err.message);
     assert!(err.message.contains("F_FILESAVE"), "{}", err.message);
-    // A function that returns a value and that the editor cannot answer yet.
+    // A function that waits for the user needs a window.
     let err = f.call("InputBox", json!(["message"])).unwrap_err();
-    assert_eq!(err.code, NOT_IMPLEMENTED);
-    assert!(err.message.contains("InputBox"), "{}", err.message);
+    assert_eq!(err.code, UNAVAILABLE);
     // One that it can answer, but not without a window.
     let err = f.call("GetViewTop", json!([])).unwrap_err();
     assert_eq!(err.code, UNAVAILABLE);
