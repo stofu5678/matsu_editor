@@ -32,7 +32,7 @@ mod draw;
 mod transfer;
 mod tree;
 
-use gpui::{Context, PromptLevel, Window};
+use gpui::{App, Context, PromptLevel, Window};
 use ume_config::settings::RowKind;
 use ume_config::settings::main_menu::{F_NODE, MAX_MAIN_MENU_NAME_LEN};
 
@@ -40,6 +40,7 @@ use super::super::Env;
 use super::super::dialog::CommonSettingsDialog;
 use super::super::func_lookup::{KINDS, codes_of_kind};
 use super::super::model::{Control, Item, Value, Values};
+use crate::func_name::FuncNames;
 use data::State;
 use tree::{PageRow, Place, Tree};
 
@@ -67,8 +68,6 @@ static PAGE_KINDS: [(&str, i32); 19] = {
 const SPECIAL_CODES: [u16; 6] = [29001, 29002, 29003, 29004, 29005, 29006];
 /// `STR_PROPCOMMAINMENU_SEP`.
 const SEPARATOR_TEXT: &str = "――――――――――";
-/// `F_DISABLE`'s string, which `CFuncLookup::Funccode2Name` gives a code with no name.
-const UNKNOWN_NAME: &str = "-- 不明 --";
 
 /// The functions of kind `kind` in the order of the list (`CFuncLookup::Pos2FuncCode`, and
 /// the special function list for 特別機能).
@@ -80,30 +79,30 @@ fn functions_of_kind(kind: i32) -> Vec<u16> {
     }
 }
 
-/// `CFuncLookup::Funccode2Name`: the name of function `code`.
-fn function_name(code: u16) -> String {
-    Some(crate::bars::function_name(code))
-        .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| UNKNOWN_NAME.to_owned())
+/// `CFuncLookup::Funccode2Name`: the names of the functions, from the lookup that the other pages
+/// share ([`crate::func_name`]): a registered macro by its name, a custom menu by its own.
+fn function_names(cx: &App) -> impl Fn(u16) -> String + '_ {
+    let names = FuncNames::new();
+    move |code| names.name(cx, code)
 }
 
 /// The name of a row (`SetData`): a node with its own name shows it, a separator a line, the other rows the
-/// name of the function.
-fn row_name(row: &PageRow) -> String {
+/// name of the function (`name_of`, [`function_names`]).
+fn row_name(row: &PageRow, name_of: &dyn Fn(u16) -> String) -> String {
     let row = &row.row;
     match row.kind {
         RowKind::Separator => SEPARATOR_TEXT.to_owned(),
         RowKind::Node if row.function == F_NODE => row.name.clone(),
-        _ => function_name(row.function),
+        _ => name_of(row.function),
     }
 }
 
 /// The text of a row of the tree (`MakeDispLabel`): `>` for a key that another row has, the name cut to
 /// the limit, and the access key in parentheses.
-fn row_text(row: &PageRow) -> String {
+fn row_text(row: &PageRow, name_of: &dyn Fn(u16) -> String) -> String {
     let name: String = {
         let mut units = 0;
-        row_name(row)
+        row_name(row, name_of)
             .chars()
             .take_while(|c| {
                 units += c.len_utf16();
@@ -325,10 +324,12 @@ impl CommonSettingsDialog {
             .and_then(|r| r.row.key)
             .map(String::from)
             .unwrap_or_default();
-        let name = row
-            .filter(|r| r.row.kind == RowKind::Node)
-            .map(row_name)
-            .unwrap_or_default();
+        let name = {
+            let name_of = function_names(cx);
+            row.filter(|r| r.row.kind == RowKind::Node)
+                .map(|r| row_name(r, &name_of))
+                .unwrap_or_default()
+        };
         self.set_input(KEY, &key, window, cx);
         self.set_input(NAME, &name, window, cx);
     }
@@ -466,11 +467,13 @@ impl CommonSettingsDialog {
             return;
         };
         let mut tree = tree_of(self.values());
-        let shown = tree
-            .sel
-            .and_then(|i| tree.rows.get(i))
-            .map(row_name)
-            .unwrap_or_default();
+        let shown = {
+            let name_of = function_names(cx);
+            tree.sel
+                .and_then(|i| tree.rows.get(i))
+                .map(|r| row_name(r, &name_of))
+                .unwrap_or_default()
+        };
         tree.set_name(&text, &shown);
         self.main_menu_put_tree(tree, window, cx);
     }

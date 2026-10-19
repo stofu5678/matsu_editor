@@ -11,6 +11,11 @@ use crate::common_settings::tests::{Ini, cancel, ok, setup, with_bom, with_dialo
 use crate::common_settings::{self, Page};
 use crate::settings::UserSettings;
 
+/// The names of the functions with no custom menus and no registered macros.
+fn table_names(code: u16) -> String {
+    crate::func_name::funccode_to_name(code, &Default::default(), &Default::default())
+}
+
 fn profile(text: &str) -> Profile {
     Profile::from_bytes(&with_bom(text))
 }
@@ -579,7 +584,7 @@ fn the_buttons_change_the_tree_and_the_boxes_set_names_and_keys(cx: &mut TestApp
     press(cx, "mainmenu_set_key");
     let row = tree_now(cx).rows[rows_before].clone();
     assert_eq!((row.row.name.as_str(), row.row.key), ("My menu", Some('M')));
-    assert_eq!(row_text(&row), "My menu(M)");
+    assert_eq!(row_text(&row, &table_names), "My menu(M)");
     // >> puts the chosen function in the node and moves the list on.
     choose_function(cx, 0, 0);
     press(cx, "mainmenu_add");
@@ -705,7 +710,7 @@ fn the_check_says_what_it_found_and_selects_the_first_row_with_a_problem(cx: &mu
     let t = tree_now(cx);
     assert!(t.rows[0].duplicate && t.rows[second].duplicate);
     assert_eq!(t.sel, Some(0));
-    assert_eq!(row_text(&t.rows[0]), ">A(F)");
+    assert_eq!(row_text(&t.rows[0], &table_names), ">A(F)");
     // Setting the key again takes the mark off.
     select_row(cx, second);
     with_dialog(cx, |d, window, dcx| d.set_input(KEY, "E", window, dcx));
@@ -803,7 +808,7 @@ fn a_menu_in_the_file_is_what_the_page_starts_from(cx: &mut TestAppContext) {
     let state = with_dialog(cx, |d, _, _| state_of(d.values()));
     assert!(!state.key_parentheses);
     assert_eq!(state.rows.len(), 3);
-    assert_eq!(row_name(&state.rows[0]), "Only & menu");
+    assert_eq!(row_name(&state.rows[0], &table_names), "Only & menu");
     // The window has this menu bar.
     let menu = user_menu(cx);
     let menus = crate::menu::main_menu_for(

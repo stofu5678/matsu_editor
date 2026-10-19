@@ -14,7 +14,7 @@ use ume_config::settings::RowKind;
 
 use super::super::super::dialog::CommonSettingsDialog;
 use super::super::super::model::{Kind, parse_label};
-use super::{KIND, PAGE_KINDS, function_name, functions_of_kind, row_text, state_of, tree_of};
+use super::{KIND, PAGE_KINDS, function_names, functions_of_kind, row_text, state_of, tree_of};
 
 const SELECTED_BG: u32 = 0x2f6fd0;
 const LIST_BORDER: u32 = 0xaaaaaa;
@@ -129,14 +129,25 @@ pub(super) fn lists(
     let values = dialog.values();
     let tree = tree_of(values);
     let functions = functions_of_kind(values.int(KIND));
+    // The names first: the rows below borrow `cx` for their listeners.
+    let (function_labels, row_texts) = {
+        let name_of = function_names(cx);
+        let labels: Vec<String> = functions.iter().map(|&code| name_of(code)).collect();
+        let texts: Vec<String> = tree
+            .rows
+            .iter()
+            .map(|row| row_text(row, &name_of))
+            .collect();
+        (labels, texts)
+    };
 
-    let function_rows = functions
-        .iter()
+    let function_rows = function_labels
+        .into_iter()
         .enumerate()
-        .map(|(i, &code)| {
+        .map(|(i, label)| {
             row_element(
                 ("mainmenu-func", i),
-                function_name(code),
+                label,
                 tree.func_sel == Some(i),
                 cx,
                 move |this, _, cx| this.set_int(super::FUNC_SEL, i as i32, cx),
@@ -187,7 +198,7 @@ pub(super) fn lists(
                         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                             this.main_menu_select(i, window, cx)
                         }))
-                        .child(row_text(page_row)),
+                        .child(row_texts[i].clone()),
                 )
                 .into_any_element()
         })
