@@ -104,10 +104,14 @@ impl InputDialog {
     fn limit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let text = self.text(cx);
         match limit_edit(&self.accepted, &text, self.max_len) {
-            Some(kept) => {
+            Some((kept, caret)) => {
                 self.accepted.clone_from(&kept);
-                self.input
-                    .update(cx, |state, cx| state.set_value(kept, window, cx));
+                // `replace_all` keeps the undo history (`set_value` clears it); the caret goes
+                // back to where the refused edit was, not to the end of the text.
+                self.input.update(cx, |state, cx| {
+                    state.replace_all(kept, window, cx);
+                    state.set_selected_range(caret..caret, cx);
+                });
             }
             None => self.accepted = text,
         }
@@ -177,13 +181,14 @@ impl Focusable for InputDialog {
 /// The field after an edit from `before` to `after`, when `after` is longer than `max` UTF-16 code
 /// units: the part that was inserted is cut so that the whole fits, and the text around it stays
 /// (inserting `X` at the start of a full field gives nothing, not a field without its last
-/// character). `None` when `after` fits.
+/// character). `None` when `after` fits. The second value is the byte offset of the caret
+/// after the kept part of the insertion.
 ///
 /// The change event of the field does not say what range was edited, so the range is inferred
 /// from the common start and end of the two texts. When a selection is replaced by a text that
 /// begins or ends with the selected text itself, the old text is taken as untouched and the
 /// replacement is refused; the text that was there is never lost.
-fn limit_edit(before: &str, after: &str, max: usize) -> Option<String> {
+fn limit_edit(before: &str, after: &str, max: usize) -> Option<(String, usize)> {
     if after.encode_utf16().count() <= max {
         return None;
     }
@@ -211,8 +216,9 @@ fn limit_edit(before: &str, after: &str, max: usize) -> Option<String> {
     let room = max.saturating_sub(others);
     let mut kept = String::from(&before[..prefix]);
     kept.push_str(truncate_utf16(inserted, room));
+    let caret = kept.len();
     kept.push_str(tail);
-    Some(kept)
+    Some((kept, caret))
 }
 
 const PANEL_TEXT: u32 = 0x222222;

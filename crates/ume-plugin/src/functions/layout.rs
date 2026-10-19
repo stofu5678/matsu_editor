@@ -288,8 +288,10 @@ fn change_wrap_column(ed: &mut Editor, args: &Args) -> Result {
 /// F_CHGINSSPACE: answers whether the Tab key inserts spaces (`m_bInsSpace`), and sets it to
 /// the argument: 0 off, 1 on, anything else only reads. Sakura reads the argument from
 /// `VARIANT::iVal`, the low 16 bits of the number, so 65536 is 0 and 65537 is 1
-/// (`sakura_core/macro/CMacro.cpp`, `F_CHGINSSPACE`). The change is for this view only (Sakura
-/// changes the type settings in memory).
+/// (`sakura_core/macro/CMacro.cpp`, `F_CHGINSSPACE`). The change is for this document only: Sakura
+/// writes the copy of the type that the document holds (`CDocType::GetDocumentAttributeWrite`),
+/// and a later `SetDocumentType` copies the type again, as applying the settings of a type does
+/// here.
 fn change_insert_space(ed: &mut Editor, args: &Args) -> Result {
     let old = ed
         .env
