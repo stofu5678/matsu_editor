@@ -25,7 +25,7 @@ use gpui_component::input::{Escape, IndentInline, Input, InputEvent, InputState}
 
 use crate::app::Workspace;
 use crate::search::history;
-use crate::view::EditorView;
+use crate::view::{EditorView, OpenRecentFile, OpenRecentFolder, RunFunction};
 
 /// `_MAX_PATH`: a longer string is not put in the history (`strText.size() < _MAX_PATH`).
 const MAX_PATH: usize = 260;
@@ -35,6 +35,8 @@ pub(crate) const WIDTH: f32 = 160.0;
 const HEIGHT: f32 = 22.0;
 /// `F_SEARCH_NEXT`.
 const SEARCH_NEXT: u16 = 30902;
+/// `F_SEARCH_BOX`.
+const SEARCH_BOX: u16 = 30908;
 
 pub(crate) struct SearchBox {
     workspace: WeakEntity<Workspace>,
@@ -42,6 +44,9 @@ pub(crate) struct SearchBox {
     /// The entry of the open list that Enter takes.
     dropdown: Option<usize>,
     list_scroll: ScrollHandle,
+    /// The pane that was the active one when the field got the focus: the text is its search key
+    /// when the focus leaves, even if the focus leaves because another tab became the active one.
+    owner: Option<WeakEntity<EditorView>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -76,6 +81,7 @@ impl SearchBox {
                     &input,
                     window,
                     |this: &mut Self, _, event: &InputEvent, window, cx| match event {
+                        InputEvent::Focus => this.begin_session(cx),
                         InputEvent::PressEnter { .. } => this.press_enter(window, cx),
                         InputEvent::Blur => {
                             this.dropdown = None;
@@ -100,6 +106,7 @@ impl SearchBox {
                 input,
                 dropdown: None,
                 list_scroll: ScrollHandle::new(),
+                owner: None,
                 _subscriptions: subscriptions,
             }
         })
@@ -116,8 +123,26 @@ impl SearchBox {
     }
 
     /// `CMainToolBar::SetFocusSearchBox`.
-    pub(crate) fn focus(&self, window: &mut Window, cx: &mut Context<Self>) {
+    ///
+    /// `editor` is the pane of the window that asks (the window is being updated: it cannot be
+    /// read from here).
+    pub(crate) fn focus_with(
+        &mut self,
+        editor: &Entity<EditorView>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.owner = Some(editor.downgrade());
+        self.focus_input(window, cx);
+    }
+
+    fn focus_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.input.update(cx, |state, cx| state.focus(window, cx));
+    }
+
+    /// Notes the pane the text will be the search key of.
+    fn begin_session(&mut self, cx: &App) {
+        self.owner = self.editor(cx).map(|editor| editor.downgrade());
     }
 
     /// The pane the user works in.
@@ -150,9 +175,10 @@ impl SearchBox {
     }
 
     /// `CBN_KILLFOCUS`: what is in the box when the focus leaves is the search key.
-    fn take_as_key(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::bars) fn take_as_key(&mut self, cx: &mut Context<Self>) {
         let text = self.text(cx);
-        let Some(editor) = self.editor(cx) else {
+        let owner = self.owner.take().and_then(|owner| owner.upgrade());
+        let Some(editor) = owner.or_else(|| self.editor(cx)) else {
             return;
         };
         if text.is_empty() {
@@ -164,6 +190,22 @@ impl SearchBox {
         if !done {
             editor.update(cx, |editor, cx| Self::make_key(editor, &text, cx));
         }
+    }
+
+    /// Moves the focus to the view and then runs `run` on it, once this event is handled.
+    fn run_in_editor(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        run: impl FnOnce(&mut EditorView, &mut Window, &mut Context<EditorView>) + 'static,
+    ) {
+        let Some(editor) = self.editor(cx) else {
+            return;
+        };
+        self.focus_editor(window, cx);
+        window.defer(cx, move |window, app| {
+            editor.update(app, |editor, cx| run(editor, window, cx));
+        });
     }
 
     /// Enter in the edit field: with the list open it takes the highlighted string (as a combo box
@@ -379,6 +421,30 @@ impl Render for SearchBox {
             .on_action(cx.listener(|this, _: &IndentInline, window, cx| {
                 this.focus_editor(window, cx);
             }))
+            // A menu item chosen while the field has the focus: the focus goes to the view first,
+            // and the view does it (`CEditWnd::OnCommand`).
+            .on_action(cx.listener(|this, action: &RunFunction, window, cx| {
+                let code = action.code;
+                // The field has the focus already.
+                if code == SEARCH_BOX {
+                    return;
+                }
+                this.run_in_editor(window, cx, move |editor, window, cx| {
+                    editor.run_function(code, &[], window, cx);
+                });
+            }))
+            .on_action(cx.listener(|this, action: &OpenRecentFile, window, cx| {
+                let path = action.path.clone();
+                this.run_in_editor(window, cx, move |editor, window, cx| {
+                    editor.open_recent_file(path, window, cx);
+                });
+            }))
+            .on_action(cx.listener(|this, action: &OpenRecentFolder, window, cx| {
+                let path = action.path.clone();
+                this.run_in_editor(window, cx, move |editor, window, cx| {
+                    editor.open_recent_folder(path, window, cx);
+                });
+            }))
             .on_action(cx.listener(|this, _: &Escape, window, cx| {
                 if this.dropdown.take().is_some() {
                     cx.notify();
@@ -406,7 +472,8 @@ impl Render for SearchBox {
                     .text_size(px(8.))
                     .on_click(cx.listener(|this, _, window, cx| {
                         // The arrow does not take the focus; the keys of the list go to the box.
-                        this.focus(window, cx);
+                        this.begin_session(cx);
+                        this.focus_input(window, cx);
                         this.toggle_dropdown(cx);
                     })),
             )

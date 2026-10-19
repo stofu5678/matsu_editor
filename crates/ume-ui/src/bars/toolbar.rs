@@ -397,7 +397,9 @@ impl Workspace {
     /// `Command_SEARCH_BOX`: moves the focus into the search box, if there is one.
     pub(crate) fn focus_search_box(&self, window: &mut Window, cx: &mut Context<Self>) {
         if self.has_search_box(cx) {
-            self.search_box.update(cx, |b, cx| b.focus(window, cx));
+            let editor = self.editor().clone();
+            self.search_box
+                .update(cx, |b, cx| b.focus_with(&editor, window, cx));
         }
     }
 

@@ -64,8 +64,9 @@ fn box_has_focus(cx: &mut VisualTestContext, search_box: &Entity<SearchBox>) -> 
 /// Types `text` in the box of the window and presses Enter.
 fn search_in_box(cx: &mut TestAppContext, handle: AnyWindowHandle, text: &str) {
     let search_box = search_box(cx, handle);
+    let editor = view(cx, handle);
     let cx = &mut VisualTestContext::from_window(handle, cx);
-    cx.update(|window, app| search_box.update(app, |b, cx| b.focus(window, cx)));
+    cx.update(|window, app| search_box.update(app, |b, cx| b.focus_with(&editor, window, cx)));
     if !text.is_empty() {
         cx.simulate_keystrokes("secondary-a");
         cx.simulate_input(text);
@@ -310,6 +311,64 @@ fn f4_with_a_modifier_is_not_the_lists_key(cx: &mut TestAppContext) {
     let cx = &mut VisualTestContext::from_window(handle, cx);
     cx.simulate_keystrokes("ctrl-f4");
     assert_eq!(search_box.read_with(cx, |b, _| b.open_entry()), None);
+}
+
+#[gpui::test]
+fn a_menu_item_chosen_in_the_box_runs_on_the_view_and_moves_the_focus_there(
+    cx: &mut TestAppContext,
+) {
+    let (_ini, handle) = setup(cx, &toolbar());
+    let editor = view(cx, handle);
+    write(cx, handle, "abc");
+    run(cx, handle, "F_SEARCH_BOX");
+    let search_box = search_box(cx, handle);
+    let select_all = ume_commands::sakura::FUNCTIONS
+        .iter()
+        .find(|f| f.name == "F_SELECTALL")
+        .unwrap()
+        .code;
+    let cx2 = &mut VisualTestContext::from_window(handle, cx);
+    assert!(box_has_focus(cx2, &search_box));
+    cx2.dispatch_action(crate::view::RunFunction { code: select_all });
+    cx2.run_until_parked();
+    assert_eq!(
+        selection(cx, &editor),
+        Some((Pos::new(0, 0), Pos::new(0, 3)))
+    );
+    let cx2 = &mut VisualTestContext::from_window(handle, cx);
+    assert!(editor_has_focus(cx2, &editor));
+}
+
+#[gpui::test]
+fn the_text_is_the_key_of_the_tab_that_was_active_when_the_box_got_the_focus(
+    cx: &mut TestAppContext,
+) {
+    let (_ini, handle) = setup(cx, &toolbar());
+    cx.update(|app| {
+        app.set_global(crate::tabs::settings::TabSettings {
+            show_bar: true,
+            grouped: true,
+            new_window: false,
+        })
+    });
+    let first = view(cx, handle);
+    run(cx, handle, "F_FILENEW");
+    let second = view(cx, handle);
+    assert_ne!(first.entity_id(), second.entity_id());
+    run(cx, handle, "F_PREVWINDOW");
+    assert_eq!(view(cx, handle).entity_id(), first.entity_id());
+    run(cx, handle, "F_SEARCH_BOX");
+    {
+        let cx2 = &mut VisualTestContext::from_window(handle, cx);
+        cx2.simulate_input("word");
+    }
+    // The other tab becomes the active one while the box has the focus.
+    run(cx, handle, "F_NEXTWINDOW");
+    assert_eq!(view(cx, handle).entity_id(), second.entity_id());
+    let search_box = search_box(cx, handle);
+    search_box.update(cx, |b, cx| b.take_as_key(cx));
+    assert_eq!(pattern(cx, &first), "word");
+    assert_eq!(pattern(cx, &second), "");
 }
 
 // ---- the drop-down arrow of the open button ----
