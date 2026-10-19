@@ -522,3 +522,23 @@ fn the_page_says_when_a_key_cannot_be_used(cx: &mut TestAppContext) {
     cancel(cx);
     let _ = first;
 }
+
+#[test]
+fn a_cell_that_did_not_change_keeps_its_token_in_a_row_that_did() {
+    // Ctrl+Q is a plugin command, Shift+Q a name UME Editor does not know; Alt+Q is assigned.
+    let mut p = profile(
+        "[KeyBind]\r\nKeyBind[000]=0051,0,0,0,0,0,0,0,0,Q\r\n\
+         KeyBind[001]=0051,0,Nope,Plugin/Cmd,0,0,0,0,0,Q\r\n",
+    );
+    let mut t = table(&p);
+    let q = index_of(&t, Key::Letter('Q'));
+    assert!(t.set_function(q, ALT, FILE_SAVE));
+    assert!(store(&t.to_numbers(), &mut p).unwrap());
+    let row = p
+        .entries("KeyBind")
+        .map(|(_, v)| v.to_owned())
+        .find(|v| v.starts_with("0051,"))
+        .unwrap();
+    assert_eq!(row, format!("0051,0,Nope,Plugin/Cmd,0,{FILE_SAVE},0,0,0,Q"));
+    assert_eq!(table(&p).function(q, ALT), FILE_SAVE);
+}

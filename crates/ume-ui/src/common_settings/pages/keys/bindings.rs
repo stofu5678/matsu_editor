@@ -47,14 +47,10 @@ pub(super) fn store(list: &[i32], profile: &mut Profile) -> Result<bool, Profile
     }
     let mut changed = false;
     for ((name, formatted), row) in format_entries(&rows).into_iter().zip(&rows) {
-        let kept = old
+        let value = old
             .iter()
-            .find(|(key, text)| {
-                *key == row.key
-                    && parse_entries([(name.as_str(), text.as_str())]).0.first() == Some(row)
-            })
-            .map(|(_, text)| text.clone());
-        let value = kept.unwrap_or(formatted);
+            .find(|(key, _)| *key == row.key)
+            .map_or(formatted, |(_, text)| merge(&name, text, row));
         if profile.get(SECTION, &name) != Some(value.as_str()) {
             profile.set(SECTION, &name, &value)?;
             changed = true;
@@ -71,6 +67,30 @@ pub(super) fn store(list: &[i32], profile: &mut Profile) -> Result<bool, Profile
         changed |= profile.remove(SECTION, &name);
     }
     Ok(changed)
+}
+
+/// The text of `row` where the file has `old` for its key: every cell whose function did not
+/// change keeps the token of the file (a plugin command or a name UME Editor does not know reads
+/// as 0 and would be lost otherwise), and so do the key code and the key name. Only the cells that
+/// changed are written as numbers.
+fn merge(name: &str, old: &str, row: &UserRow) -> String {
+    let tokens: Vec<&str> = old.splitn(10, ',').collect();
+    let parsed = parse_entries([(name, old)]).0;
+    let (Some(before), 10) = (parsed.first(), tokens.len()) else {
+        return format_entries(std::slice::from_ref(row)).remove(0).1;
+    };
+    let mut text = tokens[0].to_owned();
+    for (cell, token) in tokens[1..9].iter().enumerate() {
+        text.push(',');
+        if before.functions[cell] == row.functions[cell] {
+            text.push_str(token);
+        } else {
+            text.push_str(&row.functions[cell].to_string());
+        }
+    }
+    text.push(',');
+    text.push_str(tokens[9]);
+    text
 }
 
 /// The number in `KeyBind[NNN]`.
