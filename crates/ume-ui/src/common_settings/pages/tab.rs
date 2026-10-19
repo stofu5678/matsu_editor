@@ -6,19 +6,22 @@
 //! the close button of the window is used (`bTab_RetainEmptyWin`, `bTab_CloseOneWin`), the width of
 //! the tabs (`bSameTabWidth`), their close buttons (`bDispTabClose`) and the wheel over the bar
 //! (`bChgWndByWheel`), the sorting of the tab list (`bSortTabList`) and the caption of the tabs
-//! (`szTabWndCaption`, expanded like the title of the window). Not available yet: the icons, the
-//! font, the rows and the place of the tabs.
+//! (`szTabWndCaption`, expanded like the title of the window), and the font of the tabs
+//! (`lfTabFont`, with the font dialog). Not available yet: the icons, the rows and the place of the tabs.
 //!
 //! `EnableTabPropInput` (`CPropComTab.cpp`) says which controls can be used: all of them need the
 //! bar; the last three of the mode need the grouping too.
 
 use gpui::AnyWindowHandle;
+use ume_config::settings::FontSetting;
 
+use super::super::CommonSettingsDialog;
 use super::super::Env;
 use super::super::model::{Control, Item, Values};
+use crate::font_dialog::model::{Choice, Style, face_fits};
 use crate::tabs::caption::{self, TabCaption};
 use crate::tabs::flows;
-use crate::tabs::settings::{self, DispTabClose, TabOptions};
+use crate::tabs::settings::{self, DispTabClose, TabFont, TabOptions};
 
 /// `DispTabCloseArr` (`CPropComTab.cpp`).
 const DISP_CLOSE: &[(&str, i32)] = &[("なし", 0), ("常に表示", 1), ("自動表示", 2)];
@@ -94,10 +97,16 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                     )
                     .when(bar_is_shown)
                     .into(),
-                    Control::button("tab_font", "フォント(&F)...", |_, _, _| {})
-                        .unavailable()
+                    Control::button("tab_font", "フォント(&F)...", choose_tab_font)
                         .when(bar_is_shown)
                         .into(),
+                    Item::Custom(tab_font_label),
+                    Item::Hidden(vec![Control::font(
+                        TAB_FONT,
+                        "lfTabFont",
+                        Some("lfTabFontPs"),
+                        Some("lfTabFaceName"),
+                    )]),
                 ]),
                 Item::Row(vec![
                     Control::check(
@@ -143,6 +152,45 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
     ]
 }
 
+/// The font of the tabs (`m_sTabBar.m_lf`, `m_nPointSize`): not drawn, the button and the label use it.
+const TAB_FONT: &str = "tab_font_value";
+
+/// `IDC_BUTTON_TABFONT` (`CPropTab::DispatchEvent`): the font dialog starts with the font of the tabs;
+/// when the file has none, with the font of the program's windows at 9 points (Sakura's default is the
+/// font of icon titles, `lfIconTitle`, which this system does not have).
+fn choose_tab_font(
+    dialog: &mut CommonSettingsDialog,
+    window: &mut gpui::Window,
+    cx: &mut gpui::Context<CommonSettingsDialog>,
+) {
+    let font = dialog.values().font(TAB_FONT);
+    let initial = if font.log_font.face_name.is_empty() {
+        let family = gpui_component::Theme::global(cx).font_family.to_string();
+        Choice {
+            family: if face_fits(&family) {
+                family
+            } else {
+                String::new()
+            },
+            style: Style::Regular,
+            size: 90,
+        }
+        .setting(&FontSetting::default())
+    } else {
+        font
+    };
+    dialog.choose_font(TAB_FONT, initial, window, cx);
+}
+
+/// `IDC_STATIC_TABFONT`: the face and the size of the font of the tabs.
+fn tab_font_label(
+    dialog: &CommonSettingsDialog,
+    cx: &mut gpui::Context<CommonSettingsDialog>,
+) -> gpui::AnyElement {
+    let font = dialog.values().font(TAB_FONT);
+    crate::common_settings::model::font_label(Some(&font), cx)
+}
+
 /// The options of the tabs, from the values.
 fn options(values: &Values) -> TabOptions {
     TabOptions {
@@ -178,9 +226,13 @@ pub(in crate::common_settings) fn blocked(
 pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: Option<&Values>) {
     let mut tab_options = options(after);
     tab_options.list_full = settings::options(env.cx).list_full;
-    // The caption first: the windows draw again when the options are set.
+    // The caption and the font first: the windows draw again when the options are set.
     env.cx
         .set_global(TabCaption(after.text("tab_caption").to_owned()));
+    let font = after.font(TAB_FONT);
+    env.cx.set_global(TabFont(
+        (!font.log_font.face_name.is_empty()).then_some(font),
+    ));
     env.cx.set_global(tab_options);
     let (show_bar, grouped, new_window) = (
         after.bool("tab_bar"),

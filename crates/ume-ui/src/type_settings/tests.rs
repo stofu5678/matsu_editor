@@ -261,7 +261,8 @@ fn the_pages_have_every_control_that_sakura_has() {
     // Sakura is a color picker here.
     let list = pages(0);
     let count = |page: usize| controls(list[page].items.as_ref().unwrap()).len();
-    assert_eq!(count(0), 33);
+    // (the font of the type, which the button and the label use, is one of them)
+    assert_eq!(count(0), 34);
     assert_eq!(count(1), 30);
     assert_eq!(count(2), 25);
     // 支援: the word file with its button and the plugin list, the three check boxes of the

@@ -11,7 +11,8 @@
 use ume_config::settings::type_rules::outline_type;
 
 use super::super::ids::*;
-use crate::common_settings::model::{Control, Item, Values};
+use crate::common_settings::CommonSettingsDialog;
+use crate::common_settings::model::{Control, Item, Value, Values};
 
 /// `COLUMNSPACE_MAX` (`sakura_core/config/app_constants.h`).
 pub(in crate::type_settings) const COLUMN_SPACE_MAX: i32 = 64;
@@ -91,6 +92,44 @@ fn outline_is_file(values: &Values) -> bool {
 /// `IDC_CHECK_KINSOKUHIDE` is enabled while a line end or punctuation hangs.
 fn something_hangs(values: &Values) -> bool {
     values.bool(KINSOKU_RET) || values.bool(KINSOKU_KUTO)
+}
+
+/// `EnableWindow(IDC_CHECK_USETYPEFONT, m_bUseTypeFont)`: the check box can only be cleared; the
+/// button of the font checks it again.
+fn type_font_is_used(values: &Values) -> bool {
+    values.bool(USE_TYPE_FONT)
+}
+
+/// `IDC_BUTTON_TYPEFONT` (`CPropTypesScreen::DispatchEvent`): the font dialog starts with the font of
+/// the type if it is used, else the common font. The font chosen is the font of the type.
+fn choose_type_font(
+    dialog: &mut CommonSettingsDialog,
+    window: &mut gpui::Window,
+    cx: &mut gpui::Context<CommonSettingsDialog>,
+) {
+    let values = dialog.values();
+    let initial = if values.bool(USE_TYPE_FONT) {
+        values.font(TYPE_FONT)
+    } else {
+        crate::font_dialog::apply::common_font(cx).font
+    };
+    dialog.choose_font(TYPE_FONT, initial, window, cx);
+}
+
+/// A font chosen is used (`m_bUseTypeFont = true`).
+fn type_font_chosen(values: &mut Values, _: &'static str) {
+    values.set(USE_TYPE_FONT, Value::Bool(true));
+}
+
+/// `IDC_STATIC_TYPEFONT`: the face and the size of the font of the type, empty while it is not used
+/// (`SetFontLabel`).
+fn type_font_label(
+    dialog: &CommonSettingsDialog,
+    cx: &mut gpui::Context<CommonSettingsDialog>,
+) -> gpui::AnyElement {
+    let values = dialog.values();
+    let font = values.bool(USE_TYPE_FONT).then(|| values.font(TYPE_FONT));
+    crate::common_settings::model::font_label(font.as_ref(), cx)
 }
 
 /// Choosing the standard rule selects the first of the list (`IDC_RADIO_OUTLINEDEFAULT`).
@@ -253,14 +292,19 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                 ),
                 Item::Group(
                     "タイプ別フォント",
-                    vec![Item::Row(vec![
-                        Control::check(USE_TYPE_FONT, "使用する(&G)", "", false)
-                            .unavailable()
-                            .into(),
-                        Control::button(TYPE_FONT_BUTTON, "フォント(&F)...", |_, _, _| {})
-                            .unavailable()
-                            .into(),
-                    ])],
+                    vec![
+                        Item::Row(vec![
+                            Control::check(USE_TYPE_FONT, "使用する(&G)", "", false)
+                                .when(type_font_is_used)
+                                .into(),
+                            Control::button(TYPE_FONT_BUTTON, "フォント(&F)...", choose_type_font)
+                                .into(),
+                            Item::Custom(type_font_label),
+                        ]),
+                        Item::Hidden(vec![
+                            Control::font(TYPE_FONT, "", None, None).on_change(type_font_chosen),
+                        ]),
+                    ],
                 ),
                 Item::Group(
                     "禁則処理",

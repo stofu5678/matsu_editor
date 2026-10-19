@@ -10,6 +10,8 @@ publish.workspace = true
 
 [dependencies]
 ume-print = { path = "../ume-print" }
+# The font of the font dialog (src/font_dialog) goes in and out as the settings file keeps it.
+ume-config = { path = "../ume-config" }
 # The window of the OS under a GPUI window, for the window functions (src/window).
 raw-window-handle = "0.6"
 

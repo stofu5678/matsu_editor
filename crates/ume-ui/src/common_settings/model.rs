@@ -15,6 +15,7 @@
 
 use std::collections::HashMap;
 
+use ume_config::settings::{FontSetting, LogFont};
 use ume_config::{Profile, ProfileError};
 
 use super::dialog::CommonSettingsDialog;
@@ -33,6 +34,8 @@ pub(crate) enum Value {
     Numbers(Vec<i32>),
     /// The rows of an editable list ([`Kind::Table`]).
     Rows(Vec<Row>),
+    /// A font ([`Kind::Font`]); one with no face name is not set.
+    Font(FontSetting),
 }
 
 /// The default of a control: Sakura's value when the file has none.
@@ -116,6 +119,56 @@ pub(crate) enum Kind {
     /// An editable list: rows of texts with the buttons that change them
     /// ([`super::table`]). The value is a [`Value::Rows`]; the file keeps it as the spec says.
     Table { spec: &'static TableSpec },
+    /// A font (a `LOGFONT` and its size, `ShareData_IO_LogFont`) chosen with the font dialog by a
+    /// button of the page. The value is a [`Value::Font`]; a font the file does not have is one
+    /// with no face name ([`not_set`]), and is not written. An empty `key_lf` is a font that the
+    /// sheet keeps itself (the font of a document type).
+    Font {
+        key_lf: &'static str,
+        key_point_size: Option<&'static str>,
+        key_face_name: Option<&'static str>,
+    },
+}
+
+/// The label next to a font button: the face and the size, drawn in the font itself but not larger
+/// than 16 points (`SetFontLabel`, `sakura_core/prop/CPropCommon.cpp`: "大きすぎるフォントは小さく表示").
+/// `None` is an empty label; a font that is not set shows 「（既定）」.
+pub(crate) fn font_label(
+    font: Option<&FontSetting>,
+    _: &mut gpui::Context<CommonSettingsDialog>,
+) -> gpui::AnyElement {
+    use gpui::{IntoElement as _, ParentElement as _, Styled as _, div, px};
+    let Some(font) = font else {
+        return div().into_any_element();
+    };
+    if font.log_font.face_name.is_empty() {
+        return div().child("（既定）").into_any_element();
+    }
+    let family = crate::settings::view_settings::font_family_for(
+        &font.log_font.face_name,
+        ume_config::location::Os::current(),
+    );
+    let points = font
+        .point_size_for_dpi(crate::settings::view_settings::DPI)
+        .min(160);
+    let mut label = div()
+        .text_size(px(crate::settings::view_settings::points_to_px(points)))
+        .child(crate::font_dialog::model::label(font));
+    if let Some(family) = family {
+        label = label.font_family(family);
+    }
+    label.into_any_element()
+}
+
+/// A font that is not set: no face name.
+pub(crate) fn not_set() -> FontSetting {
+    FontSetting {
+        log_font: LogFont {
+            face_name: String::new(),
+            ..FontSetting::default().log_font
+        },
+        point_size: 0,
+    }
 }
 
 /// A control of a page.
@@ -259,6 +312,26 @@ impl Control {
         spec: &'static TableSpec,
     ) -> Self {
         Self::new(id, label, "", Def::Bool(false), Kind::Table { spec })
+    }
+
+    /// A font chosen with the font dialog; `key_lf` and the keys of `ShareData_IO_LogFont` hold it.
+    pub(crate) const fn font(
+        id: &'static str,
+        key_lf: &'static str,
+        key_point_size: Option<&'static str>,
+        key_face_name: Option<&'static str>,
+    ) -> Self {
+        Self::new(
+            id,
+            "",
+            "",
+            Def::Bool(false),
+            Kind::Font {
+                key_lf,
+                key_point_size,
+                key_face_name,
+            },
+        )
     }
 
     /// A push button.
@@ -432,6 +505,23 @@ impl Values {
             let fallback = control.default.value();
             let value = if let Kind::Numbers { load, .. } = control.kind {
                 Value::Numbers(load(profile))
+            } else if let Kind::Font {
+                key_lf,
+                key_point_size,
+                key_face_name,
+            } = control.kind
+            {
+                let mut font = not_set();
+                if !key_lf.is_empty() {
+                    font.read(
+                        profile,
+                        control.section,
+                        key_lf,
+                        key_point_size,
+                        key_face_name,
+                    );
+                }
+                Value::Font(font)
             } else if control.key.is_empty() {
                 fallback
             } else {
@@ -468,7 +558,7 @@ impl Values {
                         .get_string(control.section, control.key)
                         .map_or(fallback, Value::Text),
                     Kind::Numbers { .. } => fallback,
-                    Kind::Button { .. } | Kind::Table { .. } => fallback,
+                    Kind::Button { .. } | Kind::Table { .. } | Kind::Font { .. } => fallback,
                 }
             };
             map.insert(control.id, value);
@@ -511,6 +601,14 @@ impl Values {
         match self.map.get(id) {
             Some(Value::Text(t)) => t,
             _ => "",
+        }
+    }
+
+    /// A font. A name that is not there is not set.
+    pub(crate) fn font(&self, id: &str) -> FontSetting {
+        match self.map.get(id) {
+            Some(Value::Font(font)) => font.clone(),
+            _ => not_set(),
         }
     }
 
@@ -570,6 +668,40 @@ impl Values {
                 }
                 continue;
             }
+            if let Kind::Font {
+                key_lf,
+                key_point_size,
+                key_face_name,
+            } = control.kind
+            {
+                if control.live
+                    && !key_lf.is_empty()
+                    && !done.contains(&control.id)
+                    && let Some(Value::Font(font)) = self.map.get(control.id)
+                    && !font.log_font.face_name.is_empty()
+                {
+                    done.push(control.id);
+                    let mut now = not_set();
+                    now.read(
+                        profile,
+                        control.section,
+                        key_lf,
+                        key_point_size,
+                        key_face_name,
+                    );
+                    if now != *font {
+                        font.write(
+                            profile,
+                            control.section,
+                            key_lf,
+                            key_point_size,
+                            key_face_name,
+                        )?;
+                        changed = true;
+                    }
+                }
+                continue;
+            }
             if let Kind::Table { spec } = control.kind {
                 if control.live
                     && !done.contains(&control.id)
@@ -609,7 +741,9 @@ impl Values {
                 Some(Value::Bool(on)) => (if *on != control.invert { "1" } else { "0" }).to_owned(),
                 Some(Value::Int(i)) => i.to_string(),
                 Some(Value::Text(t)) => t.clone(),
-                Some(Value::Numbers(_)) | Some(Value::Rows(_)) | None => continue,
+                Some(Value::Numbers(_)) | Some(Value::Rows(_)) | Some(Value::Font(_)) | None => {
+                    continue;
+                }
             };
             if profile.get(control.section, control.key) != Some(text.as_str()) {
                 profile.set(control.section, control.key, &text)?;

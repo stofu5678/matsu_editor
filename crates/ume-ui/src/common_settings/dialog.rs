@@ -29,6 +29,7 @@ use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::radio::Radio;
 use gpui_component::{Disableable as _, Selectable as _, h_flex, v_flex};
 use ume_config::Profile;
+use ume_config::settings::FontSetting;
 
 use super::model::{Control, Item, Kind, Value, Values, parse_label};
 use super::table::{self, Op, Refused};
@@ -420,6 +421,40 @@ impl CommonSettingsDialog {
         }
     }
 
+    /// A font chosen with the font dialog ([`Kind::Font`]). The control's `changed` runs, so that a
+    /// page can set the controls that go with it (the check box of the font of a type).
+    pub(crate) fn set_font(&mut self, id: &'static str, font: FontSetting, cx: &mut Context<Self>) {
+        if self.control(id).is_some() {
+            self.values.set(id, Value::Font(font));
+            if let Some(control) = self.control(id) {
+                (control.changed)(&mut self.values, id);
+            }
+            cx.notify();
+        }
+    }
+
+    /// Shows the font dialog starting at `initial` for the font control `id`: the font the user
+    /// chooses becomes its value. The dialog may answer after this has returned.
+    pub(crate) fn choose_font(
+        &mut self,
+        id: &'static str,
+        initial: FontSetting,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let this = cx.entity().downgrade();
+        let owner = crate::font_dialog::owner_of(window);
+        crate::font_dialog::choose(
+            cx,
+            owner,
+            initial,
+            Box::new(move |app: &mut App, font| {
+                this.update(app, |dialog, cx| dialog.set_font(id, font, cx))
+                    .ok();
+            }),
+        );
+    }
+
     /// A list of numbers that a custom widget edits ([`Kind::Numbers`]).
     pub(crate) fn set_numbers(&mut self, id: &'static str, list: Vec<i32>, cx: &mut Context<Self>) {
         if self.control(id).is_some_and(|c| self.is_usable(&c)) {
@@ -766,7 +801,7 @@ impl CommonSettingsDialog {
                 }
             }
             Kind::Button { run } => run(self, window, cx),
-            Kind::Numbers { .. } | Kind::Table { .. } => {}
+            Kind::Numbers { .. } | Kind::Table { .. } | Kind::Font { .. } => {}
         }
         true
     }
@@ -1013,7 +1048,7 @@ impl CommonSettingsDialog {
                 .children(note)
                 .into_any_element(),
             // A list of numbers is drawn by the `Item::Custom` that edits it.
-            Kind::Numbers { .. } => div().into_any_element(),
+            Kind::Numbers { .. } | Kind::Font { .. } => div().into_any_element(),
         }
     }
 

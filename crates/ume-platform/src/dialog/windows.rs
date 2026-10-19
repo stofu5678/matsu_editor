@@ -37,6 +37,11 @@ use super::{Error, Kind, Request};
 pub struct Owner(isize);
 
 impl Owner {
+    /// The window handle, 0 for none (the font dialog takes it too).
+    pub(crate) fn hwnd(self) -> isize {
+        self.0
+    }
+
     pub fn from_handle(handle: RawWindowHandle) -> Self {
         match handle {
             RawWindowHandle::Win32(handle) => Self(handle.hwnd.get()),
