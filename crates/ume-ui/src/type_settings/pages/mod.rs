@@ -3,6 +3,7 @@
 
 pub(super) mod color;
 pub(super) mod keyhelp;
+mod keyhelp_io;
 pub(super) mod regex;
 mod regex_file;
 pub(super) mod screen;

@@ -12,6 +12,7 @@ use gpui::{
 };
 use gpui_component::menu::PopupMenu;
 use ume_commands::keymap::DisplayStyle;
+use ume_config::settings::custom_menu::INDEX_FOR_RBUTTONUP;
 
 use super::ChainedLists;
 use super::model::{self, CustomMenuList};
@@ -74,6 +75,11 @@ impl CustomMenuState {
 }
 
 impl EditorView {
+    /// Whether a custom menu is open (`m_bInMenuLoop`).
+    pub(crate) fn custom_menu_is_open(&self) -> bool {
+        self.custom_menu.open.is_some()
+    }
+
     /// `Command_CUSTMENU`: shows custom menu `index` (0 is the right-click menu). A menu with no items
     /// shows nothing, as in Sakura. Returns whether a popup opened.
     pub(crate) fn show_custom_menu(
@@ -86,7 +92,16 @@ impl EditorView {
             .try_global::<UserSettings>()
             .map(UserSettings::custom_menus)
             .unwrap_or_default();
-        if menus.get(index).is_none_or(|m| m.items.is_empty()) {
+        let empty = menus.get(index).is_none_or(|m| m.items.is_empty());
+        // The right-click menu (0) also shows the keyword help items, whatever it holds
+        // (`CreatePopUpMenu_R` does not look at the number of items).
+        let (help_top, help_bottom) = if index == INDEX_FOR_RBUTTONUP {
+            let by_mouse = self.custom_menu.mouse_at.is_some();
+            self.key_help_menu_items(by_mouse, window, cx)
+        } else {
+            (Vec::new(), Vec::new())
+        };
+        if empty && help_top.is_empty() && help_bottom.is_empty() {
             return false;
         }
         let recent = RecentLists::new(crate::history::current(cx))
@@ -96,17 +111,21 @@ impl EditorView {
         let macro_list = crate::macros::MacroList(macros.clone());
         let rest = ChainedLists(&custom, &macro_list);
         let lists = ChainedLists(&recent, &rest);
-        let entries = model::entries(
-            index,
-            &model::Context {
-                menus: &menus,
-                macros: &macros,
-                keymap: &self.keymap,
-                available: &Registered,
-                lists: &lists,
-            },
-        );
-        self.open_menu_entries(entries, window, cx);
+        let entries = if empty {
+            Vec::new()
+        } else {
+            model::entries(
+                index,
+                &model::Context {
+                    menus: &menus,
+                    macros: &macros,
+                    keymap: &self.keymap,
+                    available: &Registered,
+                    lists: &lists,
+                },
+            )
+        };
+        self.open_menu_entries_with(entries, help_top, help_bottom, window, cx);
         true
     }
 
@@ -131,6 +150,19 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.open_menu_entries_with(entries, Vec::new(), Vec::new(), window, cx);
+    }
+
+    /// [`open_menu_entries`](Self::open_menu_entries) with items of the program's own before and
+    /// after the entries (the keyword help items of the right-click menu).
+    fn open_menu_entries_with(
+        &mut self,
+        entries: Vec<crate::menu::Entry>,
+        before: Vec<MenuItem>,
+        after: Vec<MenuItem>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let at = self
             .custom_menu
             .mouse_at
@@ -143,7 +175,7 @@ impl EditorView {
                 let p = window.mouse_position();
                 point(p.x, p.y - px(ABOVE_POINTER))
             });
-        self.open_popup_menu(entries, at, window, cx);
+        self.open_popup_menu_with(entries, before, after, at, window, cx);
     }
 
     /// Shows `entries` as a popup menu whose top left corner is at `at`, a point of the window.
@@ -157,13 +189,29 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.open_popup_menu_with(entries, Vec::new(), Vec::new(), at, window, cx);
+    }
+
+    /// [`open_popup_menu`](Self::open_popup_menu) with items of the program's own before and after
+    /// the entries.
+    fn open_popup_menu_with(
+        &mut self,
+        entries: Vec<crate::menu::Entry>,
+        before: Vec<MenuItem>,
+        after: Vec<MenuItem>,
+        at: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let style = if cfg!(target_os = "macos") {
             DisplayStyle::Mac
         } else {
             DisplayStyle::Sakura
         };
-        let mut items: Vec<_> = gpui_items(entries, style)
+        let mut items: Vec<_> = before
             .into_iter()
+            .chain(gpui_items(entries, style))
+            .chain(after)
             .map(MenuItem::owned)
             .collect();
         self.mark_menu_items(&mut items, window, cx);

@@ -5,82 +5,56 @@
 //! of the candidates, the words of the document and the highlighted keywords
 //! (`crate::support::completion`).
 //!
-//! Not available yet: the plugin that adds candidates (the list has only なし), the external
-//! help files (`F_EXTHELP1`, `F_EXTHTMLHELP`), the warning about mixed line endings on saving
-//! (`CCodeChecker::OnCheckSave`), the C/C++ smart indent options (UME Editor has no smart indent)
-//! and the detection of the indentation style on loading (`CDocEditor::OnAfterLoad`).
-
-use std::path::{Path, PathBuf};
+//! Also live: the external help files of the type (`F_EXTHELP1`, `F_EXTHTMLHELP` take them before
+//! the ones of the common settings, `crate::support::help`).
+//!
+//! Not available yet: the plugin that adds candidates (the list has only なし), the warning about
+//! mixed line endings on saving (`CCodeChecker::OnCheckSave`), the C/C++ smart indent options
+//! (UME Editor has no smart indent) and the detection of the indentation style on loading
+//! (`CDocEditor::OnAfterLoad`).
 
 use super::super::ids::*;
 use crate::common_settings::CommonSettingsDialog;
 use crate::common_settings::model::{Control, Item};
-use crate::file_dialog::{self, Ask};
 
 /// `GetHokanMethodList`: the plugins that complete are added to the list after なし
 /// (`STR_SMART_INDENT_NONE`); UME Editor has no plugins that complete.
 pub(in crate::type_settings) const HOKAN_TYPES: &[(&str, i32)] = &[("なし", 0)];
 
-/// The path the file dialog gives, as the box takes it: relative to the folder of the settings
-/// file when it is under it (`GetRelPath`, `CDlgOpenFile::SelectFile` with `resolvePath`).
-pub(in crate::type_settings) fn path_for_box(path: &Path, ini_dir: Option<&Path>) -> String {
-    let shown = ini_dir
-        .and_then(|dir| path.strip_prefix(dir).ok())
-        .unwrap_or(path);
-    shown.to_string_lossy().into_owned()
-}
+#[cfg(test)]
+pub(in crate::type_settings) use crate::support::browse::path_for_box;
 
-/// `IDC_BUTTON_HOKANFILE_REF`: chooses the word file, starting where the box says (a relative
-/// path starts at the settings file's folder, `CTextInputStream_AbsIni`).
+/// `IDC_BUTTON_HOKANFILE_REF`: chooses the word file.
 fn browse_word_file(
     dialog: &mut CommonSettingsDialog,
     window: &mut gpui::Window,
     cx: &mut gpui::Context<CommonSettingsDialog>,
 ) {
-    let text = dialog.input_text(HOKAN_FILE, cx).unwrap_or_default();
-    let ini_dir: Option<PathBuf> = crate::doc_types::with_user(cx, |user| {
-        crate::settings::history_file(user).and_then(|path| path.parent().map(Path::to_owned))
-    });
-    let typed = Path::new(&text);
-    let full = match (&ini_dir, typed.is_relative()) {
-        (Some(dir), true) => dir.join(typed),
-        _ => typed.to_owned(),
-    };
-    let start = if text.is_empty() {
-        ini_dir.clone()
-    } else {
-        full.parent().map(Path::to_owned)
-    };
-    let name = full
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .filter(|_| !text.is_empty());
-    let receiver = file_dialog::ask(
-        window,
-        cx,
-        Ask::open(false)
-            .start(start)
-            .name(name)
-            .titled("単語ファイルの選択", "選択"),
-    );
-    cx.spawn_in(window, async move |this, cx| {
-        let chosen = receiver.await.ok().flatten();
-        if let Some(path) = chosen.and_then(|paths| paths.into_iter().next()) {
-            let text = path_for_box(&path, ini_dir.as_deref());
-            this.update_in(cx, |this, window, cx| {
-                this.set_input(HOKAN_FILE, &text, window, cx)
-            })
-            .ok();
-        }
-    })
-    .detach();
+    crate::support::browse::browse_into(dialog, window, cx, HOKAN_FILE, "単語ファイルの選択");
 }
 
-fn no_action(
-    _: &mut CommonSettingsDialog,
-    _: &mut gpui::Window,
-    _: &mut gpui::Context<CommonSettingsDialog>,
+/// `IDC_BUTTON_TYPEOPENHELP1`: chooses the external help file (`*.hlp;*.chm;*.col`).
+fn browse_ext_help(
+    dialog: &mut CommonSettingsDialog,
+    window: &mut gpui::Window,
+    cx: &mut gpui::Context<CommonSettingsDialog>,
 ) {
+    crate::support::browse::browse_into(dialog, window, cx, EXT_HELP, "外部ヘルプファイルの選択");
+}
+
+/// `IDC_BUTTON_TYPEOPENEXTHTMLHELP`: chooses the external HTML help file (`*.chm;*.col`).
+fn browse_ext_html_help(
+    dialog: &mut CommonSettingsDialog,
+    window: &mut gpui::Window,
+    cx: &mut gpui::Context<CommonSettingsDialog>,
+) {
+    crate::support::browse::browse_into(
+        dialog,
+        window,
+        cx,
+        EXT_HTML_HELP,
+        "外部HTMLヘルプファイルの選択",
+    );
 }
 
 pub(in crate::type_settings) fn items() -> Vec<Item> {
@@ -107,26 +81,18 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
         Item::Group(
             "外部ヘルプの設定(&L)",
             vec![Item::Row(vec![
-                Control::text(EXT_HELP, "", "", "").unavailable().into(),
-                Control::button(EXT_HELP_BROWSE, "(&2)...", no_action)
-                    .unavailable()
-                    .into(),
+                Control::text(EXT_HELP, "", "", "").into(),
+                Control::button(EXT_HELP_BROWSE, "(&2)...", browse_ext_help).into(),
             ])],
         ),
         Item::Group(
             "外部HTMLヘルプの設定(&P)",
             vec![
                 Item::Row(vec![
-                    Control::text(EXT_HTML_HELP, "", "", "")
-                        .unavailable()
-                        .into(),
-                    Control::button(EXT_HTML_HELP_BROWSE, "(&3)...", no_action)
-                        .unavailable()
-                        .into(),
+                    Control::text(EXT_HTML_HELP, "", "", "").into(),
+                    Control::button(EXT_HTML_HELP_BROWSE, "(&3)...", browse_ext_html_help).into(),
                 ]),
-                Control::check(HTML_HELP_SINGLE, "ビューアを複数起動しない(&N)", "", true)
-                    .unavailable()
-                    .into(),
+                Control::check(HTML_HELP_SINGLE, "ビューアを複数起動しない(&N)", "", true).into(),
             ],
         ),
         Control::check(

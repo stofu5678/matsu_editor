@@ -60,6 +60,8 @@ windows-sys = { version = "0.61", features = [
     # ShellExecuteW (src/shell/windows.rs)
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
+    # LoadLibraryW and GetProcAddress for HtmlHelp (src/help/windows.rs)
+    "Win32_System_LibraryLoader",
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

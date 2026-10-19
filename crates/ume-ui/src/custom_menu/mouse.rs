@@ -78,6 +78,7 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         window.focus(&self.focus_handle, cx);
+        self.hide_key_help(cx);
         if self.on_scrollbar(event.position) || self.point_is_selected(event.position, cx) {
             return;
         }

@@ -148,6 +148,7 @@ impl Page {
             Page::Keys => pages::keys::items(),
             Page::CustomMenu => pages::custom_menu::items(),
             Page::Keyword => pages::keyword::items(),
+            Page::Support => Some(pages::support::items()),
             Page::Macro => pages::macros::items(),
             _ => None,
         }
@@ -171,6 +172,7 @@ impl Page {
             Page::Keys => pages::keys::apply(env, after, before),
             Page::CustomMenu => pages::custom_menu::apply(env, after, before),
             Page::Keyword => pages::keyword::apply(env, after, before),
+            Page::Support => pages::support::apply(env, after, before),
             Page::Macro => pages::macros::apply(env, after, before),
             // The other pages have nothing to tell the windows (yet).
             _ => {}

@@ -24,9 +24,11 @@
 //! the words of the document, the highlighted keywords) and are compared as it says (英大文字小文字を
 //! 同一視する).
 //!
-//! Not done: the plugins as a source of candidates; the help text (the keyword help dictionary)
-//! beside the list; the keys of the settings `bHokanKey_*` are Sakura's defaults (Enter and Right
-//! on, Tab off), fixed.
+//! The keys that choose a candidate are the ones of the 支援 page of the common settings
+//! (`bHokanKey_RETURN`, `bHokanKey_TAB`, `bHokanKey_RIGHT`, [`super::prefs`]). The meaning of the
+//! chosen candidate in the keyword help dictionaries is shown beside the list ([`crate::key_help`]).
+//!
+//! Not done: the plugins as a source of candidates.
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -43,6 +45,7 @@ use ume_commands::text::complete;
 use ume_config::settings::DocumentTypes;
 use ume_core::buffer::Pos;
 
+use super::prefs::HelperPrefs;
 use crate::view::EditorView;
 
 /// How many candidates the list shows without scrolling.
@@ -51,12 +54,6 @@ const VISIBLE_ROWS: usize = 10;
 /// The function codes after which the list stays (`PreprocessCommand_hokan`): the keys that edit
 /// the word, and `F_HOKAN` itself.
 const KEEPING: [&str; 4] = ["F_HOKAN", "F_WCHAR", "F_IME_CHAR", "F_DELETE_BACK"];
-
-/// The keys that insert the chosen candidate (`CommonSetting_Helper::m_bHokanKey_*`, with the
-/// defaults of `CShareData.cpp`): Enter and Right on, Tab off.
-const KEY_ENTER: bool = true;
-const KEY_TAB: bool = false;
-const KEY_RIGHT: bool = true;
 
 /// The message of the status bar when there is no word before the caret
 /// (`STR_SUPPORT_*` in `sakura_core/sakura_rc.rc`).
@@ -113,7 +110,9 @@ enum ListKey {
     Close,
 }
 
-fn list_key(key: &str) -> Option<ListKey> {
+/// The keys that insert the chosen candidate are the ones of the 支援 page
+/// (`CommonSetting_Helper::m_bHokanKey_*`; Enter and Right on, Tab off by default).
+fn list_key(key: &str, keys: &HelperPrefs) -> Option<ListKey> {
     Some(match key {
         "up" => ListKey::Move(-1),
         "down" => ListKey::Move(1),
@@ -121,9 +120,9 @@ fn list_key(key: &str) -> Option<ListKey> {
         "pagedown" => ListKey::Move(VISIBLE_ROWS as isize),
         "home" => ListKey::First,
         "end" => ListKey::Last,
-        "enter" if KEY_ENTER => ListKey::Insert,
-        "tab" if KEY_TAB => ListKey::Insert,
-        "right" if KEY_RIGHT => ListKey::Insert,
+        "enter" if keys.hokan_key_return => ListKey::Insert,
+        "tab" if keys.hokan_key_tab => ListKey::Insert,
+        "right" if keys.hokan_key_right => ListKey::Insert,
         "escape" => ListKey::Close,
         _ => return None,
     })
@@ -264,6 +263,8 @@ impl EditorView {
     /// `F_HOKAN` (`Command_HOKAN` and `ShowHokanMgr` with `bAutoDecided`).
     pub(crate) fn start_completion(&mut self, cx: &mut Context<Self>) {
         self.support.completion = None;
+        // The meanings beside the list of the last session may be old (the dictionaries change).
+        self.support.key_help.forget_beside_list();
         let Some(found) = self.completion_for_caret(cx) else {
             self.notice = Some(NOT_COMPLETABLE.to_owned());
             cx.notify();
@@ -330,7 +331,7 @@ impl EditorView {
         let Some(list) = self.support.completion.as_mut() else {
             return false;
         };
-        let Some(key) = list_key(&event.keystroke.key) else {
+        let Some(key) = list_key(&event.keystroke.key, &super::prefs::current(cx)) else {
             return false;
         };
         match key {
@@ -400,7 +401,7 @@ impl EditorView {
                     row
                 }
             });
-        let popup = div()
+        let list_box = div()
             .id("hokan-list")
             .occlude()
             .min_w(px(120.))
@@ -413,6 +414,22 @@ impl EditorView {
             .font_family(family)
             .text_size(px(size))
             .children(rows);
+        // The meaning of the chosen candidate beside the list, level with its row
+        // (`CHokanMgr::ShowTip`: `point.y = m_poWin.y + 4 + (nItem - nTopItem) * nItemHeight`).
+        let help = list
+            .chosen()
+            .and_then(|word| self.completion_help(word, cx))
+            .map(|text| {
+                let row_height = (size * 1.5).round();
+                let offset = 4.0 + list.selected.saturating_sub(list.top) as f32 * row_height;
+                div().mt(px(offset)).child(self.key_help_window(&text, cx))
+            });
+        let popup = div()
+            .flex()
+            .flex_row()
+            .items_start()
+            .child(list_box)
+            .children(help);
         Some(
             deferred(
                 anchored()
@@ -462,14 +479,31 @@ mod tests {
 
     #[test]
     fn the_keys_of_the_list_follow_ckhokanmgr_keyproc() {
-        assert_eq!(list_key("down"), Some(ListKey::Move(1)));
-        assert_eq!(list_key("up"), Some(ListKey::Move(-1)));
-        assert_eq!(list_key("enter"), Some(ListKey::Insert));
-        assert_eq!(list_key("right"), Some(ListKey::Insert));
-        assert_eq!(list_key("escape"), Some(ListKey::Close));
+        let keys = HelperPrefs::default();
+        assert_eq!(list_key("down", &keys), Some(ListKey::Move(1)));
+        assert_eq!(list_key("up", &keys), Some(ListKey::Move(-1)));
+        assert_eq!(list_key("enter", &keys), Some(ListKey::Insert));
+        assert_eq!(list_key("right", &keys), Some(ListKey::Insert));
+        assert_eq!(list_key("escape", &keys), Some(ListKey::Close));
         // Tab is off in Sakura's defaults, and Left goes on to the editor
-        assert_eq!(list_key("tab"), None);
-        assert_eq!(list_key("left"), None);
-        assert_eq!(list_key("a"), None);
+        assert_eq!(list_key("tab", &keys), None);
+        assert_eq!(list_key("left", &keys), None);
+        assert_eq!(list_key("a", &keys), None);
+    }
+
+    #[test]
+    fn the_keys_that_choose_a_candidate_are_the_ones_of_the_page() {
+        // `CommonSetting_Helper::m_bHokanKey_*`
+        let keys = HelperPrefs {
+            hokan_key_return: false,
+            hokan_key_tab: true,
+            hokan_key_right: false,
+            ..HelperPrefs::default()
+        };
+        assert_eq!(list_key("enter", &keys), None);
+        assert_eq!(list_key("right", &keys), None);
+        assert_eq!(list_key("tab", &keys), Some(ListKey::Insert));
+        // the other keys do not depend on them
+        assert_eq!(list_key("down", &keys), Some(ListKey::Move(1)));
     }
 }

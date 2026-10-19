@@ -156,6 +156,42 @@ fn tab_does_not_insert_with_sakuras_default_settings(cx: &mut TestAppContext) {
     assert_eq!(f.text(cx), "apple apricot\nap\t");
 }
 
+/// The keys of the page 支援 that choose a candidate, for the test.
+fn choose_with(cx: &mut VisualTestContext, enter: bool, tab: bool, right: bool) {
+    cx.update(|_, app| {
+        app.set_global(crate::support::prefs::HelperPrefs {
+            hokan_key_return: enter,
+            hokan_key_tab: tab,
+            hokan_key_right: right,
+            ..Default::default()
+        });
+    });
+}
+
+#[gpui::test]
+fn tab_inserts_when_the_page_turns_it_on(cx: &mut TestAppContext) {
+    // 「候補決定キー」 of the page 支援
+    let (f, cx) = setup(cx, "apple apricot\nap");
+    choose_with(cx, true, true, true);
+    cx.simulate_keystrokes("ctrl-space tab");
+    assert_eq!(f.text(cx), "apple apricot\napple");
+    assert_eq!(f.list(cx), None);
+}
+
+#[gpui::test]
+fn enter_and_right_go_to_the_editor_when_the_page_turns_them_off(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "apple apricot\nap");
+    choose_with(cx, false, false, false);
+    cx.simulate_keystrokes("ctrl-space right");
+    // Right is not a key of the list: the list closes and the caret stays at the end
+    assert_eq!(f.list(cx), None);
+    assert_eq!(f.text(cx), "apple apricot\nap");
+    cx.simulate_keystrokes("ctrl-space enter");
+    assert_eq!(f.list(cx), None);
+    // Enter is a line break again
+    assert_eq!(f.text(cx), "apple apricot\nap\n");
+}
+
 #[gpui::test]
 fn the_insertion_is_one_undo_step(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "apple apricot\nap");

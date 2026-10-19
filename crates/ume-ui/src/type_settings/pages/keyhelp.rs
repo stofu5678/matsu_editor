@@ -10,14 +10,15 @@
 //! The list shows the use of a dictionary as a column 使用 with ○ or ×, which can be typed in the
 //! edit box; Sakura has a check box in each row of the list.
 //!
-//! Not available yet: UME Editor has no keyword help (the tip with the meaning of the word under
-//! the mouse or the caret, `CEditView::KeySearchCore`), so the settings of the feature show what
-//! the file has (`bUseKeyWordHelp`, `bUseKeyHelpAllSearch`, `bUseKeyHelpKeyDisp`,
-//! `bUseKeyHelpPrefix`, `nKeyHelpRMenuShowType`) and nothing is written for them; the list can be
-//! edited all the same, so that the dictionaries are ready when the feature comes. インポート and
-//! エクスポート of the list (`CImpExpKeyHelp`) are not here either.
+//! Live, all of it: the check box that turns the feature on (everything else on the page is grey
+//! while it is off, `IDC_CHECK_KEYHELP`), ヒットした次の辞書も検索, キーワードも表示する, 選択範囲で前方
+//! 一致検索, the choice for the right-click menu, and インポート and エクスポート of the list
+//! (`CImpExpKeyHelp`, [`super::keyhelp_io`]). The window looks the word up as these say
+//! ([`crate::key_help`]).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+use gpui::PromptLevel;
 
 use ume_config::Profile;
 use ume_config::settings::KeyHelpDict;
@@ -25,9 +26,11 @@ use ume_config::settings::type_rules::{DICT_ABOUT_LEN, MAX_KEYHELP_FILES};
 use ume_core::encoding::Encoding;
 
 use super::super::ids::*;
+use super::keyhelp_io;
 use crate::common_settings::CommonSettingsDialog;
-use crate::common_settings::model::{Control, Item};
+use crate::common_settings::model::{Control, Item, Values};
 use crate::common_settings::table::{Column, Op, Row, Storage, TableSpec};
+use crate::file_dialog::{self, Ask};
 
 /// `STR_KEYHELP_RMENU_NONE`, `_TOP` and `_BOTTOM` (`EKeyHelpRMenuType`): whether the right-click
 /// menu shows the meaning of the word, and where.
@@ -176,31 +179,141 @@ fn read_start(path: &Path) -> std::io::Result<Vec<u8>> {
     Ok(bytes)
 }
 
-fn no_action(
-    _: &mut CommonSettingsDialog,
-    _: &mut gpui::Window,
-    _: &mut gpui::Context<CommonSettingsDialog>,
-) {
+/// The page is grey while the feature is off (`IDC_CHECK_KEYHELP`, `BN_CLICKED`).
+fn feature_on(values: &Values) -> bool {
+    values.bool(USE_KEYHELP)
 }
 
-fn button(id: &'static str, label: &'static str) -> Item {
-    Control::button(id, label, no_action).unavailable().into()
+fn say(message: &str, window: &mut gpui::Window, cx: &mut gpui::Context<CommonSettingsDialog>) {
+    // Nobody waits for this answer.
+    drop(window.prompt(PromptLevel::Info, message, None, &["OK"], cx));
+}
+
+/// The folder of the settings file, where a relative path starts.
+fn ini_dir(cx: &gpui::App) -> Option<PathBuf> {
+    crate::doc_types::with_user(cx, |user| {
+        crate::settings::history_file(user).and_then(|path| path.parent().map(Path::to_owned))
+    })
+}
+
+/// `IDC_BUTTON_KEYHELP_IMPORT` (`CImpExpManager::ImportUI`): reads a file over the list. A file
+/// that cannot be opened is said so and changes nothing; lines that cannot be read are counted
+/// in a message after the import.
+fn import_list(
+    _: &mut CommonSettingsDialog,
+    window: &mut gpui::Window,
+    cx: &mut gpui::Context<CommonSettingsDialog>,
+) {
+    let receiver = file_dialog::ask(
+        window,
+        cx,
+        Ask::open(false).titled("キーワードヘルプのインポート", "インポート"),
+    );
+    cx.spawn_in(window, async move |this, cx| {
+        let chosen = receiver.await.ok().flatten();
+        if let Some(path) = chosen.and_then(|paths| paths.into_iter().next()) {
+            this.update_in(cx, |this, window, cx| import_file(this, &path, window, cx))
+                .ok();
+        }
+    })
+    .detach();
+}
+
+/// Reads the file `path` into the list.
+pub(in crate::type_settings) fn import_file(
+    dialog: &mut CommonSettingsDialog,
+    path: &Path,
+    window: &mut gpui::Window,
+    cx: &mut gpui::Context<CommonSettingsDialog>,
+) {
+    let Ok(bytes) = std::fs::read(path) else {
+        // `STR_IMPEXP_ERR_FILEOPEN`
+        say(
+            &format!("ファイルを開けませんでした。\n\n{}", path.display()),
+            window,
+            cx,
+        );
+        return;
+    };
+    let base = ini_dir(cx);
+    let imported = keyhelp_io::import(&keyhelp_io::lines_of(&bytes), |p| {
+        keyhelp_io::opens(p, base.as_deref())
+    });
+    let rows = imported.dicts.iter().map(row_of).collect();
+    dialog.replace_rows(KEYHELP_LIST, rows, window, cx);
+    if !imported.message.is_empty() {
+        say(&imported.message, window, cx);
+    }
+}
+
+/// `IDC_BUTTON_KEYHELP_EXPORT` (`CImpExpManager::ExportUI`): writes the list to a file.
+fn export_list(
+    _: &mut CommonSettingsDialog,
+    window: &mut gpui::Window,
+    cx: &mut gpui::Context<CommonSettingsDialog>,
+) {
+    let receiver = file_dialog::ask(window, cx, Ask::save().name(Some("keyhelp.txt".to_owned())));
+    cx.spawn_in(window, async move |this, cx| {
+        let chosen = receiver
+            .await
+            .ok()
+            .flatten()
+            .and_then(|paths| paths.into_iter().next());
+        if let Some(path) = chosen {
+            this.update_in(cx, |this, window, cx| export_file(this, &path, window, cx))
+                .ok();
+        }
+    })
+    .detach();
+}
+
+/// Writes the list to the file `path`.
+pub(in crate::type_settings) fn export_file(
+    dialog: &mut CommonSettingsDialog,
+    path: &Path,
+    window: &mut gpui::Window,
+    cx: &mut gpui::Context<CommonSettingsDialog>,
+) {
+    // `GetData`: a row without a file is not a dictionary.
+    let dicts: Vec<KeyHelpDict> = dialog
+        .values()
+        .rows(KEYHELP_LIST)
+        .iter()
+        .filter(|row| !row[0].is_empty())
+        .map(dict_of)
+        .collect();
+    let written = std::fs::write(path, keyhelp_io::export(&dicts)).is_ok();
+    say(
+        &if written {
+            // `STR_IMPEXP_OK_EXPORT`
+            format!("ファイルをエクスポートしました。\n\n{}", path.display())
+        } else {
+            // `STR_IMPEXP_ERR_EXPORT`
+            format!("エクスポート出来ませんでした。\n\n{}", path.display())
+        },
+        window,
+        cx,
+    );
 }
 
 fn check(id: &'static str, label: &'static str) -> Item {
-    Control::check(id, label, "", false).unavailable().into()
+    Control::check(id, label, "", false).when(feature_on).into()
 }
 
 pub(in crate::type_settings) fn items() -> Vec<Item> {
     vec![
-        Control::check(USE_KEYHELP, "キーワードヘルプ機能を使う(&K)", "", false)
-            .unavailable()
+        Control::check(USE_KEYHELP, "キーワードヘルプ機能を使う(&K)", "", false).into(),
+        Control::table(KEYHELP_LIST, "辞書ファイル一覧(&L)", &LIST)
+            .when(feature_on)
             .into(),
-        Control::table(KEYHELP_LIST, "辞書ファイル一覧(&L)", &LIST).into(),
         Item::Row(vec![
             check(KEYHELP_ALL_SEARCH, "ヒットした次の辞書も検索(&A)"),
-            button(KEYHELP_IMPORT, "インポート(&I)..."),
-            button(KEYHELP_EXPORT, "エクスポート(&X)..."),
+            Control::button(KEYHELP_IMPORT, "インポート(&I)...", import_list)
+                .when(feature_on)
+                .into(),
+            Control::button(KEYHELP_EXPORT, "エクスポート(&X)...", export_list)
+                .when(feature_on)
+                .into(),
         ]),
         check(KEYHELP_KEY_DISP, "キーワードも表示する(&W)"),
         Item::Row(vec![
@@ -212,7 +325,7 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                 RMENU_DEFAULT,
                 RMENU_TYPES,
             )
-            .unavailable()
+            .when(feature_on)
             .into(),
         ]),
     ]

@@ -217,8 +217,25 @@ pub struct TypeSettings {
     pub use_hokan_by_file: bool,
     /// `bUseHokanByKeyword`: the input completion offers the highlighted keywords.
     pub use_hokan_by_keyword: bool,
+    /// `bUseKeyWordHelp`: the keyword help is on.
+    pub use_key_word_help: bool,
+    /// `bUseKeyHelpAllSearch`: the dictionaries after the one that hit are searched too.
+    pub use_key_help_all_search: bool,
+    /// `bUseKeyHelpKeyDisp`: the first line of the tip shows the keyword.
+    pub use_key_help_key_disp: bool,
+    /// `bUseKeyHelpPrefix`: a dictionary key that starts with the word counts as a hit.
+    pub use_key_help_prefix: bool,
+    /// `nKeyHelpRMenuShowType` (`EKeyHelpRMenuType`): 0 not in the right-click menu, 1 at the
+    /// top, 2 at the bottom.
+    pub key_help_rmenu_show_type: i32,
     /// `m_KeyHelpArr` (`KDct[NN]`): the keyword help dictionaries, the first has the priority.
     pub key_help: Vec<KeyHelpDict>,
+    /// `szExtHelp`: the external help file of this type (empty: the one of the common settings).
+    pub ext_help: String,
+    /// `szExtHtmlHelp`: the external HTML help file of this type.
+    pub ext_html_help: String,
+    /// `bTypeHtmlHelpIsSingle`: one viewer for the HTML help of this type.
+    pub html_help_is_single: bool,
     /// `bUseTypeFont`: this type has its own font.
     pub use_type_font: bool,
     /// `lf`, `lfFaceName`, `nPointSize` of this type.
@@ -305,7 +322,16 @@ impl Default for TypeSettings {
             hokan_lo_hi_case: false,
             use_hokan_by_file: true,
             use_hokan_by_keyword: false,
+            // `_DefaultConfig` (`CType.cpp`): the keyword help is off, the menu shows it at the top.
+            use_key_word_help: false,
+            use_key_help_all_search: false,
+            use_key_help_key_disp: false,
+            use_key_help_prefix: false,
+            key_help_rmenu_show_type: 1,
             key_help: Vec::new(),
+            ext_help: String::new(),
+            ext_html_help: String::new(),
+            html_help_is_single: true,
             use_type_font: false,
             // `_DefaultConfig` does not set `m_lf`; an unused, zeroed font.
             font: FontSetting {
@@ -486,7 +512,46 @@ impl TypeSettings {
             KINSOKU_SIZE,
         );
         read_bool(profile, s, "bChkEnterAtEnd", &mut self.warn_mixed_eol);
+        read_bool(profile, s, "bUseKeyWordHelp", &mut self.use_key_word_help);
+        read_bool(
+            profile,
+            s,
+            "bUseKeyHelpAllSearch",
+            &mut self.use_key_help_all_search,
+        );
+        read_bool(
+            profile,
+            s,
+            "bUseKeyHelpKeyDisp",
+            &mut self.use_key_help_key_disp,
+        );
+        read_bool(
+            profile,
+            s,
+            "bUseKeyHelpPrefix",
+            &mut self.use_key_help_prefix,
+        );
+        read_i32(
+            profile,
+            s,
+            "nKeyHelpRMenuShowType",
+            &mut self.key_help_rmenu_show_type,
+        );
         self.read_key_help(profile, s);
+        read_string(profile, s, "szExtHelp", &mut self.ext_help, MAX_PATH);
+        read_string(
+            profile,
+            s,
+            "szExtHtmlHelp",
+            &mut self.ext_html_help,
+            MAX_PATH,
+        );
+        read_bool(
+            profile,
+            s,
+            "bTypeHtmlHelpIsSingle",
+            &mut self.html_help_is_single,
+        );
         read_string(profile, s, "szHokanFile", &mut self.hokan_file, MAX_PATH);
         read_i32(profile, s, "nHokanType", &mut self.hokan_type);
         read_bool(profile, s, "bHokanLoHiCase", &mut self.hokan_lo_hi_case);
@@ -725,7 +790,15 @@ impl TypeSettings {
         profile.set_bool(s, "bHokanLoHiCase", self.hokan_lo_hi_case)?;
         profile.set_bool(s, "bUseHokanByFile", self.use_hokan_by_file)?;
         profile.set_bool(s, "bUseHokanByKeyword", self.use_hokan_by_keyword)?;
+        profile.set_bool(s, "bUseKeyWordHelp", self.use_key_word_help)?;
+        profile.set_bool(s, "bUseKeyHelpAllSearch", self.use_key_help_all_search)?;
+        profile.set_bool(s, "bUseKeyHelpKeyDisp", self.use_key_help_key_disp)?;
+        profile.set_bool(s, "bUseKeyHelpPrefix", self.use_key_help_prefix)?;
+        profile.set_i32(s, "nKeyHelpRMenuShowType", self.key_help_rmenu_show_type)?;
         self.write_key_help(profile, s)?;
+        profile.set_string(s, "szExtHelp", &self.ext_help)?;
+        profile.set_string(s, "szExtHtmlHelp", &self.ext_html_help)?;
+        profile.set_bool(s, "bTypeHtmlHelpIsSingle", self.html_help_is_single)?;
         profile.set_bool(s, "bUseTypeFont", self.use_type_font)?;
         self.write_rules(profile, s)?;
         // Sakura always writes the font of the type (an all-zero one when the type has none). A type that does
@@ -1142,6 +1215,39 @@ mod tests {
         assert_eq!(TypeSettings::read(&out, 2), t);
         assert_eq!(out.get("Types(2)", "szHokanFile"), Some("words.kwd"));
         assert_eq!(out.get("Types(2)", "bUseHokanByFile"), Some("0"));
+    }
+
+    #[test]
+    fn the_keyword_help_options_and_the_help_files_are_read_written_and_default_like_sakura() {
+        // `_DefaultConfig`: the keyword help is off and the menu shows it at the top; no external
+        // help files, and one viewer for the HTML help.
+        let t = TypeSettings::basic();
+        assert!(!t.use_key_word_help && !t.use_key_help_all_search);
+        assert!(!t.use_key_help_key_disp && !t.use_key_help_prefix);
+        assert_eq!(t.key_help_rmenu_show_type, 1);
+        assert_eq!((t.ext_help.as_str(), t.ext_html_help.as_str()), ("", ""));
+        assert!(t.html_help_is_single);
+        let p = Profile::from_bytes(&utf8(
+            "[Types(2)]\r\nbUseKeyWordHelp=1\r\nbUseKeyHelpAllSearch=1\r\nbUseKeyHelpKeyDisp=1\r\n\
+             bUseKeyHelpPrefix=1\r\nnKeyHelpRMenuShowType=2\r\nszExtHelp=a.hlp\r\n\
+             szExtHtmlHelp=b.chm\r\nbTypeHtmlHelpIsSingle=0\r\n",
+        ));
+        let t = TypeSettings::read(&p, 2);
+        assert!(t.use_key_word_help && t.use_key_help_all_search);
+        assert!(t.use_key_help_key_disp && t.use_key_help_prefix);
+        assert_eq!(t.key_help_rmenu_show_type, 2);
+        assert_eq!(
+            (t.ext_help.as_str(), t.ext_html_help.as_str()),
+            ("a.hlp", "b.chm")
+        );
+        assert!(!t.html_help_is_single);
+        let mut out = Profile::new();
+        t.write(&mut out, 2).unwrap();
+        assert_eq!(TypeSettings::read(&out, 2), t);
+        assert_eq!(out.get("Types(2)", "bUseKeyHelpPrefix"), Some("1"));
+        assert_eq!(out.get("Types(2)", "nKeyHelpRMenuShowType"), Some("2"));
+        assert_eq!(out.get("Types(2)", "bTypeHtmlHelpIsSingle"), Some("0"));
+        assert_eq!(out.get("Types(2)", "szExtHtmlHelp"), Some("b.chm"));
     }
 
     #[test]

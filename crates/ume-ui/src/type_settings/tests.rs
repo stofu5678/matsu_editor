@@ -1022,7 +1022,9 @@ fn the_support_page_shows_sakuras_defaults_and_what_the_file_says(cx: &mut TestA
 }
 
 #[gpui::test]
-fn the_completion_settings_are_live_and_the_rest_is_greyed_out(cx: &mut TestAppContext) {
+fn the_completion_and_help_file_settings_are_live_and_the_rest_is_greyed_out(
+    cx: &mut TestAppContext,
+) {
     let (_ini, a) = setup(cx, "");
     run(cx, a, "F_OPTION_TYPE", &[]);
     with_dialog(cx, |d, _, dcx| d.select_index(3, dcx));
@@ -1032,16 +1034,16 @@ fn the_completion_settings_are_live_and_the_rest_is_greyed_out(cx: &mut TestAppC
         HOKAN_LO_HI_CASE,
         HOKAN_BY_FILE,
         HOKAN_BY_KEYWORD,
-    ] {
-        assert!(usable(cx, id), "{id}");
-    }
-    for id in [
-        HOKAN_TYPE,
         EXT_HELP,
         EXT_HELP_BROWSE,
         EXT_HTML_HELP,
         EXT_HTML_HELP_BROWSE,
         HTML_HELP_SINGLE,
+    ] {
+        assert!(usable(cx, id), "{id}");
+    }
+    for id in [
+        HOKAN_TYPE,
         CHK_ENTER_AT_END,
         INDENT_CPP_STRING,
         INDENT_CPP_COMMENT,
@@ -1051,6 +1053,24 @@ fn the_completion_settings_are_live_and_the_rest_is_greyed_out(cx: &mut TestAppC
         assert!(!usable(cx, id), "{id}");
     }
     cancel(cx);
+}
+
+#[gpui::test]
+fn ok_writes_the_external_help_files_of_the_type(cx: &mut TestAppContext) {
+    // `CPropTypesSupport::GetData`
+    let (ini, a) = setup(cx, "[Types(0)]\r\nszExtHelp=old.chm\r\n");
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    with_dialog(cx, |d, _, dcx| d.select_index(3, dcx));
+    assert_eq!(value(cx, EXT_HELP), Value::Text("old.chm".to_owned()));
+    assert_eq!(value(cx, HTML_HELP_SINGLE), Value::Bool(true));
+    type_in(cx, EXT_HELP, "docs/new.hlp");
+    type_in(cx, EXT_HTML_HELP, "html.chm");
+    check(cx, HTML_HELP_SINGLE, false);
+    ok(cx);
+    let get = |key: &str| ini.get("Types(0)", key).unwrap_or_default();
+    assert_eq!(get("szExtHelp"), "docs/new.hlp");
+    assert_eq!(get("szExtHtmlHelp"), "html.chm");
+    assert_eq!(get("bTypeHtmlHelpIsSingle"), "0");
 }
 
 #[gpui::test]

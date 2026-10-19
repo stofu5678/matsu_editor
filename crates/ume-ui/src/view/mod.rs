@@ -404,6 +404,8 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        // Whatever runs the function (a menu, a macro), the tip goes and the wait starts again.
+        self.key_help_restart(window, cx);
         if let Some(reg) = Registry::global().get_by_code(code) {
             self.run_registration(reg, args, cx)
         } else if let Some(reg) = UiRegistry::global().get_by_code(code) {
@@ -626,6 +628,7 @@ impl EditorView {
     // ---- keys ----
 
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        self.key_help_restart(window, cx);
         // The completion list takes its keys first (Sakura: `CHokanMgr::KeyProc`).
         if self.completion_key(event, cx) {
             cx.stop_propagation();
@@ -713,6 +716,10 @@ impl Focusable for EditorView {
 
 impl Render for EditorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // A tip does not outlive the focus of the view (another pane, a panel).
+        if self.support.key_help.tip.is_some() && !self.focus_handle.is_focused(window) {
+            self.support.key_help.tip = None;
+        }
         self.follow_window_width(cx);
         self.advance_layout(window, cx);
         self.advance_colors(window, cx);
@@ -747,6 +754,16 @@ impl Render for EditorView {
             .on_action(cx.listener(|this, a: &RunFunction, window, cx| {
                 this.run_function(a.code, &[], window, cx);
             }))
+            .on_action(
+                cx.listener(|this, _: &crate::key_help::CopyKeyHelp, _, cx| {
+                    this.copy_key_help(cx);
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &crate::key_help::OpenKeyHelpDict, window, cx| {
+                    this.open_key_help_dict(window, cx);
+                }),
+            )
             .on_action(cx.listener(|this, a: &OpenRecentFile, window, cx| {
                 this.open_recent_file(a.path.clone(), window, cx);
             }))

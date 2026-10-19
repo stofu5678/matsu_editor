@@ -36,6 +36,7 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         window.focus(&self.focus_handle, cx);
+        self.hide_key_help(cx);
         let Some(paint) = self.paint else {
             return;
         };
@@ -102,9 +103,10 @@ impl EditorView {
     pub(crate) fn on_mouse_move(
         &mut self,
         event: &MouseMoveEvent,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.key_help_pointer_moved(event.position, event.pressed_button.is_some(), window, cx);
         if event.pressed_button != Some(MouseButton::Left) {
             self.drag = Drag::None;
             return;
@@ -139,7 +141,14 @@ impl EditorView {
         }
     }
 
-    pub(crate) fn on_mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn on_mouse_up(
+        &mut self,
+        _: &MouseUpEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // The selection by the mouse is done: the tip may come for what is selected.
+        self.key_help_restart(window, cx);
         if self.drag != Drag::None {
             self.drag = Drag::None;
             cx.notify();
@@ -152,6 +161,7 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.hide_key_help(cx);
         self.handle_wheel(event, window, cx);
     }
 

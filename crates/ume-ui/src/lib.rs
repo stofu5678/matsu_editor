@@ -42,6 +42,7 @@ pub mod grep;
 mod history;
 pub mod hit;
 mod input_dialog;
+mod key_help;
 pub mod keys;
 pub mod launch;
 pub mod layout_adapter;
