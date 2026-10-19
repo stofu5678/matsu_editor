@@ -46,6 +46,7 @@ pub(crate) struct SearchBox {
     list_scroll: ScrollHandle,
     /// The pane that was the active one when the field got the focus: the text is its search key
     /// when the focus leaves, even if the focus leaves because another tab became the active one.
+    /// `None` when the focus is not in the field, or the text was taken already.
     owner: Option<WeakEntity<EditorView>>,
     _subscriptions: Vec<Subscription>,
 }
@@ -177,8 +178,8 @@ impl SearchBox {
     /// `CBN_KILLFOCUS`: what is in the box when the focus leaves is the search key.
     pub(in crate::bars) fn take_as_key(&mut self, cx: &mut Context<Self>) {
         let text = self.text(cx);
-        let owner = self.owner.take().and_then(|owner| owner.upgrade());
-        let Some(editor) = owner.or_else(|| self.editor(cx)) else {
+        // No session: the focus left already and the text was taken then.
+        let Some(editor) = self.owner.take().and_then(|owner| owner.upgrade()) else {
             return;
         };
         if text.is_empty() {
@@ -228,6 +229,8 @@ impl SearchBox {
             return;
         }
         self.dropdown = None;
+        // The text is taken here; the blur that follows has nothing to do.
+        self.owner = None;
         editor.update(cx, |editor, cx| {
             Self::make_key(editor, &text, cx);
             window.focus(&editor.focus_handle, cx);

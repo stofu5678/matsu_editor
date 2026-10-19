@@ -198,6 +198,11 @@ fn tab_and_escape_give_the_focus_back_and_the_text_becomes_the_key(cx: &mut Test
         assert_eq!(search_keys(cx)[0], text);
     }
     assert_eq!(search_keys(cx), ["word1", "word0"]);
+    // The blur that follows the key press must not take the text again over what a command put
+    // in the search state since.
+    editor.update(cx, |v, _| v.search.set_pattern("seeded"));
+    search_box.update(cx, |b, cx| b.take_as_key(cx));
+    assert_eq!(pattern(cx, &editor), "seeded");
 }
 
 #[gpui::test]
