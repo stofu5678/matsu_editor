@@ -28,7 +28,6 @@ fn set(name: &str, case: bool, words: &[&str]) -> Entry {
         name: name.to_owned(),
         case_sensitive: case,
         words: words.iter().map(|w| (*w).to_owned()).collect(),
-        snapshot: String::new(),
     }
 }
 
@@ -43,11 +42,11 @@ fn a_set_is_a_row_and_a_row_is_a_set() {
     let mut a = set("日本語 set", true, &["if", "while", "あ"]);
     a.origin = Some(3);
     let row = a.to_row();
-    assert_eq!(row, ["3", "日本語 set", "1", "if\twhile\tあ", ""]);
+    assert_eq!(row, ["3", "日本語 set", "1", "if\twhile\tあ"]);
     assert_eq!(Entry::from_row(&row), a);
     // A new set is in no file; an empty one has no keywords.
     let new = set("x", false, &[]);
-    assert_eq!(new.to_row(), ["+", "x", "0", "", ""]);
+    assert_eq!(new.to_row(), ["+", "x", "0", ""]);
     assert_eq!(Entry::from_row(&new.to_row()), new);
 }
 
@@ -273,7 +272,6 @@ fn the_hidden_list_starts_with_the_sets_of_the_file() {
     // Sakura's 17 sets, then UME Editor's own (ADR-0017).
     assert_eq!(rows.len(), 17 + ExtraSet::ALL.len());
     assert_eq!(&rows[0][..3], ["0", "C/C++", "1"]);
-    assert!(rows[0][4].starts_with("27:C/C++\u{1}HTML"));
     assert!(rows[0][3].split('\t').any(|w| w == "while"));
     assert_eq!(&rows[26][..2], ["26", "YAML"]);
     let file = profile(
@@ -282,8 +280,8 @@ fn the_hidden_list_starts_with_the_sets_of_the_file() {
     );
     let rows = store::SETS.load(&file);
     assert_eq!(rows.len(), 2);
-    assert_eq!(rows[0][..4], ["0", "Mine", "1", "Bar\tfoo"]);
-    assert_eq!(rows[1][..4], ["1", "Other", "0", ""]);
+    assert_eq!(rows[0], ["0", "Mine", "1", "Bar\tfoo"]);
+    assert_eq!(rows[1], ["1", "Other", "0", ""]);
 }
 
 #[test]
@@ -906,6 +904,39 @@ fn ok_writes_nothing_when_the_file_got_other_sets_while_the_dialog_was_open(
     );
     let (message, _) = cx.pending_prompt().expect("the message");
     assert!(message.contains("別の場所"), "{message}");
+    cx.simulate_prompt_answer("OK");
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn ok_writes_nothing_when_only_a_keyword_of_the_file_changed_meanwhile(cx: &mut TestAppContext) {
+    let before = "[KeyWords]\r\nnKeyWordSetNum=1\r\nszSN[00]=A\r\nnCASE[00]=1\r\nnKWN[00]=1\r\nszKW[00]=x\t\r\n";
+    let (ini, _handle) = open(cx, before);
+    let after = "[KeyWords]\r\nnKeyWordSetNum=1\r\nszSN[00]=A\r\nnCASE[00]=0\r\nnKWN[00]=2\r\nszKW[00]=x\ty\t\r\n";
+    std::fs::write(&ini.path, crate::common_settings::tests::with_bom(after)).unwrap();
+    type_word(cx, "w");
+    key(cx, 'a');
+    ok(cx);
+    let p = ini.profile();
+    assert_eq!(p.get("KeyWords", "szKW[00]"), Some("x\ty\t"));
+    assert_eq!(p.get("KeyWords", "nCASE[00]"), Some("0"));
+    let (message, _) = cx.pending_prompt().expect("the message");
+    assert!(message.contains("別の場所"), "{message}");
+    cx.simulate_prompt_answer("OK");
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn deleting_every_set_does_not_hide_a_change_of_the_file(cx: &mut TestAppContext) {
+    let one = "[KeyWords]\r\nnKeyWordSetNum=1\r\nszSN[00]=A\r\n";
+    let (ini, _handle) = open(cx, one);
+    let two = "[KeyWords]\r\nnKeyWordSetNum=2\r\nszSN[00]=A\r\nszSN[01]=B\r\n";
+    std::fs::write(&ini.path, crate::common_settings::tests::with_bom(two)).unwrap();
+    with_dialog(cx, |d, w, dcx| d.keyword_remove_set(0, w, dcx));
+    assert!(entries_in(cx).is_empty());
+    ok(cx);
+    assert_eq!(ini.profile().get("KeyWords", "nKeyWordSetNum"), Some("2"));
+    assert!(cx.pending_prompt().is_some());
     cx.simulate_prompt_answer("OK");
     cx.run_until_parked();
 }

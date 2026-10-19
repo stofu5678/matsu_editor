@@ -75,9 +75,6 @@ pub(super) struct Entry {
     pub case_sensitive: bool,
     /// The keywords in the order of the list (`m_szKeyWordArr`).
     pub words: Vec<String>,
-    /// [`signature`] of the sets of the file when the dialog opened (empty when not known): OK writes only
-    /// while the file still has those sets.
-    pub snapshot: String,
 }
 
 /// Why a button did nothing that the user should be told.
@@ -109,7 +106,6 @@ impl Entry {
             self.name.clone(),
             if self.case_sensitive { "1" } else { "0" }.to_owned(),
             self.words.join("\t"),
-            self.snapshot.clone(),
         ]
     }
 
@@ -120,7 +116,6 @@ impl Entry {
             origin: text(0).parse().ok(),
             name: text(1),
             case_sensitive: text(2) == "1",
-            snapshot: text(4),
             words: if words.is_empty() {
                 Vec::new()
             } else {
@@ -140,9 +135,7 @@ impl Entry {
 
 /// The sets of the file as the dialog starts with them.
 pub(super) fn entries_of(sets: &KeywordSets) -> Vec<Entry> {
-    let drafts = sets.drafts();
-    let snapshot = signature(drafts.iter().map(|d| d.name.as_str()));
-    drafts
+    sets.drafts()
         .into_iter()
         .enumerate()
         .map(|(i, d)| Entry {
@@ -150,16 +143,20 @@ pub(super) fn entries_of(sets: &KeywordSets) -> Vec<Entry> {
             name: d.name,
             case_sensitive: d.case_sensitive,
             words: d.words,
-            snapshot: snapshot.clone(),
         })
         .collect()
 }
 
-/// What tells that the sets of a file are the sets the dialog started from: how many there are and their
-/// names in order.
-pub(super) fn signature<'a>(names: impl IntoIterator<Item = &'a str>) -> String {
-    let names: Vec<&str> = names.into_iter().collect();
-    format!("{}:{}", names.len(), names.join("\u{1}"))
+/// A number that tells the sets of the file as they are (names, case rules and keywords, in order): the
+/// dialog keeps the one of the file it started from.
+pub(super) fn stamp_of(sets: &KeywordSets) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for draft in sets.drafts() {
+        (draft.name, draft.case_sensitive, draft.words).hash(&mut hasher);
+    }
+    sets.len().hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
 }
 
 pub(super) fn rows_of(entries: &[Entry]) -> Vec<Row> {
@@ -246,16 +243,11 @@ pub(super) fn add_set(entries: &mut Vec<Entry>, name: &str) -> Result<Option<usi
     if free(entries) < BLOCK {
         return Err(Refused::NoRoom);
     }
-    let snapshot = entries
-        .first()
-        .map(|e| e.snapshot.clone())
-        .unwrap_or_default();
     entries.push(Entry {
         origin: None,
         name,
         case_sensitive: false,
         words: Vec::new(),
-        snapshot,
     });
     Ok(Some(entries.len() - 1))
 }

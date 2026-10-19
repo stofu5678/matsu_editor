@@ -35,6 +35,8 @@ use entry::{Edited, Entry, Refused, from_rows, rows_of};
 
 /// The sets, as the rows of a hidden list.
 pub(super) const SETS: &str = "keyword_sets";
+/// What the sets of the file were when the dialog opened (one row); OK writes only while the file still has them.
+const STAMP: &str = "keyword_stamp";
 /// The number of the set that is chosen (`m_nCurrentKeyWordSetIdx`, `nCurrentKeyWordSetIdx`).
 const CURRENT: &str = "keyword_current";
 /// The keyword that is chosen, as its place in the set (`LVITEM::lParam`), or -1.
@@ -123,6 +125,7 @@ fn toggle_case(values: &mut Values, id: &'static str) {
 pub(in crate::common_settings) fn items() -> Option<Vec<Item>> {
     Some(vec![
         Item::Hidden(vec![
+            Control::table(STAMP, "", &store::STAMP),
             Control::table(SETS, "", &store::SETS),
             Control::choice(CURRENT, "", "nCurrentKeyWordSetIdx", 0, &[])
                 .in_section(ume_config::settings::keywords::SECTION)
@@ -205,16 +208,7 @@ pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: O
         return;
     }
     // The file had other sets than the dialog started from (it was changed meanwhile): `store` wrote nothing.
-    let wanted = entry::signature(from_rows(after.rows(SETS)).iter().map(|e| e.name.as_str()));
-    let now = crate::doc_types::with_user(env.cx, |user| {
-        entry::signature(
-            user.document_types()
-                .keywords()
-                .iter()
-                .map(|s| s.name.as_str()),
-        )
-    });
-    if wanted != now {
+    if store::stale() {
         if let Some(opener) = env.opener {
             opener
                 .update(env.cx, |_, window, cx| {
