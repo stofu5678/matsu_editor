@@ -52,8 +52,7 @@
 //!   items stay gray).
 //! * The `IsFuncEnable` cases that need state UME does not have: the clipboard (`F_PASTE`, whose
 //!   read is slow on Wayland), the box functions (a fixed-pitch font), the limit of windows
-//!   (there is none), a change of the encoding that makes `F_FILESAVE` write an unmodified file,
-//!   and whether PowerShell is installed. Another
+//!   (there is none), and whether PowerShell is installed. Another
 //!   window that records a key macro is not known either.
 
 use gpui::{Action, App, MenuItem, OwnedMenuItem};
@@ -110,6 +109,8 @@ pub(crate) struct FuncStates {
     pub path: Option<std::path::PathBuf>,
     /// `IsModified`.
     pub modified: bool,
+    /// `IsChgCodeSet`: the encoding or the BOM was changed (`F_CHG_CHARSET`).
+    pub format_changed: bool,
     /// The search history has a string (`m_aSearchKeys`).
     pub has_search_keys: bool,
     /// The view remembers where the search began (`m_ptSrchStartPos_PHY`).
@@ -176,6 +177,7 @@ impl FuncStates {
                 .is_some_and(ume_platform::shell::is_unc_path),
             path: path.map(std::path::Path::to_path_buf),
             modified: shared.model().is_modified(),
+            format_changed: shared.format_changed(),
             has_search_keys: !crate::search::history::search_keys(cx).is_empty(),
             has_search_start: view.search.start_pos().is_some(),
             open_documents,
@@ -260,13 +262,14 @@ impl FuncStates {
             "F_JUMP_SRCHSTARTPOS" => self.has_search_start,
             "F_COMPARE" => self.open_documents >= 2,
             "F_DIFF_NEXT" | "F_DIFF_PREV" | "F_DIFF_RESET" => self.diff_shown,
-            // View mode is refused above. Then a save is possible when the document is modified
-            // or `m_bEnableUnmodifiedOverwrite` is on. (Sakura also looks at a change of the
-            // encoding.) A named file that is not on disk yet is created by a save even when
-            // unmodified (`on_disk` in `file_ops::save`).
+            // View mode is refused above. Then a save is possible when the document is modified,
+            // its encoding or BOM was changed, or `m_bEnableUnmodifiedOverwrite` is on. A named
+            // file that is not on disk yet is created by a save even when unmodified (`on_disk`
+            // in `file_ops::save`).
             "F_FILESAVE" => {
                 !self.view_mode
                     && (self.modified
+                        || self.format_changed
                         || self.unmodified_overwrite
                         || self.path.as_deref().is_some_and(|p| !disk::exists(p)))
             }

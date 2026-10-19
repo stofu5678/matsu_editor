@@ -193,3 +193,83 @@ fn the_dialog_has_no_line_ending_field(cx: &mut TestAppContext) {
     assert!(!f.dialog_open(cx));
     assert_eq!(f.format(cx), (Encoding::Utf8, false), "Cancel was pressed");
 }
+
+// ---- a file on disk: the change is saved and asked about although the text is unmodified ----
+
+/// A window with `bytes` read from a file in `dir` as UTF-8.
+fn open_file<'a>(
+    cx: &'a mut TestAppContext,
+    dir: &tempfile::TempDir,
+    bytes: &[u8],
+) -> (Fixture, PathBuf, &'a mut VisualTestContext) {
+    let (f, cx) = setup(cx, "");
+    let path = dir.path().join("a.txt");
+    std::fs::write(&path, bytes).unwrap();
+    f.run(
+        cx,
+        "F_FILEOPEN",
+        &[Arg::Text(path.to_string_lossy().into_owned()), Arg::Int(4)],
+    );
+    (f, path, cx)
+}
+
+#[gpui::test]
+fn a_plain_save_writes_the_new_encoding_of_an_unmodified_file(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let (f, path, cx) = open_file(cx, &dir, "日本語".as_bytes());
+    // nothing changed: nothing is written
+    f.run(cx, "F_FILESAVE", &[]);
+    assert_eq!(std::fs::read(&path).unwrap(), "日本語".as_bytes());
+    // `CDocFile::IsChgCodeSet`: the change makes the save write
+    f.run(cx, "F_CHG_CHARSET", &[Arg::Int(0)]);
+    assert!(f.document.read_with(cx, |s, _| s.format_changed()));
+    f.run(cx, "F_FILESAVE", &[]);
+    assert_eq!(std::fs::read(&path).unwrap(), b"\x93\xFA\x96\x7B\x8C\xEA");
+    // and the file is as the document is now
+    assert!(!f.document.read_with(cx, |s, _| s.format_changed()));
+    f.run(cx, "F_FILESAVE", &[]);
+    assert_eq!(std::fs::read(&path).unwrap(), b"\x93\xFA\x96\x7B\x8C\xEA");
+}
+
+#[gpui::test]
+fn choosing_the_old_encoding_again_is_no_change(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let (f, _path, cx) = open_file(cx, &dir, b"abc");
+    f.run(cx, "F_CHG_CHARSET", &[Arg::Int(0)]);
+    assert!(f.document.read_with(cx, |s, _| s.format_changed()));
+    f.run(cx, "F_CHG_CHARSET", &[Arg::Int(4)]);
+    assert!(!f.document.read_with(cx, |s, _| s.format_changed()));
+    // a document without a file has nothing to change
+    let (g, cx) = setup(cx, "abc");
+    g.run(cx, "F_CHG_CHARSET", &[Arg::Int(0)]);
+    assert!(!g.document.read_with(cx, |s, _| s.format_changed()));
+}
+
+#[gpui::test]
+fn closing_asks_about_a_changed_encoding_and_cancel_gives_it_up(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let (f, path, cx) = open_file(cx, &dir, "日本語".as_bytes());
+    f.run(cx, "F_CHG_CHARSET", &[Arg::Int(0)]);
+    // STR_CHANGE_CHARSET
+    f.run(cx, "F_FILECLOSE", &[]);
+    assert!(cx.has_pending_prompt());
+    cx.simulate_prompt_answer("キャンセル");
+    cx.run_until_parked();
+    assert_eq!(f.format(cx), (Encoding::Utf8, false), "CancelChgCodeSet");
+    // nothing to ask now
+    f.run(cx, "F_FILECLOSE", &[]);
+    assert!(!cx.has_pending_prompt());
+    assert_eq!(std::fs::read(&path).unwrap(), "日本語".as_bytes());
+}
+
+#[gpui::test]
+fn closing_can_save_the_changed_encoding(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let (f, path, cx) = open_file(cx, &dir, "日本語".as_bytes());
+    f.run(cx, "F_CHG_CHARSET", &[Arg::Int(0)]);
+    f.run(cx, "F_FILECLOSE", &[]);
+    assert!(cx.has_pending_prompt());
+    cx.simulate_prompt_answer("保存する(Y)");
+    cx.run_until_parked();
+    assert_eq!(std::fs::read(&path).unwrap(), b"\x93\xFA\x96\x7B\x8C\xEA");
+}
