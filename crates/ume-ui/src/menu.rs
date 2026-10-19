@@ -100,9 +100,12 @@ pub struct Registered;
 
 impl Available for Registered {
     fn is_available(&self, code: u16) -> bool {
-        ume_commands::registry::Registry::global()
-            .get_by_code(code)
-            .is_some()
+        // A registered macro (`F_USERMACRO_0 + n`) can always be called; Sakura does not gray out
+        // a slot that has no file (`IsFuncEnable`), the call says that it failed.
+        ume_config::settings::macros::index_of_function(code).is_some()
+            || ume_commands::registry::Registry::global()
+                .get_by_code(code)
+                .is_some()
             || crate::ui_command::UiRegistry::global()
                 .get_by_code(code)
                 .is_some()

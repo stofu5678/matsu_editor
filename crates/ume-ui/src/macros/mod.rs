@@ -630,6 +630,7 @@ impl EditorView {
             && self.macros.queue.is_empty()
         {
             self.macros.suspended = false;
+            self.macros.registered.clear_save_path();
             self.close_undo_blocks(cx);
         }
         cx.notify();
@@ -766,6 +767,7 @@ impl EditorView {
             Some(running) => running.session.cancel(),
             None => {
                 self.macros.suspended = false;
+                self.macros.registered.clear_save_path();
                 self.close_undo_blocks(cx);
             }
         }

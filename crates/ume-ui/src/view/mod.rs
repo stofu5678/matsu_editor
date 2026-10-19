@@ -407,7 +407,7 @@ impl EditorView {
             self.run_ui_registration(reg, args, window, cx)
         } else if let Some(index) = ume_config::settings::macros::index_of_function(code) {
             // A registered macro (`F_USERMACRO_0 + n`) is not in Sakura's table of functions.
-            self.run_registered_macro(index, window, cx)
+            self.run_registered_macro(index, true, window, cx)
         } else {
             let name = FUNCTIONS
                 .iter()

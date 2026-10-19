@@ -25,6 +25,7 @@ use gpui_component::button::Button;
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::{Disableable as _, h_flex, v_flex};
 use ume_commands::sakura::FUNCTIONS;
+use ume_config::settings::macros::RegisteredMacros;
 use ume_config::{Profile, ProfileError};
 
 use super::super::Env;
@@ -33,7 +34,6 @@ use super::super::func_lookup::{KINDS, codes_of_kind};
 use super::super::model::{Control, Item, Value, Values};
 use crate::bars::toolbar::ToolbarButtons;
 use crate::bars::{self, icons};
-use ume_config::settings::macros::RegisteredMacros;
 
 const SECTION: &str = "Toolbar";
 /// `MAX_TOOLBAR_BUTTON_ITEMS` (`CommonSetting.h`).

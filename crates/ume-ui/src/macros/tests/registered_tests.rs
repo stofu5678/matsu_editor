@@ -136,6 +136,42 @@ fn a_macro_is_read_again_only_when_the_page_says_so(cx: &mut TestAppContext) {
     assert_eq!(lines(&f, cx), ["AAABC"]);
 }
 
+#[gpui::test]
+fn a_registered_macro_called_while_recording_is_recorded_as_one_call(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), "a.mac", "Char(65);\n");
+    let saved = dir.path().join("saved.mac");
+    let (f, cx) = setup(cx, "");
+    settings(cx, dir.path(), "Name[000]=\nFile[000]=a.mac\n");
+    cx.simulate_keystrokes("ctrl-shift-m");
+    assert!(call(&f, cx, 0));
+    assert_eq!(lines(&f, cx), ["A"]);
+    cx.simulate_keystrokes("ctrl-m");
+    let chosen = saved.clone();
+    cx.simulate_new_path_selection(move |_| Some(chosen));
+    cx.run_until_parked();
+    let text = std::fs::read_to_string(&saved).unwrap();
+    let calls: Vec<&str> = text
+        .trim_start_matches('\u{feff}')
+        .lines()
+        .filter(|l| !l.starts_with("//") && !l.trim().is_empty())
+        .collect();
+    // One call of the file, not the `Char` it made.
+    assert_eq!(calls.len(), 1, "{text}");
+    assert!(
+        calls[0].starts_with("ExecExternalMacro(") && calls[0].contains("a.mac"),
+        "{text}"
+    );
+}
+
+#[test]
+fn every_slot_can_be_called_by_a_button_or_an_item_even_when_it_has_no_file() {
+    // Sakura does not gray out an empty slot (`IsFuncEnable`); the call tells that it failed.
+    assert!(crate::bars::is_available(31600));
+    assert!(crate::bars::is_available(31649));
+    assert!(!crate::bars::is_available(31650));
+}
+
 // ---- the names ----
 
 #[test]
@@ -347,7 +383,7 @@ fn the_macro_of_saving_is_told_the_path_of_the_save(cx: &mut TestAppContext) {
     f.wait_until_done(cx);
     let first = lines(&f, cx).remove(0);
     assert_eq!(first, format!("{}|text", target.display()));
-    // After the macro, the answer is the path of the document (none here).
-    let answer = view.update(cx, |view, _| view.macros.save_path().map(Path::to_owned));
-    assert_eq!(answer, None);
+    // After the macro, it is forgotten: a macro that starts later is not told the old path.
+    let kept = view.update(cx, |view, _| view.macros.registered.save_path().is_some());
+    assert!(!kept);
 }

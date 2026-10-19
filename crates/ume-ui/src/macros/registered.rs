@@ -22,6 +22,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use gpui::{App, AsyncWindowContext, Context, Window};
+use ume_commands::command::Arg;
 use ume_commands::key_macro::{KeyMacro, Step};
 use ume_config::settings::macros::RegisteredMacros;
 
@@ -68,6 +69,11 @@ impl State {
     /// The path of the save that the running macro is the 保存前 macro of.
     pub(super) fn save_path(&self) -> Option<&Path> {
         self.save_path.as_deref()
+    }
+
+    /// The macro that was told the path has ended.
+    pub(super) fn clear_save_path(&mut self) {
+        self.save_path = None;
     }
 }
 
@@ -154,6 +160,7 @@ impl EditorView {
     pub(crate) fn run_registered_macro(
         &mut self,
         index: usize,
+        record: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
@@ -177,6 +184,15 @@ impl EditorView {
         // A key macro that is playing may name a macro: its calls go on in the middle.
         if self.macros.running.is_some() {
             return failed(self, "マクロを実行中です", window, cx);
+        }
+        // While a key macro is recorded, the call is recorded as one call of the file, as for
+        // `F_EXECEXTMACRO` (the calls of the macro itself are not). An automatic macro is not
+        // (`FA_NONRECORD`).
+        if record && self.macros.recorder.is_recording() && !self.macros.suspended {
+            self.macros.recorder.record(
+                super::F_EXECEXTMACRO,
+                &[Arg::Text(path.to_string_lossy().into_owned())],
+            );
         }
         let result = match file_kind(&path) {
             FileKind::KeyMacro => match self.registered_steps(index, &path, rec.reload) {
@@ -236,10 +252,11 @@ impl EditorView {
             return;
         }
         self.macros.registered.save_path = save_path.map(Path::to_owned);
-        self.run_registered_macro(index, window, cx);
-        // A macro that did not start leaves nothing to clear later.
+        self.run_registered_macro(index, false, window, cx);
+        // A macro that has ended (or did not start) leaves nothing to clear later; one that goes
+        // on is cleared where it ends.
         if !self.macros.is_suspended() {
-            self.macros.registered.save_path = None;
+            self.macros.registered.clear_save_path();
         }
     }
 }
