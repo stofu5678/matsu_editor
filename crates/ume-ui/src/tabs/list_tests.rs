@@ -113,6 +113,14 @@ fn the_list_has_the_paths_when_the_setting_says_so(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn an_ampersand_in_a_name_is_shown_as_it_is(cx: &mut TestAppContext) {
+    let (handle, dir) = window_with_files(cx, "list-amp", &["a&b.txt"]);
+    run(cx, handle, "F_WINLIST");
+    assert_eq!(shape(cx, handle)[2..], ["(無題)", "*a&b.txt"]);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[gpui::test]
 fn the_paths_follow_the_file_name_display(cx: &mut TestAppContext) {
     use crate::file_names::{FileNames, NoFolders};
 

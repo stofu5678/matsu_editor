@@ -27,11 +27,11 @@ use crate::app::Workspace;
 use crate::file_ops::windows::{listed_workspaces, workspace_of};
 use crate::view::EditorView;
 
-/// `STR_TABWND_SHOWALL`.
-const SHOW_ALL: &str = "すべて表示(&A)";
+/// `STR_TABWND_SHOWALL`; the access key is shown in parentheses, as the menus of this program do.
+const SHOW_ALL: &str = "すべて表示(A)";
 /// `STR_TABWND_SHOWTABNAME`, `STR_TABWND_SHOWPATHNAME`.
-const SHOW_NAMES: &str = "タブ名一覧に切替える(&W)";
-const SHOW_PATHS: &str = "パス名一覧に切替える(&W)";
+const SHOW_NAMES: &str = "タブ名一覧に切替える(W)";
+const SHOW_PATHS: &str = "パス名一覧に切替える(W)";
 
 /// A tab in the list.
 pub(crate) struct Item<T> {
@@ -374,8 +374,6 @@ impl Render for TabList {
                     Row::Tab(item) => (item.text.clone(), item.current),
                     Row::Separator => unreachable!("handled above"),
                 };
-                // The `&` of the two items marks their access key; it is not shown.
-                let text = text.replace("(&", "(").replace('&', "");
                 let mut item = div()
                     .id(("tab-list-item", i))
                     .px_2()
