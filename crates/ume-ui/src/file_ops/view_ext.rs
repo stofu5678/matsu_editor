@@ -42,6 +42,10 @@ impl EditorView {
         let version = self
             .document
             .update(cx, |shared, cx| shared.replace_with(new, cx));
+        // `CDocLocker::OnAfterLoad`: the old document let go of its file with `replace_with`.
+        let share_mode = super::prefs::prefs(cx).file_share_mode;
+        self.document
+            .update(cx, |shared, _| shared.lock_after_load(share_mode));
         let doc = self.document.read(cx).doc();
         let mut layout = DocumentLayout::new(doc, LayoutConfig::default()).unwrap_or_else(|_| {
             DocumentLayout::new(&Document::empty(), LayoutConfig::default())
@@ -107,8 +111,16 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) -> Result<SaveReport, FileError> {
         let cursor = &self.cursor;
+        let share_mode = super::prefs::prefs(cx).file_share_mode;
         self.document.update(cx, |shared, cx| {
-            let report = shared.save_as(path, options, &mut no_progress)?;
+            // `CDocLocker::OnBeforeSave`: the save replaces the file, which a lock would refuse
+            // (Windows) or lose (the lock belongs to the old file).
+            shared.unlock_file();
+            let saved = shared.save_as(path, options, &mut no_progress);
+            // `CDocLocker::OnAfterSave`: lock the file that is there, also after a failed save
+            // (the old file is as it was).
+            shared.lock_file(share_mode);
+            let report = saved?;
             shared.parts_mut().0.mark_saved(cursor);
             cx.notify();
             Ok(report)

@@ -1152,3 +1152,39 @@ fn the_extension_functions_use_the_document_types(cx: &mut TestAppContext) {
 mod wait_tests;
 
 mod wait_tab_tests;
+
+/// The warning of a lock that failed is a box of the command: the macro that opened the file
+/// waits until it is closed. The other lock is held by the test, which `flock` honors on macOS
+/// and Linux while the file stays readable.
+#[cfg(unix)]
+#[gpui::test]
+fn a_macro_waits_for_the_warning_of_a_lock_that_failed(cx: &mut TestAppContext) {
+    use ume_platform::file_lock::{FileLock, ShareMode};
+    if !available(Language::JavaScript) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let target = write(dir.path(), "locked.txt", "abc");
+    let _other = FileLock::acquire(&target, ShareMode::DenyReadWrite).unwrap();
+    let (f, cx) = setup(cx, "");
+    cx.update(|_, app| {
+        app.set_global(crate::file_ops::prefs::FilePrefs {
+            file_share_mode: 1,
+            ..Default::default()
+        })
+    });
+    let code = format!(
+        "Editor.FileOpen({:?});\nEditor.InsText('Z');\n",
+        target.to_string_lossy()
+    );
+    let script = write(dir.path(), "open.cjs", &code);
+    let mut seen_while_boxed = None;
+    f.run_script(cx, &script, |cx| {
+        if cx.has_pending_prompt() && seen_while_boxed.is_none() {
+            seen_while_boxed = Some(f.lines(cx));
+            cx.simulate_prompt_answer("OK");
+        }
+    });
+    assert_eq!(seen_while_boxed, Some(vec!["abc".to_owned()]));
+    assert_eq!(f.lines(cx), ["Zabc"]);
+}

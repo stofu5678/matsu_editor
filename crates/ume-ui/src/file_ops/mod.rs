@@ -15,6 +15,7 @@
 //! * [`close`]: asking to save before closing, closing a file, a window, or all windows.
 //! * [`external`]: handing the file to the OS (file manager, default program, a shell in the folder).
 //! * [`header_source`]: the C/C++ header or source of the same name.
+//! * [`lock`]: keeping the open file locked against other programs (排他制御).
 //! * [`property`]: the text of the file property dialog.
 //! * [`start_options`]: what Sakura's command-line options do to the documents a launch opens.
 //! * [`windows`]: making editor windows, and finding the windows that are open.
@@ -29,6 +30,7 @@ pub(crate) mod drop_zone;
 pub(crate) mod external;
 pub(crate) mod header_source;
 pub(crate) mod load;
+pub(crate) mod lock;
 pub(crate) mod prefs;
 pub(crate) mod property;
 pub(crate) mod save;

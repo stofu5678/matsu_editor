@@ -78,6 +78,13 @@ impl UiCommand for PutFile {
             // Sakura shows a warning and the macro goes on.
             view.macro_failed(message, window, cx);
         }
+        // The file of the document may have been written: its lock was put back.
+        let failure = view
+            .document()
+            .update(cx, |shared, _| shared.take_lock_failure());
+        if let Some(failure) = failure {
+            crate::file_ops::lock::report_failure_in_view(&failure, window, cx);
+        }
         Ok(())
     }
 }
@@ -106,7 +113,11 @@ fn put_document(
     let shown = path.clone();
     view.document()
         .update(cx, |shared, _| {
-            shared.put_file(path, &options, &mut no_progress)
+            // The file of the document may be the target: its lock is let go of meanwhile.
+            let released = shared.release_lock_for(&path);
+            let written = shared.put_file(path, &options, &mut no_progress);
+            shared.restore_lock(released);
+            written
         })
         .map(|_| ())
         .map_err(|error: FileError| write_error(&shown, &error))
@@ -141,7 +152,13 @@ fn put_selection(
     if bytes.is_empty() {
         return Ok(());
     }
-    write_bytes(path, &bytes, Preserve::default()).map_err(|error| write_error(path, &error))
+    let released = view
+        .document()
+        .update(cx, |shared, _| shared.release_lock_for(path));
+    let written = write_bytes(path, &bytes, Preserve::default());
+    view.document()
+        .update(cx, |shared, _| shared.restore_lock(released));
+    written.map_err(|error| write_error(path, &error))
 }
 
 register_ui_command!(PutFile);

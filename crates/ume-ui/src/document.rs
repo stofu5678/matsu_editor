@@ -19,6 +19,7 @@ use ume_core::encoding::Encoding;
 use ume_core::file::{Progress, SaveOptions, SaveReport, TextFile, UnmappableReport};
 use ume_core::model::DocumentModel;
 
+use crate::file_ops::lock::{FileLockState, LockFailure};
 use crate::file_watch::state::{self, DiskState, WatchMode};
 use crate::settings::NewDocumentDefaults;
 
@@ -54,6 +55,9 @@ pub struct SharedDocument {
     /// The file on disk as this editor last saw it: the time stamp for the watching of changes and
     /// whether the file can be written (`crate::file_watch`).
     disk: DiskState,
+    /// The lock that keeps other programs from writing (or reading) the file while it is open
+    /// (`crate::file_ops::lock`).
+    lock: FileLockState,
 }
 
 impl EventEmitter<DocumentEvent> for SharedDocument {}
@@ -70,6 +74,7 @@ impl SharedDocument {
             type_locked: false,
             file,
             disk: DiskState::default(),
+            lock: FileLockState::default(),
         }
     }
 
@@ -89,6 +94,7 @@ impl SharedDocument {
             type_locked: false,
             file,
             disk,
+            lock: FileLockState::default(),
         }
     }
 
@@ -194,6 +200,84 @@ impl SharedDocument {
     pub(crate) fn keep_watch_mode(&mut self, from: &DiskState) {
         self.disk.mode = from.mode;
         self.disk.delay_count = from.delay_count;
+    }
+
+    /// `DoFileLock`: locks the file in the mode of the setting `mode` (`nFileShareMode`) against
+    /// other programs. Nothing is locked for a document without a file or in view mode
+    /// (`CDocFileOperation::_ToDoLock`). A failure is kept for
+    /// [`take_lock_failure`](Self::take_lock_failure).
+    pub(crate) fn lock_file(&mut self, mode: i32) {
+        let path = self.path.clone().filter(|_| !self.view_mode);
+        self.lock.lock(path.as_deref(), mode);
+    }
+
+    /// `DoFileUnlock`.
+    pub(crate) fn unlock_file(&mut self) {
+        self.lock.release();
+    }
+
+    /// `CFile::IsFileLocking`.
+    pub(crate) fn is_file_locked(&self) -> bool {
+        self.lock.is_locked()
+    }
+
+    /// The mode of the lock that is held, for the file property dialog.
+    pub(crate) fn held_lock_mode(&self) -> Option<ume_platform::file_lock::ShareMode> {
+        self.lock.held_mode()
+    }
+
+    /// The setting the document last locked with (`CDocFile::GetShareMode`).
+    pub(crate) fn lock_mode(&self) -> i32 {
+        self.lock.mode()
+    }
+
+    /// Before something else writes `target` (`F_PUTFILE`): lets go of the lock if `target` is the
+    /// file of this document, whose own lock would refuse the write (Windows) or be lost with the
+    /// replaced file. Returns whether it did, for [`restore_lock`](Self::restore_lock).
+    pub(crate) fn release_lock_for(&mut self, target: &Path) -> bool {
+        let same = self.lock.is_locked()
+            && self
+                .path
+                .as_deref()
+                .is_some_and(|path| ume_platform::file_id::same_file(path, target));
+        if same {
+            self.lock.release();
+        }
+        same
+    }
+
+    /// Takes the lock back after [`release_lock_for`](Self::release_lock_for) said it let go.
+    pub(crate) fn restore_lock(&mut self, released: bool) {
+        if released {
+            self.lock_file(self.lock.mode());
+        }
+    }
+
+    /// `CDocLocker::OnAfterLoad`: a file that cannot be written is not locked.
+    pub(crate) fn lock_after_load(&mut self, mode: i32) {
+        if self.disk.unwritable {
+            self.lock.release();
+        } else {
+            self.lock_file(mode);
+        }
+    }
+
+    /// The change of a setting or of view mode (`CEditDoc::OnChangeSetting`, `Command_VIEWMODE`):
+    /// release, check again whether the file can be written, lock.
+    pub(crate) fn relock_checking_writable(&mut self, mode: i32) {
+        self.lock.release();
+        self.disk.unwritable = self.path.as_deref().is_some_and(state::is_unwritable);
+        self.lock_after_load(mode);
+    }
+
+    /// A lock that failed and was not shown yet.
+    pub(crate) fn take_lock_failure(&mut self) -> Option<LockFailure> {
+        self.lock.take_failure()
+    }
+
+    /// Drops the failure without showing it (`DoFileLock(false)`).
+    pub(crate) fn forget_lock_failure(&mut self) {
+        self.lock.forget_failure();
     }
 
     /// Whether editing is refused because the file cannot be written

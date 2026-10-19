@@ -5,8 +5,9 @@
 //! bookmarks and the question about the encoding of last time), the drop options, which the
 //! drop of files on a window reads from the settings, the watching of changes, the files that
 //! cannot be written, the automatic save and the two warnings before a file is opened
-//! (`crate::file_watch`), the file types of the save dialog (`crate::file_dialog::save_types`) and
-//! the decoding of MIME headers of ISO-2022-JP files. Not available yet: the lock of files.
+//! (`crate::file_watch`), the file types of the save dialog (`crate::file_dialog::save_types`), the
+//! decoding of MIME headers of ISO-2022-JP files and the lock of the open files
+//! (`crate::file_ops::lock`).
 
 use super::super::Env;
 use super::super::model::{Control, Item, Values};
@@ -65,7 +66,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         0,
                         SHARE_MODES,
                     )
-                    .unavailable()
                     .into(),
                     Item::Row(vec![
                         Control::check(
@@ -253,4 +253,6 @@ pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, _before: 
         no_filter_save_file: after.bool("no_filter_save_file"),
         auto_mime_decode: after.bool("auto_mime_decode"),
     });
+    // The open documents take the new mode (`CEditDoc::OnChangeSetting`).
+    crate::file_ops::lock::apply_setting(env.cx, after.int("file_share_mode"));
 }

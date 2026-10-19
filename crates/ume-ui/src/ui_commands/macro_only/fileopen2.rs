@@ -173,6 +173,13 @@ fn read_here(
                 shared.keep_view_mode(true);
             }
             view.load_document(shared, None, cx);
+            // `CDocLocker::OnAfterLoad` may have failed to lock the file.
+            let failure = view
+                .document()
+                .update(cx, |shared, _| shared.take_lock_failure());
+            if let Some(failure) = failure {
+                crate::file_ops::lock::report_failure_in_view(&failure, window, cx);
+            }
             if let Some(entry) = &previous {
                 let options = crate::history::options(cx);
                 view.restore_from_history(entry, options, cx);
