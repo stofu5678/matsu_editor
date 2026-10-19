@@ -16,6 +16,8 @@
 mod linux;
 #[cfg(target_os = "macos")]
 mod mac;
+#[cfg(target_os = "macos")]
+mod mac_fields;
 #[cfg(windows)]
 mod windows;
 
@@ -31,6 +33,7 @@ pub use raw_window_handle::RawWindowHandle;
 
 use std::fmt;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /// Which dialog to show.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -93,7 +96,91 @@ pub struct Request {
     /// `IFileDialog::SetDefaultExtension`). Windows and macOS do it in the dialog; the portal
     /// does not, so [`show`] does it for the portal.
     pub default_extension: Option<String>,
+    /// Fields the save dialog shows next to the name (Sakura's encoding, BOM and line ending,
+    /// `CDlgOpenFile_CommonItemDialog::Customize`). The dialog does not know what they mean: it
+    /// shows them, and [`Chosen::extras`] gives back what the user chose, in the same order.
+    /// Windows shows them with `IFileDialogCustomize`, the portal as `choices`; the panel of macOS
+    /// and the dialog of GPUI have none, so [`Chosen::extras`] is empty there.
+    pub extras: Vec<Extra>,
+    /// A check box that follows a list while the dialog is open (Windows only).
+    pub follow: Option<Follow>,
 }
+
+/// One field of [`Request::extras`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Extra {
+    /// A drop-down list. `label` names its group.
+    Combo {
+        label: String,
+        items: Vec<String>,
+        selected: usize,
+    },
+    /// A check box. It sits in the group of the list before it.
+    Check {
+        label: String,
+        checked: bool,
+        enabled: bool,
+    },
+}
+
+/// What the user chose for one [`Extra`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExtraValue {
+    /// The index of the item chosen.
+    Combo(usize),
+    Check(bool),
+}
+
+/// What the user answered: the paths, and the value of every [`Request::extras`] field.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Chosen {
+    pub paths: Vec<PathBuf>,
+    /// Empty when the dialog showed no fields (its OS has none, or the request had none).
+    pub extras: Vec<ExtraValue>,
+}
+
+/// The state of a check box as a function of the item chosen in a list: `(enabled, checked)`.
+type FollowFn = dyn Fn(usize) -> (bool, bool) + Send + Sync;
+
+/// Makes the check box `check` (an index into [`Request::extras`]) follow the list `combo`: when
+/// the user chooses an item, the dialog asks `rule` for the state of the check box (Sakura's
+/// `OnItemSelected` for the BOM). It runs on the thread of the dialog.
+#[derive(Clone)]
+pub struct Follow {
+    pub combo: usize,
+    pub check: usize,
+    pub rule: Arc<FollowFn>,
+}
+
+impl Follow {
+    pub fn new(
+        combo: usize,
+        check: usize,
+        rule: impl Fn(usize) -> (bool, bool) + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            combo,
+            check,
+            rule: Arc::new(rule),
+        }
+    }
+}
+
+impl fmt::Debug for Follow {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Follow({} -> {})", self.combo, self.check)
+    }
+}
+
+impl PartialEq for Follow {
+    fn eq(&self, other: &Self) -> bool {
+        self.combo == other.combo
+            && self.check == other.check
+            && Arc::ptr_eq(&self.rule, &other.rule)
+    }
+}
+
+impl Eq for Follow {}
 
 /// Why no dialog came up, or why it failed.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -120,6 +207,11 @@ impl std::error::Error for Error {}
 /// user cancels. It does not block the thread that polls it, except on macOS, where AppKit's panel
 /// belongs to the main thread and the future must be polled there.
 pub async fn show(owner: Owner, request: Request) -> Result<Option<Vec<PathBuf>>, Error> {
+    Ok(os::show(owner, request).await?.map(|chosen| chosen.paths))
+}
+
+/// [`show`] with the values of the fields of [`Request::extras`].
+pub async fn show_with_extras(owner: Owner, request: Request) -> Result<Option<Chosen>, Error> {
     os::show(owner, request).await
 }
 

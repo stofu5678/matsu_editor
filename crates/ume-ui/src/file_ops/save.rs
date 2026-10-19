@@ -4,8 +4,10 @@
 //!
 //! 1. Find the path: the file's own, an explicit one from a macro, or the save dialog (always for
 //!    a document without a file).
-//!    A path from the save dialog is followed by the options dialog (encoding, BOM, line ending),
-//!    unless a macro passed the encoding or the line ending (`save_as_dialog`).
+//!    The save dialog has the encoding, the BOM and the line ending next to the name
+//!    (`file_dialog::save_fields`). A dialog that cannot show them (GPUI's, the fallback) is
+//!    followed by the options dialog of ours (`save_as_dialog`). A macro that passed the encoding
+//!    or the line ending skips both.
 //! 2. A plain save of an unmodified document whose encoding and BOM are as they were read writes
 //!    nothing (`DoSaveFlow`, `bChgCodeSet`, when
 //!    `m_bEnableUnmodifiedOverwrite` is off, which is Sakura's default; the page ファイル of the
@@ -28,7 +30,8 @@ use ume_core::file::{SaveOptions, no_progress};
 use super::ask::{
     Answer, ask, save_error_message, tell, unify_line_endings_message, unmappable_message,
 };
-use super::save_as_dialog::ask_options;
+use super::save_as_dialog::{SaveChoice, ask_options};
+use crate::file_dialog::save_fields::SaveFields;
 use crate::file_dialog::{self, Ask};
 use crate::view::EditorView;
 
@@ -99,6 +102,22 @@ pub(crate) async fn choose_path(
     name: Option<&str>,
     document_type: Option<usize>,
 ) -> Option<PathBuf> {
+    choose_path_and_options(cx, current, name, document_type, None)
+        .await
+        .map(|(path, _)| path)
+}
+
+/// [`choose_path`] whose dialog also has the encoding, the BOM and the line ending next to the
+/// name when `fields` is given (Sakura's dialog). The second value is what the user chose there:
+/// `None` when the dialog could not show them (GPUI's dialog, the fallback), and the caller asks
+/// another way.
+pub(crate) async fn choose_path_and_options(
+    cx: &mut AsyncWindowContext,
+    current: Option<&std::path::Path>,
+    name: Option<&str>,
+    document_type: Option<usize>,
+    fields: Option<&SaveFields>,
+) -> Option<(PathBuf, Option<SaveChoice>)> {
     let name = name.map(str::to_owned).unwrap_or_else(|| {
         current.and_then(|p| p.file_name()).map_or_else(
             || file_dialog::save_types::untitled_name(chrono::Local::now().naive_local()),
@@ -112,10 +131,15 @@ pub(crate) async fn choose_path(
             if let Some(index) = document_type {
                 ask = ask.save_types(file_dialog::save_types::for_document(app, index, current));
             }
-            file_dialog::ask(window, app, ask)
+            if let Some(fields) = fields {
+                ask = ask.save_fields(fields.clone());
+            }
+            file_dialog::ask_chosen(window, app, ask)
         })
         .ok()?;
-    answer.await.ok().flatten()?.pop()
+    let mut chosen = answer.await.ok().flatten()?;
+    let choice = fields.and_then(|fields| fields.choice(&chosen.extras));
+    Some((chosen.paths.pop()?, choice))
 }
 
 /// Runs the save flow on `view`.
@@ -141,6 +165,8 @@ pub(crate) async fn save(
         && request.encoding.is_none()
         && request.eol.is_none();
     let mut from_dialog = false;
+    // What the user chose in the fields of the save dialog itself.
+    let mut dialog_choice = None;
     let path = if let Some(path) = request.path.clone() {
         path
     } else if request.dialog || current.is_none() {
@@ -162,9 +188,23 @@ pub(crate) async fn save(
             return SaveOutcome::Cancelled;
         }
         let document_type = view.read_with(cx, |view, _| view.type_index()).ok();
-        match choose_path(cx, current.as_deref(), None, document_type).await {
-            Some(path) => {
+        // The encoding, the BOM and the line ending go into the save dialog, unless a macro
+        // gave the encoding or the line ending.
+        let fields = if request.encoding.is_none() && request.eol.is_none() {
+            view.read_with(cx, |view, app| {
+                let file = view.document().read(app).file();
+                SaveFields::new((file.encoding, file.bom), file.eol_on_save)
+            })
+            .ok()
+        } else {
+            None
+        };
+        match choose_path_and_options(cx, current.as_deref(), None, document_type, fields.as_ref())
+            .await
+        {
+            Some((path, choice)) => {
                 from_dialog = true;
+                dialog_choice = choice;
                 path
             }
             None => return SaveOutcome::Cancelled,
@@ -228,11 +268,16 @@ pub(crate) async fn save(
         return SaveOutcome::Cancelled;
     };
 
-    // The options Sakura's save dialog has next to the name. Not asked when a macro gave the
-    // encoding or the line ending.
+    // The options Sakura's save dialog has next to the name. A dialog that could not show them
+    // (the fallback) is followed by ours. Not asked when a macro gave the encoding or the line
+    // ending.
     if from_dialog && request.encoding.is_none() && request.eol.is_none() {
-        let Some(choice) = ask_options(view, cx, current_format, options.eol).await else {
-            return SaveOutcome::Cancelled;
+        let choice = match dialog_choice {
+            Some(choice) => choice,
+            None => match ask_options(view, cx, current_format, options.eol).await {
+                Some(choice) => choice,
+                None => return SaveOutcome::Cancelled,
+            },
         };
         options.encoding = choice.encoding;
         options.bom = choice.bom;

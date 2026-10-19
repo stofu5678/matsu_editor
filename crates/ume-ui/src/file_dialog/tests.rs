@@ -10,7 +10,7 @@ use tempfile::TempDir;
 use ume_commands::command::Arg;
 use ume_commands::sakura::FUNCTIONS;
 use ume_config::Profile;
-use ume_platform::dialog::{Kind, Request};
+use ume_platform::dialog::{Chosen, Kind, Request};
 
 use crate::document::SharedDocument;
 use crate::file_ops::prefs::FilePrefs;
@@ -26,6 +26,33 @@ thread_local! {
 /// Called by [`super::ask`] with what the dialog of the OS would be asked.
 pub(super) fn record(request: &Request) {
     ASKED.with(|asked| asked.borrow_mut().push(request.clone()));
+}
+
+type Prepared = Box<dyn Fn(&Request) -> Option<Option<Chosen>>>;
+
+thread_local! {
+    static PREPARED: RefCell<Option<Prepared>> = const { RefCell::new(None) };
+}
+
+/// Makes the dialog of the OS answer in this test thread: `answer` gets what is asked and gives
+/// the answer (`Some(None)` is a cancel), or `None` to leave the dialog unavailable. Until
+/// [`forget_answer`].
+pub(crate) fn answer_with(answer: impl Fn(&Request) -> Option<Option<Chosen>> + 'static) {
+    PREPARED.with(|prepared| *prepared.borrow_mut() = Some(Box::new(answer)));
+}
+
+pub(crate) fn forget_answer() {
+    PREPARED.with(|prepared| *prepared.borrow_mut() = None);
+}
+
+/// Called by [`super::native`].
+pub(super) fn prepared_answer(request: &Request) -> Option<Option<Chosen>> {
+    PREPARED.with(|prepared| {
+        prepared
+            .borrow()
+            .as_ref()
+            .and_then(|answer| answer(request))
+    })
 }
 
 /// The dialogs asked for since the last call.

@@ -43,6 +43,8 @@ windows = { version = "0.62", features = [
     "Win32_UI_Shell",
     "Win32_UI_Shell_Common",
 ] }
+# The `implement` macro names this crate in what it writes, so it must be a dependency of ours.
+windows-core = "0.62"
 windows-sys = { version = "0.61", features = [
     # The named pipe of src/instance/windows.rs: the user's SID in its security descriptor.
     "Win32_Foundation",
@@ -70,6 +72,16 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
     "objc2-core-graphics",
     "block2",
     "NSApplication",
+    "NSButton",
+    "NSCell",
+    "NSControl",
+    "NSLayoutConstraint",
+    "NSMenu",
+    "NSMenuItem",
+    "NSPopUpButton",
+    "NSStackView",
+    "NSTextField",
+    "NSUserInterfaceLayout",
     "NSGraphicsContext",
     "NSOpenPanel",
     "NSPanel",
