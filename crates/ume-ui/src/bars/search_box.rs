@@ -134,6 +134,9 @@ impl SearchBox {
         cx: &mut Context<Self>,
     ) {
         self.owner = Some(editor.downgrade());
+        // The box is shared by the tabs of the window: it starts with the key of this one
+        // (`CEditView::OnSetFocus` calls `AcceptSharedSearchKey`).
+        self.accept_for(editor, window, cx);
         self.focus_input(window, cx);
     }
 
@@ -265,13 +268,22 @@ impl SearchBox {
     /// `AcceptSharedSearchKey`: the text of the box follows the search key. (The list is the
     /// history, read when it is drawn.) A box that has the focus keeps what is being typed.
     pub(crate) fn accept_shared_key(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(editor) = self.editor(cx) {
+            self.accept_for(&editor, window, cx);
+        }
+    }
+
+    /// [`accept_shared_key`](Self::accept_shared_key) for `editor`, the pane of the window.
+    fn accept_for(
+        &mut self,
+        editor: &Entity<EditorView>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.is_focused(window, cx) {
             cx.notify();
             return;
         }
-        let Some(editor) = self.editor(cx) else {
-            return;
-        };
         let (pattern, sequence) = {
             let view = editor.read(cx);
             (view.search.pattern().to_owned(), view.search.key_sequence())
