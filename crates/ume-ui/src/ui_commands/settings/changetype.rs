@@ -27,7 +27,7 @@ impl UiCommand for Changetype {
         &self,
         view: &mut EditorView,
         args: &[Arg],
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<EditorView>,
     ) -> Result {
         let number = match args.first() {
@@ -42,7 +42,10 @@ impl UiCommand for Changetype {
             // A missing number is 0.
             _ => 0,
         };
-        view.change_type(number, cx);
+        if view.change_type(number, cx) {
+            // `CEditDoc::OnChangeType`: the macro of タイプ変更後.
+            view.run_auto_macro(crate::macros::Auto::TypeChanged, None, window, cx);
+        }
         Ok(())
     }
 }

@@ -315,7 +315,7 @@ fn native_separators(text: &str) -> String {
     }
 }
 
-/// The folder the macro file dialogs start in: `[Macro]` `szMACROFOLDER` (マクロ用フォルダー), which
+/// The folder the macro file dialogs start in: `[Folders]` `szMACROFOLDER` (マクロ用フォルダー), which
 /// is the folder of the settings file when the file does not say (`CShareData::InitCommon`).
 ///
 /// A relative folder is taken from the folder of the settings file if that exists, else from the

@@ -176,7 +176,7 @@ fn get_line_attribute(ed: &mut Editor, args: &Args) -> Result {
 fn get_save_filename(ed: &mut Editor, _: &Args) -> Result {
     Ok(ed
         .cx
-        .path()
+        .save_path()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default()
         .into())
@@ -293,7 +293,8 @@ pub const FUNCS: &[EditorFunc] = &[
         params: &[],
         result: Ty::Str,
         doc: "The full path that a save writes to, or an empty string when the text has no \
-              file. The same as GetFilename here.",
+              file. The same as GetFilename, except in the macro that runs before a save \
+              (the registered macro of 保存前), where it is the file being saved.",
         run: get_save_filename,
     },
 ];
@@ -455,5 +456,13 @@ mod tests {
         assert_eq!(f.ok("GetSaveFilename", json!([])), json!(""));
         f.path = Some("/tmp/メモ.txt".into());
         assert_eq!(f.ok("GetSaveFilename", json!([])), json!("/tmp/メモ.txt"));
+    }
+
+    #[test]
+    fn the_save_filename_is_the_file_of_the_save_for_the_macro_that_runs_before_it() {
+        let mut f = Fixture::new("a");
+        f.path = Some("/tmp/メモ.txt".into());
+        f.save_path = Some("/tmp/別名.txt".into());
+        assert_eq!(f.ok("GetSaveFilename", json!([])), json!("/tmp/別名.txt"));
     }
 }

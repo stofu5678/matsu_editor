@@ -9,6 +9,12 @@ use ume_commands::sakura::FUNCTION_LISTS;
 /// `F_MENU_RBUTTON`, then `F_CUSTMENU_1` to `F_CUSTMENU_24`.
 const CUSTOM_MENU_CODES: std::ops::RangeInclusive<u16> = 31501..=31524;
 const RIGHT_CLICK_MENU: u16 = 31580;
+/// `F_USERMACRO_0` + n of the kind 外部マクロ (`CFuncLookup::Pos2FuncCode` with `bGetUnavailable`, which
+/// the pages use: a macro that is not registered is listed too).
+const USER_MACRO_CODES: std::ops::Range<u16> = {
+    use ume_config::settings::macros::{F_USERMACRO_0, MAX_CUSTMACRO};
+    F_USERMACRO_0..F_USERMACRO_0 + MAX_CUSTMACRO as u16
+};
 
 /// The kinds (`CFuncLookup::SetCategory2Combo`): the 15 groups of the command list, then the
 /// ones Sakura adds (外部マクロ, カスタムメニュー, プラグイン).
@@ -42,10 +48,11 @@ pub(in crate::common_settings) fn codes_of_kind(kind: i32) -> Vec<u16> {
         return codes.iter().copied().filter(|&c| c != 0).collect();
     }
     match kind - FUNCTION_LISTS.len() {
+        0 => USER_MACRO_CODES.collect(),
         1 => std::iter::once(RIGHT_CLICK_MENU)
             .chain(CUSTOM_MENU_CODES)
             .collect(),
-        // Registered macros and plugin commands do not exist here.
+        // Plugin commands do not exist here.
         _ => Vec::new(),
     }
 }
@@ -74,7 +81,15 @@ mod tests {
         assert_eq!(codes.len(), 25);
         assert_eq!(codes[0], RIGHT_CLICK_MENU);
         assert_eq!(codes[1..], CUSTOM_MENU_CODES.collect::<Vec<_>>()[..]);
-        assert!(codes_of_kind(15).is_empty() && codes_of_kind(17).is_empty());
+        assert!(codes_of_kind(17).is_empty());
         assert!(codes_of_kind(-1).is_empty() && codes_of_kind(18).is_empty());
+    }
+
+    #[test]
+    fn the_kind_external_macro_lists_the_50_registered_macros() {
+        let codes = codes_of_kind(15);
+        assert_eq!(codes.len(), 50);
+        assert_eq!((codes[0], codes[49]), (31600, 31649));
+        assert!(codes.windows(2).all(|w| w[1] == w[0] + 1));
     }
 }

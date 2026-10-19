@@ -152,7 +152,8 @@ def install(call):
 
         def GetSaveFilename(self) -> str:
             """The full path that a save writes to, or an empty string when the text has no
-            file. The same as GetFilename here."""
+            file. The same as GetFilename, except in the macro that runs before a save (the
+            registered macro of 保存前), where it is the file being saved."""
             return call("GetSaveFilename", _pack())
 
         def LayoutToLogicLineNum(self, layoutLine: int) -> int:

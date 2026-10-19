@@ -307,6 +307,8 @@ impl EditorView {
         f: impl FnOnce(&mut CommandContext<'_>) -> R,
     ) -> R {
         let document = self.document.clone();
+        // The macro that runs before a save is told the file it will be written to.
+        let save_path = self.macros.save_path().map(std::path::Path::to_owned);
         let layout = &mut self.layout;
         let cursor = &mut self.cursor;
         let (result, changes) = document.update(cx, |shared, cx| {
@@ -323,6 +325,7 @@ impl EditorView {
             let mut command_cx = CommandContext::new(model, cursor, &mut adapter, path)
                 .with_clipboard(&mut clipboard)
                 .with_overwrite(overwrite)
+                .with_save_path(save_path.as_deref())
                 .with_view_mode(view_mode);
             if let Some(quote) = quote {
                 command_cx = command_cx.with_quote_string(quote);
@@ -402,6 +405,9 @@ impl EditorView {
             self.run_registration(reg, args, cx)
         } else if let Some(reg) = UiRegistry::global().get_by_code(code) {
             self.run_ui_registration(reg, args, window, cx)
+        } else if let Some(index) = ume_config::settings::macros::index_of_function(code) {
+            // A registered macro (`F_USERMACRO_0 + n`) is not in Sakura's table of functions.
+            self.run_registered_macro(index, true, window, cx)
         } else {
             let name = FUNCTIONS
                 .iter()
@@ -650,6 +656,13 @@ impl EditorView {
                 // A function that needs the window is not a core command.
                 if let Some(reg) = UiRegistry::global().get_by_code(code) {
                     self.run_ui_registration(reg, &[], window, cx);
+                    cx.stop_propagation();
+                    return;
+                }
+                // A registered macro (`F_USERMACRO_0 + n`) is not in Sakura's table of functions;
+                // it runs as from a menu (`run_function`).
+                if let Some(index) = ume_config::settings::macros::index_of_function(code) {
+                    self.run_registered_macro(index, true, window, cx);
                     cx.stop_propagation();
                     return;
                 }

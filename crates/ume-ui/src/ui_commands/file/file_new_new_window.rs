@@ -27,7 +27,9 @@ impl UiCommand for FileNewNewWindow {
     ) -> Result {
         let from = window.window_handle();
         view.defer_in_window(window, cx, move |window, app| {
-            open_document(app, Some(window), from, true, SharedDocument::empty(), None).ok();
+            let opened =
+                open_document(app, Some(window), from, true, SharedDocument::empty(), None);
+            crate::macros::run_opened_in_new(app, opened.ok());
         })
     }
 }

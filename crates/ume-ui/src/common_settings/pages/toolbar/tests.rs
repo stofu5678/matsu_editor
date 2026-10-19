@@ -32,19 +32,53 @@ fn only_functions_with_a_button_are_listed_with_their_button_numbers() {
     let menus = functions_of_kind(16);
     assert!(menus.iter().any(|&(_, c)| c == 31580));
     assert!(menus.iter().any(|&(_, c)| c == 31524));
-    assert!(functions_of_kind(15).is_empty() && functions_of_kind(17).is_empty());
+    assert!(functions_of_kind(17).is_empty());
     assert!(functions_of_kind(99).is_empty() && functions_of_kind(-1).is_empty());
 }
 
 #[test]
+fn the_kind_external_macro_lists_the_registered_macros_with_their_names_and_icons() {
+    let macros = functions_of_kind(15);
+    // The 50 macros have a button each (`MAX_CUSTMACRO_ICO`), in the order of the table.
+    assert_eq!(macros.len(), 50);
+    assert!(
+        macros
+            .iter()
+            .enumerate()
+            .all(|(i, &(_, c))| c == 31600 + i as u16)
+    );
+    let mut table = RegisteredMacros::default();
+    table.macros[1].file = "b.mac".into();
+    table.macros[2].name = "名前".into();
+    table.macros[2].file = "c.mac".into();
+    let (number, _) = macros[2];
+    let (name, icon) = row_of(number, &table);
+    assert_eq!(name, "名前");
+    assert_eq!(icon, bars::icon_of_function(31602));
+    assert!(icon.is_some());
+    assert_eq!(row_of(macros[1].0, &table).0, "b.mac");
+    assert_eq!(row_of(macros[0].0, &table).0, "マクロ 0 (未登録)");
+}
+
+#[test]
 fn a_row_shows_the_name_and_icon_of_the_button_or_the_text_of_the_other_kinds() {
-    let (name, icon) = row_of(3);
+    let (name, icon) = row_of(3, &RegisteredMacros::default());
     assert_eq!((name.as_str(), icon), ("上書き保存", Some(2)));
-    assert_eq!(row_of(0), (ITEM_SEPARATOR.to_owned(), None));
-    assert_eq!(row_of(WRAP), (ITEM_WRAP.to_owned(), None));
+    assert_eq!(
+        row_of(0, &RegisteredMacros::default()),
+        (ITEM_SEPARATOR.to_owned(), None)
+    );
+    assert_eq!(
+        row_of(WRAP, &RegisteredMacros::default()),
+        (ITEM_WRAP.to_owned(), None)
+    );
     // A free place of the table, a number past it and -1 (a plugin command) are unknown.
     for number in [481, 9999, -1] {
-        assert_eq!(row_of(number), (ITEM_UNKNOWN.to_owned(), None), "{number}");
+        assert_eq!(
+            row_of(number, &RegisteredMacros::default()),
+            (ITEM_UNKNOWN.to_owned(), None),
+            "{number}"
+        );
     }
 }
 

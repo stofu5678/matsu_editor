@@ -137,10 +137,18 @@ impl UserSettings {
             .unwrap_or_default()
     }
 
-    /// `[Macro]` `szMACROFOLDER`, the folder of the macros (マクロ用フォルダー), as written. `None`
+    /// `[Folders]` `szMACROFOLDER`, the folder of the macros (マクロ用フォルダー), as written. `None`
     /// when the file does not have it.
     pub fn macro_folder(&self) -> Option<String> {
-        self.profile.as_ref()?.get_string("Macro", "szMACROFOLDER")
+        ume_config::settings::macros::macro_folder(self.profile.as_ref()?)
+    }
+
+    /// The registered macros (登録マクロ, `[Macro]`) and the three automatic ones.
+    pub fn registered_macros(&self) -> ume_config::settings::macros::RegisteredMacros {
+        self.profile
+            .as_ref()
+            .map(ume_config::settings::macros::RegisteredMacros::from_profile)
+            .unwrap_or_default()
     }
 
     /// The document types (タイプ別設定).

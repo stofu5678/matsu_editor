@@ -281,9 +281,20 @@ impl LaunchOptions {
                     .update(cx, |shared, cx| shared.set_view_mode(true, cx));
             }
         });
-        if let Some(m) = &self.macro_ {
-            run_macro(m, handle, view, cx);
-        }
+        // The macro of オープン後 comes before the macro of `-M=` (`CNormalProcess`).
+        let macro_ = self.macro_.clone();
+        let view = view.clone();
+        crate::macros::run_auto_in(
+            handle,
+            &view.clone(),
+            crate::macros::Auto::Opened,
+            cx,
+            move |cx| {
+                if let Some(m) = &macro_ {
+                    run_macro(m, handle, &view, cx);
+                }
+            },
+        );
     }
 
     /// The Grep of `-GREPMODE` in the window `handle` that was opened for it, or the dialog of

@@ -306,7 +306,7 @@ fn the_macro_dialogs_start_in_the_macro_folder(cx: &mut TestAppContext) {
     std::fs::create_dir(&macros).unwrap();
     let ini = dir.path().join("ume.ini");
     // a relative folder is taken from the folder of the settings file
-    let profile = ume_config::Profile::from_bytes(b"[Macro]\nszMACROFOLDER=macros\n");
+    let profile = ume_config::Profile::from_bytes(b"[Folders]\nszMACROFOLDER=macros\n");
     cx.update(|cx| {
         cx.set_global(crate::settings::UserSettings::from_profile(
             profile,
@@ -1188,3 +1188,4 @@ fn a_macro_waits_for_the_warning_of_a_lock_that_failed(cx: &mut TestAppContext) 
     assert_eq!(seen_while_boxed, Some(vec!["abc".to_owned()]));
     assert_eq!(f.lines(cx), ["Zabc"]);
 }
+mod registered_tests;

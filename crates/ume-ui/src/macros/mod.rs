@@ -34,6 +34,7 @@
 
 mod host;
 mod output;
+mod registered;
 mod ui_calls;
 mod wait;
 
@@ -57,6 +58,11 @@ use crate::view::EditorView;
 use output::PanelActions;
 
 pub(crate) use output::{Kind, Output};
+pub(crate) use registered::table as registered_table;
+pub(crate) use registered::{
+    Auto, MacroList, run_auto_in, run_before_save, run_opened, run_opened_in_new, title_in,
+    title_of,
+};
 pub(crate) use wait::{FlowGuard, follow, keep_box, track};
 
 /// `F_WCHAR`, the function of a typed character (`Char` in a macro).
@@ -159,6 +165,8 @@ pub(crate) struct MacroState {
     epoch: u64,
     /// What the macro functions keep between two calls (cookies, the draw switch).
     host_state: ume_plugin::host::HostState,
+    /// The registered macros (登録マクロ): what was read, and the path of the save that is running one.
+    registered: registered::State,
     pub(crate) output: Output,
 }
 
@@ -185,6 +193,14 @@ impl MacroState {
     /// A macro is playing or running: the commands it calls are not recorded.
     pub(crate) fn is_suspended(&self) -> bool {
         self.suspended
+    }
+
+    /// The file a save will write to while the macro that runs before it is running
+    /// (`CDocFile::GetSaveFilePath`); `None` otherwise.
+    pub(crate) fn save_path(&self) -> Option<&Path> {
+        self.suspended
+            .then(|| self.registered.save_path())
+            .flatten()
     }
 
     fn busy(&self) -> bool {
@@ -615,6 +631,7 @@ impl EditorView {
             && self.macros.queue.is_empty()
         {
             self.macros.suspended = false;
+            self.macros.registered.clear_save_path();
             self.close_undo_blocks(cx);
         }
         cx.notify();
@@ -751,6 +768,7 @@ impl EditorView {
             Some(running) => running.session.cancel(),
             None => {
                 self.macros.suspended = false;
+                self.macros.registered.clear_save_path();
                 self.close_undo_blocks(cx);
             }
         }

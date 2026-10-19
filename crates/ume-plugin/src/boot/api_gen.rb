@@ -226,7 +226,8 @@ module UmeEditorApi
     # GetSaveFilename() -> string
     #
     # The full path that a save writes to, or an empty string when the text has no file. The
-    # same as GetFilename here.
+    # same as GetFilename, except in the macro that runs before a save (the registered macro of
+    # 保存前), where it is the file being saved.
     def GetSaveFilename
       @call.call('GetSaveFilename', _pack())
     end

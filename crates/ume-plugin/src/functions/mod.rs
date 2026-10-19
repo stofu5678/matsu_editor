@@ -135,6 +135,8 @@ pub(crate) mod testing {
         pub clipboard: MemoryClipboard,
         pub env: HostEnv,
         pub path: Option<std::path::PathBuf>,
+        /// The file a save will write, for the macro that runs before a save.
+        pub save_path: Option<std::path::PathBuf>,
         pub overwrite: bool,
     }
 
@@ -154,6 +156,7 @@ pub(crate) mod testing {
                 clipboard: MemoryClipboard::default(),
                 env,
                 path: None,
+                save_path: None,
                 overwrite: false,
             }
         }
@@ -168,6 +171,7 @@ pub(crate) mod testing {
                 self.path.as_deref(),
             )
             .with_clipboard(&mut self.clipboard)
+            .with_save_path(self.save_path.as_deref())
             .with_overwrite(self.overwrite);
             let mut editor = Editor {
                 cx: &mut cx,

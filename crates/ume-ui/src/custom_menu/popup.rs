@@ -75,7 +75,9 @@ impl EditorView {
         let recent = RecentLists::new(crate::history::current(cx))
             .with_names(crate::file_names::current(cx));
         let custom = CustomMenuList(&menus);
-        let lists = ChainedLists(&recent, &custom);
+        let macro_list = crate::macros::MacroList(crate::macros::registered_table(cx));
+        let rest = ChainedLists(&custom, &macro_list);
+        let lists = ChainedLists(&recent, &rest);
         let entries = model::entries(
             index,
             &model::Context {

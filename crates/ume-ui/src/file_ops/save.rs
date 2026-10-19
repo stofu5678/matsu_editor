@@ -237,81 +237,9 @@ pub(crate) async fn save(
         options.eol = choice.eol;
     }
 
-    // 3. Mixed line endings.
-    if options.eol.is_none() {
-        let mixed = view
-            .update(cx, |view, cx| {
-                view.document()
-                    .update(cx, |shared, _| shared.has_mixed_line_endings())
-            })
-            .ok();
-        match mixed {
-            Some(Ok(true)) => {
-                let name = view
-                    .read_with(cx, |view, app| {
-                        crate::status::eol_name(view.document().read(app).new_line()).to_owned()
-                    })
-                    .unwrap_or_default();
-                let message = unify_line_endings_message(&name);
-                match ask(
-                    cx,
-                    PromptLevel::Warning,
-                    &message,
-                    None,
-                    ["統一する(Y)", "そのまま保存(N)", "キャンセル"],
-                )
-                .await
-                {
-                    Answer::Yes => {
-                        options.eol = view
-                            .read_with(cx, |view, app| view.document().read(app).new_line())
-                            .ok();
-                    }
-                    Answer::No => {}
-                    Answer::Cancel => return SaveOutcome::Cancelled,
-                }
-            }
-            Some(Ok(false)) => {}
-            Some(Err(error)) => return fail(view, cx, &path, &error).await,
-            None => return SaveOutcome::Cancelled,
-        }
-    }
-
-    // 4. Characters the encoding cannot write.
-    let checked = view
-        .update(cx, |view, cx| {
-            let options = &options;
-            view.document()
-                .update(cx, |shared, _| shared.check_save(options, &mut no_progress))
-        })
-        .ok();
-    match checked {
-        Some(Ok(report)) if report.total > 0 => {
-            let (message, detail) =
-                unmappable_message(options.encoding, report.first.first(), report.total);
-            match ask(
-                cx,
-                PromptLevel::Warning,
-                &message,
-                Some(&detail),
-                ["続行(Y)", "中断(N)", "該当位置に移動"],
-            )
-            .await
-            {
-                Answer::Yes => options.allow_unmappable = true,
-                Answer::No => return SaveOutcome::Cancelled,
-                Answer::Cancel => {
-                    if let Some(first) = report.first.first() {
-                        let pos = first.pos;
-                        view.update(cx, |view, cx| view.go_to(pos, cx)).ok();
-                    }
-                    return SaveOutcome::Cancelled;
-                }
-            }
-        }
-        Some(Ok(_)) => {}
-        Some(Err(error)) => return fail(view, cx, &path, &error).await,
-        None => return SaveOutcome::Cancelled,
+    // 3 and 4. The questions about the content.
+    if let Err(outcome) = confirm_content(view, cx, &path, &mut options).await {
+        return outcome;
     }
 
     // 4b. The backup of the file that is there (`CBackupAgent::OnPreBeforeSave`). The lock of the
@@ -343,6 +271,21 @@ pub(crate) async fn save(
         return SaveOutcome::Cancelled;
     }
 
+    // 4c. The macro of 保存前 (`RunAutoMacro(nMacroOnSave, path)`), told the file to be written.
+    // Sakura runs it after the questions; here they are asked again if it changed the text, so
+    // that characters it added are not lost without a word.
+    let version = view
+        .read_with(cx, |view, app| view.document().read(app).version())
+        .ok();
+    crate::macros::run_before_save(view, cx, &path).await;
+    let changed = view
+        .read_with(cx, |view, app| view.document().read(app).version())
+        .ok()
+        != version;
+    if changed && let Err(outcome) = confirm_content(view, cx, &path, &mut options).await {
+        return outcome;
+    }
+
     // 5. Write.
     let target = path.clone();
     let written = view
@@ -362,6 +305,10 @@ pub(crate) async fn save(
                 cx.notify();
             })
             .ok();
+            if from_dialog || request.path.is_some() {
+                // `FileSaveAs` runs the macro of オープン後 after a save under a name.
+                crate::macros::run_opened(view, cx).await;
+            }
             SaveOutcome::Saved
         }
         Some(Err(error)) => {
@@ -370,6 +317,93 @@ pub(crate) async fn save(
         }
         None => SaveOutcome::Cancelled,
     }
+}
+
+/// Steps 3 and 4 of the flow: the questions about mixed line endings and about characters the
+/// encoding cannot write. They are asked again when the macro of 保存前 changed the text.
+async fn confirm_content(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    path: &std::path::Path,
+    options: &mut SaveOptions,
+) -> Result<(), SaveOutcome> {
+    // 3. Mixed line endings.
+    if options.eol.is_none() {
+        let mixed = view
+            .update(cx, |view, cx| {
+                view.document()
+                    .update(cx, |shared, _| shared.has_mixed_line_endings())
+            })
+            .ok();
+        match mixed {
+            Some(Ok(true)) => {
+                let name = view
+                    .read_with(cx, |view, app| {
+                        crate::status::eol_name(view.document().read(app).new_line()).to_owned()
+                    })
+                    .unwrap_or_default();
+                let message = unify_line_endings_message(&name);
+                match ask(
+                    cx,
+                    PromptLevel::Warning,
+                    &message,
+                    None,
+                    ["統一する(Y)", "そのまま保存(N)", "キャンセル"],
+                )
+                .await
+                {
+                    Answer::Yes => {
+                        options.eol = view
+                            .read_with(cx, |view, app| view.document().read(app).new_line())
+                            .ok();
+                    }
+                    Answer::No => {}
+                    Answer::Cancel => return Err(SaveOutcome::Cancelled),
+                }
+            }
+            Some(Ok(false)) => {}
+            Some(Err(error)) => return Err(fail(view, cx, path, &error).await),
+            None => return Err(SaveOutcome::Cancelled),
+        }
+    }
+
+    // 4. Characters the encoding cannot write.
+    let checked = view
+        .update(cx, |view, cx| {
+            let options = &*options;
+            view.document()
+                .update(cx, |shared, _| shared.check_save(options, &mut no_progress))
+        })
+        .ok();
+    match checked {
+        Some(Ok(report)) if report.total > 0 => {
+            let (message, detail) =
+                unmappable_message(options.encoding, report.first.first(), report.total);
+            match ask(
+                cx,
+                PromptLevel::Warning,
+                &message,
+                Some(&detail),
+                ["続行(Y)", "中断(N)", "該当位置に移動"],
+            )
+            .await
+            {
+                Answer::Yes => options.allow_unmappable = true,
+                Answer::No => return Err(SaveOutcome::Cancelled),
+                Answer::Cancel => {
+                    if let Some(first) = report.first.first() {
+                        let pos = first.pos;
+                        view.update(cx, |view, cx| view.go_to(pos, cx)).ok();
+                    }
+                    return Err(SaveOutcome::Cancelled);
+                }
+            }
+        }
+        Some(Ok(_)) => {}
+        Some(Err(error)) => return Err(fail(view, cx, path, &error).await),
+        None => return Err(SaveOutcome::Cancelled),
+    }
+    Ok(())
 }
 
 /// `F_FILESAVEALL`: a quiet save in every editor window, one after the other.
