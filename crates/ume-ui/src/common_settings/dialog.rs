@@ -428,6 +428,19 @@ impl CommonSettingsDialog {
         }
     }
 
+    /// The rows of an editable list that a page edits with a widget of its own (the keyword sets).
+    pub(crate) fn set_rows(
+        &mut self,
+        id: &'static str,
+        rows: Vec<table::Row>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.control(id).is_some_and(|c| self.is_usable(&c)) {
+            self.values.set(id, Value::Rows(rows));
+            cx.notify();
+        }
+    }
+
     /// A color (`COLORREF`).
     pub(crate) fn set_color(&mut self, id: &'static str, color: i32, cx: &mut Context<Self>) {
         self.set_int(id, color, cx);

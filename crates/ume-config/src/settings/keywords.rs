@@ -49,7 +49,7 @@ use std::cmp::Ordering;
 
 use super::extra_types::ExtraSet;
 use super::keyword_data as data;
-use crate::profile::Profile;
+use crate::profile::{Profile, ProfileError};
 
 /// How many keyword sets Sakura starts with (`CShareData::InitKeyword`).
 pub const SAKURA_KEYWORD_SET_COUNT: usize = 17;
@@ -59,6 +59,12 @@ pub const MAX_KEYWORD_SETS: usize = 100;
 pub const MAX_SET_NAME_LEN: usize = 32;
 /// `MAX_KEYWORDLEN`: the longest keyword, in UTF-16 units.
 pub const MAX_KEYWORD_LEN: usize = 63;
+
+/// `[KeyWords]` of the settings file.
+pub const SECTION: &str = "KeyWords";
+/// The key that tells that UME Editor wrote the sets, with its own among them (ADR-0017): they are all in the
+/// file then, and a set that is not there was deleted. Sakura does not know the key.
+pub const EXTRA_SETS_IN_FILE_KEY: &str = "bUmeExtraSetsInFile";
 
 /// One keyword set (`CKeyWordSetMgr` keeps these side by side in arrays).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -125,6 +131,11 @@ fn compare(a: &str, b: &str, case_sensitive: bool) -> Ordering {
     }
 }
 
+/// How the words of a set are ordered under its case rule (`wcscmp` or `_wcsicmp`).
+pub fn compare_words(a: &str, b: &str, case_sensitive: bool) -> Ordering {
+    compare(a, b, case_sensitive)
+}
+
 /// All keyword sets, in Sakura's order (the index a type stores is the index here), then UME Editor's own
 /// sets ([`ExtraSet`]) in the numbers after the sets of the file (ADR-0017).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,18 +149,24 @@ impl KeywordSets {
     /// What the editor has without a settings file: the 17 sets of Sakura (`CShareData::InitKeyword`), then
     /// UME Editor's own.
     pub fn builtin() -> Self {
-        Self::with_extras(Self::sakura_sets())
+        Self::with_extras(Self::sakura_sets(), false)
     }
 
-    /// Puts UME Editor's own sets after `sets`, as long as there are numbers left (`MAX_KEYWORD_SETS`). A
-    /// file with fewer than 17 sets gets none: the numbers up to 16 must stay free, because the types of
-    /// Sakura still refer to them (as to sets that do not exist).
-    fn with_extras(mut sets: Vec<KeywordSet>) -> Self {
-        let room = sets.len() >= SAKURA_KEYWORD_SET_COUNT;
+    /// Finds UME Editor's own sets among `sets` (by name), and puts the ones that are missing after `sets`, as
+    /// long as there are numbers left (`MAX_KEYWORD_SETS`). A file with fewer than 17 sets gets none: the
+    /// numbers up to 16 must stay free, because the types of Sakura still refer to them (as to sets that do not
+    /// exist).
+    ///
+    /// A file that [UME Editor wrote](EXTRA_SETS_IN_FILE_KEY) has the sets itself, so a missing one was deleted
+    /// by the user and stays gone (`in_file`).
+    fn with_extras(mut sets: Vec<KeywordSet>, in_file: bool) -> Self {
+        let room = !in_file && sets.len() >= SAKURA_KEYWORD_SET_COUNT;
         let extra = ExtraSet::ALL
             .iter()
             .map(|s| {
-                if room && sets.len() < MAX_KEYWORD_SETS {
+                if let Some(at) = sets.iter().position(|set| set.name == s.name()) {
+                    i32::try_from(at).unwrap_or(-1)
+                } else if room && sets.len() < MAX_KEYWORD_SETS {
                     sets.push(s.to_set());
                     i32::try_from(sets.len() - 1).unwrap_or(-1)
                 } else {
@@ -203,6 +220,7 @@ impl KeywordSets {
         let Some(count) = profile.get_i32(S, "nKeyWordSetNum") else {
             return Self::builtin();
         };
+        let in_file = profile.get_bool(S, EXTRA_SETS_IN_FILE_KEY) == Some(true);
         let count = usize::try_from(count).unwrap_or(0).min(MAX_KEYWORD_SETS);
         let sets = (0..count)
             .map(|i| {
@@ -222,7 +240,7 @@ impl KeywordSets {
                 KeywordSet::new(&name, case, words)
             })
             .collect();
-        Self::with_extras(sets)
+        Self::with_extras(sets, in_file)
     }
 
     /// How many sets there are.
@@ -247,6 +265,88 @@ impl KeywordSets {
     pub fn index_of(&self, name: &str) -> Option<usize> {
         self.sets.iter().position(|s| s.name == name)
     }
+}
+
+/// A keyword set as the settings page edits it: the words stay in the order of the list (they are not sorted
+/// until the coloring reads them).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SetDraft {
+    pub name: String,
+    pub case_sensitive: bool,
+    pub words: Vec<String>,
+}
+
+impl KeywordSets {
+    /// The sets as the page starts with them.
+    pub fn drafts(&self) -> Vec<SetDraft> {
+        self.sets
+            .iter()
+            .map(|s| SetDraft {
+                name: s.name.clone(),
+                case_sensitive: s.case_sensitive,
+                words: s.words.clone(),
+            })
+            .collect()
+    }
+}
+
+/// Writes `drafts` as the section `[KeyWords]` (`ShareData_IO_KeyWords`, write side): the number of sets, and
+/// for each set its name `szSN`, `nCASE`, the number of words `nKWN`, and the words `szKW` (each followed by a
+/// tab) with the length of that string `szKW.Size`. The keys of sets that are gone are removed; the other keys
+/// of the section (`nCurrentKeyWordSetIdx`) stay. A key that already has the value is left as it is.
+///
+/// The sets of UME Editor's own are in `drafts` too: the key [`EXTRA_SETS_IN_FILE_KEY`] says so. Returns whether
+/// the file changed.
+pub fn store_sets(profile: &mut Profile, drafts: &[SetDraft]) -> Result<bool, ProfileError> {
+    let old_count = profile
+        .get_i32(SECTION, "nKeyWordSetNum")
+        .and_then(|n| usize::try_from(n).ok())
+        .unwrap_or(0)
+        .min(MAX_KEYWORD_SETS);
+    let mut changed = false;
+    let mut put = |profile: &mut Profile, key: &str, value: &str| {
+        if profile.get(SECTION, key) != Some(value) {
+            profile.set(SECTION, key, value)?;
+            changed = true;
+        }
+        Ok::<(), ProfileError>(())
+    };
+    put(profile, "nKeyWordSetNum", &drafts.len().to_string())?;
+    put(profile, EXTRA_SETS_IN_FILE_KEY, "1")?;
+    for (i, set) in drafts.iter().enumerate() {
+        let mut words = String::new();
+        for word in &set.words {
+            words.push_str(word);
+            words.push('\t');
+        }
+        // `nMemLen`: the length of the string and its end.
+        let size = words.encode_utf16().count() + 1;
+        put(profile, &format!("szSN[{i:02}]"), &set.name)?;
+        put(
+            profile,
+            &format!("nCASE[{i:02}]"),
+            if set.case_sensitive { "1" } else { "0" },
+        )?;
+        put(
+            profile,
+            &format!("nKWN[{i:02}]"),
+            &set.words.len().to_string(),
+        )?;
+        put(profile, &format!("szKW[{i:02}].Size"), &size.to_string())?;
+        put(profile, &format!("szKW[{i:02}]"), &words)?;
+    }
+    for i in drafts.len()..old_count {
+        for key in [
+            format!("szSN[{i:02}]"),
+            format!("nCASE[{i:02}]"),
+            format!("nKWN[{i:02}]"),
+            format!("szKW[{i:02}]"),
+            format!("szKW[{i:02}].Size"),
+        ] {
+            changed |= profile.remove(SECTION, &key);
+        }
+    }
+    Ok(changed)
 }
 
 impl Default for KeywordSets {
@@ -366,6 +466,72 @@ mod tests {
         // The number of words limits what is read, and the string end stops it.
         assert_eq!(sets.get(1).unwrap().words().len(), 2);
         assert_eq!(sets.get(2), None);
+    }
+
+    #[test]
+    fn the_sets_of_ume_editor_are_found_by_name_and_a_deleted_one_stays_gone() {
+        let mut p = Profile::new();
+        let mut drafts = KeywordSets::builtin().drafts();
+        assert_eq!(drafts.len(), 27);
+        assert!(store_sets(&mut p, &drafts).unwrap());
+        // The file has all 27 sets; UME Editor's own are found by name and not added a second time.
+        let read = KeywordSets::from_profile(&p);
+        assert_eq!(read.len(), 27);
+        assert_eq!(read.extra_index(ExtraSet::Rust), 22);
+        // The user deletes "Rust": the key says that the file has the sets, so it stays gone.
+        drafts.remove(22);
+        store_sets(&mut p, &drafts).unwrap();
+        let read = KeywordSets::from_profile(&p);
+        assert_eq!(read.len(), 26);
+        assert_eq!(read.extra_index(ExtraSet::Rust), -1);
+        assert_eq!(read.extra_index(ExtraSet::Go), 22);
+        // Without the key (Sakura wrote the file) a missing set of UME Editor's own is added at the end.
+        p.remove(SECTION, EXTRA_SETS_IN_FILE_KEY);
+        let read = KeywordSets::from_profile(&p);
+        assert_eq!(read.len(), 27);
+        assert_eq!(read.extra_index(ExtraSet::Rust), 26);
+        // A set of Sakura's file that has the name of one of UME Editor's is that set.
+        let p = profile(
+            "[KeyWords]\r\nnKeyWordSetNum=18\r\nszSN[17]=Rust\r\nnKWN[17]=1\r\nszKW[17]=mine\t\r\n",
+        );
+        let read = KeywordSets::from_profile(&p);
+        assert_eq!(read.extra_index(ExtraSet::Rust), 17);
+        assert!(read.get(17).unwrap().contains("mine"));
+        assert_eq!(read.len(), 18 + ExtraSet::ALL.len() - 1);
+    }
+
+    #[test]
+    fn the_sets_are_stored_as_sakura_stores_them() {
+        let mut p = profile(
+            "[KeyWords]\r\nnCurrentKeyWordSetIdx=2\r\nnKeyWordSetNum=3\r\nszSN[02]=gone\r\n",
+        );
+        let drafts = vec![
+            SetDraft {
+                name: "C".to_owned(),
+                case_sensitive: true,
+                words: vec!["if".to_owned(), "あ".to_owned()],
+            },
+            SetDraft {
+                name: "empty".to_owned(),
+                case_sensitive: false,
+                words: Vec::new(),
+            },
+        ];
+        assert!(store_sets(&mut p, &drafts).unwrap());
+        assert_eq!(p.get(SECTION, "nKeyWordSetNum"), Some("2"));
+        assert_eq!(p.get(SECTION, "szKW[00]"), Some("if\tあ\t"));
+        // The length counts UTF-16 units and the end of the string.
+        assert_eq!(p.get(SECTION, "szKW[00].Size"), Some("6"));
+        assert_eq!(p.get(SECTION, "nKWN[00]"), Some("2"));
+        assert_eq!(p.get(SECTION, "nCASE[00]"), Some("1"));
+        assert_eq!(p.get(SECTION, "szKW[01]"), Some(""));
+        assert_eq!(p.get(SECTION, "szKW[01].Size"), Some("1"));
+        // The set that is gone loses its keys; the chosen set stays.
+        assert_eq!(p.get(SECTION, "szSN[02]"), None);
+        assert_eq!(p.get(SECTION, "nCurrentKeyWordSetIdx"), Some("2"));
+        assert!(!store_sets(&mut p, &drafts).unwrap());
+        assert!(compare_words("a", "B", false).is_lt());
+        assert!(compare_words("a", "B", true).is_gt());
     }
 
     #[test]
