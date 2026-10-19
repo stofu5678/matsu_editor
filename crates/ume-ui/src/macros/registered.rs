@@ -14,8 +14,9 @@
 //!   read from its file each time it runs.
 //! * A script runs beside the window, not before the next line of the caller. The save waits for the
 //!   macro of 保存前 to end (`run_before_save`), so the file is written after the macro as in Sakura;
-//!   the macro of タイプ変更後 is waited for by the macro of オープン後 that follows it on opening a file,
-//!   and no other is waited for.
+//!   the macros of タイプ変更後 and オープン後 are waited for in the same way when a file is opened.
+//!   The macros called in other places (a key, the start of an untitled window, `F_CHANGETYPE`)
+//!   are not waited for.
 //! * The type chosen by `-TYPE=` of the command line is applied after the macros of opening run.
 //! * `bRunning` of `RunAutoMacro` (an automatic macro does not start another) is "no macro runs in
 //!   this window".
@@ -312,12 +313,16 @@ pub(crate) async fn run_before_save(
 }
 
 /// What follows a file that was read into the window: its type is chosen (`OnChangeType`), then the
-/// 開いた後 macro runs (`FileLoad`). The second waits for the first, so that both run.
+/// 開いた後 macro runs (`FileLoad`). Each waits for the one before it, so that both run, and the macro
+/// of the command line (`-M=`) that follows is not refused.
 pub(crate) async fn after_open(view: &gpui::WeakEntity<EditorView>, cx: &mut AsyncWindowContext) {
     if run_auto(view, cx, Auto::TypeChanged, None) {
         wait_for_the_macro(view, cx).await;
     }
-    run_auto(view, cx, Auto::Opened, None);
+    // `-M=` of the command line runs after it (`CNormalProcess`).
+    if run_auto(view, cx, Auto::Opened, None) {
+        wait_for_the_macro(view, cx).await;
+    }
 }
 
 /// [`EditorView::run_auto_macro`] for a window that is open already (the start of an untitled
