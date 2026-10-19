@@ -363,6 +363,44 @@ fn deleting_a_set_moves_the_numbers_of_the_types_and_sets_of_ume_editor_stay_fou
     assert_eq!(p.get("Types(17)", "nInts"), None);
 }
 
+#[test]
+fn renaming_a_set_of_ume_editor_keeps_the_types_that_use_it() {
+    let mut p = profile("[Other]\r\nx=1\r\n");
+    let mut entries = from_rows(&store::SETS.load(&p));
+    let rust = entries.iter().position(|e| e.name == "Rust").unwrap();
+    let builtins = entries
+        .iter()
+        .position(|e| e.name == "Python built-ins")
+        .unwrap();
+    entry::rename_set(&mut entries, rust, "My Rust");
+    entry::rename_set(&mut entries, builtins, "My builtins");
+    assert!(store::SETS.store(&rows_of(&entries), &mut p).unwrap());
+    let types = DocumentTypes::from_profile(&p);
+    // The types are found by name no longer, so they were written with the number of the set.
+    let by_name = |n: &str| types.iter().find(|t| t.type_name == n).unwrap();
+    let rust_type = by_name("Rust");
+    assert_eq!(
+        types
+            .keywords()
+            .get(rust_type.keyword_set_idx[0])
+            .unwrap()
+            .name,
+        "My Rust"
+    );
+    let python = by_name("Python");
+    assert_eq!(
+        types
+            .keywords()
+            .get(python.keyword_set_idx[1])
+            .unwrap()
+            .name,
+        "My builtins"
+    );
+    // The types that did not need it are not written.
+    assert_eq!(p.get("Types(4)", "nInts"), None);
+    assert_eq!(p.get("Types(2)", "nInts"), None);
+}
+
 // ---- the dialog ----
 
 fn open(cx: &mut TestAppContext, text: &str) -> (Ini, AnyWindowHandle) {

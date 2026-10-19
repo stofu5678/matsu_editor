@@ -521,7 +521,7 @@ mod tests {
         assert_eq!(p.get(SECTION, "nKeyWordSetNum"), Some("2"));
         assert_eq!(p.get(SECTION, "szKW[00]"), Some("if\tあ\t"));
         // The length counts UTF-16 units and the end of the string.
-        assert_eq!(p.get(SECTION, "szKW[00].Size"), Some("5"));
+        assert_eq!(p.get(SECTION, "szKW[00].Size"), Some("6"));
         assert_eq!(p.get(SECTION, "nKWN[00]"), Some("2"));
         assert_eq!(p.get(SECTION, "nCASE[00]"), Some("1"));
         assert_eq!(p.get(SECTION, "szKW[01]"), Some(""));

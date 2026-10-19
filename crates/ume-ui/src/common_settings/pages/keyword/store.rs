@@ -6,8 +6,6 @@
 //! that disagree.
 
 use ume_config::settings::DocumentTypes;
-use ume_config::settings::builtin_types::BUILTIN_TYPE_COUNT;
-use ume_config::settings::doc_types::is_unused_slot;
 use ume_config::settings::keywords::{KeywordSets, MAX_KEYWORD_SETS, store_sets};
 use ume_config::{Profile, ProfileError};
 
@@ -47,25 +45,28 @@ fn store(rows: &[Row], profile: &mut Profile) -> Result<bool, ProfileError> {
     if entries == old {
         return Ok(false);
     }
-    let mut changed = false;
-    // The types as the file has them now: they are read before the sets are written, because their numbers
-    // are the numbers of the old sets.
+    // The types as the file has them now, with the numbers of the old sets, and the numbers they must have.
     let renumber = renumber(&entries, old.len());
-    let types = DocumentTypes::from_profile(profile);
-    for (index, original) in types.iter().enumerate() {
-        // A type of UME Editor's own that the file does not have yet is made again, with its sets found by
-        // name, every time the file is read (ADR-0017).
-        let number = i32::try_from(index).unwrap_or(i32::MAX);
-        if index >= BUILTIN_TYPE_COUNT && is_unused_slot(profile, number) {
-            continue;
-        }
-        let mut moved = original.clone();
-        moved.keyword_set_idx = original.keyword_set_idx.map(&renumber);
-        if moved.keyword_set_idx != original.keyword_set_idx {
-            moved.write(profile, number)?;
+    let wanted: Vec<_> = DocumentTypes::from_profile(profile)
+        .iter()
+        .map(|t| t.keyword_set_idx.map(&renumber))
+        .collect();
+    let mut changed = store_sets(profile, &drafts_of(&entries))?;
+    // Read the types again from the file as it is now: a type that comes out with other numbers than it must
+    // have is written with the right ones. A type of the file has the old numbers; a type that the file does
+    // not have (a built-in one, or one of UME Editor's own: ADR-0017) finds its set by the name, which is not
+    // there when the user renamed or deleted the set.
+    for (index, (now, wanted)) in DocumentTypes::from_profile(profile)
+        .iter()
+        .zip(wanted)
+        .enumerate()
+    {
+        if now.keyword_set_idx != wanted {
+            let mut moved = now.clone();
+            moved.keyword_set_idx = wanted;
+            moved.write(profile, i32::try_from(index).unwrap_or(i32::MAX))?;
             changed = true;
         }
     }
-    changed |= store_sets(profile, &drafts_of(&entries))?;
     Ok(changed)
 }
