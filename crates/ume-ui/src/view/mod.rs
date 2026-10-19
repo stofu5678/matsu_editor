@@ -727,7 +727,7 @@ impl Render for EditorView {
                 .child(preview.clone())
                 .into_any_element();
         }
-        let editor = div()
+        let mut editor = div()
             .id("editor")
             .size_full()
             .overflow_hidden()
@@ -735,6 +735,8 @@ impl Render for EditorView {
             .track_focus(&self.focus_handle)
             .cursor(CursorStyle::IBeam)
             .font_family(self.font_family.clone())
+            // `lfWeight` and `lfItalic` of the font (`ViewSettings`)
+            .font_weight(gpui::FontWeight(self.prefs.settings.gpui_font_weight()))
             .text_size(px(self.font_size))
             .line_height(px((self.font_size * 1.5).round()))
             .capture_key_down(cx.listener(Self::on_key_down))
@@ -757,6 +759,9 @@ impl Render for EditorView {
             .on_mouse_up(MouseButton::Right, cx.listener(Self::on_right_mouse_up))
             .on_scroll_wheel(cx.listener(Self::on_scroll))
             .child(EditorElement::new(cx.entity()));
+        if self.prefs.settings.font_italic {
+            editor = editor.italic();
+        }
         // The panel is a sibling, so that keys typed in its inputs do not reach the editor's.
         // The Save As options cover the view (and take the keys) while they are open.
         div()

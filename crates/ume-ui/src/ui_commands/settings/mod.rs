@@ -1,6 +1,7 @@
 //! Settings: the font size, the wrap, the status bar (Sakura's group "設定").
 
 pub mod changetype;
+pub mod font;
 pub mod option;
 pub mod option_backup;
 pub mod option_edit;
@@ -14,6 +15,7 @@ pub mod option_tab;
 pub mod option_type;
 pub mod option_window;
 pub mod select_count_mode;
+pub mod set_font_size;
 pub mod set_font_size_down;
 pub mod set_font_size_up;
 pub mod show_funckey;

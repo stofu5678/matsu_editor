@@ -218,6 +218,8 @@ impl Workspace {
         let entries = self.bar_entries(window, cx)?;
         let own = window.window_handle();
         let options = settings::options(cx);
+        // `m_sTabBar.m_lf`: the font of the text of the tabs (the text size is 12 pixels without one).
+        let font = settings::tab_font(cx);
         let mut bar = div()
             .id("tab-bar")
             .flex()
@@ -226,8 +228,17 @@ impl Workspace {
             .bg(rgb(0xe4e4e4))
             .border_b_1()
             .border_color(rgb(0xc0c0c0))
-            .text_size(px(12.))
+            .text_size(px(font.size_px().unwrap_or(12.)))
             .text_color(rgb(0x1e1e1e));
+        if let Some(family) = font.family() {
+            bar = bar.font_family(family);
+        }
+        if let Some(weight) = font.weight() {
+            bar = bar.font_weight(gpui::FontWeight(weight));
+        }
+        if font.italic() {
+            bar = bar.italic();
+        }
         for (i, entry) in entries.iter().cloned().enumerate() {
             bar = bar.child(self.render_tab(i, entry, own, options, cx));
         }

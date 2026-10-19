@@ -27,6 +27,8 @@ pub(super) const OUTLINE_RULE_FILE: &str = "outline_rule_file";
 pub(super) const OUTLINE_RULE_BROWSE: &str = "outline_rule_browse";
 pub(super) const USE_TYPE_FONT: &str = "use_type_font";
 pub(super) const TYPE_FONT_BUTTON: &str = "type_font_button";
+/// The font of the type (`m_lf`, `m_nPointSize`): not drawn, the button and the label use it.
+pub(super) const TYPE_FONT: &str = "type_font";
 pub(super) const WORD_WRAP: &str = "word_wrap";
 pub(super) const KINSOKU_RET: &str = "kinsoku_ret";
 pub(super) const KINSOKU_HIDE: &str = "kinsoku_hide";

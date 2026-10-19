@@ -215,6 +215,13 @@ pub struct ViewSettings {
     pub font_family: Option<String>,
     /// The size in 1/10 point (`nPointSize`).
     pub point_size: i32,
+    /// The weight of the font (`lfWeight`; 400 normal, 700 bold). 0 is "don't care", drawn as normal.
+    pub font_weight: i32,
+    /// The font is italic (`lfItalic`).
+    pub font_italic: bool,
+    /// The font is a TrueType (outline) font (`lfOutPrecision` is `OUT_STROKE_PRECIS` or
+    /// `OUT_PS_ONLY_PRECIS`): `Command_SETFONTSIZE` changes the size of such fonts only.
+    pub font_truetype: bool,
     pub tab_width: u32,
     pub word_wrap: bool,
     pub wrap_method: WrapMethod,
@@ -468,6 +475,9 @@ impl ViewSettings {
             type_index,
             font_family,
             point_size,
+            font_weight: font.log_font.weight,
+            font_italic: font.log_font.italic != 0,
+            font_truetype: crate::font_dialog::model::is_truetype(font.log_font.out_precision),
             tab_width: u32::try_from(t.tab_space).unwrap_or(4).max(1),
             word_wrap: t.word_wrap,
             wrap_method: WrapMethod::from_setting(t.text_wrap_method),
@@ -558,6 +568,15 @@ impl ViewSettings {
     /// The font size in GPUI pixels.
     pub fn font_px(&self) -> f32 {
         points_to_px(self.point_size)
+    }
+
+    /// The weight GPUI draws the text with: `lfWeight`, and normal for 0 (`FW_DONTCARE`).
+    pub fn gpui_font_weight(&self) -> f32 {
+        if self.font_weight > 0 {
+            self.font_weight as f32
+        } else {
+            400.0
+        }
     }
 
     /// The wrap the layout starts with, for a view `window_columns` columns wide.

@@ -145,6 +145,67 @@ impl TabOptions {
     }
 }
 
+/// `m_sTabBar.m_lf` and `m_nPointSize` (`lfTabFont`, `lfTabFontPs`, `lfTabFaceName` of `[Common]`): the
+/// font of the text of the tabs. `None` is the font of the program's windows; Sakura's default is
+/// the font of icon titles of Windows (`lfIconTitle`), which other systems do not have.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct TabFont(pub Option<ume_config::settings::FontSetting>);
+
+impl Global for TabFont {}
+
+impl TabFont {
+    /// The font of the file, if it has one with a face name.
+    pub(crate) fn from_profile(profile: &Profile) -> Self {
+        let mut font = crate::common_settings::model::not_set();
+        font.read(
+            profile,
+            "Common",
+            "lfTabFont",
+            Some("lfTabFontPs"),
+            Some("lfTabFaceName"),
+        );
+        Self((!font.log_font.face_name.is_empty()).then_some(font))
+    }
+
+    /// The family to ask GPUI for; `None` keeps the font of the window.
+    pub(crate) fn family(&self) -> Option<String> {
+        let font = self.0.as_ref()?;
+        crate::settings::view_settings::font_family_for(
+            &font.log_font.face_name,
+            ume_config::location::Os::current(),
+        )
+    }
+
+    /// The size of the text in pixels. Sakura creates the font from the `LOGFONT` (`CreateFontIndirect`),
+    /// so the height decides (`CTabWnd::TAB_FONT_HEIGHT`); the point size is used for a font with no height.
+    pub(crate) fn size_px(&self) -> Option<f32> {
+        let font = self.0.as_ref()?;
+        let height = font.log_font.height.unsigned_abs();
+        if height > 0 {
+            Some(height as f32)
+        } else {
+            Some(crate::settings::view_settings::points_to_px(
+                font.point_size_for_dpi(crate::settings::view_settings::DPI),
+            ))
+        }
+    }
+
+    /// The weight of the text (`lfWeight`); 0 is normal.
+    pub(crate) fn weight(&self) -> Option<f32> {
+        let weight = self.0.as_ref()?.log_font.weight;
+        Some(if weight > 0 { weight as f32 } else { 400.0 })
+    }
+
+    pub(crate) fn italic(&self) -> bool {
+        self.0.as_ref().is_some_and(|f| f.log_font.italic != 0)
+    }
+}
+
+/// The font of the tabs now.
+pub(crate) fn tab_font(cx: &App) -> TabFont {
+    cx.try_global::<TabFont>().cloned().unwrap_or_default()
+}
+
 /// The options now. Sakura's defaults before the application installs them.
 pub(crate) fn options(cx: &App) -> TabOptions {
     cx.try_global::<TabOptions>().copied().unwrap_or_default()
@@ -161,6 +222,10 @@ pub(crate) fn install(cx: &mut App, user: &crate::settings::UserSettings) {
         .profile()
         .map_or_else(TabSettings::default, TabSettings::from_profile);
     cx.set_global(settings);
+    cx.set_global(
+        user.profile()
+            .map_or_else(TabFont::default, TabFont::from_profile),
+    );
     cx.set_global(
         user.profile()
             .map_or_else(TabOptions::default, TabOptions::from_profile),

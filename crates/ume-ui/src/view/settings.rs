@@ -235,20 +235,98 @@ impl EditorView {
     /// `Command_SETFONTSIZE` in mode 2 (`F_SETFONTSIZEUP` with `steps` = 1, `F_SETFONTSIZEDOWN`
     /// with -1): the font gets the next size of the zoom table, for this view only.
     pub fn zoom_font(&mut self, steps: i32, cx: &mut Context<Self>) {
+        self.set_temporary_font_size(0, steps, cx);
+    }
+
+    /// The size `Command_SETFONTSIZE` (`sakura_core/cmd/CViewCommander_Settings.cpp`) gives the
+    /// font, in 1/10 point, and the zoom that goes with it; `None` when nothing changes.
+    ///
+    /// `size` is a size to set (brought into 1 to 72 points; the zoom is 1.0 again), else `shift`
+    /// steps of the zoom table from the size of the font of the file (from the zoom now, when
+    /// `temporary`). Only TrueType fonts are changed (`truetype` says the font is one).
+    pub(crate) fn plan_font_size(
+        &self,
+        size: i32,
+        shift: i32,
+        truetype: bool,
+        temporary: bool,
+    ) -> Option<(i32, f64)> {
+        if !truetype {
+            return None;
+        }
+        let zoom = if temporary { self.prefs.zoom } else { 1.0 };
+        if size != 0 {
+            let tenths = size.clamp(FONT_ZOOM.value_min as i32, FONT_ZOOM.value_max as i32);
+            return Some((tenths, 1.0));
+        }
+        if shift == 0 {
+            return None;
+        }
         let base = f64::from(self.prefs.settings.point_size);
-        let Some((tenths, zoom)) = zoomed_value(&FONT_ZOOM, base, self.prefs.zoom, steps) else {
+        let (tenths, zoom) = zoomed_value(&FONT_ZOOM, base, zoom, shift)?;
+        Some((tenths as i32, zoom))
+    }
+
+    /// `Command_SETFONTSIZE` in mode 2 ("一時適用フォント"): the size for this view only.
+    pub fn set_temporary_font_size(&mut self, size: i32, shift: i32, cx: &mut Context<Self>) {
+        let truetype = self.prefs.settings.font_truetype;
+        let Some((tenths, zoom)) = self.plan_font_size(size, shift, truetype, true) else {
             return;
         };
         self.prefs.zoom = zoom;
+        self.resize_font(points_to_px(tenths), cx);
+    }
+
+    /// Draws the text at `px` pixels, keeping the same text at the top left of the view: the scroll
+    /// offsets are in pixels.
+    fn resize_font(&mut self, px: f32, cx: &mut Context<Self>) {
         let old = self.font_size;
-        self.font_size = points_to_px(tenths as i32);
-        // Keep the same text at the top left of the view: the scroll offsets are in pixels.
+        self.font_size = px;
         // The line height is the font size times 1.5, rounded (see `Render for EditorView`).
         let line_height = |size: f32| (size * 1.5).round();
         self.scroll_y *= line_height(self.font_size) / line_height(old);
         self.scroll_x *= self.font_size / old;
         // The metrics follow at the next paint, which brings the caret into view if it left.
         cx.notify();
+    }
+
+    /// The common font or the font of a type changed (`PM_CHANGESETTING_FONT`,
+    /// `PM_CHANGESETTING_FONTSIZE`): this view reads the font of its type again.
+    ///
+    /// A size set for this view only (`F_SETFONTSIZEUP`, ...) stays if the size of the font of the
+    /// file is the same as before (and follows a new face); otherwise it ends
+    /// (`CEditDoc::OnChangeSetting`, `sakura_core/doc/CEditDoc.cpp`: "フォント設定が変更された。
+    /// 元に戻す"). A view whose type has a font of its own does not notice a change of the common font.
+    pub(crate) fn refresh_font(&mut self, user: &UserSettings, cx: &mut Context<Self>) {
+        let new = user.view_settings_of_type(self.prefs.settings.type_index);
+        let old = &self.prefs.settings;
+        if new.font_family == old.font_family
+            && new.point_size == old.point_size
+            && new.font_weight == old.font_weight
+            && new.font_italic == old.font_italic
+            && new.font_truetype == old.font_truetype
+        {
+            return;
+        }
+        let temporary = self.font_size != old.font_px();
+        let keep_size = temporary && new.point_size == old.point_size;
+        self.font_family = match &new.font_family {
+            Some(family) => family.clone().into(),
+            None => super::FONT_FAMILY.into(),
+        };
+        let px = new.font_px();
+        let settings = &mut self.prefs.settings;
+        settings.font_family = new.font_family;
+        settings.point_size = new.point_size;
+        settings.font_weight = new.font_weight;
+        settings.font_italic = new.font_italic;
+        settings.font_truetype = new.font_truetype;
+        if keep_size {
+            cx.notify();
+        } else {
+            self.prefs.zoom = 1.0;
+            self.resize_font(px, cx);
+        }
     }
 
     /// `F_SHOWSTATUSBAR`: shows the status bar, or hides it.

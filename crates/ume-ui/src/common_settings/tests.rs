@@ -261,7 +261,7 @@ fn every_control_has_its_own_name_and_sakuras_key() {
         let part_of_another_key = control.id == "backup_retain_ext";
         if !matches!(
             control.kind,
-            Kind::Button { .. } | Kind::Numbers { .. } | Kind::Table { .. }
+            Kind::Button { .. } | Kind::Numbers { .. } | Kind::Table { .. } | Kind::Font { .. }
         ) && control.live
             && !part_of_another_key
             && !KEYLESS_PREFIXES.iter().any(|p| control.id.starts_with(p))
@@ -316,7 +316,8 @@ fn the_pages_have_every_control_that_sakura_has() {
     let count = |page: Page| controls(&page.items().unwrap()).len();
     assert_eq!(count(Page::General), 20);
     assert_eq!(count(Page::Window), 18);
-    assert_eq!(count(Page::Tab), 14);
+    // (and the font of the tabs, which the button and the label use)
+    assert_eq!(count(Page::Tab), 15);
     assert_eq!(count(Page::Edit), 19);
 }
 

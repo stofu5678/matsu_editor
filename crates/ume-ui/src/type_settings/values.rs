@@ -269,6 +269,7 @@ pub(super) fn load(
     n(&mut v, OUTLINE, in_list(t.default_outline, OUTLINES));
     s(&mut v, OUTLINE_RULE_FILE, &t.outline_rule_filename);
     b(&mut v, USE_TYPE_FONT, t.use_type_font);
+    v.set(TYPE_FONT, Value::Font(t.font.clone()));
     b(&mut v, WORD_WRAP, t.word_wrap);
     b(&mut v, KINSOKU_RET, t.kinsoku_ret);
     b(&mut v, KINSOKU_HIDE, t.kinsoku_hide);
@@ -498,6 +499,8 @@ pub(super) fn store(v: &Values, original: &TypeSettings) -> TypeSettings {
     t.text_wrap_method = v.int(WRAP_METHOD);
     t.max_line_ketas = v.int(MAX_LINE_KETAS);
     t.tab_space = tab_width_in_range(v.int(TAB_SPACE), t.max_line_ketas);
+    t.use_type_font = v.bool(USE_TYPE_FONT);
+    t.font = v.font(TYPE_FONT);
     t.word_wrap = v.bool(WORD_WRAP);
     t.kinsoku_ret = v.bool(KINSOKU_RET);
     t.kinsoku_hide = v.bool(KINSOKU_HIDE);
@@ -605,6 +608,8 @@ pub(super) fn merge(base: &TypeSettings, old: &TypeSettings, new: &TypeSettings)
         kinsoku_hide,
         kinsoku_kuto_enabled,
         default_outline,
+        use_type_font,
+        font,
         string_type,
         string_line_only,
         string_end_line,
