@@ -80,7 +80,9 @@ fn find_fields(uia: &Uia, window: Element) -> Fields {
         e.is_check_box() && e.name().replace('&', "").trim() == "BOM"
     });
     let name = window.find(uia, "the file name", |e| {
-        e.is_edit() && e.value() == PRESET_NAME
+        // id 1001 (the edit of the file name; the address band has the id too, but is no edit).
+        // Explorer shows the name without the extension it knows.
+        e.is_edit() && e.automation_id() == "1001"
     });
     Fields {
         window,
