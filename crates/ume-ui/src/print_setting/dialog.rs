@@ -41,6 +41,8 @@ const DPI: i32 = 96;
 pub(crate) struct Answer {
     /// The eight settings, with the changes.
     pub settings: PrintSettings,
+    /// The eight settings the dialog started with: only the ones that differ are kept.
+    pub original: PrintSettings,
     /// The one that was chosen (`m_nCurrentPrintSetting`).
     pub current: usize,
 }
@@ -65,6 +67,8 @@ pub(crate) struct PrintSettingDialog {
     view: WeakEntity<EditorView>,
     /// The eight settings. The one shown (`current`) is stale until [`Self::keep_current`].
     pub(super) settings: PrintSettings,
+    /// The eight settings as they were when the dialog opened.
+    original: PrintSettings,
     current: usize,
     /// What the controls other than the edit boxes hold, for the setting shown.
     pub(super) draft: PrintSetting,
@@ -113,6 +117,7 @@ impl PrintSettingDialog {
         let draft = settings.get(current).clone();
         let mut dialog = Self {
             view,
+            original: settings.clone(),
             settings,
             current,
             draft,
@@ -220,6 +225,7 @@ impl PrintSettingDialog {
         self.show_setting(window, cx);
         let answer = Answer {
             settings: self.settings.clone(),
+            original: self.original.clone(),
             current: self.current,
         };
         if let Some(result) = self.result.take() {
@@ -264,10 +270,12 @@ impl PrintSettingDialog {
         };
         let answer = view.update(cx, |view, cx| view.open_input_dialog(request, window, cx));
         cx.spawn_in(window, async move |this, cx| {
-            if let Some(name) = answer.await {
-                this.update_in(cx, |this, window, cx| this.set_name(&name, window, cx))
-                    .ok();
-            }
+            // The input dialog gives the focus to the view when it ends, whatever the answer was.
+            let name = answer.await;
+            this.update_in(cx, |this, window, cx| {
+                this.set_name(name.as_deref().unwrap_or_default(), window, cx);
+            })
+            .ok();
         })
         .detach();
     }

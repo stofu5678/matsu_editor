@@ -53,7 +53,10 @@ impl EditorView {
             });
         let (sender, receiver) = async_channel::bounded(1);
         self.open_print_setting_dialog(settings, current, number_columns, sender, window, cx);
+        // A macro waits until the dialog is closed and its answer applied.
+        let tracked = crate::macros::track(cx);
         cx.spawn_in(window, async move |this, cx| {
+            let _tracked = tracked;
             if let Ok(Some(answer)) = receiver.recv().await {
                 this.update_in(cx, |this, _, cx| {
                     this.apply_print_setting(&answer, type_index, cx);
@@ -72,7 +75,13 @@ impl EditorView {
         type_index: usize,
         cx: &mut Context<Self>,
     ) {
-        prefs::commit(cx, &answer.settings, type_index, answer.current);
+        prefs::commit(
+            cx,
+            &answer.settings,
+            &answer.original,
+            type_index,
+            answer.current,
+        );
         self.print_setting_changed(cx);
         let me = cx.entity_id();
         let others: Vec<_> = crate::file_ops::windows::workspaces(cx)

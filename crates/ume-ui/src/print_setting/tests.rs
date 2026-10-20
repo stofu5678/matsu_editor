@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use gpui::{AppContext as _, Entity, TestAppContext, VisualTestContext};
+use gpui::{AppContext as _, Entity, Focusable as _, TestAppContext, VisualTestContext};
 use ume_config::Profile;
 use ume_config::settings::FontSetting;
 use ume_core::buffer::Document;
@@ -453,13 +453,54 @@ fn a_second_window_sees_the_settings_after_ok(cx: &mut TestAppContext) {
         .unwrap();
     let before = preview.read_with(cx, |p, _| p.page_count());
     view.update_in(cx, |v, _, cx| {
-        let mut s = prefs::settings(cx);
+        let original = prefs::settings(cx);
+        let mut s = original.clone();
         let mut one = s.get(0).clone();
         one.print_font_height = 60;
         one.print_font_width = 30;
         s.set(0, one);
-        prefs::commit(cx, &s, v.type_index(), 0);
+        prefs::commit(cx, &s, &original, v.type_index(), 0);
         v.print_setting_changed(cx);
     });
     assert!(preview.read_with(cx, |p, _| p.page_count()) > before);
+}
+
+#[gpui::test]
+fn a_dialog_with_old_settings_keeps_what_another_one_saved(cx: &mut TestAppContext) {
+    // Two windows open the dialog before either presses OK.
+    let (view, cx) = setup(cx, "abc");
+    let first = open(&view, cx);
+    let second_original = saved(cx);
+    type_number(&first, Number::Dansuu, "3", cx);
+    press_ok(&first, cx);
+    assert_eq!(saved(cx).get(0).print_dansuu, 3);
+    // the second dialog changes only the second setting
+    view.update_in(cx, |v, _, cx| {
+        let mut s = second_original.clone();
+        let mut two = s.get(1).clone();
+        two.print_font_height = 40;
+        two.print_font_width = 20;
+        s.set(1, two);
+        prefs::commit(cx, &s, &second_original, v.type_index(), 0);
+    });
+    let s = saved(cx);
+    assert_eq!(s.get(0).print_dansuu, 3);
+    assert_eq!(s.get(1).print_font_height, 40);
+}
+
+#[gpui::test]
+fn cancelling_the_rename_gives_the_focus_back_to_the_dialog(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "abc");
+    let dialog = open(&view, cx);
+    dialog.update_in(cx, |d, window, cx| d.rename(window, cx));
+    assert!(view.read_with(cx, |v, _| v.input_dialog.is_some()));
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+    assert!(view.read_with(cx, |v, _| v.input_dialog.is_none()));
+    assert_eq!(dialog.read_with(cx, |d, _| d.name_of(0)), "印刷設定 1");
+    let focused = cx.update(|window, app| dialog.read(app).focus_handle(app).is_focused(window));
+    assert!(focused);
+    // Esc closes the dialog, as before
+    cx.simulate_keystrokes("escape");
+    assert_eq!(dialog_of(&view, cx), None);
 }

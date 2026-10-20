@@ -54,14 +54,27 @@ impl PrintPrefs {
         }
     }
 
-    /// Makes `new` the settings. The ones that differ from what we had are written to the file
-    /// (the file is read again first, so what another window saved at the same moment stays), and
-    /// so is the number `current` of the document type `type_index`.
-    fn change(&mut self, new: &PrintSettings, type_index: usize, current: usize) {
-        let before = self.settings.clone();
+    /// Makes `new` the settings. The ones that differ from `original`, which the dialog started
+    /// with, are written to the file (the file is read again first, so what another window saved
+    /// meanwhile stays), and so is the number `current` of the document type `type_index`.
+    fn change(
+        &mut self,
+        new: &PrintSettings,
+        original: &PrintSettings,
+        type_index: usize,
+        current: usize,
+    ) {
+        let before = original.clone();
         self.chosen.insert(type_index, current);
         let Some(path) = self.store.clone() else {
-            self.settings = new.clone();
+            // the slots another dialog changed meanwhile stay
+            let mut now = self.settings.clone();
+            for (i, slot) in new.slots().iter().enumerate() {
+                if before.slots().get(i) != Some(slot) {
+                    now.set(i, slot.clone());
+                }
+            }
+            self.settings = now;
             return;
         };
         let base = default_setting();
@@ -123,7 +136,13 @@ pub(crate) fn current_setting(
 }
 
 /// What OK of the dialog keeps (`CEditWnd::OnPrintPageSetting`).
-pub(crate) fn commit(cx: &mut App, new: &PrintSettings, type_index: usize, current: usize) {
+pub(crate) fn commit(
+    cx: &mut App,
+    new: &PrintSettings,
+    original: &PrintSettings,
+    type_index: usize,
+    current: usize,
+) {
     cx.default_global::<PrintPrefs>()
-        .change(new, type_index, current);
+        .change(new, original, type_index, current);
 }
