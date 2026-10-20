@@ -86,6 +86,15 @@ impl Uia {
             );
             return None;
         }
+        let uia = Self::desktop();
+        if uia.is_none() {
+            eprintln!("SKIPPED: this session has no desktop that UI Automation can see");
+        }
+        uia
+    }
+
+    /// The UIA client, if it can see a desktop with windows.
+    fn desktop() -> Option<Self> {
         // SAFETY: plain COM calls on the test thread. The result of `CoInitializeEx` is not
         // checked on purpose: a thread that is in an apartment already can still use UIA.
         unsafe {
