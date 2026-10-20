@@ -222,7 +222,7 @@ impl Workspace {
         let options = settings::options(cx);
         // `m_sTabBar.m_lf`: the font of the text of the tabs (the text size is 12 pixels without one).
         let font = settings::tab_font(cx);
-        let mut bar = semantics::bar(div().id("tab-bar"))
+        let mut bar = semantics::bar(div().id("tab-bar"), entries.len())
             .flex()
             .flex_row()
             .w_full()
@@ -240,9 +240,8 @@ impl Workspace {
         if font.italic() {
             bar = bar.italic();
         }
-        let count = entries.len();
         for (i, entry) in entries.iter().cloned().enumerate() {
-            bar = bar.child(self.render_tab(i, count, entry, own, options, cx));
+            bar = bar.child(self.render_tab(i, entry, own, options, cx));
         }
         // `OnLButtonDown`: the list of the captions opens on the press, as a menu does.
         let list_button = semantics::button(div().id("tab-list"), semantics::LIST_BUTTON_NAME)
@@ -336,7 +335,6 @@ impl Workspace {
     fn render_tab(
         &self,
         index: usize,
-        count: usize,
         entry: Entry,
         own: AnyWindowHandle,
         options: settings::TabOptions,
@@ -398,57 +396,56 @@ impl Workspace {
             })
         };
         let group = SharedString::from(format!("tab-group-{index}"));
-        let mut element =
-            semantics::tab(div().id(("tab", index)), &caption, active, index + 1, count)
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_1()
-                .px_2()
-                .py_0p5()
-                .group(group.clone())
-                // `m_bSameTabWidth`: every tab is as wide as the others.
-                .when(!options.same_width, |tab| tab.max_w(px(220.)))
-                .when(options.same_width, |tab| tab.w(px(160.)).flex_none())
-                .border_r_1()
-                .border_color(rgb(0xc0c0c0))
-                .bg(if active { rgb(0xffffff) } else { rgb(0xd8d8d8) })
-                .when(active, |s| s.font_weight(gpui::FontWeight::SEMIBOLD))
-                .debug_selector(move || format!("tab-{index}"))
-                .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
-                .on_mouse_down(MouseButton::Left, select)
-                .on_a11y_action(gpui::AccessibleAction::Click, select_by_a11y)
-                .on_mouse_up(MouseButton::Right, open_menu)
-                // `OnTabMButtonUp`: the middle button closes the tab.
-                .on_mouse_up(MouseButton::Middle, move |_, window, cx| close(window, cx))
-                .child(
-                    div()
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_ellipsis()
-                        .child(caption.clone()),
+        let mut element = semantics::tab(div().id(("tab", index)), &caption, active, index)
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_1()
+            .px_2()
+            .py_0p5()
+            .group(group.clone())
+            // `m_bSameTabWidth`: every tab is as wide as the others.
+            .when(!options.same_width, |tab| tab.max_w(px(220.)))
+            .when(options.same_width, |tab| tab.w(px(160.)).flex_none())
+            .border_r_1()
+            .border_color(rgb(0xc0c0c0))
+            .bg(if active { rgb(0xffffff) } else { rgb(0xd8d8d8) })
+            .when(active, |s| s.font_weight(gpui::FontWeight::SEMIBOLD))
+            .debug_selector(move || format!("tab-{index}"))
+            .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+            .on_mouse_down(MouseButton::Left, select)
+            .on_a11y_action(gpui::AccessibleAction::Click, select_by_a11y)
+            .on_mouse_up(MouseButton::Right, open_menu)
+            // `OnTabMButtonUp`: the middle button closes the tab.
+            .on_mouse_up(MouseButton::Middle, move |_, window, cx| close(window, cx))
+            .child(
+                div()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .child(caption.clone()),
+            )
+            // `m_bDispTabClose`: never, on every tab, or on the tab the pointer is over.
+            .when(options.disp_close != settings::DispTabClose::No, |tab| {
+                let auto = options.disp_close == settings::DispTabClose::Auto;
+                let hover_group = group.clone();
+                tab.child(
+                    semantics::tab_close_button(div().id(("tab-close", index)), &caption)
+                        .px_1()
+                        .cursor_pointer()
+                        .hover(|s| s.bg(rgb(0xc8c8c8)))
+                        .when(auto, |button| {
+                            button
+                                .invisible()
+                                .group_hover(hover_group, |style| style.visible())
+                        })
+                        .child("×")
+                        .on_click(move |_, window, cx| {
+                            cx.stop_propagation();
+                            close_for_button(window, cx)
+                        }),
                 )
-                // `m_bDispTabClose`: never, on every tab, or on the tab the pointer is over.
-                .when(options.disp_close != settings::DispTabClose::No, |tab| {
-                    let auto = options.disp_close == settings::DispTabClose::Auto;
-                    let hover_group = group.clone();
-                    tab.child(
-                        semantics::tab_close_button(div().id(("tab-close", index)), &caption)
-                            .px_1()
-                            .cursor_pointer()
-                            .hover(|s| s.bg(rgb(0xc8c8c8)))
-                            .when(auto, |button| {
-                                button
-                                    .invisible()
-                                    .group_hover(hover_group, |style| style.visible())
-                            })
-                            .child("×")
-                            .on_click(move |_, window, cx| {
-                                cx.stop_propagation();
-                                close_for_button(window, cx)
-                            }),
-                    )
-                });
+            });
         if let Some(from) = tab {
             element = element
                 .on_drag(

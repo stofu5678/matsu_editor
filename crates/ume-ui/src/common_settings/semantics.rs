@@ -21,10 +21,16 @@ pub(super) fn dialog(element: Stateful<Div>, name: &str) -> Stateful<Div> {
     element.role(Role::Dialog).aria_label(name.to_owned())
 }
 
-pub(super) fn page_list(element: Stateful<Div>) -> Stateful<Div> {
+// AccessKit counts `position_in_set` from 0 (accesskit_windows 0.34.0 `node.rs` 681-686 adds 1 for
+// UIA's `PositionInSet`) and takes the size of the set from the container, never from the item
+// (`size_of_set_from_container`, accesskit_consumer 0.38.0 `node.rs` 612-624, and node.rs 688-692 of
+// accesskit_windows): so the item has the zero-based position and the list has the count.
+/// The tab list of the pages, with `count` pages.
+pub(super) fn page_list(element: Stateful<Div>, count: usize) -> Stateful<Div> {
     element
         .role(Role::TabList)
         .aria_label(PAGE_LIST_NAME)
+        .aria_size_of_set(count)
         .aria_orientation(Orientation::Vertical)
 }
 
@@ -32,15 +38,13 @@ pub(super) fn page_tab(
     element: Stateful<Div>,
     title: &str,
     selected: bool,
-    position: usize,
-    count: usize,
+    index: usize,
 ) -> Stateful<Div> {
     element
         .role(Role::Tab)
         .aria_label(title.to_owned())
         .aria_selected(selected)
-        .aria_position_in_set(position)
-        .aria_size_of_set(count)
+        .aria_position_in_set(index)
 }
 
 /// The area of the shown page.
@@ -124,18 +128,22 @@ mod tests {
 
     #[test]
     fn the_page_list_is_a_tab_list_of_tabs_and_the_shown_page_is_selected() {
-        let list = node(page_list(div().id("pages")));
+        let list = node(page_list(div().id("pages"), 3));
         assert_eq!(list.role(), Role::TabList);
         assert_eq!(list.label(), Some(PAGE_LIST_NAME));
+        // What UIA reads: the size from the container, the zero-based position from the item
+        // (accesskit_windows 0.34.0 node.rs 681-692; accesskit_consumer 0.38.0 node.rs 612-624).
+        assert_eq!(list.size_of_set(), Some(3));
 
-        let shown = node(page_tab(div().id("t0"), "全般", true, 1, 3));
-        let other = node(page_tab(div().id("t1"), "ウィンドウ", false, 2, 3));
+        let shown = node(page_tab(div().id("t0"), "全般", true, 0));
+        let other = node(page_tab(div().id("t1"), "ウィンドウ", false, 1));
         assert_eq!(shown.role(), Role::Tab);
         assert_eq!(shown.label(), Some("全般"));
         assert_eq!(shown.is_selected(), Some(true));
         assert_eq!(other.is_selected(), Some(false));
-        assert_eq!(other.position_in_set(), Some(2));
-        assert_eq!(other.size_of_set(), Some(3));
+        assert_eq!(shown.position_in_set(), Some(0));
+        assert_eq!(other.position_in_set(), Some(1));
+        assert_eq!(other.size_of_set(), None);
 
         let panel = node(page_panel(div().id("body"), "全般"));
         assert_eq!(

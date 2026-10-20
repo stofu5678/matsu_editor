@@ -9,24 +9,30 @@ pub(super) const BAR_NAME: &str = "タブ";
 /// right click).
 pub(super) const LIST_BUTTON_NAME: &str = "タブの一覧";
 
-pub(super) fn bar(element: Stateful<Div>) -> Stateful<Div> {
-    element.role(Role::TabList).aria_label(BAR_NAME)
+// AccessKit counts `position_in_set` from 0 (accesskit_windows 0.34.0 `node.rs` 681-686 adds 1 for
+// UIA's `PositionInSet`) and takes the size of the set from the container, never from the item
+// (`size_of_set_from_container`, accesskit_consumer 0.38.0 `node.rs` 612-624, and node.rs 688-692 of
+// accesskit_windows): so the item has the zero-based position and the list has the count.
+/// The tab list, with `count` tabs.
+pub(super) fn bar(element: Stateful<Div>, count: usize) -> Stateful<Div> {
+    element
+        .role(Role::TabList)
+        .aria_label(BAR_NAME)
+        .aria_size_of_set(count)
 }
 
-/// A tab with `caption`, number `position` (from 1) of `count`.
+/// A tab with `caption`, at `index` (from 0) in the tab list.
 pub(super) fn tab(
     element: Stateful<Div>,
     caption: &str,
     active: bool,
-    position: usize,
-    count: usize,
+    index: usize,
 ) -> Stateful<Div> {
     element
         .role(Role::Tab)
         .aria_label(caption.to_owned())
         .aria_selected(active)
-        .aria_position_in_set(position)
-        .aria_size_of_set(count)
+        .aria_position_in_set(index)
 }
 
 /// The close button of the tab with `caption`: `タブを閉じる: caption`.
@@ -51,11 +57,14 @@ mod tests {
 
     #[test]
     fn the_bar_is_a_tab_list_and_the_active_tab_is_selected() {
-        let bar = node_of(&bar(div().id("bar"))).unwrap();
+        let bar = node_of(&bar(div().id("bar"), 2)).unwrap();
         assert_eq!((bar.role(), bar.label()), (Role::TabList, Some(BAR_NAME)));
+        // What UIA reads: the size from the container, the zero-based position from the item
+        // (accesskit_windows 0.34.0 node.rs 681-692; accesskit_consumer 0.38.0 node.rs 612-624).
+        assert_eq!(bar.size_of_set(), Some(2));
 
-        let active = node_of(&tab(div().id("t0"), "main.rs", true, 1, 2)).unwrap();
-        let other = node_of(&tab(div().id("t1"), "名前のない文書", false, 2, 2)).unwrap();
+        let active = node_of(&tab(div().id("t0"), "main.rs", true, 0)).unwrap();
+        let other = node_of(&tab(div().id("t1"), "名前のない文書", false, 1)).unwrap();
         assert_eq!(
             (active.role(), active.label()),
             (Role::Tab, Some("main.rs"))
@@ -63,8 +72,9 @@ mod tests {
         assert_eq!(active.is_selected(), Some(true));
         assert_eq!(other.label(), Some("名前のない文書"));
         assert_eq!(other.is_selected(), Some(false));
-        assert_eq!(other.position_in_set(), Some(2));
-        assert_eq!(other.size_of_set(), Some(2));
+        assert_eq!(active.position_in_set(), Some(0));
+        assert_eq!(other.position_in_set(), Some(1));
+        assert_eq!(other.size_of_set(), None);
     }
 
     #[test]

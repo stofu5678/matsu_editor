@@ -1363,8 +1363,7 @@ impl Render for CommonSettingsDialog {
                     div().id(SharedString::from(format!("cs-page-{index}"))),
                     page.title,
                     selected,
-                    index + 1,
-                    self.pages.len(),
+                    index,
                 )
                 .px_3()
                 .py_1()
@@ -1404,7 +1403,7 @@ impl Render for CommonSettingsDialog {
                     // tall as the page and cut at the top and the bottom, with nothing to scroll.
                     .items_stretch()
                     .child(
-                        semantics::page_list(v_flex().id("cs-pages"))
+                        semantics::page_list(v_flex().id("cs-pages"), self.pages.len())
                             .w(px(150.))
                             .py_2()
                             .border_r_1()
