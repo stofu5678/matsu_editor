@@ -450,3 +450,27 @@ fn registered_macros_and_custom_menus_are_named_on_the_bars(cx: &mut TestAppCont
     assert_eq!(tip(cx, 31501), "My menu");
     assert_eq!(tip(cx, code_of("F_FILESAVE")), "上書き保存");
 }
+
+/// A screen reader reads the name of a toolbar button, which is the name of its function: every
+/// button of Sakura's default toolbar has a real one.
+#[gpui::test]
+fn every_default_toolbar_button_has_a_name(cx: &mut TestAppContext) {
+    let _ = setup(cx, "");
+    let names: Vec<(u16, String)> = cx.update(|app| {
+        let names = crate::func_name::FuncNames::new();
+        super::toolbar::arrange(&super::toolbar::ToolbarButtons::default().0)
+            .into_iter()
+            .flatten()
+            .filter_map(|item| match item {
+                super::toolbar::Item::Button(button) => Some(button.click_code()),
+                _ => None,
+            })
+            .map(|code| (code, names.name(app, code)))
+            .collect()
+    });
+    assert!(names.len() > 15, "{names:?}");
+    for (code, name) in names {
+        assert!(!name.is_empty(), "{code}");
+        assert_ne!(name, crate::func_name::UNKNOWN_NAME, "{code}");
+    }
+}

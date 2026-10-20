@@ -31,6 +31,7 @@ mod menu_tests;
 pub(crate) mod order;
 #[cfg(test)]
 mod pending_tests;
+mod semantics;
 pub(crate) mod settings;
 #[cfg(test)]
 mod tests;

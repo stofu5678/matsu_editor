@@ -21,6 +21,7 @@
 //!   `Layout`, kept up to date after every edit), [`geometry`] and [`hit`] (pixels,
 //!   rows and columns), [`segments`] (what to paint in a row), [`word`] and [`status`].
 
+mod a11y;
 pub mod app;
 mod bars;
 mod clipboard;

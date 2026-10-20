@@ -736,8 +736,7 @@ impl Render for EditorView {
                 .child(preview.clone())
                 .into_any_element();
         }
-        let mut editor = div()
-            .id("editor")
+        let mut editor = crate::a11y::editor(div().id("editor"))
             .size_full()
             .overflow_hidden()
             .key_context("Editor")
