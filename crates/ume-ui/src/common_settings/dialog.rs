@@ -1047,6 +1047,9 @@ impl CommonSettingsDialog {
                     }))
                     .label(*text)
                     .selected(current == value)
+                    // A choice is a radio button of the group (the chosen one is checked).
+                    .role(Role::RadioButton)
+                    .toggled(current == value)
                     .disabled(!usable)
                     .on_click(cx.listener(move |this, _, _, cx| this.set_int(id, value, cx)))
                 });
