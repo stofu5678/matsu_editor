@@ -35,8 +35,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY, VK_A, VK_CONTROL,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CB_FINDSTRINGEXACT, CB_SETCURSEL, CBN_SELCHANGE, GetDlgCtrlID, GetParent, SendMessageW,
-    WM_COMMAND,
+    CB_FINDSTRINGEXACT, CB_SETCURSEL, CBN_SELCHANGE, GA_ROOT, GetAncestor, GetDlgCtrlID,
+    GetForegroundWindow, GetParent, SendMessageW, SetForegroundWindow, WM_COMMAND,
 };
 use windows::core::{BSTR, HSTRING};
 
@@ -273,6 +273,11 @@ impl Element {
         for _ in 0..4 {
             // SAFETY: plain calls; `SendInput` copies the events.
             unsafe {
+                // the keys go to the window in front: bring the dialog there (a runner may have
+                // another window in front)
+                if let Ok(edit) = self.0.CurrentNativeWindowHandle() {
+                    let _ = SetForegroundWindow(GetAncestor(edit, GA_ROOT));
+                }
                 self.0
                     .SetFocus()
                     .unwrap_or_else(|e| panic!("cannot focus {}: {e}", self.describe()));
@@ -302,7 +307,14 @@ impl Element {
                 thread::sleep(Duration::from_millis(100));
             }
         }
-        panic!("the text {text:?} did not get into {}", self.describe());
+        // SAFETY: plain call.
+        let front = unsafe { GetForegroundWindow() };
+        panic!(
+            "the text {text:?} did not get into {} (the window in front: {front:?}, the edit's: {:?})",
+            self.describe(),
+            // SAFETY: plain calls on a live interface.
+            unsafe { self.0.CurrentNativeWindowHandle() }
+        );
     }
 
     /// Presses a button.
