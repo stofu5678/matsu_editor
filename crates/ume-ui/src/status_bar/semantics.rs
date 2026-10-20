@@ -3,7 +3,7 @@
 //! The message part is a status (a place a screen reader may watch for changes). The other parts
 //! are labels whose name is what the part means and what it shows: `改行コード: CRLF`.
 
-use gpui::{Div, Role, Stateful, StatefulInteractiveElement as _};
+use gpui::{Div, Role, Stateful, StatefulInteractiveElement as _, prelude::FluentBuilder as _};
 
 use crate::status::Part;
 
@@ -41,7 +41,23 @@ pub(super) fn part(element: Stateful<Div>, part: Part, text: &str) -> Stateful<D
     } else {
         Role::Label
     };
-    element.role(role).aria_label(part_label(part, text))
+    let label = part_label(part, text);
+    // UIA names a `Label` by its value, not its label (accesskit_windows 0.34.0 `node.rs` 404-413,
+    // `label_comes_from_value` in accesskit_consumer 0.38.0 `node.rs` 727), so both are set.
+    element
+        .role(role)
+        .aria_label(label.clone())
+        .when(role == Role::Label, |this| this.aria_value(label))
+}
+
+/// The name a platform gives `node`: UIA reads the value for a `Label` and the label for the rest.
+#[cfg(test)]
+pub(super) fn platform_name(node: &gpui::accesskit::Node) -> Option<&str> {
+    if node.role() == Role::Label {
+        node.value()
+    } else {
+        node.label()
+    }
 }
 
 pub(super) fn bar(element: Stateful<Div>) -> Stateful<Div> {
@@ -68,23 +84,25 @@ mod tests {
         let eol = node_of(&part(div().id("p"), Part::Eol, "CRLF")).unwrap();
         assert_eq!(eol.role(), Role::Label);
         assert_eq!(eol.label(), Some("改行コード: CRLF"));
+        assert_eq!(platform_name(&eol), Some("改行コード: CRLF"));
         let position = node_of(&part(div().id("p"), Part::Position, "12 行 3 列")).unwrap();
         assert_eq!(position.label(), Some("カーソル位置: 12 行 3 列"));
+        assert_eq!(platform_name(&position), Some("カーソル位置: 12 行 3 列"));
     }
 
     #[test]
     fn the_message_is_a_status_that_reads_as_the_message() {
         let message = node_of(&part(div().id("m"), Part::Message, "保存しました")).unwrap();
         assert_eq!(message.role(), Role::Status);
-        assert_eq!(message.label(), Some("保存しました"));
+        assert_eq!(platform_name(&message), Some("保存しました"));
         let empty = node_of(&part(div().id("m"), Part::Message, "")).unwrap();
-        assert_eq!(empty.label(), Some("メッセージ"));
+        assert_eq!(platform_name(&empty), Some("メッセージ"));
     }
 
     #[test]
     fn a_part_that_shows_nothing_keeps_its_name() {
         let rec = node_of(&part(div().id("r"), Part::Mode, "")).unwrap();
-        assert_eq!(rec.label(), Some("入力モード"));
+        assert_eq!(platform_name(&rec), Some("入力モード"));
         let bar = node_of(&bar(div().id("bar"))).unwrap();
         assert_eq!((bar.role(), bar.label()), (Role::Group, Some(BAR_NAME)));
     }

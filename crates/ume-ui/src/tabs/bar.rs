@@ -220,6 +220,10 @@ impl Workspace {
         let entries = self.bar_entries(window, cx)?;
         let own = window.window_handle();
         let options = settings::options(cx);
+        // A hidden close button paints no mouse listeners, so a screen reader's Click on it would
+        // miss: while one is connected the button stays visible (it still shows only on hover
+        // for everyone else).
+        let keep_close_visible = window.is_a11y_active();
         // `m_sTabBar.m_lf`: the font of the text of the tabs (the text size is 12 pixels without one).
         let font = settings::tab_font(cx);
         let mut bar = semantics::bar(div().id("tab-bar"), entries.len())
@@ -241,7 +245,7 @@ impl Workspace {
             bar = bar.italic();
         }
         for (i, entry) in entries.iter().cloned().enumerate() {
-            bar = bar.child(self.render_tab(i, entry, own, options, cx));
+            bar = bar.child(self.render_tab(i, entry, own, options, keep_close_visible, cx));
         }
         // `OnLButtonDown`: the list of the captions opens on the press, as a menu does.
         let list_button = semantics::button(div().id("tab-list"), semantics::LIST_BUTTON_NAME)
@@ -338,6 +342,7 @@ impl Workspace {
         entry: Entry,
         own: AnyWindowHandle,
         options: settings::TabOptions,
+        keep_close_visible: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let Entry {
@@ -427,7 +432,8 @@ impl Workspace {
             )
             // `m_bDispTabClose`: never, on every tab, or on the tab the pointer is over.
             .when(options.disp_close != settings::DispTabClose::No, |tab| {
-                let auto = options.disp_close == settings::DispTabClose::Auto;
+                let auto =
+                    options.disp_close == settings::DispTabClose::Auto && !keep_close_visible;
                 let hover_group = group.clone();
                 tab.child(
                     semantics::tab_close_button(div().id(("tab-close", index)), &caption)
