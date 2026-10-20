@@ -297,7 +297,7 @@ impl Workspace {
         let main = super::semantics::tool_button(
             div().id(("tool-button", row * 1000 + column)),
             &name,
-            pressed,
+            crate::menu_state::is_checkable(code).then_some(pressed),
         )
         .debug_selector(|| format!("tool-button-{}", button.number))
         .flex()

@@ -19,12 +19,20 @@ pub(super) fn toolbar(element: Stateful<Div>) -> Stateful<Div> {
     element.role(Role::Toolbar).aria_label(TOOLBAR_NAME)
 }
 
-/// A toolbar button named `name`; toggled on while `pressed`.
-pub(super) fn tool_button(element: Stateful<Div>, name: &str, pressed: bool) -> Stateful<Div> {
+/// A toolbar button named `name`. `toggled` is `Some` for a button that has an on and an off
+/// state (the wrap, the status bar...): a plain button has none, and a toggle reports both states,
+/// because the presence of the state is what makes a button a toggle for assistive technology.
+pub(super) fn tool_button(
+    element: Stateful<Div>,
+    name: &str,
+    toggled: Option<bool>,
+) -> Stateful<Div> {
     element
         .role(Role::Button)
         .aria_label(name.to_owned())
-        .when(pressed, |this| this.aria_toggled(Toggled::True))
+        .when_some(toggled, |this, on| {
+            this.aria_toggled(if on { Toggled::True } else { Toggled::False })
+        })
 }
 
 /// The arrow beside the open button, which shows the menu of the recent files.
@@ -67,16 +75,18 @@ mod tests {
 
     #[test]
     fn a_toolbar_button_is_named_by_its_function() {
-        let node = node_of(&tool_button(div().id("b"), "上書き保存", false)).unwrap();
+        let node = node_of(&tool_button(div().id("b"), "上書き保存", None)).unwrap();
         assert_eq!(node.role(), Role::Button);
         assert_eq!(node.label(), Some("上書き保存"));
         assert_eq!(node.toggled(), None);
     }
 
     #[test]
-    fn a_pressed_button_is_toggled_on() {
-        let node = node_of(&tool_button(div().id("b"), "折り返し", true)).unwrap();
-        assert_eq!(node.toggled(), Some(Toggled::True));
+    fn a_toggle_reports_both_its_states() {
+        let on = node_of(&tool_button(div().id("b"), "折り返し", Some(true))).unwrap();
+        let off = node_of(&tool_button(div().id("b"), "折り返し", Some(false))).unwrap();
+        assert_eq!(on.toggled(), Some(Toggled::True));
+        assert_eq!(off.toggled(), Some(Toggled::False));
     }
 
     #[test]
