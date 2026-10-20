@@ -380,9 +380,12 @@ impl<T: Send + 'static> Running<T> {
 
     /// Waits for the answer of the API (the dialog was closed by a button).
     pub fn finish(mut self) -> T {
-        self.window = None;
         match self.answer.recv_timeout(LIMIT) {
-            Ok(answer) => answer,
+            Ok(answer) => {
+                // the dialog closed itself; on a timeout `drop` closes it
+                self.window = None;
+                answer
+            }
             Err(RecvTimeoutError::Timeout) => panic!("the dialog did not close within {LIMIT:?}"),
             Err(RecvTimeoutError::Disconnected) => panic!("the dialog thread ended without answer"),
         }
