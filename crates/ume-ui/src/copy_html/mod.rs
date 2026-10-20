@@ -21,19 +21,34 @@ use crate::view::EditorView;
 
 pub(crate) use collect::{Source, color_html};
 
+/// Lays out the lines up to the one after `last_line` (the copy looks at the row that follows the
+/// last row of the selection), so that the row numbers up to there are exact. The rows of a large
+/// document are only counted until the background layout reaches them; the rest of the
+/// document stays for the background.
+fn lay_out_through(
+    layout: &mut ume_layout::DocumentLayout,
+    doc: &ume_core::buffer::Document,
+    last_line: usize,
+) {
+    let wanted = last_line.saturating_add(2).min(layout.line_count());
+    let todo = wanted.saturating_sub(layout.progress().done);
+    if todo > 0 {
+        let _ = layout.layout_chunk(doc, todo);
+    }
+}
+
 impl EditorView {
     /// `Command_COPY_COLOR_HTML`: copies the selection as HTML with its colors. Nothing happens
     /// without a selection, as in Sakura (no beep). The clipboard gets the HTML source as text,
     /// and the HTML in the format of the OS where it has one.
     pub(crate) fn copy_color_html(&mut self, line_numbers: bool, cx: &mut Context<Self>) {
-        let Some((from, _)) = self.cursor.selection() else {
+        let Some((from, to)) = self.cursor.selection() else {
             return;
         };
         let shared = self.document.read(cx);
         let doc = shared.doc();
         let rules = &self.prefs.settings.coloring;
-        // The rows of a large document are counted, not laid out, until they are asked for.
-        let _ = self.layout.layout_all(doc);
+        lay_out_through(&mut self.layout, doc, to.line);
         // The colors of a large document are made in the background; the state at the start of
         // the selection must be exact, or the copy would color a comment as code.
         // It goes on only as far as the selection: the lines after it are not needed.
@@ -62,3 +77,29 @@ impl EditorView {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod layout_tests {
+    use ume_core::buffer::Document;
+    use ume_layout::{DocumentLayout, LayoutConfig};
+
+    use super::lay_out_through;
+
+    #[test]
+    fn a_copy_near_the_top_does_not_lay_out_the_rest_of_a_long_document() {
+        let text: String = (0..5000).map(|i| format!("line {i}\r\n")).collect();
+        let doc = Document::from_utf8(text.into_bytes()).unwrap();
+        let mut layout = DocumentLayout::new(&doc, LayoutConfig::default()).unwrap();
+        assert_eq!(layout.progress().done, 0);
+        lay_out_through(&mut layout, &doc, 3);
+        let progress = layout.progress();
+        // through the line after the one that is next to the selection, and no further
+        assert_eq!(progress.done, 5);
+        assert!(!progress.is_complete());
+        // what is laid out already is not done again, and a later line is laid out as far as it is
+        lay_out_through(&mut layout, &doc, 1);
+        assert_eq!(layout.progress().done, 5);
+        lay_out_through(&mut layout, &doc, 99);
+        assert_eq!(layout.progress().done, 101);
+    }
+}

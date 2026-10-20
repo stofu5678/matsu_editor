@@ -22,32 +22,43 @@ mod windows;
 const PREFIX: &str = "<html><body>\r\n<!--StartFragment -->\r\n";
 const SUFFIX: &str = "\r\n<!--EndFragment-->\r\n</body></html>\r\n";
 
-/// The bytes of the clipboard format `HTML Format` for the HTML fragment `fragment`: the header
-/// of byte offsets (`Version`, `StartHTML`, `EndHTML`, `StartFragment`, `EndFragment`, each
-/// number with 8 digits so that the header has a fixed length), the page around the fragment,
-/// and the fragment as UTF-8. Sakura's `SetHtmlText` writes the same header; its `EndHTML` is 2
-/// bytes short of the end of the data, and here it is the length of the data, as the format
-/// describes it.
-pub fn cf_html(fragment: &str) -> Vec<u8> {
-    // The header has the same length whatever the numbers are: 97 bytes.
-    const HEADER_LEN: usize = "Version:0.9\r\n".len()
-        + "StartHTML:00000000\r\n".len()
-        + "EndHTML:00000000\r\n".len()
-        + "StartFragment:00000000\r\n".len()
-        + "EndFragment:00000000\r\n".len();
-    let start_fragment = HEADER_LEN + PREFIX.len();
-    let end_fragment = start_fragment + fragment.len();
+/// The digits of each number of the header. Sakura writes 8 (`%08Id`), which is too few for a
+/// fragment of 100 MB or more: the number gets longer, the header with it, and every offset after
+/// it is wrong. 10 digits hold any size up to 9,999,999,999 bytes, and the readers of the format
+/// read a number up to the end of its line, so the header is as long as ever.
+const DIGITS: usize = 10;
+
+/// The header of the format for a fragment of `fragment_len` bytes, or `None` when a number of
+/// it would not fit in [`DIGITS`] digits (then the HTML is left out and only the text is copied).
+fn header(fragment_len: usize) -> Option<String> {
+    let head = |start_html: usize, end_html: usize, start_fragment: usize, end_fragment: usize| {
+        format!(
+            "Version:0.9\r\nStartHTML:{start_html:0DIGITS$}\r\nEndHTML:{end_html:0DIGITS$}\r\n\
+             StartFragment:{start_fragment:0DIGITS$}\r\nEndFragment:{end_fragment:0DIGITS$}\r\n"
+        )
+    };
+    // The length of the header does not depend on the numbers.
+    let header_len = head(0, 0, 0, 0).len();
+    let start_fragment = header_len + PREFIX.len();
+    let end_fragment = start_fragment + fragment_len;
     let end_html = end_fragment + SUFFIX.len();
-    let mut out = String::with_capacity(end_html);
-    out.push_str("Version:0.9\r\n");
-    out.push_str(&format!("StartHTML:{HEADER_LEN:08}\r\n"));
-    out.push_str(&format!("EndHTML:{end_html:08}\r\n"));
-    out.push_str(&format!("StartFragment:{start_fragment:08}\r\n"));
-    out.push_str(&format!("EndFragment:{end_fragment:08}\r\n"));
+    (end_html < 10usize.pow(DIGITS as u32))
+        .then(|| head(header_len, end_html, start_fragment, end_fragment))
+}
+
+/// The bytes of the clipboard format `HTML Format` for the HTML fragment `fragment`: the header
+/// of byte offsets (`Version`, `StartHTML`, `EndHTML`, `StartFragment`, `EndFragment`), the page
+/// around the fragment, and the fragment as UTF-8. Sakura's `SetHtmlText` writes the same
+/// header with 8 digits; its `EndHTML` is 2 bytes short of the end of the data, and here it is
+/// the length of the data, as the format describes it. `None` for a fragment too long for the
+/// header (about 10 GB).
+pub fn cf_html(fragment: &str) -> Option<Vec<u8>> {
+    let mut out = header(fragment.len())?;
+    out.reserve(PREFIX.len() + fragment.len() + SUFFIX.len());
     out.push_str(PREFIX);
     out.push_str(fragment);
     out.push_str(SUFFIX);
-    out.into_bytes()
+    Some(out.into_bytes())
 }
 
 /// Adds the HTML fragment `fragment` to the clipboard, in the format the OS has for HTML.
@@ -56,7 +67,7 @@ pub fn cf_html(fragment: &str) -> Vec<u8> {
 pub fn add_html(fragment: &str) -> bool {
     #[cfg(windows)]
     {
-        windows::add_html(&cf_html(fragment))
+        cf_html(fragment).is_some_and(|data| windows::add_html(&data))
     }
     #[cfg(target_os = "macos")]
     {
