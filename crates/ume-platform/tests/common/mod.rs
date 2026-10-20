@@ -36,7 +36,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CB_FINDSTRINGEXACT, CB_SETCURSEL, CBN_SELCHANGE, GA_ROOT, GetAncestor, GetDlgCtrlID,
-    GetForegroundWindow, GetParent, SendMessageW, SetForegroundWindow, WM_COMMAND,
+    GetForegroundWindow, GetParent, SendMessageW, SetForegroundWindow, WM_COMMAND, WM_SETTEXT,
 };
 use windows::core::{BSTR, HSTRING};
 
@@ -305,6 +305,19 @@ impl Element {
                     return;
                 }
                 thread::sleep(Duration::from_millis(100));
+            }
+        }
+        // The last way: the text goes to the window of the edit as a message, which needs no focus
+        // (the runners of Windows ARM64 do not give the keys to the dialog).
+        // SAFETY: the edit is a window of this process, the string lives through the call.
+        unsafe {
+            if let Ok(edit) = self.0.CurrentNativeWindowHandle() {
+                let wide = HSTRING::from(text);
+                SendMessageW(edit, WM_SETTEXT, None, Some(LPARAM(wide.as_ptr() as isize)));
+                thread::sleep(Duration::from_millis(300));
+                if self.value() == text {
+                    return;
+                }
             }
         }
         // SAFETY: plain call.
