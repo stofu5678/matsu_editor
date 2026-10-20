@@ -44,7 +44,8 @@
 //!   range is a range of [`Layout::page`] indexes; [`Layout::pages`] is the iterator.
 //! - The fonts. The faces of the settings are for the drawer, and so is the width of the text
 //!   of a header or a footer in a font of its own ([`HAlign`]).
-//! - Reading the settings from `sakura.ini`.
+//! - Reading the settings from `sakura.ini` (`[Print]`) and the dialog that edits them: they are
+//!   `ume-config` and `ume-ui`.
 //!
 //! [ADR-0011]: https://github.com/stofu5678/ume_editor/blob/main/docs/adr/0011-printing.md
 //! [ADR-0013]: https://github.com/stofu5678/ume_editor/blob/main/docs/adr/0013-module-structure.md
@@ -56,7 +57,7 @@ mod setting;
 mod source;
 
 pub use header::{HeaderContext, PageInfo, WindowKind, WriteState, expand_parameter};
-pub use layout::{LINENUMWIDTH_MIN, Layout, LineTerm, PrintError, TypeOptions};
+pub use layout::{LINENUMWIDTH_MIN, Layout, LineTerm, PrintError, TypeOptions, line_number_cells};
 pub use page::{FontKind, HAlign, Page, PlacedText, Rule};
 pub use setting::{
     DMPAPER_A3, DMPAPER_A4, DMPAPER_A4SMALL, DMPAPER_A5, DMPAPER_B4, DMPAPER_B5, DMPAPER_EXECUTIVE,

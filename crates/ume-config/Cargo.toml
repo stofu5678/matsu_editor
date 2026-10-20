@@ -11,6 +11,8 @@ publish.workspace = true
 [dependencies]
 # Shift_JIS (Windows-31J) decoding and encoding for sakura.ini files that have no BOM.
 encoding_rs = "0.8.35"
+# Sakura's print settings (`[Print]`) are read into the types of the print layout.
+ume-print = { path = "../ume-print" }
 
 [lints]
 workspace = true
