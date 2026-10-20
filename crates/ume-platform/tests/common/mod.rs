@@ -252,8 +252,10 @@ impl Element {
 
     /// Types `text` into an edit the way a user does: focus, Ctrl+A, then the characters. Setting
     /// the value through UIA shows the text in the edit of the save dialog, but the dialog does not
-    /// take it as the name.
-    pub fn type_text(&self, text: &str) {
+    /// take it as the name. Returns whether the keys did it; if they never reach the dialog (the
+    /// runners of Windows ARM64), the text is put into the edit with `WM_SETTEXT` and `false` is
+    /// returned: the dialog does not take such a text as the name.
+    pub fn type_text(&self, text: &str) -> bool {
         fn key(vk: VIRTUAL_KEY, scan: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {
             INPUT {
                 r#type: INPUT_KEYBOARD,
@@ -309,7 +311,7 @@ impl Element {
             let start = Instant::now();
             while start.elapsed() < Duration::from_secs(3) {
                 if self.value() == text {
-                    return;
+                    return true;
                 }
                 thread::sleep(Duration::from_millis(100));
             }
@@ -323,7 +325,7 @@ impl Element {
                 SendMessageW(edit, WM_SETTEXT, None, Some(LPARAM(wide.as_ptr() as isize)));
                 thread::sleep(Duration::from_millis(300));
                 if self.value() == text {
-                    return;
+                    return false;
                 }
             }
         }
