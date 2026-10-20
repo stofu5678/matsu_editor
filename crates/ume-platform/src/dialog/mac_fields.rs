@@ -82,6 +82,9 @@ impl Fields {
                     views.push(Retained::into_super(Retained::into_super(check.clone())));
                     controls.push(Control::Check(check));
                 }
+                // Left out before the panel is made (`show_with_extras`): the panel cannot change
+                // its name field or its folder from a list.
+                Extra::Recent { .. } => {}
             }
         }
         let stack = NSStackView::stackViewWithViews(&NSArray::from_retained_slice(&views), mtm);

@@ -121,6 +121,27 @@ pub enum Extra {
         checked: bool,
         enabled: bool,
     },
+    /// A list of recent files or folders. Nothing is selected at first; choosing an item puts
+    /// the file name in the name field, or shows the folder (Sakura's `COMBO_MRU` and
+    /// `COMBO_OPENFOLDER`, `CDlgOpenFile_CommonItemDialog::OnItemSelected`). Only the dialog of
+    /// Windows can do that while it is open: the portal's `choices` cannot change the name or the
+    /// folder, and the panels of macOS are not given such a list. There it is left out
+    /// ([`show_with_extras`]).
+    Recent {
+        label: String,
+        /// The paths, as text.
+        items: Vec<String>,
+        kind: RecentKind,
+    },
+}
+
+/// What choosing an item of [`Extra::Recent`] does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecentKind {
+    /// The item is a file: its path becomes the file name of the dialog.
+    Files,
+    /// The item is a folder: the dialog shows it.
+    Folders,
 }
 
 /// What the user chose for one [`Extra`].
@@ -129,6 +150,8 @@ pub enum ExtraValue {
     /// The index of the item chosen.
     Combo(usize),
     Check(bool),
+    /// A field that gives no value ([`Extra::Recent`]), or that the dialog did not show.
+    Nothing,
 }
 
 /// What the user answered: the paths, and the value of every [`Request::extras`] field.
@@ -212,7 +235,63 @@ pub async fn show(owner: Owner, request: Request) -> Result<Option<Vec<PathBuf>>
 
 /// [`show`] with the values of the fields of [`Request::extras`].
 pub async fn show_with_extras(owner: Owner, request: Request) -> Result<Option<Chosen>, Error> {
-    os::show(owner, request).await
+    #[cfg(windows)]
+    {
+        os::show(owner, request).await
+    }
+    #[cfg(not(windows))]
+    {
+        // The dialogs of the other OSes cannot change the name or the folder while they are open:
+        // the lists of recent paths are left out, and their places in the answer are kept.
+        let (request, shown) = without_recent(request);
+        let chosen = os::show(owner, request).await?;
+        Ok(chosen.map(|chosen| with_recent_places(chosen, &shown)))
+    }
+}
+
+/// `request` without its [`Extra::Recent`] fields, and for each field of the original whether it
+/// is shown.
+#[cfg_attr(windows, allow(dead_code))]
+fn without_recent(mut request: Request) -> (Request, Vec<bool>) {
+    let shown: Vec<bool> = request
+        .extras
+        .iter()
+        .map(|extra| !matches!(extra, Extra::Recent { .. }))
+        .collect();
+    if shown.iter().all(|shown| *shown) {
+        return (request, shown);
+    }
+    // `Follow` indexes the fields before the lists of recent paths, which come last: but any
+    // index that moves is mapped.
+    let new_index = |old: usize| shown[..old].iter().filter(|shown| **shown).count();
+    if let Some(follow) = &mut request.follow {
+        follow.combo = new_index(follow.combo);
+        follow.check = new_index(follow.check);
+    }
+    let mut kept = shown.iter();
+    request.extras.retain(|_| *kept.next().unwrap_or(&true));
+    (request, shown)
+}
+
+/// The values the dialog gave for the fields it showed, with [`ExtraValue::Nothing`] where a field
+/// was left out. No values (the dialog showed no fields) stay none.
+#[cfg_attr(windows, allow(dead_code))]
+fn with_recent_places(mut chosen: Chosen, shown: &[bool]) -> Chosen {
+    if shown.iter().all(|shown| *shown) || chosen.extras.is_empty() {
+        return chosen;
+    }
+    let mut values = chosen.extras.into_iter();
+    chosen.extras = shown
+        .iter()
+        .map(|shown| {
+            if *shown {
+                values.next().unwrap_or(ExtraValue::Nothing)
+            } else {
+                ExtraValue::Nothing
+            }
+        })
+        .collect();
+    chosen
 }
 
 /// The default extension for a dialog that does not do it itself: the dialog of Windows changes
@@ -278,5 +357,7 @@ pub(crate) fn path_from_file_uri(uri: &str) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod filter_tests;
+#[cfg(test)]
+mod recent_tests;
 #[cfg(all(test, unix))]
 mod tests;

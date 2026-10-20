@@ -132,7 +132,7 @@ pub(crate) async fn choose_path_and_options(
                 ask = ask.save_types(file_dialog::save_types::for_document(app, index, current));
             }
             if let Some(fields) = fields {
-                ask = ask.save_fields(fields.clone());
+                ask = ask.save_fields(fields.clone()).recent(app);
             }
             file_dialog::ask_chosen(window, app, ask)
         })

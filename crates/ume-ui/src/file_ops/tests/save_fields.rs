@@ -73,7 +73,8 @@ fn the_fields_start_with_the_format_of_the_document(cx: &mut TestAppContext) {
     let (f, cx) = utf8_fixture(cx, &dir, b"\xEF\xBB\xBFabc");
     let request = save_as(&f, cx);
     assert_eq!(request.kind, Kind::SaveFile);
-    assert_eq!(request.extras.len(), 3);
+    // the three fields, and the lists of recent files and folders
+    assert_eq!(request.extras.len(), 5);
     assert_eq!(selected(&request, 0), index_of(Encoding::Utf8));
     assert_eq!(checked(&request, 1), (true, true), "the BOM of the file");
     assert_eq!(selected(&request, 2), 0, "変換なし");
@@ -191,11 +192,13 @@ fn an_untitled_document_gets_the_fields_in_its_dialog_too(cx: &mut TestAppContex
     let (f, cx) = setup(cx);
     cx.simulate_input("hi");
     answer_save(&target, |request| {
-        assert_eq!(request.extras.len(), 3);
+        assert_eq!(request.extras.len(), 5);
         vec![
             ExtraValue::Combo(index_of(Encoding::Utf16Le)),
             ExtraValue::Check(true),
             ExtraValue::Combo(0),
+            ExtraValue::Nothing,
+            ExtraValue::Nothing,
         ]
     });
     f.run(cx, "F_FILESAVE", &[]);

@@ -69,28 +69,32 @@ fn choices_of(extras: &[Extra]) -> Vec<Choice> {
     extras
         .iter()
         .enumerate()
-        .map(|(i, extra)| match extra {
-            Extra::Combo {
-                label,
-                items,
-                selected,
-            } => (
-                i.to_string(),
-                label.clone(),
-                items
-                    .iter()
-                    .enumerate()
-                    .map(|(n, item)| (n.to_string(), item.clone()))
-                    .collect(),
-                selected.to_string(),
-            ),
-            // The portal cannot disable a check box: `enabled` is for the dialog of Windows.
-            Extra::Check { label, checked, .. } => (
-                i.to_string(),
-                label.clone(),
-                Vec::new(),
-                checked.to_string(),
-            ),
+        .filter_map(|(i, extra)| {
+            Some(match extra {
+                Extra::Combo {
+                    label,
+                    items,
+                    selected,
+                } => (
+                    i.to_string(),
+                    label.clone(),
+                    items
+                        .iter()
+                        .enumerate()
+                        .map(|(n, item)| (n.to_string(), item.clone()))
+                        .collect(),
+                    selected.to_string(),
+                ),
+                // The portal cannot disable a check box: `enabled` is for the dialog of Windows.
+                Extra::Check { label, checked, .. } => (
+                    i.to_string(),
+                    label.clone(),
+                    Vec::new(),
+                    checked.to_string(),
+                ),
+                // The portal cannot change the name or the folder when a choice is made.
+                Extra::Recent { .. } => return None,
+            })
         })
         .collect()
 }
@@ -138,6 +142,7 @@ fn values_of(
                 Extra::Check { checked, .. } => {
                     ExtraValue::Check(chosen.map_or(*checked, |option| option == "true"))
                 }
+                Extra::Recent { .. } => ExtraValue::Nothing,
             }
         })
         .collect()

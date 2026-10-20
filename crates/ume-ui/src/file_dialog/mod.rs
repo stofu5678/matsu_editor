@@ -18,8 +18,9 @@ use std::path::{Path, PathBuf};
 use gpui::{App, AsyncApp, PathPromptOptions, Window};
 use raw_window_handle::HasWindowHandle;
 use ume_config::dialog_dir::{DialogDirSetting, MetaSource, Surroundings};
+use ume_config::history::History;
 use ume_platform::dialog::{
-    Chosen, Kind, Owner, Request, extension_for_filter, with_default_extension,
+    Chosen, Extra, Kind, Owner, RecentKind, Request, extension_for_filter, with_default_extension,
 };
 
 use crate::settings::UserSettings;
@@ -40,6 +41,8 @@ pub(crate) struct Ask {
     types: Option<save_types::SaveTypes>,
     /// The encoding, BOM and line ending next to the name of a save dialog.
     fields: Option<save_fields::SaveFields>,
+    /// The lists of recent files and folders ([`recent_extras`]), after the fields.
+    recent: Vec<Extra>,
 }
 
 impl Ask {
@@ -67,6 +70,7 @@ impl Ask {
             prompt: None,
             types: None,
             fields: None,
+            recent: Vec::new(),
         }
     }
 
@@ -74,6 +78,14 @@ impl Ask {
     /// GPUI, the fallback) answers without values: the caller then asks another way.
     pub(crate) fn save_fields(mut self, fields: save_fields::SaveFields) -> Self {
         self.fields = Some(fields);
+        self
+    }
+
+    /// The lists of recent files and folders next to the name (Sakura's `COMBO_MRU` and
+    /// `COMBO_OPENFOLDER` of the open dialog and of the save dialog with fields), from the history
+    /// of the application. Only the dialog of Windows shows them.
+    pub(crate) fn recent(mut self, cx: &App) -> Self {
+        self.recent = recent_extras(crate::history::current(cx).as_ref());
         self
     }
 
@@ -117,10 +129,33 @@ impl Ask {
             extras: self
                 .fields
                 .as_ref()
-                .map_or_else(Vec::new, |fields| fields.extras.clone()),
+                .map_or_else(Vec::new, |fields| fields.extras.clone())
+                .into_iter()
+                .chain(self.recent.iter().cloned())
+                .collect(),
             follow: self.fields.as_ref().map(|fields| fields.follow.clone()),
         }
     }
+}
+
+/// The two lists of recent paths of Sakura's file dialogs: 最近のファイル (`CMRUFile::GetPathList`) and
+/// 最近のフォルダー (`CMRUFolder::GetPathList`), `COMBO_MRU` and `COMBO_OPENFOLDER` of
+/// `CDlgOpenFile_CommonItemDialog::Customize`. The labels are `STR_FILEDIALOG_MRU` and
+/// `STR_FILEDIALOG_OPENFOLDER` (`sakura_core/sakura_rc.rc`). The lists are there even when empty.
+pub(crate) fn recent_extras(history: Option<&History>) -> Vec<Extra> {
+    let paths = |list: Vec<&str>| list.into_iter().map(str::to_owned).collect();
+    vec![
+        Extra::Recent {
+            label: "最近のファイル(&F):".to_owned(),
+            items: history.map_or_else(Vec::new, |h| paths(h.file_paths())),
+            kind: RecentKind::Files,
+        },
+        Extra::Recent {
+            label: "最近のフォルダー(&D):".to_owned(),
+            items: history.map_or_else(Vec::new, |h| paths(h.folder_paths())),
+            kind: RecentKind::Folders,
+        },
+    ]
 }
 
 /// Shows the dialog, modal to `window`, and answers when the user closes it. The returned future does

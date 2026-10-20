@@ -31,7 +31,7 @@ use windows::Win32::UI::Shell::{
 };
 use windows::core::{BOOL, HRESULT, HSTRING, PCWSTR, Ref, implement};
 
-use super::{Chosen, Error, Extra, ExtraValue, Follow, Kind, Request};
+use super::{Chosen, Error, Extra, ExtraValue, Follow, Kind, RecentKind, Request};
 
 /// The window the dialog belongs to: a number rather than a handle, so that it can go to the
 /// thread that shows the dialog. 0 (no owner) for a handle that is not a Win32 window.
@@ -180,20 +180,25 @@ fn run(owner: Owner, request: &Request) -> Result<Option<Chosen>, Error> {
         }
         // Sakura's `Customize` (`IFileDialogCustomize`), and the events that keep the BOM in step
         // with the encoding (`OnItemSelected`). The events are let go of when the dialog closes.
-        let customize = (request.kind == Kind::SaveFile && !request.extras.is_empty())
-            .then(|| add_extras(&dialog, request))
-            .transpose()?;
-        let events: Option<(IFileDialogEvents, u32)> = match (&customize, &request.follow) {
-            (Some(_), Some(follow)) => {
+        // The open dialog has them too, for the lists of recent files and folders.
+        let customize = (matches!(request.kind, Kind::SaveFile | Kind::OpenFile { .. })
+            && !request.extras.is_empty())
+        .then(|| add_extras(&dialog, request))
+        .transpose()?;
+        let recent = recent_lists(&request.extras);
+        let events: Option<(IFileDialogEvents, u32)> =
+            if customize.is_some() && (request.follow.is_some() || !recent.is_empty()) {
                 let sink: IFileDialogEvents = Sink {
-                    follow: follow.clone(),
+                    follow: request.follow.clone(),
+                    dialog: dialog.clone(),
+                    recent,
                 }
                 .into();
                 let cookie = dialog.Advise(&sink).map_err(failed)?;
                 Some((sink, cookie))
-            }
-            _ => None,
-        };
+            } else {
+                None
+            };
         let shown = dialog.Show(hwnd);
         if let Some((_sink, cookie)) = events {
             dialog.Unadvise(cookie).ok();
@@ -289,6 +294,23 @@ unsafe fn add_extras(
                             .map_err(failed)?;
                     }
                 }
+                Extra::Recent { label, items, .. } => {
+                    // `COMBO_MRU`, `COMBO_OPENFOLDER`: a group of their own, the items numbered from
+                    // 1, and nothing selected.
+                    if open_group {
+                        customize.EndVisualGroup().map_err(failed)?;
+                    }
+                    customize
+                        .StartVisualGroup(group_id(index), &HSTRING::from(label.as_str()))
+                        .map_err(failed)?;
+                    open_group = true;
+                    customize.AddComboBox(id).map_err(failed)?;
+                    for (n, item) in items.iter().enumerate() {
+                        customize
+                            .AddControlItem(id, n as u32 + 1, &HSTRING::from(item.as_str()))
+                            .map_err(failed)?;
+                    }
+                }
             }
         }
         if open_group {
@@ -321,17 +343,44 @@ unsafe fn read_extras(
                     Extra::Check { .. } => ExtraValue::Check(
                         customize.GetCheckButtonState(id).map_err(failed)?.as_bool(),
                     ),
+                    Extra::Recent { .. } => ExtraValue::Nothing,
                 })
             })
             .collect()
     }
 }
 
-/// The events of the dialog: choosing an item of the list changes the check box that follows it
-/// (`CDlgOpenFile_CommonItemDialog::OnItemSelected`). Everything else is left alone.
+/// A list of recent paths of the dialog: the id of its control, what its items are, and the items.
+struct RecentList {
+    control: u32,
+    kind: RecentKind,
+    items: Vec<String>,
+}
+
+fn recent_lists(extras: &[Extra]) -> Vec<RecentList> {
+    extras
+        .iter()
+        .enumerate()
+        .filter_map(|(index, extra)| match extra {
+            Extra::Recent { items, kind, .. } => Some(RecentList {
+                control: control_id(index),
+                kind: *kind,
+                items: items.clone(),
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The events of the dialog (`CDlgOpenFile_CommonItemDialog::OnItemSelected`): choosing an item of
+/// the list changes the check box that follows it, and choosing a recent file or folder puts the
+/// file in the name field, or shows the folder. Everything else is left alone.
 #[implement(IFileDialogEvents, IFileDialogControlEvents)]
 struct Sink {
-    follow: Follow,
+    follow: Option<Follow>,
+    /// The dialog the events come from. It lets go of this sink when the dialog is unadvised.
+    dialog: IFileDialog,
+    recent: Vec<RecentList>,
 }
 
 impl IFileDialogEvents_Impl for Sink_Impl {
@@ -377,11 +426,35 @@ impl IFileDialogControlEvents_Impl for Sink_Impl {
         control: u32,
         item: u32,
     ) -> windows::core::Result<()> {
-        if control == control_id(self.follow.combo)
+        if let Some(list) = self.recent.iter().find(|list| list.control == control) {
+            // item 0 is "nothing"; the items are numbered from 1
+            if let Some(path) = item.checked_sub(1).and_then(|n| list.items.get(n as usize)) {
+                // SAFETY: called by the dialog, on its thread, with the dialog's own interface.
+                unsafe {
+                    match list.kind {
+                        RecentKind::Files => {
+                            self.dialog.SetFileName(&HSTRING::from(path.as_str()))?;
+                        }
+                        RecentKind::Folders => {
+                            // a folder that cannot be made into an item is left alone
+                            if let Ok(folder) = SHCreateItemFromParsingName::<_, _, IShellItem>(
+                                &HSTRING::from(path.as_str()),
+                                None,
+                            ) {
+                                self.dialog.SetFolder(&folder)?;
+                            }
+                        }
+                    }
+                }
+            }
+            return Ok(());
+        }
+        if let Some(follow) = &self.follow
+            && control == control_id(follow.combo)
             && let Some(customize) = pfdc.as_ref()
         {
-            let (enabled, checked) = (self.follow.rule)(item as usize);
-            let check = control_id(self.follow.check);
+            let (enabled, checked) = (follow.rule)(item as usize);
+            let check = control_id(follow.check);
             // SAFETY: called by the dialog, on its thread, with its own interface.
             unsafe {
                 customize.SetControlState(

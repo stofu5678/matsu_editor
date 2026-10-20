@@ -10,7 +10,7 @@ use tempfile::TempDir;
 use ume_commands::command::Arg;
 use ume_commands::sakura::FUNCTIONS;
 use ume_config::Profile;
-use ume_platform::dialog::{Chosen, Kind, Request};
+use ume_platform::dialog::{Chosen, Extra, Kind, RecentKind, Request};
 
 use crate::document::SharedDocument;
 use crate::file_ops::prefs::FilePrefs;
@@ -441,4 +441,83 @@ fn the_start_that_is_not_a_folder_is_dropped_from_the_request() {
     assert_eq!(request.start.as_deref(), Some(dir.path()));
     assert_eq!(request.name.as_deref(), Some("x.txt"));
     assert_eq!(request.kind, Kind::SaveFile);
+}
+
+// ---- the lists of recent files and folders (`COMBO_MRU`, `COMBO_OPENFOLDER`) ----
+
+fn recent_lists(request: &Request) -> Vec<(RecentKind, Vec<String>)> {
+    request
+        .extras
+        .iter()
+        .filter_map(|extra| match extra {
+            Extra::Recent { items, kind, .. } => Some((*kind, items.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+#[gpui::test]
+fn the_open_dialog_has_the_recent_files_and_folders(cx: &mut TestAppContext) {
+    let dir = TempDir::new().unwrap();
+    let (f, cx) = setup(cx, settings(0, dir.path()));
+    cx.update(|_, app| {
+        crate::history::update(app, |history| {
+            history.add_file(ume_config::history::FileEntry::new("/a/one.txt".to_owned()));
+            history.add_file(ume_config::history::FileEntry::new(
+                "/b/メモ.txt".to_owned(),
+            ));
+            history.add_folder("/a");
+        });
+    });
+    f.run(cx, "F_FILEOPEN", &[]);
+    let request = only(asked());
+    // newest first, as the menus show them
+    assert_eq!(
+        recent_lists(&request),
+        [
+            (
+                RecentKind::Files,
+                vec!["/b/メモ.txt".to_owned(), "/a/one.txt".to_owned()]
+            ),
+            // the folders of the files are remembered too
+            (
+                RecentKind::Folders,
+                vec!["/a".to_owned(), "/b/".to_owned(), "/a/".to_owned()]
+            ),
+        ]
+    );
+}
+
+#[gpui::test]
+fn the_lists_are_there_without_a_history_too(cx: &mut TestAppContext) {
+    let dir = TempDir::new().unwrap();
+    let (f, cx) = setup(cx, settings(0, dir.path()));
+    f.run(cx, "F_FILEOPEN", &[]);
+    assert_eq!(
+        recent_lists(&only(asked())),
+        [(RecentKind::Files, vec![]), (RecentKind::Folders, vec![])]
+    );
+}
+
+#[gpui::test]
+fn the_save_dialog_with_fields_has_them_after_the_fields(cx: &mut TestAppContext) {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("a.txt");
+    std::fs::write(&file, "abc").unwrap();
+    let (f, cx) = setup(cx, settings(0, dir.path()));
+    f.open(cx, &file);
+    cx.update(|_, app| crate::history::update(app, |h| h.add_folder("/a")));
+    f.run(cx, "F_FILESAVEAS_DIALOG", &[]);
+    let request = only(asked());
+    assert_eq!(request.kind, Kind::SaveFile);
+    let kinds: Vec<_> = request
+        .extras
+        .iter()
+        .map(|e| match e {
+            Extra::Combo { .. } => "combo",
+            Extra::Check { .. } => "check",
+            Extra::Recent { .. } => "recent",
+        })
+        .collect();
+    assert_eq!(kinds, ["combo", "check", "combo", "recent", "recent"]);
 }
