@@ -11,7 +11,7 @@ use ume_commands::keymap::KeyMap;
 use ume_commands::sakura::FUNCTIONS;
 
 use crate::history::menu::{F_FILE_USED_RECENTLY, F_FOLDER_USED_RECENTLY};
-use crate::menu::{Available, Entry, Item, Lists, MenuAction, menu_label};
+use crate::menu::{Available, Entry, Item, Lists, MenuAction, menu_label_with};
 
 /// `F_FILENEW`, `F_FILENEW_NEWWINDOW`, `F_FILEOPEN` and `F_FAVORITE`.
 const FILENEW: u16 = 30101;
@@ -30,10 +30,15 @@ fn name_of(code: u16) -> &'static str {
 
 /// The rows of the menu. `lists` has the recent files and folders, `keymap` the keys shown next to
 /// the last four items, and `available` says which functions have a command.
-pub(crate) fn entries(lists: &dyn Lists, keymap: &KeyMap, available: &dyn Available) -> Vec<Entry> {
+pub(crate) fn entries(
+    lists: &dyn Lists,
+    keymap: &KeyMap,
+    available: &dyn Available,
+    parentheses: bool,
+) -> Vec<Entry> {
     let function = |code: u16, key: char| {
         Entry::Item(Item {
-            label: menu_label(name_of(code), Some(key)),
+            label: menu_label_with(name_of(code), Some(key), parentheses),
             action: MenuAction::Function(code),
             shortcut: keymap.shortcut_for(code),
             enabled: available.is_available(code),
@@ -45,7 +50,7 @@ pub(crate) fn entries(lists: &dyn Lists, keymap: &KeyMap, available: &dyn Availa
         rows.extend(files.into_iter().map(Entry::Item));
         rows.push(Entry::Separator);
     }
-    let label = menu_label(name_of(F_FOLDER_USED_RECENTLY), None);
+    let label = menu_label_with(name_of(F_FOLDER_USED_RECENTLY), None, parentheses);
     let folders = lists.items(F_FOLDER_USED_RECENTLY);
     rows.push(if folders.is_empty() {
         // `MF_GRAYED`.
@@ -80,7 +85,12 @@ impl crate::view::EditorView {
     ) {
         let recent = crate::history::menu::RecentLists::new(crate::history::current(cx))
             .with_names(crate::file_names::current(cx));
-        let rows = entries(&recent, &self.keymap, &crate::menu::Registered);
+        let rows = entries(
+            &recent,
+            &self.keymap,
+            &crate::menu::Registered,
+            crate::doc_types::with_user(cx, |user| user.key_parentheses()),
+        );
         self.open_popup_menu(rows, at, window, cx);
     }
 }

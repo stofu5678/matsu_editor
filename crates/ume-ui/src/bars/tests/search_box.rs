@@ -528,7 +528,7 @@ fn shape(entries: &[Entry]) -> Vec<String> {
 fn the_menu_lists_the_files_then_the_folders_then_the_functions() {
     let history = history_with(&["/a/one.txt", "/b/メモ.txt"], &[]);
     let lists = RecentLists::new(Some(history));
-    let entries = open_menu::entries(&lists, &KeyMap::default(), &|_: u16| true);
+    let entries = open_menu::entries(&lists, &KeyMap::default(), &|_: u16| true, true);
     assert_eq!(
         shape(&entries),
         [
@@ -566,7 +566,7 @@ fn the_menu_lists_the_files_then_the_folders_then_the_functions() {
 #[test]
 fn without_a_history_the_folders_are_grayed_and_there_is_no_separator_above() {
     let lists = RecentLists::new(Some(History::new(20, 20, false)));
-    let entries = open_menu::entries(&lists, &KeyMap::default(), &|_: u16| true);
+    let entries = open_menu::entries(&lists, &KeyMap::default(), &|_: u16| true, true);
     assert_eq!(
         shape(&entries),
         [

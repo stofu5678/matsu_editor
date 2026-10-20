@@ -406,10 +406,14 @@ impl EditorView {
         if !self.key_help_lookup(cx) {
             return none;
         }
+        let parentheses = crate::doc_types::with_user(cx, |user| user.key_parentheses());
         let items = vec![
-            MenuItem::action(crate::menu::menu_label(COPY_LABEL, Some('K')), CopyKeyHelp),
             MenuItem::action(
-                crate::menu::menu_label(OPEN_LABEL, Some('L')),
+                crate::menu::menu_label_with(COPY_LABEL, Some('K'), parentheses),
+                CopyKeyHelp,
+            ),
+            MenuItem::action(
+                crate::menu::menu_label_with(OPEN_LABEL, Some('L'), parentheses),
                 OpenKeyHelpDict,
             ),
         ];

@@ -122,6 +122,7 @@ impl EditorView {
                     keymap: &self.keymap,
                     available: &Registered,
                     lists: &lists,
+                    parentheses: crate::doc_types::with_user(cx, |user| user.key_parentheses()),
                 },
             )
         };
