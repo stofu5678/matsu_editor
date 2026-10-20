@@ -5,6 +5,7 @@
 //! alphabetical order), and write its tests. Nothing else lists them.
 
 pub mod box_select;
+pub mod clipboard;
 pub mod cursor;
 pub mod custom_menu;
 pub mod file;

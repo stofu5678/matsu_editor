@@ -26,6 +26,7 @@ mod bars;
 mod clipboard;
 mod command_line;
 mod common_settings;
+mod copy_html;
 mod custom_menu;
 mod diff;
 mod doc_types;
