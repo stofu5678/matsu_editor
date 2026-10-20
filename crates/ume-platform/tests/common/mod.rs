@@ -22,12 +22,12 @@ use windows::Win32::System::Com::{
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, ExpandCollapseState_Expanded, IUIAutomation, IUIAutomationCondition,
     IUIAutomationElement, IUIAutomationExpandCollapsePattern, IUIAutomationInvokePattern,
-    IUIAutomationSelectionItemPattern, IUIAutomationTogglePattern, IUIAutomationValuePattern,
-    IUIAutomationWindowPattern, ToggleState_On, TreeScope_Children, TreeScope_Descendants,
-    UIA_ButtonControlTypeId, UIA_CheckBoxControlTypeId, UIA_ComboBoxControlTypeId,
-    UIA_EditControlTypeId, UIA_ExpandCollapsePatternId, UIA_InvokePatternId,
-    UIA_ListItemControlTypeId, UIA_SelectionItemPatternId, UIA_TogglePatternId, UIA_ValuePatternId,
-    UIA_WindowPatternId,
+    IUIAutomationSelectionItemPattern, IUIAutomationSelectionPattern, IUIAutomationTogglePattern,
+    IUIAutomationValuePattern, IUIAutomationWindowPattern, ToggleState_On, TreeScope_Children,
+    TreeScope_Descendants, UIA_ButtonControlTypeId, UIA_CheckBoxControlTypeId,
+    UIA_ComboBoxControlTypeId, UIA_EditControlTypeId, UIA_ExpandCollapsePatternId,
+    UIA_InvokePatternId, UIA_ListItemControlTypeId, UIA_SelectionItemPatternId,
+    UIA_SelectionPatternId, UIA_TogglePatternId, UIA_ValuePatternId, UIA_WindowPatternId,
 };
 use windows::core::BSTR;
 
@@ -69,8 +69,16 @@ impl Uia {
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
             let automation: IUIAutomation =
                 CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).ok()?;
-            automation.GetRootElement().ok()?;
             let all = automation.CreateTrueCondition().ok()?;
+            // An interactive desktop has windows at least (the taskbar); a service session's has none.
+            let top = automation
+                .GetRootElement()
+                .ok()?
+                .FindAll(TreeScope_Children, &all)
+                .ok()?;
+            if top.Length().ok()? == 0 {
+                return None;
+            }
             Some(Self { automation, all })
         }
     }
@@ -200,14 +208,25 @@ impl Element {
             .unwrap_or_else(|| panic!("no {what} in the dialog; the controls:\n{}", self.dump(uia)))
     }
 
-    /// The text of an edit or a combo box (the Value pattern), empty if it has none.
+    /// The text of an edit or a combo box: the Value pattern, or for a selection-only list (the
+    /// lists of `IFileDialogCustomize` have no Value pattern) the name of the selected item.
+    /// Empty if it has neither.
     pub fn value(&self) -> String {
         // SAFETY: plain calls on a live interface.
         unsafe {
-            self.0
+            if let Ok(value) = self
+                .0
                 .GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
                 .and_then(|p| p.CurrentValue())
-                .map(|v| v.to_string())
+            {
+                return value.to_string();
+            }
+            self.0
+                .GetCurrentPatternAs::<IUIAutomationSelectionPattern>(UIA_SelectionPatternId)
+                .and_then(|p| p.GetCurrentSelection())
+                .and_then(|items| items.GetElement(0))
+                .and_then(|item| item.CurrentName())
+                .map(|name| name.to_string())
                 .unwrap_or_default()
         }
     }
