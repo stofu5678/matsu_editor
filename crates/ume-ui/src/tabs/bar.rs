@@ -253,6 +253,14 @@ impl Workspace {
             .hover(|s| s.bg(rgb(0xd0d0d0)))
             .tooltip(|window, cx| Tooltip::new(LIST_TOOLTIP).build(window, cx))
             .child("▼")
+            .on_a11y_action(gpui::AccessibleAction::Click, {
+                let workspace = cx.entity();
+                move |_, window, cx| {
+                    workspace.update(cx, |this, cx| {
+                        this.open_tab_list(Start::BUTTON, window, cx);
+                    });
+                }
+            })
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _: &gpui::MouseDownEvent, window, cx| {
@@ -352,6 +360,22 @@ impl Workspace {
                 },
             )
         };
+        // The same for a screen reader's Click action (the press above is a mouse event, which
+        // does not advertise one).
+        let select_by_a11y = {
+            let workspace = cx.entity();
+            let view = view.clone();
+            move |_: Option<&gpui::accesskit::ActionData>,
+                  window: &mut Window,
+                  cx: &mut gpui::App| {
+                let view = view.clone();
+                workspace.update(cx, |this, cx| match tab {
+                    Some(tab) => this.activate_tab(tab, window, cx),
+                    None if handle != own => flows::reveal(cx, handle, view),
+                    None => {}
+                });
+            }
+        };
         let close = {
             let view = view.clone();
             move |window: &mut Window, cx: &mut gpui::App| {
@@ -393,6 +417,7 @@ impl Workspace {
                 .debug_selector(move || format!("tab-{index}"))
                 .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
                 .on_mouse_down(MouseButton::Left, select)
+                .on_a11y_action(gpui::AccessibleAction::Click, select_by_a11y)
                 .on_mouse_up(MouseButton::Right, open_menu)
                 // `OnTabMButtonUp`: the middle button closes the tab.
                 .on_mouse_up(MouseButton::Middle, move |_, window, cx| close(window, cx))
