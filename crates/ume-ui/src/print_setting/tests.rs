@@ -504,3 +504,21 @@ fn cancelling_the_rename_gives_the_focus_back_to_the_dialog(cx: &mut TestAppCont
     cx.simulate_keystrokes("escape");
     assert_eq!(dialog_of(&view, cx), None);
 }
+
+#[gpui::test]
+fn the_font_dialog_starts_from_the_height_shown(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "abc");
+    let dialog = open(&view, cx);
+    let old = dialog.update_in(cx, |d, _, cx| d.font_start(Part::Header, cx));
+    type_number(&dialog, Number::FontHeight, "50", cx);
+    let start = dialog.update_in(cx, |d, _, cx| d.font_start(Part::Header, cx));
+    // -(50 * 96 / 254) pixels
+    assert_eq!(start.log_font.height, -18);
+    assert_ne!(start.log_font.height, old.log_font.height);
+    // accepting it unchanged keeps the size of the new height
+    dialog.update_in(cx, |d, _, cx| d.set_font(Part::Header, &start, cx));
+    press_ok(&dialog, cx);
+    let kept = saved(cx).get(0).header_font.clone().unwrap();
+    assert_eq!(kept.point_size, start.point_size_for_dpi(96));
+    assert_ne!(kept.point_size, old.point_size_for_dpi(96));
+}

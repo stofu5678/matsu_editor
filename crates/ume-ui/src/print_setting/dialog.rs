@@ -292,7 +292,7 @@ impl PrintSettingDialog {
     /// The font dialog for the header or the footer (`IDC_BUTTON_FONT_HEAD`). It starts at the
     /// font of the part, or at the font for half-width characters at the height of the print font.
     fn choose_font(&mut self, part: Part, window: &mut Window, cx: &mut Context<Self>) {
-        let initial = self.font_dialog_start(part);
+        let initial = self.font_start(part, cx);
         let owner = crate::font_dialog::owner_of(window);
         let dialog = cx.weak_entity();
         crate::font_dialog::choose(
@@ -305,6 +305,13 @@ impl PrintSettingDialog {
                     .ok();
             }),
         );
+    }
+
+    /// The start of the font dialog for what the controls show now: Sakura reads its fields on
+    /// every change, here they are taken before the dialog opens.
+    pub(crate) fn font_start(&mut self, part: Part, cx: &gpui::App) -> FontSetting {
+        self.keep_current(cx);
+        self.font_dialog_start(part)
     }
 
     fn font_dialog_start(&self, part: Part) -> FontSetting {
