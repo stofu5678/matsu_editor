@@ -268,34 +268,41 @@ impl Element {
                 },
             }
         }
-        // SAFETY: plain calls; `SendInput` copies the events.
-        unsafe {
-            self.0
-                .SetFocus()
-                .unwrap_or_else(|e| panic!("cannot focus {}: {e}", self.describe()));
-            thread::sleep(Duration::from_millis(300));
-            let mut events = vec![
-                key(VK_CONTROL, 0, KEYBD_EVENT_FLAGS(0)),
-                key(VK_A, 0, KEYBD_EVENT_FLAGS(0)),
-                key(VK_A, 0, KEYEVENTF_KEYUP),
-                key(VK_CONTROL, 0, KEYEVENTF_KEYUP),
-            ];
-            for unit in text.encode_utf16() {
-                events.push(key(VIRTUAL_KEY(0), unit, KEYEVENTF_UNICODE));
-                events.push(key(
-                    VIRTUAL_KEY(0),
-                    unit,
-                    KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
-                ));
+        // A slow runner (Windows ARM64) can take the keys before the edit has the focus, so a
+        // try that did not show up in the edit is made again.
+        for _ in 0..4 {
+            // SAFETY: plain calls; `SendInput` copies the events.
+            unsafe {
+                self.0
+                    .SetFocus()
+                    .unwrap_or_else(|e| panic!("cannot focus {}: {e}", self.describe()));
+                thread::sleep(Duration::from_millis(700));
+                let mut events = vec![
+                    key(VK_CONTROL, 0, KEYBD_EVENT_FLAGS(0)),
+                    key(VK_A, 0, KEYBD_EVENT_FLAGS(0)),
+                    key(VK_A, 0, KEYEVENTF_KEYUP),
+                    key(VK_CONTROL, 0, KEYEVENTF_KEYUP),
+                ];
+                for unit in text.encode_utf16() {
+                    events.push(key(VIRTUAL_KEY(0), unit, KEYEVENTF_UNICODE));
+                    events.push(key(
+                        VIRTUAL_KEY(0),
+                        unit,
+                        KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
+                    ));
+                }
+                let sent = SendInput(&events, std::mem::size_of::<INPUT>() as i32);
+                assert_eq!(sent as usize, events.len(), "SendInput sent {sent} events");
             }
-            let sent = SendInput(&events, std::mem::size_of::<INPUT>() as i32);
-            assert_eq!(
-                sent as usize,
-                events.len(),
-                "SendInput sent only {sent} events"
-            );
-            thread::sleep(Duration::from_millis(300));
+            let start = Instant::now();
+            while start.elapsed() < Duration::from_secs(3) {
+                if self.value() == text {
+                    return;
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
         }
+        panic!("the text {text:?} did not get into {}", self.describe());
     }
 
     /// Presses a button.
