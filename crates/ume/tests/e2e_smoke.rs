@@ -54,17 +54,26 @@ fn macro_path(path: &Path) -> String {
 /// Runs `ume` with `args` in a scratch environment until it ends. Returns its output (stdout and
 /// stderr). Panics, with the output, if it does not end in time or does not end with success.
 fn run_editor(home: &Path, args: &[&str]) -> String {
-    let exe = PathBuf::from(env!("CARGO_BIN_EXE_ume"));
-    let host = exe.with_file_name(if cfg!(windows) {
+    let built = PathBuf::from(env!("CARGO_BIN_EXE_ume"));
+    let host_name = if cfg!(windows) {
         "ume-script.exe"
     } else {
         "ume-script"
-    });
+    };
+    let built_host = built.with_file_name(host_name);
     assert!(
-        host.is_file(),
+        built_host.is_file(),
         "{} is missing: build it in the same profile as ume (cargo build -p ume -p ume-script)",
-        host.display()
+        built_host.display()
     );
+    // Run copies in the scratch folder. On Windows the editor reads a `ume.ini` next to its
+    // executable before the one in `%APPDATA%`: a copy never meets the portable settings of a
+    // developer's build folder. `ume-script` goes next to the copy, where the editor looks for it.
+    let bin = home.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    let exe = bin.join(built.file_name().unwrap());
+    fs::copy(&built, &exe).unwrap();
+    fs::copy(&built_host, bin.join(host_name)).unwrap();
 
     let log = home.join("output.log");
     let out = fs::File::create(&log).unwrap();
