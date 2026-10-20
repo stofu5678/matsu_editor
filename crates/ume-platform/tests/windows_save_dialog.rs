@@ -173,6 +173,12 @@ fn save_returns_the_typed_name_and_the_chosen_values() {
         fields.bom.toggle();
         assert!(!fields.bom.is_checked());
         fields.name.set_value("typed.txt");
+        assert_eq!(
+            fields.name.value(),
+            "typed.txt",
+            "the name was not taken; the controls:\n{}",
+            fields.window.dump(uia)
+        );
         button(uia, &fields.window, "1").invoke();
         let chosen = running
             .finish()
