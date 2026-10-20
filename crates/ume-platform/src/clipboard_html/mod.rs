@@ -11,7 +11,7 @@
 //! * Linux: nothing. GPUI's clipboard there offers plain text only and this crate has no
 //!   clipboard of its own to add a second type to, so the HTML source goes as text only.
 //!
-//! `unsafe` is in `windows` only.
+//! `unsafe` is in `windows` and `mac` only.
 
 #[cfg(target_os = "macos")]
 mod mac;

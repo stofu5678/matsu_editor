@@ -26,10 +26,22 @@ impl EditorView {
     /// without a selection, as in Sakura (no beep). The clipboard gets the HTML source as text,
     /// and the HTML in the format of the OS where it has one.
     pub(crate) fn copy_color_html(&mut self, line_numbers: bool, cx: &mut Context<Self>) {
+        let Some((from, _)) = self.cursor.selection() else {
+            return;
+        };
         let shared = self.document.read(cx);
         let doc = shared.doc();
+        let rules = &self.prefs.settings.coloring;
         // The rows of a large document are counted, not laid out, until they are asked for.
         let _ = self.layout.layout_all(doc);
+        // The colors of a large document are made in the background; the state at the start of
+        // the selection must be exact, or the copy would color a comment as code.
+        if !self.color_states.state_at(doc, rules, from.line).1 {
+            while !self
+                .color_states
+                .advance(doc, rules, std::time::Duration::from_secs(1))
+            {}
+        }
         let Some(html) = color_html(&Source {
             doc,
             layout: &self.layout,
