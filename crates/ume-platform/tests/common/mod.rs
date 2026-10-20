@@ -16,6 +16,7 @@ use std::task::{Context, Poll, Wake, Waker};
 use std::thread::{self, Thread};
 use std::time::{Duration, Instant};
 
+use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
 };
@@ -29,7 +30,11 @@ use windows::Win32::UI::Accessibility::{
     UIA_InvokePatternId, UIA_ListItemControlTypeId, UIA_SelectionItemPatternId,
     UIA_SelectionPatternId, UIA_TogglePatternId, UIA_ValuePatternId, UIA_WindowPatternId,
 };
-use windows::core::BSTR;
+use windows::Win32::UI::WindowsAndMessaging::{
+    CB_FINDSTRINGEXACT, CB_SETCURSEL, CBN_SELCHANGE, GetDlgCtrlID, GetParent, SendMessageW,
+    WM_COMMAND,
+};
+use windows::core::{BSTR, HSTRING};
 
 /// How long to wait for a dialog to show up, and for the API to answer after a button.
 pub const LIMIT: Duration = Duration::from_secs(30);
@@ -321,6 +326,38 @@ impl Element {
             {
                 let _ = expand.Collapse();
             }
+        }
+    }
+
+    /// Chooses the item `text` of a combo box of a classic dialog the way a click does: the
+    /// selection and the `CBN_SELCHANGE` notification to the dialog. The UIA selection pattern
+    /// changes the list without the notification, so `ChooseFontW` would not see it.
+    pub fn choose_classic(&self, text: &str) {
+        // SAFETY: the window is a combo box of a dialog of this process; the string lives through
+        // the calls, which are made from the test thread while the dialog thread pumps messages.
+        unsafe {
+            let combo = self
+                .0
+                .CurrentNativeWindowHandle()
+                .unwrap_or_else(|e| panic!("{} has no window: {e}", self.describe()));
+            let wide = HSTRING::from(text);
+            let index = SendMessageW(
+                combo,
+                CB_FINDSTRINGEXACT,
+                Some(WPARAM(usize::MAX)),
+                Some(LPARAM(wide.as_ptr() as isize)),
+            )
+            .0;
+            assert!(index >= 0, "{text:?} is not in {}", self.describe());
+            SendMessageW(combo, CB_SETCURSEL, Some(WPARAM(index as usize)), None);
+            let parent = GetParent(combo).expect("the dialog of the combo box");
+            let id = GetDlgCtrlID(combo) as usize;
+            SendMessageW(
+                parent,
+                WM_COMMAND,
+                Some(WPARAM((CBN_SELCHANGE as usize) << 16 | id)),
+                Some(LPARAM(combo.0 as isize)),
+            );
         }
     }
 

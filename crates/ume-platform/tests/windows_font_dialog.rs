@@ -56,13 +56,10 @@ fn button(uia: &Uia, window: &Element, id: &str) -> Element {
     })
 }
 
-/// Chooses `NEW_FACE`. The list items of this classic dialog do not always take the selection, so
-/// the text of the combo box is set as well when it did not change.
-fn choose_face(uia: &Uia, face: &Element) {
-    face.choose(uia, NEW_FACE);
-    if face.value() != NEW_FACE {
-        face.set_value(NEW_FACE);
-    }
+/// Chooses `NEW_FACE` with the messages of a click: the items of this classic dialog do not take
+/// the UIA selection (the dialog never hears of it).
+fn choose_face(face: &Element) {
+    face.choose_classic(NEW_FACE);
     assert_eq!(face.value(), NEW_FACE);
 }
 
@@ -94,7 +91,7 @@ fn with_dialog(test: impl FnOnce(&Uia, Fields, Running<Answer>)) {
 fn ok_returns_the_face_and_the_size() {
     with_dialog(|uia, fields, running| {
         assert_eq!(fields.face.value(), START_FACE);
-        choose_face(uia, &fields.face);
+        choose_face(&fields.face);
         fields.size.set_value("14");
         button(uia, &fields.window, "1").invoke();
         let font = running
@@ -122,7 +119,7 @@ fn ok_without_changes_returns_the_initial_font() {
 #[test]
 fn cancel_returns_nothing() {
     with_dialog(|uia, fields, running| {
-        choose_face(uia, &fields.face);
+        choose_face(&fields.face);
         button(uia, &fields.window, "2").invoke();
         assert!(matches!(running.finish(), Ok(None)));
     });
