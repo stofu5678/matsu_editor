@@ -36,12 +36,12 @@ impl EditorView {
         let _ = self.layout.layout_all(doc);
         // The colors of a large document are made in the background; the state at the start of
         // the selection must be exact, or the copy would color a comment as code.
-        if !self.color_states.state_at(doc, rules, from.line).1 {
-            while !self
+        // It goes on only as far as the selection: the lines after it are not needed.
+        while !self.color_states.state_at(doc, rules, from.line).1
+            && !self
                 .color_states
-                .advance(doc, rules, std::time::Duration::from_secs(1))
-            {}
-        }
+                .advance(doc, rules, std::time::Duration::from_millis(200))
+        {}
         let Some(html) = color_html(&Source {
             doc,
             layout: &self.layout,
