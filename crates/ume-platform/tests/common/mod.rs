@@ -81,7 +81,7 @@ impl Uia {
     }
 
     /// The top-level windows of this process.
-    fn windows_of_this_process(&self) -> Vec<Element> {
+    pub fn windows_of_this_process(&self) -> Vec<Element> {
         // SAFETY: plain calls on live interfaces.
         unsafe {
             let Ok(windows) = self.root().FindAll(TreeScope_Children, &self.all) else {
@@ -274,14 +274,14 @@ impl Element {
             if let Some(expand) = &expand {
                 let _ = expand.Expand();
             }
-            // The items are below the combo box, or in a pop-up list of the same process.
+            // The items are below the combo box, or in a pop-up window of this process (never another program's).
             let find =
                 |from: &Element| from.descendants(uia).iter().find_map(|e| e.list_item(item));
             let start = Instant::now();
             let mut found = find(self);
             while found.is_none() && start.elapsed() < Duration::from_secs(5) {
                 thread::sleep(Duration::from_millis(100));
-                found = find(self).or_else(|| find(&Element(uia.root())));
+                found = find(self).or_else(|| uia.windows_of_this_process().iter().find_map(&find));
             }
             let found = found.unwrap_or_else(|| {
                 panic!(
