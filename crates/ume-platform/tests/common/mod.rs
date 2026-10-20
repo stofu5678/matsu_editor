@@ -275,22 +275,26 @@ impl Element {
         for _ in 0..4 {
             // SAFETY: plain calls; `SendInput` copies the events.
             unsafe {
-                // the keys go to the window in front: bring the dialog there (a runner may have
-                // another window in front)
-                if let Ok(edit) = self.0.CurrentNativeWindowHandle() {
-                    // a key press first: Windows lets the process that got the last input
-                    // take the front
-                    let alt = [
-                        key(VK_MENU, 0, KEYBD_EVENT_FLAGS(0)),
-                        key(VK_MENU, 0, KEYEVENTF_KEYUP),
-                    ];
-                    SendInput(&alt, std::mem::size_of::<INPUT>() as i32);
-                    let _ = SetForegroundWindow(GetAncestor(edit, GA_ROOT));
-                }
+                // The keys go to the window in front: bring the dialog there, and send nothing
+                // while it is not (a developer's own window must never get them).
+                let Ok(edit) = self.0.CurrentNativeWindowHandle() else {
+                    break;
+                };
+                let dialog = GetAncestor(edit, GA_ROOT);
+                // a key press first: Windows lets the process that got the last input take the front
+                let alt = [
+                    key(VK_MENU, 0, KEYBD_EVENT_FLAGS(0)),
+                    key(VK_MENU, 0, KEYEVENTF_KEYUP),
+                ];
+                SendInput(&alt, std::mem::size_of::<INPUT>() as i32);
+                let _ = SetForegroundWindow(dialog);
                 self.0
                     .SetFocus()
                     .unwrap_or_else(|e| panic!("cannot focus {}: {e}", self.describe()));
                 thread::sleep(Duration::from_millis(700));
+                if GetForegroundWindow() != dialog {
+                    continue;
+                }
                 let mut events = vec![
                     key(VK_CONTROL, 0, KEYBD_EVENT_FLAGS(0)),
                     key(VK_A, 0, KEYBD_EVENT_FLAGS(0)),
