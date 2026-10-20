@@ -464,7 +464,7 @@ fn ok_writes_sakuras_keys_and_the_windows_of_the_type_take_them(cx: &mut TestApp
 }
 
 #[gpui::test]
-fn the_temporary_settings_of_a_window_of_the_type_are_reset(cx: &mut TestAppContext) {
+fn the_temporary_settings_of_a_window_of_the_type_stay(cx: &mut TestAppContext) {
     let (_ini, a) = setup(cx, "");
     let view = view_of(cx, a);
     // 一時設定: the wrap at the window's width.
@@ -473,10 +473,11 @@ fn the_temporary_settings_of_a_window_of_the_type_are_reset(cx: &mut TestAppCont
     choose(cx, WRAP_METHOD, 1);
     type_in(cx, MAX_LINE_KETAS, "40");
     ok(cx);
-    // Like any change of type (`CEditDoc::OnChangeType`), the window takes what the type says.
+    // The type is the same, so the temporary wrap stays (`CEditDoc::OnChangeSetting`); see
+    // `doc_types::keep_tests` for when it ends.
     let (method, columns) = view.read_with(cx, |v, _| (v.prefs.wrap_method, v.prefs.wrap_columns));
-    assert_eq!(method, crate::settings::WrapMethod::SettingWidth);
-    assert_eq!(columns, 40);
+    assert_eq!(method, crate::settings::WrapMethod::WindowWidth);
+    assert_ne!(columns, 0);
 }
 
 #[gpui::test]

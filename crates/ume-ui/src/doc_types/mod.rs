@@ -124,7 +124,8 @@ impl EditorView {
     /// Document type `changed` has new settings (the type settings dialog, OK): this view takes
     /// them if its document has that type, and a document that has no type of the user's choice
     /// gets the type of its file name again (the extensions may have changed). The temporary
-    /// changes (zoom, wrap) are dropped, as for any change of type (`apply_settings`).
+    /// changes (zoom, wrap) are dropped when the type of the document changes, and kept otherwise
+    /// unless they end (`apply_changed_settings`).
     pub(crate) fn refresh_type(&mut self, changed: usize, cx: &mut Context<Self>) {
         let current = self.prefs.settings.type_index;
         let locked = self.document.read(cx).type_locked();
@@ -136,7 +137,12 @@ impl EditorView {
         };
         if wanted != current || wanted == changed {
             let settings = with_user(cx, |user| user.view_settings_of_type(wanted));
-            self.apply_settings(settings, cx);
+            if wanted == current {
+                // The same type with new values: the temporary changes stay unless they end.
+                self.apply_changed_settings(settings, cx);
+            } else {
+                self.apply_settings(settings, cx);
+            }
         }
         if wanted != current {
             self.document
@@ -169,6 +175,8 @@ pub(crate) fn refresh_open_views(cx: &mut App, index: usize) {
     }
 }
 
+#[cfg(test)]
+mod keep_tests;
 #[cfg(test)]
 mod shared_tests;
 #[cfg(test)]

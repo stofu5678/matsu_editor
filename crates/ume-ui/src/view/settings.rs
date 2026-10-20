@@ -38,6 +38,15 @@ pub(crate) struct ViewPrefs {
     pub reveal_caret: bool,
 }
 
+/// The temporary settings a change of settings keeps.
+#[derive(Default)]
+struct Temporary {
+    /// The wrap method and the column.
+    wrap: Option<(WrapMethod, u32)>,
+    /// The font size in pixels, and the zoom.
+    font: Option<(f32, f64)>,
+}
+
 impl ViewPrefs {
     pub(crate) fn new(settings: ViewSettings) -> Self {
         Self {
@@ -56,6 +65,45 @@ impl EditorView {
     /// Applies the values of a document type to this view: the font, the layout, the colors. The
     /// temporary changes (zoom, wrap) are reset, as they are when Sakura changes the type.
     pub fn apply_settings(&mut self, settings: ViewSettings, cx: &mut Context<Self>) {
+        self.apply_settings_keeping(settings, Temporary::default(), cx);
+    }
+
+    /// The type of the view is the same and its settings changed (the type settings dialog, OK):
+    /// takes them, and keeps the temporary wrap and the temporary font size unless they end
+    /// (`CEditDoc::OnChangeSetting`, `sakura_core/doc/CEditDoc.cpp`):
+    ///
+    /// * a temporary wrap ends when it now equals the type's (for 指定桁, with the same column);
+    /// * a temporary font size ends when `bUseTypeFont` or the base point size changed, and follows
+    ///   a new face otherwise (the same rules as [`Self::refresh_font`]).
+    pub(crate) fn apply_changed_settings(
+        &mut self,
+        settings: ViewSettings,
+        cx: &mut Context<Self>,
+    ) {
+        let old = &self.prefs.settings;
+        let prefs = &self.prefs;
+        let temporary_wrap = prefs.wrap_method != old.wrap_method
+            || (prefs.wrap_method == WrapMethod::SettingWidth
+                && prefs.wrap_columns != old.wrap_columns);
+        let wrap_ends = prefs.wrap_method == settings.wrap_method
+            && (prefs.wrap_method != WrapMethod::SettingWidth
+                || prefs.wrap_columns == settings.wrap_columns);
+        let wrap =
+            (temporary_wrap && !wrap_ends).then_some((prefs.wrap_method, prefs.wrap_columns));
+        let temporary_font = self.font_size != old.font_px();
+        let font = (temporary_font
+            && settings.point_size == old.point_size
+            && settings.use_type_font == old.use_type_font)
+            .then_some((self.font_size, prefs.zoom));
+        self.apply_settings_keeping(settings, Temporary { wrap, font }, cx);
+    }
+
+    fn apply_settings_keeping(
+        &mut self,
+        settings: ViewSettings,
+        keep: Temporary,
+        cx: &mut Context<Self>,
+    ) {
         let status_bar = self.prefs.show_status_bar;
         let select_count = self.prefs.select_count;
         self.font_size = settings.font_px();
@@ -65,6 +113,14 @@ impl EditorView {
             self.font_family = super::FONT_FAMILY.into();
         }
         self.prefs = ViewPrefs::new(settings);
+        if let Some((method, columns)) = keep.wrap {
+            self.prefs.wrap_method = method;
+            self.prefs.wrap_columns = columns;
+        }
+        if let Some((size, zoom)) = keep.font {
+            self.font_size = size;
+            self.prefs.zoom = zoom;
+        }
         // Other rules of coloring: the states of the lines are made again.
         self.color_states.reset();
         self.line_color_cache.clear();
