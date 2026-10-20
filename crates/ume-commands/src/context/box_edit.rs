@@ -245,7 +245,7 @@ impl CommandContext<'_> {
                 end: caret,
             });
         }
-        self.insert_into_box_rows(first, None)?;
+        self.insert_into_box_rows(first, None, false)?;
         Ok(Edit {
             start: caret,
             end: self.caret(),
@@ -299,8 +299,15 @@ impl CommandContext<'_> {
 
     /// The core of `Command_INDENT` for a box: puts `text` (typed text, or the indent) into each
     /// row, then moves the box right by the width of the text, and leaves it selected with the
-    /// caret at its top left corner. `indent` is `Some` for the tab and the space indents.
-    fn insert_into_box_rows(&mut self, text: &str, indent: Option<char>) -> Result<()> {
+    /// caret at its top left corner. `indent` is `Some` for the tab and the space indents. With
+    /// `soft_tab` the text is not `text` but the spaces up to the next tab stop from where it goes
+    /// into each row (`stabData.Len(ptInsert.x)`).
+    fn insert_into_box_rows(
+        &mut self,
+        text: &str,
+        indent: Option<char>,
+        soft_tab: bool,
+    ) -> Result<()> {
         self.refuse_in_view_mode()?;
         let Some(rect) = self.box_rect()? else {
             return Ok(());
@@ -324,6 +331,11 @@ impl CommandContext<'_> {
         // row was left alone for the alignment); the box moves by it.
         let mut shift = if aligned { Some(0) } else { None };
         for ins in plan.iter().rev() {
+            let text = if soft_tab {
+                self.soft_tab_at(ins.col)
+            } else {
+                text.to_owned()
+            };
             let padded = format!("{}{text}", " ".repeat(ins.pad));
             let edit = self.replace(ins.at, ins.at, &padded)?;
             let end_col = self.layout.display_col(self.doc(), edit.end)?;
@@ -350,7 +362,8 @@ impl CommandContext<'_> {
 
     /// `Command_INDENT` for a box: `F_INDENT_TAB` and `F_INDENT_SPACE`. A box of no width first
     /// just grows to the right edge (nothing is inserted; a second press indents). Otherwise
-    /// `unit` goes before the box in each row that has text there.
+    /// `unit` goes before the box in each row that has text there (a soft tab is spaces up to the
+    /// next tab stop, counted per row).
     pub(super) fn indent_box(&mut self, unit: char) -> Result<()> {
         let (anchor, caret) = (self.cursor.box_anchor_col(), self.cursor.box_caret_col());
         if anchor == caret {
@@ -358,7 +371,8 @@ impl CommandContext<'_> {
             return self.box_move_to_col(row, MAX_BOX_COL);
         }
         let mut utf8 = [0; 4];
-        self.insert_into_box_rows(unit.encode_utf8(&mut utf8), Some(unit))
+        let soft_tab = self.is_soft_tab(unit);
+        self.insert_into_box_rows(unit.encode_utf8(&mut utf8), Some(unit), soft_tab)
     }
 
     /// `Command_PASTEBOX`: pastes `text` as a box with its top left corner at the caret. The

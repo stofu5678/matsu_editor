@@ -9,7 +9,13 @@
 //! * Several rows: a tab goes before the text of every row that starts a line and has text. The
 //!   rows are selected from their start to the start of the row after the last, caret at the end.
 //!
-//! Not done yet: the soft tab (setting `m_bInsSpace`, off by default) and rectangular selection.
+//! * A box selection: a tab goes before the box in each row that has text there
+//!   (`CommandContext::indent_box`).
+//! * With the soft tab (the type's `m_bInsSpace`, off in Sakura's default types), the tab is the
+//!   spaces up to the next tab stop, counted in display columns (a full-width char is 2). Each
+//!   place that gets a tab gets its own number of spaces: the caret or the start of the selection,
+//!   the start of each row (the tab width), or the left edge of the box in each row. Overwrite mode
+//!   replaces the char at the caret, as a typed char does.
 
 use crate::command::{Arg, Command, Result};
 use crate::context::CommandContext;
@@ -80,5 +86,100 @@ mod tests {
         let mut e = Editor::new("a[b\ncd|e");
         e.run("indent_tab").assert_marked("[\tab\n\tcde|");
         e.run("undo").assert_marked("a[b\ncd|e");
+    }
+
+    /// Runs `indent_tab` with the soft tab on, over `before`, at the tab width.
+    fn soft(width: usize, before: &str, after: &str) {
+        let mut e = Editor::new(before)
+            .with_tab_width(width)
+            .with_ins_space(true);
+        e.run("indent_tab").assert_marked(after);
+    }
+
+    #[test]
+    fn a_soft_tab_fills_up_to_the_next_tab_stop() {
+        soft(4, "|", "    |");
+        soft(4, "a|", "a   |");
+        soft(4, "abc|", "abc |");
+        soft(4, "abcd|", "abcd    |");
+        soft(8, "ab|cd", "ab      |cd");
+        soft(8, "abcdefg|", "abcdefg |");
+    }
+
+    #[test]
+    fn a_soft_tab_counts_full_width_chars_as_two_columns() {
+        soft(4, "あ|", "あ  |");
+        soft(4, "あい|", "あい    |");
+        soft(4, "aあ|", "aあ |");
+        soft(8, "日本語|", "日本語  |");
+        soft(4, "あ|い", "あ  |い");
+    }
+
+    #[test]
+    fn a_soft_tab_on_a_later_line_counts_from_the_line_start() {
+        soft(4, "ab\r\nc|d", "ab\r\nc   |d");
+        soft(4, "ab\r\n|", "ab\r\n    |");
+    }
+
+    #[test]
+    fn a_soft_tab_replaces_a_selection_inside_one_row() {
+        soft(4, "a[bc|d", "a   |d");
+        soft(4, "a|bc[d", "a   |d");
+        // counted from the start of the selection, not from the caret
+        soft(4, "ab[cd|e", "ab  |e");
+        soft(4, "あ[い|う", "あ  |う");
+    }
+
+    #[test]
+    fn a_soft_tab_indents_every_row_with_the_tab_width() {
+        soft(4, "a[b\ncd|e\nfg", "[    ab\n    cde\n|fg");
+        soft(8, "a[b\r\n\r\ncd|e", "[        ab\r\n\r\n        cde|");
+        soft(4, "[あい\nう|", "[    あい\n    う|");
+        soft(4, "[ab\ncd\n|", "[    ab\n    cd\n|");
+    }
+
+    #[test]
+    fn a_soft_tab_in_overwrite_mode_takes_the_place_of_one_char() {
+        let mut e = Editor::new("ab|cdef").with_ins_space(true);
+        e.set_overwrite(true);
+        e.run("indent_tab").assert_marked("ab  |def");
+        // a full-width char is one char as well
+        let mut e = Editor::new("a|いう").with_ins_space(true);
+        e.set_overwrite(true);
+        e.run("indent_tab").assert_marked("a   |う");
+        // a line ending is never overwritten
+        let mut e = Editor::new("ab|\r\ncd").with_ins_space(true);
+        e.set_overwrite(true);
+        e.run("indent_tab").assert_marked("ab  |\r\ncd");
+        // with a selection the selection is replaced, and nothing else
+        let mut e = Editor::new("a[b|cd").with_ins_space(true);
+        e.set_overwrite(true);
+        e.run("indent_tab").assert_marked("a   |cd");
+    }
+
+    #[test]
+    fn a_tab_in_overwrite_mode_takes_the_place_of_one_char() {
+        let mut e = Editor::new("ab|cd");
+        e.set_overwrite(true);
+        e.run("indent_tab").assert_marked("ab\t|d");
+        let mut e = Editor::new("ab|\r\ncd");
+        e.set_overwrite(true);
+        e.run("indent_tab").assert_marked("ab\t|\r\ncd");
+    }
+
+    #[test]
+    fn the_soft_tab_is_one_undo_step() {
+        let mut e = Editor::new("a[b\ncd|e").with_ins_space(true);
+        e.run("indent_tab").assert_marked("[    ab\n    cde|");
+        e.run("undo").assert_marked("a[b\ncd|e");
+        let mut e = Editor::new("ab|cd").with_ins_space(true);
+        e.run("indent_tab").assert_marked("ab  |cd");
+        e.run("undo").assert_marked("ab|cd");
+    }
+
+    #[test]
+    fn indent_space_is_never_soft() {
+        let mut e = Editor::new("ab|cd").with_ins_space(true);
+        e.run("indent_space").assert_marked("ab |cd");
     }
 }
