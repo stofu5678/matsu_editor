@@ -98,3 +98,27 @@ fn a_temporary_font_size_stays_unless_the_base_size_changes(cx: &mut TestAppCont
         view.read_with(cx, |v, _| v.view_settings().font_px())
     );
 }
+
+/// As [`ini`], with a font of its own for the type (`bUseTypeFont`, 10 points).
+fn ini_with_type_font(wrap: i32) -> String {
+    format!(
+        "{}bUseTypeFont=1\r\nlf=-13,0,0,0,400,0,0,0,128,3,2,1,49\r\nlfFaceName=MS Gothic\r\nnPointSize=100\r\n",
+        ini(wrap, 80, 100)
+    )
+}
+
+#[gpui::test]
+fn a_font_change_remembers_that_the_type_has_a_font_of_its_own(cx: &mut TestAppContext) {
+    let handle = window(cx, Some(user(&ini(0, 80, 100))));
+    let cx = &mut VisualTestContext::from_window(handle, cx);
+    let view = view_of(cx);
+    // The type gets a font of its own (`F_SETFONTSIZE` in mode 1), which the view reads again.
+    let with_font = user(&ini_with_type_font(0));
+    cx.update(|_, app| app.set_global(with_font.clone()));
+    view.update(cx, |view, cx| view.refresh_font(&with_font, cx));
+    run(&view, cx, "F_SETFONTSIZEUP", &[Arg::Int(1)]);
+    let zoomed = view.read_with(cx, |v, _| v.font_px());
+    // Another setting of the type changes: the temporary size stays.
+    change_settings(&view, cx, &ini_with_type_font(1));
+    assert_eq!(view.read_with(cx, |v, _| v.font_px()), zoomed);
+}

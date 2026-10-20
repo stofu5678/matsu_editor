@@ -363,11 +363,14 @@ impl EditorView {
             && new.font_weight == old.font_weight
             && new.font_italic == old.font_italic
             && new.font_truetype == old.font_truetype
+            && new.use_type_font == old.use_type_font
         {
             return;
         }
         let temporary = self.font_size != old.font_px();
-        let keep_size = temporary && new.point_size == old.point_size;
+        // `bFontTypeOld != ref.m_bUseTypeFont` ends it too.
+        let keep_size =
+            temporary && new.point_size == old.point_size && new.use_type_font == old.use_type_font;
         self.font_family = match &new.font_family {
             Some(family) => family.clone().into(),
             None => super::FONT_FAMILY.into(),
@@ -379,6 +382,7 @@ impl EditorView {
         settings.font_weight = new.font_weight;
         settings.font_italic = new.font_italic;
         settings.font_truetype = new.font_truetype;
+        settings.use_type_font = new.use_type_font;
         if keep_size {
             cx.notify();
         } else {
