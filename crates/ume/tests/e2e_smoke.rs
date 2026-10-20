@@ -75,6 +75,7 @@ fn run_editor(home: &Path, args: &[&str]) -> String {
         .env("USERPROFILE", home)
         .env("APPDATA", home.join("appdata"))
         .env("XDG_CONFIG_HOME", home.join("config"))
+        .env("RUST_BACKTRACE", "1")
         .env("XDG_CACHE_HOME", home.join("cache"))
         .env("XDG_DATA_HOME", home.join("data"))
         .stdin(Stdio::null())
@@ -130,9 +131,12 @@ fn run_macro(scratch: &Scratch, macro_file: &str, code: &str, saved: &Path) -> V
 fn key_macro_saves_shift_jis_with_lf() {
     let scratch = Scratch::new("mac");
     let saved = scratch.0.join("sjis.txt");
+    // The characters are typed with `Char(code point)`, as a recorded key macro has them, and
+    // `Char(13)` is Enter. (`InsText` is not available in a key macro yet: the player stops at
+    // it with "F_INSTEXT_W はまだ使えない".)
     // `FileSaveAs(path, encoding, line ending)`: 2 is LF (S_FileSaveAs).
     let source = format!(
-        "InsText('日本語\\nabc\\n');\nFileSaveAs('{}', 0, 2);\nExitAll();\n",
+        "Char(26085);\nChar(26412);\nChar(35486);\nChar(13);\nChar(97);\nChar(98);\nChar(99);\nChar(13);\nFileSaveAs('{}', 0, 2);\nExitAll();\n",
         macro_path(&saved)
     );
     fs::write(scratch.0.join("smoke.mac"), source).unwrap();
