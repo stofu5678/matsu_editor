@@ -32,7 +32,7 @@ use windows::Win32::UI::Accessibility::{
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP,
-    KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY, VK_A, VK_CONTROL,
+    KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY, VK_A, VK_CONTROL, VK_MENU,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CB_FINDSTRINGEXACT, CB_SETCURSEL, CBN_SELCHANGE, GA_ROOT, GetAncestor, GetDlgCtrlID,
@@ -276,6 +276,13 @@ impl Element {
                 // the keys go to the window in front: bring the dialog there (a runner may have
                 // another window in front)
                 if let Ok(edit) = self.0.CurrentNativeWindowHandle() {
+                    // a key press first: Windows lets the process that got the last input
+                    // take the front
+                    let alt = [
+                        key(VK_MENU, 0, KEYBD_EVENT_FLAGS(0)),
+                        key(VK_MENU, 0, KEYEVENTF_KEYUP),
+                    ];
+                    SendInput(&alt, std::mem::size_of::<INPUT>() as i32);
                     let _ = SetForegroundWindow(GetAncestor(edit, GA_ROOT));
                 }
                 self.0
@@ -323,10 +330,11 @@ impl Element {
         // SAFETY: plain call.
         let front = unsafe { GetForegroundWindow() };
         panic!(
-            "the text {text:?} did not get into {} (the window in front: {front:?}, the edit's: {:?})",
+            "the text {text:?} did not get into {} (the window in front: {front:?}, the edit's root: {:?})",
             self.describe(),
             // SAFETY: plain calls on a live interface.
             unsafe { self.0.CurrentNativeWindowHandle() }
+                .map(|edit| unsafe { GetAncestor(edit, GA_ROOT) })
         );
     }
 
