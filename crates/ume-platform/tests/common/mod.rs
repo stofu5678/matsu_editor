@@ -30,6 +30,10 @@ use windows::Win32::UI::Accessibility::{
     UIA_InvokePatternId, UIA_ListItemControlTypeId, UIA_SelectionItemPatternId,
     UIA_SelectionPatternId, UIA_TogglePatternId, UIA_ValuePatternId, UIA_WindowPatternId,
 };
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP,
+    KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY, VK_A, VK_CONTROL,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     CB_FINDSTRINGEXACT, CB_SETCURSEL, CBN_SELCHANGE, GetDlgCtrlID, GetParent, SendMessageW,
     WM_COMMAND,
@@ -243,6 +247,54 @@ impl Element {
                 .GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
                 .and_then(|p| p.SetValue(&BSTR::from(text)))
                 .unwrap_or_else(|e| panic!("cannot set {text:?} on {}: {e}", self.describe()));
+        }
+    }
+
+    /// Types `text` into an edit the way a user does: focus, Ctrl+A, then the characters. Setting
+    /// the value through UIA shows the text in the edit of the save dialog, but the dialog does not
+    /// take it as the name.
+    pub fn type_text(&self, text: &str) {
+        fn key(vk: VIRTUAL_KEY, scan: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {
+            INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: vk,
+                        wScan: scan,
+                        dwFlags: flags,
+                        time: 0,
+                        dwExtraInfo: 0,
+                    },
+                },
+            }
+        }
+        // SAFETY: plain calls; `SendInput` copies the events.
+        unsafe {
+            self.0
+                .SetFocus()
+                .unwrap_or_else(|e| panic!("cannot focus {}: {e}", self.describe()));
+            thread::sleep(Duration::from_millis(300));
+            let mut events = vec![
+                key(VK_CONTROL, 0, KEYBD_EVENT_FLAGS(0)),
+                key(VK_A, 0, KEYBD_EVENT_FLAGS(0)),
+                key(VK_A, 0, KEYEVENTF_KEYUP),
+                key(VK_CONTROL, 0, KEYEVENTF_KEYUP),
+            ];
+            for unit in text.encode_utf16() {
+                events.push(key(VIRTUAL_KEY(0), unit, KEYEVENTF_UNICODE));
+                events.push(key(
+                    VIRTUAL_KEY(0),
+                    unit,
+                    KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
+                ));
+            }
+            let sent = SendInput(&events, std::mem::size_of::<INPUT>() as i32);
+            assert_eq!(
+                sent as usize,
+                events.len(),
+                "SendInput sent only {sent} events"
+            );
+            thread::sleep(Duration::from_millis(300));
         }
     }
 

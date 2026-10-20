@@ -113,6 +113,8 @@ windows = { version = "0.62", features = [
     "Win32_UI_Accessibility",
     # CB_SETCURSEL and the notification of the classic font dialog (tests/common)
     "Win32_UI_WindowsAndMessaging",
+    # SendInput: typing the file name into the save dialog (tests/common)
+    "Win32_UI_Input_KeyboardAndMouse",
 ] }
 
 [lints]
