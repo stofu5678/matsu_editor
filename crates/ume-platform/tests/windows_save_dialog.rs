@@ -3,8 +3,9 @@
 //! follows the encoding (`Follow`, Sakura's `OnItemSelected`), and what the API returns after 保存
 //! and after Cancel.
 //!
-//! The dialog is the real one of the OS, so these tests need a desktop. Without one they print why
-//! and pass.
+//! The dialog is the real one of the OS, so these tests need a desktop, and they send keys to the
+//! window in front. They run only on CI (`CI` is set) or with `UME_UIA_TESTS=1`; otherwise, and
+//! without a desktop, they print why and pass.
 #![cfg(windows)]
 
 mod common;
@@ -106,7 +107,6 @@ fn button(uia: &Uia, window: &Element, id: &str) -> Element {
 fn with_dialog(title: &str, test: impl FnOnce(&Uia, Fields, Running<Answer>)) {
     let _guard = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     let Some(uia) = Uia::connect() else {
-        eprintln!("SKIPPED: this session has no desktop that UI Automation can see");
         return;
     };
     let dir = tempfile::tempdir().expect("a folder to save into");

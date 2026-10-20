@@ -69,9 +69,23 @@ pub struct Uia {
 }
 
 impl Uia {
-    /// `None` when this session has no desktop UIA can see (a service session, say): the test
-    /// then skips itself with a printed reason.
+    /// Whether the tests may open dialogs and send keys here: on CI (`CI` is set; GitHub Actions
+    /// sets it on every runner) or when `UME_UIA_TESTS=1` asks for it. On a developer's own
+    /// machine they would pop dialogs up and send keys to the window in front.
+    fn allowed() -> bool {
+        std::env::var_os("CI").is_some() || std::env::var("UME_UIA_TESTS").is_ok_and(|v| v == "1")
+    }
+
+    /// `None` when the test must not run here, with the reason printed: it is not allowed (see
+    /// [`Uia::allowed`]), or this session has no desktop UIA can see (a service session, say).
     pub fn connect() -> Option<Self> {
+        if !Self::allowed() {
+            eprintln!(
+                "SKIPPED: this test opens real dialogs and sends keys; set UME_UIA_TESTS=1 to run \
+                 it on this machine (it always runs on CI)"
+            );
+            return None;
+        }
         // SAFETY: plain COM calls on the test thread. The result of `CoInitializeEx` is not
         // checked on purpose: a thread that is in an apartment already can still use UIA.
         unsafe {

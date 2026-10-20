@@ -1,8 +1,9 @@
 //! The font dialog of Windows (`ChooseFontW`, issue #150) driven with UI Automation: the face and
 //! the size are changed, and OK returns that `FontSetting`; Cancel returns nothing.
 //!
-//! The dialog is the real one of the OS, so these tests need a desktop. Without one they print why
-//! and pass.
+//! The dialog is the real one of the OS, so these tests need a desktop, and they open dialogs on
+//! it. They run only on CI (`CI` is set) or with `UME_UIA_TESTS=1`; otherwise, and without a
+//! desktop, they print why and pass.
 #![cfg(windows)]
 
 mod common;
@@ -66,7 +67,6 @@ fn choose_face(face: &Element) {
 fn with_dialog(test: impl FnOnce(&Uia, Fields, Running<Answer>)) {
     let _guard = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     let Some(uia) = Uia::connect() else {
-        eprintln!("SKIPPED: this session has no desktop that UI Automation can see");
         return;
     };
     let mut running = Running::start(choose(
