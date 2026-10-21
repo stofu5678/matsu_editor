@@ -29,13 +29,13 @@ env:
 jobs:
   compare:
     # The cases are split over parallel jobs (ORACLE_SHARD=k/n), so that one job stays near 15 minutes.
-    name: compare (windows-x64, ${{ matrix.shard }}/4)
+    name: compare (windows-x64, ${{ matrix.shard }}/6)
     runs-on: windows-2025
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     defaults:
       run:
         shell: bash
@@ -65,7 +65,7 @@ jobs:
       - name: Compare UME with Sakura
         run: |
           mkdir -p oracle-out
-          ORACLE_SHARD="${{ matrix.shard }}/4" SAKURA_DIR="$GITHUB_WORKSPACE/sakura-release" ORACLE_OUT="$GITHUB_WORKSPACE/oracle-out" \
+          ORACLE_SHARD="${{ matrix.shard }}/6" SAKURA_DIR="$GITHUB_WORKSPACE/sakura-release" ORACLE_OUT="$GITHUB_WORKSPACE/oracle-out" \
             cargo test --release --locked -p ume --test sakura_oracle -- --ignored --nocapture
       - name: Keep the outputs
         if: always()

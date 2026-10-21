@@ -356,8 +356,29 @@ enum Outcome {
     Failed(String),
 }
 
+/// Empties the clipboard, so that a case does not paste what an earlier case (or the other editor)
+/// copied, in whatever format. Windows only.
+fn clear_clipboard() {
+    if !cfg!(windows) {
+        return;
+    }
+    let _ = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-STA",
+            "-Command",
+            "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Clipboard]::Clear()",
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
 /// Prepares `<scratch>/<side>` for `case` and returns the folder, the macro path and the output.
 fn prepare(scratch: &Scratch, side: &str, case: &Case) -> (PathBuf, PathBuf, PathBuf, PathBuf) {
+    clear_clipboard();
     let dir = scratch.0.join(side);
     fs::create_dir_all(&dir).unwrap();
     let input = dir.join("input.txt");
@@ -507,11 +528,14 @@ fn run_ume(scratch: &Scratch, case: &Case) -> Outcome {
     let started = Instant::now();
     let mut watch = WaitWatch::new();
     let mut waiting = None;
+    let mut timed_out_with = None;
     let status = loop {
         if let Some(status) = child.try_wait().unwrap() {
             break Some(status);
         }
         if started.elapsed() > UME_TIME_LIMIT {
+            // Say which windows were open: the title of a dialog that nobody answered.
+            timed_out_with = Some(visible_windows(&[child.id()]).join("; "));
             let _ = child.kill();
             let _ = child.wait();
             break None;
@@ -548,6 +572,10 @@ fn run_ume(scratch: &Scratch, case: &Case) -> Outcome {
         .take(8)
         .collect::<Vec<_>>()
         .join(" / ");
+    let tail = match timed_out_with {
+        Some(windows) => format!("windows at the time limit: [{windows}]: {tail}"),
+        None => tail,
+    };
     if let Some(windows) = waiting {
         return Outcome::Failed(format!(
             "ume waits for an answer (stopped at once), windows: {windows}: {tail}"
