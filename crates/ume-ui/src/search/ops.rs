@@ -530,12 +530,13 @@ fn old_range(doc: &Document, e: &AppliedEdit) -> (Pos, Pos) {
         .ok()
         .flatten()
         .is_some_and(|l| l.eol == Some(Eol::Cr) && l.text.len() == e.start.col);
-    let direct = (e.start, end_after(e.start, &e.removed));
+    let ext_eol = doc.ext_eol();
+    let direct = (e.start, end_after(e.start, &e.removed, ext_eol));
     if !at_cr_end {
         return direct;
     }
     let after_cr = Pos::new(e.start.line + 1, 0);
-    let moved = (after_cr, end_after(after_cr, &e.removed));
+    let moved = (after_cr, end_after(after_cr, &e.removed, ext_eol));
     let fits = |&(start, end): &(Pos, Pos)| {
         doc.text_between(start, end).is_ok_and(|t| t == e.removed)
             && doc
@@ -551,8 +552,9 @@ fn old_range(doc: &Document, e: &AppliedEdit) -> (Pos, Pos) {
 }
 
 /// Where text that is `text` long ends when it starts at `start`.
-fn end_after(start: Pos, text: &str) -> Pos {
-    let Ok(scratch) = Document::from_utf8(text.as_bytes().to_vec()) else {
+/// `ext_eol` is the setting of the document the text was in: NEL, LS and PS end a line only then.
+fn end_after(start: Pos, text: &str, ext_eol: bool) -> Pos {
+    let Ok(scratch) = Document::from_utf8_with(text.as_bytes().to_vec(), ext_eol) else {
         return start;
     };
     let count = scratch.line_count();
@@ -678,12 +680,15 @@ mod tests {
     #[test]
     fn end_after_follows_the_line_breaks_of_the_text() {
         let at = Pos::new(2, 3);
-        assert_eq!(end_after(at, ""), at);
-        assert_eq!(end_after(at, "ab"), Pos::new(2, 5));
-        assert_eq!(end_after(at, "ab\r\n"), Pos::new(3, 0));
-        assert_eq!(end_after(at, "ab\ncd"), Pos::new(3, 2));
-        assert_eq!(end_after(at, "日本"), Pos::new(2, 9));
-        assert_eq!(end_after(at, "a\r\nb\r\n"), Pos::new(4, 0));
+        assert_eq!(end_after(at, "", false), at);
+        assert_eq!(end_after(at, "ab", false), Pos::new(2, 5));
+        assert_eq!(end_after(at, "ab\r\n", false), Pos::new(3, 0));
+        assert_eq!(end_after(at, "ab\ncd", false), Pos::new(3, 2));
+        assert_eq!(end_after(at, "日本", false), Pos::new(2, 9));
+        assert_eq!(end_after(at, "a\r\nb\r\n", false), Pos::new(4, 0));
+        // NEL ends a line only when the document counts it.
+        assert_eq!(end_after(at, "a\u{85}", false), Pos::new(2, 6));
+        assert_eq!(end_after(at, "a\u{85}", true), Pos::new(3, 0));
     }
 
     #[test]

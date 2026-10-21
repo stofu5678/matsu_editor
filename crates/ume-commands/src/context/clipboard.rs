@@ -94,7 +94,7 @@ impl CommandContext<'_> {
     /// endings are the ones the document has, found by lines; characters that look like a line
     /// ending but are not one in this document (NEL, LS and PS with the setting off when the text
     /// was made) stay as they are.
-    fn text_with_eol(&self, from: Pos, to: Pos, eol: &str) -> Result<String> {
+    pub fn text_with_eol(&self, from: Pos, to: Pos, eol: &str) -> Result<String> {
         let doc = self.doc();
         let (from, to) = (doc.clamp_pos(from)?, doc.clamp_pos(to)?);
         let mut out = String::new();

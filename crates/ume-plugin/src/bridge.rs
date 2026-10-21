@@ -271,17 +271,16 @@ impl MacroDocument for ContextDocument<'_, '_> {
 
     fn selected_text(&self) -> String {
         // A box selection is the text of its rows (CViewCommander: GetSelectedData).
-        let text = if self.cx.cursor().box_corners().is_some() {
-            self.cx.box_text().ok().flatten().unwrap_or_default()
-        } else {
-            let Some((start, end)) = self.cx.selection() else {
-                return String::new();
-            };
-            self.cx.doc().text_between(start, end).unwrap_or_default()
+        if self.cx.cursor().box_corners().is_some() {
+            let text = self.cx.box_text().ok().flatten().unwrap_or_default();
+            return text.replace("\r\n", "\n").replace('\r', "\n");
+        }
+        let Some((start, end)) = self.cx.selection() else {
+            return String::new();
         };
-        // Every line ending the document knows becomes "\n" (like the lines of `GetLineStr`).
-        text.replace("\r\n", "\n")
-            .replace(['\r', '\u{85}', '\u{2028}', '\u{2029}'], "\n")
+        // Every line ending the document has becomes "\n" (like the lines of `GetLineStr`); NEL, LS
+        // and PS that the document does not count as endings stay as they are.
+        self.cx.text_with_eol(start, end, "\n").unwrap_or_default()
     }
 
     fn move_cursor(&mut self, pos: (usize, usize), extend: bool) {

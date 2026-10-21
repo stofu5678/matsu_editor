@@ -348,11 +348,15 @@ impl SharedDocument {
         Self::new(DocumentModel::empty(), None)
     }
 
+    /// (Reading the document syncs `bEnableExtEol` too: a copy of it taken to plan an edit, as the
+    /// replace all does, must split text as the edit will.)
     pub fn model(&self) -> &DocumentModel {
+        sync_ext_eol(&self.model);
         &self.model
     }
 
     pub fn doc(&self) -> &Document {
+        sync_ext_eol(&self.model);
         self.model.doc()
     }
 
