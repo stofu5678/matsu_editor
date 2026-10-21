@@ -183,6 +183,31 @@ impl RegexReplacer {
         self.template.expand(subject, &groups)
     }
 
+    /// Replaces every match in `subject`, a line followed by its line ending, in one go: the `g`
+    /// option of bregonig's `Replace`, as Grep 置換 calls it on each line it reads
+    /// (`CGrepAgent::DoGrepReplaceFile`, `sakura_core/agent/CGrepAgent.cpp`). A match may cover
+    /// the line ending; what it covers is replaced like the rest. Returns the new text and the
+    /// number of matches replaced.
+    pub fn replace_subject(&self, subject: &str) -> Result<(String, usize), MatcherError> {
+        let matches = GlobalScan(&self.matcher).find_all_from(subject, subject.len(), 0)?;
+        let mut out = String::with_capacity(subject.len());
+        let (mut at, mut count) = (0, 0);
+        for m in &matches {
+            if m.start < at {
+                continue;
+            }
+            out.push_str(&subject[at..m.start]);
+            let mut groups = Vec::with_capacity(m.captures.len() + 1);
+            groups.push(Some(m.start..m.end));
+            groups.extend(m.captures.iter().cloned());
+            out.push_str(&self.template.expand(subject, &groups));
+            at = m.end;
+            count += 1;
+        }
+        out.push_str(&subject[at..]);
+        Ok((out, count))
+    }
+
     /// The edit that replaces `found`.
     fn edit_for(
         &self,

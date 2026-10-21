@@ -950,3 +950,87 @@ fn utf16_files_have_no_empty_line_after_the_last_line_break() {
         assert_eq!((positions, hits), (vec!["2,1".to_owned()], 1), "{text}");
     }
 }
+
+/// The hits as `line,column` of a regular expression in each of the files; Sakura matches each
+/// line together with its line break (`DoGrepFile`: `ReadLine` keeps it, `nLineLen` counts it).
+fn positions(bytes: &[u8], key: &str) -> Vec<String> {
+    // The text of a hit can end with a bare CR, so the hits are not told apart by line.
+    let (_, _, text) = regex_hits(bytes, key);
+    body(&text)
+        .split("a.txt(")
+        .skip(1)
+        .map(|rest| rest.split_once(')').unwrap().0.to_owned())
+        .collect()
+}
+
+#[test]
+fn a_pattern_can_match_the_line_break_of_every_kind() {
+    // `\r\n` of CRLF, `\n` of LF and `\r` of CR files, one hit on each line
+    assert_eq!(positions(b"a\r\nb\r\n", r"\r\n"), ["1,2", "2,2"]);
+    assert_eq!(positions(b"a\nb\n", r"\n"), ["1,2", "2,2"]);
+    assert_eq!(positions(b"a\rb\r", r"\r"), ["1,2", "2,2"]);
+    // the break of a CRLF file is two characters: `\n` alone is at the third
+    assert_eq!(positions(b"a\r\nb\r\n", r"\n"), ["1,3", "2,3"]);
+    // a pattern for the CRLF finds nothing in the files that have another break
+    assert!(positions(b"a\nb\n", r"\r\n").is_empty());
+    assert!(positions(b"a\rb\r", r"\r\n").is_empty());
+}
+
+#[test]
+fn a_match_never_goes_on_into_the_next_line() {
+    // `[\r\n]+` takes the break of its own line only; the empty line is the next line
+    assert_eq!(positions(b"a\r\n\r\nb", r"[\r\n]+"), ["1,2", "2,1"]);
+    assert!(positions(b"a\nb\n", r"\n\n").is_empty());
+}
+
+#[test]
+fn the_dollar_the_space_class_and_a_negated_class_see_the_line_break() {
+    // `$` is before the CR of a CRLF, before an LF, and at the end of a line without a break
+    assert_eq!(positions(b"ab\r\nab\nab", "$"), ["1,3", "2,3", "3,3"]);
+    // `\s` takes the CR and the LF one after the other
+    assert_eq!(positions(b"a b\r\n", r"\s"), ["1,2", "1,4", "1,5"]);
+    assert_eq!(positions(b"ab\r\n", "[^a]"), ["1,2", "1,3", "1,4"]);
+    // `.` does not take the break
+    assert_eq!(positions(b"ab\r\n", "."), ["1,1", "1,2"]);
+}
+
+#[test]
+fn an_empty_match_goes_through_the_line_break_but_not_to_the_end_of_the_line() {
+    // `CBregexp::Match` finds nothing when the search starts at `nStart >= len`: the position
+    // after the last character of the line, with its break, is not a hit
+    assert_eq!(positions(b"ab", "x*"), ["1,1", "1,2"]);
+    assert_eq!(positions(b"ab\n", "x*"), ["1,1", "1,2", "1,3"]);
+    // between the CR and the LF is a place too
+    assert_eq!(positions(b"ab\r\n", "x*"), ["1,1", "1,2", "1,3", "1,4"]);
+    // a pattern that can only match at the very end is found by the search from the start of
+    // the line
+    assert_eq!(positions(b"ab\n", r"\z"), ["1,4"]);
+}
+
+#[test]
+fn the_text_of_a_matched_part_that_has_the_break_brings_it_and_adds_none() {
+    let p = Project::new();
+    p.write("a.txt", b"one\r\ntwo\r\nthree");
+    let mut info = p.info(r"\w+\r\n");
+    info.options.regex = true;
+    info.layout.line_type = LineType::MatchPart;
+    info.layout.style = OutputStyle::ResultOnly;
+    let (text, outcome) = grep(&info);
+    assert_eq!(outcome.hits, 2, "{text}");
+    assert_eq!(body(&text), "one\r\ntwo\r\n2 個が検索されました。\r\n");
+    // as a line: the text of the line, written once, with an end of its own
+    info.layout.line_type = LineType::Line;
+    let (text, outcome) = grep(&info);
+    assert_eq!(outcome.hits, 2, "{text}");
+    assert_eq!(body(&text), "one\r\ntwo\r\n2 個が検索されました。\r\n");
+}
+
+#[test]
+fn lines_without_a_hit_do_not_include_the_empty_line_after_the_last_break() {
+    let p = Project::new();
+    p.write("a.txt", b"a\nhit\nb\n");
+    let mut info = p.info("hit");
+    info.layout.line_type = LineType::NoHitLine;
+    let (text, outcome) = grep(&info);
+    assert_eq!(outcome.hits, 2, "{text}");
+}

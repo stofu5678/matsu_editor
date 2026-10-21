@@ -722,7 +722,9 @@ fn detect_name(path: &Path) -> String {
 /// empty match one character on, as `DoGrepFile` does for a regular expression. `at` is past the
 /// line when the scan is over.
 fn next_hit(matcher: &dyn Matcher, line: &str, at: &mut usize) -> Option<Match> {
-    if *at > line.len() {
+    // `CBregexp::Match` finds nothing when the search starts at the end of the line or later
+    // (`nStart >= len`), so the empty match at the very end is not a hit.
+    if *at >= line.len() {
         return None;
     }
     let Ok(Some(m)) = matcher.find_at(line, *at) else {

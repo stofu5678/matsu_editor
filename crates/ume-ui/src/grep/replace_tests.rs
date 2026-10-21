@@ -622,3 +622,111 @@ fn the_empty_line_after_the_last_line_break_is_not_a_line() {
     assert_eq!(outcome.hits, 1);
     assert_eq!(p.read("a.txt"), b"a\nE\nb\n");
 }
+
+#[test]
+fn a_regular_expression_for_the_line_break_joins_the_lines() {
+    // Sakura replaces the line with its break (`Replace` over `nLineLen`): the file gets what
+    // the replacement built, and a line without a break is joined with the next one
+    for (name, bytes, key, new, want) in [
+        (
+            "crlf",
+            &b"a\r\nb\r\nc\r\n"[..],
+            r"\r\n",
+            ",",
+            &b"a,b,c,"[..],
+        ),
+        ("lf", b"a\nb\nc\n", r"\n", ",", b"a,b,c,"),
+        ("cr", b"a\rb\rc\r", r"\r", ",", b"a,b,c,"),
+        ("class", b"a\r\nb\nc\r", r"[\r\n]+", ";", b"a;b;c;"),
+        ("space", b"a b\r\nc", r"\s", "_", b"a_b__c"),
+    ] {
+        let p = Project::new();
+        p.write("a.txt", bytes);
+        let mut info = p.info(key, new);
+        info.options = regex();
+        let (text, outcome) = grep(&info);
+        assert!(!outcome.stopped, "{name}: {text}");
+        assert_eq!(p.read("a.txt"), want, "{name}: {text}");
+        assert_eq!(p.read("a.txt.skrold"), bytes, "{name}");
+    }
+}
+
+#[test]
+fn the_count_of_a_replacement_over_line_breaks_is_the_number_of_matches() {
+    let p = Project::new();
+    p.write("a.txt", b"a\r\nb\r\nc");
+    let mut info = p.info(r"\r\n", " ");
+    info.options = regex();
+    let (text, outcome) = grep(&info);
+    assert_eq!(outcome.hits, 2, "{text}");
+    assert_eq!(p.read("a.txt"), b"a b c");
+    // the hits are the lines of the first two
+    assert_eq!(
+        body(&text),
+        format!(
+            "{f}(1,2)  [UTF-8]: a\r\n{f}(2,2)  [UTF-8]: b\r\n2 個を置換しました。\r\n",
+            f = p.path("a.txt")
+        )
+    );
+}
+
+#[test]
+fn a_replacement_that_keeps_the_break_leaves_it_as_it_was() {
+    // `$` is before the break; a file with mixed breaks keeps each
+    let p = Project::new();
+    p.write("a.txt", b"a\r\nb\nc\rd");
+    let mut info = p.info("$", "!");
+    info.options = regex();
+    let (_, outcome) = grep(&info);
+    assert_eq!(outcome.hits, 4);
+    assert_eq!(p.read("a.txt"), b"a!\r\nb!\nc!\rd!");
+    // a pattern that takes the break and a replacement that gives it back
+    let q = Project::new();
+    q.write("a.txt", b"a\r\nb\r\n");
+    let mut info = q.info(r"(\w)\r\n", "<$1>\\r\\n");
+    info.options = regex();
+    let (_, outcome) = grep(&info);
+    assert_eq!(outcome.hits, 2);
+    assert_eq!(q.read("a.txt"), b"<a>\r\n<b>\r\n");
+}
+
+#[test]
+fn a_negated_class_and_the_empty_match_replace_the_break_too() {
+    // `[^a]` takes b, CR and LF of the first line
+    let p = Project::new();
+    p.write("a.txt", b"ab\r\nxa");
+    let mut info = p.info("[^a]", "-");
+    info.options = regex();
+    let (_, outcome) = grep(&info);
+    assert_eq!(outcome.hits, 4);
+    assert_eq!(p.read("a.txt"), b"a----a");
+    // `x*` of the `g` option: before each character and at the end of the text of the line,
+    // which is after the break when it has one (bregonig's `Replace`, as `s/x*/-/g` in Perl)
+    let q = Project::new();
+    q.write("a.txt", b"ab\nc");
+    let mut info = q.info("x*", "-");
+    info.options = regex();
+    let (_, _) = grep(&info);
+    assert_eq!(q.read("a.txt"), b"-a-b-\n--c-");
+}
+
+#[test]
+fn a_regular_expression_paste_replaces_a_match_over_the_break_as_text() {
+    let p = Project::new();
+    p.write("a.txt", b"a\r\nb\r\n");
+    let mut info = p.info(r"\r\n", "|");
+    info.options = regex();
+    info.replace.as_mut().unwrap().paste = true;
+    let (_, outcome) = grep(&info);
+    assert_eq!(outcome.hits, 2);
+    assert_eq!(p.read("a.txt"), b"a|b|");
+}
+
+#[test]
+fn a_plain_search_never_reaches_the_break_but_keeps_it() {
+    let p = Project::new();
+    p.write("a.txt", b"ab\r\nab\nab");
+    let (_, outcome) = grep(&p.info("b", "XY"));
+    assert_eq!(outcome.hits, 3);
+    assert_eq!(p.read("a.txt"), b"aXY\r\naXY\naXY");
+}
