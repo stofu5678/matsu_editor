@@ -188,20 +188,29 @@ fn drives_the_window_by_its_names() {
         e.is_tab_item() && e.name() == "スクリーン"
     });
 
-    // Typing changes the cursor position in the status bar.
-    main.post_chars("あいう");
-    let start = Instant::now();
-    loop {
-        let now = position(&uia, pid);
-        if now.as_deref().is_some_and(|text| text != before) {
-            break;
+    // Typing changes the cursor position in the status bar. The keys of `SendInput` first; if the
+    // program does not take them (some runners do not give keys to a window), characters posted
+    // to the window.
+    let (_, text_view) = uia.wait(pid, "the text view", |e| e.name() == "テキストエディタ");
+    let moved = |wait: Duration| {
+        let start = Instant::now();
+        while start.elapsed() < wait {
+            if position(&uia, pid).is_some_and(|text| text != before) {
+                return true;
+            }
+            pause(200);
         }
+        false
+    };
+    let sent = text_view.send_text(&main, "あいう");
+    if !(sent && moved(Duration::from_secs(10))) {
+        eprintln!("NOTE: the keys did not reach the text view (sent: {sent}); posting characters");
+        main.post_chars("あいう");
         assert!(
-            start.elapsed() < Duration::from_secs(20),
+            moved(Duration::from_secs(20)),
             "the cursor position stayed {before:?} after typing; the tree:\n{}",
             uia.dump(pid)
         );
-        pause(200);
     }
     shot("typed");
 

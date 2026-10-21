@@ -22,8 +22,12 @@ use windows::Win32::UI::Accessibility::{
     UIA_CheckBoxControlTypeId, UIA_InvokePatternId, UIA_SelectionItemPatternId,
     UIA_TabItemControlTypeId, UIA_TogglePatternId,
 };
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP,
+    KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY, VK_MENU,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
-    PostMessageW, SetProcessDPIAware, WM_CHAR, WM_CLOSE, WM_KEYDOWN, WM_KEYUP,
+    PostMessageW, SetForegroundWindow, SetProcessDPIAware, WM_CHAR, WM_CLOSE, WM_KEYDOWN, WM_KEYUP,
 };
 
 /// How long to wait for an element to show up.
@@ -288,6 +292,49 @@ impl Element {
                 PostMessageW(Some(window), WM_CHAR, WPARAM(unit as usize), LPARAM(1))
                     .unwrap_or_else(|e| panic!("cannot post a character: {e}"));
             }
+        }
+    }
+
+    /// Brings the window to the front and gives the keyboard focus to this element, then types
+    /// `text` with `SendInput` (Unicode characters), the way a user does. The keys go to the
+    /// window in front, so the window is brought there first. Returns whether the events were
+    /// sent; whether the program took them is for the caller to check.
+    pub fn send_text(&self, window: &Element, text: &str) -> bool {
+        fn key(vk: VIRTUAL_KEY, scan: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {
+            INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: vk,
+                        wScan: scan,
+                        dwFlags: flags,
+                        time: 0,
+                        dwExtraInfo: 0,
+                    },
+                },
+            }
+        }
+        // SAFETY: plain calls; `SendInput` copies the events.
+        unsafe {
+            // A key press first: Windows lets the process that got the last input take the front.
+            let alt = [
+                key(VK_MENU, 0, KEYBD_EVENT_FLAGS(0)),
+                key(VK_MENU, 0, KEYEVENTF_KEYUP),
+            ];
+            SendInput(&alt, std::mem::size_of::<INPUT>() as i32);
+            let _ = SetForegroundWindow(window.handle());
+            let _ = self.0.SetFocus();
+            thread::sleep(Duration::from_millis(700));
+            let mut events = Vec::new();
+            for unit in text.encode_utf16() {
+                events.push(key(VIRTUAL_KEY(0), unit, KEYEVENTF_UNICODE));
+                events.push(key(
+                    VIRTUAL_KEY(0),
+                    unit,
+                    KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
+                ));
+            }
+            SendInput(&events, std::mem::size_of::<INPUT>() as i32) as usize == events.len()
         }
     }
 

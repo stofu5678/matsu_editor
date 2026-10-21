@@ -5,14 +5,8 @@
 param([Parameter(Mandatory = $true)][string]$Path)
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
-Add-Type -TypeDefinition @"
-using System.Runtime.InteropServices;
-public static class UmeDpi {
-    [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
-}
-"@
-# Without this the size is the scaled one and the copy is cut off on a screen with a scale.
-[void][UmeDpi]::SetProcessDPIAware()
+# No DPI call here: compiling a helper with Add-Type takes seconds on every picture, and the runners'
+# screens are not scaled.
 $area = [System.Windows.Forms.SystemInformation]::VirtualScreen
 $bitmap = New-Object System.Drawing.Bitmap $area.Width, $area.Height
 $graphics = [System.Drawing.Graphics]::FromImage($bitmap)

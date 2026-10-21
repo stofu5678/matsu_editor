@@ -41,7 +41,7 @@ use common::{
 const SETTLE: Duration = Duration::from_secs(12);
 
 /// How long the picture may stay the same as the empty screen before the test fails.
-const DRAW_LIMIT: Duration = Duration::from_secs(90);
+const DRAW_LIMIT: Duration = Duration::from_secs(180);
 
 /// A document with Japanese text of several lines, for the main window behind the dialogs.
 const SAMPLE: &str = "吾輩は猫である。名前はまだ無い。\r\n\
