@@ -464,3 +464,19 @@ fn save_mixed_eol_keeps_each_line_ending(cx: &mut TestAppContext) {
     .run(cx);
     assert_eq!(out, input);
 }
+
+// ---- InsText with a line break ----
+
+#[gpui::test]
+fn ins_text_with_a_line_break_finishes(cx: &mut TestAppContext) {
+    // ins-text-with-newline
+    let out = Case {
+        input: b"ABC\r\ndef\r\n",
+        code: SJIS,
+        mac: "Down();\nInsText('x\\ny');\nFileSaveAs('@OUT@', 0, 0);\nExitAll();\n",
+    }
+    .run(cx);
+    // The inserted text keeps its own line break (LF), so the file ends up with mixed endings,
+    // and the save asks nothing (the cause of the hang: the mixed line ending question).
+    assert_eq!(out, b"ABC\r\nx\nydef\r\n");
+}
