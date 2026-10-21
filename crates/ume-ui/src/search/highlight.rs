@@ -231,6 +231,20 @@ mod tests {
     }
 
     #[test]
+    fn a_regex_that_matches_the_line_break_colors_its_mark() {
+        use ume_regex::{RegexMatcher, RegexSearchOptions};
+        let doc = Document::from_utf8(b"ab\r\ncd\r\nef".to_vec()).unwrap();
+        let layout = DocumentLayout::laid_out(&doc, LayoutConfig::default()).unwrap();
+        let rows = layout.rows(&doc, 0, 100).unwrap();
+        let matcher = RegexMatcher::new(r"b\r\n|f", RegexSearchOptions::default()).unwrap();
+        let cols = highlight_columns(&layout, &doc, &rows, &matcher, &|_| 0);
+        // "b" and the mark after it (column 2); the last line has no line ending
+        assert_eq!(cols[0], [(1, 2, 0), (2, 3, 0)]);
+        assert!(cols[1].is_empty());
+        assert_eq!(cols[2], [(1, 2, 0)]);
+    }
+
+    #[test]
     fn a_very_long_line_is_not_searched() {
         let text = "a".repeat(MAX_HIGHLIGHT_LINE_BYTES + 1);
         let rows = columns(&text, "a", LayoutConfig::default());

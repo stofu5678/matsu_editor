@@ -582,8 +582,17 @@ impl Element for EditorElement {
             } else if let Some(eol) = row.eol {
                 if marks_shown.eol {
                     // The mark is in its own color, or in the color of the text it ends.
-                    let around = syntax::entry_of(&colors, rules, eol_color, None);
+                    // A search that matches the line break colors its mark (the match covers the
+                    // line ending: `highlight_columns` gives the column of the mark).
+                    let eol_found = row_found
+                        .iter()
+                        .find(|r| r.0 == row.end_column)
+                        .map(|r| r.2);
+                    let around = syntax::entry_of(&colors, rules, eol_color, eol_found);
                     let mark = syntax::space_style(&colors.eol_entry, &around, &colors);
+                    if let (Some(_), Some(back)) = (eol_found, mark.style.back) {
+                        backs.push((row.end_column, row.end_column + 1, back));
+                    }
                     marks.push(Placed {
                         col: row.end_column,
                         line: shape_styled(window, eol_mark(eol), &mark.style),
