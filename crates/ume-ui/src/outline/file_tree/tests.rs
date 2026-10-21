@@ -507,6 +507,24 @@ fn the_default_project_file_is_read_when_no_project_file_is_found() {
 }
 
 #[test]
+fn a_backslash_in_the_name_of_the_default_project_file_separates_folders() {
+    let settings = dir_with(&["conf/tree.ini"]);
+    fs::write(
+        settings.path().join("conf/tree.ini"),
+        "[FileTree]\r\nnFileTreeItemCount=1\r\nFileTree(0).eItemType=2\r\nFileTree(0).szLabelName=nested\r\n",
+    )
+    .unwrap();
+    let dir = dir_with(&[]);
+    let meta = Meta {
+        settings: Some(settings.path().to_string_lossy().into_owned()),
+        program: None,
+    };
+    let text = "[Common]\r\nbFileTreeProject=0\r\nszFileTreeProjectIni=conf\\tree.ini\r\n";
+    let loaded = load_setting(&inputs(text, dir.path(), meta));
+    assert_eq!(loaded.items[0].label, "nested");
+}
+
+#[test]
 fn the_settings_of_the_type_are_used_when_the_dock_setting_says_so() {
     let dir = dir_with(&[]);
     let text = "[Common]\r\nbFileTreeProject=0\r\nnOutlineDockSet=1\r\nnFileTreeItemCount=1\r\n\

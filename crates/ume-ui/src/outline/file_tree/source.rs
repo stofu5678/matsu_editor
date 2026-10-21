@@ -106,10 +106,16 @@ pub(crate) fn load_setting(inputs: &Inputs) -> Loaded {
         return found;
     }
     if !tree.project_ini.is_empty() {
-        let path = if is_relative(&tree.project_ini) {
-            inidir_or_exedir(inputs.meta.as_ref(), &tree.project_ini)
+        // the settings are written with Windows paths; a backslash separates folders on every OS
+        let name = if cfg!(windows) {
+            tree.project_ini.clone()
         } else {
-            Some(PathBuf::from(&tree.project_ini))
+            tree.project_ini.replace('\\', "/")
+        };
+        let path = if is_relative(&tree.project_ini) {
+            inidir_or_exedir(inputs.meta.as_ref(), &name)
+        } else {
+            Some(PathBuf::from(&name))
         };
         if let Some(path) = path
             && let Ok(project) = Profile::load(&path)

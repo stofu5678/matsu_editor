@@ -641,11 +641,13 @@ impl OutlinePane {
         cx.notify();
     }
 
-    fn set_node(&mut self, row: usize, open: bool, cx: &mut Context<Self>) {
+    pub(crate) fn set_node(&mut self, row: usize, open: bool, cx: &mut Context<Self>) {
         let Some(r) = self.rows.get(row) else {
             return;
         };
-        if r.has_children && r.expanded != open {
+        // the node is open once it is asked to be, also while its folder is being listed (the row
+        // shows it open when the children are there)
+        if r.has_children && self.expanded.contains(&r.key) != open {
             self.toggle_node(row, cx);
         }
     }

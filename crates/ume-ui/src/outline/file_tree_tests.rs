@@ -193,6 +193,25 @@ fn the_keyboard_opens_and_closes_folders_and_opens_files(cx: &mut TestAppContext
 }
 
 #[gpui::test]
+fn opening_a_folder_twice_while_it_is_listed_keeps_it_open(cx: &mut TestAppContext) {
+    let dir = folder(&["a.txt", "sub/c.txt"]);
+    let handle = window(cx, None, &one_grep(dir.path(), "*.*"));
+    run_with(cx, handle, "F_FILETREE", &[]);
+    // Right twice before the listing of "sub" is there: it is open, not open and closed again
+    toggle(cx, handle, 0);
+    let p = pane(cx, handle).unwrap();
+    p.update(cx, |p, cx| {
+        p.set_node(1, true, cx);
+        p.set_node(1, true, cx);
+    });
+    cx.run_until_parked();
+    assert_eq!(labels(cx, handle), ["Project", "sub", "c.txt", "a.txt"]);
+    // and Left closes it, also then
+    p.update(cx, |p, cx| p.set_node(1, false, cx));
+    assert_eq!(labels(cx, handle), ["Project", "sub", "a.txt"]);
+}
+
+#[gpui::test]
 fn the_old_tree_is_gone_while_a_new_one_is_made(cx: &mut TestAppContext) {
     let dir = folder(&["a.txt", "sub/c.txt"]);
     let handle = window(cx, None, &one_grep(dir.path(), "*.*"));
