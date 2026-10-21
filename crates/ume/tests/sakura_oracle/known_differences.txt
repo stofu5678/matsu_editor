@@ -7,8 +7,7 @@
 
 convert-tab-to-space-width8 | UME's key macro cannot call ChangeTabWidth (macro_functions.rs has key_macro: false, so it is a macro function only); the editor stays open after the macro stops. Sakura runs it as a statement.
 indent-space-width2 | UME's key macro cannot call ChangeTabWidth (macro_functions.rs has key_macro: false, so it is a macro function only); the editor stays open after the macro stops. Sakura runs it as a statement.
-ins-text-japanese | InsText is not available in UME's key macro yet (feat/key-macro-file adds it); the editor stays open after the macro stops.
-ins-text-with-newline | InsText is not available in UME's key macro yet (feat/key-macro-file adds it); the editor stays open after the macro stops.
+ins-text-with-newline | InsText('x\ny') (a text with a newline) does not finish in UME's key macro even with InsText added (#178): the editor stays open and nothing is saved. Cause not investigated yet; InsText without a newline (ins-text-japanese) now matches Sakura.
 replace-all | UME's key macro run by -M= does not finish the search/replace call (SearchNext, SearchPrev, Replace, ReplaceAll): the editor stays open and nothing is saved. Cause not investigated yet; Sakura runs it.
 replace-all-append-after | UME's key macro run by -M= does not finish the search/replace call (SearchNext, SearchPrev, Replace, ReplaceAll): the editor stays open and nothing is saved. Cause not investigated yet; Sakura runs it.
 replace-all-case-sensitive | UME's key macro run by -M= does not finish the search/replace call (SearchNext, SearchPrev, Replace, ReplaceAll): the editor stays open and nothing is saved. Cause not investigated yet; Sakura runs it.
