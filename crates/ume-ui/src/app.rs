@@ -453,11 +453,15 @@ impl Render for Workspace {
         };
         let tab_bar = self.render_tab_bar(window, cx);
         // The minimap draws the pane that is active.
-        let minimap = crate::minimap::current(cx).shown.then(|| {
-            self.minimap
-                .update(cx, |minimap, cx| minimap.follow(&active, cx));
-            self.minimap.clone()
+        let minimap_shown = crate::minimap::current(cx).shown;
+        self.minimap.update(cx, |minimap, cx| {
+            if minimap_shown {
+                minimap.follow(&active, cx);
+            } else {
+                minimap.forget();
+            }
         });
+        let minimap = minimap_shown.then(|| self.minimap.clone());
         let topmost = crate::window_ops::is_topmost(window, cx);
         let toolbar = self.render_toolbar_at_scale(topmost, window.scale_factor(), cx);
         let funckeys_top = self.render_funckeys(crate::bars::FuncKeyPlace::Top, window, cx);

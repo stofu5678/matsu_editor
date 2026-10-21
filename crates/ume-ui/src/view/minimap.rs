@@ -86,6 +86,8 @@ impl EditorView {
         let colors = &self.prefs.settings.colors;
         let rules = &self.prefs.settings.coloring;
         let rows = layout.rows(doc, first_row, count).unwrap_or_default();
+        // A character is a column wide at least (but for the rare ones of no width, so a few more).
+        let max_chars = max_cols as usize + 16;
 
         let search = &self.search;
         let shown_found = colors.found.len();
@@ -115,6 +117,8 @@ impl EditorView {
                 out.push(mini);
                 continue;
             }
+            // Only the text that can be seen goes through the coloring.
+            let clipped = &row.text()[..clip_len(row.text(), max_chars)];
             // The same walk as the view's: the line is scanned from its start, in the state the
             // lines before it left, as far as the last row of it that is asked for.
             let row_runs = if rules.colors_nothing() {
@@ -130,7 +134,7 @@ impl EditorView {
                     let upto = rows[row_index..]
                         .iter()
                         .take_while(|r| r.line == row.line)
-                        .map(|r| r.end.col)
+                        .map(|r| r.start.col + clip_len(r.text(), max_chars))
                         .max()
                         .unwrap_or(0);
                     let want_next = rows[row_index..]
@@ -153,7 +157,7 @@ impl EditorView {
                 }
                 match &line_colors {
                     Some((line, runs)) if *line == row.line => {
-                        syntax::row_runs(runs, row.start.col, row.end.col)
+                        syntax::row_runs(runs, row.start.col, row.start.col + clipped.len())
                     }
                     _ => Vec::new(),
                 }
@@ -162,7 +166,7 @@ impl EditorView {
                 colors,
                 rules,
                 &syntax::RowInput {
-                    text: row.text(),
+                    text: clipped,
                     start_col: row.start_column,
                     cfg: layout.config(),
                     runs: &row_runs,
@@ -217,4 +221,11 @@ impl EditorView {
         self.run_with(cx, |command_cx| command_cx.move_caret(pos, extend))
             .ok();
     }
+}
+
+/// The byte length of the first `max_chars` characters of `text`.
+fn clip_len(text: &str, max_chars: usize) -> usize {
+    text.char_indices()
+        .nth(max_chars)
+        .map_or(text.len(), |(at, _)| at)
 }

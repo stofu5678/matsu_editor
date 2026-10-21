@@ -75,6 +75,14 @@ impl MiniMap {
         cx.notify();
     }
 
+    /// The minimap is hidden: it lets go of the pane, so that a closed document is not kept alive
+    /// and a hidden minimap is not repainted.
+    pub(crate) fn forget(&mut self) {
+        self.source = None;
+        self.watching = None;
+        self.drag = Drag::None;
+    }
+
     /// The pane the minimap draws.
     pub(crate) fn source(&self) -> Option<&Entity<EditorView>> {
         self.source.as_ref()

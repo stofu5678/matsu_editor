@@ -428,7 +428,14 @@ fn dragging_below_the_pane_scrolls_the_minimap(cx: &mut TestAppContext) {
         MouseButton::Left,
         none,
     );
-    assert!(fixture.top_row(cx) > 0);
+    // one move is one step of the drag, not two (the window calls a listener in two phases)
+    let height = f32::from(area.size.height);
+    let row_height = super::geometry::row_height(MiniMapSettings::default().font_size);
+    let view_rows = super::geometry::view_rows(height, row_height);
+    let pointer_row = super::geometry::row_at(0, height + 30.0, row_height);
+    let once = super::geometry::top_after_drag(0, view_rows, 3000, pointer_row);
+    assert!(once > 0);
+    assert_eq!(fixture.top_row(cx), once);
     assert!(fixture.caret(cx).line > 10);
 }
 

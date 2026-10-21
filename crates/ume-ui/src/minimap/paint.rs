@@ -6,9 +6,9 @@
 //! lines and the note lines left out as Sakura does for a minimap (`m_bMiniMap`).
 
 use gpui::{
-    App, Bounds, ContentMask, Entity, IntoElement, MouseMoveEvent, MouseUpEvent, Pixels,
-    ShapedLine, SharedString, Styled, TextAlign, TextRun, Window, canvas, fill, font, point, px,
-    rgb, size,
+    App, Bounds, ContentMask, DispatchPhase, Entity, IntoElement, MouseMoveEvent, MouseUpEvent,
+    Pixels, ShapedLine, SharedString, Styled, TextAlign, TextRun, Window, canvas, fill, font,
+    point, px, rgb, size,
 };
 
 use super::current;
@@ -200,7 +200,11 @@ fn paint(
 
     // The mouse is captured while the button is down: the window's events, not the pane's.
     let moved = entity.clone();
-    window.on_mouse_event(move |event: &MouseMoveEvent, _, _, cx| {
+    // GPUI calls a window listener in the capture phase and again in the bubble phase: once.
+    window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
+        if phase != DispatchPhase::Capture {
+            return;
+        }
         moved.update(cx, |minimap, cx| {
             minimap.mouse_moved(
                 event.position,
@@ -211,7 +215,10 @@ fn paint(
         });
     });
     let released = entity.clone();
-    window.on_mouse_event(move |_: &MouseUpEvent, _, _, cx| {
+    window.on_mouse_event(move |_: &MouseUpEvent, phase, _, cx| {
+        if phase != DispatchPhase::Capture {
+            return;
+        }
         released.update(cx, |minimap, cx| minimap.mouse_released(cx));
     });
 }
