@@ -135,8 +135,18 @@ pub(crate) struct FileTreeModel {
 /// A path as the tree shows it and opens it: made absolute with `base`, without the `.` parts.
 fn absolute(base: &Path, text: &str) -> PathBuf {
     let path = Path::new(text);
-    let full = if path.is_absolute() || path.has_root() {
+    let full = if path.is_absolute() {
         path.to_owned()
+    } else if path.has_root() {
+        // Windows: `\shared` has a root but no drive. Sakura's current folder is the folder of the
+        // document, so the drive (or the UNC share) of `base` goes in front of it. (A path with a
+        // drive but no root, `D:foo`, is left as it is.)
+        let mut full = PathBuf::new();
+        if let Some(Component::Prefix(prefix)) = base.components().next() {
+            full.push(prefix.as_os_str());
+        }
+        full.push(path);
+        full
     } else {
         base.join(path)
     };

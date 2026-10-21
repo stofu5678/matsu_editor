@@ -173,6 +173,27 @@ fn a_backslash_in_a_path_separates_folders_on_every_os() {
     assert_eq!(model.nodes[0].path, Some(expected));
 }
 
+#[cfg(windows)]
+#[test]
+fn a_path_with_a_root_but_no_drive_takes_the_drive_of_the_current_folder() {
+    let items = vec![
+        item(ItemType::File, r"\shared\a.txt", "", 0),
+        item(ItemType::File, r"C:\abs\b.txt", "", 0),
+    ];
+    let model = FileTreeModel::build(&loaded(items), Path::new(r"D:\work\docs"), &no_meta());
+    assert_eq!(model.nodes[0].path, Some(PathBuf::from(r"D:\shared\a.txt")));
+    assert_eq!(model.nodes[1].path, Some(PathBuf::from(r"C:\abs\b.txt")));
+    let model = FileTreeModel::build(
+        &loaded(vec![item(ItemType::File, r"\x\a.txt", "", 0)]),
+        Path::new(r"\\srv\share\docs"),
+        &no_meta(),
+    );
+    assert_eq!(
+        model.nodes[0].path,
+        Some(PathBuf::from(r"\\srv\share\x\a.txt"))
+    );
+}
+
 #[test]
 fn an_item_of_an_unknown_type_adds_nothing_but_the_others_stay() {
     let items = vec![

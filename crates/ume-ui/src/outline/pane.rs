@@ -652,8 +652,20 @@ impl OutlinePane {
         }
     }
 
+    /// Whether the copy button works. The file tree has no text to copy: its button is
+    /// `WS_DISABLED` in the dialog resource (`sakura_rc.rc` line 117) and `SetTreeFile` never
+    /// enables it, so it stays gray. Sakura's F_COPY/F_CUT in the pane click the button anyway
+    /// (`CDlgFuncList.cpp` 2565-2567) and put an empty string on the clipboard; here they do
+    /// nothing and the clipboard is left alone.
+    pub(crate) fn copy_enabled(&self) -> bool {
+        self.outline_type != OutlineKind::FileTree
+    }
+
     /// The copy button: the text of the result to the clipboard.
     pub(crate) fn copy(&mut self, cx: &mut Context<Self>) {
+        if !self.copy_enabled() {
+            return;
+        }
         let text = self.clip_text().to_owned();
         cx.write_to_clipboard(ClipboardItem::new_string(text));
     }
@@ -1159,10 +1171,15 @@ impl Render for OutlinePane {
             .gap_2()
             .px_2()
             .py_1()
-            .child(
+            .child(if self.copy_enabled() {
                 button("outline-copy", "コピー(C)")
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.copy(cx))),
-            )
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.copy(cx)))
+            } else {
+                // gray, and no click
+                button("outline-copy", "コピー(C)")
+                    .text_color(rgb(STALE_TEXT))
+                    .cursor_default()
+            })
             .when_bookmark(is_bookmark, |this| {
                 let on = cx
                     .try_global::<OutlineOptions>()

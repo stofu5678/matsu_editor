@@ -193,6 +193,27 @@ fn the_keyboard_opens_and_closes_folders_and_opens_files(cx: &mut TestAppContext
 }
 
 #[gpui::test]
+fn the_file_tree_has_nothing_to_copy_and_leaves_the_clipboard_alone(cx: &mut TestAppContext) {
+    let dir = folder(&["a.txt"]);
+    let handle = window(cx, None, &one_grep(dir.path(), "*.*"));
+    run_with(cx, handle, "F_FILETREE", &[]);
+    let p = pane(cx, handle).unwrap();
+    // the button is gray
+    assert!(!p.read_with(cx, |p, _| p.copy_enabled()));
+    cx.update(|app| app.write_to_clipboard(gpui::ClipboardItem::new_string("keep".to_owned())));
+    // the button, and F_COPY / F_CUT in the pane (Ctrl+C, Ctrl+X in the key map)
+    p.update(cx, |p, cx| p.copy(cx));
+    let keys = &mut gpui::VisualTestContext::from_window(handle, cx);
+    keys.simulate_keystrokes("ctrl-c ctrl-x");
+    keys.run_until_parked();
+    let text = cx.update(|app| app.read_from_clipboard().and_then(|c| c.text()));
+    assert_eq!(text.as_deref(), Some("keep"));
+    // the outline of a text has its button
+    run_with(cx, handle, "F_OUTLINE", &[]);
+    assert!(p.read_with(cx, |p, _| p.copy_enabled()));
+}
+
+#[gpui::test]
 fn opening_a_folder_twice_while_it_is_listed_keeps_it_open(cx: &mut TestAppContext) {
     let dir = folder(&["a.txt", "sub/c.txt"]);
     let handle = window(cx, None, &one_grep(dir.path(), "*.*"));
