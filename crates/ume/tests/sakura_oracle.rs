@@ -190,9 +190,23 @@ fn processes_in(dir: &Path) -> Vec<u32> {
         .collect()
 }
 
-/// Stops the programs of `dir` by process id. Returns whether there was any.
-fn stop_all(dir: &Path) -> bool {
+/// Stops the programs of `dir` by process id. Returns what was running (process id, name and the
+/// title of its window, to see which dialog waited), or `None` if nothing was.
+fn stop_all(dir: &Path) -> Option<String> {
     let ids = processes_in(dir);
+    if ids.is_empty() {
+        return None;
+    }
+    let list = ids.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
+    let script = format!(
+        "Get-Process -Id {list} -ErrorAction SilentlyContinue | ForEach-Object {{ \"$($_.Id) $($_.ProcessName) [$($_.MainWindowTitle)]\" }}"
+    );
+    let what = Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .stdin(Stdio::null())
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).replace(['\r', '\n'], " "))
+        .unwrap_or_default();
     for id in &ids {
         let _ = Command::new("taskkill")
             .args(["/F", "/PID", &id.to_string()])
@@ -200,10 +214,8 @@ fn stop_all(dir: &Path) -> bool {
             .stderr(Stdio::null())
             .status();
     }
-    if !ids.is_empty() {
-        thread::sleep(Duration::from_millis(500));
-    }
-    !ids.is_empty()
+    thread::sleep(Duration::from_millis(500));
+    Some(what)
 }
 
 /// What one editor did.
@@ -278,12 +290,12 @@ fn run_sakura(scratch: &Scratch, case: &Case, sakura_dir: &Path) -> Outcome {
     let stopped = loop {
         let running = !processes_in(&bin).is_empty();
         if !running && out.is_file() {
-            break false;
+            break None;
         }
         // Nothing runs and no file after a few looks: Sakura ended without saving.
         idle = if running { 0 } else { idle + 1 };
         if idle >= 4 {
-            break false;
+            break None;
         }
         if started.elapsed() > TIME_LIMIT {
             break stop_all(&bin);
@@ -291,14 +303,15 @@ fn run_sakura(scratch: &Scratch, case: &Case, sakura_dir: &Path) -> Outcome {
         thread::sleep(Duration::from_millis(250));
     };
     let _ = child.try_wait();
-    match fs::read(&out) {
-        Ok(bytes) if !stopped => Outcome::Saved(bytes),
-        Ok(_) => Outcome::Failed("sakura did not end by itself (stopped by process id)".into()),
-        Err(_) => Outcome::Failed(if stopped {
-            "sakura did not save the file and did not end (stopped by process id)".into()
-        } else {
-            "sakura ended without saving the file".into()
-        }),
+    match (fs::read(&out), stopped) {
+        (Ok(bytes), None) => Outcome::Saved(bytes),
+        (Ok(_), Some(what)) => Outcome::Failed(format!(
+            "sakura did not end by itself; stopped by process id: {what}"
+        )),
+        (Err(_), Some(what)) => Outcome::Failed(format!(
+            "sakura did not save the file and did not end; stopped by process id: {what}"
+        )),
+        (Err(_), None) => Outcome::Failed("sakura ended without saving the file".into()),
     }
 }
 
@@ -500,6 +513,14 @@ fn ume_saves_the_same_bytes_as_sakura() {
             if let Outcome::Saved(b) = &ume {
                 let _ = fs::write(case_out.join("ume.out"), b);
             }
+        }
+        // Sakura fails on the first cases: a setup problem, not a result; do not wait for the rest.
+        if same + known_count + new_differences.len() == 0 && sakura_failures.len() >= 3 {
+            println!(
+                "Sakura failed on the first {} cases: stopping",
+                sakura_failures.len()
+            );
+            break;
         }
         // Print as we go: a hang in a later case must not hide the earlier results.
         println!("[{label}] {}", case.name);
