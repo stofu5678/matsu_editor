@@ -305,6 +305,11 @@ impl FileTreeDialog {
         // (Sakura writes the settings first and closes the dialog whatever happens to the file;
         // here a project file that cannot be written leaves the dialog open with the edited tree,
         // and nothing written, so that the user can try again or export the items elsewhere.)
+        // (kept, to put the project file back when the settings cannot be written after it)
+        let project_before = self
+            .loaded_project_ini
+            .as_ref()
+            .map(|path| std::fs::read(path).ok());
         if let Some(path) = &self.loaded_project_ini
             && store::write_project_file(path, &items).is_err()
         {
@@ -316,6 +321,12 @@ impl FileTreeDialog {
             // the file stays as it was (no right to write): the pane would show the old tree
             let file = crate::history::settings_path(cx).unwrap_or_default();
             let message = format!("設定ファイルに書き込めませんでした。\n\n{}", file.display());
+            if let (Some(path), Some(before)) = (&self.loaded_project_ini, project_before) {
+                match before {
+                    Some(bytes) => drop(std::fs::write(path, bytes)),
+                    None => drop(std::fs::remove_file(path)),
+                }
+            }
             self.say(&message, window, cx);
             return;
         }
