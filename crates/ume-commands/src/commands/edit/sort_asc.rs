@@ -40,6 +40,8 @@ register_command!(SortAsc);
 #[cfg(test)]
 mod tests {
     use crate::testing::{Editor, check};
+    use ume_core::buffer::Pos;
+    use ume_core::cursor::Cursor;
 
     #[test]
     fn sorts_the_selected_lines() {
@@ -176,6 +178,23 @@ mod tests {
         let (text, corners) = sort_box("sort_desc", "|xz\n\u{3042}a\n", 2, 1);
         assert_eq!(text, "\u{3042}a\nxz\n");
         assert_eq!(corners, Some(((0, 0), (1, 2))));
+    }
+
+    #[test]
+    fn the_corners_are_clamped_when_the_sorted_lines_join_a_cr_and_an_lf() {
+        // "b\r" moves to the top, so its CR meets the LF of the next line: one CRLF, one row less
+        let mut cursor = Cursor::default();
+        cursor.begin_box(0, false);
+        cursor.move_box_to(Pos::new(3, 0), 1);
+        let mut e = Editor::from_parts("\n\nb\r", cursor);
+        assert_eq!(e.box_state(), Some(((0, 0), (3, 1))));
+        e.run("sort_desc");
+        assert_eq!(e.marked().replace(['|', '['], ""), "b\r\n\n");
+        let ((_, _), (caret_row, _)) = e.box_state().unwrap();
+        assert!(
+            caret_row <= 2,
+            "the caret is inside the document: {caret_row}"
+        );
     }
 
     #[test]

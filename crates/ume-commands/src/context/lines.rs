@@ -193,8 +193,14 @@ impl CommandContext<'_> {
             self.cursor.clear_selection();
             self.replace(start, old_end, &new_text)?;
             // the lines moved: the corners keep their rows and display columns
-            let anchor = self.box_corner_pos(Pos::new(a.line, 0), a_col)?;
-            let caret = self.box_corner_pos(Pos::new(c.line, 0), c_col)?;
+            // With mixed line endings the new text can join a CR and an LF into one CRLF, so the
+            // document can have fewer lines than before: the rows are clamped to the new end.
+            // (Sakura inserts the sorted lines as separate `CDocLine`s, see `CSearchAgent::ReplaceData`,
+            // `pInsData` loop, so it likely keeps the row count;
+            // the saved bytes are the same.)
+            let last_line = self.doc().end_pos()?.line;
+            let anchor = self.box_corner_pos(Pos::new(a.line.min(last_line), 0), a_col)?;
+            let caret = self.box_corner_pos(Pos::new(c.line.min(last_line), 0), c_col)?;
             self.set_box((anchor, a_col), (caret, c_col), lock);
         }
         Ok(())
