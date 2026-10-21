@@ -330,8 +330,8 @@ impl Workspace {
         .when(button.code > DUMMY_MAX_CODE, |this| {
             let shown = button.code;
             this.tooltip(move |window, cx| Tooltip::new(tooltip_text(shown, cx)).build(window, cx))
-        })
-        .into_any_element();
+        });
+        let main = crate::a11y::disabled(main, !enabled).into_any_element();
         if button.code != FILEOPEN_DROPDOWN {
             return main;
         }
@@ -363,6 +363,7 @@ impl Workspace {
                 }))
         })
         .when(!enabled, |this| this.opacity(0.4));
+        let arrow = crate::a11y::disabled(arrow, !enabled);
         div()
             .relative()
             .flex()

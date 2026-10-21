@@ -104,7 +104,7 @@ impl Workspace {
         for (i, key) in keys.into_iter().enumerate() {
             let code = key.code;
             let enabled = is_available(code);
-            bar = bar.child(
+            let button =
                 super::semantics::funckey(div().id(("function-key", i)), i + 1, &key.label)
                     .debug_selector(|| format!("function-key-{i}"))
                     .flex_1()
@@ -131,8 +131,8 @@ impl Workspace {
                             }))
                     })
                     .when(!enabled, |this| this.text_color(rgb(0x9a9a9a)))
-                    .child(key.label),
-            );
+                    .child(key.label);
+            bar = bar.child(crate::a11y::disabled(button, !enabled));
         }
         // The labels follow the modifiers held: draw again when they change.
         Some(

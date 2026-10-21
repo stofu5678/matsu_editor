@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use gpui::{
     AnyElement, App, Global, Image, InteractiveElement as _, IntoElement, ParentElement as _,
-    SharedString, StatefulInteractiveElement as _, Styled as _, div, img, px, rgb,
+    SharedString, Styled as _, div, img, px, rgb,
 };
 use gpui_component::{Icon, IconName, Sizable as _, h_flex};
 
@@ -68,6 +68,17 @@ pub(crate) fn item_element(
     disabled: bool,
     scale_factor: f32,
 ) -> AnyElement {
+    content(label, picture, checked, disabled, scale_factor).into_any_element()
+}
+
+/// [`item_element`] before it is made an `AnyElement`.
+fn content(
+    label: SharedString,
+    picture: Option<Arc<Image>>,
+    checked: bool,
+    disabled: bool,
+    scale_factor: f32,
+) -> crate::a11y::Disabled<gpui::Stateful<gpui::Div>> {
     let width = column_width(scale_factor);
     let size = icons::logical_size(scale_factor);
     let column = div()
@@ -96,13 +107,36 @@ pub(crate) fn item_element(
         None if checked => column.child(Icon::new(IconName::Check).xsmall()),
         None => column,
     };
-    // An element item has no accessible name of its own (gpui-component's `a11y_label`).
-    h_flex()
-        .id("menu-item-label")
-        .aria_label(label.clone())
+    // An element item has no accessible name of its own (gpui-component's `a11y_label`), so the
+    // content is a node with the name, the shortcut, the check mark and the gray state.
+    let content = crate::a11y::popup_item_content(h_flex().id("menu-item-label"), &label, checked)
         .gap(px(GAP))
         .items_center()
         .child(column)
-        .child(label)
-        .into_any_element()
+        .child(label);
+    crate::a11y::disabled(content, disabled)
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::Role;
+
+    use super::*;
+    use crate::a11y::node_of;
+
+    #[test]
+    fn an_item_with_an_icon_has_its_name_check_and_gray_state() {
+        let item = content("折り返し(W)    Ctrl+W".into(), None, true, true, 1.0);
+        let node = node_of(&item).unwrap();
+        assert_eq!(node.role(), Role::MenuItemCheckBox);
+        assert_eq!(node.label(), Some("折り返し"));
+        assert_eq!(node.keyboard_shortcut(), Some("Ctrl+W"));
+        assert_eq!(node.toggled(), Some(gpui::Toggled::True));
+        assert!(node.is_disabled());
+
+        let plain = node_of(&content("貼り付け(P)".into(), None, false, false, 1.0)).unwrap();
+        assert_eq!(plain.label(), Some("貼り付け"));
+        assert_eq!(plain.toggled(), None);
+        assert!(!plain.is_disabled());
+    }
 }
