@@ -11,12 +11,14 @@ name: E2E
 
 # To keep the runners free for other pull requests (the account has a limit of concurrent jobs),
 # a pull request runs this workflow only when a file that it uses changes, not as a draft, and
-# on fewer targets: `smoke` on all but linux-arm64, `screens` on windows-x64 and macos-arm64 only
-# (the windows-arm64 runner shows the first-run screen of Windows over the window, and the Linux
-# runners have no Japanese fonts). A push to main runs all five targets of both jobs.
+# on fewer targets: `smoke` on all but linux-arm64, `screens` on windows-x64 and macos-arm64 only.
+# A push to main (or a manual run) runs all five targets of both jobs.
 on:
   push:
     branches: [main]
+  # A manual run (`gh workflow run e2e.yml --ref <branch>`) uses all five targets, like a push to
+  # main: it is how a change to this workflow is tried on every runner before the pull request.
+  workflow_dispatch:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -26,6 +28,7 @@ on:
       - .cargo/**
       - rust-toolchain.toml
       - scripts/e2e-screens.sh
+      - scripts/windows-clear-privacy-screen.ps1
       - .github/workflows/e2e.yml
 
 permissions:
@@ -47,6 +50,12 @@ jobs:
         include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"name":"windows-arm64","os":"windows-11-arm","rustflags":"-D warnings -C target-feature=+crt-static"},{"name":"windows-x64","os":"windows-2025","rustflags":"-D warnings -C target-feature=+crt-static"},{"name":"macos-arm64","os":"macos-15","rustflags":"-D warnings"},{"name":"linux-x64","os":"ubuntu-24.04","rustflags":"-D warnings"}]' || '[{"name":"windows-arm64","os":"windows-11-arm","rustflags":"-D warnings -C target-feature=+crt-static"},{"name":"windows-x64","os":"windows-2025","rustflags":"-D warnings -C target-feature=+crt-static"},{"name":"macos-arm64","os":"macos-15","rustflags":"-D warnings"},{"name":"linux-x64","os":"ubuntu-24.04","rustflags":"-D warnings"},{"name":"linux-arm64","os":"ubuntu-24.04-arm","rustflags":"-D warnings"}]') }}
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ${{ matrix.os }}
+    # A normal run takes 5 to 15 minutes (the build is most of it). Each test of the smoke file
+    # stops the editor after 120 seconds, so a hang that gets here is in the build, in a step
+    # that is not the test, or in the runner. (The one-hour "hang" of smoke (macos-arm64) on
+    # #194 was no hang: the job never got a runner, GitHub cancelled it after an hour in the
+    # queue, and its log has no steps.)
+    timeout-minutes: 30
     # RUSTFLAGS in the environment replaces `rustflags` of .cargo/config.toml, which links the C
     # runtime statically on Windows (MSVC). The Windows jobs repeat that flag, so that E2E starts
     # the program as it is shipped (package.yml does not set RUSTFLAGS) and not one that needs the
@@ -100,27 +109,32 @@ jobs:
       RUSTFLAGS: ${{ matrix.rustflags }}
       UME_E2E_PLATFORM: ${{ matrix.name }}
       UME_E2E_SCREENS_DIR: ${{ github.workspace }}/e2e-screens
-      # The desktop of the windows-11-arm runners shows the first-run screen of Windows over every
-      # window, so a picture there is not of the program (see crates/ume/tests/common/mod.rs).
-      UME_E2E_SOFT_SCREENS: ${{ matrix.name == 'windows-arm64' && '1' || '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.99.0
-      # The packages of the smoke job, and ImageMagick (`import` saves the picture of the virtual
-      # display as a PNG).
-      - name: Install the packages that GPUI needs, a virtual display and ImageMagick
+      # The packages of the smoke job, ImageMagick (`import` saves the picture of the virtual
+      # display as a PNG) and Noto Sans CJK: a Linux runner has no Japanese font, and the text of
+      # the pictures would be boxes.
+      - name: Install the packages that GPUI needs, a virtual display, ImageMagick and a Japanese font
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y build-essential clang cmake \
             libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev libx11-xcb-dev \
             libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libzstd-dev \
-            xvfb mesa-vulkan-drivers libvulkan1 imagemagick
+            xvfb mesa-vulkan-drivers libvulkan1 imagemagick fonts-noto-cjk
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: release
       - run: cargo build --release --locked -p ume -p ume-script
       - run: mkdir -p "$UME_E2E_SCREENS_DIR"
+      # The windows-11-arm runners show the "Choose privacy settings" screen of Windows over the
+      # desktop. The script sets the policy that turns it off, closes it, and saves pictures of
+      # the desktop before and after (they go into the artifact).
+      - name: Clear the privacy screen of Windows
+        if: matrix.name == 'windows-arm64'
+        shell: pwsh
+        run: ./scripts/windows-clear-privacy-screen.ps1 "$env:UME_E2E_SCREENS_DIR"
       - name: Take the pictures
         if: runner.os != 'Linux'
         run: cargo test --release --locked -p ume --test e2e_screens -- --ignored --test-threads=1 --nocapture

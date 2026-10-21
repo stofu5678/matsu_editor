@@ -20,6 +20,41 @@ env:
   RUSTFLAGS: -D warnings
 
 jobs:
+  # Tells whether a pull request changes more than documentation (Markdown files and docs/). The
+  # test jobs below use it to stay off the macOS and Windows runners for a docs-only change: the
+  # account runs 5 macOS jobs at a time, and with many pull requests open a test (macos-arm64)
+  # waited 95 minutes for a runner and was cancelled (#199, a docs-only ADR). A workflow-level
+  # `paths` filter would not do: the required checks would never report. Every other event
+  # (push to main) counts as code.
+  changes:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.files.outputs.code }}
+    steps:
+      - id: files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          code=true
+          if [ "$EVENT" = pull_request ]; then
+            # A rename lists the new path as `filename` and the old one as `previous_filename`; both
+            # count, so moving code into docs/ or to a .md name is a code change.
+            files=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)')
+            # The API lists at most 3000 files: a longer change may hide code, so it counts as code.
+            count=$(printf '%s\n' "$files" | wc -l)
+            if [ -n "$files" ] && [ "$count" -lt 3000 ] && ! printf '%s\n' "$files" | grep -Ev '(\.md$|^docs/)' > /dev/null; then
+              code=false
+            fi
+            printf 'changed files:\n%s\n' "$files"
+          fi
+          echo "code=${code}" >> "$GITHUB_OUTPUT"
+
   # The quick checks share one job and one runner. As six jobs they each ran for 2 minutes or less but waited 5
   # minutes or more for a runner of their own when several pull requests were open. Every step after the first runs
   # even if an earlier one failed, so that one run shows every problem.
@@ -85,8 +120,13 @@ jobs:
         if: success() || failure()
         run: cargo doc --workspace --no-deps --locked
 
+  # The matrix keeps its five jobs (and their names, which are required checks) for a docs-only
+  # change too: a skipped matrix job would report under the unexpanded name and the required
+  # check would wait forever. Instead every job runs on a small Linux runner and its steps are
+  # skipped, so it ends green in a few seconds.
   test:
     name: test (${{ matrix.name }})
+    needs: changes
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     strategy:
       fail-fast: false
@@ -99,30 +139,38 @@ jobs:
           # there instead of skipping a missing interpreter.
           - { name: linux-x64, os: ubuntu-24.04, require_interpreters: '1' }
           - { name: linux-arm64, os: ubuntu-24.04-arm }
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ needs.changes.outputs.code == 'true' && matrix.os || 'ubuntu-24.04' }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.99.0
+      - name: Docs only, nothing to test
+        if: needs.changes.outputs.code != 'true'
+        run: echo 'Only Markdown files and docs/ changed.'
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/checkout@v7
+      - if: needs.changes.outputs.code == 'true'
+        uses: dtolnay/rust-toolchain@1.99.0
         with:
           components: clippy
       # GPUI (ume-ui) links the system libraries of the Linux desktop. The same list serves x64
       # and ARM64 (poc/gpui-textview/README.md).
       - name: Install the packages that GPUI needs
-        if: runner.os == 'Linux'
+        if: needs.changes.outputs.code == 'true' && runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y build-essential clang cmake \
             libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev libx11-xcb-dev \
             libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libzstd-dev
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --workspace --all-targets --locked
-      - run: cargo test --workspace --locked
+      - if: needs.changes.outputs.code == 'true'
+        uses: Swatinem/rust-cache@v2
+      - if: needs.changes.outputs.code == 'true'
+        run: cargo clippy --workspace --all-targets --locked
+      - if: needs.changes.outputs.code == 'true'
+        run: cargo test --workspace --locked
         env:
           UME_REQUIRE_INTERPRETERS: ${{ matrix.require_interpreters }}
       # freetype-sys bundles FreeType (FTL, not covered by THIRD_PARTY_NOTICES.txt) when the system
       # has none. The Linux builds must link the system's.
       - name: Check that FreeType was not bundled
-        if: runner.os == 'Linux'
+        if: needs.changes.outputs.code == 'true' && runner.os == 'Linux'
         run: |
           if find target -name 'libfreetype2.a' | grep -q .; then
             echo "::error::freetype-sys built its bundled FreeType. Install libfreetype-dev."
