@@ -120,7 +120,8 @@ impl CommandContext<'_> {
     /// except a later extending move).
     ///
     /// Difference: with a wrapping layout the columns count from the start of the line, but
-    /// `layout().pos_at_col` only looks at its first row.
+    /// `layout().pos_at_col` only looks at its first row, and the corners of the box go back to
+    /// the first row of their line (Sakura keeps the layout row numbers).
     fn sort_box_lines(&mut self, ascending: bool) -> Result<()> {
         let Some(((a, a_col), (c, c_col))) = self.cursor.box_corners() else {
             return Ok(());
