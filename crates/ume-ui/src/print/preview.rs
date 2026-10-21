@@ -14,16 +14,21 @@ use gpui::{
     TextRun, Window, black, div, fill, font, outline, point, prelude::*, px, relative, rgb, size,
 };
 use gpui_component::button::Button;
-use gpui_component::{Disableable as _, Selectable as _, Sizable as _, h_flex};
+use gpui_component::{Disableable as _, Sizable as _, h_flex};
 use ume_platform::print::PrintJob;
 use ume_platform::print::draw::{cell_positions, font_spec, on_grid};
-use ume_print::{Layout, Orientation, Paper, PlacedText, PrintError, find_paper_info};
+use ume_print::{
+    Layout, Orientation, Paper, PlacedText, PrintError, PrintSetting, find_paper_info,
+    line_number_cells,
+};
 
 /// What the preview asks of whoever shows it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PreviewEvent {
     /// The user wants to print (the button, `P`, Ctrl+P).
     Print,
+    /// The user wants the print setting dialog (the button, `S`).
+    PageSetup,
     /// The user leaves the preview (the button, `Q`, Esc).
     Close,
 }
@@ -144,20 +149,28 @@ impl PrintPreview {
         cx.notify();
     }
 
-    /// Prints or not the line numbers. Sakura changes this in the print setting dialog; the
-    /// preview has the button to try the layout until that dialog is made.
-    pub fn toggle_line_number(&mut self, cx: &mut Context<Self>) {
-        self.job.setting.print_line_number = !self.job.setting.print_line_number;
+    /// The setting of the window changed (`CPrintPreview::OnChangeSetting`): the document is laid
+    /// out again with it.
+    pub fn set_setting(&mut self, setting: PrintSetting, cx: &mut Context<Self>) {
+        self.job.setting = setting;
         self.relayout();
         cx.notify();
     }
 
-    /// One column or two (段組), likewise.
-    pub fn toggle_columns(&mut self, cx: &mut Context<Self>) {
-        let setting = &mut self.job.setting;
-        setting.print_dansuu = if setting.print_dansuu == 1 { 2 } else { 1 };
-        self.relayout();
-        cx.notify();
+    /// The width of the line numbers in characters, as the print setting dialog needs it
+    /// (`DetectWidthOfLineNumberArea_calculate`), whether or not the setting prints them now.
+    pub fn line_number_columns(&self) -> u32 {
+        match &self.layout {
+            Ok(layout) => {
+                let numbered = if self.job.options.line_number_is_crlf {
+                    layout.line_count()
+                } else {
+                    layout.row_count()
+                };
+                line_number_cells(&self.job.options, numbered)
+            }
+            Err(_) => 3,
+        }
     }
 
     fn on_scroll(&mut self, event: &ScrollWheelEvent, _: &mut Window, cx: &mut Context<Self>) {
@@ -201,6 +214,10 @@ impl PrintPreview {
             }
             "p" if plain => {
                 cx.emit(PreviewEvent::Print);
+                true
+            }
+            "s" if plain => {
+                cx.emit(PreviewEvent::PageSetup);
                 true
             }
             "v" if plain => {
@@ -318,16 +335,9 @@ impl Render for PrintPreview {
                     .on_click(cx.listener(|this, _, _, cx| this.zoom_in(cx))),
             )
             .child(div().min_w(px(44.)).child(format!("{} %", self.zoom)))
-            // Settings that Sakura's 印刷ページ設定 has, to try the layout with.
             .child(
-                button("line-number", "行番号".into())
-                    .selected(self.job.setting.print_line_number)
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_line_number(cx))),
-            )
-            .child(
-                button("columns", "2段組".into())
-                    .selected(self.job.setting.print_dansuu == 2)
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_columns(cx))),
+                button("page-setup", format!("{}...", label("ページ設定", 'S')))
+                    .on_click(cx.listener(|_, _, _, cx| cx.emit(PreviewEvent::PageSetup))),
             )
             .child(
                 button("close", label("戻る", 'Q'))
@@ -543,7 +553,7 @@ mod tests {
 
     use gpui::TestAppContext;
     use ume_platform::print::default_setting;
-    use ume_print::{HeaderContext, TypeOptions};
+    use ume_print::{HeaderContext, PrintSetting, TypeOptions};
 
     use super::*;
 
@@ -593,12 +603,17 @@ mod tests {
     }
 
     #[gpui::test]
-    fn the_settings_of_the_bar_lay_the_pages_out_again(cx: &mut TestAppContext) {
+    fn a_changed_setting_lays_the_pages_out_again(cx: &mut TestAppContext) {
         let preview = cx.new(|cx| PrintPreview::new(job(120), cx));
         let before = preview.read_with(cx, |p, _| p.page_count());
+        let one = preview.read_with(cx, |p, _| p.job().setting.clone());
+        let two = PrintSetting {
+            print_dansuu: 2,
+            ..one.clone()
+        };
         preview.update(cx, |p, cx| {
             p.next_page(cx);
-            p.toggle_columns(cx);
+            p.set_setting(two, cx);
         });
         let (columns, page) = preview.read_with(cx, |p, _| (p.page_count(), p.state().0));
         // Two columns hold twice the rows, so there are fewer pages, and the page shown is kept
@@ -608,8 +623,17 @@ mod tests {
             "{columns} pages in two columns, {before} in one"
         );
         assert!(page < columns);
-        preview.update(cx, |p, cx| p.toggle_columns(cx));
+        preview.update(cx, |p, cx| p.set_setting(one, cx));
         assert_eq!(preview.read_with(cx, |p, _| p.page_count()), before);
+    }
+
+    #[gpui::test]
+    fn the_line_numbers_make_room_for_the_digits_of_the_document(cx: &mut TestAppContext) {
+        // The least is 2 digits and the space after them; 1000 lines need 4.
+        let few = cx.new(|cx| PrintPreview::new(job(5), cx));
+        assert_eq!(few.read_with(cx, |p, _| p.line_number_columns()), 3);
+        let many = cx.new(|cx| PrintPreview::new(job(1000), cx));
+        assert_eq!(many.read_with(cx, |p, _| p.line_number_columns()), 5);
     }
 
     #[gpui::test]

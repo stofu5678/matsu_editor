@@ -734,9 +734,12 @@ impl Render for EditorView {
         if let Some(preview) = &self.print.preview {
             return div()
                 .id("editor-print")
+                .relative()
                 .size_full()
                 .overflow_hidden()
                 .child(preview.clone())
+                .children(self.print.setup_dialog.clone())
+                .children(self.input_dialog.clone())
                 .into_any_element();
         }
         let mut editor = div()
@@ -802,6 +805,7 @@ impl Render for EditorView {
             .children(self.custom_menu_popup(window, cx))
             // Above the window list: Save from the list can ask for the options.
             .children(self.save_as_dialog.clone())
+            .children(self.print.setup_dialog.clone())
             .children(self.input_dialog.clone())
             .into_any_element()
     }

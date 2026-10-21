@@ -55,6 +55,7 @@ pub mod open;
 mod outline;
 mod panes;
 pub mod print;
+pub mod print_setting;
 pub mod search;
 pub mod segments;
 pub mod settings;

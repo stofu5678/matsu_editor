@@ -652,6 +652,13 @@ fn header_text_width(text: &str, cell: i32, rule: WidthRule) -> i32 {
     x
 }
 
+/// The cells for the line numbers and the space after them when `numbered_lines` lines are
+/// numbered (`DetectWidthOfLineNumberArea_calculate`): the digits of the count, at least the
+/// setting's. The print setting dialog needs it before there is a layout with the line numbers.
+pub fn line_number_cells(options: &TypeOptions, numbered_lines: usize) -> u32 {
+    number_cells_for(options, numbered_lines)
+}
+
 /// The cells for the line numbers and the space after them for `lines` numbered lines
 /// (`DetectWidthOfLineNumberArea_calculate`): the digits of the count, at least the setting's.
 fn number_cells_for(options: &TypeOptions, lines: usize) -> u32 {
@@ -672,6 +679,21 @@ fn number_cells_for(options: &TypeOptions, lines: usize) -> u32 {
         digits += 1;
     }
     digits + 1
+}
+
+impl PrintSetting {
+    /// The cells for the text in a row of `paper`, with `number_cells` cells for the line numbers
+    /// (`CPrint::CalculatePrintableColumns`); 0 for no room. The print setting dialog shows it
+    /// as 「行あたりの文字数」.
+    pub fn printable_columns(&self, paper: Paper, number_cells: u32) -> i32 {
+        printable_cells(self, paper.width, number_cells)
+    }
+
+    /// The rows in a column of `paper` (`CPrint::CalculatePrintableLines`); the dialog shows it as
+    /// 「縦方向の行数」.
+    pub fn printable_lines(&self, paper: Paper) -> i32 {
+        printable_rows(self, paper.height)
+    }
 }
 
 /// The cells for the text in a row (`CPrint::CalculatePrintableColumns`); 0 for no room.

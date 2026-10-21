@@ -154,14 +154,12 @@ fn printing_an_empty_document_says_so_and_does_not_ask_the_os(cx: &mut TestAppCo
 }
 
 #[gpui::test]
-fn the_page_setup_opens_the_preview_with_a_notice(cx: &mut TestAppContext) {
+fn the_page_setup_opens_its_dialog_and_not_the_preview(cx: &mut TestAppContext) {
+    // The dialog itself is tested in `crate::print_setting`.
     let (view, cx) = setup(cx, "abc", None);
     run(&view, F_PRINT_PAGESETUP, cx);
-    let preview = view
-        .read_with(cx, |v, _| v.print_preview().cloned())
-        .unwrap();
-    let notice = preview.read_with(cx, |p, _| p.notice.clone()).unwrap();
-    assert!(notice.contains("印刷ページ設定"), "{notice}");
+    assert!(view.read_with(cx, |v, _| v.print.setup_dialog.is_some()));
+    assert!(!view.read_with(cx, |v, _| v.is_print_preview_open()));
 }
 
 #[gpui::test]

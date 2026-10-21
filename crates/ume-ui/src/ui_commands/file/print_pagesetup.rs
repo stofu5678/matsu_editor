@@ -1,11 +1,10 @@
 //! `F_PRINT_PAGESETUP`: Sakura's print page setup dialog.
 //!
 //! Sakura: `CViewCommander::Command_PRINT_PAGESETUP` in `sakura_core/cmd/CViewCommander_File.cpp`
-//! opens `CDlgPrintSetting` (`sakura_core/dlg/CDlgPrintSetting.cpp`).
-//!
-//! Not like Sakura yet: the dialog is not made. The command opens the print preview, whose bar
-//! has the two settings that are easy to try (line numbers and two columns), and says so. The
-//! settings are Sakura's defaults (`CPrint::SettingInitialize`) and are not saved.
+//! calls `CEditWnd::OnPrintPageSetting`, which shows `CDlgPrintSetting`
+//! (`sakura_core/dlg/CDlgPrintSetting.cpp`). The dialog works with or without the print preview:
+//! it does not open the preview, and a preview that is open lays the document out again with what
+//! OK keeps. The dialog and the settings are in `crate::print_setting`.
 
 use gpui::{Context, Window};
 use ume_commands::command::{Arg, Result};
@@ -27,14 +26,7 @@ impl UiCommand for PrintPagesetup {
         window: &mut Window,
         cx: &mut Context<EditorView>,
     ) -> Result {
-        let preview = view.open_print_preview(window, cx);
-        preview.update(cx, |preview, cx| {
-            preview.notice = Some(
-                "印刷ページ設定のダイアログはまだ使えない。行番号と2段組は、この画面のボタンで試せる"
-                    .into(),
-            );
-            cx.notify();
-        });
+        view.print_page_setup(window, cx);
         Ok(())
     }
 }

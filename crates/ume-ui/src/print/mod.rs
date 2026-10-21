@@ -10,7 +10,7 @@ pub mod preview;
 
 use gpui::{App, AppContext as _, Context, Entity, Focusable as _, Subscription, Window};
 use ume_core::buffer::Document;
-use ume_platform::print::{Error, PrintJob, default_setting};
+use ume_platform::print::{Error, PrintJob};
 use ume_print::{HeaderContext, LineSource, TypeOptions};
 
 pub use preview::{PreviewEvent, PrintPreview};
@@ -48,6 +48,8 @@ pub(crate) struct PrintState {
     subscription: Option<Subscription>,
     /// The print dialog of the OS is open.
     printing: bool,
+    /// The print setting dialog, while it is open (`crate::print_setting`).
+    pub(crate) setup_dialog: Option<Entity<crate::print_setting::dialog::PrintSettingDialog>>,
 }
 
 impl EditorView {
@@ -59,7 +61,7 @@ impl EditorView {
         let title = shared.file_name().unwrap_or_else(|| "(無題)".into());
         PrintJob {
             source: std::sync::Arc::new(DocLines(shared.doc().clone())),
-            setting: default_setting(),
+            setting: self.current_print_setting(cx),
             options: TypeOptions::default(),
             header: HeaderContext {
                 file_path: path,
@@ -101,6 +103,7 @@ impl EditorView {
             Some(
                 cx.subscribe_in(&preview, window, |this, _, event, window, cx| match event {
                     PreviewEvent::Print => this.print_from_preview(window, cx),
+                    PreviewEvent::PageSetup => this.print_page_setup(window, cx),
                     PreviewEvent::Close => this.close_print_preview(window, cx),
                 }),
             );
