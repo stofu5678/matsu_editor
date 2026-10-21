@@ -58,6 +58,24 @@ mod tests {
     }
 
     #[test]
+    fn a_box_selection_sorts_backwards_by_its_columns() {
+        // the case `sort-desc-box` of the Sakura oracle has this shape (see `sort_asc`)
+        let mut e = Editor::new("x|59z\nx31y\nx92x\nx17w\nrest\n");
+        e.run("begin_box")
+            .run("cursor_right_box")
+            .run("cursor_right_box");
+        e.run("cursor_down_box")
+            .run("cursor_down_box")
+            .run("cursor_down_box");
+        e.run("sort_desc");
+        e.assert_box((0, 1), (3, 3));
+        assert_eq!(
+            e.marked().replace(['|', '['], ""),
+            "x92x\nx59z\nx31y\nx17w\nrest\n"
+        );
+    }
+
+    #[test]
     fn is_one_undo_step() {
         let mut e = Editor::new("[a\nb\n|");
         e.run("sort_desc").assert_marked("[b\na\n|");

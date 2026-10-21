@@ -124,7 +124,7 @@ impl CommandContext<'_> {
 
     /// The text of `row` from the char that covers column `left` to the char that covers column
     /// `right`, as positions, without the line ending (Sakura: `LineColumnToIndex`).
-    fn box_row_range(&self, row: Pos, left: usize, right: usize) -> Result<(Pos, Pos)> {
+    pub(super) fn box_row_range(&self, row: Pos, left: usize, right: usize) -> Result<(Pos, Pos)> {
         if self.box_row_info(row)?.eof {
             return Ok((row, row));
         }
@@ -135,7 +135,7 @@ impl CommandContext<'_> {
 
     /// The position of the box corner at display column `col` of `row`: the char that covers the
     /// column, the end of the text if the column is past it, and on a wrapped row the last char.
-    fn box_corner_pos(&self, row: Pos, col: usize) -> Result<Pos> {
+    pub(super) fn box_corner_pos(&self, row: Pos, col: usize) -> Result<Pos> {
         let info = self.box_row_info(row)?;
         if info.eof {
             return Ok(row);
@@ -153,7 +153,7 @@ impl CommandContext<'_> {
 
     /// Makes a box selection with the given corners (position and display column), keeping the
     /// lock of the plain moves as it was.
-    fn set_box(&mut self, anchor: (Pos, usize), caret: (Pos, usize), lock: bool) {
+    pub(super) fn set_box(&mut self, anchor: (Pos, usize), caret: (Pos, usize), lock: bool) {
         self.cursor.clear_selection();
         self.cursor.move_to(anchor.0, false);
         self.cursor.begin_box(anchor.1, lock);

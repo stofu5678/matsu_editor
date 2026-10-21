@@ -219,18 +219,13 @@ mod tests {
     }
 
     #[test]
-    fn commands_that_work_on_the_rows_of_a_selection_stop_at_the_first_edit() {
-        // the stream between the corners would be sorted; nothing of it may happen
+    fn sorting_a_box_sorts_by_its_columns_not_by_the_stream_between_the_corners() {
+        // a box of width 0 sorts by the text from its column on
         let mut e = Editor::new("z|b\nya\nxc\n");
         e.run("begin_box").run("cursor_down").run("cursor_down");
-        let text = e.marked();
-        for id in ["sort_asc", "sort_desc"] {
-            let result = e.try_run(id, &[]);
-            assert!(result.is_err(), "{id}");
-            assert!(!e.changes().text_changed(), "{id}");
-            assert_eq!(e.marked(), text, "{id}");
-            assert_eq!(e.box_state(), Some(((0, 1), (2, 1))), "{id}");
-        }
+        e.run("sort_asc");
+        assert_eq!(e.marked().replace(['|', '['], ""), "ya\nzb\nxc\n");
+        e.assert_box((0, 1), (2, 1));
     }
 
     #[test]
