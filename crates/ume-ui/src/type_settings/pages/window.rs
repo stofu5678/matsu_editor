@@ -197,7 +197,10 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                 "背景画像",
                 vec![
                     Item::Row(vec![
-                        Control::text(BG_PATH, "", "", "").unavailable().into(),
+                        Control::text(BG_PATH, "", "", "")
+                            .named("背景画像のファイル")
+                            .unavailable()
+                            .into(),
                         Control::button(BG_BROWSE, "...", |_, _, _| {})
                             .unavailable()
                             .into(),
