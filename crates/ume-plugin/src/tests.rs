@@ -13,6 +13,13 @@ use crate::api::{self, MacroDocument};
 use crate::model::TextModel;
 use crate::session::{self, EndReason, HostEvent, Language, MacroConfig, Report, Stream};
 
+/// The time limit of a test macro that is meant to end by itself. The limit counts the time the
+/// interpreter takes to start and the host to answer, so on a busy machine (a CI runner that
+/// builds other jobs) 30 seconds was not enough for a megabyte line or a syntax error. It does
+/// not slow a test down: a macro that ends stops the wait at once, and only a macro that hangs
+/// waits this long. The tests of the timeout itself set their own short limits.
+const PATIENT: Duration = Duration::from_secs(300);
+
 /// Whether the interpreter starts. Prints why not if it does not.
 fn available(language: Language) -> bool {
     let interpreter = language.default_interpreter();
@@ -86,7 +93,7 @@ fn run(language: Language, code: &str, text: &str) -> Option<(Report, TextModel)
         language,
         code,
         text,
-        Duration::from_secs(30),
+        PATIENT,
         |doc, message| api::handle_message(doc, message),
     )
 }
@@ -181,7 +188,7 @@ fn a_slow_answer_is_waited_for() {
             language,
             code,
             "abc",
-            Duration::from_secs(30),
+            PATIENT,
             |doc, message| {
                 // The editor takes its time with the first call.
                 if message.contains("InsText") {
@@ -235,7 +242,7 @@ fn output_without_a_line_break_before_a_request() {
             language,
             code,
             "x",
-            Duration::from_secs(30),
+            PATIENT,
             |doc, message| {
                 requests += 1;
                 api::handle_message(doc, message)
@@ -445,7 +452,7 @@ fn a_macro_that_exits_at_once_ends_cleanly() {
         (PHP, ""),
     ] {
         let mut requests = 0;
-        let Some((report, _)) = run_with(language, code, "", Duration::from_secs(30), |doc, m| {
+        let Some((report, _)) = run_with(language, code, "", PATIENT, |doc, m| {
             requests += 1;
             api::handle_message(doc, m)
         }) else {
@@ -714,7 +721,7 @@ fn the_boot_folder_is_gone_when_finished_is_reported() {
         }
         for _ in 0..5 {
             let dir = tempfile::tempdir().unwrap();
-            let config = config_for(&dir, language, code, Duration::from_secs(30));
+            let config = config_for(&dir, language, code, PATIENT);
             let parent = dir.path().to_path_buf();
             let (tx, rx) = mpsc::channel();
             let sink: session::Sink = Arc::new(move |event| {
@@ -724,7 +731,7 @@ fn the_boot_folder_is_gone_when_finished_is_reported() {
                 }
             });
             let _session = session::start(config, sink).unwrap();
-            let left = rx.recv_timeout(Duration::from_secs(30)).unwrap();
+            let left = rx.recv_timeout(PATIENT).unwrap();
             assert_eq!(left, Vec::<String>::new(), "{language:?}");
         }
     }
