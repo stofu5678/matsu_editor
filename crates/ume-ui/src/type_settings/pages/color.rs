@@ -188,6 +188,7 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
             "色指定(&L)",
             vec![
                 Control::list(COLOR_SEL, "", "", 0, COLOR_ITEMS)
+                    .named("色指定")
                     .on_change(sync)
                     .into(),
                 Item::Row(vec![
@@ -270,7 +271,9 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
             Item::Group(
                 "文字列エスケープ(&Q)",
                 vec![
-                    Control::choice(STRING_TYPE, "", "", 0, STRING_TYPES).into(),
+                    Control::choice(STRING_TYPE, "", "", 0, STRING_TYPES)
+                        .named("文字列エスケープ")
+                        .into(),
                     Control::check(STRING_LINE_ONLY, "行内のみ(&\\)", "", false).into(),
                     Control::check(
                         STRING_END_LINE,
@@ -288,12 +291,20 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
     ])]
 }
 
+/// The names of the column boxes of the three line comments (`line_comment_row`).
+const LINE_COMMENT_POS_NAMES: [&str; 3] = [
+    "行型コメント1の桁",
+    "行型コメント2の桁",
+    "行型コメント3の桁",
+];
+
 /// A line comment: the delimiter, the box 桁 and the column.
 fn line_comment_row(n: usize, label: &'static str, column_label: &'static str) -> Item {
     Item::Row(vec![
         Control::text(LINE_COMMENT[n], label, "", "").into(),
         Control::check(LINE_COMMENT_POS_ON[n], column_label, "", false).into(),
         Control::number(LINE_COMMENT_POS[n], "", "", 1, 0, COMMENT_COLUMN_MAX)
+            .named(LINE_COMMENT_POS_NAMES[n])
             .when(COLUMN_ENABLED[n])
             .into(),
     ])

@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+    # A draft runs nothing (the agents run the checks locally while they work on it); marking it ready runs
+    # everything (ready_for_review). Required checks cannot pass on a draft, and a draft cannot be merged anyway.
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
@@ -17,40 +20,40 @@ env:
   RUSTFLAGS: -D warnings
 
 jobs:
-  fmt:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.99.0
-        with:
-          components: rustfmt
-      - run: cargo fmt --all --check
-
-  # Licenses (no GPL family, see CLAUDE.md), advisories, and sources.
-  deny:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-      - uses: EmbarkStudios/cargo-deny-action@v2.1.1
-
-  typos:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-      - uses: crate-ci/typos@v1.51.1
-
-  # THIRD_PARTY_NOTICES.txt is generated from Cargo.lock (README.md, "Third-party notices"). A
-  # dependency update that is not followed by a regeneration fails here.
-  notices:
+  # The quick checks share one job and one runner. As six jobs they each ran for 2 minutes or less but waited 5
+  # minutes or more for a runner of their own when several pull requests were open. Every step after the first runs
+  # even if an earlier one failed, so that one run shows every problem.
+  lint:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     env:
+      RUSTDOCFLAGS: -D warnings
       CARGO_ABOUT_VERSION: 0.9.2
       # SHA-256 of the prebuilt cargo-about 0.9.2 (x86_64-unknown-linux-musl), from its release.
       CARGO_ABOUT_SHA256: 9099a59e820c38a68b9d65f300662a567d56562f9a10f6aa4c7e86c17c2566af
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.99.0
+        with:
+          components: rustfmt
+      - name: fmt
+        run: cargo fmt --all --check
+      - name: typos
+        if: success() || failure()
+        uses: crate-ci/typos@v1.51.1
+      - name: actionlint
+        if: success() || failure()
+        uses: docker://rhysd/actionlint:1.7.12
+        with:
+          args: -color
+      # Licenses (no GPL family, see CLAUDE.md), advisories, and sources.
+      - name: deny
+        if: success() || failure()
+        uses: EmbarkStudios/cargo-deny-action@v2.1.1
+      # THIRD_PARTY_NOTICES.txt is generated from Cargo.lock (README.md, "Third-party notices"). A
+      # dependency update that is not followed by a regeneration fails here.
       - name: Install cargo-about
+        if: success() || failure()
         run: |
           archive="cargo-about-${CARGO_ABOUT_VERSION}-x86_64-unknown-linux-musl"
           curl --proto '=https' --tlsv1.2 -sSfL -o "${RUNNER_TEMP}/cargo-about.tar.gz" \
@@ -59,44 +62,32 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/bin"
           tar -xzf "${RUNNER_TEMP}/cargo-about.tar.gz" -C "${RUNNER_TEMP}/bin" --strip-components=1 "${archive}/cargo-about"
           echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
-      - name: Regenerate THIRD_PARTY_NOTICES.txt
-        run: cargo about generate --locked --all-features --workspace --fail about.hbs -o THIRD_PARTY_NOTICES.txt
-      - name: Check that the committed file is up to date
+      - name: notices
+        if: success() || failure()
         run: |
+          cargo about generate --locked --all-features --workspace --fail about.hbs -o THIRD_PARTY_NOTICES.txt
           if ! git diff --exit-code -- THIRD_PARTY_NOTICES.txt; then
             echo "::error::THIRD_PARTY_NOTICES.txt is out of date. Run: cargo about generate --locked --all-features --workspace --fail about.hbs -o THIRD_PARTY_NOTICES.txt"
             exit 1
           fi
-
-  doc:
-    runs-on: ubuntu-24.04
-    env:
-      RUSTDOCFLAGS: -D warnings
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.99.0
       # GPUI (ume-ui) links the system libraries of the Linux desktop. The same list serves x64
       # and ARM64 (poc/gpui-textview/README.md).
       - name: Install the packages that GPUI needs
-        if: runner.os == 'Linux'
+        if: success() || failure()
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y build-essential clang cmake \
             libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev libx11-xcb-dev \
             libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libzstd-dev
       - uses: Swatinem/rust-cache@v2
-      - run: cargo doc --workspace --no-deps --locked
-
-  actionlint:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-      - uses: docker://rhysd/actionlint:1.7.12
-        with:
-          args: -color
+        if: success() || failure()
+      - name: doc
+        if: success() || failure()
+        run: cargo doc --workspace --no-deps --locked
 
   test:
     name: test (${{ matrix.name }})
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     strategy:
       fail-fast: false
       matrix:

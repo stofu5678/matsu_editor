@@ -51,12 +51,18 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
         Item::Group(
             "見出し記号(&R)",
             vec![
-                Control::text("heading_marks", "", "szMidashiKigou", DEFAULT_HEADING_MARKS).into(),
+                Control::text("heading_marks", "", "szMidashiKigou", DEFAULT_HEADING_MARKS)
+                    .named("見出し記号")
+                    .into(),
             ],
         ),
         Item::Group(
             "引用符(&Q)",
-            vec![Control::text("quote_string", "", "szInyouKigou", "> ").into()],
+            vec![
+                Control::text("quote_string", "", "szInyouKigou", "> ")
+                    .named("引用符")
+                    .into(),
+            ],
         ),
     ]
 }

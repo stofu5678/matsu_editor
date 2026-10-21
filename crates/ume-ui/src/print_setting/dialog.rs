@@ -37,6 +37,9 @@ use crate::view::EditorView;
 /// The resolution Sakura works the font height out at on the screen (96 dpi).
 const DPI: i32 = 96;
 
+/// The parts of the header and of the footer, in the order of the boxes (`m_szHeaderForm[0..3]`).
+const PLACES: [&str; 3] = ["左", "中央", "右"];
+
 /// What OK gives back.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Answer {
@@ -522,14 +525,19 @@ impl PrintSettingDialog {
             .gap_2()
             .items_center()
             .child(div().w(px(104.)).text_right().child(label))
-            .child(div().w(px(64.)).child(Input::new(&self.numbers[index])))
+            .child(
+                div()
+                    .w(px(64.))
+                    .child(Input::new(&self.numbers[index]).aria_label(number.name())),
+            )
             .child(unit)
     }
 
     fn form_row(&self, part: Part, cx: &mut Context<Self>) -> impl IntoElement {
-        let (label, inputs, font, use_id, button_id) = match part {
+        let (label, name, inputs, font, use_id, button_id) = match part {
             Part::Header => (
                 "ヘッダー(U)",
+                "ヘッダー",
                 &self.header,
                 self.draft.header_font.as_ref(),
                 "ps-use-font-head",
@@ -537,6 +545,7 @@ impl PrintSettingDialog {
             ),
             Part::Footer => (
                 "フッター(D)",
+                "フッター",
                 &self.footer,
                 self.draft.footer_font.as_ref(),
                 "ps-use-font-foot",
@@ -548,11 +557,13 @@ impl PrintSettingDialog {
             .gap_1()
             .child(label)
             .child(
-                h_flex().gap_1().children(
-                    inputs
-                        .iter()
-                        .map(|input| div().flex_1().child(Input::new(input))),
-                ),
+                h_flex()
+                    .gap_1()
+                    .children(inputs.iter().zip(PLACES).map(|(input, place)| {
+                        div()
+                            .flex_1()
+                            .child(Input::new(input).aria_label(format!("{name}{place}")))
+                    })),
             )
             .child(
                 h_flex()

@@ -178,6 +178,7 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                     "言語",
                     vec![
                         Control::choice("language", "", "", 0, &[("日本語", 0)])
+                            .named("言語")
                             .unavailable()
                             .into(),
                     ],

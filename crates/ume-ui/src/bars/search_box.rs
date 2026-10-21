@@ -40,6 +40,11 @@ const SEARCH_PREV: u16 = 30903;
 /// `F_SEARCH_BOX`.
 const SEARCH_BOX: u16 = 30908;
 
+/// The names a screen reader says: the box is Sakura's `F_SEARCH_BOX` (`Funccode_x.hsrc`: 検索(ボックス))
+/// and the arrow opens the history of the keys.
+const SEARCH_BOX_NAME: &str = "検索ボックス";
+const HISTORY_BUTTON_NAME: &str = "検索履歴";
+
 pub(crate) struct SearchBox {
     workspace: WeakEntity<Workspace>,
     input: Entity<InputState>,
@@ -503,13 +508,18 @@ impl Render for SearchBox {
                 }
             }))
             .child(
-                div()
-                    .flex_1()
-                    .child(Input::new(&self.input).small().cleanable(false)),
+                div().flex_1().child(
+                    Input::new(&self.input)
+                        .small()
+                        .cleanable(false)
+                        .aria_label(SEARCH_BOX_NAME),
+                ),
             )
             .child(
                 div()
                     .id("search-box-toggle")
+                    .role(gpui::Role::Button)
+                    .aria_label(HISTORY_BUTTON_NAME)
                     .debug_selector(|| "search-box-toggle".into())
                     .w(px(16.))
                     .h(px(HEIGHT))
