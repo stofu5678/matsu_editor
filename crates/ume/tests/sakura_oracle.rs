@@ -127,6 +127,18 @@ fn load_cases() -> Vec<Case> {
         .collect()
 }
 
+/// The names of all case files, whatever `$ORACLE_ONLY` and `$ORACLE_SHARD` select.
+fn all_case_names() -> Vec<String> {
+    fs::read_dir(oracle_dir().join("cases"))
+        .expect("read the cases folder")
+        .filter_map(|e| {
+            let path = e.unwrap().path();
+            (path.extension().is_some_and(|e| e == "mac"))
+                .then(|| path.file_stem().unwrap().to_str().unwrap().to_string())
+        })
+        .collect()
+}
+
 /// `$ORACLE_SHARD`: `k/n` with `1 <= k <= n`.
 fn shard() -> Option<(usize, usize)> {
     let value = std::env::var("ORACLE_SHARD").ok()?;
@@ -748,12 +760,14 @@ fn ume_saves_the_same_bytes_as_sakura() {
     fs::write(out_dir.join("report.txt"), &report).unwrap();
     println!("\n{summary}");
 
-    // Names in the list that match no case are typos (only checked when every case ran).
+    // Names in the list that match no case file are typos. Checked against every case file, also
+    // in a shard (which runs only some of them).
     let mut unknown = Vec::new();
-    if std::env::var("ORACLE_ONLY").is_err() && shard().is_none() {
+    if std::env::var("ORACLE_ONLY").is_err() {
+        let files = all_case_names();
         unknown = known
             .keys()
-            .filter(|k| !cases.iter().any(|c| &c.name == *k))
+            .filter(|k| !files.contains(*k))
             .cloned()
             .collect();
     }
