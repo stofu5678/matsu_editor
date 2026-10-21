@@ -1,0 +1,10 @@
+// input: jp.sjis.crlf
+// code: 0
+Down();
+BeginBoxSelect();
+Right_BoxSel();
+Right_BoxSel();
+Down_BoxSel();
+Delete();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

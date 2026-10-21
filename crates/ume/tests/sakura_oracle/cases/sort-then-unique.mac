@@ -1,0 +1,8 @@
+// input: ascii.unsorted.lf
+// code: 0
+SelectAll();
+SortAsc();
+SelectAll();
+Merge();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

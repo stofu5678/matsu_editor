@@ -1,0 +1,7 @@
+// input: ascii.words.lf
+// code: 0
+Down();
+Down_Sel();
+ReplaceAll('foo', 'bar', 128);
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

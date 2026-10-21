@@ -1,0 +1,9 @@
+// input: jp.sjis.crlf
+// code: 0
+Right();
+Right();
+Down_Sel();
+Down_Sel();
+Delete();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

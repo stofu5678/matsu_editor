@@ -1,0 +1,6 @@
+// input: ascii.words.lf
+// code: 0
+GoLineEnd(0);
+WordDeleteToStart();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

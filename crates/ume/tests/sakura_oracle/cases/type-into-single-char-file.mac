@@ -1,0 +1,7 @@
+// input: single.nofinal
+// code: 4
+GoFileEnd();
+Char(13);
+Char(121);
+FileSaveAs('@OUT@', 4, 0);
+ExitAll();

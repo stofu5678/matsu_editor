@@ -1,0 +1,5 @@
+// input: jp.sjis.crlf
+// code: 0
+ReplaceAll('\u65e5\u672c', '\u4e8c\u672c', 0);
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

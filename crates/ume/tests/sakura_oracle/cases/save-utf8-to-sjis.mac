@@ -1,0 +1,4 @@
+// input: jp.utf8.crlf
+// code: 4
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

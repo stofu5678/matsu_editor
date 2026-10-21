@@ -1,0 +1,5 @@
+// input: jp.sjis.crlf
+// code: 0
+InsText('\u65e5\u672c');
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

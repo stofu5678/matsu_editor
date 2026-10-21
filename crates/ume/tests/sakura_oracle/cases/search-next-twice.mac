@@ -1,0 +1,7 @@
+// input: ascii.words.lf
+// code: 0
+SearchNext('foo', 0);
+SearchNext('foo', 0);
+Delete();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

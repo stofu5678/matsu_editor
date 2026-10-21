@@ -1,0 +1,4 @@
+// input: jp.utf8.mixed
+// code: 4
+FileSaveAs('@OUT@', 4, 0);
+ExitAll();
