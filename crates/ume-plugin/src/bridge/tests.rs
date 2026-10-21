@@ -28,9 +28,16 @@ struct Fixture {
 }
 
 impl Fixture {
+    /// A document where NEL, LS and PS end a line (`bEnableExtEol` on).
     fn new(text: &str) -> Self {
+        Self::with_ext_eol(text, true)
+    }
+
+    fn with_ext_eol(text: &str, ext_eol: bool) -> Self {
         Self {
-            model: DocumentModel::new(Document::from_utf8(text.as_bytes().to_vec()).unwrap()),
+            model: DocumentModel::new(
+                Document::from_utf8_with(text.as_bytes().to_vec(), ext_eol).unwrap(),
+            ),
             cursor: Cursor::default(),
             layout: PlainLayout::default(),
             path: None,
@@ -307,6 +314,17 @@ fn the_selected_text_has_only_lf_line_breaks() {
     assert_eq!(
         f.call("GetSelectedString", json!([0])),
         Ok(json!("a\nb\nc\nd\ne\nf"))
+    );
+}
+
+#[test]
+fn the_selected_text_keeps_nel_ls_and_ps_that_are_not_line_endings() {
+    // The default setting: they are characters of the line.
+    let mut f = Fixture::with_ext_eol("a\r\nb\u{85}c\u{2028}d\u{2029}e", false);
+    f.call("SelectAll", json!([])).unwrap();
+    assert_eq!(
+        f.call("GetSelectedString", json!([0])),
+        Ok(json!("a\nb\u{85}c\u{2028}d\u{2029}e"))
     );
 }
 

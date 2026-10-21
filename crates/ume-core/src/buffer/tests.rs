@@ -13,8 +13,14 @@ const UTF8: EncodingCodec = EncodingCodec(Encoding::Utf8);
 
 // ---- helpers ----
 
+/// A document where NEL, LS and PS end a line (`m_bEnableExtEol` on).
 fn doc(text: &str) -> Document {
-    Document::from_utf8(text.as_bytes().to_vec()).unwrap()
+    Document::from_utf8_with(text.as_bytes().to_vec(), true).unwrap()
+}
+
+/// A document with Sakura's default: NEL, LS and PS are ordinary characters.
+fn doc_plain(text: &str) -> Document {
+    Document::from_utf8_with(text.as_bytes().to_vec(), false).unwrap()
 }
 
 fn lines(d: &Document) -> Vec<(String, Option<Eol>)> {
@@ -52,6 +58,8 @@ fn save(d: &Document) -> Vec<u8> {
 #[derive(Clone, Debug)]
 struct Model {
     text: String,
+    /// NEL, LS and PS end a line.
+    ext: bool,
 }
 
 impl Model {
@@ -69,9 +77,9 @@ impl Model {
                 }
                 '\r' => (Eol::Cr, 1),
                 '\n' => (Eol::Lf, 1),
-                '\u{85}' => (Eol::Nel, 2),
-                '\u{2028}' => (Eol::Ls, 3),
-                '\u{2029}' => (Eol::Ps, 3),
+                '\u{85}' if self.ext => (Eol::Nel, 2),
+                '\u{2028}' if self.ext => (Eol::Ls, 3),
+                '\u{2029}' if self.ext => (Eol::Ps, 3),
                 _ => continue,
             };
             out.push((start, i, i + len, Some(eol)));
@@ -171,10 +179,15 @@ fn assert_same(d: &Document, m: &Model) {
 }
 
 fn run_random(seed: u64, start: &str, steps: usize) {
+    run_random_with(seed, start, steps, true);
+}
+
+fn run_random_with(seed: u64, start: &str, steps: usize, ext: bool) {
     let mut rng = Rng(seed);
-    let mut d = doc(start);
+    let mut d = if ext { doc(start) } else { doc_plain(start) };
     let mut m = Model {
         text: start.to_string(),
+        ext,
     };
     assert_same(&d, &m);
     let mut snapshots: Vec<(Document, String)> = Vec::new();
@@ -230,6 +243,15 @@ fn random_edits_on_an_original_source() {
         "first line\r\nsecond 日本\nthird\rfourth\u{85}fifth\u{2028}sixth\u{2029}\r\n\r\nlast";
     for seed in 1..=8_u64 {
         run_random(seed.wrapping_mul(0xD1B5_4A32_D192_ED03), start, 600);
+    }
+}
+
+#[test]
+fn random_edits_without_the_extended_line_endings() {
+    let start = "first\r\nsecond 日本\u{85}third\u{2028}x\u{2029}\n\rlast";
+    for seed in 1..=8_u64 {
+        run_random_with(seed.wrapping_mul(0xC2B2_AE3D_27D4_EB4F), start, 600, false);
+        run_random_with(seed.wrapping_mul(0x1656_67B1_9E37_79F9), "", 600, false);
     }
 }
 
@@ -366,7 +388,7 @@ fn crlf_cut_in_two_pieces_stays_one_line_ending() {
 
 #[test]
 fn line_endings_in_inserted_text_become_line_breaks() {
-    let mut d = Document::empty();
+    let mut d = Document::from_utf8_with(Vec::new(), true).unwrap();
     let e = d
         .insert(Pos::new(0, 0), "a\r\nb\rc\nd\u{85}e\u{2028}f\u{2029}g")
         .unwrap();
@@ -416,7 +438,7 @@ fn many_small_edits_on_an_original_source() {
         text.push_str(&format!("line {i}\n"));
     }
     let mut d = doc(&text);
-    let mut m = Model { text };
+    let mut m = Model { text, ext: true };
     let mut rng = Rng(42);
     for _ in 0..3000 {
         let p = Pos::new(rng.below(2000), rng.below(8));
@@ -550,6 +572,7 @@ fn random_edits_on_a_wide_original() {
     let mut d = Document::new(MemorySource::new(wide(start)), Arc::new(Wide)).unwrap();
     let mut m = Model {
         text: start.to_string(),
+        ext: true,
     };
     for _ in 0..800 {
         let (from, to) = (random_pos(&mut rng, &m), random_pos(&mut rng, &m));
@@ -681,7 +704,7 @@ fn huge_doc() -> Document {
     let mut index = LineIndex::default();
     for &(start, units) in &source.regions {
         let bytes = source.read(start, start + units * UNIT).unwrap();
-        index.scan(&UTF8, &bytes, start as usize).unwrap();
+        index.scan(&UTF8, &bytes, start as usize, true).unwrap();
     }
     Document::with_prebuilt_index(source, Arc::new(UTF8), index)
 }
@@ -934,4 +957,102 @@ fn save_with(d: &Document, encoding: Encoding) -> Vec<u8> {
         }
     }
     out
+}
+
+// ---- NEL, LS and PS (`m_bEnableExtEol`) ----
+
+#[test]
+fn nel_ls_and_ps_are_characters_by_default() {
+    // Sakura: `bEnableExtEol` is off by default (`CShareData::InitShareData`).
+    let d = Document::from_utf8("a\u{85}b\u{2028}c\u{2029}d\ne".as_bytes().to_vec()).unwrap();
+    assert!(!d.ext_eol());
+    assert_eq!(
+        lines(&d),
+        [l("a\u{85}b\u{2028}c\u{2029}d", Some(Eol::Lf)), l("e", None)]
+    );
+    assert_eq!(d.line_count(), 2);
+    assert_eq!(
+        d.line_len(0).unwrap(),
+        Some("a\u{85}b\u{2028}c\u{2029}d".len())
+    );
+    // Typed or pasted text is the same: no line break.
+    let mut d = Document::empty();
+    d.insert(Pos::new(0, 0), "x\u{85}y\u{2028}z\u{2029}w")
+        .unwrap();
+    assert_eq!(d.line_count(), 1);
+    assert_eq!(whole(&d), "x\u{85}y\u{2028}z\u{2029}w");
+    assert_eq!(
+        d.end_pos().unwrap(),
+        Pos::new(0, "x\u{85}y\u{2028}z\u{2029}w".len())
+    );
+}
+
+#[test]
+fn nel_ls_and_ps_end_a_line_when_the_setting_is_on() {
+    let d = doc("a\u{85}b\u{2028}c\u{2029}d\ne");
+    assert_eq!(
+        lines(&d),
+        [
+            l("a", Some(Eol::Nel)),
+            l("b", Some(Eol::Ls)),
+            l("c", Some(Eol::Ps)),
+            l("d", Some(Eol::Lf)),
+            l("e", None),
+        ]
+    );
+}
+
+#[test]
+fn a_mixed_file_splits_only_at_the_endings_that_count() {
+    let text = "1\r\n2\u{85}3\r4\u{2029}5\n6";
+    let on = doc(text);
+    let off = doc_plain(text);
+    assert_eq!(on.line_count(), 6);
+    assert_eq!(
+        lines(&off),
+        [
+            l("1", Some(Eol::CrLf)),
+            l("2\u{85}3", Some(Eol::Cr)),
+            l("4\u{2029}5", Some(Eol::Lf)),
+            l("6", None),
+        ]
+    );
+}
+
+#[test]
+fn changing_the_setting_reaches_only_the_text_added_afterwards() {
+    // `CDocLine::SetDocLineString` reads the setting where a line is made: existing lines are not
+    // split or joined again when it changes.
+    let mut d = doc_plain("a\u{85}b");
+    d.set_ext_eol(true);
+    assert_eq!(d.line_count(), 1);
+    d.insert(Pos::new(0, 0), "x\u{2028}y").unwrap();
+    assert_eq!(lines(&d), [l("x", Some(Eol::Ls)), l("ya\u{85}b", None)]);
+    let mut e = doc("a\u{85}b");
+    e.set_ext_eol(false);
+    assert_eq!(e.line_count(), 2);
+    e.insert(Pos::new(1, 0), "p\u{85}q").unwrap();
+    assert_eq!(lines(&e), [l("a", Some(Eol::Nel)), l("p\u{85}qb", None)]);
+    // An older version (undo) keeps what it had.
+    let before = d.clone();
+    d.insert(Pos::new(0, 0), "\u{85}").unwrap();
+    assert_eq!(lines(&before).len(), 2);
+}
+
+#[test]
+fn a_stateful_codec_converted_at_load_follows_the_setting() {
+    let bytes = b"a\xC2\x85b".to_vec();
+    let off = Document::new(MemorySource::new(bytes.clone()), Arc::new(Stateful)).unwrap();
+    assert_eq!(lines(&off), [l("a\u{85}b", None)]);
+    let on = Document::with_ext_eol(MemorySource::new(bytes), Arc::new(Stateful), true).unwrap();
+    assert_eq!(lines(&on), [l("a", Some(Eol::Nel)), l("b", None)]);
+}
+
+#[test]
+fn find_eol_skips_the_extended_endings_when_off() {
+    let bytes = b"a\xC2\x85b\xE2\x80\xA8c\r\nd";
+    let utf8: &dyn Codec = UTF8.0.codec();
+    assert_eq!(codec::find_eol(utf8, bytes, 0, true), Some((1, Eol::Nel)));
+    assert_eq!(codec::find_eol(utf8, bytes, 0, false), Some((8, Eol::CrLf)));
+    assert_eq!(codec::find_eol(utf8, b"a\xC2\x85b", 0, false), None);
 }

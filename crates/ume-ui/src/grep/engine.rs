@@ -505,6 +505,8 @@ impl Runner<'_> {
         let mut options = OpenOptions {
             encoding: self.info.charset,
             mime_decode: self.info.mime_decode,
+            // The setting now, as for a file that is opened (`bEnableExtEol`).
+            ext_eol: ume_commands::edit_options::get().ext_eol,
             ..OpenOptions::default()
         };
         options.detect = DetectOptions::default();

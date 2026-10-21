@@ -60,21 +60,34 @@ fn code_of(name: &str) -> Option<u16> {
 
 /// The menu of a right click on the line ending (`NM_RCLICK`): CRLF, LF and CR.
 ///
-/// Sakura adds NEL, LS and PS when `m_bEnableExtEol` is on. UME does not read that setting (the
-/// check box of 共通設定 / 編集 is gray), so they are not offered.
+/// Sakura adds NEL, LS and PS when `m_bEnableExtEol` is on (`CEditWnd::OnNotify`; the labels are
+/// `STR_EDITWND_MENU_NEL`, `_LS` and `_PS` in `sakura_rc.rc`).
 pub(crate) fn eol_menu_entries() -> Vec<Entry> {
-    ["F_CHGMOD_EOL_CRLF", "F_CHGMOD_EOL_LF", "F_CHGMOD_EOL_CR"]
+    let item = |name: &str, label: Option<&str>| {
+        let function = FUNCTIONS.iter().find(|f| f.name == name)?;
+        Some(Entry::Item(Item {
+            label: label.or(function.label)?.to_owned(),
+            action: MenuAction::Function(function.code),
+            shortcut: None,
+            enabled: true,
+        }))
+    };
+    let mut entries: Vec<Entry> = ["F_CHGMOD_EOL_CRLF", "F_CHGMOD_EOL_LF", "F_CHGMOD_EOL_CR"]
         .into_iter()
-        .filter_map(|name| {
-            let function = FUNCTIONS.iter().find(|f| f.name == name)?;
-            Some(Entry::Item(Item {
-                label: function.label?.to_owned(),
-                action: MenuAction::Function(function.code),
-                shortcut: None,
-                enabled: true,
-            }))
-        })
-        .collect()
+        .filter_map(|name| item(name, None))
+        .collect();
+    if ume_commands::edit_options::get().ext_eol {
+        entries.extend(
+            [
+                ("F_CHGMOD_EOL_NEL", "入力改行コード指定(&NEL)"),
+                ("F_CHGMOD_EOL_LS", "入力改行コード指定(L&S)"),
+                ("F_CHGMOD_EOL_PS", "入力改行コード指定(&PS)"),
+            ]
+            .into_iter()
+            .filter_map(|(name, label)| item(name, Some(label))),
+        );
+    }
+    entries
 }
 
 /// The message of `ShowCodeBox` for the character that starts `rest` (the text from the caret to

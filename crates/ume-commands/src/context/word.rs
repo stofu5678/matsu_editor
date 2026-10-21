@@ -133,7 +133,7 @@ impl CommandContext<'_> {
             }
             let to = line
                 .index_of(caret.col)
-                .filter(|&i| i < line.chars.len() && !word::is_line_delimiter(line.chars[i]))
+                .filter(|&i| i < line.chars.len() && !word::is_line_ending_at(&line.chars, i))
                 .and_then(|i| word::search_next_word(&line.chars, i, stops_both_ends()));
             if let Some(to) = to {
                 return self.move_caret(Pos::new(caret.line, line.offsets[to]), extend);

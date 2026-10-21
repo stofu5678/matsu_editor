@@ -18,6 +18,7 @@ use ume_commands::command::CommandError;
 use ume_commands::commands::cursor::jump::{DEFAULT_OPTION, jump_to_line};
 use ume_commands::context::CommandContext;
 use ume_core::buffer::{Document, Eol, Pos};
+use ume_core::model::eol_text;
 use ume_core::search::{
     AppliedEdit, Control, Direction, Found, ReplaceTarget, find, replace_all,
     replace_and_find_next, replacement_for, start_after,
@@ -530,12 +531,16 @@ fn old_range(doc: &Document, e: &AppliedEdit) -> (Pos, Pos) {
         .ok()
         .flatten()
         .is_some_and(|l| l.eol == Some(Eol::Cr) && l.text.len() == e.start.col);
-    let direct = (e.start, end_after(e.start, &e.removed));
+    let ext_eol = doc.ext_eol();
+    let end_of = |at: Pos| {
+        end_in_doc(doc, at, &e.removed).unwrap_or_else(|| end_after(at, &e.removed, ext_eol))
+    };
+    let direct = (e.start, end_of(e.start));
     if !at_cr_end {
         return direct;
     }
     let after_cr = Pos::new(e.start.line + 1, 0);
-    let moved = (after_cr, end_after(after_cr, &e.removed));
+    let moved = (after_cr, end_of(after_cr));
     let fits = |&(start, end): &(Pos, Pos)| {
         doc.text_between(start, end).is_ok_and(|t| t == e.removed)
             && doc
@@ -550,9 +555,32 @@ fn old_range(doc: &Document, e: &AppliedEdit) -> (Pos, Pos) {
     }
 }
 
-/// Where text that is `text` long ends when it starts at `start`.
-fn end_after(start: Pos, text: &str) -> Pos {
-    let Ok(scratch) = Document::from_utf8(text.as_bytes().to_vec()) else {
+/// Where `removed` ends when it lies in `doc` from `start`, found by walking the lines and endings
+/// the document has (Sakura keeps the ending recorded in each line), not by reading the text again
+/// under the setting now. `None` when the document does not hold that text there.
+fn end_in_doc(doc: &Document, start: Pos, removed: &str) -> Option<Pos> {
+    let (mut line, mut col, mut rest) = (start.line, start.col, removed);
+    loop {
+        let l = doc.line(line).ok().flatten()?;
+        let tail = l.text.get(col..)?;
+        if tail.len() >= rest.len() {
+            return tail
+                .starts_with(rest)
+                .then(|| Pos::new(line, col + rest.len()));
+        }
+        rest = rest.strip_prefix(tail)?;
+        rest = rest.strip_prefix(eol_text(l.eol?))?;
+        (line, col) = (line + 1, 0);
+        if rest.is_empty() {
+            return Some(Pos::new(line, 0));
+        }
+    }
+}
+
+/// Where text that is `text` long ends when it starts at `start`, read as a new document.
+/// `ext_eol` is the setting of the document the text was in: NEL, LS and PS end a line only then.
+fn end_after(start: Pos, text: &str, ext_eol: bool) -> Pos {
+    let Ok(scratch) = Document::from_utf8_with(text.as_bytes().to_vec(), ext_eol) else {
         return start;
     };
     let count = scratch.line_count();
@@ -676,14 +704,45 @@ mod tests {
     }
 
     #[test]
+    fn the_old_end_of_an_edit_follows_the_endings_the_document_has() {
+        // Read with `bEnableExtEol` off and turned on afterwards: the NEL is still a character.
+        let doc = Document::from_utf8_with(b"a\xC2\x85b\nTAIL".to_vec(), false).unwrap();
+        doc.set_ext_eol(true);
+        let removed = "a\u{85}b";
+        assert_eq!(
+            end_in_doc(&doc, Pos::new(0, 0), removed),
+            Some(Pos::new(0, 4))
+        );
+        // Reading the text again under the setting now would end it on the next line.
+        assert_eq!(end_after(Pos::new(0, 0), removed, true), Pos::new(1, 1));
+        let removed = "a\u{85}b\nTA";
+        assert_eq!(
+            end_in_doc(&doc, Pos::new(0, 0), removed),
+            Some(Pos::new(1, 2))
+        );
+        // The other way round: a NEL that is an ending in the document.
+        let doc = Document::from_utf8_with(b"a\xC2\x85b\nTAIL".to_vec(), true).unwrap();
+        doc.set_ext_eol(false);
+        assert_eq!(
+            end_in_doc(&doc, Pos::new(0, 0), "a\u{85}b"),
+            Some(Pos::new(1, 1))
+        );
+        // Text that is not there is not found.
+        assert_eq!(end_in_doc(&doc, Pos::new(0, 0), "zz"), None);
+    }
+
+    #[test]
     fn end_after_follows_the_line_breaks_of_the_text() {
         let at = Pos::new(2, 3);
-        assert_eq!(end_after(at, ""), at);
-        assert_eq!(end_after(at, "ab"), Pos::new(2, 5));
-        assert_eq!(end_after(at, "ab\r\n"), Pos::new(3, 0));
-        assert_eq!(end_after(at, "ab\ncd"), Pos::new(3, 2));
-        assert_eq!(end_after(at, "日本"), Pos::new(2, 9));
-        assert_eq!(end_after(at, "a\r\nb\r\n"), Pos::new(4, 0));
+        assert_eq!(end_after(at, "", false), at);
+        assert_eq!(end_after(at, "ab", false), Pos::new(2, 5));
+        assert_eq!(end_after(at, "ab\r\n", false), Pos::new(3, 0));
+        assert_eq!(end_after(at, "ab\ncd", false), Pos::new(3, 2));
+        assert_eq!(end_after(at, "日本", false), Pos::new(2, 9));
+        assert_eq!(end_after(at, "a\r\nb\r\n", false), Pos::new(4, 0));
+        // NEL ends a line only when the document counts it.
+        assert_eq!(end_after(at, "a\u{85}", false), Pos::new(2, 6));
+        assert_eq!(end_after(at, "a\u{85}", true), Pos::new(3, 0));
     }
 
     #[test]

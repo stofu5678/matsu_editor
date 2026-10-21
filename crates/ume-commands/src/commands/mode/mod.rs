@@ -6,3 +6,6 @@ pub mod chgmod_eol;
 pub mod chgmod_eol_cr;
 pub mod chgmod_eol_crlf;
 pub mod chgmod_eol_lf;
+pub mod chgmod_eol_ls;
+pub mod chgmod_eol_nel;
+pub mod chgmod_eol_ps;

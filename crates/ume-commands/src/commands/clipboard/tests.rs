@@ -62,6 +62,28 @@ fn copy_crlf_changes_the_line_endings() {
 }
 
 #[test]
+fn copy_crlf_follows_the_endings_the_document_has_not_the_setting() {
+    // Made with `bEnableExtEol` off: the NEL is a character. Turning the setting on afterwards
+    // does not make it an ending (Sakura copies with the ending recorded in each line).
+    let mut e = Editor::new("|");
+    e.model().doc().set_ext_eol(false);
+    for c in ['a', '\u{85}', 'b'] {
+        e.run_with("input_char", &[Arg::Char(c)]);
+    }
+    assert_eq!(e.model().doc().line_count(), 1);
+    e.model().doc().set_ext_eol(true);
+    e.run("select_all");
+    e.run("copy_crlf");
+    assert_eq!(clip(&e), normal("a\u{85}b"));
+    // Made with it on: the NEL is an ending, and stays one when the setting is turned off.
+    let mut e = Editor::new("a\u{85}b|");
+    e.model().doc().set_ext_eol(false);
+    e.run("select_all");
+    e.run("copy_crlf");
+    assert_eq!(clip(&e), normal("a\r\nb"));
+}
+
+#[test]
 fn cut_copies_and_deletes_the_selection() {
     let mut e = Editor::new("a[bc|d");
     e.run("cut").assert_marked("a|d");
@@ -135,9 +157,12 @@ fn paste_of_a_line_copy_over_a_selection_deletes_the_selection_first() {
 }
 
 #[test]
-fn a_line_copy_that_ends_with_an_extended_line_ending_gets_no_second_one() {
+fn a_line_copy_that_ends_with_an_extended_character_gets_a_line_ending_by_default() {
+    // `bEnableExtEol` is off by default: U+2028 is not a line ending (`WCODE::IsLineDelimiter`),
+    // so the row copy still needs one.
     let mut e = Editor::new("a|b").with_clipboard("XY\u{2028}", ClipKind::Line);
-    e.run("paste").assert_marked("XY\u{2028}a|b");
+    let os = if cfg!(windows) { "\r\n" } else { "\n" };
+    e.run("paste").assert_marked(&format!("XY\u{2028}{os}a|b"));
 }
 
 #[test]

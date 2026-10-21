@@ -44,8 +44,9 @@ pub struct TextBreaks {
 }
 
 impl TextBreaks {
-    /// Counts the line breaks of `text`.
-    pub fn of(text: &str) -> Self {
+    /// Counts the line breaks of `text`. NEL, LS and PS are breaks only when `ext_eol` is set
+    /// (`WCODE::IsLineDelimiter`).
+    pub fn of(text: &str, ext_eol: bool) -> Self {
         let mut count = 0;
         let mut chars = text.chars().peekable();
         while let Some(c) = chars.next() {
@@ -56,13 +57,15 @@ impl TextBreaks {
                         chars.next();
                     }
                 }
-                '\n' | '\u{85}' | '\u{2028}' | '\u{2029}' => count += 1,
+                '\n' => count += 1,
+                '\u{85}' | '\u{2028}' | '\u{2029}' if ext_eol => count += 1,
                 _ => {}
             }
         }
         Self {
             count,
-            ends_with_break: text.ends_with(['\n', '\r', '\u{85}', '\u{2028}', '\u{2029}']),
+            ends_with_break: text.ends_with(['\n', '\r'])
+                || (ext_eol && text.ends_with(['\u{85}', '\u{2028}', '\u{2029}'])),
         }
     }
 }
@@ -304,7 +307,7 @@ mod tests {
         before: usize,
         after: usize,
     ) -> [Option<LineDelta>; 2] {
-        LineEdit::deltas(from, to, TextBreaks::of(text), before, after)
+        LineEdit::deltas(from, to, TextBreaks::of(text, true), before, after)
     }
 
     #[test]
@@ -355,8 +358,8 @@ mod tests {
             (0, 0),
             (0, 0),
             (1, 1),
-            TextBreaks::of(""),
-            TextBreaks::of("\nx"),
+            TextBreaks::of("", true),
+            TextBreaks::of("\nx", true),
             1,
             2,
         );
@@ -372,10 +375,13 @@ mod tests {
 
     #[test]
     fn counts_the_breaks_of_a_text() {
-        assert_eq!(TextBreaks::of("").count, 0);
-        assert_eq!(TextBreaks::of("a\r\nb\rc\nd\u{2028}").count, 4);
-        assert!(TextBreaks::of("a\r\n").ends_with_break);
-        assert!(!TextBreaks::of("a").ends_with_break);
+        assert_eq!(TextBreaks::of("", true).count, 0);
+        assert_eq!(TextBreaks::of("a\r\nb\rc\nd\u{2028}", true).count, 4);
+        assert_eq!(TextBreaks::of("a\r\nb\rc\nd\u{2028}", false).count, 3);
+        assert!(TextBreaks::of("a\u{85}", true).ends_with_break);
+        assert!(!TextBreaks::of("a\u{85}", false).ends_with_break);
+        assert!(TextBreaks::of("a\r\n", true).ends_with_break);
+        assert!(!TextBreaks::of("a", true).ends_with_break);
     }
 
     #[test]

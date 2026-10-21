@@ -86,6 +86,9 @@ pub struct OpenOptions {
     /// reading it (`bAutoMIMEdecode`, 「MIMEエンコードされたヘッダを デコードする」). Other encodings are
     /// not touched: only `CJis` takes the option (`CJis::JISToUnicode`, `CCodeFactory`).
     pub mime_decode: bool,
+    /// Treat NEL (U+0085), LS (U+2028) and PS (U+2029) as line endings (`m_bEnableExtEol`, 「改行コード
+    /// NEL,PS,LSを有効にする」). Off by default, as in Sakura: they are then ordinary characters.
+    pub ext_eol: bool,
 }
 
 impl Default for OpenOptions {
@@ -96,6 +99,7 @@ impl Default for OpenOptions {
             default_eol: Eol::platform_default(),
             max_len: None,
             mime_decode: false,
+            ext_eol: false,
         }
     }
 }
@@ -190,15 +194,14 @@ pub fn open_file_with(
     // The first line ending, read from the bytes: `Document::line` would decode the whole first
     // line, which is the whole file when it has no line break.
     let first_eol = if encoding.codec().is_stateless() {
-        encoding
-            .codec()
-            .find_eol(&bytes[bom_len..], 0)
+        crate::buffer::find_eol(encoding.codec(), &bytes[bom_len..], 0, options.ext_eol)
             .map(|(_, eol)| eol)
     } else {
         None
     };
     let source = FileBytes::new(Arc::new(bytes), bom_len);
-    let document = Document::new(source, Arc::new(EncodingCodec(encoding)))?;
+    let document =
+        Document::with_ext_eol(source, Arc::new(EncodingCodec(encoding)), options.ext_eol)?;
 
     // `CDocEditor::OnAfterLoad`: the first line's ending, else the default.
     let fallback = if encoding == options.detect.default_encoding {

@@ -199,7 +199,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         "bEnableExtEol",
                         false,
                     )
-                    .unavailable()
                     .into(),
                     Control::check(
                         "box_select_lock",
@@ -237,5 +236,8 @@ pub(in crate::common_settings) fn apply(_env: &mut Env, after: &Values, _before:
     options.enable_no_select_copy = after.bool("enable_no_select_copy");
     options.enable_line_mode_paste = after.bool("enable_line_mode_paste");
     options.convert_eol_paste = after.bool("convert_eol_paste");
+    // Open documents read it on their next edit (`SharedDocument::parts_mut`), as Sakura reads it
+    // where it makes a line; the lines that exist are not split again.
+    options.ext_eol = after.bool("enable_ext_eol");
     edit_options::set(options);
 }

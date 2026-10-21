@@ -41,3 +41,26 @@ impl Codec for EncodingCodec {
 pub(crate) fn utf8() -> &'static dyn Codec {
     Encoding::Utf8.codec()
 }
+
+/// Finds the next line ending of `bytes` from `from`. NEL, LS and PS count only when `ext_eol` is
+/// set (`WCODE::IsLineDelimiter(wc, bEnableExtEol)`); otherwise they are skipped as ordinary
+/// characters. With `ext_eol` set this is `codec.find_eol`.
+pub(crate) fn find_eol(
+    codec: &dyn Codec,
+    bytes: &[u8],
+    mut from: usize,
+    ext_eol: bool,
+) -> Option<(usize, Eol)> {
+    loop {
+        let (off, kind) = codec.find_eol(bytes, from)?;
+        if ext_eol || matches!(kind, Eol::CrLf | Eol::Lf | Eol::Cr) {
+            return Some((off, kind));
+        }
+        let len = codec.eol_bytes(kind).map_or(0, <[u8]>::len);
+        // A misbehaving codec must not make this loop forever.
+        if off < from || len == 0 {
+            return None;
+        }
+        from = off + len;
+    }
+}
