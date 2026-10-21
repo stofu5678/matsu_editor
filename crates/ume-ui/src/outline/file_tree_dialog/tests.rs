@@ -1106,3 +1106,44 @@ fn the_dialog_covers_the_view_and_is_one_at_a_time(cx: &mut TestAppContext) {
     // it is not for the bookmark list
     cancel(cx, handle);
 }
+
+#[gpui::test]
+fn a_project_file_that_cannot_be_written_keeps_the_dialog_and_the_edits(cx: &mut TestAppContext) {
+    let text = "[Common]\r\nbFileTreeProject=1\r\n";
+    let (ini, handle) = setup(cx, text, Some("doc.txt"));
+    let project = ini.dir.path().join("_sakurafiletree.ini");
+    std::fs::write(
+        &project,
+        "[FileTree]\r\nnFileTreeItemCount=1\r\nFileTree(0).eItemType=2\r\nFileTree(0).szLabelName=P\r\n",
+    )
+    .unwrap();
+    show_tree(cx, handle);
+    open_dialog(cx, handle);
+    set_boxes(cx, handle, Kind::Folder, "", "Added", "");
+    with_dialog(cx, handle, |d, window, dcx| d.add_item(window, dcx));
+    // the file goes away and a folder takes its name
+    std::fs::remove_file(&project).unwrap();
+    std::fs::create_dir(&project).unwrap();
+    let before = ini.bytes();
+    let keys = &mut VisualTestContext::from_window(handle, cx);
+    with_dialog(keys, handle, |d, window, dcx| d.ok(window, dcx));
+    assert!(keys.has_pending_prompt(), "the error is told");
+    keys.simulate_prompt_answer("OK");
+    assert!(is_open(keys, handle), "the dialog stays");
+    assert_eq!(tree_items(keys, handle).len(), 2, "the edits stay");
+    assert_eq!(ini.bytes(), before, "the settings are not written either");
+}
+
+#[gpui::test]
+fn enter_in_the_tree_is_ok(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, &notes_ini(Path::new("memo.txt")), None);
+    show_tree(cx, handle);
+    open_dialog(cx, handle);
+    let keys = &mut VisualTestContext::from_window(handle, cx);
+    keys.simulate_keystrokes("enter");
+    assert!(!is_open(keys, handle));
+    assert_eq!(
+        ini.get("Common", "nFileTreeItemCount").as_deref(),
+        Some("2")
+    );
+}

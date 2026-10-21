@@ -356,11 +356,22 @@ impl FileTreeDialog {
         let rows = self.tree.rows();
         let selected = self.tree.selected().cloned();
         let focused = self.tree_focus.is_focused(window);
+        // the selected row comes into view when the selection has moved (a key, an added item)
+        if self.revealed != selected {
+            if let Some(at) = rows
+                .iter()
+                .position(|row| Some(&row.path) == selected.as_ref())
+            {
+                self.tree_scroll.scroll_to_item(at);
+            }
+            self.revealed.clone_from(&selected);
+        }
         let mut list = v_flex()
             .id("ft-tree")
             .role(Role::Tree)
             .aria_label(TREE_NAME)
             .track_focus(&self.tree_focus)
+            .track_scroll(&self.tree_scroll)
             .w(px(260.))
             .h(px(380.))
             .overflow_y_scroll()
@@ -489,11 +500,14 @@ impl FileTreeDialog {
             }
             return;
         }
-        if self.tree_focus.is_focused(window)
-            && !modifiers.modified()
-            && self.tree_key(key, window, cx)
-        {
-            cx.stop_propagation();
+        if self.tree_focus.is_focused(window) && !modifiers.modified() {
+            // Enter is the default button (OK) from the tree too
+            if key == "enter" {
+                self.ok(window, cx);
+                cx.stop_propagation();
+            } else if self.tree_key(key, window, cx) {
+                cx.stop_propagation();
+            }
         }
     }
 }

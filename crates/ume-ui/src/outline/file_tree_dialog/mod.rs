@@ -27,8 +27,8 @@ mod tests;
 use std::path::PathBuf;
 
 use gpui::{
-    AppContext as _, Context, Entity, FocusHandle, Focusable, PromptLevel, Subscription,
-    WeakEntity, Window,
+    AppContext as _, Context, Entity, FocusHandle, Focusable, PromptLevel, ScrollHandle,
+    Subscription, WeakEntity, Window,
 };
 use gpui_component::input::{InputEvent, InputState};
 use ume_config::settings::file_tree::{FileTreeItem, ItemType, MAX_ITEMS};
@@ -100,6 +100,9 @@ pub(crate) struct FileTreeDialog {
     busy: bool,
     focus: FocusHandle,
     tree_focus: FocusHandle,
+    /// The scroll position of the tree, and the node that was last brought into view.
+    tree_scroll: ScrollHandle,
+    revealed: Option<model::Path>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -153,6 +156,8 @@ impl FileTreeDialog {
             busy: false,
             focus: cx.focus_handle(),
             tree_focus: cx.focus_handle(),
+            tree_scroll: ScrollHandle::new(),
+            revealed: None,
             _subscriptions: subscriptions,
         };
         // `SetDataInit`
@@ -294,13 +299,17 @@ impl FileTreeDialog {
             project_ini: self.default_ini.read(cx).value().to_string(),
             items: to_settings.then(|| items.clone()),
         };
-        store::commit(cx, &outcome);
+        // (Sakura writes the settings first and closes the dialog whatever happens to the file;
+        // here a project file that cannot be written leaves the dialog open with the edited tree,
+        // and nothing written, so that the user can try again or export the items elsewhere.)
         if let Some(path) = &self.loaded_project_ini
             && store::write_project_file(path, &items).is_err()
         {
             let message = crate::common_settings::transfer::cannot_export(path);
             self.say(&message, window, cx);
+            return;
         }
+        store::commit(cx, &outcome);
         self.close(window, cx);
         // `HandleCommand( F_FILETREE, SHOW_RELOAD )`
         self.pane.update(cx, |pane, cx| pane.reload(cx)).ok();
