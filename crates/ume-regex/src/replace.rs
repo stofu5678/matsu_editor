@@ -295,16 +295,21 @@ impl RegexReplacer {
         ctl: Control<'_>,
     ) -> Result<ReplaceAllResult, SearchError> {
         let mut work = doc.clone();
-        let (edits, caret) = match mode {
+        let (edits, caret, count) = match mode {
             ReplaceAllMode::Batch => self.replace_batch(&mut work, range, ctl)?,
             ReplaceAllMode::Repeat => {
                 let edits = self.replace_repeat(&mut work, range, ctl)?;
                 let caret = edits.last().map(|e| e.resume);
-                (edits, caret)
+                let count = edits.len();
+                (edits, caret, count)
             }
         };
         *doc = work;
-        Ok(ReplaceAllResult { edits, caret })
+        Ok(ReplaceAllResult {
+            edits,
+            caret,
+            count,
+        })
     }
 
     /// 一括置換 (`Command_REPLACE_ALL` without 「すべて置換は置換の繰返し」): Sakura finds the first
@@ -312,13 +317,15 @@ impl RegexReplacer {
     /// (the line ending included) in one go, and searches again from the caret, which is then at
     /// the end of the text it inserted. So the next search sees the text as the replacements
     /// left it, a joined line included. The edits are one per match, as the count Sakura shows
-    /// is the number of matches. Returns the edits and the caret after the last one.
+    /// is the number of matches. Returns the edits, the caret after the last one and the number
+    /// of matches replaced (more than the edits where matches share a line ending).
     fn replace_batch(
         &self,
         work: &mut Document,
         range: Option<Range<Pos>>,
         mut ctl: Control<'_>,
-    ) -> Result<(Vec<AppliedEdit>, Option<Pos>), SearchError> {
+    ) -> Result<(Vec<AppliedEdit>, Option<Pos>, usize), SearchError> {
+        let mut count = 0usize;
         let mut from = range.as_ref().map_or(Pos::new(0, 0), |r| r.start);
         // Where the range ends now; it moves as the text before it changes.
         let mut limit = range.map(|r| r.end);
@@ -375,6 +382,7 @@ impl RegexReplacer {
                     plan.push(edit);
                 }
             }
+            count += plan.len() + tail.len();
             if let Some(first) = tail.first() {
                 let start = first.start;
                 let mut text = String::new();
@@ -418,7 +426,7 @@ impl RegexReplacer {
                 break;
             }
         }
-        Ok((edits, caret))
+        Ok((edits, caret, count))
     }
 
     /// The next match from `from`, in the lines up to the end of the selection `limit` if there is

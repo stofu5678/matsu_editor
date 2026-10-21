@@ -421,7 +421,7 @@ impl EditorView {
                 return None;
             }
         };
-        let count = result.edits.len();
+        let count = result.count;
         let made = self.run_with(cx, |c| -> Result<(), CommandError> {
             c.begin_block();
             let result_of = (|| {

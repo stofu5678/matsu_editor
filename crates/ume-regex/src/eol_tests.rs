@@ -234,6 +234,14 @@ fn groups_and_the_whole_match_hold_the_line_break() {
 #[test]
 fn matches_of_the_two_halves_of_a_crlf_are_replaced_together() {
     assert_eq!(all(r"[\r\n]", "X", "ab\r\ncd").0, "abXXcd");
+    // the count is the number of matches, as Sakura's `nReplaceNum`
+    let _l = LIMITS_LOCK.read().unwrap_or_else(|e| e.into_inner());
+    let mut d = doc("ab\r\ncd");
+    let r = replacer(r"[\r\n]", "X")
+        .replace_all(&mut d, ReplaceAllMode::Batch, None, Control::new())
+        .unwrap();
+    assert_eq!((r.count, r.edits.len()), (2, 1));
+    drop(_l);
     assert_eq!(all(r"[\r\n]", "X", "ab\r\ncd\r\n").0, "abXXcdXX");
     // The repeated replacement puts the rest of the line ending back with the text and goes on
     // after it (`Command_REPLACE`), so the LF that follows a replaced CR is not searched again.

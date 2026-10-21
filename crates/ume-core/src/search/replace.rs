@@ -296,10 +296,13 @@ fn replace_in_sequence(
 /// The result of [`replace_all`].
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ReplaceAllResult {
-    /// The edits made, in order. Their number is the count Sakura shows (`nReplaceNum`).
+    /// The edits made, in order.
     pub edits: Vec<AppliedEdit>,
     /// Where the caret goes: after the last replacement, or `None` when nothing was replaced.
     pub caret: Option<Pos>,
+    /// The number of replacements, the count Sakura shows (`nReplaceNum`). It is the number of
+    /// `edits`, except that matches which share one line ending make one edit.
+    pub count: usize,
 }
 
 /// Replaces every match, from the start of the document or of `range` (replace in the
@@ -333,5 +336,10 @@ pub fn replace_all(
     };
     *doc = work;
     let caret = edits.last().map(|e| e.resume);
-    Ok(ReplaceAllResult { edits, caret })
+    let count = edits.len();
+    Ok(ReplaceAllResult {
+        edits,
+        caret,
+        count,
+    })
 }
