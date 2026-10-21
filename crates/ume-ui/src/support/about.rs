@@ -13,6 +13,10 @@
 //! zlib License, and the systems it runs on. The copy button copies the first block (the text of the
 //! "Ver." lines), as Sakura's `IDC_BUTTON_COPY` does. Not Sakura's own credits or its build number.
 //!
+//! The icon is at the top left of the dialog, as in Sakura (`IDC_STATIC_MYICON`, an `ICON` control
+//! of 20 x 20 dialog units at (5, 5) in `IDD_ABOUT`, `sakura_core/sakura_rc.rc2`; set from the
+//! application icon in `OnInitDialog`, `CDlgAbout.cpp` lines 237-241). Here it is the 32 px picture.
+//!
 //! The dialog is modal: it has the focus, Enter, Space and Esc close it.
 
 use std::time::SystemTime;
@@ -21,13 +25,16 @@ use chrono::{DateTime, Local};
 use gpui::{
     AppContext as _, ClickEvent, ClipboardItem, Context, FocusHandle, Focusable,
     InteractiveElement, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, ParentElement,
-    Render, StatefulInteractiveElement, Styled, WeakEntity, Window, div, px, rgb, rgba,
+    Render, StatefulInteractiveElement, Styled, WeakEntity, Window, div, img, px, rgb, rgba,
 };
 
 use crate::view::EditorView;
 
 /// The name of the product in English text (CLAUDE.md: "UME Editor").
 pub(crate) const PRODUCT: &str = "UME Editor";
+
+/// The size of the icon in the dialog (the picture is 32 x 32).
+const ICON_SIZE: f32 = 32.;
 
 /// What the dialog shows.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -197,6 +204,7 @@ impl Render for AboutDialog {
         let repository = self.info.repository.clone();
         let panel = div()
             .id("about")
+            .debug_selector(|| "about-panel".to_owned())
             .track_focus(&self.focus)
             .key_context("AboutDialog")
             .on_key_down(cx.listener(Self::on_key_down))
@@ -213,8 +221,21 @@ impl Render for AboutDialog {
             .text_size(px(14.))
             .child(
                 div()
-                    .text_size(px(18.))
-                    .child(format!("{PRODUCT} Ver. {}", self.info.version)),
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        img(crate::app_icon::dialog_icon())
+                            .id("about-icon")
+                            .debug_selector(|| "about-icon".to_owned())
+                            .size(px(ICON_SIZE))
+                            .flex_none(),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(18.))
+                            .child(format!("{PRODUCT} Ver. {}", self.info.version)),
+                    ),
             )
             .child(
                 div()

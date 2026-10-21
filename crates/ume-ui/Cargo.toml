@@ -50,6 +50,8 @@ raw-window-handle = "0.6"
 # The icons that gpui-component draws (the check mark of a check box, the arrows of menus, the
 # title bar buttons). Without them a checked box is a filled square on every OS.
 gpui-kit-assets = "=0.7.2"
+# The window icon on X11 (WindowOptions::icon is an RgbaImage). PNG only; the version GPUI uses.
+image = { version = "0.25.10", default-features = false, features = ["png"] }
 
 # macOS: without font-kit, GPUI draws no text at all. runtime_shaders compiles the Metal
 # shaders when the app starts, so the build does not need Xcode's Metal Toolchain.

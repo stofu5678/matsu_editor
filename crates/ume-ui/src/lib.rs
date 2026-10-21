@@ -23,6 +23,7 @@
 
 mod a11y;
 pub mod app;
+mod app_icon;
 mod bars;
 mod clipboard;
 mod command_line;

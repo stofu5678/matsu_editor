@@ -1,0 +1,4 @@
+// The icon of ume.exe. GPUI's Windows backend loads the icon resource with ID 1 from the
+// executable for its windows (gpui-pre-windows, platform.rs `load_icon`), so ID 1 is what makes
+// the icon show in Explorer, the title bar, the taskbar and Alt+Tab.
+1 ICON "../../assets/icons/ume_editor.ico"
