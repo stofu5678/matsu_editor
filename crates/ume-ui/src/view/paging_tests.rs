@@ -592,3 +592,30 @@ fn losing_the_focus_ends_it_at_the_next_tick(cx: &mut TestAppContext) {
     tick(cx);
     assert!(!autoscrolling(&view, cx));
 }
+
+#[gpui::test]
+fn a_middle_release_outside_finishes_only_a_press_that_waited(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx);
+    let position = point(px(120.), px(80.));
+    let down = gpui::MouseDownEvent {
+        button: gpui::MouseButton::Middle,
+        position,
+        modifiers: Modifiers::default(),
+        click_count: 1,
+        first_mouse: false,
+    };
+    let up = gpui::MouseUpEvent {
+        button: gpui::MouseButton::Middle,
+        position,
+        modifiers: Modifiers::default(),
+        click_count: 1,
+    };
+    let v = view.clone();
+    cx.update(|window, cx| v.update(cx, |v, cx| v.on_middle_mouse_up_outside(&up, window, cx)));
+    assert!(!autoscrolling(&view, cx));
+    let v = view.clone();
+    cx.update(|window, cx| v.update(cx, |v, cx| v.on_middle_mouse_down(&down, window, cx)));
+    let v = view.clone();
+    cx.update(|window, cx| v.update(cx, |v, cx| v.on_middle_mouse_up_outside(&up, window, cx)));
+    assert!(autoscrolling(&view, cx));
+}

@@ -183,9 +183,12 @@ impl EditorView {
     pub(crate) fn on_middle_mouse_down(
         &mut self,
         event: &MouseDownEvent,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // The pane that is pressed gets the focus, as for the left button; the scroll ends when the
+        // view loses it.
+        window.focus(&self.focus_handle, cx);
         if self.middle_button_function(event.modifiers) != Some(F_AUTOSCROLL) {
             return;
         }
@@ -219,6 +222,19 @@ impl EditorView {
                 self.run_function(code, &[], window, cx);
             }
             _ => self.autoscroll_exit(),
+        }
+    }
+
+    /// The middle button released outside the view: only a press that waited here is finished
+    /// (the release of another view's press must not run the function of the button again).
+    pub(crate) fn on_middle_mouse_up_outside(
+        &mut self,
+        event: &MouseUpEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if matches!(self.autoscroll, AutoScroll::Pending { .. }) {
+            self.on_middle_mouse_up(event, window, cx);
         }
     }
 
