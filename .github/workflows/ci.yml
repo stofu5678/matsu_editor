@@ -46,7 +46,7 @@ jobs:
             files=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}/files" --paginate --jq '.[].filename')
             # The API lists at most 3000 files: a longer change may hide code, so it counts as code.
             count=$(printf '%s\n' "$files" | wc -l)
-            if [ -n "$files" ] && [ "$count" -lt 3000 ] && !printf '%s\n' "$files" | grep -Ev '(\.md$|^docs/)' > /dev/null; then
+            if [ -n "$files" ] && [ "$count" -lt 3000 ] && ! printf '%s\n' "$files" | grep -Ev '(\.md$|^docs/)' > /dev/null; then
               code=false
             fi
             printf 'changed files:\n%s\n' "$files"
