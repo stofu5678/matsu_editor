@@ -230,6 +230,57 @@ fn save_all_does_not_overwrite_the_file_of_a_view_mode_window(cx: &mut TestAppCo
     assert!(wb.modified(cx));
 }
 
+// ---- the check before saving (`CSaveAgent::OnCheckSave`) ----
+
+#[gpui::test]
+fn save_as_refuses_a_file_another_window_has_open(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let a = file(&dir, "a.txt", "a");
+    let b = file(&dir, "b.txt", "b");
+    let _wa = with_file(cx, &a);
+    let wb = with_file(cx, &b);
+    wb.type_text(cx, "x");
+    wb.run_with(cx, "F_FILESAVEAS", &[Arg::Text(a.display().to_string())]);
+    let (message, _) = wb.pending_prompt(cx).expect("the refusal is shown");
+    assert!(message.contains("他のウィンドウで使用中です"), "{message}");
+    assert!(message.contains(&a.display().to_string()), "{message}");
+    wb.cx(cx).simulate_prompt_answer(OK);
+    cx.run_until_parked();
+    assert_eq!(read(&a), "a");
+    assert_eq!(read(&b), "b");
+    assert!(wb.modified(cx));
+}
+
+/// Another program that holds the lock of the file (here a lock of the same kind, as another
+/// UME Editor would take) stops the save: Windows by the share mode, the others by the `flock`
+/// that `check_writable` tries.
+#[gpui::test]
+fn save_is_refused_while_another_program_holds_the_file(cx: &mut TestAppContext) {
+    use ume_platform::file_lock::{FileLock, ShareMode};
+    let dir = tempfile::tempdir().unwrap();
+    let path = file(&dir, "a.txt", "abc");
+    let w = with_file(cx, &path);
+    w.type_text(cx, "x");
+    let other = FileLock::acquire(&path, ShareMode::DenyWrite).unwrap();
+
+    w.run(cx, "F_FILESAVE");
+    let (message, _) = w.pending_prompt(cx).expect("the refusal is shown");
+    assert!(
+        message.contains("他のアプリケーションで使用されている可能性があります"),
+        "{message}"
+    );
+    w.cx(cx).simulate_prompt_answer(OK);
+    cx.run_until_parked();
+    assert_eq!(read(&path), "abc");
+    assert!(w.modified(cx));
+
+    // Once the other lock is gone, the same save goes through.
+    drop(other);
+    w.run(cx, "F_FILESAVE");
+    assert_eq!(read(&path), "xabc");
+    assert!(!w.modified(cx));
+}
+
 // ---- F_VIEWMODE ----
 
 #[gpui::test]
@@ -357,7 +408,7 @@ fn reopening_keeps_view_mode_and_a_new_document_clears_it(cx: &mut TestAppContex
     assert!(w.view_mode(cx), "reopen keeps the mode");
     w.run(cx, "F_FILECLOSE");
     assert!(!w.view_mode(cx), "a new document starts without it");
-    assert_eq!(w.title(cx), "(無題) - UME Editor");
+    assert_eq!(w.title(cx), "(無題)1 - UME Editor");
 }
 
 // ---- F_OPEN_HfromtoC ----

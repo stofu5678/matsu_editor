@@ -411,7 +411,7 @@ fn a_grep_window_cannot_be_closed_while_it_searches_and_never_asks_to_save(
     assert_eq!(text_of(&f.view, cx), "");
     // the window is an ordinary one again: its notes are asked about
     assert!(!f.view.read_with(cx, |v, _| v.is_grep_window()));
-    assert_eq!(f.title(cx), default_title("(無題)"));
+    assert_eq!(f.title(cx), default_title("(無題)1"));
     cx.simulate_input("notes");
     f.run(cx, "F_FILECLOSE", &[]);
     assert!(cx.has_pending_prompt(), "the notes are asked about");

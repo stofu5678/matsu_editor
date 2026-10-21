@@ -449,7 +449,7 @@ pub(crate) async fn reopen(
         return true;
     };
     if !no_confirm && modified {
-        let title = document_title(Some(&path));
+        let title = document_title(Some(&path), None);
         if !confirm(
             cx,
             &reload_message(&title),

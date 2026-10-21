@@ -48,7 +48,7 @@ fn opened_files_are_tabs_with_their_names(cx: &mut TestAppContext) {
     open_file(cx, handle, &a);
     open_file(cx, handle, &b);
     assert_eq!(windows(cx), 1);
-    assert_eq!(captions(cx, handle), ["(無題)", "a.txt", "b.txt"]);
+    assert_eq!(captions(cx, handle), ["(無題)1", "a.txt", "b.txt"]);
     assert_eq!(active_tab(cx, handle), 2);
     assert_eq!(first_line(cx, handle), "beta");
     std::fs::remove_dir_all(&dir).ok();
@@ -129,7 +129,7 @@ fn a_file_from_outside_is_a_tab_of_the_active_window(cx: &mut TestAppContext) {
     let handle = window(cx, true);
     from_outside(cx, vec![a.clone(), b.clone()]);
     assert_eq!(windows(cx), 1, "tabs, not windows");
-    assert_eq!(captions(cx, handle), ["(無題)", "a.txt", "b.txt"]);
+    assert_eq!(captions(cx, handle), ["(無題)1", "a.txt", "b.txt"]);
     // The first file again: its tab, no copy.
     from_outside(cx, vec![a]);
     assert_eq!(windows(cx), 1);
@@ -205,16 +205,16 @@ fn the_tooltip_of_a_tab_is_the_path_with_the_replacements_and_the_text_is_the_na
     // caption (`CTabWnd::GetTabName`).
     assert_eq!(
         tooltips(cx, handle),
-        ["(無題)".to_owned(), a.to_string_lossy().into_owned()]
+        ["(無題)1".to_owned(), a.to_string_lossy().into_owned()]
     );
     // The list of 「ファイル名表示」: the folder of the file becomes a short name.
     let from = format!("{}{}", dir.display(), std::path::MAIN_SEPARATOR);
     let rows = [vec![from, "作業:".to_owned()]];
     let names = FileNames::new(true, 100, &rows, &NoFolders, false);
     cx.update(|app| app.set_global(names));
-    assert_eq!(tooltips(cx, handle), ["(無題)", "作業:a.txt"]);
+    assert_eq!(tooltips(cx, handle), ["(無題)1", "作業:a.txt"]);
     // The text of the tab is the name of the file, as before.
-    assert_eq!(captions(cx, handle), ["(無題)", "a.txt"]);
+    assert_eq!(captions(cx, handle), ["(無題)1", "a.txt"]);
     // A long path is shortened by the setting, but not cut to the width (`bFitMode` is false).
     let narrow = FileNames::new(true, 3, &[], &NoFolders, false);
     cx.update(|app| app.set_global(narrow));

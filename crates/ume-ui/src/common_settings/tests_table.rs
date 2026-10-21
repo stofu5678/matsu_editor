@@ -314,7 +314,7 @@ fn the_title_formats_of_the_window_page_make_the_title(cx: &mut TestAppContext) 
     };
     // The file's formats are in use from the start; the active one is Sakura's default.
     let (active, inactive) = titles(cx);
-    assert_eq!(active, crate::file_names::title::default_title("(無題)"));
+    assert_eq!(active, crate::file_names::title::default_title("(無題)1"));
     assert_eq!(inactive, "inactive (無題)");
     // The boxes are live and show the file.
     run(cx, handle, "F_OPTION_WINDOW");

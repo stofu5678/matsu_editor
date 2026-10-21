@@ -134,7 +134,7 @@ pub(crate) fn candidates(cx: &mut App, owner: Owner) -> Vec<Candidate> {
                 doc,
                 label: label(
                     i,
-                    &names.name_of(shared.path(), true),
+                    &names.name_of(shared.path(), shared.untitled_number(), true),
                     shared.model().is_modified(),
                     shared.file().encoding,
                 ),

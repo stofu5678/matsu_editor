@@ -122,7 +122,7 @@ pub(crate) struct Target {
 pub(crate) fn text_of(view: &EditorView, full: bool, cx: &App) -> String {
     let path = view.document().read(cx).path();
     match (full, path) {
-        (true, Some(_)) => crate::file_names::current(cx).name_of(path, false),
+        (true, Some(_)) => crate::file_names::current(cx).name_of(path, None, false),
         _ => Workspace::caption_of(view, cx),
     }
 }

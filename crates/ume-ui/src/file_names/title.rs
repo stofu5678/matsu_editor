@@ -7,14 +7,13 @@
 //! folder (`$E`).
 //!
 //! The caret (`$x`, `$y`) is that of the document, as the print headers take it. Not supported, as
-//! in the print headers: the selection (`$C`), the date and time (`$d`, `$t`, `$D`, `$T`), the document type (`$B`), the number of an untitled document
-//! (`$n`), the path of the program, the settings file and the macro (`$S`, `$I`, `$M`) and the
+//! in the print headers: the selection (`$C`), the date and time (`$d`, `$t`, `$D`, `$T`), the document type (`$B`), the path of the program, the settings file and the macro (`$S`, `$I`, `$M`) and the
 //! profile (`$<profile>`); they stay empty. `${I?...}` (the window is a symbol) is never the case.
 //! `${R?...}` has all three cases: the view mode, a file that cannot be written (上書き禁止) and
 //! neither.
 
 use gpui::{App, Global};
-use ume_print::{HeaderContext, WindowKind, WriteState, expand_parameter};
+use ume_print::{HeaderContext, WindowKind, WriteState};
 
 use super::FileNames;
 
@@ -69,17 +68,27 @@ pub(crate) struct Subject<'a> {
     pub grep_key: Option<&'a str>,
     /// The caret: the line and the column, both counted from 0.
     pub caret: (usize, usize),
+    /// The number of an untitled document (`$n`).
+    pub untitled_number: Option<u32>,
 }
 
 /// `ExpandParameter` of `format` for `subject`.
+#[cfg(test)]
 pub(crate) fn expand(format: &str, subject: &Subject<'_>, names: &FileNames) -> String {
+    ume_print::expand_parameter(format, &context(subject, names), None)
+}
+
+/// What `ExpandParameter` reads from the window: the title, the tab caption and the headers of
+/// the print all take it (`CSakuraEnvironment::ExpandParameter`).
+pub(crate) fn context(subject: &Subject<'_>, names: &FileNames) -> HeaderContext {
     let folder = subject
         .path
         .and_then(|path| path.rfind(std::path::is_separator).map(|i| &path[..=i]));
-    let context = HeaderContext {
+    HeaderContext {
         app_name: crate::support::about::PRODUCT.to_owned(),
         version: env!("CARGO_PKG_VERSION").to_owned(),
         file_path: subject.path.map(str::to_owned),
+        untitled_number: subject.untitled_number,
         file_path_short: subject.path.map(|path| names.transform(path, true)),
         folder_short: folder.map(|folder| names.transform(folder, true)),
         grep_key: subject.grep_key.unwrap_or_default().to_owned(),
@@ -102,8 +111,7 @@ pub(crate) fn expand(format: &str, subject: &Subject<'_>, names: &FileNames) -> 
         caret_x: subject.caret.1 + 1,
         caret_y: subject.caret.0 + 1,
         ..HeaderContext::default()
-    };
-    expand_parameter(format, &context, None)
+    }
 }
 
 /// The title Sakura's default format makes for a window with `name` and its marks, for the tests of

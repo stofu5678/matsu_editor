@@ -251,6 +251,12 @@ pub(crate) async fn save(
         return SaveOutcome::Cancelled;
     }
 
+    // The rest of `CSaveAgent::OnCheckSave`: another window must not hold the file, and the file
+    // must be writable now.
+    if let Some(outcome) = check_target(view, cx, current.as_deref(), &path).await {
+        return outcome;
+    }
+
     // The options: the document's own, then what the request changes.
     let Ok((mut options, current_format)) = view.read_with(cx, |view, app| {
         let mut options = SaveOptions::keep(view.document().read(app).file());
@@ -364,6 +370,73 @@ pub(crate) async fn save(
         }
         None => SaveOutcome::Cancelled,
     }
+}
+
+/// `CSaveAgent::OnCheckSave` after the view mode check: `Some` stops the save.
+///
+/// * Under another name, a file that another window has open is refused
+///   (`STR_SAVEAGENT_OTHER`, `CShareData::IsPathOpened`).
+/// * The file is opened for appending to see that it can be written, with the lock of this
+///   window let go of for the moment and taken again after (`STR_SAVEAGENT_OTHER_APP`). A file
+///   that is not there is made and deleted. On Windows another program that denies writing
+///   refuses the open; on macOS and Linux an exclusive `flock` is tried too, which another
+///   editor's lock refuses (`ume_platform::file_lock::check_writable`).
+async fn check_target(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    current: Option<&std::path::Path>,
+    path: &std::path::Path,
+) -> Option<SaveOutcome> {
+    let same = current.is_some_and(|current| super::windows::same_file(current, path));
+    if !same {
+        let this = view.entity_id();
+        let open_elsewhere = cx
+            .update(|_, app| super::windows::find_open_except(app, path, Some(this)).is_some())
+            .unwrap_or(false);
+        if open_elsewhere {
+            tell(
+                cx,
+                PromptLevel::Critical,
+                &format!(
+                    "'{}'\nファイルを保存できません。\n他のウィンドウで使用中です。",
+                    path.display()
+                ),
+                None,
+            )
+            .await;
+            return Some(SaveOutcome::Cancelled);
+        }
+    }
+    let released = view
+        .update(cx, |view, cx| {
+            view.document()
+                .update(cx, |shared, _| shared.release_lock_for(path))
+        })
+        .unwrap_or(false);
+    let writable = ume_platform::file_lock::check_writable(path);
+    // The lock is taken again whatever the answer, without the message of a failed lock
+    // (`DoFileLock(false)`).
+    view.update(cx, |view, cx| {
+        view.document().update(cx, |shared, _| {
+            shared.restore_lock(released);
+            shared.forget_lock_failure();
+        });
+    })
+    .ok();
+    if writable.is_err() {
+        tell(
+            cx,
+            PromptLevel::Critical,
+            &format!(
+                "'{}'\nファイルを保存できません。\nパスが存在しないか、他のアプリケーションで使用されている可能性があります。",
+                path.display()
+            ),
+            None,
+        )
+        .await;
+        return Some(SaveOutcome::Cancelled);
+    }
+    None
 }
 
 /// Steps 3 and 4 of the flow: the questions about mixed line endings and about characters the

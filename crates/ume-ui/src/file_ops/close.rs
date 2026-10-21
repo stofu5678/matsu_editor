@@ -54,7 +54,7 @@ async fn ask_about_changes(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowCo
         // (`CEditDoc::OnFileClose`, `m_bGrepExitConfirm`).
         let title = view
             .grep_title()
-            .unwrap_or_else(|| document_title(shared.path()));
+            .unwrap_or_else(|| document_title(shared.path(), shared.untitled_number()));
         // Only the encoding or the BOM changed (`IsChgCodeSet`): asked with its own message.
         let only_format =
             !view.is_grep_window() && !shared.model().is_modified() && shared.format_changed();

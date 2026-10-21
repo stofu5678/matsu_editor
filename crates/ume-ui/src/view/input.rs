@@ -197,6 +197,8 @@ impl EntityInputHandler for EditorView {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // Typed text (`Command_WCHAR`) ends the auto scroll.
+        self.autoscroll_exit();
         let was_composing = self.composing;
         let over_selection = was_composing && self.composing_over_selection;
         let mut chars = text.chars();
@@ -253,6 +255,8 @@ impl EntityInputHandler for EditorView {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // A composition starts: it ends the auto scroll like any typed text.
+        self.autoscroll_exit();
         if self.isearch.is_some() {
             return; // the composition is not shown; its commit goes to the pattern
         }

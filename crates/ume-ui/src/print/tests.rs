@@ -88,6 +88,44 @@ fn the_job_has_what_the_header_shows(cx: &mut TestAppContext) {
     assert_eq!(job.header.file_path, None);
 }
 
+/// `$R` and `$N` of the header are filled as the title fills them (`ExpandParameter`).
+#[gpui::test]
+fn the_header_has_the_write_state_the_short_path_and_the_number(cx: &mut TestAppContext) {
+    use ume_print::{WriteState, expand_parameter};
+    let (view, cx) = setup(cx, "abc", Some("/tmp/memo.txt"));
+    let job = view.read_with(cx, |v, cx| v.print_job(cx));
+    assert_eq!(job.header.write_state, WriteState::Writable);
+    assert_eq!(job.header.file_path_short.as_deref(), Some("/tmp/memo.txt"));
+    assert_eq!(
+        expand_parameter("$N ${R?(ビューモード)$:(上書き禁止)$}", &job.header, None),
+        "/tmp/memo.txt "
+    );
+
+    view.update(cx, |v, cx| {
+        v.document()
+            .update(cx, |shared, cx| shared.set_view_mode(true, cx));
+    });
+    let job = view.read_with(cx, |v, cx| v.print_job(cx));
+    assert_eq!(job.header.write_state, WriteState::ViewMode);
+    assert_eq!(
+        expand_parameter("${R?(ビューモード)$:(上書き禁止)$}", &job.header, None),
+        "(ビューモード)"
+    );
+    assert_eq!(job.header.app_name, crate::support::about::PRODUCT);
+
+    // A document with no file has its number: `$f$n`.
+    let (view, cx) = setup(cx, "", None);
+    let number = view.update(cx, |v, cx| {
+        v.document()
+            .update(cx, |shared, _| shared.number_untitled())
+    });
+    let job = view.read_with(cx, |v, cx| v.print_job(cx));
+    assert_eq!(
+        expand_parameter("$f$n", &job.header, None),
+        format!("(無題){number}")
+    );
+}
+
 #[gpui::test]
 fn the_preview_takes_the_place_of_the_text_and_esc_goes_back(cx: &mut TestAppContext) {
     let (view, cx) = setup(cx, &many_lines(200), None);

@@ -36,6 +36,7 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         window.focus(&self.focus_handle, cx);
+        self.autoscroll_button_pressed(MouseButton::Left);
         self.hide_key_help(cx);
         let Some(paint) = self.paint else {
             return;

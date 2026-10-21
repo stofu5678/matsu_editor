@@ -55,9 +55,13 @@ pub(crate) async fn tell(
     let _ = cx.prompt(level, message, detail, &["OK"]).await;
 }
 
-/// The name of a document in a question: its path, or 無題 (`STR_NO_TITLE1`).
-pub(crate) fn document_title(path: Option<&Path>) -> String {
-    path.map_or_else(|| "(無題)".to_owned(), |p| p.display().to_string())
+/// The name of a document in a question: its path, or 無題 (`STR_NO_TITLE1`) and the number of
+/// the window (`CEditDoc::OnFileClose`).
+pub(crate) fn document_title(path: Option<&Path>, untitled_number: Option<u32>) -> String {
+    path.map_or_else(
+        || crate::file_names::untitled_name(untitled_number),
+        |p| p.display().to_string(),
+    )
 }
 
 /// `STR_ERR_DLGEDITDOC31`: asked before a modified document is closed.
@@ -139,8 +143,9 @@ mod tests {
 
     #[test]
     fn the_questions_name_the_document() {
-        assert_eq!(document_title(None), "(無題)");
-        assert_eq!(document_title(Some(Path::new("a.txt"))), "a.txt");
+        assert_eq!(document_title(None, None), "(無題)");
+        assert_eq!(document_title(None, Some(3)), "(無題)3");
+        assert_eq!(document_title(Some(Path::new("a.txt")), Some(3)), "a.txt");
         assert!(save_before_close_message("a.txt").starts_with("a.txt\nは変更されています"));
         assert!(reload_message("a.txt").contains("再ロード"));
         assert!(unify_line_endings_message("LF").contains("LF"));
