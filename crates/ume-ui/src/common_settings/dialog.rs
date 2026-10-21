@@ -1156,6 +1156,7 @@ impl CommonSettingsDialog {
                 .map(|(index, row)| {
                     semantics::table_row(
                         h_flex().id(SharedString::from(format!("cs-{id}-row-{index}"))),
+                        row,
                         index,
                         selected == Some(index),
                     )
