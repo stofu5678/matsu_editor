@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use gpui::{AppContext as _, Entity, TestAppContext, VisualTestContext};
 use ume_commands::command::Arg;
 use ume_commands::sakura::FUNCTIONS;
-use ume_core::buffer::Pos;
+use ume_core::buffer::{Eol, Pos};
 
 use super::load::progress_text;
 use super::windows::{LoadRequest, open_editor_window};
@@ -96,6 +96,12 @@ impl Fixture {
             (0..doc.line_count())
                 .map(|i| doc.line(i).unwrap().unwrap().text)
                 .collect()
+        })
+    }
+
+    fn first_eol(&self, cx: &mut VisualTestContext) -> Option<Eol> {
+        self.view.read_with(cx, |view, app| {
+            view.document().read(app).doc().line(0).unwrap().unwrap().eol
         })
     }
 
@@ -351,6 +357,62 @@ fn save_as_without_a_dialog_takes_the_name_and_the_line_ending(cx: &mut TestAppC
     assert_eq!(read(&target), b"a\nb");
     assert!(!cx.has_pending_prompt());
 }
+
+#[gpui::test]
+fn a_save_that_names_a_line_ending_converts_the_document_as_an_undo_step(cx: &mut TestAppContext) {
+    // `CSaveAgent::OnBeforeSave` -> `CDocVisitor::SetAllEol`: the conversion is an edit of the
+    // document, so Undo after the save takes the line endings back, not the typed character
+    // (the oracle case undo-past-save-change-eol-only).
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", b"a\r\nb");
+    let target = dir.path("c.txt");
+    let (f, cx) = setup(cx);
+    f.open(cx, &path, Some(UTF8));
+    cx.simulate_input("x");
+    f.run(
+        cx,
+        "F_FILESAVEAS",
+        &[
+            Arg::Text(target.display().to_string()),
+            Arg::Int(99),
+            Arg::Int(2),
+        ],
+    );
+    assert_eq!(read(&target), b"xa\nb");
+    assert!(!f.modified(cx));
+    assert_eq!(f.first_eol(cx), Some(Eol::Lf));
+
+    f.run(cx, "F_UNDO", &[]);
+    assert_eq!(f.lines(cx), ["xa", "b"], "the typed character stays");
+    assert_eq!(f.first_eol(cx), Some(Eol::CrLf));
+    assert!(f.modified(cx));
+
+    // A plain save writes the document as it is.
+    f.run(cx, "F_FILESAVE", &[]);
+    assert_eq!(read(&target), b"xa\r\nb");
+}
+
+#[gpui::test]
+fn a_save_that_converts_nothing_is_not_an_undo_step(cx: &mut TestAppContext) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", b"a\nb");
+    let target = dir.path("c.txt");
+    let (f, cx) = setup(cx);
+    f.open(cx, &path, Some(UTF8));
+    cx.simulate_input("x");
+    f.run(
+        cx,
+        "F_FILESAVEAS",
+        &[
+            Arg::Text(target.display().to_string()),
+            Arg::Int(99),
+            Arg::Int(2),
+        ],
+    );
+    f.run(cx, "F_UNDO", &[]);
+    assert_eq!(f.lines(cx), ["a", "b"], "the typed character is undone");
+}
+
 
 #[gpui::test]
 fn characters_the_encoding_cannot_write_are_asked_about(cx: &mut TestAppContext) {

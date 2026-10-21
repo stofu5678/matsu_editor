@@ -15,7 +15,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use gpui::{Context, EventEmitter};
-use ume_core::buffer::{Document, Eol};
+use ume_core::buffer::{Document, Eol, Pos};
+use ume_core::cursor::Cursor;
 use ume_core::encoding::Encoding;
 use ume_core::file::{Progress, SaveOptions, SaveReport, TextFile, UnmappableReport};
 use ume_core::model::DocumentModel;
@@ -244,6 +245,45 @@ impl SharedDocument {
             self.model.set_new_line(eol);
         }
         Ok(report)
+    }
+
+    /// `CDocVisitor::SetAllEol` (`sakura_core/doc/CDocVisitor.cpp`), which `CSaveAgent::OnBeforeSave`
+    /// runs for a save that names a line ending: every line ending that is not `eol` is replaced in
+    /// the document, as one undo step, and the line ending that Enter inserts becomes `eol`. Undo
+    /// after such a save therefore undoes the conversion first, not the typing before it. Nothing
+    /// is recorded when no line differs. Returns whether the text changed (the caller then calls
+    /// [`changed`](Self::changed)).
+    ///
+    /// The file is written with the endings converted already (`TextFile::save_as`), so this only
+    /// brings the document to what was written; the file keeps no memory of the conversion
+    /// afterwards (`eol_on_save`), because the document says it.
+    pub(crate) fn unify_line_endings(&mut self, eol: Eol, cursor: &Cursor) -> bool {
+        self.file.eol_on_save = None;
+        self.model.set_new_line(eol);
+        let wanted = ume_core::model::eol_text(eol);
+        let mut changed = false;
+        let lines = self.model.doc().line_count();
+        for line in 0..lines {
+            let Ok(Some(current)) = self.model.doc().line(line) else {
+                continue;
+            };
+            if current.eol.is_none_or(|e| e == eol) {
+                continue;
+            }
+            if !changed {
+                self.model.begin_block(cursor);
+                changed = true;
+            }
+            let from = Pos::new(line, current.text.len());
+            let to = Pos::new(line + 1, 0);
+            if self.model.replace(from, to, wanted).is_err() {
+                break;
+            }
+        }
+        if changed {
+            self.model.end_block(cursor);
+        }
+        changed
     }
 
     /// `CAutoReloadAgent::OnAfterSave` and `CDocLocker::OnAfterSave`: the file is what this editor

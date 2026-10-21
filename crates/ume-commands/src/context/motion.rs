@@ -17,6 +17,13 @@ pub(crate) fn is_indent_char(c: char) -> bool {
     matches!(c, ' ' | '\t' | '\u{3000}')
 }
 
+/// `Command_GOLINETOP` flag 1: go to the start whatever the caret position.
+pub const LINE_TOP_ONLY: i64 = 1;
+/// `Command_GOLINETOP` and `Command_GOLINEEND` flag 4: extend the selection.
+pub const LINE_TOP_SELECT: i64 = 4;
+/// `Command_GOLINETOP` and `Command_GOLINEEND` flag 8: work on the line, not the row.
+pub const LINE_TOP_LINE_UNIT: i64 = 8;
+
 impl CommandContext<'_> {
     /// Whether a move extends the selection: it was asked to, or the selection is locked
     /// (Sakura passes `m_bSelectingLock` as `bSelect` for the plain moves, `HandleCommand`).
@@ -116,35 +123,28 @@ impl CommandContext<'_> {
         Ok(())
     }
 
-    /// The start of the row, or the first char that is not indentation if the caret is not
-    /// there already (and the start of the row if it is). A row that is only indentation goes
-    /// to the start. Sakura: `Command_GOLINETOP` without the "line top only" flag.
-    pub fn move_line_top(&mut self, extend: bool) -> Result<()> {
-        let extend = self.extends(extend);
+    /// `Command_GOLINETOP` with the extended flags that a macro passes
+    /// (`sakura_core/cmd/CViewCommander_Cursor.cpp`): [`LINE_TOP_ONLY`] goes to the start
+    /// whatever the caret position (no stop at the first char that is not indentation),
+    /// [`LINE_TOP_SELECT`] extends the selection, [`LINE_TOP_LINE_UNIT`] works on the line instead
+    /// of the row. Other bits are ignored, as Sakura does.
+    ///
+    /// Without the line unit flag, a row that is only indentation goes to the start of the row.
+    /// With it, a wrapped row that is only indentation does not stop the search: the first char
+    /// that is not indentation in the rows of the line counts, and the start of the line is the
+    /// answer when there is none.
+    pub fn move_line_top_flags(&mut self, extend: bool, flags: i64) -> Result<()> {
+        let extend = self.extends(extend || flags & LINE_TOP_SELECT != 0);
         let caret = self.caret();
-        let row_start = self.layout.row_start(self.doc(), caret)?;
-        let row_end = self.layout.row_end(self.doc(), caret)?;
-        let text = self.doc().text_between(row_start, row_end)?;
-        let first = text
-            .char_indices()
-            .find(|&(_, c)| !is_indent_char(c))
-            .map_or(row_start, |(i, _)| {
-                Pos::new(row_start.line, row_start.col + i)
-            });
-        // A box caret in the empty space is not at the first char, even when the row ends there.
-        let at_first = caret == first && !self.caret_is_in_empty_space()?;
-        let target = if at_first { row_start } else { first };
-        self.move_caret(target, extend)
-    }
-
-    /// As [`move_line_top`](Self::move_line_top), for the line of the caret instead of its row
-    /// (Sakura: `Command_GOLINETOP` with the flag 8, "line unit"). A wrapped row that is only
-    /// indentation does not stop the search: the first char that is not indentation in the rows
-    /// of the line counts, and the start of the line is the answer when there is none.
-    pub fn move_logical_line_top(&mut self, extend: bool) -> Result<()> {
-        let extend = self.extends(extend);
-        let caret = self.caret();
-        let top = Pos::new(caret.line, 0);
+        let line_unit = flags & LINE_TOP_LINE_UNIT != 0;
+        let top = if line_unit {
+            Pos::new(caret.line, 0)
+        } else {
+            self.layout.row_start(self.doc(), caret)?
+        };
+        if flags & LINE_TOP_ONLY != 0 {
+            return self.move_caret(top, extend);
+        }
         let (mut row, mut first) = (top, top);
         loop {
             let end = self.layout.row_end(self.doc(), row)?;
@@ -153,22 +153,36 @@ impl CommandContext<'_> {
                 first = Pos::new(row.line, row.col + i);
                 break;
             }
+            if !line_unit {
+                break;
+            }
             match self.layout.next_row_start(self.doc(), row)? {
                 Some(next) if next.line == top.line => row = next,
                 _ => break,
             }
         }
+        // A box caret in the empty space is not at the first char, even when the row ends there.
         let at_first = caret == first && !self.caret_is_in_empty_space()?;
         self.move_caret(if at_first { top } else { first }, extend)
     }
 
-    /// The end of the row, before the line ending (Sakura: `Command_GOLINEEND`).
-    pub fn move_line_end(&mut self, extend: bool) -> Result<()> {
-        let extend = self.extends(extend);
-        if extend && self.cursor.is_box() {
+    /// `Command_GOLINEEND` with the extended flags that a macro passes
+    /// (`sakura_core/cmd/CViewCommander_Cursor.cpp`): flag 4 extends the selection, flag 8 goes
+    /// to the end of the last row of the line instead of the end of the row.
+    pub fn move_line_end_flags(&mut self, extend: bool, flags: i64) -> Result<()> {
+        let extend = self.extends(extend || flags & LINE_TOP_SELECT != 0);
+        let mut row = self.caret();
+        if flags & LINE_TOP_LINE_UNIT != 0 {
+            while let Some(next) = self.layout.next_row_start(self.doc(), row)? {
+                if next.line != row.line {
+                    break;
+                }
+                row = next;
+            }
+        } else if extend && self.cursor.is_box() {
             return self.box_move_to_row_end();
         }
-        let target = self.layout.row_end(self.doc(), self.caret())?;
+        let target = self.layout.row_end(self.doc(), row)?;
         self.move_caret(target, extend)
     }
 

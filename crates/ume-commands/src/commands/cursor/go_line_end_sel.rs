@@ -14,8 +14,8 @@ impl Command for GoLineEndSel {
     const ID: &'static str = "go_line_end_sel";
     const SAKURA: &'static str = "F_GOLINEEND_SEL";
 
-    fn run(&self, cx: &mut CommandContext<'_>, _args: &[Arg]) -> Result {
-        cx.move_line_end(true)
+    fn run(&self, cx: &mut CommandContext<'_>, args: &[Arg]) -> Result {
+        cx.move_line_end_flags(true, Arg::first_int(args))
     }
 }
 
@@ -29,5 +29,14 @@ mod tests {
     fn moves() {
         check("go_line_end_sel", "ab|cd", "ab[cd|");
         check("go_line_end_sel", "ab|cd\r\nef", "ab[cd|\r\nef");
+    }
+
+    #[test]
+    fn the_flag_8_is_accepted() {
+        use crate::command::Arg;
+        use crate::testing::Editor;
+        let mut e = Editor::new("a|bc\nd");
+        e.run_with("go_line_end_sel", &[Arg::Int(8)]);
+        e.assert_marked("a[bc|\nd");
     }
 }

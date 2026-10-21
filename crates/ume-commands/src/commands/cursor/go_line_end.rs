@@ -17,8 +17,8 @@ impl Command for GoLineEnd {
     const ID: &'static str = "go_line_end";
     const SAKURA: &'static str = "F_GOLINEEND";
 
-    fn run(&self, cx: &mut CommandContext<'_>, _args: &[Arg]) -> Result {
-        cx.move_line_end(false)
+    fn run(&self, cx: &mut CommandContext<'_>, args: &[Arg]) -> Result {
+        cx.move_line_end_flags(false, Arg::first_int(args))
     }
 }
 
@@ -43,5 +43,21 @@ mod tests {
         let mut e = Editor::new("ab|cd\nabcdefgh");
         e.run("go_line_end").run("cursor_down");
         e.assert_marked("abcd\nabcd|efgh");
+    }
+
+    #[test]
+    fn the_macro_flags() {
+        use crate::command::Arg;
+        // Sakura: `Command_GOLINEEND`, flag 4 = select, 8 = line unit (one row here: no wrap).
+        let run = |before: &str, flags: i64, after: &str| {
+            let mut e = Editor::new(before);
+            e.run_with("go_line_end", &[Arg::Int(flags)]);
+            e.assert_marked(after);
+        };
+        run("a|bc\nd", 0, "abc|\nd");
+        run("a|bc\nd", 4, "a[bc|\nd");
+        run("a|bc\nd", 8, "abc|\nd");
+        run("a|bc\nd", 12, "a[bc|\nd");
+        run("a|bc\nd", 1, "abc|\nd");
     }
 }

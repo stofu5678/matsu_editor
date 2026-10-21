@@ -39,8 +39,10 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+use ume_core::buffer::Eol;
+
 use crate::command::{Arg, CommandError};
-use crate::context::CommandContext;
+use crate::context::{CommandContext, macro_value_of_eol};
 use crate::macro_names;
 use crate::registry::Registry;
 use crate::sakura::FUNCTIONS;
@@ -608,10 +610,33 @@ impl KeyMacroRecorder {
         if !self.recording {
             return false;
         }
+        // The menu and status bar items of the line ending run `F_CHGMOD_EOL` in Sakura
+        // (`CViewCommander::HandleCommand`, `CEditWnd::OnNotify`), which a key macro records as
+        // `ChgmodEOL(n)` (`CMacro::AddLParam`).
+        if let Some(eol) = eol_of_chgmod_function(code) {
+            let args = [Arg::Int(macro_value_of_eol(eol))];
+            return self.record(F_CHGMOD_EOL, &args);
+        }
         match macro_names::by_code(code) {
             Some(row) if row.key_macro => self.steps.push(code, args).is_ok(),
             _ => false,
         }
+    }
+}
+
+/// `F_CHGMOD_EOL`.
+const F_CHGMOD_EOL: u16 = 32800;
+
+/// The line ending of `F_CHGMOD_EOL_CRLF`, `_LF`, `_CR`, `_NEL`, `_PS` and `_LS` (31081..31086).
+fn eol_of_chgmod_function(code: u16) -> Option<Eol> {
+    match code {
+        31081 => Some(Eol::CrLf),
+        31082 => Some(Eol::Lf),
+        31083 => Some(Eol::Cr),
+        31084 => Some(Eol::Nel),
+        31085 => Some(Eol::Ps),
+        31086 => Some(Eol::Ls),
+        _ => None,
     }
 }
 

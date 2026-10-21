@@ -50,7 +50,7 @@ pub use boxsel::MAX_BOX_COL;
 pub(crate) use clipboard::QUOTE;
 pub use diff::DiffJump;
 pub use funclist::FuncListJump;
-pub use modes::eol_of_type;
+pub use modes::{eol_of_macro_value, macro_value_of_eol};
 pub use modified_lines::ModifiedLineJump;
 pub(crate) use motion::is_indent_char;
 
