@@ -1,0 +1,4 @@
+// input: th.utf8.lf
+// code: 4
+FileSaveAs('@OUT@', 874, 0);
+ExitAll();

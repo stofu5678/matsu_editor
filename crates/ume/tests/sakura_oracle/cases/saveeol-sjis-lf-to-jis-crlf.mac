@@ -1,0 +1,4 @@
+// input: jp.sjis.lf
+// code: 0
+FileSaveAs('@OUT@', 1, 1);
+ExitAll();

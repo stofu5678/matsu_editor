@@ -1,0 +1,4 @@
+// input: zh-hant.utf8.lf
+// code: 4
+FileSaveAs('@OUT@', 950, 0);
+ExitAll();

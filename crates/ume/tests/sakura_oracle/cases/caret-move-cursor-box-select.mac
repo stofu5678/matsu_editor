@@ -1,0 +1,7 @@
+// input: ascii.grid.lf
+// code: 0
+MoveCursor(1, 3, 0);
+MoveCursor(3, 6, 2);
+Delete();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

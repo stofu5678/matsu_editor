@@ -1,0 +1,6 @@
+// input: jp.zen.jis.crlf
+// code: 0
+SelectAll();
+JIStoSJIS();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

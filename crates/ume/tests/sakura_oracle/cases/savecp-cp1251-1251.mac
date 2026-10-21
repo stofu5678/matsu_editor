@@ -1,0 +1,4 @@
+// input: ru.utf8.lf
+// code: 4
+FileSaveAs('@OUT@', 1251, 0);
+ExitAll();

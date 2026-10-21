@@ -16,6 +16,8 @@ extend-exclude = [
     "tools/bregonig-compat/make_cases.py",
     # Sakura's keyword sets, word for word (TeX commands, COBOL words and so on are not English).
     "crates/ume-config/src/settings/keyword_data/",
+    # Files that the oracle opens in other encodings (JIS escape sequences, Latin1 bytes are not words).
+    "crates/ume/tests/sakura_oracle/inputs/",
 ]
 
 [default.extend-words]

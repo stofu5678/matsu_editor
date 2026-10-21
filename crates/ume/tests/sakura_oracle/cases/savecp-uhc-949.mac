@@ -1,0 +1,4 @@
+// input: ko.utf8.lf
+// code: 4
+FileSaveAs('@OUT@', 949, 0);
+ExitAll();

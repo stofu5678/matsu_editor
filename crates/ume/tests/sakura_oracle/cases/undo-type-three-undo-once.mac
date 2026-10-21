@@ -1,0 +1,8 @@
+// input: ascii.words.lf
+// code: 0
+Char(88);
+Char(89);
+Char(90);
+Undo();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

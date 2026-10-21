@@ -1,0 +1,7 @@
+// input: ascii.mixed.lf
+// code: 0
+GoFileEnd();
+SelectLine(0);
+Delete();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

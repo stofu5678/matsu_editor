@@ -1,0 +1,9 @@
+// input: ascii.mixed.lf
+// code: 0
+Right();
+Right();
+Left_Sel();
+Left_Sel();
+InsText('<>');
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

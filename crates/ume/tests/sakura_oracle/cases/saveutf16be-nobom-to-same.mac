@@ -1,0 +1,4 @@
+// input: jp.zen.utf16be.nobom.lf
+// code: 6
+FileSaveAs('@OUT@', 6, 0);
+ExitAll();

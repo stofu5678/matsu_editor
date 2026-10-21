@@ -1,0 +1,4 @@
+// input: surr.utf8.lf
+// code: 4
+FileSaveAs('@OUT@', 54936, 0);
+ExitAll();

@@ -1,0 +1,8 @@
+// input: ascii.words.lf
+// code: 0
+ChgmodEOL(4);
+Down();
+Char(13);
+Char(13);
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

@@ -1,0 +1,7 @@
+// input: surr.utf8.lf
+// code: 4
+Right();
+Right_Sel();
+Delete();
+FileSaveAs('@OUT@', 4, 0);
+ExitAll();

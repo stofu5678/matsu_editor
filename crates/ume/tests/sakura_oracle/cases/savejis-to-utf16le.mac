@@ -1,0 +1,4 @@
+// input: jp.zen.jis.crlf
+// code: 1
+FileSaveAs('@OUT@', 3, 0);
+ExitAll();

@@ -1,0 +1,10 @@
+// input: ascii.grid.lf
+// code: 0
+BeginBoxSelect();
+Right_BoxSel();
+Right_BoxSel();
+Down_BoxSel();
+Right();
+InsText('<>');
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

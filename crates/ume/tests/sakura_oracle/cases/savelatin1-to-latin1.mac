@@ -1,0 +1,4 @@
+// input: latin1.lf
+// code: 8
+FileSaveAs('@OUT@', 8, 0);
+ExitAll();

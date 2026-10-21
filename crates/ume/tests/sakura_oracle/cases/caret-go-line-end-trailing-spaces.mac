@@ -1,0 +1,7 @@
+// input: ascii.spaces.lf
+// code: 0
+Down();
+GoLineEnd();
+InsText('<>');
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();
