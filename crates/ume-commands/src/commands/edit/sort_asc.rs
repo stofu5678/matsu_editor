@@ -171,6 +171,27 @@ mod tests {
     }
 
     #[test]
+    fn the_corners_of_the_box_stay_on_char_boundaries_after_the_lines_moved() {
+        // wide chars move to the first line: the corner is recomputed from its display column
+        let (text, corners) = sort_box("sort_desc", "|xz\n\u{3042}a\n", 2, 1);
+        assert_eq!(text, "\u{3042}a\nxz\n");
+        assert_eq!(corners, Some(((0, 0), (1, 2))));
+    }
+
+    #[test]
+    fn a_box_sort_that_the_view_mode_refuses_keeps_the_selection() {
+        let mut e = Editor::new("|b\na\n");
+        e.set_view_mode(true);
+        e.run("begin_box")
+            .run("cursor_right_box")
+            .run("cursor_down_box");
+        let before = e.marked();
+        assert!(e.try_run("sort_asc", &[]).is_err());
+        assert_eq!(e.marked(), before);
+        assert!(e.box_state().is_some());
+    }
+
+    #[test]
     fn a_box_sort_is_one_undo_step() {
         let mut e = Editor::new("|b\na\n");
         e.run("begin_box")

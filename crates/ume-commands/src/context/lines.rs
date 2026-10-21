@@ -140,8 +140,10 @@ impl CommandContext<'_> {
         if end <= first {
             return Ok(());
         }
+        self.refuse_in_view_mode()?;
         let new_line = eol_text(self.new_line());
-        let mut keyed: Vec<(Vec<u16>, String)> = Vec::with_capacity(end - first);
+        // the key, the line with its ending, and the length of the ending
+        let mut keyed: Vec<(Vec<u16>, String, usize)> = Vec::with_capacity(end - first);
         let mut lacked_eol = false;
         for line_no in first..end {
             let Some(line) = self.doc().line(line_no)? else {
@@ -150,24 +152,30 @@ impl CommandContext<'_> {
             let (from, to) = self.box_row_range(Pos::new(line_no, 0), left, right)?;
             let key: Vec<u16> = self.doc().text_between(from, to)?.encode_utf16().collect();
             let mut text = line.text;
-            match line.eol {
-                Some(eol) => text.push_str(eol_text(eol)),
+            let eol = match line.eol {
+                Some(eol) => eol_text(eol),
                 None => {
                     // only the last line can lack one
                     lacked_eol = true;
-                    text.push_str(new_line);
+                    new_line
                 }
-            }
-            keyed.push((key, text));
+            };
+            text.push_str(eol);
+            keyed.push((key, text, eol.len()));
         }
         keyed.sort_by(|x, y| {
             let order = x.0.cmp(&y.0);
             if ascending { order } else { order.reverse() }
         });
-        let mut sorted: Vec<String> = keyed.into_iter().map(|(_, line)| line).collect();
+        let mut sorted: Vec<String> = Vec::with_capacity(keyed.len());
+        let mut last_eol_len = 0;
+        for (_, line, eol_len) in keyed {
+            sorted.push(line);
+            last_eol_len = eol_len;
+        }
         if lacked_eol && let Some(last) = sorted.last_mut() {
-            let kept = last.trim_end_matches(['\r', '\n']).len();
-            last.truncate(kept);
+            // the ending of the line that ends up last, whatever it is (CR, LF, CRLF, NEL, ...)
+            last.truncate(last.len() - last_eol_len);
         }
         let start = Pos::new(first, 0);
         // a last line without an ending is replaced up to its end
@@ -183,7 +191,10 @@ impl CommandContext<'_> {
             // `replace` refuses while a box is selected
             self.cursor.clear_selection();
             self.replace(start, old_end, &new_text)?;
-            self.set_box((a, a_col), (c, c_col), lock);
+            // the lines moved: the corners keep their rows and display columns
+            let anchor = self.box_corner_pos(Pos::new(a.line, 0), a_col)?;
+            let caret = self.box_corner_pos(Pos::new(c.line, 0), c_col)?;
+            self.set_box((anchor, a_col), (caret, c_col), lock);
         }
         Ok(())
     }

@@ -135,7 +135,7 @@ impl CommandContext<'_> {
 
     /// The position of the box corner at display column `col` of `row`: the char that covers the
     /// column, the end of the text if the column is past it, and on a wrapped row the last char.
-    fn box_corner_pos(&self, row: Pos, col: usize) -> Result<Pos> {
+    pub(super) fn box_corner_pos(&self, row: Pos, col: usize) -> Result<Pos> {
         let info = self.box_row_info(row)?;
         if info.eof {
             return Ok(row);
