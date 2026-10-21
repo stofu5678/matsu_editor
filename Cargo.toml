@@ -15,3 +15,8 @@ unsafe_code = "deny"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
+
+# Release binaries ship without symbols (about 30% smaller; see docs/release.md).
+# Panics still unwind. To keep symbols, see docs/release.md.
+[profile.release]
+strip = true

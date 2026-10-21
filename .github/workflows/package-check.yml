@@ -11,6 +11,7 @@ on:
       - .github/workflows/package.yml
       - .github/workflows/package-check.yml
       - .github/workflows/release.yml
+      - Cargo.toml
       - release-please-config.json
       - .release-please-manifest.json
 
