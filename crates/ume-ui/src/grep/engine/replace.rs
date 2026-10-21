@@ -57,7 +57,7 @@
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use ume_core::buffer::{Document, Pos};
+use ume_core::buffer::{BufferError, Document, Pos};
 use ume_core::file::{FileError, SaveOptions, TextFile};
 use ume_core::search::{ReplaceTarget, Replacement, apply_replacements, replacement_for};
 
@@ -169,8 +169,13 @@ impl Runner<'_> {
                 None => put_in(&whole, &hits, &replace.text),
             };
             replaced += count;
-            if let Some(edit) = line_replacement(&doc, index, &line.text, eol, &whole, new) {
-                plan.push(edit);
+            match line_replacement(&doc, index, &line.text, eol, &whole, new) {
+                Ok(Some(edit)) => plan.push(edit),
+                Ok(None) => {}
+                Err(_) => {
+                    self.buffer.push_str(&format::file_read_error(paths.full));
+                    return Ok(());
+                }
             }
             self.flush_when_due();
         }
@@ -294,9 +299,9 @@ fn line_replacement(
     eol: &str,
     whole: &str,
     new: String,
-) -> Option<Replacement> {
+) -> Result<Option<Replacement>, BufferError> {
     if new == whole {
-        return None;
+        return Ok(None);
     }
     let start = Pos::new(index, 0);
     let (end, new) = if eol.is_empty() {
@@ -306,7 +311,7 @@ fn line_replacement(
     } else {
         (Pos::new(index + 1, 0), new)
     };
-    replacement_for(doc, &(start..end), &new, ReplaceTarget::Match).ok()
+    replacement_for(doc, &(start..end), &new, ReplaceTarget::Match).map(Some)
 }
 
 /// Copies `from` to `to`, which must not exist (a file or a link in the way is an error and is
