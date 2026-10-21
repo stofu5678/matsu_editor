@@ -158,7 +158,10 @@ pub(crate) fn update(cx: &mut App, change: impl FnOnce(&mut History)) -> Option<
         return None;
     }
     let result = cx.update_global(|state: &mut HistoryState, _| state.update(change));
-    crate::app::refresh_menus(cx);
+    // Later, not now: the caller may be inside the update of a view (closing a file records it),
+    // and the native menu (macOS) reads the active view for the states of its items. Reading it
+    // there panics ("while it is already being updated"); the E2E test on macOS found it.
+    cx.defer(crate::app::refresh_menus);
     result
 }
 

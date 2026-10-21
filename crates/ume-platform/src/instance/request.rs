@@ -70,10 +70,21 @@ impl Request {
     /// absolute against the working folder).
     pub fn from_current_process(args: impl IntoIterator<Item = OsString>) -> Request {
         let cwd = std::env::current_dir().unwrap_or_default();
-        Request {
-            args: args.into_iter().map(|a| absolute_arg(&cwd, a)).collect(),
-            cwd,
-        }
+        let mut options_end = false;
+        let args = args
+            .into_iter()
+            .map(|arg| {
+                // Sakura's options (`-M=`, `-CODE=`, ...) are not paths: the receiver reads them. A
+                // file is made absolute, and so is everything after `--`, which ends the options.
+                if !options_end && is_option(&arg) {
+                    options_end = arg == "--";
+                    arg
+                } else {
+                    absolute_arg(&cwd, arg)
+                }
+            })
+            .collect();
+        Request { args, cwd }
     }
 
     /// The whole message, with its length in front.
@@ -114,8 +125,14 @@ impl Request {
     }
 }
 
-/// An argument as the sender passes it on: made absolute against `cwd` unless it is empty.
-/// (Every argument is a path for now; the options of later versions will be left as they are.)
+/// Whether an argument is one of Sakura's options (`-X=1`, `"-X=1"`, `--`), as
+/// `CommandLine::parse_tokens` takes it.
+fn is_option(arg: &OsString) -> bool {
+    arg.to_str()
+        .is_some_and(|text| text.starts_with('-') || text.starts_with("\"-"))
+}
+
+/// A file as the sender passes it on: made absolute against `cwd` unless it is empty.
 fn absolute_arg(cwd: &std::path::Path, arg: OsString) -> OsString {
     if arg.is_empty() {
         return arg;
@@ -271,5 +288,19 @@ mod tests {
         assert_eq!(request.args[0], request.cwd.join("a.txt").into_os_string());
         assert!(request.args[1].is_empty());
         assert!(request.cwd.is_absolute());
+    }
+
+    #[test]
+    fn the_sender_leaves_the_options_alone() {
+        let args = ["-M=a.mac", "\"-X=3\"", "b.txt", "--", "-c.txt", "--"];
+        let request = Request::from_current_process(args.map(OsString::from));
+        let cwd = &request.cwd;
+        assert_eq!(request.args[0], "-M=a.mac");
+        assert_eq!(request.args[1], "\"-X=3\"");
+        assert_eq!(request.args[2], cwd.join("b.txt").into_os_string());
+        assert_eq!(request.args[3], "--");
+        // After `--` a name that starts with a dash is a file.
+        assert_eq!(request.args[4], cwd.join("-c.txt").into_os_string());
+        assert_eq!(request.args[5], cwd.join("--").into_os_string());
     }
 }

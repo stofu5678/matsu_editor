@@ -1,0 +1,64 @@
+name: E2E
+
+# Starts the real `ume` program on the five targets of ci.yml: a startup macro types text, saves the
+# file and quits, and the test checks the saved bytes (crates/ume/tests/e2e_smoke.rs). The tests
+# of ci.yml run inside GPUI's test platform and never start the executable.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  smoke:
+    name: smoke (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: windows-arm64, os: windows-11-arm }
+          - { name: windows-x64, os: windows-2025 }
+          - { name: macos-arm64, os: macos-15 }
+          - { name: linux-x64, os: ubuntu-24.04 }
+          - { name: linux-arm64, os: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.99.0
+      # The same list as ci.yml (GPUI links the system libraries of the Linux desktop), and a
+      # window to show it in: Xvfb is a virtual X server, and lavapipe (mesa-vulkan-drivers) is a
+      # Vulkan driver that draws on the CPU, because a runner has no GPU.
+      - name: Install the packages that GPUI needs and a virtual display
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential clang cmake \
+            libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev libx11-xcb-dev \
+            libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libzstd-dev \
+            xvfb mesa-vulkan-drivers libvulkan1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release
+      # `ume-script` runs the macros of the bundled engines; the editor looks for it next to its own
+      # executable (crates/ume-plugin/src/session.rs), so both are built in the same profile.
+      - run: cargo build --release --locked -p ume -p ume-script
+      - name: Run the E2E tests
+        if: runner.os != 'Linux'
+        run: cargo test --release --locked -p ume --test e2e_smoke -- --ignored --test-threads=1 --nocapture
+      - name: Run the E2E tests (virtual display)
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" cargo test --release --locked -p ume --test e2e_smoke -- --ignored --test-threads=1 --nocapture
