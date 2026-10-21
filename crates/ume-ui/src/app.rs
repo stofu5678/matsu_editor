@@ -152,6 +152,7 @@ pub(crate) fn run(
         crate::history::install(cx, &user);
         crate::tabs::settings::install(cx, &user);
         crate::bars::install(cx, &user);
+        crate::minimap::install(cx, &user);
         crate::common_settings::install(cx, &user);
         // Every window that `open_editor_window` makes applies ume.ini (read once, above). Before the
         // menus: the row for the custom menus reads it.
@@ -329,6 +330,8 @@ pub struct Workspace {
     pub(crate) menu_bar: Entity<MenuBar>,
     /// The search box of the toolbar (`F_SEARCH_BOX`), shown where the toolbar has it.
     pub(crate) search_box: Entity<crate::bars::search_box::SearchBox>,
+    /// The minimap at the right of the text, while it is shown (`crate::minimap`).
+    pub(crate) minimap: Entity<crate::minimap::panel::MiniMap>,
     /// The files that are being dragged over the window (`crate::file_ops::drop_zone`).
     pub(crate) file_drop: Option<Vec<std::path::PathBuf>>,
 }
@@ -357,6 +360,7 @@ impl Workspace {
             outline: None,
             menu_bar: MenuBar::new(cx),
             search_box: crate::bars::search_box::SearchBox::new(cx.weak_entity(), window, cx),
+            minimap: cx.new(crate::minimap::panel::MiniMap::new),
             file_drop: None,
         };
         // The menu bar asks this window for the marks of its items when a menu opens.
@@ -381,6 +385,9 @@ impl Workspace {
             .detach();
         // The toolbar and the function key bar are shown or hidden for every window at once.
         cx.observe_global::<crate::bars::BarSettings>(|_, cx| cx.notify())
+            .detach();
+        // The minimap is shown or hidden for every window at once.
+        cx.observe_global::<crate::minimap::MiniMapSettings>(|_, cx| cx.notify())
             .detach();
         // OK on the toolbar page changes the buttons of every window at once.
         cx.observe_global::<crate::bars::toolbar::ToolbarButtons>(|_, cx| cx.notify())
@@ -445,6 +452,12 @@ impl Render for Workspace {
             None
         };
         let tab_bar = self.render_tab_bar(window, cx);
+        // The minimap draws the pane that is active.
+        let minimap = crate::minimap::current(cx).shown.then(|| {
+            self.minimap
+                .update(cx, |minimap, cx| minimap.follow(&active, cx));
+            self.minimap.clone()
+        });
         let topmost = crate::window_ops::is_topmost(window, cx);
         let toolbar = self.render_toolbar_at_scale(topmost, window.scale_factor(), cx);
         let funckeys_top = self.render_funckeys(crate::bars::FuncKeyPlace::Top, window, cx);
@@ -491,6 +504,8 @@ impl Render for Workspace {
                             .overflow_hidden()
                             .child(self.render_panes(cx)),
                     )
+                    // Left of the outline, which is docked at the right (`CEditWnd::OnSize`).
+                    .children(minimap)
                     .children(self.outline.clone()),
             )
             .children(macro_panel)

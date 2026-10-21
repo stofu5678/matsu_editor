@@ -206,6 +206,9 @@ pub struct Colors {
     pub caret_line_back: Option<Rgb>,
     /// The background of the rows with an odd number (`EBK`), if it is shown.
     pub even_line_back: Option<Rgb>,
+    /// The background of the rows the window shows, in the minimap (`PGV`, 表示範囲(ミニマップ)),
+    /// if it is shown.
+    pub page_view_back: Option<Rgb>,
 }
 
 /// The settings of the view for one file.
@@ -548,6 +551,7 @@ impl ViewSettings {
                 bracket_entry: entry(names::BRACKET_PAIR),
                 caret_line_back: shown_back("CBK"),
                 even_line_back: shown_back("EBK"),
+                page_view_back: shown_back("PGV"),
             },
             coloring: Arc::new(ColorRules::from_type(t, types.keywords())),
             show_status_bar: profile.get_bool("Common", "bDispSTATUSBAR").unwrap_or(true),
