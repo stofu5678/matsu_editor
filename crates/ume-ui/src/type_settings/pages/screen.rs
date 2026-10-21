@@ -202,6 +202,7 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                                 .unavailable()
                                 .into(),
                             Control::text(TAB_VIEW_STRING, "", "", "^       ")
+                                .named("TAB表示の文字列")
                                 .unavailable()
                                 .when(tab_is_a_string)
                                 .into(),
@@ -210,6 +211,7 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                             .unavailable()
                             .into(),
                         Control::choice(TSV_MODE, "", "", 0, TSV_MODES)
+                            .named("TSVモード")
                             .unavailable()
                             .into(),
                     ],
@@ -266,6 +268,7 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                         .on_change(outline_mode_changed)
                         .into(),
                         Control::choice(OUTLINE, "", "", OUTLINES[0].1, OUTLINES)
+                            .named("標準ルールの種類")
                             .when(outline_is_standard)
                             .into(),
                         Control::radio(
@@ -280,6 +283,7 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                         .into(),
                         Item::Row(vec![
                             Control::text(OUTLINE_RULE_FILE, "", "", "")
+                                .named("ルールファイル")
                                 .unavailable()
                                 .when(outline_is_file)
                                 .into(),
@@ -317,6 +321,7 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                         Item::Row(vec![
                             Control::check(KINSOKU_KUTO, "句読点ぶら下げ(&\\)", "", false).into(),
                             Control::text(KINSOKU_KUTO_CHARS, "", "", "、。，．､｡,.")
+                                .named("句読点ぶら下げの文字")
                                 .unavailable()
                                 .into(),
                         ]),
@@ -325,6 +330,7 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                                 .unavailable()
                                 .into(),
                             Control::text(KINSOKU_HEAD_CHARS, "", "", "")
+                                .named("行頭禁則の文字")
                                 .unavailable()
                                 .into(),
                         ]),
@@ -333,6 +339,7 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                                 .unavailable()
                                 .into(),
                             Control::text(KINSOKU_TAIL_CHARS, "", "", "")
+                                .named("行末禁則の文字")
                                 .unavailable()
                                 .into(),
                         ]),

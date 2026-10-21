@@ -3,11 +3,30 @@ name: E2E
 # Starts the real `ume` program on the five targets of ci.yml: a startup macro types text, saves the
 # file and quits, and the test checks the saved bytes (crates/ume/tests/e2e_smoke.rs). The tests
 # of ci.yml run inside GPUI's test platform and never start the executable.
+#
+# The `screens` job takes pictures of the same program (crates/ume/tests/e2e_screens.rs) and, on
+# Windows, drives its window with UI Automation (crates/ume/tests/windows_uia.rs). The pictures
+# are uploaded as the artifact `e2e-screens-<job name>` for people and AIs to look at; they are
+# never compared with stored images. See docs/e2e-screens.md.
 
+# To keep the runners free for other pull requests (the account has a limit of concurrent jobs),
+# a pull request runs this workflow only when a file that it uses changes, not as a draft, and
+# on fewer targets: `smoke` on all but linux-arm64, `screens` on windows-x64 and macos-arm64 only
+# (the windows-arm64 runner shows the first-run screen of Windows over the window, and the Linux
+# runners have no Japanese fonts). A push to main runs all five targets of both jobs.
 on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - crates/**
+      - Cargo.toml
+      - Cargo.lock
+      - .cargo/**
+      - rust-toolchain.toml
+      - scripts/e2e-screens.sh
+      - .github/workflows/e2e.yml
 
 permissions:
   contents: read
@@ -18,7 +37,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: -D warnings
 
 jobs:
   smoke:
@@ -26,13 +44,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { name: windows-arm64, os: windows-11-arm }
-          - { name: windows-x64, os: windows-2025 }
-          - { name: macos-arm64, os: macos-15 }
-          - { name: linux-x64, os: ubuntu-24.04 }
-          - { name: linux-arm64, os: ubuntu-24.04-arm }
+        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"name":"windows-arm64","os":"windows-11-arm","rustflags":"-D warnings -C target-feature=+crt-static"},{"name":"windows-x64","os":"windows-2025","rustflags":"-D warnings -C target-feature=+crt-static"},{"name":"macos-arm64","os":"macos-15","rustflags":"-D warnings"},{"name":"linux-x64","os":"ubuntu-24.04","rustflags":"-D warnings"}]' || '[{"name":"windows-arm64","os":"windows-11-arm","rustflags":"-D warnings -C target-feature=+crt-static"},{"name":"windows-x64","os":"windows-2025","rustflags":"-D warnings -C target-feature=+crt-static"},{"name":"macos-arm64","os":"macos-15","rustflags":"-D warnings"},{"name":"linux-x64","os":"ubuntu-24.04","rustflags":"-D warnings"},{"name":"linux-arm64","os":"ubuntu-24.04-arm","rustflags":"-D warnings"}]') }}
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ${{ matrix.os }}
+    # RUSTFLAGS in the environment replaces `rustflags` of .cargo/config.toml, which links the C
+    # runtime statically on Windows (MSVC). The Windows jobs repeat that flag, so that E2E starts
+    # the program as it is shipped (package.yml does not set RUSTFLAGS) and not one that needs the
+    # Visual C++ Redistributable.
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags }}
     defaults:
       run:
         shell: bash
@@ -62,3 +82,60 @@ jobs:
       - name: Run the E2E tests (virtual display)
         if: runner.os == 'Linux'
         run: xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" cargo test --release --locked -p ume --test e2e_smoke -- --ignored --test-threads=1 --nocapture
+
+  screens:
+    name: screens (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"name":"windows-x64","os":"windows-2025","rustflags":"-D warnings -C target-feature=+crt-static"},{"name":"macos-arm64","os":"macos-15","rustflags":"-D warnings"}]' || '[{"name":"windows-arm64","os":"windows-11-arm","rustflags":"-D warnings -C target-feature=+crt-static"},{"name":"windows-x64","os":"windows-2025","rustflags":"-D warnings -C target-feature=+crt-static"},{"name":"macos-arm64","os":"macos-15","rustflags":"-D warnings"},{"name":"linux-x64","os":"ubuntu-24.04","rustflags":"-D warnings"},{"name":"linux-arm64","os":"ubuntu-24.04-arm","rustflags":"-D warnings"}]') }}
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      # As in the smoke job: the static C runtime on Windows, like the shipped packages.
+      RUSTFLAGS: ${{ matrix.rustflags }}
+      UME_E2E_PLATFORM: ${{ matrix.name }}
+      UME_E2E_SCREENS_DIR: ${{ github.workspace }}/e2e-screens
+      # The desktop of the windows-11-arm runners shows the first-run screen of Windows over every
+      # window, so a picture there is not of the program (see crates/ume/tests/common/mod.rs).
+      UME_E2E_SOFT_SCREENS: ${{ matrix.name == 'windows-arm64' && '1' || '' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.99.0
+      # The packages of the smoke job, and ImageMagick (`import` saves the picture of the virtual
+      # display as a PNG).
+      - name: Install the packages that GPUI needs, a virtual display and ImageMagick
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential clang cmake \
+            libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev libx11-xcb-dev \
+            libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libzstd-dev \
+            xvfb mesa-vulkan-drivers libvulkan1 imagemagick
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release
+      - run: cargo build --release --locked -p ume -p ume-script
+      - run: mkdir -p "$UME_E2E_SCREENS_DIR"
+      - name: Take the pictures
+        if: runner.os != 'Linux'
+        run: cargo test --release --locked -p ume --test e2e_screens -- --ignored --test-threads=1 --nocapture
+      - name: Take the pictures (virtual display)
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" cargo test --release --locked -p ume --test e2e_screens -- --ignored --test-threads=1 --nocapture
+      # The window is on the interactive desktop of the runner; UI Automation drives it by the
+      # accessibility names, and a picture is saved at each step.
+      - name: Drive the window with UI Automation
+        if: runner.os == 'Windows' && !cancelled()
+        run: cargo test --release --locked -p ume --test windows_uia -- --ignored --test-threads=1 --nocapture
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: e2e-screens-${{ matrix.name }}
+          path: e2e-screens/*.png
+          if-no-files-found: warn
+          retention-days: 14

@@ -219,6 +219,7 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                     )
                     .into(),
                     Control::number("alert_file_size", "", "nAlertFileSize", 10, 1, 2048)
+                        .named("警告するファイルの大きさ（MB）")
                         .when(large_file_is_warned)
                         .into(),
                     Item::Label("MBから"),

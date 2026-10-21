@@ -343,6 +343,8 @@ mod tests;
 #[cfg(test)]
 mod tests_more_pages;
 #[cfg(test)]
+mod tests_names;
+#[cfg(test)]
 mod tests_polish;
 #[cfg(test)]
 mod tests_table;

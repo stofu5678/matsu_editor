@@ -184,3 +184,22 @@ fn the_bar_without_grouping_opens_the_menu_for_the_document_of_this_window(
     right_click(vcx, at);
     assert!(menu_is_open(cx, first));
 }
+
+#[gpui::test]
+fn the_tabs_have_no_tooltip_while_the_tab_menu_is_open(cx: &mut TestAppContext) {
+    let handle = three_tabs(cx, SELECT_ALL_MENU);
+    let shown = |cx: &mut TestAppContext| {
+        workspace(cx, handle).read_with(cx, |ws, cx| ws.tab_tooltips_shown(cx))
+    };
+    assert!(shown(cx));
+    let vcx = visual(cx, handle);
+    let at = tab_center(vcx, 0);
+    right_click(vcx, at);
+    assert!(menu_is_open(cx, handle));
+    assert!(!shown(cx), "the tooltip would cover the first item");
+    let vcx = visual(cx, handle);
+    vcx.simulate_keystrokes("escape");
+    vcx.run_until_parked();
+    assert!(!menu_is_open(cx, handle));
+    assert!(shown(cx));
+}
