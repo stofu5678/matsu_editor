@@ -193,6 +193,9 @@ pub(crate) struct MacroState {
     /// The registered macros (登録マクロ): what was read, and the path of the save that is running one.
     registered: registered::State,
     pub(crate) output: Output,
+    /// A longer (or shorter) timeout for the next scripts, for the tests that run on a busy machine.
+    #[cfg(test)]
+    pub(crate) script_timeout: Option<std::time::Duration>,
 }
 
 impl MacroState {
@@ -731,7 +734,12 @@ impl EditorView {
             .read(cx)
             .path()
             .map(|p| p.display().to_string());
-        let config = MacroConfig::for_script(path, document_path).map_err(|e| e.to_string())?;
+        #[allow(unused_mut)]
+        let mut config = MacroConfig::for_script(path, document_path).map_err(|e| e.to_string())?;
+        #[cfg(test)]
+        if let Some(timeout) = self.macros.script_timeout {
+            config.timeout = timeout;
+        }
         let timeout_text = format!("{} 秒", config.timeout.as_secs_f64());
         // Bounded: a script that prints without end waits here (on the host's reader thread)
         // for the window to catch up, instead of piling up in memory.
