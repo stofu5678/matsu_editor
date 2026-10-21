@@ -45,6 +45,8 @@ pub(crate) struct MiniMap {
     /// The first row shown (`GetViewTopLine` of the minimap).
     pub(super) top_row: usize,
     pub(super) drag: Drag,
+    /// The part of a trackpad scroll that has not made a whole row yet.
+    wheel_remainder: f32,
     /// The area of the last paint, in window coordinates.
     pub(super) area: Rc<Cell<Bounds<Pixels>>>,
     _settings: Subscription,
@@ -57,6 +59,7 @@ impl MiniMap {
             watching: None,
             top_row: 0,
             drag: Drag::None,
+            wheel_remainder: 0.0,
             area: Rc::new(Cell::new(Bounds::default())),
             // The width and the font follow the settings.
             _settings: cx.observe_global::<super::MiniMapSettings>(|_, cx| cx.notify()),
@@ -203,7 +206,11 @@ impl MiniMap {
         } else {
             -delta * WHEEL_ROWS_FACTOR
         };
-        let top = geometry::top_after_wheel(self.top_row, rows, view_rows, total);
+        // Small deltas add up between events until they make a row.
+        let wanted = self.wheel_remainder + rows;
+        let whole = wanted.trunc();
+        self.wheel_remainder = wanted - whole;
+        let top = geometry::top_after_wheel(self.top_row, whole, view_rows, total);
         if top != self.top_row {
             self.top_row = top;
             cx.notify();

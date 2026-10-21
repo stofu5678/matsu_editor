@@ -486,3 +486,19 @@ fn a_shorter_document_brings_the_top_row_back(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert_eq!(fixture.top_row(cx), 0);
 }
+
+#[gpui::test]
+fn small_trackpad_deltas_add_up_to_rows(cx: &mut TestAppContext) {
+    let (fixture, cx) = setup(cx, &lines(3000), shown());
+    let area = fixture.area(cx);
+    // rows are 3 px high: ten 1 px deltas are three rows and a third
+    for _ in 0..10 {
+        cx.simulate_event(ScrollWheelEvent {
+            position: area.center(),
+            delta: ScrollDelta::Pixels(point(px(0.), px(-1.))),
+            modifiers: Modifiers::none(),
+            touch_phase: TouchPhase::Moved,
+        });
+    }
+    assert_eq!(fixture.top_row(cx), 3);
+}
