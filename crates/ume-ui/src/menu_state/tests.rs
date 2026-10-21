@@ -58,6 +58,7 @@ pub(super) fn base() -> FuncStates {
         open_documents: 1,
         toolbar: true,
         funckeys: false,
+        minimap: false,
         unmodified_overwrite: false,
         diff_shown: false,
         can_jump_back: false,
@@ -247,8 +248,7 @@ fn the_other_functions_are_never_checked() {
         text_selected: true,
         ..base()
     };
-    // no minimap; the toolbar and the function key bar come in another change
-    for name in ["F_UNDO", "F_FILEOPEN", "F_SHOWMINIMAP"] {
+    for name in ["F_UNDO", "F_FILEOPEN"] {
         assert!(!checked(&states, name), "{name}");
     }
     assert!(!states.is_checked(0xFFFF));
@@ -703,6 +703,7 @@ fn checkable_functions_include_every_function_that_can_be_checked() {
         outline: true,
         toolbar: false,
         funckeys: true,
+        minimap: true,
         tab_bar: true,
         ..base()
     };

@@ -387,6 +387,21 @@ fn the_bars_are_checked_while_shown() {
 }
 
 #[test]
+fn the_minimap_is_checked_while_shown() {
+    // `IsFuncChecked`: `GetMiniMap().GetHwnd() != nullptr`; the item is always available
+    let shown = FuncStates {
+        minimap: true,
+        ..base()
+    };
+    assert!(shown.is_checked(code("F_SHOWMINIMAP")));
+    assert!(!base().is_checked(code("F_SHOWMINIMAP")));
+    assert!(enabled(&base(), "F_SHOWMINIMAP"));
+    use crate::bars::toolbar::look;
+    assert!(look(code("F_SHOWMINIMAP"), &shown).pressed);
+    assert!(!look(code("F_SHOWMINIMAP"), &base()).pressed);
+}
+
+#[test]
 fn saving_an_unmodified_file_follows_the_setting() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("a.txt");
@@ -431,8 +446,7 @@ fn a_toolbar_button_is_gray_or_pressed_by_the_state() {
     assert_eq!(look(undo, &view), look_of(false, false));
     assert_eq!(look(view_mode, &view), look_of(true, true));
     assert_eq!(look(view_mode, &base()), look_of(true, false));
-    // a function with no command stays gray, and the empty button too
-    assert!(!look(code("F_SHOWMINIMAP"), &base()).enabled);
+    // the empty button stays gray
     assert!(!look(0, &base()).enabled);
 }
 

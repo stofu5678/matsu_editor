@@ -21,6 +21,7 @@ mod diff_mark;
 mod element;
 mod input;
 mod lines;
+pub(crate) mod minimap;
 mod mouse;
 pub(crate) mod paging;
 pub(crate) mod pane;

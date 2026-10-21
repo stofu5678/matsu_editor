@@ -48,7 +48,6 @@
 //! and custom menus (`CEditView::CreatePopUpMenuSub`) and the toolbar (`CMainToolBar`).
 //!
 //! Not here yet:
-//! * `F_SHOWMINIMAP` (no minimap: never checked; the items stay gray).
 //! * The `IsFuncEnable` cases that need state UME does not have: the clipboard (`F_PASTE`, whose
 //!   read is slow on Wayland), the box functions (a fixed-pitch font), the limit of windows
 //!   (there is none), and whether PowerShell is installed. Another
@@ -119,6 +118,8 @@ pub(crate) struct FuncStates {
     /// The toolbar and the function key bar are shown (`F_SHOWTOOLBAR`, `F_SHOWFUNCKEY`).
     pub toolbar: bool,
     pub funckeys: bool,
+    /// The minimap is shown (`F_SHOWMINIMAP`: `GetMiniMap().GetHwnd() != nullptr`).
+    pub minimap: bool,
     /// `m_bEnableUnmodifiedOverwrite`: a save writes the file even when it is unmodified.
     pub unmodified_overwrite: bool,
     /// A DIFF is shown in the document (`CDiffManager::IsDiffUse`).
@@ -158,6 +159,7 @@ const CHECKABLE: &[&str] = &[
     "F_RECKEYMACRO",
     "F_SHOWTOOLBAR",
     "F_SHOWFUNCKEY",
+    "F_SHOWMINIMAP",
     "F_SHOWTAB",
     "F_SHOWSTATUSBAR",
     "F_TMPWRAPNOWRAP",
@@ -226,6 +228,7 @@ impl FuncStates {
             open_documents,
             toolbar: bars.toolbar,
             funckeys: bars.funckeys,
+            minimap: crate::minimap::current(cx).shown,
             unmodified_overwrite: crate::file_ops::prefs::prefs(cx).enable_unmodified_overwrite,
             diff_shown: shared.model().diff_marks().in_use(),
             can_jump_back: view.cursor.jump_history().has_prev(),
@@ -259,6 +262,7 @@ impl FuncStates {
             "F_RECKEYMACRO" => self.recording_key_macro,
             "F_SHOWTOOLBAR" => self.toolbar,
             "F_SHOWFUNCKEY" => self.funckeys,
+            "F_SHOWMINIMAP" => self.minimap,
             "F_SHOWTAB" => self.tab_bar,
             "F_SHOWSTATUSBAR" => self.status_bar,
             "F_TMPWRAPNOWRAP" => self.wrap == WrapMethod::None,

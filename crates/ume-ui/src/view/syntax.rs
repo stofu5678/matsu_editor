@@ -619,6 +619,7 @@ mod tests {
         let on = Colors {
             caret_line_back: Some(0xffff80),
             even_line_back: Some(0xf3f3f3),
+            page_view_back: None,
             ..colors
         };
         assert_eq!(row_background(&on, 3, true), 0xffff80);

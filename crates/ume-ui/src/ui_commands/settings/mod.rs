@@ -27,6 +27,7 @@ pub mod set_font_size;
 pub mod set_font_size_down;
 pub mod set_font_size_up;
 pub mod show_funckey;
+pub mod show_minimap;
 pub mod show_status_bar;
 pub mod show_toolbar;
 pub mod tmp_wrap_no_wrap;
