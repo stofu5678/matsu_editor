@@ -21,6 +21,11 @@ impl Command for AddTail {
         let Some(Arg::Text(text)) = args.first() else {
             return Err(CommandError::BadArgs("AddTail takes a text".to_owned()));
         };
+        // `Command_GOFILEEND( false )` never extends; the lock of `F_BEGIN_SEL` is only passed on
+        // by `HandleCommand` to the functions that move by key.
+        if cx.cursor().selecting_lock() {
+            cx.toggle_selecting_lock();
+        }
         cx.move_file_end(false)?;
         cx.insert_text(text).map(|_| ())
     }
@@ -57,6 +62,13 @@ mod tests {
         e.run_with("add_tail", &text("X"))
             .assert_marked("abc\ndefX|");
         assert!(e.box_state().is_none());
+    }
+
+    #[test]
+    fn the_selection_lock_does_not_make_it_replace_the_text() {
+        let mut e = Editor::new("a|bcd");
+        e.run("begin_sel");
+        e.run_with("add_tail", &text("X")).assert_marked("abcdX|");
     }
 
     #[test]
