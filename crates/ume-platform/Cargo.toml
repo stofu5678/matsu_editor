@@ -104,5 +104,18 @@ objc2-core-text = { version = "0.3", default-features = false, features = ["std"
 [dev-dependencies]
 tempfile = "3.27"
 
+# UI Automation, to drive the native dialogs in tests/windows_*_dialog.rs. These features are added
+# to the ones of `[target.'cfg(windows)'.dependencies]` above (Cargo unions them).
+[target.'cfg(windows)'.dev-dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_UI_Accessibility",
+    # CB_SETCURSEL and the notification of the classic font dialog (tests/common)
+    "Win32_UI_WindowsAndMessaging",
+    # SendInput: typing the file name into the save dialog (tests/common)
+    "Win32_UI_Input_KeyboardAndMouse",
+] }
+
 [lints]
 workspace = true
