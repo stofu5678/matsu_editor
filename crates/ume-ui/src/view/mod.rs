@@ -766,8 +766,7 @@ impl Render for EditorView {
         crate::app::defer_refresh_menu_states(cx, false);
         // The print preview takes the place of the text, and the keys of the text stay out of it.
         if let Some(preview) = &self.print.preview {
-            return div()
-                .id("editor-print")
+            return crate::a11y::group(div().id("editor-print"), "印刷プレビュー")
                 .relative()
                 .size_full()
                 .overflow_hidden()
