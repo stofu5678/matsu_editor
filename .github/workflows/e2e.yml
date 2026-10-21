@@ -29,6 +29,7 @@ on:
       - rust-toolchain.toml
       - scripts/e2e-screens.sh
       - scripts/windows-clear-privacy-screen.ps1
+      - scripts/mac-checks/**
       - .github/workflows/e2e.yml
 
 permissions:
@@ -146,6 +147,12 @@ jobs:
       - name: Drive the window with UI Automation
         if: runner.os == 'Windows' && !cancelled()
         run: cargo test --release --locked -p ume --test windows_uia -- --ignored --test-threads=1 --nocapture
+      # macOS: System Events (AppleScript) drives the window through the Accessibility API. GitHub's
+      # macOS runners already give osascript and bash the Accessibility and Screen Recording
+      # permissions (docs/e2e-screens.md).
+      - name: Drive the window with the Accessibility API
+        if: runner.os == 'macOS' && !cancelled()
+        run: cargo test --release --locked -p ume --test macos_ax -- --ignored --test-threads=1 --nocapture
       - uses: actions/upload-artifact@v7
         if: always()
         with:

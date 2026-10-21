@@ -113,9 +113,9 @@ fn take(name: &str, macro_source: Option<&str>) {
     let _ = fs::remove_file(&empty);
 
     if let Err(error) = result {
-        // On macOS the runner may not allow a screen capture (Screen Recording privacy): the
-        // picture is then a desktop without the window, which is told but is not a failure.
-        if cfg!(target_os = "macos") || soft_screens() {
+        // GitHub's macOS runners give `screencapture` the Screen Recording permission (checked on
+        // macos-15, docs/e2e-screens.md), so a missing window fails there like on the others.
+        if soft_screens() {
             eprintln!("WARNING: {name}: {error}");
             return;
         }
