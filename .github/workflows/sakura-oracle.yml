@@ -109,8 +109,10 @@ jobs:
         run: |
           mkdir -p oracle-out target/release
           cp oracle-bin/ume.exe oracle-bin/ume-script.exe target/release/
+          # Run from the package root, as `cargo test` does.
+          cd crates/ume
           ORACLE_SHARD="${{ matrix.shard }}/4" SAKURA_DIR="$GITHUB_WORKSPACE/sakura-release" ORACLE_OUT="$GITHUB_WORKSPACE/oracle-out" \
-            ./oracle-bin/sakura_oracle.exe --ignored --nocapture
+            "$GITHUB_WORKSPACE/oracle-bin/sakura_oracle.exe" --ignored --nocapture
       - name: Keep the outputs
         if: always()
         uses: actions/upload-artifact@v7
