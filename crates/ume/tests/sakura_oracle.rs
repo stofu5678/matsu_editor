@@ -41,7 +41,7 @@
 //! # Safety
 //!
 //! Both editors run copies in a scratch folder, with their settings in the scratch folder
-//! (`sakura.ini` next to Sakura's copy; `HOME`, `APPDATA` and so on for UME), so they never read the
+//! (a Sakura profile of its own, with its `sakura.ini`; `HOME`, `APPDATA` and so on for UME), so they never read the
 //! settings of the user who runs the test. A Sakura that does not end (a dialog waits for a click)
 //! is stopped by the process ids of the programs that run from the scratch folder, never by name.
 
@@ -51,6 +51,7 @@ use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -96,8 +97,13 @@ fn load_cases() -> Vec<Case> {
                 .trim()
                 .to_string()
         };
+        let input = header("input");
+        assert!(
+            oracle_dir().join("inputs").join(&input).is_file(),
+            "{name}: the input {input} is not in sakura_oracle/inputs"
+        );
         cases.push(Case {
-            input: header("input"),
+            input,
             code: header("code"),
             mac,
             name,
@@ -136,6 +142,12 @@ impl Scratch {
         let base = base.to_str().unwrap();
         let base = PathBuf::from(base.strip_prefix(r"\\?\").unwrap_or(base));
         let dir = base.join(format!("ume-oracle-{name}-{}", std::process::id()));
+        // The path goes into a macro string and a PowerShell string, both in single quotes.
+        assert!(
+            !dir.to_str().unwrap().contains('\''),
+            "the temporary folder {} has an apostrophe in its path: set TEMP to another folder",
+            dir.display()
+        );
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         Scratch(dir)
@@ -229,10 +241,23 @@ fn run_sakura(scratch: &Scratch, case: &Case, sakura_dir: &Path) -> Outcome {
             fs::copy(&from, bin.join(file)).unwrap();
         }
     }
-    fs::write(bin.join("sakura.ini"), SAKURA_INI).unwrap();
+    // A profile of its own: Sakura names its shared memory and its resident process after the
+    // profile (`CShareData::InitShareData`, `CControlProcess::InitializeProcess`), not after the
+    // folder of the exe, so without it this run would join a Sakura the user has open, and its
+    // `ExitAll` would close that one. The settings of a profile are in `<exe folder>/<profile>/`
+    // (`CControlProcess::GetIniFileName`).
+    static RUN: AtomicUsize = AtomicUsize::new(0);
+    let profile = format!(
+        "umeoracle{}x{}",
+        std::process::id(),
+        RUN.fetch_add(1, Ordering::Relaxed)
+    );
+    fs::create_dir_all(bin.join(&profile)).unwrap();
+    fs::write(bin.join(&profile).join("sakura.ini"), SAKURA_INI).unwrap();
 
     let result = Command::new(bin.join("sakura.exe"))
         .arg(format!("-M={}", mac.display()))
+        .arg(format!("-PROF={profile}"))
         .arg(format!("-CODE={}", case.code))
         .arg(&input)
         .current_dir(&dir)
