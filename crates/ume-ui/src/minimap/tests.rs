@@ -224,7 +224,7 @@ fn the_dialog_starts_from_the_state_of_the_windows() {
 // ---- the command and the window ----
 
 #[gpui::test]
-fn the_function_shows_and_hides_the_minimap_in_every_window(cx: &mut TestAppContext) {
+fn the_function_shows_and_hides_the_minimap_in_the_window(cx: &mut TestAppContext) {
     let (first, cx) = setup(cx, &lines(10), MiniMapSettings::default());
     assert!(first.minimap(cx).read_with(cx, |m, _| m.source().is_none()));
     cx.dispatch_action(RunFunction {
