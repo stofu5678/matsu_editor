@@ -214,10 +214,10 @@ fn drives_the_window_by_its_names() {
     }
     shot("typed");
 
-    // Close without saving: answer the question with 「いいえ」.
+    // Close without saving: answer the question with 「保存しない」.
     main.post_close();
-    let (_, no) = uia.wait(pid, "the answer いいえ", |e| {
-        e.is_button() && e.name().starts_with("いいえ")
+    let (_, no) = uia.wait(pid, "the answer 保存しない", |e| {
+        e.is_button() && e.name().starts_with("保存しない")
     });
     shot("close-question");
     no.invoke();
@@ -237,6 +237,6 @@ fn drives_the_window_by_its_names() {
     assert_eq!(
         fs::read(&sample).unwrap(),
         original,
-        "the file was saved although the answer was いいえ"
+        "the file was saved although the answer was 保存しない"
     );
 }

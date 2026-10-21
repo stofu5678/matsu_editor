@@ -75,6 +75,10 @@ fn take(name: &str, macro_source: Option<&str>) {
     let sample_arg = sample.to_str().unwrap().to_owned();
     args.push(&sample_arg);
 
+    // The window of the test before can still be on the screen a moment after its process ended
+    // (a slow runner): a picture taken now would be the baseline, and the new window would look
+    // like no change.
+    thread::sleep(Duration::from_secs(5));
     let target = screenshot_path(name);
     let empty = target.with_extension("empty.png");
     let empty_result = capture_screen(&empty);
