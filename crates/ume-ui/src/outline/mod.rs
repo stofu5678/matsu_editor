@@ -42,11 +42,16 @@
 //!   separately). The check boxes 自動的に閉じる and フォーカスを移す only matter for the floating
 //!   form (a docked dialog gives the focus back to the text), so they are not here either;
 //!   空行を無視する is, for the bookmark list.
+//! * [`file_tree`] is Sakura's file tree (`F_FILETREE`, ファイルツリー), which the same dialog shows
+//!   in place of an analysis: the pane builds it from the settings instead of the document.
 //! * Here: what the commands do (`Command_FUNCLIST`), and the jumps between the function list marks.
 //!
 //! Sakura: `sakura_core/cmd/CViewCommander_Outline.cpp`, `sakura_core/outline/CDlgFuncList.cpp`,
 //! `sakura_core/cmd/CViewCommander_Bookmark.cpp`.
 
+pub(crate) mod file_tree;
+#[cfg(test)]
+mod file_tree_tests;
 pub(crate) mod pane;
 #[cfg(test)]
 mod tests;
@@ -61,12 +66,13 @@ use crate::search::state::{not_found_status, wrapped_message};
 use crate::view::EditorView;
 use pane::OutlinePane;
 
-/// What was asked for: the outline of the document type (`OUTLINE_DEFAULT`), or the bookmarks
-/// (`OUTLINE_BOOKMARK`).
+/// What was asked for: the outline of the document type (`OUTLINE_DEFAULT`), the bookmarks
+/// (`OUTLINE_BOOKMARK`) or the file tree (`OUTLINE_FILETREE`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Requested {
     Default,
     Bookmark,
+    FileTree,
 }
 
 /// What a command does when the pane is open (`SHOW_NORMAL`, `SHOW_RELOAD`, `SHOW_TOGGLE`; the
@@ -116,8 +122,10 @@ pub(crate) fn resolve_kind<T: 'static>(
     view: &Entity<EditorView>,
     cx: &mut Context<T>,
 ) -> OutlineKind {
-    if requested == Requested::Bookmark {
-        return OutlineKind::Bookmark;
+    match requested {
+        Requested::Bookmark => return OutlineKind::Bookmark,
+        Requested::FileTree => return OutlineKind::FileTree,
+        Requested::Default => {}
     }
     let view = view.read(cx);
     let kind = OutlineKind::from_setting(view.view_settings().outline.kind);

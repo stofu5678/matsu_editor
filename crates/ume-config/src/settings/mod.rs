@@ -11,6 +11,7 @@ pub mod custom_menu;
 pub mod doc_types;
 pub mod exec_history;
 pub mod extra_types;
+pub mod file_tree;
 pub mod font;
 pub mod keyword_data;
 pub mod keyword_file;

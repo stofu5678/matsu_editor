@@ -61,6 +61,8 @@ use ume_outline::{
     Analysis, ListColumn, ListSort, OutlineKind, Request, SortType, TreeNode, ViewType, analyze,
 };
 
+use super::file_tree::model::FileTreeModel;
+use super::file_tree::source::{Inputs, load_setting};
 use super::{OutlineOptions, Requested, Show};
 use crate::document::{DocumentEvent, SharedDocument};
 use crate::keys::chord_of;
@@ -86,6 +88,8 @@ pub(crate) struct Row {
     pub expanded: bool,
     /// The columns of a list: line, column, remark.
     pub columns: Option<[String; 3]>,
+    /// The file that a double click or Enter opens (the file tree).
+    pub path: Option<PathBuf>,
 }
 
 /// What an analysis gave, ready to show.
@@ -110,6 +114,8 @@ pub(crate) struct OutlinePane {
     /// The kind after the file name settled C/C++ (what `CheckListType` compares).
     outline_type: OutlineKind,
     shown: Option<Shown>,
+    /// The file tree, when that is what the pane shows (`OUTLINE_FILETREE`).
+    file_tree: Option<FileTreeModel>,
     analyzing: bool,
     generation: u64,
     /// The text changed after the analysis (`m_bFuncInfoArrIsUpToDate` is false).
@@ -142,6 +148,7 @@ impl OutlinePane {
             requested: Requested::Default,
             outline_type: OutlineKind::Text,
             shown: None,
+            file_tree: None,
             analyzing: false,
             generation: 0,
             stale: false,
@@ -175,7 +182,8 @@ impl OutlinePane {
                 let path = this.document.read(cx).path().map(Path::to_path_buf);
                 if path != this.analyzed_path {
                     this.analyze(this.requested, cx);
-                } else if !this.stale {
+                } else if !this.stale && this.requested != Requested::FileTree {
+                    // (the file tree does not depend on the text)
                     this.stale = true;
                     cx.notify();
                 }
@@ -205,6 +213,9 @@ impl OutlinePane {
     }
 
     pub(crate) fn title(&self) -> &'static str {
+        if self.outline_type == OutlineKind::FileTree {
+            return OutlineKind::FileTree.title();
+        }
         self.shown.as_ref().map_or("", |s| s.title)
     }
 
@@ -247,6 +258,11 @@ impl OutlinePane {
     }
 
     fn type_changed(&mut self, cx: &mut Context<Self>) {
+        // the file tree may be set for each type (`nOutlineDockSet`)
+        if self.requested == Requested::FileTree {
+            self.analyze(Requested::FileTree, cx);
+            return;
+        }
         if self.requested != Requested::Default {
             return;
         }
@@ -272,6 +288,13 @@ impl OutlinePane {
         self.analyzed_path = self.document.read(cx).path().map(Path::to_path_buf);
         let version = self.document.read(cx).version();
         self.analyzing = true;
+
+        // `Command_FUNCLIST` analyzes nothing for the file tree; the pane makes the tree
+        if self.outline_type == OutlineKind::FileTree {
+            self.analyze_file_tree(generation, cx);
+            return;
+        }
+        self.file_tree = None;
 
         let kind = self.outline_type;
         let options = cx
@@ -410,6 +433,10 @@ impl OutlinePane {
 
     /// The rows from the list order or the open nodes of the tree.
     fn rebuild_rows(&mut self) {
+        if self.outline_type == OutlineKind::FileTree {
+            self.rows = self.file_tree_rows();
+            return;
+        }
         let Some(shown) = &self.shown else {
             self.rows.clear();
             return;
@@ -443,6 +470,7 @@ impl OutlinePane {
                             item.col.to_string(),
                             remark,
                         ]),
+                        path: None,
                     });
                 }
             }
@@ -460,6 +488,7 @@ impl OutlinePane {
                         has_children: !node.children.is_empty(),
                         expanded: open && !node.children.is_empty(),
                         columns: None,
+                        path: None,
                     });
                     if open {
                         stack.extend(node.children.iter().rev().map(|n| (n, depth + 1)));
@@ -559,6 +588,10 @@ impl OutlinePane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.outline_type == OutlineKind::FileTree {
+            self.open_file_row(row, focus_text, window, cx);
+            return;
+        }
         let Some(item) = self.rows.get(row).and_then(|r| r.item) else {
             return;
         };
@@ -591,7 +624,7 @@ impl OutlinePane {
         cx.notify();
     }
 
-    fn toggle_node(&mut self, row: usize, cx: &mut Context<Self>) {
+    pub(crate) fn toggle_node(&mut self, row: usize, cx: &mut Context<Self>) {
         let Some(r) = self.rows.get(row) else {
             return;
         };
@@ -601,6 +634,8 @@ impl OutlinePane {
         let key = r.key;
         if !self.expanded.remove(&key) {
             self.expanded.insert(key);
+            // `TVN_ITEMEXPANDING`: a folder of the file tree is listed when it is opened
+            self.start_load(key, cx);
         }
         self.rebuild_rows();
         cx.notify();
@@ -687,11 +722,15 @@ impl OutlinePane {
             // Key2Command: these run the function again with the action SHOW_RELOAD, except the
             // toggle, which closes the pane (`HandleCommand` gives it SHOW_TOGGLE); F_REDRAW
             // makes the same kind again
-            Some(name @ ("F_OUTLINE" | "F_OUTLINE_TOGGLE" | "F_BOOKMARK_VIEW" | "F_REDRAW")) => {
+            Some(
+                name @ ("F_OUTLINE" | "F_OUTLINE_TOGGLE" | "F_BOOKMARK_VIEW" | "F_FILETREE"
+                | "F_REDRAW"),
+            ) => {
                 let (requested, show) = match name {
                     "F_OUTLINE" => (Requested::Default, Show::Reload),
                     "F_OUTLINE_TOGGLE" => (Requested::Default, Show::Toggle),
                     "F_BOOKMARK_VIEW" => (Requested::Bookmark, Show::Reload),
+                    "F_FILETREE" => (Requested::FileTree, Show::Reload),
                     _ => (self.requested, Show::Reload),
                 };
                 let host = self.host.clone();
@@ -778,6 +817,161 @@ impl OutlinePane {
             }
         }
         cx.stop_propagation();
+    }
+}
+
+/// The file tree (`OUTLINE_FILETREE`): see [`super::file_tree`].
+impl OutlinePane {
+    /// `SetTreeFile`: reads the settings and builds the tree in the background, then shows it.
+    fn analyze_file_tree(&mut self, generation: u64, cx: &mut Context<Self>) {
+        self.shown = None;
+        let type_index = self
+            .view
+            .upgrade()
+            .map_or(0, |view| view.read(cx).view_settings().type_index);
+        // Sakura's current folder is the folder of the document it opened
+        let base_dir = self
+            .document
+            .read(cx)
+            .path()
+            .and_then(|path| path.parent().map(Path::to_path_buf))
+            .filter(|dir| !dir.as_os_str().is_empty())
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_else(|| PathBuf::from("."));
+        // the file as it is now (another window may have written it), else what was read at start
+        let settings_file = crate::history::settings_path(cx);
+        let fallback =
+            crate::doc_types::with_user(cx, |user| user.profile().cloned()).unwrap_or_default();
+        let meta = crate::file_dialog::Meta::new(cx);
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let model = cx
+                .background_executor()
+                .spawn(async move {
+                    let profile = settings_file
+                        .and_then(|path| ume_config::Profile::load(&path).ok())
+                        .unwrap_or(fallback);
+                    let inputs = Inputs {
+                        profile,
+                        type_index,
+                        base_dir,
+                        meta: Box::new(meta),
+                    };
+                    let loaded = load_setting(&inputs);
+                    FileTreeModel::build(&loaded, &inputs.base_dir, inputs.meta.as_ref())
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                if this.generation == generation {
+                    this.finish_file_tree(model, cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn finish_file_tree(&mut self, model: FileTreeModel, cx: &mut Context<Self>) {
+        self.analyzing = false;
+        self.stale = false;
+        self.expanded.clear();
+        self.selected = None;
+        let roots = model.pending_roots();
+        self.file_tree = Some(model);
+        self.rebuild_rows();
+        // `SetTreeFileSub` for each Grep item, at once
+        for root in roots {
+            self.start_load(root, cx);
+        }
+        cx.notify();
+    }
+
+    /// Lists the folder of a node in the background, if it is still to be listed, and puts the
+    /// entries below the node when they are there.
+    fn start_load(&mut self, node: usize, cx: &mut Context<Self>) {
+        let Some(job) = self
+            .file_tree
+            .as_mut()
+            .and_then(|tree| tree.begin_load(node))
+        else {
+            return;
+        };
+        let generation = self.generation;
+        cx.spawn(async move |this, cx| {
+            let listing = cx
+                .background_executor()
+                .spawn(async move { job.run() })
+                .await;
+            this.update(cx, |this, cx| {
+                if this.generation != generation {
+                    return;
+                }
+                if let Some(tree) = &mut this.file_tree {
+                    tree.finish_load(node, listing);
+                }
+                this.rebuild_rows();
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// The rows of the open nodes of the tree, depth first.
+    fn file_tree_rows(&self) -> Vec<Row> {
+        let Some(tree) = &self.file_tree else {
+            return Vec::new();
+        };
+        let mut rows = Vec::new();
+        let mut stack: Vec<(usize, usize)> = tree.roots.iter().rev().map(|&id| (id, 0)).collect();
+        while let Some((id, depth)) = stack.pop() {
+            let node = &tree.nodes[id];
+            let open = self.expanded.contains(&id);
+            rows.push(Row {
+                key: id,
+                item: None,
+                depth,
+                label: node.label.clone(),
+                has_children: node.has_children(),
+                expanded: open && !node.children.is_empty(),
+                columns: None,
+                path: node.file().map(Path::to_path_buf),
+            });
+            if open {
+                stack.extend(node.children.iter().rev().map(|&child| (child, depth + 1)));
+            }
+        }
+        rows
+    }
+
+    /// `OnJump` for the file tree: a file is opened the way the open command does it
+    /// (`TagJumpTimer`): in this window if it takes a file, else in the window that has the file
+    /// or in a new one. Folders and messages do nothing. With `focus_text` the text gets the
+    /// focus when the file went into this window (`MYWM_SETACTIVEPANE`).
+    fn open_file_row(
+        &mut self,
+        row: usize,
+        focus_text: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((key, Some(path))) = self.rows.get(row).map(|r| (r.key, r.path.clone())) else {
+            return;
+        };
+        self.selected = Some(key);
+        let Some(view) = self.view.upgrade() else {
+            return;
+        };
+        let here = view.read(cx).accepts_load(cx);
+        view.update(cx, |view, cx| {
+            crate::file_ops::start(window, cx, async move |view, cx| {
+                crate::file_ops::load::open_paths(&view, cx, vec![path], None).await;
+            });
+            if focus_text && here {
+                window.focus(&view.focus_handle, cx);
+            }
+        });
+        cx.notify();
     }
 }
 
@@ -1078,6 +1272,14 @@ impl OutlinePane {
             // click gives the focus to the text (OnJump())
             this.selected = this.rows.get(index).map(|r| r.key);
             let double = event.click_count() >= 2;
+            // a click on the file tree only selects (`OnJump( false, false )`: no file jump);
+            // the double click opens the file, and does not open or close the folder
+            // (`NM_DBLCLK` sets `DWLP_MSGRESULT` to TRUE)
+            if this.outline_type == OutlineKind::FileTree && !double {
+                this.focus(window, cx);
+                cx.notify();
+                return;
+            }
             this.jump(index, double, window, cx);
             if !double {
                 this.focus(window, cx);
