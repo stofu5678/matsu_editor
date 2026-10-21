@@ -799,6 +799,7 @@ impl Render for EditorView {
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_down(MouseButton::Middle, cx.listener(Self::on_middle_mouse_down))
             .on_mouse_up(MouseButton::Middle, cx.listener(Self::on_middle_mouse_up))
+            .on_mouse_up_out(MouseButton::Middle, cx.listener(Self::on_middle_mouse_up))
             .on_mouse_down(MouseButton::Right, cx.listener(Self::on_right_mouse_down))
             .on_mouse_up(MouseButton::Right, cx.listener(Self::on_right_mouse_up))
             .on_scroll_wheel(cx.listener(Self::on_scroll))

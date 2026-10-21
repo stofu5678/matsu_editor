@@ -582,3 +582,13 @@ fn the_middle_button_starts_it_on_release_and_ends_it_on_the_next_press(cx: &mut
     cx.update(|window, cx| v.update(cx, |v, cx| v.on_middle_mouse_up(&up, window, cx)));
     assert!(!autoscrolling(&view, cx));
 }
+
+#[gpui::test]
+fn losing_the_focus_ends_it_at_the_next_tick(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx);
+    run(&view, cx, F_AUTOSCROLL);
+    assert!(autoscrolling(&view, cx));
+    cx.update(|window, app| window.blur(app));
+    tick(cx);
+    assert!(!autoscrolling(&view, cx));
+}

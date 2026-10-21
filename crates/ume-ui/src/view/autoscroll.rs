@@ -14,7 +14,8 @@
 //!   does not start.
 //! * Every 200 ms the pointer's distance from the start, divided by 8, less one toward zero, is
 //!   how many rows and columns the view moves.
-//! * Any other function (`HandleCommand`), a click of the left or right button, and a key end it.
+//! * Any other function (`HandleCommand`), a click of the left or right button, a key and the loss
+//!   of the focus end it.
 //!
 //! Not done: the small window with the arrows that marks the start (`CAutoScrollWnd`) and the
 //! pointer shapes that show the direction (`IDC_CURSOR_AUTOSCROLL_*`).
@@ -136,6 +137,11 @@ impl EditorView {
             return false;
         };
         let (origin, vertical, horizontal) = (*origin, *vertical, *horizontal);
+        // Another tab or pane took the focus: the text must not go on scrolling behind it.
+        if !self.focus_handle.is_focused(window) {
+            self.autoscroll_exit();
+            return false;
+        }
         let pointer = window.mouse_position();
         let dx = f32::from(pointer.x - origin.x) as i32;
         let dy = f32::from(pointer.y - origin.y) as i32;
