@@ -85,8 +85,7 @@ impl Workspace {
         let held = modifiers_of(window.modifiers());
         let names = crate::func_name::FuncNames::new();
         let keys = crate::app::with_key_map(cx, |map| labels(map, held, &|c| names.name(cx, c)));
-        let mut bar = div()
-            .id("function-key-bar")
+        let mut bar = super::semantics::funckey_bar(div().id("function-key-bar"))
             .debug_selector(|| "function-key-bar".into())
             .flex()
             .flex_row()
@@ -106,8 +105,7 @@ impl Workspace {
             let code = key.code;
             let enabled = is_available(code);
             bar = bar.child(
-                div()
-                    .id(("function-key", i))
+                super::semantics::funckey(div().id(("function-key", i)), i + 1, &key.label)
                     .debug_selector(|| format!("function-key-{i}"))
                     .flex_1()
                     .min_w_0()

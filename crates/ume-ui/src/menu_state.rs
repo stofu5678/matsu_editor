@@ -142,6 +142,48 @@ fn name_of(code: u16) -> Option<&'static str> {
     FUNCTIONS.iter().find(|f| f.code == code).map(|f| f.name)
 }
 
+/// The functions that `is_checked` answers for: the ones that have an on and an off state (a
+/// check mark in a menu, a pressed toolbar button). The accessibility tree reports them as
+/// toggles, also while they are off. Keep it in step with the arms of `is_checked`.
+const CHECKABLE: &[&str] = &[
+    "F_FILE_REOPEN_SJIS",
+    "F_FILE_REOPEN_JIS",
+    "F_FILE_REOPEN_EUC",
+    "F_FILE_REOPEN_LATIN1",
+    "F_FILE_REOPEN_UNICODE",
+    "F_FILE_REOPEN_UNICODEBE",
+    "F_FILE_REOPEN_UTF8",
+    "F_FILE_REOPEN_CESU8",
+    "F_FILE_REOPEN_UTF7",
+    "F_RECKEYMACRO",
+    "F_SHOWTOOLBAR",
+    "F_SHOWFUNCKEY",
+    "F_SHOWTAB",
+    "F_SHOWSTATUSBAR",
+    "F_TMPWRAPNOWRAP",
+    "F_TMPWRAPSETTING",
+    "F_TMPWRAPWINDOW",
+    "F_VIEWMODE",
+    "F_CHGMOD_EOL_CRLF",
+    "F_CHGMOD_EOL_LF",
+    "F_CHGMOD_EOL_CR",
+    "F_CHGMOD_INS",
+    "F_BIND_WINDOW",
+    "F_TOPMOST",
+    "F_ISEARCH_NEXT",
+    "F_ISEARCH_PREV",
+    "F_ISEARCH_REGEXP_NEXT",
+    "F_ISEARCH_REGEXP_PREV",
+    "F_OUTLINE_TOGGLE",
+    "F_SELECT_COUNT_MODE",
+    "F_TOGGLE_KEY_SEARCH",
+];
+
+/// Whether the function of `code` has a check mark that can be on or off (see [`CHECKABLE`]).
+pub(crate) fn is_checkable(code: u16) -> bool {
+    name_of(code).is_some_and(|name| CHECKABLE.contains(&name))
+}
+
 impl FuncStates {
     /// The state of the window of `view`. `outline` is whether the window shows the outline pane
     /// (the window keeps it, not the view) and `topmost` whether the OS says the window is on top.

@@ -33,6 +33,7 @@ mod dialog;
 mod func_lookup;
 pub(crate) mod model;
 mod pages;
+mod semantics;
 pub(crate) mod table;
 pub(crate) mod transfer;
 mod windows;

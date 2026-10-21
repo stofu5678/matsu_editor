@@ -138,8 +138,7 @@ impl Workspace {
     ) -> AnyElement {
         let parts = Part::ALL.into_iter().map(|part| {
             let text = info.text(part);
-            let cell = div()
-                .id(("status-part", part as usize))
+            let cell = semantics::part(div().id(("status-part", part as usize)), part, &text)
                 // names the part in the tests (`debug_selector` does nothing in release builds)
                 .debug_selector(move || selector(part))
                 .h_full()
@@ -193,7 +192,7 @@ impl Workspace {
                     )
                 })
         });
-        div()
+        semantics::bar(div().id("status-bar"))
             .flex()
             .flex_row()
             .items_center()
@@ -264,5 +263,6 @@ impl EditorView {
     }
 }
 
+mod semantics;
 #[cfg(test)]
 mod tests;

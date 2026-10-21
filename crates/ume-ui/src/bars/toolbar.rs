@@ -253,8 +253,7 @@ impl Workspace {
         }
         let lines = arrange(&buttons(cx).0);
         let states = self.func_states(topmost, cx.entity_id(), cx);
-        let mut bar = div()
-            .id("tool-bar")
+        let mut bar = super::semantics::toolbar(div().id("tool-bar"))
             .debug_selector(|| "tool-bar".into())
             .flex()
             .flex_col()
@@ -294,43 +293,45 @@ impl Workspace {
         let image = button
             .icon
             .and_then(|index| icons::icon(index, icons::pixel_factor(scale_factor)));
-        let main = div()
-            .id(("tool-button", row * 1000 + column))
-            .debug_selector(|| format!("tool-button-{}", button.number))
-            .flex()
-            .items_center()
-            .justify_center()
-            .w(px(24.))
-            .h(px(22.))
-            .rounded_sm()
-            .when(pressed, |this| {
-                this.bg(rgb(0xc4d8f0))
-                    .border_1()
-                    .border_color(rgb(0x7fa3d1))
-            })
-            .when(enabled, |this| {
-                this.cursor_pointer()
-                    .hover(|s| s.bg(rgb(0xd8e6f5)))
-                    .active(|s| s.bg(rgb(0xb8d0ec)))
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.run_after_event(code, window, cx);
-                    }))
-            })
-            .when(!enabled, |this| this.opacity(0.4))
-            .when_some(image, |this, image| {
-                this.child(
-                    img(image)
-                        .w(px(icons::logical_size(scale_factor)))
-                        .h(px(icons::logical_size(scale_factor))),
-                )
-            })
-            .when(button.code > DUMMY_MAX_CODE, |this| {
-                let shown = button.code;
-                this.tooltip(move |window, cx| {
-                    Tooltip::new(tooltip_text(shown, cx)).build(window, cx)
-                })
-            })
-            .into_any_element();
+        let name = crate::func_name::FuncNames::new().name(cx, code);
+        let main = super::semantics::tool_button(
+            div().id(("tool-button", row * 1000 + column)),
+            &name,
+            crate::menu_state::is_checkable(code).then_some(pressed),
+        )
+        .debug_selector(|| format!("tool-button-{}", button.number))
+        .flex()
+        .items_center()
+        .justify_center()
+        .w(px(24.))
+        .h(px(22.))
+        .rounded_sm()
+        .when(pressed, |this| {
+            this.bg(rgb(0xc4d8f0))
+                .border_1()
+                .border_color(rgb(0x7fa3d1))
+        })
+        .when(enabled, |this| {
+            this.cursor_pointer()
+                .hover(|s| s.bg(rgb(0xd8e6f5)))
+                .active(|s| s.bg(rgb(0xb8d0ec)))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.run_after_event(code, window, cx);
+                }))
+        })
+        .when(!enabled, |this| this.opacity(0.4))
+        .when_some(image, |this, image| {
+            this.child(
+                img(image)
+                    .w(px(icons::logical_size(scale_factor)))
+                    .h(px(icons::logical_size(scale_factor))),
+            )
+        })
+        .when(button.code > DUMMY_MAX_CODE, |this| {
+            let shown = button.code;
+            this.tooltip(move |window, cx| Tooltip::new(tooltip_text(shown, cx)).build(window, cx))
+        })
+        .into_any_element();
         if button.code != FILEOPEN_DROPDOWN {
             return main;
         }
@@ -338,28 +339,30 @@ impl Workspace {
         // (`CreateFileDropDownMenu`: `rc.left`, `rc.bottom`).
         let bounds = Rc::new(Cell::new(Bounds::<Pixels>::default()));
         let place = bounds.clone();
-        let arrow = div()
-            .id(("tool-dropdown", row * 1000 + column))
-            .debug_selector(|| format!("tool-dropdown-{}", button.number))
-            .flex()
-            .items_center()
-            .justify_center()
-            .w(px(12.))
-            .h(px(22.))
-            .rounded_sm()
-            .text_size(px(7.))
-            .child("▼")
-            .when(enabled, |this| {
-                this.cursor_pointer()
-                    .hover(|s| s.bg(rgb(0xd8e6f5)))
-                    .active(|s| s.bg(rgb(0xb8d0ec)))
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        let rect = bounds.get();
-                        this.leave_search_box(window, cx);
-                        this.open_file_dropdown(point(rect.left(), rect.bottom()), window, cx);
-                    }))
-            })
-            .when(!enabled, |this| this.opacity(0.4));
+        let arrow = super::semantics::drop_down_arrow(
+            div().id(("tool-dropdown", row * 1000 + column)),
+            &name,
+        )
+        .debug_selector(|| format!("tool-dropdown-{}", button.number))
+        .flex()
+        .items_center()
+        .justify_center()
+        .w(px(12.))
+        .h(px(22.))
+        .rounded_sm()
+        .text_size(px(7.))
+        .child("▼")
+        .when(enabled, |this| {
+            this.cursor_pointer()
+                .hover(|s| s.bg(rgb(0xd8e6f5)))
+                .active(|s| s.bg(rgb(0xb8d0ec)))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    let rect = bounds.get();
+                    this.leave_search_box(window, cx);
+                    this.open_file_dropdown(point(rect.left(), rect.bottom()), window, cx);
+                }))
+        })
+        .when(!enabled, |this| this.opacity(0.4));
         div()
             .relative()
             .flex()

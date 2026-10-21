@@ -28,7 +28,7 @@ use gpui_component::tooltip::Tooltip;
 use ume_commands::sakura::FUNCTIONS;
 
 use super::list::{self, Start};
-use super::{flows, settings};
+use super::{flows, semantics, settings};
 use crate::app::Workspace;
 use crate::file_ops::close::confirm_and_close_window;
 use crate::file_ops::windows::listed_workspaces;
@@ -83,7 +83,7 @@ pub(crate) fn close_function(
 }
 
 /// The tooltip of the close button (`OnMouseMove`: `STR_TABWND_CLOSETAB`, the name of the function).
-fn close_tooltip(function: &str) -> &'static str {
+pub(super) fn close_tooltip(function: &str) -> &'static str {
     match function {
         "F_WINCLOSE" => "タブを閉じる",
         "F_GROUPCLOSE" => "グループを閉じる",
@@ -220,10 +220,13 @@ impl Workspace {
         let entries = self.bar_entries(window, cx)?;
         let own = window.window_handle();
         let options = settings::options(cx);
+        // A hidden close button paints no mouse listeners, so a screen reader's Click on it would
+        // miss: while one is connected the button stays visible (it still shows only on hover
+        // for everyone else).
+        let keep_close_visible = window.is_a11y_active();
         // `m_sTabBar.m_lf`: the font of the text of the tabs (the text size is 12 pixels without one).
         let font = settings::tab_font(cx);
-        let mut bar = div()
-            .id("tab-bar")
+        let mut bar = semantics::bar(div().id("tab-bar"), entries.len())
             .flex()
             .flex_row()
             .w_full()
@@ -242,11 +245,10 @@ impl Workspace {
             bar = bar.italic();
         }
         for (i, entry) in entries.iter().cloned().enumerate() {
-            bar = bar.child(self.render_tab(i, entry, own, options, cx));
+            bar = bar.child(self.render_tab(i, entry, own, options, keep_close_visible, cx));
         }
         // `OnLButtonDown`: the list of the captions opens on the press, as a menu does.
-        let list_button = div()
-            .id("tab-list")
+        let list_button = semantics::button(div().id("tab-list"), semantics::LIST_BUTTON_NAME)
             .debug_selector(|| "tab-list-button".to_owned())
             .px_2()
             .py_0p5()
@@ -254,6 +256,14 @@ impl Workspace {
             .hover(|s| s.bg(rgb(0xd0d0d0)))
             .tooltip(|window, cx| Tooltip::new(LIST_TOOLTIP).build(window, cx))
             .child("▼")
+            .on_a11y_action(gpui::AccessibleAction::Click, {
+                let workspace = cx.entity();
+                move |_, window, cx| {
+                    workspace.update(cx, |this, cx| {
+                        this.open_tab_list(Start::BUTTON, window, cx);
+                    });
+                }
+            })
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _: &gpui::MouseDownEvent, window, cx| {
@@ -270,8 +280,7 @@ impl Workspace {
                 }),
             );
         let close_name = close_function(settings::current(cx), options);
-        let close_button = div()
-            .id("tab-bar-close")
+        let close_button = semantics::button(div().id("tab-bar-close"), close_tooltip(close_name))
             .debug_selector(|| "tab-bar-close".to_owned())
             .px_2()
             .py_0p5()
@@ -333,6 +342,7 @@ impl Workspace {
         entry: Entry,
         own: AnyWindowHandle,
         options: settings::TabOptions,
+        keep_close_visible: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let Entry {
@@ -352,6 +362,22 @@ impl Workspace {
                     None => {}
                 },
             )
+        };
+        // The same for a screen reader's Click action (the press above is a mouse event, which
+        // does not advertise one).
+        let select_by_a11y = {
+            let workspace = cx.entity();
+            let view = view.clone();
+            move |_: Option<&gpui::accesskit::ActionData>,
+                  window: &mut Window,
+                  cx: &mut gpui::App| {
+                let view = view.clone();
+                workspace.update(cx, |this, cx| match tab {
+                    Some(tab) => this.activate_tab(tab, window, cx),
+                    None if handle != own => flows::reveal(cx, handle, view),
+                    None => {}
+                });
+            }
         };
         let close = {
             let view = view.clone();
@@ -375,8 +401,7 @@ impl Workspace {
             })
         };
         let group = SharedString::from(format!("tab-group-{index}"));
-        let mut element = div()
-            .id(("tab", index))
+        let mut element = semantics::tab(div().id(("tab", index)), &caption, active, index)
             .flex()
             .flex_row()
             .items_center()
@@ -394,6 +419,7 @@ impl Workspace {
             .debug_selector(move || format!("tab-{index}"))
             .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
             .on_mouse_down(MouseButton::Left, select)
+            .on_a11y_action(gpui::AccessibleAction::Click, select_by_a11y)
             .on_mouse_up(MouseButton::Right, open_menu)
             // `OnTabMButtonUp`: the middle button closes the tab.
             .on_mouse_up(MouseButton::Middle, move |_, window, cx| close(window, cx))
@@ -406,11 +432,11 @@ impl Workspace {
             )
             // `m_bDispTabClose`: never, on every tab, or on the tab the pointer is over.
             .when(options.disp_close != settings::DispTabClose::No, |tab| {
-                let auto = options.disp_close == settings::DispTabClose::Auto;
+                let auto =
+                    options.disp_close == settings::DispTabClose::Auto && !keep_close_visible;
                 let hover_group = group.clone();
                 tab.child(
-                    div()
-                        .id(("tab-close", index))
+                    semantics::tab_close_button(div().id(("tab-close", index)), &caption)
                         .px_1()
                         .cursor_pointer()
                         .hover(|s| s.bg(rgb(0xc8c8c8)))

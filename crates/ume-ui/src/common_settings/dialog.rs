@@ -19,8 +19,8 @@ use std::time::Duration;
 use gpui::{
     AnyElement, AnyWindowHandle, App, AppContext as _, ClickEvent, Context, ElementId, Entity,
     FocusHandle, Focusable, InteractiveElement, IntoElement, KeyDownEvent, ParentElement,
-    PromptLevel, Render, SharedString, StatefulInteractiveElement, Styled, Subscription, Window,
-    div, prelude::FluentBuilder as _, px, rgb,
+    PromptLevel, Render, Role, SharedString, StatefulInteractiveElement, Styled, Subscription,
+    Window, div, prelude::FluentBuilder as _, px, rgb,
 };
 use gpui_component::button::Button;
 use gpui_component::checkbox::Checkbox;
@@ -32,8 +32,10 @@ use ume_config::Profile;
 use ume_config::settings::FontSetting;
 
 use super::model::{Control, Item, Kind, Value, Values, parse_label};
+use super::semantics;
 use super::table::{self, Op, Refused};
 use super::{LastPage, Page, all_controls, apply};
+use crate::a11y::plain_name;
 use crate::file_dialog::{self, Ask};
 use crate::file_ops::windows::editors;
 use crate::type_settings::{self, TypeSheet, TypeTarget};
@@ -937,6 +939,7 @@ impl CommonSettingsDialog {
     fn control_element(&self, control: &Control, cx: &mut Context<Self>) -> AnyElement {
         let usable = self.is_usable(control);
         let (label, _) = parse_label(control.label);
+        let name = plain_name(control.label);
         let id = control.id;
         let note = (!control.live).then(Self::not_available_note);
         match control.kind {
@@ -946,6 +949,7 @@ impl CommonSettingsDialog {
                 .child(
                     Checkbox::new(Self::element_id(control))
                         .label(label)
+                        .accessibility_label(name)
                         .checked(self.values.bool(id))
                         .disabled(!usable)
                         .on_click(cx.listener(move |this, on: &bool, _, cx| {
@@ -960,6 +964,7 @@ impl CommonSettingsDialog {
                 .child(
                     Radio::new(Self::element_id(control))
                         .label(label)
+                        .accessibility_label(name)
                         .checked(self.values.int(id) == value)
                         .disabled(!usable)
                         .on_click(cx.listener(move |this, _: &bool, _, cx| {
@@ -972,30 +977,34 @@ impl CommonSettingsDialog {
                 let current = self.values.int(id);
                 let rows = options.iter().map(|(text, value)| {
                     let value = *value;
-                    div()
-                        .id(Self::element_id(&Control {
+                    semantics::list_option(
+                        div().id(Self::element_id(&Control {
                             kind: Kind::Radio { value },
                             ..*control
-                        }))
-                        .px_2()
-                        .h(px(20.))
-                        .flex()
-                        .items_center()
-                        .cursor_pointer()
-                        .when(current == value, |d| {
-                            d.bg(rgb(SELECTED_BG)).text_color(rgb(0xffffff))
-                        })
-                        .child(*text)
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        })),
+                        &plain_name(text),
+                        current == value,
+                    )
+                    .px_2()
+                    .h(px(20.))
+                    .flex()
+                    .items_center()
+                    .cursor_pointer()
+                    .when(current == value, |d| {
+                        d.bg(rgb(SELECTED_BG)).text_color(rgb(0xffffff))
+                    })
+                    .child(*text)
+                    .on_click(cx.listener(
+                        move |this, _: &ClickEvent, _, cx| {
                             this.set_int(id, value, cx);
-                        }))
+                        },
+                    ))
                 });
                 v_flex()
                     .gap_1()
                     .when(!label.is_empty(), |this| this.child(label.clone()))
                     .child(
-                        div()
-                            .id(Self::element_id(control))
+                        semantics::list_box(div().id(Self::element_id(control)), &name)
                             .h(px(150.))
                             .overflow_y_scroll()
                             .bg(rgb(0xffffff))
@@ -1016,13 +1025,17 @@ impl CommonSettingsDialog {
                         .bg(rgb_of(self.values.int(id)))
                         .into_any_element(),
                 };
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .when(!label.is_empty(), |this| this.child(label.clone()))
-                    .child(chooser)
-                    .children(note)
-                    .into_any_element()
+                semantics::named_group(
+                    h_flex().id(SharedString::from(format!("cs-{id}-color"))),
+                    Role::Group,
+                    name,
+                )
+                .gap_2()
+                .items_center()
+                .when(!label.is_empty(), |this| this.child(label.clone()))
+                .child(chooser)
+                .children(note)
+                .into_any_element()
             }
             Kind::Choice { options } => {
                 let current = self.values.int(id);
@@ -1034,6 +1047,9 @@ impl CommonSettingsDialog {
                     }))
                     .label(*text)
                     .selected(current == value)
+                    // A choice is a radio button of the group (the chosen one is checked).
+                    .role(Role::RadioButton)
+                    .toggled(current == value)
                     .disabled(!usable)
                     .on_click(cx.listener(move |this, _, _, cx| this.set_int(id, value, cx)))
                 });
@@ -1041,12 +1057,16 @@ impl CommonSettingsDialog {
                     .gap_1()
                     .when(!label.is_empty(), |this| this.child(label.clone()))
                     .child(
-                        h_flex()
-                            .gap_1()
-                            .items_center()
-                            .flex_wrap()
-                            .children(choices)
-                            .children(note),
+                        semantics::named_group(
+                            h_flex().id(SharedString::from(format!("cs-{id}-choices"))),
+                            Role::RadioGroup,
+                            name,
+                        )
+                        .gap_1()
+                        .items_center()
+                        .flex_wrap()
+                        .children(choices)
+                        .children(note),
                     )
                     .into_any_element()
             }
@@ -1066,7 +1086,7 @@ impl CommonSettingsDialog {
                                 div()
                                     .when(wide, |d| d.flex_1().min_w(px(160.)))
                                     .when(!wide, |d| d.w(px(80.)))
-                                    .child(Input::new(input).disabled(!usable)),
+                                    .child(Input::new(input).aria_label(name).disabled(!usable)),
                             )
                             .children(note),
                     )
@@ -1079,6 +1099,7 @@ impl CommonSettingsDialog {
                 .child(
                     Button::new(Self::element_id(control))
                         .label(label)
+                        .accessibility_label(name)
                         .disabled(!usable)
                         .on_click(cx.listener(move |this, _, window, cx| run(this, window, cx))),
                 )
@@ -1100,45 +1121,62 @@ impl CommonSettingsDialog {
     ) -> AnyElement {
         let id = control.id;
         let (label, _) = parse_label(control.label);
+        let name = plain_name(control.label);
         let selected = self.selected_row(id);
-        let heading = h_flex()
-            .bg(rgb(0xe6e6e6))
-            .border_b_1()
-            .border_color(rgb(BORDER))
-            .children(spec.columns.iter().map(|c| {
-                div()
+        let heading =
+            semantics::header_row(h_flex().id(SharedString::from(format!("cs-{id}-head"))))
+                .bg(rgb(0xe6e6e6))
+                .border_b_1()
+                .border_color(rgb(BORDER))
+                .children(spec.columns.iter().enumerate().map(|(column, c)| {
+                    semantics::column_header(
+                        div().id(SharedString::from(format!("cs-{id}-head-{column}"))),
+                        c.title,
+                        column,
+                    )
                     .w(gpui::relative(c.width as f32 / 100.))
                     .px_2()
                     .child(c.title)
-            }));
-        let rows: Vec<AnyElement> = self
-            .values
-            .rows(id)
-            .iter()
-            .enumerate()
-            .map(|(index, row)| {
-                h_flex()
-                    .id(SharedString::from(format!("cs-{id}-row-{index}")))
+                }));
+        let rows: Vec<AnyElement> =
+            self.values
+                .rows(id)
+                .iter()
+                .enumerate()
+                .map(|(index, row)| {
+                    semantics::table_row(
+                        h_flex().id(SharedString::from(format!("cs-{id}-row-{index}"))),
+                        index,
+                        selected == Some(index),
+                    )
                     .h(px(20.))
                     .items_center()
                     .cursor_pointer()
                     .when(selected == Some(index), |d| {
                         d.bg(rgb(SELECTED_BG)).text_color(rgb(0xffffff))
                     })
-                    .children(spec.columns.iter().zip(row).map(|(c, text)| {
-                        div()
+                    .children(spec.columns.iter().zip(row).enumerate().map(
+                        |(column, (c, text))| {
+                            semantics::cell(
+                                div().id(SharedString::from(format!(
+                                    "cs-{id}-row-{index}-{column}"
+                                ))),
+                                text,
+                                column,
+                            )
                             .w(gpui::relative(c.width as f32 / 100.))
                             .px_2()
                             .overflow_hidden()
                             .whitespace_nowrap()
                             .child(text.clone())
-                    }))
+                        },
+                    ))
                     .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                         this.select_row(id, index, window, cx);
                     }))
                     .into_any_element()
-            })
-            .collect();
+                })
+                .collect();
         let edits = spec.columns.iter().enumerate().filter_map(|(column, c)| {
             let input = self.table_inputs.get(&(id, column))?;
             Some(
@@ -1146,7 +1184,13 @@ impl CommonSettingsDialog {
                     .gap_2()
                     .items_center()
                     .child(div().w(px(90.)).child(parse_label(c.edit_label).0))
-                    .child(div().flex_1().child(Input::new(input).disabled(!usable))),
+                    .child(
+                        div().flex_1().child(
+                            Input::new(input)
+                                .aria_label(plain_name(c.edit_label))
+                                .disabled(!usable),
+                        ),
+                    ),
             )
         });
         let button = |op: Op, cx: &mut Context<Self>| {
@@ -1175,20 +1219,24 @@ impl CommonSettingsDialog {
                             .flex_1()
                             .gap_2()
                             .child(
-                                v_flex()
-                                    .id(Self::element_id(control))
-                                    .h(px(150.))
-                                    .bg(rgb(0xffffff))
-                                    .border_1()
-                                    .border_color(rgb(BORDER))
-                                    .child(heading)
-                                    .child(
-                                        v_flex()
-                                            .id(SharedString::from(format!("cs-{id}-rows")))
-                                            .flex_1()
-                                            .overflow_y_scroll()
-                                            .children(rows),
-                                    ),
+                                semantics::table(
+                                    v_flex().id(Self::element_id(control)),
+                                    &name,
+                                    self.values.rows(id).len(),
+                                    spec.columns.len(),
+                                )
+                                .h(px(150.))
+                                .bg(rgb(0xffffff))
+                                .border_1()
+                                .border_color(rgb(BORDER))
+                                .child(heading)
+                                .child(
+                                    v_flex()
+                                        .id(SharedString::from(format!("cs-{id}-rows")))
+                                        .flex_1()
+                                        .overflow_y_scroll()
+                                        .children(rows),
+                                ),
                             )
                             .children(edits),
                     )
@@ -1217,19 +1265,22 @@ impl CommonSettingsDialog {
                     .iter()
                     .map(|item| self.item_element(item, cx))
                     .collect();
-                v_flex()
-                    .gap_1()
-                    .p_2()
-                    .border_1()
-                    .border_color(rgb(BORDER))
-                    .rounded_md()
-                    .child(
-                        div()
-                            .font_weight(gpui::FontWeight::BOLD)
-                            .child(parse_label(title).0),
-                    )
-                    .children(children)
-                    .into_any_element()
+                semantics::group(
+                    v_flex().id(SharedString::from(format!("cs-group-{:p}", items.as_ptr()))),
+                    &plain_name(title),
+                )
+                .gap_1()
+                .p_2()
+                .border_1()
+                .border_color(rgb(BORDER))
+                .rounded_md()
+                .child(
+                    div()
+                        .font_weight(gpui::FontWeight::BOLD)
+                        .child(parse_label(title).0),
+                )
+                .children(children)
+                .into_any_element()
             }
             Item::Columns(columns) => {
                 let columns: Vec<AnyElement> = columns
@@ -1308,24 +1359,31 @@ impl Render for CommonSettingsDialog {
             .enumerate()
             .map(|(index, page)| {
                 let selected = index == self.page;
-                div()
-                    .id(SharedString::from(format!("cs-page-{index}")))
-                    .px_3()
-                    .py_1()
-                    .cursor_pointer()
-                    .when(selected, |d| {
-                        d.bg(rgb(SELECTED_BG)).text_color(rgb(0xffffff))
-                    })
-                    .child(page.title)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.select_index(index, cx);
-                    }))
-                    .into_any_element()
+                semantics::page_tab(
+                    div().id(SharedString::from(format!("cs-page-{index}"))),
+                    page.title,
+                    selected,
+                    index,
+                )
+                .px_3()
+                .py_1()
+                .cursor_pointer()
+                .when(selected, |d| {
+                    d.bg(rgb(SELECTED_BG)).text_color(rgb(0xffffff))
+                })
+                .child(page.title)
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.select_index(index, cx);
+                }))
+                .into_any_element()
             })
             .collect();
         let body = self.page_element(cx);
-        div()
-            .id("common-settings")
+        let dialog_name = match self.target {
+            Target::Common => "共通設定",
+            Target::Type(_) => "タイプ別設定",
+        };
+        semantics::dialog(div().id("common-settings"), dialog_name)
             .key_context("CommonSettings")
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key_down))
@@ -1345,7 +1403,7 @@ impl Render for CommonSettingsDialog {
                     // tall as the page and cut at the top and the bottom, with nothing to scroll.
                     .items_stretch()
                     .child(
-                        v_flex()
+                        semantics::page_list(v_flex().id("cs-pages"), self.pages.len())
                             .w(px(150.))
                             .py_2()
                             .border_r_1()
@@ -1354,8 +1412,7 @@ impl Render for CommonSettingsDialog {
                             .children(pages),
                     )
                     .child(
-                        div()
-                            .id("cs-body")
+                        semantics::page_panel(div().id("cs-body"), self.pages[self.page].title)
                             .debug_selector(|| "cs-body".to_owned())
                             .flex_1()
                             .p_3()

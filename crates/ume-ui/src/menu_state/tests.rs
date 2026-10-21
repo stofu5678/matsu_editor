@@ -681,3 +681,36 @@ fn a_gray_item_of_the_native_menu_cannot_be_handled() {
     assert!(*checked && !*disabled);
     assert!(action.as_any().is::<RunFunction>());
 }
+
+#[test]
+fn checkable_functions_include_every_function_that_can_be_checked() {
+    use super::{CHECKABLE, is_checkable};
+    // Every name is a Sakura function (no typo).
+    for name in CHECKABLE {
+        assert!(FUNCTIONS.iter().any(|f| f.name == *name), "{name}");
+    }
+    // A function that is checked in a plain window or in a changed one is listed.
+    let plain = base();
+    let changed = FuncStates {
+        encoding: Encoding::ShiftJis,
+        new_line: Eol::Lf,
+        view_mode: true,
+        overwrite: true,
+        wrap: WrapMethod::WindowWidth,
+        recording_key_macro: true,
+        topmost: true,
+        isearch: Some(ISearchMode::Regexp),
+        outline: true,
+        toolbar: false,
+        funckeys: true,
+        tab_bar: true,
+        ..base()
+    };
+    for f in FUNCTIONS {
+        if plain.is_checked(f.code) || changed.is_checked(f.code) {
+            assert!(is_checkable(f.code), "{}", f.name);
+        }
+    }
+    assert!(is_checkable(code("F_TMPWRAPWINDOW")));
+    assert!(!is_checkable(code("F_FILESAVE")));
+}

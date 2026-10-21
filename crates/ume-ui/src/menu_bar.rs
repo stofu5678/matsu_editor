@@ -180,6 +180,7 @@ impl Render for MenuBar {
         h_flex()
             .id("app-menu-bar")
             .role(Role::MenuBar)
+            .aria_label("メニューバー")
             .key_context(CONTEXT)
             .on_action(cx.listener(Self::on_move_left))
             .on_action(cx.listener(Self::on_move_right))
@@ -424,6 +425,7 @@ impl Render for BarMenu {
                     .compact()
                     .ghost()
                     .label(self.name.clone())
+                    .accessibility_label(crate::a11y::without_key_hint(&self.name))
                     .open(is_open)
                     .on_mouse_down(
                         MouseButton::Left,
