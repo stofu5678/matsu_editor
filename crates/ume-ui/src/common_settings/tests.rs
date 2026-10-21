@@ -1195,3 +1195,32 @@ fn the_application_starts_with_the_icons_off_when_the_file_says_so(cx: &mut Test
     let (_ini, _handle) = setup(cx, "[Common]\r\nbMenuIcon=0\r\n");
     assert!(!cx.update(|app| crate::menu_icons::enabled(app)));
 }
+
+#[gpui::test]
+fn a_page_taller_than_the_window_has_a_scroll_bar(cx: &mut TestAppContext) {
+    let (_ini, handle) = setup(cx, "");
+    run(cx, handle, "F_OPTION_GENERAL");
+    let dialog_window = cx.update(|app| dialog_window(app)).unwrap();
+    visual(cx, dialog_window).simulate_resize(size(px(800.), px(300.)));
+    cx.run_until_parked();
+    let vcx = visual(cx, dialog_window);
+    assert!(
+        vcx.debug_bounds("cs-scrollbar").is_some(),
+        "the scroll bar of the page body"
+    );
+    let overflow = with_dialog(cx, |d, _, _| d.body_scroll.max_offset().y);
+    assert!(overflow > px(0.), "the page overflows the window");
+}
+
+#[gpui::test]
+fn a_page_that_fits_has_nothing_to_scroll(cx: &mut TestAppContext) {
+    // The scroll bar is drawn only when the page overflows, so the page must not overflow
+    // by itself (the bar's overlay inside the scrolling body once added its padding).
+    let (_ini, handle) = setup(cx, "");
+    run(cx, handle, "F_OPTION_TOOLBAR");
+    let dialog_window = cx.update(|app| dialog_window(app)).unwrap();
+    visual(cx, dialog_window).simulate_resize(size(px(1000.), px(900.)));
+    cx.run_until_parked();
+    let max = with_dialog(cx, |d, _, _| d.body_scroll.max_offset());
+    assert_eq!(max, gpui::point(px(0.), px(0.)));
+}

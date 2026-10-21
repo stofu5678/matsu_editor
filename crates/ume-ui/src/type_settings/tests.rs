@@ -1160,3 +1160,22 @@ fn the_word_file_the_dialog_gives_is_relative_to_the_folder_of_the_settings() {
         Path::new("/tmp/a.kwd").to_string_lossy()
     );
 }
+
+#[gpui::test]
+fn a_type_page_taller_than_the_window_has_a_scroll_bar(cx: &mut TestAppContext) {
+    let (_ini, handle) = setup(cx, "");
+    run(cx, handle, "F_OPTION_TYPE", &[]);
+    let dialog_window = cx.update(|app| dialog_window(app)).unwrap();
+    VisualTestContext::from_window(dialog_window, cx)
+        .simulate_resize(gpui::size(gpui::px(800.), gpui::px(200.)));
+    cx.run_until_parked();
+    assert!(
+        VisualTestContext::from_window(dialog_window, cx)
+            .debug_bounds("cs-scrollbar")
+            .is_some(),
+        "the scroll bar of the page body"
+    );
+    let overflow = with_dialog(cx, |d, _, _| d.body_scroll.max_offset().y);
+    assert!(overflow > gpui::px(0.), "the page overflows the window");
+    cancel(cx);
+}

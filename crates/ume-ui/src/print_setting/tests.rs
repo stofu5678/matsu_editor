@@ -98,6 +98,20 @@ fn file_in(dir: &tempfile::TempDir) -> PathBuf {
 }
 
 #[gpui::test]
+fn the_dialog_scrolls_only_when_the_window_is_too_short(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "abc");
+    let dialog = open(&view, cx);
+    cx.simulate_resize(gpui::size(gpui::px(1200.), gpui::px(1200.)));
+    cx.run_until_parked();
+    let max = dialog.read_with(cx, |d, _| d.scroll.max_offset());
+    assert_eq!(max, gpui::point(gpui::px(0.), gpui::px(0.)), "it fits");
+    cx.simulate_resize(gpui::size(gpui::px(1200.), gpui::px(200.)));
+    cx.run_until_parked();
+    let max = dialog.read_with(cx, |d, _| d.scroll.max_offset());
+    assert!(max.y > gpui::px(0.), "it overflows a short window: {max:?}");
+}
+
+#[gpui::test]
 fn the_command_opens_the_dialog_and_not_the_preview(cx: &mut TestAppContext) {
     let (view, cx) = setup(cx, "abc");
     let dialog = open(&view, cx);

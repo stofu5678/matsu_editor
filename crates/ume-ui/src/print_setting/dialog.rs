@@ -16,13 +16,14 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
-    KeyDownEvent, MouseButton, ParentElement, Render, StatefulInteractiveElement, Styled,
-    Subscription, WeakEntity, Window, div, px, rgb,
+    KeyDownEvent, MouseButton, ParentElement, Render, ScrollHandle, StatefulInteractiveElement,
+    Styled, Subscription, WeakEntity, Window, div, px, rgb,
 };
 use gpui_component::button::Button;
 use gpui_component::checkbox::Checkbox;
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::radio::Radio;
+use gpui_component::scroll::{Scrollbar, ScrollbarMode};
 use gpui_component::{Disableable as _, h_flex, v_flex};
 use ume_config::settings::print::{NAME_MAX, PrintSettings};
 use ume_config::settings::{FontSetting, LogFont};
@@ -82,6 +83,8 @@ pub(crate) struct PrintSettingDialog {
     list: Option<List>,
     result: Option<async_channel::Sender<Option<Answer>>>,
     focus: FocusHandle,
+    /// The scroll position of the dialog, which the scroll bar draws from.
+    pub(super) scroll: ScrollHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -129,6 +132,7 @@ impl PrintSettingDialog {
             list: None,
             result: Some(result),
             focus: cx.focus_handle(),
+            scroll: ScrollHandle::default(),
             _subscriptions: subscriptions,
         };
         dialog.show_setting(window, cx);
@@ -838,7 +842,9 @@ impl Render for PrintSettingDialog {
                             .on_click(cx.listener(|this, _, window, cx| this.cancel(window, cx))),
                     ),
             );
-        let panel = v_flex()
+        // The scroll bar is a sibling of the scrolling part, not its child: inside it, the bar's
+        // overlay itself made a dialog that fits overflow by its padding.
+        let scrolling = v_flex()
             .id("print-setting-dialog")
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .track_focus(&self.focus)
@@ -846,25 +852,38 @@ impl Render for PrintSettingDialog {
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 this.on_key_down(event, window, cx)
             }))
-            .w(px(760.))
-            .max_w_full()
-            .max_h_full()
+            .min_h_0()
             .overflow_y_scroll()
+            .track_scroll(&self.scroll)
             .p_3()
             .gap_2()
-            .bg(rgb(0xf7f7f7))
             .text_color(rgb(0x222222))
             .text_size(px(13.))
-            .border_1()
-            .border_color(rgb(0x888888))
-            .rounded_md()
-            .shadow_md()
             .child(
                 div()
                     .font_weight(gpui::FontWeight::BOLD)
                     .child("印刷ページ設定"),
             )
             .child(body);
+        let panel = v_flex()
+            .relative()
+            .w(px(760.))
+            .max_w_full()
+            .max_h_full()
+            .bg(rgb(0xf7f7f7))
+            .border_1()
+            .border_color(rgb(0x888888))
+            .rounded_md()
+            .shadow_md()
+            .child(scrolling)
+            // The dialog scrolls when the window is short; the bar shows that more is below. It
+            // is always drawn while the dialog overflows: the default fades out when idle.
+            .child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .child(Scrollbar::vertical(&self.scroll).mode(ScrollbarMode::Always)),
+            );
         div()
             .id("print-setting-overlay")
             .absolute()
