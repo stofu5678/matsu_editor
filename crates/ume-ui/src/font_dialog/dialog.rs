@@ -163,8 +163,8 @@ fn row(
     text: impl Into<SharedString>,
     selected: bool,
 ) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(id)
+    let text: SharedString = text.into();
+    crate::a11y::list_row(div().id(id), &text, selected)
         .px_2()
         .h(px(22.))
         .flex()
@@ -173,7 +173,7 @@ fn row(
         .when(selected, |row| {
             row.bg(rgb(SELECTED_BG)).text_color(rgb(0xffffff))
         })
-        .child(text.into())
+        .child(text)
 }
 
 impl Render for FontDialog {
@@ -184,9 +184,11 @@ impl Render for FontDialog {
             window.focus(&self.focus, cx);
         }
         let ui_font = gpui_component::Theme::global(cx).font_family.clone();
-        let list = |id: &'static str| {
+        let list = |id: &'static str, name: &'static str| {
             div()
                 .id(id)
+                .role(gpui::Role::ListBox)
+                .aria_label(name)
                 .overflow_y_scroll()
                 .bg(rgb(0xffffff))
                 .border_1()
@@ -216,8 +218,7 @@ impl Render for FontDialog {
         });
 
         let button = |id: &'static str, text: &'static str| {
-            div()
-                .id(id)
+            crate::a11y::button(div().id(id), text)
                 .px_4()
                 .h(px(28.))
                 .flex()
@@ -230,8 +231,7 @@ impl Render for FontDialog {
         };
         let heading = |text: &'static str| div().h(px(20.)).child(text);
 
-        let sample = div()
-            .id("font-sample")
+        let sample = crate::a11y::text(div().id("font-sample"), SAMPLE)
             .h(px(72.))
             .px_2()
             .flex()
@@ -248,8 +248,7 @@ impl Render for FontDialog {
             .when(self.choice.style.italic(), |d| d.italic())
             .child(SAMPLE);
 
-        div()
-            .id("font-dialog")
+        crate::a11y::dialog(div().id("font-dialog"), "フォント")
             .key_context("FontDialog")
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key_down))
@@ -276,7 +275,7 @@ impl Render for FontDialog {
                             .min_h(px(0.))
                             .child(heading("フォント名:"))
                             .child(
-                                list("font-families")
+                                list("font-families", "フォント名")
                                     .flex_1()
                                     .track_scroll(&self.family_scroll)
                                     .children(families),
@@ -288,7 +287,7 @@ impl Render for FontDialog {
                             .flex_col()
                             .w(px(110.))
                             .child(heading("スタイル:"))
-                            .child(list("font-styles").children(styles)),
+                            .child(list("font-styles", "スタイル").children(styles)),
                     )
                     .child(
                         div()
@@ -298,8 +297,8 @@ impl Render for FontDialog {
                             .min_h(px(0.))
                             .gap_1()
                             .child(heading("サイズ:"))
-                            .child(Input::new(&self.size_input))
-                            .child(list("font-sizes").flex_1().children(sizes)),
+                            .child(Input::new(&self.size_input).aria_label("サイズ"))
+                            .child(list("font-sizes", "サイズ").flex_1().children(sizes)),
                     ),
             )
             .child(heading("サンプル"))

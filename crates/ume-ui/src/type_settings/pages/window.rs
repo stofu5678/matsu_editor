@@ -202,6 +202,7 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                             .unavailable()
                             .into(),
                         Control::button(BG_BROWSE, "...", |_, _, _| {})
+                            .named("背景画像のファイルを参照")
                             .unavailable()
                             .into(),
                     ]),

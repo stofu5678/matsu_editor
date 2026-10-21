@@ -33,6 +33,9 @@ use crate::view::EditorView;
 /// The name of the product in English text (CLAUDE.md: "UME Editor").
 pub(crate) const PRODUCT: &str = "UME Editor";
 
+/// The name of the dialog for a screen reader (Sakura: the caption of `IDD_ABOUT`).
+const DIALOG_NAME: &str = "バージョン情報";
+
 /// The size of the icon in the dialog (the picture is 32 x 32).
 const ICON_SIZE: f32 = 32.;
 
@@ -91,6 +94,15 @@ impl AboutInfo {
         );
         if let Some(modified) = &self.last_modified {
             text.push_str(&format!("      Last Modified: {modified}\r\n"));
+        }
+        text
+    }
+
+    /// The build lines as shown, for a screen reader to read as one text.
+    pub(crate) fn build_text(&self) -> String {
+        let mut text = format!("Build: {}", self.build);
+        if let Some(t) = &self.last_modified {
+            text.push_str(&format!("\nLast Modified: {t}"));
         }
         text
     }
@@ -190,8 +202,7 @@ impl Focusable for AboutDialog {
 impl Render for AboutDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let button = |id: &'static str, label: &'static str| {
-            div()
-                .id(id)
+            crate::a11y::button(div().id(id), label)
                 .px_4()
                 .h(px(28.))
                 .flex()
@@ -202,8 +213,10 @@ impl Render for AboutDialog {
                 .child(label)
         };
         let repository = self.info.repository.clone();
-        let panel = div()
-            .id("about")
+        let title = format!("{PRODUCT} Ver. {}", self.info.version);
+        let description = self.info.description();
+        let build = self.info.build_text();
+        let panel = crate::a11y::dialog(div().id("about"), DIALOG_NAME)
             .debug_selector(|| "about-panel".to_owned())
             .track_focus(&self.focus)
             .key_context("AboutDialog")
@@ -232,14 +245,13 @@ impl Render for AboutDialog {
                             .flex_none(),
                     )
                     .child(
-                        div()
+                        crate::a11y::text(div().id("about-title"), &title)
                             .text_size(px(18.))
-                            .child(format!("{PRODUCT} Ver. {}", self.info.version)),
+                            .child(title.clone()),
                     ),
             )
             .child(
-                div()
-                    .id("about-repository")
+                crate::a11y::link(div().id("about-repository"), &repository)
                     .text_color(rgb(0x0b57d0))
                     .child(repository.clone())
                     .on_click(
@@ -247,7 +259,7 @@ impl Render for AboutDialog {
                     ),
             )
             .child(
-                div()
+                crate::a11y::text(div().id("about-build"), &build)
                     .text_color(rgb(0x666666))
                     .child(format!("Build: {}", self.info.build))
                     .children(
@@ -257,7 +269,11 @@ impl Render for AboutDialog {
                             .map(|t| format!("Last Modified: {t}")),
                     ),
             )
-            .child(div().mt_2().child(self.info.description()))
+            .child(
+                crate::a11y::text(div().id("about-description"), &description)
+                    .mt_2()
+                    .child(description.clone()),
+            )
             .child(
                 div()
                     .mt_2()
@@ -303,6 +319,17 @@ mod tests {
             build: "release, linux x86_64".into(),
             last_modified: Some("2026/10/16 12:00:00".into()),
         }
+    }
+
+    #[test]
+    fn the_build_lines_are_read_as_one_text() {
+        let mut info = info();
+        assert_eq!(
+            info.build_text(),
+            "Build: release, linux x86_64\nLast Modified: 2026/10/16 12:00:00"
+        );
+        info.last_modified = None;
+        assert_eq!(info.build_text(), "Build: release, linux x86_64");
     }
 
     #[test]

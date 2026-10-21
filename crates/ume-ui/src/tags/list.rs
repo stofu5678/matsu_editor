@@ -24,6 +24,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use crate::a11y::Labelled as _;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AppContext as _, ClickEvent, Context, Entity, FocusHandle, Focusable, InteractiveElement,
@@ -390,6 +391,23 @@ const COLUMNS: [(&str, f32); 6] = [
     ("備考", 0.21),
 ];
 
+/// What a screen reader says for a row of the tag list: the keyword, the line, the kind, the file and the
+/// note.
+fn tag_row_name(item: &TagItem) -> String {
+    let mut name = format!(
+        "{}、{}行、{}、{}",
+        item.keyword,
+        item.line,
+        kind_name(item.kind, &item.file),
+        item.file
+    );
+    if !item.note.is_empty() {
+        name.push('、');
+        name.push_str(&item.note);
+    }
+    name
+}
+
 impl Render for TagList {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let cell = |index: usize, text: String| {
@@ -416,23 +434,26 @@ impl Render for TagList {
             } else {
                 item.depth.to_string()
             };
-            let row = h_flex()
-                .id(("tag-row", i))
-                .children([
-                    cell(0, item.keyword.clone()),
-                    cell(1, depth),
-                    cell(2, item.line.to_string()),
-                    cell(3, kind_name(item.kind, &item.file).to_owned()),
-                    cell(4, item.file.clone()),
-                    cell(5, item.note.clone()),
-                ])
-                .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
-                    this.selected = Some(i);
-                    if event.click_count() >= 2 {
-                        this.choose(window, cx);
-                    }
-                    cx.notify();
-                }));
+            let row = crate::a11y::list_row(
+                h_flex().id(("tag-row", i)),
+                &tag_row_name(item),
+                self.selected == Some(i),
+            )
+            .children([
+                cell(0, item.keyword.clone()),
+                cell(1, depth),
+                cell(2, item.line.to_string()),
+                cell(3, kind_name(item.kind, &item.file).to_owned()),
+                cell(4, item.file.clone()),
+                cell(5, item.note.clone()),
+            ])
+            .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+                this.selected = Some(i);
+                if event.click_count() >= 2 {
+                    this.choose(window, cx);
+                }
+                cx.notify();
+            }));
             rows.push(if self.selected == Some(i) {
                 row.bg(rgb(CHOSEN))
                     .text_color(rgb(0xffffff))
@@ -443,8 +464,7 @@ impl Render for TagList {
         }
         if self.searched && !self.busy && self.page.items.is_empty() {
             rows.push(
-                h_flex()
-                    .id("tag-none")
+                crate::a11y::text(h_flex().id("tag-none"), &format!("{NOTICE} {NOT_FOUND}"))
                     .children([
                         cell(0, NOTICE.to_owned()),
                         cell(1, String::new()),
@@ -476,8 +496,7 @@ impl Render for TagList {
             "キーワードを指定してタグジャンプ"
         };
 
-        let panel = v_flex()
-            .id("tag-list")
+        let panel = crate::a11y::dialog(v_flex().id("tag-list"), title)
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .track_focus(&self.focus)
             .key_context("TagList")
@@ -503,6 +522,8 @@ impl Render for TagList {
                     .child(
                         v_flex()
                             .id("tag-rows")
+                            .role(gpui::Role::ListBox)
+                            .aria_label("タグ")
                             .h(px(260.))
                             .overflow_y_scroll()
                             .track_scroll(&self.scroll)
@@ -526,7 +547,7 @@ impl Render for TagList {
                                         .gap_3()
                                         .child(
                                             Checkbox::new("tag-icase")
-                                                .label("大文字小文字の同一視(F)")
+                                                .labelled("大文字小文字の同一視(F)")
                                                 .checked(ignore_case)
                                                 .on_click(cx.listener(
                                                     move |this, value: &bool, _, cx| {
@@ -536,7 +557,7 @@ impl Render for TagList {
                                         )
                                         .child(
                                             Checkbox::new("tag-anywhere")
-                                                .label("文字列の途中にマッチ(A)")
+                                                .labelled("文字列の途中にマッチ(A)")
                                                 .checked(partial)
                                                 .on_click(cx.listener(
                                                     move |this, value: &bool, _, cx| {
@@ -557,7 +578,7 @@ impl Render for TagList {
                                         .gap_2()
                                         .child(
                                             Button::new("tag-prev")
-                                                .label("前へ(P)")
+                                                .labelled("前へ(P)")
                                                 .disabled(self.busy || self.top == 0)
                                                 .on_click(cx.listener(|this, _, _, cx| {
                                                     this.previous_page(cx)
@@ -565,7 +586,7 @@ impl Render for TagList {
                                         )
                                         .child(
                                             Button::new("tag-next")
-                                                .label("次へ(N)")
+                                                .labelled("次へ(N)")
                                                 .disabled(self.busy || !self.page.has_next)
                                                 .on_click(
                                                     cx.listener(|this, _, _, cx| {
@@ -578,15 +599,19 @@ impl Render for TagList {
                             .child(
                                 h_flex()
                                     .gap_2()
-                                    .child(Button::new("tag-jump").label("ジャンプ(J)").on_click(
-                                        cx.listener(|this, _, window, cx| this.choose(window, cx)),
-                                    ))
                                     .child(
-                                        Button::new("tag-cancel").label("キャンセル(X)").on_click(
+                                        Button::new("tag-jump").labelled("ジャンプ(J)").on_click(
                                             cx.listener(|this, _, window, cx| {
-                                                this.cancel(window, cx)
+                                                this.choose(window, cx)
                                             }),
                                         ),
+                                    )
+                                    .child(
+                                        Button::new("tag-cancel")
+                                            .labelled("キャンセル(X)")
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.cancel(window, cx)
+                                            })),
                                     ),
                             ),
                     ),

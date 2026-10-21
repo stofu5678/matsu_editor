@@ -230,8 +230,7 @@ impl Render for InputDialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let ring = |focused: bool| if focused { FOCUS_RING } else { 0xaaaaaa };
         let button = |id: &'static str, label: &'static str, handle: &FocusHandle| {
-            div()
-                .id(id)
+            crate::a11y::button(div().id(id), label)
                 .track_focus(handle)
                 .px_4()
                 .h(px(28.))
@@ -246,8 +245,8 @@ impl Render for InputDialog {
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.ok(window, cx)));
         let cancel = button("input-cancel", "キャンセル", &self.cancel_focus)
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.cancel(window, cx)));
-        let panel = div()
-            .id("input-dialog")
+        let panel = crate::a11y::dialog(div().id("input-dialog"), &self.title)
+            .aria_description(self.message.clone())
             .key_context("InputDialog")
             .on_key_down(cx.listener(Self::on_key_down))
             .w(px(420.))
@@ -262,7 +261,7 @@ impl Render for InputDialog {
             .text_size(px(14.))
             .child(self.title.clone())
             .child(div().mt_2().child(self.message.clone()))
-            .child(Input::new(&self.input))
+            .child(Input::new(&self.input).aria_label(self.message.clone()))
             .child(
                 div()
                     .mt_2()

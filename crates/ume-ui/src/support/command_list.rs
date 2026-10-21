@@ -14,6 +14,7 @@
 //! Not done: the three groups that Sakura adds at run time (registered macros, custom menus,
 //! plugin commands), which have no data here yet; the mnemonic letters of the items.
 
+use crate::a11y::AriaDisabled as _;
 use gpui::{
     AppContext as _, ClickEvent, Context, FocusHandle, Focusable, InteractiveElement, IntoElement,
     KeyDownEvent, MouseButton, MouseDownEvent, ParentElement, Render, ScrollHandle,
@@ -243,8 +244,7 @@ impl Render for CommandList {
         let cursor = self.cursor;
         let group_rows = self.groups.iter().enumerate().map(|(i, group)| {
             let chosen = i == cursor.group;
-            let row = div()
-                .id(("group", i))
+            let row = crate::a11y::list_row(div().id(("group", i)), group.name, chosen)
                 .px_2()
                 .h(px(24.))
                 .flex()
@@ -276,22 +276,26 @@ impl Render for CommandList {
                 let chosen = cursor.in_rows && i == cursor.row;
                 let code = row.code;
                 let enabled = row.enabled;
-                let item = div()
-                    .id(("function", i))
-                    .px_2()
-                    .h(px(24.))
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .gap_4()
-                    .whitespace_nowrap()
-                    .child(row.label.clone())
-                    .child(row.shortcut.clone().unwrap_or_default())
-                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                        if enabled {
-                            this.finish(Some(code), window, cx);
-                        }
-                    }));
+                let item = crate::a11y::list_row(
+                    div().id(("function", i)),
+                    &crate::a11y::function_row_name(&row.label, row.shortcut.as_deref()),
+                    chosen,
+                )
+                .aria_disabled(!enabled)
+                .px_2()
+                .h(px(24.))
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_4()
+                .whitespace_nowrap()
+                .child(row.label.clone())
+                .child(row.shortcut.clone().unwrap_or_default())
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    if enabled {
+                        this.finish(Some(code), window, cx);
+                    }
+                }));
                 if !enabled {
                     item.text_color(rgb(DISABLED))
                 } else if chosen {
@@ -311,6 +315,8 @@ impl Render for CommandList {
         };
         let functions = column()
             .id("function-list")
+            .role(gpui::Role::ListBox)
+            .aria_label("機能")
             .min_w(px(220.))
             .max_h(px(self.view_height))
             .overflow_y_scroll()
@@ -328,8 +334,7 @@ impl Render for CommandList {
                 cx.listener(|this, _: &MouseDownEvent, window, cx| this.finish(None, window, cx)),
             )
             .child(
-                div()
-                    .id("command-list")
+                crate::a11y::dialog(div().id("command-list"), "コマンド一覧")
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .track_focus(&self.focus)
                     .key_context("CommandList")
@@ -341,7 +346,14 @@ impl Render for CommandList {
                     .items_start()
                     .text_color(rgb(TEXT))
                     .text_size(px(14.))
-                    .child(column().w(px(150.)).children(group_rows))
+                    .child(
+                        column()
+                            .id("group-list")
+                            .role(gpui::Role::ListBox)
+                            .aria_label("グループ")
+                            .w(px(150.))
+                            .children(group_rows),
+                    )
                     .child(functions),
             )
     }

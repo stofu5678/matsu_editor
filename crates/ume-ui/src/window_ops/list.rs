@@ -299,14 +299,14 @@ impl Render for WindowList {
                 let handle = row.handle;
                 let view = row.view.clone();
                 let id = row.view.entity_id();
-                let mut item = div()
-                    .id(("window", i))
-                    .px_2()
-                    .h(px(24.))
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .cursor_pointer();
+                let mut item =
+                    crate::a11y::list_row(div().id(("window", i)), &row.label, i == self.selected)
+                        .px_2()
+                        .h(px(24.))
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .cursor_pointer();
                 if i == self.selected {
                     item = item.bg(rgb(SELECTED_BG)).text_color(rgb(0xffffff));
                 }
@@ -315,6 +315,13 @@ impl Render for WindowList {
                     item = item.child(
                         div()
                             .id(("checkbox", i))
+                            .role(gpui::Role::CheckBox)
+                            .aria_label(format!("{}を選択", row.label))
+                            .aria_toggled(if checked {
+                                gpui::Toggled::True
+                            } else {
+                                gpui::Toggled::False
+                            })
                             .w(px(16.))
                             .h(px(16.))
                             .border_1()
@@ -354,14 +361,15 @@ impl Render for WindowList {
         let max_rows = (window.viewport_size().height - px(spare)).max(px(48.));
         let rows_box = div()
             .id("window-list-rows")
+            .role(gpui::Role::ListBox)
+            .aria_label("ウィンドウ")
             .max_h(max_rows)
             .overflow_y_scroll()
             .track_scroll(&self.scroll)
             .children(items);
 
         let button = |id: &'static str, text: &'static str| {
-            div()
-                .id(id)
+            crate::a11y::button(div().id(id), text)
                 .px_4()
                 .h(px(28.))
                 .flex()
@@ -372,21 +380,27 @@ impl Render for WindowList {
                 .cursor_pointer()
                 .child(text)
         };
-        let mut panel = div()
-            .id("window-list")
-            .key_context("WindowList")
-            .track_focus(&self.focus)
-            .on_key_down(cx.listener(Self::on_key_down))
-            .min_w(px(300.))
-            .max_w(px(640.))
-            .p_1()
-            .flex()
-            .flex_col()
-            .bg(rgb(0xf0f0f0))
-            .border_1()
-            .border_color(rgb(0x888888))
-            .text_color(rgb(TEXT))
-            .text_size(px(14.));
+        let mut panel = crate::a11y::dialog(
+            div().id("window-list"),
+            if self.dialog {
+                "ウィンドウ一覧表示"
+            } else {
+                "ウィンドウ一覧"
+            },
+        )
+        .key_context("WindowList")
+        .track_focus(&self.focus)
+        .on_key_down(cx.listener(Self::on_key_down))
+        .min_w(px(300.))
+        .max_w(px(640.))
+        .p_1()
+        .flex()
+        .flex_col()
+        .bg(rgb(0xf0f0f0))
+        .border_1()
+        .border_color(rgb(0x888888))
+        .text_color(rgb(TEXT))
+        .text_size(px(14.));
         if self.dialog {
             panel =
                 panel

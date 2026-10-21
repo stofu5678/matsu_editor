@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use crate::a11y::Labelled as _;
 use gpui::{
     AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
     KeyDownEvent, MouseButton, ParentElement, PathPromptOptions, Render, Styled, Subscription,
@@ -212,7 +213,7 @@ impl Render for TagsMakeDialog {
                         // STR_ERR_CEDITVIEW_CMD05
                         .child("タグファイルを作成中です。")
                         .child(h_flex().child(
-                            Button::new("tags-stop").label("中断(X)").on_click(
+                            Button::new("tags-stop").labelled("中断(X)").on_click(
                                 cx.listener(|this, _, window, cx| this.cancel(window, cx)),
                             ),
                         ))
@@ -225,16 +226,21 @@ impl Render for TagsMakeDialog {
                         h_flex()
                             .gap_2()
                             .child(div().flex_1().child(Input::new(&self.folder)))
-                            .child(Button::new("tags-browse").label("...").on_click(
-                                cx.listener(|this, _, window, cx| this.browse(window, cx)),
-                            ))
-                            .child(Button::new("tags-up").label("上(B)").on_click(
+                            .child(
+                                Button::new("tags-browse")
+                                    .label("...")
+                                    .accessibility_label("タグ作成フォルダーを参照")
+                                    .on_click(
+                                        cx.listener(|this, _, window, cx| this.browse(window, cx)),
+                                    ),
+                            )
+                            .child(Button::new("tags-up").labelled("上(B)").on_click(
                                 cx.listener(|this, _, window, cx| this.folder_up(window, cx)),
                             )),
                     )
                     .child(
                         Checkbox::new("tags-recursive")
-                            .label("サブフォルダーも対象にする")
+                            .labelled("サブフォルダーも対象にする")
                             .checked(self.recursive)
                             .on_click(cx.listener(|this, value: &bool, _, cx| {
                                 this.set_recursive(*value, cx)
@@ -247,12 +253,16 @@ impl Render for TagsMakeDialog {
                             .gap_2()
                             .child(
                                 Button::new("tags-make")
-                                    .label("作成(O)")
+                                    .labelled("作成(O)")
                                     .on_click(cx.listener(|this, _, _, cx| this.make(cx))),
                             )
-                            .child(Button::new("tags-cancel").label("キャンセル(X)").on_click(
-                                cx.listener(|this, _, window, cx| this.cancel(window, cx)),
-                            )),
+                            .child(
+                                Button::new("tags-cancel")
+                                    .labelled("キャンセル(X)")
+                                    .on_click(
+                                        cx.listener(|this, _, window, cx| this.cancel(window, cx)),
+                                    ),
+                            ),
                     )
                     .into_any_element(),
             };

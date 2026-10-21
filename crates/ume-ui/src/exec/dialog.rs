@@ -8,6 +8,7 @@
 //!
 //! Not done: the help button.
 
+use crate::a11y::Labelled as _;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
@@ -290,7 +291,7 @@ impl ExecDialog {
         next: impl Fn(&mut Self) + 'static,
     ) -> Button {
         Button::new(id)
-            .label(DIALOG_ENCODINGS[item.min(DIALOG_ENCODINGS.len() - 1)].combo_name())
+            .labelled(DIALOG_ENCODINGS[item.min(DIALOG_ENCODINGS.len() - 1)].combo_name())
             .disabled(!enabled)
             .on_click(cx.listener(move |this, _, _, cx| {
                 next(this);
@@ -326,24 +327,30 @@ impl Render for ExecDialog {
             .child(div().flex_1().child(Input::new(&self.command)))
             .child(
                 Button::new("exec-command-history-button")
-                    .label("履歴")
+                    .labelled("履歴")
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_list(Field::Command, cx))),
             )
-            .child(Button::new("exec-browse").label("...").on_click(
-                cx.listener(|this, _, window, cx| this.browse(Field::Command, window, cx)),
-            ));
+            .child(
+                Button::new("exec-browse")
+                    .label("...")
+                    .accessibility_label("コマンドを参照")
+                    .on_click(
+                        cx.listener(|this, _, window, cx| this.browse(Field::Command, window, cx)),
+                    ),
+            );
         let dir_row = h_flex()
             .gap_2()
             .child(div().flex_1().child(Input::new(&self.cur_dir)))
             .child(
                 Button::new("exec-dir-history-button")
-                    .label("履歴")
+                    .labelled("履歴")
                     .disabled(!self.use_cur_dir)
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_list(Field::CurDir, cx))),
             )
             .child(
                 Button::new("exec-dir-browse")
                     .label("...")
+                    .accessibility_label("カレントディレクトリを参照")
                     .disabled(!self.use_cur_dir)
                     .on_click(
                         cx.listener(|this, _, window, cx| this.browse(Field::CurDir, window, cx)),
@@ -368,7 +375,7 @@ impl Render for ExecDialog {
                     .items_center()
                     .child(
                         Checkbox::new("exec-stdout")
-                            .label("標準出力を得る(S)")
+                            .labelled("標準出力を得る(S)")
                             .checked(stdout)
                             .on_click(cx.listener(|this, value: &bool, _, cx| {
                                 this.get_stdout = *value;
@@ -397,7 +404,7 @@ impl Render for ExecDialog {
                             .gap_3()
                             .child(
                                 Radio::new("exec-to-output")
-                                    .label("アウトプットウィンドウ(O)")
+                                    .labelled("アウトプットウィンドウ(O)")
                                     .checked(!self.to_window)
                                     .disabled(!stdout)
                                     .on_click(cx.listener(|this, _: &bool, _, cx| {
@@ -407,7 +414,7 @@ impl Render for ExecDialog {
                             )
                             .child(
                                 Radio::new("exec-to-window")
-                                    .label("編集中のウィンドウ(C)")
+                                    .labelled("編集中のウィンドウ(C)")
                                     .checked(self.to_window)
                                     .disabled(!(stdout && self.editable))
                                     .on_click(cx.listener(|this, _: &bool, _, cx| {
@@ -423,7 +430,7 @@ impl Render for ExecDialog {
                     .items_center()
                     .child(
                         Checkbox::new("exec-stdin")
-                            .label("標準入力に送る(I)")
+                            .labelled("標準入力に送る(I)")
                             .checked(self.send_stdin)
                             .on_click(cx.listener(|this, value: &bool, _, cx| {
                                 this.send_stdin = *value;
@@ -440,7 +447,7 @@ impl Render for ExecDialog {
             )
             .child(
                 Checkbox::new("exec-cur-dir")
-                    .label("カレントディレクトリ(R)")
+                    .labelled("カレントディレクトリ(R)")
                     .checked(self.use_cur_dir)
                     .on_click(cx.listener(|this, value: &bool, _, cx| {
                         this.use_cur_dir = *value;
@@ -460,12 +467,12 @@ impl Render for ExecDialog {
                     .gap_2()
                     .child(
                         Button::new("exec-ok")
-                            .label("実行(E)")
+                            .labelled("実行(E)")
                             .on_click(cx.listener(|this, _, window, cx| this.ok(window, cx))),
                     )
                     .child(
                         Button::new("exec-cancel")
-                            .label("キャンセル(X)")
+                            .labelled("キャンセル(X)")
                             .on_click(cx.listener(|this, _, window, cx| this.cancel(window, cx))),
                     ),
             );

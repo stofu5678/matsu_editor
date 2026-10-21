@@ -288,6 +288,7 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                                 .when(outline_is_file)
                                 .into(),
                             Control::button(OUTLINE_RULE_BROWSE, "(&1)...", |_, _, _| {})
+                                .named("ルールファイルを参照")
                                 .unavailable()
                                 .when(outline_is_file)
                                 .into(),

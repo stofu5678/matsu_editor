@@ -36,7 +36,9 @@ pub(in crate::common_settings) fn items() -> Option<Vec<Item>> {
             Control::text("macro_dir", "マクロフォルダー", "szMACROFOLDER", "")
                 .in_section("Folders")
                 .into(),
-            Control::button("macro_dir_ref", "...", list::browse_folder).into(),
+            Control::button("macro_dir_ref", "...", list::browse_folder)
+                .named("マクロフォルダーを参照")
+                .into(),
         ]),
         Item::Row(vec![
             Control::text(
@@ -49,6 +51,7 @@ pub(in crate::common_settings) fn items() -> Option<Vec<Item>> {
             .unavailable()
             .into(),
             Control::button("macro_python_ref", "...", list::browse_python)
+                .named("Pythonフォルダーを参照")
                 .unavailable()
                 .into(),
         ]),
@@ -95,7 +98,7 @@ pub(in crate::common_settings) fn items() -> Option<Vec<Item>> {
         // backslash at the end of the macro folder written before it.
         Item::Hidden(vec![
             Control::choice(list::SELECTED, "", "", -1, &[]),
-            Control::table(list::LIST, "", rows::spec()),
+            Control::table(list::LIST, "", rows::spec()).named("登録マクロ"),
         ]),
     ])
 }

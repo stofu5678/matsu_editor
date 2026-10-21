@@ -178,6 +178,7 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         .when(given_folder_is_chosen)
                         .into(),
                         Control::button("open_dialog_sel_dir_browse", "...", browse)
+                            .named("指定フォルダーを参照")
                             .when(given_folder_is_chosen)
                             .into(),
                     ]),

@@ -230,25 +230,34 @@ const BACKGROUND: u32 = 0xf7f7f7;
 impl Render for CtrlCodeDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let rows = CODES.iter().enumerate().map(|(i, code)| {
-            let row = div()
-                .id(("ctrl-code", i))
-                .px_2()
-                .h(px(24.))
-                .flex()
-                .items_center()
-                .gap_2()
-                .whitespace_nowrap()
-                .child(div().w(px(56.)).child(code.hex()))
-                .child(div().w(px(40.)).child(code.symbol()))
-                .child(div().w(px(48.)).child(code.name))
-                .child(div().w(px(180.)).child(code.description))
-                .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
-                    this.selected = i;
-                    if event.click_count() >= 2 {
-                        this.finish(Some(i), window, cx);
-                    }
-                    cx.notify();
-                }));
+            let row = crate::a11y::list_row(
+                div().id(("ctrl-code", i)),
+                &format!(
+                    "{} {} {} {}",
+                    code.hex(),
+                    code.symbol(),
+                    code.name,
+                    code.description
+                ),
+                i == self.selected,
+            )
+            .px_2()
+            .h(px(24.))
+            .flex()
+            .items_center()
+            .gap_2()
+            .whitespace_nowrap()
+            .child(div().w(px(56.)).child(code.hex()))
+            .child(div().w(px(40.)).child(code.symbol()))
+            .child(div().w(px(48.)).child(code.name))
+            .child(div().w(px(180.)).child(code.description))
+            .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+                this.selected = i;
+                if event.click_count() >= 2 {
+                    this.finish(Some(i), window, cx);
+                }
+                cx.notify();
+            }));
             if i == self.selected {
                 row.bg(rgb(CHOSEN)).text_color(rgb(0xffffff))
             } else {
@@ -256,8 +265,7 @@ impl Render for CtrlCodeDialog {
             }
         });
         let button = |id: &'static str, label: &'static str| {
-            div()
-                .id(id)
+            crate::a11y::button(div().id(id), label)
                 .px_4()
                 .h(px(28.))
                 .flex()
@@ -293,8 +301,7 @@ impl Render for CtrlCodeDialog {
                 cx.listener(|this, _: &MouseDownEvent, window, cx| this.finish(None, window, cx)),
             )
             .child(
-                div()
-                    .id("ctrl-code-dialog")
+                crate::a11y::dialog(div().id("ctrl-code-dialog"), "コントロールコード")
                     .track_focus(&self.focus)
                     .key_context("CtrlCodeDialog")
                     .on_key_down(cx.listener(Self::on_key_down))
@@ -313,6 +320,8 @@ impl Render for CtrlCodeDialog {
                     .child(
                         div()
                             .id("ctrl-code-list")
+                            .role(gpui::Role::ListBox)
+                            .aria_label("コード")
                             .max_h(px(320.))
                             .overflow_y_scroll()
                             .track_scroll(&self.scroll)
