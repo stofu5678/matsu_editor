@@ -81,3 +81,4 @@ UME_UIA_TESTS=1 cargo test --release --locked -p ume --test windows_uia -- --ign
 ```
 
 Linux では `xvfb-run` の中で動かし、ImageMagick を入れておく。
+
