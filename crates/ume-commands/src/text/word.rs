@@ -53,11 +53,12 @@
 //!   rule has classified is `ZenEtc` if it is of East Asian full width (see `is_zenkaku`) and
 //!   `Etc` otherwise. Kanji, hangul and the full-width forms come out the same as in Sakura with a
 //!   Japanese font; symbols whose width depends on the font may differ.
-//! * Sakura treats CR and LF as line ending chars, and NEL, LS and PS as well when
-//!   `bEnableExtEol` is on (it is off by default). The slice does not say which setting made it,
-//!   so NEL, LS and PS are line endings only as the last char of the slice (where the line ending
-//!   of a line is) and ordinary chars elsewhere; they are given the kind of LF. A NEL, LS or PS
-//!   that ends an unterminated last line is taken for a line ending though it is a char.
+//! * Sakura treats CR and LF as line ending chars, and NEL, LS and PS as well in a line that was
+//!   split at them (`bEnableExtEol`, off by default). The functions are told how many chars at
+//!   the end of the slice are the line ending the document recorded for the line (`eol_len`: 0 for
+//!   the last line of a document that does not end with one, 1 for LF, CR, NEL, LS and PS, 2 for
+//!   CRLF), so a NEL, LS or PS is a line ending only there and an ordinary char anywhere else. In
+//!   a line ending they are given the kind of LF.
 //! * The option "stop at both ends of a word" (`m_bStopsBothEndsWhenSearchWord`) is a parameter;
 //!   its default in Sakura is off (`sakura_core/env/CShareData.cpp`).
 
@@ -109,12 +110,13 @@ pub fn is_line_delimiter(c: char) -> bool {
     matches!(c, '\r' | '\n' | '\u{85}' | '\u{2028}' | '\u{2029}')
 }
 
-/// Whether the char `i` of `line` (a line with its line ending) is part of the line ending: CR or
-/// LF anywhere, and NEL, LS or PS only as the last char, where the line ending of a line is.
-pub fn is_line_ending_at(line: &[char], i: usize) -> bool {
+/// Whether the char `i` of `line` (a line with its line ending, which is the last `eol_len` chars)
+/// is part of the line ending: CR or LF anywhere, and NEL, LS or PS only in the line ending the
+/// document recorded for the line.
+pub fn is_line_ending_at(line: &[char], eol_len: usize, i: usize) -> bool {
     match line.get(i) {
         Some('\r' | '\n') => true,
-        Some('\u{85}' | '\u{2028}' | '\u{2029}') => i + 1 == line.len(),
+        Some('\u{85}' | '\u{2028}' | '\u{2029}') => i + eol_len >= line.len(),
         _ => false,
     }
 }
@@ -228,14 +230,14 @@ fn bmp_kind(c: char) -> CharKind {
 
 /// The kind of the unit that starts at `i`; [`CharKind::Null`] past the end
 /// (Sakura: `CWordParse::WhatKindOfChar`).
-pub fn char_kind(line: &[char], i: usize) -> CharKind {
+pub fn char_kind(line: &[char], eol_len: usize, i: usize) -> CharKind {
     match size_of_char(line, i) {
         0 => CharKind::Null,
         // a BMP char with an IVS selector
         2 => CharKind::ZenEtc,
         _ => {
             let c = line[i];
-            if is_line_ending_at(line, i) {
+            if is_line_ending_at(line, eol_len, i) {
                 // CR and LF are in the ASCII table; the others are given the kind of LF
                 return if c == '\r' {
                     CharKind::Cr
@@ -288,16 +290,16 @@ pub fn merge_kinds(pre: CharKind, cur: CharKind) -> CharKind {
 /// The range `(from, to)` of the word that contains the char at `idx`, or `None` if there is no
 /// word there: past the end, or on a line ending (Sakura: `CWordParse::WhereCurrentWord_2`).
 /// `to` is the index after the last char.
-pub fn where_current_word(line: &[char], idx: usize) -> Option<(usize, usize)> {
-    if idx >= line.len() || is_line_ending_at(line, idx) {
+pub fn where_current_word(line: &[char], eol_len: usize, idx: usize) -> Option<(usize, usize)> {
+    if idx >= line.len() || is_line_ending_at(line, eol_len, idx) {
         return None;
     }
-    let mut kind = char_kind(line, idx);
+    let mut kind = char_kind(line, eol_len, idx);
 
     // back until the kind changes
     let mut from = idx;
     while from > 0 {
-        let merged = merge_kinds(char_kind(line, from - 1), kind);
+        let merged = merge_kinds(char_kind(line, eol_len, from - 1), kind);
         if merged == CharKind::Null {
             break;
         }
@@ -310,7 +312,7 @@ pub fn where_current_word(line: &[char], idx: usize) -> Option<(usize, usize)> {
     let mut width = size_of_char(line, to);
     while width > 0 {
         to += width;
-        let merged = merge_kinds(char_kind(line, to), kind);
+        let merged = merge_kinds(char_kind(line, eol_len, to), kind);
         if merged == CharKind::Null {
             break;
         }
@@ -323,14 +325,19 @@ pub fn where_current_word(line: &[char], idx: usize) -> Option<(usize, usize)> {
 /// The start of the next word after `idx`: where the kind changes, skipping spaces and tabs
 /// (Sakura: `CWordParse::SearchNextWordPosition`). With `stops_both_ends` it also stops where a
 /// run of spaces or tabs starts. `None` if the line ends first.
-pub fn search_next_word(line: &[char], idx: usize, stops_both_ends: bool) -> Option<usize> {
+pub fn search_next_word(
+    line: &[char],
+    eol_len: usize,
+    idx: usize,
+    stops_both_ends: bool,
+) -> Option<usize> {
     use CharKind::{Space, Tab};
-    let mut kind = char_kind(line, idx);
+    let mut kind = char_kind(line, eol_len, idx);
     let mut next = idx;
     let mut width = size_of_char(line, next);
     while width > 0 {
         next += width;
-        let next_kind = char_kind(line, next);
+        let next_kind = char_kind(line, eol_len, next);
         if matches!(next_kind, Tab | Space) {
             if stops_both_ends && kind != next_kind {
                 return Some(next);
@@ -351,9 +358,14 @@ pub fn search_next_word(line: &[char], idx: usize, stops_both_ends: bool) -> Opt
 /// The start of the word before `idx` (Sakura: `CWordParse::SearchPrevWordPosition`). Spaces and
 /// tabs before `idx` are skipped. With `stops_both_ends` it stops at the end of the word before
 /// the spaces. `None` if `idx` is 0.
-pub fn search_prev_word(line: &[char], idx: usize, stops_both_ends: bool) -> Option<usize> {
+pub fn search_prev_word(
+    line: &[char],
+    eol_len: usize,
+    idx: usize,
+    stops_both_ends: bool,
+) -> Option<usize> {
     use CharKind::{Null, Space, Tab};
-    let mut kind = char_kind(line, idx);
+    let mut kind = char_kind(line, eol_len, idx);
     if idx == 0 {
         return None;
     }
@@ -362,7 +374,7 @@ pub fn search_prev_word(line: &[char], idx: usize, stops_both_ends: bool) -> Opt
     while i > 0 {
         let after = i;
         i -= 1;
-        let prev_kind = char_kind(line, i);
+        let prev_kind = char_kind(line, eol_len, i);
         let mut merged = merge_kinds(prev_kind, kind);
         if merged == Null {
             if matches!(kind, Tab | Space) {
@@ -394,24 +406,36 @@ mod tests {
         s.chars().collect()
     }
 
+    /// The length in chars of the line ending at the end of `s`, as a document that counts NEL, LS
+    /// and PS as line endings records it.
+    fn eol_len(s: &str) -> usize {
+        if s.ends_with("\r\n") {
+            2
+        } else if s.ends_with(['\r', '\n', '\u{85}', '\u{2028}', '\u{2029}']) {
+            1
+        } else {
+            0
+        }
+    }
+
     /// The word at the `n`th char of `s`, as text.
     fn word_at(s: &str, n: usize) -> Option<String> {
         let line = chars(s);
-        where_current_word(&line, n).map(|(a, b)| line[a..b].iter().collect())
+        where_current_word(&line, eol_len(s), n).map(|(a, b)| line[a..b].iter().collect())
     }
 
     fn next(s: &str, n: usize, both: bool) -> Option<usize> {
-        search_next_word(&chars(s), n, both)
+        search_next_word(&chars(s), eol_len(s), n, both)
     }
 
     fn prev(s: &str, n: usize, both: bool) -> Option<usize> {
-        search_prev_word(&chars(s), n, both)
+        search_prev_word(&chars(s), eol_len(s), n, both)
     }
 
     #[test]
     fn kinds_of_ascii_chars_follow_gm_keyword_char() {
         // sakura_core/charset/charcode.cpp, gm_keyword_char
-        let kind = |c| char_kind(&[c], 0);
+        let kind = |c| char_kind(&[c], 0, 0);
         assert_eq!(kind('\t'), Tab);
         assert_eq!(kind('\n'), Lf);
         assert_eq!(kind('\r'), Cr);
@@ -433,7 +457,7 @@ mod tests {
 
     #[test]
     fn kinds_of_other_chars_follow_what_kind_of_char() {
-        let kind = |c| char_kind(&[c], 0);
+        let kind = |c| char_kind(&[c], 0, 0);
         assert_eq!(kind('ｱ'), Kata);
         assert_eq!(kind('é'), Latin);
         // not Latin, but it is in the table of symbols
@@ -465,10 +489,10 @@ mod tests {
     fn a_bmp_char_with_an_ivs_selector_is_one_zen_etc_unit() {
         let line = chars("葛\u{E0100}a");
         assert_eq!(size_of_char(&line, 0), 2);
-        assert_eq!(char_kind(&line, 0), ZenEtc);
+        assert_eq!(char_kind(&line, 0, 0), ZenEtc);
         assert_eq!(size_of_char(&line, 2), 1);
         // the word is the unit and the kanji next to it
-        assert_eq!(where_current_word(&line, 0), Some((0, 2)));
+        assert_eq!(where_current_word(&line, 0, 0), Some((0, 2)));
         // outside the BMP there is no IVS check
         assert_eq!(size_of_char(&chars("😀\u{E0100}"), 0), 1);
     }
@@ -565,9 +589,33 @@ mod tests {
         assert_eq!(word_at("ab\u{2028}", 1).as_deref(), Some("ab"));
         // Inside the line (the document does not count them as endings) they are chars.
         assert!(word_at("ab\u{85}cd", 2).is_some());
-        assert!(is_line_ending_at(&chars("a\r\n"), 1));
-        assert!(!is_line_ending_at(&chars("a\u{2029}b"), 1));
-        assert!(is_line_ending_at(&chars("a\u{2029}"), 1));
+        assert!(is_line_ending_at(&chars("a\r\n"), 2, 1));
+        assert!(!is_line_ending_at(&chars("a\u{2029}b"), 0, 1));
+        assert!(is_line_ending_at(&chars("a\u{2029}"), 1, 1));
+    }
+
+    #[test]
+    fn the_recorded_line_ending_decides_whether_nel_ls_and_ps_are_chars() {
+        for c in ['\u{85}', '\u{2028}', '\u{2029}'] {
+            let line = chars(&format!("ab{c}"));
+            // The line ended with it: the line ending, which is not a word.
+            assert_eq!(where_current_word(&line, 1, 2), None);
+            assert_eq!(where_current_word(&line, 1, 0), Some((0, 2)));
+            assert_eq!(char_kind(&line, 1, 2), Lf);
+            assert_eq!(search_next_word(&line, 1, 0, false), Some(2));
+            // The last line of a document that has no line ending after it: the char is a char
+            // of the line (the document was made with the extended line endings off), so it
+            // can be selected as a word of its own, whatever the setting is now.
+            assert!(is_kind_of_a_char(char_kind(&line, 0, 2)));
+            assert_eq!(where_current_word(&line, 0, 2), Some((2, 3)));
+            assert_eq!(search_next_word(&line, 0, 0, false), Some(2));
+            assert_eq!(search_next_word(&line, 0, 2, false), Some(3));
+            assert_eq!(search_prev_word(&line, 0, 3, false), Some(2));
+        }
+    }
+
+    fn is_kind_of_a_char(kind: CharKind) -> bool {
+        kind != Lf && kind != Cr && kind != Null
     }
 
     #[test]

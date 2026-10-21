@@ -14,7 +14,8 @@
 //!    common settings turns it on).
 //!    In view mode the file itself is never overwritten (`CSaveAgent::OnCheckSave`).
 //! 3. If the line endings are mixed and the save does not convert them, ask whether to unify them
-//!    to the current line ending (Sakura's default asks, `m_bChkEnterAtEnd`).
+//!    to the current line ending. Sakura's default asks; the type's 「保存時に改行コードの混在を警告する」
+//!    (`m_bChkEnterAtEnd`, `TypeSettings::warn_mixed_eol`) turns the question off.
 //! 4. If the encoding cannot write some characters, show the first place and ask: continue
 //!    (they become `?`), stop, or go to the place.
 //! 5. Make the backup of the file that is there, if the common settings say so (`backup`), then
@@ -462,8 +463,12 @@ async fn confirm_content(
     options: &mut SaveOptions,
     ask_mixed_eol: bool,
 ) -> Result<(), SaveOutcome> {
-    // 3. Mixed line endings.
-    if ask_mixed_eol && options.eol.is_none() {
+    // 3. Mixed line endings, unless the document type turned the question off
+    // (`m_bChkEnterAtEnd`, 「保存時に改行コードの混在を警告する」; `CCodeChecker::OnCheckSave`).
+    let warn_mixed_eol = view
+        .read_with(cx, |view, app| view.type_settings(app).warn_mixed_eol)
+        .unwrap_or(true);
+    if ask_mixed_eol && warn_mixed_eol && options.eol.is_none() {
         let mixed = view
             .update(cx, |view, cx| {
                 view.document()

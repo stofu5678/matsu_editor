@@ -425,6 +425,35 @@ fn mixed_line_endings_ask_to_unify(cx: &mut TestAppContext) {
     assert_eq!(read(&path), b"xyza\r\nb\r\nc");
 }
 
+/// A settings file where no document type warns about mixed line endings
+/// (`bChkEnterAtEnd=0`, `m_bChkEnterAtEnd` in `CCodeChecker::OnCheckSave`).
+fn settings_without_eol_warning() -> crate::settings::UserSettings {
+    let mut ini = String::from("[Other]\r\nnTypesCount=17\r\n");
+    for i in 0..17 {
+        ini.push_str(&format!("[Types({i})]\r\nbChkEnterAtEnd=0\r\n"));
+    }
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(ini.as_bytes());
+    crate::settings::UserSettings::from_profile(ume_config::Profile::from_bytes(&bytes), None)
+}
+
+#[gpui::test]
+fn mixed_line_endings_are_saved_without_a_question_when_the_type_does_not_warn(
+    cx: &mut TestAppContext,
+) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", b"a\r\nb\nc");
+    cx.update(|app| app.set_global(settings_without_eol_warning()));
+    let (f, cx) = setup(cx);
+    f.open(cx, &path, Some(UTF8));
+    cx.simulate_input("x");
+
+    f.run(cx, "F_FILESAVE", &[]);
+    assert!(!cx.has_pending_prompt(), "the type does not warn");
+    assert_eq!(read(&path), b"xa\r\nb\nc");
+    assert!(!f.modified(cx));
+}
+
 #[gpui::test]
 fn closing_a_modified_file_asks_and_cancel_keeps_everything(cx: &mut TestAppContext) {
     let dir = TempDir::new();

@@ -93,7 +93,7 @@ pub fn left_word(line: &[char], caret: usize) -> Option<String> {
     if matches!(line[prev], ' ' | '\t' | '\u{3000}') {
         return None;
     }
-    let (from, _) = where_current_word(line, prev)?;
+    let (from, _) = where_current_word(line, 0, prev)?;
     Some(line[from..caret].iter().collect())
 }
 
@@ -148,7 +148,7 @@ pub fn candidates(
                 j += width;
                 continue;
             }
-            let mut kind_pre = char_kind(&line, j);
+            let mut kind_pre = char_kind(&line, 0, j);
             // a full-width symbol is not part of a candidate
             if matches!(
                 kind_pre,
@@ -177,7 +177,7 @@ pub fn candidates(
                 if u32::from(c) < 0xC0 && !is_keyword_char(c) {
                     break;
                 }
-                let kind_cur = char_kind(&line, j);
+                let kind_cur = char_kind(&line, 0, j);
                 if matches!(
                     kind_cur,
                     CharKind::ZenSpace | CharKind::ZenKigo | CharKind::ZenSkigo

@@ -16,6 +16,9 @@ struct LineChars {
     /// `offsets[i]` is the byte column of `chars[i]`; the last entry is the end of the line
     /// including the line ending.
     offsets: Vec<usize>,
+    /// How many chars at the end of `chars` are the line ending the document recorded for the
+    /// line (0 for none).
+    eol_len: usize,
 }
 
 impl LineChars {
@@ -42,7 +45,11 @@ impl CommandContext<'_> {
             off += c.len_utf8();
         }
         offsets.push(off);
-        Ok(Some(LineChars { chars, offsets }))
+        Ok(Some(LineChars {
+            chars,
+            offsets,
+            eol_len: eol.chars().count(),
+        }))
     }
 
     /// The range of the word at `pos` (Sakura: `WhereCurrentWord`), or `None` on a line ending,
@@ -55,7 +62,7 @@ impl CommandContext<'_> {
             return Ok(None);
         };
         Ok(
-            word::where_current_word(&line.chars, idx).map(|(from, to)| {
+            word::where_current_word(&line.chars, line.eol_len, idx).map(|(from, to)| {
                 (
                     Pos::new(pos.line, line.offsets[from]),
                     Pos::new(pos.line, line.offsets[to]),
@@ -101,7 +108,8 @@ impl CommandContext<'_> {
         let caret = self.caret();
         if let Some(line) = self.line_chars(caret.line)?
             && let Some(idx) = line.index_of(caret.col)
-            && let Some(to) = word::search_prev_word(&line.chars, idx, stops_both_ends())
+            && let Some(to) =
+                word::search_prev_word(&line.chars, line.eol_len, idx, stops_both_ends())
         {
             return self.move_caret(Pos::new(caret.line, line.offsets[to]), extend);
         }
@@ -133,8 +141,12 @@ impl CommandContext<'_> {
             }
             let to = line
                 .index_of(caret.col)
-                .filter(|&i| i < line.chars.len() && !word::is_line_ending_at(&line.chars, i))
-                .and_then(|i| word::search_next_word(&line.chars, i, stops_both_ends()));
+                .filter(|&i| {
+                    i < line.chars.len() && !word::is_line_ending_at(&line.chars, line.eol_len, i)
+                })
+                .and_then(|i| {
+                    word::search_next_word(&line.chars, line.eol_len, i, stops_both_ends())
+                });
             if let Some(to) = to {
                 return self.move_caret(Pos::new(caret.line, line.offsets[to]), extend);
             }
@@ -168,6 +180,26 @@ mod tests {
         check("word_right", "abc|\n\tdef", "abc\n\t|def");
         check("word_right", "abc|\ndef", "abc\n|def");
         check("word_right", "abc |\n  def", "abc \n  |def");
+    }
+
+    #[test]
+    fn nel_ls_and_ps_are_word_chars_unless_the_document_split_the_line_there() {
+        use crate::testing::Editor;
+        for c in ['\u{85}', '\u{2028}', '\u{2029}'] {
+            // The setting is off: the char at the end of the last line is a char of the line, and
+            // it can be selected as a word.
+            let mut editor = Editor::new_with_ext_eol(&format!("|ab {c}"), false);
+            editor.with_context(|cx| {
+                let before = ume_core::buffer::Pos::new(0, 3);
+                assert!(cx.word_range_at(before).unwrap().is_some());
+            });
+            // The setting is on: the line ends there, and there is no word on the line ending.
+            let mut editor = Editor::new_with_ext_eol(&format!("|ab {c}"), true);
+            editor.with_context(|cx| {
+                let before = ume_core::buffer::Pos::new(0, 3);
+                assert_eq!(cx.word_range_at(before).unwrap(), None);
+            });
+        }
     }
 
     #[test]

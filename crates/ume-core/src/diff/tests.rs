@@ -346,3 +346,42 @@ fn the_comparison_starts_at_the_carets() {
     // a place in the middle of a Japanese char is moved to its start
     assert_eq!(difference("日本\n", (0, 1), "日本\n", (0, 0)), None);
 }
+
+#[test]
+fn blank_lines_use_the_ending_the_line_has() {
+    use crate::buffer::Eol;
+    let blank = DiffOptions {
+        ignore_blank_lines: true,
+        ..DiffOptions::default()
+    };
+    let ended = |text: &str, eol: Option<Eol>| EndedLine::new(text.to_owned(), eol);
+    let a = ended("a", Some(Eol::Lf));
+    let b = ended("b", None);
+    // A line split at a NEL, LS or PS (the document was made with the extended line endings on)
+    // is blank, whatever the setting is now.
+    for eol in [Eol::Nel, Eol::Ls, Eol::Ps] {
+        let with_blank = [a.clone(), ended("", Some(eol)), b.clone()];
+        let without = [a.clone(), b.clone()];
+        assert!(
+            diff_lines(&without, &with_blank, blank).is_empty(),
+            "{eol:?}"
+        );
+        assert!(!diff_lines(&without, &with_blank, DiffOptions::default()).is_empty());
+    }
+    // The same char at the end of an unterminated last line is a char of the line (the line was
+    // made with the extended line endings off): it is not blank.
+    for c in ["\u{85}", "\u{2028}", "\u{2029}"] {
+        let last = [a.clone(), ended(c, None)];
+        assert_eq!(
+            diff_lines(std::slice::from_ref(&a), &last, blank),
+            [Hunk {
+                kind: HunkKind::Add,
+                old: 1..1,
+                new: 1..2
+            }],
+            "{c:?}"
+        );
+    }
+    // A plain `str` takes CR and LF to be the ending.
+    assert!(hunks_with("a\r\n", "a\r\n\r\n", blank).is_empty());
+}

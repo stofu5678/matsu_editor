@@ -71,9 +71,6 @@ pub struct DiffOptions {
     pub own_is_old: bool,
     /// 0x0040: say so when there is no difference (DIFF差分が見つからないときにメッセージを表示).
     pub notify_no_diff: bool,
-    /// Not a bit of the flags: the setting `m_bEnableExtEol` of the document. Off, a NEL, LS or PS
-    /// at the end of a line is a character of the line, not a line ending, so it is not blank.
-    pub ext_eol: bool,
 }
 
 impl DiffOptions {
@@ -94,7 +91,6 @@ impl DiffOptions {
             expand_tabs: flags & Self::EXPAND_TABS != 0,
             own_is_old: flags & Self::OWN_IS_OLD != 0,
             notify_no_diff: flags & Self::NOTIFY_NO_DIFF != 0,
-            ext_eol: false,
         }
     }
 
@@ -168,14 +164,80 @@ fn key(line: &str, options: DiffOptions) -> String {
     out
 }
 
+/// A line as `diff_lines` compares it: its text with the line ending it has, and how long that
+/// ending is. The ending is the one the document recorded for the line, not a guess from the
+/// current setting `m_bEnableExtEol`: a NEL, LS or PS at the end of a line is a line ending only
+/// if the line was split at it, so it can be a char of the line in a document whose lines were
+/// made under the other setting.
+pub trait DiffLine {
+    /// The text of the line with its line ending.
+    fn text(&self) -> &str;
+
+    /// The length in bytes of the line ending at the end of [`DiffLine::text`] (0 for none).
+    /// The default takes CR and LF to be the ending, which is right for a plain `str`.
+    fn eol_len(&self) -> usize {
+        let text = self.text();
+        text.len() - text.trim_end_matches(['\r', '\n']).len()
+    }
+}
+
+impl DiffLine for str {
+    fn text(&self) -> &str {
+        self
+    }
+}
+
+impl DiffLine for String {
+    fn text(&self) -> &str {
+        self
+    }
+}
+
+impl<T: DiffLine + ?Sized> DiffLine for &T {
+    fn text(&self) -> &str {
+        (**self).text()
+    }
+
+    fn eol_len(&self) -> usize {
+        (**self).eol_len()
+    }
+}
+
+/// A line of a document: the text, then the line ending the document recorded for it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EndedLine {
+    text: String,
+    eol_len: usize,
+}
+
+impl EndedLine {
+    /// `text` is the line without its ending; `eol` is the ending of the line (`None` for the
+    /// last line of a document that does not end with one).
+    pub fn new(mut text: String, eol: Option<crate::buffer::Eol>) -> Self {
+        let eol_len = eol.map_or(0, |eol| {
+            let ending = crate::model::eol_text(eol);
+            text.push_str(ending);
+            ending.len()
+        });
+        Self { text, eol_len }
+    }
+}
+
+impl DiffLine for EndedLine {
+    fn text(&self) -> &str {
+        &self.text
+    }
+
+    fn eol_len(&self) -> usize {
+        self.eol_len
+    }
+}
+
 /// Whether a line is blank for `-B`: nothing but its line ending (or, with `-w` or `-b`, nothing
 /// but white space).
-fn is_blank(line: &str, options: DiffOptions) -> bool {
-    let body = if options.ext_eol {
-        line.trim_end_matches(['\r', '\n', '\u{85}', '\u{2028}', '\u{2029}'])
-    } else {
-        line.trim_end_matches(['\r', '\n'])
-    };
+fn is_blank(line: &impl DiffLine, options: DiffOptions) -> bool {
+    let text = line.text();
+    let body = &text[..text.len() - line.eol_len()];
     if options.ignore_all_space || options.ignore_space_change {
         body.chars().all(char::is_whitespace)
     } else {
@@ -190,11 +252,11 @@ fn is_blank(line: &str, options: DiffOptions) -> bool {
 /// The hunks are in order, and do not touch each other.
 pub fn diff_lines<A, B>(old: &[A], new: &[B], options: DiffOptions) -> Vec<Hunk>
 where
-    A: AsRef<str>,
-    B: AsRef<str>,
+    A: DiffLine,
+    B: DiffLine,
 {
-    let old_keys: Vec<String> = old.iter().map(|l| key(l.as_ref(), options)).collect();
-    let new_keys: Vec<String> = new.iter().map(|l| key(l.as_ref(), options)).collect();
+    let old_keys: Vec<String> = old.iter().map(|l| key(l.text(), options)).collect();
+    let new_keys: Vec<String> = new.iter().map(|l| key(l.text(), options)).collect();
     let mut hunks: Vec<Hunk> = Vec::new();
     for op in capture_diff_slices(Algorithm::Myers, &old_keys, &new_keys) {
         let (tag, o, n) = op.as_tag_tuple();
@@ -223,12 +285,8 @@ where
     if options.ignore_blank_lines {
         // `-B`: changes that only insert or delete blank lines do not count
         hunks.retain(|h| {
-            let blank_old = old[h.old.clone()]
-                .iter()
-                .all(|l| is_blank(l.as_ref(), options));
-            let blank_new = new[h.new.clone()]
-                .iter()
-                .all(|l| is_blank(l.as_ref(), options));
+            let blank_old = old[h.old.clone()].iter().all(|l| is_blank(l, options));
+            let blank_new = new[h.new.clone()].iter().all(|l| is_blank(l, options));
             !(blank_old && blank_new)
         });
     }
