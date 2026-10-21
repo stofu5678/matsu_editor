@@ -649,6 +649,7 @@ impl EditorView {
     // ---- keys ----
 
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        self.autoscroll_key_pressed(&event.keystroke);
         self.key_help_restart(window, cx);
         // The completion list takes its keys first (Sakura: `CHokanMgr::KeyProc`).
         if self.completion_key(event, cx) {

@@ -137,8 +137,10 @@ impl EditorView {
             return false;
         };
         let (origin, vertical, horizontal) = (*origin, *vertical, *horizontal);
-        // Another tab or pane took the focus: the text must not go on scrolling behind it.
-        if !self.focus_handle.is_focused(window) {
+        // Another tab, pane, window or application took the focus (`WM_KILLFOCUS`): the text must
+        // not go on scrolling behind it. GPUI keeps the focused element of a window that is not
+        // the active one, so the window counts too.
+        if !self.focus_handle.is_focused(window) || !window.is_window_active() {
             self.autoscroll_exit();
             return false;
         }
@@ -235,6 +237,21 @@ impl EditorView {
     ) {
         if matches!(self.autoscroll, AutoScroll::Pending { .. }) {
             self.on_middle_mouse_up(event, window, cx);
+        }
+    }
+
+    /// A key goes down (`WM_KEYDOWN` reaches `HandleCommand` or `Command_WCHAR`, which end the
+    /// auto scroll): ends it, unless the key is bound to `F_AUTOSCROLL` itself, which toggles. Also
+    /// the keys no command takes: the completion list's, the unbound and those of an IME.
+    pub(crate) fn autoscroll_key_pressed(&mut self, keystroke: &gpui::Keystroke) {
+        if !self.autoscroll.is_on() {
+            return;
+        }
+        let is_toggle = crate::keys::chord_of(keystroke).is_some_and(|chord| {
+            matches!(self.keymap.resolve(chord), Resolved::Code(F_AUTOSCROLL))
+        });
+        if !is_toggle {
+            self.autoscroll_exit();
         }
     }
 
