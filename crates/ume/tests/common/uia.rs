@@ -24,7 +24,7 @@ use windows::Win32::UI::Accessibility::{
     UIA_TabItemControlTypeId, UIA_TogglePatternId,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    PostMessageW, WM_CHAR, WM_CLOSE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
+    PostMessageW, SetProcessDPIAware, WM_CHAR, WM_CLOSE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
 };
 
 /// How long to wait for an element to show up.
@@ -53,6 +53,9 @@ impl Uia {
             );
             return None;
         }
+        // UIA gives physical pixels: the client coordinates of a click must be physical too.
+        // SAFETY: a plain call without arguments.
+        let _ = unsafe { SetProcessDPIAware() };
         // SAFETY: plain COM calls on the test thread. The result of `CoInitializeEx` is not
         // checked on purpose: a thread that is in an apartment already can still use UIA.
         unsafe {
