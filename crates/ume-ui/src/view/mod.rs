@@ -630,6 +630,19 @@ impl EditorView {
 
     // ---- keys ----
 
+    /// Takes Tab and Shift+Tab out of the key bindings while the editor has the focus.
+    /// gpui-component's `Root` binds them to "move the focus to the next control", and GPUI runs
+    /// the key bindings before the key listeners, so without this the editor never sees the keys:
+    /// Tab (`F_INDENT_TAB`) typed nothing and the focus went to the menu bar. Call it after
+    /// `gpui_component::init`: the later binding wins, and the "Editor" context is deeper than
+    /// "Root".
+    pub(crate) fn bind_keys(cx: &mut App) {
+        cx.bind_keys([
+            gpui::KeyBinding::new("tab", gpui::NoAction, Some("Editor")),
+            gpui::KeyBinding::new("shift-tab", gpui::NoAction, Some("Editor")),
+        ]);
+    }
+
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         self.key_help_restart(window, cx);
         // The completion list takes its keys first (Sakura: `CHokanMgr::KeyProc`).

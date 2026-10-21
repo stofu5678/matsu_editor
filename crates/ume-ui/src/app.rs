@@ -148,6 +148,7 @@ pub(crate) fn run(
     app.on_reopen(reopen);
     app.run(move |cx: &mut App| {
         gpui_component::init(cx);
+        crate::view::EditorView::bind_keys(cx);
         crate::history::install(cx, &user);
         crate::tabs::settings::install(cx, &user);
         crate::bars::install(cx, &user);
@@ -561,6 +562,33 @@ mod tests {
         assert_eq!(text(cx), "abc");
         cx.dispatch_action(RunFunction { code: 30211 });
         assert_eq!(text(cx), "xabc");
+    }
+
+    /// Tab and Shift+Tab reach the editor through the whole window. gpui-component's `Root` binds
+    /// them to "move the focus" (`root::Tab`), and GPUI runs key bindings before the key listeners
+    /// of the views, so the editor's own handler never saw the key on a real window: Tab typed
+    /// nothing and moved the focus to the menu bar.
+    #[gpui::test]
+    fn tab_in_the_window_is_not_taken_by_the_focus_move(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            crate::view::EditorView::bind_keys(cx);
+            set_menus(cx, &KeyMap::default());
+        });
+        let doc = Document::from_utf8(b"abc".to_vec()).unwrap();
+        let shared = cx.new(|_| SharedDocument::new(DocumentModel::new(doc), None));
+        let probe = shared.clone();
+        let (_root, cx) = cx.add_window_view(|window, cx| {
+            let workspace = cx.new(|cx| Workspace::new(shared, window, cx));
+            Root::new(workspace, window, cx)
+        });
+        cx.run_until_parked();
+        let focused_before = cx.update(|window, cx| window.focused(cx));
+        cx.simulate_keystrokes("tab");
+        let text = probe.read_with(cx, |s, _| s.doc().line(0).unwrap().unwrap().text);
+        assert_eq!(text, "\tabc");
+        cx.simulate_keystrokes("shift-tab");
+        assert_eq!(cx.update(|window, cx| window.focused(cx)), focused_before);
     }
 
     /// The recent files are in the File menu, and the menus are made again when the history
