@@ -89,13 +89,9 @@ fn boot_folders(dir: &std::path::Path) -> Vec<String> {
 
 /// Runs the macro on a text. `None` when the interpreter is missing.
 fn run(language: Language, code: &str, text: &str) -> Option<(Report, TextModel)> {
-    run_with(
-        language,
-        code,
-        text,
-        PATIENT,
-        |doc, message| api::handle_message(doc, message),
-    )
+    run_with(language, code, text, PATIENT, |doc, message| {
+        api::handle_message(doc, message)
+    })
 }
 
 fn run_with(
@@ -184,19 +180,13 @@ fn a_slow_answer_is_waited_for() {
     let php = "Editor::InsText('x'); echo Editor::GetLineStr(1), \"\\n\";";
     for (language, code) in cases(js, py, rb, php) {
         let started = Instant::now();
-        let Some((report, _)) = run_with(
-            language,
-            code,
-            "abc",
-            PATIENT,
-            |doc, message| {
-                // The editor takes its time with the first call.
-                if message.contains("InsText") {
-                    std::thread::sleep(Duration::from_millis(1500));
-                }
-                api::handle_message(doc, message)
-            },
-        ) else {
+        let Some((report, _)) = run_with(language, code, "abc", PATIENT, |doc, message| {
+            // The editor takes its time with the first call.
+            if message.contains("InsText") {
+                std::thread::sleep(Duration::from_millis(1500));
+            }
+            api::handle_message(doc, message)
+        }) else {
             continue;
         };
         assert_clean_exit(&report);
@@ -238,16 +228,10 @@ fn output_without_a_line_break_before_a_request() {
     let php = "echo 'abc'; Editor::GoFileTop(); echo \"def\\n\"; echo 'tail';";
     for (language, code) in cases(js, py, rb, php) {
         let mut requests = 0;
-        let Some((report, _)) = run_with(
-            language,
-            code,
-            "x",
-            PATIENT,
-            |doc, message| {
-                requests += 1;
-                api::handle_message(doc, message)
-            },
-        ) else {
+        let Some((report, _)) = run_with(language, code, "x", PATIENT, |doc, message| {
+            requests += 1;
+            api::handle_message(doc, message)
+        }) else {
             continue;
         };
         assert_clean_exit(&report);
