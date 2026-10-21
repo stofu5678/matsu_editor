@@ -44,12 +44,15 @@
 //!   空行を無視する is, for the bookmark list.
 //! * [`file_tree`] is Sakura's file tree (`F_FILETREE`, ファイルツリー), which the same dialog shows
 //!   in place of an analysis: the pane builds it from the settings instead of the document.
+//! * [`file_tree_dialog`] is the dialog 「ファイルツリー設定」 (`CDlgFileTree`) that the 設定 button of the
+//!   pane opens while the pane shows the file tree.
 //! * Here: what the commands do (`Command_FUNCLIST`), and the jumps between the function list marks.
 //!
 //! Sakura: `sakura_core/cmd/CViewCommander_Outline.cpp`, `sakura_core/outline/CDlgFuncList.cpp`,
 //! `sakura_core/cmd/CViewCommander_Bookmark.cpp`.
 
 pub(crate) mod file_tree;
+pub(crate) mod file_tree_dialog;
 #[cfg(test)]
 mod file_tree_tests;
 pub(crate) mod pane;

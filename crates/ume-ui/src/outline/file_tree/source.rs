@@ -90,6 +90,39 @@ pub(crate) struct Loaded {
 
 /// `LoadFileTreeSetting`.
 pub(crate) fn load_setting(inputs: &Inputs) -> Loaded {
+    load_dialog_setting(inputs).loaded
+}
+
+/// Where the settings of the tree are kept: `EFileTreeSettingFrom`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SettingFrom {
+    /// `EFileTreeSettingFrom_Common`: `[Common]`.
+    Common,
+    /// `EFileTreeSettingFrom_Type`: the `[Types(N)]` of the document's type.
+    Type,
+    /// `EFileTreeSettingFrom_File`: a project file found above the document.
+    File,
+}
+
+/// What `LoadFileTreeSetting` fills in for `CDlgFileTree` (`CFileTreeSetting`): besides the items,
+/// where they are kept and what the settings say about project files.
+#[derive(Clone, Debug)]
+pub(crate) struct DialogSetting {
+    /// `m_eFileTreeSettingLoadType`: where the items came from.
+    pub loaded_from: SettingFrom,
+    /// The section of the settings file that holds the settings, where OK writes them
+    /// (`m_eFileTreeSettingOrgType`: `[Common]` or `[Types(N)]`).
+    pub section: String,
+    /// `m_bProject`.
+    pub project: bool,
+    /// `m_szDefaultProjectIni`.
+    pub default_project_ini: String,
+    /// The items, the project file they came from and its folder.
+    pub loaded: Loaded,
+}
+
+/// `LoadFileTreeSetting`, with everything the dialog needs.
+pub(crate) fn load_dialog_setting(inputs: &Inputs) -> DialogSetting {
     let profile = &inputs.profile;
     let by_type = profile
         .get_i32(COMMON_SECTION, "nOutlineDockSet")
@@ -99,38 +132,56 @@ pub(crate) fn load_setting(inputs: &Inputs) -> Loaded {
     } else {
         COMMON_SECTION.to_owned()
     };
+    let origin = if by_type {
+        SettingFrom::Type
+    } else {
+        SettingFrom::Common
+    };
     let tree = FileTree::from_profile(profile, &section);
+    let setting = |loaded_from: SettingFrom, loaded: Loaded| DialogSetting {
+        loaded_from,
+        section: section.clone(),
+        project: tree.project,
+        default_project_ini: tree.project_ini.clone(),
+        loaded,
+    };
     if tree.project
         && let Some(found) = find_project_file(&inputs.base_dir, &default_project_ini_name(profile))
     {
-        return found;
+        return setting(SettingFrom::File, found);
     }
-    if !tree.project_ini.is_empty() {
-        // the settings are written with Windows paths; a backslash separates folders on every OS
-        let name = if cfg!(windows) {
-            tree.project_ini.clone()
-        } else {
-            tree.project_ini.replace('\\', "/")
-        };
-        let path = if is_relative(&tree.project_ini) {
-            inidir_or_exedir(inputs.meta.as_ref(), &name)
-        } else {
-            Some(PathBuf::from(&name))
-        };
-        if let Some(path) = path
-            && let Ok(project) = Profile::load(&path)
-        {
-            return Loaded {
-                items: read_project_items(&project),
-                project_ini: Some(path),
-                ini_root: None,
-            };
-        }
+    if !tree.project_ini.is_empty()
+        && let Some(loaded) = read_default_project_file(inputs, &tree.project_ini)
+    {
+        return setting(origin, loaded);
     }
-    Loaded {
-        items: tree.items,
+    let loaded = Loaded {
+        items: tree.items.clone(),
         ..Loaded::default()
-    }
+    };
+    setting(origin, loaded)
+}
+
+/// The project file that `szFileTreeProjectIni` names (a relative name starts at the folder of the
+/// settings file), when it can be read.
+pub(crate) fn read_default_project_file(inputs: &Inputs, name: &str) -> Option<Loaded> {
+    // the settings are written with Windows paths; a backslash separates folders on every OS
+    let on_this_os = if cfg!(windows) {
+        name.to_owned()
+    } else {
+        name.replace('\\', "/")
+    };
+    let path = if is_relative(name) {
+        inidir_or_exedir(inputs.meta.as_ref(), &on_this_os)?
+    } else {
+        PathBuf::from(&on_this_os)
+    };
+    let project = Profile::load(&path).ok()?;
+    Some(Loaded {
+        items: read_project_items(&project),
+        project_ini: Some(path),
+        ini_root: None,
+    })
 }
 
 /// The project file called `name` in `start` or the nearest folder above it.
