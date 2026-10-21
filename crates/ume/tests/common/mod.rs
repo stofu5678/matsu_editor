@@ -148,10 +148,13 @@ pub fn capture_screen(path: &Path) -> Result<(), String> {
     } else if cfg!(target_os = "macos") {
         run(Command::new("screencapture").arg("-x").arg(path))?;
     } else {
-        run(Command::new("import").args(["-window", "root"]).arg(path)).or_else(|first| {
+        run(Command::new("import")
+            .args(["-window", "root", "-strip"])
+            .arg(path))
+        .or_else(|first| {
             run(Command::new("sh")
                 .arg("-c")
-                .arg("xwd -root -silent | convert xwd:- \"$1\"")
+                .arg("xwd -root -silent | convert xwd:- -strip \"$1\"")
                 .arg("sh")
                 .arg(path))
             .map_err(|second| format!("{first}; {second}"))

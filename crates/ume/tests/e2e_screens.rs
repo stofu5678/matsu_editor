@@ -86,8 +86,10 @@ fn take(name: &str, macro_source: Option<&str>) {
     let started = Instant::now();
     thread::sleep(SETTLE);
     let result = loop {
+        // The program ending by itself is a failure on every platform (a crash, a macro error).
         if let Ok(Some(status)) = child.try_wait() {
-            break Err(format!("ume ended early with {status}"));
+            let output = fs::read_to_string(&log).unwrap_or_default();
+            panic!("{name}: ume ended early with {status}. Output:\n{output}");
         }
         let outcome = empty_result
             .clone()
@@ -104,13 +106,13 @@ fn take(name: &str, macro_source: Option<&str>) {
     let _ = fs::remove_file(&empty);
 
     if let Err(error) = result {
-        let output = fs::read_to_string(&log).unwrap_or_default();
         // On macOS the runner may not allow a screen capture (Screen Recording privacy): the
         // picture is then a desktop without the window, which is told but is not a failure.
         if cfg!(target_os = "macos") {
-            eprintln!("WARNING: {name}: {error}. Output:\n{output}");
+            eprintln!("WARNING: {name}: {error}");
             return;
         }
+        let output = fs::read_to_string(&log).unwrap_or_default();
         panic!("{name}: {error}. Output:\n{output}");
     }
     eprintln!("saved {}", target.display());
