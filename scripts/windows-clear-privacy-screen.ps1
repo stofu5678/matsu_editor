@@ -45,11 +45,23 @@ foreach ($name in 'CloudExperienceHostBroker', 'CloudExperienceHost', 'WWAHost',
 }
 Start-Sleep -Seconds 5
 
-# Closing the screen leaves the Start menu open over the desktop (seen in the first pictures
-# after the screen was gone): Escape closes it.
+# After the screen is gone, other windows come up over the desktop: the Start menu, and a console
+# with "Windows Subsystem for Linux must be updated" (wsl.exe, in Windows Terminal), seen in the
+# pictures of the first tries. Close them, press Escape for the Start menu, and minimize what is
+# left (the console of the runner), twice, because some of them come a few seconds late.
 Add-Type -AssemblyName System.Windows.Forms
-[System.Windows.Forms.SendKeys]::SendWait('{ESC}')
-Start-Sleep -Seconds 2
+$shell = New-Object -ComObject Shell.Application
+foreach ($round in 1, 2) {
+    foreach ($name in 'wsl', 'wslhost', 'WindowsTerminal', 'OpenConsole') {
+        Get-Process -Name $name -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "stopping $($_.ProcessName) ($($_.Id))"
+            Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+        }
+    }
+    [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+    $shell.MinimizeAll()
+    Start-Sleep -Seconds 5
+}
 
 Show-Windows 'after'
 Save-Screen 'windows-arm64-desktop-after'
