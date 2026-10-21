@@ -231,8 +231,8 @@ impl FuncStates {
             can_jump_back: view.cursor.jump_history().has_prev(),
             can_jump_forward: view.cursor.jump_history().has_next(),
             grep_window: view.is_grep_window(),
-            key_macro_saveable: view.macros.can_save_key_macro(),
-            key_macro_loaded: view.macros.has_key_macro(),
+            key_macro_saveable: view.macros.can_save_key_macro(cx),
+            key_macro_loaded: view.macros.has_key_macro(cx),
             select_count_by_byte: view
                 .prefs
                 .select_count

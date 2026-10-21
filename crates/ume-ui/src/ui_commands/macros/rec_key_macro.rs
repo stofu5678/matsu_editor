@@ -19,11 +19,14 @@ impl UiCommand for RecKeyMacro {
         &self,
         view: &mut EditorView,
         _: &[Arg],
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<EditorView>,
     ) -> Result {
-        view.toggle_key_macro_recording(cx);
-        Ok(())
+        // Stopping writes `RecKey.mac`; a failure is shown like the other macro errors.
+        match view.toggle_key_macro_recording(cx) {
+            Some(message) => Err(view.macro_error(message, window, cx)),
+            None => Ok(()),
+        }
     }
 }
 

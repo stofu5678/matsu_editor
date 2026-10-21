@@ -508,7 +508,7 @@ fn a_grep_is_recorded_in_a_key_macro_with_its_arguments(cx: &mut TestAppContext)
     f.view
         .update(cx, |view, cx| view.toggle_key_macro_recording(cx));
     f.view
-        .read_with(cx, |view, _| view.save_key_macro_to(&path))
+        .read_with(cx, |view, app| view.save_key_macro_to(&path, app))
         .unwrap();
     let saved = String::from_utf8_lossy(&std::fs::read(&path).unwrap()).into_owned();
     let flags = 0x01 | 0x10 | 0x20 | (99 << 8);
@@ -774,7 +774,7 @@ fn a_replacement_is_not_recorded_in_a_key_macro(cx: &mut TestAppContext) {
     f.view
         .update(cx, |view, cx| view.toggle_key_macro_recording(cx));
     f.view
-        .read_with(cx, |view, _| view.save_key_macro_to(&path))
+        .read_with(cx, |view, app| view.save_key_macro_to(&path, app))
         .unwrap();
     let saved = String::from_utf8_lossy(&std::fs::read(&path).unwrap()).into_owned();
     // `GrepReplace` is not a function of key macros (`MacroFunction::key_macro`)

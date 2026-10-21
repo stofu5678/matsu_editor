@@ -516,7 +516,7 @@ fn a_key_macro_records_the_chosen_function(cx: &mut TestAppContext) {
     f.view.update(cx, |v, cx| v.toggle_key_macro_recording(cx));
     let path = dir.path().join("rec.mac");
     f.view
-        .read_with(cx, |v, _| v.save_key_macro_to(&path))
+        .read_with(cx, |v, app| v.save_key_macro_to(&path, app))
         .unwrap();
     let saved = std::fs::read_to_string(&path).unwrap();
     assert!(saved.contains("SelectAll"), "{saved}");

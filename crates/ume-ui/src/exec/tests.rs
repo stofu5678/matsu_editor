@@ -704,7 +704,7 @@ fn the_dialog_records_the_call_in_a_key_macro(cx: &mut TestAppContext) {
     w.view
         .update(cx, |view, cx| view.toggle_key_macro_recording(cx));
     w.view
-        .read_with(cx, |view, _| view.save_key_macro_to(&rec))
+        .read_with(cx, |view, app| view.save_key_macro_to(&rec, app))
         .unwrap();
     let saved = String::from_utf8_lossy(&std::fs::read(&rec).unwrap()).into_owned();
     // `HandleCommand( F_EXECMD, true, cmd, flags, dir )` is what is recorded, without the folder

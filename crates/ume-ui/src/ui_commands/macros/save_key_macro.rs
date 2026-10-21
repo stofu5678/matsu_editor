@@ -1,8 +1,7 @@
 //! `F_SAVEKEYMACRO`: stops recording and saves the key macro in a file that the user names.
 //!
 //! Sakura: `CViewCommander::Command_SAVEKEYMACRO` (`sakura_core/cmd/CViewCommander_Macro.cpp`).
-//! The dialog starts in the folder of the document; Sakura starts in the macro folder of its
-//! settings, which this editor does not have yet.
+//! The dialog starts in the macro folder, as in Sakura.
 
 use gpui::{Context, Window};
 use ume_commands::command::{Arg, Result};
