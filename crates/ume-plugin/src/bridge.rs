@@ -183,7 +183,9 @@ pub(crate) fn command_error(error: CommandError) -> RpcError {
             RpcError::new(NOT_IMPLEMENTED, format!("no such command: {what}"))
         }
         CommandError::Buffer(e) => RpcError::new(INTERNAL_ERROR, e.to_string()),
-        e @ CommandError::Unavailable(_) => RpcError::new(UNAVAILABLE, e.to_string()),
+        e @ (CommandError::Unavailable(_) | CommandError::Refused(_)) => {
+            RpcError::new(UNAVAILABLE, e.to_string())
+        }
     }
 }
 

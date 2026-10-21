@@ -208,7 +208,13 @@ impl CommandContext<'_> {
 
     /// `F_MERGE`: removes each line that is the same as the line before it, with its line
     /// ending, from the selected lines. Nothing selected: nothing happens.
+    ///
+    /// With a box selection it returns at once, without a beep and without an error
+    /// (`Command_MERGE` in `CViewCommander_Edit_advanced.cpp`: `if IsBoxSelecting() return`).
     pub(crate) fn merge_selected_lines(&mut self) -> Result<()> {
+        if self.cursor.is_box() && self.cursor.has_selection() {
+            return Ok(());
+        }
         let Some((first, end)) = self.selected_whole_lines()? else {
             return Ok(());
         };

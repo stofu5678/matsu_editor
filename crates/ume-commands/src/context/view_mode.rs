@@ -7,7 +7,7 @@
 #[cfg(test)]
 mod tests {
     use crate::clipboard::ClipKind;
-    use crate::command::{Arg, CommandError};
+    use crate::command::Arg;
     use crate::testing::Editor;
 
     #[test]
@@ -37,10 +37,8 @@ mod tests {
             let text = plain(&e);
             e.set_view_mode(true);
             let result = e.try_run(id, &[]);
-            assert!(
-                matches!(result, Err(CommandError::Unavailable(_))),
-                "{id}: {result:?}"
-            );
+            // refused: it beeps, and a macro goes on (`Registration::run`)
+            assert!(result.is_ok(), "{id}: {result:?}");
             assert!(e.changes().beep, "{id}");
             assert!(!e.changes().text_changed(), "{id}");
             assert_eq!(plain(&e), text, "{id}");
@@ -52,7 +50,7 @@ mod tests {
         let text = plain(&e);
         e.set_view_mode(true);
         for c in ['x', '\r', 'あ'] {
-            assert!(e.try_run("input_char", &[Arg::Char(c)]).is_err());
+            assert!(e.try_run("input_char", &[Arg::Char(c)]).is_ok());
             assert_eq!(plain(&e), text);
         }
         assert!(!e.model().is_modified());
@@ -62,8 +60,8 @@ mod tests {
     fn a_selection_is_not_replaced() {
         let mut e = Editor::new("a[bc|d");
         e.set_view_mode(true);
-        assert!(e.try_run("input_char", &[Arg::Char('x')]).is_err());
-        assert!(e.try_run("delete", &[]).is_err());
+        assert!(e.try_run("input_char", &[Arg::Char('x')]).is_ok());
+        assert!(e.try_run("delete", &[]).is_ok());
         e.assert_marked("a[bc|d");
     }
 
@@ -75,10 +73,7 @@ mod tests {
         e.set_view_mode(true);
         // Sakura lists F_UNDO, F_REDO and F_CHGMOD_INS as forbidden.
         for id in ["redo", "undo", "toggle_overwrite_mode"] {
-            assert!(matches!(
-                e.try_run(id, &[]),
-                Err(CommandError::Unavailable(_))
-            ));
+            assert!(e.try_run(id, &[]).is_ok(), "{id}");
             assert!(e.changes().beep, "{id}");
         }
         e.assert_marked("ab|cd");
@@ -105,8 +100,8 @@ mod tests {
     fn japanese_text_and_crlf_are_left_alone() {
         let mut e = Editor::new("日本|語\r\nテキスト");
         e.set_view_mode(true);
-        assert!(e.try_run("input_char", &[Arg::Char('の')]).is_err());
-        assert!(e.try_run("delete_back", &[]).is_err());
+        assert!(e.try_run("input_char", &[Arg::Char('の')]).is_ok());
+        assert!(e.try_run("delete_back", &[]).is_ok());
         e.assert_marked("日本|語\r\nテキスト");
     }
 }

@@ -225,10 +225,7 @@ fn delete_a_box_down_to_the_empty_row_at_the_end() {
 fn word_delete_to_the_ends_still_beep_with_a_box() {
     let mut e = boxed("abc\ndef", (0, 1), (1, 2));
     for id in ["word_delete_to_start", "word_delete_to_end"] {
-        assert!(matches!(
-            e.try_run(id, &[]),
-            Err(CommandError::Unavailable(_))
-        ));
+        assert!(e.try_run(id, &[]).is_ok(), "{id}");
         assert!(e.changes().beep);
         e.assert_box((0, 1), (1, 2));
     }
@@ -239,11 +236,11 @@ fn view_mode_refuses_the_edits_of_a_box() {
     let mut e = boxed("abc\ndef", (0, 1), (1, 2)).with_clipboard("x", ClipKind::Normal);
     e.set_view_mode(true);
     for id in ["delete", "cut", "indent_tab"] {
-        assert!(e.try_run(id, &[]).is_err(), "{id}");
+        assert!(e.try_run(id, &[]).is_ok(), "{id}");
         assert_eq!(text_of(&e), "abc\ndef", "{id}");
     }
-    assert!(e.try_run("input_char", &[Arg::Char('x')]).is_err());
-    assert!(e.try_run("pastebox", &[]).is_err());
+    assert!(e.try_run("input_char", &[Arg::Char('x')]).is_ok());
+    assert!(e.try_run("pastebox", &[]).is_ok());
 }
 
 // ---- typing and inserting ----

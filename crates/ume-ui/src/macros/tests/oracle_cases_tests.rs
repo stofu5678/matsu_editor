@@ -480,3 +480,56 @@ fn ins_text_with_a_line_break_finishes(cx: &mut TestAppContext) {
     // and the save asks nothing (the cause of the hang: the mixed line ending question).
     assert_eq!(out, b"ABC\r\nx\nydef\r\n");
 }
+
+// ---- a command that cannot run does not stop the macro (macro-continue-*) ----
+
+const GRID: &[u8] = b"abcdefghij\nABCDEFGHIJ\n0123456789\nshort\n\nlast line here";
+
+fn box_then(command: &str) -> String {
+    format!(
+        "Right();\nRight();\nBeginBoxSelect();\nRight_BoxSel();\nRight_BoxSel();\nDown_BoxSel();\n\
+         {command}\nDelete();\n{}",
+        save_as(0, 0)
+    )
+}
+
+/// Sakura returns quietly (`Command_MERGE`, `Command_WordDeleteToStart`, `Command_UNINDENT`: the
+/// early `return` or `ErrorBeep()` with a box selected) and the macro goes on to delete the box.
+#[gpui::test]
+fn a_command_refused_with_a_box_does_not_stop_the_macro(cx: &mut TestAppContext) {
+    for command in [
+        "Merge();",
+        "WordDeleteToStart();",
+        "WordDeleteToEnd();",
+        "UnindentTab();",
+        "UnindentSpace();",
+    ] {
+        let out = Case {
+            input: GRID,
+            code: SJIS,
+            mac: &box_then(command),
+        }
+        .run(cx);
+        assert_eq!(
+            out, b"abefghij\nABEFGHIJ\n0123456789\nshort\n\nlast line here",
+            "{command}"
+        );
+    }
+}
+
+/// `CViewCommander::HandleCommand` returns `TRUE` for a function that view mode forbids
+/// (`IsFuncEnable`); the macro goes on, and the edits after the second `ViewMode()` work.
+#[gpui::test]
+fn edits_in_view_mode_do_not_stop_the_macro(cx: &mut TestAppContext) {
+    let out = Case {
+        input: b"abc\nde\n",
+        code: SJIS,
+        mac: &format!(
+            "ViewMode();\nInsText('X');\nDelete();\nDeleteBack();\nUndo();\nViewMode();\n\
+             InsText('Y');\n{}",
+            save_as(0, 0)
+        ),
+    }
+    .run(cx);
+    assert_eq!(out, b"Yabc\nde\n");
+}

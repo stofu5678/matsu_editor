@@ -205,7 +205,8 @@ mod tests {
             .run("cursor_right_box")
             .run("cursor_down_box");
         let before = e.marked();
-        assert!(e.try_run("sort_asc", &[]).is_err());
+        // Refused (`CommandError::Refused`): nothing changes, and a macro goes on.
+        assert!(e.try_run("sort_asc", &[]).is_ok());
         assert_eq!(e.marked(), before);
         assert!(e.box_state().is_some());
     }

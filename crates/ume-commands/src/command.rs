@@ -55,6 +55,13 @@ pub enum CommandError {
     /// The command needs something that this context does not have (for example the clipboard
     /// of a context that runs without a window).
     Unavailable(&'static str),
+    /// The command cannot run in the current state (view mode, a box selection it does not
+    /// work on). It has beeped and changed nothing more. [`Registration::run`] turns it into
+    /// `Ok`: in Sakura such a command does nothing or beeps, and a macro goes on
+    /// (`CViewCommander::HandleCommand` returns `TRUE` for a function that is not enabled, and
+    /// the early `return`/`ErrorBeep()` of a command ends it without an error). Only code that
+    /// calls the context methods directly sees it.
+    Refused(&'static str),
 }
 
 impl fmt::Display for CommandError {
@@ -64,6 +71,7 @@ impl fmt::Display for CommandError {
             Self::BadArgs(m) => write!(f, "bad arguments: {m}"),
             Self::Unknown(what) => write!(f, "no such command: {what}"),
             Self::Unavailable(what) => write!(f, "{what} is not available here"),
+            Self::Refused(what) => write!(f, "{what} is refused here"),
         }
     }
 }
@@ -129,7 +137,11 @@ impl Registration {
     /// Runs the command as one undo block: the edits it makes are one undo step.
     pub fn run(&self, cx: &mut CommandContext<'_>, args: &[Arg]) -> Result {
         cx.begin_block();
-        let result = (self.func)(cx, args);
+        let result = match (self.func)(cx, args) {
+            // See `CommandError::Refused`: the command has beeped, and a macro goes on.
+            Err(CommandError::Refused(_)) => Ok(()),
+            other => other,
+        };
         cx.end_block();
         result
     }

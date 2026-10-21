@@ -190,7 +190,7 @@ mod tests {
     use ume_core::buffer::Pos;
 
     use crate::clipboard::ClipKind;
-    use crate::command::{Arg, CommandError};
+    use crate::command::Arg;
     use crate::testing::Editor;
 
     #[test]
@@ -207,10 +207,7 @@ mod tests {
             "unindent_space",
         ] {
             let result = e.try_run(id, &[]);
-            assert!(
-                matches!(result, Err(CommandError::Unavailable(_))),
-                "{id}: {result:?}"
-            );
+            assert!(result.is_ok(), "{id}: {result:?}");
             assert!(e.changes().beep, "{id}");
             assert!(!e.changes().text_changed(), "{id}");
             assert_eq!(e.marked(), text, "{id}");
