@@ -94,6 +94,11 @@ fn shared_key_macro(cx: &App) -> Option<PathBuf> {
     cx.try_global::<SharedKeyMacro>()?.0.clone()
 }
 
+fn shared_key_macro_is_set(cx: &App) -> bool {
+    cx.try_global::<SharedKeyMacro>()
+        .is_some_and(|s| s.0.is_some())
+}
+
 fn set_shared_key_macro(cx: &mut App, path: Option<PathBuf>) {
     cx.set_global(SharedKeyMacro(path));
 }
@@ -197,10 +202,16 @@ impl MacroState {
     /// `CSMacroMgr::IsSaveOk`: the macro that `F_EXECKEYMACRO` plays can be saved, which only a key
     /// macro can (a recording or a key macro file; a script cannot).
     pub(crate) fn can_save_key_macro(&self, cx: &App) -> bool {
-        match self.saved_macro(cx) {
-            Some(CurrentMacro::Recorded(_)) => true,
-            Some(CurrentMacro::File(path)) => file_kind(&path) == FileKind::KeyMacro,
-            None => false,
+        // By reference: the menus ask this often, and a recording can be long.
+        if matches!(self.current, Some(CurrentMacro::Recorded(_))) {
+            return true;
+        }
+        let shared = cx.try_global::<SharedKeyMacro>().and_then(|s| s.0.as_ref());
+        match (shared, &self.current) {
+            (Some(path), _) | (None, Some(CurrentMacro::File(path))) => {
+                file_kind(path) == FileKind::KeyMacro
+            }
+            _ => false,
         }
     }
 
@@ -223,7 +234,7 @@ impl MacroState {
 
     /// There is a macro for `F_EXECKEYMACRO` to play (Sakura: `m_szKeyMacroFileName` is set).
     pub(crate) fn has_key_macro(&self, cx: &App) -> bool {
-        self.current_macro(cx).is_some()
+        shared_key_macro_is_set(cx) || self.current.is_some()
     }
 
     /// A macro is playing or running: the commands it calls are not recorded.
