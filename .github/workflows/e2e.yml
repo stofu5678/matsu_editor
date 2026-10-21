@@ -110,9 +110,6 @@ jobs:
       RUSTFLAGS: ${{ matrix.rustflags }}
       UME_E2E_PLATFORM: ${{ matrix.name }}
       UME_E2E_SCREENS_DIR: ${{ github.workspace }}/e2e-screens
-      # The desktop of the windows-11-arm runners shows the first-run screen of Windows over every
-      # window, so a picture there is not of the program (see crates/ume/tests/common/mod.rs).
-      UME_E2E_SOFT_SCREENS: ${{ matrix.name == 'windows-arm64' && '1' || '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.99.0

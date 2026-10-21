@@ -33,8 +33,8 @@ Save-Screen 'windows-arm64-desktop-before'
 
 # The policy "Don't launch privacy settings experience on user logon".
 $oobe = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\OOBE'
-New-Item -Path $oobe -Force | Out-Null
-New-ItemProperty -Path $oobe -Name DisablePrivacyExperience -Value 1 -PropertyType DWord -Force | Out-Null
+New-Item -Path $oobe -Force -ErrorAction Stop | Out-Null
+New-ItemProperty -Path $oobe -Name DisablePrivacyExperience -Value 1 -PropertyType DWord -Force -ErrorAction Stop | Out-Null
 
 # The policy only stops a screen that has not started; the one on the desktop is closed here.
 foreach ($name in 'CloudExperienceHostBroker', 'CloudExperienceHost', 'WWAHost', 'FirstLogonAnim', 'oobe') {
@@ -44,6 +44,12 @@ foreach ($name in 'CloudExperienceHostBroker', 'CloudExperienceHost', 'WWAHost',
     }
 }
 Start-Sleep -Seconds 5
+
+# Closing the screen leaves the Start menu open over the desktop (seen in the first pictures
+# after the screen was gone): Escape closes it.
+Add-Type -AssemblyName System.Windows.Forms
+[System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+Start-Sleep -Seconds 2
 
 Show-Windows 'after'
 Save-Screen 'windows-arm64-desktop-after'
