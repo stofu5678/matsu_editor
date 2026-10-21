@@ -1418,16 +1418,28 @@ impl Render for CommonSettingsDialog {
                             .children(pages),
                     )
                     .child(
-                        semantics::page_panel(div().id("cs-body"), self.pages[self.page].title)
-                            .debug_selector(|| "cs-body".to_owned())
-                            .flex_1()
-                            .p_3()
+                        // The scroll bar is a sibling of the scrolling body, not its child: inside
+                        // it, the bar's overlay itself made a page that fits overflow by its padding.
+                        div()
                             .relative()
-                            .overflow_y_scroll()
-                            .track_scroll(&self.body_scroll)
-                            .child(body)
+                            .flex_1()
+                            .min_w_0()
+                            .min_h_0()
+                            .child(
+                                semantics::page_panel(
+                                    div().id("cs-body"),
+                                    self.pages[self.page].title,
+                                )
+                                .debug_selector(|| "cs-body".to_owned())
+                                .size_full()
+                                .p_3()
+                                .overflow_y_scroll()
+                                .track_scroll(&self.body_scroll)
+                                .child(body),
+                            )
                             // A page taller than the window scrolls; the bar shows that more is
-                            // below (Sakura's pages fit without scrolling). Always shown: the default fades out when idle.
+                            // below (Sakura's pages fit without scrolling). It is always drawn
+                            // while the page overflows: the default fades out when idle.
                             .child(
                                 div()
                                     .absolute()
