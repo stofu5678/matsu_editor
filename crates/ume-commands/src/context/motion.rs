@@ -124,9 +124,9 @@ impl CommandContext<'_> {
     }
 
     /// `Command_GOLINETOP` with the extended flags that a macro passes
-    /// (`sakura_core/cmd/CViewCommander_Cursor.cpp`): [`LINE_TOP_ONLY`] goes to the start
+    /// (`sakura_core/cmd/CViewCommander_Cursor.cpp`): `LINE_TOP_ONLY` goes to the start
     /// whatever the caret position (no stop at the first char that is not indentation),
-    /// [`LINE_TOP_SELECT`] extends the selection, [`LINE_TOP_LINE_UNIT`] works on the line instead
+    /// `LINE_TOP_SELECT` extends the selection, `LINE_TOP_LINE_UNIT` works on the line instead
     /// of the row. Other bits are ignored, as Sakura does.
     ///
     /// Without the line unit flag, a row that is only indentation goes to the start of the row.

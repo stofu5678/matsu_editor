@@ -101,7 +101,13 @@ impl Fixture {
 
     fn first_eol(&self, cx: &mut VisualTestContext) -> Option<Eol> {
         self.view.read_with(cx, |view, app| {
-            view.document().read(app).doc().line(0).unwrap().unwrap().eol
+            view.document()
+                .read(app)
+                .doc()
+                .line(0)
+                .unwrap()
+                .unwrap()
+                .eol
         })
     }
 
@@ -412,7 +418,6 @@ fn a_save_that_converts_nothing_is_not_an_undo_step(cx: &mut TestAppContext) {
     f.run(cx, "F_UNDO", &[]);
     assert_eq!(f.lines(cx), ["a", "b"], "the typed character is undone");
 }
-
 
 #[gpui::test]
 fn characters_the_encoding_cannot_write_are_asked_about(cx: &mut TestAppContext) {
