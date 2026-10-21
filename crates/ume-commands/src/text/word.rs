@@ -54,8 +54,10 @@
 //!   `Etc` otherwise. Kanji, hangul and the full-width forms come out the same as in Sakura with a
 //!   Japanese font; symbols whose width depends on the font may differ.
 //! * Sakura treats CR and LF as line ending chars, and NEL, LS and PS as well when
-//!   `bEnableExtEol` is on (it is off by default). The buffer here always ends a line at those,
-//!   so they are always line endings; they are given the kind of LF.
+//!   `bEnableExtEol` is on (it is off by default). The slice does not say which setting made it,
+//!   so NEL, LS and PS are line endings only as the last char of the slice (where the line ending
+//!   of a line is) and ordinary chars elsewhere; they are given the kind of LF. A NEL, LS or PS
+//!   that ends an unterminated last line is taken for a line ending though it is a char.
 //! * The option "stop at both ends of a word" (`m_bStopsBothEndsWhenSearchWord`) is a parameter;
 //!   its default in Sakura is off (`sakura_core/env/CShareData.cpp`).
 
@@ -105,6 +107,16 @@ pub enum CharKind {
 /// Whether `c` ends a line (see "Differences from Sakura" in the [module documentation](self)).
 pub fn is_line_delimiter(c: char) -> bool {
     matches!(c, '\r' | '\n' | '\u{85}' | '\u{2028}' | '\u{2029}')
+}
+
+/// Whether the char `i` of `line` (a line with its line ending) is part of the line ending: CR or
+/// LF anywhere, and NEL, LS or PS only as the last char, where the line ending of a line is.
+pub fn is_line_ending_at(line: &[char], i: usize) -> bool {
+    match line.get(i) {
+        Some('\r' | '\n') => true,
+        Some('\u{85}' | '\u{2028}' | '\u{2029}') => i + 1 == line.len(),
+        _ => false,
+    }
 }
 
 /// Whether `c` is an IVS variation selector.
@@ -223,7 +235,7 @@ pub fn char_kind(line: &[char], i: usize) -> CharKind {
         2 => CharKind::ZenEtc,
         _ => {
             let c = line[i];
-            if is_line_delimiter(c) {
+            if is_line_ending_at(line, i) {
                 // CR and LF are in the ASCII table; the others are given the kind of LF
                 return if c == '\r' {
                     CharKind::Cr
@@ -277,7 +289,7 @@ pub fn merge_kinds(pre: CharKind, cur: CharKind) -> CharKind {
 /// word there: past the end, or on a line ending (Sakura: `CWordParse::WhereCurrentWord_2`).
 /// `to` is the index after the last char.
 pub fn where_current_word(line: &[char], idx: usize) -> Option<(usize, usize)> {
-    if idx >= line.len() || is_line_delimiter(line[idx]) {
+    if idx >= line.len() || is_line_ending_at(line, idx) {
         return None;
     }
     let mut kind = char_kind(line, idx);
@@ -544,6 +556,18 @@ mod tests {
         assert_eq!(word_at("", 0), None);
         // the line ending does not join a word
         assert_eq!(word_at("ab\n", 0).as_deref(), Some("ab"));
+    }
+
+    #[test]
+    fn nel_ls_and_ps_are_line_endings_only_at_the_end_of_the_line() {
+        // As the last char they are the line ending of the line.
+        assert_eq!(word_at("ab\u{85}", 2), None);
+        assert_eq!(word_at("ab\u{2028}", 1).as_deref(), Some("ab"));
+        // Inside the line (the document does not count them as endings) they are chars.
+        assert!(word_at("ab\u{85}cd", 2).is_some());
+        assert!(is_line_ending_at(&chars("a\r\n"), 1));
+        assert!(!is_line_ending_at(&chars("a\u{2029}b"), 1));
+        assert!(is_line_ending_at(&chars("a\u{2029}"), 1));
     }
 
     #[test]
