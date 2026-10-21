@@ -58,6 +58,10 @@ use std::time::{Duration, Instant};
 /// How long one editor may run for one case.
 const TIME_LIMIT: Duration = Duration::from_secs(60);
 
+/// UME ends at once when its macro works (about a second, a few more on a slow start); one that
+/// stops at an error stays open, so do not wait as long as for Sakura.
+const UME_TIME_LIMIT: Duration = Duration::from_secs(25);
+
 /// `sakura.ini` of the test: nothing asks for a confirmation (`bExitConfirm`, `bCloseAllConfirm`
 /// in `CShareData_IO.cpp`), and the search starts without options.
 const SAKURA_INI: &str =
@@ -357,7 +361,7 @@ fn run_ume(scratch: &Scratch, case: &Case) -> Outcome {
         if let Some(status) = child.try_wait().unwrap() {
             break Some(status);
         }
-        if started.elapsed() > TIME_LIMIT {
+        if started.elapsed() > UME_TIME_LIMIT {
             let _ = child.kill();
             let _ = child.wait();
             break None;

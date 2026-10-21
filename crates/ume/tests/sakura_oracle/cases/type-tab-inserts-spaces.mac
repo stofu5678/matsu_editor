@@ -1,8 +1,0 @@
-// input: ascii.spaces.lf
-// code: 0
-ChangeInsertSpace(1);
-Down();
-Right();
-Char(9);
-FileSaveAs('@OUT@', 0, 0);
-ExitAll();
