@@ -65,3 +65,16 @@ foreach ($round in 1, 2) {
 
 Show-Windows 'after'
 Save-Screen 'windows-arm64-desktop-after'
+
+# The wsl.exe console comes back later in the job (it is in the pictures of the UI Automation
+# test, behind the dialogs). A hidden process closes it for the rest of the job. It is not a
+# child of this script, so it goes on after the script ends; the runner ends it with the job.
+$guard = @'
+while ($true) {
+    foreach ($name in 'wsl', 'wslhost', 'WindowsTerminal', 'OpenConsole') {
+        Get-Process -Name $name -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    }
+    Start-Sleep -Seconds 2
+}
+'@
+Start-Process -FilePath powershell.exe -WindowStyle Hidden -ArgumentList '-NoProfile', '-NonInteractive', '-Command', $guard
