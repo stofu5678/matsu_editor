@@ -51,7 +51,9 @@
 //! names, so the wildcards do here, on every OS. The entries of a folder come in the order of
 //! their names (the order of NTFS) and not in the order the OS gives. A backslash in a pattern
 //! separates folders on every OS. The attributes of the options "隠しファイルを除く" and the like
-//! (`CGrepEnumOptions`) are never set by Grep, so they are not here.
+//! (`CGrepEnumOptions`) are never set by Grep; the file tree of the outline sets them
+//! ([`EnumOptions`], [`Walker::with_options`]). Where the file system has no hidden attribute, a
+//! name that starts with a dot is hidden, and there is no system attribute.
 
 use std::collections::HashSet;
 use std::fs;
@@ -122,6 +124,55 @@ struct Entry {
     /// A regular file. A pipe, a socket or a device is neither this nor a folder: reading it
     /// could wait for ever.
     is_file: bool,
+    /// `FILE_ATTRIBUTE_HIDDEN`. Where the file system has no such attribute, a name that starts
+    /// with a dot (the convention of the shells).
+    hidden: bool,
+    /// `FILE_ATTRIBUTE_READONLY`.
+    read_only: bool,
+    /// `FILE_ATTRIBUTE_SYSTEM`; never set where the file system has no such attribute.
+    system: bool,
+}
+
+/// What `CGrepEnumOptions` leaves out: entries with these attributes. Grep never sets them (see
+/// the top of this file); the file tree of the outline does (`CFileTreeSetting` items).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct EnumOptions {
+    /// `m_bIgnoreHidden`.
+    pub ignore_hidden: bool,
+    /// `m_bIgnoreReadOnly`.
+    pub ignore_read_only: bool,
+    /// `m_bIgnoreSystem`.
+    pub ignore_system: bool,
+}
+
+impl EnumOptions {
+    fn skips(self, entry: &Entry) -> bool {
+        (self.ignore_hidden && entry.hidden)
+            || (self.ignore_read_only && entry.read_only)
+            || (self.ignore_system && entry.system)
+    }
+}
+
+/// The attributes of an entry as `(hidden, read_only, system)`.
+fn attributes(name: &str, metadata: &fs::Metadata) -> (bool, bool, bool) {
+    let read_only = metadata.permissions().readonly();
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+        const FILE_ATTRIBUTE_SYSTEM: u32 = 0x4;
+        let attrs = metadata.file_attributes();
+        let _ = name;
+        (
+            attrs & FILE_ATTRIBUTE_HIDDEN != 0,
+            read_only,
+            attrs & FILE_ATTRIBUTE_SYSTEM != 0,
+        )
+    }
+    #[cfg(not(windows))]
+    {
+        (name.starts_with('.'), read_only, false)
+    }
 }
 
 /// The entries of a folder, sorted by name; nothing when it cannot be read (`FindFirstFile`
@@ -135,14 +186,18 @@ fn read_entries(dir: &Path) -> Vec<Entry> {
         .filter_map(|entry| {
             let name = entry.file_name().into_string().ok()?;
             // A link is what it points to (nothing, when it points to nothing).
-            let kind = fs::metadata(entry.path())
+            let metadata = fs::metadata(entry.path())
                 .or_else(|_| entry.metadata())
-                .ok()?
-                .file_type();
+                .ok()?;
+            let kind = metadata.file_type();
+            let (hidden, read_only, system) = attributes(&name, &metadata);
             Some(Entry {
-                name,
                 is_dir: kind.is_dir(),
                 is_file: kind.is_file(),
+                hidden,
+                read_only,
+                system,
+                name,
             })
         })
         .collect();
@@ -169,6 +224,7 @@ fn enumerate(
     base: &str,
     keys: &[String],
     kind: Kind,
+    options: EnumOptions,
     mut accept: impl FnMut(&str, &str) -> bool,
     mut already: Option<&mut HashSet<String>>,
 ) -> Vec<String> {
@@ -187,7 +243,7 @@ fn enumerate(
                 Kind::File => entry.is_file,
                 Kind::Folder => entry.is_dir && entry.name != "." && entry.name != "..",
             };
-            if !wanted {
+            if !wanted || options.skips(&entry) {
                 continue;
             }
             let name = format!("{key_dir}{}", entry.name);
@@ -226,19 +282,38 @@ pub struct Walker {
     skip_folders: HashSet<String>,
     /// The excluded regular expressions, matched against the full path (`m_fnIsExceptFilePath`).
     regexes: Vec<Arc<dyn Matcher>>,
+    /// Entries with these attributes are left out (`CGrepEnumOptions`).
+    options: EnumOptions,
 }
 
 impl Walker {
     /// `regexes` are the compiled `keys.except_file_regexes`.
     pub fn new(keys: GrepKeys, regexes: Vec<Arc<dyn Matcher>>) -> Walker {
-        let skip_files = enumerate("", &keys.except_abs_files, Kind::File, |_, _| true, None)
-            .into_iter()
-            .map(|path| normalized(&path))
-            .collect();
+        Self::with_options(keys, regexes, EnumOptions::default())
+    }
+
+    /// A walker that leaves out the entries with the attributes of `options`.
+    pub fn with_options(
+        keys: GrepKeys,
+        regexes: Vec<Arc<dyn Matcher>>,
+        options: EnumOptions,
+    ) -> Walker {
+        let skip_files = enumerate(
+            "",
+            &keys.except_abs_files,
+            Kind::File,
+            options,
+            |_, _| true,
+            None,
+        )
+        .into_iter()
+        .map(|path| normalized(&path))
+        .collect();
         let skip_folders = enumerate(
             "",
             &keys.except_abs_folders,
             Kind::Folder,
+            options,
             |_, _| true,
             None,
         )
@@ -250,6 +325,7 @@ impl Walker {
             skip_files,
             skip_folders,
             regexes,
+            options,
         }
     }
 
@@ -257,12 +333,20 @@ impl Walker {
     /// its pattern, such as `sub\a.h`).
     pub fn files_in(&mut self, dir: &str) -> Vec<String> {
         // `m_cGrepEnumExceptFiles`: the names the excluded patterns list in this folder.
-        let excluded = enumerate(dir, &self.keys.except_files, Kind::File, |_, _| true, None);
+        let excluded = enumerate(
+            dir,
+            &self.keys.except_files,
+            Kind::File,
+            self.options,
+            |_, _| true,
+            None,
+        );
         let regexes = &self.regexes;
         enumerate(
             dir,
             &self.keys.search_files,
             Kind::File,
+            self.options,
             |name, full| {
                 !excluded.iter().any(|e| e == name)
                     && !regexes
@@ -279,6 +363,7 @@ impl Walker {
             dir,
             &self.keys.except_folders,
             Kind::Folder,
+            self.options,
             |_, _| true,
             None,
         );
@@ -286,6 +371,7 @@ impl Walker {
             dir,
             &self.keys.search_folders,
             Kind::Folder,
+            self.options,
             |name, _| !excluded.iter().any(|e| e == name),
             Some(&mut self.skip_folders),
         )
@@ -418,6 +504,55 @@ mod tests {
         let b = base(&dir);
         assert_eq!(w.files_in(&b), vec!["a.rs"]);
         assert!(w.files_in(&join_path(&b, "gen")).is_empty());
+    }
+
+    #[test]
+    fn hidden_and_read_only_entries_are_left_out_when_asked() {
+        let dir = tree(&["a.txt", ".hidden.txt", "ro.txt", ".git/x", "src/y"]);
+        let b = base(&dir);
+        let ro = dir.path().join("ro.txt");
+        let mut permissions = fs::metadata(&ro).unwrap().permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(&ro, permissions).unwrap();
+        let keys = || GrepKeys::parse("*.*", false).unwrap();
+        // nothing is left out by default
+        let mut w = Walker::new(keys(), Vec::new());
+        assert_eq!(
+            w.files_in(&b),
+            vec![".hidden.txt", "a.txt", "ro.txt"],
+            "no option, no filter"
+        );
+        let hidden = EnumOptions {
+            ignore_hidden: true,
+            ..EnumOptions::default()
+        };
+        let mut w = Walker::with_options(keys(), Vec::new(), hidden);
+        // a dot-file is hidden where the file system has no attribute (not on Windows)
+        let expected: Vec<&str> = if cfg!(windows) {
+            vec![".hidden.txt", "a.txt", "ro.txt"]
+        } else {
+            vec!["a.txt", "ro.txt"]
+        };
+        assert_eq!(w.files_in(&b), expected);
+        let folders: Vec<&str> = if cfg!(windows) {
+            vec![".git", "src"]
+        } else {
+            vec!["src"]
+        };
+        assert_eq!(w.folders_in(&b), folders);
+        let read_only = EnumOptions {
+            ignore_read_only: true,
+            ..EnumOptions::default()
+        };
+        let mut w = Walker::with_options(keys(), Vec::new(), read_only);
+        assert_eq!(w.files_in(&b), vec![".hidden.txt", "a.txt"]);
+        // the system attribute exists on Windows only
+        let system = EnumOptions {
+            ignore_system: true,
+            ..EnumOptions::default()
+        };
+        let mut w = Walker::with_options(keys(), Vec::new(), system);
+        assert_eq!(w.files_in(&b), vec![".hidden.txt", "a.txt", "ro.txt"]);
     }
 
     #[test]

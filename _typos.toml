@@ -46,3 +46,5 @@ CodeCnvUNICODEtoSJIS = "CodeCnvUNICODEtoSJIS"
 CodeCnvUNICODEBEtoSJIS = "CodeCnvUNICODEBEtoSJIS"
 # The key of Sakura's settings file for "copy, then drop the selection" (CShareData_IO.cpp), spelled so.
 bCopyAndDisablSelection = "bCopyAndDisablSelection"
+# The key of the file tree item option 読み取り専用ファイルを除く in Sakura's settings file (CDataProfile.cpp), spelled so.
+bIgnoreReadOny = "bIgnoreReadOny"

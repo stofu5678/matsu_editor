@@ -10,6 +10,7 @@ pub mod diff_dialog;
 pub mod diff_next;
 pub mod diff_prev;
 pub mod direct_tagjump;
+pub mod filetree;
 pub mod funclist_next;
 pub mod funclist_prev;
 pub mod grep;
