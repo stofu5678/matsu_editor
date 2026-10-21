@@ -3,6 +3,8 @@
 //! `platform.rs` `load_icon`), so without it the windows, Explorer and the taskbar show the default
 //! icon. The test opens the file as data (no window, no program started).
 #![cfg(windows)]
+// Win32 calls (the resource functions of the loader).
+#![allow(unsafe_code)]
 
 use std::os::windows::ffi::OsStrExt;
 
