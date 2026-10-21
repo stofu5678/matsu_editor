@@ -58,10 +58,10 @@ fn choose_menu_item(uia: &Uia, pid: u32, menu: &str, is_item: impl Fn(&str) -> b
     bar_item.invoke();
     pause(500);
     shot(&format!("menu-{menu}"));
-    let (_, item) = uia.wait(pid, &format!("an item of the menu {menu}"), |e| {
+    let (window, item) = uia.wait(pid, &format!("an item of the menu {menu}"), |e| {
         is_item(&e.name())
     });
-    item.invoke();
+    item.click_in(&window);
 }
 
 /// Goes through every page of the settings dialog that has the page `first`, with a picture of

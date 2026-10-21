@@ -11,7 +11,8 @@
 use std::thread;
 use std::time::{Duration, Instant};
 
-use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+use windows::Win32::Foundation::{HWND, LPARAM, POINT, WPARAM};
+use windows::Win32::Graphics::Gdi::ScreenToClient;
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
 };
@@ -22,7 +23,9 @@ use windows::Win32::UI::Accessibility::{
     UIA_CheckBoxControlTypeId, UIA_InvokePatternId, UIA_SelectionItemPatternId,
     UIA_TabItemControlTypeId, UIA_TogglePatternId,
 };
-use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CHAR, WM_CLOSE};
+use windows::Win32::UI::WindowsAndMessaging::{
+    PostMessageW, WM_CHAR, WM_CLOSE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
+};
 
 /// How long to wait for an element to show up.
 pub const LIMIT: Duration = Duration::from_secs(60);
@@ -222,6 +225,36 @@ impl Element {
                 .GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId)
                 .and_then(|p| p.Invoke())
                 .unwrap_or_else(|e| panic!("cannot press {}: {e}", self.describe()));
+        }
+    }
+
+    /// Clicks the middle of the element with the left button, as mouse messages to the window
+    /// `window` (a top-level window of the process): a move, then the button down and up. The
+    /// invoke pattern of an item of a pop-up menu does nothing in the window of UME, which wants
+    /// the mouse (a click handler), so this does what a user does.
+    pub fn click_in(&self, window: &Element) {
+        // SAFETY: plain calls on a live interface; the messages go to a window of another process.
+        unsafe {
+            let rect = self
+                .0
+                .CurrentBoundingRectangle()
+                .unwrap_or_else(|e| panic!("{} has no rectangle: {e}", self.describe()));
+            let hwnd = window.handle();
+            let mut point = POINT {
+                x: (rect.left + rect.right) / 2,
+                y: (rect.top + rect.bottom) / 2,
+            };
+            let _ = ScreenToClient(hwnd, &mut point);
+            let at = LPARAM(((point.y as u16 as isize) << 16) | (point.x as u16 as isize));
+            let post = |message, wparam: usize| {
+                PostMessageW(Some(hwnd), message, WPARAM(wparam), at)
+                    .unwrap_or_else(|e| panic!("cannot post a mouse message: {e}"));
+            };
+            post(WM_MOUSEMOVE, 0);
+            thread::sleep(Duration::from_millis(150));
+            post(WM_LBUTTONDOWN, 1);
+            thread::sleep(Duration::from_millis(80));
+            post(WM_LBUTTONUP, 0);
         }
     }
 
