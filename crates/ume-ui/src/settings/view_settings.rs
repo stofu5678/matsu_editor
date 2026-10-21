@@ -304,11 +304,22 @@ const WINDOWS_FONTS: [(&str, &str); 8] = [
     ("MS PMincho", "MS PMincho"),
 ];
 
+/// The face name without the "@" of a vertical font. Windows' font dialog lists every CJK font a
+/// second time as `@Name`, a GDI vertical font: Sakura draws it with the CJK glyphs turned 90
+/// degrees. DirectWrite (GPUI on Windows), macOS and Linux have no such families (GPUI's
+/// `DirectWriteState::select_and_cache_font` fails for `@Name`, and `TextSystem::resolve_font`
+/// then falls back to the default font stack), so UME draws the upright face of the same font.
+pub fn upright_face(face: &str) -> &str {
+    let face = face.trim();
+    face.strip_prefix('@').map_or(face, str::trim_start)
+}
+
 /// The family to ask GPUI for a face name of the settings file: the name itself, except that the
 /// fonts that come with Windows only are renamed on Windows and left to the OS's default
-/// elsewhere. `None` is the default font of the program.
+/// elsewhere, and that a vertical font (`@Name`) is its upright face ([`upright_face`]). `None`
+/// is the default font of the program.
 pub fn font_family_for(face: &str, os: Os) -> Option<String> {
-    let face = face.trim();
+    let face = upright_face(face);
     if face.is_empty() {
         return None;
     }
@@ -806,6 +817,23 @@ mod tests {
             Some("BIZ UDGothic")
         );
         assert_eq!(font_family_for("  ", Os::Windows), None);
+    }
+
+    #[test]
+    fn a_vertical_font_is_its_upright_face() {
+        for os in [Os::Windows, Os::MacOs, Os::Linux] {
+            assert_eq!(
+                font_family_for("@HGS創英角ﾎﾟｯﾌﾟ体", os).as_deref(),
+                Some("HGS創英角ﾎﾟｯﾌﾟ体")
+            );
+            assert_eq!(font_family_for("@", os), None);
+        }
+        // The Windows-only names are renamed after the "@" is gone.
+        assert_eq!(
+            font_family_for("@ＭＳ 明朝", Os::Windows).as_deref(),
+            Some("MS Mincho")
+        );
+        assert_eq!(font_family_for("@ＭＳ 明朝", Os::MacOs), None);
     }
 
     #[test]
