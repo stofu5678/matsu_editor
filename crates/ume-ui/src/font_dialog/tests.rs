@@ -542,6 +542,26 @@ fn the_tab_font_is_read_from_the_common_section() {
     );
 }
 
+/// A vertical font (`@Name`, which the font dialog of Windows lists for every CJK font) has no
+/// DirectWrite family: the tabs draw its upright face. The settings are those of a user's file.
+#[test]
+fn a_vertical_tab_font_is_drawn_upright() {
+    use crate::tabs::settings::TabFont;
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(
+        "[Common]\r\nlfTabFontPs=90\r\nlfTabFont=-18,0,0,0,400,0,0,0,128,3,2,1,50\r\nlfTabFaceName=@HGS創英角ﾎﾟｯﾌﾟ体\r\n"
+            .as_bytes(),
+    );
+    let font = TabFont::from_profile(&Profile::from_bytes(&bytes));
+    assert_eq!(font.family().as_deref(), Some("HGS創英角ﾎﾟｯﾌﾟ体"));
+    assert_eq!(font.size_px(), Some(12.0));
+    // The setting keeps the name with "@", as the dialogs show it.
+    assert_eq!(
+        font.0.as_ref().map(|f| f.log_font.face_name.as_str()),
+        Some("@HGS創英角ﾎﾟｯﾌﾟ体")
+    );
+}
+
 // ---- F_SETFONTSIZE ----
 
 fn set_font_size(
@@ -711,4 +731,96 @@ fn a_type_font_made_from_no_font_in_the_file_keeps_the_programs_face(cx: &mut Te
         ini.get("Types(0)", "lfFaceName").as_deref(),
         Some(crate::view::FONT_FAMILY)
     );
+}
+
+// ---- the user's steps (a Windows check of #150) ----
+
+/// The settings of a user's file: the common font Noto Sans JP 7 pt, and type 13 (Python, `.py`)
+/// that does not use a font of its own.
+const PYTHON_USER: &str = "[Font]\r\nnPointSize=70\r\nlf=-14,0,0,0,400,0,0,0,0,3,2,1,50\r\n\
+    lfFaceName=Noto Sans JP\r\nbFontIs_FIXED_PITCH=1\r\n[Other]\r\nnTypesCount=14\r\n\
+    [Types(13)]\r\nszTypeName=Python\r\nszTypeExts=py\r\nid=13\r\nbUseTypeFont=0\r\n\
+    nPointSize=70\r\nlf=-14,0,0,0,400,0,0,0,0,3,2,1,66\r\nlfFaceName=Papyrus\r\n";
+
+type Sheet = Entity<crate::common_settings::CommonSettingsDialog>;
+
+/// Opens the type settings of the window; the sheet and its window.
+fn open_type_settings(
+    cx: &mut TestAppContext,
+    handle: AnyWindowHandle,
+) -> (Sheet, AnyWindowHandle) {
+    run(cx, handle, "F_OPTION_TYPE", &[]);
+    let sheet = cx
+        .update(|app| crate::type_settings::current_dialog(app))
+        .expect("the type settings are open");
+    let sheet_window = cx
+        .update(|app| crate::type_settings::dialog_window(app))
+        .unwrap();
+    (sheet, sheet_window)
+}
+
+fn press_ok(cx: &mut TestAppContext, (sheet, window): &(Sheet, AnyWindowHandle)) {
+    window
+        .update(cx, |_, window, app| {
+            sheet.update(app, |d, dcx| d.ok(window, dcx))
+        })
+        .unwrap();
+    cx.run_until_parked();
+}
+
+fn open_python_file(cx: &mut TestAppContext, handle: AnyWindowHandle) -> PathBuf {
+    let path =
+        std::env::temp_dir().join(format!("ume-ui-fix-font-windows-{}.py", std::process::id()));
+    std::fs::write(&path, b"print(1)\n").unwrap();
+    run(
+        cx,
+        handle,
+        "F_FILEOPEN",
+        &[Arg::Text(path.display().to_string())],
+    );
+    path
+}
+
+#[gpui::test]
+fn the_user_chooses_a_type_font_and_clears_it_again(cx: &mut TestAppContext) {
+    let (ini, a) = setup(cx, PYTHON_USER);
+    let view = view_of(cx, a);
+    let path = open_python_file(cx, a);
+    assert_eq!(view.read_with(cx, |v, _| v.view_settings().type_index), 13);
+    let seven = points_to_px(70);
+    let common = (Some("Noto Sans JP".to_owned()), 400, false, seven);
+    assert_eq!(shown(cx, &view), common);
+
+    // Choose "Papyrus" with the button of the sheet, then OK.
+    let sheet = open_type_settings(cx, a);
+    sheet
+        .1
+        .update(cx, |_, window, app| {
+            sheet.0.update(app, |d, dcx| {
+                let initial = crate::font_dialog::apply::common_font(dcx).font;
+                d.choose_font("type_font", initial, window, dcx);
+            })
+        })
+        .unwrap();
+    cx.run_until_parked();
+    choose_and_ok(cx, "Papyrus", Style::Regular, 70);
+    press_ok(cx, &sheet);
+    assert_eq!(ini.get("Types(13)", "bUseTypeFont").as_deref(), Some("1"));
+    assert_eq!(shown(cx, &view).0.as_deref(), Some("Papyrus"));
+
+    // Open the sheet again, clear the check box, OK.
+    let sheet = open_type_settings(cx, a);
+    sheet
+        .1
+        .update(cx, |_, _, app| {
+            sheet
+                .0
+                .update(app, |d, dcx| d.set_bool("use_type_font", false, dcx))
+        })
+        .unwrap();
+    cx.run_until_parked();
+    press_ok(cx, &sheet);
+    assert_eq!(ini.get("Types(13)", "bUseTypeFont").as_deref(), Some("0"));
+    assert_eq!(shown(cx, &view), common);
+    std::fs::remove_file(path).ok();
 }

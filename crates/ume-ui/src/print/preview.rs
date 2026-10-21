@@ -481,11 +481,12 @@ impl Element for PageView {
     }
 }
 
-/// A font for printing, without ligatures, so that each character keeps its own glyph.
+/// A font for printing, without ligatures, so that each character keeps its own glyph. A vertical
+/// font (`@Name`) is drawn upright, as everywhere else (`upright_face`).
 fn print_font(family: &str) -> Font {
     Font {
         features: FontFeatures::disable_ligatures(),
-        ..font(family.to_owned())
+        ..font(crate::settings::view_settings::upright_face(family).to_owned())
     }
 }
 
