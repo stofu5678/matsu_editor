@@ -1236,3 +1236,16 @@ fn the_name_of_the_setting_button_has_no_access_key_mark() {
     let name = crate::a11y::without_key_hint(&crate::a11y::plain_name("設定(S)"));
     assert_eq!(name, "設定");
 }
+
+#[test]
+fn the_names_of_the_controls_have_no_access_key_mark() {
+    for (label, name) in [
+        ("キャンセル(&X)", "キャンセル"),
+        ("ヘルプ(&H)", "ヘルプ"),
+        ("ファイル挿入(&C)...", "ファイル挿入..."),
+        ("▼(&3)", "▼"),
+        ("INIルート(I)", "INIルート"),
+    ] {
+        assert_eq!(crate::a11y::label_name(label), name);
+    }
+}

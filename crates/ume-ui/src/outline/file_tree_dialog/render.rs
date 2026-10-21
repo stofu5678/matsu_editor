@@ -3,7 +3,7 @@
 //! Sakura's window has the settings above, the item boxes on the left, a column of buttons in the
 //! middle and the tree on the right, with the import and export buttons, OK, キャンセル and
 //! ヘルプ at the bottom. The texts are Sakura's; an access key `(&X)` is drawn as `(X)` and left
-//! out of the name that a screen reader says (`crate::a11y::plain_name`).
+//! out of the name that a screen reader says (`crate::a11y::label_name`).
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -19,7 +19,7 @@ use gpui_component::{Disableable as _, h_flex, v_flex};
 
 use super::actions::PATH_MENU;
 use super::{FileTreeDialog, Kind};
-use crate::a11y::{AriaDisabled as _, plain_name};
+use crate::a11y::{AriaDisabled as _, label_name};
 use crate::common_settings::model::parse_label;
 use crate::outline::file_tree::source::SettingFrom;
 
@@ -65,7 +65,7 @@ impl FileTreeDialog {
     ) -> Button {
         Button::new(id)
             .label(parse_label(label).0)
-            .accessibility_label(plain_name(label))
+            .accessibility_label(label_name(label))
             .disabled(!enabled)
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| run(this, window, cx)))
     }
@@ -87,7 +87,7 @@ impl FileTreeDialog {
             .child(
                 div().flex_1().child(
                     Input::new(input)
-                        .aria_label(plain_name(label))
+                        .aria_label(label_name(label))
                         .disabled(!enabled),
                 ),
             )
@@ -102,7 +102,7 @@ impl FileTreeDialog {
     ) -> impl IntoElement {
         Radio::new(id)
             .label(parse_label(label).0)
-            .accessibility_label(plain_name(label))
+            .accessibility_label(label_name(label))
             .checked(self.kind == kind)
             .on_click(cx.listener(move |this, _: &bool, _, cx| this.set_kind(kind, cx)))
     }
@@ -118,7 +118,7 @@ impl FileTreeDialog {
     ) -> impl IntoElement {
         Checkbox::new(id)
             .label(parse_label(label).0)
-            .accessibility_label(plain_name(label))
+            .accessibility_label(label_name(label))
             .checked(on)
             .disabled(!enabled)
             .aria_disabled(!enabled)
@@ -159,7 +159,7 @@ impl FileTreeDialog {
                     div()
                         .id(("ft-path-menu-item", index))
                         .role(Role::MenuItem)
-                        .aria_label(plain_name(label))
+                        .aria_label(label_name(label))
                         .px_2()
                         .cursor_pointer()
                         .hover(|style| style.bg(rgb(0xdde8f5)))
@@ -179,7 +179,7 @@ impl FileTreeDialog {
             .child(
                 Checkbox::new("ft-load-ini")
                     .label(parse_label("各フォルダーの設定を読み込む(&I)").0)
-                    .accessibility_label(plain_name("各フォルダーの設定を読み込む(&I)"))
+                    .accessibility_label(label_name("各フォルダーの設定を読み込む(&I)"))
                     .checked(self.project)
                     .on_click(
                         cx.listener(|this, value: &bool, _, cx| this.set_project(*value, cx)),
@@ -195,7 +195,7 @@ impl FileTreeDialog {
                             .child(
                                 div().flex_1().child(
                                     Input::new(&self.default_ini)
-                                        .aria_label(plain_name("デフォルト設定ファイル名(&J)")),
+                                        .aria_label(label_name("デフォルト設定ファイル名(&J)")),
                                 ),
                             )
                             .child(self.button(
