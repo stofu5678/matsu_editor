@@ -66,13 +66,21 @@ impl FileLock {
 ///   and given back at once. It fails (`WouldBlock`) while another program, another UME Editor
 ///   for example, holds the file locked in either mode. A program that does not lock is not seen.
 pub fn check_writable(path: &Path) -> io::Result<()> {
+    // Only a regular file is probed. Opening a FIFO for appending blocks until a reader comes, and
+    // a dangling symlink would get its target made; the save itself reports what it cannot write.
+    match std::fs::metadata(path) {
+        Ok(meta) if !meta.is_file() => return Ok(()),
+        Ok(_) => {}
+        Err(_) if std::fs::symlink_metadata(path).is_ok() => return Ok(()),
+        Err(_) => {}
+    }
     // `create_new` tells a file made here from one that was there, also when another program
     // makes it meanwhile or the path is a dangling symlink (which `create` would follow and a
     // later delete would remove).
     let (file, created) = match File::options().append(true).create_new(true).open(path) {
         Ok(file) => (file, true),
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-            (File::options().append(true).create(true).open(path)?, false)
+            (File::options().append(true).open(path)?, false)
         }
         Err(error) => return Err(error),
     };
@@ -214,7 +222,7 @@ mod tests {
         assert!(!path.exists());
     }
 
-    /// A dangling symlink is not deleted by the check (only a file made here is).
+    /// A dangling symlink is left as it is, and its target is not made.
     #[cfg(unix)]
     #[test]
     fn a_dangling_symlink_stays() {
@@ -223,6 +231,7 @@ mod tests {
         std::os::unix::fs::symlink(dir.path().join("target"), &link).unwrap();
         check_writable(&link).unwrap();
         assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
+        assert!(!dir.path().join("target").exists());
     }
 
     #[test]
