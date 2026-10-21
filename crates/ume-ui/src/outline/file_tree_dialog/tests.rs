@@ -1202,3 +1202,31 @@ fn each_entry_of_the_list_has_its_access_key(_cx: &mut TestAppContext) {
         ]
     );
 }
+
+#[cfg(unix)]
+#[gpui::test]
+fn a_settings_file_that_cannot_be_written_keeps_the_dialog(cx: &mut TestAppContext) {
+    use std::os::unix::fs::PermissionsExt as _;
+    let (ini, handle) = setup(cx, &notes_ini(Path::new("memo.txt")), None);
+    show_tree(cx, handle);
+    open_dialog(cx, handle);
+    set_boxes(cx, handle, Kind::Folder, "", "Added", "");
+    with_dialog(cx, handle, |d, window, dcx| d.add_item(window, dcx));
+    let dir = ini.dir.path();
+    let writable = std::fs::metadata(dir).unwrap().permissions();
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let before = ini.bytes();
+    // (a user who can write anyway, such as root, cannot run this test)
+    let can_write = std::fs::File::create(dir.join("probe")).is_ok();
+    let keys = &mut VisualTestContext::from_window(handle, cx);
+    with_dialog(keys, handle, |d, window, dcx| d.ok(window, dcx));
+    std::fs::set_permissions(dir, writable).unwrap();
+    if can_write {
+        return;
+    }
+    assert!(keys.has_pending_prompt(), "the failure is told");
+    keys.simulate_prompt_answer("OK");
+    assert!(is_open(keys, handle), "OK seems to do nothing otherwise");
+    assert_eq!(ini.bytes(), before);
+    assert_eq!(tree_items(keys, handle).len(), 3, "the edits stay");
+}

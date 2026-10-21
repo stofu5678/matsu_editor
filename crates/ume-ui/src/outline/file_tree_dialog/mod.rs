@@ -312,7 +312,13 @@ impl FileTreeDialog {
             self.say(&message, window, cx);
             return;
         }
-        store::commit(cx, &outcome);
+        if !store::commit(cx, &outcome) {
+            // the file stays as it was (no right to write): the pane would show the old tree
+            let file = crate::history::settings_path(cx).unwrap_or_default();
+            let message = format!("設定ファイルに書き込めませんでした。\n\n{}", file.display());
+            self.say(&message, window, cx);
+            return;
+        }
         self.close(window, cx);
         // `HandleCommand( F_FILETREE, SHOW_RELOAD )`
         self.pane.update(cx, |pane, cx| pane.reload(cx)).ok();

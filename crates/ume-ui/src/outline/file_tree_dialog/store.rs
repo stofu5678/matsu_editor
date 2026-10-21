@@ -56,8 +56,9 @@ pub(crate) fn write_outcome(
 
 /// Writes the outcome to the settings file under its lock, and makes the settings the windows
 /// hold the new ones. A file that cannot be written (no place for it, no right to write) leaves
-/// the settings for this session, as the other dialogs do.
-pub(crate) fn commit(cx: &mut App, outcome: &Outcome) {
+/// the settings for this session, as the other dialogs do; the pane reads the file first, though,
+/// so the caller is told (`false`) and can keep the dialog open instead of seeming to do nothing.
+pub(crate) fn commit(cx: &mut App, outcome: &Outcome) -> bool {
     let mut written: Option<Profile> = None;
     crate::history::write_settings(cx, |profile| {
         let changed = write_outcome(profile, outcome)?;
@@ -76,6 +77,13 @@ pub(crate) fn commit(cx: &mut App, outcome: &Outcome) {
     });
     let path = user.as_ref().and_then(crate::settings::history_file);
     cx.set_global(UserSettings::from_profile(profile, path));
+    // written: the file now says what the outcome says
+    match crate::history::settings_path(cx) {
+        Some(file) => Profile::load(&file).is_ok_and(|mut on_disk| {
+            write_outcome(&mut on_disk, outcome).is_ok_and(|changed| !changed)
+        }),
+        None => true,
+    }
 }
 
 /// `CImpExpFileTree::Import`: the items of a project file. A file without the count of items
