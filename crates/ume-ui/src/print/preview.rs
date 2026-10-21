@@ -482,11 +482,15 @@ impl Element for PageView {
 }
 
 /// A font for printing, without ligatures, so that each character keeps its own glyph. A vertical
-/// font (`@Name`) is drawn upright, as everywhere else (`upright_face`).
-fn print_font(family: &str) -> Font {
+/// font (`@Name`) is drawn upright and a Windows-only name is the family of DirectWrite, as
+/// everywhere else (`font_family_for`).
+fn print_font(face: &str) -> Font {
+    use crate::settings::view_settings::{font_family_for, upright_face};
+    let family = font_family_for(face, ume_config::location::Os::current())
+        .unwrap_or_else(|| upright_face(face).to_owned());
     Font {
         features: FontFeatures::disable_ligatures(),
-        ..font(crate::settings::view_settings::upright_face(family).to_owned())
+        ..font(family)
     }
 }
 

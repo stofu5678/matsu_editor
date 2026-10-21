@@ -769,8 +769,11 @@ fn press_ok(cx: &mut TestAppContext, (sheet, window): &(Sheet, AnyWindowHandle))
 }
 
 fn open_python_file(cx: &mut TestAppContext, handle: AnyWindowHandle, name: &str) -> PathBuf {
+    // A name of its own for every call: the tests run side by side.
+    static N: AtomicU32 = AtomicU32::new(0);
+    let n = N.fetch_add(1, Ordering::Relaxed);
     let path = std::env::temp_dir().join(format!(
-        "ume-ui-fix-font-windows-{}-{name}.py",
+        "ume-ui-fix-font-windows-{}-{n}-{name}.py",
         std::process::id()
     ));
     std::fs::write(&path, b"print(1)\n").unwrap();
