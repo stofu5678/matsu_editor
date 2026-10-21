@@ -180,8 +180,21 @@ impl Editor {
 
     /// An editor on `text` (which may contain `|` and `[`) with a given cursor.
     pub fn from_parts(text: &str, cursor: Cursor) -> Self {
+        Self::from_parts_with(text, cursor, true)
+    }
+
+    /// Like [`Editor::new`], but the document counts NEL, LS and PS as line endings only if
+    /// `ext_eol` is set (`bEnableExtEol`; `new` sets it).
+    pub fn new_with_ext_eol(marked: &str, ext_eol: bool) -> Self {
+        let m = parse(marked).unwrap_or_else(|e| panic!("bad marked text: {e}"));
+        let mut cursor = Cursor::default();
+        cursor.select(m.anchor.unwrap_or(m.caret), m.caret);
+        Self::from_parts_with(&m.text, cursor, ext_eol)
+    }
+
+    fn from_parts_with(text: &str, cursor: Cursor, ext_eol: bool) -> Self {
         let doc =
-            Document::from_utf8_with(text.as_bytes().to_vec(), true).expect("a test document");
+            Document::from_utf8_with(text.as_bytes().to_vec(), ext_eol).expect("a test document");
         Self {
             model: DocumentModel::new(doc),
             cursor,

@@ -63,6 +63,9 @@ pub enum OutlineKind {
     Python,
     /// The bookmarked lines (`F_BOOKMARK_VIEW`).
     Bookmark,
+    /// The file tree (`F_FILETREE`, `OUTLINE_FILETREE`): nothing is analyzed in the document
+    /// (`Command_FUNCLIST` does nothing for it); the pane builds the tree from the settings.
+    FileTree,
     /// A kind that is not ported yet: PL/SQL, COBOL, assembler, TeX, the rule file or Erlang
     /// (the value is `nDefaultOutline`). The list is empty.
     Unsupported(i32),
@@ -134,6 +137,8 @@ impl OutlineKind {
             Self::Xml => "XML",
             Self::Python => "Python メソッドツリー",
             Self::Bookmark => "ブックマーク",
+            // `LS(F_FILETREE)`, the name of the function
+            Self::FileTree => "ファイルツリー",
             Self::Unsupported(v) => match v {
                 outline_type::PLSQL => "PL/SQL 関数一覧",
                 outline_type::COBOL => "COBOL アウトライン",
@@ -217,7 +222,8 @@ pub fn analyze(src: &dyn LineSource, request: &Request<'_>) -> Analysis {
             request.bookmarks.iter().copied(),
             request.ignore_blank_bookmarks,
         ),
-        OutlineKind::Unsupported(_) => FuncInfoArr::new(),
+        // `case OUTLINE_FILETREE: /* 特に何もしない*/` (`Command_FUNCLIST`)
+        OutlineKind::FileTree | OutlineKind::Unsupported(_) => FuncInfoArr::new(),
     };
     Analysis { items, kind }
 }
