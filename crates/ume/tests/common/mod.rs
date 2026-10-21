@@ -134,6 +134,7 @@ pub fn capture_screen(path: &Path) -> Result<(), String> {
         let script = path.with_extension("ps1");
         fs::write(&script, include_str!("capture.ps1")).map_err(|e| e.to_string())?;
         let result = run(Command::new("powershell.exe")
+            .env("__COMPAT_LAYER", "HighDpiAware")
             .args([
                 "-NoProfile",
                 "-NonInteractive",

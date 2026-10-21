@@ -5,8 +5,8 @@
 param([Parameter(Mandatory = $true)][string]$Path)
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
-# No DPI call here: compiling a helper with Add-Type takes seconds on every picture, and the runners'
-# screens are not scaled.
+# DPI awareness comes from the environment of the caller (`__COMPAT_LAYER=HighDpiAware`, see
+# common/mod.rs): compiling a helper with Add-Type takes seconds on every picture.
 $area = [System.Windows.Forms.SystemInformation]::VirtualScreen
 $bitmap = New-Object System.Drawing.Bitmap $area.Width, $area.Height
 $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
