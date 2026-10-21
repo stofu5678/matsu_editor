@@ -1,0 +1,71 @@
+name: Sakura oracle
+
+# Runs the same key macros on the same input in the real Sakura Editor and in UME Editor, and compares
+# the saved bytes (crates/ume/tests/sakura_oracle.rs). Sakura is the oracle: it gives the expected
+# result directly, so nobody has to guess it from the source. The cases that differ now are listed
+# with their reasons in crates/ume/tests/sakura_oracle/known_differences.txt; a new difference fails
+# the job.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+  # Sakura Editor v2.4.2 build 4203 (zlib License), the release the maintainer uses. Pinned by URL and
+  # SHA-256; the zip also holds the matching bregonig.dll.
+  SAKURA_URL: https://github.com/sakura-editor/sakura/releases/download/v2.4.2/sakura-tag-v2.4.2-build4203-a3e63915b-Win32-Release-Exe.zip
+  SAKURA_SHA256: 91f2eae7fe3b2417a47ee678463012e030063cf2694fd6c925fbaebc575dd7e8
+
+jobs:
+  compare:
+    name: compare (windows-x64)
+    runs-on: windows-2025
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.99.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release
+      - name: Cache the Sakura download
+        id: sakura-cache
+        uses: actions/cache@v6
+        with:
+          path: sakura-download
+          key: sakura-v2.4.2-build4203-${{ env.SAKURA_SHA256 }}
+      - name: Download Sakura Editor
+        if: steps.sakura-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p sakura-download
+          curl -fsSL --retry 3 -o sakura-download/sakura.zip "$SAKURA_URL"
+      - name: Check and unpack Sakura Editor
+        run: |
+          echo "$SAKURA_SHA256  sakura-download/sakura.zip" | sha256sum -c -
+          unzip -q -o sakura-download/sakura.zip -d sakura-release
+          ls sakura-release
+      - run: cargo build --release --locked -p ume -p ume-script
+      - name: Compare UME with Sakura
+        run: |
+          mkdir -p oracle-out
+          SAKURA_DIR="$GITHUB_WORKSPACE/sakura-release" ORACLE_OUT="$GITHUB_WORKSPACE/oracle-out" \
+            cargo test --release --locked -p ume --test sakura_oracle -- --ignored --nocapture
+      - name: Keep the outputs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sakura-oracle-outputs
+          path: oracle-out
+          if-no-files-found: ignore

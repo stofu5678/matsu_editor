@@ -1,0 +1,5 @@
+// input: jp.sjis.lf
+// code: 0
+ReplaceAll('abc', 'x', 0);
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

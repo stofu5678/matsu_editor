@@ -1,0 +1,6 @@
+// input: ascii.tabs.crlf
+// code: 0
+SelectAll();
+SPACEToTAB();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

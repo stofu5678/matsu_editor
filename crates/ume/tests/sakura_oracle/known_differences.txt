@@ -1,0 +1,6 @@
+# Cases in which UME saves other bytes than Sakura Editor v2.4.2 (build 4203), one per line:
+#
+#   case-name | why
+#
+# The test (crates/ume/tests/sakura_oracle.rs) fails on a difference that is not listed here and on a
+# listed case that no longer differs, so delete a line when its difference is fixed.

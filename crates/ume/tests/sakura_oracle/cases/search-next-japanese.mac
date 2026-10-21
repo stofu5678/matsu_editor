@@ -1,0 +1,6 @@
+// input: jp.sjis.crlf
+// code: 0
+SearchNext('\u30c6\u30ad\u30b9\u30c8', 0);
+Delete();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

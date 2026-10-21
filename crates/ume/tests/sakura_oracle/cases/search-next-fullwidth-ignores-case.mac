@@ -1,0 +1,6 @@
+// input: jp.sjis.crlf
+// code: 0
+SearchNext('\uff41\uff42\uff43', 0);
+Delete();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

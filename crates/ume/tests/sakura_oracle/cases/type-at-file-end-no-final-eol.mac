@@ -1,0 +1,6 @@
+// input: jp.sjis.nofinal
+// code: 0
+GoFileEnd();
+Char(88);
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

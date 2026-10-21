@@ -1,0 +1,7 @@
+// input: ascii.tabs.crlf
+// code: 0
+ChangeTabWidth(8);
+SelectAll();
+TABToSPACE();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

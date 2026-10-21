@@ -1,0 +1,6 @@
+// input: empty.txt
+// code: 0
+SelectAll();
+Delete();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();
