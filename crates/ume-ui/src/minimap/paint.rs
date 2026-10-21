@@ -84,11 +84,10 @@ fn prepaint(
             .shape_line(text, px(font_px), &runs, None)
     };
     let look = editor.minimap_look();
-    // One column is the advance of a half-width character, a whole number of pixels at least 1
-    // (a GDI font has whole pixel metrics).
-    let cell = (f32::from(shape(window, "0000000000", look.background).width()) / 10.0)
-        .round()
-        .max(1.0);
+    // One column is the advance of a half-width character, as the text of the window measures it
+    // (the pieces are placed at whole columns, so they line up with the glyphs of the font).
+    let cell = f32::from(shape(window, "0000000000", look.background).width()) / 10.0;
+    let cell = if cell > 0.0 { cell } else { 1.0 };
     // Columns that can be seen; a piece is cut there, so that a very long line costs nothing.
     let text_width = f32::from(bounds.size.width) - LEFT_MARGIN - SCROLLBAR_WIDTH;
     let max_cols = (text_width / cell).ceil().max(1.0) as u32 + 1;
