@@ -160,9 +160,10 @@ fn key_macro_saves_shift_jis_with_lf() {
 fn bundled_quickjs_macro_saves_utf8_with_crlf() {
     let scratch = Scratch::new("js");
     let saved = scratch.0.join("utf8.txt");
-    // 1 is CRLF (S_FileSaveAs).
+    // 4 is UTF-8 and 1 is CRLF (S_FileSaveAs). The encoding is the one the file is saved in: 0 would
+    // convert the text to Shift_JIS, as Sakura does.
     let source = format!(
-        "Editor.InsText('日本語\\nabc\\n');\nEditor.FileSaveAs('{}', 0, 1);\nEditor.ExitAll();\n",
+        "Editor.InsText('日本語\\nabc\\n');\nEditor.FileSaveAs('{}', 4, 1);\nEditor.ExitAll();\n",
         macro_path(&saved)
     );
     fs::write(scratch.0.join("smoke.js"), source).unwrap();
