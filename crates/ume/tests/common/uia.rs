@@ -161,6 +161,13 @@ impl Element {
             .unwrap_or(0)
     }
 
+    pub fn is_enabled(&self) -> bool {
+        // SAFETY: plain call on a live interface.
+        unsafe { self.0.CurrentIsEnabled() }
+            .map(|b| b.as_bool())
+            .unwrap_or(false)
+    }
+
     pub fn is_button(&self) -> bool {
         self.control_type() == UIA_ButtonControlTypeId.0
     }

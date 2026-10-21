@@ -127,8 +127,13 @@ fn drives_the_window_by_its_names() {
     let check = dialog
         .descendants(&uia)
         .into_iter()
-        .find(Element::is_check_box)
-        .unwrap_or_else(|| panic!("no check box on the first page:\n{}", dialog.dump(&uia)));
+        .find(|e| e.is_check_box() && e.is_enabled())
+        .unwrap_or_else(|| {
+            panic!(
+                "no enabled check box on the first page:\n{}",
+                dialog.dump(&uia)
+            )
+        });
     let was = check.is_checked();
     check.toggle();
     pause(300);
