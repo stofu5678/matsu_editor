@@ -7337,6 +7337,7 @@ dependencies = [
 name = "ume"
 version = "0.0.0"
 dependencies = [
+ "embed-resource",
  "ume-ui",
  "windows 0.62.2",
 ]
@@ -7485,6 +7486,7 @@ dependencies = [
  "gpui-kit-assets",
  "gpui-pre",
  "gpui-pre-platform",
+ "image",
  "inventory",
  "raw-window-handle",
  "tempfile",

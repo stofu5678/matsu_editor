@@ -26,7 +26,7 @@
 | Linux x64 | `ume-<版>-linux-x64.tar.gz` |
 | Linux ARM64 | `ume-<版>-linux-arm64.tar.gz` |
 
-`<版>` は、毎日版では `nightly`、版のリリースではタグ（例: `v0.1.0`）。中身は `ume-<対象>/` のディレクトリで、実行ファイル（`ume` / `ume.exe`）、同梱のマクロのエンジンを動かす `ume-script`（`ume-script.exe`。`ume` は自分の隣にあるものを使う）、`LICENSE-MIT`、`LICENSE-APACHE`、`THIRD_PARTY_NOTICES.txt`（プログラムに入っている第三者のコードの著作権表示とライセンス。ライセンスが配布物に添えることを求める）、短い `README.txt` が入る。Linux では、FreeType を同梱してビルドしていないことを確かめる（同梱の FreeType のライセンスは `THIRD_PARTY_NOTICES.txt` に含まれないため。CI のテストと同じ確認）。署名はまだない。
+`<版>` は、毎日版では `nightly`、版のリリースではタグ（例: `v0.1.0`）。中身は `ume-<対象>/` のディレクトリで、実行ファイル（`ume` / `ume.exe`）、同梱のマクロのエンジンを動かす `ume-script`（`ume-script.exe`。`ume` は自分の隣にあるものを使う）、`LICENSE-MIT`、`LICENSE-APACHE`、`THIRD_PARTY_NOTICES.txt`（プログラムに入っている第三者のコードの著作権表示とライセンス。ライセンスが配布物に添えることを求める）、アイコンの絵（`icons/`。`assets/icons` の SVG・PNG・ICO。ライセンスはコードと同じ）、短い `README.txt` が入る。Linux では、FreeType を同梱してビルドしていないことを確かめる（同梱の FreeType のライセンスは `THIRD_PARTY_NOTICES.txt` に含まれないため。CI のテストと同じ確認）。署名はまだない。
 
 ## リリースビルドのプロファイル
 

@@ -356,6 +356,7 @@ pub(crate) fn open(cx: &mut App, base: FontSetting, on_done: Done) -> Option<Ent
     let bounds = Bounds::centered(None, size(px(560.), px(480.)), cx);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
+        icon: crate::app_icon::window_icon(),
         titlebar: Some(gpui::TitlebarOptions {
             title: Some("フォント".into()),
             ..Default::default()

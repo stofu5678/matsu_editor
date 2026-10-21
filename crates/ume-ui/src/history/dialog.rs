@@ -654,6 +654,7 @@ pub(crate) fn open(cx: &mut App) {
     let bounds = Bounds::centered(None, size(px(760.), px(460.)), cx);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
+        icon: crate::app_icon::window_icon(),
         titlebar: Some(gpui::TitlebarOptions {
             title: Some("履歴とお気に入りの管理".into()),
             ..Default::default()

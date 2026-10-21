@@ -122,6 +122,7 @@ fn open_window_with(
     }
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
+        icon: crate::app_icon::window_icon(),
         titlebar: Some(gpui::TitlebarOptions {
             title: Some("UME Editor".into()),
             ..Default::default()

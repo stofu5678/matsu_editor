@@ -515,6 +515,19 @@ fn ctrl_shift_f1_opens_the_version_dialog_and_enter_closes_it(cx: &mut TestAppCo
 }
 
 #[gpui::test]
+fn the_version_dialog_shows_the_icon_at_the_top_left(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abc");
+    f.run(cx, F_ABOUT);
+    // Sakura: IDC_STATIC_MYICON (CDlgAbout.cpp lines 237-241) sits at the top left of the dialog
+    let icon = cx.debug_bounds("about-icon").expect("the icon is drawn");
+    assert_eq!(icon.size.width, gpui::px(32.));
+    assert_eq!(icon.size.height, gpui::px(32.));
+    let panel = cx.debug_bounds("about-panel").expect("the panel");
+    assert!(icon.origin.x - panel.origin.x < gpui::px(40.));
+    assert!(icon.origin.y - panel.origin.y < gpui::px(40.));
+}
+
+#[gpui::test]
 fn the_version_dialog_closes_with_escape(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "abc");
     f.run(cx, F_ABOUT);

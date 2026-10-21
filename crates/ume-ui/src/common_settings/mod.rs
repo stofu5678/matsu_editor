@@ -292,6 +292,7 @@ pub(crate) fn open(
     let bounds = Bounds::centered(None, size(px(800.), px(620.)), cx);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
+        icon: crate::app_icon::window_icon(),
         titlebar: Some(gpui::TitlebarOptions {
             title: Some("共通設定".into()),
             ..Default::default()

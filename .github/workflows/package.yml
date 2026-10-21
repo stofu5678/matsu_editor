@@ -83,12 +83,16 @@ jobs:
           # ask for it (README.md, "Third-party notices").
           cp "target/release/ume$SUFFIX" "target/release/ume-script$SUFFIX" \
             LICENSE-MIT LICENSE-APACHE THIRD_PARTY_NOTICES.txt "dist/$dir/"
+          # The icon of UME Editor as pictures (assets/icons/README.md); ume.exe has its own copy inside.
+          mkdir "dist/$dir/icons"
+          cp assets/icons/*.svg assets/icons/*.png assets/icons/ume_editor.ico "dist/$dir/icons/"
           {
             echo "UME Editor ($TARGET)"
             echo
             echo "Run ume$SUFFIX with a file path. ume-script$SUFFIX runs the macros of the bundled"
             echo "languages (Lua, JavaScript, Ruby, Python); keep it next to ume$SUFFIX."
             echo "Licensed under MIT OR Apache-2.0 (LICENSE-MIT, LICENSE-APACHE)."
+            echo "icons/ has the icon of UME Editor (MIT OR Apache-2.0, like the code)."
             echo "THIRD_PARTY_NOTICES.txt has the notices and licenses of the code the programs include."
             echo "https://github.com/${GITHUB_REPOSITORY}"
           } > "dist/$dir/README.txt"
