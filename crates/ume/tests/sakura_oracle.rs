@@ -455,10 +455,14 @@ fn ume_saves_the_same_bytes_as_sakura() {
     let mut stale = Vec::new();
     let mut sakura_failures = Vec::new();
     let (mut same, mut known_count) = (0, 0);
+    let mut sakura_ran = false;
+    let mut processed = 0;
     for case in &cases {
+        processed += 1;
         let scratch = Scratch::new(&case.name);
         let sakura = run_sakura(&scratch, case, &sakura_dir);
         let ume = run_ume(&scratch, case);
+        sakura_ran |= matches!(sakura, Outcome::Saved(_));
         let (status, detail) = match (&sakura, &ume) {
             (Outcome::Failed(why), _) => {
                 // The test itself is wrong (or the machine): never allow-listed.
@@ -519,7 +523,7 @@ fn ume_saves_the_same_bytes_as_sakura() {
             }
         }
         // Sakura fails on the first cases: a setup problem, not a result; do not wait for the rest.
-        if same + known_count + new_differences.len() == 0 && sakura_failures.len() >= 3 {
+        if !sakura_ran && sakura_failures.len() >= 3 {
             println!(
                 "Sakura failed on the first {} cases: stopping",
                 sakura_failures.len()
@@ -533,7 +537,7 @@ fn ume_saves_the_same_bytes_as_sakura() {
         }
     }
     let summary = format!(
-        "{} cases: {same} same, {known_count} known differences, {} new differences, {} stale list entries, {} Sakura failures",
+        "{processed} of {} cases run: {same} same, {known_count} known differences, {} new differences, {} stale list entries, {} Sakura failures",
         cases.len(),
         new_differences.len(),
         stale.len(),
