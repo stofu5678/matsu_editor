@@ -59,9 +59,7 @@
 
 use ume_core::encoding::Encoding;
 
-use super::word::{
-    CharKind, char_kind, is_line_delimiter, merge_kinds, size_of_char, where_current_word,
-};
+use super::word::{CharKind, char_kind, merge_kinds, size_of_char, where_current_word};
 
 /// The most candidates taken from the document (`HokanSearchByFile` is called with 1024 in
 /// `CHokanMgr::Search`: "the data being edited, so the number is limited").
@@ -126,7 +124,13 @@ pub fn candidates(
 
     let mut line_no = 0;
     while let Some(text) = line_at(line_no) {
-        let line: Vec<char> = text.chars().filter(|&c| !is_line_delimiter(c)).collect();
+        // `line_at` gives the line without its ending, so only a stray CR or LF is dropped; NEL, LS
+        // and PS are chars of the line unless the document counts them as endings, and then they
+        // are not in `text`.
+        let line: Vec<char> = text
+            .chars()
+            .filter(|&c| !matches!(c, '\r' | '\n'))
+            .collect();
         let len = line.len();
         let mut j = 0;
         let mut width;
@@ -460,6 +464,14 @@ mod tests {
         assert_eq!(complete("$name name\nna|", false), ["name"]);
         // the mark is a word of its own, not part of the key
         assert_eq!(key("$na|"), Some("na".into()));
+    }
+
+    #[test]
+    fn a_nel_inside_a_line_is_not_dropped() {
+        // With `bEnableExtEol` off it is a char of the line: "foo" and "bar" stay two words.
+        let lines = ["foo\u{85}bar".to_owned(), "fo".to_owned()];
+        let got = candidates(|i| lines.get(i).cloned(), "fo", false, (1, 2));
+        assert_eq!(got, ["foo"]);
     }
 
     #[test]
