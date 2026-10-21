@@ -323,7 +323,17 @@ impl FileTreeDialog {
             let message = format!("設定ファイルに書き込めませんでした。\n\n{}", file.display());
             if let (Some(path), Some(before)) = (&self.loaded_project_ini, project_before) {
                 match before {
-                    Some(bytes) => drop(std::fs::write(path, bytes)),
+                    Some(bytes) => {
+                        // replaced as a whole, like the save (a read-only file can be replaced)
+                        let mut temp = path.as_os_str().to_owned();
+                        temp.push(".ume-restore");
+                        let temp = PathBuf::from(temp);
+                        if std::fs::write(&temp, bytes).is_ok()
+                            && std::fs::rename(&temp, path).is_err()
+                        {
+                            drop(std::fs::remove_file(&temp));
+                        }
+                    }
                     None => drop(std::fs::remove_file(path)),
                 }
             }
