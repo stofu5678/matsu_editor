@@ -10,6 +10,7 @@ pub mod bookmarks;
 pub mod highlight;
 pub mod history;
 pub mod isearch;
+pub(crate) mod macro_args;
 pub mod modified_lines;
 pub mod ops;
 pub mod panel;
@@ -27,6 +28,8 @@ mod bookmarks_tests;
 mod history_tests;
 #[cfg(test)]
 mod isearch_tests;
+#[cfg(test)]
+mod macro_args_tests;
 #[cfg(test)]
 mod modified_lines_tests;
 #[cfg(test)]

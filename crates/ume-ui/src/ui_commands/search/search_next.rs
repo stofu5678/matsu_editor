@@ -5,6 +5,7 @@
 
 use ume_core::search::Direction;
 
+use crate::search::macro_args::MacroSearch;
 use crate::search::{PanelMode, SearchOutcome};
 use gpui::{Context, Window};
 use ume_commands::command::{Arg, Result};
@@ -22,13 +23,15 @@ impl UiCommand for SearchNext {
     fn run(
         &self,
         view: &mut EditorView,
-        _: &[Arg],
+        args: &[Arg],
         window: &mut Window,
         cx: &mut Context<EditorView>,
     ) -> Result {
-        if view.search(Direction::Forward, window, cx) == SearchOutcome::NoPattern {
-            view.open_search_panel(PanelMode::Find, window, cx);
-        }
+        view.with_search_args(args, MacroSearch::Find, window, cx, |view, window, cx| {
+            if view.search(Direction::Forward, window, cx) == SearchOutcome::NoPattern {
+                view.open_search_panel(PanelMode::Find, window, cx);
+            }
+        })?;
         Ok(())
     }
 }

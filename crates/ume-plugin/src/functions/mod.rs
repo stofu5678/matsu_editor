@@ -32,6 +32,9 @@ mod misc;
 mod state;
 pub mod window;
 
+// The limits of the layout functions, which a key macro applies too.
+pub use layout::{MAX_LINE_COLUMNS, MAX_TAB_WIDTH, MIN_LINE_COLUMNS};
+
 /// One function that needs the editor. The fields are those of [`crate::api::Func`].
 pub struct EditorFunc {
     pub name: &'static str,

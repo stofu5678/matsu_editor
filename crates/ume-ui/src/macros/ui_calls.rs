@@ -31,13 +31,9 @@ use super::wait::Wait;
 use crate::ui_command::UiRegistry;
 
 /// The UI commands that take the arguments of Sakura's macro function but do not read them yet
-/// (they use the settings of the window: the search pattern, the page overlap). A script that
+/// (they use the settings of the window: the bookmark pattern, the page overlap). A script that
 /// gives arguments to them gets an error instead of a silent run with other values.
 const IGNORES_ARGUMENTS: &[&str] = &[
-    "F_SEARCH_NEXT",
-    "F_SEARCH_PREV",
-    "F_REPLACE",
-    "F_REPLACE_ALL",
     "F_BOOKMARK_PATTERN",
     "F_1PageUp",
     "F_1PageDown",
