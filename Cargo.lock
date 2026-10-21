@@ -7338,6 +7338,7 @@ name = "ume"
 version = "0.0.0"
 dependencies = [
  "ume-ui",
+ "windows 0.62.2",
 ]
 
 [[package]]
