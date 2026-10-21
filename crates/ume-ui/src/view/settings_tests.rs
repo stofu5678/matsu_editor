@@ -292,3 +292,26 @@ fn a_cleared_wheel_binding_does_not_scroll(cx: &mut TestAppContext) {
     });
     assert_eq!(view.read_with(cx, |v, _| v.scroll_y()), down);
 }
+
+#[gpui::test]
+fn the_tab_key_inserts_spaces_when_the_type_says_so(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "");
+    let text = |view: &Entity<EditorView>, cx: &mut VisualTestContext| {
+        view.read_with(cx, |v, cx| {
+            let doc = v.doc(cx);
+            doc.text_between(ume_core::buffer::Pos::new(0, 0), doc.end_pos().unwrap())
+                .unwrap()
+        })
+    };
+    // `bInsSpace` of the type: spaces up to the next tab stop (nTabSpace is 4 by default)
+    let settings = user("[Types(0)]\r\nbInsSpace=1\r\n");
+    view.update(cx, |v, cx| v.apply_user_settings(&settings, cx));
+    view.update(cx, |v, cx| v.run_command("indent_tab", &[], cx));
+    assert_eq!(text(&view, cx), "    ");
+    // `ChangeInsertSpace(0)` sets the flag of the view: the next Tab is a tab at once
+    view.update(cx, |v, cx| {
+        v.prefs.settings.ins_space = false;
+        v.run_command("indent_tab", &[], cx);
+    });
+    assert_eq!(text(&view, cx), "    \t");
+}

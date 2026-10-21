@@ -10,8 +10,11 @@
 //!   else the spaces at its start, up to the tab width. The rows are selected as `F_INDENT_TAB`
 //!   does.
 //!
-//! The tab width is Sakura's default, 4; the setting is not read yet (`context/indent.rs`).
-//! Not done yet: rectangular selection (Sakura only beeps for it).
+//! * With the soft tab (the type's `m_bInsSpace`), the tab typed without a selection is the
+//!   spaces up to the next tab stop (see `F_INDENT_TAB`).
+//! * A box selection: Sakura only beeps, and so does this.
+//!
+//! The tab width is the one of the layout.
 
 use crate::command::{Arg, Command, Result};
 use crate::context::CommandContext;
@@ -70,6 +73,35 @@ mod tests {
     #[test]
     fn works_on_a_selection_inside_one_row() {
         check("unindent_tab", "\ta[b|c", "[abc|");
+    }
+
+    #[test]
+    fn types_a_soft_tab_without_a_selection() {
+        for (width, before, after) in [
+            (4, "ab|cd", "ab  |cd"),
+            (8, "ab|cd", "ab      |cd"),
+            (4, "あ|", "あ  |"),
+            (4, "a\r\nb|", "a\r\nb   |"),
+        ] {
+            let mut e = Editor::new(before)
+                .with_tab_width(width)
+                .with_ins_space(true);
+            e.run("unindent_tab").assert_marked(after);
+        }
+    }
+
+    #[test]
+    fn a_selection_is_unindented_as_before_with_the_soft_tab() {
+        let mut e = Editor::new("\ta[b\n    cd|e").with_ins_space(true);
+        e.run("unindent_tab").assert_marked("[ab\ncde|");
+    }
+
+    #[test]
+    fn removes_up_to_the_tab_width_of_spaces() {
+        let mut e = Editor::new("[        ab|").with_tab_width(8);
+        e.run("unindent_tab").assert_marked("[ab|");
+        let mut e = Editor::new("[    ab|").with_tab_width(2);
+        e.run("unindent_tab").assert_marked("[  ab|");
     }
 
     #[test]

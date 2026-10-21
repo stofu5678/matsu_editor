@@ -415,6 +415,49 @@ fn indent_tab_inserts_a_tab_before_the_box_in_rows_that_have_text_there() {
 }
 
 #[test]
+fn a_soft_tab_before_the_box_fills_up_to_the_next_tab_stop_in_each_row() {
+    let mut e = boxed("abcd\n\nef\ngh", (0, 1), (3, 2)).with_ins_space(true);
+    e.run("indent_tab");
+    assert_eq!(text_of(&e), "a   bcd\n\ne   f\ng   h");
+    assert!(!e.changes().beep);
+    e.run("undo");
+    assert_eq!(text_of(&e), "abcd\n\nef\ngh");
+}
+
+#[test]
+fn a_soft_tab_in_a_box_counts_full_width_chars_as_two_columns() {
+    // Column 2 is between the two chars of the Japanese row, so that row gets a different
+    // number of spaces from the same column.
+    let mut e = boxed("abcdef\nあいう\nxyz", (0, 2), (2, 3)).with_ins_space(true);
+    e.run("indent_tab");
+    assert_eq!(text_of(&e), "ab  cdef\nあ  いう\nxy  z");
+    // Column 1 is inside the first full-width char: the spaces go before it, from column 0.
+    let mut e = boxed("abcdef\nあいう\nxyz", (0, 1), (2, 2)).with_ins_space(true);
+    e.run("indent_tab");
+    assert_eq!(text_of(&e), "a   bcdef\n    あいう\nx   yz");
+}
+
+#[test]
+fn a_soft_tab_in_a_box_uses_the_tab_width_of_the_layout() {
+    let mut e = boxed("abcdef\nxyz", (0, 2), (1, 3))
+        .with_tab_width(8)
+        .with_ins_space(true);
+    e.run("indent_tab");
+    assert_eq!(text_of(&e), "ab      cdef\nxy      z");
+}
+
+#[test]
+fn a_soft_tab_moves_the_box_right_by_the_least_width() {
+    let mut e = boxed("abcdef\nxyz", (0, 1), (1, 3)).with_ins_space(true);
+    e.run("indent_tab");
+    // both rows got 3 spaces; the box moved by 3
+    assert_eq!(text_of(&e), "a   bcdef\nx   yz");
+    e.run("indent_tab");
+    // the box now starts on the tab stop at column 4: a whole tab width
+    assert_eq!(text_of(&e), "a       bcdef\nx       yz");
+}
+
+#[test]
 fn indent_skips_rows_where_the_box_is_to_the_right_of_the_text() {
     let mut e = boxed("abcd\na\nabc", (0, 2), (2, 3));
     e.run("indent_space");

@@ -148,6 +148,8 @@ pub struct CommandContext<'a> {
     /// Typing overwrites the char at the caret instead of inserting before it. See
     /// [`set_overwrite`](Self::set_overwrite).
     overwrite: bool,
+    /// The Tab key inserts spaces (the type's `bInsSpace`). See [`with_ins_space`](Self::with_ins_space).
+    ins_space: bool,
     /// View mode: every edit is refused. See [`with_view_mode`](Self::with_view_mode).
     view_mode: bool,
     /// The quote string of `F_COPYLINESASPASSAGE`. See [`with_quote_string`](Self::with_quote_string).
@@ -172,6 +174,7 @@ impl<'a> CommandContext<'a> {
             start,
             changes: Changes::default(),
             overwrite: false,
+            ins_space: false,
             view_mode: false,
             quote: QUOTE.to_owned(),
         }
@@ -190,6 +193,15 @@ impl<'a> CommandContext<'a> {
     #[must_use]
     pub fn with_overwrite(mut self, overwrite: bool) -> Self {
         self.overwrite = overwrite;
+        self
+    }
+
+    /// Sets whether the Tab key inserts spaces up to the next tab stop instead of a tab (the
+    /// type's `bInsSpace`, `m_bInsSpace` in Sakura; the default is off). `F_INDENT_TAB` and
+    /// `F_UNINDENT_TAB` without a selection read it.
+    #[must_use]
+    pub fn with_ins_space(mut self, ins_space: bool) -> Self {
+        self.ins_space = ins_space;
         self
     }
 
@@ -242,6 +254,11 @@ impl<'a> CommandContext<'a> {
     /// Whether typing overwrites (Sakura: `!CEditView::IsInsMode`).
     pub fn is_overwrite(&self) -> bool {
         self.overwrite
+    }
+
+    /// Whether the Tab key inserts spaces ([`with_ins_space`](Self::with_ins_space)).
+    pub fn is_ins_space(&self) -> bool {
+        self.ins_space
     }
 
     /// The document, to read by lines and ranges.

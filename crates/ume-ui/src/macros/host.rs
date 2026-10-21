@@ -87,7 +87,7 @@ impl EditorView {
             self.set_tab_width(width, cx);
         }
         if let Some(ins_space) = env.requests.ins_space {
-            // `ChangeInsertSpace`: only a flag of this view (the Tab key does not read it yet).
+            // `ChangeInsertSpace`: a flag of this view; the Tab key reads it (`run_with`).
             self.prefs.settings.ins_space = ins_space;
         }
         if let Some(columns) = env.requests.wrap_columns {
