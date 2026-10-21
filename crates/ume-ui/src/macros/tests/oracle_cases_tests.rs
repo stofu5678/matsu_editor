@@ -192,6 +192,41 @@ fn save_utf8_with_a_bom_to_sjis_drops_the_bom(cx: &mut TestAppContext) {
     assert_eq!(out, concat(&[NIHONGO_SJIS, b"\nabc"]));
 }
 
+/// Characters the code cannot hold are saved as `?` without a question (the oracle cases
+/// `saveloss-*`; the window's save asks).
+#[gpui::test]
+fn save_unencodable_characters_as_question_marks_without_asking(cx: &mut TestAppContext) {
+    let input = concat(&[NIHONGO_UTF8, b"\r\nabc"]);
+    let out = Case {
+        input: &input,
+        code: UTF8,
+        mac: &save_as(8, 0),
+    }
+    .run(cx);
+    assert_eq!(out, b"???\r\nabc");
+}
+
+/// UTF-32 (code pages 12000 and 12001) has no BOM by default and writes a supplementary
+/// character as one 4-byte unit (`S_UnicodeToUTF32LE`).
+#[gpui::test]
+fn save_utf8_to_utf32le_and_be(cx: &mut TestAppContext) {
+    let input = "a\u{3042}\u{1F600}\r\n".as_bytes();
+    let le = Case {
+        input,
+        code: UTF8,
+        mac: "FileSaveAs('@OUT@', 12000, 0);\nExitAll();\n",
+    }
+    .run(cx);
+    assert_eq!(le, b"a\0\0\0\x42\x30\0\0\x00\xF6\x01\0\r\0\0\0\n\0\0\0");
+    let be = Case {
+        input,
+        code: UTF8,
+        mac: "FileSaveAs('@OUT@', 12001, 0);\nExitAll();\n",
+    }
+    .run(cx);
+    assert_eq!(be, b"\0\0\0a\0\0\x30\x42\0\x01\xF6\x00\0\0\0\r\0\0\0\n");
+}
+
 /// The encoding the file was opened with changes nothing, the BOM included.
 #[gpui::test]
 fn save_in_the_same_encoding_keeps_the_bom(cx: &mut TestAppContext) {

@@ -52,8 +52,9 @@
 //! The nine encodings of Sakura's `ECodeType` (`sakura_core/charset/charset.h`) are supported
 //! as they are in Sakura, and so are the Windows code pages that `encoding_rs` has (GBK, Big5,
 //! EUC-KR, the single-byte code pages and so on): [`Encoding::CodePage`]. The code pages and their
-//! differences from Windows are listed in `codepage.rs`. `CODE_CPACP`, `CODE_CPOEM` (the system
-//! code page) and UTF-32 (`CODE_UTF32LE`, `CODE_UTF32BE`) are out of scope.
+//! differences from Windows are listed in `codepage.rs`. UTF-32 (code pages 12000 and 12001, which
+//! Sakura converts by itself in `CCodePage`) is [`Encoding::Utf32Le`] and [`Encoding::Utf32Be`].
+//! `CODE_CPACP` and `CODE_CPOEM` (the system code page) are out of scope.
 //!
 //! # Invalid bytes
 //!
@@ -106,6 +107,7 @@ mod jis;
 mod latin1;
 mod mime;
 mod utf16;
+mod utf32;
 mod utf7;
 mod utf8;
 
@@ -228,6 +230,10 @@ pub enum Encoding {
     Cesu8,
     /// Latin1 (Windows-1252): `CODE_LATIN1`.
     Latin1,
+    /// UTF-32 little endian, code page 12000 (`CCodePage::S_UTF32LEToUnicode`).
+    Utf32Le,
+    /// UTF-32 big endian, code page 12001.
+    Utf32Be,
     /// A Windows code page that `encoding_rs` has, such as 936 (GBK) or 950 (Big5).
     CodePage(CodePage),
 }
@@ -253,10 +259,15 @@ impl Encoding {
     /// Every encoding a user can choose: Sakura's nine in the order of its combo box, then the
     /// Windows code pages by number. Dialogs and lists take their items from here.
     pub fn choices() -> Vec<Encoding> {
-        let code_pages = codepage::CODE_PAGES
+        // Sakura adds 12000 and 12001 to the list of the installed code pages and sorts it by number
+        // (`CCodePage::GetCodePageList`).
+        let mut code_pages: Vec<Encoding> = codepage::CODE_PAGES
             .iter()
             .filter_map(|info| CodePage::new(info.number()))
-            .map(Encoding::CodePage);
+            .map(Encoding::CodePage)
+            .chain([Encoding::Utf32Le, Encoding::Utf32Be])
+            .collect();
+        code_pages.sort_by_key(|encoding| encoding.sakura_code());
         Encoding::ALL.into_iter().chain(code_pages).collect()
     }
 
@@ -273,18 +284,21 @@ impl Encoding {
             Encoding::Utf16Be => 6,
             Encoding::Cesu8 => 7,
             Encoding::Latin1 => 8,
+            Encoding::Utf32Le => 12000,
+            Encoding::Utf32Be => 12001,
             Encoding::CodePage(code_page) => i32::from(code_page.number()),
         }
     }
 
     /// The encoding for a number stored by Sakura, or None for the other values
-    /// (`CODE_AUTODETECT`, `CODE_CPACP`, `CODE_CPOEM`, UTF-32, code pages that are not supported,
+    /// (`CODE_AUTODETECT`, `CODE_CPACP`, `CODE_CPOEM`, code pages that are not supported,
     /// garbage).
     ///
     /// Numbers of `ECodeType` (0 to 8) are the fixed encodings. From `CODE_CODEMAX` up Sakura
     /// stores a Windows code page number: the supported ones are [`Encoding::CodePage`], and the
     /// numbers of code pages that are one of the fixed encodings here are read as those
-    /// (932 Shift_JIS, 1200 UTF-16, 1201 UTF-16BE, 1252 Latin1, 65000 UTF-7, 65001 UTF-8).
+    /// (932 Shift_JIS, 1200 UTF-16, 1201 UTF-16BE, 1252 Latin1, 65000 UTF-7, 65001 UTF-8), and 12000
+    /// and 12001 are UTF-32.
     pub fn from_sakura_code(code: i32) -> Option<Encoding> {
         if let Some(fixed) = Encoding::ALL
             .into_iter()
@@ -299,6 +313,8 @@ impl Encoding {
             1252 => Some(Encoding::Latin1),
             65000 => Some(Encoding::Utf7),
             65001 => Some(Encoding::Utf8),
+            12000 => Some(Encoding::Utf32Le),
+            12001 => Some(Encoding::Utf32Be),
             _ => u16::try_from(code)
                 .ok()
                 .and_then(CodePage::new)
@@ -311,6 +327,8 @@ impl Encoding {
     pub fn short_name(self) -> &'static str {
         match self {
             Encoding::CodePage(code_page) => code_page.info().short,
+            Encoding::Utf32Le => "cp12000",
+            Encoding::Utf32Be => "cp12001",
             Encoding::ShiftJis => "SJIS",
             Encoding::Jis => "JIS",
             Encoding::EucJp => "EUC",
@@ -328,6 +346,8 @@ impl Encoding {
     pub fn combo_name(self) -> &'static str {
         match self {
             Encoding::CodePage(code_page) => code_page.info().normal,
+            Encoding::Utf32Le => "CP12000",
+            Encoding::Utf32Be => "CP12001",
             Encoding::EucJp => "EUC-JP",
             Encoding::Utf16Be => "UTF-16BE",
             other => other.short_name(),
@@ -340,6 +360,8 @@ impl Encoding {
     pub fn list_name(self) -> &'static str {
         match self {
             Encoding::CodePage(code_page) => code_page.info().list,
+            Encoding::Utf32Le => "CP12000 - UTF-32LE",
+            Encoding::Utf32Be => "CP12001 - UTF-32BE",
             other => other.combo_name(),
         }
     }
@@ -348,12 +370,15 @@ impl Encoding {
     /// `CCodePage::GetNameBracket`).
     pub fn bracket_name(self) -> String {
         match self {
-            Encoding::CodePage(_) => format!("  [{}]", self.combo_name()),
+            Encoding::CodePage(_) | Encoding::Utf32Le | Encoding::Utf32Be => {
+                format!("  [{}]", self.combo_name())
+            }
             _ => format!("  [{}]", self.short_name()),
         }
     }
 
-    /// Whether Sakura offers a BOM option for this encoding (`SCodeSet::m_bUseBom`).
+    /// Whether Sakura offers a BOM option for this encoding (`SCodeSet::m_bUseBom`; for a code page
+    /// `CCodeTypeName::UseBom`, which is true when U+FEFF has bytes in it: UTF-32 here).
     pub fn can_have_bom(self) -> bool {
         matches!(
             self,
@@ -362,6 +387,8 @@ impl Encoding {
                 | Encoding::Utf8
                 | Encoding::Cesu8
                 | Encoding::Utf7
+                | Encoding::Utf32Le
+                | Encoding::Utf32Be
         )
     }
 
@@ -383,6 +410,8 @@ impl Encoding {
             Encoding::Utf16Le => b"\xFF\xFE",
             Encoding::Utf16Be => b"\xFE\xFF",
             Encoding::Utf7 => b"+/v8-",
+            Encoding::Utf32Le => b"\xFF\xFE\x00\x00",
+            Encoding::Utf32Be => b"\x00\x00\xFE\xFF",
             _ => b"",
         }
     }
@@ -395,6 +424,8 @@ impl Encoding {
             Encoding::EucJp => &euc::EucJp,
             Encoding::Utf16Le => &utf16::Utf16 { big_endian: false },
             Encoding::Utf16Be => &utf16::Utf16 { big_endian: true },
+            Encoding::Utf32Le => &utf32::Utf32 { big_endian: false },
+            Encoding::Utf32Be => &utf32::Utf32 { big_endian: true },
             Encoding::Utf8 => &utf8::Utf8,
             Encoding::Utf7 => &utf7::Utf7,
             Encoding::Cesu8 => &utf8::Cesu8,

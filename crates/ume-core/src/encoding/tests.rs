@@ -74,7 +74,10 @@ fn sakura_codes_match_ecodetype() {
         assert_eq!(Encoding::from_sakura_code(code), Some(encoding));
     }
     assert_eq!(Encoding::from_sakura_code(AUTODETECT_CODE), None);
-    assert_eq!(Encoding::from_sakura_code(12000), None);
+    // UTF-32 is code pages 12000 and 12001 (CCodePage.cpp)
+    assert_eq!(Encoding::from_sakura_code(12000), Some(Encoding::Utf32Le));
+    assert_eq!(Encoding::from_sakura_code(12001), Some(Encoding::Utf32Be));
+    assert_eq!(Encoding::Utf32Be.sakura_code(), 12001);
     assert_eq!(Encoding::from_sakura_code(-1), None);
     assert_eq!(Encoding::ALL.len(), 9);
 }
@@ -110,6 +113,38 @@ fn bom_bytes_match_sakura() {
     assert_eq!(Encoding::Utf16Be.bom(), b"\xFE\xFF");
     assert_eq!(Encoding::Utf8.bom(), b"\xEF\xBB\xBF");
     assert_eq!(Encoding::Cesu8.bom(), b"\xEF\xBB\xBF");
+    // A code page has a BOM when U+FEFF converts (CCodeTypeName::UseBom), and none by default.
+    assert_eq!(Encoding::Utf32Le.bom(), b"\xFF\xFE\0\0");
+    assert_eq!(Encoding::Utf32Be.bom(), b"\0\0\xFE\xFF");
+    assert!(Encoding::Utf32Le.can_have_bom() && !Encoding::Utf32Le.bom_default_on());
+    assert_eq!(Encoding::Utf32Le.bom_len(b"\xFF\xFE\0\0a\0\0\0"), 4);
+    assert_eq!(Encoding::Utf32Le.bom_len(b"\xFF\xFEa\0"), 0);
+    assert_eq!(Encoding::Utf32Be.bom_len(b"\0\0\xFE\xFFa"), 4);
+}
+
+#[test]
+fn utf32_names_are_code_page_names() {
+    // CCodePage::GetNameNormal / GetNameShort / GetNameBracket for a code page number
+    assert_eq!(Encoding::Utf32Le.combo_name(), "CP12000");
+    assert_eq!(Encoding::Utf32Be.short_name(), "cp12001");
+    assert_eq!(Encoding::Utf32Be.bracket_name(), "  [CP12001]");
+    assert!(Encoding::choices().contains(&Encoding::Utf32Le));
+}
+
+#[test]
+fn utf32_text_survives_a_round_trip_with_crlf_and_a_bom() {
+    for (encoding, bom) in [
+        (Encoding::Utf32Le, &b"\xFF\xFE\0\0"[..]),
+        (Encoding::Utf32Be, &b"\0\0\xFE\xFF"[..]),
+    ] {
+        let codec = encoding.codec();
+        let text = "日本\r\n😀a\n";
+        let mut bytes = bom.to_vec();
+        codec.encode(text, &mut bytes).unwrap();
+        assert_eq!(encoding.bom_len(&bytes), 4);
+        assert_eq!(decode(encoding, &bytes[4..]), text);
+        assert_eq!(codec.find_eol(&bytes[4..], 0), Some((8, Eol::CrLf)));
+    }
 }
 
 #[test]

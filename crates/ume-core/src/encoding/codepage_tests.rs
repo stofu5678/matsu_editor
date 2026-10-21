@@ -240,8 +240,8 @@ fn code_pages_are_stored_by_number() {
     assert_eq!(Encoding::from_sakura_code(65001), Some(Encoding::Utf8));
     assert_eq!(Encoding::from_sakura_code(1200), Some(Encoding::Utf16Le));
     assert_eq!(Encoding::from_sakura_code(1201), Some(Encoding::Utf16Be));
-    // Not supported: CODE_CODEMAX, CP_ACP/CP_OEM, auto, UTF-32, code pages without a table.
-    for code in [9, 10, 90, 91, 99, 437, 850, 12000, 12001, 50220, 70000, -1] {
+    // Not supported: CODE_CODEMAX, CP_ACP/CP_OEM, auto, code pages without a table.
+    for code in [9, 10, 90, 91, 99, 437, 850, 50220, 70000, -1] {
         assert_eq!(Encoding::from_sakura_code(code), None, "{code}");
     }
 }
@@ -253,7 +253,7 @@ fn choices_have_sakuras_nine_and_then_the_code_pages() {
     let numbers: Vec<i32> = choices[9..].iter().map(|e| e.sakura_code()).collect();
     assert!(numbers.len() > 20);
     assert!(numbers.windows(2).all(|w| w[0] < w[1]), "{numbers:?}");
-    for number in [936, 950, 949, 54936, 1251, 20866] {
+    for number in [936, 950, 949, 54936, 1251, 12000, 12001, 20866] {
         assert!(numbers.contains(&number), "{number}");
     }
     assert!(!numbers.contains(&1252));
@@ -323,4 +323,29 @@ fn many_unmappable_characters_are_written_in_pieces() {
     // Characters of several bytes are not cut at the border.
     let text = "\u{4e2d}".repeat(1000);
     assert_eq!(encode_ok(cp(936), &text), b"\xd6\xd0".repeat(1000));
+}
+
+#[test]
+fn code_page_950_writes_question_marks_for_what_windows_does_not_have() {
+    // The oracle case savezen-utf8-to-big5: Sakura (Windows' table) writes `?` for hiragana and
+    // katakana; the WHATWG table has them from the ETEN extension.
+    let mut out = Vec::new();
+    let error = cp(950)
+        .codec()
+        .encode("日本語のテスト", &mut out)
+        .unwrap_err();
+    assert_eq!(out, b"\xA4\xE9\xA5\xBB\xBB\x79????");
+    assert_eq!(error.offsets, vec![9, 12, 15, 18]);
+    // The Hong Kong extension (lead bytes 0xFA..=0xFE) is not in Windows' 950 either.
+    let mut out = Vec::new();
+    let error = cp(950).codec().encode("a\u{347A}b", &mut out).unwrap_err();
+    assert_eq!(out, b"a?b");
+    assert_eq!(error.offsets, vec![1]);
+    // What both tables have stays: Big5 hanzi, the full-width forms and the euro sign.
+    assert_eq!(
+        encode_ok(cp(950), "\u{3000}\u{FF21}\u{20AC}"),
+        b"\xA1\x40\xA2\xCF\xA3\xE1"
+    );
+    // The other code pages are not touched.
+    assert_eq!(encode_ok(cp(936), "の"), b"\xA4\xCE");
 }

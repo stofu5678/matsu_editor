@@ -17,7 +17,8 @@
 //!    to the current line ending. Sakura's default asks; the type's 「保存時に改行コードの混在を警告する」
 //!    (`m_bChkEnterAtEnd`, `TypeSettings::warn_mixed_eol`) turns the question off.
 //! 4. If the encoding cannot write some characters, show the first place and ask: continue
-//!    (they become `?`), stop, or go to the place.
+//!    (they become `?`), stop, or go to the place. The macro `FileSaveAs` does not ask and
+//!    writes the `?` (the real Sakura does so; the user, 2026-10-22).
 //! 5. Make the backup of the file that is there, if the common settings say so (`backup`), then
 //!    write. A failure shows the error; the old file is as it was (ADR-0005).
 
@@ -55,6 +56,9 @@ pub(crate) struct SaveRequest {
     /// Ask whether to unify mixed line endings when the save does not convert them. The macro
     /// `FileSaveAs` does not (see `ui_commands/file/file_save_as.rs`).
     pub ask_mixed_eol: bool,
+    /// Ask whether to continue when the encoding cannot write some characters. The macro
+    /// `FileSaveAs` does not: it saves them as `?` (see `ui_commands/file/file_save_as.rs`).
+    pub ask_unmappable: bool,
 }
 
 impl SaveRequest {
@@ -77,6 +81,7 @@ impl Default for SaveRequest {
             eol: None,
             ask_name: true,
             ask_mixed_eol: true,
+            ask_unmappable: true,
         }
     }
 }
@@ -301,9 +306,7 @@ pub(crate) async fn save(
     }
 
     // 3 and 4. The questions about the content.
-    if let Err(outcome) =
-        confirm_content(view, cx, &path, &mut options, request.ask_mixed_eol).await
-    {
+    if let Err(outcome) = confirm_content(view, cx, &path, &mut options, &request).await {
         return outcome;
     }
 
@@ -347,9 +350,7 @@ pub(crate) async fn save(
         .read_with(cx, |view, app| view.document().read(app).version())
         .ok()
         != version;
-    if changed
-        && let Err(outcome) =
-            confirm_content(view, cx, &path, &mut options, request.ask_mixed_eol).await
+    if changed && let Err(outcome) = confirm_content(view, cx, &path, &mut options, &request).await
     {
         return outcome;
     }
@@ -461,14 +462,14 @@ async fn confirm_content(
     cx: &mut AsyncWindowContext,
     path: &std::path::Path,
     options: &mut SaveOptions,
-    ask_mixed_eol: bool,
+    request: &SaveRequest,
 ) -> Result<(), SaveOutcome> {
     // 3. Mixed line endings, unless the document type turned the question off
     // (`m_bChkEnterAtEnd`, 「保存時に改行コードの混在を警告する」; `CCodeChecker::OnCheckSave`).
     let warn_mixed_eol = view
         .read_with(cx, |view, app| view.type_settings(app).warn_mixed_eol)
         .unwrap_or(true);
-    if ask_mixed_eol && warn_mixed_eol && options.eol.is_none() {
+    if request.ask_mixed_eol && warn_mixed_eol && options.eol.is_none() {
         let mixed = view
             .update(cx, |view, cx| {
                 view.document()
@@ -507,7 +508,14 @@ async fn confirm_content(
         }
     }
 
-    // 4. Characters the encoding cannot write.
+    // 4. Characters the encoding cannot write. A macro's `FileSaveAs` saves `?` without a
+    // question: the oracle run of the real Sakura did so, although `CCodeChecker::OnCheckSave`
+    // (sakura_core/env/CCodeChecker.cpp) has the question; the user decided to follow it
+    // (2026-10-22). The window's save keeps asking.
+    if !request.ask_unmappable {
+        options.allow_unmappable = true;
+        return Ok(());
+    }
     let checked = view
         .update(cx, |view, cx| {
             let options = &*options;

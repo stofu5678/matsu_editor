@@ -350,7 +350,7 @@ pub fn escape_key(key: &str) -> String {
 /// The name of the encoding in the line `(文字コードセット：SJIS)` (`CCodePage::GetNameNormal`).
 fn charset_name(encoding: Encoding) -> &'static str {
     match encoding {
-        Encoding::CodePage(_) => encoding.combo_name(),
+        Encoding::CodePage(_) | Encoding::Utf32Le | Encoding::Utf32Be => encoding.combo_name(),
         other => other.short_name(),
     }
 }
