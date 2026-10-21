@@ -195,27 +195,39 @@ pub(crate) fn split_menu_label(label: &str) -> (String, Option<String>) {
     (without_key_hint(&plain_name(name)), shortcut)
 }
 
-/// The name of the check mark of a popup menu item, for a screen reader.
+/// What a screen reader says of a checked popup menu item, and of a gray one.
 const CHECKED: &str = "チェック済み";
+const UNAVAILABLE: &str = "使用不可";
 
 /// The content of a popup menu item that UME draws itself (`menu_icons::item_element`), as a node
 /// inside the item. gpui-component gives the item node (`MenuItem`) a name only when it draws
 /// the label itself, and has no way to give it a checked or disabled state, a shortcut or a
-/// position; so the content carries them. AccessKit names a menu item from the `value` of the
-/// `Label` nodes inside it (and skips any other role), so this is a `Label` whose value is the
-/// name. The shortcut is AccessKit's keyboard shortcut. A checked item is toggled on, and says
-/// so in its description, because a label is not a check box and a platform may not read the
-/// state of one.
+/// position. AccessKit names a menu item from the `value` of the `Label` nodes inside it (and
+/// skips any other role), and passes on nothing else from them, so this is a `Label` whose value
+/// is what a screen reader should say for the item: the name, then the shortcut, `チェック済み`
+/// and `使用不可` as they apply. The node also carries them as properties (name, keyboard
+/// shortcut, toggled, description), for a client that reads the node itself.
 pub(crate) fn popup_item_content(
     element: Stateful<Div>,
     label: &str,
     checked: bool,
+    disabled: bool,
 ) -> Stateful<Div> {
     let (name, shortcut) = split_menu_label(label);
+    let mut spoken = name.clone();
+    for part in shortcut
+        .iter()
+        .map(String::as_str)
+        .chain(checked.then_some(CHECKED))
+        .chain(disabled.then_some(UNAVAILABLE))
+    {
+        spoken.push('、');
+        spoken.push_str(part);
+    }
     let element = element
         .role(Role::Label)
-        .aria_label(name.clone())
-        .aria_value(name);
+        .aria_label(name)
+        .aria_value(spoken);
     let element = match shortcut {
         Some(shortcut) => element.aria_keyshortcuts(shortcut),
         None => element,
@@ -312,12 +324,13 @@ mod tests {
             gpui::div().id("i"),
             "元に戻す(U)    Ctrl+Z",
             false,
+            false,
         ))
         .unwrap();
         assert_eq!(plain.role(), Role::Label);
         assert_eq!(plain.label(), Some("元に戻す"));
         // The enclosing menu item is named from this value.
-        assert_eq!(plain.value(), Some("元に戻す"));
+        assert_eq!(plain.value(), Some("元に戻す、Ctrl+Z"));
         assert_eq!(plain.keyboard_shortcut(), Some("Ctrl+Z"));
         assert_eq!(plain.toggled(), None);
 
@@ -325,10 +338,12 @@ mod tests {
             gpui::div().id("i"),
             "折り返し(W)",
             true,
+            true,
         ))
         .unwrap();
         assert_eq!(checked.role(), Role::Label);
-        assert_eq!(checked.value(), Some("折り返し"));
+        assert_eq!(checked.label(), Some("折り返し"));
+        assert_eq!(checked.value(), Some("折り返し、チェック済み、使用不可"));
         assert_eq!(checked.description(), Some(CHECKED));
         assert_eq!(checked.keyboard_shortcut(), None);
         assert_eq!(checked.toggled(), Some(gpui::Toggled::True));

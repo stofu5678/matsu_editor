@@ -109,11 +109,12 @@ fn content(
     };
     // An element item has no accessible name of its own (gpui-component's `a11y_label`), so the
     // content is a node with the name, the shortcut, the check mark and the gray state.
-    let content = crate::a11y::popup_item_content(h_flex().id("menu-item-label"), &label, checked)
-        .gap(px(GAP))
-        .items_center()
-        .child(column)
-        .child(label);
+    let content =
+        crate::a11y::popup_item_content(h_flex().id("menu-item-label"), &label, checked, disabled)
+            .gap(px(GAP))
+            .items_center()
+            .child(column)
+            .child(label);
     crate::a11y::disabled(content, disabled)
 }
 
@@ -129,7 +130,10 @@ mod tests {
         let item = content("折り返し(W)    Ctrl+W".into(), None, true, true, 1.0);
         let node = node_of(&item).unwrap();
         assert_eq!(node.role(), Role::Label);
-        assert_eq!(node.value(), Some("折り返し"));
+        assert_eq!(
+            node.value(),
+            Some("折り返し、Ctrl+W、チェック済み、使用不可")
+        );
         assert_eq!(node.label(), Some("折り返し"));
         assert_eq!(node.keyboard_shortcut(), Some("Ctrl+W"));
         assert_eq!(node.toggled(), Some(gpui::Toggled::True));
