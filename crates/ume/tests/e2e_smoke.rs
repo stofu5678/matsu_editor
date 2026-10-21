@@ -17,81 +17,25 @@
 //! Editor), and with `HOME`, `USERPROFILE`, `APPDATA` and `XDG_CONFIG_HOME` in a temporary folder,
 //! so it never reads or writes the settings of the user who runs the test.
 
+mod common;
+
 use std::fs;
 use std::io::Read;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::path::Path;
 use std::thread;
 use std::time::{Duration, Instant};
+
+use common::{Scratch, macro_path, spawn_editor, stage_binaries};
 
 /// How long the editor may run. The first start on a CI runner can be slow (software rendering).
 const TIME_LIMIT: Duration = Duration::from_secs(120);
 
-/// A scratch folder that is removed at the end, also when the test fails.
-struct Scratch(PathBuf);
-
-impl Scratch {
-    fn new(name: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!("ume-e2e-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        Scratch(dir)
-    }
-}
-
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
-
-/// The way of writing a path in a macro string: a path is written with forward slashes, which
-/// every OS accepts, so that no backslash needs an escape in either macro language.
-fn macro_path(path: &Path) -> String {
-    path.to_str().unwrap().replace('\\', "/")
-}
-
 /// Runs `ume` with `args` in a scratch environment until it ends. Returns its output (stdout and
 /// stderr). Panics, with the output, if it does not end in time or does not end with success.
 fn run_editor(home: &Path, args: &[&str]) -> String {
-    let built = PathBuf::from(env!("CARGO_BIN_EXE_ume"));
-    let host_name = if cfg!(windows) {
-        "ume-script.exe"
-    } else {
-        "ume-script"
-    };
-    let built_host = built.with_file_name(host_name);
-    assert!(
-        built_host.is_file(),
-        "{} is missing: build it in the same profile as ume (cargo build -p ume -p ume-script)",
-        built_host.display()
-    );
-    // Run copies in the scratch folder. On Windows the editor reads a `ume.ini` next to its
-    // executable before the one in `%APPDATA%`: a copy never meets the portable settings of a
-    // developer's build folder. `ume-script` goes next to the copy, where the editor looks for it.
-    let bin = home.join("bin");
-    fs::create_dir_all(&bin).unwrap();
-    let exe = bin.join(built.file_name().unwrap());
-    fs::copy(&built, &exe).unwrap();
-    fs::copy(&built_host, bin.join(host_name)).unwrap();
-
+    let exe = stage_binaries(home);
     let log = home.join("output.log");
-    let out = fs::File::create(&log).unwrap();
-    let mut child = Command::new(&exe)
-        .args(args)
-        .current_dir(home)
-        .env("HOME", home)
-        .env("USERPROFILE", home)
-        .env("APPDATA", home.join("appdata"))
-        .env("XDG_CONFIG_HOME", home.join("config"))
-        .env("RUST_BACKTRACE", "1")
-        .env("XDG_CACHE_HOME", home.join("cache"))
-        .env("XDG_DATA_HOME", home.join("data"))
-        .stdin(Stdio::null())
-        .stdout(out.try_clone().unwrap())
-        .stderr(out)
-        .spawn()
-        .expect("start ume");
+    let mut child = spawn_editor(&exe, home, args, &log);
 
     let started = Instant::now();
     let status = loop {

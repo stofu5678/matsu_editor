@@ -3,6 +3,11 @@ name: E2E
 # Starts the real `ume` program on the five targets of ci.yml: a startup macro types text, saves the
 # file and quits, and the test checks the saved bytes (crates/ume/tests/e2e_smoke.rs). The tests
 # of ci.yml run inside GPUI's test platform and never start the executable.
+#
+# The `screens` job takes pictures of the same program (crates/ume/tests/e2e_screens.rs) and, on
+# Windows, drives its window with UI Automation (crates/ume/tests/windows_uia.rs). The pictures
+# are uploaded as the artifact `e2e-screens-<job name>` for people and AIs to look at; they are
+# never compared with stored images. See docs/e2e-screens.md.
 
 on:
   push:
@@ -62,3 +67,59 @@ jobs:
       - name: Run the E2E tests (virtual display)
         if: runner.os == 'Linux'
         run: xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" cargo test --release --locked -p ume --test e2e_smoke -- --ignored --test-threads=1 --nocapture
+
+  screens:
+    name: screens (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: windows-arm64, os: windows-11-arm }
+          - { name: windows-x64, os: windows-2025 }
+          - { name: macos-arm64, os: macos-15 }
+          - { name: linux-x64, os: ubuntu-24.04 }
+          - { name: linux-arm64, os: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      UME_E2E_PLATFORM: ${{ matrix.name }}
+      UME_E2E_SCREENS_DIR: ${{ github.workspace }}/e2e-screens
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.99.0
+      # The packages of the smoke job, and ImageMagick (`import` saves the picture of the virtual
+      # display as a PNG).
+      - name: Install the packages that GPUI needs, a virtual display and ImageMagick
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential clang cmake \
+            libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev libx11-xcb-dev \
+            libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libzstd-dev \
+            xvfb mesa-vulkan-drivers libvulkan1 imagemagick
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release
+      - run: cargo build --release --locked -p ume -p ume-script
+      - run: mkdir -p "$UME_E2E_SCREENS_DIR"
+      - name: Take the pictures
+        if: runner.os != 'Linux'
+        run: cargo test --release --locked -p ume --test e2e_screens -- --ignored --test-threads=1 --nocapture
+      - name: Take the pictures (virtual display)
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" cargo test --release --locked -p ume --test e2e_screens -- --ignored --test-threads=1 --nocapture
+      # The window is on the interactive desktop of the runner; UI Automation drives it by the
+      # accessibility names, and a picture is saved at each step.
+      - name: Drive the window with UI Automation
+        if: runner.os == 'Windows' && !cancelled()
+        run: cargo test --release --locked -p ume --test windows_uia -- --ignored --test-threads=1 --nocapture
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: e2e-screens-${{ matrix.name }}
+          path: e2e-screens/*.png
+          if-no-files-found: warn
+          retention-days: 14
