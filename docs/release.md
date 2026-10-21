@@ -28,6 +28,34 @@
 
 `<版>` は、毎日版では `nightly`、版のリリースではタグ（例: `v0.1.0`）。中身は `ume-<対象>/` のディレクトリで、実行ファイル（`ume` / `ume.exe`）、同梱のマクロのエンジンを動かす `ume-script`（`ume-script.exe`。`ume` は自分の隣にあるものを使う）、`LICENSE-MIT`、`LICENSE-APACHE`、`THIRD_PARTY_NOTICES.txt`（プログラムに入っている第三者のコードの著作権表示とライセンス。ライセンスが配布物に添えることを求める）、短い `README.txt` が入る。Linux では、FreeType を同梱してビルドしていないことを確かめる（同梱の FreeType のライセンスは `THIRD_PARTY_NOTICES.txt` に含まれないため。CI のテストと同じ確認）。署名はまだない。
 
+## リリースビルドのプロファイル
+
+`Cargo.toml` の `[profile.release]` は `strip = true`（シンボルを取り除く）だけを指定している。Linux x64 で測った大きさ（表の大きさと時間は Linux x64 だけの値）と、リリースビルド 1 回の時間（`cargo build --release -p ume -p ume-script`、依存を含めて全部作り直す。測定中は同じ計算機で他のビルドも動いていたので、時間は目安）は次のとおり。
+
+| 設定 | `ume` | `ume-script` | 時間 |
+|---|---|---|---|
+| 既定 | 74.0 MB | 5.9 MB | 623 秒 |
+| `strip = true` | 50.8 MB | 4.6 MB | 675 秒 |
+| `strip = "debuginfo"` | 74.0 MB | 5.9 MB | 583 秒 |
+| `lto = "thin"` | 75.2 MB | 5.9 MB | 597 秒 |
+| `codegen-units = 1` | 56.0 MB | 5.6 MB | 583 秒 |
+| `strip` + `lto = "thin"` | 52.1 MB | 4.6 MB | 454 秒 |
+| `strip` + `lto = "thin"` + `codegen-units = 1` | 42.4 MB | 4.5 MB | 390 秒 |
+
+- `strip = true` で約 31% 小さくなる。ビルド時間はほぼ変わらない。`strip = "debuginfo"` は、リリースの既定ではデバッグ情報がもともと入っていないので、効かない（大きさが変わるのはシンボル表）
+- 代償: Linux では、パニックのバックトレースに関数名が出ず、アドレスだけになる（Windows と macOS の挙動は確かめていない）。パニックのメッセージ（場所と理由）は変わらない。`panic` は `unwind` のまま
+- `lto = "thin"` だけでは小さくならない。`codegen-units = 1` を足すと、さらに小さくなる。ただし CI のビルドが長くなる恐れがあるので、今は入れていない（測定では遅くならなかったが、測定の条件がそろっていない）。入れるかどうかは、5 つの対象の CI の時間を見て決める
+
+### シンボル付きのビルド
+
+バックトレースに関数名が要るときは、取り除かずにビルドする。
+
+```sh
+CARGO_PROFILE_RELEASE_STRIP=none cargo build --release --locked -p ume -p ume-script
+```
+
+配布物と同じコミットで作れば、同じコードのシンボル付きが得られる（バイナリのビットまで同じになるとは限らない）。
+
 ## 版のリリース
 
 - 版は main のコミットから決める。PR は squash でマージするので、PR のタイトル（Conventional Commits）がコミットになる。`feat` で minor、`fix` で patch を上げる。0.x のあいだは、破壊的変更（`!` や `BREAKING CHANGE`）も minor を上げる。1.0 にする時期は人が決める（1.0 にするときは、`release-please-config.json` の `bump-minor-pre-major` を外し、`Release-As: 1.0.0` を付けたコミットを入れる）
