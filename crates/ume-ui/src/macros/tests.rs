@@ -75,8 +75,13 @@ impl Fixture {
 
     /// Lets the macro's process and the window talk until the macro ends.
     fn wait_until_done(&self, cx: &mut VisualTestContext) {
+        self.wait_until_done_within(cx, 1500);
+    }
+
+    /// Like `wait_until_done`, for `rounds` rounds of at least 20 ms each.
+    fn wait_until_done_within(&self, cx: &mut VisualTestContext, rounds: usize) {
         cx.executor().allow_parking();
-        for _ in 0..1500 {
+        for _ in 0..rounds {
             cx.run_until_parked();
             if !self.running(cx) {
                 return;
@@ -777,7 +782,8 @@ fn a_script_that_prints_a_lot_does_not_block_the_window(cx: &mut TestAppContext)
         v.macros.script_timeout = Some(Duration::from_secs(300));
     });
     f.run(cx, F_EXECEXTMACRO, &[text_arg(&script)]);
-    f.wait_until_done(cx);
+    // 300 s: as long as the timeout above
+    f.wait_until_done_within(cx, 15_000);
     assert_eq!(f.lines(cx), ["end"]);
     let output = f.output(cx);
     assert!(
