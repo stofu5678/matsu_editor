@@ -42,24 +42,24 @@
 //! * A regular expression (without 貼り付け) replaces the whole line at once with bregonig's
 //!   replacement (`$1`, `\n`...), the `g` option of `CBregexp::Replace`; the number of
 //!   replacements is the number of matches. Only the first match of a line is shown in the result.
+//!   The line is matched with its line break, so a match can cover it (`\r\n`, `[\r\n]+`, `\s`):
+//!   the line is joined with the next one, or its break is changed, in the file.
 //! * Every other search (plain text, whole words, and a regular expression with the text of the
-//!   clipboard) puts the text in for each match, in the line as it was read.
+//!   clipboard) puts the text in for each match, in the line as it was read, with its line break.
 //! * With バックアップ作成 the old file is kept as `name.skrold`; an earlier backup is replaced when the new content is in place.
 //! * With ファイル毎最初のみ検索 only the first hit of a file is shown, but all are replaced.
 //!
 //! Differences from Sakura: the hits of a file that could not be written are not counted (Sakura
-//! counts them); a match inside a line break is not replaced, and the regular expression of a
-//! replacement sees the line without its line break; a character that the encoding of the file
+//! counts them); a character that the encoding of the file
 //! cannot write is refused, where Sakura writes `?`; the backup is a copy made before the file is
 //! replaced, not the old file renamed after the new one is written.
 
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use ume_core::buffer::Pos;
+use ume_core::buffer::{BufferError, Document, Pos};
 use ume_core::file::{FileError, SaveOptions, TextFile};
-use ume_core::search::{Control, ReplaceTarget, Replacement, apply_replacements, replacement_for};
-use ume_regex::ReplaceAllMode;
+use ume_core::search::{ReplaceTarget, Replacement, apply_replacements, replacement_for};
 
 use super::{Runner, Stopped, next_hit, shown_path};
 use crate::grep::format::{self, Body, FilePaths, LineType, PathInfoState};
@@ -89,13 +89,13 @@ impl Runner<'_> {
         };
         let layout = self.info.layout;
         let shown = shown_path(paths, &layout);
-        // A regular expression with a replacement is replaced a line at a time, after the lines
-        // have been read; the rest is replaced as the lines are read.
+        // A regular expression with a replacement is replaced a line at a time (`Replace` with the
+        // `g` option); the rest is replaced match by match. Either way the line is handled with
+        // its line break, as Sakura reads it, so a match can cover the break.
         let by_match = self.replacer.is_none();
         let mut doc = file.document.clone();
         let mut plan: Vec<Replacement> = Vec::new();
-        // The lines a regular expression changes, to be replaced one by one (and stopped between).
-        let mut regex_lines: Vec<std::ops::Range<Pos>> = Vec::new();
+        let mut replaced = 0usize;
         let mut any_hit = false;
         let mut shown_any = false;
         for index in 0..doc.line_count() {
@@ -131,14 +131,6 @@ impl Runner<'_> {
                 continue;
             }
             any_hit = true;
-            if !by_match {
-                let end = if line.eol.is_some() {
-                    Pos::new(index + 1, 0)
-                } else {
-                    Pos::new(index, line.text.len())
-                };
-                regex_lines.push(Pos::new(index, 0)..end);
-            }
             // The result: the first hit of the line; every hit with 該当部分, and no more than
             // the first of the file with ファイル毎最初のみ検索.
             if !(self.info.file_only && shown_any) {
@@ -165,26 +157,24 @@ impl Runner<'_> {
                 }
                 shown_any = true;
             }
-            if by_match {
-                let text_len = line.text.len();
-                let mut last_end = 0;
-                for m in &hits {
-                    // A match in the line break is not replaced, and one that begins before the
-                    // end of the last (a whole word search can) is not either.
-                    if m.start < last_end
-                        || m.start > text_len
-                        || (m.start == text_len && m.end > m.start)
-                    {
-                        continue;
+            // The new text of the line with its break.
+            let (new, count) = match &self.replacer {
+                Some(replacer) => match replacer.replace_subject(&whole) {
+                    Ok(done) => done,
+                    Err(_) => {
+                        self.buffer.push_str(&format::file_read_error(paths.full));
+                        return Ok(());
                     }
-                    let end = m.end.min(text_len);
-                    let range = Pos::new(index, m.start)..Pos::new(index, end);
-                    if let Ok(edit) =
-                        replacement_for(&doc, &range, &replace.text, ReplaceTarget::Match)
-                    {
-                        plan.push(edit);
-                        last_end = end;
-                    }
+                },
+                None => put_in(&whole, &hits, &replace.text),
+            };
+            replaced += count;
+            match line_replacement(&doc, index, &line.text, eol, &whole, new) {
+                Ok(Some(edit)) => plan.push(edit),
+                Ok(None) => {}
+                Err(_) => {
+                    self.buffer.push_str(&format::file_read_error(paths.full));
+                    return Ok(());
                 }
             }
             self.flush_when_due();
@@ -193,31 +183,9 @@ impl Runner<'_> {
         if !any_hit {
             return Ok(());
         }
-        let replaced = match &self.replacer {
-            Some(replacer) => {
-                // From the last line to the first, so that a replacement with a line break does
-                // not move the lines that follow.
-                let mut count = Some(0);
-                for range in regex_lines.into_iter().rev() {
-                    self.check_cancel()?;
-                    let done = replacer.replace_all(
-                        &mut doc,
-                        ReplaceAllMode::Batch,
-                        Some(range),
-                        Control::new(),
-                    );
-                    count = done.ok().and_then(|r| count.map(|c| c + r.count));
-                    if count.is_none() {
-                        break;
-                    }
-                }
-                count
-            }
-            None => {
-                let count = plan.len();
-                apply_replacements(&mut doc, &plan).map(|_| count).ok()
-            }
-        };
+        let replaced = apply_replacements(&mut doc, &merge_adjacent(plan))
+            .map(|_| replaced)
+            .ok();
         let Some(replaced) = replaced else {
             self.buffer.push_str(&format::file_read_error(paths.full));
             return Ok(());
@@ -300,6 +268,70 @@ fn staged_name(old: &str) -> String {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let n = NEXT.fetch_add(1, Ordering::Relaxed);
     format!("{old}.{}-{n}.tmp", std::process::id())
+}
+
+/// The text of a line after the matches `hits` (found in `whole`, the line with its break) are
+/// replaced by `text` as it is, and the number replaced. A match that begins before the end of
+/// the last (a whole word search can) is left alone.
+fn put_in(whole: &str, hits: &[ume_core::search::Match], text: &str) -> (String, usize) {
+    let mut out = String::with_capacity(whole.len());
+    let (mut at, mut count) = (0, 0);
+    for m in hits {
+        if m.start < at {
+            continue;
+        }
+        out.push_str(&whole[at..m.start]);
+        out.push_str(text);
+        at = m.end;
+        count += 1;
+    }
+    out.push_str(&whole[at..]);
+    (out, count)
+}
+
+/// Puts edits that touch each other (one ends where the next begins: the lines whose break is
+/// replaced) into one. The document joins a CR and an LF that meet at the seam of two edits into
+/// one CR LF, and the positions of the second edit are then wrong; as one edit the text is
+/// just what the lines were replaced with, as Sakura writes it.
+fn merge_adjacent(plan: Vec<Replacement>) -> Vec<Replacement> {
+    let mut merged: Vec<Replacement> = Vec::with_capacity(plan.len());
+    for next in plan {
+        match merged.last_mut() {
+            Some(last) if last.end == next.start => {
+                last.end = next.end;
+                last.text.push_str(&next.text);
+            }
+            _ => merged.push(next),
+        }
+    }
+    merged
+}
+
+/// The edit that makes line `index` (`text` and its break `eol`; `whole` is both) into `new`,
+/// which may have no break, another one or more than one. A line that keeps its own break is
+/// edited in its text only, so the break stays as it was; otherwise the edit goes up to the
+/// start of the next line, and a replacement without a break joins the line with the next one,
+/// as the file written by Sakura does (it writes the text it built for each line).
+fn line_replacement(
+    doc: &Document,
+    index: usize,
+    text: &str,
+    eol: &str,
+    whole: &str,
+    new: String,
+) -> Result<Option<Replacement>, BufferError> {
+    if new == whole {
+        return Ok(None);
+    }
+    let start = Pos::new(index, 0);
+    let (end, new) = if eol.is_empty() {
+        (Pos::new(index, text.len()), new)
+    } else if let Some(kept) = new.strip_suffix(eol) {
+        (Pos::new(index, text.len()), kept.to_owned())
+    } else {
+        (Pos::new(index + 1, 0), new)
+    };
+    replacement_for(doc, &(start..end), &new, ReplaceTarget::Match).map(Some)
 }
 
 /// Copies `from` to `to`, which must not exist (a file or a link in the way is an error and is
