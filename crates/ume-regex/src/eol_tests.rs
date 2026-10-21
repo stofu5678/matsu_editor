@@ -165,7 +165,8 @@ fn anchors_see_the_line_ending() {
 #[test]
 fn a_search_does_not_start_at_the_end_of_a_line_without_a_line_ending() {
     // CBregexp::Match finds nothing for nStart >= len
-    assert_eq!(forward("$", "ab", p(0, 0)), Some((p(0, 2), p(0, 2))));
+    assert_eq!(forward("$", "ab", p(0, 0)), None);
+    assert_eq!(all("$", "!", "a\nb").0, "a!\nb");
     assert_eq!(forward("$", "ab", p(0, 2)), None);
     assert_eq!(forward("$", "ab\n", p(0, 2)), Some((p(0, 2), p(0, 2))));
     assert_eq!(forward("x*", "ab", p(0, 2)), None);

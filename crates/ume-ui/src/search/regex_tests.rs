@@ -257,7 +257,8 @@ fn replace_all_with_matches_that_are_empty(cx: &mut TestAppContext) {
     f.regex(cx, "$");
     f.replacement(cx, ";");
     f.run(cx, "F_REPLACE_ALL");
-    assert_eq!(f.text(cx), "ab;\r\ncd;");
+    // the last line has no line ending: no search finds a match at its end (`regex-dollar-nofinal`)
+    assert_eq!(f.text(cx), "ab;\r\ncd");
 }
 
 #[gpui::test]

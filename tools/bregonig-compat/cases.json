@@ -329,7 +329,7 @@
 {"id":"g-empty-star-a-end","kind":"replace_all","pattern":"a*","replacement":"-","subject":"baa","match_case":true},
 {"id":"g-empty-plus-or-empty","kind":"replace_all","pattern":"a|","replacement":"-","subject":"bab","match_case":true},
 {"id":"g-caret","kind":"replace_all","pattern":"^","replacement":">","subject":"abc","match_case":true},
-{"id":"g-dollar","kind":"replace_all","pattern":"$","replacement":"<","subject":"abc","match_case":true},
+{"id":"g-dollar","kind":"replace_all","pattern":"$","replacement":"<","subject":"abc","match_case":true,"known_difference":"bregonig.dll replaces at the end of the subject, but Sakura's search for the first match (Command_REPLACE_ALL) never finds a match that begins at the end of a last line without a line ending, so Sakura leaves the text as it is (oracle case regex-dollar-nofinal)"},
 {"id":"g-caret-dollar","kind":"replace_all","pattern":"^|$","replacement":"|","subject":"abc","match_case":true},
 {"id":"g-caret-dollar-empty","kind":"replace_all","pattern":"^|$","replacement":"|","subject":"","match_case":true},
 {"id":"g-caret-star","kind":"replace_all","pattern":"^a*","replacement":"-","subject":"aab","match_case":true},

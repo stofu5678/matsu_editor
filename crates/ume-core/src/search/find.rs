@@ -359,8 +359,12 @@ fn match_line(
     let Some(start) = ceil_boundary(&subject.text, col) else {
         return Ok(None);
     };
+    // A search never finds a match that begins at the very end of the subject (the real Sakura
+    // does not replace `$` at the end of a last line without a line ending, though the global
+    // replacement of `x*` does reach the end).
     Ok(matcher
         .find_at(&subject.text, start)?
+        .filter(|m| !(subject.sees_eol && m.start >= subject.text.len()))
         .map(|m| Found::new(line, m, wrapped, &subject)))
 }
 
