@@ -43,7 +43,7 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use gpui::{AnyElement, Context, Entity, Window};
+use gpui::{AnyElement, App, Context, Entity, Global, Window};
 use ume_commands::command::{Arg, CommandError};
 use ume_commands::key_macro::{KeyMacro, KeyMacroRecorder, Step};
 use ume_commands::macro_names;
@@ -77,6 +77,22 @@ pub(crate) enum CurrentMacro {
     Recorded(KeyMacro),
     /// A file that `F_LOADKEYMACRO` named; it is read when it runs.
     File(PathBuf),
+}
+
+/// The file that `F_EXECKEYMACRO` plays, shared by all windows (Sakura: `m_szKeyMacroFileName` in
+/// the shared data). Stopping a recording and `F_LOADKEYMACRO` set it. It is not saved in the
+/// settings file, as in Sakura, so a new run of the editor starts without it.
+#[derive(Default)]
+struct SharedKeyMacro(Option<PathBuf>);
+
+impl Global for SharedKeyMacro {}
+
+fn shared_key_macro(cx: &App) -> Option<PathBuf> {
+    cx.try_global::<SharedKeyMacro>()?.0.clone()
+}
+
+fn set_shared_key_macro(cx: &mut App, path: Option<PathBuf>) {
+    cx.set_global(SharedKeyMacro(path));
 }
 
 /// What kind of macro a file is, by its extension.
@@ -177,17 +193,34 @@ impl MacroState {
 
     /// `CSMacroMgr::IsSaveOk`: the macro that `F_EXECKEYMACRO` plays can be saved, which only a key
     /// macro can (a recording or a key macro file; a script cannot).
-    pub(crate) fn can_save_key_macro(&self) -> bool {
-        match &self.current {
+    pub(crate) fn can_save_key_macro(&self, cx: &App) -> bool {
+        match self.saved_macro(cx) {
             Some(CurrentMacro::Recorded(_)) => true,
-            Some(CurrentMacro::File(path)) => file_kind(path) == FileKind::KeyMacro,
+            Some(CurrentMacro::File(path)) => file_kind(&path) == FileKind::KeyMacro,
             None => false,
         }
     }
 
+    /// The macro that `F_EXECKEYMACRO` plays: the file that any window made the key macro, else
+    /// what this window recorded without a folder to write it to.
+    fn current_macro(&self, cx: &App) -> Option<CurrentMacro> {
+        shared_key_macro(cx)
+            .map(CurrentMacro::File)
+            .or_else(|| self.current.clone())
+    }
+
+    /// The macro that `F_SAVEKEYMACRO` saves: what this window just recorded (Sakura keeps it in
+    /// memory, even when writing `RecKey.mac` failed), else [`Self::current_macro`].
+    fn saved_macro(&self, cx: &App) -> Option<CurrentMacro> {
+        match &self.current {
+            Some(recorded @ CurrentMacro::Recorded(_)) => Some(recorded.clone()),
+            _ => self.current_macro(cx),
+        }
+    }
+
     /// There is a macro for `F_EXECKEYMACRO` to play (Sakura: `m_szKeyMacroFileName` is set).
-    pub(crate) fn has_key_macro(&self) -> bool {
-        self.current.is_some()
+    pub(crate) fn has_key_macro(&self, cx: &App) -> bool {
+        self.current_macro(cx).is_some()
     }
 
     /// A macro is playing or running: the commands it calls are not recorded.
@@ -292,20 +325,41 @@ impl EditorView {
     }
 
     /// `F_RECKEYMACRO`: starts recording, or stops it and keeps what was recorded.
-    pub(crate) fn toggle_key_macro_recording(&mut self, cx: &mut Context<Self>) {
-        if self.macros.recorder.is_recording() {
-            self.stop_key_macro_recording();
+    ///
+    /// Stopping writes `RecKey.mac`; the message says why that failed, if it did.
+    pub(crate) fn toggle_key_macro_recording(&mut self, cx: &mut Context<Self>) -> Option<String> {
+        let failure = if self.macros.recorder.is_recording() {
+            self.stop_key_macro_recording(cx)
         } else {
             self.macros.recorder.start();
-        }
+            None
+        };
         cx.notify();
+        failure
     }
 
-    fn stop_key_macro_recording(&mut self) {
-        if self.macros.recorder.is_recording() {
-            let recorded = self.macros.recorder.stop();
-            self.macros.current = Some(CurrentMacro::Recorded(recorded));
+    /// Ends a recording like `Command_RECKEYMACRO` does: writes `RecKey.mac` in the macro folder
+    /// and makes it the file that `F_EXECKEYMACRO` plays in every window. The file name is set
+    /// before the write, as in Sakura, so a write that failed leaves the name of a file that may
+    /// not be there (or an older recording); playing then says so. Without a folder (no settings
+    /// file) the recording stays in this window's memory. Returns why the write failed.
+    fn stop_key_macro_recording(&mut self, cx: &mut Context<Self>) -> Option<String> {
+        if !self.macros.recorder.is_recording() {
+            return None;
         }
+        let recorded = self.macros.recorder.stop();
+        let file = file_dialog::key_macro_file(cx);
+        set_shared_key_macro(cx, file.clone());
+        let failure = file.and_then(|path| {
+            recorded.save(&path).err().map(|error| {
+                format!(
+                    "マクロファイルを作成できませんでした。{}: {error}",
+                    path.display()
+                )
+            })
+        });
+        self.macros.current = Some(CurrentMacro::Recorded(recorded));
+        failure
     }
 
     /// Leaves the undo blocks that a macro entered with `AddRefUndoBuffer()` and did not leave
@@ -359,7 +413,9 @@ impl EditorView {
 
     /// `F_SAVEKEYMACRO`: asks for a file and saves the key macro in it.
     pub(crate) fn ask_key_macro_save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.stop_key_macro_recording();
+        if let Some(message) = self.stop_key_macro_recording(cx) {
+            self.macro_failed(message, window, cx);
+        }
         // Sakura starts in the macro folder (`Command_SAVEKEYMACRO`).
         let ask = Ask::save()
             .start(file_dialog::macro_folder(cx))
@@ -374,7 +430,7 @@ impl EditorView {
             follow(&this, fallback, cx, |this, window, cx| match answer {
                 Ok(Some(paths)) => {
                     if let Some(path) = paths.last()
-                        && let Err(message) = this.save_key_macro_to(path)
+                        && let Err(message) = this.save_key_macro_to(path, cx)
                     {
                         this.macro_failed(message, window, cx);
                     }
@@ -388,8 +444,8 @@ impl EditorView {
 
     /// Writes the key macro to `path`. Only a key macro can be saved (Sakura:
     /// `STR_ERR_CEDITVIEW_CMD26`).
-    pub(crate) fn save_key_macro_to(&self, path: &Path) -> Result<(), String> {
-        let key_macro = match &self.macros.current {
+    pub(crate) fn save_key_macro_to(&self, path: &Path, cx: &App) -> Result<(), String> {
+        let key_macro = match &self.macros.saved_macro(cx) {
             Some(CurrentMacro::Recorded(key_macro)) => key_macro.clone(),
             None => KeyMacro::new(),
             Some(CurrentMacro::File(file)) if file_kind(file) == FileKind::KeyMacro => {
@@ -412,7 +468,9 @@ impl EditorView {
     /// `F_LOADKEYMACRO`: asks for a file and makes it the key macro. Like Sakura, it is read
     /// when it runs.
     pub(crate) fn ask_key_macro_load(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.stop_key_macro_recording();
+        if let Some(message) = self.stop_key_macro_recording(cx) {
+            self.macro_failed(message, window, cx);
+        }
         // Sakura starts in the macro folder (`Command_LOADKEYMACRO`).
         let ask = Ask::open(false)
             .start(file_dialog::macro_folder(cx))
@@ -426,6 +484,7 @@ impl EditorView {
             follow(&this, fallback, cx, |this, window, cx| match answer {
                 Ok(Some(mut paths)) => {
                     if let Some(path) = paths.pop() {
+                        set_shared_key_macro(cx, Some(path.clone()));
                         this.macros.current = Some(CurrentMacro::File(path));
                     }
                 }
@@ -442,11 +501,14 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<(), CommandError> {
-        self.stop_key_macro_recording();
+        // Sakura goes on to play the file even when it could not write it.
+        if let Some(message) = self.stop_key_macro_recording(cx) {
+            self.macro_failed(message, window, cx);
+        }
         if self.macros.busy() {
             return Err(self.macro_error("マクロを実行中です".into(), window, cx));
         }
-        let result = match self.macros.current.clone() {
+        let result = match self.macros.current_macro(cx) {
             // Nothing to play; Sakura greys the item out.
             None => Ok(()),
             Some(CurrentMacro::Recorded(key_macro)) => {

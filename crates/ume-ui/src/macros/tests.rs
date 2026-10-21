@@ -1137,6 +1137,8 @@ mod wait_tab_tests;
 
 mod input_box_tests;
 
+mod key_file_tests;
+
 /// The warning of a lock that failed is a box of the command: the macro that opened the file
 /// waits until it is closed. The other lock is held by the test, which `flock` honors on macOS
 /// and Linux while the file stays readable.

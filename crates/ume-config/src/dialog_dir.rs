@@ -349,6 +349,25 @@ pub fn macro_folder(
     from_settings
 }
 
+/// The file name of the recorded key macro (`CShareData::GetMacroFilename( -1 )`).
+pub const KEY_MACRO_FILE: &str = "RecKey.mac";
+
+/// The file that stopping a key macro recording writes: `RecKey.mac` in the macro folder
+/// (`Command_RECKEYMACRO` asks `CShareData::GetMacroFilename( -1 )`, `sakura_core/env/CShareData.cpp`).
+/// The folder is found as [`macro_folder`] does.
+///
+/// Sakura leaves the name bare when the folder is empty, which means the current directory of the
+/// process. This editor uses the folder of the settings file instead, the folder that an empty macro
+/// folder means everywhere else. `None` when the base folder it needs is not known.
+pub fn key_macro_file(
+    setting: Option<&str>,
+    settings_dir: Option<&Path>,
+    program_dir: Option<&Path>,
+    is_dir: &dyn Fn(&Path) -> bool,
+) -> Option<PathBuf> {
+    macro_folder(setting, settings_dir, program_dir, is_dir).map(|dir| dir.join(KEY_MACRO_FILE))
+}
+
 /// The fourth argument (`defaultName`) of the macro `FileOpen`: the folder the dialog starts in
 /// and the file name it offers (`Command_FILEOPEN`, `sakura_core/cmd/CViewCommander_File.cpp`).
 ///

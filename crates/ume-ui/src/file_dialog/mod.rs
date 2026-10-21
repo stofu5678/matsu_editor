@@ -373,15 +373,27 @@ pub(crate) fn expanded_folder(cx: &App, text: &str) -> Option<PathBuf> {
 
 /// The folder the macro dialogs start in (マクロ用フォルダー).
 pub(crate) fn macro_folder(cx: &App) -> Option<PathBuf> {
-    let setting = cx
-        .try_global::<UserSettings>()
-        .and_then(UserSettings::macro_folder);
     ume_config::dialog_dir::macro_folder(
-        setting.as_deref(),
+        macro_folder_setting(cx).as_deref(),
         settings_dir(cx).as_deref(),
         program_dir().as_deref(),
         &|path| path.is_dir(),
     )
+}
+
+/// The file that stopping a key macro recording writes (`RecKey.mac` in the macro folder).
+pub(crate) fn key_macro_file(cx: &App) -> Option<PathBuf> {
+    ume_config::dialog_dir::key_macro_file(
+        macro_folder_setting(cx).as_deref(),
+        settings_dir(cx).as_deref(),
+        program_dir().as_deref(),
+        &|path| path.is_dir(),
+    )
+}
+
+fn macro_folder_setting(cx: &App) -> Option<String> {
+    cx.try_global::<UserSettings>()
+        .and_then(UserSettings::macro_folder)
 }
 
 pub(crate) mod import_folder;

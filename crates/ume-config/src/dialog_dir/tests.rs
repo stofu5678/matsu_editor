@@ -384,3 +384,33 @@ fn the_macro_folder_is_taken_from_the_settings_then_the_program() {
     );
     assert_eq!(macro_folder(None, None, Some(program), &is_dir), None);
 }
+
+#[cfg(not(windows))]
+#[test]
+fn the_key_macro_file_is_reckey_mac_in_the_macro_folder() {
+    let settings = Path::new("/home/a/.config/ume");
+    let program = Path::new("/opt/ume");
+    let existing = folders(&["/home/a/.config/ume/macros", "/opt/ume/macro"]);
+    let is_dir = |path: &Path| existing.contains(path);
+    let file =
+        |setting: Option<&str>| key_macro_file(setting, Some(settings), Some(program), &is_dir);
+    // an empty or missing folder: the folder of the settings file
+    let in_settings = Some(PathBuf::from("/home/a/.config/ume/RecKey.mac"));
+    assert_eq!(file(None), in_settings);
+    assert_eq!(file(Some("")), in_settings);
+    // absolute
+    assert_eq!(
+        file(Some("/srv/macros")),
+        Some(PathBuf::from("/srv/macros/RecKey.mac"))
+    );
+    // relative: from the settings, else from the program
+    assert_eq!(
+        file(Some("macros")),
+        Some(PathBuf::from("/home/a/.config/ume/macros/RecKey.mac"))
+    );
+    assert_eq!(
+        file(Some("macro")),
+        Some(PathBuf::from("/opt/ume/macro/RecKey.mac"))
+    );
+    assert_eq!(key_macro_file(None, None, Some(program), &is_dir), None);
+}
