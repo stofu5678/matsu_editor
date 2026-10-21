@@ -5,3 +5,30 @@
 # The test (crates/ume/tests/sakura_oracle.rs) fails on a difference that is not listed here and on a
 # listed case that no longer differs, so delete a line when its difference is fixed.
 
+# Found when the oracle was widened (regular expressions and more command groups); not fixed yet.
+regex-newline-lf-in-lf-doc | UME's regular expressions never match a line break: a pattern that matches CR or LF (`\n`, `\r\n`, `[\r\n]+`) finds nothing, so the search or replace does nothing (Sakura matches the line break and, in the replace cases, joins the lines)
+regex-newline-class-lf-doc | UME's regular expressions never match a line break: a pattern that matches CR or LF (`\n`, `\r\n`, `[\r\n]+`) finds nothing, so the search or replace does nothing (Sakura matches the line break and, in the replace cases, joins the lines)
+regex-newline-class-crlf-doc | UME's regular expressions never match a line break: a pattern that matches CR or LF (`\n`, `\r\n`, `[\r\n]+`) finds nothing, so the search or replace does nothing (Sakura matches the line break and, in the replace cases, joins the lines)
+regex-newline-crlf-in-crlf-doc | UME's regular expressions never match a line break: a pattern that matches CR or LF (`\n`, `\r\n`, `[\r\n]+`) finds nothing, so the search or replace does nothing (Sakura matches the line break and, in the replace cases, joins the lines)
+regex-search-next-newline | UME's regular expressions never match a line break: a pattern that matches CR or LF (`\n`, `\r\n`, `[\r\n]+`) finds nothing, so the search or replace does nothing (Sakura matches the line break and, in the replace cases, joins the lines)
+regex-search-next-crlf-doc-newline-class | UME's regular expressions never match a line break: a pattern that matches CR or LF (`\n`, `\r\n`, `[\r\n]+`) finds nothing, so the search or replace does nothing (Sakura matches the line break and, in the replace cases, joins the lines)
+regex-jp-newline-lf | UME's regular expressions never match a line break: a pattern that matches CR or LF (`\n`, `\r\n`, `[\r\n]+`) finds nothing, so the search or replace does nothing (Sakura matches the line break and, in the replace cases, joins the lines)
+regex-jp-newline-crlf | UME's regular expressions never match a line break: a pattern that matches CR or LF (`\n`, `\r\n`, `[\r\n]+`) finds nothing, so the search or replace does nothing (Sakura matches the line break and, in the replace cases, joins the lines)
+regex-jp-newline-class | UME's regular expressions never match a line break: a pattern that matches CR or LF (`\n`, `\r\n`, `[\r\n]+`) finds nothing, so the search or replace does nothing (Sakura matches the line break and, in the replace cases, joins the lines)
+regex-space-class | a pattern that can also match a line break (`\s`, `\W`, `\D`, a negated class) matches it in Sakura (the lines are joined by the replacement) and never in UME, which matches line by line
+regex-nonword-class | a pattern that can also match a line break (`\s`, `\W`, `\D`, a negated class) matches it in Sakura (the lines are joined by the replacement) and never in UME, which matches line by line
+regex-nondigit-class | a pattern that can also match a line break (`\s`, `\W`, `\D`, a negated class) matches it in Sakura (the lines are joined by the replacement) and never in UME, which matches line by line
+regex-class-negated | a pattern that can also match a line break (`\s`, `\W`, `\D`, a negated class) matches it in Sakura (the lines are joined by the replacement) and never in UME, which matches line by line
+regex-class-posix-negated | a pattern that can also match a line break (`\s`, `\W`, `\D`, a negated class) matches it in Sakura (the lines are joined by the replacement) and never in UME, which matches line by line
+regex-replace-all-empty-replacement | a pattern that can also match a line break (`\s`, `\W`, `\D`, a negated class) matches it in Sakura (the lines are joined by the replacement) and never in UME, which matches line by line
+regex-jp-nonword-class | a pattern that can also match a line break (`\s`, `\W`, `\D`, a negated class) matches it in Sakura (the lines are joined by the replacement) and never in UME, which matches line by line
+regex-jp-space-class | a pattern that can also match a line break (`\s`, `\W`, `\D`, a negated class) matches it in Sakura (the lines are joined by the replacement) and never in UME, which matches line by line
+regex-empty-match-star | an empty match at the end of a line: Sakura replaces it and the empty match at the start of the next line separately (`--F`), UME once
+regex-anchor-text-end-lower-z | `\z` (end of the text): Sakura matches only at the end of the whole text (no match before the last line break here), UME matches at the end of every line
+regex-jp-nonascii-class | `[^\x00-\x7f]+`: Sakura leaves the text unchanged (the pattern does not seem to work with its bregonig, cause not investigated), UME replaces the non-ASCII runs
+regex-search-next-from-selection | SearchNext that finds nothing right after SelectAll: Sakura keeps the text after Delete (the selection is gone), UME still holds the selection and Delete removes everything
+box-copy-paste-text | box selection, Copy and then Paste or PasteBox: Sakura pastes the copied box as a box, UME's result differs (it removes text from the following lines and pastes nothing); cause not investigated
+box-copy-pastebox | box selection, Copy and then Paste or PasteBox: Sakura pastes the copied box as a box, UME's result differs (it removes text from the following lines and pastes nothing); cause not investigated
+sort-asc-box | SortAsc or SortDesc on a box selection: UME does not end (the window stays open with no dialog, UME is stopped at the time limit), Sakura sorts by the box columns
+sort-desc-box | SortAsc or SortDesc on a box selection: UME does not end (the window stays open with no dialog, UME is stopped at the time limit), Sakura sorts by the box columns
+convert-code-jis-to-sjis | JIStoSJIS on a Shift_JIS document: Sakura turns the text into `?` characters, UME leaves it as it is
