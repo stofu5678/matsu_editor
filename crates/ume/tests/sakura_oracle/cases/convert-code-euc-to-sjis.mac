@@ -1,0 +1,6 @@
+// input: jp.euc.lf
+// code: 0
+SelectAll();
+EUCtoSJIS();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

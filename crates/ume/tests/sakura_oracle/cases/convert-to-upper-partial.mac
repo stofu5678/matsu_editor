@@ -1,0 +1,12 @@
+// input: ascii.mixed.lf
+// code: 0
+Right();
+Right();
+Right();
+Right_Sel();
+Right_Sel();
+Right_Sel();
+Right_Sel();
+ToUpper();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

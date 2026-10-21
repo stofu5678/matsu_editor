@@ -1,0 +1,6 @@
+// input: ascii.regex.crlf
+// code: 0
+SearchNext('end$', 4);
+Delete();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

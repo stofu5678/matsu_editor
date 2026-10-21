@@ -1,0 +1,11 @@
+// input: jp.regex.utf8.crlf
+// code: 4
+Down();
+Down();
+Down();
+Down();
+Down();
+SelectLine();
+ToZenKata();
+FileSaveAs('@OUT@', 4, 0);
+ExitAll();

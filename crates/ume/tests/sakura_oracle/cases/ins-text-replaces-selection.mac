@@ -1,0 +1,7 @@
+// input: ascii.regex.lf
+// code: 0
+Right_Sel();
+Right_Sel();
+InsText('XYZ');
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

@@ -1,0 +1,34 @@
+// input: ascii.mixed.lf
+// code: 0
+Right();
+Right();
+Right();
+Right();
+Right();
+Right();
+Right();
+Right();
+Right();
+Right();
+Right();
+Right();
+Right();
+Right();
+Right();
+Right();
+Right();
+Right();
+Right();
+Right();
+Right();
+Right();
+Right();
+Right();
+Right();
+Right();
+Right();
+Right();
+SelectWord();
+Delete();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

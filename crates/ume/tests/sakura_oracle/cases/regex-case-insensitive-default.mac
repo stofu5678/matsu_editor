@@ -1,0 +1,5 @@
+// input: ascii.regex.lf
+// code: 0
+ReplaceAll('foo', 'X', 4);
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

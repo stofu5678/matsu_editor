@@ -1,0 +1,6 @@
+// input: ascii.mixed.lf
+// code: 0
+SelectAll();
+ToZenEi();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

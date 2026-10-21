@@ -37,6 +37,9 @@
 //! `$ORACLE_OUT` (default: this crate's `target/tmp`) gets `report.txt` and, for each case that
 //! differs, `<case>/sakura.out`, `<case>/ume.out` and the macro; the workflow keeps it as an
 //! artifact. `$ORACLE_ONLY` (a part of a case name) runs only the cases whose name contains it.
+//! `$ORACLE_SHARD` (`k/n`, for example `1/4`) runs every n-th case starting at the k-th, so that
+//! the workflow can split the cases over parallel jobs (the list of known differences is then
+//! checked only for the cases of the shard).
 //!
 //! # Safety
 //!
@@ -113,7 +116,30 @@ fn load_cases() -> Vec<Case> {
             name,
         });
     }
+    let Some((k, n)) = shard() else {
+        return cases;
+    };
     cases
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| i % n == k - 1)
+        .map(|(_, c)| c)
+        .collect()
+}
+
+/// `$ORACLE_SHARD`: `k/n` with `1 <= k <= n`.
+fn shard() -> Option<(usize, usize)> {
+    let value = std::env::var("ORACLE_SHARD").ok()?;
+    let parsed = value
+        .split_once('/')
+        .and_then(|(k, n)| {
+            Some((
+                k.trim().parse::<usize>().ok()?,
+                n.trim().parse::<usize>().ok()?,
+            ))
+        })
+        .filter(|&(k, n)| 1 <= k && k <= n);
+    Some(parsed.unwrap_or_else(|| panic!("ORACLE_SHARD must look like 2/4, not {value:?}")))
 }
 
 /// `known_differences.txt`: `case-name | reason`, `#` starts a comment line.
@@ -222,6 +248,107 @@ fn stop_all(dir: &Path) -> Option<String> {
     Some(what)
 }
 
+/// How long an editor runs before the harness starts to look for a window that waits for an
+/// answer (a normal case ends within a few seconds), and how often it looks after that.
+const WAIT_CHECK_FROM: Duration = Duration::from_secs(4);
+const WAIT_CHECK_EVERY: Duration = Duration::from_secs(2);
+
+/// The visible top-level windows of the processes `pids`, as `pid [class] title`. Windows only (the
+/// list is empty elsewhere). A case where an editor waits for a click shows a window (a dialog, a
+/// panel in its own window) that a case which works does not, so the harness can stop the case at
+/// once and say which window it was, instead of waiting for the time limit.
+fn visible_windows(pids: &[u32]) -> Vec<String> {
+    if !cfg!(windows) || pids.is_empty() {
+        return Vec::new();
+    }
+    let list = pids
+        .iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+    let script = format!(
+        r#"[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type -TypeDefinition @"
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class OracleWindows {{
+    delegate bool EnumProc(IntPtr h, IntPtr l);
+    [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc p, IntPtr l);
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+    public static List<string> Find(uint[] pids) {{
+        var found = new List<string>();
+        EnumWindows((h, l) => {{
+            uint pid;
+            GetWindowThreadProcessId(h, out pid);
+            if (Array.IndexOf(pids, pid) >= 0 && IsWindowVisible(h)) {{
+                var title = new StringBuilder(256);
+                var cls = new StringBuilder(256);
+                GetWindowText(h, title, 256);
+                GetClassName(h, cls, 256);
+                found.Add(pid + " [" + cls + "] " + title);
+            }}
+            return true;
+        }}, IntPtr.Zero);
+        found.Sort();
+        return found;
+    }}
+}}
+"@
+[OracleWindows]::Find([uint32[]]({list})) | ForEach-Object {{ $_ }}"#
+    );
+    let Ok(output) = Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .stdin(Stdio::null())
+        .output()
+    else {
+        return Vec::new();
+    };
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect()
+}
+
+/// Looks for a window that waits for an answer, now and then. `Some(windows)` when the same
+/// windows are seen at two looks in a row (so a window that comes and goes is not taken for one).
+struct WaitWatch {
+    last_look: Instant,
+    previous: Vec<String>,
+}
+
+impl WaitWatch {
+    fn new() -> Self {
+        WaitWatch {
+            last_look: Instant::now(),
+            previous: Vec::new(),
+        }
+    }
+
+    /// `pids` gives the processes to look at (called only when it is time to look); `is_waiting`
+    /// picks the windows that mean "waiting" out of the list.
+    fn look(
+        &mut self,
+        started: Instant,
+        pids: impl FnOnce() -> Vec<u32>,
+        is_waiting: impl Fn(&[String]) -> Vec<String>,
+    ) -> Option<Vec<String>> {
+        if started.elapsed() < WAIT_CHECK_FROM || self.last_look.elapsed() < WAIT_CHECK_EVERY {
+            return None;
+        }
+        let waiting = is_waiting(&visible_windows(&pids()));
+        self.last_look = Instant::now();
+        let confirmed = !waiting.is_empty() && waiting == self.previous;
+        self.previous = waiting.clone();
+        confirmed.then_some(waiting)
+    }
+}
+
 /// What one editor did.
 enum Outcome {
     Saved(Vec<u8>),
@@ -291,6 +418,8 @@ fn run_sakura(scratch: &Scratch, case: &Case, sakura_dir: &Path) -> Outcome {
     // more and nothing was saved.
     let started = Instant::now();
     let mut idle = 0;
+    let mut watch = WaitWatch::new();
+    let mut dialog = None;
     let stopped = loop {
         let running = !processes_in(&bin).is_empty();
         if !running && out.is_file() {
@@ -304,9 +433,28 @@ fn run_sakura(scratch: &Scratch, case: &Case, sakura_dir: &Path) -> Outcome {
         if started.elapsed() > TIME_LIMIT {
             break stop_all(&bin);
         }
+        // A message box or a dialog (class `#32770`) that waits for a click: stop at once.
+        if let Some(windows) = watch.look(
+            started,
+            || processes_in(&bin),
+            |all| {
+                all.iter()
+                    .filter(|w| w.contains("[#32770]"))
+                    .cloned()
+                    .collect()
+            },
+        ) {
+            dialog = Some(windows.join("; "));
+            break stop_all(&bin);
+        }
         thread::sleep(Duration::from_millis(250));
     };
     let _ = child.try_wait();
+    if let Some(windows) = dialog {
+        return Outcome::Failed(format!(
+            "sakura waits in a dialog (stopped at once): {windows}"
+        ));
+    }
     match (fs::read(&out), stopped) {
         (Ok(bytes), None) => Outcome::Saved(bytes),
         (Ok(_), Some(what)) => Outcome::Failed(format!(
@@ -357,11 +505,31 @@ fn run_ume(scratch: &Scratch, case: &Case) -> Outcome {
         .spawn()
         .expect("start ume");
     let started = Instant::now();
+    let mut watch = WaitWatch::new();
+    let mut waiting = None;
     let status = loop {
         if let Some(status) = child.try_wait().unwrap() {
             break Some(status);
         }
         if started.elapsed() > UME_TIME_LIMIT {
+            let _ = child.kill();
+            let _ = child.wait();
+            break None;
+        }
+        // A macro that works ends UME without a second window; a dialog (or any other window of
+        // its own) that stays means UME waits for an answer: stop at once and say which window.
+        if let Some(windows) = watch.look(
+            started,
+            || vec![child.id()],
+            |all| {
+                if all.len() >= 2 {
+                    all.to_vec()
+                } else {
+                    Vec::new()
+                }
+            },
+        ) {
+            waiting = Some(windows.join("; "));
             let _ = child.kill();
             let _ = child.wait();
             break None;
@@ -380,6 +548,11 @@ fn run_ume(scratch: &Scratch, case: &Case) -> Outcome {
         .take(8)
         .collect::<Vec<_>>()
         .join(" / ");
+    if let Some(windows) = waiting {
+        return Outcome::Failed(format!(
+            "ume waits for an answer (stopped at once), windows: {windows}: {tail}"
+        ));
+    }
     match (fs::read(&out), status) {
         (Ok(bytes), Some(s)) if s.success() => Outcome::Saved(bytes),
         (Ok(_), Some(s)) => Outcome::Failed(format!("ume ended with {s}: {tail}")),
@@ -549,7 +722,7 @@ fn ume_saves_the_same_bytes_as_sakura() {
 
     // Names in the list that match no case are typos (only checked when every case ran).
     let mut unknown = Vec::new();
-    if std::env::var("ORACLE_ONLY").is_err() {
+    if std::env::var("ORACLE_ONLY").is_err() && shard().is_none() {
         unknown = known
             .keys()
             .filter(|k| !cases.iter().any(|c| &c.name == *k))

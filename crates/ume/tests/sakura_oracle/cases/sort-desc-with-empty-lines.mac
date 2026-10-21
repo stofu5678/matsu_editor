@@ -1,0 +1,6 @@
+// input: ascii.regex.lf
+// code: 0
+SelectAll();
+SortDesc();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

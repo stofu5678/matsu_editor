@@ -1,0 +1,13 @@
+// input: ascii.unsorted.lf
+// code: 0
+Down();
+Down();
+Down();
+Down();
+Down();
+Down_Sel();
+Down_Sel();
+Down_Sel();
+SortAsc();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

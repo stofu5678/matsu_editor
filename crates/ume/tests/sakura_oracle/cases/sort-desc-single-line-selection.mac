@@ -1,0 +1,6 @@
+// input: ascii.unsorted.lf
+// code: 0
+Down_Sel();
+SortDesc();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

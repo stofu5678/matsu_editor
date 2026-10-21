@@ -1,0 +1,7 @@
+// input: ascii.regex.lf
+// code: 0
+SearchNext('^\w', 4);
+SearchNext('^\w', 4);
+Delete();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

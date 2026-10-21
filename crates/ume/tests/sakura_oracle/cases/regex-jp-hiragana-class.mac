@@ -1,0 +1,5 @@
+// input: jp.regex.utf8.crlf
+// code: 4
+ReplaceAll('[\u3041-\u3093]+', 'H', 4);
+FileSaveAs('@OUT@', 4, 0);
+ExitAll();

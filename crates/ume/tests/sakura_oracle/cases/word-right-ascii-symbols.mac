@@ -1,0 +1,12 @@
+// input: ascii.mixed.lf
+// code: 0
+WordRight_Sel();
+WordRight_Sel();
+WordRight_Sel();
+WordRight_Sel();
+WordRight_Sel();
+WordRight_Sel();
+WordRight_Sel();
+Delete();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

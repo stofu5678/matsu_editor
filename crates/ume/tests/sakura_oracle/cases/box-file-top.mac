@@ -1,0 +1,8 @@
+// input: ascii.grid.lf
+// code: 0
+GoFileEnd();
+BeginBoxSelect();
+GoFileTop_BoxSel();
+Delete();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

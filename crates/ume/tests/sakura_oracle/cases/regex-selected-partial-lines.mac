@@ -1,0 +1,7 @@
+// input: ascii.regex.lf
+// code: 0
+Down_Sel();
+Down_Sel();
+ReplaceAll('\d', 'N', 132);
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

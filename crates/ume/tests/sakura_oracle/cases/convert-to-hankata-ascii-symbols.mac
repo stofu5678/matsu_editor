@@ -1,0 +1,6 @@
+// input: ascii.mixed.lf
+// code: 0
+SelectAll();
+ToHankata();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

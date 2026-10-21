@@ -1,0 +1,6 @@
+// input: ascii.regex.crlf
+// code: 0
+SelectAll();
+LTrim();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

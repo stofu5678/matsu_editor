@@ -1,0 +1,7 @@
+// input: ascii.spaces.lf
+// code: 0
+ChangeTabWidth(8);
+SelectAll();
+UnindentSpace();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

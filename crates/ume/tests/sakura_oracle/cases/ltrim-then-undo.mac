@@ -1,0 +1,7 @@
+// input: ascii.mixed.lf
+// code: 0
+SelectAll();
+LTrim();
+Undo();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

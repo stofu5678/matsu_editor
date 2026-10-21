@@ -1,0 +1,9 @@
+// input: ascii.regex.lf
+// code: 0
+Right();
+Right();
+Right();
+Right();
+DeleteLine();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

@@ -1,0 +1,9 @@
+// input: ascii.regex.lf
+// code: 0
+Down_Sel();
+Down_Sel();
+CopyLinesWithLineNumber();
+GoFileEnd();
+Paste();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

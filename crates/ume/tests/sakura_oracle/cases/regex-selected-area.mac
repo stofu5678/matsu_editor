@@ -1,0 +1,7 @@
+// input: ascii.regex.lf
+// code: 0
+Down();
+SelectLine();
+ReplaceAll('\w+', 'w', 132);
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

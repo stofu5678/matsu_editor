@@ -1,0 +1,6 @@
+// input: jp.regex.utf8.crlf
+// code: 4
+SearchNext('\u91ce.', 4);
+Delete();
+FileSaveAs('@OUT@', 4, 0);
+ExitAll();

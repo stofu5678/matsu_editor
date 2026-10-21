@@ -1,0 +1,8 @@
+// input: ascii.words.lf
+// code: 0
+GoFileEnd();
+CutLine();
+GoFileTop();
+Paste();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

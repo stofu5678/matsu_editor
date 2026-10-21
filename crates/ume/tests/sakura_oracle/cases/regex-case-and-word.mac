@@ -1,0 +1,5 @@
+// input: ascii.regex.lf
+// code: 0
+ReplaceAll('the', 'X', 7);
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();
