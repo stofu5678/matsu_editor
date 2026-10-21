@@ -154,6 +154,11 @@ impl EditorView {
         let selection = self.selection_range();
         let mut origin = search_origin(direction, self.cursor.caret(), selection.as_ref());
         let wrap = self.search.options().wrap;
+        // The anchor of a selection that the lock keeps (not a box: `IsBoxSelecting`).
+        let locked = selection
+            .as_ref()
+            .filter(|_| self.cursor.selecting_lock() && !self.cursor.is_box())
+            .and(self.cursor.anchor());
         let found = {
             let doc = self.document.read(cx).doc();
             // An empty match is selected as nothing, so the caret stays on it; going on from
@@ -171,12 +176,25 @@ impl EditorView {
             Ok(Some(found)) => {
                 self.search
                     .set_empty_match((found.start == found.end).then_some(found.start));
-                self.select_found(&found, cx);
+                match locked {
+                    // With the selection lock on, the selection grows from its anchor to the
+                    // match (`ChangeSelectAreaByCurrentCursor`), and the lock stays.
+                    Some(anchor) => {
+                        let to = match direction {
+                            Direction::Forward => found.end,
+                            Direction::Backward => found.start,
+                        };
+                        self.run_with(cx, |c| c.select_range(anchor, to)).ok();
+                        self.cursor.set_selecting_lock(true);
+                    }
+                    None => self.select_found(&found, cx),
+                }
                 self.notice = found.wrapped.then(|| wrapped_message(direction).to_owned());
                 cx.notify();
                 SearchOutcome::Found
             }
             Ok(None) => {
+                self.drop_selection_after_miss(direction, &selection, locked.is_some(), cx);
                 self.not_found(
                     direction,
                     &not_found_message(direction, self.search.pattern()),
@@ -186,11 +204,33 @@ impl EditorView {
                 SearchOutcome::NotFound
             }
             Err(e) => {
+                self.drop_selection_after_miss(direction, &selection, locked.is_some(), cx);
                 self.notice = Some(format!("検索できなかった: {e}"));
                 cx.notify();
                 SearchOutcome::NotFound
             }
         }
+    }
+
+    /// A search that finds nothing leaves the selection dropped, as Sakura's does: before it
+    /// searches, `Command_SEARCH_NEXT` and `Command_SEARCH_PREV` put the caret at the end (the
+    /// start for the search backward) of the selection and drop the selection
+    /// (`DisableSelectArea`), unless the selection lock is on, where the selection stays. So
+    /// after a search, "something is selected" means "found"; a macro tells a hit by
+    /// `IsTextSelected` (`S_SearchNext` returns nothing).
+    fn drop_selection_after_miss(
+        &mut self,
+        direction: Direction,
+        selection: &Option<Range<Pos>>,
+        locked: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(sel) = selection else { return };
+        if locked {
+            return;
+        }
+        let at = search_origin(direction, self.cursor.caret(), Some(sel));
+        self.run_with(cx, |c| c.move_caret(at, false)).ok();
     }
 
     /// Nothing was found: the status bar says so, and the box does too if the option is on

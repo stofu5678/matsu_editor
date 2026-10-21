@@ -103,8 +103,10 @@ fn not_found_says_so_in_the_status_bar_and_a_box(cx: &mut TestAppContext) {
     let (message, detail) = cx.pending_prompt().expect("the not-found box");
     assert_eq!(message, "UME Editor");
     assert_eq!(detail, "前方(↓) に文字列 'foo' が１つも見つかりません。");
-    // the selection stays where it was
-    assert_eq!(f.selection(cx), Some((Pos::new(0, 0), Pos::new(0, 3))));
+    // the search dropped the selection first, and the caret is at its end
+    // (Command_SEARCH_NEXT, 「検索開始位置を調整」)
+    assert_eq!(f.selection(cx), None);
+    assert_eq!(f.caret(cx), Pos::new(0, 3));
 }
 
 #[gpui::test]
@@ -511,4 +513,51 @@ fn the_buttons_stay_inside_the_find_and_replace_panels(cx: &mut TestAppContext) 
             "{keys}: the close button is below the panel: {close:?} in {panel:?}"
         );
     }
+}
+
+// `Command_SEARCH_NEXT` / `Command_SEARCH_PREV`: the selection is dropped before the search
+// (the caret goes to its end for 次を検索), so a miss leaves nothing selected; with the selection
+// lock the selection grows to the match instead and stays when nothing is found.
+
+#[gpui::test]
+fn a_search_that_finds_nothing_drops_the_selection(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "foo bar\nbaz");
+    f.pattern(cx, "zzz");
+    f.view.update(cx, |v, _| {
+        v.cursor.select(Pos::new(0, 0), Pos::new(0, 3));
+    });
+    f.run(cx, "F_SEARCH_NEXT");
+    assert_eq!(f.selection(cx), None);
+    // the caret is at the end of the dropped selection
+    assert_eq!(f.caret(cx), Pos::new(0, 3));
+    f.view.update(cx, |v, _| {
+        v.cursor.select(Pos::new(0, 4), Pos::new(0, 7));
+    });
+    f.run(cx, "F_SEARCH_PREV");
+    assert_eq!(f.selection(cx), None);
+}
+
+#[gpui::test]
+fn the_selection_lock_keeps_the_selection_when_nothing_is_found(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "foo bar\nbaz");
+    f.pattern(cx, "zzz");
+    f.view.update(cx, |v, _| {
+        v.cursor.select(Pos::new(0, 0), Pos::new(0, 3));
+        v.cursor.set_selecting_lock(true);
+    });
+    f.run(cx, "F_SEARCH_NEXT");
+    assert_eq!(f.selection(cx), Some((Pos::new(0, 0), Pos::new(0, 3))));
+}
+
+#[gpui::test]
+fn the_selection_lock_extends_the_selection_to_the_match(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "foo bar\nbaz");
+    f.pattern(cx, "bar");
+    f.view.update(cx, |v, _| {
+        v.cursor.select(Pos::new(0, 0), Pos::new(0, 3));
+        v.cursor.set_selecting_lock(true);
+    });
+    f.run(cx, "F_SEARCH_NEXT");
+    assert_eq!(f.selection(cx), Some((Pos::new(0, 0), Pos::new(0, 7))));
+    assert!(f.view.read_with(cx, |v, _| v.cursor.selecting_lock()));
 }

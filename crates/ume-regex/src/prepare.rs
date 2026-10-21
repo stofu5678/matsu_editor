@@ -30,8 +30,7 @@
 // Modifications: rewritten in Rust for UME Editor. The pattern is a UTF-8 `&str` instead of a
 // NUL-terminated UTF-16 string, and the state table is a `match`.
 
-//! Sakura's pre-processing of a search pattern, as far as it still matters when a line is
-//! matched without its line ending.
+//! Sakura's pre-processing of a search pattern.
 //!
 //! What Sakura does to a pattern before it reaches bregonig.dll (`CBregexp::Compile`):
 //!
@@ -51,11 +50,10 @@
 //!    `MakePattern`, which `Compile` does not call any more, and by the fallback for a
 //!    bregonig.dll without `BMatchEx`. They are not needed.
 //!
-//! With the lines of a document given without their line endings, `[^\r\n]` is the same as `.`
-//! and `(?<![\r\n])(?=\r|$)` is the same as `$` (the end of the text), so this changes no match
-//! today. It is still done, because it keeps the pattern identical to Sakura's for the day lines
-//! carry their line endings (multi-line matching), and because a pattern such as `(?<=$)` then
-//! fails to compile in the same way.
+//! The lines of a document are matched with their own line endings (ADR-0006), so these two
+//! replacements matter: `.` must not take the CR or LF of the line ending, and `$` is before a
+//! CR LF as well as before an LF. A pattern such as `(?<=$)` fails to compile in the same way as
+//! in Sakura.
 
 const DOT_ALTERNATIVE: &str = r"[^\r\n]";
 const DOLLAR_ALTERNATIVE: &str = r"(?<![\r\n])(?=\r|$)";

@@ -9,7 +9,7 @@
 
 use gpui::{Context, Window};
 use ume_commands::context::BookmarkJump;
-use ume_core::search::Direction;
+use ume_core::search::{Direction, find_in_line};
 
 use super::state::{not_found_status, wrapped_message};
 use crate::view::EditorView;
@@ -68,12 +68,10 @@ impl EditorView {
             let doc = self.document.read(cx).doc();
             let mut lines = Vec::new();
             let mut failure = None;
-            for (i, line) in doc.lines(0..doc.line_count()).enumerate() {
-                // Sakura matches the line with its line ending; the matchers here see the text
-                // of the line only.
-                let hit = line
-                    .map_err(|e| e.to_string())
-                    .and_then(|l| matcher.find_at(&l.text, 0).map_err(|e| e.to_string()));
+            for i in 0..doc.line_count() {
+                // Sakura matches the line with its line ending (`CBookmarkManager::MarkSearchWord`
+                // gets `GetDocLineStrWithEOL`), so `\n` or `\s$` marks a line too.
+                let hit = find_in_line(doc, &*matcher, i, 0, false).map_err(|e| e.to_string());
                 match hit {
                     Ok(Some(_)) => lines.push(i),
                     Ok(None) => {}

@@ -1,6 +1,11 @@
 //! Which columns of the visible rows hold a match of the current pattern (Sakura's 検索文字列の
 //! 強調表示, `sakura_core/view/CEditView_Search.cpp` and the search colour of
 //! `CTypeSupport`/`CColor_Found`). Pure arithmetic over the layout, tested without a window.
+//!
+//! Sakura colors a line together with its line ending (`CEditView::IsSearchString` gets the line
+//! with its `EOL` from `CColor_Found`), so a regular expression that matches the line break
+//! (`\r\n`, `\s`, `[^a]`) colors the line ending mark too: one column after the end of the text of
+//! the last row of the line.
 
 use ume_core::buffer::Document;
 use ume_core::search::Matcher;
@@ -15,8 +20,9 @@ pub const MAX_HIGHLIGHT_LINE_BYTES: usize = 64 * 1024;
 pub type RowMatch = (u32, u32, u8);
 
 /// For each row, the matches on it, in order. Empty matches have no width and are left out. A
-/// match that wraps onto the next row is cut at the row end. `slot_of` says which of the search
-/// colors a matched text is drawn in.
+/// match that wraps onto the next row is cut at the row end. A match that covers the line ending
+/// adds one column for it after the text of the last row of the line. `slot_of` says which of
+/// the search colors a matched text is drawn in.
 pub fn highlight_columns(
     layout: &DocumentLayout,
     doc: &Document,
@@ -24,7 +30,7 @@ pub fn highlight_columns(
     matcher: &dyn Matcher,
     slot_of: &dyn Fn(&str) -> u8,
 ) -> Vec<Vec<RowMatch>> {
-    let mut cached: Option<(usize, Vec<(Range, u8)>)> = None;
+    let mut cached: Option<(usize, LineMatches)> = None;
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
         if row.is_eof_row {
@@ -34,7 +40,8 @@ pub fn highlight_columns(
         if cached.as_ref().is_none_or(|(line, _)| *line != row.line) {
             cached = Some((row.line, matches_of_line(doc, row.line, matcher, slot_of)));
         }
-        let matches = cached.as_ref().map_or(&[][..], |(_, m)| m.as_slice());
+        let line_matches = cached.as_ref().map(|(_, m)| m);
+        let matches = line_matches.map_or(&[][..], |m| m.text.as_slice());
         let mut walk = ColumnWalk::new(layout, row);
         let mut cols = Vec::new();
         for (m, slot) in matches {
@@ -50,6 +57,11 @@ pub fn highlight_columns(
             if to > from {
                 cols.push((from, to, *slot));
             }
+        }
+        if row.eol.is_some()
+            && let Some(slot) = line_matches.and_then(|m| m.eol)
+        {
+            cols.push((row.end_column, row.end_column + 1, slot));
         }
         out.push(cols);
     }
@@ -105,6 +117,14 @@ pub fn slot_of(word_index: Option<usize>, shown: usize) -> u8 {
     }
 }
 
+/// The matches of one line: the byte ranges in its text, and the color of the first match that
+/// covers the line ending.
+#[derive(Default)]
+struct LineMatches {
+    text: Vec<(Range, u8)>,
+    eol: Option<u8>,
+}
+
 /// The non-empty matches of one line, as byte ranges. A line that cannot be read, is too long, or
 /// makes the matcher fail has none.
 fn matches_of_line(
@@ -112,25 +132,32 @@ fn matches_of_line(
     line: usize,
     matcher: &dyn Matcher,
     slot_of: &dyn Fn(&str) -> u8,
-) -> Vec<(Range, u8)> {
+) -> LineMatches {
     // the length first: a huge line must not be decoded on every paint
     if !matches!(doc.line_len(line), Ok(Some(len)) if len <= MAX_HIGHLIGHT_LINE_BYTES) {
-        return Vec::new();
+        return LineMatches::default();
     }
-    let Ok(Some(text)) = doc.line(line).map(|l| l.map(|l| l.text)) else {
-        return Vec::new();
+    let Ok(Some(l)) = doc.line(line) else {
+        return LineMatches::default();
     };
-    matcher
-        .find_all_from(&text, 0)
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|m| !m.is_empty())
-        .map(|m| {
-            let range = m.range();
-            let slot = slot_of(&text[range.clone()]);
-            (range, slot)
-        })
-        .collect()
+    let body = l.text.len();
+    let eol = l.eol.filter(|_| matcher.sees_line_ending());
+    let mut subject = l.text;
+    if let Some(eol) = eol {
+        subject.push_str(eol.as_str());
+    }
+    let mut out = LineMatches::default();
+    let all = matcher.find_all_from(&subject, body, 0).unwrap_or_default();
+    for m in all.into_iter().filter(|m| !m.is_empty()) {
+        let slot = slot_of(&subject[m.start.min(body)..m.end.min(body)]);
+        if m.start < body {
+            out.text.push((m.start..m.end.min(body), slot));
+        }
+        if m.end > body && out.eol.is_none() {
+            out.eol = Some(slot);
+        }
+    }
+    out
 }
 
 #[cfg(test)]
