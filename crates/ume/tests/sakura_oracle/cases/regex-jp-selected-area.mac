@@ -1,0 +1,7 @@
+// input: jp.regex.utf8.crlf
+// code: 4
+Down();
+SelectLine();
+ReplaceAll('.', 'x', 132);
+FileSaveAs('@OUT@', 4, 0);
+ExitAll();

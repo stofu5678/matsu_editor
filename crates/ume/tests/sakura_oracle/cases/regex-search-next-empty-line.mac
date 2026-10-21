@@ -1,0 +1,6 @@
+// input: ascii.regex.lf
+// code: 0
+SearchNext('^$', 4);
+InsText('EMPTY');
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

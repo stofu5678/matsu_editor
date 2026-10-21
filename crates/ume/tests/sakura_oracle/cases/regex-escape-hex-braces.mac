@@ -1,0 +1,5 @@
+// input: ascii.regex.lf
+// code: 0
+ReplaceAll('\x{62}', 'Z', 6);
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

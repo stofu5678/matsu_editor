@@ -1,0 +1,6 @@
+// input: jp.words.utf8.crlf
+// code: 4
+SelectAll();
+ToZenKata();
+FileSaveAs('@OUT@', 4, 0);
+ExitAll();

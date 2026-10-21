@@ -10,6 +10,14 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    # Only when something the oracle depends on changes (a push to main always runs it).
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.cargo/**'
+      - '.github/workflows/sakura-oracle.yml'
 
 permissions:
   contents: read
@@ -27,10 +35,15 @@ env:
   SAKURA_SHA256: 91f2eae7fe3b2417a47ee678463012e030063cf2694fd6c925fbaebc575dd7e8
 
 jobs:
-  compare:
-    name: compare (windows-x64)
+  # Build once and share the programs: every shard would otherwise build release UME again. The test
+  # executable runs from the same workspace path on every runner, so the paths compiled into it
+  # (CARGO_BIN_EXE_ume, CARGO_MANIFEST_DIR) stay valid.
+  build:
+    name: build (windows-x64)
+    # Draft pull requests skip it (mark the pull request ready for review to run it).
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: windows-2025
-    timeout-minutes: 90
+    timeout-minutes: 45
     defaults:
       run:
         shell: bash
@@ -40,6 +53,38 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: release
+      - run: cargo build --release --locked -p ume -p ume-script
+      - name: Build the oracle test
+        run: |
+          cargo test --release --locked -p ume --test sakura_oracle --no-run --message-format=json > build-messages.json
+          exe=$(jq -r 'select(.reason == "compiler-artifact" and .target.name == "sakura_oracle" and .executable != null) | .executable' build-messages.json | head -n 1)
+          test -f "$exe"
+          mkdir -p oracle-bin
+          cp "$exe" oracle-bin/sakura_oracle.exe
+          cp target/release/ume.exe target/release/ume-script.exe oracle-bin/
+          ls -l oracle-bin
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sakura-oracle-programs
+          path: oracle-bin
+          retention-days: 1
+          if-no-files-found: error
+
+  compare:
+    # The cases are split over parallel jobs (ORACLE_SHARD=k/n), so that one job's compare stays near 10 minutes.
+    name: compare (windows-x64, ${{ matrix.shard }}/4)
+    needs: build
+    runs-on: windows-2025
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
       - name: Cache the Sakura download
         id: sakura-cache
         uses: actions/cache@v6
@@ -56,16 +101,22 @@ jobs:
           echo "$SAKURA_SHA256  sakura-download/sakura.zip" | sha256sum -c -
           unzip -q -o sakura-download/sakura.zip -d sakura-release
           ls sakura-release
-      - run: cargo build --release --locked -p ume -p ume-script
+      - uses: actions/download-artifact@v8
+        with:
+          name: sakura-oracle-programs
+          path: oracle-bin
       - name: Compare UME with Sakura
         run: |
-          mkdir -p oracle-out
-          SAKURA_DIR="$GITHUB_WORKSPACE/sakura-release" ORACLE_OUT="$GITHUB_WORKSPACE/oracle-out" \
-            cargo test --release --locked -p ume --test sakura_oracle -- --ignored --nocapture
+          mkdir -p oracle-out target/release
+          cp oracle-bin/ume.exe oracle-bin/ume-script.exe target/release/
+          # Run from the package root, as `cargo test` does.
+          cd crates/ume
+          ORACLE_SHARD="${{ matrix.shard }}/4" SAKURA_DIR="$GITHUB_WORKSPACE/sakura-release" ORACLE_OUT="$GITHUB_WORKSPACE/oracle-out" \
+            "$GITHUB_WORKSPACE/oracle-bin/sakura_oracle.exe" --ignored --nocapture
       - name: Keep the outputs
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: sakura-oracle-outputs
+          name: sakura-oracle-outputs-${{ matrix.shard }}
           path: oracle-out
           if-no-files-found: ignore

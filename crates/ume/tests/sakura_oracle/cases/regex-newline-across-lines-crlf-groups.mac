@@ -1,0 +1,5 @@
+// input: ascii.regex.crlf
+// code: 0
+ReplaceAll('(bar45)\r\n(Foo)', '$2\r\n$1', 4);
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

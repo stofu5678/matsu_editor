@@ -1,0 +1,7 @@
+// input: ascii.regex.lf
+// code: 0
+SearchNext('tel', 4);
+SearchNext('foo', 36);
+Delete();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

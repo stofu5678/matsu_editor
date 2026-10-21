@@ -1,0 +1,5 @@
+// input: ascii.regex.crlf
+// code: 0
+ReplaceAll('\r\n', '|', 4);
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

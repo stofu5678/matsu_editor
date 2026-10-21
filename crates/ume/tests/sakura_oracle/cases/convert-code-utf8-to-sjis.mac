@@ -1,0 +1,6 @@
+// input: jp.utf8.crlf
+// code: 0
+SelectAll();
+UTF8toSJIS();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

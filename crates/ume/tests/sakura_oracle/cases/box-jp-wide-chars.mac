@@ -1,0 +1,11 @@
+// input: jp.regex.utf8.crlf
+// code: 4
+Right();
+BeginBoxSelect();
+Right_BoxSel();
+Right_BoxSel();
+Down_BoxSel();
+Down_BoxSel();
+Delete();
+FileSaveAs('@OUT@', 4, 0);
+ExitAll();

@@ -1,0 +1,6 @@
+// input: jp.regex.utf8.crlf
+// code: 4
+SearchNext('(\u6771\u4eac)', 4);
+Replace('(\u6771\u4eac)(\u90fd)', '$2$1', 4);
+FileSaveAs('@OUT@', 4, 0);
+ExitAll();

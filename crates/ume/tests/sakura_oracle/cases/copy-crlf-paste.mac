@@ -1,0 +1,8 @@
+// input: ascii.regex.lf
+// code: 0
+Down_Sel();
+CopyCRLF();
+GoFileEnd();
+Paste();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

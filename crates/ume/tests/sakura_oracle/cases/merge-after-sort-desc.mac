@@ -1,0 +1,8 @@
+// input: ascii.dup.lf
+// code: 0
+SelectAll();
+SortDesc();
+SelectAll();
+Merge();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

@@ -1,0 +1,12 @@
+// input: ascii.regex.crlf
+// code: 0
+Right();
+BeginBoxSelect();
+Right_BoxSel();
+Right_BoxSel();
+Down_BoxSel();
+Down_BoxSel();
+Down_BoxSel();
+Delete();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

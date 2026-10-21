@@ -1,0 +1,7 @@
+// input: ascii.regex.lf
+// code: 0
+SearchNext('(\d+)', 4);
+Replace('(\d+)', '<$1>', 4);
+Replace('(\d+)', '<$1>', 4);
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

@@ -1,0 +1,6 @@
+// input: jp.regex.utf8.crlf
+// code: 4
+SelectAll();
+HanKataToZenHira();
+FileSaveAs('@OUT@', 4, 0);
+ExitAll();

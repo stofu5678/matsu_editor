@@ -1,0 +1,6 @@
+// input: ascii.regex.lf
+// code: 0
+SelectAll();
+IndentTab();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

@@ -1,0 +1,8 @@
+// input: jp.words.utf8.crlf
+// code: 4
+Down();
+Down();
+SelectWord();
+ToHankata();
+FileSaveAs('@OUT@', 4, 0);
+ExitAll();

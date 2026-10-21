@@ -1,0 +1,9 @@
+// input: jp.regex.utf8.crlf
+// code: 4
+Down();
+Down_Sel();
+CopyLines();
+GoFileEnd();
+Paste();
+FileSaveAs('@OUT@', 4, 0);
+ExitAll();

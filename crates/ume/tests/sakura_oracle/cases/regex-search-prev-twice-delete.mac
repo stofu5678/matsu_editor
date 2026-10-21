@@ -1,0 +1,8 @@
+// input: ascii.regex.lf
+// code: 0
+GoFileEnd();
+SearchPrev('\d+', 4);
+SearchPrev('\d+', 4);
+Delete();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

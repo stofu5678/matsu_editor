@@ -1,0 +1,6 @@
+// input: ascii.regex.lf
+// code: 0
+SearchNext('(?<=bar)\w', 4);
+Delete();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

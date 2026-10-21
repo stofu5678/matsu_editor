@@ -1,0 +1,11 @@
+// input: jp.words.utf8.crlf
+// code: 4
+Down();
+GoLineEnd();
+WordLeft_Sel();
+WordLeft_Sel();
+WordLeft_Sel();
+WordLeft_Sel();
+Delete();
+FileSaveAs('@OUT@', 4, 0);
+ExitAll();

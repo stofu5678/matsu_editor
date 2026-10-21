@@ -1,0 +1,5 @@
+// input: jp.regex.utf8.crlf
+// code: 4
+ReplaceAll('\u3042\u3042\u3044\u3044\u3046\u3046', 'X', 5);
+FileSaveAs('@OUT@', 4, 0);
+ExitAll();

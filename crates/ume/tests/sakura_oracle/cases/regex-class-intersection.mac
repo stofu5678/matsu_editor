@@ -1,0 +1,5 @@
+// input: ascii.regex.lf
+// code: 0
+ReplaceAll('[a-z&&[^aeiou]]+', 'C', 4);
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();
