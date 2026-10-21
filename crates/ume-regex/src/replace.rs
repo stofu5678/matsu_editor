@@ -171,12 +171,16 @@ impl RegexReplacer {
     /// The text that replaces `found.range()`: the template, with the part of the line ending
     /// before and after the match put back (see the module docs).
     fn expand_in(&self, line: &str, found: &Found) -> String {
-        let subject = found.subject(line);
+        let text = self.expand_bare(&found.subject(line), found);
+        format!("{}{text}{}", found.kept_before(), found.kept_after())
+    }
+
+    /// The template for one match, in `subject` (the line text and its line ending).
+    fn expand_bare(&self, subject: &str, found: &Found) -> String {
         let mut groups = Vec::with_capacity(found.captures.len() + 1);
         groups.push(Some(found.raw.clone()));
         groups.extend(found.captures.iter().cloned());
-        let text = self.template.expand(&subject, &groups);
-        format!("{}{text}{}", found.kept_before(), found.kept_after())
+        self.template.expand(subject, &groups)
     }
 
     /// The edit that replaces `found`.
@@ -335,15 +339,15 @@ impl RegexReplacer {
             // A selection that ends inside the text of this line shortens what is replaced to the
             // end of the selection (`nLen` in `Command_REPLACE_ALL`, 「選択範囲置換の場合は行内の
             // 選択範囲末尾まで置換範囲を縮める」).
-            let (body, eol) = match limit {
+            let (body, eol, cut) = match limit {
                 Some(l) if l.line == line_no && body > l.col => {
                     let mut cut = l.col;
                     while !line.text.is_char_boundary(cut) {
                         cut += 1;
                     }
-                    (cut, "")
+                    (cut, "", true)
                 }
-                _ => (body, eol),
+                _ => (body, eol, false),
             };
             let subject = format!("{}{eol}", &line.text[..body]);
             let matches = if self.target == ReplaceTarget::DeleteLine {
@@ -356,12 +360,38 @@ impl RegexReplacer {
                 scan.find_all_from(&subject, body, at)?
             };
             let mut plan = Vec::with_capacity(matches.len());
+            // Matches that reach into the line ending share one range of the document (the
+            // whole line ending is replaced), so they are put together in the subject's own
+            // coordinates and make one edit.
+            let mut tail: Vec<Found> = Vec::new();
             for m in matches {
                 let m_found = Found::in_subject(line_no, m, body, eol, false);
+                if self.target != ReplaceTarget::DeleteLine && m_found.raw.end > body {
+                    tail.push(m_found);
+                    continue;
+                }
                 let edit = self.edit_for(work, &m_found, &line.text)?;
                 if !self.is_no_op(&edit) {
                     plan.push(edit);
                 }
+            }
+            if let Some(first) = tail.first() {
+                let start = first.start;
+                let mut text = String::new();
+                let mut at = start.col;
+                for f in &tail {
+                    text.push_str(&subject[at..f.raw.start.max(at)]);
+                    text.push_str(&self.expand_bare(&subject, f));
+                    at = f.raw.end.max(at);
+                }
+                text.push_str(&subject[at..]);
+                let end = Pos::new(line_no + 1, 0);
+                plan.push(replacement_for(
+                    work,
+                    &(start..end),
+                    &text,
+                    ReplaceTarget::Match,
+                )?);
             }
             // The end of the text that Sakura replaces in one go: the end of the line, with its
             // line ending.
@@ -382,6 +412,11 @@ impl RegexReplacer {
             from = shift_pos(last_end, new_end, line_end);
             caret = Some(from);
             edits.extend(applied);
+            // The selection ends in this line: the shortened subject held every match that is
+            // left in the selection, and the text that was inserted is not searched again.
+            if cut {
+                break;
+            }
         }
         Ok((edits, caret))
     }

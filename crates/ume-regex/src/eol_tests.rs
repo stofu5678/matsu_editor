@@ -230,3 +230,28 @@ fn groups_and_the_whole_match_hold_the_line_break() {
     assert_eq!(all(r"\n", "<$&>", "a\nb").0, "a<\n>b");
     assert_eq!(all(r"\n", "<$&>", "a\r\nb").0, "a\r<\n>b");
 }
+
+#[test]
+fn matches_of_the_two_halves_of_a_crlf_are_replaced_together() {
+    assert_eq!(all(r"[\r\n]", "X", "ab\r\ncd").0, "abXXcd");
+    assert_eq!(all(r"[\r\n]", "X", "ab\r\ncd\r\n").0, "abXXcdXX");
+    // The repeated replacement puts the rest of the line ending back with the text and goes on
+    // after it (`Command_REPLACE`), so the LF that follows a replaced CR is not searched again.
+    assert_eq!(
+        run(r"[\r\n]", "X", "ab\r\ncd", ReplaceAllMode::Repeat, None).0,
+        "abX\ncd"
+    );
+}
+
+#[test]
+fn an_empty_match_in_a_selection_that_ends_inside_a_line_ends() {
+    // the replaced text is cut at the end of the selection, and is not searched again
+    let r = run(
+        "x*",
+        "-",
+        "abcd",
+        ReplaceAllMode::Batch,
+        Some(p(0, 0)..p(0, 2)),
+    );
+    assert_eq!(r.0, "-a-b-cd");
+}
