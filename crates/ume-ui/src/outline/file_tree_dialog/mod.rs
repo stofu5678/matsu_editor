@@ -96,6 +96,8 @@ pub(crate) struct FileTreeDialog {
     pub(crate) system: bool,
     /// The list of `▼` is open.
     path_menu: bool,
+    /// The entry of the list that Enter takes.
+    path_menu_at: usize,
     /// A question is being asked (the dialog of the OS or the input box): the keys wait.
     busy: bool,
     focus: FocusHandle,
@@ -153,6 +155,7 @@ impl FileTreeDialog {
             read_only: false,
             system: false,
             path_menu: false,
+            path_menu_at: 0,
             busy: false,
             focus: cx.focus_handle(),
             tree_focus: cx.focus_handle(),

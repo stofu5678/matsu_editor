@@ -230,8 +230,50 @@ impl FileTreeDialog {
     pub(crate) fn toggle_path_menu(&mut self, cx: &mut Context<Self>) {
         if self.path_enabled() {
             self.path_menu = !self.path_menu;
+            self.path_menu_at = 0;
             cx.notify();
         }
+    }
+
+    /// A key while the list is open (a menu of Windows takes the arrow keys, Enter and the letter
+    /// of an entry): returns whether the list took it.
+    pub(crate) fn path_menu_key(
+        &mut self,
+        key: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let last = PATH_MENU.len() - 1;
+        match key {
+            "down" => self.path_menu_at = (self.path_menu_at + 1).min(last),
+            "up" => self.path_menu_at = self.path_menu_at.saturating_sub(1),
+            "home" => self.path_menu_at = 0,
+            "end" => self.path_menu_at = last,
+            "enter" => {
+                let (_, text) = PATH_MENU[self.path_menu_at.min(last)];
+                self.put_in_path(text, window, cx);
+                return true;
+            }
+            letter => {
+                let mut chars = letter.chars();
+                let (Some(letter), None) = (chars.next(), chars.next()) else {
+                    return false;
+                };
+                let letter = letter.to_lowercase().next().unwrap_or(letter);
+                match PATH_MENU
+                    .iter()
+                    .find(|(label, _)| menu_key_of(label) == Some(letter))
+                {
+                    Some((_, text)) => {
+                        self.put_in_path(text, window, cx);
+                        return true;
+                    }
+                    None => return false,
+                }
+            }
+        }
+        cx.notify();
+        true
     }
 
     /// An entry of the list: its text replaces the selection of the path box
@@ -577,6 +619,16 @@ impl FileTreeDialog {
         }
         true
     }
+}
+
+/// The access key of an entry of the list: `マイ ドキュメント(Y)` is `y`.
+pub(super) fn menu_key_of(label: &str) -> Option<char> {
+    let (_, key) = label.strip_suffix(')')?.rsplit_once('(')?;
+    let mut chars = key.chars();
+    let (Some(key), None) = (chars.next(), chars.next()) else {
+        return None;
+    };
+    Some(key.to_lowercase().next().unwrap_or(key))
 }
 
 /// A question of the replace (`CDlgInput1`).

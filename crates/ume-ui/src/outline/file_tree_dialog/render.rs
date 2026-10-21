@@ -163,6 +163,7 @@ impl FileTreeDialog {
                         .px_2()
                         .cursor_pointer()
                         .hover(|style| style.bg(rgb(0xdde8f5)))
+                        .when(index == self.path_menu_at, |d| d.bg(rgb(0xdde8f5)))
                         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                             this.put_in_path(text, window, cx);
                         }))
@@ -481,6 +482,14 @@ impl FileTreeDialog {
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let key = event.keystroke.key.as_str();
         let modifiers = event.keystroke.modifiers;
+        if self.path_menu
+            && key != "escape"
+            && !modifiers.modified()
+            && self.path_menu_key(key, window, cx)
+        {
+            cx.stop_propagation();
+            return;
+        }
         if key == "escape" {
             if self.path_menu {
                 self.path_menu = false;

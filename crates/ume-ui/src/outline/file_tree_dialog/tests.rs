@@ -1147,3 +1147,58 @@ fn enter_in_the_tree_is_ok(cx: &mut TestAppContext) {
         Some("2")
     );
 }
+
+#[gpui::test]
+fn the_keys_choose_from_the_open_list_of_the_path(cx: &mut TestAppContext) {
+    let text = "[Common]\r\nbFileTreeProject=0\r\nnFileTreeItemCount=1\r\nFileTree(0).eItemType=0\r\n\
+                FileTree(0).szTargetPath=\r\nFileTree(0).nDepth=0\r\n";
+    let (_ini, handle) = setup(cx, text, None);
+    show_tree(cx, handle);
+    open_dialog(cx, handle);
+    let keys = &mut VisualTestContext::from_window(handle, cx);
+    let path = |keys: &mut VisualTestContext| {
+        dialog_of(keys, handle)
+            .unwrap()
+            .read_with(keys, |d, cx| d.path.read(cx).value().to_string())
+    };
+    // Alt+3 opens the list; Down and Enter choose the second entry (the tree does not move)
+    keys.simulate_keystrokes("alt-3");
+    keys.simulate_keystrokes("down enter");
+    assert_eq!(path(keys), "%MYDOC%");
+    assert!(
+        is_open(keys, handle),
+        "Enter chose an entry; it did not end the dialog"
+    );
+    // the letter of an entry chooses it: `T` is Temp
+    keys.simulate_keystrokes("alt-3");
+    keys.simulate_keystrokes("t");
+    assert!(path(keys).ends_with("%TEMP%"), "{}", path(keys));
+    // a key the list does not know is left alone, Escape closes the list and not the dialog
+    keys.simulate_keystrokes("alt-3");
+    keys.simulate_keystrokes("escape");
+    assert!(is_open(keys, handle));
+    dialog_of(keys, handle)
+        .unwrap()
+        .read_with(keys, |d, _| assert!(!d.path_menu));
+}
+
+#[gpui::test]
+fn each_entry_of_the_list_has_its_access_key(_cx: &mut TestAppContext) {
+    let keys: Vec<Option<char>> = super::actions::PATH_MENU
+        .iter()
+        .map(|(label, _)| super::actions::menu_key_of(label))
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            Some('i'),
+            Some('y'),
+            Some('m'),
+            Some('v'),
+            Some('d'),
+            Some('t'),
+            Some('s'),
+            Some('a')
+        ]
+    );
+}
