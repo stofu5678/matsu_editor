@@ -422,7 +422,8 @@ impl<'a> CommandContext<'a> {
     }
 
     /// For the commands that work on the rows of a selection, before they look at it: they would
-    /// take the stream between the corners of a box for their selection. They beep and fail.
+    /// take the stream between the corners of a box for their selection. They beep and are refused
+    /// ([`CommandError::Refused`]): nothing changes, and a macro goes on.
     pub(crate) fn refuse_box_selection(&mut self) -> Result<()> {
         if self.cursor.is_box() && self.cursor.has_selection() {
             self.beep();
