@@ -235,8 +235,8 @@ fn replace_all_is_one_undo_step_and_reports_the_count(cx: &mut TestAppContext) {
     f.run(cx, "F_REPLACE_ALL");
     assert_eq!(f.text(cx), "Z Z\r\nZ\r\nxZ");
     assert_eq!(f.notice(cx).as_deref(), Some("4箇所を置換しました。"));
-    let (_, detail) = cx.pending_prompt().expect("the count box");
-    assert_eq!(detail, "4箇所を置換しました。");
+    // the command tells the status bar only; the box is the panel's (`CDlgReplace`)
+    assert!(!cx.has_pending_prompt());
     // the caret is after the last replacement
     assert_eq!(f.caret(cx), Pos::new(2, 2));
     cx.simulate_keystrokes("ctrl-z");
@@ -346,6 +346,30 @@ fn the_replace_panel_replaces_all_from_its_inputs(cx: &mut TestAppContext) {
         .read_with(cx, |v, _| assert_eq!(v.search.pattern(), "a"));
     f.run(cx, "F_REPLACE_ALL");
     assert_eq!(f.text(cx), "bbbb");
+}
+
+/// The count of "replace all" is told by the dialog (`TopOkMessage( STR_DLGREPLC_REPLACE )` in
+/// `CDlgReplace.cpp`), not by `Command_REPLACE_ALL`: the button says it, the command does not.
+#[gpui::test]
+fn the_replace_panel_tells_the_count_and_the_command_does_not(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "aa a");
+    set_replace(&f, cx, "a", "b");
+    f.run(cx, "F_REPLACE_ALL");
+    assert_eq!(f.text(cx), "bb b");
+    assert!(!cx.has_pending_prompt());
+    cx.simulate_keystrokes("ctrl-z");
+    assert_eq!(f.text(cx), "aa a");
+    cx.simulate_keystrokes("ctrl-r");
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_input("a");
+    let panel = f.view.read_with(cx, |v, _| v.panel.clone().unwrap());
+    panel.update_in(cx, |p, window, cx| p.focus_replacement(window, cx));
+    cx.simulate_keystrokes("secondary-a");
+    cx.simulate_input("b");
+    panel.update_in(cx, |p, window, cx| p.replace_all(window, cx));
+    assert_eq!(f.text(cx), "bb b");
+    let (_, detail) = cx.pending_prompt().expect("the count box");
+    assert_eq!(detail, "3箇所を置換しました。");
 }
 
 #[gpui::test]

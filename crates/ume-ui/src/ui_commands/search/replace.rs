@@ -2,6 +2,7 @@
 //!
 //! Sakura: `CViewCommander::Command_REPLACE` (`sakura_core/cmd/CViewCommander_Search.cpp`).
 
+use crate::search::macro_args::MacroSearch;
 use crate::search::{PanelMode, SearchOutcome};
 use gpui::{Context, Window};
 use ume_commands::command::{Arg, Result};
@@ -19,13 +20,21 @@ impl UiCommand for Replace {
     fn run(
         &self,
         view: &mut EditorView,
-        _: &[Arg],
+        args: &[Arg],
         window: &mut Window,
         cx: &mut Context<EditorView>,
     ) -> Result {
-        if view.replace_next(window, cx) == SearchOutcome::NoPattern {
-            view.open_search_panel(PanelMode::Replace, window, cx);
-        }
+        view.with_search_args(
+            args,
+            MacroSearch::Replace,
+            window,
+            cx,
+            |view, window, cx| {
+                if view.replace_next(window, cx) == SearchOutcome::NoPattern {
+                    view.open_search_panel(PanelMode::Replace, window, cx);
+                }
+            },
+        )?;
         Ok(())
     }
 }

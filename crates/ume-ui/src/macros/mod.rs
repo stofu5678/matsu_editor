@@ -39,6 +39,7 @@ mod host;
 mod menu_call;
 mod output;
 mod registered;
+mod statements;
 mod ui_calls;
 mod wait;
 

@@ -29,10 +29,10 @@ type Result<T = Value> = std::result::Result<T, RpcError>;
 
 /// `MAXLINEKETAS` and `MINLINEKETAS` (`sakura_core/config/app_constants.h`): the widest and the
 /// narrowest wrap column.
-const MAX_LINE_COLUMNS: i64 = 10240;
-const MIN_LINE_COLUMNS: i64 = 10;
+pub const MAX_LINE_COLUMNS: i64 = 10240;
+pub const MIN_LINE_COLUMNS: i64 = 10;
 /// The widest tab that `ChangeTabWidth` accepts (the help of `S_ChangeTabWidth`: 1 to 64).
-const MAX_TAB_WIDTH: i64 = 64;
+pub const MAX_TAB_WIDTH: i64 = 64;
 
 /// The layout row of `pos` and its display column in the row, both counted from 0.
 pub(super) fn layout_point(cx: &CommandContext, pos: Pos) -> Result<(usize, usize)> {

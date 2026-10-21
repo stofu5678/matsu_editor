@@ -441,7 +441,7 @@ impl SearchPanel {
         self.register_start(cx);
     }
 
-    fn replace_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn replace_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.sync(cx);
         let Some(editor) = self.editor.upgrade() else {
             return;
@@ -452,7 +452,10 @@ impl SearchPanel {
                 editor.info_box("置換条件を指定してください。", window, cx);
             } else {
                 remember_keys(editor, mode, cx);
-                editor.replace_all(window, cx);
+                // The count is told by the dialog (`TopOkMessage( STR_DLGREPLC_REPLACE )`).
+                if let Some(count) = editor.replace_all(window, cx) {
+                    editor.info_box(&super::state::replaced_count_message(count), window, cx);
+                }
             }
         });
         self.register_start(cx);

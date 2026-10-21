@@ -213,8 +213,7 @@ fn replace_all_uses_the_groups_and_is_one_undo_step(cx: &mut TestAppContext) {
     f.replacement(cx, "$3/$2/$1");
     f.run(cx, "F_REPLACE_ALL");
     assert_eq!(f.text(cx), "16/10/2026\r\n02/01/1999 x");
-    let (_, detail) = cx.pending_prompt().expect("the count box");
-    assert_eq!(detail, "2箇所を置換しました。");
+    assert!(!cx.has_pending_prompt(), "the box is the panel's");
     cx.simulate_keystrokes("ctrl-z");
     assert_eq!(f.text(cx), "2026-10-16\r\n1999-01-02 x");
     cx.simulate_keystrokes("ctrl-y");

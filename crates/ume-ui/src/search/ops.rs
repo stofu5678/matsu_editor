@@ -405,10 +405,10 @@ impl EditorView {
             cx.notify();
             return None;
         }
-        let message = replaced_count_message(count);
-        self.notice = Some(message.clone());
+        // The box with the count is the dialog's (`CDlgReplace`, `STR_DLGREPLC_REPLACE`), not the
+        // command's: a key or a macro replaces without it.
+        self.notice = Some(replaced_count_message(count));
         cx.notify();
-        self.info_box(&message, window, cx);
         Some(count)
     }
 

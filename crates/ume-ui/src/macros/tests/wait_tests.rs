@@ -333,7 +333,7 @@ fn a_script_cannot_give_arguments_to_a_command_that_ignores_them(cx: &mut TestAp
     let script = write(
         dir.path(),
         "args.cjs",
-        "try { Editor.ReplaceAll('a', 'b', 0); console.log('r=ran'); } \
+        "try { Editor.BookmarkPattern('a', 0); console.log('r=ran'); } \
          catch (e) { console.log('r=refused'); }\n",
     );
     let (f, cx) = setup_with_ui(cx, "aaa");

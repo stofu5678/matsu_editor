@@ -44,10 +44,16 @@ pub(crate) struct SaveRequest {
     pub dialog: bool,
     /// Save in this encoding instead of the document's.
     pub encoding: Option<Encoding>,
+    /// The BOM to write when `encoding` differs from the document's. `None`: the default of the
+    /// new encoding (`CDocFileOperation::FileSaveAs`).
+    pub bom: Option<bool>,
     /// Convert every line ending to this one.
     pub eol: Option<Eol>,
     /// Ask for a name when the document has none. `F_FILESAVE_QUIET` does not.
     pub ask_name: bool,
+    /// Ask whether to unify mixed line endings when the save does not convert them. The macro
+    /// `FileSaveAs` does not (see `ui_commands/file/file_save_as.rs`).
+    pub ask_mixed_eol: bool,
 }
 
 impl SaveRequest {
@@ -66,8 +72,10 @@ impl Default for SaveRequest {
             path: None,
             dialog: false,
             encoding: None,
+            bom: None,
             eol: None,
             ask_name: true,
+            ask_mixed_eol: true,
         }
     }
 }
@@ -261,9 +269,10 @@ pub(crate) async fn save(
     let Ok((mut options, current_format)) = view.read_with(cx, |view, app| {
         let mut options = SaveOptions::keep(view.document().read(app).file());
         if let Some(encoding) = request.encoding.filter(|e| *e != options.encoding) {
-            // The BOM follows the default of the new encoding (`CDocFileOperation::FileSaveAs`).
+            // The BOM follows the default of the new encoding (`CDocFileOperation::FileSaveAs`),
+            // unless the request says otherwise (the macro `FileSaveAs`).
             options.encoding = encoding;
-            options.bom = encoding.bom_default_on();
+            options.bom = request.bom.unwrap_or_else(|| encoding.bom_default_on());
         }
         if request.eol.is_some() {
             options.eol = request.eol;
@@ -291,7 +300,9 @@ pub(crate) async fn save(
     }
 
     // 3 and 4. The questions about the content.
-    if let Err(outcome) = confirm_content(view, cx, &path, &mut options).await {
+    if let Err(outcome) =
+        confirm_content(view, cx, &path, &mut options, request.ask_mixed_eol).await
+    {
         return outcome;
     }
 
@@ -335,7 +346,10 @@ pub(crate) async fn save(
         .read_with(cx, |view, app| view.document().read(app).version())
         .ok()
         != version;
-    if changed && let Err(outcome) = confirm_content(view, cx, &path, &mut options).await {
+    if changed
+        && let Err(outcome) =
+            confirm_content(view, cx, &path, &mut options, request.ask_mixed_eol).await
+    {
         return outcome;
     }
 
@@ -446,9 +460,10 @@ async fn confirm_content(
     cx: &mut AsyncWindowContext,
     path: &std::path::Path,
     options: &mut SaveOptions,
+    ask_mixed_eol: bool,
 ) -> Result<(), SaveOutcome> {
     // 3. Mixed line endings.
-    if options.eol.is_none() {
+    if ask_mixed_eol && options.eol.is_none() {
         let mixed = view
             .update(cx, |view, cx| {
                 view.document()
