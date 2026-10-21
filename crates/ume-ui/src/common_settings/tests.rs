@@ -795,7 +795,7 @@ fn the_sort_and_the_caption_of_the_tabs_are_live_and_taken_at_once(cx: &mut Test
     let (ini, handle) = setup(cx, "[Common]\r\nbDispTabWnd=1\r\nbTab_ListFull=1\r\n");
     let view = active_editor(cx, handle);
     let caption = |cx: &mut TestAppContext| view.read_with(cx, crate::app::Workspace::caption_of);
-    assert_eq!(caption(cx), "(無題)");
+    assert_eq!(caption(cx), "(無題)1");
     assert!(cx.update(|app| crate::tabs::settings::options(app).sort_list));
     run(cx, handle, "F_OPTION_TAB");
     assert!(with_dialog(cx, |d, _, _| d

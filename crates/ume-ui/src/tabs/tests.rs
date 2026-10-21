@@ -168,11 +168,11 @@ fn new_window_makes_a_window_even_in_tab_mode(cx: &mut TestAppContext) {
 #[gpui::test]
 fn the_captions_are_the_names_with_the_marks(cx: &mut TestAppContext) {
     let handle = window(cx, true);
-    assert_eq!(captions(cx, handle), ["(無題)"]);
+    assert_eq!(captions(cx, handle), ["(無題)1"]);
     type_text(cx, handle, "a");
-    assert_eq!(captions(cx, handle), ["(無題)(更新)"]);
+    assert_eq!(captions(cx, handle), ["(無題)1(更新)"]);
     run(cx, handle, "F_FILENEW");
-    assert_eq!(captions(cx, handle), ["(無題)(更新)", "(無題)"]);
+    assert_eq!(captions(cx, handle), ["(無題)1(更新)", "(無題)2"]);
 }
 
 #[gpui::test]
@@ -500,7 +500,7 @@ fn a_key_macro_belongs_to_the_tab_where_it_was_started(cx: &mut TestAppContext) 
     assert!(!active_view(cx, handle).read_with(cx, |v, _| v.is_recording_key_macro()));
     assert_eq!(
         captions(cx, handle),
-        ["(無題)", "(無題)【キーマクロの記録中】"]
+        ["(無題)1", "(無題)2【キーマクロの記録中】"]
     );
 }
 

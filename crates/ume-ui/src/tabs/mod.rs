@@ -280,7 +280,7 @@ impl Workspace {
     /// but not cut to the width; the caption of a document that has no file.
     pub(crate) fn tooltip_of(view: &EditorView, cx: &gpui::App) -> String {
         match view.document().read(cx).path() {
-            Some(path) => crate::file_names::current(cx).name_of(Some(path), false),
+            Some(path) => crate::file_names::current(cx).name_of(Some(path), None, false),
             None => Self::caption_of(view, cx),
         }
     }

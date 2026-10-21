@@ -92,7 +92,7 @@ fn rows(cx: &mut App, owner: AnyWindowHandle) -> Vec<Row> {
             let shared = view.read(cx).document().read(cx);
             let label = label(
                 i,
-                &names.name_of(shared.path(), true),
+                &names.name_of(shared.path(), shared.untitled_number(), true),
                 shared.model().is_modified(),
                 shared.file().encoding,
             );
@@ -521,12 +521,22 @@ mod tests {
         let names = FileNames::new(true, 100, &rows, &NoFolders, false);
         let path = std::path::Path::new("/home/a/memo.txt");
         assert_eq!(
-            label(0, &names.name_of(Some(path), true), true, Encoding::Utf8),
+            label(
+                0,
+                &names.name_of(Some(path), None, true),
+                true,
+                Encoding::Utf8
+            ),
             "1 家:memo.txt *  [UTF-8]"
         );
         // A document with no file is 無題, whatever the list says.
         assert_eq!(
-            label(1, &names.name_of(None, true), false, Encoding::ShiftJis),
+            label(
+                1,
+                &names.name_of(None, None, true),
+                false,
+                Encoding::ShiftJis
+            ),
             "2 (無題)"
         );
         // A long path is shortened to the width of the setting.
@@ -535,7 +545,7 @@ mod tests {
         assert_eq!(
             label(
                 2,
-                &narrow.name_of(Some(long), true),
+                &narrow.name_of(Some(long), None, true),
                 false,
                 Encoding::ShiftJis
             ),

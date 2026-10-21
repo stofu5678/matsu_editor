@@ -212,9 +212,9 @@ fn off_windows_the_list_uses_slashes() {
 #[test]
 fn a_document_without_a_file_has_no_title() {
     let names = FileNames::plain();
-    assert_eq!(names.name_of(None, true), NO_TITLE);
+    assert_eq!(names.name_of(None, None, true), NO_TITLE);
     assert_eq!(
-        names.name_of(Some(std::path::Path::new("/a/b.txt")), true),
+        names.name_of(Some(std::path::Path::new("/a/b.txt")), None, true),
         "/a/b.txt"
     );
 }
@@ -357,6 +357,7 @@ fn the_title_has_the_marks_of_the_document_and_the_window() {
         recording_macro: true,
         grep_key: None,
         caret: (0, 0),
+        untitled_number: None,
     };
     assert_eq!(
         expand(CAPTION_ACTIVE, &marked, &names),
@@ -369,6 +370,64 @@ fn the_title_has_the_marks_of_the_document_and_the_window() {
     assert_eq!(
         expand(CAPTION_INACTIVE, &subject(None), &names),
         format!("(無題) - UME Editor {}  ", version())
+    );
+}
+
+/// `$n` and `STR_NO_TITLE1` with the number of the window
+/// (`CSakuraEnvironment::ExpandParameter`, `GetMenuFullLabel`).
+#[test]
+fn an_untitled_document_shows_its_number() {
+    let names = FileNames::plain();
+    let third = Subject {
+        untitled_number: Some(3),
+        ..Subject::default()
+    };
+    assert_eq!(
+        expand(CAPTION_INACTIVE, &third, &names),
+        format!("(無題)3 - UME Editor {}  ", version())
+    );
+    // No number yet (`m_nId == -1`), or the number of a window that shows a file: nothing.
+    assert_eq!(expand("$f$n", &subject(None), &names), "(無題)",);
+    let file = Subject {
+        path: Some("/a/b.txt"),
+        untitled_number: Some(3),
+        ..Subject::default()
+    };
+    assert_eq!(expand("$f$n", &file, &names), "b.txt");
+    assert_eq!(names.name_of(None, Some(12), true), "(無題)12");
+    assert_eq!(names.name_of(None, None, true), "(無題)");
+    assert_eq!(
+        names.name_of(Some(std::path::Path::new("/a/b.txt")), Some(12), true),
+        "/a/b.txt"
+    );
+}
+
+/// The headers of the print are made from the same context as the title (`$R`, `$N`).
+#[test]
+fn the_context_of_the_title_has_the_write_state_and_the_short_path() {
+    use super::title::context;
+    use ume_print::WriteState;
+    let names = windows_names(true, 100, &sakura_rows());
+    let locked = Subject {
+        path: Some("C:\\Users\\u\\Desktop\\メモ.txt"),
+        unwritable: true,
+        ..Subject::default()
+    };
+    let ctx = context(&locked, &names);
+    assert_eq!(ctx.write_state, WriteState::Locked);
+    assert_eq!(
+        ctx.file_path_short.as_deref(),
+        Some("デスクトップ\\メモ.txt")
+    );
+    let view = Subject {
+        view_mode: true,
+        unwritable: true,
+        ..locked
+    };
+    assert_eq!(context(&view, &names).write_state, WriteState::ViewMode);
+    assert_eq!(
+        context(&subject(None), &names).write_state,
+        WriteState::Writable
     );
 }
 

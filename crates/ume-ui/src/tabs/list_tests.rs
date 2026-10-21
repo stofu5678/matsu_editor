@@ -70,7 +70,7 @@ fn the_list_has_the_captions_of_the_tabs_sorted_like_the_setting_says(cx: &mut T
     run(cx, handle, "F_WINLIST");
     assert_eq!(
         shape(cx, handle)[2..],
-        ["(無題)", "a.txt", "A.txt", "b.txt"]
+        ["(無題)1", "a.txt", "A.txt", "b.txt"]
             .map(String::from)
             .map(|s| {
                 // The tab of this window, the last one opened, has the mark.
@@ -87,7 +87,7 @@ fn the_list_has_the_captions_of_the_tabs_sorted_like_the_setting_says(cx: &mut T
     run(cx, handle, "F_WINLIST");
     assert_eq!(
         shape(cx, handle)[2..],
-        ["(無題)", "b.txt", "A.txt", "*a.txt"]
+        ["(無題)1", "b.txt", "A.txt", "*a.txt"]
     );
     std::fs::remove_dir_all(&dir).ok();
 }
@@ -104,7 +104,7 @@ fn the_list_has_the_paths_when_the_setting_says_so(cx: &mut TestAppContext) {
         [
             "[switch:names]".to_owned(),
             "-".to_owned(),
-            "(無題)".to_owned(),
+            "(無題)1".to_owned(),
             format!("*{}", path("a.txt")),
             path("b.txt"),
         ]
@@ -116,7 +116,7 @@ fn the_list_has_the_paths_when_the_setting_says_so(cx: &mut TestAppContext) {
 fn an_ampersand_in_a_name_is_shown_as_it_is(cx: &mut TestAppContext) {
     let (handle, dir) = window_with_files(cx, "list-amp", &["a&b.txt"]);
     run(cx, handle, "F_WINLIST");
-    assert_eq!(shape(cx, handle)[2..], ["(無題)", "*a&b.txt"]);
+    assert_eq!(shape(cx, handle)[2..], ["(無題)1", "*a&b.txt"]);
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -130,7 +130,7 @@ fn the_paths_follow_the_file_name_display(cx: &mut TestAppContext) {
     cx.update(|app| app.set_global(FileNames::new(true, 100, &rows, &NoFolders, false)));
     set_options(cx, |o| o.list_full = true);
     run(cx, handle, "F_WINLIST");
-    assert_eq!(shape(cx, handle)[2..], ["(無題)", "*作業:a.txt"]);
+    assert_eq!(shape(cx, handle)[2..], ["(無題)1", "*作業:a.txt"]);
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -211,16 +211,19 @@ fn the_button_lists_the_captions_on_a_left_click_and_the_paths_on_a_right_click(
     let (handle, dir) = window_with_files(cx, "list-button", &["a.txt"]);
     click_at(visual(cx, handle), "tab-list-button", MouseButton::Left);
     // Without the item that switches the display (`TabListMenu( pt, FALSE, ... )`).
-    assert_eq!(shape(cx, handle), ["(無題)", "*a.txt"]);
+    assert_eq!(shape(cx, handle), ["(無題)1", "*a.txt"]);
     visual(cx, handle).simulate_keystrokes("escape");
     click_at(visual(cx, handle), "tab-list-button", MouseButton::Right);
     let path = dir.join("a.txt").to_string_lossy().into_owned();
-    assert_eq!(shape(cx, handle), ["(無題)".to_owned(), format!("*{path}")]);
+    assert_eq!(
+        shape(cx, handle),
+        ["(無題)1".to_owned(), format!("*{path}")]
+    );
     // The choice kept for the function does not change the button.
     visual(cx, handle).simulate_keystrokes("escape");
     set_options(cx, |o| o.list_full = true);
     click_at(visual(cx, handle), "tab-list-button", MouseButton::Left);
-    assert_eq!(shape(cx, handle), ["(無題)", "*a.txt"]);
+    assert_eq!(shape(cx, handle), ["(無題)1", "*a.txt"]);
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -231,11 +234,11 @@ fn the_button_hides_the_other_windows_behind_an_item(cx: &mut TestAppContext) {
     let second = cx.windows()[1];
     type_text(cx, second, "b");
     click_at(visual(cx, first), "tab-list-button", MouseButton::Left);
-    assert_eq!(shape(cx, first), ["*(無題)", "-", "[all]"]);
+    assert_eq!(shape(cx, first), ["*(無題)1", "-", "[all]"]);
     // 「すべて表示」 (access key A) lists them.
     visual(cx, first).simulate_keystrokes("a");
     cx.run_until_parked();
-    assert_eq!(shape(cx, first), ["*(無題)", "-", "(無題)(更新)"]);
+    assert_eq!(shape(cx, first), ["*(無題)1", "-", "(無題)2(更新)"]);
     // Choosing one brings that window to the front.
     visual(cx, first).simulate_keystrokes("down enter");
     cx.run_until_parked();
@@ -250,7 +253,7 @@ fn the_function_lists_the_other_windows_after_a_separator(cx: &mut TestAppContex
     run(cx, first, "F_WINLIST");
     assert_eq!(
         shape(cx, first),
-        ["[switch:paths]", "-", "*(無題)", "-", "(無題)"]
+        ["[switch:paths]", "-", "*(無題)1", "-", "(無題)2"]
     );
 }
 
@@ -262,7 +265,7 @@ fn without_the_grouping_the_bar_and_the_list_have_all_the_windows(cx: &mut TestA
     run(cx, first, "F_WINLIST");
     assert_eq!(
         shape(cx, first),
-        ["[switch:paths]", "-", "*(無題)", "(無題)"]
+        ["[switch:paths]", "-", "*(無題)1", "(無題)2"]
     );
 }
 
@@ -337,14 +340,14 @@ fn caption(cx: &mut TestAppContext, handle: AnyWindowHandle) -> String {
 #[gpui::test]
 fn the_default_caption_is_what_the_tab_always_showed(cx: &mut TestAppContext) {
     let handle = window(cx, true);
-    assert_eq!(caption(cx, handle), "(無題)");
+    assert_eq!(caption(cx, handle), "(無題)1");
     type_text(cx, handle, "x");
-    assert_eq!(caption(cx, handle), "(無題)(更新)");
+    assert_eq!(caption(cx, handle), "(無題)1(更新)");
     run(cx, handle, "F_VIEWMODE");
-    assert_eq!(caption(cx, handle), "(無題)(更新)(ビューモード)");
+    assert_eq!(caption(cx, handle), "(無題)1(更新)(ビューモード)");
     run(cx, handle, "F_VIEWMODE");
     run(cx, handle, "F_RECKEYMACRO");
-    assert_eq!(caption(cx, handle), "(無題)(更新)【キーマクロの記録中】");
+    assert_eq!(caption(cx, handle), "(無題)1(更新)【キーマクロの記録中】");
     run(cx, handle, "F_RECKEYMACRO");
     // A Grep window shows 【Grep】 and its key, cut to 32 units.
     active_view(cx, handle).update(cx, |v, cx| v.pretend_grep_running(cx));
@@ -379,8 +382,8 @@ fn a_users_format_makes_the_caption_of_every_tab(cx: &mut TestAppContext) {
 #[gpui::test]
 fn a_backslash_in_a_file_name_stays_in_the_caption_and_the_list(cx: &mut TestAppContext) {
     let (handle, dir) = window_with_files(cx, "caption-backslash", &["a\\b.txt"]);
-    assert_eq!(captions(cx, handle), ["(無題)", "a\\b.txt"]);
+    assert_eq!(captions(cx, handle), ["(無題)1", "a\\b.txt"]);
     run(cx, handle, "F_WINLIST");
-    assert_eq!(shape(cx, handle)[2..], ["(無題)", "*a\\b.txt"]);
+    assert_eq!(shape(cx, handle)[2..], ["(無題)1", "*a\\b.txt"]);
     std::fs::remove_dir_all(&dir).ok();
 }

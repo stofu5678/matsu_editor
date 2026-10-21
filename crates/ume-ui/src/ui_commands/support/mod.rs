@@ -2,6 +2,7 @@
 //! switch of the keyword help and the help functions. The windows are in [`crate::support`].
 
 pub mod about;
+pub mod ctrl_code_dialog;
 pub mod exthelp1;
 pub mod exthtmlhelp;
 pub mod help_contents;

@@ -72,7 +72,7 @@ const REPLIES: [Reply; 5] = [
 pub(crate) fn question(path: &Path, modified: bool) -> (String, String) {
     let message = format!(
         "{}\nこのファイルは外部のエディタ等で変更されています。",
-        document_title(Some(path))
+        document_title(Some(path), None)
     );
     let detail = if modified {
         "再ロードを行うと変更が失われますがよろしいですか?"

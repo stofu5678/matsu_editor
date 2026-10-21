@@ -74,7 +74,7 @@ fn char_arg(args: &[Arg]) -> Result<char> {
 /// The indentation of the line, up to where the text is inserted: the caret, or the start of the
 /// selection (Sakura copies the indent chars that are before that place, so Enter in the middle
 /// of the indentation does not copy all of it).
-fn indent_before_insertion(cx: &CommandContext<'_>) -> Result<String> {
+pub(super) fn indent_before_insertion(cx: &CommandContext<'_>) -> Result<String> {
     let at = cx.selection().map_or(cx.caret(), |(start, _)| start);
     let line = cx.doc().line(at.line)?.map(|l| l.text).unwrap_or_default();
     let before = line.get(..at.col).unwrap_or(&line);

@@ -12,6 +12,7 @@
 //! carry it; the other views of the document see a newer version and lay out again.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use gpui::{Context, EventEmitter};
 use ume_core::buffer::{Document, Eol};
@@ -22,6 +23,23 @@ use ume_core::model::DocumentModel;
 use crate::file_ops::lock::{FileLockState, LockFailure};
 use crate::file_watch::state::{self, DiskState, WatchMode};
 use crate::settings::NewDocumentDefaults;
+
+/// `m_nNonameSequences`: how many numbers were given to untitled windows.
+#[cfg(not(test))]
+static UNTITLED_SEQUENCE: AtomicU32 = AtomicU32::new(0);
+
+// Every test runs on its own thread, so each one counts from 1 whatever the others do.
+#[cfg(test)]
+thread_local! {
+    static UNTITLED_SEQUENCE: AtomicU32 = const { AtomicU32::new(0) };
+}
+
+fn next_untitled_number() -> u32 {
+    #[cfg(not(test))]
+    return UNTITLED_SEQUENCE.fetch_add(1, Ordering::Relaxed) + 1;
+    #[cfg(test)]
+    return UNTITLED_SEQUENCE.with(|n| n.fetch_add(1, Ordering::Relaxed)) + 1;
+}
 
 /// What the document tells its views.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -61,6 +79,9 @@ pub struct SharedDocument {
     /// The lock that keeps other programs from writing (or reading) the file while it is open
     /// (`crate::file_ops::lock`).
     lock: FileLockState,
+    /// The number of an untitled document (`EditNode::m_nId`), shown as `(無題)2` in the lists
+    /// and as `$n` in the titles. See [`number_untitled`](Self::number_untitled).
+    untitled_number: Option<u32>,
 }
 
 impl EventEmitter<DocumentEvent> for SharedDocument {}
@@ -79,6 +100,7 @@ impl SharedDocument {
             file,
             disk: DiskState::default(),
             lock: FileLockState::default(),
+            untitled_number: None,
         }
     }
 
@@ -100,6 +122,7 @@ impl SharedDocument {
             file,
             disk,
             lock: FileLockState::default(),
+            untitled_number: None,
         }
     }
 
@@ -108,8 +131,16 @@ impl SharedDocument {
     /// document for the one it saw, and a view cannot skip the re-layout for a reused number.
     pub fn replace_with(&mut self, new: SharedDocument, cx: &mut Context<Self>) -> u64 {
         let version = self.version;
+        // The number belongs to the window, not to the file (`EditNode::m_nId` stays when the
+        // file is closed or another is opened): the new document keeps it, and an untitled one
+        // that has none gets it now (`CDocFileOperation::FileClose`, `GetNoNameNumber`).
+        let number = self.untitled_number;
         *self = new;
         self.version = version;
+        self.untitled_number = number.or(self.untitled_number);
+        if self.path.is_none() {
+            self.number_untitled();
+        }
         self.changed(cx)
     }
 
@@ -121,9 +152,25 @@ impl SharedDocument {
     /// Gives an untitled, empty document the encoding, BOM and line ending of a new document
     /// ([`NewDocumentDefaults`]): what the status bar shows and what saving writes.
     pub fn set_new_document_defaults(&mut self, defaults: &NewDocumentDefaults) {
+        self.number_untitled();
         self.set_format(defaults.encoding, defaults.bom);
         self.file.new_line = defaults.eol;
         self.model.set_new_line(defaults.eol);
+    }
+
+    /// The number of an untitled document, once it has one.
+    pub fn untitled_number(&self) -> Option<u32> {
+        self.untitled_number
+    }
+
+    /// `CAppNodeManager::GetNoNameNumber`: the first time a window needs it, it gets the next
+    /// number of the sequence (`m_nNonameSequences`), and keeps it. The sequence only counts up:
+    /// the number of a closed window is not used again. It is per process here (Sakura shares it
+    /// by all the processes of the editor).
+    pub fn number_untitled(&mut self) -> u32 {
+        *self
+            .untitled_number
+            .get_or_insert_with(next_untitled_number)
     }
 
     /// Whether the encoding or the BOM was changed since the file was read or written, for a file
@@ -421,5 +468,63 @@ impl SharedDocument {
         });
         cx.notify();
         self.version
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::{AppContext as _, TestAppContext};
+
+    use super::*;
+
+    #[test]
+    fn a_window_gets_its_number_once_and_the_sequence_goes_up() {
+        let mut a = SharedDocument::empty();
+        let mut b = SharedDocument::empty();
+        assert_eq!(a.untitled_number(), None);
+        let first = a.number_untitled();
+        let second = b.number_untitled();
+        assert!(second > first, "{first} then {second}");
+        // Asking again gives the same number (`GetNoNameNumber` when `m_nId` is set).
+        assert_eq!(a.number_untitled(), first);
+        assert_eq!(a.untitled_number(), Some(first));
+    }
+
+    #[gpui::test]
+    fn the_number_stays_with_the_window_when_the_document_is_replaced(cx: &mut TestAppContext) {
+        let document = cx.new(|_| SharedDocument::empty());
+        let number = document.update(cx, |shared, _| shared.number_untitled());
+        // A file opened in the window: the number stays, for the next time it is untitled.
+        let named = SharedDocument::new(DocumentModel::empty(), Some(PathBuf::from("/tmp/a.txt")));
+        document.update(cx, |shared, cx| shared.replace_with(named, cx));
+        assert_eq!(
+            document.read_with(cx, |shared, _| shared.untitled_number()),
+            Some(number)
+        );
+        document.update(cx, |shared, cx| {
+            shared.replace_with(SharedDocument::empty(), cx)
+        });
+        assert_eq!(
+            document.read_with(cx, |shared, _| shared.untitled_number()),
+            Some(number)
+        );
+    }
+
+    #[gpui::test]
+    fn a_window_that_showed_a_file_gets_a_number_when_it_becomes_untitled(cx: &mut TestAppContext) {
+        let named = SharedDocument::new(DocumentModel::empty(), Some(PathBuf::from("/tmp/a.txt")));
+        let document = cx.new(|_| named);
+        assert_eq!(
+            document.read_with(cx, |shared, _| shared.untitled_number()),
+            None
+        );
+        document.update(cx, |shared, cx| {
+            shared.replace_with(SharedDocument::empty(), cx)
+        });
+        assert!(
+            document
+                .read_with(cx, |shared, _| shared.untitled_number())
+                .is_some()
+        );
     }
 }

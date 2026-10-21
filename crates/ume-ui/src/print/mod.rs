@@ -11,7 +11,7 @@ pub mod preview;
 use gpui::{App, AppContext as _, Context, Entity, Focusable as _, Subscription, Window};
 use ume_core::buffer::Document;
 use ume_platform::print::{Error, PrintJob};
-use ume_print::{HeaderContext, LineSource, TypeOptions};
+use ume_print::{LineSource, TypeOptions};
 
 pub use preview::{PreviewEvent, PrintPreview};
 
@@ -56,20 +56,13 @@ impl EditorView {
     /// The document, the print setting and what the header shows, as they are now.
     pub(crate) fn print_job(&self, cx: &App) -> PrintJob {
         let shared = self.document.read(cx);
-        let caret = self.cursor.caret();
-        let path = shared.path().map(|path| path.display().to_string());
         let title = shared.file_name().unwrap_or_else(|| "(無題)".into());
         PrintJob {
             source: std::sync::Arc::new(DocLines(shared.doc().clone())),
             setting: self.current_print_setting(cx),
             options: TypeOptions::default(),
-            header: HeaderContext {
-                file_path: path,
-                caret_x: caret.col + 1,
-                caret_y: caret.line + 1,
-                modified: shared.model().is_modified(),
-                ..HeaderContext::default()
-            },
+            // `$R`, `$N` and the rest as the title of the window has them.
+            header: self.header_context(cx),
             title,
         }
     }

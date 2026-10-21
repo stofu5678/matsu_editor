@@ -17,6 +17,7 @@ pub(crate) mod about;
 pub(crate) mod browse;
 pub(crate) mod command_list;
 pub(crate) mod completion;
+pub(crate) mod ctrl_code;
 pub(crate) mod help;
 pub(crate) mod help_flow;
 pub(crate) mod prefs;
@@ -30,6 +31,8 @@ pub(crate) struct Support {
     pub command_list: Option<Entity<command_list::CommandList>>,
     /// The version dialog, while it is open.
     pub about: Option<Entity<about::AboutDialog>>,
+    /// The control code dialog, while it is open.
+    pub ctrl_code: Option<Entity<ctrl_code::CtrlCodeDialog>>,
     /// The tag jump list, while it is open (`crate::tags`).
     pub tag_list: Option<Entity<crate::tags::list::TagList>>,
     /// The dialog of 「タグファイルの作成」, while it is open.
@@ -55,6 +58,7 @@ impl EditorView {
                 .map(|e| e.into_any_element()),
         );
         out.extend(self.support.about.clone().map(|e| e.into_any_element()));
+        out.extend(self.support.ctrl_code.clone().map(|e| e.into_any_element()));
         out.extend(self.support.tag_list.clone().map(|e| e.into_any_element()));
         out.extend(self.support.tags_make.clone().map(|e| e.into_any_element()));
         out.extend(

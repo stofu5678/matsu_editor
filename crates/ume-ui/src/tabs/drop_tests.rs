@@ -86,7 +86,7 @@ fn a_dropped_file_is_a_tab_wherever_it_lands(cx: &mut TestAppContext) {
     assert_eq!(windows(cx), 1, "tabs, not windows");
     assert_eq!(
         captions(cx, handle),
-        ["(無題)(更新)", "a.txt", "b.txt", "c.txt"].map(String::from)
+        ["(無題)1(更新)", "a.txt", "b.txt", "c.txt"].map(String::from)
     );
     std::fs::remove_dir_all(&dir).ok();
 }
@@ -197,6 +197,6 @@ fn close_and_open_keeps_the_document_when_the_question_is_cancelled(cx: &mut Tes
     drop_files(cx, handle, on_text(), all);
     answer(cx, handle, "キャンセル");
     cx.run_until_parked();
-    assert_eq!(captions(cx, handle), ["(無題)(更新)".to_string()]);
+    assert_eq!(captions(cx, handle), ["(無題)1(更新)".to_string()]);
     std::fs::remove_dir_all(&dir).ok();
 }

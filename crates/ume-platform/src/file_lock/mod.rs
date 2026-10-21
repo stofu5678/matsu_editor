@@ -56,6 +56,45 @@ impl FileLock {
     }
 }
 
+/// Whether this program can write `path` now: the check `CSaveAgent::OnCheckSave` makes before a
+/// save (`sakura_core/agent/CSaveAgent.cpp`). Sakura opens the file for appending, which keeps its
+/// content, and deletes a file that was not there. The caller lets go of its own lock first.
+///
+/// * Windows: the open fails while another program holds the file with a share mode that
+///   refuses writing.
+/// * macOS and Linux: there is no share mode, so after the open an exclusive `flock` is tried
+///   and given back at once. It fails (`WouldBlock`) while another program, another UME Editor
+///   for example, holds the file locked in either mode. A program that does not lock is not seen.
+pub fn check_writable(path: &Path) -> io::Result<()> {
+    // `create_new` tells a file made here from one that was there, also when another program
+    // makes it meanwhile or the path is a dangling symlink (which `create` would follow and a
+    // later delete would remove).
+    let (file, created) = match File::options().append(true).create_new(true).open(path) {
+        Ok(file) => (file, true),
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            (File::options().append(true).create(true).open(path)?, false)
+        }
+        Err(error) => return Err(error),
+    };
+    #[cfg(not(windows))]
+    let locked = {
+        use std::fs::TryLockError;
+        match file.try_lock() {
+            Ok(()) => Ok(()),
+            Err(TryLockError::WouldBlock) => Err(io::Error::from(io::ErrorKind::WouldBlock)),
+            Err(TryLockError::Error(error)) => Err(error),
+        }
+    };
+    #[cfg(windows)]
+    let locked = Ok(());
+    drop(file);
+    if created {
+        // `::DeleteFile`: the file was only made for the check.
+        let _ = std::fs::remove_file(path);
+    }
+    locked
+}
+
 #[cfg(windows)]
 fn open(path: &Path, mode: ShareMode) -> io::Result<File> {
     use std::os::windows::fs::OpenOptionsExt as _;
@@ -158,6 +197,51 @@ mod tests {
         let _lock = FileLock::acquire(&path, ShareMode::DenyReadWrite).unwrap();
         assert!(File::open(&path).is_err());
         assert!(File::options().append(true).open(&path).is_err());
+    }
+
+    #[test]
+    fn a_free_file_can_be_written_and_is_left_as_it_was() {
+        let (_dir, path) = file();
+        check_writable(&path).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "abc");
+    }
+
+    #[test]
+    fn a_file_that_is_not_there_is_not_left_behind() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("new.txt");
+        check_writable(&path).unwrap();
+        assert!(!path.exists());
+    }
+
+    /// A dangling symlink is not deleted by the check (only a file made here is).
+    #[cfg(unix)]
+    #[test]
+    fn a_dangling_symlink_stays() {
+        let dir = tempfile::tempdir().unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(dir.path().join("target"), &link).unwrap();
+        check_writable(&link).unwrap();
+        assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
+    }
+
+    #[test]
+    fn a_path_in_a_missing_folder_cannot_be_written() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(check_writable(&dir.path().join("no").join("a.txt")).is_err());
+    }
+
+    /// Another program that holds the lock stops the save, in either mode; Windows refuses the
+    /// append for the same reason through the share mode.
+    #[test]
+    fn a_file_another_lock_holds_cannot_be_written() {
+        for mode in [ShareMode::DenyWrite, ShareMode::DenyReadWrite] {
+            let (_dir, path) = file();
+            let lock = FileLock::acquire(&path, mode).unwrap();
+            assert!(check_writable(&path).is_err(), "{mode:?}");
+            drop(lock);
+            check_writable(&path).unwrap();
+        }
     }
 
     /// The lock is advisory on macOS and Linux: a program that does not lock still writes.

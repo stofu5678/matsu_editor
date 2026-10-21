@@ -417,7 +417,7 @@ pub(crate) fn own_label(
     };
     format!(
         "{}{}{}",
-        names.name_of(path, true),
+        names.name_of(path, None, true),
         if modified { " *" } else { "" },
         bracket
     )

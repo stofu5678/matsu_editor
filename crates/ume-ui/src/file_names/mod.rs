@@ -73,6 +73,16 @@ use crate::common_settings::table::Row;
 /// `STR_NO_TITLE1`: the name of a document that has no file.
 pub(crate) const NO_TITLE: &str = "(無題)";
 
+/// 「(無題)」 and the number of the window, as the window list and the question before closing
+/// show it (`CFileNameManager::GetMenuFullLabel`, `CEditDoc::OnFileClose`). A window with no number
+/// yet (`m_nId == -1`) is 「(無題)」 alone.
+pub(crate) fn untitled_name(number: Option<u32>) -> String {
+    match number {
+        Some(number) => format!("{NO_TITLE}{number}"),
+        None => NO_TITLE.to_owned(),
+    }
+}
+
 /// The settings of 「ファイル名表示」, ready to use: the replacements have their meta folders
 /// expanded (`TransformFileName_MakeCache`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -144,10 +154,16 @@ impl FileNames {
     }
 
     /// The name of a document in the lists and the tooltips: the path as `transform` shows it,
-    /// or 「(無題)」 for a document with no file.
-    pub(crate) fn name_of(&self, path: Option<&Path>, fit: bool) -> String {
+    /// or 「(無題)」 for a document with no file, followed by its number when it has one
+    /// (`GetMenuFullLabel`: `%s%d` of `STR_NO_TITLE1` and the node's `m_nId`).
+    pub(crate) fn name_of(
+        &self,
+        path: Option<&Path>,
+        untitled_number: Option<u32>,
+        fit: bool,
+    ) -> String {
         path.map_or_else(
-            || NO_TITLE.to_owned(),
+            || untitled_name(untitled_number),
             |path| self.transform(&path.to_string_lossy(), fit),
         )
     }

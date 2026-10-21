@@ -61,6 +61,7 @@ const FAVORITE_DIALOG: u32 = 1 << 10;
 const GREP_RUNNING: u32 = 1 << 11;
 const LOADING: u32 = 1 << 12;
 const PRINTING: u32 = 1 << 13;
+const CTRL_CODE_DIALOG: u32 = 1 << 14;
 
 /// The flows that the call of a macro starts in each view, from the call until its wait is over:
 /// [`track`] counts them. The work that the user starts meanwhile (the OK of a dialog that the
@@ -182,6 +183,7 @@ impl EditorView {
             (self.grep.is_running(), GREP_RUNNING),
             (is_pending_document(cx, self.document.entity_id()), LOADING),
             (self.is_printing(), PRINTING),
+            (self.support.ctrl_code.is_some(), CTRL_CODE_DIALOG),
         ];
         flags
             .into_iter()

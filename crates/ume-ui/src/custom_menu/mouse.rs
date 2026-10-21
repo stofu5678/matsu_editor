@@ -6,7 +6,7 @@
 //! keys (`m_pKeyNameArr[MOUSEFUNCTION_RIGHT]`, `F_MENU_RBUTTON` by default), which shows the menu.
 //! (`sakura_core/view/CEditView_Mouse.cpp`)
 
-use gpui::{Context, MouseDownEvent, MouseUpEvent, Pixels, Point, Window};
+use gpui::{Context, MouseButton, MouseDownEvent, MouseUpEvent, Pixels, Point, Window};
 use ume_commands::keymap::{Chord, Key, Modifiers, MouseAction, Resolved};
 use ume_core::cursor::Cursor;
 use ume_layout::DocumentLayout;
@@ -78,6 +78,7 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         window.focus(&self.focus_handle, cx);
+        self.autoscroll_button_pressed(MouseButton::Right);
         self.hide_key_help(cx);
         if self.on_scrollbar(event.position) || self.point_is_selected(event.position, cx) {
             return;

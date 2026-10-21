@@ -447,7 +447,7 @@ fn closing_a_modified_file_asks_and_cancel_keeps_everything(cx: &mut TestAppCont
     f.run(cx, "F_FILECLOSE", &[]);
     answer(cx, SAVE);
     assert_eq!(read(&path), b"xabc");
-    assert_eq!(f.title(cx), "(無題) - UME Editor");
+    assert_eq!(f.title(cx), "(無題)1 - UME Editor");
     assert!(!f.modified(cx));
 }
 
@@ -461,7 +461,7 @@ fn closing_without_saving_discards_the_changes(cx: &mut TestAppContext) {
     f.run(cx, "F_FILECLOSE", &[]);
     answer(cx, DONT_SAVE);
     assert_eq!(read(&path), b"abc");
-    assert_eq!(f.title(cx), "(無題) - UME Editor");
+    assert_eq!(f.title(cx), "(無題)1 - UME Editor");
     assert!(!f.modified(cx));
 }
 
@@ -485,7 +485,7 @@ fn an_unmodified_file_closes_without_asking(cx: &mut TestAppContext) {
     f.open(cx, &path, None);
     f.run(cx, "F_FILECLOSE", &[]);
     assert!(!cx.has_pending_prompt());
-    assert_eq!(f.title(cx), "(無題) - UME Editor");
+    assert_eq!(f.title(cx), "(無題)1 - UME Editor");
 }
 
 #[gpui::test]
@@ -850,7 +850,7 @@ fn close_and_open_does_not_open_a_file_twice(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert_eq!(
         f.title(cx),
-        "(無題) - UME Editor",
+        "(無題)1 - UME Editor",
         "this window is untouched"
     );
     assert!(cx.windows().contains(&first));

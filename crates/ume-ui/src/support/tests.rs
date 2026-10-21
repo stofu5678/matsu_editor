@@ -17,6 +17,7 @@ use crate::view::EditorView;
 
 const F_HOKAN: u16 = 31430;
 const F_MENU_ALLFUNC: u16 = 31445;
+const F_CTRL_CODE_DIALOG: u16 = 30792;
 const F_ABOUT: u16 = 31455;
 
 struct Fixture {
@@ -544,4 +545,58 @@ fn copied_starts_with_name(
     dialog.read_with(cx, |d, _| {
         d.info().version_text().starts_with("UME Editor Ver. ")
     })
+}
+
+// ---- F_CTRL_CODE_DIALOG ----
+
+impl Fixture {
+    fn ctrl_code_open(&self, cx: &mut VisualTestContext) -> bool {
+        self.view
+            .read_with(cx, |v, _| v.support.ctrl_code.is_some())
+    }
+}
+
+#[gpui::test]
+fn the_control_code_dialog_opens_on_the_first_row_and_escape_cancels(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abc");
+    f.run(cx, F_CTRL_CODE_DIALOG);
+    assert!(f.ctrl_code_open(cx));
+    let selected = f.view.read_with(cx, |v, cx| {
+        v.support.ctrl_code.as_ref().unwrap().read(cx).selected()
+    });
+    assert_eq!(selected, 0);
+    cx.simulate_keystrokes("escape");
+    assert!(!f.ctrl_code_open(cx));
+    assert_eq!(f.text(cx), "abc");
+}
+
+#[gpui::test]
+fn enter_types_the_chosen_code(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abc");
+    f.run(cx, F_CTRL_CODE_DIALOG);
+    // NUL, SOH, STX, ETX
+    cx.simulate_keystrokes("down down down enter");
+    assert!(!f.ctrl_code_open(cx));
+    assert_eq!(f.text(cx), "abc\u{3}");
+}
+
+#[gpui::test]
+fn a_key_chooses_its_code_at_once(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abc");
+    f.run(cx, F_CTRL_CODE_DIALOG);
+    cx.simulate_keystrokes("[");
+    assert!(!f.ctrl_code_open(cx));
+    assert_eq!(f.text(cx), "abc\u{1b}");
+    f.run(cx, F_CTRL_CODE_DIALOG);
+    cx.simulate_keystrokes("a");
+    assert_eq!(f.text(cx), "abc\u{1b}\u{1}");
+}
+
+#[gpui::test]
+fn the_keys_do_not_reach_the_text_while_the_control_code_dialog_is_open(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abc");
+    f.run(cx, F_CTRL_CODE_DIALOG);
+    cx.simulate_input("1");
+    assert_eq!(f.text(cx), "abc");
+    assert!(f.ctrl_code_open(cx));
 }

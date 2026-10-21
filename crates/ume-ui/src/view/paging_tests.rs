@@ -475,3 +475,110 @@ fn the_horizontal_wheel_functions_run_as_commands(cx: &mut TestAppContext) {
     run(&view, cx, F_WHEELPAGELEFT);
     assert_eq!(view.read_with(cx, |v, _| v.scroll_x), 0.0);
 }
+
+// ---- F_AUTOSCROLL (`view/autoscroll.rs`) ----
+
+const F_AUTOSCROLL: u16 = 30384;
+
+fn autoscrolling(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> bool {
+    view.read_with(cx, |v, _| v.is_autoscrolling())
+}
+
+fn tick(cx: &mut VisualTestContext) {
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(200));
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn the_function_starts_and_ends_the_auto_scroll(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx);
+    run(&view, cx, F_AUTOSCROLL);
+    assert!(autoscrolling(&view, cx));
+    run(&view, cx, F_AUTOSCROLL);
+    assert!(!autoscrolling(&view, cx));
+}
+
+#[gpui::test]
+fn a_text_that_fits_the_view_does_not_start_it(cx: &mut TestAppContext) {
+    let doc = Document::from_utf8(b"short".to_vec()).unwrap();
+    let document = cx.new(|_| SharedDocument::new(DocumentModel::new(doc), None));
+    let (view, cx) = cx.add_window_view(move |window, cx| {
+        let view = EditorView::new(document, cx);
+        window.focus(&view.focus_handle, cx);
+        view
+    });
+    cx.run_until_parked();
+    // `AutoScrollEnter`: neither axis has anything to scroll.
+    run(&view, cx, F_AUTOSCROLL);
+    assert!(!autoscrolling(&view, cx));
+}
+
+#[gpui::test]
+fn the_pointer_below_the_start_scrolls_down_every_200_ms(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx);
+    cx.simulate_mouse_move(point(px(100.), px(100.)), None, Modifiers::default());
+    run(&view, cx, F_AUTOSCROLL);
+    assert!(autoscrolling(&view, cx));
+    // 15 pixels: inside the dead zone (`relPos / 8` less one is 0).
+    cx.simulate_mouse_move(point(px(100.), px(115.)), None, Modifiers::default());
+    tick(cx);
+    assert_eq!(top(&view, cx), 0);
+    // 80 pixels down: 80 / 8 - 1 = 9 rows a tick.
+    cx.simulate_mouse_move(point(px(100.), px(180.)), None, Modifiers::default());
+    tick(cx);
+    assert_eq!(top(&view, cx), 9);
+    tick(cx);
+    assert_eq!(top(&view, cx), 18);
+    // Above the start it scrolls back up.
+    cx.simulate_mouse_move(point(px(100.), px(20.)), None, Modifiers::default());
+    tick(cx);
+    assert_eq!(top(&view, cx), 9);
+}
+
+#[gpui::test]
+fn another_function_a_click_or_a_key_ends_it(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx);
+    run(&view, cx, F_AUTOSCROLL);
+    run(&view, cx, F_CURLINETOP);
+    assert!(!autoscrolling(&view, cx));
+    run(&view, cx, F_AUTOSCROLL);
+    cx.simulate_keystrokes("down");
+    assert!(!autoscrolling(&view, cx));
+    run(&view, cx, F_AUTOSCROLL);
+    cx.simulate_click(point(px(300.), px(60.)), Modifiers::default());
+    assert!(!autoscrolling(&view, cx));
+}
+
+#[gpui::test]
+fn the_middle_button_starts_it_on_release_and_ends_it_on_the_next_press(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx);
+    let position = point(px(120.), px(80.));
+    let down = gpui::MouseDownEvent {
+        button: gpui::MouseButton::Middle,
+        position,
+        modifiers: Modifiers::default(),
+        click_count: 1,
+        first_mouse: false,
+    };
+    let up = gpui::MouseUpEvent {
+        button: gpui::MouseButton::Middle,
+        position,
+        modifiers: Modifiers::default(),
+        click_count: 1,
+    };
+    let v = view.clone();
+    cx.update(|window, cx| v.update(cx, |v, cx| v.on_middle_mouse_down(&down, window, cx)));
+    // Pressed only: mode 1, not scrolling yet.
+    assert!(!autoscrolling(&view, cx));
+    let v = view.clone();
+    cx.update(|window, cx| v.update(cx, |v, cx| v.on_middle_mouse_up(&up, window, cx)));
+    assert!(autoscrolling(&view, cx));
+    let v = view.clone();
+    cx.update(|window, cx| v.update(cx, |v, cx| v.on_middle_mouse_down(&down, window, cx)));
+    assert!(!autoscrolling(&view, cx));
+    // The release that follows the ending press does nothing.
+    let v = view.clone();
+    cx.update(|window, cx| v.update(cx, |v, cx| v.on_middle_mouse_up(&up, window, cx)));
+    assert!(!autoscrolling(&view, cx));
+}

@@ -1,5 +1,6 @@
 //! Editing commands.
 
+pub mod ctrl_code;
 pub mod delete;
 pub mod delete_back;
 pub mod delete_line;

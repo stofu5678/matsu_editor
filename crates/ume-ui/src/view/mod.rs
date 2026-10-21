@@ -14,6 +14,7 @@
 //! The context tells the layout about each edit as it happens (`RowLayout`), so a command that
 //! edits and then moves vertically sees the new rows.
 
+pub(crate) mod autoscroll;
 mod bracket_marks;
 mod colors;
 mod diff_mark;
@@ -167,6 +168,8 @@ pub struct EditorView {
     /// The composition replaced a selection when it started: its commit overwrites nothing more.
     pub(crate) composing_over_selection: bool,
     pub(crate) drag: Drag,
+    /// The auto scroll of the middle button (`view/autoscroll.rs`).
+    pub(crate) autoscroll: autoscroll::AutoScroll,
     pub(crate) notice: Option<String>,
     /// The settings of the file and the temporary changes (`view/settings.rs`).
     pub(crate) prefs: ViewPrefs,
@@ -241,6 +244,7 @@ impl EditorView {
             composing: false,
             composing_over_selection: false,
             drag: Drag::None,
+            autoscroll: Default::default(),
             notice: None,
             prefs: ViewPrefs::new(Default::default()),
             selection_count: Default::default(),
@@ -360,6 +364,8 @@ impl EditorView {
         args: &[Arg],
         cx: &mut Context<Self>,
     ) -> bool {
+        // Any function but F_AUTOSCROLL ends the auto scroll (`CViewCommander::HandleCommand`).
+        self.autoscroll_exit();
         self.interrupt_composition(cx);
         // Before the recording, as in `CViewCommander::HandleCommand`: the typed chars of the
         // incremental search are not edits, so a macro does not replay them as such.
@@ -409,6 +415,7 @@ impl EditorView {
     ) -> bool {
         // Whatever runs the function (a menu, a macro), the tip goes and the wait starts again.
         self.key_help_restart(window, cx);
+
         if let Some(reg) = Registry::global().get_by_code(code) {
             self.run_registration(reg, args, cx)
         } else if let Some(reg) = UiRegistry::global().get_by_code(code) {
@@ -441,6 +448,9 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        if reg.sakura != "F_AUTOSCROLL" {
+            self.autoscroll_exit();
+        }
         self.interrupt_composition(cx);
         // Before the recording, as in `CViewCommander::HandleCommand`: the typed chars of the
         // incremental search are not edits, so a macro does not replay them as such.
@@ -612,6 +622,13 @@ impl EditorView {
     /// `ExpandParameter` of a title or caption `format` for this document: the title of the
     /// window and the caption of the tab (`file_names::title`).
     pub(crate) fn expand_format(&self, format: &str, cx: &App) -> String {
+        ume_print::expand_parameter(format, &self.header_context(cx), None)
+    }
+
+    /// What `ExpandParameter` reads from this window: the file, the marks, the caret and the
+    /// number of an untitled document. The title, the caption of the tab and the headers of the
+    /// print take it.
+    pub(crate) fn header_context(&self, cx: &App) -> ume_print::HeaderContext {
         let shared = self.document.read(cx);
         let path = shared.path().map(|p| p.to_string_lossy().into_owned());
         // The key of a Grep window; its title is the key, and the tab shows `【Grep】key`.
@@ -624,8 +641,9 @@ impl EditorView {
             recording_macro: self.is_recording_key_macro(),
             grep_key: grep_key.as_deref(),
             caret: (self.cursor.caret().line, self.cursor.caret().col),
+            untitled_number: shared.untitled_number(),
         };
-        crate::file_names::title::expand(format, &subject, &crate::file_names::current(cx))
+        crate::file_names::title::context(&subject, &crate::file_names::current(cx))
     }
 
     // ---- keys ----
@@ -779,6 +797,8 @@ impl Render for EditorView {
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
+            .on_mouse_down(MouseButton::Middle, cx.listener(Self::on_middle_mouse_down))
+            .on_mouse_up(MouseButton::Middle, cx.listener(Self::on_middle_mouse_up))
             .on_mouse_down(MouseButton::Right, cx.listener(Self::on_right_mouse_down))
             .on_mouse_up(MouseButton::Right, cx.listener(Self::on_right_mouse_up))
             .on_scroll_wheel(cx.listener(Self::on_scroll))

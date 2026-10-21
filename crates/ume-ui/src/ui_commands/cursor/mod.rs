@@ -1,5 +1,6 @@
 //! Sakura's cursor movement group (カーソル移動系): the ones that need the view.
 
+pub mod autoscroll;
 pub mod cur_line_bottom;
 pub mod cur_line_center;
 pub mod cur_line_top;
