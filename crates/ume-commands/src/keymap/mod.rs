@@ -9,11 +9,13 @@
 //! The UI converts its key events to [`Chord`]s and asks [`KeyMap::lookup`]; this crate has no
 //! UI types.
 
+mod bind_list;
 mod key;
 mod map;
 mod options;
 pub mod user;
 
+pub use bind_list::create_key_bind_list;
 pub use key::{Chord, DisplayStyle, Key, Modifiers, MouseAction};
 pub use map::{KeyMap, Lookup, Resolved};
 pub use options::{ControlKey, KeyMapOptions, Platform};

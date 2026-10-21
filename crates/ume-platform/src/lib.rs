@@ -12,13 +12,14 @@
 //! (the layout, the same for the preview and for every OS); this crate prints them: the print
 //! dialog and GDI on Windows, AppKit's print panel and Core Text on macOS, and a PDF handed to
 //! the print portal on Linux. `unsafe` code is in the OS modules `print::windows`, `print::mac`,
-//! `window::windows`, `window::mac`, `shell::windows`, `instance::windows`, `instance::unix`,
+//! `window::windows`, `window::mac`, `clipboard_html::windows`, `clipboard_html::mac`, `shell::windows`, `instance::windows`, `instance::unix`,
 //! `dialog::windows`, `dialog::mac`, `font_dialog::windows`, `folders::windows`, `help::windows` and
 //! `exec::unix` only.
 //!
 //! [ADR-0011]: https://github.com/stofu5678/ume_editor/blob/main/docs/adr/0011-printing.md
 //! [ADR-0013]: https://github.com/stofu5678/ume_editor/blob/main/docs/adr/0013-module-structure.md
 
+pub mod clipboard_html;
 pub mod dialog;
 pub mod drive;
 pub mod exec;
