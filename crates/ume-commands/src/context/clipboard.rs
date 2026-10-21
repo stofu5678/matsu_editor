@@ -52,10 +52,11 @@ pub(crate) mod paste_option {
     pub const NO_BOX: i64 = 0x20;
 }
 
-/// Whether `c` ends a line (Sakura: `WCODE::IsLineDelimiter` with the extended line endings, as
-/// the buffer treats them).
-fn is_eol_char(c: char) -> bool {
-    matches!(c, '\r' | '\n' | '\u{85}' | '\u{2028}' | '\u{2029}')
+/// Whether `c` ends a line (Sakura: `WCODE::IsLineDelimiter(c, bEnableExtEol)`). `ext_eol` counts
+/// U+0085, U+2028 and U+2029: for text of the document it is the setting of the document, as the
+/// buffer treats them; for text from the clipboard it is the setting now.
+fn is_eol_char(c: char, ext_eol: bool) -> bool {
+    matches!(c, '\r' | '\n') || (ext_eol && matches!(c, '\u{85}' | '\u{2028}' | '\u{2029}'))
 }
 
 /// Replaces every line ending in `text` with `eol`. `extended` also counts U+0085, U+2028 and
@@ -147,7 +148,7 @@ impl CommandContext<'_> {
         }
         let text = self.doc().text_between(from, to)?;
         let text = match eol {
-            Some(eol) => convert_eols(&text, eol_text(eol), true),
+            Some(eol) => convert_eols(&text, eol_text(eol), self.doc().ext_eol()),
             None => text,
         };
         Ok(Some((text, ClipKind::Normal)))
@@ -158,6 +159,7 @@ impl CommandContext<'_> {
     /// Rows without text are left out, as there.
     fn text_with_row_endings(&self, from: Pos, to: Pos, eol: Option<Eol>) -> Result<String> {
         let new_line = eol_text(eol.unwrap_or_else(|| self.new_line()));
+        let ext_eol = self.doc().ext_eol();
         let mut out = String::new();
         let mut row = self.layout().row_start(self.doc(), from)?;
         while row < to {
@@ -169,11 +171,11 @@ impl CommandContext<'_> {
             let (start, end) = (from.max(row), to.min(row_end));
             if start < end {
                 let text = self.doc().text_between(start, end)?;
-                if end == row_end && !text.ends_with(is_eol_char) {
+                if end == row_end && !text.ends_with(|c| is_eol_char(c, ext_eol)) {
                     out.push_str(&text);
                     out.push_str(new_line);
                 } else if let Some(eol) = eol {
-                    out.push_str(&convert_eols(&text, eol_text(eol), true));
+                    out.push_str(&convert_eols(&text, eol_text(eol), self.doc().ext_eol()));
                 } else {
                     out.push_str(&text);
                 }
@@ -197,12 +199,13 @@ impl CommandContext<'_> {
             }
             // `CopyCurLine`: no row, no copy and no beep.
             if let Some((_, _, mut text)) = self.caret_row_text()? {
+                let ext_eol = self.doc().ext_eol();
                 if let Some(eol) = eol {
-                    text = convert_eols(&text, eol_text(eol), true);
+                    text = convert_eols(&text, eol_text(eol), self.doc().ext_eol());
                 }
                 // A row that wraps has no line ending: `CopyCurLine` adds CRLF, or the ending
                 // that was asked for.
-                if add_eol && !text.ends_with(is_eol_char) {
+                if add_eol && !text.ends_with(|c| is_eol_char(c, ext_eol)) {
                     text.push_str(eol.map_or("\r\n", eol_text));
                 }
                 let kind = if enable_line_mode_paste() {
@@ -341,6 +344,7 @@ impl CommandContext<'_> {
             .max(LINE_NUMBER_MIN_DIGITS)
             + 2;
         let new_line = eol_text(self.new_line());
+        let ext_eol = self.doc().ext_eol();
         let quote = quote.filter(|q| !q.is_empty());
         let mut out = String::new();
         let mut pos = from;
@@ -366,7 +370,7 @@ impl CommandContext<'_> {
                 out.push_str(&text);
                 // A row that does not end the line (the last line, or a wrapped row) gets a
                 // line ending when it is quoted or numbered.
-                if !text.ends_with(is_eol_char) && (quote.is_some() || numbered) {
+                if !text.ends_with(|c| is_eol_char(c, ext_eol)) && (quote.is_some() || numbered) {
                     out.push_str(new_line);
                 }
             }
@@ -412,14 +416,16 @@ impl CommandContext<'_> {
             return self.paste_box(&clip.text);
         }
         let new_line = eol_text(self.new_line());
+        // `CViewCommander::ConvertEol` and `Command_PASTE` read the setting, not the document.
+        let ext_eol = crate::edit_options::get().ext_eol;
         let mut text = clip.text;
         // A row copy of a wrapped row does not end with a line ending; add one.
         let by_line = line_mode && clip.kind == ClipKind::Line;
-        if by_line && !text.is_empty() && !text.ends_with(is_eol_char) {
+        if by_line && !text.is_empty() && !text.ends_with(|c| is_eol_char(c, ext_eol)) {
             text.push_str(new_line);
         }
         if convert {
-            text = convert_eols(&text, new_line, false);
+            text = convert_eols(&text, new_line, ext_eol);
         }
         // With a box selected the first line goes into every row of the box, a row copy too
         // (`Command_INSTEXT`).

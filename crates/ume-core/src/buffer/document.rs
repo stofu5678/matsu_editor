@@ -118,6 +118,12 @@ impl Document {
         self.st.ext_eol()
     }
 
+    /// Whether NEL, LS and PS ended a line in the original bytes, as they were read. The saver
+    /// needs it to find the same endings after the setting changed.
+    pub(crate) fn loaded_ext_eol(&self) -> bool {
+        self.st.load_ext_eol()
+    }
+
     /// Changes whether NEL, LS and PS end a line in text added by later edits. The lines that exist
     /// keep their endings and are not split or joined again: Sakura reads the setting where it
     /// sets a line (`CDocLine::SetDocLineString`), so a change reaches the lines made after it and

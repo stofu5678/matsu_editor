@@ -461,15 +461,16 @@ fn walk_events(
     f: &mut dyn FnMut(Event<'_>) -> Result<()>,
 ) -> Result<()> {
     let codec = source.codec();
-    let mut scanner = EolScanner {
-        ext_eol: doc.ext_eol(),
-        ..EolScanner::default()
-    };
+    let mut scanner = EolScanner::default();
     let mut buf = String::new();
     let mut done = 0u64;
     for chunk in doc.chunks() {
         match chunk? {
             Chunk::Original(bytes) => {
+                // The original keeps the endings it was read with, whatever the setting is now;
+                // added text follows the setting it was added under (the setting now, as the
+                // index of the add buffer does not tell, which is exact unless it changed since).
+                scanner.ext_eol = doc.loaded_ext_eol();
                 let mut i = 0;
                 while i < bytes.len() {
                     let mut j = i;
@@ -487,6 +488,7 @@ fn walk_events(
                 }
             }
             Chunk::Added(text) => {
+                scanner.ext_eol = doc.ext_eol();
                 for part in slices(&text) {
                     scanner.scan(part, f)?;
                     done += part.len() as u64;

@@ -62,6 +62,20 @@ fn copy_crlf_changes_the_line_endings() {
 }
 
 #[test]
+fn copy_crlf_keeps_the_extended_characters_when_the_document_does_not_count_them() {
+    // `bEnableExtEol` off: NEL is a character of the line, not a line ending.
+    let mut e = Editor::new("|");
+    e.model().doc().set_ext_eol(false);
+    e.run_with("input_char", &[Arg::Char('a')]);
+    e.run_with("input_char", &[Arg::Char('\u{85}')]);
+    e.run_with("input_char", &[Arg::Char('b')]);
+    assert_eq!(e.model().doc().line_count(), 1);
+    e.run("select_all");
+    e.run("copy_crlf");
+    assert_eq!(clip(&e), normal("a\u{85}b"));
+}
+
+#[test]
 fn cut_copies_and_deletes_the_selection() {
     let mut e = Editor::new("a[bc|d");
     e.run("cut").assert_marked("a|d");
@@ -135,9 +149,12 @@ fn paste_of_a_line_copy_over_a_selection_deletes_the_selection_first() {
 }
 
 #[test]
-fn a_line_copy_that_ends_with_an_extended_line_ending_gets_no_second_one() {
+fn a_line_copy_that_ends_with_an_extended_character_gets_a_line_ending_by_default() {
+    // `bEnableExtEol` is off by default: U+2028 is not a line ending (`WCODE::IsLineDelimiter`),
+    // so the row copy still needs one.
     let mut e = Editor::new("a|b").with_clipboard("XY\u{2028}", ClipKind::Line);
-    e.run("paste").assert_marked("XY\u{2028}a|b");
+    let os = if cfg!(windows) { "\r\n" } else { "\n" };
+    e.run("paste").assert_marked(&format!("XY\u{2028}{os}a|b"));
 }
 
 #[test]

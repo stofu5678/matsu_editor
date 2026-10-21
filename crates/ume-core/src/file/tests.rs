@@ -1412,3 +1412,23 @@ fn added_text_follows_the_setting_when_it_is_saved() {
         assert_eq!(fs::read(&target).unwrap(), want.as_bytes(), "ext {ext}");
     }
 }
+
+#[test]
+fn the_original_keeps_its_endings_when_the_setting_changes_before_a_save() {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", "a\u{85}b\r\nc".as_bytes());
+    let mut options = SaveOptions::for_encoding(Encoding::Utf8);
+    options.eol = Some(Eol::Lf);
+    // Read with the setting off, then turned on: the NEL is still a character.
+    let mut file = open_ext(&path, Encoding::Utf8, false);
+    file.document.set_ext_eol(true);
+    let target = dir.0.join("off-then-on.txt");
+    file.save_as(&target, &options, &mut no_progress).unwrap();
+    assert_eq!(fs::read(&target).unwrap(), "a\u{85}b\nc".as_bytes());
+    // Read with it on, then turned off: the NEL is still a line ending.
+    let mut file = open_ext(&path, Encoding::Utf8, true);
+    file.document.set_ext_eol(false);
+    let target = dir.0.join("on-then-off.txt");
+    file.save_as(&target, &options, &mut no_progress).unwrap();
+    assert_eq!(fs::read(&target).unwrap(), b"a\nb\nc");
+}

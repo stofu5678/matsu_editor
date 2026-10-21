@@ -368,6 +368,8 @@ pub(crate) struct Storages {
     /// Whether NEL, LS and PS end a line in text added from now on (`m_bEnableExtEol`). Lines
     /// that exist keep the endings they were made with, as in Sakura.
     ext_eol: AtomicBool,
+    /// The setting when the original was read: the line endings of the original are those.
+    load_ext_eol: bool,
 }
 
 impl Storages {
@@ -376,11 +378,16 @@ impl Storages {
             original,
             add: RwLock::new(AddBuf::default()),
             ext_eol: AtomicBool::new(ext_eol),
+            load_ext_eol: ext_eol,
         }
     }
 
     pub fn ext_eol(&self) -> bool {
         self.ext_eol.load(Ordering::Relaxed)
+    }
+
+    pub fn load_ext_eol(&self) -> bool {
+        self.load_ext_eol
     }
 
     pub fn set_ext_eol(&self, on: bool) {
