@@ -469,3 +469,22 @@ fn f_jump_takes_the_line_and_the_option_of_the_macro(cx: &mut TestAppContext) {
         .update_in(cx, |v, window, cx| v.run_function(code, &args, window, cx));
     assert_eq!(f.caret(cx), Pos::new(2, 0));
 }
+
+#[gpui::test]
+fn the_buttons_stay_inside_the_find_and_replace_panels(cx: &mut TestAppContext) {
+    for keys in ["ctrl-f", "ctrl-r"] {
+        let (_f, cx) = setup(cx, "abc");
+        cx.simulate_keystrokes(keys);
+        cx.run_until_parked();
+        let panel = cx.debug_bounds("search-panel").expect("the panel");
+        let close = cx.debug_bounds("search-close").expect("the close button");
+        assert!(
+            close.right() <= panel.right() && close.left() >= panel.left(),
+            "{keys}: the close button sticks out of the panel: {close:?} in {panel:?}"
+        );
+        assert!(
+            close.bottom() <= panel.bottom(),
+            "{keys}: the close button is below the panel: {close:?} in {panel:?}"
+        );
+    }
+}

@@ -16,13 +16,14 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
-    KeyDownEvent, MouseButton, ParentElement, Render, StatefulInteractiveElement, Styled,
-    Subscription, WeakEntity, Window, div, px, rgb,
+    KeyDownEvent, MouseButton, ParentElement, Render, ScrollHandle, StatefulInteractiveElement,
+    Styled, Subscription, WeakEntity, Window, div, px, rgb,
 };
 use gpui_component::button::Button;
 use gpui_component::checkbox::Checkbox;
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::radio::Radio;
+use gpui_component::scroll::Scrollbar;
 use gpui_component::{Disableable as _, h_flex, v_flex};
 use ume_config::settings::print::{NAME_MAX, PrintSettings};
 use ume_config::settings::{FontSetting, LogFont};
@@ -82,6 +83,8 @@ pub(crate) struct PrintSettingDialog {
     list: Option<List>,
     result: Option<async_channel::Sender<Option<Answer>>>,
     focus: FocusHandle,
+    /// The scroll position of the dialog, which the scroll bar draws from.
+    scroll: ScrollHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -129,6 +132,7 @@ impl PrintSettingDialog {
             list: None,
             result: Some(result),
             focus: cx.focus_handle(),
+            scroll: ScrollHandle::default(),
             _subscriptions: subscriptions,
         };
         dialog.show_setting(window, cx);
@@ -849,7 +853,9 @@ impl Render for PrintSettingDialog {
             .w(px(760.))
             .max_w_full()
             .max_h_full()
+            .relative()
             .overflow_y_scroll()
+            .track_scroll(&self.scroll)
             .p_3()
             .gap_2()
             .bg(rgb(0xf7f7f7))
@@ -864,7 +870,14 @@ impl Render for PrintSettingDialog {
                     .font_weight(gpui::FontWeight::BOLD)
                     .child("印刷ページ設定"),
             )
-            .child(body);
+            .child(body)
+            // The dialog scrolls when the window is short; the bar shows that more is below.
+            .child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .child(Scrollbar::vertical(&self.scroll)),
+            );
         div()
             .id("print-setting-overlay")
             .absolute()

@@ -19,14 +19,15 @@ use std::time::Duration;
 use gpui::{
     AnyElement, AnyWindowHandle, App, AppContext as _, ClickEvent, Context, ElementId, Entity,
     FocusHandle, Focusable, InteractiveElement, IntoElement, KeyDownEvent, ParentElement,
-    PromptLevel, Render, Role, SharedString, StatefulInteractiveElement, Styled, Subscription,
-    Window, div, prelude::FluentBuilder as _, px, rgb,
+    PromptLevel, Render, Role, ScrollHandle, SharedString, StatefulInteractiveElement, Styled,
+    Subscription, Window, div, prelude::FluentBuilder as _, px, rgb,
 };
 use gpui_component::button::Button;
 use gpui_component::checkbox::Checkbox;
 use gpui_component::color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::radio::Radio;
+use gpui_component::scroll::Scrollbar;
 use gpui_component::{Disableable as _, Selectable as _, h_flex, v_flex};
 use ume_config::Profile;
 use ume_config::settings::FontSetting;
@@ -87,6 +88,8 @@ pub(crate) struct CommonSettingsDialog {
     opener: Option<AnyWindowHandle>,
     focus: FocusHandle,
     focused: bool,
+    /// The scroll position of the page body; the scroll bar draws from it.
+    pub(crate) body_scroll: ScrollHandle,
     /// The scale factor of the window, as of the last paint (pictures in a page are made sharp
     /// for it).
     scale_factor: f32,
@@ -294,6 +297,7 @@ impl CommonSettingsDialog {
             opener,
             focus: cx.focus_handle(),
             focused: false,
+            body_scroll: ScrollHandle::default(),
             scale_factor: 1.0,
             _subscriptions: subscriptions,
         }
@@ -379,6 +383,8 @@ impl CommonSettingsDialog {
             return;
         }
         self.page = index;
+        // The next page starts at its top.
+        self.body_scroll.set_offset(gpui::point(px(0.), px(0.)));
         match &self.target {
             Target::Common => {
                 if let Some(page) = Page::ALL.get(index) {
@@ -1416,8 +1422,19 @@ impl Render for CommonSettingsDialog {
                             .debug_selector(|| "cs-body".to_owned())
                             .flex_1()
                             .p_3()
+                            .relative()
                             .overflow_y_scroll()
-                            .child(body),
+                            .track_scroll(&self.body_scroll)
+                            .child(body)
+                            // A page taller than the window scrolls; the bar shows that more is
+                            // below (Sakura's pages fit without scrolling).
+                            .child(
+                                div()
+                                    .absolute()
+                                    .inset_0()
+                                    .debug_selector(|| "cs-scrollbar".to_owned())
+                                    .child(Scrollbar::vertical(&self.body_scroll)),
+                            ),
                     ),
             )
             .child(

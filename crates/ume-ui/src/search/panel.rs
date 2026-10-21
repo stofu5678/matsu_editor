@@ -653,9 +653,11 @@ impl Render for SearchPanel {
             PanelMode::Replace => "置換".into(),
             PanelMode::Jump => "指定行へジャンプ".into(),
         };
-        let close = Button::new("search-close")
-            .label("閉じる(X)")
-            .on_click(cx.listener(|this, _, window, cx| this.close(window, cx)));
+        let close = div().debug_selector(|| "search-close".to_owned()).child(
+            Button::new("search-close")
+                .label("閉じる(X)")
+                .on_click(cx.listener(|this, _, window, cx| this.close(window, cx))),
+        );
         let body =
             match self.mode {
                 PanelMode::Find => v_flex()
@@ -670,8 +672,11 @@ impl Render for SearchPanel {
                         cx,
                     ))
                     .child(
+                        // The buttons wrap instead of sticking out of the panel when the labels are
+                        // wider than the fixed panel (a large scale factor, a wide font).
                         h_flex()
                             .gap_2()
+                            .flex_wrap()
                             .child(Button::new("search-prev").label("上検索(U)").on_click(
                                 cx.listener(|this, _, window, cx| {
                                     this.find(Direction::Backward, window, cx);
@@ -726,8 +731,11 @@ impl Render for SearchPanel {
                             })),
                     )
                     .child(
+                        // The buttons wrap instead of sticking out of the panel when the labels are
+                        // wider than the fixed panel (a large scale factor, a wide font).
                         h_flex()
                             .gap_2()
+                            .flex_wrap()
                             .child(Button::new("search-prev").label("上検索(U)").on_click(
                                 cx.listener(|this, _, window, cx| {
                                     this.find(Direction::Backward, window, cx);
@@ -776,6 +784,7 @@ impl Render for SearchPanel {
             };
         div()
             .id("search-panel")
+            .debug_selector(|| "search-panel".to_owned())
             .absolute()
             // mouse events stop here: a click on the panel must not move the caret or the
             // selection of the editor (a replace in the selection would lose it)
