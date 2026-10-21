@@ -20,9 +20,12 @@
 //!
 //! # Differences from Sakura
 //!
-//! * Stopping a recording does not write `RecKey.mac` into the macro folder (Sakura does and
-//!   remembers that file). The recorded macro stays in memory until the editor closes; the
-//!   macro folder is a setting that comes with the settings PR. `F_SAVEKEYMACRO` saves it.
+//! * The file name that `F_EXECKEYMACRO` plays (`m_szKeyMacroFileName`) is kept in memory and
+//!   shared by the windows, as in Sakura; it is not written to the settings file, so a new run
+//!   starts without it (`RecKey.mac` stays in the macro folder; `F_LOADKEYMACRO` picks it).
+//! * Stopping a recording writes `RecKey.mac` into the macro folder. Sakura leaves the name bare
+//!   when the macro folder is empty, which means the current directory; here it is the folder of
+//!   the settings file. Without a settings file the recording stays in the window's memory.
 //! * Text from the IME is recorded as one `Char` per character, like typed characters.
 //! * The user can still type while a script runs; Sakura blocks the window. Both write to the
 //!   same document, one call at a time.
