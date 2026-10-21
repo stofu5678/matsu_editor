@@ -1,0 +1,7 @@
+// input: jp.sjis.crlf
+// code: 0
+Char(65);
+FileSaveAs('@OUT@.first', 0, 0);
+Undo();
+FileSaveAs('@OUT@', 3, 1);
+ExitAll();
