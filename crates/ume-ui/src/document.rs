@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use gpui::{Context, EventEmitter};
-use ume_core::buffer::{Document, Eol, Pos};
+use ume_core::buffer::{Document, Eol};
 use ume_core::cursor::Cursor;
 use ume_core::encoding::Encoding;
 use ume_core::file::{Progress, SaveOptions, SaveReport, TextFile, UnmappableReport};
@@ -262,42 +262,7 @@ impl SharedDocument {
     /// file, so the caller must not mark it as saved.
     pub(crate) fn unify_line_endings(&mut self, eol: Eol, cursor: &Cursor) -> Option<bool> {
         self.file.eol_on_save = None;
-        self.model.set_new_line(eol);
-        let wanted = ume_core::model::eol_text(eol);
-        let lines = self.model.doc().line_count();
-        // Sakura changes the line objects one by one, but here a changed ending is joined with
-        // its neighbours by the text: an LF turned into CR in front of a line that starts with an
-        // LF would become a CRLF. Going from the end for CR keeps the endings that are not
-        // changed yet apart from it; for the other endings the front is the safe end.
-        let order: Box<dyn Iterator<Item = usize>> = if eol == Eol::Cr {
-            Box::new((0..lines).rev())
-        } else {
-            Box::new(0..lines)
-        };
-        let mut changed = false;
-        let mut failed = false;
-        for line in order {
-            let Ok(Some(current)) = self.model.doc().line(line) else {
-                continue;
-            };
-            if current.eol.is_none_or(|e| e == eol) {
-                continue;
-            }
-            if !changed {
-                self.model.begin_block(cursor);
-                changed = true;
-            }
-            let from = Pos::new(line, current.text.len());
-            let to = Pos::new(line + 1, 0);
-            if self.model.replace(from, to, wanted).is_err() {
-                failed = true;
-                break;
-            }
-        }
-        if changed {
-            self.model.end_block(cursor);
-        }
-        (!failed).then_some(changed)
+        unify_line_endings(&mut self.model, eol, cursor)
     }
 
     /// `CAutoReloadAgent::OnAfterSave` and `CDocLocker::OnAfterSave`: the file is what this editor
@@ -541,6 +506,63 @@ impl SharedDocument {
     }
 }
 
+/// The loop of [`SharedDocument::unify_line_endings`], on the model.
+fn unify_line_endings(model: &mut DocumentModel, eol: Eol, cursor: &Cursor) -> Option<bool> {
+    model.set_new_line(eol);
+    let wanted = ume_core::model::eol_text(eol);
+    let mut changed = false;
+    let mut failed = false;
+    // Sakura changes the line objects one by one, but here a changed ending is joined with
+    // its neighbours by the text: an LF turned into CR in front of a line that starts with an
+    // LF would become a CRLF. Going from the end for CR keeps the endings that are not
+    // changed yet apart from it; for the other endings the front is the safe end.
+    // An ending that is not a line break for the document (NEL, LS and PS while they are not
+    // recognized) joins the next line to this one, which then has the next ending to change:
+    // the line is looked at again (Sakura's loop moves on to the next number and skips it).
+    let backwards = eol == Eol::Cr;
+    let mut line = if backwards {
+        model.doc().line_count().checked_sub(1)
+    } else {
+        Some(0)
+    };
+    while let Some(at) = line {
+        if at >= model.doc().line_count() {
+            break;
+        }
+        let step = |at: usize| {
+            if backwards {
+                at.checked_sub(1)
+            } else {
+                Some(at + 1)
+            }
+        };
+        let Ok(Some(current)) = model.doc().line(at) else {
+            line = step(at);
+            continue;
+        };
+        if current.eol.is_none_or(|e| e == eol) {
+            line = step(at);
+            continue;
+        }
+        if !changed {
+            model.begin_block(cursor);
+            changed = true;
+        }
+        let before = model.doc().line_count();
+        if model.replace_line_ending(at, wanted).is_err() {
+            failed = true;
+            break;
+        }
+        if model.doc().line_count() == before {
+            line = step(at);
+        }
+    }
+    if changed {
+        model.end_block(cursor);
+    }
+    (!failed).then_some(changed)
+}
+
 #[cfg(test)]
 mod tests {
     use gpui::{AppContext as _, TestAppContext};
@@ -596,5 +618,38 @@ mod tests {
                 .read_with(cx, |shared, _| shared.untitled_number())
                 .is_some()
         );
+    }
+
+    #[test]
+    fn unifying_to_an_ending_that_is_no_break_converts_every_line() {
+        // NEL is no line break while the extended endings are off (the default): each change
+        // joins the next line, and the ending of the joined line must be changed too, so that the
+        // document is what the file got.
+        let mut model = DocumentModel::new(Document::from_utf8(b"a\r\nb\nc".to_vec()).unwrap());
+        let changed = unify_line_endings(&mut model, Eol::Nel, &Cursor::default());
+        assert_eq!(changed, Some(true));
+        assert_eq!(model.doc().line_count(), 1);
+        let line = model.doc().line(0).unwrap().unwrap();
+        assert_eq!((line.text.as_str(), line.eol), ("a\u{85}b\u{85}c", None));
+    }
+
+    #[test]
+    fn unifying_keeps_the_bookmarks_of_the_lines() {
+        let mut model = DocumentModel::new(Document::from_utf8(b"a\r\nb\r\nc".to_vec()).unwrap());
+        model.bookmarks_mut().set(1, true);
+        assert_eq!(
+            unify_line_endings(&mut model, Eol::Lf, &Cursor::default()),
+            Some(true)
+        );
+        assert_eq!(model.bookmarks().iter().collect::<Vec<_>>(), [1]);
+        // and to CR, from the end
+        let mut model = DocumentModel::new(Document::from_utf8(b"a\n\nb\n\n".to_vec()).unwrap());
+        model.bookmarks_mut().set(2, true);
+        assert_eq!(
+            unify_line_endings(&mut model, Eol::Cr, &Cursor::default()),
+            Some(true)
+        );
+        assert_eq!(model.doc().line_count(), 4);
+        assert_eq!(model.bookmarks().iter().collect::<Vec<_>>(), [2]);
     }
 }

@@ -110,6 +110,14 @@ impl LineEdit {
         }
     }
 
+    /// An edit that changes no line of the list: one line break replaced by another.
+    pub fn none() -> Self {
+        Self {
+            forward: [None; 2],
+            inverse: [None; 2],
+        }
+    }
+
     /// The deltas of replacing `from..to` with text of the shape `ins`.
     fn deltas(
         from: (usize, usize),
