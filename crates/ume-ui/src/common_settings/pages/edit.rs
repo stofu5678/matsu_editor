@@ -174,6 +174,7 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                             "szOpenDialogSelDir",
                             ume_config::dialog_dir::DEFAULT_SELECTED,
                         )
+                        .named("指定フォルダー")
                         .when(given_folder_is_chosen)
                         .into(),
                         Control::button("open_dialog_sel_dir_browse", "...", browse)

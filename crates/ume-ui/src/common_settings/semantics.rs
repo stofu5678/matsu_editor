@@ -108,10 +108,22 @@ pub(super) fn table_row(element: Stateful<Div>, index: usize, selected: bool) ->
         .aria_selected(selected)
 }
 
-pub(super) fn cell(element: Stateful<Div>, text: &str, column: usize) -> Stateful<Div> {
+/// A cell is named by its text. An empty cell has no text to say, so it is named by its column
+/// (`置換後（空）`): a screen reader would otherwise read a nameless item.
+pub(super) fn cell(
+    element: Stateful<Div>,
+    text: &str,
+    column_title: &str,
+    column: usize,
+) -> Stateful<Div> {
+    let name = if text.is_empty() {
+        format!("{column_title}（空）")
+    } else {
+        text.to_owned()
+    };
     element
         .role(Role::Cell)
-        .aria_label(text.to_owned())
+        .aria_label(name)
         .aria_column_index(column)
 }
 
@@ -190,8 +202,11 @@ mod tests {
         assert_eq!(row.role(), Role::Row);
         assert_eq!(row.row_index(), Some(1));
         assert_eq!(row.is_selected(), Some(true));
-        let cell = node(cell(div().id("x"), "abc", 1));
-        assert_eq!((cell.role(), cell.label()), (Role::Cell, Some("abc")));
-        assert_eq!(cell.column_index(), Some(1));
+        let filled = node(cell(div().id("x"), "abc", "名前", 1));
+        assert_eq!((filled.role(), filled.label()), (Role::Cell, Some("abc")));
+        assert_eq!(filled.column_index(), Some(1));
+        // An empty cell is named by its column.
+        let empty = node(cell(div().id("y"), "", "名前", 0));
+        assert_eq!(empty.label(), Some("名前（空）"));
     }
 }

@@ -945,7 +945,7 @@ impl CommonSettingsDialog {
     fn control_element(&self, control: &Control, cx: &mut Context<Self>) -> AnyElement {
         let usable = self.is_usable(control);
         let (label, _) = parse_label(control.label);
-        let name = plain_name(control.label);
+        let name = control.accessible_name();
         let id = control.id;
         let note = (!control.live).then(Self::not_available_note);
         match control.kind {
@@ -1024,7 +1024,9 @@ impl CommonSettingsDialog {
             }
             Kind::Color => {
                 let chooser = match self.pickers.get(id) {
-                    Some(picker) if usable => ColorPicker::new(picker).into_any_element(),
+                    Some(picker) if usable => ColorPicker::new(picker)
+                        .accessibility_label(name.clone())
+                        .into_any_element(),
                     _ => div()
                         .w(px(25.))
                         .h(px(14.))
@@ -1129,7 +1131,7 @@ impl CommonSettingsDialog {
     ) -> AnyElement {
         let id = control.id;
         let (label, _) = parse_label(control.label);
-        let name = plain_name(control.label);
+        let name = control.accessible_name();
         let selected = self.selected_row(id);
         let heading =
             semantics::header_row(h_flex().id(SharedString::from(format!("cs-{id}-head"))))
@@ -1170,6 +1172,7 @@ impl CommonSettingsDialog {
                                     "cs-{id}-row-{index}-{column}"
                                 ))),
                                 text,
+                                c.title,
                                 column,
                             )
                             .w(gpui::relative(c.width as f32 / 100.))

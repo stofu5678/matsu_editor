@@ -66,6 +66,7 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                     Control::text(HOKAN_FILE, "単語ファイル(&W)", "", "").into(),
                     Control::button(HOKAN_FILE_BROWSE, "(&1)...", browse_word_file).into(),
                     Control::choice(HOKAN_TYPE, "", "", 0, HOKAN_TYPES)
+                        .named("入力補完機能の種類")
                         .unavailable()
                         .into(),
                 ]),
@@ -81,7 +82,9 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
         Item::Group(
             "外部ヘルプの設定(&L)",
             vec![Item::Row(vec![
-                Control::text(EXT_HELP, "", "", "").into(),
+                Control::text(EXT_HELP, "", "", "")
+                    .named("外部ヘルプの設定")
+                    .into(),
                 Control::button(EXT_HELP_BROWSE, "(&2)...", browse_ext_help).into(),
             ])],
         ),
@@ -89,7 +92,9 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
             "外部HTMLヘルプの設定(&P)",
             vec![
                 Item::Row(vec![
-                    Control::text(EXT_HTML_HELP, "", "", "").into(),
+                    Control::text(EXT_HTML_HELP, "", "", "")
+                        .named("外部HTMLヘルプの設定")
+                        .into(),
                     Control::button(EXT_HTML_HELP_BROWSE, "(&3)...", browse_ext_html_help).into(),
                 ]),
                 Control::check(HTML_HELP_SINGLE, "ビューアを複数起動しない(&N)", "", true).into(),
