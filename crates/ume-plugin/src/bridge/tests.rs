@@ -357,17 +357,16 @@ fn value_functions_check_their_arguments() {
     );
 }
 
-// ---- the basic API where there is no command yet ----
+// ---- InsText and AddTail ----
 
 #[test]
-fn the_basic_api_runs_where_no_command_is_registered() {
+fn ins_text_and_add_tail_are_commands_with_sakuras_behavior() {
     let registry = Registry::global();
-    // If one of these gets a command, the test must move to the section above.
     for name in ["InsText", "AddTail"] {
         let code = ume_commands::macro_names::by_name(name).unwrap().code;
         assert!(
-            registry.get_by_code(code).is_none(),
-            "{name} has a command now"
+            registry.get_by_code(code).is_some(),
+            "{name} has no command"
         );
     }
     let mut f = Fixture::new("abc\ndef");
