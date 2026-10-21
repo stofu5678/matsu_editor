@@ -768,9 +768,11 @@ fn press_ok(cx: &mut TestAppContext, (sheet, window): &(Sheet, AnyWindowHandle))
     cx.run_until_parked();
 }
 
-fn open_python_file(cx: &mut TestAppContext, handle: AnyWindowHandle) -> PathBuf {
-    let path =
-        std::env::temp_dir().join(format!("ume-ui-fix-font-windows-{}.py", std::process::id()));
+fn open_python_file(cx: &mut TestAppContext, handle: AnyWindowHandle, name: &str) -> PathBuf {
+    let path = std::env::temp_dir().join(format!(
+        "ume-ui-fix-font-windows-{}-{name}.py",
+        std::process::id()
+    ));
     std::fs::write(&path, b"print(1)\n").unwrap();
     run(
         cx,
@@ -781,18 +783,25 @@ fn open_python_file(cx: &mut TestAppContext, handle: AnyWindowHandle) -> PathBuf
     path
 }
 
-#[gpui::test]
-fn the_user_chooses_a_type_font_and_clears_it_again(cx: &mut TestAppContext) {
+/// The user's steps: a Python file, the font "Papyrus" for the type (sheet, button, OK), the
+/// sheet again, the check box cleared, OK. `prepare` does something to the windows first and
+/// returns the window the sheets are opened from. Every view of the file must show the common
+/// font in the end.
+fn the_user_steps(
+    cx: &mut TestAppContext,
+    prepare: impl FnOnce(&mut TestAppContext, AnyWindowHandle) -> AnyWindowHandle,
+) {
     let (ini, a) = setup(cx, PYTHON_USER);
     let view = view_of(cx, a);
-    let path = open_python_file(cx, a);
+    let path = open_python_file(cx, a, "a");
+    let from = prepare(cx, a);
     assert_eq!(view.read_with(cx, |v, _| v.view_settings().type_index), 13);
     let seven = points_to_px(70);
     let common = (Some("Noto Sans JP".to_owned()), 400, false, seven);
-    assert_eq!(shown(cx, &view), common);
+    assert_eq!(shown(cx, &view).0, common.0);
 
     // Choose "Papyrus" with the button of the sheet, then OK.
-    let sheet = open_type_settings(cx, a);
+    let sheet = open_type_settings(cx, from);
     sheet
         .1
         .update(cx, |_, window, app| {
@@ -809,7 +818,7 @@ fn the_user_chooses_a_type_font_and_clears_it_again(cx: &mut TestAppContext) {
     assert_eq!(shown(cx, &view).0.as_deref(), Some("Papyrus"));
 
     // Open the sheet again, clear the check box, OK.
-    let sheet = open_type_settings(cx, a);
+    let sheet = open_type_settings(cx, from);
     sheet
         .1
         .update(cx, |_, _, app| {
@@ -822,5 +831,42 @@ fn the_user_chooses_a_type_font_and_clears_it_again(cx: &mut TestAppContext) {
     press_ok(cx, &sheet);
     assert_eq!(ini.get("Types(13)", "bUseTypeFont").as_deref(), Some("0"));
     assert_eq!(shown(cx, &view), common);
+    for (_, workspace) in cx.update(crate::file_ops::windows::workspaces) {
+        for other in workspace.read_with(cx, |ws, _| ws.all_views()) {
+            let family = other.read_with(cx, |v, _| v.view_settings().font_family.clone());
+            assert_eq!(family.as_deref(), Some("Noto Sans JP"));
+        }
+    }
     std::fs::remove_file(path).ok();
+}
+
+#[gpui::test]
+fn the_user_chooses_a_type_font_and_clears_it_again(cx: &mut TestAppContext) {
+    the_user_steps(cx, |_, a| a);
+}
+
+#[gpui::test]
+fn the_user_clears_the_type_font_after_a_temporary_size(cx: &mut TestAppContext) {
+    the_user_steps(cx, |cx, a| {
+        run(cx, a, "F_SETFONTSIZEUP", &[]);
+        a
+    });
+}
+
+#[gpui::test]
+fn the_user_clears_the_type_font_of_a_split_window(cx: &mut TestAppContext) {
+    the_user_steps(cx, |cx, a| {
+        run(cx, a, "F_SPLIT_V", &[]);
+        a
+    });
+}
+
+#[gpui::test]
+fn the_user_clears_the_type_font_with_the_sheet_of_a_second_window(cx: &mut TestAppContext) {
+    the_user_steps(cx, |cx, _| {
+        let b = open_window(cx);
+        let second = open_python_file(cx, b, "b");
+        std::fs::remove_file(second).ok();
+        b
+    });
 }
