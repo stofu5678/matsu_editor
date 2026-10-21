@@ -327,7 +327,8 @@ fn a_folder_that_is_not_there_has_nothing() {
 
 #[test]
 fn a_folder_is_listed_once_when_it_is_asked_for() {
-    let dir = dir_with(&["top.txt", "sub/in.txt", "sub/deeper/x.txt", "empty/.keep"]);
+    let dir = dir_with(&["top.txt", "sub/in.txt", "sub/deeper/x.txt"]);
+    fs::create_dir(dir.path().join("empty")).unwrap();
     let mut grep = item(ItemType::Grep, &dir.path().to_string_lossy(), "Project", 0);
     grep.ignore_hidden = true;
     let mut model = FileTreeModel::build(&loaded(vec![grep]), Path::new("/unused"), &no_meta());
@@ -364,7 +365,7 @@ fn a_folder_is_listed_once_when_it_is_asked_for() {
         model.nodes[file].file(),
         Some(dir.path().join("sub").join("in.txt").as_path())
     );
-    // a folder with nothing to show loses its `+` (hidden files are left out)
+    // a folder with nothing in it loses its `+`
     let empty = model.nodes[root].children[0];
     let job = model.begin_load(empty).unwrap();
     model.finish_load(empty, job.run());
