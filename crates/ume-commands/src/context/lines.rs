@@ -8,7 +8,7 @@
 use ume_core::buffer::Pos;
 use ume_core::model::eol_text;
 
-use super::CommandContext;
+use super::{CommandContext, MAX_BOX_COL};
 use crate::command::Result;
 
 /// What counts as white space for `F_LTRIM` and `F_RTRIM`: a space, a tab, and the ideographic
@@ -89,6 +89,9 @@ impl CommandContext<'_> {
     /// does on Windows, and a line that is a prefix of another comes first (`CNativeW_comp`
     /// compares the terminating NUL too). The sort is stable, also for the descending order.
     pub(crate) fn sort_selected_lines(&mut self, ascending: bool) -> Result<()> {
+        if self.cursor.is_box() {
+            return self.sort_box_lines(ascending);
+        }
         let Some((first, end)) = self.selected_whole_lines()? else {
             return Ok(());
         };
@@ -104,6 +107,85 @@ impl CommandContext<'_> {
         });
         let sorted: Vec<String> = keyed.into_iter().map(|(_, line)| line).collect();
         self.replace_whole_lines(first, end, &sorted, caret_at_start)
+    }
+
+    /// `F_SORT_ASC` and `F_SORT_DESC` with a box selection: sorts the lines from the top to the
+    /// bottom line of the box (both included, also a last line without a line ending) by the text
+    /// in the columns of the box. A box of width 0 takes the text from its column to the end of
+    /// the line. A line that ends before the box has an empty key. The sort is stable.
+    ///
+    /// A last line without a line ending gets one for the sort and the line that ends up last
+    /// loses its ending (`Command_SORT`, 2013.06.19 Moca). The box stays selected; the caret does
+    /// not move to the start of the box as Sakura's does (nothing can see the difference
+    /// except a later extending move).
+    ///
+    /// Difference: with a wrapping layout the columns count from the start of the line, but
+    /// `layout().pos_at_col` only looks at its first row.
+    fn sort_box_lines(&mut self, ascending: bool) -> Result<()> {
+        let Some(((a, a_col), (c, c_col))) = self.cursor.box_corners() else {
+            return Ok(());
+        };
+        // `IsTextSelected` is false when both corners are the same.
+        if (a, a_col) == (c, c_col) {
+            return Ok(());
+        }
+        let (left, right) = if a_col == c_col {
+            (a_col, MAX_BOX_COL)
+        } else {
+            (a_col.min(c_col), a_col.max(c_col))
+        };
+        let first = a.line.min(c.line);
+        // lines that do not exist (the empty line after a final line ending) are not sorted
+        let end = (a.line.max(c.line) + 1).min(self.doc().line_count());
+        if end <= first {
+            return Ok(());
+        }
+        let new_line = eol_text(self.new_line());
+        let mut keyed: Vec<(Vec<u16>, String)> = Vec::with_capacity(end - first);
+        let mut lacked_eol = false;
+        for line_no in first..end {
+            let Some(line) = self.doc().line(line_no)? else {
+                continue;
+            };
+            let (from, to) = self.box_row_range(Pos::new(line_no, 0), left, right)?;
+            let key: Vec<u16> = self.doc().text_between(from, to)?.encode_utf16().collect();
+            let mut text = line.text;
+            match line.eol {
+                Some(eol) => text.push_str(eol_text(eol)),
+                None => {
+                    // only the last line can lack one
+                    lacked_eol = true;
+                    text.push_str(new_line);
+                }
+            }
+            keyed.push((key, text));
+        }
+        keyed.sort_by(|x, y| {
+            let order = x.0.cmp(&y.0);
+            if ascending { order } else { order.reverse() }
+        });
+        let mut sorted: Vec<String> = keyed.into_iter().map(|(_, line)| line).collect();
+        if lacked_eol && let Some(last) = sorted.last_mut() {
+            let kept = last.trim_end_matches(['\r', '\n']).len();
+            last.truncate(kept);
+        }
+        let start = Pos::new(first, 0);
+        // a last line without an ending is replaced up to its end
+        let old_end = if lacked_eol {
+            self.doc().end_pos()?
+        } else {
+            Pos::new(end, 0)
+        };
+        let new_text = sorted.concat();
+        // Sakura replaces the lines even when they are the same; no edit is made here then.
+        if self.doc().text_between(start, old_end)? != new_text {
+            let lock = self.cursor.selecting_lock();
+            // `replace` refuses while a box is selected
+            self.cursor.clear_selection();
+            self.replace(start, old_end, &new_text)?;
+            self.set_box((a, a_col), (c, c_col), lock);
+        }
+        Ok(())
     }
 
     /// `F_MERGE`: removes each line that is the same as the line before it, with its line

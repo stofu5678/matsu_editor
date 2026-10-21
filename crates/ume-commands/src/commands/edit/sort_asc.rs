@@ -14,8 +14,10 @@
 //! * Nothing selected, or no line in the range (a selection inside the last line, which has no
 //!   line ending): nothing happens, and there is no beep.
 //!
-//! Difference: if the order does not change, no edit is made. Not done yet: rectangular
-//! selection (Sakura sorts by the selected columns).
+//! * A box selection sorts the lines from its top to its bottom line by the text in its columns
+//!   (see `CommandContext::sort_box_lines`; the `bBeginBoxSelectOld` branch of Sakura).
+//!
+//! Difference: if the order does not change, no edit is made.
 
 use crate::command::{Arg, Command, Result};
 use crate::context::CommandContext;
@@ -95,6 +97,87 @@ mod tests {
     fn a_selection_inside_one_line_selects_the_whole_line() {
         // as in Sakura: the line of the end is added to the range, so it is one line, sorted alone
         check("sort_asc", "a[b|c\nd", "|abc\n[d");
+    }
+
+    type Corners = Option<((usize, usize), (usize, usize))>;
+
+    /// Selects a box from the caret of `marked` `right` columns to the right and `down` lines
+    /// down, runs `id`, and returns the text and the corners of the box.
+    fn sort_box(id: &str, marked: &str, right: usize, down: usize) -> (String, Corners) {
+        let mut e = Editor::new(marked);
+        e.run("begin_box");
+        for _ in 0..right {
+            e.run("cursor_right_box");
+        }
+        for _ in 0..down {
+            e.run("cursor_down_box");
+        }
+        e.run(id);
+        (e.marked().replace(['|', '['], ""), e.box_state())
+    }
+
+    #[test]
+    fn a_box_selection_sorts_the_lines_by_the_columns_of_the_box() {
+        // columns 1..3 are the keys; the lines move whole
+        let (text, corners) = sort_box("sort_asc", "x|59z\nx31y\nx92x\nx17w\nrest\n", 2, 3);
+        assert_eq!(text, "x17w\nx31y\nx59z\nx92x\nrest\n");
+        assert_eq!(corners, Some(((0, 1), (3, 3))));
+        // lines below the box are left alone, and so are the ones above
+        let (text, _) = sort_box("sort_asc", "top\nx|b\nx\nxa\nlast\n", 1, 2);
+        assert_eq!(text, "top\nx\nxa\nxb\nlast\n");
+    }
+
+    #[test]
+    fn a_box_of_width_zero_sorts_by_the_text_from_its_column() {
+        let (text, _) = sort_box("sort_asc", "a|z\nbc\n", 0, 1);
+        assert_eq!(text, "bc\naz\n");
+    }
+
+    #[test]
+    fn a_box_selection_keeps_equal_keys_in_order() {
+        let (text, _) = sort_box("sort_asc", "1|b\n2a\n3b\n4a\n", 1, 3);
+        assert_eq!(text, "2a\n4a\n1b\n3b\n");
+        let (text, _) = sort_box("sort_desc", "1|b\n2a\n3b\n4a\n", 1, 3);
+        assert_eq!(text, "1b\n3b\n2a\n4a\n");
+    }
+
+    #[test]
+    fn a_line_that_ends_before_the_box_has_an_empty_key() {
+        let (text, _) = sort_box("sort_asc", "a|bc\nx\nabb\n", 1, 2);
+        assert_eq!(text, "x\nabc\nabb\n");
+    }
+
+    #[test]
+    fn a_box_selection_sorts_the_last_line_without_an_ending_too() {
+        // the ending moves from the last line to the one that ends up last
+        let (text, _) = sort_box("sort_asc", "|b\r\na", 1, 1);
+        assert_eq!(text, "a\r\nb");
+        let (text, _) = sort_box("sort_desc", "|a\nb", 1, 1);
+        assert_eq!(text, "b\na");
+    }
+
+    #[test]
+    fn a_box_selection_compares_the_keys_by_utf16_code_unit_and_ends_on_japanese_text() {
+        let (text, _) = sort_box("sort_asc", "|\u{ff5e}\u{1f600}\n\u{1f600}\u{ff5e}\n", 2, 1);
+        assert_eq!(text, "\u{1f600}\u{ff5e}\n\u{ff5e}\u{1f600}\n");
+    }
+
+    #[test]
+    fn a_box_selection_that_selects_nothing_does_nothing() {
+        let mut e = Editor::new("b|\na\n");
+        e.run("begin_box").run("sort_asc");
+        e.assert_marked("b|\na\n");
+        assert!(!e.changes().text_changed());
+    }
+
+    #[test]
+    fn a_box_sort_is_one_undo_step() {
+        let mut e = Editor::new("|b\na\n");
+        e.run("begin_box")
+            .run("cursor_right_box")
+            .run("cursor_down_box");
+        e.run("sort_asc").run("undo");
+        assert_eq!(e.marked().replace(['|', '['], ""), "b\na\n");
     }
 
     #[test]

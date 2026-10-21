@@ -224,9 +224,21 @@ impl CommandContext<'_> {
     /// ending (`F_COPY_ADDCRLF`; Sakura's `bAddCRLFWhenCopy`, off by default). A box is copied as
     /// a box.
     pub fn copy(&mut self, eol: Option<Eol>, add_eol: bool) -> Result<()> {
+        // Sakura clears the selection lock (`m_bSelectingLock`) at the end of a copy that went
+        // through, so the next plain move drops the selection instead of extending it
+        // (`Command_COPY`, "選択範囲の後片付け"; `bIgnoreLockAndDisable` is false for every
+        // copy command).
+        if self.copy_selection_or_row(eol, add_eol)? {
+            self.cursor.set_selecting_lock(false);
+        }
+        Ok(())
+    }
+
+    /// The copy of `copy`; `true` if it reached the clean-up of `Command_COPY`.
+    fn copy_selection_or_row(&mut self, eol: Option<Eol>, add_eol: bool) -> Result<bool> {
         if self.selection().is_none() {
             if !enable_no_select_copy() {
-                return Ok(()); // Sakura: nothing, not even a beep
+                return Ok(false); // Sakura: nothing, not even a beep
             }
             // `CopyCurLine`: no row, no copy and no beep.
             if let Some((start, end, mut text)) = self.caret_row_text()? {
@@ -245,12 +257,12 @@ impl CommandContext<'_> {
                 };
                 self.copy_text(text, kind)?;
             }
-            return Ok(());
+            return Ok(true);
         }
-        if let Some((text, kind)) = self.selected_text(eol, add_eol)? {
-            self.copy_text(text, kind)?;
+        match self.selected_text(eol, add_eol)? {
+            Some((text, kind)) => self.copy_text(text, kind),
+            None => Ok(false),
         }
-        Ok(())
     }
 
     /// `Command_CUT`: copies the selection and deletes it. Without a selection it cuts the row.
