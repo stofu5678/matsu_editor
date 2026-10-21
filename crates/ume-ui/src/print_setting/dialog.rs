@@ -23,7 +23,7 @@ use gpui_component::button::Button;
 use gpui_component::checkbox::Checkbox;
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::radio::Radio;
-use gpui_component::scroll::Scrollbar;
+use gpui_component::scroll::{Scrollbar, ScrollbarMode};
 use gpui_component::{Disableable as _, h_flex, v_flex};
 use ume_config::settings::print::{NAME_MAX, PrintSettings};
 use ume_config::settings::{FontSetting, LogFont};
@@ -876,7 +876,7 @@ impl Render for PrintSettingDialog {
                 div()
                     .absolute()
                     .inset_0()
-                    .child(Scrollbar::vertical(&self.scroll)),
+                    .child(Scrollbar::vertical(&self.scroll).mode(ScrollbarMode::Always)),
             );
         div()
             .id("print-setting-overlay")

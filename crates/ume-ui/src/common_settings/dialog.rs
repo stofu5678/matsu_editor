@@ -27,7 +27,7 @@ use gpui_component::checkbox::Checkbox;
 use gpui_component::color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::radio::Radio;
-use gpui_component::scroll::Scrollbar;
+use gpui_component::scroll::{Scrollbar, ScrollbarMode};
 use gpui_component::{Disableable as _, Selectable as _, h_flex, v_flex};
 use ume_config::Profile;
 use ume_config::settings::FontSetting;
@@ -1427,13 +1427,16 @@ impl Render for CommonSettingsDialog {
                             .track_scroll(&self.body_scroll)
                             .child(body)
                             // A page taller than the window scrolls; the bar shows that more is
-                            // below (Sakura's pages fit without scrolling).
+                            // below (Sakura's pages fit without scrolling). Always shown: the default fades out when idle.
                             .child(
                                 div()
                                     .absolute()
                                     .inset_0()
                                     .debug_selector(|| "cs-scrollbar".to_owned())
-                                    .child(Scrollbar::vertical(&self.body_scroll)),
+                                    .child(
+                                        Scrollbar::vertical(&self.body_scroll)
+                                            .mode(ScrollbarMode::Always),
+                                    ),
                             ),
                     ),
             )
