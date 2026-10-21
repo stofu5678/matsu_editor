@@ -336,6 +336,11 @@ impl Workspace {
         )
     }
 
+    /// Whether the tabs have a tooltip: not while a popup menu (the tab menu) is open.
+    pub(crate) fn tab_tooltips_shown(&self, cx: &gpui::App) -> bool {
+        !self.editor().read(cx).custom_menu.is_open()
+    }
+
     fn render_tab(
         &self,
         index: usize,
@@ -417,7 +422,12 @@ impl Workspace {
             .bg(if active { rgb(0xffffff) } else { rgb(0xd8d8d8) })
             .when(active, |s| s.font_weight(gpui::FontWeight::SEMIBOLD))
             .debug_selector(move || format!("tab-{index}"))
-            .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+            // A popup menu is modal in Sakura, so no tooltip is shown over it. GPUI keeps a shown
+            // tooltip until the pointer leaves the element, and paints it above the menu that
+            // opens at the pointer, so the tabs have none while a menu is open.
+            .when(self.tab_tooltips_shown(cx), move |tab| {
+                tab.tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+            })
             .on_mouse_down(MouseButton::Left, select)
             .on_a11y_action(gpui::AccessibleAction::Click, select_by_a11y)
             .on_mouse_up(MouseButton::Right, open_menu)

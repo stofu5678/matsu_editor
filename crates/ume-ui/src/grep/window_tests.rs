@@ -907,3 +907,28 @@ fn a_second_grep_does_not_join_the_one_that_waits_for_the_macro(cx: &mut TestApp
     assert_eq!(text.matches("□検索条件").count(), 1, "{text}");
     assert!(text.contains("\"hit\""), "{text}");
 }
+
+#[gpui::test]
+fn a_dialog_taller_than_the_window_scrolls_inside_the_window(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    f.run(cx, "F_GREP_REPLACE_DLG", &[]);
+    let panel = f.panel(cx);
+    cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(300.)));
+    settle(cx);
+    let body = cx.debug_bounds("grep-body").expect("the body is painted");
+    assert!(
+        body.bottom() <= gpui::px(300.),
+        "the dialog stays inside the window: {body:?}"
+    );
+    assert!(
+        panel.read_with(cx, |p, _| p.body_scroll.max_offset().y) > gpui::px(0.),
+        "the rest of the dialog is reached by scrolling"
+    );
+    // A window that is tall enough shows everything without scrolling.
+    cx.simulate_resize(gpui::size(gpui::px(900.), gpui::px(1200.)));
+    settle(cx);
+    assert_eq!(
+        panel.read_with(cx, |p, _| p.body_scroll.max_offset().y),
+        gpui::px(0.)
+    );
+}

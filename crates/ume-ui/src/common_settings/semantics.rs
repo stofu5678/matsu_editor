@@ -90,8 +90,30 @@ pub(super) fn table(
         .aria_column_count(columns)
 }
 
+/// The name of the header row. UIA reports a row as a data item, and a data item with no name is
+/// read as nothing.
+pub(super) const HEADER_ROW_NAME: &str = "見出し";
+
 pub(super) fn header_row(element: Stateful<Div>) -> Stateful<Div> {
-    element.role(Role::Row).aria_row_index(0)
+    element
+        .role(Role::Row)
+        .aria_label(HEADER_ROW_NAME)
+        .aria_row_index(0)
+}
+
+/// The name of a row: the texts of its cells in order, joined with `、` (what a sighted user reads
+/// across the row); `行 N` (from 1) for a row with no text at all.
+pub(super) fn row_name(cells: &[String], index: usize) -> String {
+    let texts: Vec<&str> = cells
+        .iter()
+        .map(String::as_str)
+        .filter(|t| !t.is_empty())
+        .collect();
+    if texts.is_empty() {
+        format!("行 {}", index + 1)
+    } else {
+        texts.join("、")
+    }
 }
 
 pub(super) fn column_header(element: Stateful<Div>, title: &str, column: usize) -> Stateful<Div> {
@@ -101,17 +123,35 @@ pub(super) fn column_header(element: Stateful<Div>, title: &str, column: usize) 
         .aria_column_index(column)
 }
 
-pub(super) fn table_row(element: Stateful<Div>, index: usize, selected: bool) -> Stateful<Div> {
+pub(super) fn table_row(
+    element: Stateful<Div>,
+    cells: &[String],
+    index: usize,
+    selected: bool,
+) -> Stateful<Div> {
     element
         .role(Role::Row)
+        .aria_label(row_name(cells, index))
         .aria_row_index(index + 1)
         .aria_selected(selected)
 }
 
-pub(super) fn cell(element: Stateful<Div>, text: &str, column: usize) -> Stateful<Div> {
+/// A cell is named by its text. An empty cell has no text to say, so it is named by its column
+/// (`置換後（空）`): a screen reader would otherwise read a nameless item.
+pub(super) fn cell(
+    element: Stateful<Div>,
+    text: &str,
+    column_title: &str,
+    column: usize,
+) -> Stateful<Div> {
+    let name = if text.is_empty() {
+        format!("{column_title}（空）")
+    } else {
+        text.to_owned()
+    };
     element
         .role(Role::Cell)
-        .aria_label(text.to_owned())
+        .aria_label(name)
         .aria_column_index(column)
 }
 
@@ -186,12 +226,23 @@ mod tests {
             (header.role(), header.label()),
             (Role::ColumnHeader, Some("名前"))
         );
-        let row = node(table_row(div().id("r"), 0, true));
+        let texts = ["a".to_owned(), String::new(), "c".to_owned()];
+        let row = node(table_row(div().id("r"), &texts, 0, true));
         assert_eq!(row.role(), Role::Row);
+        assert_eq!(row.label(), Some("a、c"));
+        let blank = node(table_row(div().id("b"), &[String::new()], 2, false));
+        assert_eq!(blank.label(), Some("行 3"));
+        assert_eq!(
+            node(header_row(div().id("hh"))).label(),
+            Some(HEADER_ROW_NAME)
+        );
         assert_eq!(row.row_index(), Some(1));
         assert_eq!(row.is_selected(), Some(true));
-        let cell = node(cell(div().id("x"), "abc", 1));
-        assert_eq!((cell.role(), cell.label()), (Role::Cell, Some("abc")));
-        assert_eq!(cell.column_index(), Some(1));
+        let filled = node(cell(div().id("x"), "abc", "名前", 1));
+        assert_eq!((filled.role(), filled.label()), (Role::Cell, Some("abc")));
+        assert_eq!(filled.column_index(), Some(1));
+        // An empty cell is named by its column.
+        let empty = node(cell(div().id("y"), "", "名前", 0));
+        assert_eq!(empty.label(), Some("名前（空）"));
     }
 }

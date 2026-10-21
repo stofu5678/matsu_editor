@@ -714,3 +714,28 @@ fn checkable_functions_include_every_function_that_can_be_checked() {
     assert!(is_checkable(code("F_TMPWRAPWINDOW")));
     assert!(!is_checkable(code("F_FILESAVE")));
 }
+
+// `IsFuncEnable` (`func/Funccode.cpp`): 新規ウインドウを開く is on only while the tab bar is shown and the
+// windows are grouped. The drop-down of the open button gets the same state: `TrackPopupMenu` sends
+// `WM_INITMENUPOPUP` to the edit window, and `CEditWnd::InitMenu` grays every item of the menu by
+// `IsFuncEnable` (`CreateFileDropDownMenu` itself adds the item without `MF_GRAYED`).
+#[test]
+fn a_new_window_is_offered_only_in_tab_mode() {
+    for (tab_bar, grouped, on) in [
+        (false, false, false),
+        (false, true, false),
+        (true, false, false),
+        (true, true, true),
+    ] {
+        let states = FuncStates {
+            tab_bar,
+            grouped,
+            ..base()
+        };
+        assert_eq!(
+            states.is_enabled(code("F_FILENEW_NEWWINDOW")),
+            on,
+            "{tab_bar} {grouped}"
+        );
+    }
+}

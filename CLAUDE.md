@@ -32,6 +32,7 @@ typos                   # cargo install --locked typos-cli
 ## ブランチと PR
 
 - main は GitHub で保護していて、直接 push できない。作業はブランチで行い、main への PR を作る。PR は CI が通ってからマージする
+- PR のマージは、[ADR-0019](docs/adr/0019-auto-merge-trial.md) の条件をすべて満たすものは調整役（メインのセッションの AI）が行い、それ以外はユーザーが行う。担当（エージェント）はマージしない
 - 試作は、試作のブランチ（`poc/gpui` など）にそのまま push してよい
 - PR は squash でマージする。PR のタイトルがそのまま main のコミットになり、バージョンの自動付与に使うので、[Conventional Commits](https://www.conventionalcommits.org/ja/v1.0.0/) の形で英語で書く（例: `feat(commands): add delete_line`、`fix: keep the BOM on save`、`docs: record the printing PoC`、`ci: add cargo-deny`、`chore(poc): ...`）。CI の「PR title」が確かめる
 

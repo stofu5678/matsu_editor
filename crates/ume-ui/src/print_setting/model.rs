@@ -40,6 +40,21 @@ impl Number {
         Number::MarginRight,
     ];
 
+    /// The name of the field for a screen reader: its label in the dialog without the access key
+    /// (the margins' labels are 上, 下, 左 and 右 under 余白, so the group is part of the name).
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Number::FontHeight => "フォント高",
+            Number::LineSpacing => "行送り",
+            Number::Dansuu => "段数",
+            Number::DanSpace => "段の隙間",
+            Number::MarginTop => "余白／上",
+            Number::MarginBottom => "余白／下",
+            Number::MarginLeft => "余白／左",
+            Number::MarginRight => "余白／右",
+        }
+    }
+
     /// The value of the field for `s` (`OnChangeSettingType`): the lengths the dialog shows in mm
     /// are the setting's in 1/10 mm divided by 10.
     pub(crate) fn of(self, s: &PrintSetting) -> i32 {
@@ -160,6 +175,13 @@ pub(crate) fn header_font_label(font: Option<&HeaderFooterFont>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_number_field_has_its_own_name() {
+        let names: std::collections::HashSet<_> = Number::ALL.iter().map(|n| n.name()).collect();
+        assert_eq!(names.len(), Number::ALL.len());
+        assert!(names.iter().all(|n| !n.is_empty() && !n.contains('(')));
+    }
 
     fn texts(values: [&str; 8]) -> [String; 8] {
         values.map(str::to_owned)

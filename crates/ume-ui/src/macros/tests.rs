@@ -75,8 +75,13 @@ impl Fixture {
 
     /// Lets the macro's process and the window talk until the macro ends.
     fn wait_until_done(&self, cx: &mut VisualTestContext) {
+        self.wait_until_done_within(cx, 1500);
+    }
+
+    /// Like `wait_until_done`, for `rounds` rounds of at least 20 ms each.
+    fn wait_until_done_within(&self, cx: &mut VisualTestContext, rounds: usize) {
         cx.executor().allow_parking();
-        for _ in 0..1500 {
+        for _ in 0..rounds {
             cx.run_until_parked();
             if !self.running(cx) {
                 return;
@@ -758,11 +763,12 @@ fn a_script_that_prints_a_lot_does_not_block_the_window(cx: &mut TestAppContext)
     }
     // The deadline this test can miss is the script's own timeout (`DEFAULT_TIMEOUT`, 30 s): the
     // time the host's reader waits for the window counts against it, and the window takes a
-    // line in about 130 us in a debug build (4 s for 30 000 lines when the machine is idle),
-    // which a busy machine made eight times as long. The output keeps 5000 lines, so 12 000 lines
-    // are enough to show that the flood is capped and that the window is not blocked; a real
-    // slowdown of the window (a tenfold cost per line) would still end the script by the timeout.
-    const LINES: usize = 12_000;
+    // line in about 130 us in a debug build, which a busy machine (other builds and tests at the
+    // same time) made many times as long: 12 000 lines failed on CI and on loaded machines. The
+    // output keeps 5000 lines, so 5500 lines are enough to show that the flood is capped and that
+    // the window is not blocked, and this test alone gets a timeout of 5 minutes. A window that
+    // really blocks still ends the script by the timeout.
+    const LINES: usize = 5_500;
     let dir = tempfile::tempdir().unwrap();
     let script = write(
         dir.path(),
@@ -772,8 +778,12 @@ fn a_script_that_prints_a_lot_does_not_block_the_window(cx: &mut TestAppContext)
         ),
     );
     let (f, cx) = setup(cx, "");
+    f.view.update(cx, |v, _| {
+        v.macros.script_timeout = Some(Duration::from_secs(300));
+    });
     f.run(cx, F_EXECEXTMACRO, &[text_arg(&script)]);
-    f.wait_until_done(cx);
+    // 300 s: as long as the timeout above
+    f.wait_until_done_within(cx, 15_000);
     assert_eq!(f.lines(cx), ["end"]);
     let output = f.output(cx);
     assert!(

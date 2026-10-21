@@ -198,6 +198,10 @@ pub(crate) struct Control {
     pub key_default: i32,
     /// What a change of this control does to the other values.
     pub changed: Changed,
+    /// The name a screen reader says, for a control whose own label is empty because Sakura
+    /// draws its caption as a separate text (or as the title of a group box, or on the check box
+    /// next to it). Empty: the name is made from the label ([`Control::accessible_name`]).
+    pub name: &'static str,
 }
 
 impl Control {
@@ -221,6 +225,7 @@ impl Control {
             bit: 0,
             key_default: 0,
             changed: unchanged,
+            name: "",
         }
     }
 
@@ -344,6 +349,23 @@ impl Control {
     pub(crate) const fn unavailable(mut self) -> Self {
         self.live = false;
         self
+    }
+
+    /// The name a screen reader says for the control, when its label is empty (see
+    /// [`Control::name`]). Write it without an access key mark.
+    pub(crate) const fn named(mut self, name: &'static str) -> Self {
+        self.name = name;
+        self
+    }
+
+    /// The name a screen reader says: [`Control::name`] if the page gave one, else the label
+    /// without its access key mark.
+    pub(crate) fn accessible_name(&self) -> String {
+        if self.name.is_empty() {
+            crate::a11y::plain_name(self.label)
+        } else {
+            self.name.to_owned()
+        }
     }
 
     /// The control can be used only while `enabled` says so.

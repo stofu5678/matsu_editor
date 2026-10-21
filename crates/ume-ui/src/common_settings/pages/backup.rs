@@ -95,6 +95,7 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
             .when(on)
             .into(),
             Control::text("backup_file", "", "szBackUpPathAdvanced", "")
+                .named("詳細設定の書式")
                 .when(advanced_enabled)
                 .into(),
             Control::radio(

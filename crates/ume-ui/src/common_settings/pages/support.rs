@@ -96,7 +96,9 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
         Item::Group(
             "外部ヘルプの設定(&L)",
             vec![Item::Row(vec![
-                Control::text(EXT_HELP, "", "szExtHelp", "").into(),
+                Control::text(EXT_HELP, "", "szExtHelp", "")
+                    .named("外部ヘルプの設定")
+                    .into(),
                 Control::button("helper_ext_help_ref", "(&1)...", browse_ext_help).into(),
             ])],
         ),
@@ -104,7 +106,9 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
             "外部HTMLヘルプの設定(&P)",
             vec![
                 Item::Row(vec![
-                    Control::text(EXT_HTML_HELP, "", "szExtHtmlHelp", "").into(),
+                    Control::text(EXT_HTML_HELP, "", "szExtHtmlHelp", "")
+                        .named("外部HTMLヘルプの設定")
+                        .into(),
                     Control::button("helper_ext_html_help_ref", "(&2)...", browse_ext_html_help)
                         .into(),
                 ]),
