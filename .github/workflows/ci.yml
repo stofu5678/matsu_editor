@@ -44,7 +44,9 @@ jobs:
           code=true
           if [ "$EVENT" = pull_request ]; then
             files=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}/files" --paginate --jq '.[].filename')
-            if [ -n "$files" ] && ! printf '%s\n' "$files" | grep -Ev '(\.md$|^docs/)' > /dev/null; then
+            # The API lists at most 3000 files: a longer change may hide code, so it counts as code.
+            count=$(printf '%s\n' "$files" | wc -l)
+            if [ -n "$files" ] && [ "$count" -lt 3000 ] && !printf '%s\n' "$files" | grep -Ev '(\.md$|^docs/)' > /dev/null; then
               code=false
             fi
             printf 'changed files:\n%s\n' "$files"
