@@ -730,3 +730,24 @@ fn a_plain_search_never_reaches_the_break_but_keeps_it() {
     assert_eq!(outcome.hits, 3);
     assert_eq!(p.read("a.txt"), b"aXY\r\naXY\naXY");
 }
+
+#[test]
+fn changing_the_kind_of_the_break_keeps_every_line() {
+    // The breaks are rewritten line by line, and the CR that one line gets must not join the LF
+    // of the next while the edits are made (the file has the bytes the replacements built).
+    for (name, bytes, key, new, want) in [
+        ("lf to cr", &b"a\n\nb"[..], r"\n", "\\r", &b"a\r\rb"[..]),
+        ("crlf to cr", b"a\r\n\r\nb\r\n", r"\r\n", "\\r", b"a\r\rb\r"),
+        ("crlf to lf", b"a\r\n\r\nb", r"\r\n", "\\n", b"a\n\nb"),
+        ("cr to lf", b"a\r\rb\r", r"\r", "\\n", b"a\n\nb\n"),
+        // a CR in front of the LF of an empty line that is not replaced: the file has CR LF there
+        ("cr before lf", b"a\n\n\nb\n", r"a\n", "a\\r", b"a\r\n\nb\n"),
+    ] {
+        let p = Project::new();
+        p.write("a.txt", bytes);
+        let mut info = p.info(key, new);
+        info.options = regex();
+        let (text, _) = grep(&info);
+        assert_eq!(p.read("a.txt"), want, "{name}: {text}");
+    }
+}

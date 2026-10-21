@@ -183,7 +183,9 @@ impl Runner<'_> {
         if !any_hit {
             return Ok(());
         }
-        let replaced = apply_replacements(&mut doc, &plan).map(|_| replaced).ok();
+        let replaced = apply_replacements(&mut doc, &merge_adjacent(plan))
+            .map(|_| replaced)
+            .ok();
         let Some(replaced) = replaced else {
             self.buffer.push_str(&format::file_read_error(paths.full));
             return Ok(());
@@ -285,6 +287,24 @@ fn put_in(whole: &str, hits: &[ume_core::search::Match], text: &str) -> (String,
     }
     out.push_str(&whole[at..]);
     (out, count)
+}
+
+/// Puts edits that touch each other (one ends where the next begins: the lines whose break is
+/// replaced) into one. The document joins a CR and an LF that meet at the seam of two edits into
+/// one CR LF, and the positions of the second edit are then wrong; as one edit the text is
+/// just what the lines were replaced with, as Sakura writes it.
+fn merge_adjacent(plan: Vec<Replacement>) -> Vec<Replacement> {
+    let mut merged: Vec<Replacement> = Vec::with_capacity(plan.len());
+    for next in plan {
+        match merged.last_mut() {
+            Some(last) if last.end == next.start => {
+                last.end = next.end;
+                last.text.push_str(&next.text);
+            }
+            _ => merged.push(next),
+        }
+    }
+    merged
 }
 
 /// The edit that makes line `index` (`text` and its break `eol`; `whole` is both) into `new`,
