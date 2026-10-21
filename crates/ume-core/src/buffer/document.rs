@@ -118,12 +118,6 @@ impl Document {
         self.st.ext_eol()
     }
 
-    /// Whether NEL, LS and PS ended a line in the original bytes, as they were read. The saver
-    /// needs it to find the same endings after the setting changed.
-    pub(crate) fn loaded_ext_eol(&self) -> bool {
-        self.st.load_ext_eol()
-    }
-
     /// Changes whether NEL, LS and PS end a line in text added by later edits. The lines that exist
     /// keep their endings and are not split or joined again: Sakura reads the setting where it
     /// sets a line (`CDocLine::SetDocLineString`), so a change reaches the lines made after it and
@@ -501,7 +495,12 @@ impl Document {
             None => tree::concat(left, right),
             Some((s, e)) => Some(match tree::last_piece(&left) {
                 // Typing continues the piece that ends where this text starts.
-                Some(last) if last.store == Store::Add && last.end == s => {
+                // (not across a change of the setting: a piece is scanned under one setting)
+                Some(last)
+                    if last.store == Store::Add
+                        && last.end == s
+                        && self.st.add_ext_eol_at(last.start) == self.st.ext_eol() =>
+                {
                     let merged = self.st.piece(Store::Add, last.start, e);
                     let rest = tree::pop_last(&left).and_then(|(rest, _)| rest);
                     tree::join(rest, merged, right)
@@ -564,18 +563,32 @@ pub struct Chunks<'a> {
     pieces: std::vec::IntoIter<tree::Piece>,
 }
 
-impl<'a> Iterator for Chunks<'a> {
-    type Item = Result<Chunk<'a>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
+impl<'a> Chunks<'a> {
+    /// The next chunk and whether NEL, LS and PS ended lines in it when its line endings were
+    /// found (the setting at the time: the original's at load, added text's at the edit). A saver
+    /// that finds the endings again must use it, not the setting now.
+    pub(crate) fn next_with_ext_eol(&mut self) -> Option<Result<(Chunk<'a>, bool)>> {
         let p = self.pieces.next()?;
         let doc: &'a Document = self.doc;
         let st = &doc.st;
         Some(match p.store {
-            Store::Original => st.read_original(p.start, p.end).map(Chunk::Original),
+            Store::Original => st
+                .read_original(p.start, p.end)
+                .map(|b| (Chunk::Original(b), st.load_ext_eol())),
             Store::Add => st.with_bytes(Store::Add, p.start, p.end, |b| {
-                Chunk::Added(String::from_utf8_lossy(b).into_owned())
+                (
+                    Chunk::Added(String::from_utf8_lossy(b).into_owned()),
+                    st.add_ext_eol_at(p.start),
+                )
             }),
         })
+    }
+}
+
+impl<'a> Iterator for Chunks<'a> {
+    type Item = Result<Chunk<'a>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(self.next_with_ext_eol()?.map(|(chunk, _)| chunk))
     }
 }

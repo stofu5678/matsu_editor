@@ -332,6 +332,10 @@ pub(crate) struct Original {
 pub(crate) struct AddBuf {
     pub data: Vec<u8>,
     pub index: LineIndex,
+    /// `(first byte, setting)` for each run of text that was added under one setting of
+    /// `bEnableExtEol`. The index above was made with it, and a saver that scans the text again
+    /// must use the same one.
+    pub epochs: Vec<(usize, bool)>,
 }
 
 impl AddBuf {
@@ -341,9 +345,13 @@ impl AddBuf {
         let end = start.checked_add(text.len()).ok_or(BufferError::TooLarge)?;
         let before = self.index.len();
         self.data.try_reserve(text.len())?;
+        self.epochs.try_reserve(1)?;
         self.index
             .scan(codec::utf8(), text.as_bytes(), start, ext_eol)?;
         self.data.extend_from_slice(text.as_bytes());
+        if self.epochs.last().is_none_or(|&(_, on)| on != ext_eol) {
+            self.epochs.push((start, ext_eol));
+        }
         // A CR at the end of the old text and an LF at the start of the new text are one CRLF.
         if before > 0
             && self.index.len() > before
@@ -384,6 +392,14 @@ impl Storages {
 
     pub fn ext_eol(&self) -> bool {
         self.ext_eol.load(Ordering::Relaxed)
+    }
+
+    /// The setting that the added text at byte `offset` was scanned under.
+    pub fn add_ext_eol_at(&self, offset: usize) -> bool {
+        let add = self.add_read();
+        let i = add.epochs.partition_point(|&(first, _)| first <= offset);
+        i.checked_sub(1)
+            .map_or_else(|| self.ext_eol(), |i| add.epochs[i].1)
     }
 
     pub fn load_ext_eol(&self) -> bool {

@@ -62,17 +62,25 @@ fn copy_crlf_changes_the_line_endings() {
 }
 
 #[test]
-fn copy_crlf_keeps_the_extended_characters_when_the_document_does_not_count_them() {
-    // `bEnableExtEol` off: NEL is a character of the line, not a line ending.
+fn copy_crlf_follows_the_endings_the_document_has_not_the_setting() {
+    // Made with `bEnableExtEol` off: the NEL is a character. Turning the setting on afterwards
+    // does not make it an ending (Sakura copies with the ending recorded in each line).
     let mut e = Editor::new("|");
     e.model().doc().set_ext_eol(false);
-    e.run_with("input_char", &[Arg::Char('a')]);
-    e.run_with("input_char", &[Arg::Char('\u{85}')]);
-    e.run_with("input_char", &[Arg::Char('b')]);
+    for c in ['a', '\u{85}', 'b'] {
+        e.run_with("input_char", &[Arg::Char(c)]);
+    }
     assert_eq!(e.model().doc().line_count(), 1);
+    e.model().doc().set_ext_eol(true);
     e.run("select_all");
     e.run("copy_crlf");
     assert_eq!(clip(&e), normal("a\u{85}b"));
+    // Made with it on: the NEL is an ending, and stays one when the setting is turned off.
+    let mut e = Editor::new("a\u{85}b|");
+    e.model().doc().set_ext_eol(false);
+    e.run("select_all");
+    e.run("copy_crlf");
+    assert_eq!(clip(&e), normal("a\r\nb"));
 }
 
 #[test]

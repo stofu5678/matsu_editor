@@ -1432,3 +1432,30 @@ fn the_original_keeps_its_endings_when_the_setting_changes_before_a_save() {
     file.save_as(&target, &options, &mut no_progress).unwrap();
     assert_eq!(fs::read(&target).unwrap(), b"a\nb\nc");
 }
+
+#[test]
+fn added_text_keeps_its_endings_when_the_setting_changes_before_a_save() {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", b"");
+    let mut options = SaveOptions::for_encoding(Encoding::Utf8);
+    options.eol = Some(Eol::Lf);
+    // Typed with the setting off, then it is turned on: the NEL stays a character. The text
+    // typed next to it after the change is scanned under the new setting.
+    let mut file = open_ext(&path, Encoding::Utf8, false);
+    file.document.insert(Pos::new(0, 0), "a\u{85}b").unwrap();
+    file.document.set_ext_eol(true);
+    file.document.insert(Pos::new(0, 4), "c\u{85}d").unwrap();
+    assert_eq!(file.document.line_count(), 2);
+    let target = dir.0.join("off-then-on.txt");
+    file.save_as(&target, &options, &mut no_progress).unwrap();
+    assert_eq!(fs::read(&target).unwrap(), "a\u{85}bc\nd".as_bytes());
+    // The other way round: the NEL typed with the setting on is still a line ending.
+    let mut file = open_ext(&path, Encoding::Utf8, true);
+    file.document.insert(Pos::new(0, 0), "a\u{85}b").unwrap();
+    file.document.set_ext_eol(false);
+    file.document.insert(Pos::new(1, 1), "c\u{85}d").unwrap();
+    assert_eq!(file.document.line_count(), 2);
+    let target = dir.0.join("on-then-off.txt");
+    file.save_as(&target, &options, &mut no_progress).unwrap();
+    assert_eq!(fs::read(&target).unwrap(), "a\nbc\u{85}d".as_bytes());
+}
