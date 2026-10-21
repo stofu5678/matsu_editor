@@ -575,12 +575,16 @@ impl<'a> Chunks<'a> {
             Store::Original => st
                 .read_original(p.start, p.end)
                 .map(|b| (Chunk::Original(b), st.load_ext_eol())),
-            Store::Add => st.with_bytes(Store::Add, p.start, p.end, |b| {
-                (
-                    Chunk::Added(String::from_utf8_lossy(b).into_owned()),
-                    st.add_ext_eol_at(p.start),
-                )
-            }),
+            Store::Add => {
+                // Read before `with_bytes`, which holds the lock of the add buffer.
+                let ext_eol = st.add_ext_eol_at(p.start);
+                st.with_bytes(Store::Add, p.start, p.end, |b| {
+                    (
+                        Chunk::Added(String::from_utf8_lossy(b).into_owned()),
+                        ext_eol,
+                    )
+                })
+            }
         })
     }
 }
