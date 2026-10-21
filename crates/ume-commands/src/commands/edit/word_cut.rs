@@ -89,7 +89,7 @@ mod tests {
     fn view_mode_refuses_it() {
         let mut e = Editor::new("foo b|ar baz");
         e.set_view_mode(true);
-        assert!(e.try_run("word_cut", &[]).is_err());
+        assert!(e.try_run("word_cut", &[]).is_ok());
         e.assert_marked("foo [bar| baz");
     }
 }

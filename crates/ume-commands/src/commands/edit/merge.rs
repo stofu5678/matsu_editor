@@ -76,6 +76,19 @@ mod tests {
     }
 
     #[test]
+    fn a_box_selection_is_left_alone_without_a_beep() {
+        // `Command_MERGE`: `if IsBoxSelecting() return`, no `ErrorBeep()`; a macro goes on.
+        let mut e = Editor::new("|a\na\nb\n");
+        e.run("begin_box").run("cursor_down").run("cursor_right");
+        let (marked, state) = (e.marked(), e.box_state());
+        assert!(e.try_run("merge", &[]).is_ok());
+        assert!(!e.changes().beep);
+        assert!(!e.changes().text_changed());
+        assert_eq!(e.marked(), marked);
+        assert_eq!(e.box_state(), state);
+    }
+
+    #[test]
     fn does_nothing_without_a_selection() {
         check("merge", "a\n|a\n", "a\n|a\n");
     }

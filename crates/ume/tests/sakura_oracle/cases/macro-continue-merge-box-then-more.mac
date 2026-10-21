@@ -1,0 +1,11 @@
+// input: ascii.dup.lf
+// code: 0
+Down();
+BeginBoxSelect();
+Right_BoxSel();
+Down_BoxSel();
+Merge();
+Down();
+InsText('Z');
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

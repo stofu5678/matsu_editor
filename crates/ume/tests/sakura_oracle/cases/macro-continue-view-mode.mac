@@ -1,0 +1,11 @@
+// input: ascii.grid.lf
+// code: 0
+ViewMode();
+InsText('X');
+Delete();
+DeleteBack();
+Undo();
+ViewMode();
+InsText('Y');
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

@@ -207,7 +207,7 @@ impl<'a> CommandContext<'a> {
 
     /// Sets view mode before the command runs (the default is off). While it is on, the text
     /// cannot be changed: an edit, undo, redo and the switch between insert and overwrite mode
-    /// beep and fail with [`CommandError::Unavailable`]. Sakura (`F_VIEWMODE`,
+    /// beep and are refused ([`CommandError::Refused`], which a command run through the registry turns into `Ok`: the macro goes on). Sakura (`F_VIEWMODE`,
     /// `CEditDoc::IsEditable` and `EIsModificationForbidden` in `sakura_core/doc/CEditDoc.cpp`)
     /// greys out those functions; here the one place every edit goes through refuses them, so keys,
     /// macros and plugins are covered alike.
@@ -407,7 +407,7 @@ impl<'a> CommandContext<'a> {
         self.refuse_in_view_mode()?;
         if self.cursor.is_box() && self.caret_is_in_empty_space()? {
             self.beep();
-            return Err(CommandError::Unavailable("editing a box selection"));
+            return Err(CommandError::Refused("editing a box selection"));
         }
         self.refuse_box_selection()
     }
@@ -416,7 +416,7 @@ impl<'a> CommandContext<'a> {
     pub(crate) fn refuse_in_view_mode(&mut self) -> Result<()> {
         if self.view_mode {
             self.beep();
-            return Err(CommandError::Unavailable("editing in view mode"));
+            return Err(CommandError::Refused("editing in view mode"));
         }
         Ok(())
     }
@@ -426,7 +426,7 @@ impl<'a> CommandContext<'a> {
     pub(crate) fn refuse_box_selection(&mut self) -> Result<()> {
         if self.cursor.is_box() && self.cursor.has_selection() {
             self.beep();
-            return Err(CommandError::Unavailable("editing a box selection"));
+            return Err(CommandError::Refused("editing a box selection"));
         }
         Ok(())
     }
