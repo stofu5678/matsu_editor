@@ -11,9 +11,8 @@ name: E2E
 
 # To keep the runners free for other pull requests (the account has a limit of concurrent jobs),
 # a pull request runs this workflow only when a file that it uses changes, not as a draft, and
-# on fewer targets: `smoke` on all but linux-arm64, `screens` on windows-x64 and macos-arm64 only
-# (the windows-arm64 runner shows the first-run screen of Windows over the window, and the Linux
-# runners have no Japanese fonts). A push to main runs all five targets of both jobs.
+# on fewer targets: `smoke` on all but linux-arm64, `screens` on windows-x64 and macos-arm64 only.
+# A push to main (or a manual run) runs all five targets of both jobs.
 on:
   push:
     branches: [main]

@@ -22,7 +22,11 @@
 - Linux: xvfb（仮想ディスプレイ）の画面を ImageMagick の `import -window root` で撮る。ワークフローが `imagemagick` を apt で入れる
 - macOS: `screencapture`。ランナーの画面収録の許可が無いと、ウィンドウの写っていない写真になる。そのときはテストを失敗にせず、警告を出す
 
-Windows ARM64 のランナー（`windows-11-arm`）は、デスクトップの全面に Windows の初回設定の画面（"Choose privacy settings"）が出ていて、画面の写真はその画面になる（2026-10-21 に確認）。そこで `UME_E2E_SOFT_SCREENS=1` にして、写真が撮れなくても失敗にせず、UIA のテストは写真を撮らない（UIA の操作そのものは動く）。Windows ARM64 の見た目は、Windows x64 の写真で見る。
+Windows ARM64 のランナー（`windows-11-arm`）は、デスクトップの全面に Windows の初回設定の画面（"Choose privacy settings"）を出していて、写真はその画面になっていた（2026-10-21 に確認）。`scripts/windows-clear-privacy-screen.ps1` が、方針 `DisablePrivacyExperience` を書き、その画面のプロセスを止め、そのあとに出てくるスタートメニューと `wsl.exe` のコンソール（"Windows Subsystem for Linux must be updated"）を閉じてから写真を撮る。そのスクリプトが前後のデスクトップの写真（`windows-arm64-desktop-before.png` と `-after.png`）も残すので、効いているかは成果物で分かる。Linux のランナーには日本語フォントが無いので、ワークフローが `fonts-noto-cjk` を入れる。
+
+手動で全 5 対象を動かすには `gh workflow run e2e.yml --ref <ブランチ>`。
+
+（環境変数 `UME_E2E_SOFT_SCREENS=1` は、画面を信用できない環境のために残してある。ワークフローは今は設定しない。）
 
 検査は 2 つだけ。画面が 640x480 以上であること、起動前の画面と違うこと。
 
