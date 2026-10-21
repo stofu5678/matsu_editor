@@ -3,8 +3,8 @@
 //! A toolbar button is a picture, so its name is the name of its function
 //! (`crate::func_name`, the same as its tooltip's first line). A function key's name is the key
 //! and the function: `F5 検索`. A button that is on (`pressed`, the toggles) is reported as
-//! toggled. Disabled buttons are not marked as such yet (GPUI has no disabled state on a plain
-//! element); they simply have no action.
+//! toggled. A button that is gray is reported as disabled by the caller (`crate::a11y::disabled`:
+//! GPUI has no disabled state on a plain element).
 
 use gpui::{
     Div, Role, Stateful, StatefulInteractiveElement as _, Toggled, prelude::FluentBuilder as _,

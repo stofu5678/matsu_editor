@@ -35,7 +35,7 @@ use super::model::{Control, Item, Kind, Value, Values, parse_label};
 use super::semantics;
 use super::table::{self, Op, Refused};
 use super::{LastPage, Page, all_controls, apply};
-use crate::a11y::plain_name;
+use crate::a11y::{AriaDisabled as _, plain_name};
 use crate::file_dialog::{self, Ask};
 use crate::file_ops::windows::editors;
 use crate::type_settings::{self, TypeSheet, TypeTarget};
@@ -952,6 +952,7 @@ impl CommonSettingsDialog {
                         .accessibility_label(name)
                         .checked(self.values.bool(id))
                         .disabled(!usable)
+                        .aria_disabled(!usable)
                         .on_click(cx.listener(move |this, on: &bool, _, cx| {
                             this.set_bool(id, *on, cx);
                         })),
@@ -967,6 +968,7 @@ impl CommonSettingsDialog {
                         .accessibility_label(name)
                         .checked(self.values.int(id) == value)
                         .disabled(!usable)
+                        .aria_disabled(!usable)
                         .on_click(cx.listener(move |this, _: &bool, _, cx| {
                             this.set_int(id, value, cx);
                         })),

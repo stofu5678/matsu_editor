@@ -9,7 +9,10 @@
 //! The tests read the elements, not the whole tree: GPUI's test platform never connects an
 //! assistive technology, so a test window builds no tree and `debug_a11y_tree_json` stays `None`.
 
-use gpui::{Div, Role, Stateful, StatefulInteractiveElement as _};
+use gpui::{
+    A11ySubtreeBuilder, App, Bounds, Div, Element, ElementId, GlobalElementId, InspectorElementId,
+    IntoElement, LayoutId, Pixels, Role, Stateful, StatefulInteractiveElement, Window,
+};
 
 use crate::common_settings::model::parse_label;
 
@@ -65,6 +68,177 @@ pub(crate) fn without_key_hint(label: &str) -> String {
         return format!("{}{dots}", &stem[..open]);
     }
     label.to_owned()
+}
+
+/// An element that reports its node as disabled (AccessKit's `disabled`) while `disabled` is
+/// set. GPUI's elements have no setter for it (`aria_*` has no disabled), so this wraps the
+/// element and writes the flag after the element has written its own properties. Everything else
+/// is the wrapped element's.
+pub(crate) struct Disabled<E> {
+    inner: E,
+    disabled: bool,
+}
+
+/// `inner`, reported as disabled while `disabled` is set (see [`Disabled`]).
+pub(crate) fn disabled<E: Element>(inner: E, disabled: bool) -> Disabled<E> {
+    Disabled { inner, disabled }
+}
+
+impl<E: Element> IntoElement for Disabled<E> {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl<E: Element> Element for Disabled<E> {
+    type RequestLayoutState = E::RequestLayoutState;
+    type PrepaintState = E::PrepaintState;
+
+    fn id(&self) -> Option<ElementId> {
+        self.inner.id()
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        self.inner.source_location()
+    }
+
+    fn request_layout(
+        &mut self,
+        id: Option<&GlobalElementId>,
+        inspector_id: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, Self::RequestLayoutState) {
+        self.inner.request_layout(id, inspector_id, window, cx)
+    }
+
+    fn prepaint(
+        &mut self,
+        id: Option<&GlobalElementId>,
+        inspector_id: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        request_layout: &mut Self::RequestLayoutState,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Self::PrepaintState {
+        self.inner
+            .prepaint(id, inspector_id, bounds, request_layout, window, cx)
+    }
+
+    fn paint(
+        &mut self,
+        id: Option<&GlobalElementId>,
+        inspector_id: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        request_layout: &mut Self::RequestLayoutState,
+        prepaint: &mut Self::PrepaintState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.inner.paint(
+            id,
+            inspector_id,
+            bounds,
+            request_layout,
+            prepaint,
+            window,
+            cx,
+        );
+    }
+
+    fn a11y_role(&self) -> Option<Role> {
+        self.inner.a11y_role()
+    }
+
+    fn write_a11y_info(&self, node: &mut gpui::accesskit::Node) {
+        self.inner.write_a11y_info(node);
+        if self.disabled {
+            node.set_disabled();
+        }
+    }
+
+    fn a11y_synthetic_children(
+        &mut self,
+        prepaint: &mut Self::PrepaintState,
+        builder: &mut A11ySubtreeBuilder,
+    ) {
+        self.inner.a11y_synthetic_children(prepaint, builder);
+    }
+}
+
+/// Marks a gpui-component control that is a stateful element (a check box, a radio button) as
+/// disabled. These are components, not elements, so [`disabled`] cannot wrap them: the flag is
+/// written to the node through the synthetic children hook, which can reach its parent node. (A
+/// test window builds no tree, so only the real window shows the effect.) gpui-component's
+/// buttons and edit boxes are not stateful elements and cannot take it.
+pub(crate) trait AriaDisabled: StatefulInteractiveElement + Sized {
+    fn aria_disabled(self, disabled: bool) -> Self {
+        if disabled {
+            self.a11y_synthetic_children(|builder| builder.parent_node().set_disabled())
+        } else {
+            self
+        }
+    }
+}
+
+impl<T: StatefulInteractiveElement> AriaDisabled for T {}
+
+/// A label of a menu item as `(name, shortcut)`: a menu draws the shortcut after the label,
+/// four spaces apart (`menu::label_with_shortcut`). The name has no access key hint either.
+pub(crate) fn split_menu_label(label: &str) -> (String, Option<String>) {
+    let (name, shortcut) = match label.rsplit_once("    ") {
+        Some((name, shortcut)) if !shortcut.is_empty() => (name, Some(shortcut.to_owned())),
+        _ => (label, None),
+    };
+    (without_key_hint(&plain_name(name)), shortcut)
+}
+
+/// What a screen reader says of a checked popup menu item, and of a gray one.
+const CHECKED: &str = "チェック済み";
+const UNAVAILABLE: &str = "使用不可";
+
+/// The content of a popup menu item that UME draws itself (`menu_icons::item_element`), as a node
+/// inside the item. gpui-component gives the item node (`MenuItem`) a name only when it draws
+/// the label itself, and has no way to give it a checked or disabled state, a shortcut or a
+/// position. AccessKit names a menu item from the `value` of the `Label` nodes inside it (and
+/// skips any other role), and passes on nothing else from them, so this is a `Label` whose value
+/// is what a screen reader should say for the item: the name, then the shortcut, `チェック済み`
+/// and `使用不可` as they apply. The node also carries them as properties (name, keyboard
+/// shortcut, toggled, description), for a client that reads the node itself.
+pub(crate) fn popup_item_content(
+    element: Stateful<Div>,
+    label: &str,
+    checked: bool,
+    disabled: bool,
+) -> Stateful<Div> {
+    let (name, shortcut) = split_menu_label(label);
+    let mut spoken = name.clone();
+    for part in shortcut
+        .iter()
+        .map(String::as_str)
+        .chain(checked.then_some(CHECKED))
+        .chain(disabled.then_some(UNAVAILABLE))
+    {
+        spoken.push('、');
+        spoken.push_str(part);
+    }
+    let element = element
+        .role(Role::Label)
+        .aria_label(name)
+        .aria_value(spoken);
+    let element = match shortcut {
+        Some(shortcut) => element.aria_keyshortcuts(shortcut),
+        None => element,
+    };
+    if checked {
+        element
+            .aria_toggled(gpui::Toggled::True)
+            .aria_description(CHECKED)
+    } else {
+        element
+    }
 }
 
 /// What `element` reports to the accessibility tree: its role and the properties it writes.
@@ -129,6 +303,64 @@ mod tests {
             assert!(json.contains("MultilineTextInput"), "{json}");
             assert!(json.contains(EDITOR_NAME), "{json}");
         }
+    }
+
+    #[test]
+    fn a_disabled_element_reports_disabled_and_keeps_the_rest() {
+        let on = disabled(editor(gpui::div().id("e")), true);
+        let node = node_of(&on).unwrap();
+        assert!(node.is_disabled());
+        assert_eq!(node.role(), Role::MultilineTextInput);
+        assert_eq!(node.label(), Some(EDITOR_NAME));
+        let off = disabled(editor(gpui::div().id("e")), false);
+        assert!(!node_of(&off).unwrap().is_disabled());
+        // No id: not in the tree, disabled or not.
+        assert!(node_of(&disabled(gpui::div(), true)).is_none());
+    }
+
+    #[test]
+    fn a_popup_item_content_carries_name_shortcut_and_check() {
+        let plain = node_of(&popup_item_content(
+            gpui::div().id("i"),
+            "元に戻す(U)    Ctrl+Z",
+            false,
+            false,
+        ))
+        .unwrap();
+        assert_eq!(plain.role(), Role::Label);
+        assert_eq!(plain.label(), Some("元に戻す"));
+        // The enclosing menu item is named from this value.
+        assert_eq!(plain.value(), Some("元に戻す、Ctrl+Z"));
+        assert_eq!(plain.keyboard_shortcut(), Some("Ctrl+Z"));
+        assert_eq!(plain.toggled(), None);
+
+        let checked = node_of(&popup_item_content(
+            gpui::div().id("i"),
+            "折り返し(W)",
+            true,
+            true,
+        ))
+        .unwrap();
+        assert_eq!(checked.role(), Role::Label);
+        assert_eq!(checked.label(), Some("折り返し"));
+        assert_eq!(checked.value(), Some("折り返し、チェック済み、使用不可"));
+        assert_eq!(checked.description(), Some(CHECKED));
+        assert_eq!(checked.keyboard_shortcut(), None);
+        assert_eq!(checked.toggled(), Some(gpui::Toggled::True));
+    }
+
+    #[test]
+    fn a_menu_label_splits_into_name_and_shortcut() {
+        assert_eq!(
+            split_menu_label("元に戻す(U)    Ctrl+Z"),
+            ("元に戻す".to_owned(), Some("Ctrl+Z".to_owned()))
+        );
+        assert_eq!(
+            split_menu_label("開く(&O)..."),
+            ("開く...".to_owned(), None)
+        );
+        assert_eq!(split_menu_label("コピー(C)"), ("コピー".to_owned(), None));
+        assert_eq!(split_menu_label(""), (String::new(), None));
     }
 
     #[test]
