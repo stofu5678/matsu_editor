@@ -222,6 +222,8 @@ pub struct ViewSettings {
     /// The font is a TrueType (outline) font (`lfOutPrecision` is `OUT_STROKE_PRECIS` or
     /// `OUT_PS_ONLY_PRECIS`): `Command_SETFONTSIZE` changes the size of such fonts only.
     pub font_truetype: bool,
+    /// The type has a font of its own (`m_bUseTypeFont`).
+    pub use_type_font: bool,
     pub tab_width: u32,
     /// `bInsSpace`: the Tab key inserts spaces (`ChangeInsertSpace` changes it for this view).
     pub ins_space: bool,
@@ -480,6 +482,7 @@ impl ViewSettings {
             font_weight: font.log_font.weight,
             font_italic: font.log_font.italic != 0,
             font_truetype: crate::font_dialog::model::is_truetype(font.log_font.out_precision),
+            use_type_font: t.use_type_font,
             tab_width: u32::try_from(t.tab_space).unwrap_or(4).max(1),
             ins_space: t.ins_space,
             word_wrap: t.word_wrap,

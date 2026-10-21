@@ -14,8 +14,8 @@
 //!   BOM ignores it ([`SaveFields::choice`]).
 //! * The first line ending is the document's (`変換なし` unless a line ending was chosen before),
 //!   where Sakura's list always starts at `変換なし`.
-//! * Sakura's dialog also has the lists of recent files and folders (`COMBO_MRU`,
-//!   `COMBO_OPENFOLDER`): not here.
+//! * The lists of recent files and folders (`COMBO_MRU`, `COMBO_OPENFOLDER`) come after these fields
+//!   (`Ask::recent`), so the places below do not move.
 
 use ume_core::buffer::Eol;
 use ume_core::encoding::Encoding;

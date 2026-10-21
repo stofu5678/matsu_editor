@@ -46,6 +46,7 @@ fn build_with(
             keymap: &keymap(),
             available,
             lists,
+            parentheses: true,
         },
     )
 }
@@ -114,6 +115,33 @@ fn a_function_without_a_command_is_grayed_out() {
     let shown = items(&rows);
     assert!(shown[0].enabled);
     assert!(shown[1..].iter().all(|i| !i.enabled));
+}
+
+// `CKeyBind::MakeMenuLabel` reads `bKeyParentheses` for every menu, the custom menus too: without it a
+// name that has its key as a letter shows no `(K)`.
+#[test]
+fn the_parentheses_setting_applies_to_custom_menus() {
+    let all_menus = menus(
+        "[CustMenu]\nszCMN[03]=Mine\nnCMIN[03]=1\nnCMIF[03][00]=SelectAll\nnCMIK[03][00]=A\n\
+         nCMIN[02]=1\nnCMIF[02][00]=31503\nnCMIK[02][00]=M\n",
+    );
+    let build = |parentheses| {
+        entries(
+            2,
+            &Context {
+                menus: &all_menus,
+                macros: &Default::default(),
+                keymap: &keymap(),
+                available: &all,
+                lists: &NoLists,
+                parentheses,
+            },
+        )
+    };
+    let with = build(true);
+    assert_eq!(items(submenu(&with, "Mine(M)"))[0].label, "すべて選択(A)");
+    let without = build(false);
+    assert_eq!(items(submenu(&without, "Mine"))[0].label, "すべて選択(A)");
 }
 
 #[test]

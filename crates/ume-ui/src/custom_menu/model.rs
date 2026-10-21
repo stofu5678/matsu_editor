@@ -53,7 +53,7 @@ use ume_config::settings::CustomMenus;
 use ume_config::settings::custom_menu::INDEX_FOR_RBUTTONUP;
 use ume_config::settings::macros::RegisteredMacros;
 
-use crate::menu::{Available, Entry, Item, Lists, MenuAction, menu_label};
+use crate::menu::{Available, Entry, Item, Lists, MenuAction, menu_label_with};
 
 /// `F_MENU_RBUTTON`, the right-click menu.
 pub(crate) const F_MENU_RBUTTON: u16 = 31580;
@@ -96,6 +96,9 @@ pub(crate) struct Context<'a> {
     pub keymap: &'a KeyMap,
     pub available: &'a dyn Available,
     pub lists: &'a dyn Lists,
+    /// 「アクセスキーを必ず( )付で表示」 (`bKeyParentheses`), which `CKeyBind::MakeMenuLabel` applies to
+    /// every menu.
+    pub parentheses: bool,
 }
 
 impl Context<'_> {
@@ -117,7 +120,7 @@ impl Context<'_> {
 
     fn item(&self, code: u16, key: Option<char>) -> Item {
         Item {
-            label: menu_label(&self.function_name(code), key),
+            label: menu_label_with(&self.function_name(code), key, self.parentheses),
             action: MenuAction::Function(code),
             shortcut: self.keymap.shortcut_for(code),
             enabled: self.is_enabled(code),
@@ -149,7 +152,7 @@ fn fill(index: usize, open: &mut Vec<u16>, cx: &Context<'_>) -> Vec<Entry> {
             && cx.menus.get(target).is_some_and(|m| m.popup)
             && !open.contains(&code)
         {
-            let label = menu_label(&cx.function_name(code), row.key);
+            let label = menu_label_with(&cx.function_name(code), row.key, cx.parentheses);
             let entries = fill(target, open, cx);
             // Sakura makes the submenu of a menu with no items too, which opens nothing; a grayed item
             // says the same.

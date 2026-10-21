@@ -237,6 +237,12 @@ impl UserSettings {
         }
     }
 
+    /// 「アクセスキーを必ず( )付で表示」 (`bKeyParentheses`): the setting `MakeMenuLabel` reads for every
+    /// menu Sakura builds with access keys, not for the main menu only.
+    pub fn key_parentheses(&self) -> bool {
+        self.main_menu().key_parentheses
+    }
+
     /// The user's key bindings (`[KeyBind]`), to put over Sakura's table. Empty without a file.
     pub fn key_rows(&self) -> Vec<UserRow> {
         match &self.profile {

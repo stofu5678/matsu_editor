@@ -404,7 +404,11 @@ pub(crate) async fn choose_files(
         .update(|window, app| {
             let (start, name) = given
                 .unwrap_or_else(|| (file_dialog::start_folder(app, document.as_deref()), None));
-            file_dialog::ask(window, app, Ask::open(true).start(start).name(name))
+            file_dialog::ask(
+                window,
+                app,
+                Ask::open(true).start(start).name(name).recent(app),
+            )
         })
         .ok()?;
     answer.await.ok().flatten()
