@@ -1,0 +1,9 @@
+// input: ascii.grid.lf
+// code: 0
+GoFileEnd();
+Up();
+Up();
+Up();
+InsText('<>');
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

@@ -1,0 +1,4 @@
+// input: jp.euc.lf
+// code: 2
+FileSaveAs('@OUT@', 4, 0);
+ExitAll();

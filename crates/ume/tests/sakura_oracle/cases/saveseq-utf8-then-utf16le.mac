@@ -1,0 +1,5 @@
+// input: jp.zen.utf8.crlf
+// code: 4
+FileSaveAs('@OUT@.first', 4, 1);
+FileSaveAs('@OUT@', 3, 0);
+ExitAll();

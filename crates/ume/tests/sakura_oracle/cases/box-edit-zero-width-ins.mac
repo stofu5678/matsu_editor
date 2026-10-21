@@ -1,0 +1,9 @@
+// input: ascii.grid.lf
+// code: 0
+Right();
+BeginBoxSelect();
+Down_BoxSel();
+Down_BoxSel();
+InsText('ZZ');
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

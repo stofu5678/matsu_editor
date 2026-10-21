@@ -1,0 +1,8 @@
+// input: jp.zen.utf8.lf
+// code: 4
+ChgmodEOL(6);
+Down();
+Char(13);
+Char(65);
+FileSaveAs('@OUT@', 4, 0);
+ExitAll();

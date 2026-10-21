@@ -25,6 +25,12 @@
 //! `@OUT@` becomes the output file of each editor. The macros are ASCII only (a Japanese text is
 //! written as `\uXXXX`), so that the encoding of the macro file does not matter.
 //!
+//! A case that saves in the middle (to see an Undo past a save, or a second save in another code)
+//! writes to `@OUT@.first` or `@OUT@.second`; only `@OUT@`, the last save, is compared.
+//!
+//! A case must not make Sakura open a dialog that a macro cannot answer (the harness stops on
+//! it and reports the case as a Sakura failure, never as a difference).
+//!
 //! # Known differences
 //!
 //! `sakura_oracle/known_differences.txt` lists the cases in which UME differs from Sakura on

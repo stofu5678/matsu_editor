@@ -1,0 +1,17 @@
+// input: ascii.grid.lf
+// code: 0
+Right();
+Right();
+Right();
+Right();
+Right();
+Right();
+Right();
+Right();
+Down();
+Down();
+Down();
+Down();
+InsText('<>');
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

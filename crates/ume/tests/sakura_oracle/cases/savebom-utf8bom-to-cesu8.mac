@@ -1,0 +1,4 @@
+// input: jp.utf8bom.lf
+// code: 4
+FileSaveAs('@OUT@', 7, 0);
+ExitAll();

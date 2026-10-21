@@ -1,0 +1,5 @@
+// input: jp.utf16le.crlf
+// code: 3
+FileReopenUNICODE(1);
+FileSaveAs('@OUT@', 4, 0);
+ExitAll();

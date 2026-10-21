@@ -1,0 +1,11 @@
+// input: ascii.mixed.lf
+// code: 0
+Down();
+Down();
+BeginBoxSelect();
+Right_BoxSel();
+Right_BoxSel();
+Down_BoxSel();
+Delete();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

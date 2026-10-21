@@ -1,0 +1,6 @@
+// input: jp.zen.utf16be.nobom.lf
+// code: 0
+SelectAll();
+CodeCnvUNICODEBEtoSJIS();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

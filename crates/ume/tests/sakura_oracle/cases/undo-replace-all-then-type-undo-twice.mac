@@ -1,0 +1,8 @@
+// input: ascii.words.lf
+// code: 0
+ReplaceAll('foo', 'bar', 0);
+Char(88);
+Undo();
+Undo();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

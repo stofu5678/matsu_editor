@@ -1,0 +1,6 @@
+// input: jp.zen.utf16le.nobom.lf
+// code: 0
+SelectAll();
+AutoToSJIS();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

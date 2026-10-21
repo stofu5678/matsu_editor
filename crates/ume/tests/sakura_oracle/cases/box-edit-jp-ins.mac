@@ -1,0 +1,9 @@
+// input: jp.sjis.crlf
+// code: 0
+BeginBoxSelect();
+Right_BoxSel();
+Down_BoxSel();
+Down_BoxSel();
+InsText('\u65e5');
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

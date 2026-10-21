@@ -1,0 +1,8 @@
+// input: jp.sjis.crlf
+// code: 0
+ChgmodEOL(4);
+Down();
+Char(13);
+Char(65);
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

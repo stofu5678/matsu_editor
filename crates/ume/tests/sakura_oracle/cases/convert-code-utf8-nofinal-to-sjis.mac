@@ -1,0 +1,6 @@
+// input: jp.zen.utf8.nofinal
+// code: 0
+SelectAll();
+UTF8toSJIS();
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

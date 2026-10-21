@@ -1,0 +1,4 @@
+// input: jp.zen.utf8.nofinal
+// code: 4
+FileSaveAs('@OUT@', 3, 0);
+ExitAll();
