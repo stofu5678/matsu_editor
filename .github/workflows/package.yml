@@ -60,6 +60,11 @@ jobs:
       - run: cargo build --release --locked -p ume -p ume-script
       # freetype-sys bundles FreeType (FTL, not covered by THIRD_PARTY_NOTICES.txt) when the system
       # has none. The Linux packages must link the system's, as ci.yml checks for the tests.
+      # The C runtime is linked into the programs (.cargo/config.toml), so that they start on a Windows without
+      # the Visual C++ Redistributable.
+      - name: Check that the programs do not need the C runtime DLLs
+        if: runner.os == 'Windows'
+        run: python .github/scripts/pe_imports.py target/release/ume.exe target/release/ume-script.exe
       - name: Check that FreeType was not bundled
         if: runner.os == 'Linux'
         run: |

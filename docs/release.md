@@ -80,6 +80,15 @@ release-please の Rust 向けの種類（`rust`）は、クレートごとの `
 
 毎日版だけが壊れたときは、`nightly` のリリースを消してから main に push し直すと作り直される。
 
+## Windows の C の実行時ライブラリ
+
+Windows 版の `ume.exe` と `ume-script.exe` には、C の実行時ライブラリ（MSVC の CRT と Universal CRT）を組み込む（静的リンク）。Visual C++ 再頒布可能パッケージ（`VCRUNTIME140.dll`）が入っていない Windows でも、そのまま起動できるようにするため（2026-10-21 にユーザーが判断）。
+
+- 何も入れていない Windows（Windows サンドボックス）で、動的リンクの版が「VCRUNTIME140.dll が見つからない」で起動しなかったことがきっかけ
+- 指定は `.cargo/config.toml` の `target-feature=+crt-static`。手元のビルドと `package.yml` のビルドに効く
+- 環境変数の `RUSTFLAGS` は `.cargo/config.toml` の指定を置き換える。`ci.yml` と `e2e.yml` は `RUSTFLAGS` を使うので、テスト用のビルドは DLL を使ったままになる
+- `package.yml` は、配る `ume.exe` と `ume-script.exe` が C の実行時ライブラリの DLL を読み込んでいないことを確かめる（`.github/scripts/pe_imports.py`）
+
 ## 署名
 
 配布物にはまだ署名していない。macOS の公証と Windows の署名は、ADR-0014 のとおり、最初の設定だけ人が行ってから CI に足す（macOS は Apple Developer Program への登録が要る）。それまでは、macOS では「開発元を確認できない」、Windows では SmartScreen の警告が出る。

@@ -1,2 +1,9 @@
 [alias]
 xtask = "run --package xtask --"
+
+# Link the C runtime into the programs on Windows (MSVC), so that ume.exe and ume-script.exe start on a Windows
+# without the Visual C++ Redistributable (VCRUNTIME140.dll). The user chose this on 2026-10-21 (docs/release.md).
+# RUSTFLAGS in the environment replaces this list: ci.yml and e2e.yml set it, so their test builds keep the DLL;
+# package.yml does not, and it checks the imports of what it ships.
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]
