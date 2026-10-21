@@ -6,6 +6,8 @@ name: Package check
 on:
   pull_request:
     paths:
+      - .cargo/config.toml
+      - .github/scripts/pe_imports.py
       - .github/workflows/package.yml
       - .github/workflows/package-check.yml
       - .github/workflows/release.yml
