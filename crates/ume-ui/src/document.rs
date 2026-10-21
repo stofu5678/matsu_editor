@@ -257,13 +257,26 @@ impl SharedDocument {
     /// The file is written with the endings converted already (`TextFile::save_as`), so this only
     /// brings the document to what was written; the file keeps no memory of the conversion
     /// afterwards (`eol_on_save`), because the document says it.
-    pub(crate) fn unify_line_endings(&mut self, eol: Eol, cursor: &Cursor) -> bool {
+    ///
+    /// `None` when an edit failed: the document is then partly converted and differs from the
+    /// file, so the caller must not mark it as saved.
+    pub(crate) fn unify_line_endings(&mut self, eol: Eol, cursor: &Cursor) -> Option<bool> {
         self.file.eol_on_save = None;
         self.model.set_new_line(eol);
         let wanted = ume_core::model::eol_text(eol);
-        let mut changed = false;
         let lines = self.model.doc().line_count();
-        for line in 0..lines {
+        // Sakura changes the line objects one by one, but here a changed ending is joined with
+        // its neighbours by the text: an LF turned into CR in front of a line that starts with an
+        // LF would become a CRLF. Going from the end for CR keeps the endings that are not
+        // changed yet apart from it; for the other endings the front is the safe end.
+        let order: Box<dyn Iterator<Item = usize>> = if eol == Eol::Cr {
+            Box::new((0..lines).rev())
+        } else {
+            Box::new(0..lines)
+        };
+        let mut changed = false;
+        let mut failed = false;
+        for line in order {
             let Ok(Some(current)) = self.model.doc().line(line) else {
                 continue;
             };
@@ -277,13 +290,14 @@ impl SharedDocument {
             let from = Pos::new(line, current.text.len());
             let to = Pos::new(line + 1, 0);
             if self.model.replace(from, to, wanted).is_err() {
+                failed = true;
                 break;
             }
         }
         if changed {
             self.model.end_block(cursor);
         }
-        changed
+        (!failed).then_some(changed)
     }
 
     /// `CAutoReloadAgent::OnAfterSave` and `CDocLocker::OnAfterSave`: the file is what this editor

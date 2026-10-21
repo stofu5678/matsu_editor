@@ -123,12 +123,23 @@ impl EditorView {
             let report = saved?;
             // `CSaveAgent::OnBeforeSave` -> `CDocVisitor::SetAllEol`: a save that names a line
             // ending converts the lines of the document, an undo step of its own.
-            if let Some(eol) = options.eol
-                && shared.unify_line_endings(eol, cursor)
-            {
-                shared.changed(cx);
+            let mut converted = true;
+            if let Some(eol) = options.eol {
+                match shared.unify_line_endings(eol, cursor) {
+                    Some(true) => {
+                        shared.changed(cx);
+                    }
+                    Some(false) => {}
+                    None => {
+                        // Partly converted: it stays modified, the file was written.
+                        shared.changed(cx);
+                        converted = false;
+                    }
+                }
             }
-            shared.parts_mut().0.mark_saved(cursor);
+            if converted {
+                shared.parts_mut().0.mark_saved(cursor);
+            }
             cx.notify();
             Ok(report)
         })

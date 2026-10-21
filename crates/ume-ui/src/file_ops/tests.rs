@@ -399,6 +399,30 @@ fn a_save_that_names_a_line_ending_converts_the_document_as_an_undo_step(cx: &mu
 }
 
 #[gpui::test]
+fn converting_to_cr_keeps_the_blank_lines(cx: &mut TestAppContext) {
+    // An LF turned into CR must not join the LF of the next (blank) line into a CRLF.
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", b"a\n\nb\n\n");
+    let target = dir.path("c.txt");
+    let (f, cx) = setup(cx);
+    f.open(cx, &path, Some(UTF8));
+    f.run(
+        cx,
+        "F_FILESAVEAS",
+        &[
+            Arg::Text(target.display().to_string()),
+            Arg::Int(99),
+            Arg::Int(3),
+        ],
+    );
+    assert_eq!(read(&target), b"a\r\rb\r\r");
+    assert_eq!(f.lines(cx), ["a", "", "b", ""]);
+    assert!(!f.modified(cx));
+    f.run(cx, "F_FILESAVE", &[]);
+    assert_eq!(read(&target), b"a\r\rb\r\r");
+}
+
+#[gpui::test]
 fn a_save_that_converts_nothing_is_not_an_undo_step(cx: &mut TestAppContext) {
     let dir = TempDir::new();
     let path = dir.write("a.txt", b"a\nb");
