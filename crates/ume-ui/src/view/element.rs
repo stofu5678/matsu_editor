@@ -31,6 +31,7 @@ use crate::hit::selected_columns;
 use crate::search::highlight::{highlight_columns, slot_of};
 use crate::settings::view_settings::rgb_of;
 use crate::settings::{Colors, DiffColor, Marks};
+use ume_config::settings::color::ColorEntry;
 use ume_core::diff::DiffMark;
 
 /// The caret of overwrite mode: the caret color with some transparency.
@@ -292,6 +293,17 @@ fn run(font: &gpui::Font, len: usize, color: u32) -> TextRun {
 }
 
 /// A run for text in a style: its color, bold (`bold_font`) and underline.
+/// `_DispEOF` (`view/figures/CFigure_Eol.cpp`): [EOF] in the colors of its own entry, the text and
+/// the background (the text is opaque), without borrowing from the text around it.
+fn eof_style(entry: &ColorEntry) -> TextStyle {
+    TextStyle {
+        text: rgb_of(entry.text),
+        back: Some(rgb_of(entry.back)),
+        bold: entry.bold,
+        underline: entry.underline,
+    }
+}
+
 fn styled_run(font: &gpui::Font, bold_font: &gpui::Font, len: usize, style: &TextStyle) -> TextRun {
     TextRun {
         underline: style.underline.then(|| UnderlineStyle {
@@ -556,11 +568,15 @@ impl Element for EditorElement {
                 });
             }
             let mut marks = Vec::new();
+            let mut backs = styling.backs;
+            let eof_style = eof_style(&colors.eof_entry);
+            let eof_width = EOF_MARK.chars().count() as u32;
             if row.is_eof_row {
                 if marks_shown.eof {
+                    backs.push((0, eof_width, eof_style.back.unwrap_or_default()));
                     marks.push(Placed {
                         col: 0,
-                        line: shape(window, EOF_MARK, colors.eof),
+                        line: shape_styled(window, EOF_MARK, &eof_style),
                     });
                 }
             } else if let Some(eol) = row.eol {
@@ -574,9 +590,14 @@ impl Element for EditorElement {
                     });
                 }
             } else if !row.wrapped && row.line == last_line && marks_shown.eof {
+                backs.push((
+                    row.end_column,
+                    row.end_column + eof_width,
+                    eof_style.back.unwrap_or_default(),
+                ));
                 marks.push(Placed {
                     col: row.end_column,
-                    line: shape(window, EOF_MARK, colors.eof),
+                    line: shape_styled(window, EOF_MARK, &eof_style),
                 });
             }
             let marked_cols = marked
@@ -598,7 +619,7 @@ impl Element for EditorElement {
                 gutter_background: style.background,
                 diff: diff.filter(|_| show_line_numbers).map(|m| (m, style.text)),
                 row_background: (row_back != colors.background).then_some(row_back),
-                backs: styling.backs,
+                backs,
                 selected_backs: styling.selected_backs,
                 underlines: styling.underlines,
                 text,
@@ -1261,6 +1282,18 @@ fn overwrite_caret_cells(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn eof_is_drawn_in_a_box_of_its_own_colors() {
+        // Sakura's default: cyan text on black (`CShareData::InitTypeConfig`, the entry EOF), as in
+        // the box of `sakura-open-ja.png`.
+        let colors = crate::settings::ViewSettings::default().colors;
+        let style = eof_style(&colors.eof_entry);
+        assert_eq!(style.text, 0x00ffff);
+        assert_eq!(style.back, Some(0x000000));
+        assert!(!style.bold && !style.underline);
+        assert_eq!(EOF_MARK.chars().count(), 5);
+    }
 
     #[test]
     fn each_line_ending_has_its_own_mark() {

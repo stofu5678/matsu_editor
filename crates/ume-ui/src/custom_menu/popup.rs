@@ -62,7 +62,6 @@ impl CustomMenuState {
     }
 
     /// Whether a popup is open.
-    #[cfg(test)]
     pub(crate) fn is_open(&self) -> bool {
         self.open.is_some()
     }
