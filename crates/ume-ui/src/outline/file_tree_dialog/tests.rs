@@ -1230,3 +1230,9 @@ fn a_settings_file_that_cannot_be_written_keeps_the_dialog(cx: &mut TestAppConte
     assert_eq!(ini.bytes(), before);
     assert_eq!(tree_items(keys, handle).len(), 3, "the edits stay");
 }
+
+#[test]
+fn the_name_of_the_setting_button_has_no_access_key_mark() {
+    let name = crate::a11y::without_key_hint(&crate::a11y::plain_name("設定(S)"));
+    assert_eq!(name, "設定");
+}
