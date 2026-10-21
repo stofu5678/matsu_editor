@@ -135,7 +135,7 @@ impl Output {
             return None;
         }
         let skip = self.lines.len().saturating_sub(SHOWN_LINES);
-        let lines = self.lines[skip..].iter().map(|line| {
+        let lines = self.lines[skip..].iter().enumerate().map(|(i, line)| {
             let color = match line.kind {
                 Kind::Out => rgb(0x1e1e1e),
                 Kind::Err => rgb(0xb00020),
@@ -147,7 +147,9 @@ impl Output {
             } else {
                 line.text.clone()
             };
-            div().text_color(color).child(text)
+            crate::a11y::text(div().id(("macro-line", i)), &line.text)
+                .text_color(color)
+                .child(text)
         });
         let title = if actions.running {
             "マクロの出力 (実行中)"
@@ -157,8 +159,7 @@ impl Output {
         let mut buttons = div().flex().flex_row().gap_3();
         if actions.running {
             buttons = buttons.child(
-                div()
-                    .id("macro-panel-cancel")
+                crate::a11y::button(div().id("macro-panel-cancel"), "中断")
                     .cursor_pointer()
                     .text_color(rgb(0xb00020))
                     .child("中断")
@@ -166,14 +167,13 @@ impl Output {
             );
         }
         buttons = buttons.child(
-            div()
-                .id("macro-panel-close")
+            crate::a11y::button(div().id("macro-panel-close"), "閉じる")
                 .cursor_pointer()
                 .child("閉じる")
                 .on_click(actions.on_close),
         );
         Some(
-            div()
+            crate::a11y::group(div().id("macro-panel"), "マクロの出力")
                 .flex()
                 .flex_col()
                 .h(px(170.))
@@ -195,6 +195,8 @@ impl Output {
                 .child(
                     div()
                         .id("macro-output")
+                        .role(gpui::Role::Log)
+                        .aria_label("出力")
                         .flex_1()
                         .overflow_y_scroll()
                         .track_scroll(&self.scroll)

@@ -125,13 +125,13 @@ impl Render for TypeList {
             .iter()
             .enumerate()
             .map(|(i, text)| {
-                let mut item = div()
-                    .id(("type", i))
-                    .px_2()
-                    .h(px(22.))
-                    .flex()
-                    .items_center()
-                    .cursor_pointer();
+                let mut item =
+                    crate::a11y::list_row(div().id(("type", i)), text, i == self.selected)
+                        .px_2()
+                        .h(px(22.))
+                        .flex()
+                        .items_center()
+                        .cursor_pointer();
                 if i == self.selected {
                     item = item.bg(rgb(SELECTED_BG)).text_color(rgb(0xffffff));
                 }
@@ -150,13 +150,14 @@ impl Render for TypeList {
         let max_rows = (window.viewport_size().height - px(170.)).max(px(66.));
         let rows = div()
             .id("type-list-rows")
+            .role(gpui::Role::ListBox)
+            .aria_label("タイプ")
             .max_h(max_rows)
             .overflow_y_scroll()
             .track_scroll(&self.scroll)
             .children(items);
         let button = |id: &'static str, text: &'static str| {
-            div()
-                .id(id)
+            crate::a11y::button(div().id(id), text)
                 .px_4()
                 .h(px(28.))
                 .flex()
@@ -167,8 +168,8 @@ impl Render for TypeList {
                 .cursor_pointer()
                 .child(text)
         };
-        let panel = div()
-            .id("type-list")
+        let panel = crate::a11y::dialog(div().id("type-list"), "タイプ別設定一覧")
+            .aria_description("下からタイプを選択してください")
             .key_context("TypeList")
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key_down))

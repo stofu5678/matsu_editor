@@ -53,6 +53,110 @@ pub(crate) fn plain_name(label: &str) -> String {
     parse_label(&text).0
 }
 
+/// The name of a control from its visible label: no `(&X)` mark, no `(X)` hint after the text. The
+/// dialogs of UME write Sakura's labels with the key in plain parentheses, the settings with `&`.
+pub(crate) fn label_name(label: &str) -> String {
+    without_key_hint(&plain_name(label))
+}
+
+/// A hand-drawn button (a `div` with a click handler): without a role it is not in the tree, so a
+/// screen reader cannot reach it. `label` is its visible text; the name has no access key mark.
+pub(crate) fn button(element: Stateful<Div>, label: &str) -> Stateful<Div> {
+    element.role(Role::Button).aria_label(label_name(label))
+}
+
+/// A hand-drawn dialog or pane: a dialog named `name`.
+pub(crate) fn dialog(element: Stateful<Div>, name: &str) -> Stateful<Div> {
+    element.role(Role::Dialog).aria_label(name.to_owned())
+}
+
+/// A hand-drawn group of controls or a pane named `name`.
+pub(crate) fn group(element: Stateful<Div>, name: &str) -> Stateful<Div> {
+    element.role(Role::Group).aria_label(name.to_owned())
+}
+
+/// A line of text that a screen reader should read. UIA names a `Label` by its value, not its
+/// label (see `status_bar::semantics::part`), so both are set.
+pub(crate) fn text(element: Stateful<Div>, text: &str) -> Stateful<Div> {
+    element
+        .role(Role::Label)
+        .aria_label(text.to_owned())
+        .aria_value(text.to_owned())
+}
+
+/// A row of a hand-drawn list box: an option named `name`, `selected` when it is the chosen one.
+pub(crate) fn list_row(element: Stateful<Div>, name: &str, selected: bool) -> Stateful<Div> {
+    element
+        .role(Role::ListBoxOption)
+        .aria_label(name.to_owned())
+        .aria_selected(selected)
+}
+
+/// A row of a hand-drawn tree: an item at `depth` (from 0), `expanded` is `Some` for a node that
+/// has children.
+pub(crate) fn tree_row(
+    element: Stateful<Div>,
+    name: &str,
+    selected: bool,
+    depth: usize,
+    expanded: Option<bool>,
+) -> Stateful<Div> {
+    let element = element
+        .role(Role::TreeItem)
+        .aria_label(name.to_owned())
+        .aria_selected(selected)
+        .aria_level(depth + 1);
+    match expanded {
+        Some(open) => element.aria_expanded(open),
+        None => element,
+    }
+}
+
+/// The name of a row of a list of functions: the label, then the shortcut (`上書き保存、Ctrl+S`),
+/// as a menu item is read.
+pub(crate) fn function_row_name(label: &str, shortcut: Option<&str>) -> String {
+    match shortcut {
+        Some(shortcut) if !shortcut.is_empty() => format!("{}、{shortcut}", label_name(label)),
+        _ => label_name(label),
+    }
+}
+
+/// A hand-drawn link: a `div` that opens a web address.
+pub(crate) fn link(element: Stateful<Div>, text: &str) -> Stateful<Div> {
+    element.role(Role::Link).aria_label(text.to_owned())
+}
+
+/// A button or a check box with a visible label, named for a screen reader by that label without
+/// Sakura's access key mark (`上検索(U)` is `上検索`). A label that says nothing alone (`...`) needs
+/// `.label(..).accessibility_label(..)` with its own name instead.
+pub(crate) trait Labelled: Sized {
+    fn labelled(self, label: impl Into<gpui::SharedString>) -> Self;
+}
+
+impl Labelled for gpui_component::button::Button {
+    fn labelled(self, label: impl Into<gpui::SharedString>) -> Self {
+        let label = label.into();
+        let name = label_name(&label);
+        self.label(label).accessibility_label(name)
+    }
+}
+
+impl Labelled for gpui_component::radio::Radio {
+    fn labelled(self, label: impl Into<gpui::SharedString>) -> Self {
+        let label = label.into();
+        let name = label_name(&label);
+        self.label(label).accessibility_label(name)
+    }
+}
+
+impl Labelled for gpui_component::checkbox::Checkbox {
+    fn labelled(self, label: impl Into<gpui::SharedString>) -> Self {
+        let label = label.into();
+        let name = label_name(&label);
+        self.label(label).accessibility_label(name)
+    }
+}
+
 /// The name of a menu as drawn, without the access key that Sakura writes after it: `ファイル(F)`
 /// is `ファイル`, and `開く(O)...` is `開く...`. Anything else stays.
 pub(crate) fn without_key_hint(label: &str) -> String {
@@ -371,6 +475,68 @@ mod tests {
         assert_eq!(without_key_hint("設定(あ)"), "設定(あ)");
         assert_eq!(without_key_hint("関数(ab)"), "関数(ab)");
         assert_eq!(without_key_hint("(F)"), "");
+    }
+
+    #[test]
+    fn a_hand_drawn_button_is_a_button_named_without_the_access_key() {
+        let node = node_of(&button(gpui::div().id("b"), "キャンセル(X)")).unwrap();
+        assert_eq!(node.role(), Role::Button);
+        assert_eq!(node.label(), Some("キャンセル"));
+        // Without an id it is not in the tree at all.
+        assert!(node_of(&button(gpui::div().id("b"), "OK")).is_some());
+    }
+
+    #[test]
+    fn a_hand_drawn_dialog_group_and_link_have_their_roles_and_names() {
+        let dialog = node_of(&dialog(gpui::div().id("d"), "バージョン情報")).unwrap();
+        assert_eq!(
+            (dialog.role(), dialog.label()),
+            (Role::Dialog, Some("バージョン情報"))
+        );
+        let group = node_of(&group(gpui::div().id("g"), "アウトライン")).unwrap();
+        assert_eq!(
+            (group.role(), group.label()),
+            (Role::Group, Some("アウトライン"))
+        );
+        let link = node_of(&link(gpui::div().id("l"), "https://example.invalid")).unwrap();
+        assert_eq!(link.role(), Role::Link);
+        assert_eq!(link.label(), Some("https://example.invalid"));
+    }
+
+    #[test]
+    fn a_text_is_a_label_that_has_its_text_as_name_and_value() {
+        let node = node_of(&text(gpui::div().id("t"), "Build: release")).unwrap();
+        assert_eq!(node.role(), Role::Label);
+        // UIA names a `Label` by its value.
+        assert_eq!(node.value(), Some("Build: release"));
+        assert_eq!(node.label(), Some("Build: release"));
+    }
+
+    #[test]
+    fn a_list_row_is_an_option_and_a_tree_row_an_item_with_its_level() {
+        let row = node_of(&list_row(gpui::div().id("r"), "12行 1桁 見出し", true)).unwrap();
+        assert_eq!(row.role(), Role::ListBoxOption);
+        assert_eq!(row.label(), Some("12行 1桁 見出し"));
+        assert_eq!(row.is_selected(), Some(true));
+
+        let folder = node_of(&tree_row(gpui::div().id("t"), "src", false, 0, Some(true))).unwrap();
+        assert_eq!(folder.role(), Role::TreeItem);
+        assert_eq!(folder.level(), Some(1));
+        assert_eq!(folder.is_expanded(), Some(true));
+        let leaf = node_of(&tree_row(gpui::div().id("t"), "a.rs", true, 2, None)).unwrap();
+        assert_eq!(leaf.level(), Some(3));
+        assert_eq!(leaf.is_expanded(), None);
+        assert_eq!(leaf.is_selected(), Some(true));
+    }
+
+    #[test]
+    fn a_row_of_functions_is_read_as_the_label_then_the_shortcut() {
+        assert_eq!(
+            function_row_name("上書き保存(&S)", Some("Ctrl+S")),
+            "上書き保存、Ctrl+S"
+        );
+        assert_eq!(function_row_name("開く(&O)...", None), "開く...");
+        assert_eq!(function_row_name("新規作成", Some("")), "新規作成");
     }
 
     #[test]

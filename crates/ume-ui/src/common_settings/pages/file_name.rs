@@ -79,7 +79,11 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
         ]),
         Item::Group(
             "ファイル名の簡易表示(&I)",
-            vec![Control::table("file_name_list", "", &LIST).into()],
+            vec![
+                Control::table("file_name_list", "", &LIST)
+                    .named("ファイル名の簡易表示")
+                    .into(),
+            ],
         ),
     ]
 }

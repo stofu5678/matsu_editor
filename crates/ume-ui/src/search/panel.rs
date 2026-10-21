@@ -12,6 +12,7 @@
 //! live in the view's [`SearchState`](super::state::SearchState), so the menu, F3 and the panel
 //! always agree.
 
+use crate::a11y::Labelled as _;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     App, AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
@@ -36,6 +37,16 @@ pub enum PanelMode {
     Find,
     Replace,
     Jump,
+}
+
+/// The names of a combo box and of its history button, from the visible labels of Sakura's
+/// dialogs: 検索する文字列 (`IDD_FIND`), 置換前 and 置換後 (`IDD_REPLACE`).
+fn combo_names(combo: Combo, mode: PanelMode) -> (&'static str, &'static str) {
+    match (combo, mode) {
+        (Combo::Search, PanelMode::Replace) => ("置換前", "置換前の履歴"),
+        (Combo::Search, _) => ("検索する文字列", "検索する文字列の履歴"),
+        (Combo::Replace, _) => ("置換後", "置換後の履歴"),
+    }
 }
 
 /// The input that a history drop-down belongs to.
@@ -288,6 +299,7 @@ impl SearchPanel {
 
     /// An input with the button that opens its history, and the list under it while it is open.
     fn combo_box(&self, combo: Combo, cx: &mut Context<Self>) -> impl IntoElement {
+        let (name, toggle_name) = combo_names(combo, self.mode);
         let (id, toggle_id) = match combo {
             Combo::Search => ("search-history", "search-history-toggle"),
             Combo::Replace => ("replace-history", "replace-history-toggle"),
@@ -295,16 +307,23 @@ impl SearchPanel {
         let mut column = v_flex().gap_1().flex_1().child(
             h_flex()
                 .gap_1()
-                .child(div().flex_1().child(Input::new(self.combo_input(combo))))
-                .child(Button::new(toggle_id).label("▼").on_click(cx.listener(
-                    move |this, _, window, cx| {
-                        // The button does not take the focus; the keys of the list go to
-                        // the combo box that has it, so give it to this one.
-                        let input = this.combo_input(combo).clone();
-                        input.update(cx, |state, cx| state.focus(window, cx));
-                        this.toggle_dropdown(combo, cx);
-                    },
-                ))),
+                .child(
+                    div()
+                        .flex_1()
+                        .child(Input::new(self.combo_input(combo)).aria_label(name)),
+                )
+                .child(
+                    Button::new(toggle_id)
+                        .label("▼")
+                        .accessibility_label(toggle_name)
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            // The button does not take the focus; the keys of the list go to
+                            // the combo box that has it, so give it to this one.
+                            let input = this.combo_input(combo).clone();
+                            input.update(cx, |state, cx| state.focus(window, cx));
+                            this.toggle_dropdown(combo, cx);
+                        })),
+                ),
         );
         if let Some(open) = self.dropdown.filter(|d| d.combo == combo) {
             let entries = Self::combo_keys(combo, cx)
@@ -487,7 +506,7 @@ impl SearchPanel {
         cx: &mut Context<Self>,
     ) -> Checkbox {
         Checkbox::new(id)
-            .label(label)
+            .labelled(label)
             .checked(checked)
             .on_click(cx.listener(move |this, value: &bool, _, cx| {
                 let value = *value;
@@ -554,7 +573,7 @@ impl SearchPanel {
                       this_target: ReplaceTarget,
                       cx: &mut Context<Self>| {
             Button::new(id)
-                .label(label)
+                .labelled(label)
                 .selected(target == this_target)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.editor
@@ -569,7 +588,7 @@ impl SearchPanel {
         let range =
             |id: &'static str, label: &'static str, selection: bool, cx: &mut Context<Self>| {
                 Button::new(id)
-                    .label(label)
+                    .labelled(label)
                     .selected(in_selection == selection)
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.editor
@@ -658,133 +677,136 @@ impl Render for SearchPanel {
         };
         let close = div().debug_selector(|| "search-close".to_owned()).child(
             Button::new("search-close")
-                .label("閉じる(X)")
+                .labelled("閉じる(X)")
                 .on_click(cx.listener(|this, _, window, cx| this.close(window, cx))),
         );
-        let body =
-            match self.mode {
-                PanelMode::Find => v_flex()
-                    .gap_2()
-                    .child(self.combo_box(Combo::Search, cx))
-                    .child(self.render_find_options(options, cx))
-                    .child(self.option_box(
-                        "search-auto-close",
-                        "検索ダイアログを自動的に閉じる(L)",
-                        options.auto_close,
-                        |o, v| o.auto_close = v,
-                        cx,
-                    ))
-                    .child(
-                        // The buttons wrap instead of sticking out of the panel when the labels are
-                        // wider than the fixed panel (a large scale factor, a wide font).
-                        h_flex()
-                            .gap_2()
-                            .flex_wrap()
-                            .child(Button::new("search-prev").label("上検索(U)").on_click(
-                                cx.listener(|this, _, window, cx| {
-                                    this.find(Direction::Backward, window, cx);
-                                }),
-                            ))
-                            .child(Button::new("search-next").label("下検索(D)").on_click(
-                                cx.listener(|this, _, window, cx| {
-                                    this.find(Direction::Forward, window, cx);
-                                }),
-                            ))
-                            .child(
-                                Button::new("search-mark")
-                                    .label("該当行マーク(M)")
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.mark_lines(window, cx)
-                                    })),
-                            )
-                            .child(close),
-                    )
-                    .into_any_element(),
-                PanelMode::Replace => v_flex()
-                    .gap_2()
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .child("置換前(N)")
-                            .child(self.combo_box(Combo::Search, cx)),
-                    )
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .child("置換後(P)")
-                            .child(self.combo_box(Combo::Replace, cx)),
-                    )
-                    .child(self.render_find_options(options, cx))
-                    .child(self.render_replace_targets(replace.target, replace.in_selection, cx))
-                    // `IDC_CHECK_CONSECUTIVEALL`, enabled only with 正規表現 (`CDlgReplace`).
-                    .child(
-                        Checkbox::new("replace-consecutive")
-                            .label("「すべて置換」は置換の繰返し(L)")
-                            .checked(replace.consecutive_all)
-                            .disabled(!options.regex)
-                            .on_click(cx.listener(|this, value: &bool, _, cx| {
-                                let value = *value;
-                                this.editor
-                                    .update(cx, |editor, cx| {
-                                        editor.search.replace.consecutive_all = value;
-                                        cx.notify();
-                                    })
-                                    .ok();
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        // The buttons wrap instead of sticking out of the panel when the labels are
-                        // wider than the fixed panel (a large scale factor, a wide font).
-                        h_flex()
-                            .gap_2()
-                            .flex_wrap()
-                            .child(Button::new("search-prev").label("上検索(U)").on_click(
-                                cx.listener(|this, _, window, cx| {
-                                    this.find(Direction::Backward, window, cx);
-                                }),
-                            ))
-                            .child(Button::new("search-next").label("下検索(D)").on_click(
-                                cx.listener(|this, _, window, cx| {
-                                    this.find(Direction::Forward, window, cx);
-                                }),
-                            ))
-                            .child(Button::new("replace-one").label("置換(R)").on_click(
-                                cx.listener(|this, _, window, cx| this.replace_one(window, cx)),
-                            ))
-                            .child(Button::new("replace-all").label("すべて置換(A)").on_click(
-                                cx.listener(|this, _, window, cx| this.replace_all(window, cx)),
-                            ))
-                            .child(
-                                Button::new("search-mark")
-                                    .label("該当行マーク(M)")
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.mark_lines(window, cx)
-                                    })),
-                            )
-                            .child(close),
-                    )
-                    .into_any_element(),
-                PanelMode::Jump => {
-                    v_flex()
+        let body = match self.mode {
+            PanelMode::Find => v_flex()
+                .gap_2()
+                .child(self.combo_box(Combo::Search, cx))
+                .child(self.render_find_options(options, cx))
+                .child(self.option_box(
+                    "search-auto-close",
+                    "検索ダイアログを自動的に閉じる(L)",
+                    options.auto_close,
+                    |o, v| o.auto_close = v,
+                    cx,
+                ))
+                .child(
+                    // The buttons wrap instead of sticking out of the panel when the labels are
+                    // wider than the fixed panel (a large scale factor, a wide font).
+                    h_flex()
+                        .gap_2()
+                        .flex_wrap()
+                        .child(Button::new("search-prev").labelled("上検索(U)").on_click(
+                            cx.listener(|this, _, window, cx| {
+                                this.find(Direction::Backward, window, cx);
+                            }),
+                        ))
+                        .child(Button::new("search-next").labelled("下検索(D)").on_click(
+                            cx.listener(|this, _, window, cx| {
+                                this.find(Direction::Forward, window, cx);
+                            }),
+                        ))
+                        .child(
+                            Button::new("search-mark")
+                                .labelled("該当行マーク(M)")
+                                .on_click(
+                                    cx.listener(|this, _, window, cx| this.mark_lines(window, cx)),
+                                ),
+                        )
+                        .child(close),
+                )
+                .into_any_element(),
+            PanelMode::Replace => v_flex()
+                .gap_2()
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .child("置換前(N)")
+                        .child(self.combo_box(Combo::Search, cx)),
+                )
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .child("置換後(P)")
+                        .child(self.combo_box(Combo::Replace, cx)),
+                )
+                .child(self.render_find_options(options, cx))
+                .child(self.render_replace_targets(replace.target, replace.in_selection, cx))
+                // `IDC_CHECK_CONSECUTIVEALL`, enabled only with 正規表現 (`CDlgReplace`).
+                .child(
+                    Checkbox::new("replace-consecutive")
+                        .labelled("「すべて置換」は置換の繰返し(L)")
+                        .checked(replace.consecutive_all)
+                        .disabled(!options.regex)
+                        .on_click(cx.listener(|this, value: &bool, _, cx| {
+                            let value = *value;
+                            this.editor
+                                .update(cx, |editor, cx| {
+                                    editor.search.replace.consecutive_all = value;
+                                    cx.notify();
+                                })
+                                .ok();
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    // The buttons wrap instead of sticking out of the panel when the labels are
+                    // wider than the fixed panel (a large scale factor, a wide font).
+                    h_flex()
+                        .gap_2()
+                        .flex_wrap()
+                        .child(Button::new("search-prev").labelled("上検索(U)").on_click(
+                            cx.listener(|this, _, window, cx| {
+                                this.find(Direction::Backward, window, cx);
+                            }),
+                        ))
+                        .child(Button::new("search-next").labelled("下検索(D)").on_click(
+                            cx.listener(|this, _, window, cx| {
+                                this.find(Direction::Forward, window, cx);
+                            }),
+                        ))
+                        .child(Button::new("replace-one").labelled("置換(R)").on_click(
+                            cx.listener(|this, _, window, cx| this.replace_one(window, cx)),
+                        ))
+                        .child(
+                            Button::new("replace-all")
+                                .labelled("すべて置換(A)")
+                                .on_click(
+                                    cx.listener(|this, _, window, cx| this.replace_all(window, cx)),
+                                ),
+                        )
+                        .child(
+                            Button::new("search-mark")
+                                .labelled("該当行マーク(M)")
+                                .on_click(
+                                    cx.listener(|this, _, window, cx| this.mark_lines(window, cx)),
+                                ),
+                        )
+                        .child(close),
+                )
+                .into_any_element(),
+            PanelMode::Jump => v_flex()
+                .gap_2()
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .child("行番号(N)")
+                        .child(Input::new(&self.line).aria_label("行番号")),
+                )
+                .child(
+                    h_flex()
                         .gap_2()
                         .child(
-                            h_flex()
-                                .gap_2()
-                                .child("行番号(N)")
-                                .child(Input::new(&self.line)),
+                            Button::new("jump-ok")
+                                .labelled("OK")
+                                .on_click(cx.listener(|this, _, window, cx| this.jump(window, cx))),
                         )
-                        .child(
-                            h_flex()
-                                .gap_2()
-                                .child(Button::new("jump-ok").label("OK").on_click(
-                                    cx.listener(|this, _, window, cx| this.jump(window, cx)),
-                                ))
-                                .child(close),
-                        )
-                        .into_any_element()
-                }
-            };
+                        .child(close),
+                )
+                .into_any_element(),
+        };
         div()
             .id("search-panel")
             .debug_selector(|| "search-panel".to_owned())
@@ -937,5 +959,25 @@ impl EditorView {
 
     pub fn search_panel_mode(&self, cx: &App) -> Option<PanelMode> {
         self.panel.as_ref().map(|p| p.read(cx).mode())
+    }
+}
+
+#[cfg(test)]
+mod a11y_tests {
+    use super::*;
+
+    #[test]
+    fn the_combo_boxes_are_named_for_the_labels_of_the_dialogs() {
+        assert_eq!(
+            combo_names(Combo::Search, PanelMode::Find).0,
+            "検索する文字列"
+        );
+        assert_eq!(combo_names(Combo::Search, PanelMode::Replace).0, "置換前");
+        assert_eq!(combo_names(Combo::Replace, PanelMode::Replace).0, "置換後");
+        // The history button says whose history it opens.
+        assert_eq!(
+            combo_names(Combo::Replace, PanelMode::Replace).1,
+            "置換後の履歴"
+        );
     }
 }

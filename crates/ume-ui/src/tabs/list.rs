@@ -366,6 +366,7 @@ impl Render for TabList {
                 if matches!(row, Row::Separator) {
                     return div()
                         .id(("tab-list-separator", i))
+                        .role(gpui::Role::Splitter)
                         .my_1()
                         .h(px(1.))
                         .bg(rgb(0xaaaaaa))
@@ -380,16 +381,22 @@ impl Render for TabList {
                     Row::Tab(item) => (item.text.clone(), item.current),
                     Row::Separator => unreachable!("handled above"),
                 };
-                let mut item = div()
-                    .id(("tab-list-item", i))
-                    .px_2()
-                    .h(px(24.))
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .cursor_pointer();
+                let mut item = crate::a11y::list_row(
+                    div().id(("tab-list-item", i)),
+                    &text,
+                    i == self.selected,
+                )
+                .px_2()
+                .h(px(24.))
+                .flex()
+                .items_center()
+                .gap_2()
+                .cursor_pointer();
                 if i == self.selected {
                     item = item.bg(rgb(SELECTED_BG)).text_color(rgb(0xffffff));
+                }
+                if mark {
+                    item = item.aria_description("現在のタブ");
                 }
                 item.child(div().w(px(14.)).child(if mark { "✓" } else { "" }))
                     .child(text)
@@ -405,8 +412,7 @@ impl Render for TabList {
             .collect();
 
         let max_rows = (window.viewport_size().height - px(24.)).max(px(48.));
-        let panel = div()
-            .id("tab-list")
+        let panel = crate::a11y::group(div().id("tab-list"), "タブの一覧")
             .key_context("TabList")
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key_down))
@@ -423,6 +429,8 @@ impl Render for TabList {
             .child(
                 div()
                     .id("tab-list-rows")
+                    .role(gpui::Role::ListBox)
+                    .aria_label("タブ")
                     .max_h(max_rows)
                     .overflow_y_scroll()
                     .track_scroll(&self.scroll)

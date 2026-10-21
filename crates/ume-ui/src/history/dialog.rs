@@ -491,20 +491,30 @@ impl Render for FavoriteDialog {
             .enumerate()
             .map(|(i, row)| {
                 let selected = self.selected.contains(&i);
-                let mut item = div()
-                    .id(("row", i))
-                    .px_2()
-                    .h(px(24.))
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .cursor_pointer();
+                let mut item = crate::a11y::list_row(
+                    div().id(("row", i)),
+                    &format!("{} {}", row.key, row.text),
+                    selected,
+                )
+                .px_2()
+                .h(px(24.))
+                .flex()
+                .items_center()
+                .gap_2()
+                .cursor_pointer();
                 if selected {
                     item = item.bg(rgb(SELECTED_BG)).text_color(rgb(0xffffff));
                 }
                 item.child(
                     div()
                         .id(("favorite", i))
+                        .role(gpui::Role::CheckBox)
+                        .aria_label(format!("お気に入り: {}", row.text))
+                        .aria_toggled(if row.favorite {
+                            gpui::Toggled::True
+                        } else {
+                            gpui::Toggled::False
+                        })
                         .w(px(16.))
                         .h(px(16.))
                         .border_1()
@@ -535,8 +545,7 @@ impl Render for FavoriteDialog {
             .collect();
 
         let button = |id: &'static str, text: &'static str| {
-            div()
-                .id(id)
+            crate::a11y::button(div().id(id), text)
                 .px_3()
                 .h(px(28.))
                 .flex()
@@ -550,6 +559,9 @@ impl Render for FavoriteDialog {
         let tab_button = |tab: Tab, active: bool| {
             let mut tab_div = div()
                 .id(tab.caption())
+                .role(gpui::Role::Tab)
+                .aria_label(tab.caption())
+                .aria_selected(active)
                 .px_4()
                 .h(px(28.))
                 .flex()
@@ -568,8 +580,7 @@ impl Render for FavoriteDialog {
             }))
         };
 
-        div()
-            .id("favorite-dialog")
+        crate::a11y::dialog(div().id("favorite-dialog"), "履歴とお気に入りの管理")
             .key_context("FavoriteDialog")
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key_down))
@@ -584,6 +595,9 @@ impl Render for FavoriteDialog {
             .font_family(ui_font)
             .child(
                 div()
+                    .id("favorite-tabs")
+                    .role(gpui::Role::TabList)
+                    .aria_label("対象")
                     .flex()
                     .gap_1()
                     .child(tab_button(Tab::Files, self.tab == Tab::Files))
@@ -592,6 +606,8 @@ impl Render for FavoriteDialog {
             .child(
                 div()
                     .id("favorite-rows")
+                    .role(gpui::Role::ListBox)
+                    .aria_label("一覧")
                     .flex_1()
                     .overflow_y_scroll()
                     .track_scroll(&self.scroll)

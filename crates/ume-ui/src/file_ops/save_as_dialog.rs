@@ -380,18 +380,23 @@ impl Render for SaveAsDialog {
             .iter()
             .enumerate()
             .map(|(i, encoding)| {
-                row(i == self.state.selected)
-                    .id(("encoding", i))
-                    .child(encoding.combo_name())
-                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                        this.state.select(i);
-                        window.focus(&this.encoding_focus, cx);
-                        cx.notify();
-                    }))
+                crate::a11y::list_row(
+                    row(i == self.state.selected).id(("encoding", i)),
+                    encoding.combo_name(),
+                    i == self.state.selected,
+                )
+                .child(encoding.combo_name())
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    this.state.select(i);
+                    window.focus(&this.encoding_focus, cx);
+                    cx.notify();
+                }))
             })
             .collect();
         let list = div()
             .id("encoding-list")
+            .role(gpui::Role::ListBox)
+            .aria_label("文字コードセット")
             .track_focus(&self.encoding_focus)
             .h(px(200.))
             .w_full()
@@ -405,6 +410,13 @@ impl Render for SaveAsDialog {
         let bom_enabled = self.state.bom_enabled();
         let bom = div()
             .id("bom")
+            .role(gpui::Role::CheckBox)
+            .aria_label("BOM を付ける")
+            .aria_toggled(if self.state.bom && bom_enabled {
+                gpui::Toggled::True
+            } else {
+                gpui::Toggled::False
+            })
             .track_focus(&self.bom_focus)
             .flex()
             .items_center()
@@ -445,18 +457,23 @@ impl Render for SaveAsDialog {
             .iter()
             .enumerate()
             .map(|(i, (name, _))| {
-                row(i == self.state.eol)
-                    .id(("eol", i))
-                    .child(*name)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                        this.state.eol = i;
-                        window.focus(&this.eol_focus, cx);
-                        cx.notify();
-                    }))
+                crate::a11y::list_row(
+                    row(i == self.state.eol).id(("eol", i)),
+                    name,
+                    i == self.state.eol,
+                )
+                .child(*name)
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    this.state.eol = i;
+                    window.focus(&this.eol_focus, cx);
+                    cx.notify();
+                }))
             })
             .collect();
         let eol = div()
             .id("eol-group")
+            .role(gpui::Role::ListBox)
+            .aria_label("改行コード")
             .track_focus(&self.eol_focus)
             .flex()
             .border_1()
@@ -465,8 +482,7 @@ impl Render for SaveAsDialog {
             .children(eol_items);
 
         let button = |id: &'static str, label: &'static str, field: Field| {
-            div()
-                .id(id)
+            crate::a11y::button(div().id(id), label)
                 .track_focus(self.handle(field))
                 .px_4()
                 .h(px(28.))
@@ -483,40 +499,46 @@ impl Render for SaveAsDialog {
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.cancel(window, cx)));
 
         let label = |text: &'static str| div().mt_2().mb_1().child(text);
-        let panel = div()
-            .id("save-as-options")
-            .key_context("SaveAsDialog")
-            .on_key_down(cx.listener(Self::on_key_down))
-            .w(px(360.))
-            .p_4()
-            .flex()
-            .flex_col()
-            .bg(rgb(0xf0f0f0))
-            .border_1()
-            .border_color(rgb(0x888888))
-            .text_color(rgb(PANEL_TEXT))
-            .text_size(px(14.))
-            .child(if self.with_eol {
+        let panel = crate::a11y::dialog(
+            div().id("save-as-options"),
+            if self.with_eol {
                 "名前を付けて保存"
             } else {
-                // `IDD_SETCHARSET`
                 "文字コードの指定"
-            })
-            .child(label("文字コードセット"))
-            .child(list)
-            .child(div().mt_2().child(bom))
-            .when(self.with_eol, |this| {
-                this.child(label("改行コード")).child(eol)
-            })
-            .child(
-                div()
-                    .mt_4()
-                    .flex()
-                    .justify_end()
-                    .gap_2()
-                    .child(ok)
-                    .child(cancel),
-            );
+            },
+        )
+        .key_context("SaveAsDialog")
+        .on_key_down(cx.listener(Self::on_key_down))
+        .w(px(360.))
+        .p_4()
+        .flex()
+        .flex_col()
+        .bg(rgb(0xf0f0f0))
+        .border_1()
+        .border_color(rgb(0x888888))
+        .text_color(rgb(PANEL_TEXT))
+        .text_size(px(14.))
+        .child(if self.with_eol {
+            "名前を付けて保存"
+        } else {
+            // `IDD_SETCHARSET`
+            "文字コードの指定"
+        })
+        .child(label("文字コードセット"))
+        .child(list)
+        .child(div().mt_2().child(bom))
+        .when(self.with_eol, |this| {
+            this.child(label("改行コード")).child(eol)
+        })
+        .child(
+            div()
+                .mt_4()
+                .flex()
+                .justify_end()
+                .gap_2()
+                .child(ok)
+                .child(cancel),
+        );
         div()
             .id("save-as-overlay")
             .absolute()

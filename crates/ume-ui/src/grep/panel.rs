@@ -16,6 +16,7 @@
 
 use std::path::Path;
 
+use crate::a11y::Labelled as _;
 use gpui::{
     App, AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
     KeyDownEvent, ParentElement, Render, ScrollHandle, StatefulInteractiveElement, Styled,
@@ -317,7 +318,7 @@ impl GrepPanel {
         cx: &mut Context<Self>,
     ) -> Checkbox {
         Checkbox::new(id)
-            .label(label)
+            .labelled(label)
             .checked(checked)
             .on_click(cx.listener(move |this, value: &bool, _, cx| {
                 let value = *value;
@@ -334,7 +335,7 @@ impl GrepPanel {
         cx: &mut Context<Self>,
     ) -> Button {
         Button::new(id)
-            .label(label)
+            .labelled(label)
             .selected(selected)
             .on_click(cx.listener(move |this, _, _, cx| this.change(|s| change(s), cx)))
     }
@@ -364,17 +365,17 @@ impl Render for GrepPanel {
             .child(Input::new(&self.folder))
             .child(
                 Button::new("grep-browse")
-                    .label("参照(O)")
+                    .labelled("参照(O)")
                     .on_click(cx.listener(|this, _, window, cx| this.browse(window, cx))),
             )
             .child(
                 Button::new("grep-up")
-                    .label("上(U)")
+                    .labelled("上(U)")
                     .on_click(cx.listener(|this, _, window, cx| this.folder_up(window, cx))),
             )
             .child(
                 Button::new("grep-current-folder")
-                    .label("現フォルダー(J)")
+                    .labelled("現フォルダー(J)")
                     .on_click(cx.listener(|this, _, window, cx| this.current_folder(window, cx))),
             );
         let paste = s.paste;
@@ -535,7 +536,7 @@ impl Render for GrepPanel {
             .child("文字コードセット(S)")
             .child(
                 Button::new("grep-charset")
-                    .label(charset_label(s.charset))
+                    .labelled(charset_label(s.charset))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.change(|s| s.charset = next_charset(s.charset), cx);
                     })),
@@ -544,7 +545,7 @@ impl Render for GrepPanel {
             .gap_2()
             .child(
                 Button::new("grep-ok")
-                    .label(if self.replace_mode {
+                    .labelled(if self.replace_mode {
                         "置換"
                     } else {
                         "検索"
@@ -553,7 +554,7 @@ impl Render for GrepPanel {
             )
             .child(
                 Button::new("grep-cancel")
-                    .label("キャンセル")
+                    .labelled("キャンセル")
                     .on_click(cx.listener(|this, _, window, cx| this.cancel(window, cx))),
             );
         // The panel is as tall as its rows, up to the height of the area between its margins; a

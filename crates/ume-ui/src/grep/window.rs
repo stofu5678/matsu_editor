@@ -16,6 +16,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+use crate::a11y::Labelled as _;
 use gpui::{
     App, Context, Entity, Global, InteractiveElement, IntoElement, ParentElement, PromptLevel,
     Styled, Window, div, px, rgb,
@@ -579,7 +580,7 @@ impl EditorView {
                 .child(format!("Grep 中  {hits} 個  {file}"))
                 .child(
                     Button::new("grep-stop")
-                        .label("中断")
+                        .labelled("中断")
                         .on_click(cx.listener(|view, _, _, cx| view.stop_grep(cx))),
                 ),
         )

@@ -11,6 +11,7 @@
 //! Left out: the button ヘルプ, and the disabling of the tiling for Sakura's one-window tab mode,
 //! which this program does not have.
 
+use crate::a11y::Labelled as _;
 use gpui::{
     App, AppContext as _, ClickEvent, Context, FocusHandle, Focusable, InteractiveElement,
     IntoElement, KeyDownEvent, ParentElement, Render, StatefulInteractiveElement, Styled,
@@ -128,12 +129,12 @@ impl Render for ComparePanel {
             .gap_2()
             .child(
                 Button::new("compare-ok")
-                    .label("OK")
+                    .labelled("OK")
                     .on_click(cx.listener(|this, _, window, cx| this.ok(window, cx))),
             )
             .child(
                 Button::new("compare-cancel")
-                    .label("キャンセル(X)")
+                    .labelled("キャンセル(X)")
                     .on_click(cx.listener(|this, _, window, cx| this.cancel(window, cx))),
             );
         v_flex()
@@ -181,7 +182,7 @@ impl Render for ComparePanel {
             )
             .child(
                 Checkbox::new("compare-tile")
-                    .label("左右に並べて表示(T)")
+                    .labelled("左右に並べて表示(T)")
                     .checked(self.tile)
                     .on_click(cx.listener(|this, value: &bool, _, cx| this.set_tile(*value, cx))),
             )

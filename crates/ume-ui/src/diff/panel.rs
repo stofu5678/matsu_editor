@@ -11,6 +11,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::a11y::Labelled as _;
 use gpui::{
     App, AppContext as _, ClickEvent, Context, Entity, FocusHandle, Focusable, InteractiveElement,
     IntoElement, KeyDownEvent, ParentElement, Render, StatefulInteractiveElement, Styled,
@@ -183,7 +184,7 @@ impl DiffPanel {
         cx: &mut Context<Self>,
     ) -> Checkbox {
         Checkbox::new(id)
-            .label(label)
+            .labelled(label)
             .checked(checked)
             .on_click(cx.listener(move |this, value: &bool, _, cx| {
                 change(this, *value);
@@ -228,7 +229,7 @@ impl Render for DiffPanel {
             .child("比較するファイル")
             .child(
                 Button::new("diff-use-file")
-                    .label("外部ファイルを指定")
+                    .labelled("外部ファイルを指定")
                     .selected(self.use_file)
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.use_file = true;
@@ -241,13 +242,13 @@ impl Render for DiffPanel {
                     .child(div().flex_1().child(Input::new(&self.file)))
                     .child(
                         Button::new("diff-browse")
-                            .label("参照(R)...")
+                            .labelled("参照(R)...")
                             .on_click(cx.listener(|this, _, window, cx| this.browse(window, cx))),
                     ),
             )
             .child(
                 Button::new("diff-use-window")
-                    .label("他の編集中のファイル")
+                    .labelled("他の編集中のファイル")
                     .selected(!self.use_file)
                     .on_click(cx.listener(|this, _, _, cx| {
                         // "ListBoxが選択されていなかったら，先頭のファイルを選択する"
@@ -314,7 +315,7 @@ impl Render for DiffPanel {
                     .gap_2()
                     .child(
                         Button::new("diff-new")
-                            .label("新ファイル(N)")
+                            .labelled("新ファイル(N)")
                             .selected(!o.own_is_old)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.options.own_is_old = false;
@@ -323,7 +324,7 @@ impl Render for DiffPanel {
                     )
                     .child(
                         Button::new("diff-old")
-                            .label("旧ファイル(D)")
+                            .labelled("旧ファイル(D)")
                             .selected(o.own_is_old)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.options.own_is_old = true;
@@ -357,12 +358,12 @@ impl Render for DiffPanel {
             .gap_2()
             .child(
                 Button::new("diff-ok")
-                    .label("OK")
+                    .labelled("OK")
                     .on_click(cx.listener(|this, _, window, cx| this.ok(window, cx))),
             )
             .child(
                 Button::new("diff-cancel")
-                    .label("キャンセル(X)")
+                    .labelled("キャンセル(X)")
                     .on_click(cx.listener(|this, _, window, cx| this.cancel(window, cx))),
             );
         div()

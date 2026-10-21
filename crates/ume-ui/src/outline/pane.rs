@@ -46,6 +46,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use crate::a11y::AriaDisabled as _;
 use gpui::{
     App, ClickEvent, ClipboardItem, Context, Entity, FocusHandle, Focusable, InteractiveElement,
     IntoElement, KeyDownEvent, ParentElement, Render, ScrollStrategy, StatefulInteractiveElement,
@@ -1026,8 +1027,7 @@ impl Render for OutlinePane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let width = (window.viewport_size().width / 3.0).max(px(MIN_WIDTH));
         let button = |id: &'static str, text: &'static str| {
-            div()
-                .id(id)
+            crate::a11y::button(div().id(id), text)
                 .px_2()
                 .h(px(24.))
                 .flex()
@@ -1055,7 +1055,11 @@ impl Render for OutlinePane {
             .justify_between()
             .px_2()
             .py_1()
-            .child(div().font_weight(gpui::FontWeight::BOLD).child(title))
+            .child(
+                crate::a11y::text(div().id("outline-title"), &title)
+                    .font_weight(gpui::FontWeight::BOLD)
+                    .child(title.clone()),
+            )
             .child(
                 div()
                     .flex()
@@ -1082,6 +1086,11 @@ impl Render for OutlinePane {
                     },
                     sort.label(),
                 );
+                b = b.aria_toggled(if sort == self.sort_type {
+                    gpui::Toggled::True
+                } else {
+                    gpui::Toggled::False
+                });
                 if sort == self.sort_type {
                     b = b.bg(rgb(SELECTED_BG)).text_color(rgb(0xffffff));
                 }
@@ -1103,11 +1112,19 @@ impl Render for OutlinePane {
             } else {
                 "関数名"
             };
-            let head = |id: &'static str, text: String, column: ListColumn| {
-                div().id(id).px_1().cursor_pointer().child(text).on_click(
-                    cx.listener(move |this, _: &ClickEvent, _, cx| this.click_column(column, cx)),
-                )
-            };
+            let head =
+                |id: &'static str, text: String, column: ListColumn| {
+                    div()
+                        .id(id)
+                        .role(gpui::Role::ColumnHeader)
+                        .aria_label(plain_header(&text))
+                        .px_1()
+                        .cursor_pointer()
+                        .child(text)
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            this.click_column(column, cx)
+                        }))
+                };
             div()
                 .flex()
                 .bg(rgb(0xe8e8e8))
@@ -1164,6 +1181,21 @@ impl Render for OutlinePane {
         )
         .track_scroll(&self.scroll)
         .flex_1();
+        // The rows are a list (the lists of functions, bookmarks) or a tree (the topic tree, the file
+        // tree), named by the pane's title.
+        let body = div()
+            .id("outline-body")
+            .role(if is_list {
+                gpui::Role::ListBox
+            } else {
+                gpui::Role::Tree
+            })
+            .aria_label(self.title())
+            .flex_1()
+            .min_h(px(0.))
+            .flex()
+            .flex_col()
+            .child(body);
 
         let footer = div()
             .flex()
@@ -1177,6 +1209,7 @@ impl Render for OutlinePane {
             } else {
                 // gray, and no click
                 button("outline-copy", "コピー(C)")
+                    .aria_disabled(true)
                     .text_color(rgb(STALE_TEXT))
                     .cursor_default()
             })
@@ -1187,6 +1220,13 @@ impl Render for OutlinePane {
                 this.child(
                     div()
                         .id("outline-ignore-blank")
+                        .role(gpui::Role::CheckBox)
+                        .aria_label("空行を無視する")
+                        .aria_toggled(if on {
+                            gpui::Toggled::True
+                        } else {
+                            gpui::Toggled::False
+                        })
                         .cursor_pointer()
                         .child(format!("{} 空行を無視する(B)", if on { "☑" } else { "☐" }))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -1195,13 +1235,17 @@ impl Render for OutlinePane {
                 )
             });
 
+        let pane_name = if self.title().is_empty() {
+            "アウトライン"
+        } else {
+            self.title()
+        };
         let message = self.shown.as_ref().and_then(|s| {
             s.unsupported
                 .then_some("このタイプのアウトライン解析にはまだ対応していません")
         });
 
-        div()
-            .id("outline-pane")
+        crate::a11y::group(div().id("outline-pane"), pane_name)
             .key_context("Outline")
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key_down))
@@ -1222,6 +1266,28 @@ impl Render for OutlinePane {
             .child(body)
             .child(footer)
     }
+}
+
+/// The name of a column header without the mark that shows it is the sort column (` *`); the
+/// remarks column has no title in the list, Sakura calls it 備考.
+fn plain_header(text: &str) -> String {
+    let name = text.trim_end_matches(" *").trim();
+    if name.is_empty() {
+        "備考".to_owned()
+    } else {
+        name.to_owned()
+    }
+}
+
+/// What a screen reader says for a row of a list: the row and column, then the text and the
+/// remark (`12行 5桁 見出し 備考`).
+fn list_row_name(line: &str, col: &str, label: &str, remark: &str) -> String {
+    let mut name = format!("{line}行 {col}桁 {label}");
+    if !remark.is_empty() {
+        name.push(' ');
+        name.push_str(remark);
+    }
+    name
 }
 
 /// `when` for a plain flag, without GPUI's `FluentBuilder` trait in scope.
@@ -1254,23 +1320,27 @@ impl OutlinePane {
             line = line.text_color(rgb(STALE_TEXT));
         }
         let line = match &row.columns {
-            Some([line_no, col, remark]) => line
-                .child(div().w(px(52.)).px_1().child(line_no.clone()))
-                .child(div().w(px(40.)).px_1().child(col.clone()))
-                .child(
-                    div()
-                        .flex_1()
-                        .px_1()
-                        .overflow_hidden()
-                        .child(row.label.clone()),
-                )
-                .child(
-                    div()
-                        .w(px(120.))
-                        .px_1()
-                        .overflow_hidden()
-                        .child(remark.clone()),
-                ),
+            Some([line_no, col, remark]) => crate::a11y::list_row(
+                line,
+                &list_row_name(line_no, col, &row.label, remark),
+                selected,
+            )
+            .child(div().w(px(52.)).px_1().child(line_no.clone()))
+            .child(div().w(px(40.)).px_1().child(col.clone()))
+            .child(
+                div()
+                    .flex_1()
+                    .px_1()
+                    .overflow_hidden()
+                    .child(row.label.clone()),
+            )
+            .child(
+                div()
+                    .w(px(120.))
+                    .px_1()
+                    .overflow_hidden()
+                    .child(remark.clone()),
+            ),
             None => {
                 let arrow = if !row.has_children {
                     " "
@@ -1279,18 +1349,25 @@ impl OutlinePane {
                 } else {
                     "▸"
                 };
-                line.pl(px(4. + 14. * row.depth as f32))
-                    .child(
-                        div()
-                            .id(("outline-arrow", index))
-                            .w(px(14.))
-                            .child(arrow)
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                this.toggle_node(index, cx);
-                                cx.stop_propagation();
-                            })),
-                    )
-                    .child(div().flex_1().overflow_hidden().child(row.label.clone()))
+                crate::a11y::tree_row(
+                    line,
+                    &row.label,
+                    selected,
+                    row.depth,
+                    row.has_children.then_some(row.expanded),
+                )
+                .pl(px(4. + 14. * row.depth as f32))
+                .child(
+                    div()
+                        .id(("outline-arrow", index))
+                        .w(px(14.))
+                        .child(arrow)
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            this.toggle_node(index, cx);
+                            cx.stop_propagation();
+                        })),
+                )
+                .child(div().flex_1().overflow_hidden().child(row.label.clone()))
             }
         };
         line.on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
@@ -1311,5 +1388,24 @@ impl OutlinePane {
                 this.focus(window, cx);
             }
         }))
+    }
+}
+
+#[cfg(test)]
+mod a11y_tests {
+    use super::*;
+
+    #[test]
+    fn the_name_of_a_header_has_no_sort_mark_and_the_remarks_column_is_named() {
+        assert_eq!(plain_header("行 *"), "行");
+        assert_eq!(plain_header("関数名"), "関数名");
+        assert_eq!(plain_header(""), "備考");
+        assert_eq!(plain_header(" *"), "備考");
+    }
+
+    #[test]
+    fn a_row_of_a_list_is_read_with_its_position_text_and_remark() {
+        assert_eq!(list_row_name("12", "5", "見出し", ""), "12行 5桁 見出し");
+        assert_eq!(list_row_name("1", "1", "main", "関数"), "1行 1桁 main 関数");
     }
 }

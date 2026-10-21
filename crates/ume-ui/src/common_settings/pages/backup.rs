@@ -200,6 +200,7 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                     .when(folder_enabled)
                     .into(),
                 Control::button("backup_folder_browse", "&...", browse)
+                    .named("バックアップフォルダーを参照")
                     .when(folder_enabled)
                     .into(),
             ]),

@@ -64,3 +64,52 @@ fn a_name_given_by_the_page_wins_over_the_label() {
     assert_eq!(empty.named("見出し記号").accessible_name(), "見出し記号");
     assert_eq!(plain.named("別名").accessible_name(), "別名");
 }
+
+/// A name that says nothing alone: empty, or only dots (a "..." browse button).
+fn says_nothing(name: &str) -> bool {
+    name.chars()
+        .all(|c| c == '.' || c == '\u{2026}' || c.is_whitespace())
+}
+
+/// The ids of the buttons and tables of `controls` whose name says nothing.
+fn nameless_buttons_and_tables(controls: &[Control]) -> Vec<&'static str> {
+    controls
+        .iter()
+        .filter(|c| matches!(c.kind, Kind::Button { .. } | Kind::Table { .. }))
+        .filter(|c| says_nothing(&c.accessible_name()))
+        .map(|c| c.id)
+        .collect()
+}
+
+#[test]
+fn every_button_and_table_of_the_common_settings_says_what_it_is() {
+    let mut controls = Vec::new();
+    for page in Page::ALL {
+        drawn(&page.items().unwrap_or_default(), &mut controls);
+    }
+    assert!(
+        controls
+            .iter()
+            .any(|c| matches!(c.kind, Kind::Table { .. }))
+    );
+    assert_eq!(nameless_buttons_and_tables(&controls), Vec::<&str>::new());
+}
+
+#[test]
+fn every_button_and_table_of_the_type_settings_says_what_it_is() {
+    let sheet = crate::type_settings::sheet(&Profile::default(), 0).expect("the first type");
+    let mut controls = Vec::new();
+    for page in &sheet.pages {
+        drawn(page.items.as_deref().unwrap_or_default(), &mut controls);
+    }
+    assert_eq!(nameless_buttons_and_tables(&controls), Vec::<&str>::new());
+}
+
+#[test]
+fn a_browse_button_is_named_for_what_it_browses() {
+    let browse = Control::button("b", "...", |_, _, _| {}).named("マクロフォルダーを参照");
+    assert_eq!(browse.accessible_name(), "マクロフォルダーを参照");
+    assert!(says_nothing(
+        &Control::button("b", "...", |_, _, _| {}).accessible_name()
+    ));
+}

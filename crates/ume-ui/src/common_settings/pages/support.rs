@@ -99,7 +99,9 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                 Control::text(EXT_HELP, "", "szExtHelp", "")
                     .named("外部ヘルプの設定")
                     .into(),
-                Control::button("helper_ext_help_ref", "(&1)...", browse_ext_help).into(),
+                Control::button("helper_ext_help_ref", "(&1)...", browse_ext_help)
+                    .named("外部ヘルプの設定を参照")
+                    .into(),
             ])],
         ),
         Item::Group(
@@ -110,6 +112,7 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         .named("外部HTMLヘルプの設定")
                         .into(),
                     Control::button("helper_ext_html_help_ref", "(&2)...", browse_ext_html_help)
+                        .named("外部HTMLヘルプの設定を参照")
                         .into(),
                 ]),
                 Control::check(
@@ -137,6 +140,7 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         .unavailable()
                         .into(),
                     Control::button("helper_migemo_dll_ref", "(&3)...", no_action)
+                        .named("DLLを参照")
                         .unavailable()
                         .into(),
                 ]),
@@ -145,6 +149,7 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         .unavailable()
                         .into(),
                     Control::button("helper_migemo_dict_ref", "(&4)...", no_action)
+                        .named("辞書を参照")
                         .unavailable()
                         .into(),
                 ]),

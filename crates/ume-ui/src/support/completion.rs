@@ -37,7 +37,8 @@ use std::time::SystemTime;
 
 use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, KeyDownEvent, MouseButton,
-    MouseDownEvent, ParentElement, Styled, anchored, deferred, div, point, px, rgb,
+    MouseDownEvent, ParentElement, StatefulInteractiveElement as _, Styled, anchored, deferred,
+    div, point, px, rgb,
 };
 use ume_commands::context::Changes;
 use ume_commands::registry::Registry;
@@ -383,18 +384,18 @@ impl EditorView {
             .skip(list.top)
             .take(VISIBLE_ROWS)
             .map(|(i, word)| {
-                let row = div()
-                    .id(("hokan-row", i))
-                    .px_2()
-                    .whitespace_nowrap()
-                    .child(word.clone())
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, event: &MouseDownEvent, _, cx| {
-                            this.completion_click(i, event.click_count, cx);
-                            cx.stop_propagation();
-                        }),
-                    );
+                let row =
+                    crate::a11y::list_row(div().id(("hokan-row", i)), word, i == list.selected)
+                        .px_2()
+                        .whitespace_nowrap()
+                        .child(word.clone())
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                                this.completion_click(i, event.click_count, cx);
+                                cx.stop_propagation();
+                            }),
+                        );
                 if i == list.selected {
                     row.bg(rgb(0x2f6fd0)).text_color(rgb(0xffffff))
                 } else {
@@ -403,6 +404,8 @@ impl EditorView {
             });
         let list_box = div()
             .id("hokan-list")
+            .role(gpui::Role::ListBox)
+            .aria_label("入力補完")
             .occlude()
             .min_w(px(120.))
             .max_w(px(480.))

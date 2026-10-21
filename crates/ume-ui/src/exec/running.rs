@@ -3,6 +3,7 @@
 //! rest of the window stays usable, but while the output goes into the document the box covers
 //! the view and has the keys (Escape stops), so that nothing is typed into the text meanwhile.
 
+use crate::a11y::Labelled as _;
 use gpui::{
     AppContext as _, Context, FocusHandle, Focusable, InteractiveElement, IntoElement,
     KeyDownEvent, MouseButton, ParentElement, Render, Styled, Window, div, px, rgb,
@@ -100,7 +101,7 @@ impl Render for ExecRunning {
             .child(
                 h_flex().child(
                     Button::new("exec-stop")
-                        .label(if self.stopping {
+                        .labelled(if self.stopping {
                             "中断しています…"
                         } else {
                             "キャンセル(X)"
