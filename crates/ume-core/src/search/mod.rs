@@ -4,8 +4,11 @@
 //!
 //! * **One line at a time.** Sakura matches line by line and never across lines, and the regex
 //!   engine stays behind a trait (ADR-0006). A [`Matcher`] finds matches in one line of decoded
-//!   text; [`PlainMatcher`] is the plain-text one. The regex crate will implement the trait in a
-//!   later change, and nothing here depends on it.
+//!   text; [`PlainMatcher`] is the plain-text one, and the regex crate implements the trait too
+//!   (nothing here depends on it). A regular expression gets each line *with its own line
+//!   ending*, as in Sakura (`GetDocLineStrWithEOL`), so it can match the line break
+//!   (`\r\n`, `\s`, a negated class) but never the next line ([`Matcher::sees_line_ending`],
+//!   [`Found`]).
 //! * **The document driver.** [`find`], [`find_all`] and the replace functions read the
 //!   [`Document`](crate::buffer::Document) by line, each line once, and call the matcher. They
 //!   take a `&Document`; a clone (cheap) can be searched on another thread while the UI keeps
@@ -30,7 +33,7 @@ mod tests;
 pub use chars::fold_char;
 pub use find::{
     CancelToken, Control, Direction, FindAll, Found, Progress, SearchError, SearchJob, find,
-    find_all, start_after,
+    find_all, find_in_line, start_after,
 };
 pub use matcher::{Match, Matcher, MatcherError, PlainMatcher, PlainOptions};
 pub use replace::{

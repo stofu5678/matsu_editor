@@ -1,8 +1,8 @@
 //! The regular expression [`Matcher`] for the document search.
 //!
 //! It lives here and not in `ume-core` because the dependency goes one way: `ume-regex` knows
-//! `ume-core`'s `Matcher` trait (for which ADR-0006 made the search work line by line), and
-//! `ume-core` never learns about the regex engine.
+//! `ume-core`'s `Matcher` trait (for which ADR-0006 made the search work line by line, each line
+//! with its own line ending), and `ume-core` never learns about the regex engine.
 
 use std::fmt;
 
@@ -64,9 +64,10 @@ impl From<CompileError> for PatternError {
 ///
 /// * The pattern goes through Sakura's pre-processing ([`make_pattern_alternate`]) and is
 ///   compiled with the syntax and options of bregonig.dll ([`Onigmo`]).
-/// * Matching is line by line, on the line without its line ending. Sakura matches the line with
-///   its line ending, so a pattern that can match the ending (`\s+` at the end of a line, `[^a]`,
-///   `\r`, `\n`) reaches over it there and stops at the end of the text here; see the PR text.
+/// * Matching is line by line, on the line followed by its own line ending, as Sakura does
+///   (`CDocLine::GetDocLineStrWithEOL` in `CSearchAgent::SearchWord`): a pattern can match the
+///   line break (`\r\n`, `[\r\n]+`, `\s`, `[^a]`), but a match never goes on into the next line
+///   ([`Matcher::sees_line_ending`], ADR-0006).
 /// * Backward search and "find all" use the default scans of [`Matcher`], which are Sakura's
 ///   loops (`CSearchAgent::SearchWord`): after a match the next search starts at its end, after
 ///   an empty match one char later.
@@ -151,6 +152,10 @@ fn to_match(caps: crate::Captures) -> Match {
 }
 
 impl Matcher for RegexMatcher {
+    fn sees_line_ending(&self) -> bool {
+        true
+    }
+
     fn find_at(&self, line: &str, start: usize) -> Result<Option<Match>, MatcherError> {
         if start > line.len() {
             return Ok(None);

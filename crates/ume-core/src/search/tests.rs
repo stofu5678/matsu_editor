@@ -1184,12 +1184,18 @@ fn offsets_given_to_matcher_overrides_are_char_boundaries() {
         fn find_last_before(
             &self,
             line: &str,
+            _body: usize,
             limit: Option<usize>,
         ) -> Result<Option<Match>, MatcherError> {
             let _ = &line[..limit.unwrap_or(0)];
             Ok(None)
         }
-        fn find_all_from(&self, line: &str, start: usize) -> Result<Vec<Match>, MatcherError> {
+        fn find_all_from(
+            &self,
+            line: &str,
+            _body: usize,
+            start: usize,
+        ) -> Result<Vec<Match>, MatcherError> {
             let _ = &line[start..];
             Ok(Vec::new())
         }

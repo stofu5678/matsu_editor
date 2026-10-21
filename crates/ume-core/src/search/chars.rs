@@ -27,7 +27,7 @@
 // 3. This notice may not be removed or altered from any source distribution.
 //
 // Modifications: rewritten in Rust for UME Editor. The text is UTF-8 `char`s instead of
-// UTF-16 units, lines come without their line ending, and the font-dependent width test
+// UTF-16 units, lines come without their line ending (see `Matcher::sees_line_ending`), and the font-dependent width test
 // is replaced by a fixed rule.
 
 //! Character rules of Sakura's search: case folding and word boundaries.

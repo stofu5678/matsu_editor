@@ -206,7 +206,7 @@ impl Runner<'_> {
                         Some(range),
                         Control::new(),
                     );
-                    count = done.ok().and_then(|r| count.map(|c| c + r.edits.len()));
+                    count = done.ok().and_then(|r| count.map(|c| c + r.count));
                     if count.is_none() {
                         break;
                     }

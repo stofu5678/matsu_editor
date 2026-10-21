@@ -11,10 +11,21 @@
 //! * "すべて置換" has two modes (the check box 「すべて置換」は置換の繰返し,
 //!   `m_bConsecutiveAll`, off by default): [`ReplaceAllMode::Batch`] is the `g` option of bregonig.html (5.2, "g: global
 //!   replacement"; Sakura passes it unless the check box is on), one
-//!   pass over each line that searches the line as it was before any replacement (that look-behind
+//!   pass over the rest of each line that searches the line as it was before any replacement (that look-behind
 //!   sees the original text is not in bregonig.html; bregonig.dll 4.20 does so);
 //!   [`ReplaceAllMode::Repeat`] replaces one match, searches again from the caret and so on.
 //!   They differ when a replacement changes what a later match sees (look-behind, `\b`, `\G`).
+//!
+//! # The line ending
+//!
+//! A line is matched together with its own line ending (see [`RegexMatcher`]), so a match can
+//! cover the line break. Sakura replaces exactly the matched text: a match that covers only
+//! the `\r` of a CR LF leaves the `\n` (`CViewCommander::Command_REPLACE`, 「\rを置換するとその後ろの
+//! \nが消えてしまう問題の対応」), and the part of the line ending before or after the match is put
+//! back ([`Found::kept_before`], [`Found::kept_after`]). A replacement that removes the line
+//! ending joins the line with the next one, and the search goes on from the end of the
+//! replacement, in the joined line (「一括置換」: `Command_REPLACE_ALL`, the caret is after the
+//! inserted text when `Command_SEARCH_NEXT` runs again).
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -22,7 +33,7 @@ use std::sync::Arc;
 use ume_core::buffer::{BufferError, Document, Pos};
 use ume_core::search::{
     AppliedEdit, Control, Direction, Found, Match, Matcher, MatcherError, ReplaceAllResult,
-    ReplaceStep, ReplaceTarget, Replacement, SearchError, apply_replacements, find, find_all,
+    ReplaceStep, ReplaceTarget, Replacement, SearchError, apply_replacements, find, find_in_line,
     replacement_for, start_after,
 };
 
@@ -45,7 +56,10 @@ pub enum ReplaceAllMode {
 /// bregonig.dll does (measured on bregonig.dll 4.20). That differs from Sakura's own loop
 /// (`CSearchAgent::SearchWord`, which `RegexMatcher` follows) in one place: `\G` stays at the end
 /// of the last match while the scan steps one character over an empty match, so after an empty
-/// match `\G` cannot match any more (`\G` replaced by `-` in `abc` gives `-abc`).
+/// match `\G` cannot match any more (`\G` replaced by `-` in `abc` gives `-abc`). It runs over
+/// the whole subject, the line ending included, and also finds the empty match at the very end
+/// after the line ending (`x*` replaced by `-` in `ab` plus LF gives `-a-b-` LF `-`, as the real
+/// Sakura does), where the loop of `CSearchAgent::SearchWord` stops at the end of the text.
 #[derive(Debug)]
 struct GlobalScan<'a>(&'a RegexMatcher);
 
@@ -54,7 +68,16 @@ impl Matcher for GlobalScan<'_> {
         self.0.find_at(line, start)
     }
 
-    fn find_all_from(&self, line: &str, start: usize) -> Result<Vec<Match>, MatcherError> {
+    fn sees_line_ending(&self) -> bool {
+        true
+    }
+
+    fn find_all_from(
+        &self,
+        line: &str,
+        _body: usize,
+        start: usize,
+    ) -> Result<Vec<Match>, MatcherError> {
         let mut all = Vec::new();
         let (mut pos, mut gpos) = (start, start);
         while let Some(m) = self.0.find_from(line, pos, gpos)? {
@@ -145,11 +168,19 @@ impl RegexReplacer {
         Ok(self.expand_in(&line, found))
     }
 
+    /// The text that replaces `found.range()`: the template, with the part of the line ending
+    /// before and after the match put back (see the module docs).
     fn expand_in(&self, line: &str, found: &Found) -> String {
+        let text = self.expand_bare(&found.subject(line), found);
+        format!("{}{text}{}", found.kept_before(), found.kept_after())
+    }
+
+    /// The template for one match, in `subject` (the line text and its line ending).
+    fn expand_bare(&self, subject: &str, found: &Found) -> String {
         let mut groups = Vec::with_capacity(found.captures.len() + 1);
-        groups.push(Some(found.start.col..found.end.col));
+        groups.push(Some(found.raw.clone()));
         groups.extend(found.captures.iter().cloned());
-        self.template.expand(line, &groups)
+        self.template.expand(subject, &groups)
     }
 
     /// The edit that replaces `found`.
@@ -226,21 +257,12 @@ impl RegexReplacer {
             if (*polled - 1).is_multiple_of(256) {
                 poll_cancel(doc, &*self.matcher, ctl)?;
             }
-            let Some(line) = doc.line(i)? else { break };
-            let mut start = if i == from.line { from.col } else { 0 };
-            if start > line.text.len() {
-                continue;
+            if i >= doc.line_count() {
+                break;
             }
-            while !line.text.is_char_boundary(start) {
-                start += 1;
-            }
-            if let Some(m) = self.matcher.find_at(&line.text, start)? {
-                return Ok(Some(Found {
-                    start: Pos::new(i, m.start),
-                    end: Pos::new(i, m.end),
-                    captures: m.captures,
-                    wrapped: false,
-                }));
+            let start = if i == from.line { from.col } else { 0 };
+            if let Some(found) = find_in_line(doc, &*self.matcher, i, start, false)? {
+                return Ok(Some(found));
             }
         }
         Ok(None)
@@ -273,47 +295,157 @@ impl RegexReplacer {
         ctl: Control<'_>,
     ) -> Result<ReplaceAllResult, SearchError> {
         let mut work = doc.clone();
-        let edits = match mode {
+        let (edits, caret, count) = match mode {
             ReplaceAllMode::Batch => self.replace_batch(&mut work, range, ctl)?,
-            ReplaceAllMode::Repeat => self.replace_repeat(&mut work, range, ctl)?,
+            ReplaceAllMode::Repeat => {
+                let edits = self.replace_repeat(&mut work, range, ctl)?;
+                let caret = edits.last().map(|e| e.resume);
+                let count = edits.len();
+                (edits, caret, count)
+            }
         };
         *doc = work;
-        let caret = edits.last().map(|e| e.resume);
-        Ok(ReplaceAllResult { edits, caret })
+        Ok(ReplaceAllResult {
+            edits,
+            caret,
+            count,
+        })
     }
 
+    /// 一括置換 (`Command_REPLACE_ALL` without 「すべて置換は置換の繰返し」): Sakura finds the first
+    /// match from the caret, then lets bregonig replace every match in the rest of that line
+    /// (the line ending included) in one go, and searches again from the caret, which is then at
+    /// the end of the text it inserted. So the next search sees the text as the replacements
+    /// left it, a joined line included. The edits are one per match, as the count Sakura shows
+    /// is the number of matches. Returns the edits, the caret after the last one and the number
+    /// of matches replaced (more than the edits where matches share a line ending).
     fn replace_batch(
         &self,
         work: &mut Document,
         range: Option<Range<Pos>>,
-        ctl: Control<'_>,
-    ) -> Result<Vec<AppliedEdit>, SearchError> {
-        let mut plan = Vec::new();
-        let mut deleted_through: Option<usize> = None;
-        // Matches come line by line, so the last line read is enough.
-        let mut cached: Option<(usize, String)> = None;
+        mut ctl: Control<'_>,
+    ) -> Result<(Vec<AppliedEdit>, Option<Pos>, usize), SearchError> {
+        let mut count = 0usize;
+        let mut from = range.as_ref().map_or(Pos::new(0, 0), |r| r.start);
+        // Where the range ends now; it moves as the text before it changes.
+        let mut limit = range.map(|r| r.end);
+        let mut edits = Vec::new();
+        let mut caret = None;
+        let mut polled = 0usize;
         let scan = GlobalScan(&self.matcher);
-        for found in find_all(work, &scan, range, ctl) {
-            let found = found?;
+        while let Some(found) = self.next_found(work, from, limit, &mut ctl, &mut polled)? {
+            if limit.is_some_and(|l| beyond(&found, l)) {
+                break;
+            }
             let line_no = found.start.line;
-            if self.target == ReplaceTarget::DeleteLine {
-                if deleted_through.is_some_and(|l| line_no <= l) {
+            let Some(line) = work.line(line_no)? else {
+                break;
+            };
+            let body = line.text.len();
+            let eol = line.eol.map_or("", ume_core::encoding::Eol::as_str);
+            // A selection that ends inside the text of this line shortens what is replaced to the
+            // end of the selection (`nLen` in `Command_REPLACE_ALL`, 「選択範囲置換の場合は行内の
+            // 選択範囲末尾まで置換範囲を縮める」).
+            let (body, eol, cut) = match limit {
+                Some(l) if l.line == line_no && body > l.col => {
+                    let mut cut = l.col;
+                    while !line.text.is_char_boundary(cut) {
+                        cut += 1;
+                    }
+                    (cut, "", true)
+                }
+                _ => (body, eol, false),
+            };
+            let subject = format!("{}{eol}", &line.text[..body]);
+            let matches = if self.target == ReplaceTarget::DeleteLine {
+                // Sakura deletes the line of the first match, whatever else matches in it.
+                vec![Match::new(found.raw.start, found.raw.end)]
+            } else {
+                // From where the search began: the first match is the first one from there
+                // (Sakura starts at the match, the same except for \K).
+                let at = if from.line == line_no { from.col } else { 0 };
+                scan.find_all_from(&subject, body, at)?
+            };
+            let mut plan = Vec::with_capacity(matches.len());
+            // Matches that reach into the line ending share one range of the document (the
+            // whole line ending is replaced), so they are put together in the subject's own
+            // coordinates and make one edit.
+            let mut tail: Vec<Found> = Vec::new();
+            for m in matches {
+                let m_found = Found::in_subject(line_no, m, body, eol, false);
+                if self.target != ReplaceTarget::DeleteLine && m_found.raw.end > body {
+                    tail.push(m_found);
                     continue;
                 }
-                deleted_through = Some(line_no);
+                let edit = self.edit_for(work, &m_found, &line.text)?;
+                if !self.is_no_op(&edit) {
+                    plan.push(edit);
+                }
             }
-            if cached.as_ref().is_none_or(|(n, _)| *n != line_no) {
-                let text = work.line(line_no)?.map(|l| l.text).unwrap_or_default();
-                cached = Some((line_no, text));
+            count += plan.len() + tail.len();
+            if let Some(first) = tail.first() {
+                let start = first.start;
+                let mut text = String::new();
+                let mut at = start.col;
+                for f in &tail {
+                    text.push_str(&subject[at..f.raw.start.max(at)]);
+                    text.push_str(&self.expand_bare(&subject, f));
+                    at = f.raw.end.max(at);
+                }
+                text.push_str(&subject[at..]);
+                let end = Pos::new(line_no + 1, 0);
+                plan.push(replacement_for(
+                    work,
+                    &(start..end),
+                    &text,
+                    ReplaceTarget::Match,
+                )?);
             }
-            let line = cached.as_ref().map_or("", |(_, t)| t.as_str());
-            let edit = self.edit_for(work, &found, line)?;
-            if self.is_no_op(&edit) {
+            // The end of the text that Sakura replaces in one go: the end of the line, with its
+            // line ending.
+            let line_end = if eol.is_empty() {
+                Pos::new(line_no, body)
+            } else {
+                Pos::new(line_no + 1, 0)
+            };
+            let Some(last) = plan.last() else {
+                // Deleting the last line when it is already empty removes nothing.
+                from = Pos::new(line_no + 1, 0);
                 continue;
+            };
+            let last_end = last.end;
+            let applied = apply_replacements(work, &plan)?;
+            let new_end = applied.last().map_or(last_end, |e| e.end);
+            limit = limit.map(|l| shift_pos(last_end, new_end, l));
+            from = shift_pos(last_end, new_end, line_end);
+            caret = Some(from);
+            edits.extend(applied);
+            // The selection ends in this line: the shortened subject held every match that is
+            // left in the selection, and the text that was inserted is not searched again.
+            if cut {
+                break;
             }
-            plan.push(edit);
         }
-        Ok(apply_replacements(work, &plan)?)
+        Ok((edits, caret, count))
+    }
+
+    /// The next match from `from`, in the lines up to the end of the selection `limit` if there is
+    /// one, without wrapping.
+    fn next_found(
+        &self,
+        work: &Document,
+        from: Pos,
+        limit: Option<Pos>,
+        ctl: &mut Control<'_>,
+        polled: &mut usize,
+    ) -> Result<Option<Found>, SearchError> {
+        // A selection is searched only up to its end, not through the rest of the document
+        // (that scan cannot be cancelled, but a selection is small). Without one the search is
+        // the cancellable `find`.
+        match limit {
+            Some(l) => self.find_before(work, from, l, ctl, polled),
+            None => find(work, &*self.matcher, from, Direction::Forward, false, ctl),
+        }
     }
 
     fn replace_repeat(
@@ -327,33 +459,9 @@ impl RegexReplacer {
         let mut limit = range.map(|r| r.end);
         let mut edits = Vec::new();
         let mut polled = 0usize;
-        loop {
-            // A selection is searched only up to its end, not through the rest of the document
-            // (that scan cannot be cancelled, but a selection is small). Without one the
-            // search is the cancellable `find`.
-            let next = match limit {
-                Some(l) => self.find_before(work, from, l, &mut ctl, &mut polled)?,
-                None => find(
-                    work,
-                    &*self.matcher,
-                    from,
-                    Direction::Forward,
-                    false,
-                    &mut ctl,
-                )?,
-            };
-            let Some(found) = next else { break };
-            if let Some(l) = limit {
-                // The same rule as `find_all`: a range that ends at column 0 leaves that line
-                // out, and a match must end inside the range.
-                let beyond = if l.col == 0 {
-                    found.start.line >= l.line
-                } else {
-                    found.start.line > l.line || (found.end.line == l.line && found.end.col > l.col)
-                };
-                if beyond {
-                    break;
-                }
+        while let Some(found) = self.next_found(work, from, limit, &mut ctl, &mut polled)? {
+            if limit.is_some_and(|l| beyond(&found, l)) {
+                break;
             }
             let line = work
                 .line(found.start.line)?
@@ -372,6 +480,17 @@ impl RegexReplacer {
             edits.push(applied);
         }
         Ok(edits)
+    }
+}
+
+/// Whether `found` is outside a range that ends at `end`: the same rule as `find_all`. A range
+/// that ends at column 0 leaves that line out, and a match must end inside the range (a match
+/// over a line ending ends on the next line).
+fn beyond(found: &Found, end: Pos) -> bool {
+    if end.col == 0 {
+        found.end.line >= end.line
+    } else {
+        found.end > end
     }
 }
 

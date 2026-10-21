@@ -24,7 +24,8 @@
 // 3. This notice may not be removed or altered from any source distribution.
 //
 // Modifications: rewritten in Rust for UME Editor. The text is UTF-8 `char`s instead of
-// UTF-16 units, lines come without their line ending, and the font-dependent width test
+// UTF-16 units, plain-text matchers get lines without their line ending (regular
+// expressions get it, see `Matcher::sees_line_ending`), and the font-dependent width test
 // is replaced by a fixed rule.
 
 //! Matching inside one line: the [`Matcher`] trait and the plain-text matcher.
@@ -90,11 +91,23 @@ impl fmt::Display for MatcherError {
 
 impl std::error::Error for MatcherError {}
 
-/// Finds matches in one line of decoded text, without its line ending.
+/// Finds matches in one line of decoded text.
 ///
 /// Sakura matches line by line and never across lines (ADR-0006), so the document search only
-/// needs this. The plain-text matcher implements it now; the regex crate will implement it
-/// later (its `Regex::captures_at` has the same shape: a line, a byte offset, byte ranges).
+/// needs this. The plain-text matcher and the regex crate implement it (its
+/// `Regex::captures_at` has the same shape: a line, a byte offset, byte ranges).
+///
+/// # The line ending
+///
+/// Sakura hands the regex engine each line *with* its own line ending
+/// (`CDocLine::GetDocLineStrWithEOL`, `CSearchAgent::SearchWord`), so a pattern can match the
+/// line break (`\r\n`, `[\r\n]+`, `\s`, a negated class), but a match never goes on into the
+/// next line. A matcher that does the same says so with
+/// [`sees_line_ending`](Self::sees_line_ending): the document search then gives it the line text
+/// followed by its line ending, and the length of the text alone as `body`. A search may start
+/// at `body` or before (never inside the line ending), but a match may begin or end inside the
+/// line ending. A matcher that does not say so (plain text) gets the line without its line
+/// ending, and `body` is the length of `line`.
 ///
 /// A matcher is immutable and shared between threads, so a search can run off the UI thread.
 /// `start`, `limit` and every returned offset are on char boundaries of `line`.
@@ -104,6 +117,12 @@ pub trait Matcher: Send + Sync + fmt::Debug {
     /// return a match that begins before `start` when `start` is inside a word, as Sakura's
     /// whole-word search does.
     fn find_at(&self, line: &str, start: usize) -> Result<Option<Match>, MatcherError>;
+
+    /// Whether the matcher wants each line followed by its line ending, as Sakura's regular
+    /// expressions get it (see the trait docs). The default is `false`.
+    fn sees_line_ending(&self) -> bool {
+        false
+    }
 
     /// Whether a match depends only on its own text, not on the text around it. Plain text
     /// search without whole words is; a whole-word or regex search (`\b`, look-behind) is not.
@@ -116,20 +135,28 @@ pub trait Matcher: Send + Sync + fmt::Debug {
     /// The last match of the left-to-right scan from the start of the line that begins before
     /// byte `limit` (`None`: no limit). Sakura searches backward this way: it scans the line
     /// forward and keeps the last hit before the caret, so that matches do not overlap
-    /// (`CSearchAgent::SearchWord`, `sakura_core/agent/CSearchAgent.cpp`).
+    /// (`CSearchAgent::SearchWord`, `sakura_core/agent/CSearchAgent.cpp`). `body` is the length of
+    /// the text without the line ending; the scan starts at most there.
     fn find_last_before(
         &self,
         line: &str,
+        body: usize,
         limit: Option<usize>,
     ) -> Result<Option<Match>, MatcherError> {
-        last_before_by_scan(self, line, limit)
+        last_before_by_scan(self, line, body, limit)
     }
 
     /// All matches from byte `start`, one after the other without overlap. Matchers that have to
-    /// prepare the line (cut it into words) override this to do it once.
-    fn find_all_from(&self, line: &str, start: usize) -> Result<Vec<Match>, MatcherError> {
+    /// prepare the line (cut it into words) override this to do it once. `body` is the length of
+    /// the text without the line ending; a scan starts at most there.
+    fn find_all_from(
+        &self,
+        line: &str,
+        body: usize,
+        start: usize,
+    ) -> Result<Vec<Match>, MatcherError> {
         let mut all = Vec::new();
-        scan(self, line, start, |m| {
+        scan(self, line, body, start, |m| {
             all.push(m);
             true
         })?;
@@ -157,10 +184,12 @@ pub(crate) fn ceil_boundary(line: &str, col: usize) -> Option<usize> {
 /// Calls `f` with each match from `start` on until `f` returns false. After a match the next
 /// search starts at its end; after an empty match it starts one char later, so that the same
 /// empty match is not found again (Sakura: `CSearchAgent::SearchWord` and
-/// `CViewCommander::Command_SEARCH_NEXT`, "無限マッチ対策").
+/// `CViewCommander::Command_SEARCH_NEXT`, "無限マッチ対策"). A search starts at most at `body`, the
+/// end of the text before the line ending (`nIdxPos <= pDocLine->GetLengthWithoutEOL()`).
 pub(crate) fn scan<M: Matcher + ?Sized>(
     matcher: &M,
     line: &str,
+    body: usize,
     start: usize,
     mut f: impl FnMut(Match) -> bool,
 ) -> Result<(), MatcherError> {
@@ -168,7 +197,15 @@ pub(crate) fn scan<M: Matcher + ?Sized>(
         return Ok(());
     };
     let mut floor = pos;
-    while let Some(m) = matcher.find_at(line, pos)? {
+    // `pos < line.len()`: `CBregexp::Match` finds nothing when `nStart >= len` (see `find_in_line`).
+    while pos <= body && (pos < line.len() || !matcher.sees_line_ending()) {
+        let Some(m) = matcher.find_at(line, pos)? else {
+            break;
+        };
+        // no match begins at the very end of the subject (see `find_in_line`)
+        if m.start >= line.len() && matcher.sees_line_ending() {
+            break;
+        }
         // A matcher may report a match that starts before `pos` (whole-word search); skip those
         // that overlap what was already reported.
         if m.start < floor {
@@ -201,10 +238,11 @@ pub(crate) fn scan<M: Matcher + ?Sized>(
 pub(crate) fn last_before_by_scan<M: Matcher + ?Sized>(
     matcher: &M,
     line: &str,
+    body: usize,
     limit: Option<usize>,
 ) -> Result<Option<Match>, MatcherError> {
     let mut last = None;
-    scan(matcher, line, 0, |m| {
+    scan(matcher, line, body, 0, |m| {
         if limit.is_some_and(|l| m.start >= l) {
             return false;
         }
@@ -413,10 +451,11 @@ impl Matcher for PlainMatcher {
     fn find_last_before(
         &self,
         line: &str,
+        body: usize,
         limit: Option<usize>,
     ) -> Result<Option<Match>, MatcherError> {
         if !self.options.whole_word {
-            return last_before_by_scan(self, line, limit);
+            return last_before_by_scan(self, line, body, limit);
         }
         if !self.may_contain_word(line) {
             return Ok(None);
@@ -439,10 +478,15 @@ impl Matcher for PlainMatcher {
         Ok(None)
     }
 
-    fn find_all_from(&self, line: &str, start: usize) -> Result<Vec<Match>, MatcherError> {
+    fn find_all_from(
+        &self,
+        line: &str,
+        body: usize,
+        start: usize,
+    ) -> Result<Vec<Match>, MatcherError> {
         if !self.options.whole_word {
             let mut all = Vec::new();
-            scan(self, line, start, |m| {
+            scan(self, line, body, start, |m| {
                 all.push(m);
                 true
             })?;

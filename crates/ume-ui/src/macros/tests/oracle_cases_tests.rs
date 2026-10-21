@@ -533,3 +533,67 @@ fn edits_in_view_mode_do_not_stop_the_macro(cx: &mut TestAppContext) {
     .run(cx);
     assert_eq!(out, b"Yabc\nde\n");
 }
+
+// ---- regular expressions match the line ending; a search drops the selection ----
+
+const REGEX_LF: &[u8] = include_bytes!("../../../../ume/tests/sakura_oracle/inputs/ascii.regex.lf");
+
+fn regex_case(cx: &mut TestAppContext, body: &str) -> String {
+    let mac = format!("{body}\nFileSaveAs('@OUT@', 0, 0);\nExitAll();\n");
+    let out = Case {
+        input: REGEX_LF,
+        code: SJIS,
+        mac: &mac,
+    }
+    .run(cx);
+    String::from_utf8(out).unwrap()
+}
+
+/// `regex-newline-lf-in-lf-doc`: Sakura replaced the line break and joined the lines.
+#[gpui::test]
+fn a_regex_replaces_the_line_break(cx: &mut TestAppContext) {
+    let text = regex_case(cx, "ReplaceAll('end\\n', 'END|', 4);");
+    assert!(
+        text.contains("tel 03-1234-5678 END|user@example.com, x@y.org\n"),
+        "{text:?}"
+    );
+    assert!(text.ends_with("the END|"), "{text:?}");
+}
+
+/// `regex-search-next-newline`: Sakura selected `qux 7` and its line break, and Delete joined the
+/// lines.
+#[gpui::test]
+fn a_regex_search_selects_the_line_break(cx: &mut TestAppContext) {
+    let text = regex_case(cx, "SearchNext('qux 7\\n', 4);\nDelete();");
+    assert!(
+        text.starts_with("foo123 bar45\nFoo-Bar baz_aaa bbb aaa\n"),
+        "{text:?}"
+    );
+}
+
+/// `regex-anchor-text-end-lower-z`: `\z` is only at the very end of the text, which is after the
+/// last line break here, so Sakura left the text as it was.
+#[gpui::test]
+fn the_end_of_text_anchor_does_not_match_before_a_line_break(cx: &mut TestAppContext) {
+    let text = regex_case(cx, "ReplaceAll('end\\z', 'END', 4);");
+    assert_eq!(text.as_bytes(), REGEX_LF);
+}
+
+/// `regex-search-next-from-selection`: the search drops the selection first, so a miss leaves
+/// nothing selected and Delete deletes nothing.
+#[gpui::test]
+fn a_search_that_misses_leaves_the_selection_dropped(cx: &mut TestAppContext) {
+    let text = regex_case(cx, "SelectAll();\nSearchNext('foo', 4);\nDelete();");
+    assert_eq!(text.as_bytes(), REGEX_LF);
+}
+
+/// After a miss nothing is selected, so what a macro does next acts at the caret: the first
+/// search selected `qux`, the second missed and dropped it, and the text goes after it.
+#[gpui::test]
+fn a_miss_drops_the_selection_of_the_earlier_hit(cx: &mut TestAppContext) {
+    let text = regex_case(
+        cx,
+        "SearchNext('qux', 4);\nSearchNext('zzz', 4);\nInsText('X');",
+    );
+    assert!(text.contains("baz_quxX 7\n"), "{text:?}");
+}
