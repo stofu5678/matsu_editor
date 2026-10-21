@@ -22,6 +22,8 @@
 - Linux: xvfb（仮想ディスプレイ）の画面を ImageMagick の `import -window root` で撮る。ワークフローが `imagemagick` を apt で入れる
 - macOS: `screencapture`。ランナーの画面収録の許可が無いと、ウィンドウの写っていない写真になる。そのときはテストを失敗にせず、警告を出す
 
+Windows ARM64 のランナー（`windows-11-arm`）は、デスクトップの全面に Windows の初回設定の画面（"Choose privacy settings"）が出ていて、画面の写真はその画面になる（2026-10-21 に確認）。そこで `UME_E2E_SOFT_SCREENS=1` にして、写真が撮れなくても失敗にせず、UIA のテストは写真を撮らない（UIA の操作そのものは動く）。Windows ARM64 の見た目は、Windows x64 の写真で見る。
+
 検査は 2 つだけ。画面が 640x480 以上であること、起動前の画面と違うこと。
 
 ## 場面

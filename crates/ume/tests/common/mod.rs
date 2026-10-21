@@ -98,6 +98,15 @@ pub fn platform_name() -> String {
         .unwrap_or_else(|_| format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH))
 }
 
+/// Whether the screen of this job cannot be trusted to show the program (`UME_E2E_SOFT_SCREENS`
+/// is set to something): the screenshot tests then tell what they see and do not fail on it, and
+/// the UI Automation test takes no pictures. The `windows-11-arm` runners show the first-run
+/// screen of Windows ("Choose privacy settings") over every window, and a picture of the
+/// screen is a picture of that.
+pub fn soft_screens() -> bool {
+    std::env::var("UME_E2E_SOFT_SCREENS").is_ok_and(|v| !v.is_empty())
+}
+
 /// The path of the screenshot `<platform>-<name>.png`.
 pub fn screenshot_path(name: &str) -> PathBuf {
     screens_dir().join(format!("{}-{name}.png", platform_name()))

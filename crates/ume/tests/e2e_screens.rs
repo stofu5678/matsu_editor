@@ -32,16 +32,19 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use common::{
-    Scratch, capture_screen, check_screenshot, macro_path, screenshot_path, spawn_editor,
-    stage_binaries,
+    Scratch, capture_screen, check_screenshot, macro_path, screenshot_path, soft_screens,
+    spawn_editor, stage_binaries,
 };
 
 /// How long to wait after the start before the first picture. The first start on a CI runner is
 /// slow (software rendering, a cold disk).
 const SETTLE: Duration = Duration::from_secs(12);
 
-/// How long the picture may stay the same as the empty screen before the test fails.
-const DRAW_LIMIT: Duration = Duration::from_secs(180);
+/// How long the picture may stay the same as the empty screen before the test fails (a short time
+/// when the screen cannot be trusted, see `common::soft_screens`).
+fn draw_limit() -> Duration {
+    Duration::from_secs(if soft_screens() { 30 } else { 180 })
+}
 
 /// A document with Japanese text of several lines, for the main window behind the dialogs.
 const SAMPLE: &str = "吾輩は猫である。名前はまだ無い。\r\n\
@@ -101,7 +104,7 @@ fn take(name: &str, macro_source: Option<&str>) {
             .and_then(|()| check_screenshot(&target, &empty));
         match outcome {
             Ok(()) => break Ok(()),
-            Err(error) if started.elapsed() > DRAW_LIMIT => break Err(error),
+            Err(error) if started.elapsed() > draw_limit() => break Err(error),
             Err(_) => thread::sleep(Duration::from_secs(5)),
         }
     };
@@ -112,7 +115,7 @@ fn take(name: &str, macro_source: Option<&str>) {
     if let Err(error) = result {
         // On macOS the runner may not allow a screen capture (Screen Recording privacy): the
         // picture is then a desktop without the window, which is told but is not a failure.
-        if cfg!(target_os = "macos") {
+        if cfg!(target_os = "macos") || soft_screens() {
             eprintln!("WARNING: {name}: {error}");
             return;
         }

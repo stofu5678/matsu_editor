@@ -33,6 +33,9 @@ impl Drop for Running {
 
 /// A picture of the screen for looking at. A failed capture is told, not a failure of the test.
 fn shot(step: &str) {
+    if common::soft_screens() {
+        return;
+    }
     let path = screenshot_path(&format!("uia-{step}"));
     match capture_screen(&path) {
         Ok(()) => eprintln!("saved {}", path.display()),
