@@ -1271,7 +1271,7 @@ impl Render for OutlinePane {
 /// The name of a column header without the mark that shows it is the sort column (` *`); the
 /// remarks column has no title in the list, Sakura calls it 備考.
 fn plain_header(text: &str) -> String {
-    let name = text.trim_end_matches(" *").trim();
+    let name = text.trim().trim_end_matches('*').trim();
     if name.is_empty() {
         "備考".to_owned()
     } else {
@@ -1401,6 +1401,7 @@ mod a11y_tests {
         assert_eq!(plain_header("関数名"), "関数名");
         assert_eq!(plain_header(""), "備考");
         assert_eq!(plain_header(" *"), "備考");
+        assert_eq!(plain_header("*"), "備考");
     }
 
     #[test]
