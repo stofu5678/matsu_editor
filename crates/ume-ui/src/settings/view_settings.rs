@@ -189,6 +189,8 @@ pub struct Colors {
     pub tab_entry: ColorEntry,
     pub full_width_space_entry: ColorEntry,
     pub eol_entry: ColorEntry,
+    /// The entry `EOF`: `[EOF]` is drawn in its text and background colors as they are.
+    pub eof_entry: ColorEntry,
     /// The colors of the matches of the search that are shown (`CColor_Found::OnStartScanLogic`).
     pub found: FoundColors,
     /// The entries of the ruler `RUL`, the underline of the caret line `UND`, the vertical line
@@ -536,6 +538,7 @@ impl ViewSettings {
                 tab_entry: tab,
                 full_width_space_entry: zen,
                 eol_entry: eol,
+                eof_entry: eof,
                 found,
                 ruler_entry: entry("RUL"),
                 underline_entry: entry("UND"),

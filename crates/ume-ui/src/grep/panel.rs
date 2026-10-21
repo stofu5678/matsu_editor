@@ -18,11 +18,13 @@ use std::path::Path;
 
 use gpui::{
     App, AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
-    KeyDownEvent, ParentElement, Render, Styled, Subscription, WeakEntity, Window, div, px, rgb,
+    KeyDownEvent, ParentElement, Render, ScrollHandle, StatefulInteractiveElement, Styled,
+    Subscription, WeakEntity, Window, div, px, rgb,
 };
 use gpui_component::button::Button;
 use gpui_component::checkbox::Checkbox;
 use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::scroll::{Scrollbar, ScrollbarMode};
 use gpui_component::{Disableable as _, Selectable as _, h_flex, v_flex};
 use ume_core::encoding::Encoding;
 
@@ -68,6 +70,8 @@ pub struct GrepPanel {
     pub(crate) replace_mode: bool,
     /// The values besides the text of the boxes (the boxes are read when OK is pressed).
     pub(crate) settings: GrepSettings,
+    /// The scroll position of the body; the scroll bar draws from it.
+    pub(crate) body_scroll: ScrollHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -117,6 +121,7 @@ impl GrepPanel {
             replacement,
             replace_mode,
             settings,
+            body_scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
         };
         panel.show_settings(window, cx);
@@ -551,64 +556,96 @@ impl Render for GrepPanel {
                     .label("キャンセル")
                     .on_click(cx.listener(|this, _, window, cx| this.cancel(window, cx))),
             );
+        // The panel is as tall as its rows, up to the height of the area between its margins; a
+        // taller one scrolls. The wrapper has that definite height (top and bottom), the frame
+        // limits itself to it, and the scroll bar is a sibling of the scrolling body, not its
+        // child (the same as the settings pages: inside it, the bar's overlay made a body that
+        // fits overflow by its padding).
         div()
-            .id("grep-panel")
             .absolute()
-            // mouse events stop here: a click on the panel must not move the caret
-            .occlude()
             .top(px(8.))
+            .bottom(px(8.))
             .right(px(24.))
             .w(px(620.))
-            .p_2()
-            .gap_2()
             .flex()
             .flex_col()
-            .bg(rgb(0xf6f6f6))
-            .text_color(rgb(0x1e1e1e))
-            .text_size(px(13.))
-            .border_1()
-            .border_color(rgb(0xb0b0b0))
-            .rounded_md()
-            .shadow_md()
-            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                if event.keystroke.key == "escape" {
-                    this.cancel(window, cx);
-                    cx.stop_propagation();
-                }
-            }))
             .child(
                 div()
-                    .font_weight(gpui::FontWeight::BOLD)
-                    .child(if self.replace_mode {
-                        "Grep置換"
-                    } else {
-                        "Grep"
-                    }),
+                    .id("grep-panel")
+                    .relative()
+                    // mouse events stop here: a click on the panel must not move the caret
+                    .occlude()
+                    .max_h_full()
+                    .flex()
+                    .flex_col()
+                    .bg(rgb(0xf6f6f6))
+                    .text_color(rgb(0x1e1e1e))
+                    .text_size(px(13.))
+                    .border_1()
+                    .border_color(rgb(0xb0b0b0))
+                    .rounded_md()
+                    .shadow_md()
+                    .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                        if event.keystroke.key == "escape" {
+                            this.cancel(window, cx);
+                            cx.stop_propagation();
+                        }
+                    }))
+                    .child(
+                        div()
+                            .id("grep-body")
+                            .debug_selector(|| "grep-body".to_owned())
+                            .flex_shrink(1.)
+                            .min_h_0()
+                            .p_2()
+                            .gap_2()
+                            .flex()
+                            .flex_col()
+                            .overflow_y_scroll()
+                            .track_scroll(&self.body_scroll)
+                            .child(div().font_weight(gpui::FontWeight::BOLD).child(
+                                if self.replace_mode {
+                                    "Grep置換"
+                                } else {
+                                    "Grep"
+                                },
+                            ))
+                            .child(Self::row(
+                                if self.replace_mode {
+                                    "置換前(N)"
+                                } else {
+                                    "条件(N)"
+                                },
+                                Input::new(&self.key),
+                            ))
+                            .children(self.replace_mode.then(|| {
+                                // The box is not used while the text of the clipboard replaces
+                                // (`DlgItem_Enable(IDC_COMBO_TEXT2, ...)`).
+                                Self::row(
+                                    "置換後(Z)",
+                                    Input::new(&self.replacement).disabled(paste),
+                                )
+                            }))
+                            .child(Self::row("ファイル(I)", Input::new(&self.file)))
+                            .child(Self::row("フォルダー(D)", folder_buttons))
+                            .child(Self::row("除外ファイル", Input::new(&self.exclude_file)))
+                            .child(Self::row(
+                                "除外フォルダー",
+                                Input::new(&self.exclude_folder),
+                            ))
+                            .child(options)
+                            .child(charset)
+                            .child(output)
+                            .child(buttons),
+                    )
+                    // A dialog taller than the window scrolls; the bar shows that more is below. It
+                    // is always drawn while the body overflows: the default fades out when idle.
+                    .child(
+                        div().absolute().inset_0().child(
+                            Scrollbar::vertical(&self.body_scroll).mode(ScrollbarMode::Always),
+                        ),
+                    ),
             )
-            .child(Self::row(
-                if self.replace_mode {
-                    "置換前(N)"
-                } else {
-                    "条件(N)"
-                },
-                Input::new(&self.key),
-            ))
-            .children(self.replace_mode.then(|| {
-                // The box is not used while the text of the clipboard replaces
-                // (`DlgItem_Enable(IDC_COMBO_TEXT2, ...)`).
-                Self::row("置換後(Z)", Input::new(&self.replacement).disabled(paste))
-            }))
-            .child(Self::row("ファイル(I)", Input::new(&self.file)))
-            .child(Self::row("フォルダー(D)", folder_buttons))
-            .child(Self::row("除外ファイル", Input::new(&self.exclude_file)))
-            .child(Self::row(
-                "除外フォルダー",
-                Input::new(&self.exclude_folder),
-            ))
-            .child(options)
-            .child(charset)
-            .child(output)
-            .child(buttons)
     }
 }
 
