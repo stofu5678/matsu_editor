@@ -172,7 +172,10 @@ impl EditorView {
                 return;
             }
         };
-        let options = DiffOptions::from_flags(flags);
+        let options = DiffOptions {
+            ext_eol: self.document.read(cx).doc().ext_eol(),
+            ..DiffOptions::from_flags(flags)
+        };
         cx.spawn_in(window, async move |this, cx| {
             let _tracked = tracked;
             let outcome = cx

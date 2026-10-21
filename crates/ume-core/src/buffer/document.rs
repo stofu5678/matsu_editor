@@ -79,17 +79,51 @@ impl Document {
 
     /// A document over UTF-8 bytes (invalid bytes are shown as stand-ins and saved unchanged).
     pub fn from_utf8(bytes: impl Into<Arc<[u8]>>) -> Result<Self> {
-        Self::new(
+        Self::from_utf8_with(bytes, false)
+    }
+
+    /// Like [`Document::from_utf8`], with the choice of [`Document::with_ext_eol`].
+    pub fn from_utf8_with(bytes: impl Into<Arc<[u8]>>, ext_eol: bool) -> Result<Self> {
+        Self::with_ext_eol(
             MemorySource::new(bytes),
             Arc::new(EncodingCodec(Encoding::Utf8)),
+            ext_eol,
         )
     }
 
     /// A document over `source`, read through `codec`. There is no size limit, as in 64-bit
     /// Sakura (ADR-0012); memory is the bound. On a target whose `usize` is 32 bits, a source over
     /// 4 GiB is refused ([`BufferError::SourceTooLarge`]).
+    ///
+    /// NEL (U+0085), LS (U+2028) and PS (U+2029) are ordinary characters here, as in Sakura with
+    /// its default setting; see [`Document::with_ext_eol`].
     pub fn new(source: impl Source + 'static, codec: Arc<dyn Codec>) -> Result<Self> {
-        Self::with_limit(source, codec, u64::MAX)
+        Self::open(source, codec, u64::MAX, false)
+    }
+
+    /// Like [`Document::new`], with the choice of whether NEL, LS and PS end a line
+    /// (`m_bEnableExtEol`, 「改行コードNEL,PS,LSを有効にする」; `WCODE::IsLineDelimiter`). Off, they
+    /// are characters of the line. The choice is made for the lines found now; see
+    /// [`Document::set_ext_eol`] for the lines made later.
+    pub fn with_ext_eol(
+        source: impl Source + 'static,
+        codec: Arc<dyn Codec>,
+        ext_eol: bool,
+    ) -> Result<Self> {
+        Self::open(source, codec, u64::MAX, ext_eol)
+    }
+
+    /// Whether NEL, LS and PS end a line in text added from now on.
+    pub fn ext_eol(&self) -> bool {
+        self.st.ext_eol()
+    }
+
+    /// Changes whether NEL, LS and PS end a line in text added by later edits. The lines that exist
+    /// keep their endings and are not split or joined again: Sakura reads the setting where it
+    /// sets a line (`CDocLine::SetDocLineString`), so a change reaches the lines made after it and
+    /// the files opened after it. It is shared by the clones of the document (undo keeps them).
+    pub fn set_ext_eol(&self, ext_eol: bool) {
+        self.st.set_ext_eol(ext_eol);
     }
 
     /// Like [`Document::new`], but refuses a source longer than `max` bytes. For callers and
@@ -98,6 +132,15 @@ impl Document {
         source: impl Source + 'static,
         codec: Arc<dyn Codec>,
         max: u64,
+    ) -> Result<Self> {
+        Self::open(source, codec, max, false)
+    }
+
+    fn open(
+        source: impl Source + 'static,
+        codec: Arc<dyn Codec>,
+        max: u64,
+        ext_eol: bool,
     ) -> Result<Self> {
         let len = source.len();
         let max = max.min(usize::MAX as u64);
@@ -113,6 +156,7 @@ impl Document {
                 MemorySource::new(Vec::new()),
                 Arc::new(EncodingCodec(Encoding::Utf8)),
                 LineIndex::default(),
+                ext_eol,
             );
             let (s, e) = doc.st.append_add(&text)?;
             doc.root = (e > s).then(|| {
@@ -124,10 +168,10 @@ impl Document {
         }
         let bytes = source.read(0, len)?;
         let mut index = LineIndex::default();
-        index.scan(&*codec, &bytes, 0)?;
+        index.scan(&*codec, &bytes, 0, ext_eol)?;
         index.shrink_to_fit();
         drop(bytes);
-        let mut doc = Self::build(source, codec, index);
+        let mut doc = Self::build(source, codec, index, ext_eol);
         if len > 0 {
             let piece = doc.st.piece(Store::Original, 0, len as usize);
             doc.root = Some(tree::join(None, piece, None));
@@ -144,7 +188,7 @@ impl Document {
         index: LineIndex,
     ) -> Self {
         let len = source.len();
-        let mut doc = Self::build(source, codec, index);
+        let mut doc = Self::build(source, codec, index, true);
         if len > 0 {
             let piece = doc.st.piece(Store::Original, 0, len as usize);
             doc.root = Some(tree::join(None, piece, None));
@@ -152,7 +196,12 @@ impl Document {
         doc
     }
 
-    fn build(source: impl Source + 'static, codec: Arc<dyn Codec>, index: LineIndex) -> Self {
+    fn build(
+        source: impl Source + 'static,
+        codec: Arc<dyn Codec>,
+        index: LineIndex,
+        ext_eol: bool,
+    ) -> Self {
         let original = Original {
             source: Box::new(source),
             codec,
@@ -160,7 +209,7 @@ impl Document {
         };
         Self {
             root: None,
-            st: Arc::new(Storages::new(original)),
+            st: Arc::new(Storages::new(original, ext_eol)),
         }
     }
 
@@ -415,8 +464,8 @@ impl Document {
 
     // ---- editing ----
 
-    /// Inserts `text` at `pos`. Line endings in `text` (CR, LF, CRLF, U+0085, U+2028, U+2029) become
-    /// line breaks as written.
+    /// Inserts `text` at `pos`. Line endings in `text` (CR, LF, CRLF, and U+0085, U+2028, U+2029
+    /// when [`Document::ext_eol`] is set) become line breaks as written.
     pub fn insert(&mut self, pos: Pos, text: &str) -> Result<Edit> {
         self.replace(pos, pos, text)
     }

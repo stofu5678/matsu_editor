@@ -71,6 +71,9 @@ pub struct DiffOptions {
     pub own_is_old: bool,
     /// 0x0040: say so when there is no difference (DIFF差分が見つからないときにメッセージを表示).
     pub notify_no_diff: bool,
+    /// Not a bit of the flags: the setting `m_bEnableExtEol` of the document. Off, a NEL, LS or PS
+    /// at the end of a line is a character of the line, not a line ending, so it is not blank.
+    pub ext_eol: bool,
 }
 
 impl DiffOptions {
@@ -91,6 +94,7 @@ impl DiffOptions {
             expand_tabs: flags & Self::EXPAND_TABS != 0,
             own_is_old: flags & Self::OWN_IS_OLD != 0,
             notify_no_diff: flags & Self::NOTIFY_NO_DIFF != 0,
+            ext_eol: false,
         }
     }
 
@@ -167,7 +171,11 @@ fn key(line: &str, options: DiffOptions) -> String {
 /// Whether a line is blank for `-B`: nothing but its line ending (or, with `-w` or `-b`, nothing
 /// but white space).
 fn is_blank(line: &str, options: DiffOptions) -> bool {
-    let body = line.trim_end_matches(['\r', '\n', '\u{85}', '\u{2028}', '\u{2029}']);
+    let body = if options.ext_eol {
+        line.trim_end_matches(['\r', '\n', '\u{85}', '\u{2028}', '\u{2029}'])
+    } else {
+        line.trim_end_matches(['\r', '\n'])
+    };
     if options.ignore_all_space || options.ignore_space_change {
         body.chars().all(char::is_whitespace)
     } else {

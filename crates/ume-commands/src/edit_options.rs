@@ -27,6 +27,9 @@ pub struct EditOptions {
     /// `m_bConvertEOLPaste` (`bConvertEOLPaste`): paste converts the line endings to the
     /// document's. Off by default.
     pub convert_eol_paste: bool,
+    /// `m_bEnableExtEol` (`bEnableExtEol`): NEL, LS and PS are line endings. Off by default. The
+    /// documents read it where they make lines (`ume_core::buffer::Document::set_ext_eol`).
+    pub ext_eol: bool,
 }
 
 impl EditOptions {
@@ -37,6 +40,7 @@ impl EditOptions {
         enable_no_select_copy: true,
         enable_line_mode_paste: true,
         convert_eol_paste: false,
+        ext_eol: false,
     };
 }
 
@@ -67,6 +71,7 @@ mod tests {
     fn the_defaults_are_sakuras() {
         let d = EditOptions::default();
         assert!(!d.stops_both_ends_word && !d.stops_both_ends_paragraph && !d.convert_eol_paste);
+        assert!(!d.ext_eol);
         assert!(d.enable_no_select_copy && d.enable_line_mode_paste);
     }
 }

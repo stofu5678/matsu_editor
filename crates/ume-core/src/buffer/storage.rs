@@ -4,6 +4,7 @@ use std::borrow::Cow;
 use std::collections::TryReserveError;
 use std::fmt;
 use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use super::codec::{self, Codec, Eol};
@@ -212,16 +213,18 @@ impl LineIndex {
         bits_to_kind(self.meta[j] & ((1 << KIND_BITS) - 1))
     }
 
-    /// Scans `bytes` with `codec` in one pass. `base` is added to the offsets. When memory runs
-    /// out, the entries of this call are dropped again and the error is returned.
+    /// Scans `bytes` with `codec` in one pass. `base` is added to the offsets. NEL, LS and PS
+    /// end a line only when `ext_eol` is set. When memory runs out, the entries of this call are
+    /// dropped again and the error is returned.
     pub fn scan(
         &mut self,
         codec: &dyn Codec,
         bytes: &[u8],
         base: usize,
+        ext_eol: bool,
     ) -> std::result::Result<(), TryReserveError> {
         let before = self.len();
-        let result = self.scan_inner(codec, bytes, base);
+        let result = self.scan_inner(codec, bytes, base, ext_eol);
         if result.is_err() {
             self.truncate(before);
         }
@@ -233,9 +236,10 @@ impl LineIndex {
         codec: &dyn Codec,
         bytes: &[u8],
         base: usize,
+        ext_eol: bool,
     ) -> std::result::Result<(), TryReserveError> {
         let mut from = 0;
-        while let Some((off, kind)) = codec.find_eol(bytes, from) {
+        while let Some((off, kind)) = codec::find_eol(codec, bytes, from, ext_eol) {
             let fallback = if kind == Eol::CrLf { 2 } else { 1 };
             let len = codec.eol_bytes(kind).map_or(fallback, <[u8]>::len);
             // A misbehaving codec must not make this loop forever or index out of range.
@@ -331,13 +335,14 @@ pub(crate) struct AddBuf {
 }
 
 impl AddBuf {
-    fn append(&mut self, text: &str) -> Result<(usize, usize)> {
+    fn append(&mut self, text: &str, ext_eol: bool) -> Result<(usize, usize)> {
         let start = self.data.len();
         // Only a length that does not fit the address space can fail here; memory runs out first.
         let end = start.checked_add(text.len()).ok_or(BufferError::TooLarge)?;
         let before = self.index.len();
         self.data.try_reserve(text.len())?;
-        self.index.scan(codec::utf8(), text.as_bytes(), start)?;
+        self.index
+            .scan(codec::utf8(), text.as_bytes(), start, ext_eol)?;
         self.data.extend_from_slice(text.as_bytes());
         // A CR at the end of the old text and an LF at the start of the new text are one CRLF.
         if before > 0
@@ -360,14 +365,26 @@ impl AddBuf {
 pub(crate) struct Storages {
     pub original: Original,
     add: RwLock<AddBuf>,
+    /// Whether NEL, LS and PS end a line in text added from now on (`m_bEnableExtEol`). Lines
+    /// that exist keep the endings they were made with, as in Sakura.
+    ext_eol: AtomicBool,
 }
 
 impl Storages {
-    pub fn new(original: Original) -> Self {
+    pub fn new(original: Original, ext_eol: bool) -> Self {
         Self {
             original,
             add: RwLock::new(AddBuf::default()),
+            ext_eol: AtomicBool::new(ext_eol),
         }
+    }
+
+    pub fn ext_eol(&self) -> bool {
+        self.ext_eol.load(Ordering::Relaxed)
+    }
+
+    pub fn set_ext_eol(&self, on: bool) {
+        self.ext_eol.store(on, Ordering::Relaxed);
     }
 
     fn add_read(&self) -> RwLockReadGuard<'_, AddBuf> {
@@ -407,7 +424,7 @@ impl Storages {
 
     /// Appends `text` to the add buffer and returns its byte range there.
     pub fn append_add(&self, text: &str) -> Result<(usize, usize)> {
-        self.add_write().append(text)
+        self.add_write().append(text, self.ext_eol())
     }
 
     /// Calls `f` with the bytes `start..end` of a storage.
@@ -503,8 +520,8 @@ mod tests {
     #[test]
     fn add_buffer_joins_cr_and_lf_across_appends() {
         let mut add = AddBuf::default();
-        add.append("a\r").unwrap();
-        add.append("\nb").unwrap();
+        add.append("a\r", true).unwrap();
+        add.append("\nb", true).unwrap();
         assert_eq!(add.index.len(), 1);
         assert_eq!(add.index.kind(0), Eol::CrLf);
         // The first append's piece sees a CR, the second append's piece sees an LF.
@@ -517,7 +534,7 @@ mod tests {
     #[test]
     fn index_clips_a_crlf_at_piece_edges() {
         let mut idx = LineIndex::default();
-        idx.scan(codec::utf8(), b"ab\r\ncd", 0).unwrap();
+        idx.scan(codec::utf8(), b"ab\r\ncd", 0, true).unwrap();
         let head = idx.agg(0, 3);
         assert_eq!((head.breaks, head.last_cr), (1, true));
         let tail = idx.agg(3, 6);
@@ -535,8 +552,9 @@ mod tests {
         let mut idx = LineIndex::default();
         let base = 5 * GIB as usize;
         let far = 9 * GIB as usize;
-        idx.scan(codec::utf8(), b"ab\r\ncd\nef", base).unwrap();
-        idx.scan(codec::utf8(), b"\n", far).unwrap();
+        idx.scan(codec::utf8(), b"ab\r\ncd\nef", base, true)
+            .unwrap();
+        idx.scan(codec::utf8(), b"\n", far, true).unwrap();
         assert_eq!(idx.len(), 3);
         assert_eq!(idx.agg(base, base + 10).breaks, 2);
         // A CRLF cut by a piece edge is seen as a lone CR or a lone LF.
@@ -550,7 +568,7 @@ mod tests {
         assert_eq!(idx.agg(far, far + 1).breaks, 1);
         // Below 4 GiB the high words cost nothing.
         let mut small = LineIndex::default();
-        small.scan(codec::utf8(), b"a\nb\n", 0).unwrap();
+        small.scan(codec::utf8(), b"a\nb\n", 0, true).unwrap();
         small.shrink_to_fit();
         assert_eq!(small.heap_bytes(), small.len() * 5);
     }
@@ -560,15 +578,15 @@ mod tests {
     fn removing_an_index_entry_keeps_the_high_words_right() {
         let mut idx = LineIndex::default();
         let at = 4 * GIB as usize - 1;
-        idx.scan(codec::utf8(), b"\r", at).unwrap();
-        idx.scan(codec::utf8(), b"\n", at + 1).unwrap();
+        idx.scan(codec::utf8(), b"\r", at, true).unwrap();
+        idx.scan(codec::utf8(), b"\n", at + 1, true).unwrap();
         assert_eq!(idx.len(), 2);
         idx.remove_entry(1);
         assert_eq!(idx.len(), 1);
         assert_eq!(idx.agg(at - 4, at + 4).breaks, 1);
         // An entry that began a high word, followed by one that did not.
         let mut idx = LineIndex::default();
-        idx.scan(codec::utf8(), b"\n\n\n", 4 * GIB as usize)
+        idx.scan(codec::utf8(), b"\n\n\n", 4 * GIB as usize, true)
             .unwrap();
         idx.remove_entry(0);
         assert_eq!(idx.len(), 2);

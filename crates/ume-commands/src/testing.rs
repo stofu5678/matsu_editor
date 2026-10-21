@@ -180,7 +180,8 @@ impl Editor {
 
     /// An editor on `text` (which may contain `|` and `[`) with a given cursor.
     pub fn from_parts(text: &str, cursor: Cursor) -> Self {
-        let doc = Document::from_utf8(text.as_bytes().to_vec()).expect("a test document");
+        let doc =
+            Document::from_utf8_with(text.as_bytes().to_vec(), true).expect("a test document");
         Self {
             model: DocumentModel::new(doc),
             cursor,

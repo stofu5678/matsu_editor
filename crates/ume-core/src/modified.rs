@@ -328,7 +328,7 @@ mod tests {
             Replaced {
                 from: (0, 1),
                 to: (2, 1),
-                inserted: TextBreaks::of(""),
+                inserted: TextBreaks::of("", true),
                 inserted_empty: true,
                 rows_before: 4,
                 rows_after: 2,
@@ -357,7 +357,7 @@ mod tests {
             Replaced {
                 from,
                 to,
-                inserted: TextBreaks::of(text),
+                inserted: TextBreaks::of(text, true),
                 inserted_empty: text.is_empty(),
                 rows_before,
                 rows_after,

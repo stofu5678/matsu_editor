@@ -455,6 +455,47 @@ fn ok_writes_sakuras_keys_and_keeps_the_rest_of_the_file(cx: &mut TestAppContext
 }
 
 #[gpui::test]
+fn the_extended_line_endings_follow_the_check_box(cx: &mut TestAppContext) {
+    use ume_core::buffer::{Eol, Pos};
+    use ume_core::model::DocumentModel;
+
+    let (ini, handle) = setup(cx, INI);
+    let _restore = RestoreEditOptions::new();
+    assert!(!edit_options::get().ext_eol);
+    let menu = || crate::status_bar::eol_menu_entries().len();
+    assert_eq!(menu(), 3);
+    let mut document = SharedDocument::new(DocumentModel::empty(), None);
+    run(cx, handle, "F_OPTION_EDIT");
+    check(cx, "enable_ext_eol", true);
+    ok(cx);
+    assert_eq!(ini.get("bEnableExtEol").as_deref(), Some("1"));
+    assert!(edit_options::get().ext_eol);
+    // The status bar menu offers NEL, LS and PS now (`CEditWnd::OnNotify`).
+    assert_eq!(menu(), 6);
+    // An open document takes it on its next edit, and the text before it keeps its lines.
+    let (model, _) = document.parts_mut();
+    assert!(model.doc().ext_eol());
+    model
+        .replace(Pos::new(0, 0), Pos::new(0, 0), "a\u{85}b")
+        .unwrap();
+    assert_eq!(model.doc().line(0).unwrap().unwrap().eol, Some(Eol::Nel));
+
+    run(cx, handle, "F_OPTION_EDIT");
+    check(cx, "enable_ext_eol", false);
+    ok(cx);
+    assert_eq!(ini.get("bEnableExtEol").as_deref(), Some("0"));
+    assert_eq!(menu(), 3);
+    let (model, _) = document.parts_mut();
+    assert!(!model.doc().ext_eol());
+    model
+        .replace(Pos::new(0, 0), Pos::new(0, 0), "x\u{85}y")
+        .unwrap();
+    // The new text has no line break; the old break stays.
+    assert_eq!(model.doc().line(0).unwrap().unwrap().text, "x\u{85}ya");
+    assert_eq!(model.doc().line_count(), 2);
+}
+
+#[gpui::test]
 fn ok_changes_every_open_window_at_once(cx: &mut TestAppContext) {
     let (ini, first) = setup(cx, INI);
     let second = open_window(cx);

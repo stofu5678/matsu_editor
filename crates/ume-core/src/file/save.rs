@@ -358,12 +358,13 @@ enum Event<'a> {
 }
 
 /// Finds line endings in text that arrives in slices (a CR at the end of a slice may be joined
-/// with an LF at the start of the next). All six kinds are recognized: the added text of a
-/// document is UTF-8 whatever the file's encoding is, and the codecs that cannot decode to the
-/// last three never produce them.
+/// with an LF at the start of the next). NEL, LS and PS are line endings only when `ext_eol` is
+/// set (the setting of the document, `m_bEnableExtEol`); the added text of a document is UTF-8
+/// whatever the file's encoding is, and the codecs that cannot decode to them never produce them.
 #[derive(Default)]
 struct EolScanner {
     pending_cr: bool,
+    ext_eol: bool,
 }
 
 impl EolScanner {
@@ -401,8 +402,8 @@ impl EolScanner {
                         return Ok(());
                     }
                 },
-                0xC2 if bytes.get(i + 1) == Some(&0x85) => (Eol::Nel, 2),
-                0xE2 if bytes.get(i + 1) == Some(&0x80) => match bytes.get(i + 2) {
+                0xC2 if self.ext_eol && bytes.get(i + 1) == Some(&0x85) => (Eol::Nel, 2),
+                0xE2 if self.ext_eol && bytes.get(i + 1) == Some(&0x80) => match bytes.get(i + 2) {
                     Some(0xA8) => (Eol::Ls, 3),
                     Some(0xA9) => (Eol::Ps, 3),
                     _ => {
@@ -460,7 +461,10 @@ fn walk_events(
     f: &mut dyn FnMut(Event<'_>) -> Result<()>,
 ) -> Result<()> {
     let codec = source.codec();
-    let mut scanner = EolScanner::default();
+    let mut scanner = EolScanner {
+        ext_eol: doc.ext_eol(),
+        ..EolScanner::default()
+    };
     let mut buf = String::new();
     let mut done = 0u64;
     for chunk in doc.chunks() {

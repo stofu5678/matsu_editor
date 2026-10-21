@@ -52,8 +52,14 @@ impl Drop for TempDir {
 }
 
 fn open_as(path: &Path, encoding: Encoding) -> TextFile {
+    open_ext(path, encoding, false)
+}
+
+/// Opens with the setting `bEnableExtEol` (NEL, LS and PS as line endings) given.
+fn open_ext(path: &Path, encoding: Encoding, ext_eol: bool) -> TextFile {
     let options = OpenOptions {
         encoding: Some(encoding),
+        ext_eol,
         ..OpenOptions::default()
     };
     open_file(path, &options).unwrap()
@@ -520,10 +526,10 @@ fn added_text_that_the_encoding_cannot_write_is_found() {
 
 #[test]
 fn a_line_ending_the_encoding_cannot_write_is_reported() {
-    // U+0085 is a line ending in UTF-8 but has no Shift_JIS form.
+    // U+0085 is a line ending in UTF-8 (with the setting on) but has no Shift_JIS form.
     let dir = TempDir::new();
     let path = dir.write("a.txt", "ab\u{85}cd".as_bytes());
-    let file = open_as(&path, Encoding::Utf8);
+    let file = open_ext(&path, Encoding::Utf8, true);
     assert_eq!(file.document.line_count(), 2);
     let report = file
         .check_save(
@@ -1316,4 +1322,93 @@ fn a_detected_jis_file_is_mime_decoded_too() {
     let file = open_file(&path, &options).unwrap();
     assert_eq!(file.encoding, Encoding::Jis);
     assert_eq!(text(&file), "日本語\r\nSubject: 日本語\r\n");
+}
+
+// ---- NEL, LS and PS (`m_bEnableExtEol`) ----
+
+const EXT_TEXT: &str = "a\u{85}b\u{2028}c\u{2029}d\r\ne";
+
+#[test]
+fn a_file_with_nel_ls_and_ps_is_split_only_when_the_setting_is_on() {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", EXT_TEXT.as_bytes());
+    let off = open_ext(&path, Encoding::Utf8, false);
+    assert_eq!(off.document.line_count(), 2);
+    assert_eq!(text(&off), EXT_TEXT);
+    // The first line ending is the CR LF, not the NEL (`CDocEditor::OnAfterLoad`).
+    assert_eq!(off.new_line, Eol::CrLf);
+    let on = open_ext(&path, Encoding::Utf8, true);
+    assert_eq!(on.document.line_count(), 5);
+    assert_eq!(on.new_line, Eol::Nel);
+    assert!(on.document.ext_eol());
+    assert!(!off.document.ext_eol());
+}
+
+#[test]
+fn utf16_follows_the_setting_too() {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", &encode(Encoding::Utf16Le, EXT_TEXT));
+    let off = open_ext(&path, Encoding::Utf16Le, false);
+    assert_eq!(off.document.line_count(), 2);
+    assert_eq!(off.new_line, Eol::CrLf);
+    assert_eq!(text(&off), EXT_TEXT);
+    let on = open_ext(&path, Encoding::Utf16Le, true);
+    assert_eq!(on.document.line_count(), 5);
+    assert_eq!(on.new_line, Eol::Nel);
+}
+
+#[test]
+fn shift_jis_has_no_nel_so_the_setting_changes_nothing_there() {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", &encode(Encoding::ShiftJis, "\u{65e5}\r\n\u{672c}"));
+    for ext in [false, true] {
+        let file = open_ext(&path, Encoding::ShiftJis, ext);
+        assert_eq!(file.document.line_count(), 2);
+    }
+    // A NEL typed into a Shift_JIS document is a character with no Shift_JIS form when the
+    // setting is off, and a line ending (which cannot be written either) when it is on: both are
+    // reported.
+    for ext in [false, true] {
+        let mut file = open_ext(&path, Encoding::ShiftJis, ext);
+        file.document.insert(Pos::new(0, 0), "\u{85}").unwrap();
+        let report = file
+            .check_save(&SaveOptions::keep(&file), &mut no_progress)
+            .unwrap();
+        assert_eq!(report.total, 1, "ext {ext}");
+        assert_eq!(report.first[0].ch, '\u{85}');
+    }
+}
+
+#[test]
+fn converting_the_line_endings_leaves_the_characters_alone_when_the_setting_is_off() {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", EXT_TEXT.as_bytes());
+    let mut options = SaveOptions::for_encoding(Encoding::Utf8);
+    options.eol = Some(Eol::Lf);
+    let mut off = open_ext(&path, Encoding::Utf8, false);
+    let target = dir.0.join("off.txt");
+    off.save_as(&target, &options, &mut no_progress).unwrap();
+    assert_eq!(
+        fs::read(&target).unwrap(),
+        "a\u{85}b\u{2028}c\u{2029}d\ne".as_bytes()
+    );
+    let mut on = open_ext(&path, Encoding::Utf8, true);
+    let target = dir.0.join("on.txt");
+    on.save_as(&target, &options, &mut no_progress).unwrap();
+    assert_eq!(fs::read(&target).unwrap(), b"a\nb\nc\nd\ne");
+}
+
+#[test]
+fn added_text_follows_the_setting_when_it_is_saved() {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", b"x");
+    let mut options = SaveOptions::for_encoding(Encoding::Utf8);
+    options.eol = Some(Eol::CrLf);
+    for (ext, want) in [(false, "x\u{85}y\r\nz"), (true, "x\r\ny\r\nz")] {
+        let mut file = open_ext(&path, Encoding::Utf8, ext);
+        file.document.insert(Pos::new(0, 1), "\u{85}y\nz").unwrap();
+        let target = dir.0.join(format!("added-{ext}.txt"));
+        file.save_as(&target, &options, &mut no_progress).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), want.as_bytes(), "ext {ext}");
+    }
 }

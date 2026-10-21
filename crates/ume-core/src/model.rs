@@ -141,6 +141,8 @@ impl DocumentModel {
         }
         // The document is left as it was when the replace fails, so the history is told after.
         let rows_before = self.rows();
+        // The setting at the time of the edit decides what the new text breaks into.
+        let inserted = TextBreaks::of(text, self.doc.ext_eol());
         let edit = self.doc.replace(from, to, text)?;
         self.history.note_edit();
         let (a, b) = (from.min(to), from.max(to));
@@ -152,7 +154,7 @@ impl DocumentModel {
                 count: b.line - a.line,
                 ends_with_break: b.col == 0 && b.line > a.line,
             },
-            TextBreaks::of(text),
+            inserted,
             rows_before,
             self.rows(),
         );
@@ -166,7 +168,7 @@ impl DocumentModel {
             Replaced {
                 from: (a.line, a.col),
                 to: (b.line, b.col),
-                inserted: TextBreaks::of(text),
+                inserted,
                 inserted_empty: text.is_empty(),
                 rows_before,
                 rows_after: self.rows(),
@@ -293,7 +295,7 @@ mod tests {
     #[test]
     fn eol_text_round_trips_through_the_buffer() {
         for eol in [Eol::CrLf, Eol::Lf, Eol::Cr, Eol::Nel, Eol::Ls, Eol::Ps] {
-            let mut m = model("");
+            let mut m = DocumentModel::new(Document::from_utf8_with(Vec::new(), true).unwrap());
             m.replace(
                 Pos::new(0, 0),
                 Pos::new(0, 0),

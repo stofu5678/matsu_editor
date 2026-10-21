@@ -26,6 +26,7 @@ mod tree;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use codec::find_eol;
 pub use codec::{Codec, EncodingCodec, Eol, INVALID_BYTE_BASE, Unmappable};
 pub use document::{Chunk, Chunks, Document, Edit, Line, Lines};
 pub use error::{BufferError, Result};

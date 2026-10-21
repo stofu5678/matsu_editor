@@ -31,6 +31,7 @@ pub fn open_text_file(
         encoding,
         default_eol: defaults.eol,
         mime_decode: defaults.mime_decode,
+        ext_eol: ume_commands::edit_options::get().ext_eol,
         ..OpenOptions::default()
     };
     options.detect.default_encoding = defaults.encoding;

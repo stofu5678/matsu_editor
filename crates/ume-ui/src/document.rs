@@ -65,8 +65,18 @@ pub struct SharedDocument {
 
 impl EventEmitter<DocumentEvent> for SharedDocument {}
 
+/// Gives the document the setting `bEnableExtEol` as it is now. Sakura reads the setting where it
+/// sets a line (`CDocLine::SetDocLineString`), so text edited after a change of the setting follows
+/// it and the existing lines stay as they are.
+fn sync_ext_eol(model: &DocumentModel) {
+    model
+        .doc()
+        .set_ext_eol(ume_commands::edit_options::get().ext_eol);
+}
+
 impl SharedDocument {
     pub fn new(model: DocumentModel, path: Option<PathBuf>) -> Self {
+        sync_ext_eol(&model);
         let file = TextFile::new_untitled(Encoding::Utf8, false, model.new_line());
         Self {
             model,
@@ -87,6 +97,7 @@ impl SharedDocument {
     pub fn from_text_file(mut file: TextFile) -> Self {
         let doc = std::mem::take(&mut file.document);
         let mut model = DocumentModel::new(doc);
+        sync_ext_eol(&model);
         model.set_new_line(file.new_line);
         let disk = DiskState::of_path(file.path.as_deref());
         Self {
@@ -410,6 +421,7 @@ impl SharedDocument {
     /// The model and the path, for a [`CommandContext`](ume_commands::context::CommandContext).
     /// Whoever edits through it calls [`changed`](Self::changed) afterwards.
     pub fn parts_mut(&mut self) -> (&mut DocumentModel, Option<&Path>) {
+        sync_ext_eol(&self.model);
         (&mut self.model, self.path.as_deref())
     }
 

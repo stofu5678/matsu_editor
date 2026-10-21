@@ -34,8 +34,11 @@ fn the_double_clicks_run_the_functions_of_sakura() {
 
 #[test]
 fn the_line_ending_menu_has_crlf_lf_and_cr() {
+    // The first three are always there; NEL, LS and PS come after them when `bEnableExtEol` is on
+    // (tested with the check box, in the tests of the common settings).
     let labels: Vec<_> = eol_menu_entries()
         .into_iter()
+        .take(3)
         .map(|e| match e {
             Entry::Item(item) => (item.label, item.action),
             other => panic!("{other:?}"),
