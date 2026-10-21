@@ -762,10 +762,11 @@ impl OutlinePane {
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let last = self.rows.len().saturating_sub(1);
         let current = self.selected_row();
-        let tree = self
-            .shown
-            .as_ref()
-            .is_some_and(|s| s.view == ViewType::Tree);
+        let tree = self.outline_type == OutlineKind::FileTree
+            || self
+                .shown
+                .as_ref()
+                .is_some_and(|s| s.view == ViewType::Tree);
         let mods = event.keystroke.modifiers;
         let plain = !mods.control && !mods.alt && !mods.platform && !mods.shift;
         let move_to = |this: &mut Self, row: usize, cx: &mut Context<Self>| {
@@ -824,7 +825,13 @@ impl OutlinePane {
 impl OutlinePane {
     /// `SetTreeFile`: reads the settings and builds the tree in the background, then shows it.
     fn analyze_file_tree(&mut self, generation: u64, cx: &mut Context<Self>) {
+        // The old tree goes at once: a folder opened while the new one is made would be listed
+        // for a node of the old tree and put under the node of the same number in the new one.
         self.shown = None;
+        self.file_tree = None;
+        self.expanded.clear();
+        self.selected = None;
+        self.rows.clear();
         let type_index = self
             .view
             .upgrade()

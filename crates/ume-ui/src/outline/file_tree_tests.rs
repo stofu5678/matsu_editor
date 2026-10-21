@@ -166,6 +166,55 @@ fn the_command_shows_the_tree_and_a_folder_is_listed_when_it_is_opened(cx: &mut 
 }
 
 #[gpui::test]
+fn the_keyboard_opens_and_closes_folders_and_opens_files(cx: &mut TestAppContext) {
+    let dir = folder(&["a.txt", "sub/c.txt"]);
+    let handle = window(cx, None, &one_grep(dir.path(), "*.*"));
+    run_with(cx, handle, "F_FILETREE", &[]);
+    // the pane has the focus after the command
+    let keys = &mut gpui::VisualTestContext::from_window(handle, cx);
+    keys.simulate_keystrokes("down right");
+    keys.run_until_parked();
+    assert_eq!(labels(cx, handle), ["Project", "sub", "a.txt"]);
+    // Right opens a folder (it is listed), Left closes it
+    keys.simulate_keystrokes("down right");
+    keys.run_until_parked();
+    assert_eq!(labels(cx, handle), ["Project", "sub", "c.txt", "a.txt"]);
+    keys.simulate_keystrokes("left");
+    keys.run_until_parked();
+    assert_eq!(labels(cx, handle), ["Project", "sub", "a.txt"]);
+    // Enter on a file opens it
+    keys.simulate_keystrokes("down enter");
+    keys.run_until_parked();
+    let view = active_view(cx, handle);
+    let opened = view.read_with(cx, |v, cx| {
+        v.document().read(cx).path().map(Path::to_path_buf)
+    });
+    assert_eq!(opened, Some(dir.path().join("a.txt")));
+}
+
+#[gpui::test]
+fn the_old_tree_is_gone_while_a_new_one_is_made(cx: &mut TestAppContext) {
+    let dir = folder(&["a.txt", "sub/c.txt"]);
+    let handle = window(cx, None, &one_grep(dir.path(), "*.*"));
+    run_with(cx, handle, "F_FILETREE", &[]);
+    toggle(cx, handle, 0);
+    assert_eq!(labels(cx, handle), ["Project", "sub", "a.txt"]);
+    // 更新: until the new tree is there, no row of the old one can be opened (a folder opened
+    // now would be listed into the new tree)
+    let p = pane(cx, handle).unwrap();
+    p.update(cx, |p, cx| {
+        p.reload(cx);
+        assert!(p.rows().is_empty());
+        p.toggle_node(0, cx);
+    });
+    cx.run_until_parked();
+    assert_eq!(labels(cx, handle), ["Project"]);
+    toggle(cx, handle, 0);
+    toggle(cx, handle, 1);
+    assert_eq!(labels(cx, handle), ["Project", "sub", "c.txt", "a.txt"]);
+}
+
+#[gpui::test]
 fn the_patterns_of_the_item_choose_what_the_tree_shows(cx: &mut TestAppContext) {
     let dir = folder(&["a.rs", "b.txt", "sub/c.rs"]);
     let handle = window(cx, None, &one_grep(dir.path(), "*.rs"));
