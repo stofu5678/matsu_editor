@@ -11,8 +11,7 @@
 use std::thread;
 use std::time::{Duration, Instant};
 
-use windows::Win32::Foundation::{HWND, LPARAM, POINT, WPARAM};
-use windows::Win32::Graphics::Gdi::ScreenToClient;
+use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
 };
@@ -24,7 +23,7 @@ use windows::Win32::UI::Accessibility::{
     UIA_TabItemControlTypeId, UIA_TogglePatternId,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    PostMessageW, SetProcessDPIAware, WM_CHAR, WM_CLOSE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
+    PostMessageW, SetProcessDPIAware, WM_CHAR, WM_CLOSE, WM_KEYDOWN, WM_KEYUP,
 };
 
 /// How long to wait for an element to show up.
@@ -231,36 +230,6 @@ impl Element {
         }
     }
 
-    /// Clicks the middle of the element with the left button, as mouse messages to the window
-    /// `window` (a top-level window of the process): a move, then the button down and up. The
-    /// invoke pattern of an item of a pop-up menu does nothing in the window of UME, which wants
-    /// the mouse (a click handler), so this does what a user does.
-    pub fn click_in(&self, window: &Element) {
-        // SAFETY: plain calls on a live interface; the messages go to a window of another process.
-        unsafe {
-            let rect = self
-                .0
-                .CurrentBoundingRectangle()
-                .unwrap_or_else(|e| panic!("{} has no rectangle: {e}", self.describe()));
-            let hwnd = window.handle();
-            let mut point = POINT {
-                x: (rect.left + rect.right) / 2,
-                y: (rect.top + rect.bottom) / 2,
-            };
-            let _ = ScreenToClient(hwnd, &mut point);
-            let at = LPARAM(((point.y as u16 as isize) << 16) | (point.x as u16 as isize));
-            let post = |message, wparam: usize| {
-                PostMessageW(Some(hwnd), message, WPARAM(wparam), at)
-                    .unwrap_or_else(|e| panic!("cannot post a mouse message: {e}"));
-            };
-            post(WM_MOUSEMOVE, 0);
-            thread::sleep(Duration::from_millis(150));
-            post(WM_LBUTTONDOWN, 1);
-            thread::sleep(Duration::from_millis(80));
-            post(WM_LBUTTONUP, 0);
-        }
-    }
-
     /// Chooses a tab (the selection pattern), or presses it when it has no such pattern.
     pub fn select(&self) {
         // SAFETY: plain calls on a live interface.
@@ -319,6 +288,22 @@ impl Element {
                 PostMessageW(Some(window), WM_CHAR, WPARAM(unit as usize), LPARAM(1))
                     .unwrap_or_else(|e| panic!("cannot post a character: {e}"));
             }
+        }
+    }
+
+    /// Presses and releases the key `key` (a letter or a digit) as key messages to the window,
+    /// for the access key of an open menu.
+    pub fn post_key(&self, key: char) {
+        let window = self.handle();
+        let virtual_key = key.to_ascii_uppercase() as usize;
+        // The scan code is not needed by the window; bit 30 and 31 mark a key up.
+        for (message, flags) in [(WM_KEYDOWN, 1isize), (WM_KEYUP, 0xC000_0001u32 as isize)] {
+            // SAFETY: a plain message to a window of another process.
+            unsafe {
+                PostMessageW(Some(window), message, WPARAM(virtual_key), LPARAM(flags))
+                    .unwrap_or_else(|e| panic!("cannot post a key: {e}"));
+            }
+            thread::sleep(Duration::from_millis(80));
         }
     }
 

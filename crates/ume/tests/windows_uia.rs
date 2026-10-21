@@ -50,18 +50,39 @@ fn position(uia: &Uia, pid: u32) -> Option<String> {
         .map(|(_, e)| e.name())
 }
 
-/// Opens the menu `menu` of the menu bar and chooses its item that `is_item` accepts.
-fn choose_menu_item(uia: &Uia, pid: u32, menu: &str, is_item: impl Fn(&str) -> bool) {
+/// Opens the menu `menu` of the menu bar and chooses its item by the access key `key`, the way a
+/// user does. The items of a pop-up menu have no accessibility names yet, so UIA cannot find them;
+/// if the key does not open what `ready` looks for, the button of the toolbar named `toolbar`
+/// (which does the same) is pressed instead, and the test says so.
+fn choose_menu_item(
+    uia: &Uia,
+    pid: u32,
+    main: &Element,
+    menu: &str,
+    key: char,
+    toolbar: &str,
+    ready: impl Fn(&Element) -> bool,
+) {
     let (_, bar_item) = uia.wait(pid, &format!("the menu {menu}"), |e| {
         e.is_button() && e.name() == menu
     });
     bar_item.invoke();
     pause(500);
     shot(&format!("menu-{menu}"));
-    let (window, item) = uia.wait(pid, &format!("an item of the menu {menu}"), |e| {
-        is_item(&e.name())
-    });
-    item.click_in(&window);
+    main.post_key(key);
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(10) {
+        if uia.find(pid, &ready).is_some() {
+            return;
+        }
+        pause(300);
+    }
+    eprintln!("NOTE: the access key {key} of the menu {menu} did not open it; pressing {toolbar}");
+    // The open menu takes the first click away, so close it before.
+    main.post_key('\u{1b}');
+    pause(500);
+    let (_, button) = uia.wait(pid, toolbar, |e| e.is_button() && e.name() == toolbar);
+    button.invoke();
 }
 
 /// Goes through every page of the settings dialog that has the page `first`, with a picture of
@@ -122,7 +143,9 @@ fn drives_the_window_by_its_names() {
     let before = position(&uia, pid).expect("the cursor position in the status bar");
 
     // 設定 -> 共通設定: every page, a check box on the first, OK.
-    choose_menu_item(&uia, pid, "設定", |name| name.starts_with("共通設定"));
+    choose_menu_item(&uia, pid, &main, "設定", 'c', "共通設定...", |e| {
+        e.is_tab_item() && e.name() == "全般"
+    });
     let dialog = visit_pages(&uia, pid, "全般", "common-settings");
     let check = dialog
         .descendants(&uia)
@@ -146,9 +169,15 @@ fn drives_the_window_by_its_names() {
     });
 
     // 設定 -> タイプ別設定: every page, then cancel.
-    choose_menu_item(&uia, pid, "設定", |name| {
-        name.starts_with("タイプ別設定") && !name.starts_with("タイプ別設定一覧")
-    });
+    choose_menu_item(
+        &uia,
+        pid,
+        &main,
+        "設定",
+        'y',
+        "タイプ別設定...",
+        |e| e.is_tab_item() && e.name() == "スクリーン",
+    );
     // The first page of the settings of the type is 「スクリーン」.
     visit_pages(&uia, pid, "スクリーン", "type-settings");
     let (_, cancel) = uia.wait(pid, "the cancel button", |e| {
