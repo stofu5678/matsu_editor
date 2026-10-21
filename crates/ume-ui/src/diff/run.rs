@@ -13,9 +13,8 @@ use std::path::Path;
 
 use gpui::{Context, PromptLevel, Window};
 use ume_core::buffer::{BufferError, Document};
-use ume_core::diff::{DiffOptions, Hunk, diff_lines};
+use ume_core::diff::{DiffLine as _, DiffOptions, EndedLine, Hunk, diff_lines};
 use ume_core::file::no_progress;
-use ume_core::model::eol_text;
 
 use super::{Target, find_document};
 use crate::open::open_text_file;
@@ -36,17 +35,12 @@ fn failed(reason: &str) -> String {
 
 /// The lines of a document with their line endings, which is what the comparison looks at
 /// (`MakeDiffTmpFile` writes the lines with their endings).
-pub(crate) fn document_lines(doc: &Document) -> Result<Vec<String>, BufferError> {
+///
+/// Each line keeps the ending the document recorded for it, which the option 空行無視 looks at
+/// (a NEL, LS or PS ends a line only if the document split it there).
+pub(crate) fn document_lines(doc: &Document) -> Result<Vec<EndedLine>, BufferError> {
     doc.lines(0..doc.line_count())
-        .map(|line| {
-            line.map(|l| {
-                let mut text = l.text;
-                if let Some(eol) = l.eol {
-                    text.push_str(eol_text(eol));
-                }
-                text
-            })
-        })
+        .map(|line| line.map(|l| EndedLine::new(l.text, l.eol)))
         .collect()
 }
 
@@ -54,14 +48,14 @@ pub(crate) fn document_lines(doc: &Document) -> Result<Vec<String>, BufferError>
 fn file_lines(
     path: &Path,
     defaults: &crate::settings::NewDocumentDefaults,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<EndedLine>, String> {
     let file = open_text_file(path, None, defaults, &mut no_progress).map_err(|e| e.to_string())?;
     document_lines(&file.document).map_err(|e| e.to_string())
 }
 
 /// `diff` reads a file that has a NUL as a binary file and does not compare it.
-fn is_binary(lines: &[String]) -> bool {
-    lines.iter().any(|l| l.contains('\0'))
+fn is_binary(lines: &[EndedLine]) -> bool {
+    lines.iter().any(|l| l.text().contains('\0'))
 }
 
 /// What the task found.
@@ -71,7 +65,7 @@ enum Outcome {
 }
 
 /// The difference of the two texts, with this window's text as the old or the new one.
-fn compute(own: &[String], other: &[String], options: DiffOptions) -> Outcome {
+fn compute(own: &[EndedLine], other: &[EndedLine], options: DiffOptions) -> Outcome {
     if is_binary(own) || is_binary(other) {
         return Outcome::Binary;
     }
@@ -158,7 +152,7 @@ impl EditorView {
     /// difference is computed and marked.
     fn diff_with_lines(
         &mut self,
-        other: Vec<String>,
+        other: Vec<EndedLine>,
         flags: u32,
         version: (u64, u64),
         tracked: Option<crate::macros::FlowGuard>,
@@ -172,10 +166,7 @@ impl EditorView {
                 return;
             }
         };
-        let options = DiffOptions {
-            ext_eol: self.document.read(cx).doc().ext_eol(),
-            ..DiffOptions::from_flags(flags)
-        };
+        let options = DiffOptions::from_flags(flags);
         cx.spawn_in(window, async move |this, cx| {
             let _tracked = tracked;
             let outcome = cx
