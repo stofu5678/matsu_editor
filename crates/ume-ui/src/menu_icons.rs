@@ -128,7 +128,8 @@ mod tests {
     fn an_item_with_an_icon_has_its_name_check_and_gray_state() {
         let item = content("折り返し(W)    Ctrl+W".into(), None, true, true, 1.0);
         let node = node_of(&item).unwrap();
-        assert_eq!(node.role(), Role::MenuItemCheckBox);
+        assert_eq!(node.role(), Role::Label);
+        assert_eq!(node.value(), Some("折り返し"));
         assert_eq!(node.label(), Some("折り返し"));
         assert_eq!(node.keyboard_shortcut(), Some("Ctrl+W"));
         assert_eq!(node.toggled(), Some(gpui::Toggled::True));
