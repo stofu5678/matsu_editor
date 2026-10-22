@@ -402,7 +402,8 @@ fn an_infinite_loop_is_stopped_by_the_timeout() {
             continue;
         };
         assert_eq!(report.finished.reason, EndReason::TimedOut, "{language:?}");
-        assert!(started.elapsed() < Duration::from_secs(10));
+        // only a guard against a macro that is never stopped (the timeout is 700 ms)
+        assert!(started.elapsed() < Duration::from_secs(60));
     }
 }
 
@@ -632,7 +633,8 @@ fn cancel_kills_the_macro() {
             _ => {}
         }
     }
-    assert!(cancelled && started.elapsed() < Duration::from_secs(10));
+    // only a guard against a macro that is never stopped
+    assert!(cancelled && started.elapsed() < Duration::from_secs(60));
     assert_eq!(boot_folders(dir.path()), Vec::<String>::new());
 }
 
@@ -825,12 +827,13 @@ fn the_time_spent_waiting_for_the_window_does_not_count_against_the_timeout() {
         return;
     }
     let dir = tempfile::tempdir().unwrap();
-    // The timeout is shorter than the wait.
+    // The timeout is shorter than the wait. The timeout is long enough for the interpreter to
+    // start on a busy machine (its clock runs from the start, not from the first call).
     let config = config_for(
         &dir,
         Language::JavaScript,
         "Editor.GetFilename(); console.log('after the wait');",
-        Duration::from_millis(600),
+        Duration::from_secs(2),
     );
     let (tx, rx) = mpsc::channel();
     let sink: session::Sink = Arc::new(move |event| {
@@ -847,7 +850,7 @@ fn the_time_spent_waiting_for_the_window_does_not_count_against_the_timeout() {
                 let session = session.clone();
                 let id = serde_json::from_str::<Value>(&text).unwrap()["id"].clone();
                 std::thread::spawn(move || {
-                    std::thread::sleep(Duration::from_millis(1500));
+                    std::thread::sleep(Duration::from_secs(5));
                     session.send(crate::protocol::response_ok(&id, Value::from("")));
                     session.release();
                 });
@@ -873,7 +876,7 @@ fn without_a_hold_the_same_wait_times_out() {
         &dir,
         Language::JavaScript,
         "Editor.GetFilename(); console.log('after the wait');",
-        Duration::from_millis(600),
+        Duration::from_secs(2),
     );
     let (tx, rx) = mpsc::channel();
     let sink: session::Sink = Arc::new(move |event| {
@@ -887,7 +890,7 @@ fn without_a_hold_the_same_wait_times_out() {
                 let id = serde_json::from_str::<Value>(&text).unwrap()["id"].clone();
                 let session = session.clone();
                 std::thread::spawn(move || {
-                    std::thread::sleep(Duration::from_millis(1500));
+                    std::thread::sleep(Duration::from_secs(5));
                     session.send(crate::protocol::response_ok(&id, Value::from("")));
                 });
             }

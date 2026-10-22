@@ -149,7 +149,7 @@ fn a_command_that_does_not_read_ends_the_sending() {
     // the receiver went with the writer thread: sending ends in a failure, not in a wait
     let start = Instant::now();
     let mut refused = false;
-    while start.elapsed() < Duration::from_secs(10) {
+    while start.elapsed() < LIMIT {
         if !tx.send(vec![b'x'; 1024]) {
             refused = true;
             break;
@@ -158,11 +158,12 @@ fn a_command_that_does_not_read_ends_the_sending() {
     assert!(refused, "the sender is told that nobody reads");
 }
 
-/// A command that runs for half a minute.
+/// A command that runs for ten minutes: far longer than `LIMIT`, so a stop that does not end it
+/// shows as `finish` giving up, not as a race against a clock.
 const LONG: &str = if cfg!(windows) {
-    "ping -n 30 127.0.0.1"
+    "ping -n 600 127.0.0.1"
 } else {
-    "sleep 30"
+    "sleep 600"
 };
 
 #[test]
@@ -174,14 +175,10 @@ fn stopping_ends_a_long_command() {
         Some(Event::Exited(_))
     ));
     let stopper = run.stopper();
-    let begun = Instant::now();
     stopper.stop();
+    // `finish` fails after `LIMIT` if the stop does not end the command
     let done = finish(run);
     assert!(done.exit.stopped);
-    assert!(
-        begun.elapsed() < Duration::from_secs(20),
-        "it ends at once, not after the half minute"
-    );
 }
 
 #[test]
@@ -222,42 +219,40 @@ mod unix_only {
 
     #[test]
     fn the_output_comes_while_the_command_runs() {
-        let mut run = start(Spec::new("echo first; sleep 2; echo second")).unwrap();
+        // The command prints, then waits for a line on its input that the test sends only after
+        // it has seen the print. So the output must reach us while the command is still alive;
+        // if it came only at the end, the command would wait for us and we for it (the test
+        // then fails at `LIMIT`). No bound on how fast the output arrives: load cannot break it.
+        let (tx, rx) = stdin_channel();
+        let mut spec = Spec::new("echo first; read line; echo second");
+        spec.stdin = Some(rx);
+        let mut run = start(spec).unwrap();
         let begun = Instant::now();
-        let mut first = None;
         let mut seen = Vec::new();
-        let mut exited_at = None;
-        while begun.elapsed() < LIMIT {
-            match run.poll(Duration::from_millis(20)) {
-                Some(Event::Output(bytes)) => {
-                    if first.is_none() {
-                        first = Some(begun.elapsed());
-                    }
-                    seen.extend(bytes);
-                }
-                Some(Event::Exited(_)) => {
-                    exited_at = Some(begun.elapsed());
-                    break;
+        while !seen.starts_with(b"first\n") {
+            assert!(begun.elapsed() < LIMIT, "no output while the command runs");
+            match run.poll(Duration::from_millis(50)) {
+                Some(Event::Output(bytes)) => seen.extend(bytes),
+                Some(Event::Exited(exit)) => {
+                    panic!("the command ended before its output came: {exit:?}")
                 }
                 None => {}
             }
         }
+        assert!(tx.send(b"go\n".to_vec()));
+        drop(tx);
+        let done = finish(run);
+        seen.extend(done.output);
         assert_eq!(String::from_utf8_lossy(&seen), "first\nsecond\n");
-        assert!(first.unwrap() < Duration::from_millis(1500), "{first:?}");
-        assert!(exited_at.unwrap() >= Duration::from_secs(2));
+        assert_eq!(done.exit.code, Some(0));
     }
 
     #[test]
     fn a_process_left_running_does_not_hold_the_end_back() {
-        // the shell ends at once and leaves `sleep` with the pipe
-        let begun = Instant::now();
-        let done = run("sleep 20 &");
+        // the shell ends at once and leaves `sleep` with the pipe. The sleep is longer than
+        // `LIMIT`: a run held back by it makes `finish` give up, with no clock to race.
+        let done = run("sleep 100 &");
         assert_eq!(done.exit.code, Some(0));
-        assert!(
-            begun.elapsed() < Duration::from_secs(10),
-            "{:?}",
-            begun.elapsed()
-        );
     }
 
     #[test]

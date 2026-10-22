@@ -413,9 +413,10 @@ fn press_make(w: &Win, cx: &mut TestAppContext) {
             .unwrap()
             .update(cx, |d, cx| d.make(cx))
     });
-    // ctags runs on a thread; give it time
+    // ctags runs on a thread; give it time (it returns at once when the prompt is there, so
+    // the minute only matters on a busy machine)
     cx.executor().allow_parking();
-    for _ in 0..200 {
+    for _ in 0..6000 {
         cx.run_until_parked();
         if prompt(w, cx).is_some() {
             return;

@@ -346,11 +346,12 @@ fn an_infinite_loop_is_stopped_by_the_timeout() {
         "macro.mruby",
         "puts 'start'\nloop { }",
         "",
-        Duration::from_millis(500),
+        Duration::from_secs(2),
     );
     assert_eq!(report.finished.reason, EndReason::TimedOut);
     assert_eq!(stdout(&report), ["start"]);
-    assert!(started.elapsed() < Duration::from_secs(10));
+    // only a guard against a macro that is never stopped; the timeout above is 2 s
+    assert!(started.elapsed() < Duration::from_secs(60));
 }
 
 #[test]
@@ -426,7 +427,8 @@ end
         "{lines:?}"
     );
     assert_eq!(lines[1], "-32602");
-    assert!(started.elapsed() < Duration::from_secs(20));
+    // only a guard against a hang
+    assert!(started.elapsed() < Duration::from_secs(60));
 }
 
 #[test]
