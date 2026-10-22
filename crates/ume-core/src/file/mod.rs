@@ -37,6 +37,7 @@
 //!   to unify.
 
 mod error;
+mod ranged;
 mod save;
 mod source;
 mod sync;
@@ -50,6 +51,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub use error::{FileError, Result};
+pub use ranged::{
+    CacheStats, ChangedOutside, DEFAULT_BLOCK_SIZE, DEFAULT_CACHE_BLOCKS, RangedFile,
+    RangedOptions, is_changed_outside,
+};
 pub use save::{
     MAX_REPORTED, Preserve, SaveOptions, SaveReport, UnmappableChar, UnmappableReport, write_bytes,
 };
