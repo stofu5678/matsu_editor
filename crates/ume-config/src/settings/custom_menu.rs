@@ -365,6 +365,18 @@ impl CustomMenus {
             if before == Some(menu) {
                 continue;
             }
+            // Reading takes UME's default for the right-click menu while the file has no `nCMIN[00]`, and
+            // Sakura's once it has: writing the count must therefore write every item, or the items left out
+            // would change their meaning on the next read.
+            let before = if i == INDEX_FOR_RBUTTONUP
+                && profile
+                    .get_i32(SECTION, &format!("nCMIN[{i:02}]"))
+                    .is_none()
+            {
+                None
+            } else {
+                before
+            };
             profile.set(SECTION, &format!("szCMN[{i:02}]"), &menu.name)?;
             profile.set(
                 SECTION,
@@ -545,6 +557,30 @@ mod tests {
         let menus = read("[CustMenu]\nnCMIN[02]=1\n");
         assert_eq!(menus.get(0), CustomMenus::default().get(0));
         assert_eq!(menus.get(0).unwrap().items.len(), 32);
+    }
+
+    #[test]
+    fn changing_the_right_click_menu_in_a_file_without_it_writes_every_item() {
+        // Rename the right-click menu only: the count is written, so the items must be written too.
+        let mut profile = Profile::from_bytes(b"");
+        let before = CustomMenus::from_profile(&profile, &names);
+        let mut menus = before.menus().to_vec();
+        menus[0].name = "Mine".to_owned();
+        let after = CustomMenus::from_menus(menus);
+        after
+            .write_to_profile(&mut profile, None, Some(&before))
+            .unwrap();
+        let reread = CustomMenus::from_profile(&profile, &names);
+        assert_eq!(reread, after);
+        assert_eq!(reread.get(0).unwrap().items.len(), 32);
+        // Writing again over the file that now has the menu writes no more than what changed.
+        let mut third = reread.menus().to_vec();
+        third[0].popup = false;
+        let third = CustomMenus::from_menus(third);
+        third
+            .write_to_profile(&mut profile, None, Some(&reread))
+            .unwrap();
+        assert_eq!(CustomMenus::from_profile(&profile, &names), third);
     }
 
     #[test]
