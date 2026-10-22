@@ -53,7 +53,12 @@ pub(crate) fn tab_inside(scope: &FocusHandle, back: bool, window: &mut Window, c
     // children in the order.
     scope.focus(window, cx);
     window.focus_next(cx);
-    if !back || !scope.contains_focused(window, cx) {
+    if !scope.contains_focused(window, cx) {
+        // nothing in the dialog takes the focus (a button that is disabled meanwhile)
+        scope.focus(window, cx);
+        return;
+    }
+    if !back {
         return;
     }
     // The last stop: walk forward until the next one is outside.
@@ -113,13 +118,14 @@ mod tests {
     }
 
     impl Toy {
-        fn new(trapped: bool, cx: &mut Context<Self>) -> Self {
+        fn new(trapped: bool, inside_stops: bool, cx: &mut Context<Self>) -> Self {
             let stop = |cx: &mut Context<Self>| cx.focus_handle().tab_stop(true);
+            let inside = |cx: &mut Context<Self>| cx.focus_handle().tab_stop(inside_stops);
             Self {
                 trapped,
                 before: stop(cx),
                 panel: cx.focus_handle(),
-                inside: [stop(cx), stop(cx), stop(cx)],
+                inside: [inside(cx), inside(cx), inside(cx)],
                 after: stop(cx),
             }
         }
@@ -146,8 +152,12 @@ mod tests {
         }
     }
 
-    fn toy(cx: &mut TestAppContext, trapped: bool) -> (gpui::VisualTestContext, gpui::Entity<Toy>) {
-        let (toy, keys) = cx.add_window_view(move |_, cx| Toy::new(trapped, cx));
+    fn toy(
+        cx: &mut TestAppContext,
+        trapped: bool,
+        inside_stops: bool,
+    ) -> (gpui::VisualTestContext, gpui::Entity<Toy>) {
+        let (toy, keys) = cx.add_window_view(move |_, cx| Toy::new(trapped, inside_stops, cx));
         (keys.clone(), toy)
     }
 
@@ -166,7 +176,7 @@ mod tests {
 
     #[gpui::test]
     fn tab_wraps_round_the_ends_of_the_dialog(cx: &mut TestAppContext) {
-        let (mut keys, toy) = toy(cx, true);
+        let (mut keys, toy) = toy(cx, true, true);
         let first = toy.read_with(&keys, |t, _| t.inside[0].clone());
         keys.update(|window, cx| first.focus(window, cx));
         assert_eq!(focused_index(&mut keys, &toy), 1);
@@ -188,7 +198,7 @@ mod tests {
     fn gpuis_own_focus_next_leaves_the_dialog(cx: &mut TestAppContext) {
         // what the root of the window does for Tab (`Root::on_action_tab`): the test above would
         // pass in a window that has nothing outside; this shows there is something outside
-        let (mut keys, toy) = toy(cx, false);
+        let (mut keys, toy) = toy(cx, false, true);
         let last = toy.read_with(&keys, |t, _| t.inside[2].clone());
         keys.update(|window, cx| {
             last.focus(window, cx);
@@ -199,8 +209,8 @@ mod tests {
     }
 
     #[gpui::test]
-    fn a_dialog_with_nothing_to_focus_keeps_the_focus_on_itself(cx: &mut TestAppContext) {
-        let (mut keys, toy) = toy(cx, true);
+    fn a_dialog_without_a_tab_stop_keeps_the_focus_on_itself(cx: &mut TestAppContext) {
+        let (mut keys, toy) = toy(cx, true, false);
         let panel = toy.read_with(&keys, |t, _| t.panel.clone());
         keys.update(|window, cx| panel.focus(window, cx));
         for key in ["tab", "shift-tab"] {
