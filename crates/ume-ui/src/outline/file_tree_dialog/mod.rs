@@ -131,7 +131,8 @@ impl FileTreeDialog {
                 input,
                 window,
                 |this: &mut Self, _, event: &InputEvent, window, cx| {
-                    if matches!(event, InputEvent::PressEnter { .. }) {
+                    // (while the list of the path is open Enter chooses from it)
+                    if matches!(event, InputEvent::PressEnter { .. }) && !this.path_menu {
                         this.ok(window, cx);
                     }
                 },
@@ -158,7 +159,7 @@ impl FileTreeDialog {
             path_menu_at: 0,
             busy: false,
             focus: cx.focus_handle(),
-            tree_focus: cx.focus_handle(),
+            tree_focus: cx.focus_handle().tab_stop(true),
             tree_scroll: ScrollHandle::new(),
             revealed: None,
             _subscriptions: subscriptions,

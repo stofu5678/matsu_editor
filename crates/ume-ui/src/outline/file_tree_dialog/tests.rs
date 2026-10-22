@@ -1249,3 +1249,65 @@ fn the_names_of_the_controls_have_no_access_key_mark() {
         assert_eq!(crate::a11y::label_name(label), name);
     }
 }
+
+#[gpui::test]
+fn enter_in_the_path_box_chooses_from_the_open_list_and_is_not_ok(cx: &mut TestAppContext) {
+    let text = "[Common]\r\nbFileTreeProject=0\r\nnFileTreeItemCount=1\r\nFileTree(0).eItemType=0\r\n\
+                FileTree(0).szTargetPath=\r\nFileTree(0).nDepth=0\r\n";
+    let (ini, handle) = setup(cx, text, None);
+    show_tree(cx, handle);
+    open_dialog(cx, handle);
+    let before = ini.bytes();
+    let keys = &mut VisualTestContext::from_window(handle, cx);
+    // the focus is in the path box (Alt+T), then the list opens (Alt+3)
+    keys.simulate_keystrokes("alt-t");
+    keys.simulate_keystrokes("alt-3");
+    dialog_of(keys, handle)
+        .unwrap()
+        .read_with(keys, |d, _| assert!(d.path_menu));
+    keys.simulate_keystrokes("down down enter");
+    assert!(is_open(keys, handle), "Enter chose an entry; it was not OK");
+    assert_eq!(ini.bytes(), before);
+    dialog_of(keys, handle).unwrap().read_with(keys, |d, cx| {
+        assert_eq!(d.path.read(cx).value().to_string(), "%MYMUSIC%");
+        assert!(!d.path_menu);
+    });
+    // with the list closed, Enter in the box is OK again
+    keys.simulate_keystrokes("enter");
+    assert!(!is_open(keys, handle));
+}
+
+#[gpui::test]
+fn tab_stays_among_the_controls_of_the_dialog(cx: &mut TestAppContext) {
+    let (_ini, handle) = setup(cx, &notes_ini(Path::new("memo.txt")), None);
+    show_tree(cx, handle);
+    open_dialog(cx, handle);
+    let keys = &mut VisualTestContext::from_window(handle, cx);
+    let inside = |keys: &mut VisualTestContext| {
+        let panel = dialog_of(keys, handle)
+            .unwrap()
+            .read_with(keys, |d, _| d.focus.clone());
+        keys.update(|window, cx| panel.contains_focused(window, cx))
+    };
+    for _ in 0..60 {
+        keys.simulate_keystrokes("tab");
+        assert!(inside(keys), "Tab left the dialog");
+    }
+    for _ in 0..60 {
+        keys.simulate_keystrokes("shift-tab");
+        assert!(inside(keys), "Shift+Tab left the dialog");
+    }
+    // nothing was typed into the text behind it
+    let view = active_view(keys, handle);
+    assert_eq!(
+        view.read_with(keys, |v, cx| v
+            .document()
+            .read(cx)
+            .doc()
+            .line(0)
+            .unwrap()
+            .unwrap()
+            .text),
+        "text"
+    );
+}

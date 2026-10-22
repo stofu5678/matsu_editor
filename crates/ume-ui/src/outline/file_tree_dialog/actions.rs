@@ -252,6 +252,13 @@ impl FileTreeDialog {
             "enter" => {
                 let (_, text) = PATH_MENU[self.path_menu_at.min(last)];
                 self.put_in_path(text, window, cx);
+                // The box still gets this Enter as its own (`PressEnter` is OK): the list stays
+                // open for that, and goes when the key has been dealt with.
+                self.path_menu = true;
+                cx.defer_in(window, |this, _, cx| {
+                    this.path_menu = false;
+                    cx.notify();
+                });
                 return true;
             }
             letter => {

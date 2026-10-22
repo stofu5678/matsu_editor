@@ -479,17 +479,50 @@ impl FileTreeDialog {
             .into_any_element()
     }
 
-    fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+    /// The keys that come before the focused control gets them (a capture): while the list of
+    /// the path is open it takes the arrow keys, Enter and the letters of its entries, so Enter in
+    /// the path box does not reach OK; Tab and Shift+Tab stay among the controls of the dialog
+    /// (`IsDialogMessage`), and not on the text behind it or its menu bar.
+    fn on_capture_key(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let key = event.keystroke.key.as_str();
         let modifiers = event.keystroke.modifiers;
-        if self.path_menu
+        if key == "tab" && !modifiers.control && !modifiers.alt {
+            self.move_focus(modifiers.shift, window, cx);
+            cx.stop_propagation();
+        } else if self.path_menu
             && key != "escape"
             && !modifiers.modified()
             && self.path_menu_key(key, window, cx)
         {
             cx.stop_propagation();
-            return;
         }
+    }
+
+    /// Tab: the next control of the dialog, round the end to the first (the last, with Shift).
+    pub(crate) fn move_focus(&mut self, back: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if back {
+            window.focus_prev(cx);
+        } else {
+            window.focus_next(cx);
+        }
+        if !self.focus.contains_focused(window, cx) {
+            if back {
+                self.tree_focus.focus(window, cx);
+            } else {
+                self.default_ini
+                    .update(cx, |state, cx| state.focus(window, cx));
+            }
+        }
+    }
+
+    fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let key = event.keystroke.key.as_str();
+        let modifiers = event.keystroke.modifiers;
         if key == "escape" {
             if self.path_menu {
                 self.path_menu = false;
@@ -536,6 +569,7 @@ impl Render for FileTreeDialog {
             .key_context("FileTreeDialog")
             .track_focus(&self.focus)
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .capture_key_down(cx.listener(Self::on_capture_key))
             .on_key_down(cx.listener(Self::on_key_down))
             .max_w_full()
             .max_h_full()
