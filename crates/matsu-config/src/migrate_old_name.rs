@@ -200,7 +200,11 @@ fn copy_settings_file(from: &Path, to: &Path) -> io::Result<()> {
 /// exactly `[UME]` is ASCII, and every other byte is passed on as it is (line endings, BOM, other sections).
 fn rename_own_section(bytes: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(bytes.len() + 8);
-    for (i, line) in bytes.split_inclusive(|&b| b == b'\n').enumerate() {
+    // A line ends at CR, LF or CR LF (the file may use any; CR LF is two pieces here, both come out unchanged).
+    for (i, line) in bytes
+        .split_inclusive(|&b| b == b'\n' || b == b'\r')
+        .enumerate()
+    {
         let (bom, rest) = match line.strip_prefix(b"\xEF\xBB\xBF") {
             Some(rest) if i == 0 => (&line[..3], rest),
             _ => (&line[..0], line),

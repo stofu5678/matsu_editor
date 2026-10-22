@@ -279,6 +279,14 @@ fn the_own_section_is_renamed_and_nothing_else_changes() {
 }
 
 #[test]
+fn the_own_section_is_found_in_a_file_with_cr_only_lines() {
+    assert_eq!(
+        rename_own_section(b"[Common]\rx=1\r[UME]\ry=2\r"),
+        b"[Common]\rx=1\r[MATSU]\ry=2\r"
+    );
+}
+
+#[test]
 fn a_file_that_cannot_be_copied_is_skipped_and_counted() {
     let sb = Sandbox::new();
     sb.write("home/.config/ume-editor/ume.ini", "old");
