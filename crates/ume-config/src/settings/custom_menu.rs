@@ -396,7 +396,13 @@ impl CustomMenus {
                         .unwrap_or_else(|| item.function.to_string());
                     profile.set(SECTION, &function_key, &function)?;
                 }
-                if changed || (materialize && profile.get(SECTION, &access_key).is_none()) {
+                if changed
+                    || (materialize
+                        && profile
+                            .get(SECTION, &access_key)
+                            .and_then(parse_key)
+                            .is_none())
+                {
                     let key = item.key.map(String::from).unwrap_or_default();
                     profile.set(SECTION, &access_key, &key)?;
                 }
@@ -602,6 +608,17 @@ mod tests {
             .write_to_profile(&mut keyless, None, Some(&before))
             .unwrap();
         assert_eq!(CustomMenus::from_profile(&keyless, &names), after);
+        // The same for a key that reading ignores (not ASCII).
+        let mut bad =
+            Profile::from_bytes("[CustMenu]\nnCMIF[00][09]=32700\nnCMIK[00][09]=あ\n".as_bytes());
+        let before = CustomMenus::from_profile(&bad, &names);
+        let mut menus = before.menus().to_vec();
+        menus[0].name = "Mine".to_owned();
+        let after = CustomMenus::from_menus(menus);
+        after
+            .write_to_profile(&mut bad, None, Some(&before))
+            .unwrap();
+        assert_eq!(CustomMenus::from_profile(&bad, &names), after);
         assert_eq!(sparse.get_i32(SECTION, "nCMIN[00]"), Some(32));
     }
 
