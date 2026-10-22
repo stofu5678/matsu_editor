@@ -16,6 +16,7 @@
 //!   that come and go. Sakura's dialog does not bring a window to the front; here Enter and a
 //!   double click do (the way to choose one that the task asks for).
 
+use crate::dialog_focus::KeepTabInside as _;
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -390,6 +391,7 @@ impl Render for WindowList {
         )
         .key_context("WindowList")
         .track_focus(&self.focus)
+        .keep_tab_inside(&self.focus)
         .on_key_down(cx.listener(Self::on_key_down))
         .min_w(px(300.))
         .max_w(px(640.))

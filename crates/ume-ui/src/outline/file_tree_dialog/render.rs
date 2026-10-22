@@ -21,6 +21,7 @@ use super::actions::PATH_MENU;
 use super::{FileTreeDialog, Kind};
 use crate::a11y::{AriaDisabled as _, label_name};
 use crate::common_settings::model::parse_label;
+use crate::dialog_focus::tab_inside;
 use crate::outline::file_tree::source::SettingFrom;
 
 const TEXT: u32 = 0x222222;
@@ -492,7 +493,7 @@ impl FileTreeDialog {
         let key = event.keystroke.key.as_str();
         let modifiers = event.keystroke.modifiers;
         if key == "tab" && !modifiers.control && !modifiers.alt {
-            self.move_focus(modifiers.shift, window, cx);
+            tab_inside(&self.focus, modifiers.shift, window, cx);
             cx.stop_propagation();
         } else if self.path_menu
             && key != "escape"
@@ -500,23 +501,6 @@ impl FileTreeDialog {
             && self.path_menu_key(key, window, cx)
         {
             cx.stop_propagation();
-        }
-    }
-
-    /// Tab: the next control of the dialog, round the end to the first (the last, with Shift).
-    pub(crate) fn move_focus(&mut self, back: bool, window: &mut Window, cx: &mut Context<Self>) {
-        if back {
-            window.focus_prev(cx);
-        } else {
-            window.focus_next(cx);
-        }
-        if !self.focus.contains_focused(window, cx) {
-            if back {
-                self.tree_focus.focus(window, cx);
-            } else {
-                self.default_ini
-                    .update(cx, |state, cx| state.focus(window, cx));
-            }
         }
     }
 

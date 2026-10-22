@@ -16,6 +16,7 @@
 //! of the view, under the ▼ button. Keys: Up, Down, Home, End, Enter, Esc, and `W` and `A` for
 //! the two special items (their access keys).
 
+use crate::dialog_focus::KeepTabInside as _;
 use gpui::{
     AnyWindowHandle, App, AppContext as _, ClickEvent, Context, Entity, FocusHandle, Focusable,
     InteractiveElement, IntoElement, KeyDownEvent, MouseDownEvent, ParentElement, Render,
@@ -415,6 +416,7 @@ impl Render for TabList {
         let panel = crate::a11y::group(div().id("tab-list"), "タブの一覧")
             .key_context("TabList")
             .track_focus(&self.focus)
+            .keep_tab_inside(&self.focus)
             .on_key_down(cx.listener(Self::on_key_down))
             .min_w(px(200.))
             .max_w(px(640.))

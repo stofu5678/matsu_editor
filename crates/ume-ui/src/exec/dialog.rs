@@ -9,6 +9,8 @@
 //! Not done: the help button.
 
 use crate::a11y::Labelled as _;
+use crate::dialog_focus::KeepTabInside as _;
+use crate::input_select::{focus_selecting, input_field};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
@@ -79,10 +81,10 @@ impl ExecDialog {
     ) -> Self {
         // `SetData`: the newest of each history, and the choices of the last time
         let flags = flags.for_dialog(editable);
-        let command = cx.new(|cx| InputState::new(window, cx).placeholder("コマンド"));
+        let command = cx.new(|cx| input_field(window, cx).placeholder("コマンド"));
         let first = history.commands.newest().unwrap_or_default().to_owned();
         command.update(cx, |state, cx| state.set_value(first, window, cx));
-        let cur_dir = cx.new(|cx| InputState::new(window, cx).placeholder("カレントディレクトリ"));
+        let cur_dir = cx.new(|cx| input_field(window, cx).placeholder("カレントディレクトリ"));
         let first = history.cur_dirs.newest().unwrap_or_default().to_owned();
         cur_dir.update(cx, |state, cx| state.set_value(first, window, cx));
         let mut subscriptions = Vec::new();
@@ -117,7 +119,7 @@ impl ExecDialog {
     }
 
     pub(crate) fn focus_first(&self, window: &mut Window, cx: &mut Context<Self>) {
-        self.command.update(cx, |state, cx| state.focus(window, cx));
+        focus_selecting(&self.command, window, cx);
     }
 
     /// `GetData`: the sum of bits of the choices.
@@ -480,6 +482,7 @@ impl Render for ExecDialog {
             .id("exec-dialog")
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .track_focus(&self.focus)
+            .keep_tab_inside(&self.focus)
             .key_context("ExecDialog")
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 this.on_key_down(event, window, cx)

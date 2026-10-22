@@ -12,6 +12,7 @@
 //! which this program does not have.
 
 use crate::a11y::Labelled as _;
+use crate::dialog_focus::KeepTabInside as _;
 use gpui::{
     App, AppContext as _, ClickEvent, Context, FocusHandle, Focusable, InteractiveElement,
     IntoElement, KeyDownEvent, ParentElement, Render, StatefulInteractiveElement, Styled,
@@ -154,6 +155,7 @@ impl Render for ComparePanel {
             .rounded_md()
             .shadow_md()
             .track_focus(&self.focus)
+            .keep_tab_inside(&self.focus)
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 match event.keystroke.key.as_str() {
                     "escape" => this.cancel(window, cx),

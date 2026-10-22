@@ -13,6 +13,8 @@
 //! always agree.
 
 use crate::a11y::Labelled as _;
+use crate::dialog_focus::KeepTabInside as _;
+use crate::input_select::{focus_selecting, input_field};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     App, AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
@@ -69,6 +71,8 @@ struct DropDown {
 
 pub struct SearchPanel {
     editor: WeakEntity<EditorView>,
+    /// The panel as a whole: Tab stays inside it.
+    pub(crate) scope: FocusHandle,
     dropdown: Option<DropDown>,
     /// Scrolls the open list to the highlighted entry.
     list_scroll: ScrollHandle,
@@ -92,7 +96,7 @@ impl SearchPanel {
         cx: &mut Context<Self>,
     ) -> Self {
         let input = |placeholder: &'static str, window: &mut Window, cx: &mut Context<Self>| {
-            cx.new(|cx| InputState::new(window, cx).placeholder(placeholder))
+            cx.new(|cx| input_field(window, cx).placeholder(placeholder))
         };
         let text = input("検索する文字列", window, cx);
         let replacement = input("置換後の文字列", window, cx);
@@ -134,6 +138,7 @@ impl SearchPanel {
         ));
         Self {
             editor,
+            scope: cx.focus_handle(),
             dropdown: None,
             list_scroll: ScrollHandle::new(),
             mode,
@@ -158,8 +163,8 @@ impl SearchPanel {
     }
 
     pub fn focus_main(&self, window: &mut Window, cx: &mut Context<Self>) {
-        let input = self.main_input().clone();
-        input.update(cx, |state, cx| state.focus(window, cx));
+        // a dialog opens with its first edit focused and its text selected (`WM_INITDIALOG`)
+        focus_selecting(self.main_input(), window, cx);
     }
 
     /// Moves the focus to the replacement input.
@@ -809,6 +814,8 @@ impl Render for SearchPanel {
         };
         div()
             .id("search-panel")
+            .track_focus(&self.scope)
+            .keep_tab_inside(&self.scope)
             .debug_selector(|| "search-panel".to_owned())
             .absolute()
             // mouse events stop here: a click on the panel must not move the caret or the

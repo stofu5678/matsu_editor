@@ -30,6 +30,9 @@ mod command_line;
 mod common_settings;
 mod copy_html;
 mod custom_menu;
+mod dialog_focus;
+#[cfg(test)]
+mod dialog_tab_tests;
 mod diff;
 mod doc_types;
 pub mod document;
@@ -45,6 +48,7 @@ pub mod grep;
 mod history;
 pub mod hit;
 mod input_dialog;
+mod input_select;
 mod key_help;
 pub mod keys;
 pub mod launch;

@@ -11,6 +11,7 @@
 //! Only 設定変更, 一時適用 and キャンセル are here; the buttons that change the list of types
 //! (インポート, エクスポート, 初期化, 複製, 上, 下, 追加, 削除, and the file association) come later.
 
+use crate::dialog_focus::KeepTabInside as _;
 use gpui::{
     App, AppContext as _, ClickEvent, Context, FocusHandle, Focusable, InteractiveElement,
     IntoElement, KeyDownEvent, ParentElement, Render, ScrollHandle, StatefulInteractiveElement,
@@ -172,6 +173,7 @@ impl Render for TypeList {
             .aria_description("下からタイプを選択してください")
             .key_context("TypeList")
             .track_focus(&self.focus)
+            .keep_tab_inside(&self.focus)
             .on_key_down(cx.listener(Self::on_key_down))
             .min_w(px(320.))
             .max_w(px(640.))

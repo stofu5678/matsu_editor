@@ -15,6 +15,7 @@
 
 use std::future::Future;
 
+use crate::input_select::{focus_selecting, input_field};
 use gpui::{
     AppContext as _, ClickEvent, Context, Entity, FocusHandle, Focusable, InteractiveElement as _,
     IntoElement, KeyDownEvent, ParentElement, Render, SharedString,
@@ -61,7 +62,7 @@ impl InputDialog {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let input = cx.new(|cx| InputState::new(window, cx));
+        let input = cx.new(|cx| input_field(window, cx));
         let default = truncate_utf16(&request.default, request.max_len).to_owned();
         let accepted = default.clone();
         input.update(cx, |state, cx| state.set_value(default, window, cx));
@@ -120,7 +121,7 @@ impl InputDialog {
     }
 
     fn focus_field(&self, window: &mut Window, cx: &mut Context<Self>) {
-        self.input.update(cx, |state, cx| state.focus(window, cx));
+        focus_selecting(&self.input, window, cx);
     }
 
     /// Ends the dialog with `text` (`None` cancels) and gives the focus back to the view.

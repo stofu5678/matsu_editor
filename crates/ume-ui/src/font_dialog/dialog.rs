@@ -6,6 +6,7 @@
 //! can still be used while it is open (GPUI has no modal child window). One dialog is open at a
 //! time; asking for a second brings the first to the front.
 
+use crate::input_select::input_field;
 use gpui::{
     AnyWindowHandle, App, AppContext as _, Bounds, ClickEvent, Context, Entity, FocusHandle,
     Focusable, FontWeight, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render,
@@ -50,7 +51,7 @@ impl FontDialog {
         cx: &mut Context<Self>,
     ) -> Self {
         let choice = Choice::of(&base);
-        let size_input = cx.new(|cx| InputState::new(window, cx));
+        let size_input = cx.new(|cx| input_field(window, cx));
         let text = model::size_text(choice.size);
         size_input.update(cx, |state, cx| state.set_value(text, window, cx));
         let subscription = cx.subscribe_in(

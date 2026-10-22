@@ -19,6 +19,7 @@
 //!
 //! The dialog is modal: it has the focus, Enter, Space and Esc close it.
 
+use crate::dialog_focus::KeepTabInside as _;
 use std::time::SystemTime;
 
 use chrono::{DateTime, Local};
@@ -219,6 +220,7 @@ impl Render for AboutDialog {
         let panel = crate::a11y::dialog(div().id("about"), DIALOG_NAME)
             .debug_selector(|| "about-panel".to_owned())
             .track_focus(&self.focus)
+            .keep_tab_inside(&self.focus)
             .key_context("AboutDialog")
             .on_key_down(cx.listener(Self::on_key_down))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())

@@ -26,6 +26,7 @@ mod tests;
 
 use std::path::PathBuf;
 
+use crate::input_select::input_field;
 use gpui::{
     AppContext as _, Context, Entity, FocusHandle, Focusable, PromptLevel, ScrollHandle,
     Subscription, WeakEntity, Window,
@@ -118,7 +119,7 @@ impl FileTreeDialog {
         cx: &mut Context<Self>,
     ) -> Self {
         let field = |window: &mut Window, cx: &mut Context<Self>, name: &'static str| {
-            cx.new(|cx| InputState::new(window, cx).placeholder(name))
+            cx.new(|cx| input_field(window, cx).placeholder(name))
         };
         let default_ini = field(window, cx, "デフォルト設定ファイル名");
         let path = field(window, cx, "パス");
