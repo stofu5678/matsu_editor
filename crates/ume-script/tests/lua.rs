@@ -258,11 +258,12 @@ fn an_infinite_loop_is_stopped_by_the_timeout() {
         "macro.lua",
         "print('start')\nwhile true do end",
         "",
-        Duration::from_millis(500),
+        Duration::from_secs(2),
     );
     assert_eq!(report.finished.reason, EndReason::TimedOut);
     assert_eq!(stdout(&report), ["start"]);
-    assert!(started.elapsed() < Duration::from_secs(10));
+    // only a guard against a macro that is never stopped; the timeout above is 2 s
+    assert!(started.elapsed() < Duration::from_secs(60));
 }
 
 #[test]

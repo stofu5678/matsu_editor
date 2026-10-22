@@ -187,8 +187,12 @@ fn drives_the_window_through_the_accessibility_api() {
     ));
     let pid = child.0.id();
 
-    // The main window is up when System Events lists a window of the process.
-    let main = wait_windows(pid, "main window", |w| !w.is_empty());
+    // The main window is up when System Events lists a window of the process, and it is the one
+    // of the file: its title is "(無題)" until the file is read, and the later comparison of the
+    // windows with this list would otherwise see the title change (CI, 2026-10-22).
+    let main = wait_windows(pid, "main window of sample.txt", |w| {
+        w.iter().any(|name| name.contains("sample.txt"))
+    });
     eprintln!("the windows at the start: {main:?}");
     // The view is up when the text view has its name; the toolbar and the status bar are there.
     let first = wait_tree(pid, "text view", |t| {

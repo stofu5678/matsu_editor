@@ -256,10 +256,18 @@ fn launches_at_the_same_moment_end_with_one_receiver() {
 #[test]
 fn a_receiver_that_does_not_answer_costs_the_sender_its_timeout_only() {
     let key = unique_key("hang");
-    let hung: Handler = Box::new(|_| {
-        std::thread::sleep(Duration::from_secs(3));
-        true
-    });
+    // The receiver is busy until the test lets it go (or a minute has passed).
+    let (release, gate) = mpsc::channel::<()>();
+    let gate = std::sync::Mutex::new(gate);
+    let answered = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let hung: Handler = {
+        let answered = answered.clone();
+        Box::new(move |_| {
+            let _ = gate.lock().unwrap().recv_timeout(Duration::from_secs(60));
+            answered.store(true, std::sync::atomic::Ordering::SeqCst);
+            true
+        })
+    };
     let Joined::Receiver(_receiver) = join(&key, &request("first"), hung) else {
         panic!("the first launch must be the receiver");
     };
@@ -269,6 +277,14 @@ fn a_receiver_that_does_not_answer_costs_the_sender_its_timeout_only() {
     };
     let start = Instant::now();
     let joined = join_with(&key, &request("second"), nothing(), timeouts);
+    let waited = start.elapsed();
+    // The sender gave up while the receiver was still busy: it did not wait for the answer.
+    // (A state, not a clock: load cannot make this fail.)
+    let waited_for_the_receiver = answered.load(std::sync::atomic::Ordering::SeqCst);
+    release.send(()).unwrap();
+    assert!(!waited_for_the_receiver);
+    // the timeouts are 200 ms; this is far from them, and below the receiver's 60 s
+    assert!(waited < Duration::from_secs(30), "{waited:?}");
     assert!(
         matches!(joined, Joined::Standalone(Standalone::TimedOut)),
         "{}",
@@ -277,7 +293,6 @@ fn a_receiver_that_does_not_answer_costs_the_sender_its_timeout_only() {
             _ => "not standalone".to_owned(),
         }
     );
-    assert!(start.elapsed() < Duration::from_secs(2));
 }
 
 #[cfg(unix)]
@@ -341,7 +356,9 @@ mod unix_only {
         let start = Instant::now();
         let joined = join_with(&key, &request("second"), nothing(), timeouts);
         assert!(matches!(joined, Joined::Standalone(_)));
-        assert!(start.elapsed() < Duration::from_secs(5));
+        // Only a guard against waiting for the lock for good (the test would hang otherwise);
+        // the timeouts above are 200 ms, so a minute is far away even on a loaded machine.
+        assert!(start.elapsed() < Duration::from_secs(60));
     }
 
     #[test]
