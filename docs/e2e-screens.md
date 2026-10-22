@@ -85,7 +85,7 @@ gh run watch
 gh run download <実行の id> -n mac-check
 ```
 
-`script` はリポジトリの中のスクリプト（相対パス）。`ume` と `ume-script` を release でビルドしてから `bash` で動かす（`-f build=false` でビルドを省ける）。写真は `$UME_E2E_SCREENS_DIR` に PNG で書くと成果物になる。例は `scripts/mac-checks/`。`pack-build.sh` は、ビルドした `ume` と `ume-script` を `ume-macos-arm64.tar.gz`（パッケージと同じく、フォルダ `ume-macos-arm64/` の中に 2 つ）にして成果物に入れる。Rust の無い Mac（Tart の VM など）で、PR の UME を動かすために使う。書き込み権限のある人だけが動かせ、フォークの PR のコードは動かない。ワークフローのファイルが既定のブランチに入ってから `gh workflow run` で見つかる。
+`script` はリポジトリの中のスクリプト（相対パス）。`ume` と `ume-script` を release でビルドしてから `bash` で動かす（`-f build=false` でビルドを省ける）。写真は `$UME_E2E_SCREENS_DIR` に PNG で書くと成果物になる。例は `scripts/mac-checks/`。`pack-build.sh` は、ビルドした `ume` と `ume-script` を `ume-macos-arm64.tar.gz`（パッケージと同じく、フォルダ `ume-macos-arm64/` の中の `UME Editor.app` に 2 つ）にして成果物に入れる。Rust の無い Mac（Tart の VM など）で、PR の UME を動かすために使う。書き込み権限のある人だけが動かせ、フォークの PR のコードは動かない。ワークフローのファイルが既定のブランチに入ってから `gh workflow run` で見つかる。
 
 ## 写真を取ってくる
 
