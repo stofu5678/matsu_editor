@@ -1,0 +1,77 @@
+name: mac-check
+
+# Runs one check script of this repository on a GitHub macOS runner, without a pull request, and
+# keeps what it produced. For when something has to be tried on macOS (a window, a menu, a
+# screenshot) and there is no Mac at hand:
+#
+#   gh workflow run mac-check.yml --ref <branch> -f script=scripts/mac-checks/ax-test.sh
+#   gh run watch
+#   gh run download <run id> -n mac-check
+#
+# `scripts/mac-checks/pack-build.sh` hands out the build itself (ume-macos-arm64.tar.gz, laid out
+# like the package) for running a branch's UME on a Mac that has no Rust toolchain.
+#
+# The script is run with bash from the root of the checkout, after `ume` and `ume-script` are built
+# in the release profile (unless `build` is false). It should write pictures (PNG) into
+# $UME_E2E_SCREENS_DIR; they and the log are uploaded as the artifact `mac-check`.
+#
+# Only people with write access to the repository can start a manual run, and it runs the files
+# of the branch they name, never the code of a pull request from a fork. The workflow takes no
+# secrets. (`gh workflow run` finds a workflow only after its file is on the default branch.)
+on:
+  workflow_dispatch:
+    inputs:
+      script:
+        description: "Path of the check script in the repository (for example scripts/mac-checks/ax-test.sh)"
+        required: true
+        type: string
+      build:
+        description: "Build ume and ume-script (release) before the script"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: mac-check
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      RUSTFLAGS: -D warnings
+      UME_E2E_PLATFORM: macos-arm64
+      UME_E2E_SCREENS_DIR: ${{ github.workspace }}/e2e-screens
+      SCRIPT: ${{ inputs.script }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check the script path
+        run: |
+          case "$SCRIPT" in
+            /* | *..*) echo "the script must be a path inside the repository: $SCRIPT" >&2; exit 1 ;;
+          esac
+          test -f "$SCRIPT" || { echo "no such file: $SCRIPT" >&2; exit 1; }
+      - uses: dtolnay/rust-toolchain@1.99.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release
+      - if: inputs.build
+        run: cargo build --release --locked -p ume -p ume-script
+      - run: mkdir -p "$UME_E2E_SCREENS_DIR"
+      - name: Run the script
+        shell: bash -eo pipefail {0}
+        run: bash "$SCRIPT" 2>&1 | tee "$UME_E2E_SCREENS_DIR/script.log"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: mac-check
+          path: |
+            e2e-screens/*.png
+            e2e-screens/*.log
+            e2e-screens/*.tar.gz
+          if-no-files-found: warn
+          retention-days: 14

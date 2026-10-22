@@ -134,7 +134,7 @@ fn run(command: &mut Command) -> Result<(), String> {
 ///
 /// * Windows: a copy of the screen by PowerShell and System.Drawing (`capture.ps1`).
 /// * macOS: `screencapture`. Without the permission to record the screen it still writes a file,
-///   but without the windows of other programs.
+///   but without the windows of other programs (GitHub's runners have the permission).
 /// * Linux: ImageMagick's `import` on the display of the test (`xvfb-run` sets `DISPLAY`), or
 ///   `xwd` and `convert`.
 pub fn capture_screen(path: &Path) -> Result<(), String> {
