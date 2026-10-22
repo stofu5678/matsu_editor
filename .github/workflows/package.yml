@@ -81,21 +81,50 @@ jobs:
           mkdir -p "dist/$dir"
           # THIRD_PARTY_NOTICES.txt goes next to the programs: the licenses of the code they include
           # ask for it (README.md, "Third-party notices").
-          cp "target/release/ume$SUFFIX" "target/release/ume-script$SUFFIX" \
-            LICENSE-MIT LICENSE-APACHE THIRD_PARTY_NOTICES.txt "dist/$dir/"
+          cp LICENSE-MIT LICENSE-APACHE THIRD_PARTY_NOTICES.txt "dist/$dir/"
+          if [ "$RUNNER_OS" = macOS ]; then
+            # An app bundle, so that Finder opens it without a Terminal window (a bare executable
+            # makes Terminal.app run it). Both programs are inside it.
+            scripts/package-mac-app.sh target/release "dist/$dir"
+          else
+            cp "target/release/ume$SUFFIX" "target/release/ume-script$SUFFIX" "dist/$dir/"
+          fi
           # The icon of UME Editor as pictures (assets/icons/README.md); ume.exe has its own copy inside.
           mkdir "dist/$dir/icons"
           cp assets/icons/*.svg assets/icons/*.png assets/icons/ume_editor.ico "dist/$dir/icons/"
           {
             echo "UME Editor ($TARGET)"
             echo
-            echo "Run ume$SUFFIX with a file path. ume-script$SUFFIX runs the macros of the bundled"
-            echo "languages (Lua, JavaScript, Ruby, Python); keep it next to ume$SUFFIX."
+            if [ "$RUNNER_OS" = macOS ]; then
+              echo "Move \"UME Editor.app\" to Applications (or anywhere) and open it. It is signed ad hoc,"
+              echo "not notarized, so the first time macOS may say it cannot check the developer. Then"
+              echo "Control-click (right-click) the app and choose Open, or allow it in System Settings >"
+              echo "Privacy & Security > Open Anyway. If macOS says the app is damaged (a browser adds a"
+              echo "quarantine mark), remove it: xattr -dr com.apple.quarantine \"UME Editor.app\""
+              echo "From a terminal: \"UME Editor.app/Contents/MacOS/ume\" file.txt"
+              echo "ume-script (inside the app, next to ume) runs the macros of the bundled languages"
+              echo "(Lua, JavaScript, Ruby, Python); keep it there."
+            else
+              echo "Run ume$SUFFIX with a file path. ume-script$SUFFIX runs the macros of the bundled"
+              echo "languages (Lua, JavaScript, Ruby, Python); keep it next to ume$SUFFIX."
+            fi
             echo "Licensed under MIT OR Apache-2.0 (LICENSE-MIT, LICENSE-APACHE)."
             echo "icons/ has the icon of UME Editor (MIT OR Apache-2.0, like the code)."
             echo "THIRD_PARTY_NOTICES.txt has the notices and licenses of the code the programs include."
             echo "https://github.com/${GITHUB_REPOSITORY}"
           } > "dist/$dir/README.txt"
+      - name: Check the app bundle
+        if: runner.os == 'macOS'
+        working-directory: dist/ume-macos-arm64
+        run: |
+          app="UME Editor.app"
+          plutil -lint "$app/Contents/Info.plist"
+          test "$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")" = io.github.stofu5678.ume-editor
+          test -x "$app/Contents/MacOS/$(plutil -extract CFBundleExecutable raw "$app/Contents/Info.plist")"
+          test -x "$app/Contents/MacOS/ume-script"
+          test -f "$app/Contents/Resources/ume_editor.icns"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          file "$app/Contents/MacOS/ume" "$app/Contents/Resources/ume_editor.icns"
       - name: Archive (zip)
         if: runner.os == 'Windows'
         shell: pwsh

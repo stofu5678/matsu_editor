@@ -28,6 +28,8 @@
 
 `<版>` は、毎日版では `nightly`、版のリリースではタグ（例: `v0.1.0`）。中身は `ume-<対象>/` のディレクトリで、実行ファイル（`ume` / `ume.exe`）、同梱のマクロのエンジンを動かす `ume-script`（`ume-script.exe`。`ume` は自分の隣にあるものを使う）、`LICENSE-MIT`、`LICENSE-APACHE`、`THIRD_PARTY_NOTICES.txt`（プログラムに入っている第三者のコードの著作権表示とライセンス。ライセンスが配布物に添えることを求める）、アイコンの絵（`icons/`。`assets/icons` の SVG・PNG・ICO。ライセンスはコードと同じ）、短い `README.txt` が入る。Linux では、FreeType を同梱してビルドしていないことを確かめる（同梱の FreeType のライセンスは `THIRD_PARTY_NOTICES.txt` に含まれないため。CI のテストと同じ確認）。署名はまだない。
 
+macOS だけ、実行ファイルを裸で置かず、アプリのバンドル `UME Editor.app` に入れる（`scripts/package-mac-app.sh`）。裸の実行ファイルを Finder で開くと Terminal.app が起動して黒い画面が出るため（ユーザーの依頼、2026-10-22）。`ume` と `ume-script` は `UME Editor.app/Contents/MacOS/` に並べる（`ume` が自分の隣の `ume-script` を使うので変わらない）。ほかは同じで、`LICENSE-*`、`THIRD_PARTY_NOTICES.txt`、`icons/`、`README.txt`（初回の開き方つき）は `UME Editor.app` と同じ階層に置く。`Contents/Info.plist` の識別子は `io.github.stofu5678.ume-editor`、最低の macOS は 11.0（arm64 が動く最も古い版）、アイコンは `assets/icons` の PNG から作った `.icns`。ライセンス類（`LICENSE-*`、`THIRD_PARTY_NOTICES.txt`）は `Contents/Resources/` にも入れる（アプリだけを Applications に移しても、第三者のコードの表示が離れないように）。ターミナルからは `UME Editor.app/Contents/MacOS/ume ファイル` で使える。`ume.ini` の場所と多重起動の判定は、実行ファイルの場所に依らない（macOS は `~/Library/Application Support/ume-editor/ume.ini` だけ）ので変わらない。ファイルの種類の関連づけ（`CFBundleDocumentTypes`）は、テキストとソースコードを「別の選択肢」（`LSHandlerRank` が `Alternate`）として入れた。「このアプリで開く」に出るだけで、既定のアプリは奪わない。Finder から開く処理（`on_open_urls`）は `crates/ume-ui/src/app.rs` にあるが、バンドルからの動作は Mac で確かめていない。
+
 ## リリースビルドのプロファイル
 
 `Cargo.toml` の `[profile.release]` は `strip = true`（シンボルを取り除く）だけを指定している。Linux x64 で測った大きさ（表の大きさと時間は Linux x64 だけの値）と、リリースビルド 1 回の時間（`cargo build --release -p ume -p ume-script`、依存を含めて全部作り直す。測定中は同じ計算機で他のビルドも動いていたので、時間は目安）は次のとおり。
@@ -115,11 +117,12 @@ Windows 版の `ume.exe` と `ume-script.exe` には、C の実行時ライブ�
 - 何も入れていない Windows（Windows サンドボックス）で、動的リンクの版が「VCRUNTIME140.dll が見つからない」で起動しなかったことがきっかけ
 - 指定は `.cargo/config.toml` の `target-feature=+crt-static`。手元のビルドと `package.yml` のビルドに効く
 - 環境変数の `RUSTFLAGS` は `.cargo/config.toml` の指定を置き換える。`ci.yml` と `e2e.yml` は `RUSTFLAGS` を使うので、テスト用のビルドは DLL を使ったままになる
+- `package.yml` は、macOS では `UME Editor.app` の `Info.plist`（`plutil -lint`、識別子、実行ファイル）、`ume-script`、`.icns` があることと、署名が壊れていないこと（`codesign --verify --deep --strict`）を確かめる。`package-check.yml` は `scripts/package-mac-app.sh` と `assets/icons/` の変更でも動く
 - `package.yml` は、配る `ume.exe` と `ume-script.exe` が C の実行時ライブラリの DLL を読み込んでいないことを確かめる（`.github/scripts/pe_imports.py`）
 
 ## 署名
 
-配布物にはまだ署名していない。macOS の公証と Windows の署名は、ADR-0014 のとおり、最初の設定だけ人が行ってから CI に足す（macOS は Apple Developer Program への登録が要る）。それまでは、macOS では「開発元を確認できない」、Windows では SmartScreen の警告が出る。
+配布物にはまだ署名していない。macOS の公証と Windows の署名は、ADR-0014 のとおり、最初の設定だけ人が行ってから CI に足す（macOS は Apple Developer Program への登録が要る）。macOS のバンドルは、リンカーが裸の実行ファイルに付けるのと同じ、アドホック署名（`codesign -s -`）だけ付けている（Developer ID も公証もない）。それまでは、macOS では「開発元を確認できない」、Windows では SmartScreen の警告が出る。
 
 ## 費用
 

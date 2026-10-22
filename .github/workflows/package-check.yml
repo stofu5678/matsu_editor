@@ -8,6 +8,8 @@ on:
     paths:
       - .cargo/config.toml
       - .github/scripts/pe_imports.py
+      - scripts/package-mac-app.sh
+      - assets/icons/**
       - .github/workflows/package.yml
       - .github/workflows/package-check.yml
       - .github/workflows/release.yml
