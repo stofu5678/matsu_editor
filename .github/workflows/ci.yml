@@ -63,6 +63,7 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       RUSTDOCFLAGS: -D warnings
+      # Keep these two the same as in release.yml (it regenerates the notices in the release PR).
       CARGO_ABOUT_VERSION: 0.9.2
       # SHA-256 of the prebuilt cargo-about 0.9.2 (x86_64-unknown-linux-musl), from its release.
       CARGO_ABOUT_SHA256: 9099a59e820c38a68b9d65f300662a567d56562f9a10f6aa4c7e86c17c2566af
