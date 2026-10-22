@@ -119,7 +119,7 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                     .into(),
                     Control::check(
                         "exit_confirm",
-                        "UME Editor の全終了で編集用\nウィンドウを閉じるとき確認(&V)",
+                        "ウメエディタの全終了で編集用\nウィンドウを閉じるとき確認(&V)",
                         "bExitConfirm",
                         false,
                     )
