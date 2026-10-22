@@ -607,7 +607,8 @@ impl EditorView {
                 .isearch
                 .as_ref()
                 .map(|a| a.message().to_owned())
-                .or_else(|| self.notice.clone()),
+                .or_else(|| self.notice.clone())
+                .or_else(crate::settings::startup_notice),
         }
     }
 

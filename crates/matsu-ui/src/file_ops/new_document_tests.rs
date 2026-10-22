@@ -242,3 +242,22 @@ fn the_type_of_a_new_file_name_decides(cx: &mut TestAppContext) {
     assert_eq!(format_after_opening(cx, &dir.join("a.txt")), "UTF-8  LF");
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// The message of the migration from the old settings is in the status bar, also after the window reset its
+/// notice (a first start loads a file or makes a new document, which clears it).
+#[gpui::test]
+async fn the_migration_message_is_shown_in_the_status_bar(cx: &mut TestAppContext) {
+    crate::settings::set_startup_notice("migrated");
+    let handle = window(cx, Some(UserSettings::none()));
+    let mut vcx = VisualTestContext::from_window(handle, cx);
+    let view = view_of(&mut vcx);
+    let shown = view.read_with(&vcx, |v, app| v.status(app).notice);
+    assert_eq!(shown.as_deref(), Some("migrated"));
+    // Another notice has the place; when it goes, the message is back.
+    view.update(&mut vcx, |v, _| v.notice = Some("other".to_owned()));
+    let shown = view.read_with(&vcx, |v, app| v.status(app).notice);
+    assert_eq!(shown.as_deref(), Some("other"));
+    view.update(&mut vcx, |v, _| v.notice = None);
+    let shown = view.read_with(&vcx, |v, app| v.status(app).notice);
+    assert_eq!(shown.as_deref(), Some("migrated"));
+}

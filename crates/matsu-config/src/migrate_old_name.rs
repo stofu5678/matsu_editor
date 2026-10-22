@@ -16,7 +16,8 @@
 //! skipped (and counted in the message), so that it does not keep the settings from coming over.
 //!
 //! The own section of the old name in the settings file (`[UME]`) is renamed `[MATSU]` in the copy, so that its
-//! items (the macOS key layout, the save options) keep working. Nothing else in the file is touched.
+//! items (the macOS key layout, the save options) keep working, and the file name in the first comment line
+//! (`; ume.ini ...`) becomes `matsu.ini`. Nothing else in the file is touched.
 
 use std::fs;
 use std::io;
@@ -30,6 +31,10 @@ const OLD_APP_DIR: &str = "ume-editor";
 
 /// The name of UME Editor's settings file.
 const OLD_FILE_NAME: &str = "ume.ini";
+
+/// The start of the header comment of UME Editor's file (`; ume.ini ...`), and of MATSU Editor's.
+const OLD_HEADER_START: &[u8] = b"; ume.ini";
+const NEW_HEADER_START: &[u8] = b"; matsu.ini";
 
 /// What [`migrate`] did.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -221,7 +226,7 @@ fn copy_published(from: &Path, to: &Path, change: impl Fn(&[u8]) -> Vec<u8>) -> 
     published
 }
 
-/// The settings file with the line `[UME]` named `[MATSU]`. The file is UTF-8 or Shift_JIS; in both a line that is
+/// The settings file with the line `[UME]` named `[MATSU]`, and the file name in its header comment changed. The file is UTF-8 or Shift_JIS; in both a line that is
 /// exactly `[UME]` is ASCII, and every other byte is passed on as it is (line endings, BOM, other sections).
 fn rename_own_section(bytes: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(bytes.len() + 8);
@@ -242,6 +247,10 @@ fn rename_own_section(bytes: &[u8]) -> Vec<u8> {
         out.extend_from_slice(bom);
         if body.eq_ignore_ascii_case(b"[UME]") {
             out.extend_from_slice(b"[MATSU]");
+        } else if i == 0 && body.starts_with(OLD_HEADER_START) {
+            // The header comment (`; ume.ini ...`): only the file name in it changes, the rest of the bytes stay.
+            out.extend_from_slice(NEW_HEADER_START);
+            out.extend_from_slice(&body[OLD_HEADER_START.len()..]);
         } else {
             out.extend_from_slice(body);
         }

@@ -139,10 +139,6 @@ impl EditorView {
         self.apply_type_of_document(user, cx);
         // The status bar of the file is the start value of the window.
         self.prefs.show_status_bar = self.prefs.settings.show_status_bar;
-        // The first window after the migration of the old name's settings says so, once.
-        if let Some(notice) = crate::settings::take_startup_notice() {
-            self.notice = Some(notice);
-        }
         if let Some(first) = user.warnings.first() {
             self.notice = Some(format!(
                 "matsu.ini: {first}{}",

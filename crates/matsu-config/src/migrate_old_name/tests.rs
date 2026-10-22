@@ -366,3 +366,18 @@ fn an_unreadable_sub_folder_is_skipped_and_the_settings_still_come_over() {
     assert_eq!(sb.read("home/.config/matsu-editor/matsu.ini"), "old");
     assert_eq!(sb.read("home/.config/matsu-editor/ok.txt"), "ok");
 }
+
+#[test]
+fn the_header_comment_names_the_new_file_and_keeps_its_other_bytes() {
+    // UTF-8 with a BOM.
+    let text =
+        "\u{feff}; ume.ini \u{30c6}\u{30ad}\u{30b9}\u{30c8}\r\n[Common]\r\n; ume.ini later\r\n";
+    let want =
+        "\u{feff}; matsu.ini \u{30c6}\u{30ad}\u{30b9}\u{30c8}\r\n[Common]\r\n; ume.ini later\r\n";
+    assert_eq!(rename_own_section(text.as_bytes()), want.as_bytes());
+    // Shift_JIS: the bytes after the name pass through.
+    assert_eq!(
+        rename_own_section(b"; ume.ini \x83\x65\r\n[A]\r\n"),
+        b"; matsu.ini \x83\x65\r\n[A]\r\n"
+    );
+}

@@ -78,8 +78,21 @@ pub fn new_document_defaults(cx: &gpui::App, file_name: Option<&str>) -> NewDocu
     defaults
 }
 
-/// The message of the migration of the old name, until a window shows it (once).
-static STARTUP_NOTICE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+/// The message of the migration from the old settings, with the time it was made.
+///
+/// Kept for the thread that starts the application, which is the one that draws the windows; so the tests,
+/// each on a thread of its own, do not see the message of another.
+mod startup_slot {
+    use std::cell::RefCell;
+    use std::time::Instant;
+
+    thread_local! {
+        pub(super) static SLOT: RefCell<Option<(String, Instant)>> = const { RefCell::new(None) };
+    }
+}
+
+/// How long the message of the migration stays in the status bar.
+const STARTUP_NOTICE_TIME: std::time::Duration = std::time::Duration::from_secs(20);
 
 /// Copies the settings of the old name to the places of `matsu.ini` when they are missing there
 /// (`matsu_config::migrate_old_name`; ADR-0021). Call it once at the start, after `-PROF=`, before the
@@ -89,15 +102,27 @@ pub(crate) fn migrate_old_settings() {
         matsu_config::migrate_old_name::migrate(Os::current(), &Environment::from_process());
     if let Some(notice) = outcome.notice() {
         eprintln!("matsu: {notice}");
-        if let Ok(mut slot) = STARTUP_NOTICE.lock() {
-            *slot = Some(notice);
-        }
+        set_startup_notice(&notice);
     }
 }
 
-/// The message of [`migrate_old_settings`], once: the first window that asks gets it.
-pub(crate) fn take_startup_notice() -> Option<String> {
-    STARTUP_NOTICE.lock().ok().and_then(|mut slot| slot.take())
+/// Keeps the message of the migration for [`startup_notice`].
+pub(crate) fn set_startup_notice(text: &str) {
+    startup_slot::SLOT.with(|slot| {
+        *slot.borrow_mut() = Some((text.to_owned(), std::time::Instant::now()));
+    });
+}
+
+/// The message of the migration, for a while after the start: the status bar of every window shows it where
+/// the notice goes, while there is no other notice. (It is not kept in a window: the windows of a first start
+/// load a file or reset their notice, and a window can be replaced.)
+pub(crate) fn startup_notice() -> Option<String> {
+    startup_slot::SLOT.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .filter(|(_, since)| since.elapsed() < STARTUP_NOTICE_TIME)
+            .map(|(text, _)| text.clone())
+    })
 }
 
 impl UserSettings {
