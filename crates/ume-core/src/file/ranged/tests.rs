@@ -312,8 +312,8 @@ fn a_document_reads_lines_through_a_ranged_file() {
     assert_eq!(doc.line(0).unwrap().unwrap().text, "first");
     assert_eq!(doc.line(2).unwrap().unwrap().text, "日本語の行");
     assert_eq!(
-        doc.text_between(Pos::new(1, 3), Pos::new(2, 9)).unwrap(),
-        "ond line\n日本語"
+        doc.text_between(Pos::new(1, 0), Pos::new(2, 9)).unwrap(),
+        "second line\n日本語"
     );
 }
 
