@@ -17,3 +17,7 @@ similar = { version = "3", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 tempfile = "3.27"
+
+# Plain fsync when the file system has no F_FULLFSYNC (src/file/sync.rs).
+[target.'cfg(target_vendor = "apple")'.dependencies]
+libc = "0.2"

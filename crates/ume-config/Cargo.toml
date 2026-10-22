@@ -16,3 +16,7 @@ ume-print = { path = "../ume-print" }
 
 [lints]
 workspace = true
+
+# Plain fsync when the file system has no F_FULLFSYNC (src/sync.rs).
+[target.'cfg(target_vendor = "apple")'.dependencies]
+libc = "0.2"

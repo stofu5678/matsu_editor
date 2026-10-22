@@ -385,7 +385,7 @@ fn copy_to_temporary(target: &Path, dest: &Path) -> io::Result<PathBuf> {
             Err(e) => return Err(e),
         };
         let copied = io::copy(&mut source, &mut file)
-            .and_then(|_| file.sync_all())
+            .and_then(|_| ume_core::file::sync_file(&file))
             .and_then(|()| fs::set_permissions(&temp, permissions.clone()));
         return match copied {
             Ok(()) => Ok(temp),

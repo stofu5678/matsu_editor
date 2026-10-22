@@ -343,7 +343,7 @@ fn copy_new(from: &str, to: &str) -> std::io::Result<()> {
         .create_new(true)
         .open(to)?;
     let copied = std::io::copy(&mut source, &mut target)
-        .and_then(|_| target.sync_all())
+        .and_then(|_| ume_core::file::sync_file(&target))
         .and_then(|()| std::fs::set_permissions(to, source.metadata()?.permissions()));
     if copied.is_err() {
         let _ = std::fs::remove_file(to);
