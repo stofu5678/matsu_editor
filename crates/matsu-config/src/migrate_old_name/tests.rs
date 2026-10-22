@@ -308,3 +308,61 @@ fn a_file_that_cannot_be_copied_is_skipped_and_counted() {
             .contains("1 個はコピーできませんでした")
     );
 }
+
+#[test]
+fn two_migrations_at_the_same_time_leave_one_whole_matsu_ini() {
+    for round in 0..20 {
+        let sb = Sandbox::new();
+        let big = format!("[Common]\n{}", "x=1\n".repeat(200_000));
+        sb.write("home/.config/ume-editor/ume.ini", &big);
+        sb.write("home/.config/ume-editor/more.txt", &big);
+        let env = sb.env();
+        let outcomes: Vec<Outcome> = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..4)
+                .map(|_| scope.spawn(|| migrate(Os::Linux, &env)))
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        for outcome in &outcomes {
+            assert!(
+                matches!(
+                    outcome,
+                    Outcome::Migrated { skipped: 0, .. } | Outcome::NotNeeded
+                ),
+                "round {round}: {outcome:?}"
+            );
+        }
+        assert_eq!(sb.read("home/.config/matsu-editor/matsu.ini"), big);
+        assert_eq!(sb.read("home/.config/matsu-editor/more.txt"), big);
+        let left: Vec<_> = fs::read_dir(sb.path("home/.config/matsu-editor"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(left.len(), 2, "round {round}: {left:?}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unreadable_sub_folder_is_skipped_and_the_settings_still_come_over() {
+    use std::os::unix::fs::PermissionsExt;
+    let sb = Sandbox::new();
+    sb.write("home/.config/ume-editor/ume.ini", "old");
+    sb.write("home/.config/ume-editor/locked/data.txt", "data");
+    sb.write("home/.config/ume-editor/ok.txt", "ok");
+    let locked = sb.path("home/.config/ume-editor/locked");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    // Running as root, nothing is unreadable: the test has nothing to show.
+    let readable = fs::read_dir(&locked).is_ok();
+    let outcome = migrate(Os::Linux, &sb.env());
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    if readable {
+        return;
+    }
+    let Outcome::Migrated { skipped, .. } = outcome else {
+        panic!("{outcome:?}");
+    };
+    assert_eq!(skipped, 1);
+    assert_eq!(sb.read("home/.config/matsu-editor/matsu.ini"), "old");
+    assert_eq!(sb.read("home/.config/matsu-editor/ok.txt"), "ok");
+}

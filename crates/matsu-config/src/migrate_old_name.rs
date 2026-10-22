@@ -21,6 +21,7 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::location::{self, Environment, Os};
 
@@ -98,7 +99,7 @@ pub fn migrate(os: Os, env: &Environment) -> Outcome {
             let target = with_new_name(old_file, from, to);
             copy_settings_file(old_file, &target).map(|()| 0)
         } else {
-            copy_folder(from, to)
+            copy_folder(from, to, old_file)
         };
         return match result {
             Ok(skipped) => Outcome::Migrated {
@@ -126,58 +127,75 @@ fn with_new_name(old_file: &Path, from: &Path, to: &Path) -> PathBuf {
 }
 
 /// Copies the regular files of `from` (with its sub folders) into `to`. Files that are in `to` already stay.
-/// The settings files are copied last. Returns how many other files could not be copied.
-fn copy_folder(from: &Path, to: &Path) -> io::Result<usize> {
+/// The settings files are copied last; `primary` (the `ume.ini` that was found) is the one whose failure is an error.
+/// Returns how many other files and folders could not be copied or read.
+fn copy_folder(from: &Path, to: &Path, primary: &Path) -> io::Result<usize> {
     let mut others = Vec::new();
     let mut settings = Vec::new();
-    collect(from, &mut others, &mut settings)?;
-    let mut skipped = 0;
+    let mut skipped = collect(from, &mut others, &mut settings);
+    if !settings.iter().any(|s| s == primary) {
+        // The folder could not be listed (no read permission), but the file itself is known.
+        settings.push(primary.to_path_buf());
+    }
     for file in others {
         let target = to.join(file.strip_prefix(from).unwrap_or(&file));
-        if copy_new_file(&file, &target).is_err() {
+        if copy_published(&file, &target, |b| b.to_vec()).is_err() {
             skipped += 1;
         }
     }
     for file in settings {
         let target = with_new_name(&file, from, to);
-        copy_settings_file(&file, &target)?;
+        let copied = copy_settings_file(&file, &target);
+        if file == primary {
+            copied?;
+        } else if copied.is_err() {
+            skipped += 1;
+        }
     }
     Ok(skipped)
 }
 
 /// Lists the regular files under `dir` (symbolic links are skipped), the `ume.ini` files in `settings`.
-fn collect(dir: &Path, others: &mut Vec<PathBuf>, settings: &mut Vec<PathBuf>) -> io::Result<()> {
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
+/// A folder or entry that cannot be read is skipped; returns how many.
+fn collect(dir: &Path, others: &mut Vec<PathBuf>, settings: &mut Vec<PathBuf>) -> usize {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return 1;
+    };
+    let mut skipped = 0;
+    for entry in entries {
+        let Ok(entry) = entry else {
+            skipped += 1;
+            continue;
+        };
         let path = entry.path();
-        let kind = entry.file_type()?;
-        if kind.is_dir() {
-            collect(&path, others, settings)?;
-        } else if kind.is_file() {
-            if entry.file_name() == OLD_FILE_NAME {
-                settings.push(path);
-            } else {
-                others.push(path);
+        match entry.file_type() {
+            Ok(kind) if kind.is_dir() => skipped += collect(&path, others, settings),
+            Ok(kind) if kind.is_file() => {
+                if entry.file_name() == OLD_FILE_NAME {
+                    settings.push(path);
+                } else {
+                    others.push(path);
+                }
             }
+            Ok(_) => {}
+            Err(_) => skipped += 1,
         }
     }
-    Ok(())
+    skipped
 }
 
-/// Copies `from` to `to` unless `to` is there. Makes the folder.
-fn copy_new_file(from: &Path, to: &Path) -> io::Result<()> {
-    if to.exists() {
-        return Ok(());
-    }
-    if let Some(dir) = to.parent() {
-        fs::create_dir_all(dir)?;
-    }
-    fs::copy(from, to).map(drop)
-}
-
-/// Like [`copy_new_file`], but the target appears whole or not at all (it is the file whose presence says that the
-/// migration is done).
+/// Like [`copy_published`] for the settings file (it is the file whose presence says that the migration is
+/// done), with the own section renamed.
 fn copy_settings_file(from: &Path, to: &Path) -> io::Result<()> {
+    copy_published(from, to, rename_own_section)
+}
+
+/// Copies `from` to `to` (through `change`) unless `to` is there. Makes the folder. The target appears whole or
+/// not at all, and is never replaced: the bytes go to a temporary file of this call alone, which is then linked
+/// under the final name. Two launches that migrate at the same time (before the single-instance check) each
+/// write their own temporary file; the one that links first wins and the other finds the target there.
+fn copy_published(from: &Path, to: &Path, change: impl Fn(&[u8]) -> Vec<u8>) -> io::Result<()> {
+    static COUNT: AtomicUsize = AtomicUsize::new(0);
     if to.exists() {
         return Ok(());
     }
@@ -185,15 +203,22 @@ fn copy_settings_file(from: &Path, to: &Path) -> io::Result<()> {
         fs::create_dir_all(dir)?;
     }
     let mut temp = to.as_os_str().to_owned();
-    temp.push(".migrating");
+    temp.push(format!(
+        ".migrating-{}-{}",
+        std::process::id(),
+        COUNT.fetch_add(1, Ordering::Relaxed)
+    ));
     let temp = PathBuf::from(temp);
-    let copied = fs::read(from)
-        .and_then(|bytes| fs::write(&temp, rename_own_section(&bytes)))
-        .and_then(|()| fs::rename(&temp, to));
-    if copied.is_err() {
-        fs::remove_file(&temp).ok();
-    }
-    copied
+    let published = fs::read(from)
+        .and_then(|bytes| fs::write(&temp, change(&bytes)))
+        .and_then(|()| match fs::hard_link(&temp, to) {
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+            // A file system without hard links: replace only if nobody was faster.
+            Err(_) if !to.exists() => fs::rename(&temp, to),
+            other => other,
+        });
+    fs::remove_file(&temp).ok();
+    published
 }
 
 /// The settings file with the line `[UME]` named `[MATSU]`. The file is UTF-8 or Shift_JIS; in both a line that is
