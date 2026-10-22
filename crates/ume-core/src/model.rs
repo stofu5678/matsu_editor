@@ -219,6 +219,7 @@ impl DocumentModel {
         let Some(lines) = self.history.undo_lines(&mut self.doc, cursor) else {
             return false;
         };
+        let _ = cursor.clamp(&self.doc);
         self.apply_lines(&lines);
         true
     }
@@ -228,6 +229,7 @@ impl DocumentModel {
         let Some(lines) = self.history.redo_lines(&mut self.doc, cursor) else {
             return false;
         };
+        let _ = cursor.clamp(&self.doc);
         self.apply_lines(&lines);
         true
     }

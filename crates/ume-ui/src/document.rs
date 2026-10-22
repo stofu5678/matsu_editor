@@ -584,12 +584,14 @@ fn unify_line_endings(model: &mut DocumentModel, eol: Eol, cursor: &mut Cursor) 
             model.begin_block(cursor);
             changed = true;
         }
-        let before = model.doc().line_count();
+        let rows_before = model.doc().row_count();
         if model.replace_line_ending(at, wanted).is_err() {
             failed = true;
             break;
         }
-        let joined = model.doc().line_count() < before;
+        // The rows, not the lines: the final ending joins the empty row after it, and the
+        // lines stay the same then (`a\n` and `a<NEL>` are one line each).
+        let joined = model.doc().row_count() < rows_before;
         if joined {
             follow_join(cursor, at, current.text.len(), wanted.len());
         }
@@ -600,6 +602,8 @@ fn unify_line_endings(model: &mut DocumentModel, eol: Eol, cursor: &mut Cursor) 
         }
     }
     if changed {
+        // never leave a position of the old text in the version that Redo brings back
+        let _ = cursor.clamp(model.doc());
         model.end_block(cursor);
     }
     (!failed).then_some(changed)
@@ -758,5 +762,106 @@ mod tests {
         );
         // a LS(3 bytes) bcd LS e: the selection is `cd` and the ending
         assert_eq!(cursor.selection(), Some((Pos::new(0, 5), Pos::new(0, 10))));
+    }
+
+    /// Every position of the document, the empty row after a final ending included.
+    fn all_positions(doc: &Document) -> Vec<Pos> {
+        let mut out = Vec::new();
+        for row in 0..doc.row_count() {
+            let text = doc.line(row).unwrap().map(|l| l.text).unwrap_or_default();
+            out.extend(text.char_indices().map(|(i, _)| Pos::new(row, i)));
+            out.push(Pos::new(row, text.len()));
+        }
+        out
+    }
+
+    /// The number of chars before `pos` that are not part of a line ending.
+    fn text_chars_before(doc: &Document, pos: Pos) -> usize {
+        doc.text_between(Pos::new(0, 0), pos)
+            .unwrap()
+            .chars()
+            .filter(|c| !matches!(c, '\r' | '\n' | '\u{85}' | '\u{2028}' | '\u{2029}'))
+            .count()
+    }
+
+    #[test]
+    fn every_cursor_follows_its_text_through_every_conversion() {
+        // The caret and the anchor keep the text they were at, the version after the conversion
+        // holds positions of the new document only, and Undo, Redo and Undo again bring back
+        // exactly the cursors of their versions.
+        let docs: [&[u8]; 9] = [
+            b"",
+            b"\n",
+            b"\n\n",
+            b"a",
+            b"a\n",
+            b"a\nb\nc",
+            b"a\r\nb\nc\r\n",
+            b"\r\n\r\nx\r",
+            b"\xc3\xa9\n\xe6\x97\xa5\r\n\n",
+        ];
+        for bytes in docs {
+            for eol in [Eol::CrLf, Eol::Lf, Eol::Cr, Eol::Nel, Eol::Ls, Eol::Ps] {
+                let fresh = || DocumentModel::new(Document::from_utf8(bytes.to_vec()).unwrap());
+                let positions = all_positions(fresh().doc());
+                for &caret in &positions {
+                    for anchor in [None, positions.first().copied(), positions.last().copied()] {
+                        let mut model = fresh();
+                        let mut cursor = Cursor::new(caret);
+                        if let Some(anchor) = anchor {
+                            cursor.select(anchor, caret);
+                        }
+                        let (chars_caret, chars_anchor) = (
+                            text_chars_before(model.doc(), caret),
+                            cursor.anchor().map(|a| text_chars_before(model.doc(), a)),
+                        );
+                        let before = cursor.clone();
+                        let what =
+                            format!("{bytes:?} to {eol:?}, caret {caret:?}, anchor {anchor:?}");
+                        let changed = unify_line_endings(&mut model, eol, &mut cursor)
+                            .unwrap_or_else(|| panic!("failed: {what}"));
+                        let mut after = cursor.clone();
+                        after.clamp(model.doc()).unwrap();
+                        assert_eq!(after, cursor, "outside the document: {what}");
+                        assert_eq!(
+                            text_chars_before(model.doc(), cursor.caret()),
+                            chars_caret,
+                            "caret: {what}"
+                        );
+                        if let Some(chars) = chars_anchor {
+                            if let Some(a) = cursor.anchor() {
+                                assert_eq!(
+                                    text_chars_before(model.doc(), a),
+                                    chars,
+                                    "anchor: {what}"
+                                );
+                            } else {
+                                assert_eq!(chars, chars_caret, "anchor gone: {what}");
+                            }
+                        }
+                        if changed {
+                            for _ in 0..2 {
+                                assert!(model.undo(&mut cursor), "{what}");
+                                assert_eq!(cursor, before, "undo: {what}");
+                                assert!(model.redo(&mut cursor), "{what}");
+                                assert_eq!(cursor, after, "redo: {what}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_final_ending_joins_the_empty_row_after_it() {
+        // `a\n` and `a<NEL>` are one line each, but the caret on the empty row has to move
+        let mut model = DocumentModel::new(Document::from_utf8(b"a\n".to_vec()).unwrap());
+        let mut cursor = Cursor::new(Pos::new(1, 0));
+        assert_eq!(
+            unify_line_endings(&mut model, Eol::Nel, &mut cursor),
+            Some(true)
+        );
+        assert_eq!(cursor.caret(), Pos::new(0, 3));
     }
 }
