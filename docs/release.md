@@ -62,7 +62,7 @@ CARGO_PROFILE_RELEASE_STRIP=none cargo build --release --locked -p ume -p ume-sc
 
 - 版は main のコミットから決める。PR は squash でマージするので、PR のタイトル（Conventional Commits）がコミットになる。`feat` で minor、`fix` で patch を上げる。0.x のあいだは、破壊的変更（`!` や `BREAKING CHANGE`）も minor を上げる。1.0 にする時期は人が決める（1.0 にするときは、`release-please-config.json` の `bump-minor-pre-major` を外し、`Release-As: 1.0.0` を付けたコミットを入れる）
 - [release-please](https://github.com/googleapis/release-please) が、前のリリースからのコミットを見て、リリース PR（`chore: release x.y.z`）を作って更新し続ける。PR には `Cargo.toml` の `[workspace.package] version`、`CHANGELOG.md`、`version.txt` の変更が入る
-- 版を上げると `Cargo.lock` のワークスペースのクレートの版も変わる（変わらないと `--locked` のビルドが落ちる）ので、同じワークフローが `cargo update --workspace` を回して、リリース PR のブランチに足す
+- 版を上げると `Cargo.lock` のワークスペースのクレートの版も変わる（変わらないと `--locked` のビルドが落ちる）ので、同じワークフローが `cargo update --workspace` と `cargo about generate`（`THIRD_PARTY_NOTICES.txt` にも版が載るため）を回して、リリース PR のブランチに足す
 - リリース PR をマージすると、release-please がタグ `vX.Y.Z` とリリースを作り、そのコミットから作った 5 つのパッケージを、同じ実行の中でリリースに添付する
 - 最初のリリースは、これまでの全コミットを拾うので、`CHANGELOG.md` が長くなる。`initial-version` で `0.1.0` にしてある（指定しないと release-please は最初を 1.0.0 にする。最初のリリース PR の版は、マージの前に確かめる）
 
