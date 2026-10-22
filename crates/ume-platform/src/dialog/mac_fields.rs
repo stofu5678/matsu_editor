@@ -11,8 +11,8 @@ use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSAccessibility, NSAutoresizingMaskOptions, NSButton, NSControlStateValueOff,
-    NSControlStateValueOn, NSLayoutAttribute, NSPopUpButton, NSStackView, NSTextField,
-    NSUserInterfaceLayoutOrientation, NSView,
+    NSControlStateValueOn, NSLayoutAttribute, NSLayoutConstraint, NSLayoutRelation, NSPopUpButton,
+    NSStackView, NSTextField, NSUserInterfaceLayoutOrientation, NSView,
 };
 use objc2_foundation::{NSArray, NSPoint, NSRect, NSSize, NSString};
 
@@ -20,6 +20,9 @@ use super::{Extra, ExtraValue, Follow};
 
 /// The space around the row, and between its columns.
 const MARGIN: f64 = 12.;
+
+/// The least width of a list.
+const LIST_WIDTH: f64 = 180.;
 
 /// One field that was made, to read back.
 enum Control {
@@ -65,6 +68,12 @@ impl Fields {
                         list.addItemWithTitle(&NSString::from_str(item));
                     }
                     list.selectItemAtIndex(*selected as isize);
+                    // Never narrower than a list that shows its longest item (the pop-up button is
+                    // sized from the selected item otherwise).
+                    list.setTranslatesAutoresizingMaskIntoConstraints(false);
+                    NSLayoutConstraint::activateConstraints(&NSArray::from_retained_slice(&[
+                        min_width(&list, LIST_WIDTH),
+                    ]));
                     // The label names the list for VoiceOver and the Accessibility API.
                     list.setAccessibilityLabel(Some(&NSString::from_str(label)));
                     made.push(Some(vec![
@@ -126,10 +135,9 @@ impl Fields {
         row.setSpacing(MARGIN);
         let row: Retained<NSView> = Retained::into_super(row);
         let size = row.fittingSize();
-        // The row keeps its size and its distance from the right edge when the view grows with
-        // the panel (a flexible left margin); the view itself is flexible in width.
-        row.setFrame(NSRect::new(NSPoint::new(MARGIN, MARGIN), size));
-        row.setAutoresizingMask(NSAutoresizingMaskOptions::ViewMinXMargin);
+        // The save panel lays the accessory view out with Auto Layout, and an autoresizing mask on
+        // the row loses to it (seen on macOS 26: the row sat at the left). So the container takes
+        // the width of the panel, and constraints pin the row to its trailing edge.
         let view = NSView::initWithFrame(
             mtm.alloc(),
             NSRect::new(
@@ -139,6 +147,38 @@ impl Fields {
         );
         view.setAutoresizingMask(NSAutoresizingMaskOptions::ViewWidthSizable);
         view.addSubview(&row);
+        row.setTranslatesAutoresizingMaskIntoConstraints(false);
+        let constraints = [
+            pin(
+                &row,
+                NSLayoutAttribute::Trailing,
+                NSLayoutRelation::Equal,
+                &view,
+                -MARGIN,
+            ),
+            pin(
+                &row,
+                NSLayoutAttribute::Leading,
+                NSLayoutRelation::GreaterThanOrEqual,
+                &view,
+                MARGIN,
+            ),
+            pin(
+                &row,
+                NSLayoutAttribute::Top,
+                NSLayoutRelation::Equal,
+                &view,
+                MARGIN,
+            ),
+            pin(
+                &row,
+                NSLayoutAttribute::Bottom,
+                NSLayoutRelation::Equal,
+                &view,
+                -MARGIN,
+            ),
+        ];
+        NSLayoutConstraint::activateConstraints(&NSArray::from_retained_slice(&constraints));
         // BOM in step with the encoding (`OnItemSelected` of Sakura): the list tells the target
         let target = follow.and_then(|follow| {
             let (Some(Control::Combo(list)), Some(Control::Check(check))) =
@@ -228,5 +268,37 @@ impl Follower {
         });
         // SAFETY: NSObject's initializer.
         unsafe { msg_send![super(this), init] }
+    }
+}
+
+/// `view.attribute <relation> other.attribute + constant`.
+fn pin(
+    view: &NSView,
+    attribute: NSLayoutAttribute,
+    relation: NSLayoutRelation,
+    other: &NSView,
+    constant: f64,
+) -> Retained<NSLayoutConstraint> {
+    // SAFETY: both are views of the same hierarchy; plain attributes.
+    unsafe {
+        NSLayoutConstraint::constraintWithItem_attribute_relatedBy_toItem_attribute_multiplier_constant(
+            view, attribute, relation, Some(other), attribute, 1., constant,
+        )
+    }
+}
+
+/// `view.width >= width`.
+fn min_width(view: &NSView, width: f64) -> Retained<NSLayoutConstraint> {
+    // SAFETY: a constant constraint on one view.
+    unsafe {
+        NSLayoutConstraint::constraintWithItem_attribute_relatedBy_toItem_attribute_multiplier_constant(
+            view,
+            NSLayoutAttribute::Width,
+            NSLayoutRelation::GreaterThanOrEqual,
+            None,
+            NSLayoutAttribute::NotAnAttribute,
+            1.,
+            width,
+        )
     }
 }
