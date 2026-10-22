@@ -1229,6 +1229,13 @@ fn a_settings_file_that_cannot_be_written_keeps_the_dialog(cx: &mut TestAppConte
     assert!(is_open(keys, handle), "OK seems to do nothing otherwise");
     assert_eq!(ini.bytes(), before);
     assert_eq!(tree_items(keys, handle).len(), 3, "the edits stay");
+    // and the windows' settings are not changed either: キャンセル leaves no trace
+    let count = keys.update(|_, app| {
+        app.global::<UserSettings>()
+            .profile()
+            .and_then(|p| p.get("Common", "nFileTreeItemCount").map(str::to_owned))
+    });
+    assert_eq!(count.as_deref(), Some("2"));
 }
 
 #[test]

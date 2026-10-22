@@ -56,8 +56,9 @@ pub(crate) fn write_outcome(
 
 /// Writes the outcome to the settings file under its lock, and makes the settings the windows
 /// hold the new ones. A file that cannot be written (no place for it, no right to write) leaves
-/// the settings for this session, as the other dialogs do; the pane reads the file first, though,
-/// so the caller is told (`false`) and can keep the dialog open instead of seeming to do nothing.
+/// the settings for this session, as the other dialogs do, when there is no settings file at all.
+/// When there is one that cannot be written, nothing changes and the caller is told (`false`): the
+/// pane reads the file first, so it would seem that OK did nothing.
 pub(crate) fn commit(cx: &mut App, outcome: &Outcome) -> bool {
     let mut written: Option<Profile> = None;
     crate::history::write_settings(cx, |profile| {
@@ -65,6 +66,17 @@ pub(crate) fn commit(cx: &mut App, outcome: &Outcome) -> bool {
         written = Some(profile.clone());
         Ok(changed)
     });
+    // written: the file now says what the outcome says. Otherwise nothing changes for the windows
+    // either, so that キャンセル after the message leaves no trace.
+    let persisted = match crate::history::settings_path(cx) {
+        Some(file) => Profile::load(&file).is_ok_and(|mut on_disk| {
+            write_outcome(&mut on_disk, outcome).is_ok_and(|changed| !changed)
+        }),
+        None => true,
+    };
+    if !persisted {
+        return false;
+    }
     let user = cx.try_global::<UserSettings>().cloned();
     let profile = written.unwrap_or_else(|| {
         let mut profile = user
@@ -77,13 +89,7 @@ pub(crate) fn commit(cx: &mut App, outcome: &Outcome) -> bool {
     });
     let path = user.as_ref().and_then(crate::settings::history_file);
     cx.set_global(UserSettings::from_profile(profile, path));
-    // written: the file now says what the outcome says
-    match crate::history::settings_path(cx) {
-        Some(file) => Profile::load(&file).is_ok_and(|mut on_disk| {
-            write_outcome(&mut on_disk, outcome).is_ok_and(|changed| !changed)
-        }),
-        None => true,
-    }
+    true
 }
 
 /// `CImpExpFileTree::Import`: the items of a project file. A file without the count of items
@@ -114,7 +120,9 @@ pub(crate) fn write_project_file(path: &Path, items: &[FileTreeItem]) -> io::Res
             write_project_items(&mut profile, items).map_err(invalid)?;
             profile.save(path)
         }
-        Err(_) => export_items(path, items),
+        // (a file that is there and cannot be read is not replaced)
+        Err(error) if error.kind() == io::ErrorKind::NotFound => export_items(path, items),
+        Err(error) => Err(error),
     }
 }
 
