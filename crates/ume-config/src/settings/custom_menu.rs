@@ -366,17 +366,13 @@ impl CustomMenus {
                 continue;
             }
             // Reading takes UME's default for the right-click menu while the file has no `nCMIN[00]`, and
-            // Sakura's once it has: writing the count must therefore write every item, or the items left out
-            // would change their meaning on the next read.
-            let before = if i == INDEX_FOR_RBUTTONUP
+            // Sakura's once it has: writing the count must therefore write every item the file does not list,
+            // or the items left out would change their meaning on the next read. Items the file lists and that
+            // did not change keep their text.
+            let materialize = i == INDEX_FOR_RBUTTONUP
                 && profile
                     .get_i32(SECTION, &format!("nCMIN[{i:02}]"))
-                    .is_none()
-            {
-                None
-            } else {
-                before
-            };
+                    .is_none();
             profile.set(SECTION, &format!("szCMN[{i:02}]"), &menu.name)?;
             profile.set(
                 SECTION,
@@ -389,7 +385,12 @@ impl CustomMenus {
                 &menu.items.len().to_string(),
             )?;
             for (j, item) in menu.items.iter().enumerate() {
-                if before.and_then(|b| b.items.get(j)) == Some(item) {
+                if before.and_then(|b| b.items.get(j)) == Some(item)
+                    && (!materialize
+                        || profile
+                            .get(SECTION, &format!("nCMIF[{i:02}][{j:02}]"))
+                            .is_some())
+                {
                     continue;
                 }
                 let function = name_of
@@ -581,6 +582,16 @@ mod tests {
             .write_to_profile(&mut profile, None, Some(&reread))
             .unwrap();
         assert_eq!(CustomMenus::from_profile(&profile, &names), third);
+        // An item the file lists, here one that reading cannot name, stays as it is.
+        let mut sparse = Profile::from_bytes(b"[CustMenu]\nnCMIF[00][01]=SomePlugin\n");
+        let before = CustomMenus::from_profile(&sparse, &names);
+        let mut menus = before.menus().to_vec();
+        menus[0].name = "Mine".to_owned();
+        CustomMenus::from_menus(menus)
+            .write_to_profile(&mut sparse, None, Some(&before))
+            .unwrap();
+        assert_eq!(sparse.get(SECTION, "nCMIF[00][01]"), Some("SomePlugin"));
+        assert_eq!(sparse.get_i32(SECTION, "nCMIN[00]"), Some(32));
     }
 
     #[test]
