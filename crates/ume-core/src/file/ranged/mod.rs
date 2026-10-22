@@ -277,16 +277,19 @@ impl Source for RangedFile {
         if start == end {
             return Ok(Cow::Borrowed(&[]));
         }
+        // A range that cannot be one buffer (more than 4 GiB where `usize` is 32 bits) is an
+        // allocation failure, not a wrapped length.
+        let Ok(len) = usize::try_from(end - start) else {
+            return Err(io::Error::from(io::ErrorKind::OutOfMemory));
+        };
         if end - start >= 2 * self.block_size {
             // A long range (a scan reading in big pieces) is read straight into its buffer: the
             // blocks would be copied twice and would push out the blocks that the view uses.
             self.check()?;
-            return self
-                .read_from_disk(start, (end - start) as usize)
-                .map(Cow::Owned);
+            return self.read_from_disk(start, len).map(Cow::Owned);
         }
         let mut out = Vec::new();
-        out.try_reserve_exact((end - start) as usize)
+        out.try_reserve_exact(len)
             .map_err(|_| io::Error::from(io::ErrorKind::OutOfMemory))?;
         let mut pos = start;
         while pos < end {
