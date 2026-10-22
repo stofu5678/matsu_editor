@@ -603,7 +603,7 @@ fn unify_line_endings(model: &mut DocumentModel, eol: Eol, cursor: &mut Cursor) 
     }
     if changed {
         // never leave a position of the old text in the version that Redo brings back
-        let _ = cursor.clamp(model.doc());
+        let _ = cursor.clamp_if_outside(model.doc());
         model.end_block(cursor);
     }
     (!failed).then_some(changed)
@@ -821,7 +821,7 @@ mod tests {
                         let changed = unify_line_endings(&mut model, eol, &mut cursor)
                             .unwrap_or_else(|| panic!("failed: {what}"));
                         let mut after = cursor.clone();
-                        after.clamp(model.doc()).unwrap();
+                        after.clamp_if_outside(model.doc()).unwrap();
                         assert_eq!(after, cursor, "outside the document: {what}");
                         assert_eq!(
                             text_chars_before(model.doc(), cursor.caret()),

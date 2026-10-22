@@ -219,7 +219,7 @@ impl DocumentModel {
         let Some(lines) = self.history.undo_lines(&mut self.doc, cursor) else {
             return false;
         };
-        let _ = cursor.clamp(&self.doc);
+        let _ = cursor.clamp_if_outside(&self.doc);
         self.apply_lines(&lines);
         true
     }
@@ -229,7 +229,7 @@ impl DocumentModel {
         let Some(lines) = self.history.redo_lines(&mut self.doc, cursor) else {
             return false;
         };
-        let _ = cursor.clamp(&self.doc);
+        let _ = cursor.clamp_if_outside(&self.doc);
         self.apply_lines(&lines);
         true
     }
@@ -615,5 +615,24 @@ y
         m.replace_line_ending(0, "\u{85}").unwrap();
         assert_eq!(m.doc().line_count(), 1);
         assert_eq!(marked(&m), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn undo_and_redo_keep_a_box_that_starts_and_ends_at_one_position() {
+        // A box beyond the end of a line: the corners are at the same position with different
+        // display columns, which the restore must not mistake for an anchor outside the text.
+        let mut m = model("ab\ncd");
+        let mut cursor = Cursor::new(Pos::new(0, 2));
+        cursor.begin_box(2, false);
+        cursor.move_box_to(Pos::new(0, 2), 5);
+        let before = cursor.clone();
+        assert!(before.box_corners().is_some());
+        m.begin_block(&cursor);
+        m.replace(Pos::new(1, 0), Pos::new(1, 0), "x").unwrap();
+        m.end_block(&cursor);
+        assert!(m.undo(&mut cursor));
+        assert_eq!(cursor, before);
+        assert!(m.redo(&mut cursor));
+        assert_eq!(cursor.box_corners(), before.box_corners());
     }
 }
