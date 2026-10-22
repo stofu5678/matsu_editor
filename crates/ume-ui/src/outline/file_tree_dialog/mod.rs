@@ -31,7 +31,7 @@ use gpui::{
     Subscription, WeakEntity, Window,
 };
 use gpui_component::input::{InputEvent, InputState};
-use ume_config::settings::file_tree::{FileTreeItem, ItemType, MAX_ITEMS};
+use ume_config::settings::file_tree::{FileTreeItem, ItemType, MAX_ITEMS, MAX_PROJECT_ITEMS};
 
 use super::file_tree::source::{DialogSetting, Inputs, SettingFrom};
 use super::pane::OutlinePane;
@@ -201,7 +201,18 @@ impl FileTreeDialog {
     /// `ChangeEnableAddInsert`: another item fits. (Sakura compares with `nMaxCount < nCount`,
     /// which lets a 21st item in, and OK then cuts it off with the message of the limit.)
     pub(crate) fn can_add(&self) -> bool {
-        !self.saves_to_settings() || self.tree.count() < MAX_ITEMS
+        self.tree.count() < self.max_items()
+    }
+
+    /// How many items the tree may hold: [`MAX_ITEMS`] for the settings, and for a project file
+    /// what the reader takes ([`MAX_PROJECT_ITEMS`]; more would not be shown again, and the next
+    /// save would drop them).
+    pub(crate) fn max_items(&self) -> usize {
+        if self.saves_to_settings() {
+            MAX_ITEMS
+        } else {
+            MAX_PROJECT_ITEMS
+        }
     }
 
     /// `SetDataItem`: the boxes show the selected item, or the blank item when nothing is selected
@@ -292,10 +303,10 @@ impl FileTreeDialog {
     /// closes the dialog and makes the pane read the tree again.
     pub(crate) fn ok(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let to_settings = self.saves_to_settings();
-        let limit = if to_settings { MAX_ITEMS } else { 0 };
+        let limit = self.max_items();
         let (items, complete) = self.tree.to_items(limit);
         if !complete {
-            self.say(&too_many(MAX_ITEMS), window, cx);
+            self.say(&too_many(limit), window, cx);
         }
         let outcome = store::Outcome {
             section: self.section.clone(),

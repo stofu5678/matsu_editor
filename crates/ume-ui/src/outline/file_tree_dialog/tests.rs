@@ -1318,3 +1318,33 @@ fn tab_stays_among_the_controls_of_the_dialog(cx: &mut TestAppContext) {
         "text"
     );
 }
+
+#[gpui::test]
+fn a_project_file_tree_holds_no_more_than_the_reader_reads(cx: &mut TestAppContext) {
+    let text = "[Common]\r\nbFileTreeProject=1\r\n";
+    let (ini, handle) = setup(cx, text, Some("doc.txt"));
+    std::fs::write(
+        ini.dir.path().join("_sakurafiletree.ini"),
+        "[FileTree]\r\nnFileTreeItemCount=1\r\nFileTree(0).eItemType=1\r\nFileTree(0).szTargetPath=f\r\n",
+    )
+    .unwrap();
+    show_tree(cx, handle);
+    open_dialog(cx, handle);
+    with_dialog(cx, handle, |d, _, _| {
+        assert_eq!(
+            d.max_items(),
+            ume_config::settings::file_tree::MAX_PROJECT_ITEMS
+        );
+        assert!(d.can_add());
+    });
+}
+
+#[test]
+fn the_files_that_fit_are_counted_against_the_limit() {
+    use super::actions::files_that_fit;
+    // the settings take them all (OK cuts them off); a project file takes what fits
+    assert_eq!(files_that_fit(true, 20, 20, 5), 5);
+    assert_eq!(files_that_fit(false, 9_999, 10_000, 5), 1);
+    assert_eq!(files_that_fit(false, 10_000, 10_000, 5), 0);
+    assert_eq!(files_that_fit(false, 3, 10_000, 5), 5);
+}

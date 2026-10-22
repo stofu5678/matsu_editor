@@ -367,11 +367,19 @@ impl FileTreeDialog {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if files.is_empty() {
+        // (a project file takes no more than the reader reads; the settings are cut at OK)
+        let room = files_that_fit(
+            self.saves_to_settings(),
+            self.tree.count(),
+            self.max_items(),
+            files.len(),
+        );
+        if room == 0 {
             return;
         }
         let items = files
             .iter()
+            .take(room)
             .map(|file| FileTreeItem {
                 item_type: ItemType::File,
                 target_path: file.to_string_lossy().replace('%', "%%"),
@@ -625,6 +633,16 @@ impl FileTreeDialog {
             _ => return false,
         }
         true
+    }
+}
+
+/// How many of `wanted` files go into the tree that holds `count` items of at most `max`: all of
+/// them for the settings (OK cuts the items off with a message), what fits for a project file.
+pub(super) fn files_that_fit(to_settings: bool, count: usize, max: usize, wanted: usize) -> usize {
+    if to_settings {
+        wanted
+    } else {
+        wanted.min(max.saturating_sub(count))
     }
 }
 
