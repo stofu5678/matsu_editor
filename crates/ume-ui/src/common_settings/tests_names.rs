@@ -113,3 +113,13 @@ fn a_browse_button_is_named_for_what_it_browses() {
         &Control::button("b", "...", |_, _, _| {}).accessible_name()
     ));
 }
+
+/// Sakura's captions that say the product name (サクラエディタ) say ウメエディタ here
+/// (CLAUDE.md: the katakana name), not "UME Editor".
+#[test]
+fn the_exit_all_caption_says_the_katakana_product_name() {
+    // Sakura: sakura_core/sakura_rc.rc, IDC_CHECK_EXITCONFIRM of the page 全般.
+    let page = include_str!("pages/general.rs");
+    assert!(page.contains("ウメエディタの全終了で編集用\\nウィンドウを閉じるとき確認(&V)"));
+    assert!(!page.contains("UME Editor の全終了"));
+}
