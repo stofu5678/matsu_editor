@@ -258,6 +258,8 @@ fn the_keyword_dialog_follows_what_is_typed(cx: &mut TestAppContext) {
     assert_eq!(selected, Some(0));
 
     // 0.7 second after the last key
+    // the keyword opens selected (as in Sakura); End drops the selection so the typing appends
+    w.cx(cx).simulate_keystrokes("end");
     w.cx(cx).simulate_input("ob");
     settle(cx, Duration::from_millis(300));
     assert_eq!(w.list(cx).unwrap().0, ["foo", "foobar"], "not yet");
@@ -371,6 +373,8 @@ fn the_list_has_pages_of_fifty(cx: &mut TestAppContext) {
     turn(cx, false);
     assert_eq!(page(&w, cx), (50, Some("item050".into()), true, 50));
     // a new keyword starts from the first page again
+    // the keyword opens selected (as in Sakura); End drops the selection so the typing appends
+    w.cx(cx).simulate_keystrokes("end");
     w.cx(cx).simulate_input("0");
     settle(cx, TYPING_DELAY);
     assert_eq!(page(&w, cx), (50, Some("item000".into()), true, 0));
@@ -535,6 +539,8 @@ fn enter_waits_for_the_list_of_the_new_keyword(cx: &mut TestAppContext) {
     let w = open(cx, &main);
     w.run_with(cx, "F_TAGJUMP_KEYWORD", &[Arg::Text("fo".into())]);
     settle(cx, SHORT_DELAY);
+    // the keyword opens selected (as in Sakura); End drops the selection so the typing appends
+    w.cx(cx).simulate_keystrokes("end");
     w.cx(cx).simulate_input("ob");
     // the list still answers "fo": Enter does not take it
     w.cx(cx).simulate_keystrokes("enter");

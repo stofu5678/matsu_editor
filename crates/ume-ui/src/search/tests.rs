@@ -173,8 +173,10 @@ fn the_find_panel_starts_with_the_word_at_the_caret_and_searches(cx: &mut TestAp
     assert_eq!(f.panel_mode(cx), Some(PanelMode::Find));
     let pattern = f.view.read_with(cx, |v, _| v.search.pattern().to_owned());
     assert_eq!(pattern, "bar");
-    // Enter in the input is 下検索; the dialog closes itself (the default) and the focus returns
-    cx.simulate_keystrokes("enter");
+    // Enter in the input is 下検索; the dialog closes itself (the default) and the focus returns.
+    // End drops the selection of the opening word: the headless keys put the character of Enter
+    // in before the Enter handler runs, which would replace a selection with nothing.
+    cx.simulate_keystrokes("end enter");
     assert_eq!(f.selection(cx), Some((Pos::new(1, 0), Pos::new(1, 3))));
     assert_eq!(f.panel_mode(cx), None);
     // the search start position is where the caret was when the panel opened

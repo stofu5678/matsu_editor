@@ -11,11 +11,13 @@
 //!
 //! Not done: the help button.
 
+use crate::dialog_focus::KeepTabInside as _;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::a11y::Labelled as _;
+use crate::input_select::{focus_selecting, input_field};
 use gpui::{
     AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
     KeyDownEvent, MouseButton, ParentElement, PathPromptOptions, Render, Styled, Subscription,
@@ -66,13 +68,12 @@ impl TagsMakeDialog {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let folder_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("タグ作成フォルダー"));
+        let folder_input = cx.new(|cx| input_field(window, cx).placeholder("タグ作成フォルダー"));
         folder_input.update(cx, |state, cx| {
             state.set_value(folder.to_owned(), window, cx)
         });
         let command_line =
-            cx.new(|cx| InputState::new(window, cx).placeholder("コマンドラインオプション"));
+            cx.new(|cx| input_field(window, cx).placeholder("コマンドラインオプション"));
         command_line.update(cx, |state, cx| {
             state.set_value(options.command_line.clone(), window, cx)
         });
@@ -102,7 +103,7 @@ impl TagsMakeDialog {
     }
 
     pub(crate) fn focus_first(&self, window: &mut Window, cx: &mut Context<Self>) {
-        self.folder.update(cx, |state, cx| state.focus(window, cx));
+        focus_selecting(&self.folder, window, cx);
     }
 
     pub(crate) fn is_running(&self) -> bool {
@@ -270,6 +271,7 @@ impl Render for TagsMakeDialog {
             .id("tags-make")
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .track_focus(&self.focus)
+            .keep_tab_inside(&self.focus)
             .key_context("TagsMake")
             .on_key_down(cx.listener(Self::on_key_down))
             .w(px(480.))

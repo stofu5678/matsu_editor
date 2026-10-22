@@ -4,6 +4,7 @@
 //! the view and has the keys (Escape stops), so that nothing is typed into the text meanwhile.
 
 use crate::a11y::Labelled as _;
+use crate::dialog_focus::KeepTabInside as _;
 use gpui::{
     AppContext as _, Context, FocusHandle, Focusable, InteractiveElement, IntoElement,
     KeyDownEvent, MouseButton, ParentElement, Render, Styled, Window, div, px, rgb,
@@ -72,6 +73,7 @@ impl Render for ExecRunning {
             .id("exec-running")
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .track_focus(&self.focus)
+            .keep_tab_inside(&self.focus)
             .key_context("ExecRunning")
             .on_key_down(
                 cx.listener(|this, event: &KeyDownEvent, _, cx| this.on_key_down(event, cx)),

@@ -31,6 +31,8 @@ fn ask(cx: &mut TestAppContext, code: &str, typed: &[&str], key: &str) -> (Strin
     let output = f.script_answering(cx, code, |cx| {
         if let Some(message) = f.dialog_message(cx) {
             shown.push(message);
+            // the default is selected when the dialog opens; End keeps it under what is typed
+            cx.simulate_keystrokes("end");
             if let Some(text) = typed.get(count) {
                 cx.simulate_input(text);
             }

@@ -770,3 +770,14 @@ fn a_second_command_does_not_replace_the_box_of_the_first(cx: &mut TestAppContex
     stop(&w, cx);
     wait_for_output(cx, &w, "終了コード: ");
 }
+
+#[gpui::test]
+fn tab_stays_among_the_controls_of_the_dialog(cx: &mut TestAppContext) {
+    let (_dir, w) = open(cx, "text");
+    w.call(cx, "F_EXECMD_DIALOG", &[]);
+    let focus = w
+        .dialog(cx)
+        .expect("the dialog is open")
+        .read_with(cx, gpui::Focusable::focus_handle);
+    crate::dialog_focus::assert_tab_stays_inside(w.cx(cx), &focus);
+}

@@ -440,7 +440,9 @@ fn the_replacement_input_has_its_own_list(cx: &mut TestAppContext) {
 #[gpui::test]
 fn the_list_of_a_panel_without_history_does_not_open(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "x");
-    cx.simulate_keystrokes("ctrl-f alt-down enter");
+    // End drops the selection of the opening word: the headless keys put the character of Enter
+    // in before the Enter handler runs, which would replace a selection with nothing
+    cx.simulate_keystrokes("ctrl-f end alt-down enter");
     // Enter went to the input: 下検索
     assert_eq!(f.selection(cx), Some((Pos::new(0, 0), Pos::new(0, 1))));
 }

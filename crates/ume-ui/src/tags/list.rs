@@ -21,10 +21,12 @@
 //! Not done: the history drop-down of the keyword (the newest keyword is filled in), the size and
 //! position that the dialog remembers, the help button.
 
+use crate::dialog_focus::KeepTabInside as _;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::a11y::Labelled as _;
+use crate::input_select::{focus_selecting, input_field};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AppContext as _, ClickEvent, Context, Entity, FocusHandle, Focusable, InteractiveElement,
@@ -100,7 +102,7 @@ impl TagList {
         cx: &mut Context<Self>,
     ) -> Self {
         let settings = prefs(cx);
-        let input = cx.new(|cx| InputState::new(window, cx).placeholder("キーワード"));
+        let input = cx.new(|cx| input_field(window, cx).placeholder("キーワード"));
         input.update(cx, |state, cx| {
             state.set_value(keyword.to_owned(), window, cx)
         });
@@ -148,7 +150,7 @@ impl TagList {
     /// Moves the focus where Sakura puts it: the keyword, or the list.
     pub(crate) fn focus_first(&self, window: &mut Window, cx: &mut Context<Self>) {
         match self.form {
-            Form::Keyword => self.keyword.update(cx, |state, cx| state.focus(window, cx)),
+            Form::Keyword => focus_selecting(&self.keyword, window, cx),
             Form::Direct => window.focus(&self.focus, cx),
         }
     }
@@ -499,6 +501,7 @@ impl Render for TagList {
         let panel = crate::a11y::dialog(v_flex().id("tag-list"), title)
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .track_focus(&self.focus)
+            .keep_tab_inside(&self.focus)
             .key_context("TagList")
             .capture_key_down(cx.listener(Self::on_key_down))
             .w(px(760.))

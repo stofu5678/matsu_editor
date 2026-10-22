@@ -15,6 +15,7 @@
 //! plugin commands), which have no data here yet; the mnemonic letters of the items.
 
 use crate::a11y::AriaDisabled as _;
+use crate::dialog_focus::KeepTabInside as _;
 use gpui::{
     AppContext as _, ClickEvent, Context, FocusHandle, Focusable, InteractiveElement, IntoElement,
     KeyDownEvent, MouseButton, MouseDownEvent, ParentElement, Render, ScrollHandle,
@@ -337,6 +338,7 @@ impl Render for CommandList {
                 crate::a11y::dialog(div().id("command-list"), "コマンド一覧")
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .track_focus(&self.focus)
+                    .keep_tab_inside(&self.focus)
                     .key_context("CommandList")
                     .on_key_down(cx.listener(Self::on_key_down))
                     .absolute()

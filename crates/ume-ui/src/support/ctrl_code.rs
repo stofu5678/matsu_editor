@@ -42,6 +42,7 @@
 //! Not done: the help button (the help is not ported). The key `@` of a US keyboard is on the
 //! key of the back quote, so both choose NUL.
 
+use crate::dialog_focus::KeepTabInside as _;
 use gpui::{
     AppContext as _, ClickEvent, Context, FocusHandle, Focusable, InteractiveElement, IntoElement,
     KeyDownEvent, MouseButton, MouseDownEvent, ParentElement, Render, ScrollHandle,
@@ -303,6 +304,7 @@ impl Render for CtrlCodeDialog {
             .child(
                 crate::a11y::dialog(div().id("ctrl-code-dialog"), "コントロールコード")
                     .track_focus(&self.focus)
+                    .keep_tab_inside(&self.focus)
                     .key_context("CtrlCodeDialog")
                     .on_key_down(cx.listener(Self::on_key_down))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())

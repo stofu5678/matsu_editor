@@ -67,7 +67,9 @@ fn the_field_starts_with_the_default_and_enter_answers_the_text(cx: &mut TestApp
     let slot = open(&view, cx, request("既定", 260));
     assert!(is_open(&view, cx));
     assert_eq!(field_text(&view, cx), "既定");
-    // The field has the focus: typing goes into it, not into the document.
+    // The field has the focus: typing goes into it, not into the document. The default is
+    // selected (`WM_INITDIALOG` returns TRUE); End keeps it.
+    cx.simulate_keystrokes("end");
     cx.simulate_input("の値");
     assert_eq!(field_text(&view, cx), "既定の値");
     assert_eq!(*slot.borrow(), None, "nothing is answered yet");
@@ -111,6 +113,17 @@ fn the_cancel_button_cancels_and_ok_answers_by_keys(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn the_default_is_selected_so_typing_replaces_it(cx: &mut TestAppContext) {
+    // `CDlgInput1::OnInitDialog` returns true: the dialog manager focuses the edit and selects its
+    // text. (Headless, Enter would replace a selection with nothing before the handler runs, so
+    // the keys here are typed text only.)
+    let (view, cx) = setup(cx);
+    let _slot = open(&view, cx, request("既定", 260));
+    cx.simulate_input("新");
+    assert_eq!(field_text(&view, cx), "新");
+}
+
+#[gpui::test]
 fn the_text_stops_at_the_maximum_length(cx: &mut TestAppContext) {
     let (view, cx) = setup(cx);
     let slot = open(&view, cx, request("", 5));
@@ -122,7 +135,8 @@ fn the_text_stops_at_the_maximum_length(cx: &mut TestAppContext) {
     // The default is cut too, and a character outside the BMP counts two units.
     let slot = open(&view, cx, request("a𠮷bc", 3));
     assert_eq!(field_text(&view, cx), "a𠮷");
-    cx.simulate_keystrokes("enter");
+    // (End: see `the_default_is_selected_so_typing_replaces_it`)
+    cx.simulate_keystrokes("end enter");
     cx.run_until_parked();
     assert_eq!(*slot.borrow(), Some(Some("a𠮷".to_owned())));
 }

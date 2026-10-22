@@ -14,9 +14,11 @@
 //! Left out: 「この編集中のテキストから検索する」 (searching the text of a window), the combo
 //! boxes' history lists, and the list of code pages (the nine encodings of Sakura are offered).
 
+use crate::dialog_focus::KeepTabInside as _;
 use std::path::Path;
 
 use crate::a11y::Labelled as _;
+use crate::input_select::{focus_selecting, input_field};
 use gpui::{
     App, AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
     KeyDownEvent, ParentElement, Render, ScrollHandle, StatefulInteractiveElement, Styled,
@@ -60,6 +62,8 @@ pub(crate) const NO_CLIPBOARD: &str = "クリップボードに有効なデー�
 
 pub struct GrepPanel {
     editor: WeakEntity<EditorView>,
+    /// The panel as a whole: Tab stays inside it.
+    pub(crate) scope: FocusHandle,
     pub(crate) key: Entity<InputState>,
     pub(crate) file: Entity<InputState>,
     pub(crate) folder: Entity<InputState>,
@@ -85,7 +89,7 @@ impl GrepPanel {
         cx: &mut Context<Self>,
     ) -> Self {
         let input = |placeholder: &'static str, window: &mut Window, cx: &mut Context<Self>| {
-            cx.new(|cx| InputState::new(window, cx).placeholder(placeholder))
+            cx.new(|cx| input_field(window, cx).placeholder(placeholder))
         };
         let key = input("検索する文字列（空ならファイル名だけ探す）", window, cx);
         let file = input("*.*", window, cx);
@@ -114,6 +118,7 @@ impl GrepPanel {
         }
         let mut panel = Self {
             editor,
+            scope: cx.focus_handle(),
             key,
             file,
             folder,
@@ -156,8 +161,7 @@ impl GrepPanel {
     }
 
     pub fn focus_key(&self, window: &mut Window, cx: &mut Context<Self>) {
-        let key = self.key.clone();
-        key.update(cx, |state, cx| state.focus(window, cx));
+        focus_selecting(&self.key, window, cx);
     }
 
     /// The OK button (検索, 置換 for Grep 置換): checks the boxes, and starts the search.
@@ -573,6 +577,8 @@ impl Render for GrepPanel {
             .child(
                 div()
                     .id("grep-panel")
+                    .track_focus(&self.scope)
+                    .keep_tab_inside(&self.scope)
                     .relative()
                     // mouse events stop here: a click on the panel must not move the caret
                     .occlude()

@@ -13,6 +13,8 @@
 //! Not done: the spin buttons next to the numbers, the access keys of the labels, and the help
 //! button.
 
+use crate::dialog_focus::KeepTabInside as _;
+use crate::input_select::{focus_selecting, input_field};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
@@ -102,7 +104,7 @@ impl PrintSettingDialog {
         cx: &mut Context<Self>,
     ) -> Self {
         let make =
-            |window: &mut Window, cx: &mut Context<Self>| cx.new(|cx| InputState::new(window, cx));
+            |window: &mut Window, cx: &mut Context<Self>| cx.new(|cx| input_field(window, cx));
         let numbers = [(); 8].map(|()| make(window, cx));
         let header = [(); 3].map(|()| make(window, cx));
         let footer = [(); 3].map(|()| make(window, cx));
@@ -143,7 +145,7 @@ impl PrintSettingDialog {
     }
 
     pub(crate) fn focus_first(&self, window: &mut Window, cx: &mut Context<Self>) {
-        self.numbers[0].update(cx, |state, cx| state.focus(window, cx));
+        focus_selecting(&self.numbers[0], window, cx);
     }
 
     /// `OnChangeSettingType`, the part that sets the edit boxes: they show `draft`.
@@ -859,6 +861,7 @@ impl Render for PrintSettingDialog {
             .id("print-setting-dialog")
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .track_focus(&self.focus)
+            .keep_tab_inside(&self.focus)
             .key_context("PrintSettingDialog")
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 this.on_key_down(event, window, cx)

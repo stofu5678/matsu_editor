@@ -16,6 +16,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use crate::input_select::input_field;
 use gpui::{
     AnyElement, AnyWindowHandle, App, AppContext as _, ClickEvent, Context, ElementId, Entity,
     FocusHandle, Focusable, InteractiveElement, IntoElement, KeyDownEvent, ParentElement,
@@ -221,7 +222,7 @@ impl CommonSettingsDialog {
                         .and_then(|row| row.get(column))
                         .cloned()
                         .unwrap_or_default();
-                    let state = cx.new(|cx| InputState::new(window, cx));
+                    let state = cx.new(|cx| input_field(window, cx));
                     state.update(cx, |state, cx| state.set_value(initial, window, cx));
                     table_inputs.insert((control.id, column), state);
                 }
@@ -253,7 +254,7 @@ impl CommonSettingsDialog {
                 Some(Value::Text(t)) => t.clone(),
                 _ => String::new(),
             };
-            let state = cx.new(|cx| InputState::new(window, cx));
+            let state = cx.new(|cx| input_field(window, cx));
             state.update(cx, |state, cx| state.set_value(initial, window, cx));
             subscriptions.push(cx.subscribe_in(
                 &state,

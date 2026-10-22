@@ -1284,6 +1284,76 @@ fn enter_in_the_path_box_chooses_from_the_open_list_and_is_not_ok(cx: &mut TestA
     assert!(!is_open(keys, handle));
 }
 
+/// Draws a frame: the focus listeners (the selection of a field the keyboard moved into) run when
+/// the window has drawn the new focus.
+fn draw(keys: &mut VisualTestContext) {
+    keys.update(|window, _| {
+        window.activate_window();
+        window.refresh();
+    });
+    keys.run_until_parked();
+}
+
+fn path_of(keys: &mut VisualTestContext, handle: AnyWindowHandle) -> (String, String) {
+    dialog_of(keys, handle).unwrap().read_with(keys, |d, cx| {
+        let path = d.path.read(cx);
+        let range = path.selected_range();
+        (path.value().to_string(), path.value()[range].to_owned())
+    })
+}
+
+#[gpui::test]
+fn the_access_key_of_the_path_selects_it_and_the_list_replaces_it(cx: &mut TestAppContext) {
+    // Sakura's dialog manager selects the text of an edit the keyboard moves into, so
+    // `EditCtl_ReplaceSel` of the list replaces the text there (CDlgFileTree.cpp)
+    let text = "[Common]\r\nbFileTreeProject=0\r\nnFileTreeItemCount=1\r\nFileTree(0).eItemType=0\r\n\
+                FileTree(0).szTargetPath=.\r\nFileTree(0).nDepth=0\r\n";
+    let (_ini, handle) = setup(cx, text, None);
+    show_tree(cx, handle);
+    open_dialog(cx, handle);
+    let keys = &mut VisualTestContext::from_window(handle, cx);
+    keys.simulate_keystrokes("alt-t");
+    draw(keys);
+    assert_eq!(path_of(keys, handle), (".".to_owned(), ".".to_owned()));
+    keys.simulate_keystrokes("alt-3");
+    keys.simulate_keystrokes("down down enter");
+    draw(keys);
+    assert_eq!(path_of(keys, handle).0, "%MYMUSIC%");
+}
+
+#[gpui::test]
+fn tab_selects_the_text_of_every_field_it_moves_into(cx: &mut TestAppContext) {
+    let text = "[Common]\r\nbFileTreeProject=0\r\nnFileTreeItemCount=1\r\nFileTree(0).eItemType=0\r\n\
+                FileTree(0).szTargetPath=C:\\work\r\nFileTree(0).szLabelName=name\r\nFileTree(0).nDepth=0\r\n";
+    let (_ini, handle) = setup(cx, text, None);
+    show_tree(cx, handle);
+    open_dialog(cx, handle);
+    let keys = &mut VisualTestContext::from_window(handle, cx);
+    let mut fields_reached = 0;
+    for _ in 0..40 {
+        keys.simulate_keystrokes("tab");
+        draw(keys);
+        let inputs = dialog_of(keys, handle).unwrap().read_with(keys, |d, _| {
+            [
+                d.default_ini.clone(),
+                d.path.clone(),
+                d.label.clone(),
+                d.file.clone(),
+            ]
+        });
+        let focused = inputs.iter().find_map(|input| {
+            let focus = input.read_with(keys, gpui::Focusable::focus_handle);
+            keys.update(|window, _| focus.is_focused(window))
+                .then(|| input.read_with(keys, |s, _| (s.value().len(), s.selected_range().len())))
+        });
+        if let Some((len, selected)) = focused {
+            fields_reached += 1;
+            assert_eq!(selected, len, "Tab left the text of a field unselected");
+        }
+    }
+    assert!(fields_reached > 0, "Tab reached no field");
+}
+
 #[gpui::test]
 fn tab_stays_among_the_controls_of_the_dialog(cx: &mut TestAppContext) {
     let (_ini, handle) = setup(cx, &notes_ini(Path::new("memo.txt")), None);

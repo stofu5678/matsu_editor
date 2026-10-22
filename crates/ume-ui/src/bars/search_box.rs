@@ -14,6 +14,7 @@
 //! (`AcceptSharedSearchKey`: `m_bInheritKeyOtherView`, which is on in Sakura and cannot be turned
 //! off here either).
 
+use crate::input_select::input_field;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     App, AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
@@ -84,7 +85,7 @@ impl SearchBox {
         cx: &mut Context<Workspace>,
     ) -> Entity<Self> {
         cx.new(|cx| {
-            let input = cx.new(|cx| InputState::new(window, cx));
+            let input = cx.new(|cx| input_field(window, cx));
             let subscriptions = vec![
                 cx.subscribe_in(
                     &input,

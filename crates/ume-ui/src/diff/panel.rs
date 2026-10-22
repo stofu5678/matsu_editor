@@ -9,9 +9,11 @@
 //!
 //! Left out: the button ヘルプ.
 
+use crate::dialog_focus::KeepTabInside as _;
 use std::path::{Path, PathBuf};
 
 use crate::a11y::Labelled as _;
+use crate::input_select::{focus_selecting, input_field};
 use gpui::{
     App, AppContext as _, ClickEvent, Context, Entity, FocusHandle, Focusable, InteractiveElement,
     IntoElement, KeyDownEvent, ParentElement, Render, StatefulInteractiveElement, Styled,
@@ -32,6 +34,8 @@ use crate::view::EditorView;
 
 pub struct DiffPanel {
     editor: WeakEntity<EditorView>,
+    /// The panel as a whole: Tab stays inside it.
+    pub(crate) scope: FocusHandle,
     owner: Owner,
     /// The label of this window (編集中のファイル).
     own_label: String,
@@ -55,7 +59,7 @@ impl DiffPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let file = cx.new(|cx| InputState::new(window, cx).placeholder("比較するファイル"));
+        let file = cx.new(|cx| input_field(window, cx).placeholder("比較するファイル"));
         let subscription = cx.subscribe_in(
             &file,
             window,
@@ -67,6 +71,7 @@ impl DiffPanel {
         );
         Self {
             editor,
+            scope: cx.focus_handle(),
             owner,
             own_label,
             file,
@@ -110,8 +115,7 @@ impl DiffPanel {
     }
 
     pub fn focus_file(&self, window: &mut Window, cx: &mut Context<Self>) {
-        let file = self.file.clone();
-        file.update(cx, |state, cx| state.focus(window, cx));
+        focus_selecting(&self.file, window, cx);
     }
 
     /// OK: runs the DIFF. Without a file or a window the dialog just closes
@@ -368,6 +372,8 @@ impl Render for DiffPanel {
             );
         div()
             .id("diff-panel")
+            .track_focus(&self.scope)
+            .keep_tab_inside(&self.scope)
             .absolute()
             // mouse events stop here: a click on the panel must not move the caret
             .occlude()
