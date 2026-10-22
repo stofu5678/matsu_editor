@@ -1056,3 +1056,111 @@ fn find_eol_skips_the_extended_endings_when_off() {
     assert_eq!(codec::find_eol(utf8, bytes, 0, false), Some((8, Eol::CrLf)));
     assert_eq!(codec::find_eol(utf8, b"a\xC2\x85b", 0, false), None);
 }
+
+// ---- chunks in bounded ranges (ADR-0020 section 4) ----
+
+/// The bytes of the chunks, with each chunk's kind and a check that it is within `max` bytes
+/// (a chunk with one character longer than `max` is allowed) and ends at a character boundary.
+fn bounded_chunks(d: &Document, encoding: Encoding, max: usize) -> Vec<Chunk<'_>> {
+    let codec = encoding.codec();
+    let chunks: Vec<_> = d.chunks_of(max).collect::<Result<_>>().unwrap();
+    for c in &chunks {
+        match c {
+            Chunk::Original(b) => {
+                assert!(!b.is_empty());
+                let mut i = 0;
+                let mut last = 0;
+                while i < b.len() {
+                    last = codec.char_len(b, i).clamp(1, b.len() - i);
+                    i += last;
+                }
+                assert_eq!(i, b.len(), "a chunk ends inside a character");
+                // Over the limit only by the character that crosses it.
+                assert!(
+                    b.len() < max + last,
+                    "{} bytes for a limit of {max}",
+                    b.len()
+                );
+            }
+            Chunk::Added(s) => {
+                assert!(!s.is_empty());
+                assert!(s.len() < max + 4);
+            }
+        }
+    }
+    chunks
+}
+
+fn joined(chunks: &[Chunk<'_>]) -> (Vec<u8>, String) {
+    let (mut original, mut added) = (Vec::new(), String::new());
+    for c in chunks {
+        match c {
+            Chunk::Original(b) => original.extend_from_slice(b),
+            Chunk::Added(s) => added.push_str(s),
+        }
+    }
+    (original, added)
+}
+
+#[test]
+fn a_piece_is_returned_in_chunks_cut_at_character_boundaries() {
+    let text = "ab\r\n\u{65e5}\u{672c}\u{8a9e}\u{1f600}\r\nz\u{e9}\rend";
+    for encoding in [
+        Encoding::Utf8,
+        Encoding::ShiftJis,
+        Encoding::EucJp,
+        Encoding::Utf16Le,
+        Encoding::Utf16Be,
+        Encoding::Utf32Le,
+        Encoding::Utf32Be,
+        Encoding::Cesu8,
+        Encoding::Latin1,
+    ] {
+        let mut bytes = Vec::new();
+        let _ = encoding.codec().encode(text, &mut bytes);
+        for max in 1..=bytes.len() + 1 {
+            let d = Document::new(
+                MemorySource::new(bytes.clone()),
+                Arc::new(EncodingCodec(encoding)),
+            )
+            .unwrap();
+            let chunks = bounded_chunks(&d, encoding, max);
+            assert_eq!(joined(&chunks).0, bytes, "{encoding:?} limit {max}");
+            if max >= bytes.len() {
+                assert_eq!(chunks.len(), 1, "{encoding:?} limit {max}");
+            }
+        }
+    }
+}
+
+#[test]
+fn an_edited_document_returns_every_piece_in_chunks() {
+    let mut d = doc_plain("ab\r\ncd\r\nef\r\n\u{65e5}\u{672c}");
+    d.insert(Pos::new(1, 1), "X\u{1f600}\u{3042}Y").unwrap();
+    d.delete(Pos::new(0, 1), Pos::new(0, 2)).unwrap();
+    d.insert(Pos::new(3, 1), "\u{3042}\u{3044}\u{3046}")
+        .unwrap();
+    let whole = save(&d);
+    for max in 1..=whole.len() + 1 {
+        let chunks = bounded_chunks(&d, Encoding::Utf8, max);
+        let mut out = Vec::new();
+        for c in &chunks {
+            match c {
+                Chunk::Original(b) => out.extend_from_slice(b),
+                Chunk::Added(s) => out.extend_from_slice(s.as_bytes()),
+            }
+        }
+        assert_eq!(out, whole, "limit {max}");
+    }
+    // The default size does not cut small pieces.
+    assert_eq!(d.chunks().count(), d.chunks_of(CHUNK_LEN).count());
+}
+
+#[test]
+fn a_piece_larger_than_the_limit_is_never_one_chunk() {
+    let bytes = "a\u{3042}".repeat(10_000).into_bytes();
+    let d = Document::from_utf8(bytes.clone()).unwrap();
+    let chunks = bounded_chunks(&d, Encoding::Utf8, 1000);
+    assert!(chunks.len() >= 40);
+    assert_eq!(joined(&chunks).0, bytes);
+}

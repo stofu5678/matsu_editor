@@ -1459,3 +1459,112 @@ fn added_text_keeps_its_endings_when_the_setting_changes_before_a_save() {
     file.save_as(&target, &options, &mut no_progress).unwrap();
     assert_eq!(fs::read(&target).unwrap(), "a\nbc\u{85}d".as_bytes());
 }
+
+// ---- saving with small chunks (ADR-0020 section 4) ----
+
+/// Everything a save writes for one file, as bytes and reports: the plain save, the save after
+/// edits, saves in other encodings and with converted line endings, and the check before saving.
+fn saved_outputs(encoding: Encoding, original: &[u8]) -> Vec<String> {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", original);
+    let mut file = open_as(&path, encoding);
+    let mut out = Vec::new();
+    let mut record = |label: &str, file: &mut TextFile, options: &SaveOptions, name: &str| {
+        let check = file.check_save(options, &mut no_progress).unwrap();
+        let target = dir.path(name);
+        let report = save_as(file, &target, options);
+        out.push(format!(
+            "{label}: {check:?} {report:?} {:?}",
+            fs::read(&target).unwrap()
+        ));
+    };
+
+    let keep = SaveOptions::keep(&file);
+    record("plain", &mut file, &keep, "plain.txt");
+    for (label, target) in [
+        ("utf8", Encoding::Utf8),
+        ("utf16", Encoding::Utf16Le),
+        ("sjis", Encoding::ShiftJis),
+        ("latin1", Encoding::Latin1),
+    ] {
+        let mut options = SaveOptions::for_encoding(target);
+        options.allow_unmappable = true;
+        record(label, &mut file, &options, &format!("{label}.txt"));
+    }
+
+    // Edits in the middle of the first original piece, at its start and at its end.
+    file.document.insert(Pos::new(1, 1), "\u{e9}").unwrap();
+    file.document.insert(Pos::new(0, 0), "\u{e9}\r\n").unwrap();
+    file.document
+        .delete(Pos::new(2, 0), Pos::new(2, 1))
+        .unwrap();
+    let end = file.document.end_pos().unwrap();
+    file.document.insert(end, "\u{e9}\r\n!").unwrap();
+    let mut keep = SaveOptions::keep(&file);
+    keep.allow_unmappable = true;
+    record("edited", &mut file, &keep, "edited.txt");
+    for (label, eol) in [("lf", Eol::Lf), ("crlf", Eol::CrLf), ("cr", Eol::Cr)] {
+        let mut options = keep.clone();
+        options.eol = Some(eol);
+        record(label, &mut file, &options, &format!("{label}.txt"));
+    }
+    for (label, target) in [("e-utf8", Encoding::Utf8), ("e-utf16be", Encoding::Utf16Be)] {
+        let mut options = SaveOptions::for_encoding(target);
+        options.eol = Some(Eol::CrLf);
+        record(label, &mut file, &options, &format!("{label}.txt"));
+    }
+    out
+}
+
+#[test]
+fn saving_with_tiny_chunks_gives_the_same_bytes() {
+    use crate::encoding::CodePage;
+    // CRLF, a lone CR, a lone LF, a surrogate pair, double-byte characters and a last line
+    // without an ending, so that a cut at any byte falls inside something.
+    let text = "ab\r\n\u{65e5}\u{672c}\u{8a9e}\u{1f600}\rx\u{e9}\n\r\n\u{3053}\u{3093}\r\nlast";
+    let mut encodings: Vec<Encoding> = Encoding::ALL.to_vec();
+    encodings.extend([Encoding::Utf32Le, Encoding::Utf32Be]);
+    encodings.extend(
+        [936u16, 950, 949, 1251]
+            .into_iter()
+            .map(|n| Encoding::CodePage(CodePage::new(n).unwrap())),
+    );
+    for encoding in encodings {
+        let mut original = encoding.bom().to_vec();
+        // Characters that the encoding cannot write become `?`; the file is read back anyway.
+        let _ = encoding.codec().encode(text, &mut original);
+        let normal = saved_outputs(encoding, &original);
+        for len in [1, 2, 3, 4, 5, 7, 8, 13] {
+            let tiny = crate::buffer::with_chunk_len(len, || saved_outputs(encoding, &original));
+            assert_eq!(tiny.len(), normal.len());
+            for (a, b) in tiny.iter().zip(&normal) {
+                assert_eq!(a, b, "{encoding:?} with chunks of {len} bytes");
+            }
+        }
+    }
+}
+
+#[test]
+fn saving_with_tiny_chunks_keeps_invalid_bytes() {
+    let cases: [(Encoding, &[u8]); 3] = [
+        (
+            Encoding::Utf8,
+            b"ab\xff\xfe\r\nc\xe3\x81\nd\rend\xf0\x9f\x98\x80\n",
+        ),
+        (
+            Encoding::ShiftJis,
+            b"abc\xff\x80\r\n\xed\x40x\n\rend\x82\xa0",
+        ),
+        (
+            Encoding::Utf16Le,
+            b"a\0\x00\xd8b\0\r\0\n\0c\0\x3d\xd8\x00\xde\x01",
+        ),
+    ];
+    for (encoding, bytes) in cases {
+        let normal = saved_outputs(encoding, bytes);
+        for len in 1..=9 {
+            let tiny = crate::buffer::with_chunk_len(len, || saved_outputs(encoding, bytes));
+            assert_eq!(tiny, normal, "{encoding:?} with chunks of {len} bytes");
+        }
+    }
+}

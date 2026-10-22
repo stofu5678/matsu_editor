@@ -28,7 +28,9 @@ mod tests;
 
 pub(crate) use codec::find_eol;
 pub use codec::{Codec, EncodingCodec, Eol, INVALID_BYTE_BASE, Unmappable};
-pub use document::{Chunk, Chunks, Document, Edit, Line, Lines};
+#[cfg(test)]
+pub(crate) use document::with_chunk_len;
+pub use document::{CHUNK_LEN, Chunk, Chunks, Document, Edit, Line, Lines};
 pub use error::{BufferError, Result};
 pub use position::{Pos, col_from_utf16, col_to_utf16, utf16_len};
 pub use storage::{MemorySource, Source};

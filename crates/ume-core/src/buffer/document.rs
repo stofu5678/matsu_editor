@@ -438,11 +438,21 @@ impl Document {
     }
 
     /// The pieces of the document in order, for the saver: the original bytes as they are, and the
-    /// added text as UTF-8. Unedited parts can be copied to the new file unchanged.
+    /// added text as UTF-8. Unedited parts can be copied to the new file unchanged. A piece is
+    /// returned in several chunks of at most [`CHUNK_LEN`] bytes (cut at character boundaries), so
+    /// a piece of any size is never read into one buffer.
     pub fn chunks(&self) -> Chunks<'_> {
+        self.chunks_of(chunk_len())
+    }
+
+    /// Like [`Document::chunks`] with chunks of at most `max_len` bytes (a chunk always has at
+    /// least one character). Small sizes are for tests.
+    pub fn chunks_of(&self, max_len: usize) -> Chunks<'_> {
         Chunks {
             doc: self,
             pieces: tree::pieces(&self.root).into_iter(),
+            rest: None,
+            max_len: max_len.max(1),
         }
     }
 
@@ -556,11 +566,47 @@ impl Iterator for Lines<'_> {
     }
 }
 
+/// The largest chunk [`Document::chunks`] returns, in bytes (the same as the saver's read size).
+pub const CHUNK_LEN: usize = 1024 * 1024;
+
+/// How far past the cut a chunk is read, so that the character at the cut is seen whole (the
+/// longest character is 4 bytes, and a UTF-16 high surrogate looks 2 bytes further).
+const CUT_MARGIN: usize = 8;
+
+#[cfg(test)]
+thread_local! {
+    static TEST_CHUNK_LEN: std::cell::Cell<usize> = const { std::cell::Cell::new(CHUNK_LEN) };
+}
+
+/// The chunk size `Document::chunks` uses now.
+fn chunk_len() -> usize {
+    #[cfg(test)]
+    return TEST_CHUNK_LEN.with(std::cell::Cell::get);
+    #[cfg(not(test))]
+    CHUNK_LEN
+}
+
+/// Runs `f` with `Document::chunks` returning chunks of at most `len` bytes on this thread.
+#[cfg(test)]
+pub(crate) fn with_chunk_len<R>(len: usize, f: impl FnOnce() -> R) -> R {
+    struct Reset(usize);
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            TEST_CHUNK_LEN.with(|c| c.set(self.0));
+        }
+    }
+    let _reset = Reset(TEST_CHUNK_LEN.with(|c| c.replace(len)));
+    f()
+}
+
 /// An iterator over the pieces of a document. See [`Document::chunks`].
 #[derive(Debug)]
 pub struct Chunks<'a> {
     doc: &'a Document,
     pieces: std::vec::IntoIter<tree::Piece>,
+    /// What is left of the piece being cut into chunks.
+    rest: Option<tree::Piece>,
+    max_len: usize,
 }
 
 impl<'a> Chunks<'a> {
@@ -568,24 +614,71 @@ impl<'a> Chunks<'a> {
     /// found (the setting at the time: the original's at load, added text's at the edit). A saver
     /// that finds the endings again must use it, not the setting now.
     pub(crate) fn next_with_ext_eol(&mut self) -> Option<Result<(Chunk<'a>, bool)>> {
-        let p = self.pieces.next()?;
+        let p = match self.rest.take() {
+            Some(p) => p,
+            None => self.pieces.next()?,
+        };
         let doc: &'a Document = self.doc;
         let st = &doc.st;
-        Some(match p.store {
-            Store::Original => st
-                .read_original(p.start, p.end)
-                .map(|b| (Chunk::Original(b), st.load_ext_eol())),
+        let max = self.max_len;
+        let whole = p.end - p.start <= max;
+        // Read a few bytes past the cut so the character there is seen whole.
+        let end = if whole {
+            p.end
+        } else {
+            p.end
+                .min(p.start.saturating_add(max).saturating_add(CUT_MARGIN))
+        };
+        // Where this chunk ends, as an offset from the start of the piece.
+        let cut = std::cell::Cell::new(0usize);
+        let result = match p.store {
+            Store::Original => st.read_original(p.start, end).map(|bytes| {
+                let n = if whole {
+                    bytes.len()
+                } else {
+                    // A piece starts at a character boundary, so walking the characters from
+                    // its start finds the boundary at or after `max` bytes.
+                    let codec = &st.original.codec;
+                    let mut i = 0;
+                    while i < max {
+                        i += codec.char_len(&bytes, i).clamp(1, bytes.len() - i);
+                    }
+                    i
+                };
+                cut.set(n);
+                let bytes = match bytes {
+                    Cow::Borrowed(b) => Cow::Borrowed(&b[..n]),
+                    Cow::Owned(mut v) => {
+                        v.truncate(n);
+                        Cow::Owned(v)
+                    }
+                };
+                (Chunk::Original(bytes), st.load_ext_eol())
+            }),
             Store::Add => {
                 // Read before `with_bytes`, which holds the lock of the add buffer.
                 let ext_eol = st.add_ext_eol_at(p.start);
-                st.with_bytes(Store::Add, p.start, p.end, |b| {
+                st.with_bytes(Store::Add, p.start, end, |b| {
+                    let mut n = if whole { b.len() } else { max };
+                    // The add buffer is UTF-8: do not cut inside a character.
+                    while n < b.len() && (b[n] & 0xC0) == 0x80 {
+                        n += 1;
+                    }
+                    cut.set(n);
                     (
-                        Chunk::Added(String::from_utf8_lossy(b).into_owned()),
+                        Chunk::Added(String::from_utf8_lossy(&b[..n]).into_owned()),
                         ext_eol,
                     )
                 })
             }
-        })
+        };
+        if result.is_ok() && p.start + cut.get() < p.end {
+            self.rest = Some(tree::Piece {
+                start: p.start + cut.get(),
+                ..p
+            });
+        }
+        Some(result)
     }
 }
 
