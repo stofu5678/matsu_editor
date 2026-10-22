@@ -11,6 +11,7 @@
 #   UME Editor.app/Contents/MacOS/ume-script   (the editor looks for it next to its own executable:
 #                                               crates/ume-plugin/src/session.rs)
 #   UME Editor.app/Contents/Resources/ume_editor.icns  (made from assets/icons)
+#   UME Editor.app/Contents/Resources/LICENSE-MIT, LICENSE-APACHE, THIRD_PARTY_NOTICES.txt
 # The bundle is signed ad hoc (no Developer ID, no notarization). Needs sips, iconutil, plutil and
 # codesign, which macOS has. Run it from the root of the repository.
 set -euo pipefail
@@ -25,6 +26,8 @@ test -n "$version"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$programs/ume" "$programs/ume-script" "$app/Contents/MacOS/"
+# The licenses travel with the app (it is often moved out of the archive alone).
+cp LICENSE-MIT LICENSE-APACHE THIRD_PARTY_NOTICES.txt "$app/Contents/Resources/"
 
 # The icon: the hand-drawn 16 and 32 px pictures and the larger ones of assets/icons; the sizes that
 # do not exist (64 and 128) are made from the 256 px one. The 1024 px entry is left out.
