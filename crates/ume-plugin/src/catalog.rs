@@ -115,6 +115,9 @@ fn ty(ty: ArgType) -> Ty {
     }
 }
 
+/// The first function code of the commands that only UME Editor has (Sakura's end at 32018).
+const UME_ONLY_FIRST_CODE: u16 = 32700;
+
 fn from_row(row: &'static MacroFunction) -> Entry {
     let params = row
         .args
@@ -126,7 +129,14 @@ fn from_row(row: &'static MacroFunction) -> Entry {
             optional: true,
         })
         .collect();
-    let doc = if row.result.is_none() {
+    let doc = if row.code >= UME_ONLY_FIRST_CODE {
+        // The commands that only UME Editor has (`xtask/src/ume_extras.rs`).
+        format!(
+            "UME Editor's own {} (not in Sakura). Runs the command that a key, the menu and a key \
+             macro run.",
+            row.function
+        )
+    } else if row.result.is_none() {
         format!(
             "Sakura's {} (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the \
              menu and a key macro run. The last arguments may be left out. A command that this \

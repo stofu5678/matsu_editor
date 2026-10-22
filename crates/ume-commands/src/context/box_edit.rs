@@ -166,6 +166,12 @@ impl CommandContext<'_> {
     /// whatever the line ending of the document is, and an empty line for a row without text
     /// (Sakura: `GetSelectedData`). `None` if no box covers anything.
     pub fn box_text(&self) -> Result<Option<String>> {
+        self.box_text_with_eol("\r\n")
+    }
+
+    /// Like [`box_text`](Self::box_text) with `eol` after every row. Sakura always uses CRLF;
+    /// the UME-only copy commands for LF and CR (`F_COPY_LF`, `F_COPY_CR`) ask for their own.
+    pub fn box_text_with_eol(&self, eol: &str) -> Result<Option<String>> {
         let Some(rect) = self.box_rect()? else {
             return Ok(None);
         };
@@ -173,7 +179,7 @@ impl CommandContext<'_> {
         for &row in &rect.rows {
             let (from, to) = self.box_row_range(row, rect.left, rect.right)?;
             out.push_str(&self.doc().text_between(from, to)?);
-            out.push_str("\r\n");
+            out.push_str(eol);
         }
         Ok(Some(out))
     }

@@ -9,6 +9,7 @@ use std::fmt::Write;
 use std::path::Path;
 
 use crate::parse::{Tables, read_text, strip_comments};
+use crate::ume_extras;
 
 type Result<T> = std::result::Result<T, String>;
 
@@ -108,11 +109,39 @@ pub fn render(sakura: &Path, tables: &Tables, commit: &str) -> Result<(String, S
 
 fn parse(text: &str) -> Result<MacroTables> {
     let extras = parse_extras(text)?;
-    Ok(MacroTables {
+    let mut parsed = MacroTables {
         commands: parse_array(text, "m_MacroFuncInfoCommandArr", &extras)?,
         functions: parse_array(text, "m_MacroFuncInfoArr", &extras)?,
         key_macro: parse_key_macro(text)?,
-    })
+    };
+    add_ume_commands(&mut parsed)?;
+    Ok(parsed)
+}
+
+/// UME-only commands (`ume_extras`): a command without arguments, recorded by key macros, placed
+/// after the row of the function it follows in the function table.
+fn add_ume_commands(parsed: &mut MacroTables) -> Result<()> {
+    for extra in ume_extras::EXTRAS {
+        let position = parsed
+            .commands
+            .iter()
+            .position(|r| r.function == extra.after)
+            .ok_or_else(|| format!("no macro row for {}", extra.after))?;
+        if parsed.commands.iter().any(|r| r.name == extra.macro_name) {
+            return Err(format!("macro name {} is already used", extra.macro_name));
+        }
+        parsed.commands.insert(
+            position + 1,
+            Row {
+                function: extra.name.to_string(),
+                name: extra.macro_name.to_string(),
+                args: Vec::new(),
+                result: Vt::Empty,
+            },
+        );
+        parsed.key_macro.push(extra.name.to_string());
+    }
+    Ok(())
 }
 
 fn vt(token: &str) -> Result<Vt> {
@@ -344,7 +373,8 @@ fn write(parsed: &MacroTables, tables: &Tables, commit: &str) -> Result<String> 
         "//\n// This file is derived from the file above and was modified: the data was converted\n",
     );
     out.push_str(
-        "// to Rust tables, and the function names were resolved to function codes.\n//\n",
+        "// to Rust tables, and the function names were resolved to function codes. UME Editor's own\n\
+         // commands (xtask/src/ume_extras.rs) were added to the commands.\n//\n",
     );
     for line in NOTICE.lines() {
         if line.is_empty() {

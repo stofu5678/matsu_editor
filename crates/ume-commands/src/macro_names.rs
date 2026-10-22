@@ -38,15 +38,16 @@ mod tests {
     fn the_tables_have_the_rows_of_sakura() {
         // Counted without the generator, in sakura_core/macro/CSMacroMgr.cpp (commit
         // 48db6c7c25e2): 323 rows in m_MacroFuncInfoCommandArr, 62 in m_MacroFuncInfoArr, and
-        // 175 `case F_...:` lines that are not commented out in CanFuncIsKeyMacro.
-        assert_eq!(MACRO_COMMANDS.len(), 323);
+        // 175 `case F_...:` lines that are not commented out in CanFuncIsKeyMacro. UME Editor adds
+        // two commands of its own that a key macro records (`CopyLF`, `CopyCR`).
+        assert_eq!(MACRO_COMMANDS.len(), 323 + 2);
         assert_eq!(MACRO_FUNCTIONS.len(), 62);
         let recorded: HashSet<_> = MACRO_COMMANDS
             .iter()
             .filter(|f| f.key_macro)
             .map(|f| f.function)
             .collect();
-        assert_eq!(recorded.len(), 175);
+        assert_eq!(recorded.len(), 175 + 2);
         assert!(MACRO_FUNCTIONS.iter().all(|f| !f.key_macro));
     }
 

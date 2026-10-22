@@ -215,6 +215,8 @@ pub static FUNCTION_LISTS: [&[u16]; 15] = [
         30602, // F_COPY
         30608, // F_COPY_ADDCRLF
         30603, // F_COPY_CRLF
+        32700, // F_COPY_LF (UME-only)
+        32701, // F_COPY_CR (UME-only)
         30604, // F_PASTE
         30605, // F_PASTEBOX
         30610, // F_COPYLINES

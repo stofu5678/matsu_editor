@@ -82,7 +82,8 @@ fn header(commit: &str, sources: &[&str]) -> String {
     out.push_str("//\n// This file is derived from the files above and was modified: the data was converted\n");
     out.push_str(
         "// to Rust tables, names were converted to command IDs, and labels were resolved (the\n\
-         // product name サクラエディタ in a label became ウメエディタ).\n//\n",
+         // product name サクラエディタ in a label became ウメエディタ). UME Editor's own functions\n\
+         // (xtask/src/ume_extras.rs) were added.\n//\n",
     );
     for line in NOTICE.lines() {
         if line.is_empty() {

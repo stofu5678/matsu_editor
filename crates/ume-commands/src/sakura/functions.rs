@@ -10,7 +10,8 @@
 //
 // This file is derived from the files above and was modified: the data was converted
 // to Rust tables, names were converted to command IDs, and labels were resolved (the
-// product name サクラエディタ in a label became ウメエディタ).
+// product name サクラエディタ in a label became ウメエディタ). UME Editor's own functions
+// (xtask/src/ume_extras.rs) were added.
 //
 // Copyright (C) 1998-2001, Norio Nakatani
 // Copyright (C) 2000, jepro
@@ -234,6 +235,8 @@ pub static FUNCTIONS: &[Function] = &[
     Function { code: 30602, name: "F_COPY", id: "copy", kind: Command, groups: &[5], label: Some("コピー") },
     Function { code: 30608, name: "F_COPY_ADDCRLF", id: "copy_addcrlf", kind: Command, groups: &[5], label: Some("折り返し位置に改行をつけてコピー") },
     Function { code: 30603, name: "F_COPY_CRLF", id: "copy_crlf", kind: Command, groups: &[5], label: Some("CRLF改行でコピー") },
+    Function { code: 32700, name: "F_COPY_LF", id: "copy_lf", kind: Command, groups: &[5], label: Some("LF改行でコピー") },
+    Function { code: 32701, name: "F_COPY_CR", id: "copy_cr", kind: Command, groups: &[5], label: Some("CR改行でコピー") },
     Function { code: 30604, name: "F_PASTE", id: "paste", kind: Command, groups: &[5], label: Some("貼り付け") },
     Function { code: 30605, name: "F_PASTEBOX", id: "pastebox", kind: Command, groups: &[5], label: Some("矩形貼り付け") },
     Function { code: 30606, name: "F_INSTEXT_W", id: "instext_w", kind: Command, groups: &[], label: Some("テキストを貼り付け") },

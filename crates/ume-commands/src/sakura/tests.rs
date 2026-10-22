@@ -30,11 +30,15 @@ fn key(name: &str) -> &'static KeyBinding {
         .unwrap_or_else(|| panic!("no key {name}"))
 }
 
+/// Functions that only UME Editor has (`xtask/src/ume_extras.rs`): `F_COPY_LF` and `F_COPY_CR`,
+/// also in the main menu. The counts in the comments above are Sakura's.
+const UME_ONLY: usize = 2;
+
 #[test]
 fn counts_match_sakura() {
-    assert_eq!(FUNCTIONS.len(), 524);
+    assert_eq!(FUNCTIONS.len(), 524 + UME_ONLY);
     assert_eq!(KEY_BINDINGS.len(), 100);
-    assert_eq!(MAIN_MENU.len(), 336);
+    assert_eq!(MAIN_MENU.len(), 336 + UME_ONLY);
     assert_eq!(FUNCTION_GROUPS.len(), 15);
 }
 
@@ -47,7 +51,10 @@ fn kinds_match_sakura_ranges() {
     assert_eq!(count(FunctionKind::MacroFunction), 59);
     assert_eq!(count(FunctionKind::Internal), 3);
     assert_eq!(count(FunctionKind::MacroOnly), 23);
-    assert_eq!(count(FunctionKind::Command), 524 - 9 - 6 - 63 - 59 - 3 - 23);
+    assert_eq!(
+        count(FunctionKind::Command),
+        524 - 9 - 6 - 63 - 59 - 3 - 23 + UME_ONLY
+    );
 }
 
 #[test]
@@ -215,4 +222,27 @@ fn main_menu_spot_checks() {
         (1, 30103, Some('S'))
     );
     assert_eq!(save.label, Some("上書き保存"));
+}
+
+#[test]
+fn ume_only_functions_do_not_use_sakuras_codes() {
+    // Sakura's highest command code is 32018 (F_OPTION_MAINMENU).
+    for name in ["F_COPY_LF", "F_COPY_CR"] {
+        let f = function(name);
+        assert_eq!(f.kind, FunctionKind::Command);
+        assert!((32700..=32767).contains(&f.code), "{name}: {}", f.code);
+        assert_eq!(f.groups, &[5]);
+    }
+    assert_eq!(function("F_COPY_LF").label, Some("LF改行でコピー"));
+    assert_eq!(function("F_COPY_CR").label, Some("CR改行でコピー"));
+}
+
+#[test]
+fn the_edit_menu_has_the_ume_only_copies_after_copy_crlf() {
+    let position = |code| MAIN_MENU.iter().position(|i| i.code == code).unwrap();
+    let crlf = position(function("F_COPY_CRLF").code);
+    assert_eq!(MAIN_MENU[crlf + 1].code, function("F_COPY_LF").code);
+    assert_eq!(MAIN_MENU[crlf + 2].code, function("F_COPY_CR").code);
+    assert_eq!(MAIN_MENU[crlf + 1].level, MAIN_MENU[crlf].level);
+    assert_eq!(MAIN_MENU[crlf + 3].code, function("F_COPY_ADDCRLF").code);
 }
