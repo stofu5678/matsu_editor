@@ -6,8 +6,9 @@
 
 サクラエディタの操作感を macOS・Windows・Linux で再現するテキストエディタ。Rust で書き、MIT OR Apache-2.0 で公開する。
 
-- 名前は、英字で書く場所では「UME Editor」とする（SAKURA Editor に合わせる）。ウィンドウのタイトル、メニュー、README、文書の中の製品名など。小文字しか使えない場所や慣習で小文字にする場所（リポジトリ名の `ume_editor`、クレート名の `ume-*`、アプリの識別子（例: `io.github.stofu5678.ume-editor`））はそのままにする
-- カタカナで書く場所では「ウメエディタ」とする（サクラエディタに合わせる。2026-10-17 にユーザーが判断）。サクラの表示名に「サクラエディタ」が入るもの（メニューの「サクラエディタの全終了」など）は、「ウメエディタ」に置き換える
+- 製品名は、2026-10-22 に「MATSU Editor」に改めた（[ADR-0021](docs/adr/0021-rename-to-matsu.md)）。名前の書き方は、その表に従う。古い名前を戻さないための検査が `crates/matsu/tests/leftover_names.rs` にある（歴史の記録は除く）
+- 名前は、英字で書く場所では「MATSU Editor」とする（SAKURA Editor に合わせる）。ウィンドウのタイトル、メニュー、README、文書の中の製品名など。小文字しか使えない場所や慣習で小文字にする場所（リポジトリ名の `matsu_editor`、クレート名の `matsu-*`、アプリの識別子（例: `io.github.stofu5678.matsu-editor`））はそのままにする
+- カタカナで書く場所では「マツエディタ」とする（サクラエディタに合わせる。2026-10-17 にユーザーが判断）。サクラの表示名に「サクラエディタ」が入るもの（メニューの「サクラエディタの全終了」など）は、「マツエディタ」に置き換える
 - 計画と現在のフェーズ: [docs/roadmap.md](docs/roadmap.md)
 - 決定事項: [docs/adr/](docs/adr/README.md)。ADR と食い違う変更をするときは、先に ADR を更新するか、ユーザーに確認する
 - 初期開発では Windows ARM64 で動かして確かめることを優先する（[ADR-0009](docs/adr/0009-initial-development-target.md)）
@@ -26,7 +27,7 @@ typos                   # cargo install --locked typos-cli
 
 - CI（`.github/workflows/ci.yml`）は Windows x64・ARM64、macOS ARM64、Linux x64・ARM64 でテストする。ほかに、依存のライセンスと脆弱性（cargo-deny、設定は `deny.toml`）、綴り（typos）、`cargo doc` の警告、CI の設定（actionlint）を確かめる
 - 依存のライセンスは `deny.toml` の一覧にあるものだけ通る。一覧に足すときは、MIT / Apache-2.0 と両立するか確かめ、ユーザーに確認する
-- クレートは `crates/` に置く。`ume-core` は UI に依存しないコア
+- クレートは `crates/` に置く。`matsu-core` は UI に依存しないコア
 - `poc/` は捨てる前提の試作で、ワークスペースにも CI にも入れていない。試作のビルドとテストは、その試作のディレクトリで行う（例: [poc/gpui-textview](poc/gpui-textview/README.md)）
 
 ## ブランチと PR
@@ -67,7 +68,7 @@ PR を作るときの判断は、[ADR-0018](docs/adr/0018-decision-policy.md) �
 - 次は決めずに、「判断してほしいこと」に書く
   - ライセンスと依存
   - ADR
-  - 利用者のデータ（保存・バックアップ・削除、`ume.ini` の形式と置き場所）
+  - 利用者のデータ（保存・バックアップ・削除、`matsu.ini` の形式と置き場所）
   - セキュリティ
   - リリース
   - ほかの OSS への投稿

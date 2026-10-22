@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use std::fmt::Write;
 use std::path::Path;
 
+use crate::matsu_extras;
 use crate::parse::{Tables, read_text, strip_comments};
-use crate::ume_extras;
 
 type Result<T> = std::result::Result<T, String>;
 
@@ -17,7 +17,7 @@ type Result<T> = std::result::Result<T, String>;
 pub const SOURCE: &str = "sakura_core/macro/CSMacroMgr.cpp";
 
 /// The generated file, relative to the repository root.
-pub const OUTPUT: &str = "crates/ume-commands/src/sakura/macro_functions.rs";
+pub const OUTPUT: &str = "crates/matsu-commands/src/sakura/macro_functions.rs";
 
 /// The copyright notices in the header of `CSMacroMgr.cpp` and the license of the Sakura
 /// repository (`LICENSE`).
@@ -114,14 +114,14 @@ fn parse(text: &str) -> Result<MacroTables> {
         functions: parse_array(text, "m_MacroFuncInfoArr", &extras)?,
         key_macro: parse_key_macro(text)?,
     };
-    add_ume_commands(&mut parsed)?;
+    add_matsu_commands(&mut parsed)?;
     Ok(parsed)
 }
 
-/// UME-only commands (`ume_extras`): a command without arguments, recorded by key macros, placed
+/// MATSU-only commands (`matsu_extras`): a command without arguments, recorded by key macros, placed
 /// after the row of the function it follows in the function table.
-fn add_ume_commands(parsed: &mut MacroTables) -> Result<()> {
-    for extra in ume_extras::EXTRAS {
+fn add_matsu_commands(parsed: &mut MacroTables) -> Result<()> {
+    for extra in matsu_extras::EXTRAS {
         let position = parsed
             .commands
             .iter()
@@ -373,8 +373,8 @@ fn write(parsed: &MacroTables, tables: &Tables, commit: &str) -> Result<String> 
         "//\n// This file is derived from the file above and was modified: the data was converted\n",
     );
     out.push_str(
-        "// to Rust tables, and the function names were resolved to function codes. UME Editor's own\n\
-         // commands (xtask/src/ume_extras.rs) were added to the commands.\n//\n",
+        "// to Rust tables, and the function names were resolved to function codes. MATSU Editor's own\n\
+         // commands (xtask/src/matsu_extras.rs) were added to the commands.\n//\n",
     );
     for line in NOTICE.lines() {
         if line.is_empty() {

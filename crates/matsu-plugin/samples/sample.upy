@@ -1,0 +1,27 @@
+# Sample macro (MicroPython, bundled with MATSU Editor). Run it from the Tools menu of the PoC:
+#   ツール > 名前を指定してマクロ実行...
+# `Editor` is there without an import. The names and the arguments are Sakura's macro API.
+# MicroPython is a small Python: `import json`, `math`, `struct`, `collections` work; files do not.
+
+Editor.GoFileTop()
+Editor.InsText("# サンプルマクロ 😀\n")
+
+count = Editor.GetLineCount(0)
+print("行数:", count, "ファイル:", Editor.GetFilename() or "(無題)")
+for i in range(1, count + 1):
+    print("{}: {}".format(i, Editor.GetLineStr(i).rstrip("\n")))
+
+# Select line 3 (a line number and a column both start at 1) and replace it.
+Editor.MoveCursor(3, 1, 0)
+Editor.MoveCursor(3, 1000, 1)  # past the end of the line: the end of the line
+print("選択:", Editor.GetSelectedString(0), "/ IsTextSelected =", Editor.IsTextSelected())
+Editor.InsText("みかん😀 (置き換えました)")
+
+# An error response is an exception.
+try:
+    Editor.GetLineStr("not a number")
+except EditorError as e:
+    print("エラー:", e.code, e.message)
+
+Editor.AddTail("-- マクロの終わり --\n")
+Editor.Jump(1)

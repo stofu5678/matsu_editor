@@ -1,0 +1,21 @@
+[package]
+name = "matsu-regex"
+description = "Regular expressions for MATSU Editor: Onigmo (as in Sakura's bregonig.dll) behind a trait"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+matsu-core = { path = "../matsu-core" }
+
+[dev-dependencies]
+serde_json = "1"
+
+[build-dependencies]
+cc = "1"
+
+[lints]
+workspace = true

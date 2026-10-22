@@ -1,9 +1,9 @@
 name: Package
 
-# Reusable workflow: build `ume` and `ume-script` in release mode on the five targets and package them.
+# Reusable workflow: build `matsu` and `matsu-script` in release mode on the five targets and package them.
 # It publishes nothing. The caller decides what to do with the artifacts
-# (docs/release.md). Archive names are `ume-<target>.zip` (Windows) or
-# `ume-<target>.tar.gz`; the caller adds the nightly or version label.
+# (docs/release.md). Archive names are `matsu-<target>.zip` (Windows) or
+# `matsu-<target>.tar.gz`; the caller adds the nightly or version label.
 
 on:
   workflow_call:
@@ -55,16 +55,16 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: release
-      # `ume-script` runs the macros of the bundled engines (Lua, QuickJS, mruby, MicroPython);
-      # the editor looks for it next to its own executable (crates/ume-plugin/src/session.rs).
-      - run: cargo build --release --locked -p ume -p ume-script
+      # `matsu-script` runs the macros of the bundled engines (Lua, QuickJS, mruby, MicroPython);
+      # the editor looks for it next to its own executable (crates/matsu-plugin/src/session.rs).
+      - run: cargo build --release --locked -p matsu -p matsu-script
       # freetype-sys bundles FreeType (FTL, not covered by THIRD_PARTY_NOTICES.txt) when the system
       # has none. The Linux packages must link the system's, as ci.yml checks for the tests.
       # The C runtime is linked into the programs (.cargo/config.toml), so that they start on a Windows without
       # the Visual C++ Redistributable.
       - name: Check that the programs do not need the C runtime DLLs
         if: runner.os == 'Windows'
-        run: python .github/scripts/pe_imports.py target/release/ume.exe target/release/ume-script.exe
+        run: python .github/scripts/pe_imports.py target/release/matsu.exe target/release/matsu-script.exe
       - name: Check that FreeType was not bundled
         if: runner.os == 'Linux'
         run: |
@@ -77,7 +77,7 @@ jobs:
           TARGET: ${{ matrix.name }}
           SUFFIX: ${{ runner.os == 'Windows' && '.exe' || '' }}
         run: |
-          dir="ume-$TARGET"
+          dir="matsu-$TARGET"
           mkdir -p "dist/$dir"
           # THIRD_PARTY_NOTICES.txt goes next to the programs: the licenses of the code they include
           # ask for it (README.md, "Third-party notices").
@@ -87,53 +87,53 @@ jobs:
             # makes Terminal.app run it). Both programs are inside it.
             scripts/package-mac-app.sh target/release "dist/$dir"
           else
-            cp "target/release/ume$SUFFIX" "target/release/ume-script$SUFFIX" "dist/$dir/"
+            cp "target/release/matsu$SUFFIX" "target/release/matsu-script$SUFFIX" "dist/$dir/"
           fi
-          # The icon of UME Editor as pictures (assets/icons/README.md); ume.exe has its own copy inside.
+          # The icon of MATSU Editor as pictures (assets/icons/README.md); matsu.exe has its own copy inside.
           mkdir "dist/$dir/icons"
-          cp assets/icons/*.svg assets/icons/*.png assets/icons/ume_editor.ico "dist/$dir/icons/"
+          cp assets/icons/*.svg assets/icons/*.png assets/icons/matsu_editor.ico "dist/$dir/icons/"
           {
-            echo "UME Editor ($TARGET)"
+            echo "MATSU Editor ($TARGET)"
             echo
             if [ "$RUNNER_OS" = macOS ]; then
-              echo "Move \"UME Editor.app\" to Applications (or anywhere) and open it. It is signed ad hoc,"
+              echo "Move \"MATSU Editor.app\" to Applications (or anywhere) and open it. It is signed ad hoc,"
               echo "not notarized, so the first time macOS may say it cannot check the developer. Then"
               echo "Control-click (right-click) the app and choose Open, or allow it in System Settings >"
               echo "Privacy & Security > Open Anyway. If macOS says the app is damaged (a browser adds a"
-              echo "quarantine mark), remove it: xattr -dr com.apple.quarantine \"UME Editor.app\""
-              echo "From a terminal: \"UME Editor.app/Contents/MacOS/ume\" file.txt"
-              echo "ume-script (inside the app, next to ume) runs the macros of the bundled languages"
+              echo "quarantine mark), remove it: xattr -dr com.apple.quarantine \"MATSU Editor.app\""
+              echo "From a terminal: \"MATSU Editor.app/Contents/MacOS/matsu\" file.txt"
+              echo "matsu-script (inside the app, next to matsu) runs the macros of the bundled languages"
               echo "(Lua, JavaScript, Ruby, Python); keep it there."
             else
-              echo "Run ume$SUFFIX with a file path. ume-script$SUFFIX runs the macros of the bundled"
-              echo "languages (Lua, JavaScript, Ruby, Python); keep it next to ume$SUFFIX."
+              echo "Run matsu$SUFFIX with a file path. matsu-script$SUFFIX runs the macros of the bundled"
+              echo "languages (Lua, JavaScript, Ruby, Python); keep it next to matsu$SUFFIX."
             fi
             echo "Licensed under MIT OR Apache-2.0 (LICENSE-MIT, LICENSE-APACHE)."
-            echo "icons/ has the icon of UME Editor (MIT OR Apache-2.0, like the code)."
+            echo "icons/ has the icon of MATSU Editor (MIT OR Apache-2.0, like the code)."
             echo "THIRD_PARTY_NOTICES.txt has the notices and licenses of the code the programs include."
             echo "https://github.com/${GITHUB_REPOSITORY}"
           } > "dist/$dir/README.txt"
       - name: Check the app bundle
         if: runner.os == 'macOS'
-        working-directory: dist/ume-macos-arm64
+        working-directory: dist/matsu-macos-arm64
         run: |
-          app="UME Editor.app"
+          app="MATSU Editor.app"
           plutil -lint "$app/Contents/Info.plist"
-          test "$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")" = io.github.stofu5678.ume-editor
+          test "$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")" = io.github.stofu5678.matsu-editor
           test -x "$app/Contents/MacOS/$(plutil -extract CFBundleExecutable raw "$app/Contents/Info.plist")"
-          test -x "$app/Contents/MacOS/ume-script"
-          test -f "$app/Contents/Resources/ume_editor.icns"
+          test -x "$app/Contents/MacOS/matsu-script"
+          test -f "$app/Contents/Resources/matsu_editor.icns"
           codesign --verify --deep --strict --verbose=2 "$app"
-          file "$app/Contents/MacOS/ume" "$app/Contents/Resources/ume_editor.icns"
+          file "$app/Contents/MacOS/matsu" "$app/Contents/Resources/matsu_editor.icns"
       - name: Archive (zip)
         if: runner.os == 'Windows'
         shell: pwsh
         working-directory: dist
-        run: Compress-Archive -Path "ume-${{ matrix.name }}" -DestinationPath "ume-${{ matrix.name }}.zip"
+        run: Compress-Archive -Path "matsu-${{ matrix.name }}" -DestinationPath "matsu-${{ matrix.name }}.zip"
       - name: Archive (tar.gz)
         if: runner.os != 'Windows'
         working-directory: dist
-        run: tar -czf "ume-${{ matrix.name }}.tar.gz" "ume-${{ matrix.name }}"
+        run: tar -czf "matsu-${{ matrix.name }}.tar.gz" "matsu-${{ matrix.name }}"
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.artifact-prefix }}-${{ matrix.name }}

@@ -1,0 +1,23 @@
+[package]
+name = "matsu-core"
+description = "UI-independent core of MATSU Editor: buffer, encodings, search, and editing commands"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+encoding_rs = "0.8"
+similar = { version = "3", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+tempfile = "3.27"
+
+# Plain fsync when the file system has no F_FULLFSYNC (src/file/sync.rs).
+[target.'cfg(target_vendor = "apple")'.dependencies]
+libc = "0.2"

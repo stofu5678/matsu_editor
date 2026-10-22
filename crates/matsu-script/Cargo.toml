@@ -1,0 +1,27 @@
+[package]
+name = "matsu-script"
+description = "The bundled script host of MATSU Editor: runs Lua macros (and later other embedded engines) as a JSON-RPC macro process"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Lua 5.4 compiled from the C source that the crate carries (MIT).
+mlua = { version = "0.12", features = ["lua54", "vendored"] }
+# QuickJS compiled from the C source that the crate carries (MIT).
+rquickjs = "0.14"
+serde_json = "1"
+matsu-micropython-sys = { path = "../matsu-micropython-sys" }
+matsu-mruby-sys = { path = "../matsu-mruby-sys" }
+matsu-plugin = { path = "../matsu-plugin" }
+
+[dev-dependencies]
+matsu-commands = { path = "../matsu-commands" }
+matsu-core = { path = "../matsu-core" }
+tempfile = "3.27"
+
+[lints]
+workspace = true

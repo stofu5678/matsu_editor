@@ -18,7 +18,7 @@ fi
 
 # A Windows folder: cmd.exe refuses a UNC current directory.
 local_app="$(cd /mnt/c && cmd.exe /c 'echo %LOCALAPPDATA%' | tr -d '\r')"
-work_win="$local_app\\Temp\\ume-bregonig-compat"
+work_win="$local_app\\Temp\\matsu-bregonig-compat"
 work="$(wslpath -u "$work_win")"
 fw32=/mnt/c/Windows/Microsoft.NET/Framework/v4.0.30319/csc.exe
 fw64=/mnt/c/Windows/Microsoft.NET/Framework64/v4.0.30319/csc.exe

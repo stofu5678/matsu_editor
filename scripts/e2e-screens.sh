@@ -8,7 +8,7 @@
 # * A run id (7 digits or more): that run.
 #
 # The pictures go to <output folder>/<run id>/<artifact name>/<platform>-<scenario>.png. The
-# default folder is outside the repository: $UME_E2E_SCREENS_OUT, or ${TMPDIR:-/tmp}/ume-e2e-screens.
+# default folder is outside the repository: $MATSU_E2E_SCREENS_OUT, or ${TMPDIR:-/tmp}/matsu-e2e-screens.
 # Needs the GitHub CLI (`gh`), logged in, run inside a clone of the repository.
 set -euo pipefail
 
@@ -17,7 +17,7 @@ if [ $# -lt 1 ] || [ $# -gt 2 ]; then
   exit 2
 fi
 target=$1
-out_root=${2:-${UME_E2E_SCREENS_OUT:-${TMPDIR:-/tmp}/ume-e2e-screens}}
+out_root=${2:-${MATSU_E2E_SCREENS_OUT:-${TMPDIR:-/tmp}/matsu-e2e-screens}}
 
 if [[ $target =~ ^[0-9]{7,}$ ]]; then
   run=$target

@@ -5,7 +5,7 @@ use std::fmt::Write;
 use crate::parse::{self, Tables};
 
 /// Directory of the generated files, relative to the repository root.
-pub const OUTPUT_DIR: &str = "crates/ume-commands/src/sakura";
+pub const OUTPUT_DIR: &str = "crates/matsu-commands/src/sakura";
 
 /// The copyright notices in the headers of the source files (`Funccode.cpp`, `CKeyBind.cpp`)
 /// and the license of the Sakura repository (`LICENSE`).
@@ -60,10 +60,10 @@ pub fn render(tables: &Tables, commit: &str) -> Vec<(String, String)> {
     ]
 }
 
-/// A label as UME Editor shows it: Sakura's product name in it (サクラエディタ, as in
-/// 「サクラエディタの全終了」) becomes ours (ウメエディタ).
-fn ume_label(label: &str) -> String {
-    label.replace("サクラエディタ", "ウメエディタ")
+/// A label as MATSU Editor shows it: Sakura's product name in it (サクラエディタ, as in
+/// 「サクラエディタの全終了」) becomes ours (マツエディタ).
+fn matsu_label(label: &str) -> String {
+    label.replace("サクラエディタ", "マツエディタ")
 }
 
 fn header(commit: &str, sources: &[&str]) -> String {
@@ -82,8 +82,8 @@ fn header(commit: &str, sources: &[&str]) -> String {
     out.push_str("//\n// This file is derived from the files above and was modified: the data was converted\n");
     out.push_str(
         "// to Rust tables, names were converted to command IDs, and labels were resolved (the\n\
-         // product name サクラエディタ in a label became ウメエディタ). UME Editor's own functions\n\
-         // (xtask/src/ume_extras.rs) were added.\n//\n",
+         // product name サクラエディタ in a label became マツエディタ). MATSU Editor's own functions\n\
+         // (xtask/src/matsu_extras.rs) were added.\n//\n",
     );
     for line in NOTICE.lines() {
         if line.is_empty() {
@@ -116,10 +116,9 @@ fn functions(tables: &Tables, commit: &str) -> String {
     for f in &tables.functions {
         let groups: Vec<String> = f.groups.iter().map(usize::to_string).collect();
         let groups = groups.join(", ");
-        let label = f
-            .label
-            .as_ref()
-            .map_or("None".to_string(), |l| format!("Some({:?})", ume_label(l)));
+        let label = f.label.as_ref().map_or("None".to_string(), |l| {
+            format!("Some({:?})", matsu_label(l))
+        });
         let _ = writeln!(
             out,
             "    Function {{ code: {}, name: {:?}, id: {:?}, kind: {}, groups: &[{groups}], label: {label} }},",
@@ -216,10 +215,9 @@ fn main_menu(tables: &Tables, commit: &str) -> String {
         let key = item
             .access_key
             .map_or("None".to_string(), |c| format!("Some({c:?})"));
-        let label = item
-            .label
-            .as_ref()
-            .map_or("None".to_string(), |l| format!("Some({:?})", ume_label(l)));
+        let label = item.label.as_ref().map_or("None".to_string(), |l| {
+            format!("Some({:?})", matsu_label(l))
+        });
         let _ = writeln!(
             out,
             "    MenuItem {{ level: {}, kind: {}, code: {}, access_key: {key}, label: {label} }},",

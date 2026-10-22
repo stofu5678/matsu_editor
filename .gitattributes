@@ -1,3 +1,3 @@
 # The inputs and the macros of the Sakura comparison are byte-exact: no line ending conversion on any
 # checkout (the Windows runners check out with core.autocrlf=true).
-crates/ume/tests/sakura_oracle/** -text
+crates/matsu/tests/sakura_oracle/** -text

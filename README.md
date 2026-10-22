@@ -1,4 +1,4 @@
-# UME Editor
+# MATSU Editor
 
 サクラエディタの操作感を、macOS・Windows・Linux で使えるように作り直すテキストエディタです。
 
@@ -16,12 +16,12 @@
 ## 起動のしかた
 
 ```sh
-ume [--separate-process] [サクラエディタのオプション] [--] [path...]
+matsu [--separate-process] [サクラエディタのオプション] [--] [path...]
 ```
 
-UME Editor は、使う設定ファイル（`ume.ini`）1 つにつき、1 つのプロセスで動きます（[ADR-0016](docs/adr/0016-single-instance.md)）。`ume` をもう一度起動すると、開くファイルと作業フォルダーを、動いている UME Editor に渡して、すぐに終わります。もう開いているファイルは、そのウィンドウが前に出ます。ファイルを付けないと、空のウィンドウが 1 つ開きます。
+MATSU Editor は、使う設定ファイル（`matsu.ini`）1 つにつき、1 つのプロセスで動きます（[ADR-0016](docs/adr/0016-single-instance.md)）。`matsu` をもう一度起動すると、開くファイルと作業フォルダーを、動いている MATSU Editor に渡して、すぐに終わります。もう開いているファイルは、そのウィンドウが前に出ます。ファイルを付けないと、空のウィンドウが 1 つ開きます。
 
-- `--separate-process`: 動いている UME Editor を探さず、見つけられもしない、独立したプロセスとして動かします（試験や開発のため）
+- `--separate-process`: 動いている MATSU Editor を探さず、見つけられもしない、独立したプロセスとして動かします（試験や開発のため）
 - `--`: これ以降は、`-` で始まる名前でもファイルとして扱います
 
 サクラエディタのコマンドラインオプション（`help/sakura/res/HLP000109.html`）も使えます。名前の大文字小文字は区別せず、値は `=` か `:` に続けて書きます。`-X=` `-Y=` `-VX=` `-VY=` は開いた直後のキャレットと表示の位置、`-CODE=` は文字コード（サクラの番号）、`-TYPE=` は拡張子でタイプ別設定を強制、`-R` はビューモード、`-SX=` `-SY=` `-WX=` `-WY=` は新しいウィンドウの大きさと位置、`-GREPMODE` `-GREPDLG` `-GKEY=` `-GREPR=` `-GFILE=` `-GFOLDER=` `-GOPT=` `-GCODE=` は Grep、`-M=` は読み込み後に実行するマクロのファイル、`-PROF=` は設定のプロファイル（設定ファイルのサブフォルダー）、`-@=` はレスポンスファイルです。`-NOWIN` `-GROUP=` `-DEBUGMODE` `-PROFMGR` は受け付けて何もしません。
@@ -42,7 +42,7 @@ UME Editor は、使う設定ファイル（`ume.ini`）1 つにつき、1 つ�
 
 ### サードパーティの著作権表示（Third-party notices）
 
-プログラム（`ume`、`ume-script`）には、Rust のクレートや、クレートが同梱する C のソース（MicroPython、mruby、Onigmo、Lua、QuickJS など）、アイコンが入っています。これらのライセンスは、配布物に著作権表示とライセンス本文を添えることを求めています。その写しが [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt) です。プログラムを配布するときは、このファイルをプログラムの隣に置きます。
+プログラム（`matsu`、`matsu-script`）には、Rust のクレートや、クレートが同梱する C のソース（MicroPython、mruby、Onigmo、Lua、QuickJS など）、アイコンが入っています。これらのライセンスは、配布物に著作権表示とライセンス本文を添えることを求めています。その写しが [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt) です。プログラムを配布するときは、このファイルをプログラムの隣に置きます。
 
 - 形式はプレーンテキストにしました。どの OS の標準の道具でも開けて、梱包にもそのまま入れられるためです。
 - `Cargo.lock` から [cargo-about](https://github.com/EmbarkStudios/cargo-about)（0.9.2）で作る生成物なので、手で直しません。設定は [about.toml](about.toml)（受け入れるライセンスは `deny.toml` と同じ一覧、対象は CI が作る 5 つのターゲット、ライセンスファイルの検出が足りないクレートの補正）、テンプレートは [about.hbs](about.hbs) です。
@@ -52,7 +52,7 @@ UME Editor は、使う設定ファイル（`ume.ini`）1 つにつき、1 つ�
   cargo about generate --locked --all-features --workspace --fail about.hbs -o THIRD_PARTY_NOTICES.txt
   ```
 
-- このリポジトリ自身のクレートは、リストに載せません（先頭の文で足ります）。新しいクレートを足しても、表示は変わりません。ただし、第三者のコード（C のソースなど）を同梱するクレート（今は `ume-regex`、`ume-micropython-sys`、`ume-mruby-sys`）は載せます。そういうクレートを足すときは、`about.toml` に補正を足し、`about.hbs` に名前を足します。
+- このリポジトリ自身のクレートは、リストに載せません（先頭の文で足ります）。新しいクレートを足しても、表示は変わりません。ただし、第三者のコード（C のソースなど）を同梱するクレート（今は `matsu-regex`、`matsu-micropython-sys`、`matsu-mruby-sys`）は載せます。そういうクレートを足すときは、`about.toml` に補正を足し、`about.hbs` に名前を足します。
 - 作り直すにはネットワークが要ります（クレートの取得と、パッケージにライセンスファイルがないクレートの補正で、リポジトリからライセンスファイルを取るため）。補正はライセンスファイルのチェックサムを持っていて、ファイルが変わると使われなくなります。
 - Linux 版は、OS の FreeType（`libfreetype-dev` など）にリンクします。OS に無いまま Linux でビルドすると、`freetype-sys` が FreeType を同梱してビルドします。同梱の FreeType は FreeType License（FTL）で、この表示には含まれていません。CI の Linux のテストジョブが、同梱ビルドの成果物（`libfreetype2.a`）がないことを確かめます。
 - Wayland のプロトコル定義（`wayland-protocols-plasma`、LGPL-2.1-or-later）については、`THIRD_PARTY_NOTICES.txt` に LGPL の本文と事情を載せています（[CLAUDE.md](CLAUDE.md) に判断を記録）。

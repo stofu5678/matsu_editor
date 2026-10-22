@@ -1,11 +1,11 @@
 name: E2E
 
-# Starts the real `ume` program on the five targets of ci.yml: a startup macro types text, saves the
-# file and quits, and the test checks the saved bytes (crates/ume/tests/e2e_smoke.rs). The tests
+# Starts the real `matsu` program on the five targets of ci.yml: a startup macro types text, saves the
+# file and quits, and the test checks the saved bytes (crates/matsu/tests/e2e_smoke.rs). The tests
 # of ci.yml run inside GPUI's test platform and never start the executable.
 #
-# The `screens` job takes pictures of the same program (crates/ume/tests/e2e_screens.rs) and, on
-# Windows, drives its window with UI Automation (crates/ume/tests/windows_uia.rs). The pictures
+# The `screens` job takes pictures of the same program (crates/matsu/tests/e2e_screens.rs) and, on
+# Windows, drives its window with UI Automation (crates/matsu/tests/windows_uia.rs). The pictures
 # are uploaded as the artifact `e2e-screens-<job name>` for people and AIs to look at; they are
 # never compared with stored images. See docs/e2e-screens.md.
 
@@ -83,15 +83,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: release
-      # `ume-script` runs the macros of the bundled engines; the editor looks for it next to its own
-      # executable (crates/ume-plugin/src/session.rs), so both are built in the same profile.
-      - run: cargo build --release --locked -p ume -p ume-script
+      # `matsu-script` runs the macros of the bundled engines; the editor looks for it next to its own
+      # executable (crates/matsu-plugin/src/session.rs), so both are built in the same profile.
+      - run: cargo build --release --locked -p matsu -p matsu-script
       - name: Run the E2E tests
         if: runner.os != 'Linux'
-        run: cargo test --release --locked -p ume --test e2e_smoke -- --ignored --test-threads=1 --nocapture
+        run: cargo test --release --locked -p matsu --test e2e_smoke -- --ignored --test-threads=1 --nocapture
       - name: Run the E2E tests (virtual display)
         if: runner.os == 'Linux'
-        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" cargo test --release --locked -p ume --test e2e_smoke -- --ignored --test-threads=1 --nocapture
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" cargo test --release --locked -p matsu --test e2e_smoke -- --ignored --test-threads=1 --nocapture
 
   screens:
     name: screens (${{ matrix.name }})
@@ -108,8 +108,8 @@ jobs:
     env:
       # As in the smoke job: the static C runtime on Windows, like the shipped packages.
       RUSTFLAGS: ${{ matrix.rustflags }}
-      UME_E2E_PLATFORM: ${{ matrix.name }}
-      UME_E2E_SCREENS_DIR: ${{ github.workspace }}/e2e-screens
+      MATSU_E2E_PLATFORM: ${{ matrix.name }}
+      MATSU_E2E_SCREENS_DIR: ${{ github.workspace }}/e2e-screens
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.99.0
@@ -127,32 +127,32 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: release
-      - run: cargo build --release --locked -p ume -p ume-script
-      - run: mkdir -p "$UME_E2E_SCREENS_DIR"
+      - run: cargo build --release --locked -p matsu -p matsu-script
+      - run: mkdir -p "$MATSU_E2E_SCREENS_DIR"
       # The windows-11-arm runners show the "Choose privacy settings" screen of Windows over the
       # desktop. The script sets the policy that turns it off, closes it, and saves pictures of
       # the desktop before and after (they go into the artifact).
       - name: Clear the privacy screen of Windows
         if: matrix.name == 'windows-arm64'
         shell: pwsh
-        run: ./scripts/windows-clear-privacy-screen.ps1 "$env:UME_E2E_SCREENS_DIR"
+        run: ./scripts/windows-clear-privacy-screen.ps1 "$env:MATSU_E2E_SCREENS_DIR"
       - name: Take the pictures
         if: runner.os != 'Linux'
-        run: cargo test --release --locked -p ume --test e2e_screens -- --ignored --test-threads=1 --nocapture
+        run: cargo test --release --locked -p matsu --test e2e_screens -- --ignored --test-threads=1 --nocapture
       - name: Take the pictures (virtual display)
         if: runner.os == 'Linux'
-        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" cargo test --release --locked -p ume --test e2e_screens -- --ignored --test-threads=1 --nocapture
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" cargo test --release --locked -p matsu --test e2e_screens -- --ignored --test-threads=1 --nocapture
       # The window is on the interactive desktop of the runner; UI Automation drives it by the
       # accessibility names, and a picture is saved at each step.
       - name: Drive the window with UI Automation
         if: runner.os == 'Windows' && !cancelled()
-        run: cargo test --release --locked -p ume --test windows_uia -- --ignored --test-threads=1 --nocapture
+        run: cargo test --release --locked -p matsu --test windows_uia -- --ignored --test-threads=1 --nocapture
       # macOS: System Events (AppleScript) drives the window through the Accessibility API. GitHub's
       # macOS runners already give osascript and bash the Accessibility and Screen Recording
       # permissions (docs/e2e-screens.md).
       - name: Drive the window with the Accessibility API
         if: runner.os == 'macOS' && !cancelled()
-        run: cargo test --release --locked -p ume --test macos_ax -- --ignored --test-threads=1 --nocapture
+        run: cargo test --release --locked -p matsu --test macos_ax -- --ignored --test-threads=1 --nocapture
       - uses: actions/upload-artifact@v7
         if: always()
         with:

@@ -18,10 +18,10 @@ ignore = [
     { id = "RUSTSEC-2026-0206", reason = "rustybuzz: unmaintained, used by usvg (gpui-pre, gpui-component)" },
     { id = "RUSTSEC-2026-0192", reason = "ttf-parser: unmaintained, used by GPUI's font stack (cosmic-text, usvg)" },
     # zbus 6 took these parts of zbus 5 in. GPUI (ashpd, atspi) and gpui-base (ashpd) use zbus 5,
-    # and ume-platform uses the zbus that GPUI uses: it moves to zbus 6 with GPUI.
-    { id = "RUSTSEC-2026-0370", reason = "zvariant: unmaintained, part of zbus 5 (GPUI, gpui-base, ume-platform)" },
-    { id = "RUSTSEC-2026-0371", reason = "zbus_names: unmaintained, part of zbus 5 (GPUI, gpui-base, ume-platform)" },
-    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive: unmaintained, part of zbus 5 (GPUI, gpui-base, ume-platform)" },
+    # and matsu-platform uses the zbus that GPUI uses: it moves to zbus 6 with GPUI.
+    { id = "RUSTSEC-2026-0370", reason = "zvariant: unmaintained, part of zbus 5 (GPUI, gpui-base, matsu-platform)" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names: unmaintained, part of zbus 5 (GPUI, gpui-base, matsu-platform)" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive: unmaintained, part of zbus 5 (GPUI, gpui-base, matsu-platform)" },
 ]
 
 [licenses]

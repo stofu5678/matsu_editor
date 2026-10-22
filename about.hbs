@@ -1,14 +1,14 @@
-UME Editor: third-party notices
+MATSU Editor: third-party notices
 ===============================
 
-UME Editor is licensed under either the MIT License or the Apache License 2.0, at your option
+MATSU Editor is licensed under either the MIT License or the Apache License 2.0, at your option
 (LICENSE-MIT and LICENSE-APACHE in the source repository, https://github.com/stofu5678/ume_editor).
 
-The programs of UME Editor (`ume` and `ume-script`) contain software of other authors. Their
+The programs of MATSU Editor (`matsu` and `matsu-script`) contain software of other authors. Their
 licenses ask that a copy of their copyright notices and license texts goes with the programs.
 This file is that copy. It has these parts:
 
-  1. Sakura Editor, whose behavior UME Editor reproduces and from whose source some files are ported.
+  1. Sakura Editor, whose behavior MATSU Editor reproduces and from whose source some files are ported.
   2. Code that is not Rust code of a crate: C sources compiled into the programs, and icons.
   3. Rust crates: one entry for each license text, with the packages that use it.
 
@@ -19,7 +19,7 @@ This file is generated. Do not edit it by hand: edit about.toml or about.hbs and
 1. Sakura Editor
 ================
 
-Some files of UME Editor are ported from Sakura Editor (https://github.com/sakura-editor/sakura)
+Some files of MATSU Editor are ported from Sakura Editor (https://github.com/sakura-editor/sakura)
 and say so in their first lines, with the file they come from and the copyright lines of that
 file. Each of them was modified (rewritten in Rust). Sakura Editor is licensed under the zlib
 License:
@@ -46,7 +46,7 @@ License:
 
 The files of Sakura Editor carry the copyright lines of its contributors (for example
 "Copyright (C) 2008, kobake", "Copyright (C) 1998-2001, Norio Nakatani", "Copyright (C) 2009,
-ryoji"). The ported files of UME Editor keep those lines.
+ryoji"). The ported files of MATSU Editor keep those lines.
 
 
 2. C sources and assets that are compiled into the programs
@@ -54,17 +54,17 @@ ryoji"). The ported files of UME Editor keep those lines.
 
 The license texts of these are in the list of part 3, under the packages named here.
 The toolbar icons are the file mytool.bmp of Sakura Editor, included unchanged; its license is the
-one of part 1 (crates/ume-ui/assets/sakura/NOTICE).
+one of part 1 (crates/matsu-ui/assets/sakura/NOTICE).
 
   Component         Where it comes from              License
   ----------------  -------------------------------  ------------------------------------------
-  MicroPython       crate ume-micropython-sys        MIT
-  mruby             crate ume-mruby-sys              MIT; src/string.c in part 2-clause BSD
-  Onigmo            crate ume-regex                  2-clause BSD
+  MicroPython       crate matsu-micropython-sys        MIT
+  mruby             crate matsu-mruby-sys              MIT; src/string.c in part 2-clause BSD
+  Onigmo            crate matsu-regex                  2-clause BSD
   Lua 5.4           crates lua-src and mlua-sys      MIT
   QuickJS           crate rquickjs-sys               MIT
   Lucide icons      crate gpui-kit-assets            ISC; the icons derived from Feather: MIT
-  Toolbar icons     crate ume-ui (mytool.bmp)        zlib License (Sakura Editor, part 1)
+  Toolbar icons     crate matsu-ui (mytool.bmp)        zlib License (Sakura Editor, part 1)
 
 
 3. Rust crates
@@ -74,7 +74,7 @@ For each license text: the packages that use it. Where a package has no license 
 the standard text of its license is given and its copyright holders are the authors named here.
 The source of the packages is on https://crates.io/crates/NAME/VERSION and in the repository
 named for each. For the packages under the Mozilla Public License 2.0 the source code is
-there, too; UME Editor does not modify them.
+there, too; MATSU Editor does not modify them.
 
 Licenses in this list:
 {{! No counts: cargo-about counts our own crates too, so a new crate of ours would change them. }}
@@ -91,7 +91,7 @@ Licenses in this list:
 Used by:
 {{#each used_by}}
 {{! Our own crates are left out (the text at the top covers them), except the three that carry third-party C code. }}
-{{#if (or crate.source (eq crate.name "ume-regex") (eq crate.name "ume-micropython-sys") (eq crate.name "ume-mruby-sys"))}}
+{{#if (or crate.source (eq crate.name "matsu-regex") (eq crate.name "matsu-micropython-sys") (eq crate.name "matsu-mruby-sys"))}}
   * {{crate.name}} {{crate.version}}{{#if crate.repository}} - {{crate.repository}}{{else}} - https://crates.io/crates/{{crate.name}}/{{crate.version}}{{/if}}
 {{#unless ../source_path}}
 {{#if crate.authors}}
@@ -118,7 +118,7 @@ definitions state the protocol (names and argument types) and are used as they a
 holds the copyright lines of blur.xml (the entry with the lines "SPDX-FileCopyrightText") and the
 text of the GNU Lesser General Public License 2.1 (the other entry). The source is the crate
 (https://crates.io/crates/wayland-protocols-plasma/0.3.12, directory plasma-wayland-protocols) and
-KDE's repository https://invent.kde.org/libraries/plasma-wayland-protocols. The source code of UME
+KDE's repository https://invent.kde.org/libraries/plasma-wayland-protocols. The source code of MATSU
 Editor is public (https://github.com/stofu5678/ume_editor), so the program can be rebuilt with a
 changed copy of the crate.
 {{/if}}
