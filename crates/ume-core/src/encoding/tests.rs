@@ -986,6 +986,33 @@ fn detect_bom() {
 }
 
 #[test]
+fn detect_utf32_bom_before_utf16() {
+    // A file that UME wrote with a UTF-32 BOM opens as UTF-32 (Sakura's DetectUnicodeBom does not
+    // know UTF-32; the BOM of UTF-32 LE starts with the BOM of UTF-16 LE).
+    for encoding in [Encoding::Utf32Le, Encoding::Utf32Be] {
+        let text = "日本\r\n😀a\r\n";
+        let mut bytes = encoding.bom().to_vec();
+        encoding.codec().encode(text, &mut bytes).unwrap();
+        let found = detect_with_default(&bytes);
+        assert_eq!(
+            (found.encoding, found.bom, found.certainty),
+            (encoding, true, Certainty::Bom)
+        );
+        assert_eq!(
+            decode(found.encoding, &bytes[encoding.bom_len(&bytes)..]),
+            text
+        );
+    }
+    // The edge case: a UTF-16 LE file with a BOM whose first character is U+0000 starts with the
+    // same four bytes as UTF-32 LE, and is read as UTF-32 LE.
+    let nul_first = detect_with_default(b"\xFF\xFE\0\0a\0");
+    assert_eq!(nul_first.encoding, Encoding::Utf32Le);
+    // UTF-16 with a BOM and any other first character stays UTF-16.
+    let utf16 = detect_with_default(b"\xFF\xFE\x01\0a\0");
+    assert_eq!(utf16.encoding, Encoding::Utf16Le);
+}
+
+#[test]
 fn detect_empty_and_ascii_give_the_default() {
     let options = DetectOptions {
         default_encoding: Encoding::ShiftJis,

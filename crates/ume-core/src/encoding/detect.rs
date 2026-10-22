@@ -166,7 +166,15 @@ fn detect_bom(s: &[u8]) -> Option<Encoding> {
     if s.len() < 2 {
         return None;
     }
-    if s.starts_with(b"\xEF\xBB\xBF") {
+    // UTF-32 first: the BOM of UTF-32 LE starts with the BOM of UTF-16 LE. Sakura's own function
+    // knows only UTF-8 and UTF-16 (UTF-32 only comes from uchardet), but a file that UME wrote
+    // itself with a UTF-32 BOM must not open as UTF-16 full of NULs (the user, 2026-10-21: do not
+    // keep bug-like behavior of Sakura).
+    if s.starts_with(b"\xFF\xFE\x00\x00") {
+        Some(Encoding::Utf32Le)
+    } else if s.starts_with(b"\x00\x00\xFE\xFF") {
+        Some(Encoding::Utf32Be)
+    } else if s.starts_with(b"\xEF\xBB\xBF") {
         Some(Encoding::Utf8)
     } else if s.starts_with(b"\xFE\xFF") {
         Some(Encoding::Utf16Be)
