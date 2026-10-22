@@ -110,7 +110,7 @@ impl EditorView {
         options: &SaveOptions,
         cx: &mut Context<Self>,
     ) -> Result<SaveReport, FileError> {
-        let cursor = &self.cursor;
+        let cursor = &mut self.cursor;
         let share_mode = super::prefs::prefs(cx).file_share_mode;
         self.document.update(cx, |shared, cx| {
             // `CDocLocker::OnBeforeSave`: the save replaces the file, which a lock would refuse

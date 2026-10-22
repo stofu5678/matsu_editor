@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use gpui::{Context, EventEmitter};
 use ume_core::bookmarks::TextBreaks;
-use ume_core::buffer::{Document, Eol};
+use ume_core::buffer::{Document, Eol, Pos};
 use ume_core::cursor::Cursor;
 use ume_core::encoding::Encoding;
 use ume_core::file::{Progress, SaveOptions, SaveReport, TextFile, UnmappableReport};
@@ -259,9 +259,12 @@ impl SharedDocument {
     /// brings the document to what was written; the file keeps no memory of the conversion
     /// afterwards (`eol_on_save`), because the document says it.
     ///
+    /// The cursor is moved along with the text when an ending that is no line break joins two lines
+    /// (the caret and the selection follow their text, and the undo step stores the moved cursor).
+    ///
     /// `None` when an edit failed: the document is then partly converted and differs from the
     /// file, so the caller must not mark it as saved.
-    pub(crate) fn unify_line_endings(&mut self, eol: Eol, cursor: &Cursor) -> Option<bool> {
+    pub(crate) fn unify_line_endings(&mut self, eol: Eol, cursor: &mut Cursor) -> Option<bool> {
         self.file.eol_on_save = None;
         unify_line_endings(&mut self.model, eol, cursor)
     }
@@ -507,6 +510,27 @@ impl SharedDocument {
     }
 }
 
+/// Moves the caret and the anchor after the ending of line `at`, which has `len` bytes of text,
+/// was replaced with `ending_len` bytes of text that is no line break: line `at + 1` is part of
+/// line `at` now, after the new text. A box selection becomes a normal one (its columns are not
+/// the columns of the joined line).
+fn follow_join(cursor: &mut Cursor, at: usize, len: usize, ending_len: usize) {
+    let map = |p: Pos| {
+        if p.line <= at {
+            p
+        } else if p.line == at + 1 {
+            Pos::new(at, len + ending_len + p.col)
+        } else {
+            Pos::new(p.line - 1, p.col)
+        }
+    };
+    let caret = map(cursor.caret());
+    match cursor.anchor() {
+        Some(anchor) => cursor.select(map(anchor), caret),
+        None => cursor.move_to(caret, false),
+    }
+}
+
 // The bytes of line text that the loop below has read (tests only), to see that it does not
 // read a growing joined line again and again.
 #[cfg(test)]
@@ -515,7 +539,7 @@ thread_local! {
 }
 
 /// The loop of [`SharedDocument::unify_line_endings`], on the model.
-fn unify_line_endings(model: &mut DocumentModel, eol: Eol, cursor: &Cursor) -> Option<bool> {
+fn unify_line_endings(model: &mut DocumentModel, eol: Eol, cursor: &mut Cursor) -> Option<bool> {
     model.set_new_line(eol);
     let wanted = ume_core::model::eol_text(eol);
     let mut changed = false;
@@ -565,9 +589,13 @@ fn unify_line_endings(model: &mut DocumentModel, eol: Eol, cursor: &Cursor) -> O
             failed = true;
             break;
         }
+        let joined = model.doc().line_count() < before;
+        if joined {
+            follow_join(cursor, at, current.text.len(), wanted.len());
+        }
         // From the end the joined line has been converted already; from the front a join leaves
         // the next ending on the same line.
-        if backwards || model.doc().line_count() == before {
+        if backwards || !joined {
             line = step(at);
         }
     }
@@ -640,7 +668,7 @@ mod tests {
         // joins the next line, and the ending of the joined line must be changed too, so that the
         // document is what the file got.
         let mut model = DocumentModel::new(Document::from_utf8(b"a\r\nb\nc".to_vec()).unwrap());
-        let changed = unify_line_endings(&mut model, Eol::Nel, &Cursor::default());
+        let changed = unify_line_endings(&mut model, Eol::Nel, &mut Cursor::default());
         assert_eq!(changed, Some(true));
         assert_eq!(model.doc().line_count(), 1);
         let line = model.doc().line(0).unwrap().unwrap();
@@ -652,7 +680,7 @@ mod tests {
         let mut model = DocumentModel::new(Document::from_utf8(b"a\r\nb\r\nc".to_vec()).unwrap());
         model.bookmarks_mut().set(1, true);
         assert_eq!(
-            unify_line_endings(&mut model, Eol::Lf, &Cursor::default()),
+            unify_line_endings(&mut model, Eol::Lf, &mut Cursor::default()),
             Some(true)
         );
         assert_eq!(model.bookmarks().iter().collect::<Vec<_>>(), [1]);
@@ -660,7 +688,7 @@ mod tests {
         let mut model = DocumentModel::new(Document::from_utf8(b"a\n\nb\n\n".to_vec()).unwrap());
         model.bookmarks_mut().set(2, true);
         assert_eq!(
-            unify_line_endings(&mut model, Eol::Cr, &Cursor::default()),
+            unify_line_endings(&mut model, Eol::Cr, &mut Cursor::default()),
             Some(true)
         );
         assert_eq!(model.doc().line_count(), 4);
@@ -676,7 +704,7 @@ mod tests {
         let mut model = DocumentModel::new(Document::from_utf8(text.into_bytes()).unwrap());
         LINE_BYTES_READ.with(|n| n.set(0));
         assert_eq!(
-            unify_line_endings(&mut model, Eol::Ls, &Cursor::default()),
+            unify_line_endings(&mut model, Eol::Ls, &mut Cursor::default()),
             Some(true)
         );
         let read = LINE_BYTES_READ.with(|n| n.get());
@@ -684,5 +712,51 @@ mod tests {
         assert_eq!(model.doc().line_count(), 1);
         let line = model.doc().line(0).unwrap().unwrap();
         assert_eq!(line.text, "abc\u{2028}".repeat(lines));
+    }
+
+    #[test]
+    fn the_caret_follows_its_text_when_the_conversion_joins_lines() {
+        // `a\nb\nc` to NEL (no line break while the extended endings are off): the caret before
+        // `b` stays before `b`, and Undo and Redo bring back the cursors of their versions.
+        let mut model = DocumentModel::new(Document::from_utf8(b"a\nb\nc".to_vec()).unwrap());
+        let mut cursor = Cursor::new(Pos::new(1, 0));
+        let before = cursor.clone();
+        assert_eq!(
+            unify_line_endings(&mut model, Eol::Nel, &mut cursor),
+            Some(true)
+        );
+        assert_eq!(model.doc().line_count(), 1);
+        // `a` and the NEL (2 bytes) come first
+        assert_eq!((cursor.caret(), cursor.anchor()), (Pos::new(0, 3), None));
+        let after = cursor.clone();
+        assert!(model.undo(&mut cursor));
+        assert_eq!(cursor, before);
+        assert_eq!(model.doc().line_count(), 3);
+        assert!(model.redo(&mut cursor));
+        assert_eq!(cursor, after);
+    }
+
+    #[test]
+    fn a_selection_over_joined_endings_follows_its_text() {
+        let mut model = DocumentModel::new(Document::from_utf8(b"a\nb\nc".to_vec()).unwrap());
+        let mut cursor = Cursor::new(Pos::new(0, 0));
+        cursor.select(Pos::new(0, 0), Pos::new(2, 1));
+        assert_eq!(
+            unify_line_endings(&mut model, Eol::Nel, &mut cursor),
+            Some(true)
+        );
+        // a NEL b NEL c: 1 + 2 + 1 + 2 + 1 bytes
+        assert_eq!(cursor.selection(), Some((Pos::new(0, 0), Pos::new(0, 7))));
+        assert_eq!(cursor.caret(), Pos::new(0, 7));
+        // a selection that ends inside the second line
+        let mut model = DocumentModel::new(Document::from_utf8(b"a\nbcd\ne".to_vec()).unwrap());
+        let mut cursor = Cursor::new(Pos::new(0, 0));
+        cursor.select(Pos::new(1, 1), Pos::new(2, 0));
+        assert_eq!(
+            unify_line_endings(&mut model, Eol::Ls, &mut cursor),
+            Some(true)
+        );
+        // a LS(3 bytes) bcd LS e: the selection is `cd` and the ending
+        assert_eq!(cursor.selection(), Some((Pos::new(0, 5), Pos::new(0, 10))));
     }
 }
