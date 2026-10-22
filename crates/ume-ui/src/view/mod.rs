@@ -514,7 +514,7 @@ impl EditorView {
         let doc = self.document.read(cx).doc();
         let _ = self.layout.resync(doc);
         let _ = self.layout.layout_for(doc, LAYOUT_BUDGET);
-        let _ = self.cursor.clamp(doc);
+        let _ = self.cursor.clamp_if_outside(doc);
         self.layout_version = version;
         self.drop_composition(cx);
         // the candidates were made for the old text
