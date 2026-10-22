@@ -7,6 +7,16 @@
 
 「UME Editor」は、動画編集ソフト「Ume Movie Editor（UME）」（デスクトップとモバイル向け）と名前がぶつかる。2026-10-22 にユーザーが気づいた。
 
+ほかにも「UME」と呼ばれる編集ソフトが多い。ユーザーが検索の AI 要約で見つけたもの（2026-10-22。調整役は 1 つずつは確かめていない）:
+
+- Umo Editor: Vue 3 と Tiptap で作られた、Web の文書エディタ（オープンソース）
+- Neo UMEditor / UME lite: ブラウザで動く、軽いアウトラインエディタ
+- Ume Movie Editor: 動画を再エンコードせずに切り貼りする動画編集ソフト（上のもの）
+- Universal Minecraft Editor（UME）: Minecraft のセーブデータ（NBT）の編集ソフト
+- UltimateModEditor（UME）: ゲーム「Game Dev Tycoon」の MOD を作るソフト
+
+エディタの名前として「UME」を使い続けると、検索でも呼び名でも埋もれる。
+
 ユーザーが挙げた候補は MATSU・TAKE・MOMO の 3 つ。調べた結果（2026-10-22、米国向けの Web 検索を数回。商標の検索ではない）:
 
 | 名前 | 同じ名前のソフト | ほかに気になること |
