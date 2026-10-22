@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use gpui::{Context, EventEmitter};
+use ume_core::bookmarks::TextBreaks;
 use ume_core::buffer::{Document, Eol};
 use ume_core::cursor::Cursor;
 use ume_core::encoding::Encoding;
@@ -514,12 +515,14 @@ fn unify_line_endings(model: &mut DocumentModel, eol: Eol, cursor: &Cursor) -> O
     let mut failed = false;
     // Sakura changes the line objects one by one, but here a changed ending is joined with
     // its neighbours by the text: an LF turned into CR in front of a line that starts with an
-    // LF would become a CRLF. Going from the end for CR keeps the endings that are not
-    // changed yet apart from it; for the other endings the front is the safe end.
-    // An ending that is not a line break for the document (NEL, LS and PS while they are not
-    // recognized) joins the next line to this one, which then has the next ending to change:
-    // the line is looked at again (Sakura's loop moves on to the next number and skips it).
-    let backwards = eol == Eol::Cr;
+    // LF would become a CRLF. Going from the end keeps the endings that are not changed yet
+    // apart from it. An ending that is not a line break for the document (NEL, LS and PS while
+    // they are not recognized) joins the next line to this one; from the end that line has been
+    // converted already (Sakura's loop goes on to the next number and skips the joined line, and
+    // from the front the growing line would be read again for every ending). For LF and CRLF
+    // the front is safe, and keeps the order of Sakura.
+    let is_break = TextBreaks::of(wanted, model.doc().ext_eol()).count == 1;
+    let backwards = eol == Eol::Cr || !is_break;
     let mut line = if backwards {
         model.doc().line_count().checked_sub(1)
     } else {
