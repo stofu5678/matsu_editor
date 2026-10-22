@@ -913,20 +913,36 @@ impl OutlinePane {
         let settings_file = crate::history::settings_path(cx);
         let fallback =
             crate::doc_types::with_user(cx, |user| user.profile().cloned()).unwrap_or_default();
-        let profile = settings_file
-            .and_then(|path| ume_config::Profile::load(&path).ok())
-            .unwrap_or(fallback);
-        let inputs = Inputs {
-            profile,
-            type_index: self.file_tree_type_index(cx),
-            base_dir: self.file_tree_base_dir(cx),
-            meta: Box::new(crate::file_dialog::Meta::new(cx)),
-        };
-        let setting = load_dialog_setting(&inputs);
+        let type_index = self.file_tree_type_index(cx);
+        let base_dir = self.file_tree_base_dir(cx);
+        let meta = crate::file_dialog::Meta::new(cx);
         let pane = cx.weak_entity();
-        view.update(cx, |view, cx| {
-            view.open_file_tree_dialog(setting, inputs, pane, window, cx);
-        });
+        // The lookup (the settings file, the project file above the document) runs in the
+        // background, as the tree's does: a slow folder does not stop the window.
+        cx.spawn_in(window, async move |_, cx| {
+            let (setting, inputs) = cx
+                .background_executor()
+                .spawn(async move {
+                    let profile = settings_file
+                        .and_then(|path| ume_config::Profile::load(&path).ok())
+                        .unwrap_or(fallback);
+                    let inputs = Inputs {
+                        profile,
+                        type_index,
+                        base_dir,
+                        meta: Box::new(meta),
+                    };
+                    (load_dialog_setting(&inputs), inputs)
+                })
+                .await;
+            cx.update(|window, cx| {
+                view.update(cx, |view, cx| {
+                    view.open_file_tree_dialog(setting, inputs, pane, window, cx);
+                });
+            })
+            .ok();
+        })
+        .detach();
     }
 
     fn finish_file_tree(&mut self, model: FileTreeModel, cx: &mut Context<Self>) {
