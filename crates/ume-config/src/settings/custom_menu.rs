@@ -116,7 +116,26 @@ impl CustomMenu {
 /// `CShareData::InitPopupMenu`: `(function code, access key)`; code 0 is a separator. The comments name the
 /// functions.
 mod defaults {
-    /// The right-click menu (custom menu 0).
+    /// The two UME-only items of the default right-click menu, which follow `F_COPY_CRLF`.
+    pub(super) const UME_COPIES: [(u16, char); 2] = [
+        (32700, 'N'), // F_COPY_LF
+        (32701, 'M'), // F_COPY_CR
+    ];
+    const AFTER_COPY_CRLF: u16 = 30603; // F_COPY_CRLF
+
+    /// Sakura's right-click menu with `UME_COPIES` right after 「CRLF改行でコピー」. N and M are free in it.
+    pub(super) fn right_click_with_ume_copies() -> Vec<(u16, char)> {
+        let mut items = RIGHT_CLICK.to_vec();
+        let at = items
+            .iter()
+            .position(|&(function, _)| function == AFTER_COPY_CRLF)
+            .expect("Sakura's right-click menu has F_COPY_CRLF")
+            + 1;
+        items.splice(at..at, UME_COPIES);
+        items
+    }
+
+    /// The right-click menu (custom menu 0), as Sakura has it.
     pub(super) const RIGHT_CLICK: &[(u16, char)] = &[
         (30210, 'U'),  // F_UNDO
         (30211, 'R'),  // F_REDO
@@ -201,10 +220,13 @@ pub struct CustomMenus {
 
 impl Default for CustomMenus {
     /// Sakura's defaults (`CShareData::Init` and `InitPopupMenu`): the right-click menu, custom menu 1 and
-    /// the tab menu have items; the others are empty.
+    /// the tab menu have items; the others are empty. The one difference is in the right-click menu: the
+    /// UME-only copies with LF and with CR (`F_COPY_LF`, `F_COPY_CR`) follow 「CRLF改行でコピー」
+    /// (`defaults::right_click_with_ume_copies`).
     fn default() -> Self {
         let mut menus = vec![CustomMenu::empty(); MAX_CUSTOM_MENU];
-        menus[INDEX_FOR_RBUTTONUP] = CustomMenu::with_items(defaults::RIGHT_CLICK);
+        menus[INDEX_FOR_RBUTTONUP] =
+            CustomMenu::with_items(&defaults::right_click_with_ume_copies());
         menus[1] = CustomMenu::with_items(defaults::MENU_1);
         menus[INDEX_FOR_TABWND] = CustomMenu::with_items(defaults::TAB);
         Self { menus }
@@ -259,6 +281,15 @@ impl CustomMenus {
     /// is ignored.
     pub fn from_profile(profile: &Profile, by_name: &dyn Fn(&str) -> Option<u16>) -> Self {
         let mut all = Self::default();
+        // A file that has the right-click menu (`nCMIN[00]`) was written by Sakura or by UME before the
+        // copies were added to the default: items it does not list are Sakura's own, not shifted by the two
+        // new ones. A file without it gets UME's default.
+        if profile
+            .get_i32(SECTION, &format!("nCMIN[{INDEX_FOR_RBUTTONUP:02}]"))
+            .is_some()
+        {
+            all.menus[INDEX_FOR_RBUTTONUP] = CustomMenu::with_items(defaults::RIGHT_CLICK);
+        }
         all.read_over(profile, by_name);
         all
     }
@@ -334,6 +365,14 @@ impl CustomMenus {
             if before == Some(menu) {
                 continue;
             }
+            // Reading takes UME's default for the right-click menu while the file has no `nCMIN[00]`, and
+            // Sakura's once it has: writing the count must therefore write every item the file does not list,
+            // or the items left out would change their meaning on the next read. Items the file lists and that
+            // did not change keep their text.
+            let materialize = i == INDEX_FOR_RBUTTONUP
+                && profile
+                    .get_i32(SECTION, &format!("nCMIN[{i:02}]"))
+                    .is_none();
             profile.set(SECTION, &format!("szCMN[{i:02}]"), &menu.name)?;
             profile.set(
                 SECTION,
@@ -346,15 +385,27 @@ impl CustomMenus {
                 &menu.items.len().to_string(),
             )?;
             for (j, item) in menu.items.iter().enumerate() {
-                if before.and_then(|b| b.items.get(j)) == Some(item) {
-                    continue;
+                let function_key = format!("nCMIF[{i:02}][{j:02}]");
+                let access_key = format!("nCMIK[{i:02}][{j:02}]");
+                let changed = before.and_then(|b| b.items.get(j)) != Some(item);
+                // An unchanged item keeps what the file has, except the parts it does not have when the
+                // count is being added (see `materialize`).
+                if changed || (materialize && profile.get(SECTION, &function_key).is_none()) {
+                    let function = name_of
+                        .and_then(|name_of| name_of(item.function))
+                        .unwrap_or_else(|| item.function.to_string());
+                    profile.set(SECTION, &function_key, &function)?;
                 }
-                let function = name_of
-                    .and_then(|name_of| name_of(item.function))
-                    .unwrap_or_else(|| item.function.to_string());
-                profile.set(SECTION, &format!("nCMIF[{i:02}][{j:02}]"), &function)?;
-                let key = item.key.map(String::from).unwrap_or_default();
-                profile.set(SECTION, &format!("nCMIK[{i:02}][{j:02}]"), &key)?;
+                if changed
+                    || (materialize
+                        && profile
+                            .get(SECTION, &access_key)
+                            .and_then(parse_key)
+                            .is_none())
+                {
+                    let key = item.key.map(String::from).unwrap_or_default();
+                    profile.set(SECTION, &access_key, &key)?;
+                }
             }
             for j in menu.items.len()..MAX_CUSTOM_MENU_ITEMS {
                 profile.remove(SECTION, &format!("nCMIF[{i:02}][{j:02}]"));
@@ -438,7 +489,9 @@ mod tests {
             .map(|i| menus.get(i).unwrap().items.len())
             .collect();
         // InitPopupMenu: 30 items in the right-click menu, 7 in custom menu 1, 27 in the tab menu.
-        assert_eq!((counts[0], counts[1], counts[24]), (30, 7, 27));
+        // UME's right-click menu has the two copies on top of Sakura's 30 (see
+        // `the_default_right_click_menu_is_sakuras_with_the_two_copies`).
+        assert_eq!((counts[0], counts[1], counts[24]), (30 + 2, 7, 27));
         assert!(counts[2..24].iter().all(|&n| n == 0));
         let right = menus.get(0).unwrap();
         assert_eq!(
@@ -454,6 +507,119 @@ mod tests {
             "bCMPOP defaults to true"
         );
         assert!(menus.get(25).is_none());
+    }
+
+    /// The one difference of UME's default menus from Sakura's: LF and CR copies after the CRLF copy.
+    #[test]
+    fn the_default_right_click_menu_is_sakuras_with_the_two_copies() {
+        let item = |(function, key): (u16, char)| CustomMenuItem {
+            function,
+            key: (key != '\0').then_some(key),
+        };
+        let mut expected: Vec<_> = defaults::RIGHT_CLICK.iter().copied().map(item).collect();
+        let crlf = expected.iter().position(|i| i.function == 30603).unwrap();
+        assert_eq!(
+            expected[crlf + 1].function,
+            30608,
+            "Sakura: ADDCRLF follows"
+        );
+        expected.insert(
+            crlf + 1,
+            CustomMenuItem {
+                function: 32700,
+                key: Some('N'),
+            },
+        );
+        expected.insert(
+            crlf + 2,
+            CustomMenuItem {
+                function: 32701,
+                key: Some('M'),
+            },
+        );
+        assert_eq!(CustomMenus::default().get(0).unwrap().items, expected);
+        // Sakura's menu has no other N or M.
+        let keys: Vec<_> = defaults::RIGHT_CLICK.iter().map(|&(_, k)| k).collect();
+        assert!(!keys.contains(&'N') && !keys.contains(&'M'));
+        // The other default menus are Sakura's.
+        let menus = CustomMenus::default();
+        assert_eq!(menus.get(1).unwrap().items.len(), defaults::MENU_1.len());
+        assert_eq!(menus.get(24).unwrap().items.len(), defaults::TAB.len());
+    }
+
+    #[test]
+    fn a_file_with_the_right_click_menu_keeps_sakuras_items_where_it_lists_none() {
+        // 30 items counted, one listed: the rest are Sakura's own defaults, not shifted by the two new ones.
+        let menus = read("[CustMenu]\nnCMIN[00]=30\nnCMIF[00][00]=30102\n");
+        let sakura: Vec<_> = defaults::RIGHT_CLICK.iter().map(|&(f, _)| f).collect();
+        let got: Vec<_> = menus
+            .get(0)
+            .unwrap()
+            .items
+            .iter()
+            .map(|i| i.function)
+            .collect();
+        assert_eq!(got[0], 30102);
+        assert_eq!(got[1..], sakura[1..]);
+        // A file with other menus only gets UME's default.
+        let menus = read("[CustMenu]\nnCMIN[02]=1\n");
+        assert_eq!(menus.get(0), CustomMenus::default().get(0));
+        assert_eq!(menus.get(0).unwrap().items.len(), 32);
+    }
+
+    #[test]
+    fn changing_the_right_click_menu_in_a_file_without_it_writes_every_item() {
+        // Rename the right-click menu only: the count is written, so the items must be written too.
+        let mut profile = Profile::from_bytes(b"");
+        let before = CustomMenus::from_profile(&profile, &names);
+        let mut menus = before.menus().to_vec();
+        menus[0].name = "Mine".to_owned();
+        let after = CustomMenus::from_menus(menus);
+        after
+            .write_to_profile(&mut profile, None, Some(&before))
+            .unwrap();
+        let reread = CustomMenus::from_profile(&profile, &names);
+        assert_eq!(reread, after);
+        assert_eq!(reread.get(0).unwrap().items.len(), 32);
+        // Writing again over the file that now has the menu writes no more than what changed.
+        let mut third = reread.menus().to_vec();
+        third[0].popup = false;
+        let third = CustomMenus::from_menus(third);
+        third
+            .write_to_profile(&mut profile, None, Some(&reread))
+            .unwrap();
+        assert_eq!(CustomMenus::from_profile(&profile, &names), third);
+        // An item the file lists, here one that reading cannot name, stays as it is.
+        let mut sparse = Profile::from_bytes(b"[CustMenu]\nnCMIF[00][01]=SomePlugin\n");
+        let before = CustomMenus::from_profile(&sparse, &names);
+        let mut menus = before.menus().to_vec();
+        menus[0].name = "Mine".to_owned();
+        CustomMenus::from_menus(menus)
+            .write_to_profile(&mut sparse, None, Some(&before))
+            .unwrap();
+        assert_eq!(sparse.get(SECTION, "nCMIF[00][01]"), Some("SomePlugin"));
+        // A function without its access key gets the key it read as the default.
+        let mut keyless = Profile::from_bytes(b"[CustMenu]\nnCMIF[00][09]=32700\n");
+        let before = CustomMenus::from_profile(&keyless, &names);
+        let mut menus = before.menus().to_vec();
+        menus[0].name = "Mine".to_owned();
+        let after = CustomMenus::from_menus(menus);
+        after
+            .write_to_profile(&mut keyless, None, Some(&before))
+            .unwrap();
+        assert_eq!(CustomMenus::from_profile(&keyless, &names), after);
+        // The same for a key that reading ignores (not ASCII).
+        let mut bad =
+            Profile::from_bytes("[CustMenu]\nnCMIF[00][09]=32700\nnCMIK[00][09]=あ\n".as_bytes());
+        let before = CustomMenus::from_profile(&bad, &names);
+        let mut menus = before.menus().to_vec();
+        menus[0].name = "Mine".to_owned();
+        let after = CustomMenus::from_menus(menus);
+        after
+            .write_to_profile(&mut bad, None, Some(&before))
+            .unwrap();
+        assert_eq!(CustomMenus::from_profile(&bad, &names), after);
+        assert_eq!(sparse.get_i32(SECTION, "nCMIN[00]"), Some(32));
     }
 
     #[test]
