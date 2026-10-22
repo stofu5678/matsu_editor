@@ -63,8 +63,8 @@ impl NewDocumentDefaults {
         let basic = TypeSettings::new_file_keys(profile, 0);
 
         let fallback = Self::default();
-        // A Windows code page is read by its number (CP932 is Shift_JIS); UTF-32 is not supported
-        // and, like UTF-7 and JIS, falls back to UTF-8.
+        // A Windows code page is read by its number (CP932 is Shift_JIS, 12000 and 12001 are UTF-32);
+        // UTF-7 and JIS, which cannot be a default, fall back to UTF-8.
         let encoding = own
             .codetype
             .or(basic.codetype)
@@ -223,9 +223,9 @@ mod tests {
 
     #[test]
     fn unsupported_values_fall_back() {
-        // UTF-32 is not supported; UTF-7 cannot be a default; 0 for the line ending is "no
+        // UTF-7 cannot be a default; 0 for the line ending is "no
         // conversion".
-        for code in [12000, 5] {
+        for code in [5, 99] {
             let p = profile(&format!("[Types(0)]\r\neDefaultCodetype={code}\r\n"));
             let d = NewDocumentDefaults::from_profile(&p, None);
             assert_eq!(d.encoding, Encoding::Utf8, "{code}");

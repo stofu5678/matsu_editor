@@ -74,7 +74,10 @@ fn sakura_codes_match_ecodetype() {
         assert_eq!(Encoding::from_sakura_code(code), Some(encoding));
     }
     assert_eq!(Encoding::from_sakura_code(AUTODETECT_CODE), None);
-    assert_eq!(Encoding::from_sakura_code(12000), None);
+    // UTF-32 is code pages 12000 and 12001 (CCodePage.cpp)
+    assert_eq!(Encoding::from_sakura_code(12000), Some(Encoding::Utf32Le));
+    assert_eq!(Encoding::from_sakura_code(12001), Some(Encoding::Utf32Be));
+    assert_eq!(Encoding::Utf32Be.sakura_code(), 12001);
     assert_eq!(Encoding::from_sakura_code(-1), None);
     assert_eq!(Encoding::ALL.len(), 9);
 }
@@ -110,6 +113,38 @@ fn bom_bytes_match_sakura() {
     assert_eq!(Encoding::Utf16Be.bom(), b"\xFE\xFF");
     assert_eq!(Encoding::Utf8.bom(), b"\xEF\xBB\xBF");
     assert_eq!(Encoding::Cesu8.bom(), b"\xEF\xBB\xBF");
+    // A code page has a BOM when U+FEFF converts (CCodeTypeName::UseBom), and none by default.
+    assert_eq!(Encoding::Utf32Le.bom(), b"\xFF\xFE\0\0");
+    assert_eq!(Encoding::Utf32Be.bom(), b"\0\0\xFE\xFF");
+    assert!(Encoding::Utf32Le.can_have_bom() && !Encoding::Utf32Le.bom_default_on());
+    assert_eq!(Encoding::Utf32Le.bom_len(b"\xFF\xFE\0\0a\0\0\0"), 4);
+    assert_eq!(Encoding::Utf32Le.bom_len(b"\xFF\xFEa\0"), 0);
+    assert_eq!(Encoding::Utf32Be.bom_len(b"\0\0\xFE\xFFa"), 4);
+}
+
+#[test]
+fn utf32_names_are_code_page_names() {
+    // CCodePage::GetNameNormal / GetNameShort / GetNameBracket for a code page number
+    assert_eq!(Encoding::Utf32Le.combo_name(), "CP12000");
+    assert_eq!(Encoding::Utf32Be.short_name(), "cp12001");
+    assert_eq!(Encoding::Utf32Be.bracket_name(), "  [CP12001]");
+    assert!(Encoding::choices().contains(&Encoding::Utf32Le));
+}
+
+#[test]
+fn utf32_text_survives_a_round_trip_with_crlf_and_a_bom() {
+    for (encoding, bom) in [
+        (Encoding::Utf32Le, &b"\xFF\xFE\0\0"[..]),
+        (Encoding::Utf32Be, &b"\0\0\xFE\xFF"[..]),
+    ] {
+        let codec = encoding.codec();
+        let text = "日本\r\n😀a\n";
+        let mut bytes = bom.to_vec();
+        codec.encode(text, &mut bytes).unwrap();
+        assert_eq!(encoding.bom_len(&bytes), 4);
+        assert_eq!(decode(encoding, &bytes[4..]), text);
+        assert_eq!(codec.find_eol(&bytes[4..], 0), Some((8, Eol::CrLf)));
+    }
 }
 
 #[test]
@@ -948,6 +983,33 @@ fn detect_bom() {
     assert_eq!((be.encoding, be.bom), (Encoding::Utf16Be, true));
     // A UTF-7 BOM is not used (CESI.h, DetectUnicodeBom); it is only valid UTF-7 to the scoring.
     assert_ne!(detect_with_default(b"+/v8-abc").certainty, Certainty::Bom);
+}
+
+#[test]
+fn detect_utf32_bom_before_utf16() {
+    // A file that UME wrote with a UTF-32 BOM opens as UTF-32 (Sakura's DetectUnicodeBom does not
+    // know UTF-32; the BOM of UTF-32 LE starts with the BOM of UTF-16 LE).
+    for encoding in [Encoding::Utf32Le, Encoding::Utf32Be] {
+        let text = "日本\r\n😀a\r\n";
+        let mut bytes = encoding.bom().to_vec();
+        encoding.codec().encode(text, &mut bytes).unwrap();
+        let found = detect_with_default(&bytes);
+        assert_eq!(
+            (found.encoding, found.bom, found.certainty),
+            (encoding, true, Certainty::Bom)
+        );
+        assert_eq!(
+            decode(found.encoding, &bytes[encoding.bom_len(&bytes)..]),
+            text
+        );
+    }
+    // The edge case: a UTF-16 LE file with a BOM whose first character is U+0000 starts with the
+    // same four bytes as UTF-32 LE, and is read as UTF-32 LE.
+    let nul_first = detect_with_default(b"\xFF\xFE\0\0a\0");
+    assert_eq!(nul_first.encoding, Encoding::Utf32Le);
+    // UTF-16 with a BOM and any other first character stays UTF-16.
+    let utf16 = detect_with_default(b"\xFF\xFE\x01\0a\0");
+    assert_eq!(utf16.encoding, Encoding::Utf16Le);
 }
 
 #[test]

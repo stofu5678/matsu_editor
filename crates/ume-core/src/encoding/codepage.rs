@@ -54,7 +54,9 @@
 //!   code pages, so these numbers are only used by UME Editor.
 //! - 936 is GBK in `encoding_rs`, which decodes like GB18030: it also accepts the four-byte
 //!   sequences and 0x80 as the euro sign. Windows 936 has no four-byte sequences.
-//! - 950 (Big5) in `encoding_rs` includes the Hong Kong extension; Windows 950 does not. Some
+//! - 950 (Big5) in `encoding_rs` includes the Hong Kong extension and the ETEN extension; Windows 950
+//!   does not. Writing follows Windows: the characters that only those extensions have become `?`
+//!   (`is_beyond_windows_950`). Reading is the WHATWG table. Some
 //!   byte pairs decode to two characters (Big5 U+00CA U+0304 and the like).
 //! - 949 is the UHC table (the same as Windows 949). 51949 (EUC-KR) has no strict form in
 //!   `encoding_rs`; it is read and written as 949. Windows 51949 has no UHC extension.
@@ -63,7 +65,7 @@
 //!   variant (it has U+0490 and U+0491). Windows 10007 differs from it at a few bytes.
 //! - No code page is added that `encoding_rs` lacks (437, 850, 1026, 20932, ISO-2022-KR, and so
 //!   on). `CODE_CPACP` and `CODE_CPOEM` (the system code page) are not supported; on macOS and
-//!   Linux the system code page is UTF-8 anyway. UTF-32 is also out of scope.
+//!   Linux the system code page is UTF-8 anyway.
 //!
 //! Where the standard and Windows differ, a file written here can differ from what Sakura writes
 //! for the same text. Bytes that the table does not map are kept as they are (stand-ins).
@@ -212,6 +214,25 @@ impl CodePageInfo {
         out: &mut Vec<u8>,
         offsets: &mut Vec<usize>,
     ) {
+        if self.number != 950 {
+            return self.encode_run(segment, base, out, offsets);
+        }
+        // Code page 950: the characters that only the WHATWG table has are `?`, as in Windows.
+        let mut run_start = 0;
+        for (offset, c) in segment.char_indices() {
+            if c.is_ascii() || !is_beyond_windows_950(c) {
+                continue;
+            }
+            self.encode_run(&segment[run_start..offset], base + run_start, out, offsets);
+            out.push(b'?');
+            offsets.push(base + offset);
+            run_start = offset + c.len_utf8();
+        }
+        self.encode_run(&segment[run_start..], base + run_start, out, offsets);
+    }
+
+    /// `encode_segment` for text the encoder takes as it is.
+    fn encode_run(&self, segment: &str, base: usize, out: &mut Vec<u8>, offsets: &mut Vec<usize>) {
         let mut encoder = self.encoding.new_encoder();
         let mut pos = 0;
         while pos < segment.len() {
@@ -238,6 +259,27 @@ impl CodePageInfo {
             }
         }
     }
+}
+
+/// Whether the Big5 table of `encoding_rs` writes `c` with bytes that Windows' code page 950 does
+/// not have: the Hong Kong extension (lead bytes 0xFA..=0xFE, which Windows keeps for end-user
+/// characters) and the ETEN extension (0xC6A1..=0xC8FE: kana, Cyrillic and so on). Windows writes
+/// `?` for them (the oracle case `savezen-utf8-to-big5`: Sakura writes `?` for hiragana and
+/// katakana). The rest of the table is the same as Windows'. An approximation without Windows'
+/// table: it was not compared with the whole of it (the user, 2026-10-22: "follow Windows' table,
+/// not urgent").
+fn is_beyond_windows_950(c: char) -> bool {
+    let mut buf = [0u8; 8];
+    let mut text = [0u8; 4];
+    let text = c.encode_utf8(&mut text);
+    let (result, _, written) = encoding_rs::BIG5
+        .new_encoder()
+        .encode_from_utf8_without_replacement(text, &mut buf, true);
+    if result != encoding_rs::EncoderResult::InputEmpty || written != 2 {
+        return false;
+    }
+    let (lead, trail) = (buf[0], buf[1]);
+    lead >= 0xFA || lead == 0xC7 || lead == 0xC8 || (lead == 0xC6 && trail >= 0xA1)
 }
 
 impl std::fmt::Debug for CodePageInfo {

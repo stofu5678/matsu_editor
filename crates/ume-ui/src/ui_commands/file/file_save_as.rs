@@ -53,6 +53,7 @@ impl UiCommand for FileSaveAs {
                 bom,
                 eol,
                 ask_mixed_eol: false,
+                ask_unmappable: false,
                 ..SaveRequest::default()
             };
             save(&view, cx, request).await;
