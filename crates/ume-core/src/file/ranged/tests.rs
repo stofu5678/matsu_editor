@@ -317,10 +317,16 @@ fn a_document_reads_lines_through_a_ranged_file() {
     );
 }
 
+// Not on Windows: NTFS does not make a file sparse when `set_len` extends it, so writing past
+// 4 GiB would zero-fill the whole gap on every test run (it took the whole test time in CI, and
+// fails on a disk with little room). Making the file sparse needs `fsutil` or `unsafe`. The
+// offset code is the same `u64` path on every OS (`os::read_at` passes the offset through), and
+// the Unix runs (Linux and macOS in CI) check it.
+#[cfg(not(windows))]
 #[test]
 fn positions_past_4_gib_are_read_with_64_bit_offsets() {
-    // A sparse file: only the pages written exist on disk (where the file system supports
-    // holes; others write zeros, so this stays small to be safe).
+    // A sparse file: only the pages written exist on disk (Linux and macOS file systems make
+    // the gap a hole).
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("sparse.bin");
     let file = OpenOptions::new()
