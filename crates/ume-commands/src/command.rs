@@ -41,6 +41,17 @@ pub enum Arg {
     Text(String),
 }
 
+impl Arg {
+    /// The first argument as the number a macro passes (`_wtoi` of the text in Sakura's
+    /// `CMacro::HandleCommand`): 0 when it is missing or not a number.
+    pub fn first_int(args: &[Arg]) -> i64 {
+        match args.first() {
+            Some(Arg::Int(n)) => *n,
+            _ => 0,
+        }
+    }
+}
+
 /// Why a command failed. A command that cannot do what was asked in the current state (for
 /// example Sakura's `ErrorBeep()` cases) does not fail; it calls
 /// [`CommandContext::beep`] and returns `Ok`.

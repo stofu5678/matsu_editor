@@ -1,11 +1,14 @@
-//! `F_CHGMOD_EOL`: sets the line ending that Enter inserts, by Sakura's number for it. This is the
-//! macro `ChgmodEOL(type)`; the menu and the keys use `F_CHGMOD_EOL_CRLF`, `F_CHGMOD_EOL_LF` and
-//! `F_CHGMOD_EOL_CR`, which call it.
+//! `F_CHGMOD_EOL`: sets the line ending that Enter inserts, by the macro's number for it. This is
+//! the macro `ChgmodEOL(type)`; the menu and the keys use `F_CHGMOD_EOL_CRLF`, `F_CHGMOD_EOL_LF`
+//! and `F_CHGMOD_EOL_CR`, which do the same.
 //!
 //! Sakura: `CViewCommander::Command_CHGMOD_EOL` in `sakura_core/cmd/CViewCommander_ModeChange.cpp`,
-//! and the macro table of `sakura_core/macro/CSMacroMgr.cpp` (`ChgmodEOL`, one number). The number
-//! is `EEolType` (`sakura_core/basis/CEol.h`): 1 CRLF, 2 LF, 3 CR, 4 NEL, 5 LS, 6 PS. A number that
-//! `CEol::IsValid` refuses (0 and anything out of range) does nothing, without a message.
+//! and the macro table of `sakura_core/macro/CSMacroMgr.cpp` (`ChgmodEOL`, one number). The macro's
+//! number is not `EEolType`: `CMacro::HandleCommand` (`sakura_core/macro/CMacro.cpp`, `case
+//! F_CHGMOD_EOL`) converts 1 CRLF, 3 LF, 4 CR, 5 NEL, 6 LS, 7 PS, and any other number (0, 2, out
+//! of range) becomes `EEolType::none`, which does nothing, without a message. The help
+//! (`help/macro/S_ChgmodEOL.html`) lists 1, 3 and 4. The key macro records the same numbers
+//! (`CMacro::AddLParam`).
 //!
 //! The setting is the document's: the status bar shows it (`CCaret::ShowCaretPosInfo`), Enter
 //! and the line breaks the editor makes use it, and saving asks to unify mixed line endings to it
@@ -14,7 +17,7 @@
 //! new document with the one of the settings.
 
 use crate::command::{Arg, Command, Result};
-use crate::context::{CommandContext, eol_of_type};
+use crate::context::{CommandContext, eol_of_macro_value};
 use crate::register_command;
 
 #[derive(Default)]
@@ -35,7 +38,7 @@ impl Command for ChgmodEol {
                 ));
             }
         };
-        if let Some(eol) = eol_of_type(value) {
+        if let Some(eol) = eol_of_macro_value(value) {
             cx.set_new_line(eol);
         }
         Ok(())
@@ -56,15 +59,15 @@ mod tests {
     }
 
     #[test]
-    fn the_numbers_are_sakuras_eol_types() {
+    fn the_numbers_are_the_macro_values() {
         let mut e = Editor::new("ab|cd").with_new_line(Eol::Lf);
         for (n, eol) in [
             (1, Eol::CrLf),
-            (2, Eol::Lf),
-            (3, Eol::Cr),
-            (4, Eol::Nel),
-            (5, Eol::Ls),
-            (6, Eol::Ps),
+            (3, Eol::Lf),
+            (4, Eol::Cr),
+            (5, Eol::Nel),
+            (6, Eol::Ls),
+            (7, Eol::Ps),
         ] {
             run(&mut e, n);
             assert_eq!(e.model().new_line(), eol, "{n}");
@@ -74,7 +77,7 @@ mod tests {
     #[test]
     fn a_number_that_is_not_valid_does_nothing() {
         let mut e = Editor::new("ab|cd").with_new_line(Eol::Cr);
-        for n in [0, 7, -1, 100] {
+        for n in [0, 2, 8, -1, 100] {
             run(&mut e, n);
             assert_eq!(e.model().new_line(), Eol::Cr, "{n}");
         }
@@ -93,10 +96,10 @@ mod tests {
     #[test]
     fn enter_inserts_the_line_ending() {
         let mut e = Editor::new("ab|cd").with_new_line(Eol::CrLf);
-        run(&mut e, 2);
+        run(&mut e, 3);
         e.run_with("input_char", &[Arg::Char('\n')]);
         e.assert_marked("ab\n|cd");
-        run(&mut e, 3);
+        run(&mut e, 4);
         e.run_with("input_char", &[Arg::Char('\n')]);
         e.assert_marked("ab\n\r|cd");
     }
@@ -104,7 +107,7 @@ mod tests {
     #[test]
     fn it_is_not_an_edit_and_not_an_undo_step() {
         let mut e = Editor::new("ab|cd");
-        run(&mut e, 2);
+        run(&mut e, 3);
         assert!(!e.changes().text_changed());
         assert!(!e.model().is_modified());
         assert!(!e.model().history().can_undo());

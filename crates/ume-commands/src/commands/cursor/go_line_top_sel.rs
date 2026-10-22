@@ -14,8 +14,8 @@ impl Command for GoLineTopSel {
     const ID: &'static str = "go_line_top_sel";
     const SAKURA: &'static str = "F_GOLINETOP_SEL";
 
-    fn run(&self, cx: &mut CommandContext<'_>, _args: &[Arg]) -> Result {
-        cx.move_line_top(true)
+    fn run(&self, cx: &mut CommandContext<'_>, args: &[Arg]) -> Result {
+        cx.move_line_top_flags(true, Arg::first_int(args))
     }
 }
 
@@ -30,5 +30,17 @@ mod tests {
         check("go_line_top_sel", "  ab|c", "  |ab[c");
         check("go_line_top_sel", "  |abc", "|  [abc");
         check("go_line_top_sel", "ab|c", "|ab[c");
+    }
+
+    #[test]
+    fn flag_1_goes_to_the_line_start_whatever_the_caret_position() {
+        use crate::command::Arg;
+        use crate::testing::Editor;
+        let mut e = Editor::new("  |abc");
+        e.run_with("go_line_top_sel", &[Arg::Int(1)]);
+        e.assert_marked("|  [abc");
+        let mut e = Editor::new("  ab|c");
+        e.run_with("go_line_top_sel", &[Arg::Int(1)]);
+        e.assert_marked("|  ab[c");
     }
 }

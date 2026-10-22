@@ -103,11 +103,13 @@ fn the_answer_of_the_dialog_decides_the_encoding_the_bom_and_the_line_ending(
     assert_eq!(read(&target), [SJIS_NIHONGO, b"\nabc"].concat());
     assert_eq!(f.format(cx), "SJIS  LF");
 
-    // The next dialog starts with what was chosen: Shift_JIS, no BOM, LF.
+    // The next dialog starts with the encoding and the BOM that were chosen: Shift_JIS, no BOM.
+    // The line ending is "変換なし" again (`CDocFileOperation::FileSaveAs` starts from
+    // `EEolType::none`): the document has the LF lines now, so there is nothing to remember.
     let request = save_as_with_cancel(&f, cx);
     assert_eq!(selected(&request, 0), index_of(Encoding::ShiftJis));
     assert_eq!(checked(&request, 1), (false, false));
-    assert_eq!(selected(&request, 2), 2);
+    assert_eq!(selected(&request, 2), 0);
 }
 
 /// A Save As that the user cancels in the dialog; what was asked.

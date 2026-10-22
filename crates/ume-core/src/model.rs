@@ -132,6 +132,26 @@ impl DocumentModel {
 
     /// Replaces the text between two positions (in either order, clamped) with `text`.
     pub fn replace(&mut self, from: Pos, to: Pos, text: &str) -> Result<Edit> {
+        self.replace_inner(from, to, text, false)
+    }
+
+    /// Replaces the line ending of `line` with `ending` (`CDocVisitor::SetAllEol`). When both are
+    /// one line break, the lines of the list stay as they are, with their bookmarks and marks:
+    /// Sakura's `CSearchAgent::ReplaceData` keeps the marks of the line that the deletion joins
+    /// (`markNext`) and gives them to the line that the insertion splits off again. When the
+    /// text of `ending` is not a line break here (NEL, LS and PS while they are not recognized),
+    /// the lines join like in any other replace.
+    pub fn replace_line_ending(&mut self, line: usize, ending: &str) -> Result<Edit> {
+        let text_len = self.doc.line_len(line)?.unwrap_or(0);
+        self.replace_inner(
+            Pos::new(line, text_len),
+            Pos::new(line + 1, 0),
+            ending,
+            true,
+        )
+    }
+
+    fn replace_inner(&mut self, from: Pos, to: Pos, text: &str, keep_lines: bool) -> Result<Edit> {
         let (from, to) = (self.doc.clamp_pos(from)?, self.doc.clamp_pos(to)?);
         if from == to && text.is_empty() {
             return Ok(Edit {
@@ -146,7 +166,7 @@ impl DocumentModel {
         let edit = self.doc.replace(from, to, text)?;
         self.history.note_edit();
         let (a, b) = (from.min(to), from.max(to));
-        let line_edit = LineEdit::of_replace(
+        let mut line_edit = LineEdit::of_replace(
             (a.line, a.col),
             (b.line, b.col),
             (edit.end.line, edit.end.col),
@@ -158,6 +178,9 @@ impl DocumentModel {
             rows_before,
             self.rows(),
         );
+        if keep_lines && inserted.count == 1 && b.line == a.line + 1 && rows_before == self.rows() {
+            line_edit = LineEdit::none();
+        }
         for delta in line_edit.forward() {
             self.bookmarks.apply(delta);
             self.diff_marks.apply(delta);
@@ -196,6 +219,7 @@ impl DocumentModel {
         let Some(lines) = self.history.undo_lines(&mut self.doc, cursor) else {
             return false;
         };
+        let _ = cursor.clamp_if_outside(&self.doc);
         self.apply_lines(&lines);
         true
     }
@@ -205,6 +229,7 @@ impl DocumentModel {
         let Some(lines) = self.history.redo_lines(&mut self.doc, cursor) else {
             return false;
         };
+        let _ = cursor.clamp_if_outside(&self.doc);
         self.apply_lines(&lines);
         true
     }
@@ -559,5 +584,55 @@ y
         assert_eq!(changed(&m), [2]);
         assert!(m.redo(&mut cursor));
         assert!(changed(&m).is_empty());
+    }
+
+    #[test]
+    fn replacing_a_line_ending_keeps_the_bookmarks_and_undo_brings_the_ending_back() {
+        // Sakura's `CSearchAgent::ReplaceData` gives the marks of the joined line (`markNext`) to
+        // the line that the insertion splits off again.
+        let mut m = model("a\r\nb\r\nc");
+        m.bookmarks_mut().set(1, true);
+        m.bookmarks_mut().set(2, true);
+        let mut cursor = Cursor::default();
+        m.begin_block(&cursor);
+        m.replace_line_ending(0, "\n").unwrap();
+        m.replace_line_ending(1, "\n").unwrap();
+        m.end_block(&cursor);
+        assert_eq!(m.doc().line(0).unwrap().unwrap().eol, Some(Eol::Lf));
+        assert_eq!(m.doc().line(1).unwrap().unwrap().eol, Some(Eol::Lf));
+        assert_eq!(marked(&m), [1, 2]);
+        assert!(m.undo(&mut cursor));
+        assert_eq!(m.doc().line(0).unwrap().unwrap().eol, Some(Eol::CrLf));
+        assert_eq!(marked(&m), [1, 2]);
+        assert!(m.redo(&mut cursor));
+        assert_eq!(marked(&m), [1, 2]);
+    }
+
+    #[test]
+    fn an_ending_that_is_not_a_break_joins_the_lines_like_any_replace() {
+        let mut m = model("a\nb");
+        m.bookmarks_mut().set(1, true);
+        m.replace_line_ending(0, "\u{85}").unwrap();
+        assert_eq!(m.doc().line_count(), 1);
+        assert_eq!(marked(&m), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn undo_and_redo_keep_a_box_that_starts_and_ends_at_one_position() {
+        // A box beyond the end of a line: the corners are at the same position with different
+        // display columns, which the restore must not mistake for an anchor outside the text.
+        let mut m = model("ab\ncd");
+        let mut cursor = Cursor::new(Pos::new(0, 2));
+        cursor.begin_box(2, false);
+        cursor.move_box_to(Pos::new(0, 2), 5);
+        let before = cursor.clone();
+        assert!(before.box_corners().is_some());
+        m.begin_block(&cursor);
+        m.replace(Pos::new(1, 0), Pos::new(1, 0), "x").unwrap();
+        m.end_block(&cursor);
+        assert!(m.undo(&mut cursor));
+        assert_eq!(cursor, before);
+        assert!(m.redo(&mut cursor));
+        assert_eq!(cursor.box_corners(), before.box_corners());
     }
 }

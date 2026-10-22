@@ -234,6 +234,18 @@ impl Cursor {
         self.goal_col = col;
     }
 
+    /// As [`clamp`](Self::clamp), but only when a position is outside `doc`. A cursor that is
+    /// inside is left as it is: `clamp` drops an anchor that equals the caret, which a box
+    /// selection in one row may have with different display columns.
+    pub fn clamp_if_outside(&mut self, doc: &Document) -> Result<()> {
+        let outside = doc.clamp_pos(self.caret)? != self.caret
+            || match self.anchor {
+                Some(a) => doc.clamp_pos(a)? != a,
+                None => false,
+            };
+        if outside { self.clamp(doc) } else { Ok(()) }
+    }
+
     /// Clamps the caret and the anchor into `doc`. Call it after the text changed under a cursor
     /// that was not the one that edited (another view of the same document).
     pub fn clamp(&mut self, doc: &Document) -> Result<()> {

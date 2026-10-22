@@ -6,18 +6,33 @@ use ume_core::buffer::Eol;
 use super::CommandContext;
 use crate::command::Result;
 
-/// The line ending for the value of Sakura's `EEolType` (`sakura_core/basis/CEol.h`): 1 CRLF, 2 LF,
-/// 3 CR, 4 NEL, 5 LS, 6 PS. `None` for 0 (no line ending) and for values out of range, which
-/// `CEol::IsValid` refuses.
-pub fn eol_of_type(value: i64) -> Option<Eol> {
+/// The line ending for the number that the macro `ChgmodEOL(n)` takes: 1 CRLF, 3 LF, 4 CR, 5 NEL,
+/// 6 LS, 7 PS. It is not Sakura's `EEolType` (1 CRLF, 2 LF, 3 CR, ...): `CMacro::HandleCommand`
+/// converts it ("マクロ引数値をEOLタイプ値に変換する", `case F_CHGMOD_EOL` in
+/// `sakura_core/macro/CMacro.cpp`). `None` for 0, 2 and everything else, which Sakura turns into
+/// `EEolType::none` and ignores.
+pub fn eol_of_macro_value(value: i64) -> Option<Eol> {
     match value {
         1 => Some(Eol::CrLf),
-        2 => Some(Eol::Lf),
-        3 => Some(Eol::Cr),
-        4 => Some(Eol::Nel),
-        5 => Some(Eol::Ls),
-        6 => Some(Eol::Ps),
+        3 => Some(Eol::Lf),
+        4 => Some(Eol::Cr),
+        5 => Some(Eol::Nel),
+        6 => Some(Eol::Ls),
+        7 => Some(Eol::Ps),
         _ => None,
+    }
+}
+
+/// The inverse of [`eol_of_macro_value`]: the number that a key macro records for the line
+/// ending (`case F_CHGMOD_EOL` in `CMacro::AddLParam`, `sakura_core/macro/CMacro.cpp`).
+pub fn macro_value_of_eol(eol: Eol) -> i64 {
+    match eol {
+        Eol::CrLf => 1,
+        Eol::Lf => 3,
+        Eol::Cr => 4,
+        Eol::Nel => 5,
+        Eol::Ls => 6,
+        Eol::Ps => 7,
     }
 }
 

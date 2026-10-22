@@ -336,6 +336,27 @@ fn records_only_while_recording() {
 }
 
 #[test]
+fn the_line_ending_items_are_recorded_as_chgmod_eol_with_the_macro_number() {
+    // CMacro::AddLParam: 1 CRLF, 3 LF, 4 CR, 5 NEL, 6 LS, 7 PS
+    let mut r = KeyMacroRecorder::new();
+    r.start();
+    for function in [
+        "F_CHGMOD_EOL_CRLF",
+        "F_CHGMOD_EOL_LF",
+        "F_CHGMOD_EOL_CR",
+        "F_CHGMOD_EOL_NEL",
+        "F_CHGMOD_EOL_LS",
+        "F_CHGMOD_EOL_PS",
+    ] {
+        let code = FUNCTIONS.iter().find(|f| f.name == function).unwrap().code;
+        assert!(r.record(code, &[]), "{function}");
+    }
+    let steps: Vec<_> = r.stop().steps().iter().map(|s| s.args.clone()).collect();
+    let want: Vec<_> = [1, 3, 4, 5, 6, 7].map(|n| vec![Arg::Int(n)]).into();
+    assert_eq!(steps, want);
+}
+
+#[test]
 fn keeps_only_what_a_key_macro_keeps() {
     // CSMacroMgr::CanFuncIsKeyMacro: F_FILESAVE is commented out and the functions that return
     // a value are not listed; F_DOWN is listed.

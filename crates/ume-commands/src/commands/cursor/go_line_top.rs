@@ -17,8 +17,8 @@ impl Command for GoLineTop {
     const ID: &'static str = "go_line_top";
     const SAKURA: &'static str = "F_GOLINETOP";
 
-    fn run(&self, cx: &mut CommandContext<'_>, _args: &[Arg]) -> Result {
-        cx.move_line_top(false)
+    fn run(&self, cx: &mut CommandContext<'_>, args: &[Arg]) -> Result {
+        cx.move_line_top_flags(false, Arg::first_int(args))
     }
 }
 
@@ -40,5 +40,34 @@ mod tests {
         check("go_line_top", "|", "|");
         check("go_line_top", "abc|", "|abc");
         check("go_line_top", "[ab|c", "|abc");
+    }
+
+    #[test]
+    fn the_macro_flags() {
+        use crate::command::Arg;
+        use crate::testing::Editor;
+        // Sakura: `Command_GOLINETOP`, flag 1 = go to the start whatever the caret position
+        // (a caret at the first char does not toggle), 4 = select, 8 = line unit.
+        let run = |before: &str, flags: i64, after: &str| {
+            let mut e = Editor::new(before);
+            e.run_with("go_line_top", &[Arg::Int(flags)]);
+            e.assert_marked(after);
+        };
+        run("  ab|c", 1, "|  abc");
+        run("  |abc", 1, "|  abc");
+        run("|  abc", 1, "|  abc");
+        run("x\n\tab|c", 1, "x\n|\tabc");
+        run("  ab|c", 0, "  |abc");
+        run("  ab|c", 4, "  |ab[c");
+        run("  ab|c", 5, "|  ab[c");
+        run("  |abc", 4, "|  [abc");
+        run("  ab|c", 8, "  |abc");
+        run("  ab|c", 9, "|  abc");
+        // bits that are not defined are ignored
+        run("  ab|c", 2, "  |abc");
+        // a missing argument is 0
+        let mut e = Editor::new("  ab|c");
+        e.run("go_line_top");
+        e.assert_marked("  |abc");
     }
 }
