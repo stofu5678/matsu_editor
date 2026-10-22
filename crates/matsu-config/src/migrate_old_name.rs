@@ -12,7 +12,11 @@
 //!
 //! The old files are never deleted or changed, so the user can go back. A file that is in the new folder already
 //! is not overwritten. The `matsu.ini` files are written last, so a copy that stops half way leaves no
-//! `matsu.ini` and is tried again at the next start.
+//! `matsu.ini` and is tried again at the next start. A file other than the settings file that cannot be copied is
+//! skipped (and counted in the message), so that it does not keep the settings from coming over.
+//!
+//! The own section of the old name in the settings file (`[UME]`) is renamed `[MATSU]` in the copy, so that its
+//! items (the macOS key layout, the save options) keep working. Nothing else in the file is touched.
 
 use std::fs;
 use std::io;
@@ -34,8 +38,12 @@ pub enum Outcome {
     /// There is no `ume.ini` in any of the old places.
     NothingToMigrate,
     /// The old files were copied from `from` to `to` (folders; for a portable `ume.ini`, the folder of the
-    /// executable).
-    Migrated { from: PathBuf, to: PathBuf },
+    /// executable). `skipped` files other than the settings could not be copied.
+    Migrated {
+        from: PathBuf,
+        to: PathBuf,
+        skipped: usize,
+    },
     /// The copy failed. The old files are as they were; `matsu.ini` was not written.
     Failed { from: PathBuf, error: String },
 }
@@ -45,10 +53,15 @@ impl Outcome {
     pub fn notice(&self) -> Option<String> {
         match self {
             Outcome::NotNeeded | Outcome::NothingToMigrate => None,
-            Outcome::Migrated { from, to } => Some(format!(
-                "UME Editor の設定を引き継ぎました（{} から {} へコピー。古いファイルはそのまま残してあります）",
+            Outcome::Migrated { from, to, skipped } => Some(format!(
+                "UME Editor の設定を引き継ぎました（{} から {} へコピー。古いファイルはそのまま残してあります）{}",
                 from.display(),
-                to.display()
+                to.display(),
+                if *skipped == 0 {
+                    String::new()
+                } else {
+                    format!("。設定ファイル以外の {skipped} 個はコピーできませんでした")
+                }
             )),
             Outcome::Failed { from, error } => Some(format!(
                 "UME Editor の設定を引き継げませんでした: {error}（{} のファイルは変えていません）",
@@ -83,14 +96,15 @@ pub fn migrate(os: Os, env: &Environment) -> Outcome {
         let portable = env.exe_dir.as_deref() == Some(from);
         let result = if portable {
             let target = with_new_name(old_file, from, to);
-            copy_settings_file(old_file, &target)
+            copy_settings_file(old_file, &target).map(|()| 0)
         } else {
             copy_folder(from, to)
         };
         return match result {
-            Ok(()) => Outcome::Migrated {
+            Ok(skipped) => Outcome::Migrated {
                 from: from.to_path_buf(),
                 to: to.to_path_buf(),
+                skipped,
             },
             Err(e) => Outcome::Failed {
                 from: from.to_path_buf(),
@@ -112,20 +126,23 @@ fn with_new_name(old_file: &Path, from: &Path, to: &Path) -> PathBuf {
 }
 
 /// Copies the regular files of `from` (with its sub folders) into `to`. Files that are in `to` already stay.
-/// The settings files are copied last.
-fn copy_folder(from: &Path, to: &Path) -> io::Result<()> {
+/// The settings files are copied last. Returns how many other files could not be copied.
+fn copy_folder(from: &Path, to: &Path) -> io::Result<usize> {
     let mut others = Vec::new();
     let mut settings = Vec::new();
     collect(from, &mut others, &mut settings)?;
+    let mut skipped = 0;
     for file in others {
         let target = to.join(file.strip_prefix(from).unwrap_or(&file));
-        copy_new_file(&file, &target)?;
+        if copy_new_file(&file, &target).is_err() {
+            skipped += 1;
+        }
     }
     for file in settings {
         let target = with_new_name(&file, from, to);
         copy_settings_file(&file, &target)?;
     }
-    Ok(())
+    Ok(skipped)
 }
 
 /// Lists the regular files under `dir` (symbolic links are skipped), the `ume.ini` files in `settings`.
@@ -170,11 +187,38 @@ fn copy_settings_file(from: &Path, to: &Path) -> io::Result<()> {
     let mut temp = to.as_os_str().to_owned();
     temp.push(".migrating");
     let temp = PathBuf::from(temp);
-    let copied = fs::copy(from, &temp).and_then(|_| fs::rename(&temp, to));
+    let copied = fs::read(from)
+        .and_then(|bytes| fs::write(&temp, rename_own_section(&bytes)))
+        .and_then(|()| fs::rename(&temp, to));
     if copied.is_err() {
         fs::remove_file(&temp).ok();
     }
     copied
+}
+
+/// The settings file with the line `[UME]` named `[MATSU]`. The file is UTF-8 or Shift_JIS; in both a line that is
+/// exactly `[UME]` is ASCII, and every other byte is passed on as it is (line endings, BOM, other sections).
+fn rename_own_section(bytes: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(bytes.len() + 8);
+    for (i, line) in bytes.split_inclusive(|&b| b == b'\n').enumerate() {
+        let (bom, rest) = match line.strip_prefix(b"\xEF\xBB\xBF") {
+            Some(rest) if i == 0 => (&line[..3], rest),
+            _ => (&line[..0], line),
+        };
+        let body_len = rest
+            .iter()
+            .rposition(|&b| b != b'\r' && b != b'\n')
+            .map_or(0, |p| p + 1);
+        let (body, ending) = rest.split_at(body_len);
+        out.extend_from_slice(bom);
+        if body.eq_ignore_ascii_case(b"[UME]") {
+            out.extend_from_slice(b"[MATSU]");
+        } else {
+            out.extend_from_slice(body);
+        }
+        out.extend_from_slice(ending);
+    }
+    out
 }
 
 #[cfg(test)]

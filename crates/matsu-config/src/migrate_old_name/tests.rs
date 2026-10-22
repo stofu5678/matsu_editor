@@ -61,6 +61,7 @@ fn windows_copies_the_appdata_folder_and_renames_the_ini() {
         Outcome::Migrated {
             from: sb.path("appdata/ume-editor"),
             to: sb.path("appdata/matsu-editor"),
+            skipped: 0,
         }
     );
     assert_eq!(sb.read("appdata/matsu-editor/matsu.ini"), "[Common]\nx=1\n");
@@ -92,6 +93,7 @@ fn windows_portable_ini_next_to_the_exe_is_copied_alone() {
         Outcome::Migrated {
             from: sb.path("app"),
             to: sb.path("app"),
+            skipped: 0,
         }
     );
     assert_eq!(sb.read("app/matsu.ini"), "portable");
@@ -255,4 +257,46 @@ fn symbolic_links_in_the_old_folder_are_not_followed() {
     ));
     assert!(!sb.path("home/.config/matsu-editor/link.txt").exists());
     assert!(!sb.path("home/.config/matsu-editor/linkdir").exists());
+}
+
+#[test]
+fn the_own_section_is_renamed_and_nothing_else_changes() {
+    let text =
+        "\u{feff}[Common]\r\nx=[UME]\r\n[UME]\r\nnMacKeyLayout=1\r\n [UME]\r\n[UMEX]\r\n[UME]";
+    let sb = Sandbox::new();
+    sb.write("home/.config/ume-editor/ume.ini", text);
+    migrate(Os::Linux, &sb.env());
+    assert_eq!(
+        sb.read("home/.config/matsu-editor/matsu.ini"),
+        "\u{feff}[Common]\r\nx=[UME]\r\n[MATSU]\r\nnMacKeyLayout=1\r\n [UME]\r\n[UMEX]\r\n[MATSU]"
+    );
+    assert_eq!(sb.read("home/.config/ume-editor/ume.ini"), text);
+    // Shift_JIS bytes pass through.
+    assert_eq!(
+        rename_own_section(b"[UME]\n\x93\xfa\x96\x7b=1\n"),
+        b"[MATSU]\n\x93\xfa\x96\x7b=1\n"
+    );
+}
+
+#[test]
+fn a_file_that_cannot_be_copied_is_skipped_and_counted() {
+    let sb = Sandbox::new();
+    sb.write("home/.config/ume-editor/ume.ini", "old");
+    sb.write("home/.config/ume-editor/sub/data.txt", "data");
+    sb.write("home/.config/ume-editor/ok.txt", "ok");
+    // A file is in the way of the folder `sub`.
+    sb.write("home/.config/matsu-editor/sub", "a file");
+    let outcome = migrate(Os::Linux, &sb.env());
+    let Outcome::Migrated { skipped, .. } = outcome else {
+        panic!("{outcome:?}");
+    };
+    assert_eq!(skipped, 1);
+    assert_eq!(sb.read("home/.config/matsu-editor/matsu.ini"), "old");
+    assert_eq!(sb.read("home/.config/matsu-editor/ok.txt"), "ok");
+    assert!(
+        outcome
+            .notice()
+            .unwrap()
+            .contains("1 個はコピーできませんでした")
+    );
 }
