@@ -12,6 +12,8 @@
 //! The caller falls back to GPUI's dialog, without a start folder, when [`show`] fails. The calls
 //! into the OS are not run by CI (it has no desktop); the user checks them.
 
+#[cfg(any(target_os = "macos", test))]
+mod groups;
 #[cfg(not(any(windows, target_os = "macos")))]
 mod linux;
 #[cfg(target_os = "macos")]
@@ -99,8 +101,9 @@ pub struct Request {
     /// Fields the save dialog shows next to the name (Sakura's encoding, BOM and line ending,
     /// `CDlgOpenFile_CommonItemDialog::Customize`). The dialog does not know what they mean: it
     /// shows them, and [`Chosen::extras`] gives back what the user chose, in the same order.
-    /// Windows shows them with `IFileDialogCustomize`, the portal as `choices`; the panel of macOS
-    /// and the dialog of GPUI have none, so [`Chosen::extras`] is empty there.
+    /// Windows shows them with `IFileDialogCustomize`, the portal as `choices`, the save panel of
+    /// macOS as an accessory view (the lists side by side, at the right); the dialog of GPUI and
+    /// the open panel of macOS have none, so [`Chosen::extras`] is empty there.
     pub extras: Vec<Extra>,
     /// A check box that follows a list while the dialog is open (Windows only).
     pub follow: Option<Follow>,
