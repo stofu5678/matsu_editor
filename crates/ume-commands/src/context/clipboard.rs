@@ -162,9 +162,10 @@ impl CommandContext<'_> {
 
     /// The selected text with the line endings changed to `eol` if given (Sakura:
     /// `GetSelectedData`), and how it is marked on the clipboard. A box selection gives the text
-    /// of its rows, each followed by CRLF (see [`box_text`](Self::box_text)); `eol` and `add_eol`
-    /// do not apply to it. `add_eol` (Sakura: `bAddCRLFWhenCopy`) ends every row that does not
-    /// end the line, a wrapped row, with the line ending of the document or `eol`.
+    /// of its rows, each followed by CRLF (see [`box_text`](Self::box_text)); `add_eol` does not
+    /// apply to it, and `eol` only when it is LF or CR (the UME-only copies; Sakura's CRLF copy is
+    /// CRLF anyway). `add_eol` (Sakura: `bAddCRLFWhenCopy`) ends every row that does not end the
+    /// line, a wrapped row, with the line ending of the document or `eol`.
     fn selected_text(
         &mut self,
         eol: Option<Eol>,
@@ -174,7 +175,14 @@ impl CommandContext<'_> {
             return Ok(None);
         };
         if self.cursor().is_box() {
-            return Ok(self.box_text()?.map(|text| (text, ClipKind::Box)));
+            // Sakura: CRLF whatever `neweol` is. LF and CR copies (UME-only) use their ending.
+            let eol = match eol {
+                Some(eol @ (Eol::Lf | Eol::Cr)) => eol_text(eol),
+                _ => "\r\n",
+            };
+            return Ok(self
+                .box_text_with_eol(eol)?
+                .map(|text| (text, ClipKind::Box)));
         }
         if add_eol {
             let text = self.text_with_row_endings(from, to, eol)?;

@@ -883,9 +883,8 @@ module.exports = function install(call) {
     /**
      * FileOpen(arg1: string?, arg2: int?, arg3: int?, arg4: string?) -> null
      *
-     * Sakura's F_FILEOPEN2 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-     * menu and a key macro run. The last arguments may be left out. A command that this editor
-     * does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_FILEOPEN2 (not in Sakura). Runs the command that a key, the menu and a
+     * key macro run.
      */
     FileOpen(arg1, arg2, arg3, arg4) {
       // A trailing undefined is a missing argument, not a null.
@@ -1260,9 +1259,8 @@ module.exports = function install(call) {
     /**
      * PutFile(arg1: string?, arg2: int?, arg3: int?) -> null
      *
-     * Sakura's F_PUTFILE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-     * menu and a key macro run. The last arguments may be left out. A command that this editor
-     * does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_PUTFILE (not in Sakura). Runs the command that a key, the menu and a
+     * key macro run.
      */
     PutFile(arg1, arg2, arg3) {
       // A trailing undefined is a missing argument, not a null.
@@ -1273,9 +1271,8 @@ module.exports = function install(call) {
     /**
      * InsFile(arg1: string?, arg2: int?, arg3: int?) -> null
      *
-     * Sakura's F_INSFILE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-     * menu and a key macro run. The last arguments may be left out. A command that this editor
-     * does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_INSFILE (not in Sakura). Runs the command that a key, the menu and a
+     * key macro run.
      */
     InsFile(arg1, arg2, arg3) {
       // A trailing undefined is a missing argument, not a null.
@@ -1936,9 +1933,8 @@ module.exports = function install(call) {
     /**
      * MoveCursorLayout(arg1: int?, arg2: int?, arg3: int?) -> null
      *
-     * Sakura's F_MOVECURSORLAYOUT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
-     * key, the menu and a key macro run. The last arguments may be left out. A command that this
-     * editor does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_MOVECURSORLAYOUT (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
      */
     MoveCursorLayout(arg1, arg2, arg3) {
       // A trailing undefined is a missing argument, not a null.
@@ -2649,6 +2645,30 @@ module.exports = function install(call) {
       return call('CopyCRLF', args);
     },
     /**
+     * CopyLF() -> null
+     *
+     * UME Editor's own F_COPY_LF (not in Sakura). Runs the command that a key, the menu and a
+     * key macro run.
+     */
+    CopyLF() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('CopyLF', args);
+    },
+    /**
+     * CopyCR() -> null
+     *
+     * UME Editor's own F_COPY_CR (not in Sakura). Runs the command that a key, the menu and a
+     * key macro run.
+     */
+    CopyCR() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('CopyCR', args);
+    },
+    /**
      * PasteBox(arg1: int?) -> null
      *
      * Sakura's F_PASTEBOX (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
@@ -2664,9 +2684,8 @@ module.exports = function install(call) {
     /**
      * InsBoxText(arg1: string?) -> null
      *
-     * Sakura's F_INSBOXTEXT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-     * menu and a key macro run. The last arguments may be left out. A command that this editor
-     * does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_INSBOXTEXT (not in Sakura). Runs the command that a key, the menu and a
+     * key macro run.
      */
     InsBoxText(arg1) {
       // A trailing undefined is a missing argument, not a null.
@@ -3639,9 +3658,8 @@ module.exports = function install(call) {
     /**
      * ChgmodEOL(arg1: int?) -> null
      *
-     * Sakura's F_CHGMOD_EOL (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-     * menu and a key macro run. The last arguments may be left out. A command that this editor
-     * does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_CHGMOD_EOL (not in Sakura). Runs the command that a key, the menu and a
+     * key macro run.
      */
     ChgmodEOL(arg1) {
       // A trailing undefined is a missing argument, not a null.
@@ -3756,9 +3774,8 @@ module.exports = function install(call) {
     /**
      * ChangeType(arg1: int?) -> null
      *
-     * Sakura's F_CHANGETYPE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-     * menu and a key macro run. The last arguments may be left out. A command that this editor
-     * does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_CHANGETYPE (not in Sakura). Runs the command that a key, the menu and a
+     * key macro run.
      */
     ChangeType(arg1) {
       // A trailing undefined is a missing argument, not a null.
@@ -3847,9 +3864,8 @@ module.exports = function install(call) {
     /**
      * SetMsgQuoteStr(arg1: string?) -> null
      *
-     * Sakura's F_SET_QUOTESTRING (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
-     * key, the menu and a key macro run. The last arguments may be left out. A command that this
-     * editor does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_SET_QUOTESTRING (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
      */
     SetMsgQuoteStr(arg1) {
       // A trailing undefined is a missing argument, not a null.
@@ -3860,9 +3876,8 @@ module.exports = function install(call) {
     /**
      * TextWrapMethod(arg1: int?) -> null
      *
-     * Sakura's F_TEXTWRAPMETHOD (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
-     * the menu and a key macro run. The last arguments may be left out. A command that this
-     * editor does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_TEXTWRAPMETHOD (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
      */
     TextWrapMethod(arg1) {
       // A trailing undefined is a missing argument, not a null.
@@ -4276,9 +4291,8 @@ module.exports = function install(call) {
     /**
      * WinMaximize() -> null
      *
-     * Sakura's F_WINMAXIMIZE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
-     * the menu and a key macro run. The last arguments may be left out. A command that this
-     * editor does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_WINMAXIMIZE (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
      */
     WinMaximize() {
       // A trailing undefined is a missing argument, not a null.
@@ -4289,9 +4303,8 @@ module.exports = function install(call) {
     /**
      * WinMinimize() -> null
      *
-     * Sakura's F_WINMINIMIZE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
-     * the menu and a key macro run. The last arguments may be left out. A command that this
-     * editor does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_WINMINIMIZE (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
      */
     WinMinimize() {
       // A trailing undefined is a missing argument, not a null.
@@ -4302,9 +4315,8 @@ module.exports = function install(call) {
     /**
      * WinRestore() -> null
      *
-     * Sakura's F_WINRESTORE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-     * menu and a key macro run. The last arguments may be left out. A command that this editor
-     * does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_WINRESTORE (not in Sakura). Runs the command that a key, the menu and a
+     * key macro run.
      */
     WinRestore() {
       // A trailing undefined is a missing argument, not a null.
@@ -4484,9 +4496,8 @@ module.exports = function install(call) {
     /**
      * TraceOut(arg1: string?, arg2: int?) -> null
      *
-     * Sakura's F_TRACEOUT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-     * menu and a key macro run. The last arguments may be left out. A command that this editor
-     * does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_TRACEOUT (not in Sakura). Runs the command that a key, the menu and a
+     * key macro run.
      */
     TraceOut(arg1, arg2) {
       // A trailing undefined is a missing argument, not a null.
@@ -4757,9 +4768,8 @@ module.exports = function install(call) {
     /**
      * StatusMsg(arg1: string?, arg2: int?) -> null
      *
-     * Sakura's F_STATUSMSG (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-     * menu and a key macro run. The last arguments may be left out. A command that this editor
-     * does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_STATUSMSG (not in Sakura). Runs the command that a key, the menu and a
+     * key macro run.
      */
     StatusMsg(arg1, arg2) {
       // A trailing undefined is a missing argument, not a null.
@@ -4770,9 +4780,8 @@ module.exports = function install(call) {
     /**
      * MsgBeep(arg1: int?) -> null
      *
-     * Sakura's F_MSGBEEP (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-     * menu and a key macro run. The last arguments may be left out. A command that this editor
-     * does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_MSGBEEP (not in Sakura). Runs the command that a key, the menu and a
+     * key macro run.
      */
     MsgBeep(arg1) {
       // A trailing undefined is a missing argument, not a null.
@@ -4783,9 +4792,8 @@ module.exports = function install(call) {
     /**
      * CommitUndoBuffer() -> null
      *
-     * Sakura's F_COMMITUNDOBUFFER (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
-     * key, the menu and a key macro run. The last arguments may be left out. A command that this
-     * editor does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_COMMITUNDOBUFFER (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
      */
     CommitUndoBuffer() {
       // A trailing undefined is a missing argument, not a null.
@@ -4796,9 +4804,8 @@ module.exports = function install(call) {
     /**
      * AddRefUndoBuffer() -> null
      *
-     * Sakura's F_ADDREFUNDOBUFFER (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
-     * key, the menu and a key macro run. The last arguments may be left out. A command that this
-     * editor does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_ADDREFUNDOBUFFER (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
      */
     AddRefUndoBuffer() {
       // A trailing undefined is a missing argument, not a null.
@@ -4809,9 +4816,8 @@ module.exports = function install(call) {
     /**
      * SetUndoBuffer() -> null
      *
-     * Sakura's F_SETUNDOBUFFER (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
-     * the menu and a key macro run. The last arguments may be left out. A command that this
-     * editor does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_SETUNDOBUFFER (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
      */
     SetUndoBuffer() {
       // A trailing undefined is a missing argument, not a null.
@@ -4822,9 +4828,8 @@ module.exports = function install(call) {
     /**
      * AppendUndoBufferCursor() -> null
      *
-     * Sakura's F_APPENDUNDOBUFFERCURSOR (sakura_core/macro/CSMacroMgr.cpp). Runs the command
-     * that a key, the menu and a key macro run. The last arguments may be left out. A command
-     * that this editor does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_APPENDUNDOBUFFERCURSOR (not in Sakura). Runs the command that a key,
+     * the menu and a key macro run.
      */
     AppendUndoBufferCursor() {
       // A trailing undefined is a missing argument, not a null.
@@ -4835,9 +4840,8 @@ module.exports = function install(call) {
     /**
      * ClipboardEmpty() -> null
      *
-     * Sakura's F_CLIPBOARDEMPTY (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
-     * the menu and a key macro run. The last arguments may be left out. A command that this
-     * editor does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_CLIPBOARDEMPTY (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
      */
     ClipboardEmpty() {
       // A trailing undefined is a missing argument, not a null.
@@ -4848,9 +4852,8 @@ module.exports = function install(call) {
     /**
      * SetViewTop(arg1: int?) -> null
      *
-     * Sakura's F_SETVIEWTOP (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-     * menu and a key macro run. The last arguments may be left out. A command that this editor
-     * does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_SETVIEWTOP (not in Sakura). Runs the command that a key, the menu and a
+     * key macro run.
      */
     SetViewTop(arg1) {
       // A trailing undefined is a missing argument, not a null.
@@ -4861,9 +4864,8 @@ module.exports = function install(call) {
     /**
      * SetViewLeft(arg1: int?) -> null
      *
-     * Sakura's F_SETVIEWLEFT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
-     * the menu and a key macro run. The last arguments may be left out. A command that this
-     * editor does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_SETVIEWLEFT (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
      */
     SetViewLeft(arg1) {
       // A trailing undefined is a missing argument, not a null.

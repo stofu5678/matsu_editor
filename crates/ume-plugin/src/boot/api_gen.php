@@ -898,9 +898,8 @@ final class Editor
     /**
      * FileOpen(arg1: string?, arg2: int?, arg3: int?, arg4: string?) -> null
      *
-     * Sakura's F_FILEOPEN2 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-     * menu and a key macro run. The last arguments may be left out. A command that this editor
-     * does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_FILEOPEN2 (not in Sakura). Runs the command that a key, the menu and a
+     * key macro run.
      */
     public static function FileOpen($arg1 = null, $arg2 = null, $arg3 = null, $arg4 = null)
     {
@@ -1275,9 +1274,8 @@ final class Editor
     /**
      * PutFile(arg1: string?, arg2: int?, arg3: int?) -> null
      *
-     * Sakura's F_PUTFILE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-     * menu and a key macro run. The last arguments may be left out. A command that this editor
-     * does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_PUTFILE (not in Sakura). Runs the command that a key, the menu and a
+     * key macro run.
      */
     public static function PutFile($arg1 = null, $arg2 = null, $arg3 = null)
     {
@@ -1288,9 +1286,8 @@ final class Editor
     /**
      * InsFile(arg1: string?, arg2: int?, arg3: int?) -> null
      *
-     * Sakura's F_INSFILE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-     * menu and a key macro run. The last arguments may be left out. A command that this editor
-     * does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_INSFILE (not in Sakura). Runs the command that a key, the menu and a
+     * key macro run.
      */
     public static function InsFile($arg1 = null, $arg2 = null, $arg3 = null)
     {
@@ -1951,9 +1948,8 @@ final class Editor
     /**
      * MoveCursorLayout(arg1: int?, arg2: int?, arg3: int?) -> null
      *
-     * Sakura's F_MOVECURSORLAYOUT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
-     * key, the menu and a key macro run. The last arguments may be left out. A command that this
-     * editor does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_MOVECURSORLAYOUT (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
      */
     public static function MoveCursorLayout($arg1 = null, $arg2 = null, $arg3 = null)
     {
@@ -2664,6 +2660,30 @@ final class Editor
     }
 
     /**
+     * CopyLF() -> null
+     *
+     * UME Editor's own F_COPY_LF (not in Sakura). Runs the command that a key, the menu and a
+     * key macro run.
+     */
+    public static function CopyLF()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CopyLF', func_get_args());
+    }
+
+    /**
+     * CopyCR() -> null
+     *
+     * UME Editor's own F_COPY_CR (not in Sakura). Runs the command that a key, the menu and a
+     * key macro run.
+     */
+    public static function CopyCR()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('CopyCR', func_get_args());
+    }
+
+    /**
      * PasteBox(arg1: int?) -> null
      *
      * Sakura's F_PASTEBOX (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
@@ -2679,9 +2699,8 @@ final class Editor
     /**
      * InsBoxText(arg1: string?) -> null
      *
-     * Sakura's F_INSBOXTEXT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-     * menu and a key macro run. The last arguments may be left out. A command that this editor
-     * does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_INSBOXTEXT (not in Sakura). Runs the command that a key, the menu and a
+     * key macro run.
      */
     public static function InsBoxText($arg1 = null)
     {
@@ -3654,9 +3673,8 @@ final class Editor
     /**
      * ChgmodEOL(arg1: int?) -> null
      *
-     * Sakura's F_CHGMOD_EOL (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-     * menu and a key macro run. The last arguments may be left out. A command that this editor
-     * does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_CHGMOD_EOL (not in Sakura). Runs the command that a key, the menu and a
+     * key macro run.
      */
     public static function ChgmodEOL($arg1 = null)
     {
@@ -3771,9 +3789,8 @@ final class Editor
     /**
      * ChangeType(arg1: int?) -> null
      *
-     * Sakura's F_CHANGETYPE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-     * menu and a key macro run. The last arguments may be left out. A command that this editor
-     * does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_CHANGETYPE (not in Sakura). Runs the command that a key, the menu and a
+     * key macro run.
      */
     public static function ChangeType($arg1 = null)
     {
@@ -3862,9 +3879,8 @@ final class Editor
     /**
      * SetMsgQuoteStr(arg1: string?) -> null
      *
-     * Sakura's F_SET_QUOTESTRING (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
-     * key, the menu and a key macro run. The last arguments may be left out. A command that this
-     * editor does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_SET_QUOTESTRING (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
      */
     public static function SetMsgQuoteStr($arg1 = null)
     {
@@ -3875,9 +3891,8 @@ final class Editor
     /**
      * TextWrapMethod(arg1: int?) -> null
      *
-     * Sakura's F_TEXTWRAPMETHOD (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
-     * the menu and a key macro run. The last arguments may be left out. A command that this
-     * editor does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_TEXTWRAPMETHOD (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
      */
     public static function TextWrapMethod($arg1 = null)
     {
@@ -4291,9 +4306,8 @@ final class Editor
     /**
      * WinMaximize() -> null
      *
-     * Sakura's F_WINMAXIMIZE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
-     * the menu and a key macro run. The last arguments may be left out. A command that this
-     * editor does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_WINMAXIMIZE (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
      */
     public static function WinMaximize()
     {
@@ -4304,9 +4318,8 @@ final class Editor
     /**
      * WinMinimize() -> null
      *
-     * Sakura's F_WINMINIMIZE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
-     * the menu and a key macro run. The last arguments may be left out. A command that this
-     * editor does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_WINMINIMIZE (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
      */
     public static function WinMinimize()
     {
@@ -4317,9 +4330,8 @@ final class Editor
     /**
      * WinRestore() -> null
      *
-     * Sakura's F_WINRESTORE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-     * menu and a key macro run. The last arguments may be left out. A command that this editor
-     * does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_WINRESTORE (not in Sakura). Runs the command that a key, the menu and a
+     * key macro run.
      */
     public static function WinRestore()
     {
@@ -4499,9 +4511,8 @@ final class Editor
     /**
      * TraceOut(arg1: string?, arg2: int?) -> null
      *
-     * Sakura's F_TRACEOUT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-     * menu and a key macro run. The last arguments may be left out. A command that this editor
-     * does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_TRACEOUT (not in Sakura). Runs the command that a key, the menu and a
+     * key macro run.
      */
     public static function TraceOut($arg1 = null, $arg2 = null)
     {
@@ -4772,9 +4783,8 @@ final class Editor
     /**
      * StatusMsg(arg1: string?, arg2: int?) -> null
      *
-     * Sakura's F_STATUSMSG (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-     * menu and a key macro run. The last arguments may be left out. A command that this editor
-     * does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_STATUSMSG (not in Sakura). Runs the command that a key, the menu and a
+     * key macro run.
      */
     public static function StatusMsg($arg1 = null, $arg2 = null)
     {
@@ -4785,9 +4795,8 @@ final class Editor
     /**
      * MsgBeep(arg1: int?) -> null
      *
-     * Sakura's F_MSGBEEP (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-     * menu and a key macro run. The last arguments may be left out. A command that this editor
-     * does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_MSGBEEP (not in Sakura). Runs the command that a key, the menu and a
+     * key macro run.
      */
     public static function MsgBeep($arg1 = null)
     {
@@ -4798,9 +4807,8 @@ final class Editor
     /**
      * CommitUndoBuffer() -> null
      *
-     * Sakura's F_COMMITUNDOBUFFER (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
-     * key, the menu and a key macro run. The last arguments may be left out. A command that this
-     * editor does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_COMMITUNDOBUFFER (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
      */
     public static function CommitUndoBuffer()
     {
@@ -4811,9 +4819,8 @@ final class Editor
     /**
      * AddRefUndoBuffer() -> null
      *
-     * Sakura's F_ADDREFUNDOBUFFER (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
-     * key, the menu and a key macro run. The last arguments may be left out. A command that this
-     * editor does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_ADDREFUNDOBUFFER (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
      */
     public static function AddRefUndoBuffer()
     {
@@ -4824,9 +4831,8 @@ final class Editor
     /**
      * SetUndoBuffer() -> null
      *
-     * Sakura's F_SETUNDOBUFFER (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
-     * the menu and a key macro run. The last arguments may be left out. A command that this
-     * editor does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_SETUNDOBUFFER (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
      */
     public static function SetUndoBuffer()
     {
@@ -4837,9 +4843,8 @@ final class Editor
     /**
      * AppendUndoBufferCursor() -> null
      *
-     * Sakura's F_APPENDUNDOBUFFERCURSOR (sakura_core/macro/CSMacroMgr.cpp). Runs the command
-     * that a key, the menu and a key macro run. The last arguments may be left out. A command
-     * that this editor does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_APPENDUNDOBUFFERCURSOR (not in Sakura). Runs the command that a key,
+     * the menu and a key macro run.
      */
     public static function AppendUndoBufferCursor()
     {
@@ -4850,9 +4855,8 @@ final class Editor
     /**
      * ClipboardEmpty() -> null
      *
-     * Sakura's F_CLIPBOARDEMPTY (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
-     * the menu and a key macro run. The last arguments may be left out. A command that this
-     * editor does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_CLIPBOARDEMPTY (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
      */
     public static function ClipboardEmpty()
     {
@@ -4863,9 +4867,8 @@ final class Editor
     /**
      * SetViewTop(arg1: int?) -> null
      *
-     * Sakura's F_SETVIEWTOP (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-     * menu and a key macro run. The last arguments may be left out. A command that this editor
-     * does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_SETVIEWTOP (not in Sakura). Runs the command that a key, the menu and a
+     * key macro run.
      */
     public static function SetViewTop($arg1 = null)
     {
@@ -4876,9 +4879,8 @@ final class Editor
     /**
      * SetViewLeft(arg1: int?) -> null
      *
-     * Sakura's F_SETVIEWLEFT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
-     * the menu and a key macro run. The last arguments may be left out. A command that this
-     * editor does not have yet answers the error -32001 (not implemented).
+     * UME Editor's own F_SETVIEWLEFT (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
      */
     public static function SetViewLeft($arg1 = null)
     {

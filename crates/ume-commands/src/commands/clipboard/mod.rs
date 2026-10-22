@@ -3,8 +3,10 @@
 pub mod add_tail;
 pub mod copy;
 pub mod copy_addcrlf;
+pub mod copy_cr;
 pub mod copy_crlf;
 pub mod copy_file_name;
+pub mod copy_lf;
 pub mod copy_lines;
 pub mod copy_lines_as_passage;
 pub mod copy_lines_with_line_number;
@@ -20,5 +22,7 @@ pub mod line_cut_to_start;
 pub mod paste;
 pub mod pastebox;
 
+#[cfg(test)]
+mod copy_eol_tests;
 #[cfg(test)]
 mod tests;

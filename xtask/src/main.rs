@@ -11,6 +11,7 @@
 mod macro_table;
 mod parse;
 mod render;
+mod ume_extras;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -59,7 +60,8 @@ fn repository_root() -> PathBuf {
 
 /// Builds the content of every generated file: `(path relative to the repository root, text)`.
 fn generate(sakura: &Path) -> Result<Vec<(String, String)>, String> {
-    let tables = parse::read_tables(sakura)?;
+    let mut tables = parse::read_tables(sakura)?;
+    ume_extras::apply(&mut tables)?;
     let commit = sakura_commit(sakura)?;
     let mut files = render::render(&tables, &commit);
     files.push(macro_table::render(sakura, &tables, &commit)?);

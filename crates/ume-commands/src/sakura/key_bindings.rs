@@ -9,7 +9,8 @@
 //
 // This file is derived from the files above and was modified: the data was converted
 // to Rust tables, names were converted to command IDs, and labels were resolved (the
-// product name サクラエディタ in a label became ウメエディタ).
+// product name サクラエディタ in a label became ウメエディタ). UME Editor's own functions
+// (xtask/src/ume_extras.rs) were added.
 //
 // Copyright (C) 1998-2001, Norio Nakatani
 // Copyright (C) 2000, jepro

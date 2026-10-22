@@ -9,7 +9,8 @@
 //
 // This file is derived from the files above and was modified: the data was converted
 // to Rust tables, names were converted to command IDs, and labels were resolved (the
-// product name サクラエディタ in a label became ウメエディタ).
+// product name サクラエディタ in a label became ウメエディタ). UME Editor's own functions
+// (xtask/src/ume_extras.rs) were added.
 //
 // Copyright (C) 1998-2001, Norio Nakatani
 // Copyright (C) 2000, jepro
@@ -107,6 +108,8 @@ pub static MAIN_MENU: &[MenuItem] = &[
     MenuItem { level: 1, kind: Leaf, code: 30285, access_key: Some('R'), label: Some("再変換") },
     MenuItem { level: 1, kind: Separator, code: 1, access_key: None, label: None },
     MenuItem { level: 1, kind: Leaf, code: 30603, access_key: Some('L'), label: Some("CRLF改行でコピー") },
+    MenuItem { level: 1, kind: Leaf, code: 32700, access_key: Some('N'), label: Some("LF改行でコピー") },
+    MenuItem { level: 1, kind: Leaf, code: 32701, access_key: Some('M'), label: Some("CR改行でコピー") },
     MenuItem { level: 1, kind: Leaf, code: 30608, access_key: Some('H'), label: Some("折り返し位置に改行をつけてコピー") },
     MenuItem { level: 1, kind: Leaf, code: 30605, access_key: Some('X'), label: Some("矩形貼り付け") },
     MenuItem { level: 1, kind: Leaf, code: 30222, access_key: Some('B'), label: Some("カーソル前を削除") },

@@ -603,9 +603,8 @@ module UmeEditorApi
 
     # FileOpen(arg1: string?, arg2: int?, arg3: int?, arg4: string?) -> null
     #
-    # Sakura's F_FILEOPEN2 (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-    # menu and a key macro run. The last arguments may be left out. A command that this editor
-    # does not have yet answers the error -32001 (not implemented).
+    # UME Editor's own F_FILEOPEN2 (not in Sakura). Runs the command that a key, the menu and a
+    # key macro run.
     def FileOpen(arg1 = UNSET, arg2 = UNSET, arg3 = UNSET, arg4 = UNSET)
       @call.call('FileOpen', _pack(arg1, arg2, arg3, arg4))
     end
@@ -864,18 +863,16 @@ module UmeEditorApi
 
     # PutFile(arg1: string?, arg2: int?, arg3: int?) -> null
     #
-    # Sakura's F_PUTFILE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-    # menu and a key macro run. The last arguments may be left out. A command that this editor
-    # does not have yet answers the error -32001 (not implemented).
+    # UME Editor's own F_PUTFILE (not in Sakura). Runs the command that a key, the menu and a
+    # key macro run.
     def PutFile(arg1 = UNSET, arg2 = UNSET, arg3 = UNSET)
       @call.call('PutFile', _pack(arg1, arg2, arg3))
     end
 
     # InsFile(arg1: string?, arg2: int?, arg3: int?) -> null
     #
-    # Sakura's F_INSFILE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-    # menu and a key macro run. The last arguments may be left out. A command that this editor
-    # does not have yet answers the error -32001 (not implemented).
+    # UME Editor's own F_INSFILE (not in Sakura). Runs the command that a key, the menu and a
+    # key macro run.
     def InsFile(arg1 = UNSET, arg2 = UNSET, arg3 = UNSET)
       @call.call('InsFile', _pack(arg1, arg2, arg3))
     end
@@ -1332,9 +1329,8 @@ module UmeEditorApi
 
     # MoveCursorLayout(arg1: int?, arg2: int?, arg3: int?) -> null
     #
-    # Sakura's F_MOVECURSORLAYOUT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
-    # key, the menu and a key macro run. The last arguments may be left out. A command that this
-    # editor does not have yet answers the error -32001 (not implemented).
+    # UME Editor's own F_MOVECURSORLAYOUT (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
     def MoveCursorLayout(arg1 = UNSET, arg2 = UNSET, arg3 = UNSET)
       @call.call('MoveCursorLayout', _pack(arg1, arg2, arg3))
     end
@@ -1825,6 +1821,22 @@ module UmeEditorApi
       @call.call('CopyCRLF', _pack())
     end
 
+    # CopyLF() -> null
+    #
+    # UME Editor's own F_COPY_LF (not in Sakura). Runs the command that a key, the menu and a
+    # key macro run.
+    def CopyLF
+      @call.call('CopyLF', _pack())
+    end
+
+    # CopyCR() -> null
+    #
+    # UME Editor's own F_COPY_CR (not in Sakura). Runs the command that a key, the menu and a
+    # key macro run.
+    def CopyCR
+      @call.call('CopyCR', _pack())
+    end
+
     # PasteBox(arg1: int?) -> null
     #
     # Sakura's F_PASTEBOX (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
@@ -1836,9 +1848,8 @@ module UmeEditorApi
 
     # InsBoxText(arg1: string?) -> null
     #
-    # Sakura's F_INSBOXTEXT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-    # menu and a key macro run. The last arguments may be left out. A command that this editor
-    # does not have yet answers the error -32001 (not implemented).
+    # UME Editor's own F_INSBOXTEXT (not in Sakura). Runs the command that a key, the menu and a
+    # key macro run.
     def InsBoxText(arg1 = UNSET)
       @call.call('InsBoxText', _pack(arg1))
     end
@@ -2511,9 +2522,8 @@ module UmeEditorApi
 
     # ChgmodEOL(arg1: int?) -> null
     #
-    # Sakura's F_CHGMOD_EOL (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-    # menu and a key macro run. The last arguments may be left out. A command that this editor
-    # does not have yet answers the error -32001 (not implemented).
+    # UME Editor's own F_CHGMOD_EOL (not in Sakura). Runs the command that a key, the menu and a
+    # key macro run.
     def ChgmodEOL(arg1 = UNSET)
       @call.call('ChgmodEOL', _pack(arg1))
     end
@@ -2592,9 +2602,8 @@ module UmeEditorApi
 
     # ChangeType(arg1: int?) -> null
     #
-    # Sakura's F_CHANGETYPE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-    # menu and a key macro run. The last arguments may be left out. A command that this editor
-    # does not have yet answers the error -32001 (not implemented).
+    # UME Editor's own F_CHANGETYPE (not in Sakura). Runs the command that a key, the menu and a
+    # key macro run.
     def ChangeType(arg1 = UNSET)
       @call.call('ChangeType', _pack(arg1))
     end
@@ -2655,18 +2664,16 @@ module UmeEditorApi
 
     # SetMsgQuoteStr(arg1: string?) -> null
     #
-    # Sakura's F_SET_QUOTESTRING (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
-    # key, the menu and a key macro run. The last arguments may be left out. A command that this
-    # editor does not have yet answers the error -32001 (not implemented).
+    # UME Editor's own F_SET_QUOTESTRING (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
     def SetMsgQuoteStr(arg1 = UNSET)
       @call.call('SetMsgQuoteStr', _pack(arg1))
     end
 
     # TextWrapMethod(arg1: int?) -> null
     #
-    # Sakura's F_TEXTWRAPMETHOD (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
-    # the menu and a key macro run. The last arguments may be left out. A command that this
-    # editor does not have yet answers the error -32001 (not implemented).
+    # UME Editor's own F_TEXTWRAPMETHOD (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
     def TextWrapMethod(arg1 = UNSET)
       @call.call('TextWrapMethod', _pack(arg1))
     end
@@ -2952,27 +2959,24 @@ module UmeEditorApi
 
     # WinMaximize() -> null
     #
-    # Sakura's F_WINMAXIMIZE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
-    # the menu and a key macro run. The last arguments may be left out. A command that this
-    # editor does not have yet answers the error -32001 (not implemented).
+    # UME Editor's own F_WINMAXIMIZE (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
     def WinMaximize
       @call.call('WinMaximize', _pack())
     end
 
     # WinMinimize() -> null
     #
-    # Sakura's F_WINMINIMIZE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
-    # the menu and a key macro run. The last arguments may be left out. A command that this
-    # editor does not have yet answers the error -32001 (not implemented).
+    # UME Editor's own F_WINMINIMIZE (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
     def WinMinimize
       @call.call('WinMinimize', _pack())
     end
 
     # WinRestore() -> null
     #
-    # Sakura's F_WINRESTORE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-    # menu and a key macro run. The last arguments may be left out. A command that this editor
-    # does not have yet answers the error -32001 (not implemented).
+    # UME Editor's own F_WINRESTORE (not in Sakura). Runs the command that a key, the menu and a
+    # key macro run.
     def WinRestore
       @call.call('WinRestore', _pack())
     end
@@ -3096,9 +3100,8 @@ module UmeEditorApi
 
     # TraceOut(arg1: string?, arg2: int?) -> null
     #
-    # Sakura's F_TRACEOUT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-    # menu and a key macro run. The last arguments may be left out. A command that this editor
-    # does not have yet answers the error -32001 (not implemented).
+    # UME Editor's own F_TRACEOUT (not in Sakura). Runs the command that a key, the menu and a
+    # key macro run.
     def TraceOut(arg1 = UNSET, arg2 = UNSET)
       @call.call('TraceOut', _pack(arg1, arg2))
     end
@@ -3285,81 +3288,72 @@ module UmeEditorApi
 
     # StatusMsg(arg1: string?, arg2: int?) -> null
     #
-    # Sakura's F_STATUSMSG (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-    # menu and a key macro run. The last arguments may be left out. A command that this editor
-    # does not have yet answers the error -32001 (not implemented).
+    # UME Editor's own F_STATUSMSG (not in Sakura). Runs the command that a key, the menu and a
+    # key macro run.
     def StatusMsg(arg1 = UNSET, arg2 = UNSET)
       @call.call('StatusMsg', _pack(arg1, arg2))
     end
 
     # MsgBeep(arg1: int?) -> null
     #
-    # Sakura's F_MSGBEEP (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-    # menu and a key macro run. The last arguments may be left out. A command that this editor
-    # does not have yet answers the error -32001 (not implemented).
+    # UME Editor's own F_MSGBEEP (not in Sakura). Runs the command that a key, the menu and a
+    # key macro run.
     def MsgBeep(arg1 = UNSET)
       @call.call('MsgBeep', _pack(arg1))
     end
 
     # CommitUndoBuffer() -> null
     #
-    # Sakura's F_COMMITUNDOBUFFER (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
-    # key, the menu and a key macro run. The last arguments may be left out. A command that this
-    # editor does not have yet answers the error -32001 (not implemented).
+    # UME Editor's own F_COMMITUNDOBUFFER (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
     def CommitUndoBuffer
       @call.call('CommitUndoBuffer', _pack())
     end
 
     # AddRefUndoBuffer() -> null
     #
-    # Sakura's F_ADDREFUNDOBUFFER (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
-    # key, the menu and a key macro run. The last arguments may be left out. A command that this
-    # editor does not have yet answers the error -32001 (not implemented).
+    # UME Editor's own F_ADDREFUNDOBUFFER (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
     def AddRefUndoBuffer
       @call.call('AddRefUndoBuffer', _pack())
     end
 
     # SetUndoBuffer() -> null
     #
-    # Sakura's F_SETUNDOBUFFER (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
-    # the menu and a key macro run. The last arguments may be left out. A command that this
-    # editor does not have yet answers the error -32001 (not implemented).
+    # UME Editor's own F_SETUNDOBUFFER (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
     def SetUndoBuffer
       @call.call('SetUndoBuffer', _pack())
     end
 
     # AppendUndoBufferCursor() -> null
     #
-    # Sakura's F_APPENDUNDOBUFFERCURSOR (sakura_core/macro/CSMacroMgr.cpp). Runs the command
-    # that a key, the menu and a key macro run. The last arguments may be left out. A command
-    # that this editor does not have yet answers the error -32001 (not implemented).
+    # UME Editor's own F_APPENDUNDOBUFFERCURSOR (not in Sakura). Runs the command that a key,
+    # the menu and a key macro run.
     def AppendUndoBufferCursor
       @call.call('AppendUndoBufferCursor', _pack())
     end
 
     # ClipboardEmpty() -> null
     #
-    # Sakura's F_CLIPBOARDEMPTY (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
-    # the menu and a key macro run. The last arguments may be left out. A command that this
-    # editor does not have yet answers the error -32001 (not implemented).
+    # UME Editor's own F_CLIPBOARDEMPTY (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
     def ClipboardEmpty
       @call.call('ClipboardEmpty', _pack())
     end
 
     # SetViewTop(arg1: int?) -> null
     #
-    # Sakura's F_SETVIEWTOP (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
-    # menu and a key macro run. The last arguments may be left out. A command that this editor
-    # does not have yet answers the error -32001 (not implemented).
+    # UME Editor's own F_SETVIEWTOP (not in Sakura). Runs the command that a key, the menu and a
+    # key macro run.
     def SetViewTop(arg1 = UNSET)
       @call.call('SetViewTop', _pack(arg1))
     end
 
     # SetViewLeft(arg1: int?) -> null
     #
-    # Sakura's F_SETVIEWLEFT (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key,
-    # the menu and a key macro run. The last arguments may be left out. A command that this
-    # editor does not have yet answers the error -32001 (not implemented).
+    # UME Editor's own F_SETVIEWLEFT (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
     def SetViewLeft(arg1 = UNSET)
       @call.call('SetViewLeft', _pack(arg1))
     end

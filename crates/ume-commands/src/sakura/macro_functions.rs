@@ -6,7 +6,8 @@
 //   sakura_core/macro/CSMacroMgr.cpp
 //
 // This file is derived from the file above and was modified: the data was converted
-// to Rust tables, and the function names were resolved to function codes.
+// to Rust tables, and the function names were resolved to function codes. UME Editor's own
+// commands (xtask/src/ume_extras.rs) were added to the commands.
 //
 // Copyright (C) 1998-2001, Norio Nakatani
 // Copyright (C) 2000, jepro
@@ -219,6 +220,8 @@ pub static MACRO_COMMANDS: &[MacroFunction] = &[
     MacroFunction { name: "Paste", function: "F_PASTE", code: 30604, args: &[Int], result: None, key_macro: true },
     MacroFunction { name: "CopyAddCRLF", function: "F_COPY_ADDCRLF", code: 30608, args: &[], result: None, key_macro: true },
     MacroFunction { name: "CopyCRLF", function: "F_COPY_CRLF", code: 30603, args: &[], result: None, key_macro: true },
+    MacroFunction { name: "CopyLF", function: "F_COPY_LF", code: 32700, args: &[], result: None, key_macro: true },
+    MacroFunction { name: "CopyCR", function: "F_COPY_CR", code: 32701, args: &[], result: None, key_macro: true },
     MacroFunction { name: "PasteBox", function: "F_PASTEBOX", code: 30605, args: &[Int], result: None, key_macro: true },
     MacroFunction { name: "InsBoxText", function: "F_INSBOXTEXT", code: 32806, args: &[Str], result: None, key_macro: false },
     MacroFunction { name: "InsText", function: "F_INSTEXT_W", code: 30606, args: &[Str], result: None, key_macro: true },
