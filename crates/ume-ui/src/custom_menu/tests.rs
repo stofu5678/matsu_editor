@@ -89,11 +89,12 @@ fn function_codes_and_menu_numbers_agree() {
     }
 }
 
-// The default right-click menu is `InitPopupMenu`'s: Undo first, with its access key and shortcut.
+// The default right-click menu is `InitPopupMenu`'s (30 items) plus UME's copies with LF and CR (2): Undo
+// first, with its access key and shortcut.
 #[test]
 fn the_default_right_click_menu_is_sakuras() {
     let rows = build(&CustomMenus::default(), 0, &all);
-    assert_eq!(rows.len(), 30);
+    assert_eq!(rows.len(), 30 + 2);
     let Entry::Item(undo) = &rows[0] else {
         panic!("{:?}", rows[0]);
     };
@@ -107,6 +108,26 @@ fn the_default_right_click_menu_is_sakuras() {
     // Three rows of the cut, copy and paste group are separated from Undo and Redo.
     assert_eq!(rows[2], Entry::Separator);
     assert_eq!(rows.iter().filter(|e| **e == Entry::Separator).count(), 7);
+}
+
+// UME-only: the copies with LF and CR follow 「CRLF改行でコピー」 in the default right-click menu.
+#[test]
+fn the_default_right_click_menu_has_the_lf_and_cr_copies_after_the_crlf_copy() {
+    let rows = build(&CustomMenus::default(), 0, &all);
+    let labels: Vec<_> = items(&rows).iter().map(|i| i.label.clone()).collect();
+    let crlf = labels
+        .iter()
+        .position(|l| l == "CRLF改行でコピー(L)")
+        .unwrap();
+    assert_eq!(
+        labels[crlf..crlf + 4],
+        [
+            "CRLF改行でコピー(L)",
+            "LF改行でコピー(N)",
+            "CR改行でコピー(M)",
+            "折り返し位置に改行をつけてコピー(H)"
+        ]
+    );
 }
 
 #[test]
@@ -210,7 +231,7 @@ fn the_right_click_menu_can_be_a_submenu_too() {
     let all_menus = menus("[CustMenu]\nnCMIN[02]=1\nnCMIF[02][00]=RMenu\nnCMIK[02][00]=R\n");
     let rows = build(&all_menus, 2, &all);
     let inside = submenu(&rows, "右クリックメニュー(R)");
-    assert_eq!(inside.len(), 30);
+    assert_eq!(inside.len(), 30 + 2); // Sakura's 30 and UME's two copies
 }
 
 #[test]

@@ -392,7 +392,7 @@ fn the_page_shows_menu_0_with_its_name_and_the_buttons_follow_the_rules(cx: &mut
         )
     });
     assert_eq!((name.as_str(), key.as_str()), ("Mine", ""));
-    assert_eq!(items_now(cx).len(), 30);
+    assert_eq!(items_now(cx).len(), 30 + 2); // Sakura's 30 and UME's copies with LF and CR
     // Nothing is selected, nothing is chosen in the function list.
     for id in [
         "custmenu_delete",
@@ -421,7 +421,7 @@ fn the_page_shows_menu_0_with_its_name_and_the_buttons_follow_the_rules(cx: &mut
     assert!(button_is_usable(cx, "custmenu_insert"));
     assert!(button_is_usable(cx, "custmenu_add"));
     // The last row cannot go down.
-    select_row(cx, 29);
+    select_row(cx, 31);
     assert!(!button_is_usable(cx, "custmenu_down"));
 }
 
