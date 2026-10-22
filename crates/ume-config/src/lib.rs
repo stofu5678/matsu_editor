@@ -15,6 +15,7 @@ pub mod location;
 pub mod profile;
 pub mod save_filter;
 pub mod settings;
+mod sync;
 pub mod value;
 
 pub use profile::{FileEncoding, LineEnding, Profile, ProfileError};

@@ -614,7 +614,7 @@ fn write_replacing(path: &Path, bytes: &[u8]) -> io::Result<()> {
     };
     let result = file
         .write_all(bytes)
-        .and_then(|()| file.sync_all())
+        .and_then(|()| crate::sync::sync_file(&file))
         .and_then(|()| {
             // Keep the permissions of the file that is replaced (a user may have made it private).
             match std::fs::metadata(path) {

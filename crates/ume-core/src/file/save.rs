@@ -731,7 +731,7 @@ fn write_file(
         .inner
         .into_inner()
         .map_err(io::IntoInnerError::into_error)?;
-    file.sync_all()?;
+    super::sync_file(&file)?;
     drop(file);
     if let Some(meta) = &existing {
         // Before the permissions: `chown` may clear the setuid and setgid bits.
@@ -774,7 +774,7 @@ pub fn write_bytes(path: &Path, bytes: &[u8], preserve: Preserve) -> Result<()> 
     let permissions = existing.as_ref().map(fs::Metadata::permissions);
     let (mut file, mut temp) = create_temp(dir, permissions.as_ref())?;
     file.write_all(bytes)?;
-    file.sync_all()?;
+    super::sync_file(&file)?;
     drop(file);
     if let Some(meta) = &existing {
         if preserve.owner_and_group {
@@ -808,7 +808,7 @@ fn copy_owner_and_group(_new: &Path, _old: &fs::Metadata) {}
 fn sync_dir(dir: &Path) {
     #[cfg(unix)]
     if let Ok(d) = File::open(dir) {
-        let _ = d.sync_all();
+        let _ = super::sync_file(&d);
     }
     #[cfg(not(unix))]
     let _ = dir;

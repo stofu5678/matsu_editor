@@ -39,6 +39,7 @@
 mod error;
 mod save;
 mod source;
+mod sync;
 #[cfg(test)]
 mod tests;
 
@@ -52,6 +53,7 @@ pub use error::{FileError, Result};
 pub use save::{
     MAX_REPORTED, Preserve, SaveOptions, SaveReport, UnmappableChar, UnmappableReport, write_bytes,
 };
+pub use sync::sync_file;
 
 use crate::buffer::{Document, EncodingCodec, Eol};
 use crate::encoding::{DetectOptions, Detection, Encoding, detect, mime_header_decode_jis};

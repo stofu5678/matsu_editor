@@ -7366,6 +7366,7 @@ name = "ume-config"
 version = "0.0.0"
 dependencies = [
  "encoding_rs",
+ "libc",
  "ume-print",
 ]
 
@@ -7374,6 +7375,7 @@ name = "ume-core"
 version = "0.0.0"
 dependencies = [
  "encoding_rs",
+ "libc",
  "similar",
  "tempfile",
 ]
