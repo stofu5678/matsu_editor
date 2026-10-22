@@ -275,12 +275,16 @@ fn a_receiver_that_does_not_answer_costs_the_sender_its_timeout_only() {
         receiver: Duration::from_millis(200),
         reply: Duration::from_millis(200),
     };
+    let start = Instant::now();
     let joined = join_with(&key, &request("second"), nothing(), timeouts);
+    let waited = start.elapsed();
     // The sender gave up while the receiver was still busy: it did not wait for the answer.
     // (A state, not a clock: load cannot make this fail.)
     let waited_for_the_receiver = answered.load(std::sync::atomic::Ordering::SeqCst);
     release.send(()).unwrap();
     assert!(!waited_for_the_receiver);
+    // the timeouts are 200 ms; this is far from them, and below the receiver's 60 s
+    assert!(waited < Duration::from_secs(30), "{waited:?}");
     assert!(
         matches!(joined, Joined::Standalone(Standalone::TimedOut)),
         "{}",
