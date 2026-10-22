@@ -63,7 +63,7 @@ use ume_outline::{
 };
 
 use super::file_tree::model::FileTreeModel;
-use super::file_tree::source::{Inputs, load_setting};
+use super::file_tree::source::{Inputs, load_dialog_setting, load_setting};
 use super::{OutlineOptions, Requested, Show};
 use crate::document::{DocumentEvent, SharedDocument};
 use crate::keys::chord_of;
@@ -847,19 +847,8 @@ impl OutlinePane {
         self.expanded.clear();
         self.selected = None;
         self.rows.clear();
-        let type_index = self
-            .view
-            .upgrade()
-            .map_or(0, |view| view.read(cx).view_settings().type_index);
-        // Sakura's current folder is the folder of the document it opened
-        let base_dir = self
-            .document
-            .read(cx)
-            .path()
-            .and_then(|path| path.parent().map(Path::to_path_buf))
-            .filter(|dir| !dir.as_os_str().is_empty())
-            .or_else(|| std::env::current_dir().ok())
-            .unwrap_or_else(|| PathBuf::from("."));
+        let type_index = self.file_tree_type_index(cx);
+        let base_dir = self.file_tree_base_dir(cx);
         // the file as it is now (another window may have written it), else what was read at start
         let settings_file = crate::history::settings_path(cx);
         let fallback =
@@ -887,6 +876,69 @@ impl OutlinePane {
                 if this.generation == generation {
                     this.finish_file_tree(model, cx);
                 }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// The index of the document type (`m_nDocType`).
+    fn file_tree_type_index(&self, cx: &App) -> usize {
+        self.view
+            .upgrade()
+            .map_or(0, |view| view.read(cx).view_settings().type_index)
+    }
+
+    /// Sakura's current folder is the folder of the document it opened.
+    fn file_tree_base_dir(&self, cx: &App) -> PathBuf {
+        self.document
+            .read(cx)
+            .path()
+            .and_then(|path| path.parent().map(Path::to_path_buf))
+            .filter(|dir| !dir.as_os_str().is_empty())
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_else(|| PathBuf::from("."))
+    }
+
+    /// `IDC_BUTTON_SETTING`: opens the dialog 「ファイルツリー設定」 over the view. The dialog
+    /// starts from the settings file as it is now (`LoadFileTreeSetting`); OK makes the pane read
+    /// the tree again.
+    pub(crate) fn open_file_tree_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.outline_type != OutlineKind::FileTree {
+            return;
+        }
+        let Some(view) = self.view.upgrade() else {
+            return;
+        };
+        let settings_file = crate::history::settings_path(cx);
+        let fallback =
+            crate::doc_types::with_user(cx, |user| user.profile().cloned()).unwrap_or_default();
+        let type_index = self.file_tree_type_index(cx);
+        let base_dir = self.file_tree_base_dir(cx);
+        let meta = crate::file_dialog::Meta::new(cx);
+        let pane = cx.weak_entity();
+        // The lookup (the settings file, the project file above the document) runs in the
+        // background, as the tree's does: a slow folder does not stop the window.
+        cx.spawn_in(window, async move |_, cx| {
+            let (setting, inputs) = cx
+                .background_executor()
+                .spawn(async move {
+                    let profile = settings_file
+                        .and_then(|path| ume_config::Profile::load(&path).ok())
+                        .unwrap_or(fallback);
+                    let inputs = Inputs {
+                        profile,
+                        type_index,
+                        base_dir,
+                        meta: Box::new(meta),
+                    };
+                    (load_dialog_setting(&inputs), inputs)
+                })
+                .await;
+            cx.update(|window, cx| {
+                view.update(cx, |view, cx| {
+                    view.open_file_tree_dialog(setting, inputs, pane, window, cx);
+                });
             })
             .ok();
         })
@@ -1064,6 +1116,15 @@ impl Render for OutlinePane {
                 div()
                     .flex()
                     .gap_1()
+                    // `IDC_BUTTON_SETTING` is shown for the file tree only (`CDlgFuncList::SetData`)
+                    .children((self.outline_type == OutlineKind::FileTree).then(|| {
+                        button("outline-settings", "設定(S)")
+                            // names the button in the tests (nothing in release builds)
+                            .debug_selector(|| "outline-settings".to_owned())
+                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                this.open_file_tree_settings(window, cx);
+                            }))
+                    }))
                     .child(
                         button("outline-update", "更新")
                             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.reload(cx))),

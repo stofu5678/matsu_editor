@@ -8,7 +8,7 @@
 //!   is listed when it is opened, and the window is not stopped by a large folder.
 //!
 //! The pane that shows the tree is [`crate::outline::pane::OutlinePane`]; the settings dialog
-//! (`CDlgFileTree`) comes separately.
+//! (`CDlgFileTree`) is [`crate::outline::file_tree_dialog`].
 
 pub(crate) mod list;
 pub(crate) mod model;

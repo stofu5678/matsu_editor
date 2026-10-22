@@ -318,7 +318,7 @@ fn program_dir() -> Option<PathBuf> {
 }
 
 /// The folder of the settings file (`GetInidir`).
-fn settings_dir(cx: &App) -> Option<PathBuf> {
+pub(crate) fn settings_dir(cx: &App) -> Option<PathBuf> {
     cx.try_global::<UserSettings>()?
         .path()?
         .parent()

@@ -269,3 +269,22 @@ fn the_name_of_the_project_file_has_a_default() {
     let p = profile("[Common]\r\nszFileTreeDefIniName=my.ini\r\n");
     assert_eq!(default_project_ini_name(&p), "my.ini");
 }
+
+#[test]
+fn the_options_alone_leave_the_items_as_they_are() {
+    // `CDlgFileTree::GetData` with a project file: the flag and the file name are written, the
+    // items of the settings are not touched.
+    let mut p = profile(
+        "[Common]\r\nbFileTreeProject=0\r\nnFileTreeItemCount=1\r\nFileTree(0).eItemType=1\r\n\
+         FileTree(0).szTargetPath=a.txt\r\nFileTree(0).nDepth=0\r\n",
+    );
+    let mut tree = FileTree::from_profile(&p, COMMON_SECTION);
+    tree.project = true;
+    tree.project_ini = "def.ini".to_owned();
+    tree.items.clear();
+    tree.write_options_to(&mut p, COMMON_SECTION).unwrap();
+    assert_eq!(p.get("Common", "bFileTreeProject"), Some("1"));
+    assert_eq!(p.get("Common", "szFileTreeProjectIni"), Some("def.ini"));
+    assert_eq!(p.get("Common", "nFileTreeItemCount"), Some("1"));
+    assert_eq!(p.get("Common", "FileTree(0).szTargetPath"), Some("a.txt"));
+}

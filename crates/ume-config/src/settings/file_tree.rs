@@ -287,11 +287,22 @@ impl FileTree {
         tree
     }
 
+    /// Only the first two lines of `ShareData_IO_FileTree`: `bFileTreeProject` and
+    /// `szFileTreeProjectIni`. The settings dialog writes just these when the items it shows come
+    /// from a project file (`CDlgFileTree::GetData` leaves `m_nItemCount` and the items alone).
+    pub fn write_options_to(
+        &self,
+        profile: &mut Profile,
+        section: &str,
+    ) -> Result<(), ProfileError> {
+        profile.set_bool(section, KEY_PROJECT, self.project)?;
+        profile.set_string(section, KEY_PROJECT_INI, &self.project_ini)
+    }
+
     /// `ShareData_IO_FileTree`, writing `section`. Items past [`MAX_ITEMS`] are not written. The
     /// keys of items that are no longer there are removed.
     pub fn write_to(&self, profile: &mut Profile, section: &str) -> Result<(), ProfileError> {
-        profile.set_bool(section, KEY_PROJECT, self.project)?;
-        profile.set_string(section, KEY_PROJECT_INI, &self.project_ini)?;
+        self.write_options_to(profile, section)?;
         let items = &self.items[..self.items.len().min(MAX_ITEMS)];
         let count = i32::try_from(items.len()).unwrap_or(i32::MAX);
         profile.set_i32(section, KEY_COUNT, count)?;
