@@ -35,11 +35,11 @@ fn sync_with_fallback(
 /// values on Apple targets (checked against `libc` by a test there).
 ///
 /// * `ENOTTY` (25): measured on virtiofs; the usual answer of `fcntl`/`ioctl` to an unknown command.
-/// * `ENOTSUP` (45, the same as `EOPNOTSUPP`): the file system says it cannot.
+/// * `ENOTSUP` (45) and `EOPNOTSUPP` (102): the file system says it cannot. They differ on Apple.
 /// * `EINVAL` (22): some file systems reject an unknown `fcntl` command this way.
 #[cfg_attr(not(target_vendor = "apple"), allow(dead_code))]
 fn is_full_sync_unsupported(err: &io::Error) -> bool {
-    matches!(err.raw_os_error(), Some(25 | 45 | 22))
+    matches!(err.raw_os_error(), Some(25 | 45 | 102 | 22))
 }
 
 #[cfg(target_vendor = "apple")]
@@ -83,7 +83,7 @@ mod tests {
 
     #[test]
     fn unsupported_errors_fall_back_to_plain_fsync() {
-        for errno in [25, 45, 22] {
+        for errno in [25, 45, 102, 22] {
             let (result, plain_called) = run(Some(errno));
             assert!(result.is_ok(), "errno {errno}");
             assert!(plain_called, "errno {errno}");
@@ -130,7 +130,7 @@ mod tests {
     fn the_numbers_are_the_libc_constants() {
         assert_eq!(libc::ENOTTY, 25);
         assert_eq!(libc::ENOTSUP, 45);
-        assert_eq!(libc::EOPNOTSUPP, 45);
+        assert_eq!(libc::EOPNOTSUPP, 102);
         assert_eq!(libc::EINVAL, 22);
     }
 }
