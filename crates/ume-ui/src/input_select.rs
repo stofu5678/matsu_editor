@@ -10,23 +10,56 @@
 //! into as well. Sakura uses the stock dialogs, so every edit of its dialogs behaves so; the
 //! coordinator saw it on Sakura (the path of the file tree dialog, 2026-10-22).
 //!
-//! One place does it for every dialog: [`input_field`] makes a field that selects all
-//! when it gets the focus while the last input was a key (GPUI's input modality, set before the
-//! handlers of the event run). Tab and the access keys are keys; a click is not. A dialog that
+//! One place does it for every dialog: [`input_field`] makes a field that selects all when it
+//! gets the focus right after Tab, Shift+Tab or an access key (Alt with a letter or a digit),
+//! not after a click and not when a menu or a popup gives the focus back (Esc). A dialog that
 //! opens with its first field focused calls [`focus_selecting`], because the menu item or the
 //! button that opened it may have been clicked.
 
 use std::cell::Cell;
 use std::rc::Rc;
 
-use gpui::{App, Context, Entity, Focusable as _, Window};
+use gpui::{App, Context, Entity, Focusable as _, Global, Keystroke, Window};
 use gpui_component::input::InputState;
 
-/// A single-line field that selects all of its text when the keyboard moves the focus into it.
-/// Use it instead of `InputState::new` for every field of a dialog:
+/// Was the last key one that moves through a dialog: Tab, Shift+Tab, or Alt with a letter or a
+/// digit (an access key)? Kept by one keystroke interceptor for the whole application.
+#[derive(Default)]
+struct NavigationKey(bool);
+
+impl Global for NavigationKey {}
+
+/// Is the keystroke Tab or Shift+Tab, or Alt with one character (an access key)? Escape and the
+/// like are not: a focus that comes back when a menu or a popup closes keeps the text as it was.
+fn moves_through_a_dialog(keystroke: &Keystroke) -> bool {
+    let modifiers = keystroke.modifiers;
+    if modifiers.control || modifiers.platform {
+        return false;
+    }
+    if modifiers.alt {
+        return keystroke.key.chars().count() == 1;
+    }
+    keystroke.key == "tab"
+}
+
+/// Starts remembering the last key (once per application).
+fn watch_navigation_keys(cx: &mut App) {
+    if cx.has_global::<NavigationKey>() {
+        return;
+    }
+    cx.set_global(NavigationKey::default());
+    cx.intercept_keystrokes(|event, _, cx| {
+        cx.global_mut::<NavigationKey>().0 = moves_through_a_dialog(&event.keystroke);
+    })
+    .detach();
+}
+
+/// A single-line field that selects all of its text when Tab, Shift+Tab or an access key moves
+/// the focus into it. Use it instead of `InputState::new` for every field of a dialog:
 /// `cx.new(|cx| input_field(window, cx).placeholder("..."))`. The listener goes away with the
 /// field.
 pub(crate) fn input_field(window: &mut Window, cx: &mut Context<InputState>) -> InputState {
+    watch_navigation_keys(cx);
     let state = InputState::new(window, cx);
     let handle = state.focus_handle(cx);
     // The window gets back the focus it lost with its activation (Alt+Tab from another program):
@@ -41,7 +74,7 @@ pub(crate) fn input_field(window: &mut Window, cx: &mut Context<InputState>) -> 
         if lost_with_the_window.take() {
             return;
         }
-        if window.last_input_was_keyboard() {
+        if window.last_input_was_keyboard() && cx.global::<NavigationKey>().0 {
             state.select_all(window, cx);
         }
     })
@@ -78,13 +111,16 @@ mod tests {
         fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
             div()
                 .size_full()
-                .capture_key_down(cx.listener(|_, event: &KeyDownEvent, window, cx| {
-                    match (
-                        event.keystroke.key.as_str(),
-                        event.keystroke.modifiers.shift,
-                    ) {
+                .capture_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                    let keystroke = &event.keystroke;
+                    match (keystroke.key.as_str(), keystroke.modifiers.shift) {
                         ("tab", false) => window.focus_next(cx),
                         ("tab", true) => window.focus_prev(cx),
+                        // an access key and a focus that comes back when a popup closes
+                        ("s", _) if keystroke.modifiers.alt => {
+                            this.second.update(cx, |s, cx| s.focus(window, cx))
+                        }
+                        ("escape", _) => this.first.update(cx, |s, cx| s.focus(window, cx)),
                         _ => return,
                     }
                     cx.stop_propagation();
@@ -165,6 +201,27 @@ mod tests {
         keys.simulate_keystrokes("shift-tab");
         draw(keys);
         assert_eq!(selected(&fields, false, keys), "alpha");
+    }
+
+    #[gpui::test]
+    fn an_access_key_selects_but_a_focus_that_comes_back_after_escape_does_not(
+        cx: &mut TestAppContext,
+    ) {
+        let (fields, keys) = fields(cx);
+        focus(&fields, false, keys);
+        keys.simulate_keystrokes("alt-s");
+        draw(keys);
+        assert_eq!(selected(&fields, true, keys), "日本語のテキスト");
+        // the caret was somewhere in the text; a menu closes with Escape and gives the focus back
+        let second = fields.read_with(keys, |f, _| f.second.clone());
+        keys.update(|_, cx| second.update(cx, |s, cx| s.set_selected_range(2..2, cx)));
+        keys.simulate_keystrokes("escape");
+        draw(keys);
+        assert_eq!(
+            selected(&fields, false, keys),
+            "",
+            "the caret of the first field stays"
+        );
     }
 
     #[gpui::test]
