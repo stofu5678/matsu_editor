@@ -507,6 +507,13 @@ impl SharedDocument {
     }
 }
 
+// The bytes of line text that the loop below has read (tests only), to see that it does not
+// read a growing joined line again and again.
+#[cfg(test)]
+thread_local! {
+    static LINE_BYTES_READ: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// The loop of [`SharedDocument::unify_line_endings`], on the model.
 fn unify_line_endings(model: &mut DocumentModel, eol: Eol, cursor: &Cursor) -> Option<bool> {
     model.set_new_line(eol);
@@ -543,6 +550,8 @@ fn unify_line_endings(model: &mut DocumentModel, eol: Eol, cursor: &Cursor) -> O
             line = step(at);
             continue;
         };
+        #[cfg(test)]
+        LINE_BYTES_READ.with(|n| n.set(n.get() + current.text.len()));
         if current.eol.is_none_or(|e| e == eol) {
             line = step(at);
             continue;
@@ -556,7 +565,9 @@ fn unify_line_endings(model: &mut DocumentModel, eol: Eol, cursor: &Cursor) -> O
             failed = true;
             break;
         }
-        if model.doc().line_count() == before {
+        // From the end the joined line has been converted already; from the front a join leaves
+        // the next ending on the same line.
+        if backwards || model.doc().line_count() == before {
             line = step(at);
         }
     }
@@ -654,5 +665,24 @@ mod tests {
         );
         assert_eq!(model.doc().line_count(), 4);
         assert_eq!(model.bookmarks().iter().collect::<Vec<_>>(), [2]);
+    }
+
+    #[test]
+    fn unifying_to_an_ending_that_is_no_break_reads_each_line_once() {
+        // Counted in bytes read, not in time: a loop that read the joined line again after every
+        // join would read about lines^2 / 2 bytes.
+        let lines = 3000;
+        let text = "abc\r\n".repeat(lines);
+        let mut model = DocumentModel::new(Document::from_utf8(text.into_bytes()).unwrap());
+        LINE_BYTES_READ.with(|n| n.set(0));
+        assert_eq!(
+            unify_line_endings(&mut model, Eol::Ls, &Cursor::default()),
+            Some(true)
+        );
+        let read = LINE_BYTES_READ.with(|n| n.get());
+        assert!(read <= 4 * lines * 3 + 100, "{read} bytes read");
+        assert_eq!(model.doc().line_count(), 1);
+        let line = model.doc().line(0).unwrap().unwrap();
+        assert_eq!(line.text, "abc\u{2028}".repeat(lines));
     }
 }
