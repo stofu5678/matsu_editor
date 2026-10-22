@@ -385,20 +385,21 @@ impl CustomMenus {
                 &menu.items.len().to_string(),
             )?;
             for (j, item) in menu.items.iter().enumerate() {
-                if before.and_then(|b| b.items.get(j)) == Some(item)
-                    && (!materialize
-                        || profile
-                            .get(SECTION, &format!("nCMIF[{i:02}][{j:02}]"))
-                            .is_some())
-                {
-                    continue;
+                let function_key = format!("nCMIF[{i:02}][{j:02}]");
+                let access_key = format!("nCMIK[{i:02}][{j:02}]");
+                let changed = before.and_then(|b| b.items.get(j)) != Some(item);
+                // An unchanged item keeps what the file has, except the parts it does not have when the
+                // count is being added (see `materialize`).
+                if changed || (materialize && profile.get(SECTION, &function_key).is_none()) {
+                    let function = name_of
+                        .and_then(|name_of| name_of(item.function))
+                        .unwrap_or_else(|| item.function.to_string());
+                    profile.set(SECTION, &function_key, &function)?;
                 }
-                let function = name_of
-                    .and_then(|name_of| name_of(item.function))
-                    .unwrap_or_else(|| item.function.to_string());
-                profile.set(SECTION, &format!("nCMIF[{i:02}][{j:02}]"), &function)?;
-                let key = item.key.map(String::from).unwrap_or_default();
-                profile.set(SECTION, &format!("nCMIK[{i:02}][{j:02}]"), &key)?;
+                if changed || (materialize && profile.get(SECTION, &access_key).is_none()) {
+                    let key = item.key.map(String::from).unwrap_or_default();
+                    profile.set(SECTION, &access_key, &key)?;
+                }
             }
             for j in menu.items.len()..MAX_CUSTOM_MENU_ITEMS {
                 profile.remove(SECTION, &format!("nCMIF[{i:02}][{j:02}]"));
@@ -591,6 +592,16 @@ mod tests {
             .write_to_profile(&mut sparse, None, Some(&before))
             .unwrap();
         assert_eq!(sparse.get(SECTION, "nCMIF[00][01]"), Some("SomePlugin"));
+        // A function without its access key gets the key it read as the default.
+        let mut keyless = Profile::from_bytes(b"[CustMenu]\nnCMIF[00][09]=32700\n");
+        let before = CustomMenus::from_profile(&keyless, &names);
+        let mut menus = before.menus().to_vec();
+        menus[0].name = "Mine".to_owned();
+        let after = CustomMenus::from_menus(menus);
+        after
+            .write_to_profile(&mut keyless, None, Some(&before))
+            .unwrap();
+        assert_eq!(CustomMenus::from_profile(&keyless, &names), after);
         assert_eq!(sparse.get_i32(SECTION, "nCMIN[00]"), Some(32));
     }
 
