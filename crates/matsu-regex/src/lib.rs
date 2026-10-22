@@ -39,7 +39,7 @@
 //!   under the GPL or the Artistic License.
 //! * [`RegexReplacer`] replaces in a `Document` (one match, the next one, all) with it.
 //!
-//! [ADR-0006]: https://github.com/stofu5678/ume_editor/blob/main/docs/adr/0006-regex-engine.md
+//! [ADR-0006]: https://github.com/stofu5678/matsu_editor/blob/main/docs/adr/0006-regex-engine.md
 
 mod ffi;
 mod matcher;

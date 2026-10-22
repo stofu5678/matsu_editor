@@ -96,7 +96,7 @@ fn captures_report_each_group() {
     let _limits = read_lock();
     let re = compile(r"(\w+)@(\w+)(\.com)?");
     assert_eq!(re.capture_count(), 3);
-    let caps = re.captures_at("to: matsu@sakura now", 0).unwrap().unwrap();
+    let caps = re.captures_at("to: bob@sakura now", 0).unwrap().unwrap();
     assert_eq!(caps.len(), 4);
     assert!(!caps.is_empty());
     assert_eq!(caps.whole(), 4..14);

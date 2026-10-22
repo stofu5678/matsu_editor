@@ -16,8 +16,8 @@
 //! `dialog::windows`, `dialog::mac`, `font_dialog::windows`, `folders::windows`, `help::windows` and
 //! `exec::unix` only.
 //!
-//! [ADR-0011]: https://github.com/stofu5678/ume_editor/blob/main/docs/adr/0011-printing.md
-//! [ADR-0013]: https://github.com/stofu5678/ume_editor/blob/main/docs/adr/0013-module-structure.md
+//! [ADR-0011]: https://github.com/stofu5678/matsu_editor/blob/main/docs/adr/0011-printing.md
+//! [ADR-0013]: https://github.com/stofu5678/matsu_editor/blob/main/docs/adr/0013-module-structure.md
 
 pub mod clipboard_html;
 pub mod dialog;

@@ -42,10 +42,6 @@ const ALLOWED: &[(&str, &str)] = &[
     ),
 ];
 
-/// The GitHub address of the repository. The repository is renamed right after the rename PR is merged, and
-/// a follow-up PR changes these (ADR-0021, steps 3 and 4); until then they are the real address.
-const OLD_REPOSITORY_URL: &str = "stofu5678/ume_editor";
-
 /// Folders that are not part of the repository's own text.
 const SKIPPED_DIRS: &[&str] = &[".git", "target", ".claude", "vendor", "node_modules"];
 
@@ -75,7 +71,6 @@ fn files_under(dir: &Path, out: &mut Vec<PathBuf>) {
 
 /// The places in `text` where the old name is, as (line number, line).
 fn hits(text: &str) -> Vec<(usize, String)> {
-    let text = text.replace(OLD_REPOSITORY_URL, "");
     let word = ["ume", "UME", "Ume"];
     let mut found = Vec::new();
     for (i, line) in text.lines().enumerate() {
@@ -149,7 +144,7 @@ fn the_guard_sees_the_old_name_and_not_longer_words() {
     assert_eq!(hits("document resume assume numeric UMEDIA").len(), 0);
     assert_eq!(
         hits("see https://github.com/stofu5678/ume_editor/blob/main/x").len(),
-        0
+        1
     );
 }
 

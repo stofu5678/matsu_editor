@@ -58,7 +58,7 @@
 //! The scroll position, TSV/CSV mode (`TSV_MODE_*`), the character spacing (`m_nSpacing`) and the
 //! colouring. A line ending is the flag `has_eol`; the text of a line never holds it.
 //!
-//! [ADR-0013]: https://github.com/stofu5678/ume_editor/blob/main/docs/adr/0013-module-structure.md
+//! [ADR-0013]: https://github.com/stofu5678/matsu_editor/blob/main/docs/adr/0013-module-structure.md
 
 mod config;
 pub mod document;

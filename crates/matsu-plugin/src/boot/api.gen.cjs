@@ -883,8 +883,8 @@ module.exports = function install(call) {
     /**
      * FileOpen(arg1: string?, arg2: int?, arg3: int?, arg4: string?) -> null
      *
-     * MATSU Editor's own F_FILEOPEN2 (not in Sakura). Runs the command that a key, the menu and a
-     * key macro run.
+     * MATSU Editor's own F_FILEOPEN2 (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
      */
     FileOpen(arg1, arg2, arg3, arg4) {
       // A trailing undefined is a missing argument, not a null.
@@ -1933,8 +1933,8 @@ module.exports = function install(call) {
     /**
      * MoveCursorLayout(arg1: int?, arg2: int?, arg3: int?) -> null
      *
-     * MATSU Editor's own F_MOVECURSORLAYOUT (not in Sakura). Runs the command that a key, the menu
-     * and a key macro run.
+     * MATSU Editor's own F_MOVECURSORLAYOUT (not in Sakura). Runs the command that a key, the
+     * menu and a key macro run.
      */
     MoveCursorLayout(arg1, arg2, arg3) {
       // A trailing undefined is a missing argument, not a null.
@@ -2684,8 +2684,8 @@ module.exports = function install(call) {
     /**
      * InsBoxText(arg1: string?) -> null
      *
-     * MATSU Editor's own F_INSBOXTEXT (not in Sakura). Runs the command that a key, the menu and a
-     * key macro run.
+     * MATSU Editor's own F_INSBOXTEXT (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
      */
     InsBoxText(arg1) {
       // A trailing undefined is a missing argument, not a null.
@@ -3658,8 +3658,8 @@ module.exports = function install(call) {
     /**
      * ChgmodEOL(arg1: int?) -> null
      *
-     * MATSU Editor's own F_CHGMOD_EOL (not in Sakura). Runs the command that a key, the menu and a
-     * key macro run.
+     * MATSU Editor's own F_CHGMOD_EOL (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
      */
     ChgmodEOL(arg1) {
       // A trailing undefined is a missing argument, not a null.
@@ -3774,8 +3774,8 @@ module.exports = function install(call) {
     /**
      * ChangeType(arg1: int?) -> null
      *
-     * MATSU Editor's own F_CHANGETYPE (not in Sakura). Runs the command that a key, the menu and a
-     * key macro run.
+     * MATSU Editor's own F_CHANGETYPE (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
      */
     ChangeType(arg1) {
       // A trailing undefined is a missing argument, not a null.
@@ -3864,8 +3864,8 @@ module.exports = function install(call) {
     /**
      * SetMsgQuoteStr(arg1: string?) -> null
      *
-     * MATSU Editor's own F_SET_QUOTESTRING (not in Sakura). Runs the command that a key, the menu
-     * and a key macro run.
+     * MATSU Editor's own F_SET_QUOTESTRING (not in Sakura). Runs the command that a key, the
+     * menu and a key macro run.
      */
     SetMsgQuoteStr(arg1) {
       // A trailing undefined is a missing argument, not a null.
@@ -4291,8 +4291,8 @@ module.exports = function install(call) {
     /**
      * WinMaximize() -> null
      *
-     * MATSU Editor's own F_WINMAXIMIZE (not in Sakura). Runs the command that a key, the menu and
-     * a key macro run.
+     * MATSU Editor's own F_WINMAXIMIZE (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
      */
     WinMaximize() {
       // A trailing undefined is a missing argument, not a null.
@@ -4303,8 +4303,8 @@ module.exports = function install(call) {
     /**
      * WinMinimize() -> null
      *
-     * MATSU Editor's own F_WINMINIMIZE (not in Sakura). Runs the command that a key, the menu and
-     * a key macro run.
+     * MATSU Editor's own F_WINMINIMIZE (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
      */
     WinMinimize() {
       // A trailing undefined is a missing argument, not a null.
@@ -4315,8 +4315,8 @@ module.exports = function install(call) {
     /**
      * WinRestore() -> null
      *
-     * MATSU Editor's own F_WINRESTORE (not in Sakura). Runs the command that a key, the menu and a
-     * key macro run.
+     * MATSU Editor's own F_WINRESTORE (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
      */
     WinRestore() {
       // A trailing undefined is a missing argument, not a null.
@@ -4768,8 +4768,8 @@ module.exports = function install(call) {
     /**
      * StatusMsg(arg1: string?, arg2: int?) -> null
      *
-     * MATSU Editor's own F_STATUSMSG (not in Sakura). Runs the command that a key, the menu and a
-     * key macro run.
+     * MATSU Editor's own F_STATUSMSG (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
      */
     StatusMsg(arg1, arg2) {
       // A trailing undefined is a missing argument, not a null.
@@ -4792,8 +4792,8 @@ module.exports = function install(call) {
     /**
      * CommitUndoBuffer() -> null
      *
-     * MATSU Editor's own F_COMMITUNDOBUFFER (not in Sakura). Runs the command that a key, the menu
-     * and a key macro run.
+     * MATSU Editor's own F_COMMITUNDOBUFFER (not in Sakura). Runs the command that a key, the
+     * menu and a key macro run.
      */
     CommitUndoBuffer() {
       // A trailing undefined is a missing argument, not a null.
@@ -4804,8 +4804,8 @@ module.exports = function install(call) {
     /**
      * AddRefUndoBuffer() -> null
      *
-     * MATSU Editor's own F_ADDREFUNDOBUFFER (not in Sakura). Runs the command that a key, the menu
-     * and a key macro run.
+     * MATSU Editor's own F_ADDREFUNDOBUFFER (not in Sakura). Runs the command that a key, the
+     * menu and a key macro run.
      */
     AddRefUndoBuffer() {
       // A trailing undefined is a missing argument, not a null.
@@ -4852,8 +4852,8 @@ module.exports = function install(call) {
     /**
      * SetViewTop(arg1: int?) -> null
      *
-     * MATSU Editor's own F_SETVIEWTOP (not in Sakura). Runs the command that a key, the menu and a
-     * key macro run.
+     * MATSU Editor's own F_SETVIEWTOP (not in Sakura). Runs the command that a key, the menu and
+     * a key macro run.
      */
     SetViewTop(arg1) {
       // A trailing undefined is a missing argument, not a null.
@@ -4864,8 +4864,8 @@ module.exports = function install(call) {
     /**
      * SetViewLeft(arg1: int?) -> null
      *
-     * MATSU Editor's own F_SETVIEWLEFT (not in Sakura). Runs the command that a key, the menu and
-     * a key macro run.
+     * MATSU Editor's own F_SETVIEWLEFT (not in Sakura). Runs the command that a key, the menu
+     * and a key macro run.
      */
     SetViewLeft(arg1) {
       // A trailing undefined is a missing argument, not a null.

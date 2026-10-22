@@ -295,7 +295,7 @@ mod tests {
 
     #[test]
     fn the_urls_are_the_documents_of_the_project() {
-        assert!(CONTENTS_URL.starts_with("https://github.com/stofu5678/ume_editor/"));
+        assert!(CONTENTS_URL.starts_with("https://github.com/stofu5678/matsu_editor/"));
         assert!(CONTENTS_URL.ends_with("/docs"));
         assert!(INDEX_URL.ends_with("/docs/adr/README.md"));
     }

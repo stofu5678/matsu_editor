@@ -1318,8 +1318,8 @@ def install(call):
             return call("PasteBox", _pack(arg1))
 
         def InsBoxText(self, arg1: str = _UNSET) -> None:
-            """MATSU Editor's own F_INSBOXTEXT (not in Sakura). Runs the command that a key, the
-            menu and a key macro run."""
+            """MATSU Editor's own F_INSBOXTEXT (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
             return call("InsBoxText", _pack(arg1))
 
         def CopyLines(self) -> None:
@@ -1818,8 +1818,8 @@ def install(call):
             return call("ChgCharSet", _pack(arg1, arg2))
 
         def ChgmodEOL(self, arg1: int = _UNSET) -> None:
-            """MATSU Editor's own F_CHGMOD_EOL (not in Sakura). Runs the command that a key, the
-            menu and a key macro run."""
+            """MATSU Editor's own F_CHGMOD_EOL (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
             return call("ChgmodEOL", _pack(arg1))
 
         def CancelMode(self) -> None:
@@ -1877,8 +1877,8 @@ def install(call):
             return call("TypeList", _pack())
 
         def ChangeType(self, arg1: int = _UNSET) -> None:
-            """MATSU Editor's own F_CHANGETYPE (not in Sakura). Runs the command that a key, the
-            menu and a key macro run."""
+            """MATSU Editor's own F_CHANGETYPE (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
             return call("ChangeType", _pack(arg1))
 
         def OptionType(self) -> None:
@@ -1921,13 +1921,13 @@ def install(call):
             return call("OptionFavorite", _pack())
 
         def SetMsgQuoteStr(self, arg1: str = _UNSET) -> None:
-            """MATSU Editor's own F_SET_QUOTESTRING (not in Sakura). Runs the command that a key,
-            the menu and a key macro run."""
+            """MATSU Editor's own F_SET_QUOTESTRING (not in Sakura). Runs the command that a
+            key, the menu and a key macro run."""
             return call("SetMsgQuoteStr", _pack(arg1))
 
         def TextWrapMethod(self, arg1: int = _UNSET) -> None:
-            """MATSU Editor's own F_TEXTWRAPMETHOD (not in Sakura). Runs the command that a key,
-            the menu and a key macro run."""
+            """MATSU Editor's own F_TEXTWRAPMETHOD (not in Sakura). Runs the command that a
+            key, the menu and a key macro run."""
             return call("TextWrapMethod", _pack(arg1))
 
         def SelectCountMode(self, arg1: int = _UNSET) -> None:
@@ -2144,18 +2144,18 @@ def install(call):
             return call("SplitWinVH", _pack())
 
         def WinMaximize(self) -> None:
-            """MATSU Editor's own F_WINMAXIMIZE (not in Sakura). Runs the command that a key, the
-            menu and a key macro run."""
+            """MATSU Editor's own F_WINMAXIMIZE (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
             return call("WinMaximize", _pack())
 
         def WinMinimize(self) -> None:
-            """MATSU Editor's own F_WINMINIMIZE (not in Sakura). Runs the command that a key, the
-            menu and a key macro run."""
+            """MATSU Editor's own F_WINMINIMIZE (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
             return call("WinMinimize", _pack())
 
         def WinRestore(self) -> None:
-            """MATSU Editor's own F_WINRESTORE (not in Sakura). Runs the command that a key, the
-            menu and a key macro run."""
+            """MATSU Editor's own F_WINRESTORE (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
             return call("WinRestore", _pack())
 
         def WinClose(self) -> None:
@@ -2408,23 +2408,23 @@ def install(call):
             return call("SetUndoBuffer", _pack())
 
         def AppendUndoBufferCursor(self) -> None:
-            """MATSU Editor's own F_APPENDUNDOBUFFERCURSOR (not in Sakura). Runs the command that
-            a key, the menu and a key macro run."""
+            """MATSU Editor's own F_APPENDUNDOBUFFERCURSOR (not in Sakura). Runs the command
+            that a key, the menu and a key macro run."""
             return call("AppendUndoBufferCursor", _pack())
 
         def ClipboardEmpty(self) -> None:
-            """MATSU Editor's own F_CLIPBOARDEMPTY (not in Sakura). Runs the command that a key,
-            the menu and a key macro run."""
+            """MATSU Editor's own F_CLIPBOARDEMPTY (not in Sakura). Runs the command that a
+            key, the menu and a key macro run."""
             return call("ClipboardEmpty", _pack())
 
         def SetViewTop(self, arg1: int = _UNSET) -> None:
-            """MATSU Editor's own F_SETVIEWTOP (not in Sakura). Runs the command that a key, the
-            menu and a key macro run."""
+            """MATSU Editor's own F_SETVIEWTOP (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
             return call("SetViewTop", _pack(arg1))
 
         def SetViewLeft(self, arg1: int = _UNSET) -> None:
-            """MATSU Editor's own F_SETVIEWLEFT (not in Sakura). Runs the command that a key, the
-            menu and a key macro run."""
+            """MATSU Editor's own F_SETVIEWLEFT (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
             return call("SetViewLeft", _pack(arg1))
 
     def _fallback(self, name):

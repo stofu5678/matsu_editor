@@ -17,7 +17,7 @@
 //! No call waits for long: a receiver that does not answer costs the sender [`Timeouts::reply`],
 //! and then the sender runs on its own.
 //!
-//! [ADR-0016]: https://github.com/stofu5678/ume_editor/blob/main/docs/adr/0016-single-instance.md
+//! [ADR-0016]: https://github.com/stofu5678/matsu_editor/blob/main/docs/adr/0016-single-instance.md
 
 mod request;
 #[cfg(test)]

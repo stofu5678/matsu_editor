@@ -18,7 +18,7 @@
 //! starts with `-` can be opened; it is kept in the arguments that are handed over, because the
 //! receiver reads them again.
 //!
-//! [ADR-0016]: https://github.com/stofu5678/ume_editor/blob/main/docs/adr/0016-single-instance.md
+//! [ADR-0016]: https://github.com/stofu5678/matsu_editor/blob/main/docs/adr/0016-single-instance.md
 
 use std::ffi::OsString;
 use std::path::PathBuf;

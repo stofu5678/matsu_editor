@@ -603,8 +603,8 @@ module MatsuEditorApi
 
     # FileOpen(arg1: string?, arg2: int?, arg3: int?, arg4: string?) -> null
     #
-    # MATSU Editor's own F_FILEOPEN2 (not in Sakura). Runs the command that a key, the menu and a
-    # key macro run.
+    # MATSU Editor's own F_FILEOPEN2 (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
     def FileOpen(arg1 = UNSET, arg2 = UNSET, arg3 = UNSET, arg4 = UNSET)
       @call.call('FileOpen', _pack(arg1, arg2, arg3, arg4))
     end
@@ -1329,8 +1329,8 @@ module MatsuEditorApi
 
     # MoveCursorLayout(arg1: int?, arg2: int?, arg3: int?) -> null
     #
-    # MATSU Editor's own F_MOVECURSORLAYOUT (not in Sakura). Runs the command that a key, the menu
-    # and a key macro run.
+    # MATSU Editor's own F_MOVECURSORLAYOUT (not in Sakura). Runs the command that a key, the
+    # menu and a key macro run.
     def MoveCursorLayout(arg1 = UNSET, arg2 = UNSET, arg3 = UNSET)
       @call.call('MoveCursorLayout', _pack(arg1, arg2, arg3))
     end
@@ -1848,8 +1848,8 @@ module MatsuEditorApi
 
     # InsBoxText(arg1: string?) -> null
     #
-    # MATSU Editor's own F_INSBOXTEXT (not in Sakura). Runs the command that a key, the menu and a
-    # key macro run.
+    # MATSU Editor's own F_INSBOXTEXT (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
     def InsBoxText(arg1 = UNSET)
       @call.call('InsBoxText', _pack(arg1))
     end
@@ -2522,8 +2522,8 @@ module MatsuEditorApi
 
     # ChgmodEOL(arg1: int?) -> null
     #
-    # MATSU Editor's own F_CHGMOD_EOL (not in Sakura). Runs the command that a key, the menu and a
-    # key macro run.
+    # MATSU Editor's own F_CHGMOD_EOL (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
     def ChgmodEOL(arg1 = UNSET)
       @call.call('ChgmodEOL', _pack(arg1))
     end
@@ -2602,8 +2602,8 @@ module MatsuEditorApi
 
     # ChangeType(arg1: int?) -> null
     #
-    # MATSU Editor's own F_CHANGETYPE (not in Sakura). Runs the command that a key, the menu and a
-    # key macro run.
+    # MATSU Editor's own F_CHANGETYPE (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
     def ChangeType(arg1 = UNSET)
       @call.call('ChangeType', _pack(arg1))
     end
@@ -2664,8 +2664,8 @@ module MatsuEditorApi
 
     # SetMsgQuoteStr(arg1: string?) -> null
     #
-    # MATSU Editor's own F_SET_QUOTESTRING (not in Sakura). Runs the command that a key, the menu
-    # and a key macro run.
+    # MATSU Editor's own F_SET_QUOTESTRING (not in Sakura). Runs the command that a key, the
+    # menu and a key macro run.
     def SetMsgQuoteStr(arg1 = UNSET)
       @call.call('SetMsgQuoteStr', _pack(arg1))
     end
@@ -2959,24 +2959,24 @@ module MatsuEditorApi
 
     # WinMaximize() -> null
     #
-    # MATSU Editor's own F_WINMAXIMIZE (not in Sakura). Runs the command that a key, the menu and
-    # a key macro run.
+    # MATSU Editor's own F_WINMAXIMIZE (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
     def WinMaximize
       @call.call('WinMaximize', _pack())
     end
 
     # WinMinimize() -> null
     #
-    # MATSU Editor's own F_WINMINIMIZE (not in Sakura). Runs the command that a key, the menu and
-    # a key macro run.
+    # MATSU Editor's own F_WINMINIMIZE (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
     def WinMinimize
       @call.call('WinMinimize', _pack())
     end
 
     # WinRestore() -> null
     #
-    # MATSU Editor's own F_WINRESTORE (not in Sakura). Runs the command that a key, the menu and a
-    # key macro run.
+    # MATSU Editor's own F_WINRESTORE (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
     def WinRestore
       @call.call('WinRestore', _pack())
     end
@@ -3288,8 +3288,8 @@ module MatsuEditorApi
 
     # StatusMsg(arg1: string?, arg2: int?) -> null
     #
-    # MATSU Editor's own F_STATUSMSG (not in Sakura). Runs the command that a key, the menu and a
-    # key macro run.
+    # MATSU Editor's own F_STATUSMSG (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
     def StatusMsg(arg1 = UNSET, arg2 = UNSET)
       @call.call('StatusMsg', _pack(arg1, arg2))
     end
@@ -3304,16 +3304,16 @@ module MatsuEditorApi
 
     # CommitUndoBuffer() -> null
     #
-    # MATSU Editor's own F_COMMITUNDOBUFFER (not in Sakura). Runs the command that a key, the menu
-    # and a key macro run.
+    # MATSU Editor's own F_COMMITUNDOBUFFER (not in Sakura). Runs the command that a key, the
+    # menu and a key macro run.
     def CommitUndoBuffer
       @call.call('CommitUndoBuffer', _pack())
     end
 
     # AddRefUndoBuffer() -> null
     #
-    # MATSU Editor's own F_ADDREFUNDOBUFFER (not in Sakura). Runs the command that a key, the menu
-    # and a key macro run.
+    # MATSU Editor's own F_ADDREFUNDOBUFFER (not in Sakura). Runs the command that a key, the
+    # menu and a key macro run.
     def AddRefUndoBuffer
       @call.call('AddRefUndoBuffer', _pack())
     end
@@ -3344,16 +3344,16 @@ module MatsuEditorApi
 
     # SetViewTop(arg1: int?) -> null
     #
-    # MATSU Editor's own F_SETVIEWTOP (not in Sakura). Runs the command that a key, the menu and a
-    # key macro run.
+    # MATSU Editor's own F_SETVIEWTOP (not in Sakura). Runs the command that a key, the menu and
+    # a key macro run.
     def SetViewTop(arg1 = UNSET)
       @call.call('SetViewTop', _pack(arg1))
     end
 
     # SetViewLeft(arg1: int?) -> null
     #
-    # MATSU Editor's own F_SETVIEWLEFT (not in Sakura). Runs the command that a key, the menu and
-    # a key macro run.
+    # MATSU Editor's own F_SETVIEWLEFT (not in Sakura). Runs the command that a key, the menu
+    # and a key macro run.
     def SetViewLeft(arg1 = UNSET)
       @call.call('SetViewLeft', _pack(arg1))
     end

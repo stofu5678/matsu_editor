@@ -40,7 +40,7 @@
 
 - [x] 決定事項の記録（docs/adr/）
 - [x] ライセンス、README、CLAUDE.md
-- [x] GitHub リポジトリを作る（https://github.com/stofu5678/ume_editor 、公開）
+- [x] GitHub リポジトリを作る（https://github.com/stofu5678/matsu_editor 、公開）
 - [x] Onigmo の取り込み元を決める（当面は上流をそのまま使い、改修が要るときに fork する。2026-10-11、ユーザー。[ADR-0006](adr/0006-regex-engine.md)）
 - [x] UI を試作し、ADR-0004 を確定する（2026-10-11 に GPUI で決定。まず Windows ARM64 で行う。[ADR-0009](adr/0009-initial-development-target.md)、[試作の手順](poc/ui-framework.md)）
   - GPUI の試作（[poc/gpui-textview](../poc/gpui-textview/README.md)、[結果](poc/ui-framework-result.md)）が Windows ARM64・x64、Mac、Linux（WSLg）で動いた。文字を書き込むたびにメモリが 4 MB 増える問題は Qualcomm Adreno のドライバーだけで起き、NVIDIA と Mac では起きなかった。Mac 対応を入れた後のコードも、2026-10-11 に印刷の試作で Windows ARM64 でビルドして動かした。実機の Linux での確認は、ユーザーが Phase 0 の条件から外した（2026-10-11）。Wayland での日本語入力とデスクトップとの統合は、2026-10-14 に Hyper-V の仮想マシン（Ubuntu 26.04.1、GNOME の Wayland）で確かめて問題なかった。GPU での描画は Linux 版を出す前に実機で確かめる
