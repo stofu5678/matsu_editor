@@ -58,6 +58,13 @@ pub(super) fn header_bytes(info: &DocInfo) -> io::Result<Vec<u8>> {
     let info_bytes = info
         .to_bytes()
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?;
+    // A file the reader would refuse must never replace a good one.
+    if info_bytes.len() > MAX_INFO_LEN {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "the information of the document is too long",
+        ));
+    }
     let mut out = Vec::with_capacity(info_bytes.len() + 32);
     out.extend_from_slice(MAGIC.as_bytes());
     out.push(b'\n');
@@ -70,13 +77,11 @@ pub(super) fn header_bytes(info: &DocInfo) -> io::Result<Vec<u8>> {
 pub(super) fn open(file: File) -> Result<DocFile, FormatError> {
     let total = file.metadata()?.len();
     let mut reader = BufReader::new(file);
-    let mut line = String::new();
-    reader.read_line(&mut line)?;
+    let line = read_header_line(&mut reader)?;
     if line.trim_end() != MAGIC {
         return Err(FormatError::Damaged("the first line is not the magic"));
     }
-    line.clear();
-    reader.read_line(&mut line)?;
+    let line = read_header_line(&mut reader)?;
     let info_len: usize = line
         .trim_end()
         .parse()
@@ -97,4 +102,15 @@ pub(super) fn open(file: File) -> Result<DocFile, FormatError> {
         text: reader,
         text_len,
     })
+}
+
+/// One line of the header, at most 64 bytes: a damaged file without a line break must not be read whole, and
+/// bytes that are not text are a damaged file, not a failure of the disk.
+fn read_header_line(reader: &mut BufReader<File>) -> Result<String, FormatError> {
+    let mut bytes = Vec::new();
+    reader.by_ref().take(64).read_until(b'\n', &mut bytes)?;
+    if bytes.last() != Some(&b'\n') {
+        return Err(FormatError::Damaged("the header line is not complete"));
+    }
+    String::from_utf8(bytes).map_err(|_| FormatError::Damaged("the header is not text"))
 }

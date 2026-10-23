@@ -219,10 +219,13 @@ impl Store {
         check_id(id)?;
         let rejected = self.dir.join(REJECTED_DIR);
         fs::create_dir_all(&rejected)?;
-        fs::rename(
-            self.doc_path(id),
-            rejected.join(format!("{id}.{DOC_EXTENSION}")),
-        )?;
+        let moved = rejected.join(format!("{id}.{DOC_EXTENSION}"));
+        fs::rename(self.doc_path(id), &moved)?;
+        // The age in `rejected/` counts from now, not from the last write (a rename keeps the time).
+        let _ = File::options()
+            .write(true)
+            .open(&moved)
+            .and_then(|f| f.set_modified(SystemTime::now()));
         sync_dir(&self.dir);
         Ok(())
     }

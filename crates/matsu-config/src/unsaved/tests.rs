@@ -412,3 +412,45 @@ fn unreadable_information_falls_back_to_defaults() {
     assert_eq!(info.bookmarks, vec![1, 3]);
     assert_eq!(info.line_ending, "LF");
 }
+
+#[test]
+fn an_old_document_is_kept_30_days_from_the_day_it_is_rejected() {
+    let (_tmp, store) = store();
+    let id = Store::new_id();
+    write(&store, &id, &info(), "old");
+    let long_ago = SystemTime::now() - Duration::from_secs(90 * 24 * 60 * 60);
+    fs::File::options()
+        .write(true)
+        .open(store.doc_path(&id))
+        .unwrap()
+        .set_modified(long_ago)
+        .unwrap();
+    store.reject(&id).unwrap();
+    assert_eq!(
+        store
+            .purge_rejected(SystemTime::now(), REJECTED_KEEP)
+            .unwrap(),
+        0
+    );
+}
+
+#[test]
+fn information_too_long_to_read_back_is_refused_before_the_old_file_is_replaced() {
+    let (_tmp, store) = store();
+    let id = Store::new_id();
+    write(&store, &id, &info(), "good");
+    let mut huge = info();
+    huge.bookmarks = (0..200_000).collect();
+    assert!(store.write_doc(&id, &huge, &mut |_| Ok(())).is_err());
+    assert_eq!(read_text(&store, &id).1, "good");
+}
+
+#[test]
+fn a_header_that_is_not_text_or_has_no_line_break_is_damaged() {
+    let (_tmp, store) = store();
+    let id = Store::new_id();
+    for bytes in [vec![0xff, 0xfe, b'\n'], vec![b'a'; 10_000]] {
+        fs::write(store.doc_path(&id), bytes).unwrap();
+        assert!(matches!(store.open_doc(&id), Err(FormatError::Damaged(_))));
+    }
+}
