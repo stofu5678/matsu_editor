@@ -16,7 +16,7 @@
 - 外部の言語を足す作業: `session.rs` に変数と拡張子と既定の処理系名、`boot/` にブート（`boot.*`）、`codegen.rs` に API の生成（`api_gen.*`）、`boot.rs` の `FILES` に埋め込み、テスト、設定画面の処理系の欄。API の一覧（`catalog.rs`）は 1 つなので、言語ごとに生成物とブートだけが増える
 - 同梱の言語を足す作業: `matsu-script/src/<言語>.rs` と `engine::by_name` への 1 行。API は `catalog::entries()` から束ねる
 - CI（`.github/workflows/ci.yml`）: Linux x64 だけ `require_interpreters: '1'` で、Node.js・Python・Ruby・PHP がないと失敗する。ほかの OS では、処理系がなければテストを飛ばす
-- 通信の形（JSON-RPC、ASCII の 1 行 1 メッセージ、`initialize` でスクリプトを渡す、行番号つきのエラー、UTF-8）は、すべての言語で共通。新しい言語の作業は、その言語でこの形を話す 100〜300 行のブートを書くことが中心になる（Lua のブートは約 200 行。docs/poc/json-rpc.md）
+- 通信の形（JSON-RPC、ASCII の 1 行 1 メッセージ、行番号つきのエラー、UTF-8）は、すべての言語で共通。スクリプトの渡し方は違う: 同梱の処理系には、エディタが読んだ中身を `initialize` の `params.script` で渡し、外部の処理系（Node.js・Python・Ruby・PHP）には、ファイルのパスを起動の引数で渡す（`session.rs` の `start`）。新しい言語の作業は、その言語でこの形を話す 100〜300 行のブートを書くことが中心になる（Lua のブートは約 200 行。docs/poc/json-rpc.md）
 
 ## サクラの利用者が持っているマクロ
 
@@ -30,7 +30,7 @@
 
 - 入れるもの: Windows には 5.1 が入っている。7 系は別に入れる（win-arm64・osx-arm64・linux-arm64 の配布物がある。[PowerShell の最新リリース v7.6.8](https://github.com/PowerShell/PowerShell/releases/latest)、2026-10-22）。処理系の名前は `pwsh`（7）と `powershell`（5.1）
 - 作業: 標準入出力で JSON-RPC を話すブート。docs/poc/json-rpc.md に Windows ARM64 の PowerShell 5.1 で試した結果がある: `ConvertTo-Json` は `-Depth` と `-Compress` が要り、ASCII へのエスケープは自分で書く。ドットソースはフルパスでないと失敗した。スクリプトの文字コード（5.1 は BOM なしを ANSI として読むおそれがある）は、同梱の処理系と同じく、エディタが中身を `initialize` で渡す形にすれば避けられる見込み（未確認）
-- 起動の時間: この環境（Linux ARM64、PowerShell 7、`-NoProfile`）で 690〜980 ms。ほかの処理系（Node.js 36 ms、Python 19 ms、Ruby 97 ms）より 1 桁遅い。Windows の 5.1 は未測定
+- 起動の時間: この環境（Linux ARM64、PowerShell 7、`-NoProfile`）で 690〜980 ms。ほかの処理系（Node.js 36 ms、Python 19 ms、Ruby 97 ms）より 1 桁遅い。Windows ARM64 の 5.1 は約 150 ms と記録がある（docs/poc/json-rpc.md。条件が違うので、上の値とは比べられない）
 - CI: GitHub の Ubuntu 24.04・Windows 2025・macOS 15 のイメージに入っている（[Ubuntu](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md): 7.6.6、[Windows](https://github.com/actions/runner-images/blob/main/images/windows/Windows2025-Readme.md)、[macOS](https://github.com/actions/runner-images/blob/main/images/macos/macos-15-arm64-Readme.md): 7.6.5）。Windows ARM64 のイメージは未確認
 - 問題: 実行ポリシー（`-ExecutionPolicy Bypass` はグループポリシーを越えられない。docs/poc/json-rpc.md）。ファイルを渡さず `-Command -` や標準入力で渡せば関係しない見込み（未確認）。起動が遅い
 
@@ -95,15 +95,15 @@
 | 言語 | 使う人 | OS | 利用者が入れるもの | 起動 | 同梱の大きさとライセンス | ブートと API の作業 | CI | 安全（砂場） |
 |---|---|---|---|---|---|---|---|---|
 | TypeScript | JavaScript/Web 開発者 | 全部 | Node.js 22.18 以上 | 75〜80 ms | 同梱しない | 小（`boot.cjs` を使い回す。`.ts` を Node.js に渡す） | Node.js が全 OS にあり、今のテストが使える | なし（利用者の権限で動く） |
-| PowerShell | Windows の管理者 | 全部（5.1 は Windows のみ） | 5.1 は入っている。7 は別 | 約 0.7〜1 秒 | 同梱しない | 中 | 全 OS にある | なし。実行ポリシーが邪魔をしうる |
+| PowerShell | Windows の管理者 | 全部（5.1 は Windows のみ） | 5.1 は入っている。7 は別 | 7 は約 0.7〜1 秒（Linux）、5.1 は約 150 ms（Windows ARM64）。条件が違う | 同梱しない | 中 | 全 OS にある | なし。実行ポリシーが邪魔をしうる |
 | Perl | 古くからの Unix 利用者 | 全部（Windows は別に入れる） | Perl | 5 ms | 同梱しない | 小〜中（JSON は `JSON::PP`） | Ubuntu・macOS にある。Windows は確かめていない | なし |
 | Emacs Lisp | Emacs の利用者 | 全部 | Emacs 30 以降 | 28〜127 ms | 同梱しない（GPL なので同梱できない） | 中（試作済み） | 入れる手間が要る | なし |
 | AppleScript | macOS の利用者 | macOS のみ | なし（OS 標準） | 未測定 | 同梱しない | 大（中継） | macOS で確かめる | macOS の許可の仕組み |
 | VBScript | サクラの古い利用者 | Windows のみ | なし（退役予定） | 未測定 | - | 中 | Windows のみ | なし |
 | C# | .NET の開発者 | 全部 | .NET 10 SDK | 初回 5 秒、以後 0.2 秒 | 同梱しない | 中（API を C# に生成） | イメージにある | なし |
 | Go | Go の開発者 | 全部 | Go | 0.18〜0.5 秒 | 同梱しない | 中（API を Go に生成） | イメージにある | なし |
-| Fennel | Lua の利用者の一部 | 全部 | なし | Lua と同じ+変換 | MIT。大きさ未測定 | 小（変換だけ） | `cargo test` だけで済む | Lua の砂場と同じ |
-| Rhai | Rust の利用者の一部 | 全部 | なし | 未測定 | MIT OR Apache-2.0。大きさ未測定 | 小〜中 | `cargo test` だけで済む | ファイルを開けない作りにしやすい |
+| Fennel | Lua の利用者の一部 | 全部 | なし | Lua と同じ+変換 | MIT。大きさ未測定 | 小（変換だけ） | `cargo test` だけで済む | 砂場なし。今の Lua と同じく利用者の権限で動く（`lua.rs` は `io`・`os` を外していない） |
+| Rhai | Rust の利用者の一部 | 全部 | なし | 未測定 | MIT OR Apache-2.0。大きさ未測定 | 小〜中 | `cargo test` だけで済む | 作り次第（足すなら、ファイルを開けない作りにできる） |
 
 ## 提案
 
@@ -119,7 +119,7 @@
 
 ### 同梱か外部か
 
-TypeScript・PowerShell・Perl・Emacs Lisp・AppleScript は、すべて外部にする。理由: どれも OS または利用者の環境に処理系が既にあり（PowerShell・AppleScript は OS 標準、Node.js はすでに前提）、同梱すると配布物が大きくなり、ライセンスの確認（Emacs は GPL で同梱できない）も増える。
+TypeScript・PowerShell・Perl・Emacs Lisp・AppleScript は、すべて外部にする。理由: どれも OS または利用者の環境に処理系が既にあり（PowerShell・AppleScript は OS 標準。Node.js は、同梱の QuickJS だけで足りる利用者には新しい要件になる。TypeScript の `.ts` は、型を取り除く作業が要るために同梱の QuickJS では動かせず、Node.js を入れてもらう）、同梱すると配布物が大きくなり、ライセンスの確認（Emacs は GPL で同梱できない）も増える。
 
 ### 拡張子と処理系の変更
 
@@ -139,7 +139,7 @@ ADR-0007 の規則（拡張子で処理系が決まる。`matsu.ini` で変え�
 
 ### ADR-0007 との関係
 
-- ADR-0007 の全体を「決定」にしてよい時期に来ている。理由: 通信の形、同梱の言語（Lua・QuickJS・MicroPython・mruby）、外部の言語（Node.js・Python・Ruby・PHP）は、ユーザーが決めた日付つきで、実装も済んでいる。残っているのは「第 2 弾」と「第 3 弾」の表だけ
+- ADR-0007 の「マクロ」の部分は、「決定」にしてよい時期に来ている。理由: 通信の形、同梱の言語（Lua・QuickJS・MicroPython・mruby）、外部の言語（Node.js・Python・Ruby・PHP）は、ユーザーが決めた日付つきで、実装も済んでいる。残っているのは「第 2 弾」と「第 3 弾」の表と、常駐するプラグイン（イベントを受ける形。ADR-0007 の通信の形の 5 に「別の形で後で決める」とある）。プラグインが決まっていないので、ADR 全体を「決定」にするか、マクロの部分だけを決めてプラグインを別のADRに分けるかは、ユーザーが決める
 - ADR の規則（docs/adr/README.md）は、古い ADR の決定を書き換えず、新しい ADR を足して置き換えることだ。そこで、このADRが決まったら、ADR-0007 の状態を「決定（第 2 弾の表は ADR-0025 で置き換え）」に変える。ADR-0007 の本文は書き換えない。この PR は ADR-0007 を変えない
 
 ## 判断してほしいこと（推奨つき）
@@ -149,7 +149,7 @@ ADR-0007 の規則（拡張子で処理系が決まる。`matsu.ini` で変え�
 3. 外部だけにする（推奨）か、同梱する言語（Fennel・Rhai など）も足すか。同梱は大きさとライセンスの確認が要る
 4. 拡張子: `.ts`・`.ps1`・`.pl`・`.el`・`.applescript`（推奨）でよいか。`.js` の JScript for Automation は割り当てない（推奨）
 5. TypeScript の Deno・Bun は、別の言語として足さず、`matsu.ini` の処理系の変更で対応する（推奨）でよいか。`matsu.ini` の形式は、利用者のデータ（ADR-0018）なので、実装の PR で別に確認する
-6. ADR-0007 を「決定」にし、第 2 弾の表をこのADRで置き換える（推奨）でよいか
+6. ADR-0007 のマクロの部分を「決定」にし、第 2 弾の表をこのADRで置き換える（推奨）でよいか。プラグインの部分は別の ADR に分けるか、ADR-0007 に残すか
 7. サクラの VBScript マクロを書き換える手引き（生成 AI に渡す対応表）を用意するか
 
 ## 残っていること
