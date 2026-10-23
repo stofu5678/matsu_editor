@@ -34,6 +34,27 @@ impl HeldButtons {
         }
     }
 
+    /// Marks the button of the setting `option` (a key is not a button: nothing is marked).
+    pub(crate) fn mark_option(&mut self, option: i32) {
+        match option {
+            WHEEL_MIDDLE_BUTTON => self.middle = true,
+            WHEEL_SIDE_BUTTON_1 => self.side_1 = true,
+            WHEEL_SIDE_BUTTON_2 => self.side_2 = true,
+            _ => {}
+        }
+    }
+
+    /// Whether `button` is marked, and clears the mark.
+    pub(crate) fn take(&mut self, button: MouseButton) -> bool {
+        let mark = match button {
+            MouseButton::Middle => &mut self.middle,
+            MouseButton::Navigate(NavigationDirection::Back) => &mut self.side_1,
+            MouseButton::Navigate(NavigationDirection::Forward) => &mut self.side_2,
+            _ => return false,
+        };
+        std::mem::take(mark)
+    }
+
     /// `IsSpecialScrollMode`: whether the key or button of the setting `option` is down.
     pub(crate) fn special_mode(self, option: i32, modifiers: Modifiers) -> bool {
         match option {
@@ -61,7 +82,7 @@ pub(crate) fn track(element: Stateful<Div>, cx: &mut gpui::Context<EditorView>) 
                 cx.listener(move |view, _, _, _| {
                     view.held_buttons.set(button, true);
                     // A new press starts over: the last release may have been outside the view.
-                    view.wheel_used_middle = false;
+                    view.wheel_used_buttons.take(button);
                 }),
             )
             .on_mouse_up(

@@ -213,7 +213,7 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         // The button was the key of a wheel combination and the wheel turned: that was its use.
-        if std::mem::take(&mut self.wheel_used_middle) {
+        if self.wheel_used_buttons.take(MouseButton::Middle) {
             self.autoscroll_exit();
             return;
         }

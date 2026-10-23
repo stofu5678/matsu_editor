@@ -728,7 +728,7 @@ fn the_middle_button_makes_the_wheel_scroll_by_pages_when_the_setting_says_so(
     hold_middle_button(&view, cx);
     wheel(&view, cx, down, Modifiers::default());
     assert_eq!(top(&view, cx), 3);
-    assert!(!view.read_with(cx, |v, _| v.wheel_used_middle));
+    assert!(!view.read_with(cx, |v, _| v.wheel_used_buttons.middle));
     // chosen: a page (rows less one) a notch, and letting go of the button is not a click
     set_options(
         cx,
@@ -739,7 +739,7 @@ fn the_middle_button_makes_the_wheel_scroll_by_pages_when_the_setting_says_so(
     );
     wheel(&view, cx, down, Modifiers::default());
     assert_eq!(top(&view, cx), 3 + n - 1);
-    assert!(view.read_with(cx, |v, _| v.wheel_used_middle));
+    assert!(view.read_with(cx, |v, _| v.wheel_used_buttons.middle));
     // without the button the wheel is the plain one again
     view.update(cx, |v, _| v.held_buttons.middle = false);
     wheel(&view, cx, down, Modifiers::default());
@@ -780,4 +780,36 @@ fn the_middle_button_makes_the_wheel_scroll_sideways_when_the_setting_says_so(
         Modifiers::default(),
     );
     assert_eq!(view.read_with(cx, |v, _| v.scroll_x), 0.0);
+}
+
+#[gpui::test]
+fn a_side_button_that_turned_the_wheel_does_not_click_when_it_is_let_go(cx: &mut TestAppContext) {
+    use crate::common_settings::{ScrollOptions, WHEEL_SIDE_BUTTON_1};
+    use gpui::{MouseButton, NavigationDirection};
+    let (view, cx) = setup(cx);
+    set_options(
+        cx,
+        ScrollOptions {
+            page_by_wheel: WHEEL_SIDE_BUTTON_1,
+            ..Default::default()
+        },
+    );
+    view.update(cx, |v, _| v.held_buttons.side_1 = true);
+    wheel(
+        &view,
+        cx,
+        ScrollDelta::Lines(point(0., -NOTCH)),
+        Modifiers::default(),
+    );
+    let back = MouseButton::Navigate(NavigationDirection::Back);
+    view.update(cx, |v, _| {
+        // `OnXLBUTTONUP` gives up the click once; the other side button was not used
+        assert!(
+            !v.wheel_used_buttons
+                .clone()
+                .take(MouseButton::Navigate(NavigationDirection::Forward))
+        );
+        assert!(v.wheel_used_buttons.take(back));
+        assert!(!v.wheel_used_buttons.take(back));
+    });
 }

@@ -180,9 +180,9 @@ pub struct EditorView {
     pub(crate) wheel_remainder: [f32; 2],
     /// The mouse buttons that are down now, for the wheel combinations (`paging.rs`).
     pub(crate) held_buttons: HeldButtons,
-    /// The wheel turned while the middle button was down as the key of a wheel combination, so
-    /// letting the button go does nothing (`paging.rs`).
-    pub(crate) wheel_used_middle: bool,
+    /// The buttons that were the key of a wheel combination while the wheel turned, so letting
+    /// the button go does nothing (`paging.rs`).
+    pub(crate) wheel_used_buttons: HeldButtons,
     pub(crate) metrics: Metrics,
     pub(crate) paint: Option<PaintInfo>,
     /// The widest end column among the rows of the last paint, for the horizontal scroll range.
@@ -269,7 +269,7 @@ impl EditorView {
             scroll_past_end: false,
             wheel_remainder: [0.0; 2],
             held_buttons: HeldButtons::default(),
-            wheel_used_middle: false,
+            wheel_used_buttons: HeldButtons::default(),
             metrics: Metrics::default(),
             paint: None,
             widest_cols: 0,

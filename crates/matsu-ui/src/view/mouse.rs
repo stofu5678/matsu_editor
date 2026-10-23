@@ -575,6 +575,10 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // The button was the key of a wheel combination and the wheel turned: that was its use.
+        if self.wheel_used_buttons.take(event.button) {
+            return;
+        }
         let action = match event.button {
             MouseButton::Navigate(NavigationDirection::Back) => MouseAction::LeftSideClick,
             MouseButton::Navigate(NavigationDirection::Forward) => MouseAction::RightSideClick,

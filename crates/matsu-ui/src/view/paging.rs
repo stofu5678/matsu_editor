@@ -16,7 +16,6 @@ use matsu_commands::command::{Arg, Result};
 use matsu_commands::keymap::{Chord, Key, Modifiers, MouseAction, Resolved};
 
 use super::EditorView;
-use crate::common_settings::WHEEL_MIDDLE_BUTTON;
 use crate::geometry::clamp_scroll_y;
 
 /// Rows (or columns) that one notch of the wheel scrolls: Windows' `WheelScrollLines`, which
@@ -280,13 +279,15 @@ impl EditorView {
         let by_page = self
             .held_buttons
             .special_mode(options.page_by_wheel, event.modifiers);
-        // The middle button that turned the wheel must not also run its own function when it is
-        // let go (`OnMBUTTONUP`: `IsPageScrollByWheel`, `IsHScrollByWheel`).
-        if self.held_buttons.middle
-            && ((sideways && options.hscroll_by_wheel == WHEEL_MIDDLE_BUTTON)
-                || (by_page && options.page_by_wheel == WHEEL_MIDDLE_BUTTON))
-        {
-            self.wheel_used_middle = true;
+        // The button that turned the wheel must not also run its own function when it is let
+        // go (`OnMBUTTONUP`, `OnXLBUTTONUP`, `OnXRBUTTONUP`: `IsPageScrollByWheel`,
+        // `IsHScrollByWheel`).
+        if sideways {
+            self.wheel_used_buttons
+                .mark_option(options.hscroll_by_wheel);
+        }
+        if by_page {
+            self.wheel_used_buttons.mark_option(options.page_by_wheel);
         }
         let pixels = event.delta.precise().then_some(amount.abs());
         self.scroll_by_wheel_function(
