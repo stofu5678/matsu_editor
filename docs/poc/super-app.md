@@ -28,7 +28,7 @@
 | `file_ops/windows.rs`、`file_ops/close.rs` | ウィンドウの一覧、同じファイルを探す、閉じるときの保存の確認が文書単位 | 23 | 中。「文書を持たないタブ」を数えない・確認しない道を作る |
 | `menu_state.rs`（`FuncStates::of_view`） | メニューの印と灰色が `EditorView` の状態から決まる | 2（ただし 559 行の全体が前提） | 中。エディタ以外の種類は「ほとんどの関数が灰色」の別の状態を返す |
 | `view/mod.rs` の `run_function` | キー・メニュー・マクロはすべて `EditorView` に関数を渡す | 37 | 小〜中。非エディタのタブがフォーカスを持つときの渡し先が要る |
-| `ui_commands/`（約 730 行） | UI コマンドは `&mut EditorView` を受ける | 731 | 変えない。エディタのタブでだけ動く。ただし「このタブでは使えない」と灰色にし、キーを押したときは何もしない道が要る |
+| `ui_commands/`（約 730 行） | UI コマンドは `&mut EditorView` を受ける | 731 | 編集の関数は変えない。エディタのタブでだけ動く。「このタブでは使えない」と灰色にし、キーを押したときは何もしない道が要る。**共通の関数は別**: 新規・開く・閉じる（`ui_commands/file/file_new.rs`、`file_open.rs`、`file_close.rs`）やタブ・ウィンドウの関数も `EditorView` を受けるので、非エディタのタブから呼べるように `Workspace` 経由の道を作るか、移す必要がある。どの関数が共通かの洗い出しから始める（中） |
 | `status_bar.rs`、`bars/`（ツールバー、ファンクションキー） | エディタの位置・文字コードなどを出す。ツールバーのボタンはサクラの関数 | 11 | 中。ステータスバーは種類ごとに中身を変える。ツールバーは種類ごとの一覧が要る |
 | `a11y.rs` | エディタは「複数行テキスト入力」として名前だけ出し、テキストはまだ読み上げに出していない | — | 新しい中身ごとに名前と役割を付ける。ターミナルのように文字が流れる物は、エディタと同じく本文は後回しになる |
 | キー割り当て | Sakura のキーは `Editor` のキーコンテキスト（`view/mod.rs:783`）に束縛されている | — | 小。ほかの種類は別のコンテキストを持つ。ターミナルのように Ctrl+C を自分で使う物のため、「キーをアプリに渡さない」道も要る |
@@ -67,13 +67,13 @@ enum TabContent {
 | macOS | OS のメニュー（`cx.set_menus`、`gpui-pre-macos` の `create_menu_item` が `NSMenuItem` を作る） | GPUI のポップアップ。アイコンは出る | **出ない** |
 
 - メニューの中身は 1 つ。`[MainMenu]`（`matsu-config` の `settings/main_menu.rs`）かサクラの既定から `app.rs` の `set_menus` が作り、`cx.set_menus` と、gpui-component の `GlobalState::set_app_menus` の 2 か所に入れる。Windows と Linux の `MenuBar` は後者を読む。だから今は**メニューがウィンドウごとに違うことはない**
-- macOS では、ウィンドウがアクティブになったとき、関数を実行したあと、状態の写しが変わったときに、メニューを作り直す（`refresh_menu_states`、`defer_refresh_menu_states`）。OS のメニューは開く時点で聞けないための作り。**実行時にメニューバーを入れ替える仕組みは、すでに動いている**
+- macOS では、ウィンドウがアクティブになったとき、関数を実行したあと、状態の写しが変わったときに、メニューを作り直す（`refresh_menu_states`、`defer_refresh_menu_states`）。GPUI は、OS のメニューが開く直前の呼び出しを MATSU に公開していない（内部で入力途中のキーの並びを捨てるだけ。`gpui-pre` の `init_app_menus`）。項目の可否は GPUI が `is_action_available` で聞くが、チェックの印と灰色は項目を作るときに決まる。だから MATSU は作り直す作りにしている。**実行時にメニューバーを入れ替える仕組みは、すでに動いている**
 
 ### macOS でアイコンが出ない理由と、出す方法
 
 - GPUI の `MenuItem::Action` は `name`、`action`、`os_action`、`checked`、`disabled` だけで、画像を持たない。`create_menu_item`（`gpui-pre-macos` の `platform.rs`）も `setImage` を呼ばない
 - 方法 A: GPUI を直す。`MenuItem` に画像の欄を足し、`create_menu_item` で `NSMenuItem::setImage` を呼ぶ。`gpui-pre` と `gpui-pre-macos` の 2 つのクレートに触る。ライセンスは Apache-2.0 なので、写しを持って `[patch.crates-io]` で差し替えるのは可能。改めたファイルには、Apache-2.0 §4(b) に従って改めたと書く。`gpui-pre` は毎週出る（Zed の snapshot）ので、版を上げるたびに当て直す手間が残る。Zed に PR を出す道もあるが、CLAUDE.md の「ほかの OSS への報告」のルール（ユーザーが確かめてから）に従う
-- 方法 B: GPUI を直さない。`cx.set_menus` のあとで、`matsu-platform`（すでに `objc2-app-kit` の `NSMenu`・`NSMenuItem` を使っている）が `NSApp.mainMenu` を歩いて、`NSMenuItem::setImage` を呼ぶ。GPUI は項目を作る順に `tag`（`actions` の添え字）を振る（`create_menu_item`）ので、MATSU が項目の並びから同じ順に数えれば、項目と画像を結べる。gpui-component の `native_menu/macos.rs`（Apache-2.0）が同じ呼び出し（`NSImage::initWithData`、`setSize`、`setImage`）を使っているので、書き方の見本になる。足りないのは `objc2-app-kit` の `NSImage` の feature だけ。**読んだだけで、動かしてはいない**
+- 方法 B: GPUI を直さない。`cx.set_menus` のあとで、`matsu-platform`（すでに `objc2-app-kit` の `NSMenu`・`NSMenuItem` を使っている）が `NSApp.mainMenu` を歩いて、`NSMenuItem::setImage` を呼ぶ。GPUI は項目に `tag` を振る（`create_menu_item`）が、その値は `menu_actions`（`set_menus` のたびに消えず、Dock のメニューとも共有する配列）の長さなので、作り直すたびに増える。0 から数えた添え字としては使えない。結び付けは、tag ではなく、メニューの木の形（上から何番目のメニューの何番目の項目か。MATSU が `set_menus` に渡した `Menu` と同じ並び）で行うgpui-component の `native_menu/macos.rs`（Apache-2.0）が同じ呼び出し（`NSImage::initWithData`、`setSize`、`setImage`）を使っているので、書き方の見本になる。足りないのは `objc2-app-kit` の `NSImage` の feature だけ。**読んだだけで、動かしてはいない**
 - サクラのアイコンは色のついた 16×16 のビットマップなので、`setTemplate(true)`（文字色に染める）にはしない
 - 起こりそうなこと（確かめていない）: メニューを作り直すたびに画像を付け直す必要がある。アイコンの列とチェックの印（`NSMenuItem` の state）の並びが、Windows の見た目と変わる。Retina 用の 2 倍の画像が要る
 
@@ -117,7 +117,7 @@ enum TabContent {
 | Grep の結果 | — | — | — | 今は文書に書く（サクラと同じ）。タブにする理由がない |
 | ファイルツリー | — | — | — | 今はアウトラインのパネル（サクラと同じ） |
 | ターミナル | 大 | `alacritty_terminal`（端末の状態と構文解析。ユニックスの PTY と Windows の ConPTY を `tty/` に持つ。0.26.0、2026-04-06 の版）。描画は自分で書く | Apache-2.0（`vte` は Apache-2.0 OR MIT、`rustix-openpty` ほかは MIT 系。依存を足すときに `cargo deny` で確かめる） | 下に詳しく |
-| Web ビュー | 大（Linux は使えない） | `wry` 0.57.1 | Apache-2.0 OR MIT（Linux では WebKitGTK に結び付く） | 下に詳しく |
+| Web ビュー | 大（Linux の Wayland では置けない） | `wry` 0.57.1 | Apache-2.0 OR MIT（Linux では WebKitGTK に結び付く） | 下に詳しく |
 
 ### ターミナル
 
@@ -130,7 +130,7 @@ enum TabContent {
 ### Web ビュー
 
 - `wry`（Tauri の部品）は OS の Web ビューを使う。Windows は WebView2、macOS は WKWebView、Linux は WebKitGTK
-- wry 0.57.1 の README（crates.io の tarball）に「ウィンドウのハンドルから作るのは Linux では X11 だけ。Wayland では GTK のコンテナを使う」とある。GPUI は GTK ではないので、**Wayland のセッションでは子ウィンドウとして置けない**（読んだだけで試していない）。WSLg や今のデスクトップの多くは Wayland
+- wry 0.57.1 の README（crates.io の tarball）に「ウィンドウのハンドルから作るのは Linux では X11 だけ。Wayland では GTK のコンテナを使う」とある。GPUI は GTK ではないので、**Wayland のセッションでは子ウィンドウとして置けない**（読んだだけで試していない）。X11 では置ける可能性があるが、GPUI のウィンドウとの組み合わせは未確認。WSLg や今のデスクトップの多くは Wayland
 - Linux の実装は `webkit2gtk` クレート（MIT）と GTK のクレート（gtk-rs、MIT）を使い、実行時に共有ライブラリの `libwebkit2gtk`（LGPL-2.1 系。私の知識で、今回は確かめていない）を読み込む。CLAUDE.md は GPL 系（LGPL を含む）の**依存**を使わないと決めている。`deny.toml` が見るのは Rust のクレートで、OS の共有ライブラリは見ない（glibc も LGPL）。ルールが共有ライブラリにも及ぶのかはユーザーの判断
 - Web ビューは OS の部品で、GPUI の描画の上に重なる（ポップアップメニューやダイアログが下に隠れるはず。確かめていない）
 - 配布物の大きさ: クレートは小さい（`wry` の tarball は約 218 KB）が、Windows は WebView2 のランタイム（Windows 11 は入っている）が要る
@@ -155,7 +155,7 @@ enum TabContent {
 - アクセシビリティ: エディタの本文がまだ読み上げに出ていない（`a11y.rs`）。新しい中身はまず名前と役割だけを出し、本文は同じ時期に直す。ターミナルは本文が流れ続ける物で、扱いが特別に難しい
 - サクラの互換: `[MainMenu]`、`[CustMenu]`、キー割り当て、ツールバーの設定は、エディタのタブについてサクラのまま読む。新しい種類のメニューや設定は、サクラにない節に書く。サクラの設定を読み込んだだけでは、エディタ以外の物は出てこない
 - エディタの性能: 非エディタのタブは別のエンティティで、描画の経路を共有しない。`Workspace::render` の前半（タイトル、ステータス、ミニマップ）は種類で分けるが、エディタの描画（`EditorElement`）は変わらない。ターミナルの出力が速いときに UI スレッドを奪わないよう、読み取りは別スレッドにする
-- 巨大ファイル（[ADR-0020](../adr/0020-huge-files.md)）や文書への範囲指定のルールは、文書でないタブには関係しない
+- 文書への範囲指定と全文の文字列を渡さないルール（CLAUDE.md、[ADR-0020](../adr/0020-huge-files.md)）は、文書を読むタブ（プレビュー）にも関わる。`TextView` の Markdown / HTML は文字列（`SharedString`）を受けるので、文書全体を渡すとこのルールに反する。プレビューは、上限を決めて超えたら無効にする、見えている範囲だけを渡す、などの決めが要る（未解決。プレビューの PR で決める）。文書を読まないタブ（ターミナルなど）には関係しない
 
 ## Windows と macOS で確かめること
 
