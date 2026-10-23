@@ -375,7 +375,9 @@ impl FuncStates {
             }
             "F_JUMPHIST_PREV" => self.can_jump_back,
             "F_JUMPHIST_NEXT" => self.can_jump_forward,
-            "F_DIRECT_TAGJUMP" | "F_TAGJUMP_KEYWORD" => !self.grep_window && self.has_path,
+            "F_DIRECT_TAGJUMP" | "F_TAGJUMP_KEYWORD" | "F_TAGJUMP_LIST" => {
+                !self.grep_window && self.has_path
+            }
             // Windows cannot be bound without the tab bar.
             "F_BIND_WINDOW" | "F_TAB_MOVERIGHT" | "F_TAB_MOVELEFT" | "F_TAB_CLOSELEFT"
             | "F_TAB_CLOSERIGHT" => self.tab_bar,

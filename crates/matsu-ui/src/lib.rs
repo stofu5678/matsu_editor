@@ -64,6 +64,7 @@ mod outline;
 mod panes;
 pub mod print;
 pub mod print_setting;
+mod reconvert;
 pub mod search;
 pub mod segments;
 pub mod settings;

@@ -627,6 +627,24 @@ fn opening_from_a_modified_window_uses_a_new_window(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn the_drop_down_open_function_shows_the_dialog_or_opens_the_path(cx: &mut TestAppContext) {
+    // `F_FILEOPEN_DROPDOWN` runs `Command_FILEOPEN( (const WCHAR*)lparam1 )`
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", b"abc");
+    let (f, cx) = setup(cx);
+    f.run(cx, "F_FILEOPEN_DROPDOWN", &[]);
+    assert!(cx.did_prompt_for_paths(), "no path given: the open dialog");
+    cx.simulate_path_prompt_response(|_| None);
+    cx.run_until_parked();
+    f.run(
+        cx,
+        "F_FILEOPEN_DROPDOWN",
+        &[Arg::Text(path.display().to_string())],
+    );
+    assert_eq!(f.lines(cx), ["abc"]);
+}
+
+#[gpui::test]
 fn the_other_files_of_the_open_dialog_get_new_windows(cx: &mut TestAppContext) {
     let dir = TempDir::new();
     let a = dir.write("a.txt", b"A");

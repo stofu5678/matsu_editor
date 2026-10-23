@@ -36,5 +36,6 @@ pub mod search_prev;
 pub mod tagjump;
 pub mod tagjump_close;
 pub mod tagjump_keyword;
+pub mod tagjump_list;
 pub mod tagjumpback;
 pub mod tags_make;

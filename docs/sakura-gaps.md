@@ -68,7 +68,7 @@
 |---|---|
 | Migemo（`F_ISEARCH_MIGEMO_NEXT` `F_ISEARCH_MIGEMO_PREV`、共通設定「支援」の DLL と辞書、検索の Migemo 使用） | サクラは `cmigemo` の DLL を実行時に読み、辞書は利用者が置く（`sakura_core/extmodule/CMigemo.cpp`）。C/Migemo 本体は MIT License（koron/cmigemo の LICENSE、GitHub が MIT と判定）。ただし通常の辞書は SKK-JISYO.L から作り、その README に「作った辞書は SKK-JISYO.L のライセンス（GPL）に従う」とあり、SKK-JISYO.L の先頭は GNU General Public License（skk-dev/dict）。したがって同梱・組み込みはできない。選択肢は、(a) DLL と辞書を利用者が置く形（サクラと同じ。同梱しない）にする、(b) 組み込まない。どちらもライセンスの判断なので、ユーザーに聞く。いまの `ISearchMode` は後から足せる形になっている |
 | プロファイル（`F_PROFILEMGR`、`-PROFMGR`、`CDlgProfileMgr`、`sakura.exe.ini` の `MultiUser`） | `-PROF=名前` は入っている（`launch.rs`、`matsu-config/src/location.rs`）。残りは、設定ファイルの置き場所を変える・利用者のデータの形式に触れる（`matsu.ini` の場所）ので、ユーザーの判断が要る |
-| IME の再変換（`F_RECONVERT`）と全角文字入力（`F_IME_CHAR`） | GPUI が OS の再変換の API を出すか。FD（`feat/last-sakura-functions`）が今のラウンドで実装するか見送りを決める。決まったら、この行を直す |
+| IME の再変換（`F_RECONVERT`） | Windows は IMM32 で実装した（#232）。macOS と Linux は、プログラムから再変換を始める API がない（macOS は入力メソッドが `NSTextInputClient` で周りの文字を取りに来る。IBus / Fcitx は周りの文字を渡す口だけ）。型 B: ステータスバーに理由を出す。Windows の IME 実機での確認は残る |
 | SQL*Plus（`F_ACTIVATE_SQLPLUS` `F_PLSQL_COMPILE_ON_SQLPLUS`）と PL/SQL のジャンプ | データベース操作の ADR-0023 で扱う（提案中。別のエージェントが書いている）。Windows の Oracle 専用 |
 | プラグイン | ADR-0007 が「常駐プラグインは別に設計する」とした。設計の ADR がない |
 | ベストフィットの表（全角英数字を ASCII にする Windows の変換） | 表の元データと、そのライセンスの判断が要る（`known_differences.txt` の `saveloss-jp-to-*`） |
@@ -81,16 +81,12 @@
 
 ### コマンドと関数
 
-関数表（`crates/matsu-commands/src/sakura/functions.rs`）の「コマンド」363 個のうち、`SAKURA` 定数のあるコマンドは 354 個。差の 9 個は次のとおり（スクリプトの出力を確かめた）。ほかの種類（`MacroFunction` 59、`MacroOnly` 23）は、次の「マクロ」の表で。
+関数表（`crates/matsu-commands/src/sakura/functions.rs`）の「コマンド」363 個のうち、`SAKURA` 定数のあるコマンドは 358 個（#232 で 4 個増えた）。差の 5 個は次のとおり（スクリプトの出力を確かめた）。ほかの種類（`MacroFunction` 59、`MacroOnly` 23）は、次の「マクロ」の表で。
 
 | 項目 | サクラの場所 | MATSU の今 | 判断 | 大きさ | 依存 |
 |---|---|---|---|---|---|
 | `F_ACTIVATE_SQLPLUS` | `CViewCommander_File.cpp` | コマンドなし | ADR-0023 で決める | M | ADR-0023 |
 | `F_PLSQL_COMPILE_ON_SQLPLUS` | 同上 | コマンドなし | 同上 | M | ADR-0023 |
-| `F_FILEOPEN_DROPDOWN` | `CViewCommander_File.cpp` | コマンドなし。ツールバーの ▼ は #157 で動く | FD が実装か判断 | S | なし |
-| `F_IME_CHAR` | `CViewCommander_Edit.cpp` | コマンドなし | FD が実装か判断 | S | GPUI の IME |
-| `F_RECONVERT` | `CViewCommander_Support.cpp` | コマンドなし | FD が実装か判断 | M | GPUI の IME |
-| `F_TAGJUMP_LIST` | `CViewCommander_TagJump.cpp` | コマンドなし。一覧ダイアログ自体は `tags/list.rs` にある（F_TAGJUMP_KEYWORD などから開く） | FD が実装か判断 | S | なし |
 | `F_PROFILEMGR` | `CViewCommander_File.cpp` | コマンドなし | ユーザーの判断が要る: 設定ファイルの置き場所（利用者のデータ） | M | `CDlgProfileMgr` |
 | `F_ISEARCH_MIGEMO_NEXT` | `CViewCommander_Search.cpp` | コマンドなし | ユーザーの判断が要る: ライセンス（止まっているものを参照） | M | 同上 |
 | `F_ISEARCH_MIGEMO_PREV` | 同上 | 同上 | 同上 | 同上 | 同上 |
@@ -238,7 +234,7 @@
 | 項目 | サクラの場所 | MATSU の今 | 判断 | 大きさ | 依存 |
 |---|---|---|---|---|---|
 | エディタの本文の読み上げ（可視行の TextRun、キャレット、選択） | － | なし（#169、#204）。設計は #204 に出ている（GPUI の `a11y_synthetic_children` と accesskit） | C | L | GPUI |
-| ステータスバーのメッセージ部が UI Automation / AX に出ない | － | FD が今のラウンドで直す | C | S | なし |
+| ステータスバーのメッセージ部が UI Automation / AX に出ない | － | #232 で直した: `Label` にして、メッセージがあるあいだは live region。サンドボックスで確かめる | C | － | なし |
 | ポップアップメニューの入れ物と区切り線に名前がない、項目のチェック・灰色・位置 | － | gpui-component の限界（#177、#204）。報告の下書きは `.claude/handoff/drafts/`。ユーザーが再現してから投稿 | ユーザーの判断が要る: ほかの OSS への投稿 | － | gpui-component |
 | 無効なボタン・入力欄の disabled、Table の名前 | － | `Button` と `Input` は gpui-component の限界（#177）。表の名前は未対応（`pending-checks.md`） | B/C | S | gpui-component |
 
@@ -255,8 +251,8 @@
 
 ## 調整役の宿題と今のラウンド
 
-- ステータスバーのメッセージが UI Automation / AX に出ない件は FD が直す。
-- 一度きりの移行メッセージが、20 秒の後も次の再描画まで残る件は FD が直す。
+- ステータスバーのメッセージを UI Automation / AX に出す件は #232 で直した。サンドボックスで確かめる。
+- 一度きりの移行メッセージが 20 秒で消える件は #232 で直した（ウィンドウのタイマー）。
 - ADR-0020 の次の段階（ブロック索引、開く経路）と、ブロックの大きさの測定は、上の「ファイルと文字コード」にある。
 - `pending-checks.md` の「サンドボックスで見つかったこと」: 表（Table）そのものに名前がない件が残っている（上の「アクセシビリティ」）。「見直し」という見出しの項目は、今はない。
 

@@ -261,3 +261,24 @@ async fn the_migration_message_is_shown_in_the_status_bar(cx: &mut TestAppContex
     let shown = view.read_with(&vcx, |v, app| v.status(app).notice);
     assert_eq!(shown.as_deref(), Some("migrated"));
 }
+
+/// The message goes at its time (20 seconds): a timer of the window clears it and repaints. (The clock of the
+/// test is GPUI's, which `Instant` does not follow, so what is checked is that the timer ran.)
+#[gpui::test]
+async fn the_migration_message_goes_after_20_seconds(cx: &mut TestAppContext) {
+    use std::time::Duration;
+
+    crate::settings::set_startup_notice("migrated");
+    let handle = window(cx, Some(UserSettings::none()));
+    let mut vcx = VisualTestContext::from_window(handle, cx);
+    let view = view_of(&mut vcx);
+    vcx.executor().advance_clock(Duration::from_secs(19));
+    vcx.run_until_parked();
+    let shown = view.read_with(&vcx, |v, app| v.status(app).notice);
+    assert_eq!(shown.as_deref(), Some("migrated"), "still there at 19 s");
+
+    vcx.executor().advance_clock(Duration::from_secs(2));
+    vcx.run_until_parked();
+    let shown = view.read_with(&vcx, |v, app| v.status(app).notice);
+    assert_eq!(shown, None, "gone at 21 s");
+}

@@ -10,6 +10,7 @@ pub mod cursor;
 pub mod custom_menu;
 pub mod file;
 pub mod history;
+pub mod ime;
 pub mod macro_only;
 pub mod macros;
 pub mod mode;

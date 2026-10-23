@@ -431,8 +431,8 @@ impl EditorView {
                 .iter()
                 .find(|f| f.code == code)
                 .map_or_else(|| code.to_string(), |f| f.name.to_owned());
-            // `F_IME_CHAR` and `F_INSTEXT_W` have no command, but the incremental search takes
-            // them (and any other function ends it).
+            // A function without a command still ends the incremental search (or is taken by
+            // it).
             if self.isearch_intercept(&name, args, cx) {
                 return true;
             }

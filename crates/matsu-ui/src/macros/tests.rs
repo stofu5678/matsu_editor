@@ -602,10 +602,10 @@ fn run_function_says_whether_the_command_succeeded(cx: &mut TestAppContext) {
         .view
         .update_in(cx, |v, window, cx| v.run_function(30200, &[], window, cx));
     assert!(!failed);
-    // a function that has no command here yet (F_FILEOPEN_DROPDOWN: there is no tool bar)
+    // a function that has no command here yet (F_ACTIVATE_SQLPLUS: no Oracle)
     let missing = f
         .view
-        .update_in(cx, |v, window, cx| v.run_function(30108, &[], window, cx));
+        .update_in(cx, |v, window, cx| v.run_function(30170, &[], window, cx));
     assert!(!missing);
     assert_eq!(f.lines(cx), ["A"]);
 }

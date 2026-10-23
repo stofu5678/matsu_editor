@@ -405,6 +405,16 @@ impl Workspace {
         })
         .detach();
         crate::file_watch::start(window, cx);
+        // The message of the migration shows for 20 seconds: repaint the window then, so that it
+        // goes at its time (nothing else repaints an idle window).
+        if let Some(left) = crate::settings::startup_notice_left() {
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(left).await;
+                crate::settings::expire_startup_notice();
+                this.update(cx, |_, cx| cx.notify()).ok();
+            })
+            .detach();
+        }
         for (index, pane) in numbered {
             workspace.adopt_into_window(index, pane, window, cx);
         }

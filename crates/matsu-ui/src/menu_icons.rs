@@ -78,7 +78,7 @@ fn content(
     checked: bool,
     disabled: bool,
     scale_factor: f32,
-) -> crate::a11y::Disabled<gpui::Stateful<gpui::Div>> {
+) -> crate::a11y::Flagged<gpui::Stateful<gpui::Div>> {
     let width = column_width(scale_factor);
     let size = icons::logical_size(scale_factor);
     let column = div()

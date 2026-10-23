@@ -12,6 +12,7 @@ pub mod file_close_open;
 pub mod file_new;
 pub mod file_new_new_window;
 pub mod file_open;
+pub mod file_open_dropdown;
 pub mod file_reopen;
 pub mod file_reopen_cesu8;
 pub mod file_reopen_euc;
