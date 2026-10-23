@@ -27,6 +27,7 @@ use gpui::{
 use gpui_component::tooltip::Tooltip;
 use matsu_commands::sakura::FUNCTIONS;
 
+use super::content::TabPanel;
 use super::list::{self, Start};
 use super::{flows, semantics, settings};
 use crate::app::Workspace;
@@ -40,6 +41,8 @@ struct Entry {
     handle: AnyWindowHandle,
     view: Entity<EditorView>,
     caption: String,
+    /// The name for assistive technology (`TabPanel::accessible_name`).
+    name: String,
     /// The tooltip: the path as 「ファイル名表示」 shows it (`GetTabName` with the full name).
     tooltip: String,
     active: bool,
@@ -175,9 +178,15 @@ impl Workspace {
             return None;
         }
         let own = window.window_handle();
-        let entry = |handle, view: Entity<EditorView>, active, tab, cx: &gpui::App| Entry {
-            caption: Self::caption_of(view.read(cx), cx),
-            tooltip: Self::tooltip_of(view.read(cx), cx),
+        let entry = |handle,
+                     view: Entity<EditorView>,
+                     panel: &dyn TabPanel,
+                     active,
+                     tab,
+                     cx: &gpui::App| Entry {
+            caption: panel.caption(cx),
+            name: panel.accessible_name(cx),
+            tooltip: panel.tooltip(cx),
             handle,
             view,
             active,
@@ -186,10 +195,11 @@ impl Workspace {
         if tab_settings.grouped {
             let current = self.active_tab();
             return Some(
-                self.tab_editors()
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, view)| entry(own, view, i == current, Some(i), cx))
+                (0..self.tab_count())
+                    .filter_map(|i| {
+                        let (view, panel) = (self.tab_editor(i)?, self.tab_panel(i)?);
+                        Some(entry(own, view, panel, i == current, Some(i), cx))
+                    })
                     .collect(),
             );
         }
@@ -198,14 +208,17 @@ impl Workspace {
         let me = cx.entity_id();
         let mut entries = Vec::new();
         for (handle, workspace) in listed_workspaces(cx) {
-            let views = if workspace.entity_id() == me {
-                self.tab_editors()
+            let tabs = if workspace.entity_id() == me {
+                self
             } else {
-                workspace.read(cx).tab_editors()
+                workspace.read(cx)
             };
-            for view in views {
+            for i in 0..tabs.tab_count() {
+                let (Some(view), Some(panel)) = (tabs.tab_editor(i), tabs.tab_panel(i)) else {
+                    continue;
+                };
                 let mine = handle == own;
-                entries.push(entry(handle, view, mine, None, cx));
+                entries.push(entry(handle, view, panel, mine, None, cx));
             }
         }
         Some(entries)
@@ -354,6 +367,7 @@ impl Workspace {
             handle,
             view,
             caption,
+            name,
             tooltip,
             active,
             tab,
@@ -406,7 +420,7 @@ impl Workspace {
             })
         };
         let group = SharedString::from(format!("tab-group-{index}"));
-        let mut element = semantics::tab(div().id(("tab", index)), &caption, active, index)
+        let mut element = semantics::tab(div().id(("tab", index)), &name, active, index)
             .flex()
             .flex_row()
             .items_center()
@@ -446,7 +460,7 @@ impl Workspace {
                     options.disp_close == settings::DispTabClose::Auto && !keep_close_visible;
                 let hover_group = group.clone();
                 tab.child(
-                    semantics::tab_close_button(div().id(("tab-close", index)), &caption)
+                    semantics::tab_close_button(div().id(("tab-close", index)), &name)
                         .px_1()
                         .cursor_pointer()
                         .hover(|s| s.bg(rgb(0xc8c8c8)))

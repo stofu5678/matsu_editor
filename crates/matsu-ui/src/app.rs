@@ -432,13 +432,16 @@ impl Workspace {
         this: gpui::EntityId,
         cx: &App,
     ) -> crate::menu_state::FuncStates {
-        crate::menu_state::FuncStates::of_view(
-            self.panes.active().read(cx),
-            self.outline.is_some(),
-            topmost,
-            self.tab_count() + documents_elsewhere(cx, this),
-            cx,
-        )
+        // The menus follow the kind of the active tab (ADR-0024); the editor is the only kind.
+        match crate::tabs::content::TabPanel::menu_kind(&self.panes) {
+            crate::tabs::content::MenuKind::Editor => crate::menu_state::FuncStates::of_view(
+                self.panes.active().read(cx),
+                self.outline.is_some(),
+                topmost,
+                self.tab_count() + documents_elsewhere(cx, this),
+                cx,
+            ),
+        }
     }
 
     /// The pane the user works in (the only pane unless the window is split).
@@ -453,14 +456,14 @@ impl Render for Workspace {
         let active = self.panes.active().clone();
         let editor = active.read(cx);
         window.set_window_title(&editor.title_for(window.is_window_active(), cx));
-        let status = editor.status(cx);
+        let status = crate::tabs::content::TabPanel::status(&self.panes, cx);
         let show_status_bar = editor.status_bar_shown();
         let macro_panel = editor.macro_panel(active.clone());
         let ui_font = gpui_component::Theme::global(cx).font_family.clone();
-        let status_bar = if show_status_bar {
-            Some(self.render_status_bar(&status, &ui_font, window, cx))
-        } else {
-            None
+        // A kind of tab with no status bar has no status (`TabPanel::status`).
+        let status_bar = match (show_status_bar, &status) {
+            (true, Some(status)) => Some(self.render_status_bar(status, &ui_font, window, cx)),
+            _ => None,
         };
         let tab_bar = self.render_tab_bar(window, cx);
         // The minimap draws the pane that is active.
