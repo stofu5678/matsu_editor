@@ -216,10 +216,16 @@ fn set_menus(cx: &mut App, keymap: &KeyMap) {
         DisplayStyle::Sakura
     };
     let mut menus = Vec::new();
+    // macOS: the pictures of the items, in the shape of `menus` (`native_menu_icons`).
+    let mut native_icons = Vec::new();
     // macOS has Quit in the application menu, not in the File menu.
     if cfg!(target_os = "macos") {
         menus
             .push(Menu::new("MATSU Editor").items([MenuItem::action("MATSU Editor を終了", Exit)]));
+        native_icons.push(matsu_platform::menu_icons::Menu {
+            title: "MATSU Editor".to_owned(),
+            items: vec![matsu_platform::menu_icons::Node::Plain],
+        });
     }
     // The native menu shows the state of the window that is active now; elsewhere the window's
     // own menu bar asks when a menu opens (`crate::menu_bar`).
@@ -245,6 +251,12 @@ fn set_menus(cx: &mut App, keymap: &KeyMap) {
         .map(crate::settings::UserSettings::main_menu)
         .unwrap_or_else(|| crate::menu::default_main_menu().clone());
     for top in main_menu_for(&main_menu, keymap, &Registered, &lists, &custom_menus) {
+        if cfg!(target_os = "macos") {
+            native_icons.push(matsu_platform::menu_icons::Menu {
+                title: top.label.clone(),
+                items: crate::native_menu_icons::tree(&top.entries, style),
+            });
+        }
         let mut items = gpui_items(top.entries, style);
         if let Some(states) = &states {
             crate::menu_state::apply_to_menu_items(&mut items, states);
@@ -252,6 +264,20 @@ fn set_menus(cx: &mut App, keymap: &KeyMap) {
         menus.push(Menu::new(top.label).items(items));
     }
     cx.set_menus(menus);
+    // The native menu has just been made again, without pictures: give them (macOS; Windows and
+    // Linux draw the menu themselves). `menu_icons::enabled` is Sakura's 「アイコン付きメニュー」.
+    if cfg!(target_os = "macos") && crate::menu_icons::enabled(cx) {
+        matsu_platform::menu_icons::apply(
+            &native_icons,
+            f64::from(crate::bars::icons::ICON_SIZE as u32),
+        );
+    }
+    // For `scripts/mac-checks/menu-icons.sh`: write what the menu bar has, pictures included.
+    if cfg!(target_os = "macos")
+        && let Some(path) = std::env::var_os("MATSU_DUMP_MENU_ICONS")
+    {
+        let _ = std::fs::write(path, matsu_platform::menu_icons::describe());
+    }
     cx.set_global(MenuStates(states));
     let owned = cx.get_menus().unwrap_or_default();
     GlobalState::global_mut(cx).set_app_menus(owned);

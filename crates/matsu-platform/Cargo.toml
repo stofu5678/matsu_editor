@@ -73,7 +73,7 @@ windows-sys = { version = "0.61", features = [
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSError", "NSFileManager", "NSGeometry", "NSObject", "NSRange", "NSString", "NSURL", "NSDictionary"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSData", "NSError", "NSFileManager", "NSGeometry", "NSObject", "NSRange", "NSString", "NSURL", "NSDictionary"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = [
     "std",
     "objc2-core-foundation",
@@ -84,6 +84,7 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
     "NSButton",
     "NSCell",
     "NSControl",
+    "NSImage",
     "NSLayoutConstraint",
     "NSMenu",
     "NSMenuItem",

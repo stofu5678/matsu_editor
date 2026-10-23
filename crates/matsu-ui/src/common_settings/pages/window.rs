@@ -221,6 +221,10 @@ pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: O
     });
     // The menus that open from now on show the icons or not (`m_bMenuIcon`).
     crate::menu_icons::set(env.cx, after.bool("menu_icon"));
+    // The native menu of macOS is made once and keeps its pictures: make it again.
+    if cfg!(target_os = "macos") {
+        crate::app::refresh_menus(env.cx);
+    }
     // At startup the bars take the file as it is (`crate::bars::install`); OK takes the dialog.
     if before.is_some() {
         crate::bars::set(
