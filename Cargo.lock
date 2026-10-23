@@ -3984,6 +3984,7 @@ dependencies = [
  "encoding_rs",
  "libc",
  "matsu-print",
+ "tempfile",
 ]
 
 [[package]]
