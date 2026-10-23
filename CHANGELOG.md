@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.0](https://github.com/stofu5678/matsu_editor/compare/v0.1.0...v0.2.0) (2026-10-23)
+
+
+### ⚠ BREAKING CHANGES
+
+* rename UME Editor to MATSU Editor (ADR-0021) ([#225](https://github.com/stofu5678/matsu_editor/issues/225))
+
+### Features
+
+* rename UME Editor to MATSU Editor (ADR-0021) ([#225](https://github.com/stofu5678/matsu_editor/issues/225)) ([51430d7](https://github.com/stofu5678/matsu_editor/commit/51430d7c0cb9223cf0b2bfffeccde296e9a4caf7))
+
 ## 0.1.0 (2026-10-22)
 
 
