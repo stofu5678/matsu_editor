@@ -240,8 +240,10 @@ impl Keeper {
 
     /// Discards what no window reports any more, and writes `session.ini` when the tabs changed.
     fn housekeeping(&mut self, now: Instant) {
-        let State::Running(writer) = &self.state else {
-            return;
+        // The bookkeeping is cleaned also before the writer exists (nothing was kept yet).
+        let writer = match &self.state {
+            State::Running(writer) => Some(writer),
+            _ => None,
         };
         self.windows
             .retain(|(_, r)| now.duration_since(r.at) < GONE_AFTER);
@@ -253,11 +255,14 @@ impl Keeper {
             {
                 return true;
             }
-            if let Some(id) = entry.id.take() {
+            if let (Some(writer), Some(id)) = (writer, entry.id.take()) {
                 writer.discard(id);
             }
             false
         });
+        let Some(writer) = writer else {
+            return;
+        };
         // A write of `session.ini` that failed is asked again, but not more often than a document is.
         if writer.session_failed()
             && self.last_session.is_some()
