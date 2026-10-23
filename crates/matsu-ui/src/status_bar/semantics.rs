@@ -1,9 +1,17 @@
 //! The roles and names of the status bar's parts for assistive technology.
 //!
-//! The message part is a status (a place a screen reader may watch for changes). The other parts
-//! are labels whose name is what the part means and what it shows: `改行コード: CRLF`.
+//! Every part is a label (`Text` in UI Automation, `AXStaticText` on macOS). The other parts are
+//! named by what the part means and what it shows: `改行コード: CRLF`. The message is named by
+//! what it says, and is a live region while it says something, so a screen reader reads each new
+//! notice (`保存しました`) without being asked ([`message`]).
+//!
+//! The message used to be a `Role::Status`. AccessKit gives that role the control type
+//! `StatusBar` on Windows and an `AXGroup` on macOS, which a tool that reads the texts of a window
+//! (the sandbox harnesses, a screen reader's text review) does not list, and the live region
+//! announcement on macOS reads the value of the node, which a status does not need to have.
 
-use gpui::{Div, Role, Stateful, StatefulInteractiveElement as _, prelude::FluentBuilder as _};
+use gpui::accesskit::Live;
+use gpui::{AnyElement, Div, IntoElement as _, Role, Stateful, StatefulInteractiveElement as _};
 
 use crate::status::Part;
 
@@ -36,18 +44,26 @@ pub(super) fn part_label(part: Part, text: &str) -> String {
 }
 
 pub(super) fn part(element: Stateful<Div>, part: Part, text: &str) -> Stateful<Div> {
-    let role = if part == Part::Message {
-        Role::Status
-    } else {
-        Role::Label
-    };
     let label = part_label(part, text);
     // UIA names a `Label` by its value, not its label (accesskit_windows 0.34.0 `node.rs` 404-413,
     // `label_comes_from_value` in accesskit_consumer 0.38.0 `node.rs` 727), so both are set.
     element
-        .role(role)
+        .role(Role::Label)
         .aria_label(label.clone())
-        .when(role == Role::Label, |this| this.aria_value(label))
+        .aria_value(label)
+}
+
+/// The message part, finished: a live region while there is a message. Windows raises
+/// `UIA_LiveRegionChangedEventId` when the name of a live node changes (accesskit_windows 0.34.0
+/// `adapter.rs` 257, 316), macOS posts an announcement of the value (accesskit_macos 0.26.3
+/// `event.rs` 236, 299), and AT-SPI gets the live setting. With no message it is not live: the
+/// message going away is not announced.
+pub(super) fn message(element: Stateful<Div>, text: &str) -> AnyElement {
+    if text.is_empty() {
+        element.into_any_element()
+    } else {
+        crate::a11y::live_region(element, Live::Polite).into_any_element()
+    }
 }
 
 /// The name a platform gives `node`: UIA reads the value for a `Label` and the label for the rest.
@@ -91,12 +107,31 @@ mod tests {
     }
 
     #[test]
-    fn the_message_is_a_status_that_reads_as_the_message() {
+    fn the_message_is_a_label_that_reads_as_the_message() {
         let message = node_of(&part(div().id("m"), Part::Message, "保存しました")).unwrap();
-        assert_eq!(message.role(), Role::Status);
+        assert_eq!(message.role(), Role::Label);
         assert_eq!(platform_name(&message), Some("保存しました"));
+        // macOS announces the value of a live node
+        assert_eq!(message.value(), Some("保存しました"));
         let empty = node_of(&part(div().id("m"), Part::Message, "")).unwrap();
         assert_eq!(platform_name(&empty), Some("メッセージ"));
+    }
+
+    #[test]
+    fn the_message_is_a_polite_live_region_only_while_it_says_something() {
+        // `message` gives an `AnyElement`, which has no node to read: the same wrapper is read
+        // here, and the choice between the two is tested through the window below.
+        let live = |text: &str| {
+            let element = part(div().id("m"), Part::Message, text);
+            node_of(&crate::a11y::live_region(element, Live::Polite))
+                .unwrap()
+                .live()
+        };
+        assert_eq!(live("保存しました"), Some(Live::Polite));
+        let off = node_of(&part(div().id("m"), Part::Message, "")).unwrap();
+        assert_eq!(off.live(), None, "not live");
+        let eol = node_of(&part(div().id("e"), Part::Eol, "CRLF")).unwrap();
+        assert_eq!(eol.live(), None, "the other parts never are");
     }
 
     #[test]

@@ -5,6 +5,7 @@ pub mod delete;
 pub mod delete_back;
 pub mod delete_line;
 pub mod duplicate_line;
+pub mod ime_char;
 pub mod indent_space;
 pub mod indent_tab;
 pub mod input_char;

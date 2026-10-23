@@ -158,13 +158,14 @@ impl Workspace {
                 .flex();
             if part == Part::Message {
                 // No border, and the rest of the width.
-                return cell
+                let cell = cell
                     .flex_1()
                     .min_w_0()
                     .overflow_hidden()
                     .whitespace_nowrap()
                     .px_2()
-                    .child(text);
+                    .child(text.clone());
+                return semantics::message(cell, &text);
             }
             let width = text_width(window, font_family, part.width_label()) + px(PART_PADDING);
             let cell = cell
@@ -204,6 +205,7 @@ impl Workspace {
                         }),
                     )
                 })
+                .into_any_element()
         });
         semantics::bar(div().id("status-bar"))
             .flex()

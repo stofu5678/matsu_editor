@@ -125,6 +125,22 @@ pub(crate) fn startup_notice() -> Option<String> {
     })
 }
 
+/// How long the message of the migration still has to stay, `None` when there is none (or it is
+/// over). A window starts a timer of this length that repaints it, so the message goes at its
+/// time and not at the next repaint of whatever reason.
+pub(crate) fn startup_notice_left() -> Option<std::time::Duration> {
+    startup_slot::SLOT.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .and_then(|(_, since)| STARTUP_NOTICE_TIME.checked_sub(since.elapsed()))
+    })
+}
+
+/// Drops the message of the migration: its time is over (the timer of a window ran out).
+pub(crate) fn expire_startup_notice() {
+    startup_slot::SLOT.with(|slot| *slot.borrow_mut() = None);
+}
+
 impl UserSettings {
     /// No file: Sakura's defaults.
     pub fn none() -> Self {

@@ -275,6 +275,16 @@ fn the_keyword_dialog_follows_what_is_typed(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn the_tag_jump_list_function_opens_the_keyword_dialog(cx: &mut TestAppContext) {
+    // `F_TAGJUMP_LIST` is the help topic of the dialog in Sakura; here it opens the dialog.
+    let (_dir, main) = project("x\n");
+    let w = open(cx, &main);
+    w.run_with(cx, "F_TAGJUMP_LIST", &[Arg::Text("fo".into())]);
+    settle(cx, SHORT_DELAY);
+    assert_eq!(w.list(cx).unwrap().0, ["foo", "foobar"]);
+}
+
+#[gpui::test]
 fn the_check_boxes_change_what_matches_and_are_kept(cx: &mut TestAppContext) {
     let (_dir, main) = project("x\n");
     let w = open(cx, &main);

@@ -175,20 +175,36 @@ pub(crate) fn without_key_hint(label: &str) -> String {
 }
 
 /// An element that reports its node as disabled (AccessKit's `disabled`) while `disabled` is
-/// set. GPUI's elements have no setter for it (`aria_*` has no disabled), so this wraps the
-/// element and writes the flag after the element has written its own properties. Everything else
-/// is the wrapped element's.
-pub(crate) struct Disabled<E> {
+/// set, and/or as a live region (AccessKit's `live`). GPUI's elements have no setter for them
+/// (`aria_*` has neither), so this wraps the element and writes the flags after the element has
+/// written its own properties. Everything else is the wrapped element's.
+pub(crate) struct Flagged<E> {
     inner: E,
     disabled: bool,
+    live: Option<gpui::accesskit::Live>,
 }
 
-/// `inner`, reported as disabled while `disabled` is set (see [`Disabled`]).
-pub(crate) fn disabled<E: Element>(inner: E, disabled: bool) -> Disabled<E> {
-    Disabled { inner, disabled }
+/// `inner`, reported as disabled while `disabled` is set (see [`Flagged`]).
+pub(crate) fn disabled<E: Element>(inner: E, disabled: bool) -> Flagged<E> {
+    Flagged {
+        inner,
+        disabled,
+        live: None,
+    }
 }
 
-impl<E: Element> IntoElement for Disabled<E> {
+/// `inner`, reported as a live region: a screen reader says the changes of its content
+/// (`Polite`: when it has finished what it is saying) (see [`Flagged`]). The content has to be
+/// text that a node carries as its value, such as a `Label` (macOS announces the value).
+pub(crate) fn live_region<E: Element>(inner: E, live: gpui::accesskit::Live) -> Flagged<E> {
+    Flagged {
+        inner,
+        disabled: false,
+        live: Some(live),
+    }
+}
+
+impl<E: Element> IntoElement for Flagged<E> {
     type Element = Self;
 
     fn into_element(self) -> Self {
@@ -196,7 +212,7 @@ impl<E: Element> IntoElement for Disabled<E> {
     }
 }
 
-impl<E: Element> Element for Disabled<E> {
+impl<E: Element> Element for Flagged<E> {
     type RequestLayoutState = E::RequestLayoutState;
     type PrepaintState = E::PrepaintState;
 
@@ -260,6 +276,9 @@ impl<E: Element> Element for Disabled<E> {
         self.inner.write_a11y_info(node);
         if self.disabled {
             node.set_disabled();
+        }
+        if let Some(live) = self.live {
+            node.set_live(live);
         }
     }
 

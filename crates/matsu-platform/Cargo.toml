@@ -60,6 +60,9 @@ windows-sys = { version = "0.61", features = [
     # ShellExecuteW (src/shell/windows.rs)
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
+    # Reconversion (src/reconvert/windows.rs): the IMM32 calls and the keyboard layout
+    "Win32_UI_Input_Ime",
+    "Win32_UI_Input_KeyboardAndMouse",
     # LoadLibraryW and GetProcAddress for HtmlHelp (src/help/windows.rs)
     "Win32_System_LibraryLoader",
     # The clipboard format `HTML Format` (src/clipboard_html/windows.rs)

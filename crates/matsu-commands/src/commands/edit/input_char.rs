@@ -37,24 +37,29 @@ impl Command for InputChar {
 
     fn run(&self, cx: &mut CommandContext<'_>, args: &[Arg]) -> Result {
         let c = char_arg(args)?;
-        if c == '\r' || c == '\n' {
-            // `Command_WCHAR` deletes the selection first, a box as a box.
-            if cx.cursor().is_box() {
-                cx.delete_selection()?;
-            }
-            // One edit replaces the selection: deleting it first could join the CR and the LF
-            // around it into a CRLF and move the place to insert.
-            let text = format!(
-                "{}{}",
-                eol_text(cx.new_line()),
-                indent_before_insertion(cx)?
-            );
-            cx.insert_text(&text)?;
-        } else {
-            cx.type_text(c.encode_utf8(&mut [0; 4]))?;
-        }
-        Ok(())
+        type_char(cx, c)
     }
+}
+
+/// Types `c` as `Command_WCHAR` does (`F_IME_CHAR` uses it too, see [`super::ime_char`]).
+pub(super) fn type_char(cx: &mut CommandContext<'_>, c: char) -> Result {
+    if c == '\r' || c == '\n' {
+        // `Command_WCHAR` deletes the selection first, a box as a box.
+        if cx.cursor().is_box() {
+            cx.delete_selection()?;
+        }
+        // One edit replaces the selection: deleting it first could join the CR and the LF
+        // around it into a CRLF and move the place to insert.
+        let text = format!(
+            "{}{}",
+            eol_text(cx.new_line()),
+            indent_before_insertion(cx)?
+        );
+        cx.insert_text(&text)?;
+    } else {
+        cx.type_text(c.encode_utf8(&mut [0; 4]))?;
+    }
+    Ok(())
 }
 
 register_command!(InputChar);
