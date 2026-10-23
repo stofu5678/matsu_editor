@@ -647,6 +647,7 @@ fn run_macro(language: Language, code: &str, f: &mut Fixture) -> Option<crate::s
     let dir = tempfile::tempdir().unwrap();
     let name = match language {
         Language::JavaScript => "macro.cjs",
+        Language::TypeScript => "macro.ts",
         Language::Python => "macro.py",
         Language::Ruby => "macro.rb",
         Language::Php => "macro.php",
@@ -741,7 +742,7 @@ try { Editor::lower_case_name(); } catch (BadMethodCallException $e) { echo "no 
         assert_eq!(f.text(), "one\ntwA", "{language:?}");
         let out = report.lines(Stream::Stdout);
         match language {
-            Language::JavaScript => assert_eq!(
+            Language::JavaScript | Language::TypeScript => assert_eq!(
                 out,
                 [
                     "2 \"one\\n\"",
@@ -874,6 +875,7 @@ fn run_macro_with_env(
     let dir = tempfile::tempdir().unwrap();
     let name = match language {
         Language::JavaScript => "macro.cjs",
+        Language::TypeScript => "macro.ts",
         Language::Python => "macro.py",
         Language::Ruby => "macro.rb",
         Language::Php => "macro.php",

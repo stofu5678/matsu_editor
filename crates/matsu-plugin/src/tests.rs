@@ -23,14 +23,19 @@ const PATIENT: Duration = Duration::from_secs(300);
 /// Whether the interpreter starts. Prints why not if it does not.
 fn available(language: Language) -> bool {
     let interpreter = language.default_interpreter();
-    let ok = Command::new(&interpreter)
+    let output = Command::new(&interpreter)
         .arg("--version")
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false);
+        .output()
+        .ok()
+        .filter(|output| output.status.success());
+    // A Node.js that cannot strip types is as good as missing for the TypeScript tests.
+    let ok = output.is_some_and(|output| {
+        language != Language::TypeScript
+            || session::parse_node_version(&String::from_utf8_lossy(&output.stdout))
+                .is_some_and(session::node_strips_types)
+    });
     if !ok {
         eprintln!(
             "SKIP: {} ({}) is not available",
@@ -57,6 +62,7 @@ fn config_for(
 ) -> MacroConfig {
     let name = match language {
         Language::JavaScript => "macro.cjs",
+        Language::TypeScript => "macro.ts",
         Language::Python => "macro.py",
         Language::Ruby => "macro.rb",
         Language::Php => "macro.php",
@@ -127,6 +133,7 @@ fn assert_clean_exit(report: &Report) {
 }
 
 const JS: Language = Language::JavaScript;
+const TS: Language = Language::TypeScript;
 const PY: Language = Language::Python;
 const RB: Language = Language::Ruby;
 const PHP: Language = Language::Php;
@@ -256,6 +263,7 @@ fn a_syntax_error_shows_the_line_number() {
         let stderr = report.lines(Stream::Stderr).join("\n");
         let (file, line) = match language {
             Language::JavaScript => ("macro.cjs:3", ""),
+            Language::TypeScript => ("macro.ts:3", ""),
             Language::Python => ("macro.py", "line 3"),
             Language::Ruby => ("macro.rb", ":3"),
             Language::Php => ("macro.php", "line 3"),
@@ -282,6 +290,7 @@ fn a_runtime_error_shows_the_line_number_of_the_users_file() {
         let stderr = report.lines(Stream::Stderr).join("\n");
         let want = match language {
             Language::JavaScript => "macro.cjs:3",
+            Language::TypeScript => "macro.ts:3",
             Language::Python => "macro.py\", line 3",
             Language::Ruby => "macro.rb:3",
             // "macro.php:3" or "macro.php on line 3" (Xdebug words it the second way).
@@ -349,7 +358,9 @@ echo "not reached\n";
         let lines = stdout(&report);
         assert_eq!(lines.len(), 2, "{language:?}: {lines:?}");
         match language {
-            Language::JavaScript => assert_eq!(lines[0], "caught EditorError -32602 true true"),
+            Language::JavaScript | Language::TypeScript => {
+                assert_eq!(lines[0], "caught EditorError -32602 true true");
+            }
             Language::Python => assert_eq!(lines[0], "caught EditorError -32602 True"),
             Language::Ruby | Language::Php => {
                 assert_eq!(lines[0], "caught EditorError -32602 true");
@@ -540,7 +551,7 @@ fn the_macro_sees_the_initialize_message() {
         };
         assert_clean_exit(&report);
         let want = match language {
-            Language::JavaScript => "1 1 MATSU Editor /work/テスト.txt true",
+            Language::JavaScript | Language::TypeScript => "1 1 MATSU Editor /work/テスト.txt true",
             Language::Python => "1 1 MATSU Editor /work/テスト.txt True",
             Language::Ruby | Language::Php => "1 1 MATSU Editor /work/テスト.txt true",
             Language::Bundled(_) => unreachable!(),
@@ -655,7 +666,7 @@ fn a_missing_interpreter_is_a_clear_error() {
     let err = MacroConfig::for_script(&dir.path().join("a.txt"), None)
         .err()
         .unwrap();
-    for extension in [".mjs", ".js", ".py", ".rb", ".php"] {
+    for extension in [".mjs", ".js", ".ts", ".py", ".rb", ".php"] {
         assert!(err.to_string().contains(extension), "{err}");
     }
 }
@@ -666,6 +677,7 @@ fn the_sample_macros_run() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("samples");
     for (language, name) in [
         (JS, "sample.mjs"),
+        (TS, "sample.ts"),
         (PY, "sample.py"),
         (RB, "sample.rb"),
         (PHP, "sample.php"),
@@ -901,4 +913,94 @@ fn without_a_hold_the_same_wait_times_out() {
         }
     }
     panic!("no Finished event");
+}
+
+// ---- TypeScript (ADR-0025): the JavaScript boot, run by a Node.js that strips the types ----
+
+#[test]
+fn ts_files_are_typescript() {
+    assert_eq!(
+        Language::of_file(std::path::Path::new("a.TS")),
+        Some(Language::TypeScript)
+    );
+    assert_eq!(TS.default_interpreter(), JS.default_interpreter());
+}
+
+#[test]
+fn node_versions_that_strip_types() {
+    // https://nodejs.org/api/typescript.html: on by default from v22.18.0 and v23.6.0.
+    for (version, want) in [
+        ((22, 17, 9), false),
+        ((22, 18, 0), true),
+        ((22, 23, 3), true),
+        ((23, 5, 0), false),
+        ((23, 6, 0), true),
+        ((24, 0, 0), true),
+        ((20, 19, 0), false),
+    ] {
+        assert_eq!(session::node_strips_types(version), want, "{version:?}");
+    }
+    assert_eq!(session::parse_node_version("v22.23.3\n"), Some((22, 23, 3)));
+    // Deno and Bun answer in other words: they are not judged.
+    assert_eq!(session::parse_node_version("deno 2.9.8 (stable)\n"), None);
+    assert_eq!(session::parse_node_version("1.4.4\n"), None);
+    assert_eq!(session::parse_node_version("v22.x"), None);
+}
+
+#[test]
+fn a_typescript_macro_uses_types_and_the_api() {
+    let code = "interface Pos { line: number }\n\
+        const p: Pos = { line: 1 };\n\
+        const text: string = 'あ😀';\n\
+        Editor.InsText(text + String(p.line as number));\n\
+        console.log(Editor.GetLineStr(1) satisfies string);\n";
+    let Some((report, doc)) = run(TS, code, "") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(doc.text(), "あ😀1");
+    assert_eq!(stdout(&report), ["あ😀1"]);
+}
+
+#[test]
+fn a_typescript_error_shows_the_line_number_of_the_users_file() {
+    // The types become white space, so the line of the error is the line in the file.
+    let code = "type A = { a: number };\nconst a: A = { a: 1 };\nundefinedFunction(a.a);\n";
+    let Some((report, _)) = run(TS, code, "") else {
+        return;
+    };
+    assert_ne!(report.finished.exit_code, Some(0));
+    let stderr = report.lines(Stream::Stderr).join("\n");
+    assert!(stderr.contains("macro.ts:3"), "{stderr}");
+}
+
+#[test]
+fn typescript_that_needs_a_transform_is_an_error_of_the_macro() {
+    // Node.js only removes types; an enum has to be rewritten, so it is refused (the macro
+    // author sees Node.js's message in the output panel).
+    let Some((report, _)) = run(TS, "enum E { A }\nconsole.log(E.A);\n", "") else {
+        return;
+    };
+    assert_ne!(report.finished.exit_code, Some(0));
+    let stderr = report.lines(Stream::Stderr).join("\n");
+    assert!(stderr.contains("macro.ts"), "{stderr}");
+}
+
+#[cfg(unix)]
+#[test]
+fn an_old_node_is_refused_before_the_macro_starts() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let fake = dir.path().join("node");
+    std::fs::write(&fake, "#!/bin/sh\necho v20.11.0\n").unwrap();
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let script = dir.path().join("a.ts");
+    std::fs::write(&script, "const a: number = 1;\n").unwrap();
+    let mut config = MacroConfig::for_script(&script, None).unwrap();
+    config.interpreter = fake.into_os_string();
+    config.temp_dir = Some(dir.path().to_path_buf());
+    let err = session::run_blocking(config, |_| None).err().unwrap();
+    assert!(err.to_string().contains("22.18.0"), "{err}");
+    assert!(err.to_string().contains("v20.11.0"), "{err}");
+    assert_eq!(boot_folders(dir.path()), Vec::<String>::new());
 }

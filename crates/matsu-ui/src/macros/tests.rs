@@ -126,6 +126,10 @@ fn files_are_told_apart_by_their_extension() {
         FileKind::Script(Language::JavaScript)
     );
     assert_eq!(
+        file_kind(Path::new("a.ts")),
+        FileKind::Script(Language::TypeScript)
+    );
+    assert_eq!(
         file_kind(Path::new("a.rb")),
         FileKind::Script(Language::Ruby)
     );
