@@ -170,13 +170,12 @@ impl Language {
     }
 }
 
-/// The first Node.js of the 22 line that runs `.ts` files without a flag (v23.6.0 on the 23 line);
-/// <https://nodejs.org/api/typescript.html>
-pub const NODE_TYPESCRIPT_MIN: (u32, u32, u32) = (22, 18, 0);
-
-/// Whether a Node.js version runs `.ts` files by default: 22.18.0 or later, or 23.6.0 or later.
+/// Whether a Node.js version runs `.ts` files without a flag: 22.18.0 or later on the 22 line,
+/// 23.6.0 or later on the 23 line, and every later line
+/// (<https://nodejs.org/api/typescript.html>). The boot script (`boot/boot.cjs`) makes the same
+/// check when a `.ts` macro starts, and says so in words if the Node.js is too old.
 pub fn node_strips_types(version: (u32, u32, u32)) -> bool {
-    version >= NODE_TYPESCRIPT_MIN && !(version.0 == 23 && version < (23, 6, 0))
+    version >= (22, 18, 0) && !(version.0 == 23 && version < (23, 6, 0))
 }
 
 /// The version in the output of `node --version` (`v22.23.3`). `None` for anything else: Deno
@@ -185,27 +184,6 @@ pub fn parse_node_version(output: &str) -> Option<(u32, u32, u32)> {
     let mut parts = output.trim().strip_prefix('v')?.split('.');
     let mut next = || parts.next()?.parse().ok();
     Some((next()?, next()?, next()?))
-}
-
-/// Refuses a Node.js that cannot run `.ts` files, in words that say what to do. An interpreter
-/// that does not answer like Node.js (Deno, Bun) or does not answer at all is left to the
-/// start, which reports its own error.
-fn check_node_for_typescript(interpreter: &OsStr) -> Result<(), StartError> {
-    let Ok(output) = Command::new(interpreter)
-        .arg("--version")
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-    else {
-        return Ok(());
-    };
-    let text = String::from_utf8_lossy(&output.stdout);
-    match parse_node_version(&text) {
-        Some(version) if !node_strips_types(version) => Err(StartError::NodeTooOld {
-            found: text.trim().to_owned(),
-        }),
-        _ => Ok(()),
-    }
 }
 
 /// What the editor tells the host about one run. `for_script` fills in the defaults; the
@@ -247,10 +225,6 @@ pub enum StartError {
         script: PathBuf,
     },
     Boot(std::io::Error),
-    /// A TypeScript macro needs a Node.js that strips types by itself; this one is older.
-    NodeTooOld {
-        found: String,
-    },
     /// The script could not be read (the bundled host gets its text from the editor).
     ReadScript {
         script: PathBuf,
@@ -270,11 +244,6 @@ impl std::fmt::Display for StartError {
                 f,
                 "{}: マクロの拡張子は .mjs、.js、.cjs、.ts、.py、.rb、.php、.lua、.mruby、.upy のどれかにしてください",
                 script.display()
-            ),
-            Self::NodeTooOld { found } => write!(
-                f,
-                "TypeScript のマクロには Node.js {}.{}.{} 以降が要ります (見つかったのは {found})",
-                NODE_TYPESCRIPT_MIN.0, NODE_TYPESCRIPT_MIN.1, NODE_TYPESCRIPT_MIN.2
             ),
             Self::Boot(err) => write!(f, "マクロの準備に失敗しました: {err}"),
             Self::ReadScript { script, source } => write!(
@@ -405,9 +374,6 @@ pub type Sink = Arc<dyn Fn(HostEvent) + Send + Sync>;
 /// Starts the macro. The events go to `sink` from other threads, in order, ending with
 /// `Finished`.
 pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
-    if config.language == Language::TypeScript {
-        check_node_for_typescript(&config.interpreter)?;
-    }
     let script = match config.language {
         Language::Bundled(_) => Some(read_script(&config.script)?),
         Language::JavaScript

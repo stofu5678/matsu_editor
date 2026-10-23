@@ -985,22 +985,3 @@ fn typescript_that_needs_a_transform_is_an_error_of_the_macro() {
     let stderr = report.lines(Stream::Stderr).join("\n");
     assert!(stderr.contains("macro.ts"), "{stderr}");
 }
-
-#[cfg(unix)]
-#[test]
-fn an_old_node_is_refused_before_the_macro_starts() {
-    use std::os::unix::fs::PermissionsExt;
-    let dir = tempfile::tempdir().unwrap();
-    let fake = dir.path().join("node");
-    std::fs::write(&fake, "#!/bin/sh\necho v20.11.0\n").unwrap();
-    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let script = dir.path().join("a.ts");
-    std::fs::write(&script, "const a: number = 1;\n").unwrap();
-    let mut config = MacroConfig::for_script(&script, None).unwrap();
-    config.interpreter = fake.into_os_string();
-    config.temp_dir = Some(dir.path().to_path_buf());
-    let err = session::run_blocking(config, |_| None).err().unwrap();
-    assert!(err.to_string().contains("22.18.0"), "{err}");
-    assert!(err.to_string().contains("v20.11.0"), "{err}");
-    assert_eq!(boot_folders(dir.path()), Vec::<String>::new());
-}
