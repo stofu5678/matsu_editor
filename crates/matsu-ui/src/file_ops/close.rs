@@ -207,7 +207,12 @@ pub(crate) async fn save_and_close_window(
     if modified && !save(view, cx, SaveRequest::default()).await.is_safe() {
         return false;
     }
-    view.update(cx, |view, cx| view.record_history(cx)).ok();
+    view.update(cx, |view, cx| {
+        view.record_history(cx);
+        // Saved: the kept copy is not wanted any more (ADR-0022).
+        crate::unsaved::discard_document(view.document().entity_id(), cx);
+    })
+    .ok();
     close_tab_or_window(view, cx)
 }
 

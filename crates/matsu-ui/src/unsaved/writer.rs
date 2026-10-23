@@ -84,6 +84,14 @@ impl Writer {
     /// Opens the folder (taking its lock) and starts the thread. The temporary files a cut-off write left
     /// are removed first: this process holds the lock, so none of them is being written.
     pub(crate) fn start(dir: &std::path::Path) -> Result<Self, StoreError> {
+        Self::start_retrying(dir, RETRY_STUCK)
+    }
+
+    /// [`Writer::start`] with the time between the tries of a removal that failed; the tests make it short.
+    pub(crate) fn start_retrying(
+        dir: &std::path::Path,
+        retry: std::time::Duration,
+    ) -> Result<Self, StoreError> {
         let store = Store::open(dir)?;
         let _ = store.remove_tmp();
         let failed = Arc::new(AtomicBool::new(false));
@@ -94,7 +102,7 @@ impl Writer {
             .spawn({
                 let failed = Arc::clone(&failed);
                 let session_failed = Arc::clone(&session_failed);
-                move || run(&store, &rx, &failed, &session_failed)
+                move || run(&store, &rx, &failed, &session_failed, retry)
             })
             .map_err(StoreError::Io)?;
         Ok(Self {
@@ -171,9 +179,28 @@ impl Drop for Writer {
     }
 }
 
-fn run(store: &Store, rx: &mpsc::Receiver<Job>, failed: &AtomicBool, session_failed: &AtomicBool) {
+fn run(
+    store: &Store,
+    rx: &mpsc::Receiver<Job>,
+    failed: &AtomicBool,
+    session_failed: &AtomicBool,
+    retry: std::time::Duration,
+) {
     let mut session = store.read_session();
-    while let Ok(job) = rx.recv() {
+    // Copies whose removal failed: tried again until they are gone, so a discarded text does not come back.
+    let mut stuck: Vec<String> = Vec::new();
+    loop {
+        let job = match rx.recv_timeout(retry) {
+            Ok(job) => job,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                retry_stuck(store, &mut session, &mut stuck, failed);
+                continue;
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                retry_stuck(store, &mut session, &mut stuck, failed);
+                return;
+            }
+        };
         let result = match job {
             Job::Write {
                 id,
@@ -198,8 +225,15 @@ fn run(store: &Store, rx: &mpsc::Receiver<Job>, failed: &AtomicBool, session_fai
                 session = next;
                 result
             }
-            Job::Discard(id) => store.discard_doc(&id, &session).map(|next| session = next),
+            Job::Discard(id) => {
+                let result = store.discard_doc(&id, &session).map(|next| session = next);
+                if result.is_err() {
+                    stuck.push(id);
+                }
+                result
+            }
             Job::Clear => {
+                stuck.clear();
                 session = Session::default();
                 store.clear()
             }
@@ -229,4 +263,21 @@ pub(crate) fn write_text(doc: &Document, w: &mut dyn Write) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// How often the removals that failed are tried again.
+const RETRY_STUCK: std::time::Duration = std::time::Duration::from_secs(5);
+
+fn retry_stuck(store: &Store, session: &mut Session, stuck: &mut Vec<String>, failed: &AtomicBool) {
+    if stuck.is_empty() {
+        return;
+    }
+    stuck.retain(|id| match store.discard_doc(id, session) {
+        Ok(next) => {
+            *session = next;
+            false
+        }
+        Err(_) => true,
+    });
+    failed.store(!stuck.is_empty(), Ordering::SeqCst);
 }

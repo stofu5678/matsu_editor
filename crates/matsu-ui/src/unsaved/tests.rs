@@ -356,3 +356,24 @@ fn a_failed_write_of_the_session_is_reported_and_works_again_later() {
     assert!(!writer.session_failed());
     assert!(!writer.failed());
 }
+
+#[test]
+fn a_removal_that_failed_is_tried_again_until_it_works() {
+    let dir = tempfile::tempdir().unwrap();
+    let dir = dir.path().join("unsaved");
+    let writer = Writer::start_retrying(&dir, Duration::from_millis(30)).unwrap();
+    let id = Store::new_id();
+    let path = dir.join(format!("{id}.doc"));
+    // A folder with a file in it where the copy should be: it cannot be removed as a file.
+    std::fs::create_dir_all(path.join("x")).unwrap();
+    writer.discard(id.clone());
+    writer.flush();
+    assert!(writer.failed(), "the removal failed");
+    // The obstacle goes; the writer finds the copy gone at its next try.
+    std::fs::remove_dir_all(&path).unwrap();
+    let start = Instant::now();
+    while writer.failed() && start.elapsed() < Duration::from_secs(5) {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(!writer.failed());
+}

@@ -164,18 +164,36 @@ fn a_document_that_is_still_being_typed_in_is_written_after_thirty_seconds(
 }
 
 #[gpui::test]
-fn the_copy_of_a_closed_tab_is_discarded_when_no_window_reports_it(cx: &mut TestAppContext) {
+fn the_copy_of_a_document_whose_window_is_closed_is_discarded(cx: &mut TestAppContext) {
     let f = fixture(cx);
     let t0 = Instant::now();
-    type_text(cx, &f, "gone");
+    type_text(cx, &f, "closed");
     tick(cx, &f, t0);
     tick(cx, &f, t0 + Duration::from_secs(3));
     assert_eq!(doc_files(&f.dir).len(), 1);
-    // The window never ticks again (it was closed with 「保存しない」); the housekeeping finds the document gone.
-    cx.update(|app| app_tick(app, t0 + Duration::from_secs(3) + Duration::from_secs(6)));
+    // The window goes (closed with 「保存しない」, or by a way that does not ask); no window ticks again.
+    f.handle
+        .update(cx, |_, window, _| window.remove_window())
+        .unwrap();
+    cx.run_until_parked();
+    cx.update(|app| app_tick(app, t0 + Duration::from_millis(3500)));
     cx.update(|app| flush(app));
     assert!(doc_files(&f.dir).is_empty());
     assert!(read_session(&f).windows.is_empty());
+}
+
+#[gpui::test]
+fn a_window_that_stalls_does_not_lose_its_copy(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "slow");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    // The window did not tick for a minute (a long operation); the app's timer runs meanwhile.
+    cx.update(|app| app_tick(app, t0 + Duration::from_secs(60)));
+    cx.update(|app| flush(app));
+    assert_eq!(doc_files(&f.dir).len(), 1);
 }
 
 #[gpui::test]
@@ -242,6 +260,9 @@ fn a_second_process_does_not_use_the_folder(cx: &mut TestAppContext) {
     tick(cx, &f, t0 + Duration::from_secs(10));
     assert!(doc_files(&f.dir).is_empty());
     drop(held);
+    let ws = workspace(cx, f.handle);
+    let notice = ws.read_with(cx, |ws, app| ws.editor().read(app).notice.clone());
+    assert!(notice.is_some_and(|n| n.contains("別のマツエディタ")));
 }
 
 #[gpui::test]

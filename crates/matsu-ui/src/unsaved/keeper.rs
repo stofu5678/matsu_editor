@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
-use gpui::{App, Context, EntityId, Global, Window, WindowId};
+use gpui::{App, Context, EntityId, Global, WeakEntity, Window, WindowId};
 use matsu_config::unsaved::{DocInfo, Session, SessionWindow, Store, StoreError};
 use matsu_core::buffer::Eol;
 use matsu_core::buffer::col_to_utf16;
@@ -29,8 +29,9 @@ pub(crate) const DEBOUNCE: Duration = Duration::from_secs(2);
 pub(crate) const MAX_WAIT: Duration = Duration::from_secs(30);
 /// After a write failed, the next try is this much later.
 pub(crate) const RETRY: Duration = Duration::from_secs(5);
-/// A document or a window that no tick has reported for this long is gone (closed, or its tab moved away
-/// and did not come back).
+/// A window that no tick has reported for this long is not in the session any more (it was closed, or it is
+/// stuck). A document is gone when its entity is dropped, not when time has passed: a window that stalls for
+/// a while does not lose its copies.
 pub(crate) const GONE_AFTER: Duration = Duration::from_secs(5);
 /// How often a window looks at its documents.
 const TICK: Duration = Duration::from_millis(500);
@@ -57,8 +58,8 @@ pub(crate) struct Entry {
     last_change: Instant,
     first_pending: Option<Instant>,
     last_attempt: Option<Instant>,
-    /// The last tick of a window that had the document in a tab.
-    pub seen_at: Instant,
+    /// The document, to tell that it is gone (all its views and tabs were dropped).
+    pub document: Option<WeakEntity<SharedDocument>>,
     warned_big: bool,
 }
 
@@ -71,7 +72,7 @@ impl Entry {
             last_change: now,
             first_pending: None,
             last_attempt: None,
-            seen_at: now,
+            document: None,
             warned_big: false,
         }
     }
@@ -201,18 +202,34 @@ impl Keeper {
 
     /// The session the reports make: the windows that have a copy, their tabs, the front tab and window.
     fn session(&self) -> Session {
+        let live: std::collections::HashSet<&str> = self
+            .entries
+            .values()
+            .filter_map(|e| e.id.as_deref())
+            .collect();
         let mut windows = Vec::new();
         let mut active_window = 0;
         for (window, report) in &self.windows {
-            if report.ids.is_empty() {
+            // A document that is gone since the window reported is left out.
+            let docs: Vec<String> = report
+                .ids
+                .iter()
+                .filter(|id| live.contains(id.as_str()))
+                .cloned()
+                .collect();
+            if docs.is_empty() {
                 continue;
             }
+            let before_active = report.ids[..report.active.min(report.ids.len())]
+                .iter()
+                .filter(|id| live.contains(id.as_str()))
+                .count();
             if self.active_window == Some(*window) {
                 active_window = windows.len();
             }
             windows.push(SessionWindow {
-                docs: report.ids.clone(),
-                active: report.active.min(report.ids.len() - 1),
+                active: before_active.min(docs.len() - 1),
+                docs,
             });
         }
         Session {
@@ -229,7 +246,11 @@ impl Keeper {
         self.windows
             .retain(|(_, r)| now.duration_since(r.at) < GONE_AFTER);
         self.entries.retain(|_, entry| {
-            if now.duration_since(entry.seen_at) < GONE_AFTER {
+            if entry
+                .document
+                .as_ref()
+                .is_none_or(|d| d.upgrade().is_some())
+            {
                 return true;
             }
             if let Some(id) = entry.id.take() {
@@ -255,9 +276,6 @@ impl Keeper {
     /// While the feature is off nothing is "gone": the copies stay as the user left them (ADR-0022, section 8:
     /// 「残す」), and the windows that start ticking again are not taken for new ones.
     fn freeze(&mut self, now: Instant) {
-        for entry in self.entries.values_mut() {
-            entry.seen_at = now;
-        }
         for (_, report) in &mut self.windows {
             report.at = now;
         }
@@ -284,18 +302,28 @@ impl Keeper {
         entry.forget_copy();
     }
 
-    /// Starts the writer for the settings file at `ini_path` the first time it is needed.
-    fn ensure_started(&mut self, ini_path: Option<&std::path::Path>) {
+    /// Starts the writer for the settings file at `ini_path` the first time it is needed. Returns what to tell the
+    /// user once when the folder cannot be used (another MATSU Editor holds it, or it cannot be made).
+    fn ensure_started(&mut self, ini_path: Option<&std::path::Path>) -> Option<&'static str> {
         if !matches!(self.state, State::NotStarted) {
-            return;
+            return None;
         }
-        self.state = match ini_path {
-            None => State::Unavailable,
+        let (state, message) = match ini_path {
+            None => (State::Unavailable, None),
             Some(path) => match Writer::start(&matsu_config::unsaved::unsaved_dir(path)) {
-                Ok(writer) => State::Running(writer),
-                Err(StoreError::Locked | StoreError::Io(_)) => State::Unavailable,
+                Ok(writer) => (State::Running(writer), None),
+                Err(StoreError::Locked) => (
+                    State::Unavailable,
+                    Some("別のマツエディタが使っているため、保存していない文書を残しません。"),
+                ),
+                Err(StoreError::Io(_)) => (
+                    State::Unavailable,
+                    Some("保存していない文書を残すフォルダーを使えません。"),
+                ),
             },
         };
+        self.state = state;
+        message
     }
 }
 
@@ -492,7 +520,13 @@ pub(crate) fn tick_window_at(
     }
     let mut keeper = cx.remove_global::<Keeper>();
     let ini_path = settings_path(cx);
-    keeper.ensure_started(ini_path.as_deref());
+    if let Some(message) = keeper.ensure_started(ini_path.as_deref()) {
+        // Said once, in the window that found it out.
+        workspace.editor().clone().update(cx, |view, cx| {
+            view.notice = Some(message.to_owned());
+            cx.notify();
+        });
+    }
     if let State::Running(writer) = &keeper.state {
         let tabs = workspace.tab_editors();
         let mut ids = Vec::new();
@@ -506,7 +540,7 @@ pub(crate) fn tick_window_at(
                 (want_of(view.read(cx), shared, &prefs), revision_of(shared))
             };
             let entry = keeper.entries.entry(key).or_insert_with(|| Entry::new(now));
-            entry.seen_at = now;
+            entry.document.get_or_insert_with(|| document.downgrade());
             let plan = decide(entry, want, revision, now);
             if plan.discard {
                 if let Some(id) = entry.id.clone() {
