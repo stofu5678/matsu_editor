@@ -377,3 +377,24 @@ fn a_removal_that_failed_is_tried_again_until_it_works() {
     }
     assert!(!writer.failed());
 }
+
+#[test]
+fn a_removal_is_tried_again_also_while_the_queue_is_never_idle() {
+    let dir = tempfile::tempdir().unwrap();
+    let dir = dir.path().join("unsaved");
+    let writer = Writer::start_retrying(&dir, Duration::from_millis(50)).unwrap();
+    let id = Store::new_id();
+    let path = dir.join(format!("{id}.doc"));
+    std::fs::create_dir_all(path.join("x")).unwrap();
+    writer.discard(id);
+    writer.flush();
+    assert!(writer.failed());
+    std::fs::remove_dir_all(&path).unwrap();
+    // A job every 10 ms: the wait for a job never times out.
+    let start = Instant::now();
+    while writer.failed() && start.elapsed() < Duration::from_secs(5) {
+        writer.session(Session::default());
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!writer.failed());
+}

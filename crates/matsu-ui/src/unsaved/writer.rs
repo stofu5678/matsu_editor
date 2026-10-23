@@ -189,15 +189,19 @@ fn run(
     let mut session = store.read_session();
     // Copies whose removal failed: tried again until they are gone, so a discarded text does not come back.
     let mut stuck: Vec<String> = Vec::new();
+    // The time of the next try, checked after every job too: a queue that is never idle must not starve it.
+    let mut next_retry = std::time::Instant::now() + retry;
     loop {
         let job = match rx.recv_timeout(retry) {
             Ok(job) => job,
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                retry_stuck(store, &mut session, &mut stuck, failed);
+                retry_stuck(store, &mut session, &mut stuck);
+                next_retry = std::time::Instant::now() + retry;
+                failed.store(!stuck.is_empty(), Ordering::SeqCst);
                 continue;
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
-                retry_stuck(store, &mut session, &mut stuck, failed);
+                retry_stuck(store, &mut session, &mut stuck);
                 return;
             }
         };
@@ -242,7 +246,11 @@ fn run(
                 continue;
             }
         };
-        failed.store(result.is_err(), Ordering::SeqCst);
+        if !stuck.is_empty() && std::time::Instant::now() >= next_retry {
+            retry_stuck(store, &mut session, &mut stuck);
+            next_retry = std::time::Instant::now() + retry;
+        }
+        failed.store(result.is_err() || !stuck.is_empty(), Ordering::SeqCst);
     }
 }
 
@@ -268,10 +276,7 @@ pub(crate) fn write_text(doc: &Document, w: &mut dyn Write) -> io::Result<()> {
 /// How often the removals that failed are tried again.
 const RETRY_STUCK: std::time::Duration = std::time::Duration::from_secs(5);
 
-fn retry_stuck(store: &Store, session: &mut Session, stuck: &mut Vec<String>, failed: &AtomicBool) {
-    if stuck.is_empty() {
-        return;
-    }
+fn retry_stuck(store: &Store, session: &mut Session, stuck: &mut Vec<String>) {
     stuck.retain(|id| match store.discard_doc(id, session) {
         Ok(next) => {
             *session = next;
@@ -279,5 +284,4 @@ fn retry_stuck(store: &Store, session: &mut Session, stuck: &mut Vec<String>, fa
         }
         Err(_) => true,
     });
-    failed.store(!stuck.is_empty(), Ordering::SeqCst);
 }
