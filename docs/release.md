@@ -5,7 +5,7 @@
 | ファイル | 役割 |
 |---|---|
 | `.github/workflows/release.yml` | main への push のたびに動く。リリース PR の更新、毎日版の公開、版のリリースへの添付 |
-| `.github/workflows/package.yml` | 5 つの対象で `ume` と `ume-script` をリリースビルドして、アーカイブにする（再利用する部品。公開はしない） |
+| `.github/workflows/package.yml` | 5 つの対象で `matsu` と `matsu-script` をリリースビルドして、アーカイブにする（再利用する部品。公開はしない） |
 | `.github/workflows/package-check.yml` | リリース関係のファイルを変える PR で、`package.yml` だけを動かす（公開しない） |
 | `release-please-config.json`・`.release-please-manifest.json` | release-please の設定と、今の版 |
 
@@ -20,21 +20,21 @@
 
 | 対象 | ファイル名 |
 |---|---|
-| Windows x64 | `ume-<版>-windows-x64.zip` |
-| Windows ARM64 | `ume-<版>-windows-arm64.zip` |
-| macOS ARM64 | `ume-<版>-macos-arm64.tar.gz` |
-| Linux x64 | `ume-<版>-linux-x64.tar.gz` |
-| Linux ARM64 | `ume-<版>-linux-arm64.tar.gz` |
+| Windows x64 | `matsu-<版>-windows-x64.zip` |
+| Windows ARM64 | `matsu-<版>-windows-arm64.zip` |
+| macOS ARM64 | `matsu-<版>-macos-arm64.tar.gz` |
+| Linux x64 | `matsu-<版>-linux-x64.tar.gz` |
+| Linux ARM64 | `matsu-<版>-linux-arm64.tar.gz` |
 
-`<版>` は、毎日版では `nightly`、版のリリースではタグ（例: `v0.1.0`）。中身は `ume-<対象>/` のディレクトリで、実行ファイル（`ume` / `ume.exe`）、同梱のマクロのエンジンを動かす `ume-script`（`ume-script.exe`。`ume` は自分の隣にあるものを使う）、`LICENSE-MIT`、`LICENSE-APACHE`、`THIRD_PARTY_NOTICES.txt`（プログラムに入っている第三者のコードの著作権表示とライセンス。ライセンスが配布物に添えることを求める）、アイコンの絵（`icons/`。`assets/icons` の SVG・PNG・ICO。ライセンスはコードと同じ）、短い `README.txt` が入る。Linux では、FreeType を同梱してビルドしていないことを確かめる（同梱の FreeType のライセンスは `THIRD_PARTY_NOTICES.txt` に含まれないため。CI のテストと同じ確認）。署名はまだない。
+`<版>` は、毎日版では `nightly`、版のリリースではタグ（例: `v0.1.0`）。中身は `matsu-<対象>/` のディレクトリで、実行ファイル（`matsu` / `matsu.exe`）、同梱のマクロのエンジンを動かす `matsu-script`（`matsu-script.exe`。`matsu` は自分の隣にあるものを使う）、`LICENSE-MIT`、`LICENSE-APACHE`、`THIRD_PARTY_NOTICES.txt`（プログラムに入っている第三者のコードの著作権表示とライセンス。ライセンスが配布物に添えることを求める）、アイコンの絵（`icons/`。`assets/icons` の SVG・PNG・ICO。ライセンスはコードと同じ）、短い `README.txt` が入る。Linux では、FreeType を同梱してビルドしていないことを確かめる（同梱の FreeType のライセンスは `THIRD_PARTY_NOTICES.txt` に含まれないため。CI のテストと同じ確認）。署名はまだない。
 
-macOS だけ、実行ファイルを裸で置かず、アプリのバンドル `UME Editor.app` に入れる（`scripts/package-mac-app.sh`）。裸の実行ファイルを Finder で開くと Terminal.app が起動して黒い画面が出るため（ユーザーの依頼、2026-10-22）。`ume` と `ume-script` は `UME Editor.app/Contents/MacOS/` に並べる（`ume` が自分の隣の `ume-script` を使うので変わらない）。ほかは同じで、`LICENSE-*`、`THIRD_PARTY_NOTICES.txt`、`icons/`、`README.txt`（初回の開き方つき）は `UME Editor.app` と同じ階層に置く。`Contents/Info.plist` の識別子は `io.github.stofu5678.ume-editor`、最低の macOS は 11.0（arm64 が動く最も古い版）、アイコンは `assets/icons` の PNG から作った `.icns`。ライセンス類（`LICENSE-*`、`THIRD_PARTY_NOTICES.txt`）は `Contents/Resources/` にも入れる（アプリだけを Applications に移しても、第三者のコードの表示が離れないように）。ターミナルからは `UME Editor.app/Contents/MacOS/ume ファイル` で使える。`ume.ini` の場所と多重起動の判定は、実行ファイルの場所に依らない（macOS は `~/Library/Application Support/ume-editor/ume.ini` だけ）ので変わらない。ファイルの種類の関連づけ（`CFBundleDocumentTypes`）は、テキストとソースコードを「別の選択肢」（`LSHandlerRank` が `Alternate`）として入れた。「このアプリで開く」に出るだけで、既定のアプリは奪わない。Finder から開く処理（`on_open_urls`）は `crates/ume-ui/src/app.rs` にあるが、バンドルからの動作は Mac で確かめていない。
+macOS だけ、実行ファイルを裸で置かず、アプリのバンドル `MATSU Editor.app` に入れる（`scripts/package-mac-app.sh`）。裸の実行ファイルを Finder で開くと Terminal.app が起動して黒い画面が出るため（ユーザーの依頼、2026-10-22）。`matsu` と `matsu-script` は `MATSU Editor.app/Contents/MacOS/` に並べる（`matsu` が自分の隣の `matsu-script` を使うので変わらない）。ほかは同じで、`LICENSE-*`、`THIRD_PARTY_NOTICES.txt`、`icons/`、`README.txt`（初回の開き方つき）は `MATSU Editor.app` と同じ階層に置く。`Contents/Info.plist` の識別子は `io.github.stofu5678.matsu-editor`、最低の macOS は 11.0（arm64 が動く最も古い版）、アイコンは `assets/icons` の PNG から作った `.icns`。ライセンス類（`LICENSE-*`、`THIRD_PARTY_NOTICES.txt`）は `Contents/Resources/` にも入れる（アプリだけを Applications に移しても、第三者のコードの表示が離れないように）。ターミナルからは `MATSU Editor.app/Contents/MacOS/matsu ファイル` で使える。`matsu.ini` の場所と多重起動の判定は、実行ファイルの場所に依らない（macOS は `~/Library/Application Support/matsu-editor/matsu.ini` だけ）ので変わらない。ファイルの種類の関連づけ（`CFBundleDocumentTypes`）は、テキストとソースコードを「別の選択肢」（`LSHandlerRank` が `Alternate`）として入れた。「このアプリで開く」に出るだけで、既定のアプリは奪わない。Finder から開く処理（`on_open_urls`）は `crates/matsu-ui/src/app.rs` にあるが、バンドルからの動作は Mac で確かめていない。
 
 ## リリースビルドのプロファイル
 
-`Cargo.toml` の `[profile.release]` は `strip = true`（シンボルを取り除く）だけを指定している。Linux x64 で測った大きさ（表の大きさと時間は Linux x64 だけの値）と、リリースビルド 1 回の時間（`cargo build --release -p ume -p ume-script`、依存を含めて全部作り直す。測定中は同じ計算機で他のビルドも動いていたので、時間は目安）は次のとおり。
+`Cargo.toml` の `[profile.release]` は `strip = true`（シンボルを取り除く）だけを指定している。Linux x64 で測った大きさ（表の大きさと時間は Linux x64 だけの値）と、リリースビルド 1 回の時間（`cargo build --release -p matsu -p matsu-script`、依存を含めて全部作り直す。測定中は同じ計算機で他のビルドも動いていたので、時間は目安）は次のとおり。
 
-| 設定 | `ume` | `ume-script` | 時間 |
+| 設定 | `matsu` | `matsu-script` | 時間 |
 |---|---|---|---|
 | 既定 | 74.0 MB | 5.9 MB | 623 秒 |
 | `strip = true` | 50.8 MB | 4.6 MB | 675 秒 |
@@ -53,7 +53,7 @@ macOS だけ、実行ファイルを裸で置かず、アプリのバンドル `
 バックトレースに関数名が要るときは、取り除かずにビルドする。
 
 ```sh
-CARGO_PROFILE_RELEASE_STRIP=none cargo build --release --locked -p ume -p ume-script
+CARGO_PROFILE_RELEASE_STRIP=none cargo build --release --locked -p matsu -p matsu-script
 ```
 
 配布物と同じコミットで作れば、同じコードのシンボル付きが得られる（バイナリのビットまで同じになるとは限らない）。
@@ -102,23 +102,23 @@ release-please の Rust 向けの種類（`rust`）は、クレートごとの `
 
    ```sh
    gh release create vX.Y.Z --target <SHA> --title vX.Y.Z --generate-notes
-   gh release upload vX.Y.Z ume-vX.Y.Z-*.zip ume-vX.Y.Z-*.tar.gz
+   gh release upload vX.Y.Z matsu-vX.Y.Z-*.zip matsu-vX.Y.Z-*.tar.gz
    ```
 
-   ファイル名は上の表のとおり（artifact の中の名前は `ume-<対象>.zip` / `.tar.gz` なので、`ume-vX.Y.Z-<対象>` に付け替える）
+   ファイル名は上の表のとおり（artifact の中の名前は `matsu-<対象>.zip` / `.tar.gz` なので、`matsu-vX.Y.Z-<対象>` に付け替える）
 4. release-please が混乱したら、`.release-please-manifest.json` を最後のリリースの版に合わせる
 
 毎日版だけが壊れたときは、`nightly` のリリースを消してから main に push し直すと作り直される。
 
 ## Windows の C の実行時ライブラリ
 
-Windows 版の `ume.exe` と `ume-script.exe` には、C の実行時ライブラリ（MSVC の CRT と Universal CRT）を組み込む（静的リンク）。Visual C++ 再頒布可能パッケージ（`VCRUNTIME140.dll`）が入っていない Windows でも、そのまま起動できるようにするため（2026-10-21 にユーザーが判断）。
+Windows 版の `matsu.exe` と `matsu-script.exe` には、C の実行時ライブラリ（MSVC の CRT と Universal CRT）を組み込む（静的リンク）。Visual C++ 再頒布可能パッケージ（`VCRUNTIME140.dll`）が入っていない Windows でも、そのまま起動できるようにするため（2026-10-21 にユーザーが判断）。
 
 - 何も入れていない Windows（Windows サンドボックス）で、動的リンクの版が「VCRUNTIME140.dll が見つからない」で起動しなかったことがきっかけ
 - 指定は `.cargo/config.toml` の `target-feature=+crt-static`。手元のビルドと `package.yml` のビルドに効く
 - 環境変数の `RUSTFLAGS` は `.cargo/config.toml` の指定を置き換える。`ci.yml` と `e2e.yml` は `RUSTFLAGS` を使うので、テスト用のビルドは DLL を使ったままになる
-- `package.yml` は、macOS では `UME Editor.app` の `Info.plist`（`plutil -lint`、識別子、実行ファイル）、`ume-script`、`.icns` があることと、署名が壊れていないこと（`codesign --verify --deep --strict`）を確かめる。`package-check.yml` は `scripts/package-mac-app.sh` と `assets/icons/` の変更でも動く
-- `package.yml` は、配る `ume.exe` と `ume-script.exe` が C の実行時ライブラリの DLL を読み込んでいないことを確かめる（`.github/scripts/pe_imports.py`）
+- `package.yml` は、macOS では `MATSU Editor.app` の `Info.plist`（`plutil -lint`、識別子、実行ファイル）、`matsu-script`、`.icns` があることと、署名が壊れていないこと（`codesign --verify --deep --strict`）を確かめる。`package-check.yml` は `scripts/package-mac-app.sh` と `assets/icons/` の変更でも動く
+- `package.yml` は、配る `matsu.exe` と `matsu-script.exe` が C の実行時ライブラリの DLL を読み込んでいないことを確かめる（`.github/scripts/pe_imports.py`）
 
 ## 署名
 

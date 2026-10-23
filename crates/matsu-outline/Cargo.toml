@@ -1,0 +1,16 @@
+[package]
+name = "matsu-outline"
+description = "Outline analysis of MATSU Editor: Sakura's analyzers that list the functions and the headings of a document"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+matsu-core = { path = "../matsu-core" }
+matsu-config = { path = "../matsu-config" }
+
+[lints]
+workspace = true

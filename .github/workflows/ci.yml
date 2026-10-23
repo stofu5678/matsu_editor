@@ -106,7 +106,7 @@ jobs:
             echo "::error::THIRD_PARTY_NOTICES.txt is out of date. Run: cargo about generate --locked --all-features --workspace --fail about.hbs -o THIRD_PARTY_NOTICES.txt"
             exit 1
           fi
-      # GPUI (ume-ui) links the system libraries of the Linux desktop. The same list serves x64
+      # GPUI (matsu-ui) links the system libraries of the Linux desktop. The same list serves x64
       # and ARM64 (poc/gpui-textview/README.md).
       - name: Install the packages that GPUI needs
         if: success() || failure()
@@ -151,7 +151,7 @@ jobs:
         uses: dtolnay/rust-toolchain@1.99.0
         with:
           components: clippy
-      # GPUI (ume-ui) links the system libraries of the Linux desktop. The same list serves x64
+      # GPUI (matsu-ui) links the system libraries of the Linux desktop. The same list serves x64
       # and ARM64 (poc/gpui-textview/README.md).
       - name: Install the packages that GPUI needs
         if: needs.changes.outputs.code == 'true' && runner.os == 'Linux'
@@ -167,7 +167,7 @@ jobs:
       - if: needs.changes.outputs.code == 'true'
         run: cargo test --workspace --locked
         env:
-          UME_REQUIRE_INTERPRETERS: ${{ matrix.require_interpreters }}
+          MATSU_REQUIRE_INTERPRETERS: ${{ matrix.require_interpreters }}
       # freetype-sys bundles FreeType (FTL, not covered by THIRD_PARTY_NOTICES.txt) when the system
       # has none. The Linux builds must link the system's.
       - name: Check that FreeType was not bundled

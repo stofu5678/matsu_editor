@@ -1,0 +1,18 @@
+[package]
+name = "matsu-coloring"
+description = "Syntax coloring of MATSU Editor: Sakura's color strategies (comments, strings, numbers, keywords, URLs) and the color state at the start of each line"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+matsu-core = { path = "../matsu-core" }
+matsu-config = { path = "../matsu-config" }
+unicode-width = "0.2"
+matsu-regex = { path = "../matsu-regex" }
+
+[lints]
+workspace = true

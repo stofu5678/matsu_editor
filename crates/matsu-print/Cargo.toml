@@ -1,0 +1,15 @@
+[package]
+name = "matsu-print"
+description = "UI- and OS-independent page layout for printing and the print preview of MATSU Editor, as Sakura Editor lays out pages"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+matsu-layout = { path = "../matsu-layout" }
+
+[lints]
+workspace = true

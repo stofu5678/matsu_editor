@@ -2,7 +2,7 @@
  * Runs the real bregonig.dll (the Unicode API) the way Sakura Editor calls it, and writes what it
  * does to a JSON file.
  *
- * This file was written for UME Editor. The BREGEXP_W structure, the entry points and the call
+ * This file was written for MATSU Editor. The BREGEXP_W structure, the entry points and the call
  * sequence (compile with BMatchW / BSubstW on a dummy text, then BMatchExW / BSubstExW with no
  * pattern) come from Sakura Editor's sakura_core/extmodule/CBregexpDll2.h, CBregexpDll2.cpp and
  * CBregexp.cpp. The pattern text is built as CBregexp::MakePatternSub builds it. Modified: ported

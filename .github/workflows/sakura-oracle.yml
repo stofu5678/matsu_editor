@@ -1,9 +1,9 @@
 name: Sakura oracle
 
-# Runs the same key macros on the same input in the real Sakura Editor and in UME Editor, and compares
-# the saved bytes (crates/ume/tests/sakura_oracle.rs). Sakura is the oracle: it gives the expected
+# Runs the same key macros on the same input in the real Sakura Editor and in MATSU Editor, and compares
+# the saved bytes (crates/matsu/tests/sakura_oracle.rs). Sakura is the oracle: it gives the expected
 # result directly, so nobody has to guess it from the source. The cases that differ now are listed
-# with their reasons in crates/ume/tests/sakura_oracle/known_differences.txt; a new difference fails
+# with their reasons in crates/matsu/tests/sakura_oracle/known_differences.txt; a new difference fails
 # the job.
 
 on:
@@ -35,9 +35,9 @@ env:
   SAKURA_SHA256: 91f2eae7fe3b2417a47ee678463012e030063cf2694fd6c925fbaebc575dd7e8
 
 jobs:
-  # Build once and share the programs: every shard would otherwise build release UME again. The test
+  # Build once and share the programs: every shard would otherwise build release MATSU again. The test
   # executable runs from the same workspace path on every runner, so the paths compiled into it
-  # (CARGO_BIN_EXE_ume, CARGO_MANIFEST_DIR) stay valid.
+  # (CARGO_BIN_EXE_matsu, CARGO_MANIFEST_DIR) stay valid.
   build:
     name: build (windows-x64)
     # Draft pull requests skip it (mark the pull request ready for review to run it).
@@ -53,15 +53,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: release
-      - run: cargo build --release --locked -p ume -p ume-script
+      - run: cargo build --release --locked -p matsu -p matsu-script
       - name: Build the oracle test
         run: |
-          cargo test --release --locked -p ume --test sakura_oracle --no-run --message-format=json > build-messages.json
+          cargo test --release --locked -p matsu --test sakura_oracle --no-run --message-format=json > build-messages.json
           exe=$(jq -r 'select(.reason == "compiler-artifact" and .target.name == "sakura_oracle" and .executable != null) | .executable' build-messages.json | head -n 1)
           test -f "$exe"
           mkdir -p oracle-bin
           cp "$exe" oracle-bin/sakura_oracle.exe
-          cp target/release/ume.exe target/release/ume-script.exe oracle-bin/
+          cp target/release/matsu.exe target/release/matsu-script.exe oracle-bin/
           ls -l oracle-bin
       - uses: actions/upload-artifact@v7
         with:
@@ -105,12 +105,12 @@ jobs:
         with:
           name: sakura-oracle-programs
           path: oracle-bin
-      - name: Compare UME with Sakura
+      - name: Compare MATSU with Sakura
         run: |
           mkdir -p oracle-out target/release
-          cp oracle-bin/ume.exe oracle-bin/ume-script.exe target/release/
+          cp oracle-bin/matsu.exe oracle-bin/matsu-script.exe target/release/
           # Run from the package root, as `cargo test` does.
-          cd crates/ume
+          cd crates/matsu
           ORACLE_SHARD="${{ matrix.shard }}/6" SAKURA_DIR="$GITHUB_WORKSPACE/sakura-release" ORACLE_OUT="$GITHUB_WORKSPACE/oracle-out" \
             "$GITHUB_WORKSPACE/oracle-bin/sakura_oracle.exe" --ignored --nocapture
       - name: Keep the outputs

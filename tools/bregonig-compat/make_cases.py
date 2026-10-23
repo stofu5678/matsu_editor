@@ -14,7 +14,7 @@ Fields of a case:
   end           where the text handed to the DLL ends, in UTF-16 units (default: the whole subject)
   match_case    true: 英大文字と小文字を区別する ticked; default false, which gives the `i` modifier
   known_difference
-                set when UME Editor differs from the DLL on purpose; the text says why. The Rust
+                set when MATSU Editor differs from the DLL on purpose; the text says why. The Rust
                 test then checks that the two still differ.
 """
 import json
@@ -516,34 +516,34 @@ match("pos-start-G-miss", r"\Ga", "bba", start=1)
 match("pos-start-word-boundary", r"\bb", "ab", start=1)
 match("pos-start-past-end-by-one", "a", "ab", start=3)
 match("pos-end-limits-lookahead", "a(?=b)", "ab", end=1,
-      known="UME Editor looks at the whole line and only checks that the match lies in the range (PR #38, section 1), so a look-ahead sees past the selection end")
+      known="MATSU Editor looks at the whole line and only checks that the match lies in the range (PR #38, section 1), so a look-ahead sees past the selection end")
 match("pos-end-limits-match", "ab", "abab", start=0, end=3)
 match("pos-end-limits-dollar", "b$", "abc", end=2,
-      known="UME Editor looks at the whole line and only checks that the match lies in the range (PR #38, section 1), so the end of the range is not the end of the line")
+      known="MATSU Editor looks at the whole line and only checks that the match lies in the range (PR #38, section 1), so the end of the range is not the end of the line")
 match("pos-end-limits-word-boundary", r"a\b", "ab", end=1,
-      known="UME Editor looks at the whole line and only checks that the match lies in the range (PR #38, section 1), so a word boundary sees the character after the range")
+      known="MATSU Editor looks at the whole line and only checks that the match lies in the range (PR #38, section 1), so a word boundary sees the character after the range")
 
-# Line endings. UME Editor matches a line without its ending (ADR-0006, PR #38 section 1).
+# Line endings. MATSU Editor matches a line without its ending (ADR-0006, PR #38 section 1).
 match("eol-dot-star-stops", ".*", "ab\r\ncd")
 match("eol-dollar-before-crlf", "b$", "ab\r\ncd")
 match("eol-dollar-before-lf", "b$", "ab\ncd")
 match("eol-dollar-before-cr", "b$", "ab\rcd")
 match("eol-space-class-reaches", r"b\s", "ab\r\n",
-      known="UME Editor matches the line without its ending, so `\\s` cannot match the line ending")
+      known="MATSU Editor matches the line without its ending, so `\\s` cannot match the line ending")
 match("eol-negated-class-reaches", "b[^a]", "ab\r\n",
-      known="UME Editor matches the line without its ending, so a negated class cannot match the line ending")
+      known="MATSU Editor matches the line without its ending, so a negated class cannot match the line ending")
 match("eol-cr-in-pattern", r"b\r", "ab\r\n",
-      known="UME Editor matches the line without its ending, so `\\r` cannot match the line ending")
+      known="MATSU Editor matches the line without its ending, so `\\r` cannot match the line ending")
 match("eol-lf-in-pattern", r"b\r\n", "ab\r\n",
-      known="UME Editor matches the line without its ending, so `\\r\\n` cannot match the line ending")
+      known="MATSU Editor matches the line without its ending, so `\\r\\n` cannot match the line ending")
 match("eol-dot-star-dollar", ".*$", "ab\r\n")
 match("eol-W-reaches", r"b\W", "ab\r\n",
-      known="UME Editor matches the line without its ending, so `\\W` cannot match the line ending")
+      known="MATSU Editor matches the line without its ending, so `\\W` cannot match the line ending")
 match("eol-subject-with-only-eol", "^$", "\r\n")
 rep_all("eol-g-dollar", "$", "<", "ab\r\n")
 rep_all("eol-g-caret", "^", ">", "ab\r\n")
 rep_all("eol-g-space-class", r"\s+", "_", "a b\r\n",
-        known="UME Editor replaces within the line without its ending, so `\\s+` cannot take the line ending")
+        known="MATSU Editor replaces within the line without its ending, so `\\s+` cannot take the line ending")
 
 # Option letters that change the pattern (Sakura passes them only from its own checkboxes; the
 # regex dialog has none of them, so this is a check on the base case only).
@@ -645,26 +645,26 @@ rep_all("g-lookbehind-empty", r"(?<=a)", "-", "aa")
 rep_all("g-lookahead-empty", r"(?=a)", "-", "aa")
 rep_all("g-b-empty-in-words", r"\b", "|", "ab, cd")
 
-# --- Known differences: where UME Editor does not do what the DLL does, on purpose or because it
+# --- Known differences: where MATSU Editor does not do what the DLL does, on purpose or because it
 # cannot. The reason is stored with the case. The Rust test checks that the two still differ.
 LONE_SURROGATE = (
     "bregonig.dll gives a lone UTF-16 surrogate (a value in D800-DFFF, or past U+10FFFF turned into "
-    "surrogates by a formula that does not fit); a Rust string cannot hold one, so UME Editor "
+    "surrogates by a formula that does not fit); a Rust string cannot hold one, so MATSU Editor "
     "gives nothing"
 )
 EMPTY_TARGET = (
     "bregonig.dll refuses a search that starts at the end of the text (\"invalid target parameter\"). "
     "In Sakura every line but the last has its line ending, so the end of the text is the end of the "
-    "last line only. UME Editor matches lines without their endings and finds an empty match at the "
+    "last line only. MATSU Editor matches lines without their endings and finds an empty match at the "
     "end of any line (ADR-0006, PR #38 section 1)"
 )
 MULTI_LINE = (
-    "UME Editor matches one line at a time, without its line ending (ADR-0006, PR #38 section 1); "
+    "MATSU Editor matches one line at a time, without its line ending (ADR-0006, PR #38 section 1); "
     "this subject has a line ending in the middle or the pattern reaches over the ending"
 )
 BYTE_ESCAPE = (
     "bregonig.dll runs Onigmo on UTF-16, where a byte escape (`\\xHH`, `\\NNN`, `\\0`) is half a "
-    "character and is refused (\"too short multibyte code string\"); UME Editor runs Onigmo on UTF-8, "
+    "character and is refused (\"too short multibyte code string\"); MATSU Editor runs Onigmo on UTF-8, "
     "where the same byte escape is a valid ASCII character"
 )
 KNOWN = {
@@ -674,20 +674,20 @@ KNOWN = {
     ),
     "minus-single--2": (
         "`$-{name}[n]` with an `n` past the groups of that name reads outside the DLL's list (the "
-        "32-bit and 64-bit DLL differ for other indexes); UME Editor gives nothing"
+        "32-bit and 64-bit DLL differ for other indexes); MATSU Editor gives nothing"
     ),
-    "probe-index-07": "the DLL reads a non-ASCII decimal digit in `[n]` (here U+0660); UME Editor reads ASCII digits only",
+    "probe-index-07": "the DLL reads a non-ASCII decimal digit in `[n]` (here U+0660); MATSU Editor reads ASCII digits only",
     "syn-hex-pattern-over-max": (
         "`\\x{110000}` in a pattern: the DLL's Onigmo (UTF-16) takes it and matches nothing; the "
         "UTF-8 Onigmo refuses a code point past U+10FFFF"
     ),
     "syn-ffff-in-pattern": (
         "U+FFFF is the delimiter Sakura puts around the pattern, so a U+FFFF typed in a pattern ends "
-        "it for the DLL; UME Editor does not use a delimiter"
+        "it for the DLL; MATSU Editor does not use a delimiter"
     ),
     "syn-ffff-in-class": (
         "U+FFFF is the delimiter Sakura puts around the pattern, so a U+FFFF typed in a pattern ends "
-        "it for the DLL; UME Editor does not use a delimiter"
+        "it for the DLL; MATSU Editor does not use a delimiter"
     ),
 }
 for id in ("hex-brace-surrogate-high", "hex-brace-surrogate-low", "hex-brace-over-max", "probe-062",

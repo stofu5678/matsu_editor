@@ -118,9 +118,9 @@ jobs:
       - name: Name the files
         run: |
           mkdir out
-          for f in artifacts/ume-*; do
+          for f in artifacts/matsu-*; do
             name=$(basename "$f")
-            mv "$f" "out/ume-nightly-${name#ume-}"
+            mv "$f" "out/matsu-nightly-${name#matsu-}"
           done
           ls -l out
       - name: Publish the nightly prerelease
@@ -155,9 +155,9 @@ jobs:
       - name: Attach the packages to the release
         run: |
           mkdir out
-          for f in artifacts/ume-*; do
+          for f in artifacts/matsu-*; do
             name=$(basename "$f")
-            mv "$f" "out/ume-${TAG}-${name#ume-}"
+            mv "$f" "out/matsu-${TAG}-${name#matsu-}"
           done
           ls -l out
           gh release upload "$TAG" out/* --repo "$GITHUB_REPOSITORY" --clobber

@@ -7,7 +7,7 @@
   "include-component-in-tag": false,
   "packages": {
     ".": {
-      "package-name": "ume-editor",
+      "package-name": "matsu-editor",
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         {

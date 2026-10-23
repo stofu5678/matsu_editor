@@ -1,7 +1,7 @@
 //! Repository tasks, run as `cargo xtask <task>`.
 //!
 //! Tasks:
-//! - `sakura-tables --sakura <path>`: regenerate `crates/ume-commands/src/sakura/*.rs` from a
+//! - `sakura-tables --sakura <path>`: regenerate `crates/matsu-commands/src/sakura/*.rs` from a
 //!   clone of <https://github.com/sakura-editor/sakura> (`macro_functions.rs` comes from
 //!   `macro_table.rs`).
 //!
@@ -9,9 +9,9 @@
 //! `SAKURA_DIR=<path> cargo test -p xtask`. Without `SAKURA_DIR` that test is skipped.
 
 mod macro_table;
+mod matsu_extras;
 mod parse;
 mod render;
-mod ume_extras;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -61,7 +61,7 @@ fn repository_root() -> PathBuf {
 /// Builds the content of every generated file: `(path relative to the repository root, text)`.
 fn generate(sakura: &Path) -> Result<Vec<(String, String)>, String> {
     let mut tables = parse::read_tables(sakura)?;
-    ume_extras::apply(&mut tables)?;
+    matsu_extras::apply(&mut tables)?;
     let commit = sakura_commit(sakura)?;
     let mut files = render::render(&tables, &commit);
     files.push(macro_table::render(sakura, &tables, &commit)?);

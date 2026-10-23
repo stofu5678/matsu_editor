@@ -1,0 +1,33 @@
+mytool.bmp: the toolbar icons of Sakura Editor
+==============================================
+
+Origin: https://github.com/sakura-editor/sakura, commit 48db6c7c25e2d98bdf47baab201826b4da8c7303,
+file src/main/resources/images/mytool.bmp (the bitmap `IDB_MYTOOL` of the toolbar).
+
+The file is included here unchanged (byte for byte). MATSU Editor cuts the icons out of it when it
+runs (crates/matsu-ui/src/bars/icons.rs): 16x16 pixels each, 32 icons in a row, and the colour of
+the top left pixel is the transparent colour, as in Sakura's CImageListMgr. Nothing else was
+changed.
+
+Sakura Editor is licensed under the zlib License. Its copyright line and license text
+(LICENSE at the root of the repository) are:
+
+    zlib License
+
+    Copyright (C) 2018-2022, Sakura Editor Organization
+
+    This software is provided 'as-is', without any express or implied
+    warranty.  In no event will the authors be held liable for any damages
+    arising from the use of this software.
+
+    Permission is granted to anyone to use this software for any purpose,
+    including commercial applications, and to alter it and redistribute it
+    freely, subject to the following restrictions:
+
+    1. The origin of this software must not be misrepresented; you must not
+       claim that you wrote the original software. If you use this software
+       in a product, an acknowledgment in the product documentation would be
+       appreciated but is not required.
+    2. Altered source versions must be plainly marked as such, and must not be
+       misrepresented as being the original software.
+    3. This notice may not be removed or altered from any source distribution.
