@@ -1,6 +1,6 @@
 Diagnostic patch for gpui-pre-windows 0.3.8 (Cargo.toml and src/directx_atlas.rs),
 which is derived from GPUI (https://github.com/zed-industries/zed, crates/gpui_windows)
-and licensed under the Apache License 2.0. Modified for the UME Editor PoC, to check
+and licensed under the Apache License 2.0. Modified for the MATSU Editor PoC, to check
 https://github.com/zed-industries/zed/issues/56349#issuecomment-6078561427 by hand.
 See docs/upstream/zed-56349.md. Do not use it for anything else.
 
@@ -163,7 +163,7 @@ Apply inside a copy of the crate with `git apply` or `patch -p1`.
      }
  }
  
-+/// Diagnostics added for the UME Editor PoC (patches/gpui-pre-windows-atlas-diag.diff).
++/// Diagnostics added for the MATSU Editor PoC (patches/gpui-pre-windows-atlas-diag.diff).
 +///
 +/// Writes each atlas texture and each upload to `atlas-<process ID>.txt` in the current
 +/// directory, with the process's private bytes (`PrivateUsage`) right before and right after
