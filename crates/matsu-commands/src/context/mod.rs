@@ -557,9 +557,15 @@ impl<'a> CommandContext<'a> {
         Ok(Pos::new(at.line, at.col + len))
     }
 
-    /// The chars of line `line` from byte `col` on, each with the position after it, and whether
-    /// the line has a line ending. A line that is not there is empty.
-    fn overwrite_tail(&self, line: usize, col: usize) -> Result<(OverwriteRest, bool)> {
+    /// The first `limit` chars of line `line` from byte `col` on, each with the position after it,
+    /// and whether the line has a line ending. A line that is not there is empty. The limit keeps
+    /// a very long line from being copied for one typed char: a typed char takes two chars at most.
+    fn overwrite_tail(
+        &self,
+        line: usize,
+        col: usize,
+        limit: usize,
+    ) -> Result<(OverwriteRest, bool)> {
         let Some(l) = self.doc().line(line)? else {
             return Ok((VecDeque::new(), false));
         };
@@ -569,6 +575,7 @@ impl<'a> CommandContext<'a> {
             .get(col..)
             .unwrap_or("")
             .chars()
+            .take(limit)
             .map(|c| {
                 at += c.len_utf8();
                 (c, Some(Pos::new(line, at)))
@@ -596,7 +603,9 @@ impl<'a> CommandContext<'a> {
         let mut end = at;
         let mut out = String::new();
         let mut line = at.line;
-        let (mut rest, mut has_eol) = self.overwrite_tail(line, at.col)?;
+        // One typed char takes two chars at most, and the next one is looked at.
+        let limit = 2 * text.chars().count() + 1;
+        let (mut rest, mut has_eol) = self.overwrite_tail(line, at.col, limit)?;
         for typed in text.chars() {
             if typed == '\r' || typed == '\n' {
                 out.push(typed);
@@ -607,7 +616,7 @@ impl<'a> CommandContext<'a> {
                     // `Command_DELETE` at the end of the text: the next line joins.
                     line += 1;
                     end = Pos::new(line, 0);
-                    (rest, has_eol) = self.overwrite_tail(line, 0)?;
+                    (rest, has_eol) = self.overwrite_tail(line, 0, limit)?;
                 }
                 out.push(typed);
                 continue;
