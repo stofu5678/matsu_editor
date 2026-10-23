@@ -78,6 +78,7 @@ mod tags;
 mod type_settings;
 pub mod ui_command;
 mod ui_commands;
+mod unsaved;
 pub mod view;
 mod window_ops;
 pub mod word;

@@ -203,6 +203,10 @@ pub(crate) fn install(cx: &mut App, user: &crate::settings::UserSettings) {
             page.apply(&mut env, &values, None);
         }
     }
+    // The size limit of the copies of unsaved documents is in the file only (ADR-0022).
+    let mut keep = crate::unsaved::prefs::prefs(env.cx);
+    keep.max_mb = crate::unsaved::prefs::KeepPrefs::from_profile(&profile).max_mb;
+    env.cx.set_global(keep);
     // The letter of the generations is in the file only (the settings are not a global yet).
     pages::backup::set_ext_char(env.cx, &profile);
 }

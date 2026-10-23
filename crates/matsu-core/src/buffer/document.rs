@@ -456,6 +456,12 @@ impl Document {
         }
     }
 
+    /// The size of the document in bytes as it is held: the original data in its own encoding plus the
+    /// added text in UTF-8. A measure of how big the document is, not the size of a saved file.
+    pub fn raw_len(&self) -> usize {
+        self.total()
+    }
+
     /// The number of pieces (a measure of how fragmented the document is).
     pub fn piece_count(&self) -> usize {
         tree::pieces(&self.root).len()
