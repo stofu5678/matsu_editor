@@ -195,6 +195,45 @@ mod tests {
         });
     }
 
+    /// Types `text` at once, as the IME commits it.
+    fn overtyped_text(text: &str, before: &str, after: &str) {
+        let mut e = Editor::new(before);
+        e.set_overwrite(true);
+        e.with_context(|cx| cx.type_text(text).map(|_| ())).unwrap();
+        e.assert_marked(after);
+    }
+
+    #[test]
+    fn several_chars_overwrite_one_by_one() {
+        // DelCharForOverwrite runs for each char: the spaces of the fix mode are chars at the caret
+        let options = EditOptions {
+            overwrite_fix_mode: true,
+            ..Default::default()
+        };
+        with_options(options, || {
+            overtyped_text("日本", "a|bcdef", "a日本|f");
+            overtyped_text("XY", "a|日b", "aXY|b");
+            overtyped_text("X日", "a|bcd", "aX日|");
+            overtyped_text("日X", "a|bcd", "a日X|");
+            // a line break is inserted
+            overtyped_text("X\nY", "a|bcd", "aX\nY|d");
+        });
+        // without the fix mode a char replaces a char
+        overtyped_text("日本", "a|bcdef", "a日本|def");
+        overtyped_text("XY", "a|日b", "aXY|");
+        // nothing to overwrite for no chars, also at the end of a line with the option on
+        let options = EditOptions {
+            not_overwrite_crlf: false,
+            ..Default::default()
+        };
+        with_options(options, || {
+            overtyped_text("", "ab|\ncd", "ab|\ncd");
+            // the first char deletes the line ending, the next one overwrites the next line
+            overtyped_text("XY", "ab|\ncd", "abXY|d");
+            overtyped_text("X", "ab|\n\ncd", "abX|\ncd");
+        });
+    }
+
     #[test]
     fn overwrite_mode_replaces_a_selection_and_enter_inserts() {
         overtyped('X', "a[bc|de", "aX|de");

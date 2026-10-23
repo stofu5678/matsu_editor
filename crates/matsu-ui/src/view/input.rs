@@ -67,23 +67,26 @@ impl EditorView {
         if !self.composing || self.composing_over_selection {
             return;
         }
-        let chars = self
+        let marked = self
             .document
             .read(cx)
             .doc()
             .line(m.line)
             .ok()
             .flatten()
-            .and_then(|l| l.text.get(m.range.clone()).map(|t| t.chars().count()))
-            .unwrap_or(0);
+            .and_then(|l| l.text.get(m.range.clone()).map(str::to_owned))
+            .unwrap_or_default();
         self.run_with(cx, |command_cx| {
             if !command_cx.is_overwrite() {
                 return;
             }
             let end = Pos::new(m.line, m.range.end);
-            if let Ok(to) = command_cx.overwrite_end(end, chars) {
+            // The composition is in the text already: what follows it is replaced by the spaces
+            // that keep the columns (`m_bOverWriteFixMode`), or by nothing.
+            if let Ok(plan) = command_cx.overwrite_replacement(end, &marked) {
                 // the caret stays where the IME put it
-                command_cx.replace(end, to, "").ok();
+                let pad = " ".repeat(plan.pad);
+                command_cx.replace(end, plan.end, &pad).ok();
             }
         });
     }
@@ -227,21 +230,22 @@ impl EntityInputHandler for EditorView {
             // Sakura does char by char (`WM_IME_CHAR` runs `F_IME_CHAR` there, and
             // `Command_IME_CHAR` calls `DelCharForOverwrite` only when nothing is selected), so a
             // composition that started over a selection overwrites nothing more.
-            let to = if command_cx.is_overwrite()
-                && ((was_composing && !over_selection) || from == to)
-            {
-                command_cx
-                    // a line break is inserted, not overwritten (Enter in `Command_WCHAR`)
-                    .overwrite_end(
-                        to,
-                        text.chars().filter(|c| !matches!(c, '\r' | '\n')).count(),
-                    )
-                    .unwrap_or(to)
+            let overwrites =
+                command_cx.is_overwrite() && ((was_composing && !over_selection) || from == to);
+            let plan = if overwrites {
+                // a line break is inserted, not overwritten (Enter in `Command_WCHAR`)
+                command_cx.overwrite_replacement(to, text).ok()
             } else {
-                to
+                None
+            };
+            let (to, text, pad) = match &plan {
+                Some(plan) => (plan.end, plan.text.as_str(), plan.pad),
+                None => (to, text, 0),
             };
             if let Ok(edit) = command_cx.replace(from, to, text) {
-                command_cx.move_caret(edit.end, false).ok();
+                // the spaces that keep the columns come after the caret
+                let caret = Pos::new(edit.end.line, edit.end.col - pad);
+                command_cx.move_caret(caret, false).ok();
             }
             command_cx.end_block();
         });
