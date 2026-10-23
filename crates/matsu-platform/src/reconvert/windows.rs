@@ -7,9 +7,9 @@
 
 use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::UI::Input::Ime::{
-    ImmGetContext, ImmGetProperty, ImmReleaseContext, ImmSetCompositionStringW,
-    SCS_CAP_SETRECONVERTSTRING, SCS_QUERYRECONVERTSTRING, SCS_SETRECONVERTSTRING,
-    SET_COMPOSITION_STRING_TYPE,
+    IACE_DEFAULT, ImmAssociateContextEx, ImmGetContext, ImmGetProperty, ImmReleaseContext,
+    ImmSetCompositionStringW, SCS_CAP_SETRECONVERTSTRING, SCS_QUERYRECONVERTSTRING,
+    SCS_SETRECONVERTSTRING, SET_COMPOSITION_STRING_TYPE,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetKeyboardLayout;
 
@@ -22,6 +22,26 @@ fn hwnd(window: RawWindowHandle) -> Result<HWND, Error> {
     match window {
         RawWindowHandle::Win32(handle) => Ok(handle.hwnd.get() as HWND),
         _ => Err(Error::Failed("Win32 のウィンドウではない")),
+    }
+}
+
+/// The IME context of the window. GPUI takes it off the window while the focused element does
+/// not take text (`update_ime_enabled` in gpui-pre-windows, at every frame), which is so while a
+/// menu is open; then the window has none. Give it the default context back. It stays, so that
+/// the composition this starts is not cut off; GPUI associates it again by itself when the
+/// editor takes text input, and its flag only differs for the moment in between.
+///
+/// # Safety
+/// `hwnd` is a window of this thread. The caller releases a context that is not null.
+unsafe fn context_of(hwnd: HWND) -> windows_sys::Win32::UI::Input::Ime::HIMC {
+    // SAFETY: as the caller promises.
+    unsafe {
+        let context = ImmGetContext(hwnd);
+        if !context.is_null() {
+            return context;
+        }
+        ImmAssociateContextEx(hwnd, std::ptr::null_mut(), IACE_DEFAULT);
+        ImmGetContext(hwnd)
     }
 }
 
@@ -47,7 +67,7 @@ fn call(
     // structure in them says that size in `dwSize`; it is writable where the caller passes a
     // `&mut` (the query), and only read by the other index.
     unsafe {
-        let context = ImmGetContext(hwnd);
+        let context = context_of(hwnd);
         if context.is_null() {
             return Err(Error::Failed("入力コンテキストを取得できない"));
         }
@@ -86,4 +106,56 @@ pub(super) fn set(window: RawWindowHandle, reconvert: &Reconvert) -> Result<(), 
         bytes.as_ptr().cast_mut(),
         bytes.len(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{CreateWindowExW, DestroyWindow};
+
+    use super::*;
+
+    /// A window of a class every Windows has (the check runs without an IME).
+    fn window() -> HWND {
+        let class: Vec<u16> = "STATIC\0".encode_utf16().collect();
+        // SAFETY: a system class, no parent, no menu; destroyed by the test.
+        unsafe {
+            CreateWindowExW(
+                0,
+                class.as_ptr(),
+                class.as_ptr(),
+                0,
+                0,
+                0,
+                10,
+                10,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null(),
+            )
+        }
+    }
+
+    #[test]
+    fn a_window_that_lost_its_ime_context_gets_the_default_one_back() {
+        let hwnd = window();
+        assert!(!hwnd.is_null());
+        // SAFETY: the window is ours and lives until `DestroyWindow` below.
+        unsafe {
+            // what GPUI does while the focused element takes no text
+            ImmAssociateContextEx(hwnd, std::ptr::null_mut(), 0);
+            assert!(
+                ImmGetContext(hwnd).is_null(),
+                "no context after the removal"
+            );
+            let context = context_of(hwnd);
+            assert!(!context.is_null(), "the default context is back");
+            ImmReleaseContext(hwnd, context);
+            // and when it has one, it is left as it is
+            let again = context_of(hwnd);
+            assert_eq!(again, context);
+            ImmReleaseContext(hwnd, again);
+            DestroyWindow(hwnd);
+        }
+    }
 }
