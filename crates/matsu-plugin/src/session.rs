@@ -94,9 +94,13 @@ pub const SCRIPT_HOST: &str = if cfg!(windows) {
 impl Language {
     /// The language of a macro file, by its extension.
     pub fn of_file(path: &Path) -> Option<Self> {
-        match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
+        let extension = path.extension()?.to_str()?;
+        match extension.to_ascii_lowercase().as_str() {
             "mjs" | "cjs" => Some(Self::JavaScript),
-            "ts" => Some(Self::TypeScript),
+            // Node.js strips types only from a file named `.ts` in lower case (`B.TS` is parsed as
+            // JavaScript, even on a file system that ignores case), so no other spelling is a
+            // TypeScript macro.
+            "ts" if extension == "ts" => Some(Self::TypeScript),
             "py" => Some(Self::Python),
             "rb" => Some(Self::Ruby),
             "php" => Some(Self::Php),

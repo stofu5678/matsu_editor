@@ -920,9 +920,11 @@ fn without_a_hold_the_same_wait_times_out() {
 #[test]
 fn ts_files_are_typescript() {
     assert_eq!(
-        Language::of_file(std::path::Path::new("a.TS")),
+        Language::of_file(std::path::Path::new("a.ts")),
         Some(Language::TypeScript)
     );
+    // Node.js strips types only from `.ts` in lower case.
+    assert_eq!(Language::of_file(std::path::Path::new("a.TS")), None);
     assert_eq!(TS.default_interpreter(), JS.default_interpreter());
 }
 
