@@ -412,3 +412,16 @@ fn a_failure_is_not_reported_as_over_by_a_wait_that_retried_nothing() {
     std::thread::sleep(Duration::from_millis(200));
     assert!(writer.failed());
 }
+
+#[test]
+fn the_copies_in_the_folder_are_listed_by_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path().join("unsaved")).unwrap();
+    let id = Store::new_id();
+    store
+        .write_doc(&id, &info(), &mut |w| w.write_all(b"x"))
+        .unwrap();
+    std::fs::write(store.dir().join("notes.doc"), b"not ours").unwrap();
+    std::fs::write(store.dir().join(format!("{id}.doc.1.tmp")), b"x").unwrap();
+    assert_eq!(super::writer::copies_in(&store), vec![id]);
+}

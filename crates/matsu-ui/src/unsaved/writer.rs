@@ -242,10 +242,12 @@ fn run(
             Job::Clear => {
                 session = Session::default();
                 let result = store.clear();
-                // What cannot be cleared now is cleared at the next try, with the removals that failed.
-                pending.clear = result.is_err();
                 if result.is_ok() {
                     pending.stuck.clear();
+                } else {
+                    // What is there now is removed one by one at the next tries. Not the whole folder again:
+                    // by then the feature may be on, and the copies written since must stay.
+                    pending.stuck.extend(copies_in(store));
                 }
                 result
             }
@@ -289,23 +291,14 @@ const RETRY_STUCK: std::time::Duration = std::time::Duration::from_secs(5);
 struct Pending {
     /// Copies that could not be removed.
     stuck: Vec<String>,
-    /// The folder could not be cleared.
-    clear: bool,
 }
 
 impl Pending {
     fn is_empty(&self) -> bool {
-        self.stuck.is_empty() && !self.clear
+        self.stuck.is_empty()
     }
 
     fn retry(&mut self, store: &Store, session: &mut Session) {
-        if self.clear {
-            if store.clear().is_ok() {
-                self.clear = false;
-                self.stuck.clear();
-            }
-            return;
-        }
         self.stuck
             .retain(|id| match store.discard_doc(id, session) {
                 Ok(next) => {
@@ -315,4 +308,20 @@ impl Pending {
                 Err(_) => true,
             });
     }
+}
+
+/// The ids of the copies that are in the folder.
+pub(crate) fn copies_in(store: &Store) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(store.dir()) else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let path = e.path();
+            let stem = path.file_stem()?.to_str()?.to_owned();
+            (path.extension()? == "doc" && matsu_config::unsaved::is_valid_id(&stem))
+                .then_some(stem)
+        })
+        .collect()
 }
