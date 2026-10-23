@@ -58,7 +58,11 @@ pub(crate) fn track(element: Stateful<Div>, cx: &mut gpui::Context<EditorView>) 
         element = element
             .on_mouse_down(
                 button,
-                cx.listener(move |view, _, _, _| view.held_buttons.set(button, true)),
+                cx.listener(move |view, _, _, _| {
+                    view.held_buttons.set(button, true);
+                    // A new press starts over: the last release may have been outside the view.
+                    view.wheel_used_middle = false;
+                }),
             )
             .on_mouse_up(
                 button,
