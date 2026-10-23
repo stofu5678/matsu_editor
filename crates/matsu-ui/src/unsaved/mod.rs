@@ -19,7 +19,7 @@ mod tests;
 #[cfg(test)]
 mod window_tests;
 
-pub(crate) use keeper::{clear_copies, start};
+pub(crate) use keeper::{clear_copies, discard_document, start};
 
 use gpui::App;
 

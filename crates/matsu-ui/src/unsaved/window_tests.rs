@@ -8,7 +8,7 @@ use gpui::{AnyWindowHandle, Entity, TestAppContext, VisualTestContext};
 use matsu_config::Profile;
 use matsu_config::unsaved::Store;
 
-use super::keeper::{flush, housekeeping_at, tick_window_at};
+use super::keeper::{app_tick, flush, tick_window_at};
 use super::prefs::KeepPrefs;
 use crate::app::Workspace;
 use crate::document::SharedDocument;
@@ -172,7 +172,7 @@ fn the_copy_of_a_closed_tab_is_discarded_when_no_window_reports_it(cx: &mut Test
     tick(cx, &f, t0 + Duration::from_secs(3));
     assert_eq!(doc_files(&f.dir).len(), 1);
     // The window never ticks again (it was closed with 「保存しない」); the housekeeping finds the document gone.
-    cx.update(|app| housekeeping_at(app, t0 + Duration::from_secs(3) + Duration::from_secs(6)));
+    cx.update(|app| app_tick(app, t0 + Duration::from_secs(3) + Duration::from_secs(6)));
     cx.update(|app| flush(app));
     assert!(doc_files(&f.dir).is_empty());
     assert!(read_session(&f).windows.is_empty());
@@ -265,4 +265,90 @@ fn clearing_removes_the_copies_and_keeps_the_lock(cx: &mut TestAppContext) {
     tick(cx, &f, t0 + Duration::from_secs(10));
     tick(cx, &f, t0 + Duration::from_secs(13));
     assert_eq!(doc_files(&f.dir).len(), 1);
+}
+
+#[gpui::test]
+fn the_copies_stay_while_the_feature_is_off_and_no_window_ticks(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "kept on purpose");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    // The user turned it off and chose 「残す」: the windows stop ticking, the housekeeping goes on.
+    cx.update(|app| {
+        app.set_global(KeepPrefs {
+            keep: false,
+            ..KeepPrefs::default()
+        })
+    });
+    for s in [10, 20, 30] {
+        cx.update(|app| app_tick(app, t0 + Duration::from_secs(s)));
+    }
+    cx.update(|app| flush(app));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    assert_eq!(read_session(&f).windows.len(), 1);
+    // Turned on again: the window is not taken for a new one, and the copy is neither lost nor doubled.
+    cx.update(|app| app.set_global(KeepPrefs::default()));
+    tick(cx, &f, t0 + Duration::from_secs(31));
+    cx.update(|app| app_tick(app, t0 + Duration::from_secs(32)));
+    cx.update(|app| flush(app));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+}
+
+#[gpui::test]
+fn a_document_that_is_closed_or_saved_loses_its_copy_at_once(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "thrown away");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    // What `confirm_discard` does when the user answers 「保存しない」: no tick, no wait.
+    let ws = workspace(cx, f.handle);
+    let document = ws.read_with(cx, |ws, app| ws.editor().read(app).document().entity_id());
+    cx.update(|app| super::discard_document(document, app));
+    cx.update(|app| flush(app));
+    assert!(doc_files(&f.dir).is_empty());
+    assert!(read_session(&f).windows.is_empty());
+    // The document is still open and unsaved here, so the next change makes a new copy.
+    type_text(cx, &f, "!");
+    tick(cx, &f, t0 + Duration::from_secs(10));
+    tick(cx, &f, t0 + Duration::from_secs(13));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+}
+
+#[gpui::test]
+fn answering_dont_save_to_the_close_question_discards_the_copy_before_any_tick(
+    cx: &mut TestAppContext,
+) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "will be closed");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    let code = matsu_commands::sakura::FUNCTIONS
+        .iter()
+        .find(|f| f.name == "F_WINCLOSE")
+        .unwrap()
+        .code;
+    let ws = workspace(cx, f.handle);
+    let view = ws.read_with(cx, |ws, _| ws.editor().clone());
+    f.handle
+        .update(cx, |_, window, app| {
+            view.update(app, |view, cx| view.run_function(code, &[], window, cx))
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let window = VisualTestContext::from_window(f.handle, cx).into_mut();
+    assert!(
+        window.has_pending_prompt(),
+        "the question about the changes"
+    );
+    window.simulate_prompt_answer("保存しない(N)");
+    window.run_until_parked();
+    cx.update(|app| flush(app));
+    assert!(doc_files(&f.dir).is_empty());
+    assert!(read_session(&f).windows.is_empty());
 }

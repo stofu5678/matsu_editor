@@ -338,3 +338,21 @@ fn bytes_that_are_not_valid_in_the_encoding_are_kept_as_the_characters_the_edito
     let text = std::str::from_utf8(&bytes).unwrap();
     assert_eq!(text, "a\u{10FFFF}b");
 }
+
+#[test]
+fn a_failed_write_of_the_session_is_reported_and_works_again_later() {
+    let dir = tempfile::tempdir().unwrap();
+    let dir = dir.path().join("unsaved");
+    let writer = Writer::start(&dir).unwrap();
+    // A folder where the file should be makes the rename fail.
+    std::fs::create_dir(dir.join("session.ini")).unwrap();
+    writer.session(Session::default());
+    writer.flush();
+    assert!(writer.session_failed());
+    assert!(writer.failed());
+    std::fs::remove_dir(dir.join("session.ini")).unwrap();
+    writer.session(Session::default());
+    writer.flush();
+    assert!(!writer.session_failed());
+    assert!(!writer.failed());
+}

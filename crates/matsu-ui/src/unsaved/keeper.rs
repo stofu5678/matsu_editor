@@ -178,7 +178,9 @@ pub(crate) struct Keeper {
     entries: HashMap<EntityId, Entry>,
     windows: Vec<(WindowId, WindowReport)>,
     active_window: Option<WindowId>,
-    last_session: Session,
+    /// The session `session.ini` was last asked to have; `None` when that write failed and must be tried again.
+    last_session: Option<Session>,
+    session_retry_at: Option<Instant>,
     told_failure: bool,
 }
 
@@ -191,7 +193,8 @@ impl Keeper {
             entries: HashMap::new(),
             windows: Vec::new(),
             active_window: None,
-            last_session: Session::default(),
+            last_session: Some(Session::default()),
+            session_retry_at: None,
             told_failure: false,
         }
     }
@@ -234,11 +237,51 @@ impl Keeper {
             }
             false
         });
-        let session = self.session();
-        if session != self.last_session {
-            writer.session(session.clone());
-            self.last_session = session;
+        // A write of `session.ini` that failed is asked again, but not more often than a document is.
+        if writer.session_failed()
+            && self.last_session.is_some()
+            && self.session_retry_at.is_none_or(|t| now >= t)
+        {
+            self.last_session = None;
+            self.session_retry_at = Some(now + RETRY);
         }
+        let session = self.session();
+        if self.last_session.as_ref() != Some(&session) {
+            writer.session(session.clone());
+            self.last_session = Some(session);
+        }
+    }
+
+    /// While the feature is off nothing is "gone": the copies stay as the user left them (ADR-0022, section 8:
+    /// 「残す」), and the windows that start ticking again are not taken for new ones.
+    fn freeze(&mut self, now: Instant) {
+        for entry in self.entries.values_mut() {
+            entry.seen_at = now;
+        }
+        for (_, report) in &mut self.windows {
+            report.at = now;
+        }
+    }
+
+    /// The copy of the document is not wanted any more (it was closed or saved): it is discarded now, and the
+    /// tabs no longer name it.
+    fn discard_document(&mut self, document: EntityId) {
+        let State::Running(writer) = &self.state else {
+            return;
+        };
+        let Some(entry) = self.entries.get_mut(&document) else {
+            return;
+        };
+        if let Some(id) = entry.id.clone() {
+            writer.discard(id.clone());
+            for (_, report) in &mut self.windows {
+                if let Some(position) = report.ids.iter().position(|i| *i == id) {
+                    report.ids.remove(position);
+                    report.active = report.active.min(report.ids.len().saturating_sub(1));
+                }
+            }
+        }
+        entry.forget_copy();
     }
 
     /// Starts the writer for the settings file at `ini_path` the first time it is needed.
@@ -274,7 +317,7 @@ pub(crate) fn clear_copies(cx: &mut App) {
         entry.forget_copy();
     }
     keeper.windows.clear();
-    keeper.last_session = Session::default();
+    keeper.last_session = Some(Session::default());
     cx.set_global(keeper);
 }
 
@@ -369,6 +412,33 @@ pub(crate) fn eol_name(eol: Eol) -> &'static str {
     }
 }
 
+/// The work that does not belong to a window: discards what no window reports any more (also when no window is
+/// left to tick), and keeps what the user chose to keep while the feature is off.
+pub(crate) fn app_tick(cx: &mut App, now: Instant) {
+    if !cx.has_global::<Keeper>() {
+        return;
+    }
+    let keep = prefs(cx).keep;
+    let mut keeper = cx.remove_global::<Keeper>();
+    if keep {
+        keeper.housekeeping(now);
+    } else {
+        keeper.freeze(now);
+    }
+    cx.set_global(keeper);
+}
+
+/// The document is going away or was saved: its copy is discarded now, without waiting for the housekeeping
+/// (a process that quits right after the last window closed would leave it behind).
+pub(crate) fn discard_document(document: EntityId, cx: &mut App) {
+    if !cx.has_global::<Keeper>() {
+        return;
+    }
+    let mut keeper = cx.remove_global::<Keeper>();
+    keeper.discard_document(document);
+    cx.set_global(keeper);
+}
+
 /// Starts the timer of a window. The first window also starts the keeper.
 pub(crate) fn start(window: &mut Window, cx: &mut Context<Workspace>) {
     if !cx.has_global::<Keeper>() {
@@ -378,13 +448,7 @@ pub(crate) fn start(window: &mut Window, cx: &mut Context<Workspace>) {
         app.spawn(async move |cx| {
             loop {
                 cx.background_executor().timer(TICK).await;
-                cx.update(|app| {
-                    if app.has_global::<Keeper>() {
-                        let mut keeper = app.remove_global::<Keeper>();
-                        keeper.housekeeping(Instant::now());
-                        app.set_global(keeper);
-                    }
-                });
+                cx.update(|app| app_tick(app, Instant::now()));
             }
         })
         .detach();
@@ -518,15 +582,5 @@ pub(crate) fn flush(cx: &App) {
     }) = cx.try_global::<Keeper>()
     {
         writer.flush();
-    }
-}
-
-/// Runs the housekeeping at `now` (for the tests).
-#[cfg(test)]
-pub(crate) fn housekeeping_at(cx: &mut App, now: Instant) {
-    if cx.has_global::<Keeper>() {
-        let mut keeper = cx.remove_global::<Keeper>();
-        keeper.housekeeping(now);
-        cx.set_global(keeper);
     }
 }

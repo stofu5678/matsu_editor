@@ -38,7 +38,12 @@ pub(crate) async fn confirm_discard(
 ) -> bool {
     let go_on = ask_about_changes(view, cx).await;
     if go_on {
-        view.update(cx, |view, cx| view.record_history(cx)).ok();
+        view.update(cx, |view, cx| {
+            view.record_history(cx);
+            // The user saved it or does not want it: the kept copy goes now (ADR-0022).
+            crate::unsaved::discard_document(view.document().entity_id(), cx);
+        })
+        .ok();
     }
     go_on
 }

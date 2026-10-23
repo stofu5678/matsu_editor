@@ -75,6 +75,8 @@ enum Job {
 pub(crate) struct Writer {
     tx: Option<Sender<Job>>,
     failed: Arc<AtomicBool>,
+    /// The last write of `session.ini` failed.
+    session_failed: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -85,17 +87,20 @@ impl Writer {
         let store = Store::open(dir)?;
         let _ = store.remove_tmp();
         let failed = Arc::new(AtomicBool::new(false));
+        let session_failed = Arc::new(AtomicBool::new(false));
         let (tx, rx) = mpsc::channel::<Job>();
         let thread = std::thread::Builder::new()
             .name("unsaved-writer".to_owned())
             .spawn({
                 let failed = Arc::clone(&failed);
-                move || run(&store, &rx, &failed)
+                let session_failed = Arc::clone(&session_failed);
+                move || run(&store, &rx, &failed, &session_failed)
             })
             .map_err(StoreError::Io)?;
         Ok(Self {
             tx: Some(tx),
             failed,
+            session_failed,
             thread: Some(thread),
         })
     }
@@ -144,6 +149,11 @@ impl Writer {
         self.failed.load(Ordering::SeqCst)
     }
 
+    /// Whether the last write of `session.ini` failed.
+    pub(crate) fn session_failed(&self) -> bool {
+        self.session_failed.load(Ordering::SeqCst)
+    }
+
     /// Waits until every job queued so far is done.
     pub(crate) fn flush(&self) {
         let (tx, rx) = mpsc::channel();
@@ -161,7 +171,7 @@ impl Drop for Writer {
     }
 }
 
-fn run(store: &Store, rx: &mpsc::Receiver<Job>, failed: &AtomicBool) {
+fn run(store: &Store, rx: &mpsc::Receiver<Job>, failed: &AtomicBool, session_failed: &AtomicBool) {
     let mut session = store.read_session();
     while let Ok(job) = rx.recv() {
         let result = match job {
@@ -184,6 +194,7 @@ fn run(store: &Store, rx: &mpsc::Receiver<Job>, failed: &AtomicBool) {
             }
             Job::Session(next) => {
                 let result = store.write_session(&next);
+                session_failed.store(result.is_err(), Ordering::SeqCst);
                 session = next;
                 result
             }
