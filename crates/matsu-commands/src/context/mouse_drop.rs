@@ -112,8 +112,11 @@ impl CommandContext<'_> {
                 deleted.push(self.box_row_range(row, rect.left, rect.right)?);
             }
             self.delete_box()?;
+            // Counted against the place before the deletion: the rows of one wrapped line each
+            // took their part out of it.
+            let before = at.col;
             for (from, to) in deleted {
-                if from.line == at.line && to.col <= at.col {
+                if from.line == at.line && to.col <= before {
                     at.col -= to.col - from.col;
                 }
             }
