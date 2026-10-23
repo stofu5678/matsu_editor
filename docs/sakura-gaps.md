@@ -69,7 +69,7 @@
 | Migemo（`F_ISEARCH_MIGEMO_NEXT` `F_ISEARCH_MIGEMO_PREV`、共通設定「支援」の DLL と辞書、検索の Migemo 使用） | サクラは `cmigemo` の DLL を実行時に読み、辞書は利用者が置く（`sakura_core/extmodule/CMigemo.cpp`）。C/Migemo 本体は MIT License（koron/cmigemo の LICENSE、GitHub が MIT と判定）。ただし通常の辞書は SKK-JISYO.L から作り、その README に「作った辞書は SKK-JISYO.L のライセンス（GPL）に従う」とあり、SKK-JISYO.L の先頭は GNU General Public License（skk-dev/dict）。したがって同梱・組み込みはできない。選択肢は、(a) DLL と辞書を利用者が置く形（サクラと同じ。同梱しない）にする、(b) 組み込まない。どちらもライセンスの判断なので、ユーザーに聞く。いまの `ISearchMode` は後から足せる形になっている |
 | プロファイル（`F_PROFILEMGR`、`-PROFMGR`、`CDlgProfileMgr`、`sakura.exe.ini` の `MultiUser`） | `-PROF=名前` は入っている（`launch.rs`、`matsu-config/src/location.rs`）。残りは、設定ファイルの置き場所を変える・利用者のデータの形式に触れる（`matsu.ini` の場所）ので、ユーザーの判断が要る |
 | IME の再変換（`F_RECONVERT`） | Windows は IMM32 で実装した（#232）。macOS と Linux は、プログラムから再変換を始める API がない（macOS は入力メソッドが `NSTextInputClient` で周りの文字を取りに来る。IBus / Fcitx は周りの文字を渡す口だけ）。型 B: ステータスバーに理由を出す。Windows の IME 実機での確認は残る |
-| SQL*Plus（`F_ACTIVATE_SQLPLUS` `F_PLSQL_COMPILE_ON_SQLPLUS`）と PL/SQL のジャンプ | データベース操作の ADR-0023 で扱う（提案中。別のエージェントが書いている）。Windows の Oracle 専用 |
+| SQL*Plus（`F_ACTIVATE_SQLPLUS` `F_PLSQL_COMPILE_ON_SQLPLUS`）と PL/SQL のジャンプ | ADR-0023（決定）で、接続ごとのクライアントを動かす形にした。実行と出力パネルは入った（`databases.ini`）。PL/SQL のジャンプ、SQL の方言のタイプ、エラー行へのジャンプ、サンプルのマクロは残っている |
 | プラグイン | ADR-0007 が「常駐プラグインは別に設計する」とした。設計の ADR がない |
 | ベストフィットの表（全角英数字を ASCII にする Windows の変換） | 表の元データと、そのライセンスの判断が要る（`known_differences.txt` の `saveloss-jp-to-*`） |
 | MS-CP51932 / 20932 | ユーザーが「後で決める」と言ったまま（#210）。保存すると何も書かず止まる（`savecode-sjis-crlf-to-cp51932` など 3 件） |
@@ -85,8 +85,8 @@
 
 | 項目 | サクラの場所 | MATSU の今 | 判断 | 大きさ | 依存 |
 |---|---|---|---|---|---|
-| `F_ACTIVATE_SQLPLUS` | `CViewCommander_File.cpp` | コマンドなし | ADR-0023 で決める | M | ADR-0023 |
-| `F_PLSQL_COMPILE_ON_SQLPLUS` | 同上 | コマンドなし | 同上 | M | ADR-0023 |
+| `F_ACTIVATE_SQLPLUS` | `CViewCommander_File.cpp` | 実装済み（`database/`、`ui_commands/file/`）。ADR-0023 | 残りは ADR-0023 の計画 | M | ADR-0023 |
+| `F_PLSQL_COMPILE_ON_SQLPLUS` | 同上 | 実装済み | 同上 | M | ADR-0023 |
 | `F_PROFILEMGR` | `CViewCommander_File.cpp` | コマンドなし | ユーザーの判断が要る: 設定ファイルの置き場所（利用者のデータ） | M | `CDlgProfileMgr` |
 | `F_ISEARCH_MIGEMO_NEXT` | `CViewCommander_Search.cpp` | コマンドなし | ユーザーの判断が要る: ライセンス（止まっているものを参照） | M | 同上 |
 | `F_ISEARCH_MIGEMO_PREV` | 同上 | 同上 | 同上 | 同上 | 同上 |
