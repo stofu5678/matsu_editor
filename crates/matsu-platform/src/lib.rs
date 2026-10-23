@@ -29,6 +29,7 @@ pub mod folders;
 pub mod font_dialog;
 pub mod help;
 pub mod instance;
+pub mod menu_icons;
 #[cfg(not(any(windows, target_os = "macos")))]
 mod portal;
 pub mod print;
