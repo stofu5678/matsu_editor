@@ -101,46 +101,26 @@ impl CommandContext<'_> {
         let Some(text) = self.box_text()? else {
             return Ok(());
         };
-        let row = self.layout.row_start(self.doc(), at)?;
-        let col = self.layout.display_col(self.doc(), at)?;
-        // Does the pasted box go before the old one, so that the old one has to go first? (`bMoveToPrev`
-        // in `Drop`: the row of the drop is below the box, or its rows end above the box, or it
-        // is left of the box.)
-        let top = rect.rows[0];
-        let last = *rect.rows.last().unwrap_or(&top);
-        let height = isize::try_from(rect.rows.len()).unwrap_or(isize::MAX);
-        let to_prev = if row > last {
-            false
-        } else {
-            let end_row = self.layout.move_rows(self.doc(), row, height, 0)?;
-            self.layout.row_start(self.doc(), end_row)? < top || col < rect.left
-        };
-        let source = self.cursor.clone();
-        if copy {
-            self.cursor.clear_selection();
-            self.cursor.move_to(at, false);
-            return self.paste_box(&text);
-        }
-        if to_prev {
+        let mut at = at;
+        if !copy {
+            // Sakura pastes before or after deleting the old box, whichever keeps the drop place
+            // where it is in layout coordinates (`bMoveToPrev` in `Drop`). Here the place is a
+            // position, so the old box always goes first, and the place is moved by what was
+            // deleted before it in its line (the box is deleted row by row, each inside a line).
+            let mut deleted = Vec::with_capacity(rect.rows.len());
+            for &row in &rect.rows {
+                deleted.push(self.box_row_range(row, rect.left, rect.right)?);
+            }
             self.delete_box()?;
-            self.cursor.move_to(at, false);
-            return self.paste_box(&text);
+            for (from, to) in deleted {
+                if from.line == at.line && to.col <= at.col {
+                    at.col -= to.col - from.col;
+                }
+            }
         }
-        // After the old box: paste first, then delete the old box where it was.
         self.cursor.clear_selection();
         self.cursor.move_to(at, false);
-        self.paste_box(&text)?;
-        *self.cursor = source;
-        self.delete_box()?;
-        // The caret ends at the drop; the old box made room on its rows.
-        let shifted = if rect.rows.contains(&row) && col >= rect.right {
-            col - (rect.right - rect.left)
-        } else {
-            col
-        };
-        let caret = self.layout.pos_at_col(self.doc(), row, shifted)?;
-        self.cursor.move_to(caret, false);
-        Ok(())
+        self.paste_box(&text)
     }
 }
 
@@ -249,6 +229,14 @@ mod tests {
         // a box of "ab" and "ef", dropped on the third row, column 2
         assert!(drop_at(&mut e, Pos::new(2, 2), false));
         assert_eq!(text(&e), "cd\ngh\nijabkl\n  ef\n");
+    }
+
+    #[test]
+    fn moving_a_box_to_the_right_on_its_own_rows() {
+        // the drop place is in a row the box is deleted from: it moves left by the box's width
+        let mut e = boxed("abcdefgh\nijklmnop\n", (0, 0), (1, 2));
+        assert!(drop_at(&mut e, Pos::new(0, 5), false));
+        assert_eq!(text(&e), "cdeabfgh\nklmijnop\n");
     }
 
     #[test]
