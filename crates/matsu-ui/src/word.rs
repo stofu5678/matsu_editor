@@ -1,4 +1,4 @@
-//! The word under a double click.
+//! A cheap word rule (the double click uses `F_SELECTWORD` now; this is for the search box and the key help).
 //!
 //! This is a cheap rule, not Sakura's: a word is a run of characters of one class (letters and
 //! digits, hiragana, katakana, kanji, white space, or one other symbol). Sakura's word search

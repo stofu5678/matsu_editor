@@ -46,7 +46,7 @@ pub(crate) fn cell_is_selected(
 
 impl EditorView {
     /// Whether the point of the window is on a selected cell. A point below the last row is not.
-    fn point_is_selected(&self, p: Point<Pixels>, cx: &gpui::App) -> bool {
+    pub(crate) fn point_is_selected(&self, p: Point<Pixels>, cx: &gpui::App) -> bool {
         let Some(paint) = self.paint else {
             return false;
         };

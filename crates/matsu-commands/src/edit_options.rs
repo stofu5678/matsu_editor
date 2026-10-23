@@ -30,6 +30,15 @@ pub struct EditOptions {
     /// `m_bEnableExtEol` (`bEnableExtEol`): NEL, LS and PS are line endings. Off by default. The
     /// documents read it where they make lines (`matsu_core::buffer::Document::set_ext_eol`).
     pub ext_eol: bool,
+    /// `m_bUseOLE_DragDrop` (`bUseOLE_DragDrop`): a selection can be dragged to move or copy it,
+    /// and text can be dropped on the view. On by default.
+    pub drag_drop: bool,
+    /// `m_bUseOLE_DropSource` (`bUseOLE_DropSource`): the view is a drag source, so pressing the
+    /// mouse in the selection and moving drags the text. Needs [`drag_drop`](Self::drag_drop).
+    /// On by default.
+    pub drop_source: bool,
+    /// `m_bSelectClickedURL` (`bSelectClickedURL`): a click on a URL selects it. On by default.
+    pub select_clicked_url: bool,
 }
 
 impl EditOptions {
@@ -41,6 +50,9 @@ impl EditOptions {
         enable_line_mode_paste: true,
         convert_eol_paste: false,
         ext_eol: false,
+        drag_drop: true,
+        drop_source: true,
+        select_clicked_url: true,
     };
 }
 

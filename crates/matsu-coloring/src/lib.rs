@@ -39,7 +39,7 @@ pub use regex_keyword::has_keyword_form;
 pub use rules::ColorRules;
 pub use scan::{ColorState, QuoteKind};
 pub use states::{ColorStates, LOCAL_WINDOW, LineEdit, line_end_state};
-pub use url::{mail_len, url_len};
+pub use url::{mail_len, url_at, url_len};
 
 use matsu_core::buffer::Eol;
 

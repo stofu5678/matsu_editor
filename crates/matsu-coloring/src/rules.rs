@@ -208,6 +208,12 @@ impl ColorRules {
         }
     }
 
+    /// Whether URLs are shown in their color (`CTypeSupport(COLORIDX_URL).IsDisp()`). Sakura finds a
+    /// URL under the pointer (`IsCurrentPositionURL`) only then.
+    pub fn shows_url(&self) -> bool {
+        self.url
+    }
+
     /// The color entry of a kind of run.
     pub fn entry(&self, kind: ColorKind) -> &ColorEntry {
         match kind {

@@ -643,22 +643,21 @@ impl Element for EditorElement {
             .cursor
             .box_caret_col()
             .map_or(0, |c| u32::try_from(c).unwrap_or(u32::MAX));
-        let caret = layout
-            .pos_to_row(doc, editor.cursor.caret())
-            .ok()
-            .and_then(|at| {
-                at.row
-                    .checked_sub(first_row)
-                    .filter(|i| *i < painted.len())
-                    .map(|i| {
-                        let block = editor
-                            .document
-                            .read(cx)
-                            .overwrite()
-                            .then(|| overwrite_caret_cells(doc, layout, editor.cursor.caret()));
-                        (i, caret_column.max(at.column), block)
-                    })
-            });
+        // While the selected text is dragged, the caret shows where it would drop.
+        let caret_at = editor.drop_caret.unwrap_or(editor.cursor.caret());
+        let caret = layout.pos_to_row(doc, caret_at).ok().and_then(|at| {
+            at.row
+                .checked_sub(first_row)
+                .filter(|i| *i < painted.len())
+                .map(|i| {
+                    let block = editor
+                        .document
+                        .read(cx)
+                        .overwrite()
+                        .then(|| overwrite_caret_cells(doc, layout, caret_at));
+                    (i, caret_column.max(at.column), block)
+                })
+        });
 
         // ---- the ruler, the lines and the bracket pair
         let view_width = (f32::from(bounds.size.width) - gutter_width - SCROLLBAR_WIDTH).max(1.0);
