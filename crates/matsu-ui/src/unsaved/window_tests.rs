@@ -373,3 +373,15 @@ fn answering_dont_save_to_the_close_question_discards_the_copy_before_any_tick(
     assert!(doc_files(&f.dir).is_empty());
     assert!(read_session(&f).windows.is_empty());
 }
+
+#[gpui::test]
+fn the_folder_is_not_made_before_something_is_to_be_kept(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(10));
+    assert!(!f.dir.exists());
+    type_text(cx, &f, "now");
+    tick(cx, &f, t0 + Duration::from_secs(11));
+    assert!(f.dir.exists());
+}

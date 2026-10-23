@@ -357,6 +357,15 @@ fn settings_path(cx: &App) -> Option<std::path::PathBuf> {
     {
         return Some(path.to_owned());
     }
+    // The tests never touch the folders of the user who runs them.
+    #[cfg(test)]
+    return None;
+    #[cfg(not(test))]
+    settings_path_of_user()
+}
+
+#[cfg(not(test))]
+fn settings_path_of_user() -> Option<std::path::PathBuf> {
     let candidates = matsu_config::location::candidate_paths(
         matsu_config::location::Os::current(),
         &matsu_config::location::Environment::from_process(),
@@ -519,16 +528,27 @@ pub(crate) fn tick_window_at(
         return;
     }
     let mut keeper = cx.remove_global::<Keeper>();
-    let ini_path = settings_path(cx);
-    if let Some(message) = keeper.ensure_started(ini_path.as_deref()) {
-        // Said once, in the window that found it out.
-        workspace.editor().clone().update(cx, |view, cx| {
-            view.notice = Some(message.to_owned());
-            cx.notify();
-        });
+    let tabs = workspace.tab_editors();
+    // The folder is opened (and locked) when the first document has something to keep, not when the editor starts.
+    let wants_keep = tabs.iter().any(|view| {
+        let view = view.read(cx);
+        want_of(view, view.document().read(cx), &prefs) == Want::Keep
+    });
+    if wants_keep {
+        let ini_path = settings_path(cx);
+        if let Some(message) = keeper.ensure_started(ini_path.as_deref()) {
+            // Said once, in the window that found it out.
+            workspace.editor().clone().update(cx, |view, cx| {
+                view.notice = Some(message.to_owned());
+                cx.notify();
+            });
+        }
     }
-    if let State::Running(writer) = &keeper.state {
-        let tabs = workspace.tab_editors();
+    if !matches!(keeper.state, State::Unavailable) {
+        let writer = match &keeper.state {
+            State::Running(writer) => Some(writer),
+            _ => None,
+        };
         let mut ids = Vec::new();
         let mut active = 0;
         let mut failed_notice = None;
@@ -543,12 +563,12 @@ pub(crate) fn tick_window_at(
             entry.document.get_or_insert_with(|| document.downgrade());
             let plan = decide(entry, want, revision, now);
             if plan.discard {
-                if let Some(id) = entry.id.clone() {
+                if let (Some(writer), Some(id)) = (writer, entry.id.clone()) {
                     writer.discard(id);
                 }
                 entry.forget_copy();
             }
-            if plan.write {
+            if let (true, Some(writer)) = (plan.write, writer) {
                 let id = entry.id.get_or_insert_with(Store::new_id).clone();
                 let snapshot = {
                     let shared = document.read(cx);
@@ -585,7 +605,7 @@ pub(crate) fn tick_window_at(
                 view.notice = Some("保存していない文書を残せません。".to_owned());
                 cx.notify();
             });
-        } else if !writer.failed() {
+        } else if writer.is_some_and(|w| !w.failed()) {
             keeper.told_failure = false;
         }
         let id = window.window_handle().window_id();
