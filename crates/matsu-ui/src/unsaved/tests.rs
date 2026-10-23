@@ -398,3 +398,17 @@ fn a_removal_is_tried_again_also_while_the_queue_is_never_idle() {
     }
     assert!(!writer.failed());
 }
+
+#[test]
+fn a_failure_is_not_reported_as_over_by_a_wait_that_retried_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let dir = dir.path().join("unsaved");
+    let writer = Writer::start_retrying(&dir, Duration::from_millis(20)).unwrap();
+    std::fs::create_dir(dir.join("session.ini")).unwrap();
+    writer.session(Session::default());
+    writer.flush();
+    assert!(writer.failed());
+    // Several waits of the writer pass without a job; nothing was retried, so nothing has recovered.
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(writer.failed());
+}

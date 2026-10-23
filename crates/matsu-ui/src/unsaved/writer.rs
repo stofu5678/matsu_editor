@@ -187,21 +187,24 @@ fn run(
     retry: std::time::Duration,
 ) {
     let mut session = store.read_session();
-    // Copies whose removal failed: tried again until they are gone, so a discarded text does not come back.
-    let mut stuck: Vec<String> = Vec::new();
+    // What failed to be removed: tried again until it is gone, so a discarded text does not come back.
+    let mut pending = Pending::default();
     // The time of the next try, checked after every job too: a queue that is never idle must not starve it.
     let mut next_retry = std::time::Instant::now() + retry;
     loop {
         let job = match rx.recv_timeout(retry) {
             Ok(job) => job,
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                retry_stuck(store, &mut session, &mut stuck);
-                next_retry = std::time::Instant::now() + retry;
-                failed.store(!stuck.is_empty(), Ordering::SeqCst);
+                // Only a removal that is tried again can say that things work again.
+                if !pending.is_empty() {
+                    pending.retry(store, &mut session);
+                    next_retry = std::time::Instant::now() + retry;
+                    failed.store(!pending.is_empty(), Ordering::SeqCst);
+                }
                 continue;
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
-                retry_stuck(store, &mut session, &mut stuck);
+                pending.retry(store, &mut session);
                 return;
             }
         };
@@ -232,25 +235,30 @@ fn run(
             Job::Discard(id) => {
                 let result = store.discard_doc(&id, &session).map(|next| session = next);
                 if result.is_err() {
-                    stuck.push(id);
+                    pending.stuck.push(id);
                 }
                 result
             }
             Job::Clear => {
-                stuck.clear();
                 session = Session::default();
-                store.clear()
+                let result = store.clear();
+                // What cannot be cleared now is cleared at the next try, with the removals that failed.
+                pending.clear = result.is_err();
+                if result.is_ok() {
+                    pending.stuck.clear();
+                }
+                result
             }
             Job::Barrier(tx) => {
                 let _ = tx.send(());
                 continue;
             }
         };
-        if !stuck.is_empty() && std::time::Instant::now() >= next_retry {
-            retry_stuck(store, &mut session, &mut stuck);
+        if !pending.is_empty() && std::time::Instant::now() >= next_retry {
+            pending.retry(store, &mut session);
             next_retry = std::time::Instant::now() + retry;
         }
-        failed.store(result.is_err() || !stuck.is_empty(), Ordering::SeqCst);
+        failed.store(result.is_err() || !pending.is_empty(), Ordering::SeqCst);
     }
 }
 
@@ -276,12 +284,35 @@ pub(crate) fn write_text(doc: &Document, w: &mut dyn Write) -> io::Result<()> {
 /// How often the removals that failed are tried again.
 const RETRY_STUCK: std::time::Duration = std::time::Duration::from_secs(5);
 
-fn retry_stuck(store: &Store, session: &mut Session, stuck: &mut Vec<String>) {
-    stuck.retain(|id| match store.discard_doc(id, session) {
-        Ok(next) => {
-            *session = next;
-            false
+/// The removals that did not work yet.
+#[derive(Default)]
+struct Pending {
+    /// Copies that could not be removed.
+    stuck: Vec<String>,
+    /// The folder could not be cleared.
+    clear: bool,
+}
+
+impl Pending {
+    fn is_empty(&self) -> bool {
+        self.stuck.is_empty() && !self.clear
+    }
+
+    fn retry(&mut self, store: &Store, session: &mut Session) {
+        if self.clear {
+            if store.clear().is_ok() {
+                self.clear = false;
+                self.stuck.clear();
+            }
+            return;
         }
-        Err(_) => true,
-    });
+        self.stuck
+            .retain(|id| match store.discard_doc(id, session) {
+                Ok(next) => {
+                    *session = next;
+                    false
+                }
+                Err(_) => true,
+            });
+    }
 }
