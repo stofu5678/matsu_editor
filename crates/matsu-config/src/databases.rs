@@ -366,7 +366,11 @@ fn read_connection(profile: &Profile, section: &str, name: &str) -> Result<Conne
 ///
 /// This looks for the usual forms of the clients of ADR-0023; it cannot know every client.
 pub fn password_in_command(kind: Kind, command: &str) -> Option<&'static str> {
-    let command = tighten_equals(command);
+    // both as written (`-p` after an empty `--opt=`) and with `key = value` tightened
+    scan_for_password(kind, command).or_else(|| scan_for_password(kind, &tighten_equals(command)))
+}
+
+fn scan_for_password(kind: Kind, command: &str) -> Option<&'static str> {
     for (index, word) in command.split_whitespace().enumerate() {
         let word = word.trim_matches(['"', '\'']);
         let lower = word.to_ascii_lowercase();

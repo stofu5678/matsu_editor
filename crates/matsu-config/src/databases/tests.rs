@@ -116,6 +116,11 @@ fn passwords_on_the_command_line_are_found() {
         Some("--password=")
     );
     assert_eq!(found(Kind::MySql, "mysql --password db"), None);
+    // an empty option before it does not hide it
+    assert_eq!(
+        found(Kind::MySql, "mysql --init-command= -psecret"),
+        Some("-p")
+    );
     // a connection string with the parameter (libpq, ODBC), quoted or not
     assert_eq!(
         found(
