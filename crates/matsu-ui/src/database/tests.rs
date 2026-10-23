@@ -317,7 +317,9 @@ fn cancel_also_stops(cx: &mut TestAppContext) {
 #[gpui::test]
 fn yes_saves_and_runs(cx: &mut TestAppContext) {
     let (_dir, file, w) = setup(cx, Some(ECHO), "a.sql", "select 1;\n");
-    w.type_text(cx, "-- new\n");
+    // no line break typed: on Windows the file has CR LF, and a lone LF would make the save ask
+    // about the mixed line endings
+    w.type_text(cx, "-- new ");
     w.run(cx);
     w.answer(cx, "はい");
     w.wait_for_end(cx);
