@@ -366,6 +366,7 @@ fn read_connection(profile: &Profile, section: &str, name: &str) -> Result<Conne
 ///
 /// This looks for the usual forms of the clients of ADR-0023; it cannot know every client.
 pub fn password_in_command(kind: Kind, command: &str) -> Option<&'static str> {
+    let command = tighten_equals(command);
     for (index, word) in command.split_whitespace().enumerate() {
         let word = word.trim_matches(['"', '\'']);
         let lower = word.to_ascii_lowercase();
@@ -432,6 +433,31 @@ pub fn password_in_command(kind: Kind, command: &str) -> Option<&'static str> {
         }
     }
     None
+}
+
+/// `command` with the blanks around each `=` taken out (libpq allows `password = secret`), so that
+/// the words that follow are `key=value`.
+fn tighten_equals(command: &str) -> String {
+    let mut out = String::with_capacity(command.len());
+    let mut chars = command.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c.is_whitespace() {
+            let mut blanks = String::from(c);
+            while let Some(&next) = chars.peek()
+                && next.is_whitespace()
+            {
+                blanks.push(next);
+                chars.next();
+            }
+            if chars.peek() == Some(&'=') || out.ends_with('=') {
+                continue;
+            }
+            out.push_str(&blanks);
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 /// The connections the example file has, one for each database. None of them is tried against the real

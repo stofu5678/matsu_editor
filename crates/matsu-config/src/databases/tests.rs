@@ -132,6 +132,13 @@ fn passwords_on_the_command_line_are_found() {
         found(Kind::Other, "tool \"Server=h;Database=d;Pwd=secret;\""),
         Some("password=")
     );
+    assert_eq!(
+        found(
+            Kind::PostgreSql,
+            "psql \"host=localhost password = secret\" -f $F"
+        ),
+        Some("password=")
+    );
     assert_eq!(found(Kind::Other, "tool \"Server=h;Password=;\""), None);
     assert_eq!(
         found(Kind::Other, "tool --nopassword=1 --passwordfile=x"),
