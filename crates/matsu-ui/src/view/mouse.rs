@@ -536,6 +536,25 @@ impl EditorView {
         }
     }
 
+    /// The left button is released outside the view. Dragged text that is let go there has no
+    /// place to go (another window or program is not supported): the drop is cancelled and the
+    /// text stays where it was, as when the target of an OLE drop refuses it. A press in the
+    /// selection that never moved is cancelled too. Other drags end as usual.
+    pub(crate) fn on_mouse_up_outside(
+        &mut self,
+        event: &MouseUpEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if matches!(self.drag, Drag::Drop | Drag::Press { .. }) {
+            self.drag = Drag::None;
+            self.drop_caret = None;
+            cx.notify();
+            return;
+        }
+        self.on_mouse_up(event, window, cx);
+    }
+
     /// A side button of the mouse goes down: the auto scroll ends (`OnXLBUTTONDOWN`,
     /// `OnXRBUTTONDOWN`).
     pub(crate) fn on_side_mouse_down(

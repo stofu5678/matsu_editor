@@ -494,6 +494,24 @@ fn a_press_in_the_selection_without_a_drag_is_a_click(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn text_let_go_outside_the_view_is_not_moved(cx: &mut TestAppContext) {
+    let _o = options();
+    let (f, cx) = setup(cx, "abcdef ghi");
+    select(&f, cx, Pos::new(0, 0), Pos::new(0, 3));
+    down_at(&f, cx, 0, 1, 1, Modifiers::default());
+    drag_at(&f, cx, 0, 8, Modifiers::default());
+    f.view.read_with(cx, |v, _| assert!(v.drop_caret.is_some()));
+    let outside = point(px(-50.0), px(-50.0));
+    up(cx, outside, Modifiers::default());
+    assert_eq!(f.lines(cx), ["abcdef ghi"]);
+    assert_eq!(selection(&f, cx), Some((Pos::new(0, 0), Pos::new(0, 3))));
+    f.view.read_with(cx, |v, _| {
+        assert_eq!(v.drop_caret, None);
+        assert_eq!(v.drag, super::Drag::None);
+    });
+}
+
+#[gpui::test]
 fn dropping_on_the_selection_changes_nothing(cx: &mut TestAppContext) {
     let _o = options();
     let (f, cx) = setup(cx, "abcdef");
