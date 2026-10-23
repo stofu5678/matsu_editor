@@ -136,7 +136,7 @@ jobs:
           - { name: windows-arm64, os: windows-11-arm }
           - { name: windows-x64, os: windows-2025 }
           - { name: macos-arm64, os: macos-15 }
-          # GitHub's x64 Ubuntu image has Node.js, Python, Ruby and PHP: the macro tests must run
+          # GitHub's x64 Ubuntu image has Node.js (22.23, which runs .ts files), Python, Ruby and PHP: the macro tests must run
           # there instead of skipping a missing interpreter.
           - { name: linux-x64, os: ubuntu-24.04, require_interpreters: '1' }
           - { name: linux-arm64, os: ubuntu-24.04-arm }

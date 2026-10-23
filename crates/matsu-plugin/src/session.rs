@@ -23,9 +23,28 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 /// inherited the pipes can hold them open for much longer.
 const OUTPUT_GRACE: Duration = Duration::from_millis(1000);
 
+/// A language that runs on an interpreter the user installs (ADR-0025). To add one (the same
+/// steps for PowerShell, Perl, Emacs Lisp and AppleScript):
+///
+/// 1. a variant here, with its extension in [`Language::of_file`], its name in
+///    [`Language::display_name`], the usual interpreter in [`Language::default_interpreter`],
+///    a way to ask for the real path in [`Language::real_interpreter_path`] and the start
+///    arguments in [`start`]; the compiler points at the other `match`es;
+/// 2. the boot script in `boot/` (`boot.*`), listed in `boot.rs`: the JSON-RPC lines of
+///    docs/poc/json-rpc.md, `Editor` and `EditorError`, the line numbers of the user's file;
+/// 3. the generated API (`api_gen.*`) in `codegen.rs`, from `catalog::entries()`;
+/// 4. the extension in the error text of [`StartError::UnknownLanguage`] and in the lists of
+///    `matsu-ui` (`macros/mod.rs`, `lib.rs`, `exec_ext_macro.rs`);
+/// 5. a sample in `samples/` and the tests in `tests.rs` (skipped when the interpreter is
+///    missing), and the interpreter on the runners that have it: `MATSU_REQUIRE_INTERPRETERS`
+///    makes a missing one on Linux x64 a failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Language {
     JavaScript,
+    /// `.ts`, run by Node.js 22.18 or later, which strips the types itself (ADR-0025). The boot
+    /// and the generated API are the JavaScript ones; the types become white space, so the line
+    /// numbers stay.
+    TypeScript,
     Python,
     Ruby,
     Php,
@@ -75,8 +94,13 @@ pub const SCRIPT_HOST: &str = if cfg!(windows) {
 impl Language {
     /// The language of a macro file, by its extension.
     pub fn of_file(path: &Path) -> Option<Self> {
-        match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
+        let extension = path.extension()?.to_str()?;
+        match extension.to_ascii_lowercase().as_str() {
             "mjs" | "cjs" => Some(Self::JavaScript),
+            // Node.js strips types only from a file named `.ts` in lower case (`B.TS` is parsed as
+            // JavaScript, even on a file system that ignores case), so no other spelling is a
+            // TypeScript macro.
+            "ts" if extension == "ts" => Some(Self::TypeScript),
             "py" => Some(Self::Python),
             "rb" => Some(Self::Ruby),
             "php" => Some(Self::Php),
@@ -91,6 +115,7 @@ impl Language {
     pub fn display_name(self) -> &'static str {
         match self {
             Self::JavaScript => "Node.js",
+            Self::TypeScript => "Node.js (TypeScript)",
             Self::Python => "Python",
             Self::Ruby => "Ruby",
             Self::Php => "PHP",
@@ -107,7 +132,7 @@ impl Language {
                 .map(|exe| exe.with_file_name(SCRIPT_HOST))
                 .filter(|host| host.is_file())
                 .map_or_else(|| SCRIPT_HOST.into(), PathBuf::into_os_string),
-            Self::JavaScript => "node".into(),
+            Self::JavaScript | Self::TypeScript => "node".into(),
             Self::Python if cfg!(windows) => "python".into(),
             Self::Python => "python3".into(),
             Self::Ruby => "ruby".into(),
@@ -123,7 +148,7 @@ impl Language {
         let (flag, code) = match self {
             // The host is the executable itself; there is no launcher to see through.
             Self::Bundled(_) => return Ok(PathBuf::from(interpreter)),
-            Self::JavaScript => ("-p", "process.execPath"),
+            Self::JavaScript | Self::TypeScript => ("-p", "process.execPath"),
             Self::Python => ("-c", "import sys; print(sys.executable)"),
             // A version manager (asdf, rbenv) answers with a shim; this is the real one.
             Self::Ruby => ("-e", "require 'rbconfig'; puts RbConfig.ruby"),
@@ -147,6 +172,22 @@ impl Language {
         }
         Ok(PathBuf::from(line))
     }
+}
+
+/// Whether a Node.js version runs `.ts` files without a flag: 22.18.0 or later on the 22 line,
+/// 23.6.0 or later on the 23 line, and every later line
+/// (<https://nodejs.org/api/typescript.html>). The boot script (`boot/boot.cjs`) makes the same
+/// check when a `.ts` macro starts, and says so in words if the Node.js is too old.
+pub fn node_strips_types(version: (u32, u32, u32)) -> bool {
+    version >= (22, 18, 0) && !(version.0 == 23 && version < (23, 6, 0))
+}
+
+/// The version in the output of `node --version` (`v22.23.3`). `None` for anything else: Deno
+/// and Bun answer in other words, and the user may point the macro at one of them.
+pub fn parse_node_version(output: &str) -> Option<(u32, u32, u32)> {
+    let mut parts = output.trim().strip_prefix('v')?.split('.');
+    let mut next = || parts.next()?.parse().ok();
+    Some((next()?, next()?, next()?))
 }
 
 /// What the editor tells the host about one run. `for_script` fills in the defaults; the
@@ -205,7 +246,7 @@ impl std::fmt::Display for StartError {
         match self {
             Self::UnknownLanguage { script } => write!(
                 f,
-                "{}: マクロの拡張子は .mjs、.js、.cjs、.py、.rb、.php、.lua、.mruby、.upy のどれかにしてください",
+                "{}: マクロの拡張子は .mjs、.js、.cjs、.ts、.py、.rb、.php、.lua、.mruby、.upy のどれかにしてください",
                 script.display()
             ),
             Self::Boot(err) => write!(f, "マクロの準備に失敗しました: {err}"),
@@ -339,7 +380,11 @@ pub type Sink = Arc<dyn Fn(HostEvent) + Send + Sync>;
 pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
     let script = match config.language {
         Language::Bundled(_) => Some(read_script(&config.script)?),
-        Language::JavaScript | Language::Python | Language::Ruby | Language::Php => None,
+        Language::JavaScript
+        | Language::TypeScript
+        | Language::Python
+        | Language::Ruby
+        | Language::Php => None,
     };
     // The bundled host needs no boot files.
     let boot_dir = if matches!(config.language, Language::Bundled(_)) {
@@ -359,7 +404,7 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
             // The text goes in `initialize`, so there is no path to open.
             command.arg("--engine").arg(engine.name());
         }
-        Language::JavaScript => {
+        Language::JavaScript | Language::TypeScript => {
             command
                 .arg("--require")
                 .arg(boot_files(boot::JS_BOOT))

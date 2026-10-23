@@ -7,6 +7,23 @@
 
 const fs = require('fs');
 
+// A `.ts` macro needs a Node.js that strips the types by itself (22.18 or later, 23.6 or later).
+// An older one would stop with "Unknown file extension", so say what is wrong. This runs before
+// Node.js opens the macro: --require files come first. (Mirrored by node_strips_types in
+// session.rs.)
+{
+  const main = process.argv[1] || '';
+  const [major, minor] = process.versions.node.split('.').map(Number);
+  const strips = major > 23 || (major === 23 && minor >= 6) || (major === 22 && minor >= 18);
+  if (/\.ts$/i.test(main) && !strips) {
+    fs.writeSync(
+      2,
+      `TypeScript のマクロには Node.js 22.18 以降が要ります (見つかったのは v${process.versions.node})\n`,
+    );
+    process.exit(1);
+  }
+}
+
 const RS = '\x1e';
 
 function sleep(ms) {
