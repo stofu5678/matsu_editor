@@ -369,11 +369,26 @@ pub fn password_in_command(kind: Kind, command: &str) -> Option<&'static str> {
     for word in command.split_whitespace() {
         let word = word.trim_matches(['"', '\'']);
         let lower = word.to_ascii_lowercase();
-        if lower.starts_with("--password=") && word.len() > "--password=".len() {
-            return Some("--password=");
-        }
-        if lower.starts_with("--pass=") || lower.starts_with("--pwd=") {
-            return Some("--password=");
+        // `--password=x`, and the parameter of a connection string: `password=x` (libpq's
+        // "host=h user=u password=x", ODBC's ";Pwd=x"). The key must start a word or follow a
+        // separator, so `PGPASSWORD=` (below) and names such as `nopassword=` are not this.
+        for key in ["password=", "passwd=", "pwd=", "pass="] {
+            let mut from = 0;
+            while let Some(found) = lower[from..].find(key) {
+                let at = from + found;
+                from = at + key.len();
+                let before = lower[..at].chars().next_back();
+                let value = lower[from..].chars().next();
+                if before.is_none_or(|c| matches!(c, '-' | ';' | ',' | '"' | '\'' | '(' | '{'))
+                    && value.is_some_and(|c| c != ';')
+                {
+                    return Some(if before == Some('-') {
+                        "--password="
+                    } else {
+                        "password="
+                    });
+                }
+            }
         }
         for var in [
             "pgpassword=",

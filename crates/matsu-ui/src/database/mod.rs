@@ -39,7 +39,8 @@ impl DatabasePrefs {
         }
     }
 
-    /// The file itself.
+    /// The file itself (the tests make one of their own).
+    #[cfg(test)]
     pub fn at(path: PathBuf) -> Self {
         Self { path: Some(path) }
     }
