@@ -804,11 +804,8 @@ fn a_side_button_that_turned_the_wheel_does_not_click_when_it_is_let_go(cx: &mut
     let back = MouseButton::Navigate(NavigationDirection::Back);
     view.update(cx, |v, _| {
         // `OnXLBUTTONUP` gives up the click once; the other side button was not used
-        assert!(
-            !v.wheel_used_buttons
-                .clone()
-                .take(MouseButton::Navigate(NavigationDirection::Forward))
-        );
+        let forward = MouseButton::Navigate(NavigationDirection::Forward);
+        assert!(!v.wheel_used_buttons.take(forward));
         assert!(v.wheel_used_buttons.take(back));
         assert!(!v.wheel_used_buttons.take(back));
     });
