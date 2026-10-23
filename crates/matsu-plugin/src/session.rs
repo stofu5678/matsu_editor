@@ -171,7 +171,7 @@ impl Language {
 }
 
 /// The first Node.js of the 22 line that runs `.ts` files without a flag (v23.6.0 on the 23 line);
-/// https://nodejs.org/api/typescript.html
+/// <https://nodejs.org/api/typescript.html>
 pub const NODE_TYPESCRIPT_MIN: (u32, u32, u32) = (22, 18, 0);
 
 /// Whether a Node.js version runs `.ts` files by default: 22.18.0 or later, or 23.6.0 or later.
