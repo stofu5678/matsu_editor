@@ -366,7 +366,7 @@ fn read_connection(profile: &Profile, section: &str, name: &str) -> Result<Conne
 ///
 /// This looks for the usual forms of the clients of ADR-0023; it cannot know every client.
 pub fn password_in_command(kind: Kind, command: &str) -> Option<&'static str> {
-    for word in command.split_whitespace() {
+    for (index, word) in command.split_whitespace().enumerate() {
         let word = word.trim_matches(['"', '\'']);
         let lower = word.to_ascii_lowercase();
         // `--password=x`, and the parameter of a connection string: `password=x` (libpq's
@@ -414,16 +414,18 @@ pub fn password_in_command(kind: Kind, command: &str) -> Option<&'static str> {
             }
             // `-P secret` and `-Psecret` (sqlcmd; its other options use a lower case p)
             Kind::SqlServer if word.starts_with("-P") => return Some("-P"),
-            // `user/password@service`
-            Kind::Oracle => {
+            // `user/password@service` and `user/password` (the local database). Not a first word
+            // (the program), not an option and not a script (`@file`); `/` and `/@service` have
+            // no user and ask for no password.
+            Kind::Oracle if index > 0 && !word.starts_with(['-', '@']) => {
                 if let Some((user, rest)) = word.split_once('/')
                     && !user.is_empty()
-                    && !user.contains(['@', '\\', ':'])
-                    && let Some((password, _)) = rest.split_once('@')
-                    && !password.is_empty()
-                    && !password.contains('/')
+                    && !user.contains(['@', '\\', ':', '$'])
                 {
-                    return Some("user/password@");
+                    let password = rest.split_once('@').map_or(rest, |(password, _)| password);
+                    if !password.is_empty() && !password.contains('/') {
+                        return Some("user/password");
+                    }
                 }
             }
             _ => {}

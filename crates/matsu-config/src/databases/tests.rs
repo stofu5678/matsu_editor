@@ -158,8 +158,13 @@ fn passwords_on_the_command_line_are_found() {
     assert_eq!(found(Kind::SqlServer, "sqlcmd -S host -E -i $F"), None);
     assert_eq!(
         found(Kind::Oracle, "sqlplus scott/tiger@db @$F"),
-        Some("user/password@")
+        Some("user/password")
     );
+    assert_eq!(
+        found(Kind::Oracle, "sqlplus -L scott/tiger @$F"),
+        Some("user/password")
+    );
+    assert_eq!(found(Kind::Oracle, "sqlplus -L / as sysdba @$F"), None);
     assert_eq!(found(Kind::Oracle, "sqlplus -L /@MYDB @$F"), None);
     assert_eq!(found(Kind::Oracle, "sqlplus -L scott@db @$F"), None);
     assert_eq!(found(Kind::Oracle, "/usr/bin/sqlplus -L /@db"), None);
