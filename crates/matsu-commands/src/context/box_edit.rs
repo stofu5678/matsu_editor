@@ -235,15 +235,32 @@ impl CommandContext<'_> {
         };
         let lock = self.cursor.selecting_lock();
         let anchor_is_top = anchor.0 <= caret.0;
+        let top_index = self.layout.row_index(self.doc(), rect.rows[0])?;
+        let bottom_index = self
+            .layout
+            .row_index(self.doc(), rect.rows[rect.rows.len() - 1])?;
         self.delete_box()?;
-        let (top, bottom) = (rect.rows[0], rect.rows[rect.rows.len() - 1]);
         let (anchor_row, caret_row) = if anchor_is_top {
-            (top, bottom)
+            (top_index, bottom_index)
         } else {
-            (bottom, top)
+            (bottom_index, top_index)
         };
-        let anchor = (self.box_corner_pos(anchor_row, anchor.1)?, anchor.1);
-        let caret = (self.box_corner_pos(caret_row, caret.1)?, caret.1);
+        // The rows of the box are the same rows (by number) after the delete, as Sakura keeps the
+        // layout coordinates; where a long line wraps differently now, they start elsewhere.
+        let row_start = |this: &Self, index: usize| -> Result<Pos> {
+            Ok(this
+                .layout
+                .row_start_at(this.doc(), index)?
+                .unwrap_or_else(|| Pos::new(this.doc().line_count().saturating_sub(1), 0)))
+        };
+        let anchor = (
+            self.box_corner_pos(row_start(self, anchor_row)?, anchor.1)?,
+            anchor.1,
+        );
+        let caret = (
+            self.box_corner_pos(row_start(self, caret_row)?, caret.1)?,
+            caret.1,
+        );
         self.set_box(anchor, caret, lock);
         Ok(())
     }
