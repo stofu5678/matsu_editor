@@ -45,6 +45,7 @@ use matsu_core::model::DocumentModel;
 
 use crate::clipboard::Clipboard;
 use crate::command::{CommandError, Result};
+use crate::convert::tabs::char_width;
 use crate::layout::Layout;
 
 pub use bookmarks::BookmarkJump;
@@ -511,18 +512,63 @@ impl<'a> CommandContext<'a> {
     }
 
     /// The end of the text that typing `chars` chars at `at` overwrites in overwrite mode: the
-    /// next `chars` chars of the line, fewer at the end of the text of the line. A line ending is
-    /// never overwritten, and neither is the end of the document, so there the typed text is
-    /// inserted. Sakura: `CViewCommander::DelCharForOverwrite` in
-    /// `sakura_core/cmd/CViewCommander_Edit.cpp` with the defaults `m_bNotOverWriteCRLF` on and
-    /// `m_bOverWriteFixMode` off (`sakura_core/env/CShareData.cpp`).
+    /// next `chars` chars of the line, fewer at the end of the text of the line. At the end of the
+    /// text of a line the typed text is inserted, because a line ending is not overwritten
+    /// (`m_bNotOverWriteCRLF`, on by default); with the option off the line ending is deleted, so
+    /// the next line joins. The end of the document is never overwritten. Sakura:
+    /// `CViewCommander::DelCharForOverwrite` in `sakura_core/cmd/CViewCommander_Edit.cpp` (the
+    /// defaults are in `sakura_core/env/CShareData.cpp`).
     pub fn overwrite_end(&self, at: Pos, chars: usize) -> Result<Pos> {
         let Some(line) = self.doc().line(at.line)? else {
             return Ok(at);
         };
         let rest = line.text.get(at.col..).unwrap_or("");
+        if rest.is_empty() {
+            // `bEol`: the caret is at the end of the text. `Command_DELETE` joins the next line.
+            let deletes_eol = line.eol.is_some() && !crate::edit_options::get().not_overwrite_crlf;
+            return Ok(if deletes_eol {
+                Pos::new(at.line + 1, 0)
+            } else {
+                at
+            });
+        }
         let len: usize = rest.chars().take(chars).map(char::len_utf8).sum();
         Ok(Pos::new(at.line, at.col + len))
+    }
+
+    /// What typing the one char `c` at `at` in overwrite mode with `m_bOverWriteFixMode` replaces
+    /// and the spaces that follow the char: the replaced char, and when `c` is wider also the next
+    /// one, with the spaces that keep the columns of the rest of the line (`DelCharForOverwrite`:
+    /// `nKetaDiff` and `nKetaAfterIns`, in columns, a space is one). A tab is replaced as any
+    /// char, without spaces. `None` when the option does not apply: it is off, or the caret is at
+    /// the end of the text of the line.
+    fn overwrite_fixed(&self, at: Pos, c: char) -> Result<Option<(Pos, usize)>> {
+        if !crate::edit_options::get().overwrite_fix_mode {
+            return Ok(None);
+        }
+        let Some(line) = self.doc().line(at.line)? else {
+            return Ok(None);
+        };
+        let mut rest = line.text.get(at.col..).unwrap_or("").chars();
+        let Some(first) = rest.next() else {
+            return Ok(None);
+        };
+        let end = Pos::new(at.line, at.col + first.len_utf8());
+        if first == '\t' {
+            return Ok(Some((end, 0)));
+        }
+        let (before, after) = (char_width(first), char_width(c));
+        if before >= after {
+            return Ok(Some((end, before - after)));
+        }
+        // The typed char is wider: the next char goes too, unless it is a tab or the line ends.
+        match rest.next() {
+            Some(next) if next != '\t' => {
+                let end = Pos::new(end.line, end.col + next.len_utf8());
+                Ok(Some((end, before + char_width(next) - after)))
+            }
+            _ => Ok(Some((end, 0))),
+        }
     }
 
     /// Types `text` at the caret as the typing mode says: insert mode inserts it, overwrite mode
@@ -534,14 +580,35 @@ impl<'a> CommandContext<'a> {
         if self.cursor.is_box()
             && (self.cursor.has_selection() || self.caret_is_in_empty_space()?)
         {
+            // `Command_INDENT`: with `m_bOverWriteBoxDelete` a box typed over in overwrite mode
+            // is deleted first, and the box stays (the typing goes before it as usual).
+            if self.overwrite
+                && self.cursor.has_selection()
+                && crate::edit_options::get().overwrite_box_delete
+            {
+                self.delete_box_keeping_selection()?;
+            }
             return self.insert_text(text);
         }
         self.refuse_edit_in_box()?;
         if self.overwrite && self.selection().is_none() {
             let at = self.caret();
-            let end = self.overwrite_end(at, text.chars().count())?;
-            let edit = self.replace(at, end, text)?;
-            self.cursor.move_to(edit.end, false);
+            let mut chars = text.chars();
+            let fixed = match (chars.next(), chars.next()) {
+                (Some(c), None) => self.overwrite_fixed(at, c)?,
+                _ => None,
+            };
+            let Some((end, spaces)) = fixed else {
+                let end = self.overwrite_end(at, text.chars().count())?;
+                let edit = self.replace(at, end, text)?;
+                self.cursor.move_to(edit.end, false);
+                return Ok(edit);
+            };
+            // The spaces go after the char: the caret stays before them.
+            let filled = format!("{text}{}", " ".repeat(spaces));
+            let edit = self.replace(at, end, &filled)?;
+            self.cursor
+                .move_to(Pos::new(at.line, at.col + text.len()), false);
             Ok(edit)
         } else {
             self.insert_text(text)

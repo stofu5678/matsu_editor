@@ -212,6 +212,11 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // The button was the key of a wheel combination and the wheel turned: that was its use.
+        if std::mem::take(&mut self.wheel_used_middle) {
+            self.autoscroll_exit();
+            return;
+        }
         match self.middle_button_function(event.modifiers) {
             Some(F_AUTOSCROLL) => {
                 if let AutoScroll::Pending { origin } = self.autoscroll {

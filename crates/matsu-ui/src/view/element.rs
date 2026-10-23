@@ -405,11 +405,14 @@ impl Element for EditorElement {
         let rows: Vec<RowInfo> = layout.rows(doc, first_row, count).unwrap_or_default();
 
         let digits = doc.line_count().max(1).to_string().len().max(3);
-        let gutter_width = if show_line_numbers {
-            cell * (digits as f32 + 1.0) + 4.0
-        } else {
-            4.0
-        };
+        // The text starts `nLineNumberRightSpace` pixels after the line numbers
+        // (`CTextArea::DetectWidthOfLineNumberArea`: `nViewAlignLeftNew += GetLeftYohaku()`).
+        let gutter_width = settings.line_number_right_space as f32
+            + if show_line_numbers {
+                cell * (digits as f32 + 1.0) + 4.0
+            } else {
+                4.0
+            };
 
         let box_area = crate::hit::BoxArea::of_cursor(layout, doc, &editor.cursor);
         let selection = editor

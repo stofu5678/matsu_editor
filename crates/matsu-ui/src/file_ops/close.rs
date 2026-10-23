@@ -271,12 +271,56 @@ fn snapshot(cx: &mut AsyncWindowContext) -> Vec<(gpui::EntityId, u64)> {
     .unwrap_or_default()
 }
 
-/// `F_EXITALL`: asks about every window with changes, and quits if none of them is stopped.
+/// Which of Sakura's two ways to quit (the tray process that Sakura also ends is not here).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ExitKind {
+    /// `F_EXITALL` (`Command_EXITALL`): `CControlTray::TerminateApplication`.
+    Application,
+    /// `F_EXITALLEDITORS` (`Command_EXITALLEDITORS`): `CControlTray::CloseAllEditor(TRUE, .., TRUE, 0)`.
+    Editors,
+}
+
+/// `F_EXITALL` and `F_EXITALLEDITORS`: asks about every window with changes, and quits if none of
+/// them is stopped.
 ///
 /// A window that was checked stays editable while the later prompts are open. Before quitting the
 /// windows and their versions are compared with what was checked; if anything changed, the
 /// round starts again, so no change is thrown away without a question.
-pub(crate) async fn exit_all(cx: &mut AsyncWindowContext) {
+///
+/// `kind` tells which question comes first (see [`ExitKind`]).
+pub(crate) async fn exit_all(cx: &mut AsyncWindowContext, kind: ExitKind) {
+    let (count, confirm) = cx
+        .update(|_, app| {
+            (
+                super::windows::editors(app).len(),
+                crate::common_settings::close_confirm(app),
+            )
+        })
+        .unwrap_or_default();
+    match kind {
+        // `CControlTray::TerminateApplication`: with `bExitConfirm` and a window open, asks once,
+        // and then no longer asks about the number of windows (`STR_TRAY_EXITALL`).
+        ExitKind::Application => {
+            if confirm.exit
+                && count > 0
+                && !super::ask::confirm(
+                    cx,
+                    "現在開いている編集用のウィンドウをすべて閉じて終了しますか?",
+                    None,
+                    ["はい(Y)", "いいえ(N)"],
+                )
+                .await
+            {
+                return;
+            }
+        }
+        // `CloseAllEditor(TRUE, ..)`: the question of `bCloseAllConfirm`.
+        ExitKind::Editors => {
+            if !crate::window_ops::confirm_closing_several(cx, count).await {
+                return;
+            }
+        }
+    }
     loop {
         let editors = cx
             .update(|_, app| super::windows::editors(app))

@@ -671,3 +671,113 @@ fn a_key_bound_to_the_function_toggles_it_off(cx: &mut TestAppContext) {
     });
     assert!(!autoscrolling(&view, cx));
 }
+
+// ---- the scroll options of the common settings 「全般」 ----
+
+fn set_options(cx: &mut VisualTestContext, options: crate::common_settings::ScrollOptions) {
+    cx.update(|_, cx| cx.set_global(options));
+}
+
+fn hold_middle_button(view: &Entity<EditorView>, cx: &mut VisualTestContext) {
+    view.update(cx, |v, _| v.held_buttons.middle = true);
+}
+
+fn key_down(view: &Entity<EditorView>, cx: &mut VisualTestContext, key: &str, held: bool) {
+    let event = gpui::KeyDownEvent {
+        keystroke: gpui::Keystroke::parse(key).unwrap(),
+        is_held: held,
+        prefer_character_input: false,
+    };
+    let view = view.clone();
+    cx.update(|window, cx| view.update(cx, |v, cx| v.on_key_down(&event, window, cx)));
+}
+
+#[gpui::test]
+fn a_held_down_key_moves_the_rows_of_the_setting(cx: &mut TestAppContext) {
+    // `Command_DOWN` with `bRepeat`: `nRepeatedScrollLineNum` rows (3 by default)
+    let (view, cx) = setup(cx);
+    key_down(&view, cx, "down", false);
+    assert_eq!(caret_line(&view, cx), 1);
+    key_down(&view, cx, "down", true);
+    assert_eq!(caret_line(&view, cx), 4);
+    key_down(&view, cx, "up", true);
+    assert_eq!(caret_line(&view, cx), 1);
+    set_options(
+        cx,
+        crate::common_settings::ScrollOptions {
+            repeated_lines: 7,
+            ..Default::default()
+        },
+    );
+    key_down(&view, cx, "down", true);
+    assert_eq!(caret_line(&view, cx), 8);
+    // a key that is not up or down is not repeated by the setting
+    key_down(&view, cx, "right", true);
+    assert_eq!(view.read_with(cx, |v, _| v.cursor.caret().col), 1);
+}
+
+#[gpui::test]
+fn the_middle_button_makes_the_wheel_scroll_by_pages_when_the_setting_says_so(
+    cx: &mut TestAppContext,
+) {
+    use crate::common_settings::{ScrollOptions, WHEEL_MIDDLE_BUTTON};
+    let (view, cx) = setup(cx);
+    let n = rows(&view, cx);
+    let down = ScrollDelta::Lines(point(0., -NOTCH));
+    // not chosen: the button changes nothing
+    hold_middle_button(&view, cx);
+    wheel(&view, cx, down, Modifiers::default());
+    assert_eq!(top(&view, cx), 3);
+    assert!(!view.read_with(cx, |v, _| v.wheel_used_middle));
+    // chosen: a page (rows less one) a notch, and letting go of the button is not a click
+    set_options(
+        cx,
+        ScrollOptions {
+            page_by_wheel: WHEEL_MIDDLE_BUTTON,
+            ..Default::default()
+        },
+    );
+    wheel(&view, cx, down, Modifiers::default());
+    assert_eq!(top(&view, cx), 3 + n - 1);
+    assert!(view.read_with(cx, |v, _| v.wheel_used_middle));
+    // without the button the wheel is the plain one again
+    view.update(cx, |v, _| v.held_buttons.middle = false);
+    wheel(&view, cx, down, Modifiers::default());
+    assert_eq!(top(&view, cx), 6 + n - 1);
+}
+
+#[gpui::test]
+fn the_middle_button_makes_the_wheel_scroll_sideways_when_the_setting_says_so(
+    cx: &mut TestAppContext,
+) {
+    use crate::common_settings::{ScrollOptions, WHEEL_MIDDLE_BUTTON};
+    let (view, cx) = setup(cx);
+    view.update(cx, |v, _| v.widest_cols = 500);
+    let cell = view.read_with(cx, |v, _| v.metrics().cell_width);
+    set_options(
+        cx,
+        ScrollOptions {
+            hscroll_by_wheel: WHEEL_MIDDLE_BUTTON,
+            ..Default::default()
+        },
+    );
+    hold_middle_button(&view, cx);
+    // wheel down is "forward": to the right, three columns a notch (`SPI_GETWHEELSCROLLCHARS`)
+    wheel(
+        &view,
+        cx,
+        ScrollDelta::Lines(point(0., -NOTCH)),
+        Modifiers::default(),
+    );
+    assert_eq!(
+        view.read_with(cx, |v, _| (v.scroll_x, v.scroll_y())),
+        (3.0 * cell, 0.0)
+    );
+    wheel(
+        &view,
+        cx,
+        ScrollDelta::Lines(point(0., NOTCH)),
+        Modifiers::default(),
+    );
+    assert_eq!(view.read_with(cx, |v, _| v.scroll_x), 0.0);
+}

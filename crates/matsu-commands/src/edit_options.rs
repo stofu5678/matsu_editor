@@ -39,6 +39,21 @@ pub struct EditOptions {
     pub drop_source: bool,
     /// `m_bSelectClickedURL` (`bSelectClickedURL`): a click on a URL selects it. On by default.
     pub select_clicked_url: bool,
+    /// `m_bAddCRLFWhenCopy` (`bAddCRLFWhenCopy`): copy and cut end the rows that wrap with a line
+    /// ending. Off by default.
+    pub add_crlf_when_copy: bool,
+    /// `bCopyAndDisablSelection`: the selection goes after a copy.
+    /// Off by default.
+    pub copy_and_disable_selection: bool,
+    /// `m_bNotOverWriteCRLF` (`bNotOverWriteCRLF`): typing in overwrite mode at the end of a line
+    /// inserts instead of deleting the line ending. On by default.
+    pub not_overwrite_crlf: bool,
+    /// `m_bOverWriteFixMode` (`bOverWriteFixMode`): overwriting a char with one of another width
+    /// fills the difference with spaces. Off by default.
+    pub overwrite_fix_mode: bool,
+    /// `m_bOverWriteBoxDelete` (`bOverWriteBoxDelete`): typing over a box in overwrite mode deletes
+    /// the box first. Off by default.
+    pub overwrite_box_delete: bool,
 }
 
 impl EditOptions {
@@ -53,6 +68,11 @@ impl EditOptions {
         drag_drop: true,
         drop_source: true,
         select_clicked_url: true,
+        add_crlf_when_copy: false,
+        copy_and_disable_selection: false,
+        not_overwrite_crlf: true,
+        overwrite_fix_mode: false,
+        overwrite_box_delete: false,
     };
 }
 
@@ -64,8 +84,28 @@ impl Default for EditOptions {
 
 static OPTIONS: RwLock<EditOptions> = RwLock::new(EditOptions::DEFAULT);
 
+#[cfg(test)]
+thread_local! {
+    /// The options a test of this crate sets for its own thread: the tests run in parallel and
+    /// share the process-wide value otherwise.
+    static TEST_OPTIONS: std::cell::Cell<Option<EditOptions>> = const { std::cell::Cell::new(None) };
+}
+
+/// Runs `f` with `options` as the options of this thread (tests only).
+#[cfg(test)]
+pub(crate) fn with_options<R>(options: EditOptions, f: impl FnOnce() -> R) -> R {
+    let old = TEST_OPTIONS.with(|c| c.replace(Some(options)));
+    let result = f();
+    TEST_OPTIONS.with(|c| c.set(old));
+    result
+}
+
 /// The options now.
 pub fn get() -> EditOptions {
+    #[cfg(test)]
+    if let Some(options) = TEST_OPTIONS.with(std::cell::Cell::get) {
+        return options;
+    }
     // A lock that a panic poisoned still holds a whole value: `EditOptions` is `Copy`.
     *OPTIONS.read().unwrap_or_else(|e| e.into_inner())
 }
@@ -85,5 +125,7 @@ mod tests {
         assert!(!d.stops_both_ends_word && !d.stops_both_ends_paragraph && !d.convert_eol_paste);
         assert!(!d.ext_eol);
         assert!(d.enable_no_select_copy && d.enable_line_mode_paste);
+        assert!(!d.add_crlf_when_copy && !d.copy_and_disable_selection);
+        assert!(d.not_overwrite_crlf && !d.overwrite_fix_mode && !d.overwrite_box_delete);
     }
 }

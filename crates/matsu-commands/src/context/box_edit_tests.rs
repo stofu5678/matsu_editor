@@ -332,6 +332,27 @@ fn typing_in_overwrite_mode_does_not_delete_the_box() {
 }
 
 #[test]
+fn typing_in_overwrite_mode_deletes_the_box_with_the_option() {
+    // `Command_INDENT` with `m_bOverWriteBoxDelete`: the text of the box goes, the typed char
+    // takes its place in every row, and the box stays selected
+    let options = crate::edit_options::EditOptions {
+        overwrite_box_delete: true,
+        ..Default::default()
+    };
+    crate::edit_options::with_options(options, || {
+        let mut e = boxed("abcd\nefgh", (0, 1), (1, 3));
+        e.set_overwrite(true);
+        typed(&mut e, 'X');
+        assert_eq!(text_of(&e), "aXd\neXh");
+        assert!(e.cursor().is_box());
+        // insert mode still keeps the text of the box
+        let mut e = boxed("abcd\nefgh", (0, 1), (1, 3));
+        typed(&mut e, 'X');
+        assert_eq!(text_of(&e), "aXbcd\neXfgh");
+    });
+}
+
+#[test]
 fn typing_with_crlf() {
     let mut e = boxed("ab\r\ncd\r\n", (0, 1), (2, 2));
     typed(&mut e, 'X');

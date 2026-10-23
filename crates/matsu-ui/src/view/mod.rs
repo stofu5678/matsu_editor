@@ -19,6 +19,7 @@ mod bracket_marks;
 mod colors;
 mod diff_mark;
 mod element;
+mod held_buttons;
 mod input;
 mod lines;
 pub(crate) mod minimap;
@@ -58,6 +59,7 @@ use crate::status::StatusInfo;
 use crate::ui_command::{UiRegistration, UiRegistry};
 
 use element::EditorElement;
+use held_buttons::HeldButtons;
 pub(crate) use settings::ViewPrefs;
 
 actions!(
@@ -176,6 +178,11 @@ pub struct EditorView {
     /// The part of a wheel notch that has not made a whole row yet, vertical and horizontal
     /// (`paging.rs`).
     pub(crate) wheel_remainder: [f32; 2],
+    /// The mouse buttons that are down now, for the wheel combinations (`paging.rs`).
+    pub(crate) held_buttons: HeldButtons,
+    /// The wheel turned while the middle button was down as the key of a wheel combination, so
+    /// letting the button go does nothing (`paging.rs`).
+    pub(crate) wheel_used_middle: bool,
     pub(crate) metrics: Metrics,
     pub(crate) paint: Option<PaintInfo>,
     /// The widest end column among the rows of the last paint, for the horizontal scroll range.
@@ -261,6 +268,8 @@ impl EditorView {
             scroll_y: 0.0,
             scroll_past_end: false,
             wheel_remainder: [0.0; 2],
+            held_buttons: HeldButtons::default(),
+            wheel_used_middle: false,
             metrics: Metrics::default(),
             paint: None,
             widest_cols: 0,
@@ -706,7 +715,10 @@ impl EditorView {
         };
         match self.keymap.lookup(chord) {
             Lookup::Command(reg) => {
-                self.run_registration(reg, &[], cx);
+                // A held key repeats the command (`bRepeat` of `Command_UP`/`Command_DOWN`).
+                for _ in 0..self.key_repeat_count(reg.sakura, event.is_held, cx) {
+                    self.run_registration(reg, &[], cx);
+                }
                 cx.stop_propagation();
             }
             Lookup::NotImplemented { code, function } => {
@@ -868,6 +880,7 @@ impl Render for EditorView {
         if self.prefs.settings.font_italic {
             editor = editor.italic();
         }
+        let editor = held_buttons::track(editor, cx);
         // The panel is a sibling, so that keys typed in its inputs do not reach the editor's.
         // The Save As options cover the view (and take the keys) while they are open.
         div()

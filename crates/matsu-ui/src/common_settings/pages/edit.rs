@@ -2,11 +2,13 @@
 //! (`sakura_core/prop/CPropComEdit.cpp`).
 //!
 //! Live: copy without a selection, paste of a row at the start of the row, the conversion of line
-//! endings in a paste, drag and drop inside the window, selecting a URL by a click, and where the
-//! file dialogs start (`eOpenDialogDir`, `szOpenDialogSelDir`, read by `crate::file_dialog`). Not
-//! available yet: the copy of wrapped rows with a line ending and the deselection after a copy,
-//! the options of the overwrite mode, the Vista style dialog (a Windows thing), the extended line
-//! endings and the lock of the box selection.
+//! endings in a paste, the copy of wrapped rows with a line ending, the deselection after a copy,
+//! the options of the overwrite mode, drag and drop inside the window, selecting a URL by a click,
+//! and where the file dialogs start (`eOpenDialogDir`, `szOpenDialogSelDir`, read by
+//! `crate::file_dialog`). Not available yet: the lock of the box selection, and the Vista style
+//! dialog: MATSU asks GPUI for the dialogs, which on Windows are always the Vista style (the
+//! `IFileOpenDialog` in gpui-pre-windows 0.3.8, `platform.rs`), so the old style that the box
+//! would switch to does not exist.
 
 use gpui::{Context, Window};
 use matsu_commands::edit_options;
@@ -41,7 +43,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         "bAddCRLFWhenCopy",
                         false,
                     )
-                    .unavailable()
                     .into(),
                     Control::check(
                         "copy_and_disable_selection",
@@ -49,7 +50,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         "bCopyAndDisablSelection",
                         false,
                     )
-                    .unavailable()
                     .into(),
                     Control::check(
                         "enable_no_select_copy",
@@ -103,7 +103,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         "bNotOverWriteCRLF",
                         true,
                     )
-                    .unavailable()
                     .into(),
                     Control::check(
                         "overwrite_fix_mode",
@@ -111,7 +110,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         "bOverWriteFixMode",
                         false,
                     )
-                    .unavailable()
                     .into(),
                     Control::check(
                         "overwrite_box_delete",
@@ -119,7 +117,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         "bOverWriteBoxDelete",
                         false,
                     )
-                    .unavailable()
                     .into(),
                 ],
             ),
@@ -242,5 +239,10 @@ pub(in crate::common_settings) fn apply(_env: &mut Env, after: &Values, _before:
     options.drag_drop = after.bool("use_ole_drag_drop");
     options.drop_source = after.bool("use_ole_drop_source");
     options.select_clicked_url = after.bool("select_clicked_url");
+    options.add_crlf_when_copy = after.bool("add_crlf_when_copy");
+    options.copy_and_disable_selection = after.bool("copy_and_disable_selection");
+    options.not_overwrite_crlf = after.bool("not_overwrite_crlf");
+    options.overwrite_fix_mode = after.bool("overwrite_fix_mode");
+    options.overwrite_box_delete = after.bool("overwrite_box_delete");
     edit_options::set(options);
 }

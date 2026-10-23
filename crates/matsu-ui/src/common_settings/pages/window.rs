@@ -5,9 +5,11 @@
 //! group size), the status bar (`bDispSTATUSBAR`) and the synchronized scrolling of the split panes
 //! (`bSplitterWndVScroll`, `bSplitterWndHScroll`), the icons in menus (`bMenuIcon`) and the title
 //! formats (`szWinCaptionActive`, `szWinCaptionInactive`): the title of a window is the format
-//! expanded by `ExpandParameter` ([`crate::file_names::title`]). Not available yet: the horizontal
-//! scroll bar, the dark mode, the size and position of the window, the ruler and the line number
-//! gaps, the function keys and the language.
+//! expanded by `ExpandParameter` ([`crate::file_names::title`]), the height of the ruler and the
+//! gaps under it and after the line numbers (`nRulerHeight`, `nRulerBottomSpace`,
+//! `nLineNumberRightSpace`, read with the rest of the view settings). Not available yet: the
+//! horizontal scroll bar (the view has none), the dark mode, the size and position of the window,
+//! the function keys and the language.
 
 use gpui::{App, Global};
 
@@ -106,7 +108,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                             ruler_min,
                             ruler_max,
                         )
-                        .unavailable()
                         .into(),
                         Control::number(
                             "ruler_bottom_space",
@@ -116,7 +117,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                             0,
                             32,
                         )
-                        .unavailable()
                         .into(),
                         Control::number(
                             "line_number_right_space",
@@ -126,7 +126,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                             0,
                             32,
                         )
-                        .unavailable()
                         .into(),
                     ],
                 ),

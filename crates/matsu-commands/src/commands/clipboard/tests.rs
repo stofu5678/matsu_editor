@@ -303,3 +303,65 @@ fn the_clip_data_type_compares_text_and_kind() {
         ClipData::new("a", ClipKind::Line)
     );
 }
+
+// ---- the options of the common settings ----
+
+use crate::edit_options::{EditOptions, with_options};
+
+#[test]
+fn copy_and_cut_add_a_line_ending_with_add_crlf_when_copy() {
+    // `HandleCommand` passes `bAddCRLFWhenCopy` to `Command_COPY`; with the plain layout only the
+    // last row, which has no line ending, is affected.
+    let options = EditOptions {
+        add_crlf_when_copy: true,
+        ..Default::default()
+    };
+    with_options(options, || {
+        let mut e = Editor::new("[abc\ndef|");
+        e.run("copy");
+        assert_eq!(clip(&e), normal("abc\ndef\n"));
+        let mut e = Editor::new("[abc\ndef|");
+        e.run("copy_crlf");
+        assert_eq!(clip(&e), normal("abc\r\ndef\r\n"));
+        // a row copy adds CRLF to the last row (`CopyCurLine`)
+        let mut e = Editor::new("ab\ncd|");
+        e.run("copy");
+        assert_eq!(clip(&e), line("cd\r\n"));
+        // cut and cut-line pass the option on as well
+        let mut e = Editor::new("ab\n[cd|");
+        e.run("cut");
+        assert_eq!(clip(&e), normal("cd\n"));
+        let mut e = Editor::new("ab\ncd|");
+        e.run("cut_line");
+        assert_eq!(clip(&e), line("cd\r\n"));
+    });
+    // off by default
+    let mut e = Editor::new("[abc\ndef|");
+    e.run("copy");
+    assert_eq!(clip(&e), normal("abc\ndef"));
+}
+
+#[test]
+fn copy_drops_the_selection_with_copy_and_disable_selection() {
+    // `Command_COPY`: "コピーしたら選択解除"
+    let options = EditOptions {
+        copy_and_disable_selection: true,
+        ..Default::default()
+    };
+    with_options(options, || {
+        let mut e = Editor::new("a[bc|d");
+        e.run("copy").assert_marked("abc|d");
+        assert_eq!(clip(&e), normal("bc"));
+        // a box too
+        let mut e = Editor::new("|abc\ndef\n");
+        e.run("begin_box")
+            .run("cursor_right_box")
+            .run("cursor_down_box");
+        e.run("copy");
+        assert!(!e.cursor().has_selection() && !e.cursor().is_box());
+        assert_eq!(clip(&e), ("a\r\nd\r\n".to_owned(), ClipKind::Box));
+        // without a selection nothing changes
+        let mut e = Editor::new("a|bc");
+        e.run("copy").assert_marked("a|bc");
+    });
+}

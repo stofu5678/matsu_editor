@@ -46,6 +46,12 @@ use gpui_component::Root;
 use matsu_config::Profile;
 
 pub(crate) use dialog::{CommonSettingsDialog, SheetPage};
+#[cfg(test)]
+pub(crate) use pages::general::{CloseConfirm, ScrollOptions};
+pub(crate) use pages::general::{
+    WHEEL_CONTROL_KEY, WHEEL_MIDDLE_BUTTON, WHEEL_SHIFT_KEY, WHEEL_SIDE_BUTTON_1,
+    WHEEL_SIDE_BUTTON_2, close_confirm, scroll_options,
+};
 pub(crate) use pages::window::splitter_sync;
 
 use model::{Control, Item, Values};

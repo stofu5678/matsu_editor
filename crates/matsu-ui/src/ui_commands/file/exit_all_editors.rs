@@ -4,7 +4,7 @@
 //! no tray process, so both are the same: every window with unsaved changes asks, and a
 //! cancel stops the whole thing.
 
-use crate::file_ops::close::exit_all;
+use crate::file_ops::close::{ExitKind, exit_all};
 use crate::file_ops::start;
 use crate::ui_command::{UiCommand, register_ui_command};
 use crate::view::EditorView;
@@ -28,7 +28,7 @@ impl UiCommand for ExitAllEditors {
         let _ = view;
         start(window, cx, async move |view, cx| {
             let _ = view;
-            exit_all(cx).await;
+            exit_all(cx, ExitKind::Editors).await;
         });
         Ok(())
     }

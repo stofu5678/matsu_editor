@@ -16,6 +16,7 @@ use matsu_commands::command::{Arg, Result};
 use matsu_commands::keymap::{Chord, Key, Modifiers, MouseAction, Resolved};
 
 use super::EditorView;
+use crate::common_settings::WHEEL_MIDDLE_BUTTON;
 use crate::geometry::clamp_scroll_y;
 
 /// Rows (or columns) that one notch of the wheel scrolls: Windows' `WheelScrollLines`, which
@@ -173,6 +174,29 @@ impl EditorView {
         Ok(())
     }
 
+    // ---- the keys ----
+
+    /// How many times a key that is held runs its function. A held up or down key moves
+    /// `nRepeatedScrollLineNum` rows (3 by default) a time, not one: `Command_UP` and
+    /// `Command_DOWN` (`sakura_core/cmd/CViewCommander_Cursor.cpp`) take `bRepeat`, which
+    /// `HandleCommand` sets when the same function runs again without a key up in between
+    /// (`m_bPrevCommand`, reset by `WM_KEYUP`); a held key is the auto repeat of the OS. While a
+    /// key macro is recorded `bRepeat` is false, so that the macro has the function once.
+    pub(crate) fn key_repeat_count(&self, function: &str, held: bool, cx: &Context<Self>) -> usize {
+        if !held
+            || !matches!(
+                function,
+                "F_UP" | "F_DOWN" | "F_UP_SEL" | "F_DOWN_SEL" | "F_UP_BOX" | "F_DOWN_BOX"
+            )
+            || self.macros.is_recording()
+        {
+            return 1;
+        }
+        crate::common_settings::scroll_options(cx)
+            .repeated_lines
+            .max(1)
+    }
+
     // ---- the wheel ----
 
     /// The wheel, through Sakura's key table (`OnMOUSEWHEEL2`): the function of the wheel
@@ -247,8 +271,33 @@ impl EditorView {
             }
             return;
         }
+        // 通常スクロールの時だけ: the keys or buttons that turn the wheel into a page or a
+        // sideways scroll (`CEditView::OnMOUSEWHEEL2`, `IsSpecialScrollMode`).
+        let options = crate::common_settings::scroll_options(cx);
+        let sideways = self
+            .held_buttons
+            .special_mode(options.hscroll_by_wheel, event.modifiers);
+        let by_page = self
+            .held_buttons
+            .special_mode(options.page_by_wheel, event.modifiers);
+        // The middle button that turned the wheel must not also run its own function when it is
+        // let go (`OnMBUTTONUP`: `IsPageScrollByWheel`, `IsHScrollByWheel`).
+        if self.held_buttons.middle
+            && ((sideways && options.hscroll_by_wheel == WHEEL_MIDDLE_BUTTON)
+                || (by_page && options.page_by_wheel == WHEEL_MIDDLE_BUTTON))
+        {
+            self.wheel_used_middle = true;
+        }
         let pixels = event.delta.precise().then_some(amount.abs());
-        self.scroll_by_wheel_function(code, vertical, notches, page_setting, pixels, cx);
+        self.scroll_by_wheel_function(
+            code,
+            vertical,
+            notches,
+            page_setting || by_page,
+            sideways,
+            pixels,
+            cx,
+        );
     }
 
     /// A wheel function run as a command (a key, a menu or a macro): `args` is `zDelta`, the
@@ -264,20 +313,24 @@ impl EditorView {
             code,
             F_WHEELLEFT | F_WHEELRIGHT | F_WHEELPAGELEFT | F_WHEELPAGERIGHT
         );
-        self.scroll_by_wheel_function(code, !horizontal, z_delta / 120.0, false, None, cx);
+        self.scroll_by_wheel_function(code, !horizontal, z_delta / 120.0, false, false, None, cx);
     }
 
     /// The scrolling functions of the wheel (`F_WHEELUP` .. `F_WHEELPAGERIGHT`): `notches` of the
     /// wheel scroll in the direction of the function, whichever way the wheel went. `vertical`
     /// is the axis whose leftover `notches` is added to. `pixels` is the distance of a trackpad,
     /// which scrolls smoothly unless the function is a page. `page_setting` is Windows' "one
-    /// screen at a time", which makes any of them a page.
+    /// screen at a time", which makes any of them a page (so does the key of 組み合わせてホイール操作
+    /// した時ページスクロールする). `sideways` turns the scroll sideways (the key of 横スクロールする);
+    /// the direction stays the one of the function.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn scroll_by_wheel_function(
         &mut self,
         code: u16,
         vertical: bool,
         notches: f32,
         page_setting: bool,
+        sideways: bool,
         pixels: Option<f32>,
         cx: &mut Context<Self>,
     ) {
@@ -293,6 +346,7 @@ impl EditorView {
             _ => return,
         };
         let page = page || page_setting;
+        let horizontal = horizontal || sideways;
         let sign: isize = if forward { 1 } else { -1 };
         if let Some(pixels) = pixels
             && !page

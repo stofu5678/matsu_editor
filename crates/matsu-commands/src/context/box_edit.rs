@@ -24,8 +24,9 @@
 //!   the result is the same.
 //! * The text of a row never has its line ending. Sakura removes one char at the end of the
 //!   copied row when it is a line ending delimiter, which for CRLF would leave the CR.
-//! * Overwrite mode is not looked at: Sakura deletes the box first only with the option
-//!   `m_bOverWriteBoxDelete`, which is off by default (`sakura_core/env/CShareData.cpp`).
+//! * Overwrite mode matters only with the option `m_bOverWriteBoxDelete` (off by default,
+//!   `sakura_core/env/CShareData.cpp`): typing then deletes the box first
+//!   (`delete_box_keeping_selection`).
 
 use matsu_core::buffer::{Edit, Pos};
 use matsu_core::cursor::char_left;
@@ -219,6 +220,31 @@ impl CommandContext<'_> {
             }
         }
         self.cursor.move_to(caret, false);
+        Ok(())
+    }
+
+    /// `Command_INDENT` with `m_bOverWriteBoxDelete` in overwrite mode: deletes the text of the
+    /// box and selects the same corners again (`DeleteData`, then `GetSelect() = sSelectOld` and
+    /// `SetBoxSelect(true)`), so that the typing goes in front of the now empty box.
+    pub(super) fn delete_box_keeping_selection(&mut self) -> Result<()> {
+        let Some(rect) = self.box_rect()? else {
+            return Ok(());
+        };
+        let Some((anchor, caret)) = self.cursor.box_corners() else {
+            return Ok(());
+        };
+        let lock = self.cursor.selecting_lock();
+        let anchor_is_top = anchor.0 <= caret.0;
+        self.delete_box()?;
+        let (top, bottom) = (rect.rows[0], rect.rows[rect.rows.len() - 1]);
+        let (anchor_row, caret_row) = if anchor_is_top {
+            (top, bottom)
+        } else {
+            (bottom, top)
+        };
+        let anchor = (self.box_corner_pos(anchor_row, anchor.1)?, anchor.1);
+        let caret = (self.box_corner_pos(caret_row, caret.1)?, caret.1);
+        self.set_box(anchor, caret, lock);
         Ok(())
     }
 
