@@ -489,3 +489,19 @@ fn closing_the_group_closes_the_previews_with_their_documents(cx: &mut TestAppCo
     cx.run_until_parked();
     assert_eq!(super::tests::windows(cx), 0);
 }
+
+#[gpui::test]
+fn closing_the_group_also_closes_a_window_that_has_only_a_preview(cx: &mut TestAppContext) {
+    let handle = window(cx, true);
+    open(cx, handle);
+    let ws = workspace(cx, handle);
+    // The source tab is closed on its own; the preview is all that is left.
+    handle
+        .update(cx, |_, window, app| {
+            ws.update(app, |ws, cx| ws.close_tab_now(0, window, cx))
+        })
+        .unwrap();
+    run(cx, handle, "F_GROUPCLOSE");
+    cx.run_until_parked();
+    assert_eq!(super::tests::windows(cx), 0);
+}

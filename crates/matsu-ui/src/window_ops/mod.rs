@@ -364,7 +364,12 @@ pub(crate) async fn close_windows(
     if !keep_current {
         closing.extend(mine);
     }
-    close_views(cx, closing).await
+    let closed = close_views(cx, closing).await;
+    // The window that runs it may have only a preview left, which has no document to close.
+    if closed && !keep_current {
+        close_preview_only_windows(cx, vec![current]);
+    }
+    closed
 }
 
 /// `STR_ERR_CSHAREDATA19`.
@@ -401,6 +406,12 @@ pub(crate) async fn close_views(
     }
     // A window whose documents are all closed but that still has a preview (a tab that is not a
     // document of the group) goes with them.
+    close_preview_only_windows(cx, handles);
+    true
+}
+
+/// Closes the windows among `handles` that have only previews left.
+fn close_preview_only_windows(cx: &mut AsyncWindowContext, handles: Vec<AnyWindowHandle>) {
     let _ = cx.update(|window, app| {
         for handle in handles {
             let Some(workspace) = crate::file_ops::windows::workspace_of(app, handle) else {
@@ -417,7 +428,6 @@ pub(crate) async fn close_views(
             }
         }
     });
-    true
 }
 
 /// Runs Sakura's function `code` in the window `handle`, as if it was typed there. Used by the
