@@ -35,7 +35,8 @@ conn = sqlite3.connect(DATABASE, isolation_level=None)
 # Split into statements the way SQLite does (a ";" inside a string or a trigger does not end
 # one), and keep the line each statement starts at for the error line.
 statement, start, number = "", first_line, first_line - 1
-for line in sql.splitlines(keepends=True):
+# only "\n" ends a line of the document (splitlines() also splits at \f, \v and U+2028)
+for line in re.findall(r"[^\n]*\n|[^\n]+", sql):
     number += 1
     if not statement.strip():
         statement, start = "", number
