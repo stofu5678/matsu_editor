@@ -821,6 +821,14 @@ fn plsql_package_and_package_body_with_as_and_is() {
 }
 
 #[test]
+fn plsql_as_is_read_for_a_package_only() {
+    // Sakura takes `AS` as the start of the body of a package only; a procedure with `AS` stays
+    // a declaration until the next `;` (kept as it is: the parameters can hold `CAST(x AS t)`)
+    let text = lines(&["PROCEDURE p AS", "BEGIN NULL; END;"]);
+    assert_eq!(plsql(&text), "1:0:20:p");
+}
+
+#[test]
 fn plsql_ignores_comments_and_texts() {
     let text = lines(&[
         "-- FUNCTION in_line_comment IS",
