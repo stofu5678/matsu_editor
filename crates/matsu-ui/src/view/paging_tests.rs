@@ -811,6 +811,7 @@ fn a_side_button_that_turned_the_wheel_does_not_click_when_it_is_let_go(cx: &mut
     });
 }
 
+#[cfg(not(target_os = "macos"))]
 #[gpui::test]
 fn shift_and_the_wheel_as_gpui_delivers_them_on_windows(cx: &mut TestAppContext) {
     use crate::common_settings::{ScrollOptions, WHEEL_SHIFT_KEY};

@@ -70,7 +70,13 @@ impl HeldButtons {
 
 /// Makes the view keep the state of the buttons that the wheel combinations use.
 pub(crate) fn track(element: Stateful<Div>, cx: &mut gpui::Context<EditorView>) -> Stateful<Div> {
-    let mut element = element;
+    // A release in another window never arrives: a move with no button down says that all are up.
+    let mut element =
+        element.on_mouse_move(cx.listener(|view, event: &gpui::MouseMoveEvent, _, _| {
+            if event.pressed_button.is_none() {
+                view.held_buttons = HeldButtons::default();
+            }
+        }));
     for button in [
         MouseButton::Middle,
         MouseButton::Navigate(NavigationDirection::Back),
