@@ -850,11 +850,9 @@ pub(crate) fn tick_window_at(
                 // A revision the user threw away stays thrown away.
                 && entry.suppressed != Some(revision)
                 && !plan.write
-                && !entry
-                    .shared
-                    .in_flight
-                    .load(std::sync::atomic::Ordering::SeqCst)
             {
+                // A write that is running does not stop this one: the writer does them in the order they were
+                // given, so the later one ends last (at the end of the editor there is no second round to wait for).
                 let now_info = info_of(view.read(cx), document.read(cx));
                 if entry.shared.written() != Some(revision)
                     || entry.shared.written_info().as_ref() != Some(&now_info)
@@ -1008,29 +1006,15 @@ pub(crate) async fn settle(cx: &mut gpui::AsyncWindowContext) {
     }
 }
 
-/// The part of [`settle`] for the end of the process, which cannot wait for a window: the writes are asked for,
-/// and a future that ends when they are done is returned for `on_app_quit`.
+/// The part of [`settle`] for the end of the process, which cannot wait for a window or enter the application
+/// again: the writes are asked for (also for a document whose earlier write is still running), and a future that
+/// ends when they are done is returned for `on_app_quit`.
 pub(crate) fn settle_at_quit(cx: &mut App) -> impl std::future::Future<Output = ()> + use<> {
     queue_all_now(cx, None);
     let rx = barrier(cx);
     let executor = cx.background_executor().clone();
-    let async_cx = cx.to_async();
     async move {
-        let Some(rx) = rx else {
-            return;
-        };
-        executor
-            .spawn(async move {
-                let _ = rx.recv_timeout(SETTLE_TIMEOUT);
-            })
-            .await;
-        // A write that was running when the first round asked could not be asked again: a second round, now
-        // that it is over, writes what was typed meanwhile.
-        let second = async_cx.update(|app| {
-            queue_all_now(app, None);
-            barrier(app)
-        });
-        if let Some(rx) = second {
+        if let Some(rx) = rx {
             executor
                 .spawn(async move {
                     let _ = rx.recv_timeout(SETTLE_TIMEOUT);
