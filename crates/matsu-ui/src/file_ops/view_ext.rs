@@ -123,6 +123,8 @@ impl EditorView {
             // (the old file is as it was).
             shared.lock_file(share_mode);
             let report = saved?;
+            // The file was written: the check against the file as it was does not apply any more.
+            shared.clear_restored_check();
             // `CSaveAgent::OnBeforeSave` -> `CDocVisitor::SetAllEol`: a save that names a line
             // ending converts the lines of the document, an undo step of its own.
             let mut converted = true;

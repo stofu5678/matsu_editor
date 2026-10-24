@@ -36,6 +36,25 @@ thread_local! {
     static UNTITLED_SEQUENCE: AtomicU32 = const { AtomicU32::new(0) };
 }
 
+/// Makes sure that the numbers given from now on are above `number`: an untitled document that was brought back
+/// from a copy keeps its number (ADR-0022), and a new one must not get the same.
+pub(crate) fn reserve_untitled_number(number: u32) {
+    #[cfg(not(test))]
+    UNTITLED_SEQUENCE.fetch_max(number, Ordering::Relaxed);
+    #[cfg(test)]
+    UNTITLED_SEQUENCE.with(|n| n.fetch_max(number, Ordering::Relaxed));
+}
+
+/// What a document brought back from a copy remembers of its file when the copy was made: the file is checked
+/// against it before the document overwrites the file (ADR-0022, section 4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RestoredCheck {
+    /// The time stamp of the file when the document was opened.
+    pub modified: Option<std::time::SystemTime>,
+    /// Its size then, if it was kept.
+    pub size: Option<u64>,
+}
+
 fn next_untitled_number() -> u32 {
     #[cfg(not(test))]
     return UNTITLED_SEQUENCE.fetch_add(1, Ordering::Relaxed) + 1;
@@ -84,6 +103,12 @@ pub struct SharedDocument {
     /// The number of an untitled document (`EditNode::m_nId`), shown as `(無題)2` in the lists
     /// and as `$n` in the titles. See [`number_untitled`](Self::number_untitled).
     untitled_number: Option<u32>,
+    /// The document was brought back from a copy of unsaved text (ADR-0022): it keeps the encoding, BOM and line
+    /// ending it had, and a window does not give it the settings of a new document.
+    restored: bool,
+    /// Set for a restored document that has a file: the file was not looked at yet (「確認まだ」). The save checks it
+    /// against this before it overwrites the file.
+    restored_check: Option<RestoredCheck>,
 }
 
 impl EventEmitter<DocumentEvent> for SharedDocument {}
@@ -113,6 +138,8 @@ impl SharedDocument {
             disk: DiskState::default(),
             lock: FileLockState::default(),
             untitled_number: None,
+            restored: false,
+            restored_check: None,
         }
     }
 
@@ -136,7 +163,47 @@ impl SharedDocument {
             disk,
             lock: FileLockState::default(),
             untitled_number: None,
+            restored: false,
+            restored_check: None,
         }
+    }
+
+    /// A document brought back from a copy of unsaved text (ADR-0022). It is modified, its text is the base of its
+    /// history, its number (if untitled) is kept, and a file it has is remembered as it was
+    /// (`check`) until the save has looked at it.
+    pub(crate) fn restored(
+        file: TextFile,
+        untitled_number: Option<u32>,
+        check: Option<RestoredCheck>,
+    ) -> Self {
+        let mut shared = Self::from_text_file(file);
+        shared.model.mark_unsaved();
+        shared.restored = true;
+        shared.untitled_number = untitled_number;
+        if let Some(number) = untitled_number {
+            reserve_untitled_number(number);
+        }
+        if let Some(check) = check {
+            // The watching of the file compares with the time the document was opened, so a file that was
+            // changed since is found.
+            shared.disk.stamp = check.modified;
+            shared.restored_check = Some(check);
+        }
+        shared
+    }
+
+    /// Whether the document was brought back from a copy.
+    pub(crate) fn is_restored(&self) -> bool {
+        self.restored
+    }
+
+    /// The state of the file when the copy was made, until a save has checked it.
+    pub(crate) fn restored_check(&self) -> Option<RestoredCheck> {
+        self.restored_check
+    }
+
+    pub(crate) fn clear_restored_check(&mut self) {
+        self.restored_check = None;
     }
 
     /// Replaces the whole document (open, close, reopen) and tells the views. The version keeps

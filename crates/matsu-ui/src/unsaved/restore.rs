@@ -1,0 +1,404 @@
+//! Bringing the kept documents back at the start (ADR-0022, section 4).
+//!
+//! [`restore_all`] runs once, before the files of the command line are opened:
+//!
+//! 1. The folder `unsaved/` next to `matsu.ini` is opened (its lock is taken; if another process has it, nothing is
+//!    restored and nothing is written). Temporary files of a write that was cut off are removed, and what has been
+//!    in `rejected/` for 30 days is deleted.
+//! 2. `session.ini` says which documents there are, and in which windows and tabs. The ids it lists whose file is
+//!    gone are skipped. The files it does not list (a new document whose `session.ini` was not written yet when the
+//!    process stopped) are restored too, as tabs at the end of the first window.
+//! 3. A file that cannot be read goes to `rejected/`, and the user is told.
+//! 4. Each document is made as it was: its text is the base of its history (Undo starts from here), it is
+//!    modified, its encoding, BOM, line ending, type (if the user chose one), caret, view, bookmarks and untitled
+//!    number are kept. A document with a file keeps the time stamp the file had, and a mark 「確認まだ」: the save
+//!    asks before it overwrites a file that is not as it was (`file_ops::save`).
+//! 5. The keeper takes the folder over, and each restored document keeps its copy under the same name, so that no
+//!    second copy is made until it changes.
+//! 6. The status bar of the front window says how many documents came back.
+
+use std::io::Read as _;
+use std::path::PathBuf;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use gpui::{AnyWindowHandle, App, Entity};
+use matsu_config::unsaved::{DocFile, DocInfo, REJECTED_KEEP, Store, unsaved_dir};
+use matsu_core::buffer::{Document, Eol, Pos, col_from_utf16};
+use matsu_core::encoding::Encoding;
+use matsu_core::file::TextFile;
+
+use super::keeper::{Adopted, adopt_restored, settings_path};
+use super::prefs::prefs;
+use crate::document::{RestoredCheck, SharedDocument};
+use crate::file_ops::windows::{editors, open_editor_window, workspace_of};
+use crate::view::EditorView;
+
+/// A kept document that was read.
+struct Kept {
+    id: String,
+    info: DocInfo,
+    text: String,
+}
+
+/// What the restore did.
+#[derive(Debug, Default)]
+pub(crate) struct Restored {
+    /// How many documents came back.
+    pub documents: usize,
+    /// How many of them have a file that is not as it was.
+    pub changed_files: usize,
+    /// How many files could not be read and were moved to `rejected/`.
+    pub rejected: usize,
+    /// The notice, when there was no window to show it in: the first window that opens shows it.
+    pub pending_notice: Option<String>,
+}
+
+impl Restored {
+    /// The text for the status bar, or `None` when nothing happened.
+    fn notice(&self) -> Option<String> {
+        if self.documents == 0 && self.rejected == 0 {
+            return None;
+        }
+        let mut text = String::new();
+        if self.documents > 0 {
+            text.push_str(&format!(
+                "前回の未保存の文書を{}件戻しました。",
+                self.documents
+            ));
+        }
+        if self.changed_files > 0 {
+            text.push_str(&format!(
+                "{}件はディスク上のファイルが変わっています。",
+                self.changed_files
+            ));
+        }
+        if self.rejected > 0 {
+            text.push_str(&format!(
+                "{}件は読めなかったため rejected フォルダーに移しました。",
+                self.rejected
+            ));
+        }
+        Some(text)
+    }
+}
+
+/// Brings the kept documents back. Returns what it did; `documents` is 0 when the feature is off, the folder is
+/// not there, another process has it, or nothing was kept.
+pub(crate) fn restore_all(cx: &mut App) -> Restored {
+    if !prefs(cx).keep {
+        return Restored::default();
+    }
+    let Some(ini) = settings_path(cx) else {
+        return Restored::default();
+    };
+    let dir = unsaved_dir(&ini);
+    // Nothing is made for a first start.
+    if !dir.is_dir() {
+        return Restored::default();
+    }
+    // Locked by another process, or not usable: the keeper says so when it starts. Nothing is restored.
+    let Ok(store) = Store::open(&dir) else {
+        return Restored::default();
+    };
+    let _ = store.remove_tmp();
+    let _ = store.purge_rejected(SystemTime::now(), REJECTED_KEEP);
+    let session = store.read_session();
+    let scan = store.scan(&session).unwrap_or_default();
+
+    // The windows: the listed ones with their tabs, then the documents that were not listed.
+    // Each document has the place it had in its window, so that the tab in front is found again when some
+    // documents of the window are gone.
+    let mut plan: Vec<(Vec<(usize, String)>, usize)> = session
+        .windows
+        .iter()
+        .map(|w| {
+            let docs: Vec<(usize, String)> = w
+                .docs
+                .iter()
+                .enumerate()
+                .filter(|(_, id)| !scan.dangling.contains(id))
+                .map(|(place, id)| (place, id.clone()))
+                .collect();
+            (docs, w.active)
+        })
+        .filter(|(docs, _)| !docs.is_empty())
+        .collect();
+    // The index of the front window among the ones that are left.
+    let front = session
+        .windows
+        .iter()
+        .take(session.active_window)
+        .filter(|w| w.docs.iter().any(|id| !scan.dangling.contains(id)))
+        .count();
+    if !scan.orphans.is_empty() {
+        match plan.first_mut() {
+            Some((docs, _)) => {
+                let after = docs.last().map_or(0, |(place, _)| place + 1);
+                docs.extend(
+                    scan.orphans
+                        .iter()
+                        .cloned()
+                        .enumerate()
+                        .map(|(i, id)| (after + i, id)),
+                );
+            }
+            None => plan.push((scan.orphans.iter().cloned().enumerate().collect(), 0)),
+        }
+    }
+
+    let mut result = Restored::default();
+    let mut adopted = Vec::new();
+    let mut lock_failures = Vec::new();
+    let mut front_handle: Option<AnyWindowHandle> = None;
+    let mut shown_view: Option<Entity<EditorView>> = None;
+    for (window_index, (ids, active)) in plan.iter().enumerate() {
+        let mut handle: Option<AnyWindowHandle> = None;
+        // The restored tabs of this window, with the place each had in the session.
+        let mut tab_views: Vec<(usize, Entity<EditorView>)> = Vec::new();
+        for (place, id) in ids {
+            let kept = match read_kept(&store, id) {
+                Ok(kept) => kept,
+                Err(()) => {
+                    // Unreadable: kept in `rejected/`, not deleted.
+                    let _ = store.reject(id);
+                    result.rejected += 1;
+                    continue;
+                }
+            };
+            let Some((shared, changed)) = make_document(kept.text, &kept.info) else {
+                // The text could not be made into a document: kept in `rejected/`, not shown empty.
+                let _ = store.reject(id);
+                result.rejected += 1;
+                continue;
+            };
+            if changed {
+                result.changed_files += 1;
+            }
+            let opened = match handle {
+                None => open_first(cx, shared),
+                Some(handle) => {
+                    crate::tabs::flows::open_document(cx, None, handle, false, shared, None).ok()
+                }
+            };
+            let Some((opened_handle, view)) = opened else {
+                // The window could not be made: the copy stays where it is for the next start.
+                continue;
+            };
+            handle.get_or_insert(opened_handle);
+            if let Some(failure) = apply_view_state(&view, &kept.info, cx) {
+                lock_failures.push((opened_handle, failure));
+            }
+            adopted.push(Adopted {
+                view: view.clone(),
+                id: kept.id,
+            });
+            result.documents += 1;
+            tab_views.push((*place, view.clone()));
+        }
+        if let Some(handle) = handle {
+            // The tab that was in front: the document itself, or the next one that came back if it did not, or
+            // the last one.
+            let in_front = tab_views
+                .iter()
+                .find(|(place, _)| place >= active)
+                .or_else(|| tab_views.last())
+                .map(|(_, view)| view.clone());
+            if let Some(view) = &in_front
+                && tab_views.len() > 1
+            {
+                activate_tab_of(cx, handle, view);
+            }
+            if window_index == front {
+                front_handle = Some(handle);
+                shown_view = in_front.clone();
+            }
+            if shown_view.is_none() {
+                shown_view = in_front;
+            }
+        }
+    }
+    if let Some(handle) = front_handle {
+        crate::file_ops::windows::activate(cx, handle);
+    }
+    adopt_restored(cx, store, adopted);
+    // A file that another program has locked is told, as when it is opened (`TopWarningMessage`).
+    for (handle, failure) in lock_failures {
+        handle
+            .update(cx, |_, window, app| {
+                crate::file_ops::lock::report_failure_in(window, app, failure);
+            })
+            .ok();
+    }
+    // On the tab that is in front. If no document came back, the window that opens next shows it (`app::run`).
+    match (shown_view, result.notice()) {
+        (Some(view), Some(text)) => {
+            view.update(cx, |view, cx| {
+                view.notice = Some(text);
+                cx.notify();
+            });
+        }
+        (None, Some(text)) => result.pending_notice = Some(text),
+        _ => {}
+    }
+    result
+}
+
+/// Reads a kept document: its information and its text (UTF-8).
+fn read_kept(store: &Store, id: &str) -> Result<Kept, ()> {
+    let DocFile { info, mut text, .. } = store.open_doc(id).map_err(|_| ())?;
+    let mut bytes = Vec::new();
+    text.read_to_end(&mut bytes).map_err(|_| ())?;
+    let text = String::from_utf8(bytes).map_err(|_| ())?;
+    Ok(Kept {
+        id: id.to_owned(),
+        info,
+        text,
+    })
+}
+
+/// The document as it was, and whether its file is not as it was when the copy was made.
+fn make_document(text: String, info: &DocInfo) -> Option<(SharedDocument, bool)> {
+    let encoding = info
+        .encoding
+        .trim()
+        .parse::<i32>()
+        .ok()
+        .and_then(Encoding::from_sakura_code)
+        .unwrap_or(Encoding::Utf8);
+    let eol = match info.line_ending.as_str() {
+        "CRLF" => Eol::CrLf,
+        "CR" => Eol::Cr,
+        _ => Eol::Lf,
+    };
+    let ext_eol = matsu_commands::edit_options::get().ext_eol;
+    // The characters that stand for bytes that were not valid in the encoding (U+10FF00..) are written as the
+    // bytes they stand for by the encoder of the text that was typed or added, not by a copy of the original
+    // bytes: such a text is added, the rest is the base of the document.
+    let has_stand_in = text
+        .chars()
+        .any(|c| ('\u{10FF00}'..='\u{10FFFF}').contains(&c));
+    let document = if has_stand_in {
+        let mut document = Document::empty();
+        document.set_ext_eol(ext_eol);
+        document.insert(Pos::new(0, 0), &text).ok()?;
+        document
+    } else {
+        Document::from_utf8_with(text.into_bytes(), ext_eol).ok()?
+    };
+    let path = info.path.as_ref().map(PathBuf::from);
+    let modified = info.file_modified_secs.and_then(|secs| {
+        let secs = u64::try_from(secs).ok()?;
+        let nanos = info.file_modified_nanos.unwrap_or(0);
+        UNIX_EPOCH.checked_add(Duration::new(secs, nanos))
+    });
+    let check = path.as_ref().map(|_| RestoredCheck {
+        modified,
+        size: info.file_size,
+    });
+    let changed = path
+        .as_deref()
+        .zip(check)
+        .is_some_and(|(path, check)| file_changed(path, check));
+    let file = TextFile::restored(document, path, encoding, info.bom, eol);
+    let mut shared = SharedDocument::restored(file, info.untitled_number, check);
+    if shared.path().is_none() && shared.untitled_number().is_none() {
+        shared.number_untitled();
+    }
+    Some((shared, changed))
+}
+
+/// Whether the file is not as it was: another time stamp or size. A file that is gone is not "changed": the
+/// document is saved under its name as Sakura does for a name that does not exist yet.
+pub(crate) fn file_changed(path: &std::path::Path, was: RestoredCheck) -> bool {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return false;
+    };
+    let time_differs = was
+        .modified
+        .is_some_and(|t| meta.modified().ok() != Some(t));
+    let size_differs = was.size.is_some_and(|s| s != meta.len());
+    time_differs || size_differs
+}
+
+/// Opens the first document of a window as a window of its own.
+fn open_first(
+    cx: &mut App,
+    shared: SharedDocument,
+) -> Option<(AnyWindowHandle, Entity<EditorView>)> {
+    let handle = open_editor_window(cx, shared, None).ok()?;
+    let view = editors(cx)
+        .into_iter()
+        .rfind(|(h, _)| *h == handle)
+        .map(|(_, view)| view)?;
+    Some((handle, view))
+}
+
+/// Puts the caret, the view, the bookmarks and the chosen type back.
+fn apply_view_state(
+    view: &Entity<EditorView>,
+    info: &DocInfo,
+    cx: &mut App,
+) -> Option<crate::file_ops::lock::LockFailure> {
+    let document = view.read(cx).document().clone();
+    // A file with a name is locked as a file that was opened is (`CDocLocker::OnAfterLoad`).
+    let share_mode = crate::file_ops::prefs::prefs(cx).file_share_mode;
+    let failure = document.update(cx, |shared, _| {
+        if shared.path().is_some_and(|p| p.is_file()) {
+            shared.lock_after_load(share_mode);
+        }
+        shared.take_lock_failure()
+    });
+    if let Some(index) = info.doc_type.and_then(|i| usize::try_from(i).ok()) {
+        document.update(cx, |shared, cx| {
+            shared.set_type_locked(true);
+            shared.announce_type(index, cx);
+        });
+    }
+    let lines = document.read(cx).doc().line_count();
+    document.update(cx, |shared, _| {
+        let (model, _) = shared.parts_mut();
+        for line in info
+            .bookmarks
+            .iter()
+            .filter_map(|l| usize::try_from(*l).ok())
+        {
+            if line < lines {
+                model.bookmarks_mut().set(line, true);
+            }
+        }
+    });
+    let line = usize::try_from(info.caret_line)
+        .unwrap_or(0)
+        .min(lines.saturating_sub(1));
+    let text = document
+        .read(cx)
+        .doc()
+        .line(line)
+        .ok()
+        .flatten()
+        .map(|l| l.text)
+        .unwrap_or_default();
+    let col = col_from_utf16(&text, usize::try_from(info.caret_column).unwrap_or(0));
+    view.update(cx, |view, cx| {
+        // The caret first (it scrolls to itself), then the view where it was: the caret may be out of sight.
+        view.go_to(Pos::new(line, col), cx);
+        view.scroll_top_to(isize::try_from(info.top_line).unwrap_or(0), cx);
+        cx.notify();
+    });
+    failure
+}
+
+/// Brings the tab of `view` to the front of its window.
+fn activate_tab_of(cx: &mut App, handle: AnyWindowHandle, view: &Entity<EditorView>) {
+    let Some(workspace) = workspace_of(cx, handle) else {
+        return;
+    };
+    let Some(index) = workspace.read(cx).tab_of(view) else {
+        return;
+    };
+    handle
+        .update(cx, |_, window, app| {
+            workspace.update(app, |ws, wcx| ws.activate_tab(index, window, wcx));
+        })
+        .ok();
+}

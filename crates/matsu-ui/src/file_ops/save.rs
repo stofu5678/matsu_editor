@@ -271,6 +271,12 @@ pub(crate) async fn save(
         return outcome;
     }
 
+    // A document brought back from a copy of unsaved text (ADR-0022) has not looked at its file yet: if the file is
+    // not as it was, the user decides before it is overwritten.
+    if let Some(outcome) = confirm_restored_file(view, cx, current.as_deref(), &path).await {
+        return outcome;
+    }
+
     // The options: the document's own, then what the request changes.
     let Ok((mut options, current_format)) = view.read_with(cx, |view, app| {
         let mut options = SaveOptions::keep(view.document().read(app).file());
@@ -385,6 +391,43 @@ pub(crate) async fn save(
             fail(view, cx, &path, &error).await
         }
         None => SaveOutcome::Cancelled,
+    }
+}
+
+/// The question before a document that was brought back overwrites a file that has changed since the copy was
+/// made. `None` to go on.
+async fn confirm_restored_file(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    current: Option<&std::path::Path>,
+    path: &std::path::Path,
+) -> Option<SaveOutcome> {
+    let check = view
+        .read_with(cx, |view, app| view.document().read(app).restored_check())
+        .ok()
+        .flatten()?;
+    // Only the file the document came from.
+    if !current.is_some_and(|c| super::windows::same_file(c, path)) {
+        return None;
+    }
+    if !crate::unsaved::restore::file_changed(path, check) {
+        return None;
+    }
+    let message = format!(
+        "{}\nこのファイルは外部のエディタ等で変更されています。",
+        super::ask::document_title(Some(path), None)
+    );
+    let overwrite = super::ask::confirm(
+        cx,
+        &message,
+        Some("前回の未保存の内容で上書きしますか?"),
+        ["上書きする(Y)", "キャンセル"],
+    )
+    .await;
+    if overwrite {
+        None
+    } else {
+        Some(SaveOutcome::Cancelled)
     }
 }
 
