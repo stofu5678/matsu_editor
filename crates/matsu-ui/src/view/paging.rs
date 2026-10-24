@@ -212,7 +212,14 @@ impl EditorView {
         let delta = event.delta.pixel_delta(gpui::px(self.metrics.line_height));
         // Sakura gets the vertical and the horizontal wheel as separate messages; a trackpad
         // reports both at once, and each axis is handled on its own.
-        for (vertical, amount) in [(true, f32::from(delta.y)), (false, f32::from(delta.x))] {
+        let (mut dx, mut dy) = (f32::from(delta.x), f32::from(delta.y));
+        // With Shift held GPUI's Windows and X11 backends turn a turn of the wheel into a
+        // horizontal one (`handle_mouse_wheel_msg`); Sakura gets it as the vertical wheel, and
+        // the key table and the combinations of the common settings decide what Shift does.
+        if event.modifiers.shift && !event.delta.precise() && dy == 0.0 && dx != 0.0 {
+            (dx, dy) = (0.0, dx);
+        }
+        for (vertical, amount) in [(true, dy), (false, dx)] {
             if amount != 0.0 {
                 self.handle_wheel_axis(event, vertical, amount, window, cx);
             }

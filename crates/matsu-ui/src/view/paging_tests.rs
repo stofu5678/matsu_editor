@@ -810,3 +810,46 @@ fn a_side_button_that_turned_the_wheel_does_not_click_when_it_is_let_go(cx: &mut
         assert!(!v.wheel_used_buttons.take(back));
     });
 }
+
+#[gpui::test]
+fn shift_and_the_wheel_as_gpui_delivers_them_on_windows(cx: &mut TestAppContext) {
+    use crate::common_settings::{ScrollOptions, WHEEL_SHIFT_KEY};
+    // GPUI's Windows backend reports a turn of the wheel with Shift held as a horizontal delta
+    // (`handle_mouse_wheel_msg`); wheel down is a negative one, like the vertical delta.
+    let (view, cx) = setup(cx);
+    let n = rows(&view, cx);
+    set_options(
+        cx,
+        ScrollOptions {
+            page_by_wheel: WHEEL_SHIFT_KEY,
+            ..Default::default()
+        },
+    );
+    wheel(
+        &view,
+        cx,
+        ScrollDelta::Lines(point(-NOTCH, 0.)),
+        Modifiers::shift(),
+    );
+    assert_eq!(
+        view.read_with(cx, |v, _| (v.scroll_x, v.top_row())),
+        (0.0, n - 1)
+    );
+    // and sideways, when the setting asks for that
+    set_options(
+        cx,
+        ScrollOptions {
+            hscroll_by_wheel: WHEEL_SHIFT_KEY,
+            ..Default::default()
+        },
+    );
+    view.update(cx, |v, _| v.widest_cols = 500);
+    let cell = view.read_with(cx, |v, _| v.metrics().cell_width);
+    wheel(
+        &view,
+        cx,
+        ScrollDelta::Lines(point(-NOTCH, 0.)),
+        Modifiers::shift(),
+    );
+    assert_eq!(view.read_with(cx, |v, _| v.scroll_x), 3.0 * cell);
+}
