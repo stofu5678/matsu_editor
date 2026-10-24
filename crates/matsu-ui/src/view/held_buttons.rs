@@ -104,3 +104,12 @@ pub(crate) fn track(element: Stateful<Div>, cx: &mut gpui::Context<EditorView>) 
     }
     element
 }
+
+impl EditorView {
+    /// The window lost the activation: the releases that happen in another program do not
+    /// arrive, so no button counts as held (or as used by the wheel) any more.
+    pub(crate) fn forget_held_buttons(&mut self) {
+        self.held_buttons = HeldButtons::default();
+        self.wheel_used_buttons = HeldButtons::default();
+    }
+}

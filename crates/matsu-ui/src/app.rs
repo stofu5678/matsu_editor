@@ -526,6 +526,14 @@ impl Workspace {
         cx.observe_window_activation(window, |this, window, cx| {
             // The title has a format for the active window and another for the others.
             cx.notify();
+            if !window.is_window_active() {
+                // A button let go in another program never reaches the view: forget the buttons
+                // that the wheel combinations watch.
+                this.panes()
+                    .active()
+                    .clone()
+                    .update(cx, |view, _| view.forget_held_buttons());
+            }
             if window.is_window_active() {
                 defer_refresh_menu_states(cx, true);
                 // Another program may have changed the file while the window was in the background.
