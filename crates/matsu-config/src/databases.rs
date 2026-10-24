@@ -451,6 +451,9 @@ fn scan_for_password(kind: Kind, command: &str, quote_aware: bool) -> Option<&'s
             "passwd=",
             "pwd=",
             "pass=",
+            "password1=",
+            "password2=",
+            "password3=",
             "sslpassword=",
             "passphrase=",
         ] {

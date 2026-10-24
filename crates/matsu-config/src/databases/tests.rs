@@ -225,6 +225,12 @@ fn passwords_on_the_command_line_are_found() {
         found(Kind::MySql, "mysql \"--init-command=x -psecret"),
         Some("-p")
     );
+    // MySQL 8's numbered options
+    assert_eq!(
+        found(Kind::MySql, "mysql --password1=secret"),
+        Some("--password=")
+    );
+    assert_eq!(found(Kind::MySql, "mysql --password2 db"), None);
     // escaped quotes are letters to a shell: the words are looked at by blanks too
     assert_eq!(
         found(
