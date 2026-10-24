@@ -1103,6 +1103,18 @@ fn powershell_keeps_ignorable_characters_and_formatted_output() {
 }
 
 #[test]
+fn a_powershell_macro_knows_where_it_is() {
+    // `$PSScriptRoot` is empty for text that is compiled without a file; `$MacroDir` stands in.
+    let code = "Write-Output ([IO.Path]::GetFileName($MacroPath))\n\
+        Write-Output (Test-Path -LiteralPath ([IO.Path]::Combine($MacroDir, 'macro.ps1')))\n";
+    let Some((report, _)) = run(PS, code, "") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(stdout(&report), ["macro.ps1", "True"]);
+}
+
+#[test]
 fn a_powershell_syntax_error_shows_its_line() {
     let code = "$a = 1\nif ($a {\n}\n";
     let Some((report, _)) = run(PS, code, "") else {

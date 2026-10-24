@@ -262,6 +262,10 @@ if ($null -eq $global:MatsuInfo -or -not $global:MatsuInfo.Contains('script')) {
 }
 $global:MatsuName = [string]$global:MatsuInfo['script']['name']
 $global:MatsuSource = [string]$global:MatsuInfo['script']['source']
+# The text is compiled without a file, so $PSScriptRoot and $PSCommandPath are empty (they cannot
+# be set); a macro that looks for files beside itself uses these two.
+$global:MacroPath = $global:MatsuName
+$global:MacroDir = [IO.Path]::GetDirectoryName($global:MatsuName)
 
 . ([scriptblock]::Create([IO.File]::ReadAllText(([IO.Path]::Combine($env:MATSU_BOOT_DIR, 'api_gen.ps1')), $utf8)))
 $global:Editor = New-MatsuEditor

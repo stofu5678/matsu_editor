@@ -249,6 +249,7 @@ Emacs の利用者を考えて調べた。6 つとも、次がすべて通った
 - 起動: `-NoLogo -NoProfile -NonInteractive -Command <短い文>`。短い文が、環境変数 `MATSU_BOOT_DIR` のフォルダーにある `boot.ps1` の中身を読んで、スクリプトブロックにして実行する。ファイルを `-File` で渡さないのは、実行ポリシー（Windows のクライアントの既定は Restricted）がスクリプトの「ファイル」だけを止めるため。文字列から作ったスクリプトブロックは止められない（グループポリシーが `-Command` 自体を止める環境は対象外）
 - 利用者のスクリプトは、ファイルのパスではなく `initialize` の `params.script`（`name` と `source`）で渡す（同梱の処理系と同じ）。5.1 は BOM のないファイルを ANSI で読むので、文字コードの問題も避けられる。ブートは `[scriptblock]::Create` で作り、グローバルのスコープで実行する（コンソールと同じく、利用者の変数と関数はグローバルに残る）
 - `$Editor` は、API の名前ごとの ScriptMethod を持つオブジェクト（`$Editor.InsText('x')`）。サクラの表のほかの名前や、数字で始まる名前は `$Editor.Call('1PageUp')`。`$Editor.Info` が `initialize` の内容。生成物は `api_gen.ps1`
+- スクリプトの場所: 文字列から作るので `$PSScriptRoot` と `$PSCommandPath` は空（設定できない）。代わりに `$MacroPath`（スクリプトのパス）と `$MacroDir`（そのフォルダー）を用意した
 - JSON: `ConvertFrom-Json` は、日付に見える文字列を DateTime にする版があり、`ConvertTo-Json` は 5.1 と 7 で違うので、ブートに小さな読み取りと書き出しを書いた。書き出しは ASCII だけ。整数の値の `double` は整数で送る。コマンドレット（`New-Object`、`Join-Path`、`Add-Member`）は、最初の呼び出しにモジュールの読み込みで 100〜300 ms かかるので、起動の経路では使わない
 - エラー: エディタの `error` は ErrorRecord（例外の `Data['Code']` に番号）として投げる。ScriptMethod が `ScriptMethodRuntimeException` で包むので、利用者は `Get-EditorErrorCode $_`（番号か `$null`）で調べる。捕まえなかったエラーは `名前:行: メッセージ` で標準エラーに書き、終了コード 1。行は、利用者のスクリプトの先頭を 1 とする（エディタを呼んだ行、構文エラーは構文解析器が示す行）
 - 起動の時間: この PC（WSL2 の Linux ARM64、PowerShell 7.6）で、`-Command 1` が約 0.3〜0.7 秒、ブートを含めて 1〜1.5 秒。Node.js は約 0.1 秒。利用者には、マクロを動かしてから最初の動きまで 1 秒ほどかかるように見える。Windows と 5.1 の値は未測定（過去の記録: 5.1 の起動は約 150 ms、Windows ARM64）
