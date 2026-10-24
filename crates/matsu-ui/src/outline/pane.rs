@@ -394,13 +394,14 @@ impl OutlinePane {
         let view_type = kind.view();
         let java_tree = matches!(
             kind,
-            OutlineKind::CCpp | OutlineKind::Cpp | OutlineKind::Java
+            OutlineKind::CCpp | OutlineKind::Cpp | OutlineKind::Java | OutlineKind::Cobol
         );
         let mut tree = Vec::new();
         let clip_text;
         if java_tree {
             prepare_append_texts(&mut analysis.items);
-            tree = build_java_tree(&analysis.items);
+            // COBOL is the same tree without the class texts (`SetTreeJava(..., FALSE)`)
+            tree = build_java_tree(&analysis.items, kind != OutlineKind::Cobol);
             clip_text = clip_text_java(&analysis.items, &file_path);
         } else if view_type == ViewType::Tree {
             tree = build_tree(&analysis.items);

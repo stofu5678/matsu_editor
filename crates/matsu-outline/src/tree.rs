@@ -208,7 +208,11 @@ fn split_classes(name: &[char]) -> (Vec<String>, usize) {
 /// `\` goes under a node for each class; the classes of the items are made when they are met,
 /// and the items that are not in a class go under "グローバル" (or at the top, for a class,
 /// structure, enumeration, union, namespace and interface).
-pub fn build_java_tree(arr: &FuncInfoArr) -> Vec<TreeNode> {
+///
+/// With `add_class` false (`bAddClass` is FALSE, the tree of COBOL) a node made for a class has the
+/// bare name, with no text such as " クラス" after it, and an existing node is the one whose label
+/// is exactly the name.
+pub fn build_java_tree(arr: &FuncInfoArr, add_class: bool) -> Vec<TreeNode> {
     let mut arena = Arena::default();
     // the counter of `lParam`
     let mut counter = 0usize;
@@ -223,17 +227,23 @@ pub fn build_java_tree(arr: &FuncInfoArr) -> Vec<TreeNode> {
             for class in &classes {
                 let found = arena.children_of(node).iter().copied().find(|&child| {
                     let label = &arena.nodes[child].label;
-                    label.starts_with(class.as_str()) && label[class.len()..].starts_with(' ')
+                    if add_class {
+                        label.starts_with(class.as_str()) && label[class.len()..].starts_with(' ')
+                    } else {
+                        label == class
+                    }
                 });
                 let id = match found {
                     Some(id) => id,
                     None => {
                         let mut label = class.clone();
-                        label.push_str(if item.info == func_obj::NAMESPACE {
-                            arr.append_text(func_obj::NAMESPACE)
-                        } else {
-                            arr.append_text(func_obj::CLASS)
-                        });
+                        if add_class {
+                            label.push_str(if item.info == func_obj::NAMESPACE {
+                                arr.append_text(func_obj::NAMESPACE)
+                            } else {
+                                arr.append_text(func_obj::CLASS)
+                            });
+                        }
                         let id = arena.add(node, label, counter, None);
                         counter += 1;
                         id
