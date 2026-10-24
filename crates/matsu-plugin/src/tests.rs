@@ -1067,6 +1067,21 @@ fn a_powershell_error_shows_the_line_number_of_the_users_file() {
 }
 
 #[test]
+fn powershell_refuses_nan_and_infinity_before_sending() {
+    let code = "foreach ($v in @([double]::NaN, [double]::PositiveInfinity, 1)) {\n\
+        try { $Editor.MoveCursor($v, 1, 0); Write-Output 'sent' } catch { Write-Output \"refused $(Get-EditorErrorCode $_)\" }\n\
+        }\n";
+    let Some((report, _)) = run(PS, code, "a") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(
+        stdout(&report),
+        ["refused -32602", "refused -32602", "sent"]
+    );
+}
+
+#[test]
 fn a_powershell_syntax_error_shows_its_line() {
     let code = "$a = 1\nif ($a {\n}\n";
     let Some((report, _)) = run(PS, code, "") else {

@@ -190,6 +190,10 @@ function global:ConvertTo-MatsuJsonValue($Value) {
     }
     if ($Value -is [double] -or $Value -is [single] -or $Value -is [decimal]) {
         $d = [double]$Value
+        # NaN and infinity are not JSON; the editor would answer a parse error that nobody waits for.
+        if ([double]::IsNaN($d) -or [double]::IsInfinity($d)) {
+            throw (New-MatsuError -32602 'cannot send NaN or infinity to the editor')
+        }
         # A whole number goes as an integer ('4 / 2' is 2, not 2.0), as in the other languages.
         if ($d -eq [math]::Floor($d) -and [math]::Abs($d) -lt 9007199254740992) { return ([long]$d).ToString([Globalization.CultureInfo]::InvariantCulture) }
         return $d.ToString('R', [Globalization.CultureInfo]::InvariantCulture)
