@@ -70,11 +70,13 @@ impl HeldButtons {
 
 /// Makes the view keep the state of the buttons that the wheel combinations use.
 pub(crate) fn track(element: Stateful<Div>, cx: &mut gpui::Context<EditorView>) -> Stateful<Div> {
-    // A release in another window never arrives: a move with no button down says that all are up.
+    // A release in another window never arrives: a move with no button down says that the middle
+    // button is up. (The side buttons are not in the button mask of every backend, X11's among
+    // them, so a move says nothing about them.)
     let mut element =
         element.on_mouse_move(cx.listener(|view, event: &gpui::MouseMoveEvent, _, _| {
             if event.pressed_button.is_none() {
-                view.held_buttons = HeldButtons::default();
+                view.held_buttons.middle = false;
             }
         }));
     for button in [
