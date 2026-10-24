@@ -90,7 +90,9 @@ are the code and the message."
          (request (editor--ascii-json
                    (if (multibyte-string-p json) json (decode-coding-string json 'utf-8)))))
     (setq editor--next-id (1+ id))
-    (princ (concat editor--rs request "\n"))
+    ;; To `t' (the standard output) whatever `standard-output' is bound to: a script may capture
+    ;; its own output with `with-output-to-string'.
+    (princ (concat editor--rs request "\n") t)
     (let ((answer nil))
       (while (null answer)
         (let ((text (editor--read-line)))

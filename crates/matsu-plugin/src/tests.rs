@@ -1587,6 +1587,18 @@ fn what_an_emacs_lisp_script_does_to_its_buffer_does_not_disturb_the_reading() {
 }
 
 #[test]
+fn an_emacs_lisp_script_may_capture_its_output_around_an_api_call() {
+    let code = "(let ((captured (with-output-to-string\n\
+          (princ (editor-get-line-count 0)))))\n\
+          (princ (format \"captured %s\\n\" captured)))\n";
+    let Some((report, _)) = run(EL, code, "a\nb") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(stdout(&report), ["captured 2"]);
+}
+
+#[test]
 fn a_long_line_goes_both_ways_in_emacs_lisp() {
     let code = "(editor-ins-text (make-string 50000 ?あ))\n\
         (princ (length (editor-get-line-str 1)))\n\
