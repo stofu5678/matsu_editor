@@ -604,3 +604,26 @@ fn a_long_list_scrolls_to_the_chosen_window(cx: &mut TestAppContext) {
     assert!(!w[0].has_list(cx));
     assert_eq!(cx.update(|app| app.active_window()), Some(w[39].handle));
 }
+
+#[gpui::test]
+fn the_held_buttons_are_forgotten_when_the_window_loses_the_activation(cx: &mut TestAppContext) {
+    // a button let go in another program never reaches the view
+    let w = windows(cx, 2);
+    w[0].handle
+        .update(cx, |_, window, _| window.activate_window())
+        .unwrap();
+    cx.run_until_parked();
+    w[0].view.update(cx, |v, _| {
+        v.held_buttons.middle = true;
+        v.held_buttons.side_1 = true;
+        v.wheel_used_buttons.side_1 = true;
+    });
+    w[1].handle
+        .update(cx, |_, window, _| window.activate_window())
+        .unwrap();
+    cx.run_until_parked();
+    w[0].view.read_with(cx, |v, _| {
+        assert_eq!(v.held_buttons, Default::default());
+        assert_eq!(v.wheel_used_buttons, Default::default());
+    });
+}
