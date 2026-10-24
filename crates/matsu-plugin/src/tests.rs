@@ -66,6 +66,7 @@ fn config_for(
         Language::Python => "macro.py",
         Language::Ruby => "macro.rb",
         Language::Php => "macro.php",
+        Language::PowerShell => "macro.ps1",
         Language::Bundled(_) => unreachable!("the bundled engines are tested in matsu-script"),
     };
     let script = dir.path().join(name);
@@ -134,6 +135,7 @@ fn assert_clean_exit(report: &Report) {
 
 const JS: Language = Language::JavaScript;
 const TS: Language = Language::TypeScript;
+const PS: Language = Language::PowerShell;
 const PY: Language = Language::Python;
 const RB: Language = Language::Ruby;
 const PHP: Language = Language::Php;
@@ -267,7 +269,7 @@ fn a_syntax_error_shows_the_line_number() {
             Language::Python => ("macro.py", "line 3"),
             Language::Ruby => ("macro.rb", ":3"),
             Language::Php => ("macro.php", "line 3"),
-            Language::Bundled(_) => unreachable!(),
+            Language::Bundled(_) | Language::PowerShell => unreachable!(),
         };
         assert!(
             stderr.contains(file) && stderr.contains(line),
@@ -295,7 +297,7 @@ fn a_runtime_error_shows_the_line_number_of_the_users_file() {
             Language::Ruby => "macro.rb:3",
             // "macro.php:3" or "macro.php on line 3" (Xdebug words it the second way).
             Language::Php => "macro.php",
-            Language::Bundled(_) => unreachable!(),
+            Language::Bundled(_) | Language::PowerShell => unreachable!(),
         };
         assert!(stderr.contains(want), "{language:?}: {stderr}");
         if language == PHP {
@@ -365,7 +367,7 @@ echo "not reached\n";
             Language::Ruby | Language::Php => {
                 assert_eq!(lines[0], "caught EditorError -32602 true");
             }
-            Language::Bundled(_) => unreachable!(),
+            Language::Bundled(_) | Language::PowerShell => unreachable!(),
         }
         assert!(
             lines[1].starts_with("caught -32602 GetLineCount: "),
@@ -554,7 +556,7 @@ fn the_macro_sees_the_initialize_message() {
             Language::JavaScript | Language::TypeScript => "1 1 MATSU Editor /work/テスト.txt true",
             Language::Python => "1 1 MATSU Editor /work/テスト.txt True",
             Language::Ruby | Language::Php => "1 1 MATSU Editor /work/テスト.txt true",
-            Language::Bundled(_) => unreachable!(),
+            Language::Bundled(_) | Language::PowerShell => unreachable!(),
         };
         assert_eq!(stdout(&report), [want]);
     }
@@ -666,7 +668,7 @@ fn a_missing_interpreter_is_a_clear_error() {
     let err = MacroConfig::for_script(&dir.path().join("a.txt"), None)
         .err()
         .unwrap();
-    for extension in [".mjs", ".js", ".ts", ".py", ".rb", ".php"] {
+    for extension in [".mjs", ".js", ".ts", ".py", ".rb", ".php", ".ps1"] {
         assert!(err.to_string().contains(extension), "{err}");
     }
 }
@@ -678,6 +680,7 @@ fn the_sample_macros_run() {
     for (language, name) in [
         (JS, "sample.mjs"),
         (TS, "sample.ts"),
+        (PS, "sample.ps1"),
         (PY, "sample.py"),
         (RB, "sample.rb"),
         (PHP, "sample.php"),
@@ -986,4 +989,158 @@ fn typescript_that_needs_a_transform_is_an_error_of_the_macro() {
     assert_ne!(report.finished.exit_code, Some(0));
     let stderr = report.lines(Stream::Stderr).join("\n");
     assert!(stderr.contains("macro.ts"), "{stderr}");
+}
+
+// ---- PowerShell (ADR-0025): the script goes in `initialize` and is compiled by the boot ----
+
+#[test]
+fn ps1_files_are_powershell() {
+    assert_eq!(
+        Language::of_file(std::path::Path::new("a.PS1")),
+        Some(Language::PowerShell)
+    );
+    // PowerShell 7 first; on Windows without it, the Windows PowerShell 5.1 that is part of the
+    // system.
+    let interpreter = PS.default_interpreter();
+    assert!(
+        interpreter == "pwsh" || (cfg!(windows) && interpreter == "powershell"),
+        "{interpreter:?}"
+    );
+}
+
+#[test]
+fn a_powershell_macro_round_trips_japanese_and_emoji() {
+    let code = "$t = 'あいう😀 \"q\" \\ end'\n\
+        $Editor.InsText($t)\n\
+        Write-Output $Editor.GetLineStr(1)\n\
+        Write-Output $t\n";
+    let Some((report, doc)) = run(PS, code, "") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(doc.text(), "あいう😀 \"q\" \\ end");
+    assert_eq!(
+        stdout(&report),
+        ["あいう😀 \"q\" \\ end", "あいう😀 \"q\" \\ end"]
+    );
+}
+
+#[test]
+fn a_powershell_string_that_looks_like_a_date_stays_a_string() {
+    // ConvertFrom-Json would turn it into a DateTime in some versions.
+    let code = "$Editor.InsText('2020-01-02T03:04:05Z')\n\
+        $s = $Editor.GetLineStr(1)\n\
+        Write-Output \"$($s.GetType().Name) $s\"\n";
+    let Some((report, _)) = run(PS, code, "") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(stdout(&report), ["String 2020-01-02T03:04:05Z"]);
+}
+
+#[test]
+fn powershell_sends_whole_numbers_as_integers_and_keeps_the_order_of_the_output() {
+    let code = "Write-Output 'before'\n\
+        $Editor.InsText('abc')\n\
+        $Editor.MoveCursor(4 / 4, 4 / 2, 0)\n\
+        Write-Output \"after $($Editor.GetLineCount(0))\"\n";
+    let Some((report, _)) = run(PS, code, "") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(stdout(&report), ["before", "after 1"]);
+}
+
+#[test]
+fn a_powershell_error_shows_the_line_number_of_the_users_file() {
+    let code = "$a = 1\n$b = 2\nundefinedFunction\n";
+    let Some((report, _)) = run(PS, code, "") else {
+        return;
+    };
+    assert_ne!(report.finished.exit_code, Some(0));
+    let stderr = report.lines(Stream::Stderr).join("\n");
+    assert!(stderr.contains("macro.ps1:3:"), "{stderr}");
+}
+
+#[test]
+fn a_powershell_syntax_error_shows_its_line() {
+    let code = "$a = 1\nif ($a {\n}\n";
+    let Some((report, _)) = run(PS, code, "") else {
+        return;
+    };
+    assert_ne!(report.finished.exit_code, Some(0));
+    let stderr = report.lines(Stream::Stderr).join("\n");
+    assert!(stderr.contains("macro.ps1:2:"), "{stderr}");
+}
+
+#[test]
+fn an_error_response_becomes_a_powershell_error_with_the_line_of_the_call() {
+    let code = "try { $Editor.GetLineStr('x') } catch {\n\
+        Write-Output \"caught $(Get-EditorErrorCode $_)\"\n\
+        }\n\
+        function Fail { $Editor.GetLineCount(5) }\n\
+        Fail\n\
+        Write-Output 'not reached'\n";
+    let Some((report, _)) = run(PS, code, "a") else {
+        return;
+    };
+    assert_eq!(stdout(&report), ["caught -32602"]);
+    assert_eq!(report.finished.exit_code, Some(1));
+    // The line is the one of the call in the user's own code (the function's body).
+    let stderr = report.lines(Stream::Stderr).join("\n");
+    assert!(
+        stderr.contains("macro.ps1:4: EditorError -32602"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn a_powershell_macro_sees_the_initialize_message() {
+    let code = "$i = $Editor.Info\n\
+        Write-Output \"$($i['protocolVersion']) $($i['apiVersion']) $($i['editor']['name']) $($i['document']['path']) $($i['processId'] -gt 0)\"\n";
+    let Some((report, _)) = run(PS, code, "") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(stdout(&report), ["1 1 MATSU Editor /work/テスト.txt True"]);
+}
+
+#[test]
+fn a_powershell_macro_can_call_a_name_that_starts_with_a_digit() {
+    // `Call` sends any name as it is; the editor of this test knows only the basic API.
+    let code = "$Editor.Call('InsText', 'x')\n\
+        try { $Editor.Call('1PageUp') } catch { Write-Output \"code $(Get-EditorErrorCode $_)\" }\n\
+        Write-Output (Get-EditorErrorCode 'not an error record')\n";
+    let Some((report, doc)) = run(PS, code, "") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(doc.text(), "x");
+    assert_eq!(stdout(&report), ["code -32601"]);
+}
+
+#[test]
+fn a_long_line_goes_both_ways_in_powershell() {
+    let code =
+        "$t = 'あ' * 200000\n$Editor.InsText($t)\nWrite-Output $Editor.GetLineStr(1).Length\n";
+    let Some((report, doc)) = run(PS, code, "") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(doc.text().chars().count(), 200_000);
+    assert_eq!(stdout(&report), ["200000"]);
+}
+
+#[test]
+fn an_infinite_powershell_macro_is_stopped_by_the_timeout() {
+    let Some((report, _)) = run_with(
+        PS,
+        "while ($true) { }\n",
+        "",
+        Duration::from_millis(1500),
+        |doc, message| api::handle_message(doc, message),
+    ) else {
+        return;
+    };
+    assert_eq!(report.finished.reason, EndReason::TimedOut);
 }
