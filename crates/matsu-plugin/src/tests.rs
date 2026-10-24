@@ -1082,6 +1082,27 @@ fn powershell_refuses_nan_and_infinity_before_sending() {
 }
 
 #[test]
+fn powershell_keeps_ignorable_characters_and_formatted_output() {
+    // U+FEFF, U+00AD and NUL must not be sent as a backspace; a table that PowerShell holds back
+    // to format must be written before the process exits.
+    let code = "$Editor.InsText([string][char]0xfeff + [string][char]0xad + 'x')\n\
+        Write-Output $Editor.GetLineStr(1).Length\n\
+        [pscustomobject]@{Result='hello'}\n\
+        Write-Output 'after'\n";
+    let Some((report, doc)) = run(PS, code, "") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(doc.text(), "\u{feff}\u{ad}x");
+    let out = stdout(&report).join("\n");
+    assert!(out.starts_with("3\n"), "{out}");
+    assert!(
+        out.contains("hello") && out.trim_end().ends_with("after"),
+        "{out}"
+    );
+}
+
+#[test]
 fn a_powershell_syntax_error_shows_its_line() {
     let code = "$a = 1\nif ($a {\n}\n";
     let Some((report, _)) = run(PS, code, "") else {

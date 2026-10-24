@@ -23,6 +23,9 @@ $utf8 = [System.Text.UTF8Encoding]::new($false)
 # The user's output (Write-Host, Write-Output) is UTF-8, whatever the code page of the console.
 try { [Console]::OutputEncoding = $utf8 } catch { }
 try { $OutputEncoding = $utf8 } catch { }
+# No colour codes in the text that goes to the output panel (PowerShell 7.2 and later; 5.1 has no
+# $PSStyle and the assignment fails, which is fine).
+try { $PSStyle.OutputRendering = 'PlainText' } catch { }
 # The input is read as bytes, so no code page gets in the way (the lines are ASCII anyway).
 $global:MatsuIn = [System.IO.StreamReader]::new([Console]::OpenStandardInput(), $utf8, $false)
 $global:MatsuOut = [Console]::Out
@@ -38,7 +41,7 @@ $global:MatsuEscape = [regex]'\\(?:u([0-9a-fA-F]{4})|(.))'
 $global:MatsuUnescape = [System.Text.RegularExpressions.MatchEvaluator] {
     param($m)
     if ($m.Groups[1].Success) { return [string][char][Convert]::ToInt32($m.Groups[1].Value, 16) }
-    switch ($m.Groups[2].Value) {
+    switch -CaseSensitive ($m.Groups[2].Value) {
         'n' { "`n" }
         'r' { "`r" }
         't' { "`t" }
@@ -68,7 +71,7 @@ function global:Read-MatsuValue($tok) {
         return [double]::Parse($text, [Globalization.CultureInfo]::InvariantCulture)
     }
     if ($tok.Groups['l'].Success) {
-        switch ($tok.Groups['l'].Value) {
+        switch -CaseSensitive ($tok.Groups['l'].Value) {
             'true' { return $true }
             'false' { return $false }
             default { return $null }
@@ -114,14 +117,16 @@ function global:ConvertFrom-MatsuJson([string]$Text) {
 $global:MatsuNonAscii = [regex]'[^\x20-\x7e]'
 $global:MatsuAsciiEscape = [System.Text.RegularExpressions.MatchEvaluator] {
     param($m)
-    $c = $m.Value[0]
-    switch ($c) {
-        "`n" { '\n' }
-        "`r" { '\r' }
-        "`t" { '\t' }
-        "`b" { '\b' }
-        "`f" { '\f' }
-        default { '\u' + ([int]$c).ToString('x4') }
+    # By number: a switch on the strings would take some ignorable characters (U+FEFF, U+00AD,
+    # NUL) for a backspace.
+    $code = [int]$m.Value[0]
+    switch ($code) {
+        10 { '\n' }
+        13 { '\r' }
+        9 { '\t' }
+        8 { '\b' }
+        12 { '\f' }
+        default { '\u' + $code.ToString('x4') }
     }
 }
 
@@ -281,7 +286,9 @@ try {
 
 try {
     # Dot-sourced: the macro's variables and functions are in the global scope, as in a console.
-    . $userCode
+    # Out-Default ends its pipeline here, so that output which PowerShell holds back to format
+    # (a table) is written before the process exits.
+    . $userCode | Out-Default
 } catch {
     $record = $_
     $editorError = Get-MatsuEditorException $record
