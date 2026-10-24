@@ -748,7 +748,7 @@ fn the_sample_macros_run() {
 #[test]
 fn the_database_sample_macros_run() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("samples");
-    let sql = "create table t(a, b);\ninsert into t values (1, 'x'),\n  (2, 'y');\nselect * from t;\nselec 1;\nselect\n  a\nfrom t where a = 2; -- last\n-- the end\n";
+    let sql = "create table t(a, b);\ninsert into t values (1, 'x'),\n  (2, 'y');\nselect * from t;\nselec 1;\nselect\n  a\nfrom t where a = 2; -- last\n-- the end\nbegin;\ncreate table u(x);\nrollback;\nselect count(*) from sqlite_master where name = 'u';\n";
     let mut ran = 0;
     for (language, name) in [
         (PY, "sample_db.py"),
@@ -785,6 +785,11 @@ fn the_database_sample_macros_run() {
         // the statement after it, which starts at the sixth line
         assert!(
             lines.contains(&"a") && lines.contains(&"2"),
+            "{name}: {lines:?}"
+        );
+        // BEGIN and ROLLBACK of the document work (autocommit): the table of the rolled back part is not there
+        assert!(
+            lines.contains(&"count(*)") && lines.contains(&"0"),
             "{name}: {lines:?}"
         );
         // the macro changes nothing in the document

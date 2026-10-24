@@ -1,8 +1,9 @@
 // Sample macro (JavaScript, Node.js ES module): runs the SQL of the document (or of the
 // selection) on a database and writes the result to the output panel (ADR-0023).
 //
-// This one uses SQLite through `node:sqlite` (Node.js 22.16 or later; the statement's
-// `columns()` is from that version). Another database is the same few lines with its own
+// This one uses SQLite through `node:sqlite` (Node.js 24 or later: it needs the statement's
+// `columns()` and `setReturnArrays()`, which keep the order of the columns and the repeated
+// names). Another database is the same few lines with its own
 // package, installed by the user (`npm install ...`); these were written from the packages'
 // documentation and not tried:
 //
@@ -34,6 +35,9 @@ if (Editor.IsTextSelected()) {
 
 const name = Editor.GetFilename() || '(無題)';
 const db = new DatabaseSync(DATABASE);
+if (typeof db.prepare('select 1').setReturnArrays !== 'function') {
+  throw new Error('this macro needs Node.js 24 or later (node:sqlite: setReturnArrays)');
+}
 
 // A statement ends at a line that ends with ";" (simple: a ";" at the end of a line inside a
 // string or a trigger, or a "--" inside a string, is not told from the real thing; the Python
@@ -45,14 +49,13 @@ let number = firstLine - 1;
 const run = () => {
   try {
     const prepared = db.prepare(statement);
-    // rows as arrays keep the order of the columns (Node.js 24 and later; older ones give objects)
-    if (typeof prepared.setReturnArrays === 'function') prepared.setReturnArrays(true);
+    // rows as arrays keep the order of the columns and the repeated names
+    prepared.setReturnArrays(true);
     if (prepared.columns().length > 0) {
       const rows = prepared.all();
       console.log(prepared.columns().map((c) => c.name).join('\t'));
       for (const row of rows) {
-        const values = Array.isArray(row) ? row : Object.values(row);
-        console.log(values.map((v) => (v ?? '')).join('\t'));
+        console.log(row.map((v) => (v ?? '')).join('\t'));
       }
     } else {
       const result = prepared.run();

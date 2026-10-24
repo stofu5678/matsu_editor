@@ -28,7 +28,8 @@ else:
     sql = "".join(Editor.GetLineStr(i) for i in range(1, count + 1))
 
 name = Editor.GetFilename() or "(無題)"
-conn = sqlite3.connect(DATABASE)
+# autocommit: the BEGIN, COMMIT and ROLLBACK of the document are the ones that count
+conn = sqlite3.connect(DATABASE, isolation_level=None)
 
 # Split into statements the way SQLite does (a ";" inside a string or a trigger does not end
 # one), and keep the line each statement starts at for the error line.
