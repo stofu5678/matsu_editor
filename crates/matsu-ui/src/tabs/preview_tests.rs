@@ -353,3 +353,59 @@ fn the_list_of_the_tabs_opens_over_a_preview(cx: &mut TestAppContext) {
         assert!(ws.editor().read(cx).tab_list.is_some());
     });
 }
+
+#[gpui::test]
+fn closing_the_list_of_the_tabs_gives_the_focus_back_to_the_preview(cx: &mut TestAppContext) {
+    let handle = window(cx, true);
+    open(cx, handle);
+    click(cx, handle, "tab-list-button", gpui::MouseButton::Left);
+    super::tests::visual(cx, handle).simulate_keystrokes("escape");
+    cx.run_until_parked();
+    let ws = workspace(cx, handle);
+    let focused = handle
+        .update(cx, |_, window, app| {
+            ws.read(app).active_focus(app).is_focused(window)
+        })
+        .unwrap();
+    assert!(focused, "the preview has the focus");
+    ws.read_with(cx, |ws, cx| {
+        assert!(ws.editor().read(cx).tab_list.is_none())
+    });
+}
+
+#[gpui::test]
+fn the_source_in_another_window_is_not_opened_again(cx: &mut TestAppContext) {
+    let first = window(cx, true);
+    open(cx, first);
+    let second = cx
+        .update(|app| open_editor_window(app, SharedDocument::empty(), None))
+        .unwrap();
+    cx.run_until_parked();
+    let a = workspace(cx, first);
+    let b = workspace(cx, second);
+    // The source tab of the first window moves to the second; its preview stays.
+    let set = first
+        .update(cx, |_, window, app| {
+            a.update(app, |ws, cx| ws.take_tab(0, window, cx))
+        })
+        .unwrap()
+        .expect("the source tab");
+    second
+        .update(cx, |_, window, app| {
+            b.update(app, |ws, cx| {
+                ws.insert_tab(set, usize::MAX, false, window, cx)
+            })
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let before = b.read_with(cx, |ws, _| ws.tab_count());
+    first
+        .update(cx, |_, window, app| {
+            a.update(app, |ws, cx| ws.preview_to_source(window, cx))
+        })
+        .unwrap();
+    cx.run_until_parked();
+    // No second editor for the document in either window.
+    a.read_with(cx, |ws, _| assert_eq!(ws.tab_count(), 1));
+    b.read_with(cx, |ws, _| assert_eq!(ws.tab_count(), before));
+}

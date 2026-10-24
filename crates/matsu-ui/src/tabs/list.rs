@@ -246,6 +246,12 @@ impl TabList {
         view.update(cx, |view, cx| {
             view.tab_list = None;
             window.focus(&view.focus_handle, cx);
+            // The view is the hidden one of a preview: the focus goes back to the preview.
+            if let Some(workspace) = view.split_host.as_ref().and_then(|w| w.upgrade())
+                && workspace.read(cx).active_is_preview()
+            {
+                window.focus(&workspace.read(cx).active_focus(cx), cx);
+            }
             cx.notify();
         })
         .ok();
