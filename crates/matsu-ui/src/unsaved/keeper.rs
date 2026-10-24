@@ -854,7 +854,12 @@ pub(crate) fn tick_window_at(
                 // A write that is running does not stop this one: the writer does them in the order they were
                 // given, so the later one ends last (at the end of the editor there is no second round to wait for).
                 let now_info = info_of(view.read(cx), document.read(cx));
-                if entry.shared.written() != Some(revision)
+                // A write that is still running may supersede what looks current: write again.
+                if entry
+                    .shared
+                    .in_flight
+                    .load(std::sync::atomic::Ordering::SeqCst)
+                    || entry.shared.written() != Some(revision)
                     || entry.shared.written_info().as_ref() != Some(&now_info)
                 {
                     plan.write = true;
