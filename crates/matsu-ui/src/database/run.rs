@@ -220,6 +220,11 @@ fn jump_context(
 ) -> Option<JumpContext> {
     let sent_selection = !connection.uses_file();
     view.read_with(cx, |view, app| {
+        // a rectangle is sent without its left margin, row by row: the places in the output are
+        // not the places in the document, so nothing leads anywhere
+        if sent_selection && view.cursor().is_box() && view.cursor().has_selection() {
+            return None;
+        }
         let shared = view.document().read(app);
         let file = shared.path().map(PathBuf::from);
         let folder = connection
@@ -240,15 +245,16 @@ fn jump_context(
             }
             _ => (0, 0),
         };
-        JumpContext {
+        Some(JumpContext {
             style: error_style(connection.kind),
             file,
             folder,
             line_offset,
             column_offset,
-        }
+        })
     })
     .ok()
+    .flatten()
 }
 
 /// Steps 1 and 2 of Sakura's command: the question about saving and the file. `None` when the
