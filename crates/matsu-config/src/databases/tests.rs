@@ -225,6 +225,14 @@ fn passwords_on_the_command_line_are_found() {
         found(Kind::MySql, "mysql \"--init-command=x -psecret"),
         Some("-p")
     );
+    // escaped quotes are letters to a shell: the words are looked at by blanks too
+    assert_eq!(
+        found(
+            Kind::MySql,
+            r#"mysql --init-command=\"x -psecret --init-command=\"y"#
+        ),
+        Some("-p")
+    );
     assert_eq!(
         found(Kind::MySql, "\"/opt/My SQL/mysql\" -u me -psecret"),
         Some("-p")

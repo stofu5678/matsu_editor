@@ -366,8 +366,13 @@ fn read_connection(profile: &Profile, section: &str, name: &str) -> Result<Conne
 ///
 /// This looks for the usual forms of the clients of ADR-0023; it cannot know every client.
 pub fn password_in_command(kind: Kind, command: &str) -> Option<&'static str> {
-    // both as written (`-p` after an empty `--opt=`) and with `key = value` tightened
-    scan_for_password(kind, command).or_else(|| scan_for_password(kind, &tighten_equals(command)))
+    // both as written (`-p` after an empty `--opt=`) and with `key = value` tightened; and with
+    // the words read by quotes and by blanks alone (a shell's escapes, `\"`, can make a quote
+    // mean nothing, so what the quotes hide is looked at again)
+    let tight = tighten_equals(command);
+    [command, tight.as_str()].into_iter().find_map(|text| {
+        scan_for_password(kind, text, true).or_else(|| scan_for_password(kind, text, false))
+    })
 }
 
 /// The words of a command line, as a shell reads them: blanks separate, a quote (`'` or `"`) keeps
@@ -419,8 +424,23 @@ fn split_words(command: &str) -> Vec<(String, bool)> {
     words
 }
 
-fn scan_for_password(kind: Kind, command: &str) -> Option<&'static str> {
-    for (index, (word, quoted)) in split_words(command).into_iter().enumerate() {
+/// `quote_aware`: the words are read with their quotes ([`split_words`]); else by blanks alone, and
+/// the Oracle login is not looked for (a quoted path with blanks would be taken for one).
+fn scan_for_password(kind: Kind, command: &str, quote_aware: bool) -> Option<&'static str> {
+    let words = if quote_aware {
+        split_words(command)
+    } else {
+        command
+            .split_whitespace()
+            .map(|w| {
+                (
+                    w.trim_matches(['"', '\'']).to_owned(),
+                    w.starts_with(['"', '\'']),
+                )
+            })
+            .collect()
+    };
+    for (index, (word, quoted)) in words.into_iter().enumerate() {
         let word = word.as_str();
         let lower = word.to_ascii_lowercase();
         // `--password=x`, and the parameter of a connection string: `password=x` (libpq's
@@ -482,7 +502,7 @@ fn scan_for_password(kind: Kind, command: &str) -> Option<&'static str> {
             // `user/password@service` and `user/password` (the local database). Not a first word
             // (the program), not an option and not a script (`@file`); `/` and `/@service` have
             // no user and ask for no password.
-            Kind::Oracle if index > 0 && !word.starts_with(['-', '@']) => {
+            Kind::Oracle if quote_aware && index > 0 && !word.starts_with(['-', '@']) => {
                 if let Some((user, rest)) = word.split_once('/')
                     && !user.is_empty()
                     && !user.contains(['@', '\\', ':'])
