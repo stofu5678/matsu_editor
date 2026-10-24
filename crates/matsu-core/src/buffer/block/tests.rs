@@ -501,6 +501,9 @@ fn progress_reaches_100_percent_and_can_cancel() {
     });
     assert!(matches!(r, Err(ScanError::Cancelled)));
     assert_eq!(calls, 3);
+    // A window of any size is fine: it is the whole file.
+    let index = scan(&bytes, Encoding::Utf8, options(100, usize::MAX, false));
+    assert_eq!(index.covered_len(), 10_000);
     // An empty file is 100% at once.
     let p = BlockScanner::new(source(b""), codec(Encoding::Utf8), o)
         .unwrap()

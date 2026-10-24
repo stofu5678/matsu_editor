@@ -186,7 +186,7 @@ impl BlockScanner {
             source,
             codec,
             block_size,
-            window: block_size as u64 * options.window_blocks.max(1) as u64,
+            window: (block_size as u64).saturating_mul(options.window_blocks.max(1) as u64),
             ext_eol: options.ext_eol,
             pos: 0,
             len,
