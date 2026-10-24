@@ -94,12 +94,14 @@ fn class(c: char) -> u8 {
     }
 }
 
-/// The index (in characters) where each word of `text` starts, except the first character (a run
-/// starts a line, so it is implicitly the start of a word). Trailing spaces belong to the word
-/// before; leading spaces of a line are a word of their own.
-fn word_starts(text: &str) -> Vec<usize> {
+/// The index (in characters) where each word of `text` starts. `before` is the class of the
+/// character just before the text when the text goes on from a soft wrap (the row before it): a
+/// word that starts right at the wrap then starts at 0. At the start of a line it is `None` and
+/// the first character is implicitly the start of a word (AccessKit). Trailing spaces belong to
+/// the word before; leading spaces of a line are a word of their own.
+fn word_starts(text: &str, before: Option<u8>) -> Vec<usize> {
     let mut starts = Vec::new();
-    let mut prev: Option<u8> = None;
+    let mut prev = before;
     for (i, c) in text.chars().enumerate() {
         let k = class(c);
         if let Some(p) = prev
@@ -143,7 +145,22 @@ impl Snapshot {
             widths.push(w as f32 * unit);
             x += w;
         }
-        let words = word_starts(&value);
+        // A row that goes on from a soft wrap continues the word before it unless the characters
+        // around the wrap say otherwise. Without the row before it (it is above the screen),
+        // the wrap counts as a space.
+        let before = (row.row_in_line > 0).then(|| {
+            index
+                .checked_sub(1)
+                .and_then(|i| self.rows[i].text().chars().next_back())
+                .map_or(0, class)
+        });
+        // AccessKit reads the starts as `u8` and goes wrong on a run with more characters than
+        // that: such a row is one word (no starts).
+        let words = if char_lengths.len() > usize::from(u8::MAX) {
+            Vec::new()
+        } else {
+            word_starts(&value, before)
+        };
         if row.eol.is_some() {
             // One character for every kind of line break (a CRLF counts as one: the AccessKit
             // rule), after the last character, one cell wide as its mark.
@@ -224,7 +241,7 @@ pub(crate) fn write(shared: &Shared, builder: &mut A11ySubtreeBuilder) {
         node.set_word_starts(
             run.word_starts
                 .iter()
-                // The list holds `u8`: a word that starts after the 255th character is left out.
+                // The list holds `u8`; `run` leaves it empty for a longer row.
                 .filter_map(|i| u8::try_from(*i).ok())
                 .collect::<Vec<_>>(),
         );

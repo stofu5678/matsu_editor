@@ -40,12 +40,39 @@ fn at(run: usize, index: usize) -> At {
 #[test]
 fn words_start_where_the_kind_of_character_changes() {
     // Trailing spaces belong to the word before; each mark of punctuation is a word.
-    assert_eq!(word_starts("ab cd"), [3]);
-    assert_eq!(word_starts("ab, cd"), [2, 4]);
+    assert_eq!(word_starts("ab cd", None), [3]);
+    assert_eq!(word_starts("ab, cd", None), [2, 4]);
     // leading spaces are a word of their own
-    assert_eq!(word_starts("  ab"), [2]);
-    assert_eq!(word_starts("ひらがなカタカナ漢字abc"), [4, 8, 10]);
-    assert_eq!(word_starts(""), Vec::<usize>::new());
+    assert_eq!(word_starts("  ab", None), [2]);
+    assert_eq!(word_starts("ひらがなカタカナ漢字abc", None), [4, 8, 10]);
+    assert_eq!(word_starts("", None), Vec::<usize>::new());
+    // after a soft wrap: a word that starts at the wrap, and one that goes on
+    assert_eq!(word_starts("kl", Some(0)), [0]);
+    assert_eq!(word_starts("kl", Some(1)), Vec::<usize>::new());
+    assert_eq!(word_starts("kl mn", Some(1)), [3]);
+}
+
+#[gpui::test]
+fn a_word_that_starts_at_a_soft_wrap_starts_a_word_in_its_run(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "abcdefghi kl\nabcdefghijkl");
+    apply(
+        &f,
+        cx,
+        "[Types(0)]\r\nnInts=0,10,0,4,-1,-1,0,1,1,0,0,0\r\nnTextWrapMethod=1\r\n",
+    );
+    let text = text_of(&f.view, cx);
+    assert_eq!(values(&text), ["abcdefghi ", "kl\n", "abcdefghij", "kl"]);
+    // "kl" follows a space: a new word. The second "kl" goes on from "abcdefghij".
+    assert_eq!(text.runs[1].word_starts, [0]);
+    assert!(text.runs[3].word_starts.is_empty());
+}
+
+#[gpui::test]
+fn a_row_of_more_than_255_characters_has_no_word_starts(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, &"a ".repeat(200));
+    let text = text_of(&f.view, cx);
+    assert_eq!(text.runs[0].char_lengths.len(), 400);
+    assert!(text.runs[0].word_starts.is_empty());
 }
 
 #[gpui::test]
