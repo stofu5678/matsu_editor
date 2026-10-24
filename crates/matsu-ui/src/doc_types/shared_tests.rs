@@ -16,7 +16,7 @@ fn all_panes_of_a_document_share_the_type_and_the_lock(cx: &mut TestAppContext) 
     let workspace = cx
         .update(|_, app| crate::file_ops::windows::workspace_of(app, handle))
         .unwrap();
-    let panes = workspace.read_with(cx, |ws, _| ws.panes.shown());
+    let panes = workspace.read_with(cx, |ws, _| ws.panes().shown());
     assert_eq!(panes.len(), 2);
     let (a, b) = (panes[0].clone(), panes[1].clone());
     run(&a, cx, "F_CHANGETYPE", &[Arg::Int(3)]);

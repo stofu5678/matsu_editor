@@ -54,20 +54,21 @@ impl Fixture {
 
     fn pane(&self, cx: &mut VisualTestContext, index: usize) -> Entity<EditorView> {
         self.workspace
-            .read_with(cx, |w, _| w.panes.pane_at(index).cloned())
+            .read_with(cx, |w, _| w.panes().pane_at(index).cloned())
             .unwrap_or_else(|| panic!("pane {index} is not shown"))
     }
 
     fn grid(&self, cx: &mut VisualTestContext) -> (u8, u8) {
-        self.workspace.read_with(cx, |w, _| w.panes.grid())
+        self.workspace.read_with(cx, |w, _| w.panes().grid())
     }
 
     fn active(&self, cx: &mut VisualTestContext) -> usize {
-        self.workspace.read_with(cx, |w, _| w.panes.active_index())
+        self.workspace
+            .read_with(cx, |w, _| w.panes().active_index())
     }
 
     fn shown(&self, cx: &mut VisualTestContext) -> usize {
-        self.workspace.read_with(cx, |w, _| w.panes.shown().len())
+        self.workspace.read_with(cx, |w, _| w.panes().shown().len())
     }
 
     fn lines(&self, cx: &mut VisualTestContext) -> Vec<String> {
@@ -370,7 +371,7 @@ fn dragging_a_bar_to_the_edge_removes_the_split(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "abc");
     f.run(cx, F_SPLIT_H);
     f.workspace.update_in(cx, |w, window, cx| {
-        let (width, _) = w.panes.area_size();
+        let (width, _) = w.panes().area_size();
         // a bar 10 pixels from the left edge is not a split (the limit is 32)
         w.do_split(10.0, 0.0, window, cx);
         let _ = width;
@@ -379,11 +380,11 @@ fn dragging_a_bar_to_the_edge_removes_the_split(cx: &mut TestAppContext) {
     // a bar in the middle that is moved keeps the split
     f.run(cx, F_SPLIT_H);
     f.workspace.update_in(cx, |w, window, cx| {
-        let (width, _) = w.panes.area_size();
+        let (width, _) = w.panes().area_size();
         w.do_split(width / 4.0, 0.0, window, cx);
     });
     assert_eq!(f.grid(cx), (1, 2));
-    let moved = f.workspace.read_with(cx, |w, _| w.panes.h);
+    let moved = f.workspace.read_with(cx, |w, _| w.panes().h);
     assert!((moved - 0.25).abs() < 0.01);
 }
 
@@ -440,7 +441,7 @@ fn a_mouse_click_in_a_pane_makes_it_active_and_puts_the_caret_there(cx: &mut Tes
 #[gpui::test]
 fn the_area_is_measured_before_the_first_split(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "abc");
-    let area = f.workspace.read_with(cx, |w, _| w.panes.area.get());
+    let area = f.workspace.read_with(cx, |w, _| w.panes().area.get());
     assert!(f32::from(area.size.height) > 0.0 && f32::from(area.size.width) > 0.0);
 }
 
@@ -509,8 +510,8 @@ fn releasing_a_bar_outside_the_area_removes_the_split(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "abc");
     f.run(cx, F_SPLIT_H);
     f.workspace.update_in(cx, |w, window, cx| {
-        w.panes.dragging = Some(super::Bar::Cols);
-        let area = w.panes.area.get();
+        w.panes_mut().dragging = Some(super::Bar::Cols);
+        let area = w.panes().area.get();
         // no move was seen; the button goes up left of the area (OnLButtonUp, bHUp)
         let up = gpui::MouseUpEvent {
             button: gpui::MouseButton::Left,

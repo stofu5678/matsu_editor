@@ -156,7 +156,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let view = self.panes.active().clone();
+        let view = self.panes().active().clone();
         let kind = resolve_kind(requested, &view, cx);
         if let Some(pane) = self.outline.clone()
             && show != Show::Reload
@@ -198,7 +198,7 @@ impl Workspace {
     /// Closes the pane and gives the focus back to the text.
     pub(crate) fn close_outline(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.outline.take().is_some() {
-            let active = self.panes.active().clone();
+            let active = self.panes().active().clone();
             active.update(cx, |view, cx| window.focus(&view.focus_handle, cx));
             cx.notify();
         }
@@ -210,7 +210,7 @@ impl Workspace {
         let Some(pane) = self.outline.clone() else {
             return;
         };
-        let active = self.panes.active().clone();
+        let active = self.panes().active().clone();
         if pane.read(cx).view_id() != active.entity_id() {
             pane.update(cx, |pane, cx| pane.follow(&active, cx));
         }

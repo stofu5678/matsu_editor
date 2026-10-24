@@ -509,13 +509,13 @@ fn split_view_is_per_tab(cx: &mut TestAppContext) {
     let handle = tabs(cx, 2);
     run(cx, handle, "F_SPLIT_V");
     let ws = workspace(cx, handle);
-    assert_eq!(ws.read_with(cx, |w, _| w.panes.grid()), (2, 1));
+    assert_eq!(ws.read_with(cx, |w, _| w.panes().grid()), (2, 1));
     ws.update_in(visual(cx, handle), |ws, window, cx| {
         ws.activate_tab(0, window, cx)
     });
     cx.run_until_parked();
     assert_eq!(
-        ws.read_with(cx, |w, _| w.panes.grid()),
+        ws.read_with(cx, |w, _| w.panes().grid()),
         (1, 1),
         "the other tab is not split"
     );
@@ -524,13 +524,13 @@ fn split_view_is_per_tab(cx: &mut TestAppContext) {
     });
     cx.run_until_parked();
     assert_eq!(
-        ws.read_with(cx, |w, _| w.panes.grid()),
+        ws.read_with(cx, |w, _| w.panes().grid()),
         (2, 1),
         "and the split is kept"
     );
     // a pane of the split tab is a pane of that tab
     let pane = ws
-        .read_with(cx, |w, _| w.panes.pane_at(2).cloned())
+        .read_with(cx, |w, _| w.panes().pane_at(2).cloned())
         .unwrap();
     assert_eq!(ws.read_with(cx, |w, _| w.tab_of(&pane)), Some(1));
 }
@@ -542,10 +542,10 @@ fn a_split_tab_keeps_its_panes_when_it_moves_to_another_window(cx: &mut TestAppC
     run(cx, handle, "F_TAB_SEPARATE");
     let new_handle = cx.windows()[1];
     let ws = workspace(cx, new_handle);
-    assert_eq!(ws.read_with(cx, |w, _| w.panes.grid()), (2, 1));
+    assert_eq!(ws.read_with(cx, |w, _| w.panes().grid()), (2, 1));
     // typing in the moved window reaches both panes of the document
     type_text(cx, new_handle, "q");
-    let shown = ws.read_with(cx, |w, _| w.panes.shown());
+    let shown = ws.read_with(cx, |w, _| w.panes().shown());
     for pane in shown {
         let line = pane.read_with(cx, |v, cx| {
             v.document().read(cx).doc().line(0).unwrap().unwrap().text

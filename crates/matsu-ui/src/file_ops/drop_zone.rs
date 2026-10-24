@@ -30,7 +30,7 @@ impl Workspace {
 
     /// Files dropped on the window go to the document of the active pane (`CEditWnd::OnDropFiles`).
     fn drop_files(&mut self, paths: Vec<PathBuf>, window: &mut Window, cx: &mut Context<Self>) {
-        let active = self.panes.active().clone();
+        let active = self.panes().active().clone();
         active.update(cx, |view, cx| {
             view.on_external_drop(&ExternalPaths(paths.into()), window, cx);
         });

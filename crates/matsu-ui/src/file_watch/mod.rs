@@ -45,7 +45,7 @@ pub(crate) fn start(window: &mut Window, cx: &mut Context<Workspace>) {
             let alive = this.update_in(cx, |workspace, window, cx| {
                 // The check goes first: it marks its document, and the save then leaves it alone.
                 if ticks == 0 && window.is_window_active() {
-                    spawn_check(workspace.panes.active().clone(), window, cx);
+                    spawn_check(workspace.panes().active().clone(), window, cx);
                 }
                 let prefs = prefs(cx);
                 if save_timer.check(Instant::now(), prefs.auto_save, prefs.auto_save_interval) {

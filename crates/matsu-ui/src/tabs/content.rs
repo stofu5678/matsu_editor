@@ -3,8 +3,7 @@
 //!
 //! [`TabContent`] is what a parked tab keeps. It has one kind, the editor ([`PaneSet`]); a kind
 //! that is not an editor (the preview, a table, a terminal) is a new variant that implements
-//! [`TabPanel`]. The active tab's content is `Workspace::panes` for now; it moves into a
-//! `TabContent` when the second kind arrives.
+//! [`TabPanel`]. The active tab's content is `Workspace::content`, a `TabContent` too.
 //!
 //! [`TabPanel`] is what the window asks of a tab without knowing its kind: the texts of the tab
 //! bar, the focus, which menus to show, what the status bar says and whether closing needs a
@@ -54,7 +53,7 @@ pub(crate) trait TabPanel {
     fn close_check(&self, cx: &App) -> CloseCheck;
 }
 
-/// What a parked tab keeps.
+/// What a tab keeps: the active one in `Workspace::content`, the others in `Tabs`.
 pub(crate) enum TabContent {
     Editor(PaneSet),
 }
@@ -62,6 +61,12 @@ pub(crate) enum TabContent {
 impl TabContent {
     /// The panes of the editor this tab holds.
     pub(crate) fn panes(&self) -> &PaneSet {
+        match self {
+            Self::Editor(panes) => panes,
+        }
+    }
+
+    pub(crate) fn panes_mut(&mut self) -> &mut PaneSet {
         match self {
             Self::Editor(panes) => panes,
         }
