@@ -226,7 +226,9 @@ fn jump_context(
             return None;
         }
         let shared = view.document().read(app);
-        let file = shared.path().map(PathBuf::from);
+        // a document without a file cannot be told from the next one that is loaded into its
+        // window, so an old error line would lead into the wrong text: nothing leads anywhere
+        let file = Some(shared.path().map(PathBuf::from)?);
         let folder = connection
             .folder
             .as_ref()

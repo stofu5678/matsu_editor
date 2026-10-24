@@ -589,5 +589,21 @@ fn another_command_takes_the_jump_away(cx: &mut TestAppContext) {
         w.output(cx).contains("other a.sql") && !w.running(cx)
     });
     assert!(!w.view.read_with(cx, |v, _| v.macros.output.has_jump()));
+    // the line of the second run leads nowhere; the first run's error line keeps its place
+    let places = w.places(cx);
+    assert!(places.iter().all(|(text, _)| !text.starts_with("other")));
+    assert!(places.iter().any(|(text, _)| text == "a.sql:1: ERROR: x"));
+}
+
+#[gpui::test]
+fn a_document_without_a_file_gets_no_jump(cx: &mut TestAppContext) {
+    let ini = format!("[Database]\nDefault=t\n\n[Connection.t]\nKind=postgresql\nCommand={COPY}\n");
+    let (_dir, _file, _w) = setup(cx, Some(&ini), "a.sql", "x\n");
+    let w = open_file(cx, None);
+    w.type_text(cx, "psql:<stdin>:1: ERROR: boom");
+    w.run(cx);
+    w.wait_for_end(cx);
+    assert!(w.output(cx).contains("ERROR: boom"));
     assert!(w.places(cx).is_empty());
+    assert!(!w.view.read_with(cx, |v, _| v.macros.output.has_jump()));
 }
