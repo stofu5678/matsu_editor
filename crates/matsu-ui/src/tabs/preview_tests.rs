@@ -505,3 +505,21 @@ fn closing_the_group_also_closes_a_window_that_has_only_a_preview(cx: &mut TestA
     cx.run_until_parked();
     assert_eq!(super::tests::windows(cx), 0);
 }
+
+#[gpui::test]
+fn the_keys_of_the_window_work_with_the_focus_in_the_preview(cx: &mut TestAppContext) {
+    let handle = window(cx, true);
+    open(cx, handle);
+    let ws = workspace(cx, handle);
+    // The focus is in the preview (the editor is not drawn). Ctrl+Tab is Sakura's next window.
+    let focused = handle
+        .update(cx, |_, window, app| {
+            ws.read(app).active_focus(app).is_focused(window)
+        })
+        .unwrap();
+    assert!(focused);
+    assert_eq!(ws.read_with(cx, |ws, _| ws.active_tab()), 1);
+    super::tests::visual(cx, handle).simulate_keystrokes("ctrl-tab");
+    cx.run_until_parked();
+    assert_eq!(ws.read_with(cx, |ws, _| ws.active_tab()), 0);
+}

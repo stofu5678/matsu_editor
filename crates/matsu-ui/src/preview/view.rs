@@ -5,15 +5,51 @@ use std::time::Duration;
 
 use gpui::{
     App, AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement as _,
-    IntoElement, ParentElement as _, Render, Styled as _, Subscription, WeakEntity, Window, div,
-    px, rgb,
+    IntoElement, KeyDownEvent, ParentElement as _, Render, Styled as _, Subscription, WeakEntity,
+    Window, div, px, rgb,
 };
 use gpui_component::text::TextViewState;
+use matsu_commands::keymap::Lookup;
+use matsu_commands::sakura::FUNCTIONS;
 
 use super::text::{self, Format, MAX_BYTES};
 use super::{AsHtml, AsMarkdown, Close, Refresh, ToSource};
 use crate::app::Workspace;
 use crate::document::SharedDocument;
+
+/// The functions the preview runs for a key: they need no editor on screen. The editor runs the
+/// same ones for the same keys.
+const WINDOW_FUNCTIONS: &[&str] = &[
+    "F_NEXTWINDOW",
+    "F_PREVWINDOW",
+    "F_NEXTGROUP",
+    "F_PREVGROUP",
+    "F_WINCLOSE",
+    "F_GROUPCLOSE",
+    "F_WIN_CLOSEALL",
+    "F_EXITALLEDITORS",
+    "F_TAB_CLOSEOTHER",
+    "F_TAB_CLOSELEFT",
+    "F_TAB_CLOSERIGHT",
+    "F_TAB_MOVELEFT",
+    "F_TAB_MOVERIGHT",
+    "F_TAB_SEPARATE",
+    "F_TAB_JOINTNEXT",
+    "F_TAB_JOINTPREV",
+    "F_WINLIST",
+    "F_DLGWINLIST",
+    "F_CASCADE",
+    "F_TILE_H",
+    "F_TILE_V",
+    "F_TOPMOST",
+    "F_MAXIMIZE_H",
+    "F_MAXIMIZE_V",
+    "F_MINIMIZE_ALL",
+    "F_FILENEW",
+    "F_FILENEW_NEWWINDOW",
+    "F_FILEOPEN",
+    "F_PREVIEW_TAB",
+];
 
 /// How long after the last change the view reads the text again.
 const DEBOUNCE: Duration = Duration::from_millis(300);
@@ -213,6 +249,7 @@ impl Render for PreviewView {
         crate::a11y::preview_region(div().id("preview"), &name)
             .key_context("Preview")
             .track_focus(&self.focus)
+            .on_key_down(cx.listener(Self::on_key_down))
             .on_action(cx.listener(|this, _: &Refresh, _, cx| this.refresh(cx)))
             // The view that shows the text is made again, and the focus it had goes with it.
             .on_action(cx.listener(|this, _: &AsMarkdown, window, cx| {
@@ -253,6 +290,39 @@ impl Render for PreviewView {
 }
 
 impl PreviewView {
+    /// The keys of the user's key map for the functions that mean something without an editor:
+    /// going to another tab or window, closing, opening and arranging the windows. The editor does
+    /// this in `EditorView::on_key_down`; the preview, which has no editor on screen, does it for
+    /// this list and runs the function through the window.
+    fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if event.prefer_character_input {
+            return;
+        }
+        let Some(chord) = crate::keys::chord_of(&event.keystroke) else {
+            return;
+        };
+        let code = match crate::app::with_key_map(cx, |map| map.lookup(chord)) {
+            Lookup::Command(reg) => FUNCTIONS
+                .iter()
+                .find(|f| f.name == reg.sakura)
+                .map(|f| (f.code, f.name)),
+            Lookup::NotImplemented {
+                function: Some(f), ..
+            } => Some((f.code, f.name)),
+            _ => None,
+        };
+        let Some((code, name)) = code else {
+            return;
+        };
+        if !WINDOW_FUNCTIONS.contains(&name) {
+            return;
+        }
+        cx.stop_propagation();
+        self.in_workspace(window, cx, move |ws, window, cx| {
+            ws.run_after_event(code, window, cx);
+        });
+    }
+
     /// Runs `f` on the window after the action that is running ends: the window changes the tabs,
     /// and this view is one of them.
     fn in_workspace(
