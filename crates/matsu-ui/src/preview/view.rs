@@ -47,7 +47,6 @@ const WINDOW_FUNCTIONS: &[&str] = &[
     "F_MINIMIZE_ALL",
     "F_FILENEW",
     "F_FILENEW_NEWWINDOW",
-    "F_FILEOPEN",
     "F_PREVIEW_TAB",
 ];
 
