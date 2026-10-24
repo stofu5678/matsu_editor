@@ -16,6 +16,8 @@ pub const PHP_BOOT: &str = "boot.php";
 pub const PHP_API: &str = "api_gen.php";
 pub const PS_BOOT: &str = "boot.ps1";
 pub const PS_API: &str = "api_gen.ps1";
+pub const EL_BOOT: &str = "boot.el";
+pub const EL_API: &str = "api_gen.el";
 
 /// The Perl program: the runner of the script (`run_user.pl`), the API, the boot, and `__END__`.
 /// The editor writes it to the standard input of `perl -` before the conversation (nothing is
@@ -28,7 +30,7 @@ pub const PERL_PROGRAM: &str = concat!(
     "\npackage main;\n__END__"
 );
 
-const FILES: [(&str, &str); 10] = [
+const FILES: [(&str, &str); 12] = [
     (JS_BOOT, include_str!("boot/boot.cjs")),
     (JS_API, include_str!("boot/api.gen.cjs")),
     (PY_BOOT, include_str!("boot/boot.py")),
@@ -39,6 +41,8 @@ const FILES: [(&str, &str); 10] = [
     (PHP_API, include_str!("boot/api_gen.php")),
     (PS_BOOT, include_str!("boot/boot.ps1")),
     (PS_API, include_str!("boot/api_gen.ps1")),
+    (EL_BOOT, include_str!("boot/boot.el")),
+    (EL_API, include_str!("boot/api_gen.el")),
 ];
 
 /// How many times the removal is tried, and the wait between the tries. On Windows a file that

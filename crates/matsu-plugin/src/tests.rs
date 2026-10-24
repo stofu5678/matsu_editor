@@ -20,6 +20,23 @@ use crate::session::{self, EndReason, HostEvent, Language, MacroConfig, Report, 
 /// waits this long. The tests of the timeout itself set their own short limits.
 const PATIENT: Duration = Duration::from_secs(300);
 
+/// Whether this Emacs has the JSON functions (built in from Emacs 30; before, only when built
+/// with JSON support). Without them the Emacs Lisp tests cannot run.
+fn emacs_has_json(interpreter: &std::ffi::OsStr) -> bool {
+    Command::new(interpreter)
+        .args([
+            "-Q",
+            "--batch",
+            "--eval",
+            "(kill-emacs (if (and (fboundp 'json-parse-string) (fboundp 'json-serialize)) 0 1))",
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
 /// Whether the interpreter starts. Prints why not if it does not.
 fn available(language: Language) -> bool {
     let interpreter = language.default_interpreter();
@@ -35,7 +52,7 @@ fn available(language: Language) -> bool {
         language != Language::TypeScript
             || session::parse_node_version(&String::from_utf8_lossy(&output.stdout))
                 .is_some_and(session::node_strips_types)
-    });
+    }) && (language != Language::EmacsLisp || emacs_has_json(&interpreter));
     if !ok {
         eprintln!(
             "SKIP: {} ({}) is not available",
@@ -68,6 +85,7 @@ fn config_for(
         Language::Php => "macro.php",
         Language::PowerShell => "macro.ps1",
         Language::Perl => "macro.pl",
+        Language::EmacsLisp => "macro.el",
         Language::Bundled(_) => unreachable!("the bundled engines are tested in matsu-script"),
     };
     let script = dir.path().join(name);
@@ -138,6 +156,7 @@ const JS: Language = Language::JavaScript;
 const TS: Language = Language::TypeScript;
 const PS: Language = Language::PowerShell;
 const PL: Language = Language::Perl;
+const EL: Language = Language::EmacsLisp;
 const PY: Language = Language::Python;
 const RB: Language = Language::Ruby;
 const PHP: Language = Language::Php;
@@ -271,7 +290,9 @@ fn a_syntax_error_shows_the_line_number() {
             Language::Python => ("macro.py", "line 3"),
             Language::Ruby => ("macro.rb", ":3"),
             Language::Php => ("macro.php", "line 3"),
-            Language::Bundled(_) | Language::PowerShell | Language::Perl => unreachable!(),
+            Language::Bundled(_) | Language::PowerShell | Language::Perl | Language::EmacsLisp => {
+                unreachable!()
+            }
         };
         assert!(
             stderr.contains(file) && stderr.contains(line),
@@ -299,7 +320,9 @@ fn a_runtime_error_shows_the_line_number_of_the_users_file() {
             Language::Ruby => "macro.rb:3",
             // "macro.php:3" or "macro.php on line 3" (Xdebug words it the second way).
             Language::Php => "macro.php",
-            Language::Bundled(_) | Language::PowerShell | Language::Perl => unreachable!(),
+            Language::Bundled(_) | Language::PowerShell | Language::Perl | Language::EmacsLisp => {
+                unreachable!()
+            }
         };
         assert!(stderr.contains(want), "{language:?}: {stderr}");
         if language == PHP {
@@ -369,7 +392,9 @@ echo "not reached\n";
             Language::Ruby | Language::Php => {
                 assert_eq!(lines[0], "caught EditorError -32602 true");
             }
-            Language::Bundled(_) | Language::PowerShell | Language::Perl => unreachable!(),
+            Language::Bundled(_) | Language::PowerShell | Language::Perl | Language::EmacsLisp => {
+                unreachable!()
+            }
         }
         assert!(
             lines[1].starts_with("caught -32602 GetLineCount: "),
@@ -448,12 +473,14 @@ fn a_macro_that_exits_at_once_ends_cleanly() {
         (PHP, "// nothing"),
         (PS, "# nothing"),
         (PL, "# nothing"),
+        (EL, ";; nothing"),
         (JS, ""),
         (PY, ""),
         (RB, ""),
         (PHP, ""),
         (PS, ""),
         (PL, ""),
+        (EL, ""),
     ] {
         let mut requests = 0;
         let Some((report, _)) = run_with(language, code, "", PATIENT, |doc, m| {
@@ -562,7 +589,9 @@ fn the_macro_sees_the_initialize_message() {
             Language::JavaScript | Language::TypeScript => "1 1 MATSU Editor /work/テスト.txt true",
             Language::Python => "1 1 MATSU Editor /work/テスト.txt True",
             Language::Ruby | Language::Php => "1 1 MATSU Editor /work/テスト.txt true",
-            Language::Bundled(_) | Language::PowerShell | Language::Perl => unreachable!(),
+            Language::Bundled(_) | Language::PowerShell | Language::Perl | Language::EmacsLisp => {
+                unreachable!()
+            }
         };
         assert_eq!(stdout(&report), [want]);
     }
@@ -674,7 +703,9 @@ fn a_missing_interpreter_is_a_clear_error() {
     let err = MacroConfig::for_script(&dir.path().join("a.txt"), None)
         .err()
         .unwrap();
-    for extension in [".mjs", ".js", ".ts", ".py", ".rb", ".php", ".ps1", ".pl"] {
+    for extension in [
+        ".mjs", ".js", ".ts", ".py", ".rb", ".php", ".ps1", ".pl", ".el",
+    ] {
         assert!(err.to_string().contains(extension), "{err}");
     }
 }
@@ -688,6 +719,7 @@ fn the_sample_macros_run() {
         (TS, "sample.ts"),
         (PS, "sample.ps1"),
         (PL, "sample.pl"),
+        (EL, "sample.el"),
         (PY, "sample.py"),
         (RB, "sample.rb"),
         (PHP, "sample.php"),
@@ -721,12 +753,14 @@ fn the_boot_folder_is_gone_when_finished_is_reported() {
         (PHP, ""),
         (PS, ""),
         (PL, ""),
+        (EL, ""),
         (JS, "console.log(1)"),
         (PY, "print(1)"),
         (RB, "puts 1"),
         (PHP, "echo 1;"),
         (PS, "Write-Output 1"),
         (PL, "print 1;"),
+        (EL, "(princ 1)"),
     ] {
         if !available(language) {
             continue;
@@ -1420,6 +1454,144 @@ fn an_infinite_perl_macro_is_stopped_by_the_timeout() {
     let Some((report, _)) = run_with(
         PL,
         "1 while 1;\n",
+        "",
+        Duration::from_millis(1500),
+        |doc, message| api::handle_message(doc, message),
+    ) else {
+        return;
+    };
+    assert_eq!(report.finished.reason, EndReason::TimedOut);
+}
+
+// ---- Emacs Lisp (ADR-0025): `emacs -Q --batch --load boot.el`, the script in `initialize` ----
+
+#[test]
+fn el_files_are_emacs_lisp() {
+    assert_eq!(
+        Language::of_file(std::path::Path::new("a.el")),
+        Some(Language::EmacsLisp)
+    );
+    assert_eq!(EL.default_interpreter(), "emacs");
+}
+
+#[test]
+fn an_emacs_lisp_macro_round_trips_japanese_and_emoji() {
+    // The script is characters: the string "あ😀" is two characters, and the output is UTF-8.
+    let code = "(editor-ins-text \"あいう😀 \\\"q\\\" \\\\ end\")\n\
+        (princ (editor-get-line-str 1))\n\
+        (terpri)\n\
+        (princ (length \"あ😀\"))\n\
+        (terpri)\n";
+    let Some((report, doc)) = run(EL, code, "") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(doc.text(), "あいう😀 \"q\" \\ end");
+    assert_eq!(stdout(&report), ["あいう😀 \"q\" \\ end", "2"]);
+}
+
+#[test]
+fn emacs_lisp_sends_whole_floats_as_integers_and_refuses_nan_and_infinity() {
+    let code = "(editor-ins-text \"abc\")\n\
+        (editor-move-cursor (/ 4.0 4) (/ 4.0 2) 0)\n\
+        (dolist (v (list 0.0e+NaN 1.0e+INF))\n\
+          (condition-case err (editor-move-cursor v 1 0)\n\
+            (editor-error (princ (format \"refused %s\\n\" (cadr err))))))\n\
+        (princ (format \"%s\\n\" (editor-get-line-count 0)))\n";
+    let Some((report, _)) = run(EL, code, "") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(stdout(&report), ["refused -32602", "refused -32602", "1"]);
+}
+
+#[test]
+fn an_emacs_lisp_error_shows_the_line_where_its_form_began() {
+    let code = "(setq a 1)\n;; a comment\n\n(setq b\n      (undefined-function a))\n";
+    let Some((report, _)) = run(EL, code, "") else {
+        return;
+    };
+    assert_ne!(report.finished.exit_code, Some(0));
+    let stderr = report.lines(Stream::Stderr).join("\n");
+    assert!(stderr.contains("macro.el:4:"), "{stderr}");
+}
+
+#[test]
+fn an_emacs_lisp_syntax_error_shows_its_line() {
+    let code = "(setq a 1)\n(setq b 2))\n";
+    let Some((report, _)) = run(EL, code, "") else {
+        return;
+    };
+    assert_ne!(report.finished.exit_code, Some(0));
+    let stderr = report.lines(Stream::Stderr).join("\n");
+    assert!(stderr.contains("macro.el:2:"), "{stderr}");
+}
+
+#[test]
+fn an_error_response_becomes_an_editor_error_with_the_line_of_the_call() {
+    let code = "(condition-case err (editor-get-line-str \"x\")\n\
+          (editor-error (princ (format \"caught %s %s\\n\" (car err) (cadr err)))))\n\
+        (defun fail () (editor-get-line-count 5))\n\
+        (fail)\n\
+        (princ \"not reached\\n\")\n";
+    let Some((report, _)) = run(EL, code, "a") else {
+        return;
+    };
+    assert_eq!(stdout(&report), ["caught editor-error -32602"]);
+    assert_eq!(report.finished.exit_code, Some(1));
+    // The line is the one where the failing form began.
+    let stderr = report.lines(Stream::Stderr).join("\n");
+    assert!(
+        stderr.contains("macro.el:4: EditorError -32602"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn an_emacs_lisp_macro_sees_the_initialize_message_and_calls_any_name() {
+    let code = "(princ (format \"%s %s %s\\n\" (alist-get 'protocolVersion editor-info)\n\
+                       (alist-get 'name (alist-get 'editor editor-info))\n\
+                       (alist-get 'path (alist-get 'document editor-info))))\n\
+        (condition-case err (editor-call \"1PageUp\")\n\
+          (editor-error (princ (format \"code %s\\n\" (cadr err)))))\n";
+    let Some((report, _)) = run(EL, code, "") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(
+        stdout(&report),
+        ["1 MATSU Editor /work/テスト.txt", "code -32601"]
+    );
+}
+
+#[test]
+fn an_emacs_lisp_macro_is_not_under_the_users_init_file_and_ends_cleanly() {
+    // -Q: no init file; the process ends by itself with the exit code 0.
+    let Some((report, _)) = run(EL, ";; nothing\n", "") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert!(stdout(&report).is_empty());
+}
+
+#[test]
+fn a_long_line_goes_both_ways_in_emacs_lisp() {
+    let code = "(editor-ins-text (make-string 50000 ?あ))\n\
+        (princ (length (editor-get-line-str 1)))\n\
+        (terpri)\n";
+    let Some((report, doc)) = run(EL, code, "") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(doc.text().chars().count(), 50_000);
+    assert_eq!(stdout(&report), ["200000"]);
+}
+
+#[test]
+fn an_infinite_emacs_lisp_macro_is_stopped_by_the_timeout() {
+    let Some((report, _)) = run_with(
+        EL,
+        "(while t)\n",
         "",
         Duration::from_millis(1500),
         |doc, message| api::handle_message(doc, message),

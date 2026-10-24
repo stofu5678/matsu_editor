@@ -146,6 +146,10 @@ fn files_are_told_apart_by_their_extension() {
         FileKind::Script(Language::Perl)
     );
     assert_eq!(
+        file_kind(Path::new("a.el")),
+        FileKind::Script(Language::EmacsLisp)
+    );
+    assert_eq!(
         file_kind(Path::new("a.lua")),
         FileKind::Script(Language::Bundled(Engine::Lua))
     );

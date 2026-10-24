@@ -1,6 +1,6 @@
-//! Generates the JavaScript, Python, Ruby, PHP, PowerShell and Perl parts of the macro API from `catalog::entries()` (`api::FUNCS` and every row of Sakura's macro tables), and
+//! Generates the JavaScript, Python, Ruby, PHP, PowerShell, Perl and Emacs Lisp parts of the macro API from `catalog::entries()` (`api::FUNCS` and every row of Sakura's macro tables), and
 //! checks that the committed files (`boot/api.gen.cjs`, `boot/api_gen.py`, `boot/api_gen.rb`,
-//! `boot/api_gen.php`, `boot/api_gen.ps1`, `boot/api_gen.pl`) are up to date. Only the tests
+//! `boot/api_gen.php`, `boot/api_gen.ps1`, `boot/api_gen.pl`, `boot/api_gen.el`) are up to date. Only the tests
 //! use it: to regenerate, run `MATSU_UPDATE_GENERATED=1 cargo test -p matsu-plugin generated_files`.
 
 use crate::api::Ty;
@@ -343,6 +343,68 @@ sub AUTOLOAD {
 1;
 "#;
 
+/// The Emacs Lisp part (`api_gen.el`): one function per name, in lisp case with the prefix
+/// `editor-` (`InsText` is `editor-ins-text`). Each calls `editor-call` of the boot with its
+/// arguments, as many as were given. Any other name is `(editor-call "1PageUp")`.
+pub(super) fn generate_el() -> String {
+    let mut out = String::new();
+    out.push_str(&format!(
+        ";;; api_gen.el --- {GENERATED_NOTE}  -*- lexical-binding: t; -*-\n\n"
+    ));
+    let mut seen = std::collections::BTreeMap::new();
+    for func in entries().iter().filter(|e| e.is_identifier()) {
+        let lisp = lisp_name(func.name);
+        if let Some(other) = seen.insert(lisp.clone(), func.name) {
+            panic!("{} and {other} are both {lisp} in Emacs Lisp", func.name);
+        }
+        let mut doc = format!("{}\n\n", signature_text(func));
+        doc.push_str(&wrap(&func.doc, 80).join("\n"));
+        out.push_str(&format!(
+            "(defun {lisp} (&rest args)\n  \"{}\"\n  (apply #'editor-call \"{}\" args))\n\n",
+            elisp_string(&doc),
+            func.name
+        ));
+    }
+    out.push_str("(provide 'api_gen)\n");
+    out
+}
+
+/// `InsText` as `editor-ins-text`: a hyphen before a capital that follows a lower case letter or
+/// a digit, or that ends a run of capitals (`UUDecode` is `uu-decode`).
+fn lisp_name(name: &str) -> String {
+    let chars: Vec<char> = name.chars().collect();
+    let mut out = String::from("editor-");
+    for (i, &c) in chars.iter().enumerate() {
+        if c.is_ascii_uppercase() && i > 0 {
+            let before = chars[i - 1];
+            let after = chars.get(i + 1).copied();
+            if before.is_ascii_lowercase()
+                || before.is_ascii_digit()
+                || (before.is_ascii_uppercase() && after.is_some_and(|a| a.is_ascii_lowercase()))
+            {
+                out.push('-');
+            }
+        }
+        out.push(c.to_ascii_lowercase());
+    }
+    out
+}
+
+/// The text as the inside of an Emacs Lisp string: quotes and backslashes escaped, and a
+/// character above ASCII written as `U+XXXX` (the file is ASCII).
+fn elisp_string(text: &str) -> String {
+    let mut out = String::new();
+    for c in text.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            c if c.is_ascii() => out.push(c),
+            c => out.push_str(&format!("U+{:04X}", u32::from(c))),
+        }
+    }
+    out
+}
+
 /// The text with every character above ASCII written as `\u{XXXX}`.
 fn ascii_only(text: &str) -> String {
     text.chars()
@@ -430,6 +492,7 @@ mod tests {
             ("api_gen.php", generate_php()),
             ("api_gen.ps1", generate_ps()),
             ("api_gen.pl", generate_pl()),
+            ("api_gen.el", generate_el()),
         ];
         let update = std::env::var_os("MATSU_UPDATE_GENERATED").is_some();
         for (name, expected) in files {

@@ -19,6 +19,9 @@ extend-exclude = [
     "tools/bregonig-compat/make_cases.py",
     # Sakura's keyword sets, word for word (TeX commands, COBOL words and so on are not English).
     "crates/matsu-config/src/settings/keyword_data/",
+    # Emacs Lisp names are Sakura's macro names in lisp case, and a name like "UNICODEtoSJIS" turns
+    # into "unicod-eto-sjis" (generated from the table in catalog.rs).
+    "crates/matsu-plugin/src/boot/api_gen.el",
     # Files that the oracle opens in other encodings (JIS escape sequences, Latin1 bytes are not words).
     "crates/matsu/tests/sakura_oracle/inputs/",
 ]

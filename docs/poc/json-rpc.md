@@ -266,6 +266,17 @@ Emacs の利用者を考えて調べた。6 つとも、次がすべて通った
 - エラー: エディタの `error` は `EditorError` オブジェクト（`code`、`message`、`file`、`line`）を `die` で投げる。文字列にすると `EditorError CODE: メッセージ at 名前 line N.`。N はエディタを呼んだ利用者の行
 - 起動の時間: `perl` 自体は約 5 ms。プログラムは約 2300 行（生成した API）
 
+### Emacs Lisp（`.el`。2026-10-24 に実装。ADR-0025）
+
+- 起動: `emacs -Q --batch --load boot.el`（`-Q` で利用者の設定を読まない）。ブートが `initialize` の `params.script` を受け取り、`api_gen.el` を読み込んで、スクリプトを実行する。終了はブートが `kill-emacs` で行う
+- 対象は Emacs 30 以降（JSON の関数が本体に入っている）。29 以前でも、JSON に対応してビルドされていれば動く（ブートは `json-parse-string` と `json-serialize` の有無を調べ、なければ「Emacs 30 以降が要ります」と出して終わる）。Ubuntu 24.04 の `emacs-nox` は 29.3
+- スクリプトは 1 式ずつ読んで評価する（`read` と `eval`）。`--load` で読むと行番号が出ないため。エラーは `名前:行: メッセージ` で、行は失敗した最上位の式が始まった行。構文エラー（括弧の過不足など）は、読めなかった式の始まりの行。レキシカルバインディングで評価する
+- 文字コード: `locale-coding-system` などを UTF-8 に固定する（日本語の Windows の既定は CP932）。通信の行は ASCII のみ（`json-serialize` が返す UTF-8 を文字に戻して、ASCII を超える文字を `\uXXXX` に書き換える）。エディタへは LF だけを送る（Linux の Emacs は CR を行の終わりに読む）
+- 関数: Sakura の名前をハイフン区切りの小文字にして `editor-` を付ける（`InsText` は `editor-ins-text`、`GetLineStr` は `editor-get-line-str`）。どの名前でも `(editor-call "InsText" "x")`。数字で始まる名前は `editor-call` だけ。引数は文字列・整数・浮動小数点数（整数の値は整数で送る。NaN と無限大は断る）・`nil`（null）・`t`（true）・`:false`。`editor-info` が `initialize` の内容（alist）
+- エラー: エディタの `error` は `editor-error` を `signal` する（データは番号とメッセージ）。`(condition-case err (...) (editor-error (cadr err)))` で番号を調べる
+- 出力: `princ`・`print` は標準出力、`message` は標準エラー
+- 本物の Emacs をローカルで動かせなかったので、動作の確認は CI（Ubuntu 24.04 の Emacs 29.3）による
+
 ### Codex の指摘（1 回目）
 
 JSON-RPC の方式について、Codex が挙げた点。
