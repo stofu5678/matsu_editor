@@ -14,6 +14,7 @@
 //! The context tells the layout about each edit as it happens (`RowLayout`), so a command that
 //! edits and then moves vertically sees the new rows.
 
+mod a11y_text;
 pub(crate) mod autoscroll;
 mod bracket_marks;
 mod colors;
@@ -37,8 +38,8 @@ use std::ops::Range;
 
 use gpui::{
     App, Context, CursorStyle, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
-    KeyDownEvent, MouseButton, ParentElement, Render, SharedString, Styled, Subscription, Window,
-    actions, div, px,
+    KeyDownEvent, MouseButton, ParentElement, Render, SharedString,
+    StatefulInteractiveElement as _, Styled, Subscription, Window, actions, div, px,
 };
 use matsu_commands::command::{Arg, CommandError, Registration};
 use matsu_commands::context::{Changes, CommandContext};
@@ -167,6 +168,8 @@ pub struct EditorView {
     pub(crate) color_version: u64,
     /// The colors of the last long line painted (`view/colors.rs`).
     pub(crate) line_color_cache: colors::LineColorCache,
+    /// The rows on the screen, left by the last paint for the screen readers (`a11y_text.rs`).
+    a11y_text: a11y_text::Shared,
     pub(crate) cursor: Cursor,
     pub(crate) keymap: KeyMap,
     pub(crate) focus_handle: FocusHandle,
@@ -261,6 +264,7 @@ impl EditorView {
             color_states: Default::default(),
             color_version: layout_version,
             line_color_cache: Default::default(),
+            a11y_text: Default::default(),
             cursor: Cursor::default(),
             keymap: KeyMap::default(),
             focus_handle: cx.focus_handle(),
@@ -814,7 +818,10 @@ impl Render for EditorView {
                 .children(self.input_dialog.clone())
                 .into_any_element();
         }
+        let a11y_text = self.a11y_text.clone();
         let mut editor = crate::a11y::editor(div().id("editor"))
+            // The text runs, the caret and the selection, written when a screen reader is connected.
+            .a11y_synthetic_children(move |builder| a11y_text::write(&a11y_text, builder))
             .size_full()
             .overflow_hidden()
             .key_context("Editor")

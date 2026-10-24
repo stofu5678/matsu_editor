@@ -19,9 +19,8 @@ use crate::common_settings::model::parse_label;
 /// The name of the text view.
 pub(crate) const EDITOR_NAME: &str = "テキストエディタ";
 
-/// The text view: a multi-line text field. Its text is not exposed yet (that needs the visible
-/// lines as text runs with their positions), so a screen reader knows it is there and can focus
-/// it, but cannot read the text.
+/// The text view: a multi-line text field. Its text runs, the caret and the selection are written
+/// by the hook `a11y_synthetic_children` of the node (`view/a11y_text.rs`), which the caller sets.
 pub(crate) fn editor(element: Stateful<Div>) -> Stateful<Div> {
     element
         .role(Role::MultilineTextInput)
@@ -396,7 +395,7 @@ mod tests {
         let node = node_of(&editor(gpui::div().id("editor"))).unwrap();
         assert_eq!(node.role(), Role::MultilineTextInput);
         assert_eq!(node.label(), Some(EDITOR_NAME));
-        // Not exposed yet: no value.
+        // The text is in the children of the node (`view/a11y_text.rs`), not in its value.
         assert_eq!(node.value(), None);
     }
 

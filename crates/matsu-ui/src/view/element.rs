@@ -21,11 +21,11 @@ use gpui::{
 };
 use matsu_coloring::ColorState;
 use matsu_core::buffer::Eol;
-use matsu_layout::RowInfo;
+use matsu_layout::{LayoutConfig, RowInfo};
 
 use super::colors::LineColorRequest;
 use super::syntax::{self, Label, Style as TextStyle};
-use super::{EditorView, PaintInfo, bracket_marks, diff_mark, lines, ruler};
+use super::{EditorView, PaintInfo, a11y_text, bracket_marks, diff_mark, lines, ruler};
 use crate::geometry::{Metrics, SCROLLBAR_WIDTH, Scrollbar};
 use crate::hit::selected_columns;
 use crate::search::highlight::{highlight_columns, slot_of};
@@ -784,6 +784,37 @@ impl Element for EditorElement {
                 });
             }
         }
+
+        // What the screen readers get (`a11y_text.rs`): the rows move, nothing is copied. The
+        // strings are made only when a screen reader asks.
+        let scale = window.scale_factor();
+        let at = |pos| {
+            layout
+                .pos_to_row(doc, pos)
+                .ok()
+                .map(|r| a11y_text::Spot { row: r.row, pos })
+        };
+        let focus = at(editor.cursor.caret());
+        let anchor = editor
+            .cursor
+            .anchor()
+            .filter(|_| !editor.cursor.is_box())
+            .and_then(at);
+        *editor.a11y_text.borrow_mut() = focus.map(|focus| a11y_text::Snapshot {
+            rows,
+            anchor: anchor.unwrap_or(focus),
+            focus,
+            columns: LayoutConfig {
+                tab_width: layout.config().effective_tab_width(),
+                width: layout.config().width,
+                ..LayoutConfig::default()
+            },
+            left: f32::from(bounds.origin.x) + gutter_width - scroll_x,
+            top: f32::from(bounds.origin.y) + top_margin + y_offset,
+            cell,
+            line_height,
+            scale,
+        });
 
         Prepaint {
             rows: painted,
