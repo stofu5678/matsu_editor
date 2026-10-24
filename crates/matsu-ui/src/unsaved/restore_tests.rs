@@ -584,3 +584,55 @@ fn a_restored_document_is_saved_in_its_own_encoding(cx: &mut TestAppContext) {
         vec![0x93, 0xFA, 0x96, 0x7B, 0x8C, 0xEA]
     );
 }
+
+#[gpui::test]
+fn the_tab_in_front_is_still_the_same_document_when_an_earlier_one_is_gone(
+    cx: &mut TestAppContext,
+) {
+    let f = fixture(cx, true);
+    let store = Store::open(&f.dir).unwrap();
+    let a = keep(&store, &info(None), "in front");
+    let b = keep(&store, &info(None), "other");
+    let gone = Store::new_id();
+    store
+        .write_session(&Session {
+            windows: vec![SessionWindow {
+                docs: vec![gone, a.clone(), b.clone()],
+                active: 1,
+            }],
+            active_window: 0,
+        })
+        .unwrap();
+    drop(store);
+    cx.update(restore_all);
+    cx.run_until_parked();
+    let list = windows(cx);
+    let tabs = tabs_of(cx, &list[0].1);
+    assert_eq!(tabs.len(), 2);
+    let front = list[0].1.read_with(cx, |ws, _| ws.active_tab());
+    assert_eq!(text_of(cx, &tabs[front]), "in front");
+}
+
+#[gpui::test]
+fn when_nothing_came_back_the_notice_waits_for_the_first_window(cx: &mut TestAppContext) {
+    let f = fixture(cx, false);
+    let store = Store::open(&f.dir).unwrap();
+    let bad = Store::new_id();
+    std::fs::write(f.dir.join(format!("{bad}.doc")), b"damaged").unwrap();
+    store
+        .write_session(&Session {
+            windows: vec![one_window(&[&bad])],
+            active_window: 0,
+        })
+        .unwrap();
+    drop(store);
+    let restored = cx.update(restore_all);
+    assert_eq!(restored.documents, 0);
+    assert_eq!(restored.rejected, 1);
+    assert!(
+        restored
+            .pending_notice
+            .is_some_and(|n| n.contains("rejected"))
+    );
+    assert!(windows(cx).is_empty());
+}

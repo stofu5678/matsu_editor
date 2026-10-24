@@ -49,6 +49,8 @@ pub(crate) struct Restored {
     pub changed_files: usize,
     /// How many files could not be read and were moved to `rejected/`.
     pub rejected: usize,
+    /// The notice, when there was no window to show it in: the first window that opens shows it.
+    pub pending_notice: Option<String>,
 }
 
 impl Restored {
@@ -104,15 +106,18 @@ pub(crate) fn restore_all(cx: &mut App) -> Restored {
     let scan = store.scan(&session).unwrap_or_default();
 
     // The windows: the listed ones with their tabs, then the documents that were not listed.
-    let mut plan: Vec<(Vec<String>, usize)> = session
+    // Each document has the place it had in its window, so that the tab in front is found again when some
+    // documents of the window are gone.
+    let mut plan: Vec<(Vec<(usize, String)>, usize)> = session
         .windows
         .iter()
         .map(|w| {
-            let docs: Vec<String> = w
+            let docs: Vec<(usize, String)> = w
                 .docs
                 .iter()
-                .filter(|id| !scan.dangling.contains(id))
-                .cloned()
+                .enumerate()
+                .filter(|(_, id)| !scan.dangling.contains(id))
+                .map(|(place, id)| (place, id.clone()))
                 .collect();
             (docs, w.active)
         })
@@ -127,19 +132,29 @@ pub(crate) fn restore_all(cx: &mut App) -> Restored {
         .count();
     if !scan.orphans.is_empty() {
         match plan.first_mut() {
-            Some((docs, _)) => docs.extend(scan.orphans.iter().cloned()),
-            None => plan.push((scan.orphans.clone(), 0)),
+            Some((docs, _)) => {
+                let after = docs.last().map_or(0, |(place, _)| place + 1);
+                docs.extend(
+                    scan.orphans
+                        .iter()
+                        .cloned()
+                        .enumerate()
+                        .map(|(i, id)| (after + i, id)),
+                );
+            }
+            None => plan.push((scan.orphans.iter().cloned().enumerate().collect(), 0)),
         }
     }
 
     let mut result = Restored::default();
     let mut adopted = Vec::new();
     let mut front_handle: Option<AnyWindowHandle> = None;
-    let mut last_view: Option<Entity<EditorView>> = None;
+    let mut shown_view: Option<Entity<EditorView>> = None;
     for (window_index, (ids, active)) in plan.iter().enumerate() {
         let mut handle: Option<AnyWindowHandle> = None;
-        let mut tab_views: Vec<Entity<EditorView>> = Vec::new();
-        for id in ids {
+        // The restored tabs of this window, with the place each had in the session.
+        let mut tab_views: Vec<(usize, Entity<EditorView>)> = Vec::new();
+        for (place, id) in ids {
             let kept = match read_kept(&store, id) {
                 Ok(kept) => kept,
                 Err(()) => {
@@ -170,18 +185,27 @@ pub(crate) fn restore_all(cx: &mut App) -> Restored {
                 id: kept.id,
             });
             result.documents += 1;
-            tab_views.push(view.clone());
-            last_view = Some(view);
+            tab_views.push((*place, view.clone()));
         }
         if let Some(handle) = handle {
-            // The tab that was in front.
-            if let Some(view) = tab_views.get((*active).min(tab_views.len().saturating_sub(1)))
+            // The tab that was in front: the document itself, or the next one that came back if it did not, or
+            // the last one.
+            let in_front = tab_views
+                .iter()
+                .find(|(place, _)| place >= active)
+                .or_else(|| tab_views.last())
+                .map(|(_, view)| view.clone());
+            if let Some(view) = &in_front
                 && tab_views.len() > 1
             {
                 activate_tab_of(cx, handle, view);
             }
             if window_index == front {
                 front_handle = Some(handle);
+                shown_view = in_front.clone();
+            }
+            if shown_view.is_none() {
+                shown_view = in_front;
             }
         }
     }
@@ -189,11 +213,16 @@ pub(crate) fn restore_all(cx: &mut App) -> Restored {
         crate::file_ops::windows::activate(cx, handle);
     }
     adopt_restored(cx, store, adopted);
-    if let (Some(view), Some(text)) = (last_view, result.notice()) {
-        view.update(cx, |view, cx| {
-            view.notice = Some(text);
-            cx.notify();
-        });
+    // On the tab that is in front. If no document came back, the window that opens next shows it (`app::run`).
+    match (shown_view, result.notice()) {
+        (Some(view), Some(text)) => {
+            view.update(cx, |view, cx| {
+                view.notice = Some(text);
+                cx.notify();
+            });
+        }
+        (None, Some(text)) => result.pending_notice = Some(text),
+        _ => {}
     }
     result
 }
