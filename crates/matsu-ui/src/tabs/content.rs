@@ -18,9 +18,21 @@ use crate::status::StatusInfo;
 
 /// Which menus a tab shows (ADR-0024: the menus follow the kind of the active tab). Only the
 /// editor's, Sakura's main menu, exists today.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum MenuKind {
     Editor,
+    /// A second kind for the tests of the menu switching: one menu with one item.
+    #[cfg(test)]
+    Probe,
+}
+
+impl MenuKind {
+    /// Every kind, for making the menus of all of them.
+    pub(crate) const ALL: &'static [MenuKind] = &[
+        MenuKind::Editor,
+        #[cfg(test)]
+        MenuKind::Probe,
+    ];
 }
 
 /// What closing a tab needs to ask first. Not asked through the contract yet: the close flow

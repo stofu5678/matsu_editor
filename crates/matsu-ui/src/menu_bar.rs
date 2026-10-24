@@ -29,6 +29,7 @@
 //! [`popup_max_height`].
 
 use crate::app::Workspace;
+use crate::tabs::content::MenuKind;
 use gpui::{
     Action, App, AppContext as _, Bounds, ClickEvent, Context, DismissEvent, Entity, FocusHandle,
     Focusable, InteractiveElement as _, IntoElement, MouseButton, OwnedMenu, OwnedMenuItem,
@@ -68,6 +69,8 @@ pub struct MenuBar {
     action_context: Option<FocusHandle>,
     /// The window the bar belongs to: its state gives the check marks and the gray items.
     workspace: Option<WeakEntity<Workspace>>,
+    /// Whose menus the bar shows: those of the kind of the active tab (ADR-0024).
+    kind: MenuKind,
 }
 
 impl MenuBar {
@@ -78,6 +81,7 @@ impl MenuBar {
                 selected_index: None,
                 action_context: None,
                 workspace: None,
+                kind: MenuKind::Editor,
                 menus: Vec::new(),
             };
             this.reload(cx);
@@ -103,16 +107,39 @@ impl MenuBar {
         let Some(workspace) = workspace.as_ref().and_then(WeakEntity::upgrade) else {
             return;
         };
-        let states = workspace
+        // A kind of tab that has no state of the editor leaves the items as they are made.
+        let Some(states) = workspace
             .read(cx)
-            .func_states(topmost, workspace.entity_id(), cx);
+            .menu_states(topmost, workspace.entity_id(), cx)
+        else {
+            return;
+        };
         crate::menu_state::apply(items, &states);
     }
 
-    /// Reload the menus from the app.
+    /// Shows the menus of `kind`, if the bar shows those of another kind now.
+    pub(crate) fn set_kind(&mut self, kind: MenuKind, cx: &mut Context<Self>) {
+        if self.kind != kind {
+            self.kind = kind;
+            self.reload(cx);
+        }
+    }
+
+    /// The names of the menus of the bar, for the tests.
+    #[cfg(test)]
+    pub(crate) fn menu_names(&self, cx: &App) -> Vec<String> {
+        self.menus
+            .iter()
+            .map(|m| m.read(cx).name.to_string())
+            .collect()
+    }
+
+    /// Reload the menus from the app: those of the kind of the active tab when the application has
+    /// made them (`crate::app::KindMenus`), else gpui-component's copy.
     pub fn reload(&mut self, cx: &mut Context<Self>) {
         let menu_bar = cx.entity();
-        let menus: Vec<OwnedMenu> = GlobalState::global(cx).app_menus().to_vec();
+        let menus: Vec<OwnedMenu> = crate::app::KindMenus::of(cx, self.kind)
+            .unwrap_or_else(|| GlobalState::global(cx).app_menus().to_vec());
         self.menus = menus
             .iter()
             .enumerate()
