@@ -163,9 +163,12 @@ impl Output {
         self.scroll.scroll_to_bottom();
     }
 
-    /// Sets what a click on a line of the output does (`None`: nothing).
-    pub fn set_jump(&mut self, jump: Option<JumpContext>) {
-        self.jump = jump.map(Rc::new);
+    /// `trace` without a line break, for the output of a database client: the lines it starts lead
+    /// somewhere when clicked, as `jump` says. Other output (a macro's `TraceOut`) is not affected.
+    pub fn trace_jump(&mut self, text: &str, jump: Option<&JumpContext>) {
+        self.jump = jump.cloned().map(Rc::new);
+        self.trace(text, false);
+        self.jump = None;
     }
 
     /// Starts a new run: the panel is emptied and shown.
@@ -197,11 +200,6 @@ impl Output {
             .iter()
             .filter_map(|l| Some((l.text.clone(), l.jump.as_ref()?.place(&l.text)?)))
             .collect()
-    }
-
-    #[cfg(test)]
-    pub fn has_jump(&self) -> bool {
-        self.jump.is_some()
     }
 
     #[cfg(test)]
@@ -355,14 +353,12 @@ mod tests {
     #[test]
     fn each_run_keeps_its_own_jump_context() {
         let mut output = Output::default();
-        output.set_jump(Some(context(0, 0)));
-        output.trace("error at [1:1]", true);
-        output.set_jump(Some(context(5, 0)));
-        output.trace("error at [1:1]", true);
-        output.set_jump(None);
+        output.trace_jump("error at [1:1]\n", Some(&context(0, 0)));
+        output.trace_jump("error at [1:1]\n", Some(&context(5, 0)));
+        output.trace_jump("error at [1:1]\n", None);
         output.trace("error at [1:1]", true);
         let places = output.places();
-        // the third run leads nowhere; the first two keep what they had
+        // the last two lead nowhere (no context; a macro's own output); the first two keep what they had
         assert_eq!(places.len(), 2);
         assert_eq!(line_of(&places[0].1), Some(1));
         assert_eq!(line_of(&places[1].1), Some(6));

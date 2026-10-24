@@ -156,6 +156,7 @@ fn put(
     cx: &mut AsyncWindowContext,
     target: Target,
     text: &str,
+    jump: Option<&crate::macros::JumpContext>,
 ) -> bool {
     if text.is_empty() {
         // nothing to put, but a window that is gone ends the run
@@ -166,7 +167,7 @@ fn put(
             .run_with(cx, |command_cx| command_cx.insert_text(text))
             .is_ok(),
         Target::Panel => {
-            view.macros.output.trace(text, false);
+            view.macros.output.trace_jump(text, jump);
             cx.notify();
             true
         }
@@ -281,11 +282,6 @@ pub(crate) async fn run_command(
     } else {
         Target::Panel
     };
-    if target == Target::Panel {
-        // what a click on a line of the output does for this run (nothing, for most commands)
-        view.update(cx, |view, _| view.macros.output.set_jump(jump))
-            .ok();
-    }
     let eol = if to_window {
         prepared.eol.as_str()
     } else {
@@ -336,6 +332,7 @@ pub(crate) async fn run_command(
             cx,
             target,
             &header_text(&date, &time, &prepared.command, eol),
+            jump.as_ref(),
         );
     }
 
@@ -359,7 +356,7 @@ pub(crate) async fn run_command(
             }
         }
         let idle = batch.is_empty() && exit.is_none();
-        keep_going = put(view, cx, target, &batch);
+        keep_going = put(view, cx, target, &batch, jump.as_ref());
         if exit.is_none() {
             // A command that never stops writing (`yes`) must not keep the window from drawing and
             // from hearing the 中断 button: wait a moment after every batch, longer when idle.
@@ -384,7 +381,7 @@ pub(crate) async fn run_command(
         }
         tail.push_str(&exit_code_text(exit.code.unwrap_or(0), eol));
     }
-    put(view, cx, target, &tail);
+    put(view, cx, target, &tail, jump.as_ref());
     close(view, cx, to_window, to_window, select_from);
 }
 

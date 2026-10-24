@@ -566,7 +566,6 @@ fn another_command_takes_the_jump_away(cx: &mut TestAppContext) {
     let (_dir, _file, w) = setup(cx, Some(ini), "a.sql", "x\n");
     w.run(cx);
     w.wait_for_end(cx);
-    assert!(w.view.read_with(cx, |v, _| v.macros.output.has_jump()));
     // 外部コマンド実行 of a macro: its output has no errors to lead anywhere
     let code = code_of("F_EXECMD");
     let view = w.view.clone();
@@ -588,7 +587,6 @@ fn another_command_takes_the_jump_away(cx: &mut TestAppContext) {
     wait_until(cx, "the second run", |cx| {
         w.output(cx).contains("other a.sql") && !w.running(cx)
     });
-    assert!(!w.view.read_with(cx, |v, _| v.macros.output.has_jump()));
     // the line of the second run leads nowhere; the first run's error line keeps its place
     let places = w.places(cx);
     assert!(places.iter().all(|(text, _)| !text.starts_with("other")));
@@ -605,5 +603,4 @@ fn a_document_without_a_file_gets_no_jump(cx: &mut TestAppContext) {
     w.wait_for_end(cx);
     assert!(w.output(cx).contains("ERROR: boom"));
     assert!(w.places(cx).is_empty());
-    assert!(!w.view.read_with(cx, |v, _| v.macros.output.has_jump()));
 }
