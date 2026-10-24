@@ -215,17 +215,24 @@ impl Store {
 
     /// Moves the file of `id` to `rejected/`, where it stays for [`REJECTED_KEEP`]: for a document that could not
     /// be restored, so the user's text is not deleted without a word.
+    ///
+    /// The day it was rejected is in the name, `rejected/<id>.<seconds since the epoch>.doc`, because the
+    /// modification time of the file is the day of its last write (a rename keeps it) and cannot always be
+    /// changed (a read-only file). The name is moved by the same rename, so a restart cannot revert it.
     pub fn reject(&self, id: &str) -> io::Result<()> {
+        self.reject_at(id, SystemTime::now())
+    }
+
+    /// [`Store::reject`] on the day `now`; the tests give it.
+    pub fn reject_at(&self, id: &str, now: SystemTime) -> io::Result<()> {
         check_id(id)?;
         let rejected = self.dir.join(REJECTED_DIR);
         fs::create_dir_all(&rejected)?;
-        let moved = rejected.join(format!("{id}.{DOC_EXTENSION}"));
+        let secs = now.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        let moved = rejected.join(format!("{id}.{secs}.{DOC_EXTENSION}"));
         fs::rename(self.doc_path(id), &moved)?;
-        // The age in `rejected/` counts from now, not from the last write (a rename keeps the time).
-        let _ = File::options()
-            .write(true)
-            .open(&moved)
-            .and_then(|f| f.set_modified(SystemTime::now()));
+        // Both folders changed: the entry that went and the entry that came.
+        sync_dir(&rejected);
         sync_dir(&self.dir);
         Ok(())
     }
@@ -241,10 +248,10 @@ impl Store {
         let mut removed = 0;
         for entry in entries {
             let entry = entry?;
-            let old = entry
-                .metadata()
-                .and_then(|m| m.modified())
-                .ok()
+            // The day in the name; for a file that has none, the last write.
+            let since = rejected_day(&entry.file_name().to_string_lossy())
+                .or_else(|| entry.metadata().and_then(|m| m.modified()).ok());
+            let old = since
                 .and_then(|t| now.duration_since(t).ok())
                 .is_some_and(|age| age >= max_age);
             if old && entry.path().is_file() && fs::remove_file(entry.path()).is_ok() {
@@ -328,6 +335,13 @@ impl Store {
 
 /// How long a file stays in `rejected/` (ADR-0022, section 3).
 pub const REJECTED_KEEP: Duration = Duration::from_secs(30 * 24 * 60 * 60);
+
+/// The day in the name `<id>.<seconds>.doc` of a rejected document.
+fn rejected_day(name: &str) -> Option<SystemTime> {
+    let stem = name.strip_suffix(&format!(".{DOC_EXTENSION}"))?;
+    let (_, secs) = stem.rsplit_once('.')?;
+    Some(UNIX_EPOCH + Duration::from_secs(secs.parse().ok()?))
+}
 
 fn check_id(id: &str) -> io::Result<()> {
     if is_valid_id(id) {
