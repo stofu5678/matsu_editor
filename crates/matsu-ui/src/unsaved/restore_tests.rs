@@ -673,3 +673,30 @@ fn the_check_survives_another_restart_even_when_the_watching_took_the_new_time(
     assert_eq!(info.file_modified_secs, Some(1_000_000));
     assert_eq!(info.file_size, Some(3));
 }
+
+#[gpui::test]
+fn the_view_comes_back_where_it_was_even_when_the_caret_is_out_of_sight(cx: &mut TestAppContext) {
+    let f = fixture(cx, false);
+    let text: String = (0..300).map(|i| format!("line {i}\n")).collect();
+    let mut i = info(None);
+    i.caret_line = 2;
+    i.caret_column = 0;
+    i.top_line = 120;
+    let store = Store::open(&f.dir).unwrap();
+    let id = keep(&store, &i, &text);
+    store
+        .write_session(&Session {
+            windows: vec![one_window(&[&id])],
+            active_window: 0,
+        })
+        .unwrap();
+    drop(store);
+    cx.update(restore_all);
+    cx.run_until_parked();
+    let list = windows(cx);
+    let view = tabs_of(cx, &list[0].1).remove(0);
+    view.read_with(cx, |view, _| {
+        assert_eq!(view.cursor().caret(), Pos::new(2, 0));
+        assert_eq!(view.top_row(), 120, "the view is not moved to the caret");
+    });
+}

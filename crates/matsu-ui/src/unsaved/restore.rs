@@ -380,8 +380,9 @@ fn apply_view_state(
         .unwrap_or_default();
     let col = col_from_utf16(&text, usize::try_from(info.caret_column).unwrap_or(0));
     view.update(cx, |view, cx| {
-        view.scroll_top_to(isize::try_from(info.top_line).unwrap_or(0), cx);
+        // The caret first (it scrolls to itself), then the view where it was: the caret may be out of sight.
         view.go_to(Pos::new(line, col), cx);
+        view.scroll_top_to(isize::try_from(info.top_line).unwrap_or(0), cx);
         cx.notify();
     });
     failure
