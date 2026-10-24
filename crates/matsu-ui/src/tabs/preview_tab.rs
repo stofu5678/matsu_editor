@@ -66,6 +66,11 @@ impl Workspace {
         }
     }
 
+    /// Whether the active tab is a preview.
+    pub(crate) fn active_is_preview(&self) -> bool {
+        self.content.preview().is_some()
+    }
+
     /// Closes the active tab if it is a preview.
     pub(crate) fn close_active_preview(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let active = self.active_tab();

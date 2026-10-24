@@ -135,6 +135,14 @@ impl Workspace {
     pub(crate) fn run_after_event(&self, code: u16, window: &mut Window, cx: &mut Context<Self>) {
         // From the search box the focus goes to the view first (`CEditWnd::OnCommand`).
         self.leave_search_box(window, cx);
+        // The view of a preview is not drawn, so closing "the document" there closes the preview.
+        if self.content.preview().is_some() && code == function_code("F_WINCLOSE") {
+            let workspace = cx.entity();
+            window.defer(cx, move |window, app| {
+                workspace.update(app, |ws, cx| ws.close_active_preview(window, cx));
+            });
+            return;
+        }
         let editor = self.editor().clone();
         window.defer(cx, move |window, app| {
             editor.update(app, |view, cx| view.run_function(code, &[], window, cx));
