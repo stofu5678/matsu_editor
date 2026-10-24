@@ -18,7 +18,7 @@ use matsu_core::buffer::Eol;
 use matsu_core::buffer::col_to_utf16;
 
 use super::prefs::{KeepPrefs, prefs};
-use super::writer::{Revision, Shared, Snapshot, Writer};
+use super::writer::{RETRY_STUCK, Revision, Shared, Snapshot, Writer};
 use crate::app::Workspace;
 use crate::document::SharedDocument;
 use crate::view::EditorView;
@@ -437,8 +437,57 @@ pub(crate) fn clear_copies(cx: &mut App) -> Option<&'static str> {
     problem
 }
 
+/// A restored document, as the keeper takes it over.
+pub(crate) struct Adopted {
+    pub view: Entity<EditorView>,
+    /// The name of the copy it was brought back from: it is the copy of the document from now on.
+    pub id: String,
+}
+
+/// The restore opened the folder: the writer goes on with it, and each restored document keeps its copy (under
+/// the same name, as written as it is) until it changes. Otherwise the first tick would write a second copy of
+/// every restored document, and the next start would bring each back twice.
+pub(crate) fn adopt_restored(cx: &mut App, store: Store, items: Vec<Adopted>) {
+    let mut keeper = if cx.has_global::<Keeper>() {
+        cx.remove_global::<Keeper>()
+    } else {
+        Keeper::new()
+    };
+    if matches!(keeper.state, State::NotStarted) {
+        keeper.state = match Writer::with_store(store, RETRY_STUCK) {
+            Ok(writer) => State::Running(writer),
+            Err(_) => State::Unavailable,
+        };
+    }
+    let now = Instant::now();
+    for item in items {
+        let view = item.view.read(cx);
+        let document = view.document().clone();
+        let shared = document.read(cx);
+        let revision = revision_of(view, shared);
+        let info = info_of(view, shared);
+        let entry = keeper
+            .entries
+            .entry(document.entity_id())
+            .or_insert_with(|| Entry::new(now));
+        entry.document = Some(document.downgrade());
+        entry.id = Some(item.id);
+        *entry
+            .shared
+            .written
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(revision);
+        *entry
+            .shared
+            .written_info
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(info);
+    }
+    cx.set_global(keeper);
+}
+
 /// The folder next to the settings file the process uses.
-fn settings_path(cx: &App) -> Option<std::path::PathBuf> {
+pub(crate) fn settings_path(cx: &App) -> Option<std::path::PathBuf> {
     if let Some(path) = cx
         .try_global::<crate::settings::UserSettings>()
         .and_then(|u| u.path())
@@ -469,10 +518,20 @@ fn want_of(view: &EditorView, shared: &SharedDocument, prefs: &KeepPrefs) -> Wan
     if !(shared.model().is_modified() || shared.format_changed()) {
         return Want::Drop;
     }
-    if let Some(max) = prefs.max_bytes()
-        && shared.doc().raw_len() as u64 > max
-    {
-        return Want::TooBig;
+    if let Some(max) = prefs.max_bytes() {
+        // A document that was brought back has its text as UTF-8, which can be bigger than the bytes it had in
+        // its own encoding (Japanese text in Shift_JIS grows by half). It may be as big as it came back, and a
+        // little more (an eighth of the limit), so that the copy it came from is not discarded for the way it was
+        // restored, nor at the first character typed.
+        let came_back = shared.restored_len() as u64;
+        let allowed = if came_back > max {
+            came_back.saturating_add(max / 8)
+        } else {
+            max
+        };
+        if shared.doc().raw_len() as u64 > allowed {
+            return Want::TooBig;
+        }
     }
     Want::Keep
 }
@@ -502,16 +561,22 @@ pub(crate) fn info_of(view: &EditorView, shared: &SharedDocument) -> DocInfo {
         .ok()
         .flatten()
         .map_or(caret.col, |line| col_to_utf16(&line.text, caret.col));
-    let stamp = shared
-        .disk()
-        .stamp
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok());
-    // The size the file had when the document was opened is not kept; the size now counts only while the
-    // time stamp is still the one the document was opened with.
-    let file_size = shared.path().and_then(|path| {
-        let meta = std::fs::metadata(path).ok()?;
-        (meta.modified().ok() == shared.disk().stamp).then_some(meta.len())
-    });
+    // A document that was brought back and whose file is not looked at yet keeps the time and the size it came with
+    // (the watching of the file may have taken the new time since: the choice 「以後通知メッセージのみ」), so
+    // that the check before the save still works after another restart.
+    let (stamp, file_size) = match shared.restored_check() {
+        Some(check) => (check.modified, check.size),
+        None => {
+            // The size the file had when the document was opened is not kept; the size now counts only while
+            // the time stamp is still the one the document was opened with.
+            let size = shared.path().and_then(|path| {
+                let meta = std::fs::metadata(path).ok()?;
+                (meta.modified().ok() == shared.disk().stamp).then_some(meta.len())
+            });
+            (shared.disk().stamp, size)
+        }
+    };
+    let stamp = stamp.and_then(|t| t.duration_since(UNIX_EPOCH).ok());
     DocInfo {
         untitled_number: shared.untitled_number(),
         path: shared.path().map(|p| p.to_string_lossy().into_owned()),
@@ -812,6 +877,7 @@ pub(crate) fn tick_window_at(
                     let shared = document.read(cx);
                     Snapshot {
                         doc: shared.doc().clone(),
+                        source: shared.file().source_encoding(),
                         info: info.unwrap_or_else(|| info_of(view.read(cx), shared)),
                     }
                 };

@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
 use matsu_config::unsaved::{DocInfo, Session, Store, StoreError};
-use matsu_core::buffer::{Document, Eol};
+use matsu_core::buffer::{Chunk, Document, Eol};
 use matsu_core::encoding::Encoding;
 
 /// What makes the copy of a document out of date: the text (its version), the encoding and BOM, and the line
@@ -65,6 +65,8 @@ impl Shared {
 /// A document as it was when the window asked for its copy.
 pub(crate) struct Snapshot {
     pub doc: Document,
+    /// The encoding of the original bytes behind `doc`.
+    pub source: Encoding,
     pub info: DocInfo,
 }
 
@@ -107,6 +109,12 @@ impl Writer {
     ) -> Result<Self, StoreError> {
         let store = Store::open(dir)?;
         let _ = store.remove_tmp();
+        Self::with_store(store, retry)
+    }
+
+    /// The writer over a folder that is open already (the restore opened it to read what was kept, and goes on
+    /// with the same lock).
+    pub(crate) fn with_store(store: Store, retry: std::time::Duration) -> Result<Self, StoreError> {
         let failed = Arc::new(AtomicBool::new(false));
         let session_failed = Arc::new(AtomicBool::new(false));
         let (tx, rx) = mpsc::channel::<Job>();
@@ -288,26 +296,58 @@ fn run(
 }
 
 fn write_doc(store: &Store, id: &str, snapshot: &Snapshot) -> io::Result<()> {
-    store.write_doc(id, &snapshot.info, &mut |w| write_text(&snapshot.doc, w))
+    store.write_doc(id, &snapshot.info, &mut |w| {
+        write_text(&snapshot.doc, snapshot.source, w)
+    })
 }
 
-/// The text of the document as UTF-8, line by line with the line endings it has. The characters that stand for
-/// bytes that were not valid in the document's encoding (U+10FF00..) are written as the ordinary 4-byte UTF-8 of
-/// those characters, not as the raw bytes the saver of the document writes: the copy keeps what the editor
-/// holds, and the encoding of the document applies when the user saves.
-pub(crate) fn write_text(doc: &Document, w: &mut dyn Write) -> io::Result<()> {
-    for line in doc.lines(0..doc.line_count()) {
-        let line = line.map_err(io::Error::other)?;
-        w.write_all(line.text.as_bytes())?;
-        if let Some(eol) = line.eol {
-            w.write_all(eol.as_str().as_bytes())?;
+/// The text of the document as UTF-8 with the line endings it has, in pieces of at most [`PIECE`] bytes: a line of
+/// any length is never held as one string. `source` is the encoding of the original bytes behind the document
+/// (`TextFile::source_encoding`); the added text is UTF-8 already. The characters that stand for bytes that were
+/// not valid in the original (U+10FF00..) are written as the ordinary 4-byte UTF-8 of those characters, not as the
+/// raw bytes the saver of the document writes: the copy keeps what the editor holds, and the encoding of the
+/// document applies when the user saves.
+pub(crate) fn write_text(doc: &Document, source: Encoding, w: &mut dyn Write) -> io::Result<()> {
+    let codec = source.codec();
+    let mut text = String::new();
+    for chunk in doc.chunks() {
+        match chunk.map_err(io::Error::other)? {
+            Chunk::Original(bytes) => {
+                let mut i = 0;
+                while i < bytes.len() {
+                    // Cut at a character boundary of the original encoding.
+                    let mut j = i;
+                    while j < bytes.len() && (j == i || j - i < PIECE) {
+                        j += codec.char_len(&bytes, j).clamp(1, bytes.len() - j);
+                    }
+                    text.clear();
+                    codec.decode(&bytes[i..j], &mut text);
+                    w.write_all(text.as_bytes())?;
+                    i = j;
+                }
+            }
+            Chunk::Added(added) => {
+                // The chunks of added text are at most `CHUNK_LEN` (1 MiB); cut at character boundaries again.
+                let mut rest = added.as_str();
+                while !rest.is_empty() {
+                    let mut end = rest.len().min(PIECE);
+                    while !rest.is_char_boundary(end) {
+                        end += 1;
+                    }
+                    w.write_all(&rest.as_bytes()[..end])?;
+                    rest = &rest[end..];
+                }
+            }
         }
     }
     Ok(())
 }
 
+/// The most bytes of text written at a time.
+const PIECE: usize = 64 * 1024;
+
 /// How often the removals that failed are tried again.
-const RETRY_STUCK: std::time::Duration = std::time::Duration::from_secs(5);
+pub(crate) const RETRY_STUCK: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// The removals that did not work yet.
 #[derive(Default)]

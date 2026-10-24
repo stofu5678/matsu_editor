@@ -149,6 +149,27 @@ impl TextFile {
         }
     }
 
+    /// A document brought back from a copy of unsaved text (ADR-0022): its text is UTF-8, whatever `encoding` a save
+    /// writes, so nothing of it is copied as it is to a file of another encoding.
+    pub fn restored(
+        document: Document,
+        path: Option<PathBuf>,
+        encoding: Encoding,
+        bom: bool,
+        new_line: Eol,
+    ) -> Self {
+        Self {
+            document,
+            path,
+            encoding,
+            bom,
+            new_line,
+            eol_on_save: None,
+            source_encoding: Encoding::Utf8,
+            detection: None,
+        }
+    }
+
     /// The encoding of the bytes the document was read from.
     pub fn source_encoding(&self) -> Encoding {
         self.source_encoding

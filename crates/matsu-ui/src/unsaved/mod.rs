@@ -12,8 +12,11 @@
 
 pub(crate) mod keeper;
 pub(crate) mod prefs;
+pub(crate) mod restore;
 pub(crate) mod writer;
 
+#[cfg(test)]
+mod restore_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -23,6 +26,7 @@ pub(crate) use keeper::{
     apply_all_closes, apply_close, apply_close_view, clear_copies, copy_saved, mark_close, start,
     unmark_close,
 };
+pub(crate) use restore::restore_all;
 
 use gpui::App;
 

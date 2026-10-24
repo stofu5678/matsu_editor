@@ -158,6 +158,14 @@ impl History {
         self.marks.reset(self.current_seq());
     }
 
+    /// Records that the document as it is now has never been saved: it is modified, and stays so after any undo
+    /// (there is no saved version to go back to). For a document that is brought back from a copy of unsaved
+    /// text (ADR-0022): its text is the base of the history, and it is not saved.
+    pub fn mark_unsaved(&mut self) {
+        self.saved = None;
+        self.caret_step_clean = false;
+    }
+
     /// The sequence number of the version that is applied now (Sakura: `m_nCurrentPointer`).
     fn current_seq(&self) -> Seq {
         self.origin + self.pos as Seq

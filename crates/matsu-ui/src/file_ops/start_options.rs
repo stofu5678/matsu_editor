@@ -169,6 +169,16 @@ pub(crate) struct LaunchOptions {
 }
 
 impl LaunchOptions {
+    /// Whether the launch asks for nothing but a window: no macro, no Grep, no type, no place, none of the
+    /// options of the files. With the documents of the last time restored, such a launch needs no window of its own.
+    pub(crate) fn asks_only_for_a_window(&self) -> bool {
+        self.macro_.is_none()
+            && self.grep.is_none()
+            && self.doc_type.is_none()
+            && self.placement == Placement::default()
+            && self.file == FileOptions::default()
+    }
+
     /// The options of a request.
     pub(crate) fn from_request(request: &crate::launch::OpenRequest) -> Self {
         Self::new(&request.options, &request.cwd)

@@ -103,7 +103,7 @@ pub(crate) fn open_document(
                         window: &mut Window,
                         cx: &mut Context<Workspace>| {
             let (mut shared, load) = payload.take()?;
-            if load.is_none() {
+            if load.is_none() && !shared.is_restored() {
                 shared.set_new_document_defaults(&crate::settings::new_document_defaults(cx, None));
             }
             let document = cx.new(|_| shared);

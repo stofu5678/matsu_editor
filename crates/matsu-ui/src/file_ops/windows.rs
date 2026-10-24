@@ -58,7 +58,7 @@ pub(crate) fn open_editor_window(
     load: Option<LoadRequest>,
 ) -> gpui::Result<AnyWindowHandle> {
     let mut shared = shared;
-    if load.is_none() {
+    if load.is_none() && !shared.is_restored() {
         // A new document has the settings of the basic type (a file that is loaded replaces it).
         shared.set_new_document_defaults(&crate::settings::new_document_defaults(cx, None));
     }
