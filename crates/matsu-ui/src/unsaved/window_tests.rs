@@ -275,7 +275,8 @@ fn clearing_removes_the_copies_and_keeps_the_lock(cx: &mut TestAppContext) {
     tick(cx, &f, t0);
     tick(cx, &f, t0 + Duration::from_secs(3));
     assert_eq!(doc_files(&f.dir).len(), 1);
-    cx.update(super::clear_copies);
+    let _ = cx.update(super::clear_copies);
+    cx.update(|app| flush(app));
     assert!(doc_files(&f.dir).is_empty());
     assert!(read_session(&f).windows.is_empty());
     // The folder is still held by this process.
@@ -445,7 +446,8 @@ fn a_removal_that_fails_after_the_feature_was_turned_off_is_told(cx: &mut TestAp
         std::fs::set_permissions(&f.dir, std::fs::Permissions::from_mode(0o755)).unwrap();
         return;
     }
-    cx.update(super::clear_copies);
+    let _ = cx.update(super::clear_copies);
+    cx.update(|app| flush(app));
     tick(cx, &f, t0 + Duration::from_secs(5));
     let told = notice(cx, &f);
     std::fs::set_permissions(&f.dir, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -643,4 +645,28 @@ fn closing_the_file_after_dont_save_removes_the_copy_when_the_document_is_replac
     window.run_until_parked();
     cx.update(|app| flush(app));
     assert!(doc_files(&f.dir).is_empty(), "no tick was needed");
+}
+
+#[gpui::test]
+fn a_clear_that_cannot_get_the_folder_says_so_and_does_not_wait(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    // Another process holds the folder.
+    let held = Store::open(&f.dir).unwrap();
+    let problem = cx.update(super::clear_copies);
+    assert!(problem.is_some_and(|m| m.contains("消せませんでした")));
+    drop(held);
+}
+
+#[gpui::test]
+fn a_clear_is_queued_and_the_ui_does_not_wait_for_it(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "text");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    // It returns without a problem; the deletion is done by the writer, and is there after a wait of the test.
+    assert_eq!(cx.update(super::clear_copies), None);
+    cx.update(|app| flush(app));
+    assert!(doc_files(&f.dir).is_empty());
 }

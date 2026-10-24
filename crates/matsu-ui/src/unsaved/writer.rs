@@ -69,6 +69,8 @@ enum Job {
     Session(Session),
     Discard(String),
     Clear,
+    /// Answers when every job before it is done (for the tests; the quit flow of a later change uses it too).
+    #[cfg_attr(not(test), allow(dead_code))]
     Barrier(Sender<()>),
 }
 
@@ -164,7 +166,8 @@ impl Writer {
         self.session_failed.load(Ordering::SeqCst)
     }
 
-    /// Waits until every job queued so far is done.
+    /// Waits until every job queued so far is done. Never on the UI thread while it matters.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn flush(&self) {
         let (tx, rx) = mpsc::channel();
         self.send(Job::Barrier(tx));

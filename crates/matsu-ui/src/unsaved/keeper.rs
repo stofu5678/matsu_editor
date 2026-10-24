@@ -408,7 +408,10 @@ impl Keeper {
 
 /// Removes every copy and forgets them: the user turned the feature off and chose to delete what is kept
 /// (ADR-0022, section 8). The session and the documents go; the folder and its lock stay.
-pub(crate) fn clear_copies(cx: &mut App) {
+///
+/// The clear is queued, not waited for: the UI thread does not stop for a write that is still going. Returns what
+/// to tell the user when the folder cannot be used, so that the deletion cannot be done.
+pub(crate) fn clear_copies(cx: &mut App) -> Option<&'static str> {
     let mut keeper = if cx.has_global::<Keeper>() {
         cx.remove_global::<Keeper>()
     } else {
@@ -416,9 +419,14 @@ pub(crate) fn clear_copies(cx: &mut App) {
     };
     let ini_path = settings_path(cx);
     keeper.ensure_started(ini_path.as_deref());
-    if let State::Running(writer) = &keeper.state {
-        writer.clear();
-        writer.flush();
+    let mut problem = None;
+    match &keeper.state {
+        State::Running(writer) => writer.clear(),
+        _ => {
+            problem = Some(
+                "別のマツエディタが使っているか、フォルダーを使えないため、残したコピーを消せませんでした。",
+            );
+        }
     }
     for entry in keeper.entries.values_mut() {
         entry.forget_copy();
@@ -426,6 +434,7 @@ pub(crate) fn clear_copies(cx: &mut App) {
     keeper.windows.clear();
     keeper.last_session = Some(Session::default());
     cx.set_global(keeper);
+    problem
 }
 
 /// The folder next to the settings file the process uses.
