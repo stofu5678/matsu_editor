@@ -1,4 +1,4 @@
-//! `F_EXECEXTMACRO`: runs a macro file (`.mac`, `.mjs`, `.js`, `.cjs`, `.ts`, `.py`, `.rb`, `.php`, `.ps1`, `.lua`,
+//! `F_EXECEXTMACRO`: runs a macro file (`.mac`, `.mjs`, `.js`, `.cjs`, `.ts`, `.py`, `.rb`, `.php`, `.ps1`, `.pl`, `.lua`,
 //! `.mruby` or `.upy`). With a text argument that is the file; without one the user chooses it.
 //!
 //! Sakura: `CViewCommander::Command_EXECEXTMACRO` (`sakura_core/cmd/CViewCommander_Macro.cpp`).

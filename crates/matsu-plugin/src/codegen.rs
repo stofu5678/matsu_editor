@@ -1,6 +1,6 @@
-//! Generates the JavaScript, Python, Ruby, PHP and PowerShell parts of the macro API from `catalog::entries()` (`api::FUNCS` and every row of Sakura's macro tables), and
+//! Generates the JavaScript, Python, Ruby, PHP, PowerShell and Perl parts of the macro API from `catalog::entries()` (`api::FUNCS` and every row of Sakura's macro tables), and
 //! checks that the committed files (`boot/api.gen.cjs`, `boot/api_gen.py`, `boot/api_gen.rb`,
-//! `boot/api_gen.php`, `boot/api_gen.ps1`) are up to date. Only the tests
+//! `boot/api_gen.php`, `boot/api_gen.ps1`, `boot/api_gen.pl`) are up to date. Only the tests
 //! use it: to regenerate, run `MATSU_UPDATE_GENERATED=1 cargo test -p matsu-plugin generated_files`.
 
 use crate::api::Ty;
@@ -299,6 +299,50 @@ pub(super) fn generate_ps() -> String {
     out
 }
 
+/// The Perl part (`api_gen.pl`): the class `Editor`, whose class methods are the API
+/// (`Editor->InsText('x')`). The boot gives it the function that sends a request. The text is
+/// ASCII, and it goes to `perl -` ahead of the boot.
+pub(super) fn generate_pl() -> String {
+    let mut out = String::new();
+    out.push_str(&format!("# {GENERATED_NOTE}\n\n"));
+    out.push_str("package Editor;\nuse strict;\nuse warnings;\n\n");
+    out.push_str("# The editor's macro API (the names and the arguments of Sakura's macros), as class methods:\n");
+    out.push_str("# Editor->InsText('x'). The boot sets $CALL and $INFO.\n");
+    out.push_str("our ($CALL, $INFO, $AUTOLOAD);\n\n");
+    out.push_str("# What the editor told the macro in `initialize`, as a hash reference.\nsub info { return $INFO }\n\n");
+    for func in entries().iter().filter(|e| e.is_identifier()) {
+        out.push_str(&format!("# {}\n", ascii_only(&signature_text(func))));
+        for line in wrap(&func.doc, 90) {
+            out.push_str(&format!("# {}\n", ascii_only(&line)));
+        }
+        out.push_str(&format!(
+            "sub {} {{ shift; return $CALL->('{}', @_) }}\n\n",
+            func.name, func.name
+        ));
+    }
+    out.push_str(PL_FALLBACK);
+    out
+}
+
+/// The Perl counterpart of [`JS_FALLBACK`], and `Call` for the names that cannot be written as a
+/// method (`1PageUp`).
+const PL_FALLBACK: &str = r#"# Any other name of Sakura's macro functions, including those that start with a digit
+# (Editor->Call('1PageUp')). The editor answers a name it does not know with an error.
+sub Call { shift; my $name = shift; return $CALL->($name, @_) }
+
+# Any other name that starts like a Sakura macro name (an upper case letter or a digit) is sent
+# to the editor as it is.
+sub AUTOLOAD {
+    my $class = shift;
+    (my $name = $AUTOLOAD) =~ s/.*:://;
+    return if $name eq 'DESTROY';
+    die "Can't locate object method \"$name\" via package \"Editor\"\n" unless $name =~ /^[0-9A-Z]/;
+    return $CALL->($name, @_);
+}
+
+1;
+"#;
+
 /// The text with every character above ASCII written as `\u{XXXX}`.
 fn ascii_only(text: &str) -> String {
     text.chars()
@@ -385,6 +429,7 @@ mod tests {
             ("api_gen.rb", generate_rb()),
             ("api_gen.php", generate_php()),
             ("api_gen.ps1", generate_ps()),
+            ("api_gen.pl", generate_pl()),
         ];
         let update = std::env::var_os("MATSU_UPDATE_GENERATED").is_some();
         for (name, expected) in files {

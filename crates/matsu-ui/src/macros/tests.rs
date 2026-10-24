@@ -142,6 +142,10 @@ fn files_are_told_apart_by_their_extension() {
         FileKind::Script(Language::PowerShell)
     );
     assert_eq!(
+        file_kind(Path::new("a.pl")),
+        FileKind::Script(Language::Perl)
+    );
+    assert_eq!(
         file_kind(Path::new("a.lua")),
         FileKind::Script(Language::Bundled(Engine::Lua))
     );

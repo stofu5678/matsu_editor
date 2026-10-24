@@ -67,6 +67,7 @@ fn config_for(
         Language::Ruby => "macro.rb",
         Language::Php => "macro.php",
         Language::PowerShell => "macro.ps1",
+        Language::Perl => "macro.pl",
         Language::Bundled(_) => unreachable!("the bundled engines are tested in matsu-script"),
     };
     let script = dir.path().join(name);
@@ -136,6 +137,7 @@ fn assert_clean_exit(report: &Report) {
 const JS: Language = Language::JavaScript;
 const TS: Language = Language::TypeScript;
 const PS: Language = Language::PowerShell;
+const PL: Language = Language::Perl;
 const PY: Language = Language::Python;
 const RB: Language = Language::Ruby;
 const PHP: Language = Language::Php;
@@ -269,7 +271,7 @@ fn a_syntax_error_shows_the_line_number() {
             Language::Python => ("macro.py", "line 3"),
             Language::Ruby => ("macro.rb", ":3"),
             Language::Php => ("macro.php", "line 3"),
-            Language::Bundled(_) | Language::PowerShell => unreachable!(),
+            Language::Bundled(_) | Language::PowerShell | Language::Perl => unreachable!(),
         };
         assert!(
             stderr.contains(file) && stderr.contains(line),
@@ -297,7 +299,7 @@ fn a_runtime_error_shows_the_line_number_of_the_users_file() {
             Language::Ruby => "macro.rb:3",
             // "macro.php:3" or "macro.php on line 3" (Xdebug words it the second way).
             Language::Php => "macro.php",
-            Language::Bundled(_) | Language::PowerShell => unreachable!(),
+            Language::Bundled(_) | Language::PowerShell | Language::Perl => unreachable!(),
         };
         assert!(stderr.contains(want), "{language:?}: {stderr}");
         if language == PHP {
@@ -367,7 +369,7 @@ echo "not reached\n";
             Language::Ruby | Language::Php => {
                 assert_eq!(lines[0], "caught EditorError -32602 true");
             }
-            Language::Bundled(_) | Language::PowerShell => unreachable!(),
+            Language::Bundled(_) | Language::PowerShell | Language::Perl => unreachable!(),
         }
         assert!(
             lines[1].starts_with("caught -32602 GetLineCount: "),
@@ -445,11 +447,13 @@ fn a_macro_that_exits_at_once_ends_cleanly() {
         (RB, "# nothing"),
         (PHP, "// nothing"),
         (PS, "# nothing"),
+        (PL, "# nothing"),
         (JS, ""),
         (PY, ""),
         (RB, ""),
         (PHP, ""),
         (PS, ""),
+        (PL, ""),
     ] {
         let mut requests = 0;
         let Some((report, _)) = run_with(language, code, "", PATIENT, |doc, m| {
@@ -558,7 +562,7 @@ fn the_macro_sees_the_initialize_message() {
             Language::JavaScript | Language::TypeScript => "1 1 MATSU Editor /work/テスト.txt true",
             Language::Python => "1 1 MATSU Editor /work/テスト.txt True",
             Language::Ruby | Language::Php => "1 1 MATSU Editor /work/テスト.txt true",
-            Language::Bundled(_) | Language::PowerShell => unreachable!(),
+            Language::Bundled(_) | Language::PowerShell | Language::Perl => unreachable!(),
         };
         assert_eq!(stdout(&report), [want]);
     }
@@ -670,7 +674,7 @@ fn a_missing_interpreter_is_a_clear_error() {
     let err = MacroConfig::for_script(&dir.path().join("a.txt"), None)
         .err()
         .unwrap();
-    for extension in [".mjs", ".js", ".ts", ".py", ".rb", ".php", ".ps1"] {
+    for extension in [".mjs", ".js", ".ts", ".py", ".rb", ".php", ".ps1", ".pl"] {
         assert!(err.to_string().contains(extension), "{err}");
     }
 }
@@ -683,6 +687,7 @@ fn the_sample_macros_run() {
         (JS, "sample.mjs"),
         (TS, "sample.ts"),
         (PS, "sample.ps1"),
+        (PL, "sample.pl"),
         (PY, "sample.py"),
         (RB, "sample.rb"),
         (PHP, "sample.php"),
@@ -715,11 +720,13 @@ fn the_boot_folder_is_gone_when_finished_is_reported() {
         (RB, ""),
         (PHP, ""),
         (PS, ""),
+        (PL, ""),
         (JS, "console.log(1)"),
         (PY, "print(1)"),
         (RB, "puts 1"),
         (PHP, "echo 1;"),
         (PS, "Write-Output 1"),
+        (PL, "print 1;"),
     ] {
         if !available(language) {
             continue;
@@ -1188,6 +1195,231 @@ fn an_infinite_powershell_macro_is_stopped_by_the_timeout() {
     let Some((report, _)) = run_with(
         PS,
         "while ($true) { }\n",
+        "",
+        Duration::from_millis(1500),
+        |doc, message| api::handle_message(doc, message),
+    ) else {
+        return;
+    };
+    assert_eq!(report.finished.reason, EndReason::TimedOut);
+}
+
+// ---- Perl (ADR-0025): the program, the API and the script go on the standard input of `perl -` ----
+
+#[test]
+fn pl_files_are_perl() {
+    assert_eq!(
+        Language::of_file(std::path::Path::new("a.pl")),
+        Some(Language::Perl)
+    );
+    assert_eq!(PL.default_interpreter(), "perl");
+}
+
+#[test]
+fn a_perl_macro_round_trips_japanese_and_emoji() {
+    // The script is characters: the literal is one character long, and the output is UTF-8.
+    let code = "my $t = 'あいう😀 \"q\" \\\\ end';\n\
+        Editor->InsText($t);\n\
+        print(Editor->GetLineStr(1), \"\\n\");\n\
+        print length($t), \"\\n\";\n";
+    let Some((report, doc)) = run(PL, code, "") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(doc.text(), "あいう😀 \"q\" \\ end");
+    assert_eq!(stdout(&report), ["あいう😀 \"q\" \\ end", "14"]);
+}
+
+#[test]
+fn perl_tells_numbers_from_strings() {
+    // A number that was printed still goes as a number; "$x" is a string.
+    let code = "my $n = 2;\nprint \"n=$n\\n\";\nEditor->MoveCursor($n, 1, 0);\n\
+        my $s = '7';\nEditor->InsText($s);\n\
+        eval { Editor->InsText(8 / 4); 1 } or print 'number ', $@->code, \"\\n\";\n\
+        Editor->InsText(\"$n\");\n\
+        print Editor->GetLineCount(0), \"\\n\";\n";
+    let Some((report, doc)) = run(PL, code, "a\nb\nc") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    // MoveCursor(2, 1) puts the cursor on line 2; "7" goes in, the number 2 is refused as the
+    // text, and "2" goes in.
+    assert_eq!(doc.text(), "a\n72b\nc");
+    assert_eq!(stdout(&report), ["n=2", "number -32602", "3"]);
+}
+
+#[test]
+fn perl_refuses_references_and_nan_before_sending() {
+    let code = "for my $v ([1], 9**9**9, -sin(9**9**9)) {\n\
+        eval { Editor->MoveCursor($v, 1, 0); print \"sent\\n\"; 1 } or print 'refused ', $@->code, \"\\n\";\n\
+        }\n";
+    let Some((report, _)) = run(PL, code, "a") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(
+        stdout(&report),
+        ["refused -32602", "refused -32602", "refused -32602"]
+    );
+}
+
+#[test]
+fn a_perl_error_shows_the_line_number_of_the_users_file() {
+    let code = "my $a = 1;\nmy $b = 2;\nundefined_function();\n";
+    let Some((report, _)) = run(PL, code, "") else {
+        return;
+    };
+    assert_ne!(report.finished.exit_code, Some(0));
+    let stderr = report.lines(Stream::Stderr).join("\n");
+    assert!(stderr.contains("macro.pl line 3"), "{stderr}");
+}
+
+#[test]
+fn a_perl_syntax_error_shows_its_line() {
+    let code = "my $a = 1;\nmy $b = ;\n";
+    let Some((report, _)) = run(PL, code, "") else {
+        return;
+    };
+    assert_ne!(report.finished.exit_code, Some(0));
+    let stderr = report.lines(Stream::Stderr).join("\n");
+    assert!(stderr.contains("macro.pl line 2"), "{stderr}");
+}
+
+#[test]
+fn an_error_response_becomes_a_perl_exception_with_the_line_of_the_call() {
+    let code = "eval { Editor->GetLineStr('x'); 1 } or do {\n\
+        print ref($@), ' ', $@->code, ' ', ($@->isa('EditorError') ? 'yes' : 'no'), \"\\n\";\n\
+        };\n\
+        sub fail { Editor->GetLineCount(5) }\n\
+        fail();\n\
+        print \"not reached\\n\";\n";
+    let Some((report, _)) = run(PL, code, "a") else {
+        return;
+    };
+    assert_eq!(stdout(&report), ["EditorError -32602 yes"]);
+    assert_eq!(report.finished.exit_code, Some(1));
+    // The line is the one of the call in the user's own code (the sub's body).
+    let stderr = report.lines(Stream::Stderr).join("\n");
+    assert!(
+        stderr.contains("EditorError -32602") && stderr.contains("macro.pl line 4."),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn a_perl_macro_sees_the_initialize_message_and_calls_any_name() {
+    let code = "my $i = Editor->info;\n\
+        print join(' ', $i->{protocolVersion}, $i->{apiVersion}, $i->{editor}{name}, $i->{document}{path}), \"\\n\";\n\
+        eval { Editor->Call('1PageUp'); 1 } or print 'code ', $@->code, \"\\n\";\n\
+        eval { Editor->NoSuchMacro(); 1 } or print 'code ', $@->code, \"\\n\";\n\
+        eval { Editor->lower_case(); 1 } or print 'no method', \"\\n\";\n";
+    let Some((report, _)) = run(PL, code, "") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(
+        stdout(&report),
+        [
+            "1 1 MATSU Editor /work/テスト.txt",
+            "code -32601",
+            "code -32601",
+            "no method"
+        ]
+    );
+}
+
+#[test]
+fn a_perl_script_is_not_under_strict_and_warnings_of_the_boot() {
+    // As under `perl script.pl`: a global without `my` is fine, and `use strict` in the script
+    // works as usual.
+    let Some((report, _)) = run(PL, "$x = 5;\nprint \"$x\\n\";\n", "") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(stdout(&report), ["5"]);
+    let Some((report, _)) = run(PL, "use strict;\n$y = 1;\n", "") else {
+        return;
+    };
+    assert_ne!(report.finished.exit_code, Some(0));
+    assert!(
+        report
+            .lines(Stream::Stderr)
+            .join("\n")
+            .contains("macro.pl line 2")
+    );
+}
+
+#[test]
+fn a_perl_script_cannot_break_the_boot_by_its_own_variables_and_settings() {
+    // `$json` is a name of the boot; the script's own is another variable. `local $/;` (slurp
+    // mode) and the output separators `$,` and `$\` must not reach the protocol.
+    let code = "$json = '{}'; $next_id = 'x'; $RS = 1;\n\
+        $, = '-'; $\\ = \"!\\n\";\n\
+        { local $/; print Editor->GetLineCount(0); }\n\
+        $\\ = undef; $, = undef;\n\
+        $name = 'v'; print \"$main::name\\n\";\n\
+        print $0 =~ /macro\\.pl\\z/ ? \"0 ok\\n\" : \"0 bad\\n\";\n\
+        print \"done\\n\";\n";
+    let Some((report, _)) = run(PL, code, "a\nb") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(stdout(&report), ["2!", "v", "0 ok", "done"]);
+}
+
+#[test]
+fn a_perl_script_in_a_folder_with_a_japanese_name_shows_the_name_right() {
+    // Perl holds file names as bytes: the name in the messages must not be encoded twice.
+    if !available(PL) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("テスト😀");
+    std::fs::create_dir(&folder).unwrap();
+    let script = folder.join("マクロ.pl");
+    let code = "warn \"warned\\n\" if 0;\n\
+        eval { Editor->GetLineCount(5); 1 } or print \"caught: $@\";\n\
+        eval { die 'plain' }; print \"plain: $@\";\n\
+        warn 'careful';\n\
+        Editor->GetLineCount(5);\n";
+    std::fs::write(&script, code).unwrap();
+    let mut config = MacroConfig::for_script(&script, None).unwrap();
+    config.temp_dir = Some(dir.path().to_path_buf());
+    let mut doc = TextModel::new("a", None);
+    let report = session::run_blocking(config, |m| api::handle_message(&mut doc, m)).unwrap();
+    let name = script.display().to_string();
+    let out = stdout(&report).join("\n");
+    assert!(
+        out.contains("EditorError -32602: GetLineCount: ")
+            && out.contains(&format!("at {name} line 2.")),
+        "{out}"
+    );
+    assert!(out.contains(&format!("plain at {name} line 3")), "{out}");
+    let err = report.lines(Stream::Stderr).join("\n");
+    assert!(err.contains(&format!("careful at {name} line 4")), "{err}");
+    assert!(err.contains(&format!("at {name} line 5")), "{err}");
+    assert!(
+        !err.contains('\u{e3}') && !out.contains('\u{e3}'),
+        "{err} {out}"
+    );
+}
+
+#[test]
+fn a_long_line_goes_both_ways_in_perl() {
+    let code = "my $t = 'あ' x 200000;\nEditor->InsText($t);\nprint length(Editor->GetLineStr(1)), \"\\n\";\n";
+    let Some((report, doc)) = run(PL, code, "") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(doc.text().chars().count(), 200_000);
+    assert_eq!(stdout(&report), ["200000"]);
+}
+
+#[test]
+fn an_infinite_perl_macro_is_stopped_by_the_timeout() {
+    let Some((report, _)) = run_with(
+        PL,
+        "1 while 1;\n",
         "",
         Duration::from_millis(1500),
         |doc, message| api::handle_message(doc, message),
