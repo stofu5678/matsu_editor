@@ -61,6 +61,9 @@ pub(crate) struct Entry {
     /// The document, to tell that it is gone (all its views and tabs were dropped).
     pub document: Option<WeakEntity<SharedDocument>>,
     warned_big: bool,
+    /// The revision the user chose to throw away (「保存しない」 while the document stays open, as in an exit of all
+    /// windows): no copy is made of it again; the next change makes one.
+    suppressed: Option<Revision>,
 }
 
 impl Entry {
@@ -74,6 +77,7 @@ impl Entry {
             last_attempt: None,
             document: None,
             warned_big: false,
+            suppressed: None,
         }
     }
 
@@ -113,6 +117,11 @@ pub(crate) fn decide(entry: &mut Entry, want: Want, current: Revision, now: Inst
         }
         Want::Keep => {
             entry.warned_big = false;
+            if entry.suppressed == Some(current) {
+                entry.seen = Some(current);
+                entry.first_pending = None;
+                return plan;
+            }
             if entry.shared.written() == Some(current) {
                 entry.seen = Some(current);
                 entry.first_pending = None;
@@ -315,13 +324,14 @@ impl Keeper {
 
     /// The copy of the document is not wanted any more (it was closed or saved): it is discarded now, and the
     /// tabs no longer name it.
-    fn discard_document(&mut self, document: EntityId) {
+    fn discard_document(&mut self, document: EntityId, revision: Revision) {
         let State::Running(writer) = &self.state else {
             return;
         };
         let Some(entry) = self.entries.get_mut(&document) else {
             return;
         };
+        entry.suppressed = Some(revision);
         if let Some(id) = entry.id.clone() {
             writer.discard(id.clone());
             for (_, report) in &mut self.windows {
@@ -459,7 +469,8 @@ pub(crate) fn info_of(view: &EditorView, shared: &SharedDocument) -> DocInfo {
         encoding: shared.file().encoding.sakura_code().to_string(),
         bom: shared.file().bom,
         line_ending: eol_name(shared.new_line()).to_owned(),
-        doc_type: None,
+        // Only a type the user chose is kept: the file name brings back the others.
+        doc_type: shared.type_locked().then(|| view.type_index() as i32),
         caret_line: caret.line as u64,
         caret_column: column as u64,
         top_line: view.top_row() as u64,
@@ -499,12 +510,16 @@ pub(crate) fn app_tick(cx: &mut App, now: Instant) {
 
 /// The document is going away or was saved: its copy is discarded now, without waiting for the housekeeping
 /// (a process that quits right after the last window closed would leave it behind).
-pub(crate) fn discard_document(document: EntityId, cx: &mut App) {
+///
+/// The revision it has now is not copied again: the user said they do not want it, and the document may stay open
+/// while the other questions of an exit are asked. The next change makes a new copy.
+pub(crate) fn discard_document(document: &Entity<SharedDocument>, cx: &mut App) {
     if !cx.has_global::<Keeper>() {
         return;
     }
+    let revision = revision_of(document.read(cx));
     let mut keeper = cx.remove_global::<Keeper>();
-    keeper.discard_document(document);
+    keeper.discard_document(document.entity_id(), revision);
     cx.set_global(keeper);
 }
 

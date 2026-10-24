@@ -505,3 +505,57 @@ fn a_clear_that_cannot_read_rejected_goes_on_trying() {
     assert!(!writer.failed());
     assert!(!rejected.join("old.doc").exists());
 }
+
+#[cfg(unix)]
+fn session_stuck_setup(dir: &std::path::Path) -> Option<Writer> {
+    use std::os::unix::fs::PermissionsExt;
+    let writer = Writer::start_retrying(dir, Duration::from_millis(30)).unwrap();
+    writer.session(Session::default());
+    writer.flush();
+    assert!(dir.join("session.ini").exists());
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+    if std::fs::write(dir.join("probe"), b"x").is_ok() {
+        // Not enforced (running as root): nothing to test.
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        return None;
+    }
+    writer.clear();
+    writer.flush();
+    assert!(writer.failed(), "session.ini could not be removed");
+    Some(writer)
+}
+
+#[cfg(unix)]
+#[test]
+fn a_session_that_a_clear_could_not_remove_is_removed_at_a_later_try() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("unsaved");
+    let Some(writer) = session_stuck_setup(&dir) else {
+        return;
+    };
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let start = Instant::now();
+    while writer.failed() && start.elapsed() < Duration::from_secs(5) {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(!writer.failed());
+    assert!(!dir.join("session.ini").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_session_written_after_the_feature_is_on_again_is_not_removed_by_the_retry() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("unsaved");
+    let Some(writer) = session_stuck_setup(&dir) else {
+        return;
+    };
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // The feature is on again and the keeper writes its session before the retry comes.
+    writer.session(Session::default());
+    writer.flush();
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(dir.join("session.ini").exists());
+}

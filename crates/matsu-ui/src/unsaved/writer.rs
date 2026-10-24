@@ -228,6 +228,7 @@ fn run(
                 result
             }
             Job::Session(next) => {
+                pending.session_stuck = false;
                 let result = store.write_session(&next);
                 session_failed.store(result.is_err(), Ordering::SeqCst);
                 session = next;
@@ -249,6 +250,7 @@ fn run(
                 pending.leftovers.clear();
                 pending.unreadable.clear();
                 pending.fresh.clear();
+                pending.session_stuck = false;
                 clear_now(store, &mut pending)
             }
             Job::Barrier(tx) => {
@@ -296,13 +298,19 @@ struct Pending {
     /// Folders a clear could not read, with the time of the clear: listed again at the next try, and only what
     /// is not newer than the clear is removed.
     unreadable: Vec<(std::path::PathBuf, std::time::SystemTime)>,
+    /// `session.ini` could not be removed by the last clear and no session has been written since: removed at the
+    /// next try. A session written after the feature is on again is not touched.
+    session_stuck: bool,
     /// The ids of the copies written since the last clear: a retry never removes them, whatever their time.
     fresh: std::collections::HashSet<String>,
 }
 
 impl Pending {
     fn is_empty(&self) -> bool {
-        self.stuck.is_empty() && self.leftovers.is_empty() && self.unreadable.is_empty()
+        self.stuck.is_empty()
+            && self.leftovers.is_empty()
+            && self.unreadable.is_empty()
+            && !self.session_stuck
     }
 
     fn retry(&mut self, store: &Store, session: &mut Session) {
@@ -340,6 +348,9 @@ impl Pending {
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {}
                 Err(_) => self.unreadable.push((dir, cleared_at)),
             }
+        }
+        if self.session_stuck && remove_file(&store.dir().join("session.ini")).is_ok() {
+            self.session_stuck = false;
         }
         self.leftovers.retain(|path| remove_file(path).is_err());
         if self.leftovers.is_empty() && self.unreadable.is_empty() {
@@ -406,8 +417,10 @@ fn clear_now(store: &Store, pending: &mut Pending) -> io::Result<()> {
     for path in targets {
         if let Err(e) = remove_file(&path) {
             first_error.get_or_insert(e);
-            // `session.ini` is written again by the keeper; the others are asked for again.
-            if path.file_name().and_then(|n| n.to_str()) != Some("session.ini") {
+            // `session.ini` is asked for again only while no new session was written; the others are listed.
+            if path.file_name().and_then(|n| n.to_str()) == Some("session.ini") {
+                pending.session_stuck = true;
+            } else {
                 pending.leftovers.push(path);
             }
         }

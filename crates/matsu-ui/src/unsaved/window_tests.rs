@@ -329,8 +329,8 @@ fn a_document_that_is_closed_or_saved_loses_its_copy_at_once(cx: &mut TestAppCon
     assert_eq!(doc_files(&f.dir).len(), 1);
     // What `confirm_discard` does when the user answers 「保存しない」: no tick, no wait.
     let ws = workspace(cx, f.handle);
-    let document = ws.read_with(cx, |ws, app| ws.editor().read(app).document().entity_id());
-    cx.update(|app| super::discard_document(document, app));
+    let document = ws.read_with(cx, |ws, app| ws.editor().read(app).document().clone());
+    cx.update(|app| super::discard_document(&document, app));
     cx.update(|app| flush(app));
     assert!(doc_files(&f.dir).is_empty());
     assert!(read_session(&f).windows.is_empty());
@@ -437,4 +437,48 @@ fn a_removal_that_fails_after_the_feature_was_turned_off_is_told(cx: &mut TestAp
     let told = notice(cx, &f);
     std::fs::set_permissions(&f.dir, std::fs::Permissions::from_mode(0o755)).unwrap();
     assert!(told.is_some_and(|n| n.contains("消せない")));
+}
+
+#[gpui::test]
+fn a_revision_the_user_threw_away_is_not_copied_again_but_the_next_change_is(
+    cx: &mut TestAppContext,
+) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "discarded");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    // 「保存しない」 in an exit of all windows: the document stays open while the other questions are asked.
+    let ws = workspace(cx, f.handle);
+    let document = ws.read_with(cx, |ws, app| ws.editor().read(app).document().clone());
+    cx.update(|app| super::discard_document(&document, app));
+    cx.update(|app| flush(app));
+    for s in [10, 20, 40, 80] {
+        tick(cx, &f, t0 + Duration::from_secs(s));
+    }
+    assert!(doc_files(&f.dir).is_empty(), "no copy without a change");
+    type_text(cx, &f, "!");
+    tick(cx, &f, t0 + Duration::from_secs(100));
+    tick(cx, &f, t0 + Duration::from_secs(103));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+}
+
+#[gpui::test]
+fn a_type_the_user_chose_is_in_the_copy(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "text");
+    let ws = workspace(cx, f.handle);
+    ws.update(cx, |ws, cx| {
+        ws.editor().clone().update(cx, |view, cx| {
+            view.document()
+                .update(cx, |shared, _| shared.set_type_locked(true));
+        });
+    });
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    let files = doc_files(&f.dir);
+    let bytes = std::fs::read(f.dir.join(&files[0])).unwrap();
+    assert!(String::from_utf8_lossy(&bytes).contains("DocType="));
 }
