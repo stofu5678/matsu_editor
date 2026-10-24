@@ -122,7 +122,9 @@ fn typed_text_is_kept_after_two_seconds_and_removed_when_saved(cx: &mut TestAppC
     tick(cx, &f, t0 + Duration::from_secs(4));
     let files = doc_files(&f.dir);
     assert_eq!(files.len(), 1, "{files:?}");
-    assert_eq!(kept_text(&f, &files[0]), "こんにちは\nworld");
+    // Enter inserts the line ending of a new document: CR LF on Windows, LF elsewhere.
+    let eol = matsu_core::encoding::Eol::platform_default().as_str();
+    assert_eq!(kept_text(&f, &files[0]), format!("こんにちは{eol}world"));
     let session = read_session(&f);
     assert_eq!(session.windows.len(), 1);
     assert_eq!(
