@@ -67,7 +67,7 @@ pub const SECTION: &str = "KeyWords";
 ///
 /// The value is how many of MATSU Editor's own sets the writer had ([`ExtraSet::ALL`]`.len()`), so that a set
 /// added by a later version (not in that many) is told from one the user deleted. The first versions wrote
-/// `1` for "true" when they had [`LEGACY_EXTRA_SET_COUNT`] sets.
+/// `1` for "true" when they had 10 sets.
 pub const EXTRA_SETS_IN_FILE_KEY: &str = "bUmeExtraSetsInFile";
 
 /// How many of MATSU Editor's own sets the versions had that wrote `bUmeExtraSetsInFile=1`.
