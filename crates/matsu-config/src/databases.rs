@@ -393,8 +393,10 @@ fn scan_for_password(kind: Kind, command: &str) -> Option<&'static str> {
                 let value = lower[from..].chars().next();
                 if before.is_none_or(|c| {
                     matches!(c, '-' | ';' | ',' | '"' | '\'' | '(' | '{' | '?' | '&')
-                }) && value.is_some_and(|c| !matches!(c, ';' | '&'))
-                {
+                }) && value.is_some_and(|c| {
+                    // `&` ends an empty value only in the query of a URI
+                    c != ';' && !(c == '&' && matches!(before, Some('?' | '&')))
+                }) {
                     return Some(if before == Some('-') {
                         "--password="
                     } else {
