@@ -101,12 +101,21 @@ impl CommandContext<'_> {
         self.refuse_edit_in_box()?;
         let selection = self.selection();
         let (from, mut to) = selection.unwrap_or((self.caret(), self.caret()));
+        // `DelCharForOverwrite(pData, nDataLen)` with the tab char: with `m_bOverWriteFixMode` the
+        // width the replaced char had beyond a tab char's (one column) stays as spaces after the
+        // caret.
+        let mut pad = 0;
         if selection.is_none() && self.is_overwrite() {
-            to = self.overwrite_end(from, 1)?;
+            let plan = self.overwrite_replacement(from, "\t")?;
+            to = plan.end;
+            pad = plan.pad;
         }
         let spaces = self.soft_tab_at(self.layout().display_col(self.doc(), from)?);
-        let edit = self.replace(from, to, &spaces)?;
-        self.cursor.move_to(edit.end, false);
+        let edit = self.replace(from, to, &format!("{spaces}{}", " ".repeat(pad)))?;
+        self.cursor.move_to(
+            matsu_core::buffer::Pos::new(edit.end.line, edit.end.col - pad),
+            false,
+        );
         Ok(())
     }
 

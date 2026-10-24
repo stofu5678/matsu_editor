@@ -358,6 +358,15 @@ impl CommandContext<'_> {
         soft_tab: bool,
     ) -> Result<()> {
         self.refuse_in_view_mode()?;
+        // `Command_INDENT` (typing, the tab and space indents, `InsText`): with
+        // `m_bOverWriteBoxDelete` a box typed over in overwrite mode is deleted first and stays
+        // selected.
+        if self.overwrite
+            && self.cursor.has_selection()
+            && crate::edit_options::get().overwrite_box_delete
+        {
+            self.delete_box_keeping_selection()?;
+        }
         let Some(rect) = self.box_rect()? else {
             return Ok(());
         };

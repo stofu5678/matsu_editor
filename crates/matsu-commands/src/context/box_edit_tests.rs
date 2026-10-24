@@ -345,6 +345,15 @@ fn typing_in_overwrite_mode_deletes_the_box_with_the_option() {
         typed(&mut e, 'X');
         assert_eq!(text_of(&e), "aXd\neXh");
         assert!(e.cursor().is_box());
+        // the tab and `InsText` go through `Command_INDENT` too
+        let mut e = boxed("abcd\nefgh", (0, 1), (1, 3));
+        e.set_overwrite(true);
+        e.run("indent_space");
+        assert_eq!(text_of(&e), "a d\ne h");
+        let mut e = boxed("abcd\nefgh", (0, 1), (1, 3));
+        e.set_overwrite(true);
+        e.run_with("ins_text", &[Arg::Text("X".to_owned())]);
+        assert_eq!(text_of(&e), "aXd\neXh");
         // insert mode still keeps the text of the box
         let mut e = boxed("abcd\nefgh", (0, 1), (1, 3));
         typed(&mut e, 'X');

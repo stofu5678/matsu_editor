@@ -660,14 +660,6 @@ impl<'a> CommandContext<'a> {
         if self.cursor.is_box()
             && (self.cursor.has_selection() || self.caret_is_in_empty_space()?)
         {
-            // `Command_INDENT`: with `m_bOverWriteBoxDelete` a box typed over in overwrite mode
-            // is deleted first, and the box stays (the typing goes before it as usual).
-            if self.overwrite
-                && self.cursor.has_selection()
-                && crate::edit_options::get().overwrite_box_delete
-            {
-                self.delete_box_keeping_selection()?;
-            }
             return self.insert_text(text);
         }
         self.refuse_edit_in_box()?;
