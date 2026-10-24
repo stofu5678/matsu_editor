@@ -16,10 +16,14 @@
 //! * With a box selected, the char goes before the box in every row and the box moves right
 //!   (`Command_INDENT`, see `CommandContext::insert_text`); Enter deletes the box first.
 //!
-//! Not done yet: the option to pad with spaces to the width of the replaced char
-//! (`m_bOverWriteFixMode`, off by default), the option to overwrite line endings, the other
-//! indent chars and smart indent of the type settings, trimming the previous line
-//! (`m_bRTrimPrevLine`), and the extended line endings (`m_bEnableExtEol`).
+//! * With `m_bNotOverWriteCRLF` off, the line ending is deleted at the end of a line, so the next
+//!   line joins. With `m_bOverWriteFixMode` on, a char of another width leaves the columns of the
+//!   rest of the line in place: spaces fill what a narrower char leaves, and a wider one takes
+//!   the next char too (see `CommandContext::type_text`). With a box selected, `m_bOverWriteBoxDelete`
+//!   deletes the box before typing.
+//!
+//! Not done yet: the other indent chars and smart indent of the type settings, trimming the
+//! previous line (`m_bRTrimPrevLine`), and the extended line endings (`m_bEnableExtEol`).
 //!
 //! Argument: one char, as `Arg::Char`, or a code point as `Arg::Int`.
 
@@ -136,6 +140,98 @@ mod tests {
         overtyped('X', "ab|\ncd", "abX|\ncd");
         overtyped('X', "ab\n|", "ab\nX|");
         overtyped('X', "|", "X|");
+    }
+
+    use crate::edit_options::{EditOptions, with_options};
+
+    #[test]
+    fn overwrite_mode_deletes_the_line_ending_without_the_option() {
+        // m_bNotOverWriteCRLF off: Command_DELETE at the end of the text joins the next line
+        let options = EditOptions {
+            not_overwrite_crlf: false,
+            ..Default::default()
+        };
+        with_options(options, || {
+            overtyped('X', "ab|\r\ncd", "abX|cd");
+            overtyped('X', "ab|\ncd", "abX|cd");
+            // the end of the document has no line ending to delete
+            overtyped('X', "ab|", "abX|");
+            overtyped('X', "ab\n|", "ab\nX|");
+            // inside the line it is the same
+            overtyped('X', "a|bc", "aX|c");
+        });
+    }
+
+    #[test]
+    fn overwrite_fix_mode_keeps_the_columns() {
+        let options = EditOptions {
+            overwrite_fix_mode: true,
+            ..Default::default()
+        };
+        with_options(options, || {
+            // a narrow char over a full-width one: a space fills the second column
+            overtyped('X', "a|日b", "aX| b");
+            // a full-width char over a narrow one takes the next narrow char too
+            overtyped('日', "a|bcd", "a日|d");
+            // ... and a full-width one gives a space back when the two take more than it needs
+            overtyped('日', "a|b日d", "a日| d");
+            // the same width: the plain replacement
+            overtyped('X', "a|bc", "aX|c");
+            overtyped('日', "|あい", "日|い");
+            // a tab is replaced as any char, without spaces
+            overtyped('X', "a|\tb", "aX|b");
+            overtyped('日', "a|\tb", "a日|b");
+            // a wide char over a narrow one before a tab or the end of the text
+            overtyped('日', "a|b\tc", "a日|\tc");
+            overtyped('日', "a|b", "a日|");
+            // the end of the text: inserted
+            overtyped('日', "ab|", "ab日|");
+            // one edit, one undo step
+            let mut e = Editor::new("a|日b");
+            e.set_overwrite(true);
+            e.run_with(ID, &[Arg::Char('X')]);
+            assert_eq!(e.changes().edits.len(), 1);
+            e.run("undo").assert_marked("a|日b");
+        });
+    }
+
+    /// Types `text` at once, as the IME commits it.
+    fn overtyped_text(text: &str, before: &str, after: &str) {
+        let mut e = Editor::new(before);
+        e.set_overwrite(true);
+        e.with_context(|cx| cx.type_text(text).map(|_| ())).unwrap();
+        e.assert_marked(after);
+    }
+
+    #[test]
+    fn several_chars_overwrite_one_by_one() {
+        // DelCharForOverwrite runs for each char: the spaces of the fix mode are chars at the caret
+        let options = EditOptions {
+            overwrite_fix_mode: true,
+            ..Default::default()
+        };
+        with_options(options, || {
+            overtyped_text("日本", "a|bcdef", "a日本|f");
+            overtyped_text("XY", "a|日b", "aXY|b");
+            overtyped_text("X日", "a|bcd", "aX日|");
+            overtyped_text("日X", "a|bcd", "a日X|");
+            // a line break is inserted
+            overtyped_text("X\nY", "a|bcd", "aX\nY|d");
+        });
+        // without the fix mode a char replaces a char
+        overtyped_text("日本", "a|bcdef", "a日本|def");
+        overtyped_text("XY", "a|日b", "aXY|");
+        // nothing to overwrite for no chars, also at the end of a line with the option on
+        let options = EditOptions {
+            not_overwrite_crlf: false,
+            ..Default::default()
+        };
+        with_options(options, || {
+            overtyped_text("", "ab|\ncd", "ab|\ncd");
+            // the first char deletes the line ending, the next one overwrites the next line
+            overtyped_text("XY", "ab|\ncd", "abXY|d");
+            overtyped_text("X", "ab|\n\ncd", "abX|\ncd");
+        });
     }
 
     #[test]

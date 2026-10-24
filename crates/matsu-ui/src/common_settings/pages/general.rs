@@ -1,13 +1,17 @@
 //! 「全般」: `IDD_PROP_GENERAL` (`sakura_core/sakura_rc.rc`), `CPropGeneral`
 //! (`sakura_core/prop/CPropComGeneral.cpp`).
 //!
-//! Live: the two "stop at both ends" options of the cursor, and the number of files and folders
-//! in the history (and the buttons that clear them). Not available yet: the free cursor, the
-//! mouse activation, the caret shape, the task tray (MATSU Editor is one process, ADR-0016), the
-//! confirmations when several windows close, the repeated scroll and the wheel combinations
-//! (the wheel is the key table's, `crate::view::paging`), and the screen cache.
+//! Live: the two "stop at both ends" options of the cursor, the number of files and folders in the
+//! history (and the buttons that clear them), the two confirmations before windows close
+//! ([`CloseConfirm`]), and the scrolling ([`ScrollOptions`]): the rows a held up or down key
+//! moves, and the keys and buttons that turn the wheel into a page or a sideways scroll
+//! (`crate::view::paging`). Not available yet: the free cursor, the mouse activation, the caret
+//! shape, the task tray (MATSU Editor is one process, ADR-0016), "少し滑らかにする" (it only
+//! redraws between the steps, which GPUI cannot do inside a command; the result of the move is
+//! the same) and the screen cache (GPUI draws the window itself; there is no device context to
+//! keep).
 
-use gpui::{Context, Window};
+use gpui::{App, Context, Global, Window};
 use matsu_commands::edit_options;
 
 use super::super::Env;
@@ -18,15 +22,72 @@ use super::super::model::{Control, Item, Values};
 /// numbers Sakura writes (`MOUSEFUNCTION_*`, `VK_CONTROL`, `VK_SHIFT`).
 const WHEEL_COMBINATIONS: &[(&str, i32)] = &[
     ("組み合わせなし", 0),
-    ("マウス中ボタン", 2),
-    ("マウスサイドボタン1", 3),
-    ("マウスサイドボタン2", 4),
-    ("CONTROLキー", 17),
-    ("SHIFTキー", 16),
+    ("マウス中ボタン", WHEEL_MIDDLE_BUTTON),
+    ("マウスサイドボタン1", WHEEL_SIDE_BUTTON_1),
+    ("マウスサイドボタン2", WHEEL_SIDE_BUTTON_2),
+    ("CONTROLキー", WHEEL_CONTROL_KEY),
+    ("SHIFTキー", WHEEL_SHIFT_KEY),
 ];
 
 /// The most files and folders the history keeps (`MAX_MRU`, `MAX_OPENFOLDER`).
 const MAX_HISTORY: i32 = matsu_config::history::MAX_MRU as i32;
+
+/// The questions before several windows are closed: `m_bCloseAllConfirm` and `m_bExitConfirm`
+/// (both off by default, `CShareData::InitShareData`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct CloseConfirm {
+    /// Closing several windows at once asks first (`CAppNodeGroupHandle::RequestCloseEditor`,
+    /// `STR_ERR_CSHAREDATA19`).
+    pub close_all: bool,
+    /// 全終了 asks first (`CControlTray::TerminateApplication`, `STR_TRAY_EXITALL`).
+    pub exit: bool,
+}
+
+impl Global for CloseConfirm {}
+
+/// The questions now.
+pub(crate) fn close_confirm(cx: &App) -> CloseConfirm {
+    cx.try_global::<CloseConfirm>().copied().unwrap_or_default()
+}
+
+/// The scrolling options (`CommonSetting::m_sGeneral`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ScrollOptions {
+    /// `m_nRepeatedScrollLineNum`: the rows that a held up or down key moves (3 by default).
+    pub repeated_lines: usize,
+    /// `m_nPageScrollByWheel`: the key or button that makes the wheel scroll by pages
+    /// ([`WHEEL_COMBINATIONS`]; 0 for none).
+    pub page_by_wheel: i32,
+    /// `m_nHorizontalScrollByWheel`: the same for scrolling sideways.
+    pub hscroll_by_wheel: i32,
+}
+
+impl Default for ScrollOptions {
+    fn default() -> Self {
+        Self {
+            repeated_lines: 3,
+            page_by_wheel: 0,
+            hscroll_by_wheel: 0,
+        }
+    }
+}
+
+impl Global for ScrollOptions {}
+
+/// The scrolling options now.
+pub(crate) fn scroll_options(cx: &App) -> ScrollOptions {
+    cx.try_global::<ScrollOptions>()
+        .copied()
+        .unwrap_or_default()
+}
+
+/// `MOUSEFUNCTION_CENTER`, `MOUSEFUNCTION_LEFTSIDE`, `MOUSEFUNCTION_RIGHTSIDE` and the virtual
+/// keys of `WHEEL_COMBINATIONS` (`CEditView::IsSpecialScrollMode`).
+pub(crate) const WHEEL_MIDDLE_BUTTON: i32 = 2;
+pub(crate) const WHEEL_SIDE_BUTTON_1: i32 = 3;
+pub(crate) const WHEEL_SIDE_BUTTON_2: i32 = 4;
+pub(crate) const WHEEL_SHIFT_KEY: i32 = 16;
+pub(crate) const WHEEL_CONTROL_KEY: i32 = 17;
 
 fn tray_is_used(values: &Values) -> bool {
     values.bool("use_tray_icon")
@@ -115,7 +176,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         "bCloseAllConfirm",
                         false,
                     )
-                    .unavailable()
                     .into(),
                     Control::check(
                         "exit_confirm",
@@ -123,7 +183,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         "bExitConfirm",
                         false,
                     )
-                    .unavailable()
                     .into(),
                 ],
             ),
@@ -140,7 +199,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         1,
                         10,
                     )
-                    .unavailable()
                     .into(),
                     Control::check(
                         "repeated_scroll_smooth",
@@ -157,7 +215,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         0,
                         WHEEL_COMBINATIONS,
                     )
-                    .unavailable()
                     .into(),
                     Control::choice(
                         "wheel_hscroll",
@@ -166,7 +223,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         0,
                         WHEEL_COMBINATIONS,
                     )
-                    .unavailable()
                     .into(),
                     Control::check(
                         "mem_dc",
@@ -250,6 +306,15 @@ pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: O
     options.stops_both_ends_word = after.bool("stops_both_ends_word");
     options.stops_both_ends_paragraph = after.bool("stops_both_ends_paragraph");
     edit_options::set(options);
+    env.cx.set_global(ScrollOptions {
+        repeated_lines: after.int("repeated_scroll_lines").clamp(1, 10) as usize,
+        page_by_wheel: after.int("wheel_page_scroll"),
+        hscroll_by_wheel: after.int("wheel_hscroll"),
+    });
+    env.cx.set_global(CloseConfirm {
+        close_all: after.bool("close_all_confirm"),
+        exit: after.bool("exit_confirm"),
+    });
     let history_changed = before.is_none_or(|b| {
         b.int("max_mru_file") != after.int("max_mru_file")
             || b.int("max_mru_folder") != after.int("max_mru_folder")

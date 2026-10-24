@@ -367,12 +367,32 @@ pub(crate) async fn close_windows(
     close_views(cx, closing).await
 }
 
+/// `STR_ERR_CSHAREDATA19`.
+const CLOSE_SEVERAL_MESSAGE: &str =
+    "同時に複数の編集用ウィンドウを閉じようとしています。これらを閉じますか?";
+
+/// With `bCloseAllConfirm` on, closing more than one window at once asks first
+/// (`CAppNodeGroupHandle::RequestCloseEditor`, `sakura_core/env/CAppNodeManager.cpp`: `1 <
+/// nCloseCount`). `false` when the user does not want it closed.
+pub(crate) async fn confirm_closing_several(cx: &mut AsyncWindowContext, count: usize) -> bool {
+    let asks = count > 1
+        && cx
+            .update(|_, app| crate::common_settings::close_confirm(app).close_all)
+            .unwrap_or(false);
+    !asks
+        || crate::file_ops::ask::confirm(cx, CLOSE_SEVERAL_MESSAGE, None, ["はい(Y)", "いいえ(N)"])
+            .await
+}
+
 /// Asks about each of the documents with unsaved changes and closes it, one by one. A "cancel"
 /// stops it: the documents closed before stay closed.
 pub(crate) async fn close_views(
     cx: &mut AsyncWindowContext,
     views: Vec<(AnyWindowHandle, Entity<EditorView>)>,
 ) -> bool {
+    if !confirm_closing_several(cx, views.len()).await {
+        return false;
+    }
     for (handle, view) in views {
         if !crate::tabs::bar::close_document(cx, handle, &view).await {
             return false;

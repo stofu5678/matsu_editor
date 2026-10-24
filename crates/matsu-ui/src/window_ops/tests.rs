@@ -320,6 +320,71 @@ fn close_all_closes_every_window_without_changes(cx: &mut TestAppContext) {
     assert!(w.iter().all(|w| !w.is_open(cx)));
 }
 
+fn confirm_before_closing(cx: &mut TestAppContext, close_all: bool, exit: bool) {
+    cx.update(|app| {
+        app.set_global(crate::common_settings::CloseConfirm { close_all, exit });
+    });
+}
+
+#[gpui::test]
+fn close_all_asks_first_with_the_option_when_several_windows_close(cx: &mut TestAppContext) {
+    // `bCloseAllConfirm`: `RequestCloseEditor` asks when `1 < nCloseCount`
+    let w = windows(cx, 3);
+    confirm_before_closing(cx, true, false);
+    w[1].run(cx, "F_WIN_CLOSEALL");
+    answer(&w[1], cx, "いいえ(N)");
+    assert!(w.iter().all(|w| w.is_open(cx)));
+    w[1].run(cx, "F_WIN_CLOSEALL");
+    answer(&w[1], cx, "はい(Y)");
+    assert!(w.iter().all(|w| !w.is_open(cx)));
+}
+
+#[gpui::test]
+fn close_all_does_not_ask_for_one_window_or_without_the_option(cx: &mut TestAppContext) {
+    let w = windows(cx, 1);
+    confirm_before_closing(cx, true, false);
+    w[0].run(cx, "F_WIN_CLOSEALL");
+    assert!(!w[0].is_open(cx), "one window is not several");
+    let w = windows(cx, 3);
+    confirm_before_closing(cx, false, true);
+    w[0].run(cx, "F_WIN_CLOSEALL");
+    assert!(w.iter().all(|w| !w.is_open(cx)));
+}
+
+#[gpui::test]
+fn close_others_asks_when_it_closes_several_windows(cx: &mut TestAppContext) {
+    let w = windows(cx, 3);
+    confirm_before_closing(cx, true, false);
+    w[1].run(cx, "F_TAB_CLOSEOTHER");
+    answer(&w[1], cx, "いいえ(N)");
+    assert!(w.iter().all(|w| w.is_open(cx)));
+    w[1].run(cx, "F_TAB_CLOSEOTHER");
+    answer(&w[1], cx, "はい(Y)");
+    assert!(w[1].is_open(cx) && !w[0].is_open(cx) && !w[2].is_open(cx));
+}
+
+#[gpui::test]
+fn exit_all_asks_with_the_exit_confirmation_and_exit_all_editors_with_the_other(
+    cx: &mut TestAppContext,
+) {
+    let w = windows(cx, 2);
+    // F_EXITALL: `bExitConfirm` (`TerminateApplication`)
+    confirm_before_closing(cx, false, true);
+    w[0].run(cx, "F_EXITALL");
+    answer(&w[0], cx, "いいえ(N)");
+    assert!(w.iter().all(|w| w.is_open(cx)));
+    // F_EXITALLEDITORS asks about the number of windows only with `bCloseAllConfirm`
+    w[0].run(cx, "F_EXITALLEDITORS");
+    assert!(!w[0].cx(cx).has_pending_prompt(), "no question without it");
+    confirm_before_closing(cx, true, false);
+    w[0].run(cx, "F_EXITALLEDITORS");
+    answer(&w[0], cx, "いいえ(N)");
+    assert!(w.iter().all(|w| w.is_open(cx)));
+    // F_EXITALL with only `bCloseAllConfirm` does not ask
+    w[0].run(cx, "F_EXITALL");
+    assert!(!w[0].cx(cx).has_pending_prompt());
+}
+
 #[gpui::test]
 fn close_all_asks_about_a_modified_window_and_cancel_stops(cx: &mut TestAppContext) {
     let w = windows(cx, 3);

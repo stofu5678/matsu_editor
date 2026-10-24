@@ -978,6 +978,89 @@ fn the_edit_options_reach_the_commands(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn the_overwrite_and_copy_options_reach_the_commands(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, "");
+    let _restore = RestoreEditOptions::new();
+    let now = edit_options::get();
+    assert!(!now.add_crlf_when_copy && !now.copy_and_disable_selection);
+    assert!(now.not_overwrite_crlf && !now.overwrite_fix_mode && !now.overwrite_box_delete);
+    run(cx, handle, "F_OPTION_EDIT");
+    check(cx, "add_crlf_when_copy", true);
+    check(cx, "copy_and_disable_selection", true);
+    check(cx, "not_overwrite_crlf", false);
+    check(cx, "overwrite_fix_mode", true);
+    check(cx, "overwrite_box_delete", true);
+    ok(cx);
+    for (key, value) in [
+        ("bAddCRLFWhenCopy", "1"),
+        ("bCopyAndDisablSelection", "1"),
+        ("bNotOverWriteCRLF", "0"),
+        ("bOverWriteFixMode", "1"),
+        ("bOverWriteBoxDelete", "1"),
+    ] {
+        assert_eq!(ini.get(key).as_deref(), Some(value), "{key}");
+    }
+    let now = edit_options::get();
+    assert!(now.add_crlf_when_copy && now.copy_and_disable_selection);
+    assert!(!now.not_overwrite_crlf && now.overwrite_fix_mode && now.overwrite_box_delete);
+}
+
+#[gpui::test]
+fn the_scrolling_and_the_confirmations_of_the_general_page_are_taken(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, "");
+    assert_eq!(
+        cx.update(|app| super::scroll_options(app)),
+        super::ScrollOptions::default()
+    );
+    run(cx, handle, "F_OPTION_GENERAL");
+    type_in(cx, "repeated_scroll_lines", "6");
+    choose(cx, "wheel_page_scroll", 2);
+    choose(cx, "wheel_hscroll", 16);
+    check(cx, "close_all_confirm", true);
+    check(cx, "exit_confirm", true);
+    ok(cx);
+    assert_eq!(ini.get("nRepeatedScrollLineNum").as_deref(), Some("6"));
+    assert_eq!(ini.get("nPageScrollByWheel").as_deref(), Some("2"));
+    assert_eq!(ini.get("nHorizontalScrollByWheel").as_deref(), Some("16"));
+    assert_eq!(ini.get("bCloseAllConfirm").as_deref(), Some("1"));
+    assert_eq!(ini.get("bExitConfirm").as_deref(), Some("1"));
+    let options = cx.update(|app| super::scroll_options(app));
+    assert_eq!(
+        (
+            options.repeated_lines,
+            options.page_by_wheel,
+            options.hscroll_by_wheel
+        ),
+        (6, 2, 16)
+    );
+    let confirm = cx.update(|app| super::close_confirm(app));
+    assert!(confirm.close_all && confirm.exit);
+}
+
+#[gpui::test]
+fn the_ruler_and_the_gaps_of_the_window_page_are_written(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, "");
+    run(cx, handle, "F_OPTION_WINDOW");
+    type_in(cx, "ruler_height", "20");
+    type_in(cx, "ruler_bottom_space", "3");
+    type_in(cx, "line_number_right_space", "4");
+    ok(cx);
+    assert_eq!(ini.get("nRulerHeight").as_deref(), Some("20"));
+    assert_eq!(ini.get("nRulerBottomSpace").as_deref(), Some("3"));
+    assert_eq!(ini.get("nLineNumberRightSpace").as_deref(), Some("4"));
+    let settings = cx.update(|app| app.global::<crate::settings::UserSettings>().clone());
+    let view = settings.view_settings_of_type(0);
+    assert_eq!(
+        (
+            view.ruler_height,
+            view.ruler_bottom_space,
+            view.line_number_right_space
+        ),
+        (20, 3, 4)
+    );
+}
+
+#[gpui::test]
 fn the_application_starts_with_the_file(cx: &mut TestAppContext) {
     let (_ini, _handle) = setup(
         cx,
@@ -1134,11 +1217,16 @@ fn the_access_keys_choose_radio_buttons_and_fill_boxes(cx: &mut TestAppContext) 
         with_dialog(cx, |d, _, _| d.values().int("open_dialog_dir")),
         1
     );
+    // F is the letter of two labels now (the radio button and 文字幅に合わせてスペースを詰める, as in
+    // Sakura's dialog): a shared letter uses none of them.
     assert!(with_dialog(cx, |d, w, dcx| d.use_access_key('F', w, dcx)));
     assert_eq!(
         with_dialog(cx, |d, _, _| d.values().int("open_dialog_dir")),
-        2
+        1
     );
+    assert!(!with_dialog(cx, |d, _, _| d
+        .values()
+        .bool("overwrite_fix_mode")));
     assert!(!with_dialog(cx, |d, w, dcx| d.use_access_key('q', w, dcx)));
     cancel(cx);
 }

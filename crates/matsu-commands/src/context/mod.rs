@@ -37,6 +37,7 @@ mod paragraph;
 mod view_mode;
 mod word;
 
+use std::collections::VecDeque;
 use std::path::Path;
 
 use matsu_core::buffer::{Document, Edit, Eol, Pos};
@@ -157,6 +158,22 @@ pub struct CommandContext<'a> {
     view_mode: bool,
     /// The quote string of `F_COPYLINESASPASSAGE`. See [`with_quote_string`](Self::with_quote_string).
     quote: String,
+}
+
+/// The chars still to be overwritten, each with the position after it (`None` for the spaces
+/// that the fixed width option put in).
+type OverwriteRest = VecDeque<(char, Option<Pos>)>;
+
+/// What typing in overwrite mode replaces ([`CommandContext::overwrite_replacement`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OverwritePlan {
+    /// The end of the replaced range; its start is where the typing starts.
+    pub end: Pos,
+    /// What takes the place of the range: the typed text and, after it, the spaces that keep the
+    /// columns of the rest of the line.
+    pub text: String,
+    /// How many bytes of `text` (spaces) come after the caret.
+    pub pad: usize,
 }
 
 impl<'a> CommandContext<'a> {
@@ -511,24 +528,135 @@ impl<'a> CommandContext<'a> {
     }
 
     /// The end of the text that typing `chars` chars at `at` overwrites in overwrite mode: the
-    /// next `chars` chars of the line, fewer at the end of the text of the line. A line ending is
-    /// never overwritten, and neither is the end of the document, so there the typed text is
-    /// inserted. Sakura: `CViewCommander::DelCharForOverwrite` in
-    /// `sakura_core/cmd/CViewCommander_Edit.cpp` with the defaults `m_bNotOverWriteCRLF` on and
-    /// `m_bOverWriteFixMode` off (`sakura_core/env/CShareData.cpp`).
+    /// next `chars` chars of the line, fewer at the end of the text of the line. At the end of the
+    /// text of a line the typed text is inserted, because a line ending is not overwritten
+    /// (`m_bNotOverWriteCRLF`, on by default); with the option off the line ending is deleted, so
+    /// the next line joins. The end of the document is never overwritten. Sakura:
+    /// `CViewCommander::DelCharForOverwrite` in `sakura_core/cmd/CViewCommander_Edit.cpp` (the
+    /// defaults are in `sakura_core/env/CShareData.cpp`). For typed text, with the fixed width
+    /// option too, see [`overwrite_replacement`](Self::overwrite_replacement).
     pub fn overwrite_end(&self, at: Pos, chars: usize) -> Result<Pos> {
+        if chars == 0 {
+            return Ok(at);
+        }
         let Some(line) = self.doc().line(at.line)? else {
             return Ok(at);
         };
         let rest = line.text.get(at.col..).unwrap_or("");
+        if rest.is_empty() {
+            // `bEol`: the caret is at the end of the text. `Command_DELETE` joins the next line.
+            let deletes_eol = line.eol.is_some() && !crate::edit_options::get().not_overwrite_crlf;
+            return Ok(if deletes_eol {
+                Pos::new(at.line + 1, 0)
+            } else {
+                at
+            });
+        }
         let len: usize = rest.chars().take(chars).map(char::len_utf8).sum();
         Ok(Pos::new(at.line, at.col + len))
     }
 
+    /// The first `limit` chars of line `line` from byte `col` on, each with the position after it,
+    /// and whether the line has a line ending. A line that is not there is empty. The limit keeps
+    /// a very long line from being copied for one typed char: a typed char takes two chars at most.
+    fn overwrite_tail(
+        &self,
+        line: usize,
+        col: usize,
+        limit: usize,
+    ) -> Result<(OverwriteRest, bool)> {
+        let Some(l) = self.doc().line(line)? else {
+            return Ok((VecDeque::new(), false));
+        };
+        let mut at = col;
+        let chars = l
+            .text
+            .get(col..)
+            .unwrap_or("")
+            .chars()
+            .take(limit)
+            .map(|c| {
+                at += c.len_utf8();
+                (c, Some(Pos::new(line, at)))
+            })
+            .collect();
+        Ok((chars, l.eol.is_some()))
+    }
+
+    /// What typing `text` at `at` in overwrite mode replaces, char by char as Sakura does
+    /// (`Command_WCHAR` and `Command_IME_CHAR` call `DelCharForOverwrite` for each char): the text
+    /// from `at` to [`OverwritePlan::end`] becomes [`OverwritePlan::text`], and the caret goes
+    /// `pad` bytes before the end of that text.
+    ///
+    /// * A char overwrites the char at the caret. At the end of the text of a line it is inserted;
+    ///   with `m_bNotOverWriteCRLF` off the first char there deletes the line ending instead (the
+    ///   next line joins) and is inserted too, and the next char overwrites the joined line.
+    /// * With `m_bOverWriteFixMode` the columns of the rest of the line stay: a char that is
+    ///   narrower than the one it replaces (a tab is not counted) leaves spaces for the difference
+    ///   after it, and a wider one takes the next char too (not a tab) and leaves the spaces for
+    ///   the two together (`nKetaDiff`, `nKetaAfterIns`; a space is one column). The spaces are
+    ///   chars at the caret: the next typed char overwrites them.
+    /// * A line break in `text` is not overwritten.
+    pub fn overwrite_replacement(&self, at: Pos, text: &str) -> Result<OverwritePlan> {
+        let options = crate::edit_options::get();
+        let mut end = at;
+        let mut out = String::new();
+        let mut line = at.line;
+        // One typed char takes two chars at most, and the next one is looked at.
+        let limit = 2 * text.chars().count() + 1;
+        let (mut rest, mut has_eol) = self.overwrite_tail(line, at.col, limit)?;
+        for typed in text.chars() {
+            if typed == '\r' || typed == '\n' {
+                out.push(typed);
+                continue;
+            }
+            let Some((first, first_end)) = rest.pop_front() else {
+                if has_eol && !options.not_overwrite_crlf {
+                    // `Command_DELETE` at the end of the text: the next line joins.
+                    line += 1;
+                    end = Pos::new(line, 0);
+                    (rest, has_eol) = self.overwrite_tail(line, 0, limit)?;
+                }
+                out.push(typed);
+                continue;
+            };
+            end = first_end.unwrap_or(end);
+            out.push(typed);
+            if !options.overwrite_fix_mode || first == '\t' {
+                continue;
+            }
+            let (before, after) = (
+                self.layout().char_columns(first),
+                self.layout().char_columns(typed),
+            );
+            let spaces = if before >= after {
+                before - after
+            } else if let Some(&(next, _)) = rest.front()
+                && next != '\t'
+            {
+                if let Some((_, next_end)) = rest.pop_front() {
+                    end = next_end.unwrap_or(end);
+                }
+                before + self.layout().char_columns(next) - after
+            } else {
+                0
+            };
+            for _ in 0..spaces {
+                rest.push_front((' ', None));
+            }
+        }
+        let pad = rest.iter().take_while(|(_, end)| end.is_none()).count();
+        out.push_str(&" ".repeat(pad));
+        Ok(OverwritePlan {
+            end,
+            text: out,
+            pad,
+        })
+    }
+
     /// Types `text` at the caret as the typing mode says: insert mode inserts it, overwrite mode
-    /// replaces as many chars after the caret as `text` has (see
-    /// [`overwrite_end`](Self::overwrite_end)). A selection is replaced in both modes. The caret
-    /// ends after the text.
+    /// replaces the chars after the caret (see [`overwrite_replacement`](Self::overwrite_replacement)).
+    /// A selection is replaced in both modes. The caret ends after the text.
     pub fn type_text(&mut self, text: &str) -> Result<Edit> {
         // In a box the typing mode does not matter (see `box_edit`).
         if self.cursor.is_box()
@@ -539,9 +667,11 @@ impl<'a> CommandContext<'a> {
         self.refuse_edit_in_box()?;
         if self.overwrite && self.selection().is_none() {
             let at = self.caret();
-            let end = self.overwrite_end(at, text.chars().count())?;
-            let edit = self.replace(at, end, text)?;
-            self.cursor.move_to(edit.end, false);
+            let plan = self.overwrite_replacement(at, text)?;
+            let edit = self.replace(at, plan.end, &plan.text)?;
+            // The spaces that keep the columns come after the caret.
+            self.cursor
+                .move_to(Pos::new(edit.end.line, edit.end.col - plan.pad), false);
             Ok(edit)
         } else {
             self.insert_text(text)

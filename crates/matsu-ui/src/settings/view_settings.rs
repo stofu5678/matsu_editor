@@ -249,6 +249,9 @@ pub struct ViewSettings {
     pub ruler_height: u32,
     /// `[Common]` `nRulerBottomSpace`: the space between the ruler and the text.
     pub ruler_bottom_space: u32,
+    /// `[Common]` `nLineNumberRightSpace`: the space between the line numbers and the text, in
+    /// pixels (`m_nLineNumRightSpace`; `CTextArea::SetLeftYohaku`).
+    pub line_number_right_space: u32,
     /// `[Common]` `nVertLineOffset`: how far the vertical lines are moved right, in pixels.
     pub vert_line_offset: i32,
     /// `nNoteLineOffset` of the type: how far the note lines are moved down, in pixels.
@@ -557,6 +560,7 @@ impl ViewSettings {
             show_status_bar: profile.get_bool("Common", "bDispSTATUSBAR").unwrap_or(true),
             ruler_height: common_size(profile, "nRulerHeight", DEFAULT_RULER_HEIGHT),
             ruler_bottom_space: common_size(profile, "nRulerBottomSpace", 0),
+            line_number_right_space: common_size(profile, "nLineNumberRightSpace", 0),
             vert_line_offset: profile
                 .get_i32("Common", "nVertLineOffset")
                 .unwrap_or(DEFAULT_VERT_LINE_OFFSET),

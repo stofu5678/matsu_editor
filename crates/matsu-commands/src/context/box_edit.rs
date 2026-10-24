@@ -24,8 +24,9 @@
 //!   the result is the same.
 //! * The text of a row never has its line ending. Sakura removes one char at the end of the
 //!   copied row when it is a line ending delimiter, which for CRLF would leave the CR.
-//! * Overwrite mode is not looked at: Sakura deletes the box first only with the option
-//!   `m_bOverWriteBoxDelete`, which is off by default (`sakura_core/env/CShareData.cpp`).
+//! * Overwrite mode matters only with the option `m_bOverWriteBoxDelete` (off by default,
+//!   `sakura_core/env/CShareData.cpp`): typing then deletes the box first
+//!   (`delete_box_keeping_selection`).
 
 use matsu_core::buffer::{Edit, Pos};
 use matsu_core::cursor::char_left;
@@ -222,6 +223,48 @@ impl CommandContext<'_> {
         Ok(())
     }
 
+    /// `Command_INDENT` with `m_bOverWriteBoxDelete` in overwrite mode: deletes the text of the
+    /// box and selects the same corners again (`DeleteData`, then `GetSelect() = sSelectOld` and
+    /// `SetBoxSelect(true)`), so that the typing goes in front of the now empty box.
+    pub(super) fn delete_box_keeping_selection(&mut self) -> Result<()> {
+        let Some(rect) = self.box_rect()? else {
+            return Ok(());
+        };
+        let Some((anchor, caret)) = self.cursor.box_corners() else {
+            return Ok(());
+        };
+        let lock = self.cursor.selecting_lock();
+        let anchor_is_top = anchor.0 <= caret.0;
+        let top_index = self.layout.row_index(self.doc(), rect.rows[0])?;
+        let bottom_index = self
+            .layout
+            .row_index(self.doc(), rect.rows[rect.rows.len() - 1])?;
+        self.delete_box()?;
+        let (anchor_row, caret_row) = if anchor_is_top {
+            (top_index, bottom_index)
+        } else {
+            (bottom_index, top_index)
+        };
+        // The rows of the box are the same rows (by number) after the delete, as Sakura keeps the
+        // layout coordinates; where a long line wraps differently now, they start elsewhere.
+        let row_start = |this: &Self, index: usize| -> Result<Pos> {
+            Ok(this
+                .layout
+                .row_start_at(this.doc(), index)?
+                .unwrap_or_else(|| Pos::new(this.doc().line_count().saturating_sub(1), 0)))
+        };
+        let anchor = (
+            self.box_corner_pos(row_start(self, anchor_row)?, anchor.1)?,
+            anchor.1,
+        );
+        let caret = (
+            self.box_corner_pos(row_start(self, caret_row)?, caret.1)?,
+            caret.1,
+        );
+        self.set_box(anchor, caret, lock);
+        Ok(())
+    }
+
     // ---- inserting ----
 
     /// Inserts `text` at the box caret when the caret is to the right of the text of its row, the
@@ -315,6 +358,15 @@ impl CommandContext<'_> {
         soft_tab: bool,
     ) -> Result<()> {
         self.refuse_in_view_mode()?;
+        // `Command_INDENT` (typing, the tab and space indents, `InsText`): with
+        // `m_bOverWriteBoxDelete` a box typed over in overwrite mode is deleted first and stays
+        // selected.
+        if self.overwrite
+            && self.cursor.has_selection()
+            && crate::edit_options::get().overwrite_box_delete
+        {
+            self.delete_box_keeping_selection()?;
+        }
         let Some(rect) = self.box_rect()? else {
             return Ok(());
         };

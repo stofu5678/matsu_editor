@@ -232,12 +232,21 @@ impl CommandContext<'_> {
     /// ending (`F_COPY_ADDCRLF`; Sakura's `bAddCRLFWhenCopy`, off by default). A box is copied as
     /// a box.
     pub fn copy(&mut self, eol: Option<Eol>, add_eol: bool) -> Result<()> {
+        // `HandleCommand` passes `bAddCRLFWhenCopy` to `Command_COPY` for F_COPY and F_COPY_CRLF;
+        // F_COPY_ADDCRLF always adds.
+        let options = crate::edit_options::get();
+        let add_eol = add_eol || options.add_crlf_when_copy;
         // Sakura clears the selection lock (`m_bSelectingLock`) at the end of a copy that went
         // through, so the next plain move drops the selection instead of extending it
         // (`Command_COPY`, "選択範囲の後片付け"; `bIgnoreLockAndDisable` is false for every
         // copy command).
         if self.copy_selection_or_row(eol, add_eol)? {
             self.cursor.set_selecting_lock(false);
+            // `bCopyAndDisablSelection`: the selection goes after a copy that went through
+            // (`Command_COPY`, the same clean-up).
+            if options.copy_and_disable_selection && self.selection().is_some() {
+                self.cursor.clear_selection();
+            }
         }
         Ok(())
     }
@@ -283,7 +292,9 @@ impl CommandContext<'_> {
             }
             return self.cut_row();
         }
-        let Some((text, kind)) = self.selected_text(None, false)? else {
+        // `Command_CUT` passes `bAddCRLFWhenCopy` to `GetSelectedData` too.
+        let add_eol = crate::edit_options::get().add_crlf_when_copy;
+        let Some((text, kind)) = self.selected_text(None, add_eol)? else {
             return Ok(());
         };
         if self.copy_text(text, kind)? {
@@ -296,13 +307,17 @@ impl CommandContext<'_> {
     /// and when there is no row.
     pub fn cut_row(&mut self) -> Result<()> {
         self.refuse_in_view_mode()?;
-        let Some((start, end, text)) = self.caret_row_text()? else {
+        let Some((start, end, mut text)) = self.caret_row_text()? else {
             self.beep();
             return Ok(());
         };
         if self.selection().is_some() {
             self.beep();
             return Ok(());
+        }
+        // `Command_CUT_LINE` passes `bAddCRLFWhenCopy` to `CopyCurLine`.
+        if crate::edit_options::get().add_crlf_when_copy && !ends_with_break(start, end) {
+            text.push_str("\r\n");
         }
         let kind = if enable_line_mode_paste() {
             ClipKind::Line

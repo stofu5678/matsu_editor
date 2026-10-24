@@ -107,6 +107,27 @@ mod tests {
     }
 
     #[test]
+    fn a_soft_tab_in_overwrite_mode_keeps_the_columns_with_the_fix_mode() {
+        // `DelCharForOverwrite` gets the tab char (one column): a full-width char that it
+        // replaces leaves a space behind with `m_bOverWriteFixMode`
+        let options = crate::edit_options::EditOptions {
+            overwrite_fix_mode: true,
+            ..Default::default()
+        };
+        crate::edit_options::with_options(options, || {
+            let mut e = Editor::new("a|日b").with_tab_width(4).with_ins_space(true);
+            e.set_overwrite(true);
+            e.run("indent_tab").assert_marked("a   | b");
+            let mut e = Editor::new("a|bc").with_tab_width(4).with_ins_space(true);
+            e.set_overwrite(true);
+            e.run("indent_tab").assert_marked("a   |c");
+        });
+        let mut e = Editor::new("a|日b").with_tab_width(4).with_ins_space(true);
+        e.set_overwrite(true);
+        e.run("indent_tab").assert_marked("a   |b");
+    }
+
+    #[test]
     fn a_soft_tab_counts_full_width_chars_as_two_columns() {
         soft(4, "あ|", "あ  |");
         soft(4, "あい|", "あい    |");

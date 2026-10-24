@@ -86,6 +86,20 @@ fn the_height_of_the_ruler_and_the_space_below_it_are_settings(cx: &mut TestAppC
 }
 
 #[gpui::test]
+fn the_space_after_the_line_numbers_moves_the_text_right(cx: &mut TestAppContext) {
+    // `nLineNumberRightSpace` (`CTextArea::SetLeftYohaku`), in pixels
+    let (view, cx) = setup(cx, "abc");
+    cx.run_until_parked();
+    let origin = |view: &Entity<EditorView>, cx: &mut VisualTestContext| {
+        view.read_with(cx, |v, _| v.paint.expect("the window was painted").origin_x)
+    };
+    let before = origin(&view, cx);
+    apply(&view, cx, "[Common]\r\nnLineNumberRightSpace=7\r\n");
+    cx.run_until_parked();
+    assert_eq!(origin(&view, cx) - before, 7.0);
+}
+
+#[gpui::test]
 fn a_click_below_the_ruler_finds_the_first_row(cx: &mut TestAppContext) {
     use gpui::point;
     let (view, cx) = setup(cx, "abc\ndef");

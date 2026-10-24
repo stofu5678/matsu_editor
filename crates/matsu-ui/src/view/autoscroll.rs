@@ -212,6 +212,11 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // The button was the key of a wheel combination and the wheel turned: that was its use.
+        if self.wheel_used_buttons.take(MouseButton::Middle) {
+            self.autoscroll_exit();
+            return;
+        }
         match self.middle_button_function(event.modifiers) {
             Some(F_AUTOSCROLL) => {
                 if let AutoScroll::Pending { origin } = self.autoscroll {
