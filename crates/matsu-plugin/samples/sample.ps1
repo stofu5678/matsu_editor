@@ -17,12 +17,12 @@ $Editor.MoveCursor(3, 1000, 1)  # past the end of the line: the end of the line
 Write-Output "選択: $($Editor.GetSelectedString(0)) / IsTextSelected = $($Editor.IsTextSelected())"
 $Editor.InsText('みかん😀 (置き換えました)')
 
-# An error response is an exception: $_.FullyQualifiedErrorId is 'EditorError' and the code is
-# $_.Exception.Data['Code'].
+# An error response is an exception. PowerShell wraps what a method throws, so ask
+# Get-EditorErrorCode for the code ($null when $_ is not an error of the editor).
 try {
     $Editor.GetLineStr('not a number')
 } catch {
-    Write-Output "エラー: $($_.Exception.Data['Code']) $($_.Exception.Message)"
+    Write-Output "エラー: $(Get-EditorErrorCode $_)"
 }
 
 $Editor.AddTail("-- マクロの終わり --`n")
