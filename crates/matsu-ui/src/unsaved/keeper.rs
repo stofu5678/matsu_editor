@@ -551,16 +551,22 @@ pub(crate) fn info_of(view: &EditorView, shared: &SharedDocument) -> DocInfo {
         .ok()
         .flatten()
         .map_or(caret.col, |line| col_to_utf16(&line.text, caret.col));
-    let stamp = shared
-        .disk()
-        .stamp
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok());
-    // The size the file had when the document was opened is not kept; the size now counts only while the
-    // time stamp is still the one the document was opened with.
-    let file_size = shared.path().and_then(|path| {
-        let meta = std::fs::metadata(path).ok()?;
-        (meta.modified().ok() == shared.disk().stamp).then_some(meta.len())
-    });
+    // A document that was brought back and whose file is not looked at yet keeps the time and the size it came with
+    // (the watching of the file may have taken the new time since: the choice 「以後通知メッセージのみ」), so
+    // that the check before the save still works after another restart.
+    let (stamp, file_size) = match shared.restored_check() {
+        Some(check) => (check.modified, check.size),
+        None => {
+            // The size the file had when the document was opened is not kept; the size now counts only while
+            // the time stamp is still the one the document was opened with.
+            let size = shared.path().and_then(|path| {
+                let meta = std::fs::metadata(path).ok()?;
+                (meta.modified().ok() == shared.disk().stamp).then_some(meta.len())
+            });
+            (shared.disk().stamp, size)
+        }
+    };
+    let stamp = stamp.and_then(|t| t.duration_since(UNIX_EPOCH).ok());
     DocInfo {
         untitled_number: shared.untitled_number(),
         path: shared.path().map(|p| p.to_string_lossy().into_owned()),

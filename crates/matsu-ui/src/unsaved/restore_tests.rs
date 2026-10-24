@@ -636,3 +636,40 @@ fn when_nothing_came_back_the_notice_waits_for_the_first_window(cx: &mut TestApp
     );
     assert!(windows(cx).is_empty());
 }
+
+#[gpui::test]
+fn the_check_survives_another_restart_even_when_the_watching_took_the_new_time(
+    cx: &mut TestAppContext,
+) {
+    let f = fixture(cx, false);
+    let file = f.tmp.path().join("named.txt");
+    std::fs::write(&file, "original").unwrap();
+    let mut i = info(Some(&file));
+    i.file_modified_secs = Some(1_000_000);
+    i.file_modified_nanos = Some(0);
+    i.file_size = Some(3);
+    let store = Store::open(&f.dir).unwrap();
+    let id = keep(&store, &i, "my version");
+    store
+        .write_session(&Session {
+            windows: vec![one_window(&[&id])],
+            active_window: 0,
+        })
+        .unwrap();
+    drop(store);
+    cx.update(restore_all);
+    cx.run_until_parked();
+    let list = windows(cx);
+    let handle = list[0].0;
+    let view = tabs_of(cx, &list[0].1).remove(0);
+    // The watching asks, and the user chooses to be only told: it takes the new time stamp.
+    let window = VisualTestContext::from_window(handle, cx).into_mut();
+    window.simulate_prompt_answer("以後通知メッセージのみ(M)");
+    window.run_until_parked();
+    // The document is written again (the caret moved), as the keeper would on losing the focus.
+    let info = view.read_with(cx, |view, app| {
+        super::keeper::info_of(view, view.document().read(app))
+    });
+    assert_eq!(info.file_modified_secs, Some(1_000_000));
+    assert_eq!(info.file_size, Some(3));
+}

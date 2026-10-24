@@ -320,6 +320,13 @@ fn open_first(
 /// Puts the caret, the view, the bookmarks and the chosen type back.
 fn apply_view_state(view: &Entity<EditorView>, info: &DocInfo, cx: &mut App) {
     let document = view.read(cx).document().clone();
+    // A file with a name is locked as a file that was opened is (`CDocLocker::OnAfterLoad`).
+    let share_mode = crate::file_ops::prefs::prefs(cx).file_share_mode;
+    document.update(cx, |shared, _| {
+        if shared.path().is_some_and(|p| p.is_file()) {
+            shared.lock_after_load(share_mode);
+        }
+    });
     if let Some(index) = info.doc_type.and_then(|i| usize::try_from(i).ok()) {
         document.update(cx, |shared, cx| {
             shared.set_type_locked(true);
