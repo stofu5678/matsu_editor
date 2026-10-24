@@ -510,3 +510,23 @@ fn the_day_of_the_rejection_is_in_the_name() {
     assert!(removed >= 1);
     assert!(!store.dir().join("rejected").join(&name).exists());
 }
+
+#[test]
+fn a_rejected_name_with_a_day_out_of_range_is_judged_by_its_last_write() {
+    let (_tmp, store) = store();
+    fs::create_dir_all(store.dir().join("rejected")).unwrap();
+    fs::write(
+        store
+            .dir()
+            .join("rejected")
+            .join("x.18446744073709551615.doc"),
+        b"x",
+    )
+    .unwrap();
+    assert_eq!(
+        store
+            .purge_rejected(SystemTime::now(), REJECTED_KEEP)
+            .unwrap(),
+        0
+    );
+}

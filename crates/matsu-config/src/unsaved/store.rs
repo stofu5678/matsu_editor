@@ -340,7 +340,7 @@ pub const REJECTED_KEEP: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 fn rejected_day(name: &str) -> Option<SystemTime> {
     let stem = name.strip_suffix(&format!(".{DOC_EXTENSION}"))?;
     let (_, secs) = stem.rsplit_once('.')?;
-    Some(UNIX_EPOCH + Duration::from_secs(secs.parse().ok()?))
+    UNIX_EPOCH.checked_add(Duration::from_secs(secs.parse().ok()?))
 }
 
 fn check_id(id: &str) -> io::Result<()> {
