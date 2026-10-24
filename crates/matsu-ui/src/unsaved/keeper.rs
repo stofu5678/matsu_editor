@@ -64,9 +64,6 @@ pub(crate) struct Entry {
     /// The revision the user chose to throw away (「保存しない」 while the document stays open, as in an exit of all
     /// windows): no copy is made of it again; the next change makes one.
     suppressed: Option<Revision>,
-    /// The information of the last write that was queued: caret, view and bookmarks are compared with it when the
-    /// window loses the focus, so a copy whose text is unchanged still gets the new place.
-    last_info: Option<DocInfo>,
 }
 
 impl Entry {
@@ -81,7 +78,6 @@ impl Entry {
             document: None,
             warned_big: false,
             suppressed: None,
-            last_info: None,
         }
     }
 
@@ -97,7 +93,6 @@ impl Entry {
         self.seen = None;
         self.first_pending = None;
         self.last_attempt = None;
-        self.last_info = None;
     }
 }
 
@@ -787,6 +782,8 @@ pub(crate) fn tick_window_at(
             let mut info = None;
             if force
                 && want == Want::Keep
+                // A revision the user threw away stays thrown away.
+                && entry.suppressed != Some(revision)
                 && !plan.write
                 && !entry
                     .shared
@@ -795,7 +792,7 @@ pub(crate) fn tick_window_at(
             {
                 let now_info = info_of(view.read(cx), document.read(cx));
                 if entry.shared.written() != Some(revision)
-                    || entry.last_info.as_ref() != Some(&now_info)
+                    || entry.shared.written_info().as_ref() != Some(&now_info)
                 {
                     plan.write = true;
                     entry.first_pending = None;
@@ -818,7 +815,6 @@ pub(crate) fn tick_window_at(
                         info: info.unwrap_or_else(|| info_of(view.read(cx), shared)),
                     }
                 };
-                entry.last_info = Some(snapshot.info.clone());
                 writer.write(id, &entry.shared, revision, snapshot);
             }
             if plan.warn_too_big {

@@ -45,11 +45,20 @@ pub(crate) struct Shared {
     pub failed: AtomicBool,
     /// The revision of the last write that succeeded.
     pub written: Mutex<Option<Revision>>,
+    /// The information (caret, view, bookmarks, ...) of the last write that succeeded.
+    pub written_info: Mutex<Option<DocInfo>>,
 }
 
 impl Shared {
     pub(crate) fn written(&self) -> Option<Revision> {
         *self.written.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub(crate) fn written_info(&self) -> Option<DocInfo> {
+        self.written_info
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 }
 
@@ -224,6 +233,10 @@ fn run(
                 match &result {
                     Ok(()) => {
                         pending.fresh.insert(id.clone());
+                        *shared
+                            .written_info
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner()) = Some(snapshot.info.clone());
                         *shared.written.lock().unwrap_or_else(|e| e.into_inner()) = Some(revision);
                         shared.failed.store(false, Ordering::SeqCst);
                     }

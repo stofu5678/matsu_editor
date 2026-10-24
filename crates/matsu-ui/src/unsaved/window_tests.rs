@@ -722,3 +722,19 @@ fn losing_the_focus_refreshes_the_caret_of_a_copy_whose_text_is_unchanged(cx: &m
     assert_ne!(after, before, "the caret is in the copy now");
     assert!(String::from_utf8_lossy(&after).contains("CaretColumn=2"));
 }
+
+#[gpui::test]
+fn losing_the_focus_does_not_bring_back_a_revision_the_user_threw_away(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "thrown away");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    let ws = workspace(cx, f.handle);
+    let view = ws.read_with(cx, |ws, _| ws.editor().clone());
+    throw_away(cx, &view);
+    cx.update(|app| flush(app));
+    assert!(doc_files(&f.dir).is_empty());
+    deactivate(cx, &f, t0 + Duration::from_secs(10));
+    assert!(doc_files(&f.dir).is_empty());
+}
