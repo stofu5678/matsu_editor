@@ -1014,8 +1014,23 @@ pub(crate) fn settle_at_quit(cx: &mut App) -> impl std::future::Future<Output = 
     queue_all_now(cx, None);
     let rx = barrier(cx);
     let executor = cx.background_executor().clone();
+    let async_cx = cx.to_async();
     async move {
-        if let Some(rx) = rx {
+        let Some(rx) = rx else {
+            return;
+        };
+        executor
+            .spawn(async move {
+                let _ = rx.recv_timeout(SETTLE_TIMEOUT);
+            })
+            .await;
+        // A write that was running when the first round asked could not be asked again: a second round, now
+        // that it is over, writes what was typed meanwhile.
+        let second = async_cx.update(|app| {
+            queue_all_now(app, None);
+            barrier(app)
+        });
+        if let Some(rx) = second {
             executor
                 .spawn(async move {
                     let _ = rx.recv_timeout(SETTLE_TIMEOUT);

@@ -177,3 +177,48 @@ fn answering_no_to_an_uncovered_document_discards_its_copy_at_the_end(cx: &mut T
     assert!(doc_files(&f.dir).is_empty());
     drop(held);
 }
+
+#[gpui::test]
+fn a_window_that_stays_empty_after_the_last_tab_closes_is_not_an_end(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    hot(cx, true);
+    // Tab mode with 「最後のファイルを閉じても空のウィンドウを残す」: the last tab closes into an empty document.
+    cx.update(|app| {
+        app.set_global(crate::tabs::settings::TabSettings {
+            show_bar: true,
+            grouped: true,
+            new_window: false,
+        });
+        let mut options = crate::tabs::settings::options(app);
+        options.retain_empty = true;
+        app.set_global(options);
+    });
+    type_text(cx, &f, "would be lost");
+    run(cx, &f, "F_WINCLOSE");
+    assert!(asks(cx, &f), "the text is asked about, the window stays");
+}
+
+#[gpui::test]
+fn a_cancelled_flow_does_not_make_the_hot_exit_delete_the_copy(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    hot(cx, true);
+    type_text(cx, &f, "covered");
+    let t0 = Instant::now();
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    // An earlier flow got 「保存しない」 and was cancelled afterwards (the file chooser): the mark is still there.
+    let ws = workspace(cx, f.handle);
+    let view = ws.read_with(cx, |ws, _| ws.editor().clone());
+    view.update(cx, |view, cx| {
+        let this = cx.weak_entity();
+        super::mark_close(view, this, cx);
+    });
+    run(cx, &f, "F_EXITALL");
+    assert!(!asks(cx, &f));
+    assert_eq!(
+        doc_files(&f.dir).len(),
+        1,
+        "the copy that covers the document stays"
+    );
+}

@@ -192,6 +192,9 @@ pub(crate) async fn confirm_discard_ending(
     cx: &mut AsyncWindowContext,
     hot: bool,
 ) -> bool {
+    // An answer of an earlier flow that was cancelled does not count any more.
+    view.update(cx, |view, cx| crate::unsaved::unmark_close(view, cx))
+        .ok();
     if hot && view.read_with(cx, crate::unsaved::covered).unwrap_or(false) {
         return true;
     }
@@ -206,6 +209,9 @@ async fn closing_ends_the_editor(
 ) -> bool {
     cx.update(|_, app| {
         crate::unsaved::hot_exit_enabled(app)
+            // The last tab of a window that stays (`m_bTab_RetainEmptyWin`, `close_in`) is not the end.
+            && !(crate::tabs::settings::current(app).bound()
+                && crate::tabs::settings::options(app).retain_empty)
             && super::windows::workspaces(app).len() == 1
             && super::windows::find_tab_of(app, view)
                 .and_then(|(handle, _)| super::windows::workspace_of(app, handle))
