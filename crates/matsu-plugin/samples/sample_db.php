@@ -34,7 +34,9 @@ $pdo = new PDO('sqlite:' . $database);
 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
 // A statement ends at a line that ends with ";" (simple: a ";" at the end of a line inside a
-// string or a trigger is taken for the end), and the line it starts at is kept for the error.
+// string or a trigger, or a "--" inside a string, is not told from the real thing; the Python
+// sample uses SQLite's own test for the end of a statement), and the line it starts at is kept
+// for the error.
 $statement = '';
 $start = $firstLine;
 $number = $firstLine - 1;
