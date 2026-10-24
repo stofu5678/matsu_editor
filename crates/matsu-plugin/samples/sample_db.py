@@ -52,7 +52,8 @@ for line in sql.splitlines(keepends=True):
             print(f"{name}:{start}: ERROR: {error}")
         statement = ""
 
-if statement.strip():
+# what is left may be only a comment
+if "\n".join(line.split("--")[0] for line in statement.splitlines()).strip():
     print(f"{name}:{start}: ERROR: the last statement does not end with ';'")
 conn.commit()
 conn.close()

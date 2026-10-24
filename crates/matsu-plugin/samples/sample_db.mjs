@@ -1,8 +1,8 @@
 // Sample macro (JavaScript, Node.js ES module): runs the SQL of the document (or of the
 // selection) on a database and writes the result to the output panel (ADR-0023).
 //
-// This one uses SQLite through `node:sqlite` (Node.js 22.5 or later; Node.js 22 needs
-// `--experimental-sqlite` before 22.13). Another database is the same few lines with its own
+// This one uses SQLite through `node:sqlite` (Node.js 22.16 or later; the statement's
+// `columns()` is from that version). Another database is the same few lines with its own
 // package, installed by the user (`npm install ...`); these were written from the packages'
 // documentation and not tried:
 //
@@ -69,12 +69,13 @@ for (const line of sql.split(/(?<=\n)/)) {
   }
   statement += line;
   // a "--" comment after the ";" is not part of the line's end
-  if (line.replace(/--.*$/, '').trimEnd().endsWith(';')) {
+  if (line.replace(/--[^\n]*/, '').trimEnd().endsWith(';')) {
     run();
     statement = '';
   }
 }
-if (statement.trim() !== '') {
+// what is left may be only a comment
+if (statement.replace(/--.*$/gm, '').trim() !== '') {
   console.log(`${name}:${start}: ERROR: the last statement does not end with ';'`);
 }
 db.close();
