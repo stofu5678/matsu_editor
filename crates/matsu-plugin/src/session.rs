@@ -220,7 +220,7 @@ fn on_path(file: &str) -> bool {
 /// text that is compiled to a script block is not. The boot files are read from the folder that
 /// the editor made (`MATSU_BOOT_DIR`), so no path is quoted into this text.
 const POWERSHELL_BOOTSTRAP: &str = "$d = $env:MATSU_BOOT_DIR; \
-    . ([scriptblock]::Create([IO.File]::ReadAllText((Join-Path $d 'boot.ps1'), [Text.Encoding]::UTF8)))";
+    . ([scriptblock]::Create([IO.File]::ReadAllText([IO.Path]::Combine($d, 'boot.ps1'), [Text.Encoding]::UTF8)))";
 
 /// What the editor tells the host about one run. `for_script` fills in the defaults; the
 /// editor then changes the fields it has settings for.

@@ -138,6 +138,10 @@ fn files_are_told_apart_by_their_extension() {
         FileKind::Script(Language::Php)
     );
     assert_eq!(
+        file_kind(Path::new("a.ps1")),
+        FileKind::Script(Language::PowerShell)
+    );
+    assert_eq!(
         file_kind(Path::new("a.lua")),
         FileKind::Script(Language::Bundled(Engine::Lua))
     );

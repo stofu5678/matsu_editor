@@ -1827,17 +1827,17 @@ $global:MatsuApiNames = @(
 )
 
 function global:New-MatsuEditor {
-    $editor = New-Object PSObject
+    $editor = [System.Management.Automation.PSObject]::new()
     foreach ($name in $global:MatsuApiNames) {
         # The body is made from text, so that each method knows its own name.
         $body = [scriptblock]::Create("Invoke-MatsuCall '$name' `$args")
-        $editor.PSObject.Members.Add((New-Object System.Management.Automation.PSScriptMethod $name, $body))
+        $editor.PSObject.Members.Add([System.Management.Automation.PSScriptMethod]::new($name, $body))
     }
     # Any other name of Sakura's macro functions, including those that start with a digit
     # ('1PageUp'): $Editor.Call('1PageUp'). The editor answers a name it does not know with an
     # error.
     $call = [scriptblock]::Create('param($name) Invoke-MatsuCall $name $args')
-    $editor.PSObject.Members.Add((New-Object System.Management.Automation.PSScriptMethod 'Call', $call))
-    $editor | Add-Member -MemberType NoteProperty -Name Info -Value $null
+    $editor.PSObject.Members.Add([System.Management.Automation.PSScriptMethod]::new('Call', $call))
+    $editor.PSObject.Members.Add([System.Management.Automation.PSNoteProperty]::new('Info', $null))
     $editor
 }

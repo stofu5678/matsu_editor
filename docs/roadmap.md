@@ -11,7 +11,7 @@
 | 0. 土台 | 決定事項の記録、ライセンス、UI・印刷・JSON-RPC の試作、Cargo ワークスペースと CI | UI フレームワークが決まり、3 OS の CI が通る。印刷とスクリプトの作り方の見通しが立つ |
 | 1. メモ帳相当 | 開く・保存（文字コード、BOM、改行コード）、編集、Undo/Redo、IME、検索・置換（文字列のみ）、行番号、タブ・全角空白・改行マークの表示、折り返し、サクラのキー割り当てとメニュー、サクラと互換の設定ファイル（[ADR-0010](adr/0010-sakura-compatible-settings.md)）。扱うファイルの大きさに上限はない（64 ビット版のサクラと同じ。[ADR-0012](adr/0012-file-size-limit.md)） | 日常のメモ書きに使える。サクラの設定ファイルと同じ形式（`matsu.ini`）で読み書きできる |
 | 2. 正規表現 | Onigmo の組み込み、サクラと同じ検索・置換オプション | bregonig との互換テストに合格する |
-| 3. マクロ・プラグイン | キーマクロの記録と実行、プラグインホスト（JSON-RPC）、外部の言語（Node.js・Python・Ruby・PHP）用ライブラリ、同梱の処理系（Lua・QuickJS・MicroPython・mruby を `matsu-script` にまとめる）、イベント（[ADR-0007](adr/0007-macros-and-plugins.md)）。ほかの言語は第 2 弾以降 | サクラのマクロでできることを、JavaScript と Python で書ける |
+| 3. マクロ・プラグイン | キーマクロの記録と実行、プラグインホスト（JSON-RPC）、外部の言語（Node.js・TypeScript・Python・Ruby・PHP・PowerShell）用ライブラリ、同梱の処理系（Lua・QuickJS・MicroPython・mruby を `matsu-script` にまとめる）、イベント（[ADR-0007](adr/0007-macros-and-plugins.md)）。ほかの言語（Perl・Emacs Lisp・AppleScript）は [ADR-0025](adr/0025-script-languages.md) の順に足す | サクラのマクロでできることを、JavaScript と Python で書ける |
 | 4. 印刷 | 共通のページ割り付け、印刷プレビュー、OS ごとの印刷（[ADR-0011](adr/0011-printing.md)） | 3 OS で印刷とプレビューができる |
 | 5. 並列実装 | サクラの機能台帳から、複数のサブエージェントで機能をまとめて実装する | — |
 | 6. 巨大ファイル | 巨大なファイルをメモリに全部読まずに、範囲ごとに読んで速く開く方式、改行位置のバックグラウンド走査、ファイル全体を順に読みながらの検索 | 10GB のファイルを開いてすぐスクロールできる |

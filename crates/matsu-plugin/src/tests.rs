@@ -444,10 +444,12 @@ fn a_macro_that_exits_at_once_ends_cleanly() {
         (PY, "pass"),
         (RB, "# nothing"),
         (PHP, "// nothing"),
+        (PS, "# nothing"),
         (JS, ""),
         (PY, ""),
         (RB, ""),
         (PHP, ""),
+        (PS, ""),
     ] {
         let mut requests = 0;
         let Some((report, _)) = run_with(language, code, "", PATIENT, |doc, m| {
@@ -712,10 +714,12 @@ fn the_boot_folder_is_gone_when_finished_is_reported() {
         (PY, ""),
         (RB, ""),
         (PHP, ""),
+        (PS, ""),
         (JS, "console.log(1)"),
         (PY, "print(1)"),
         (RB, "puts 1"),
         (PHP, "echo 1;"),
+        (PS, "Write-Output 1"),
     ] {
         if !available(language) {
             continue;

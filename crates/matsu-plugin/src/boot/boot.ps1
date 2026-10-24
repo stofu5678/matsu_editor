@@ -1,5 +1,8 @@
 # The boot library of the PowerShell macros (PowerShell 7 and Windows PowerShell 5.1).
 #
+# Cmdlets are avoided on the way in (New-Object, Join-Path, Add-Member): the first use of the
+# modules that hold them costs 100 to 300 ms, and the start-up is slow enough.
+#
 # The editor starts PowerShell with -Command, which reads this file as text and dot-sources it as
 # a script block (an execution policy governs script files, not text). The first line of the
 # standard input is the `initialize` notification; its params.script holds the name and the text
@@ -16,12 +19,12 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $global:MatsuRS = [string][char]0x1e
 $global:MatsuNextId = 1
-$utf8 = New-Object System.Text.UTF8Encoding $false
+$utf8 = [System.Text.UTF8Encoding]::new($false)
 # The user's output (Write-Host, Write-Output) is UTF-8, whatever the code page of the console.
 try { [Console]::OutputEncoding = $utf8 } catch { }
 try { $OutputEncoding = $utf8 } catch { }
 # The input is read as bytes, so no code page gets in the way (the lines are ASCII anyway).
-$global:MatsuIn = New-Object System.IO.StreamReader ([Console]::OpenStandardInput()), $utf8, $false
+$global:MatsuIn = [System.IO.StreamReader]::new([Console]::OpenStandardInput(), $utf8, $false)
 $global:MatsuOut = [Console]::Out
 
 # ---- JSON ----------------------------------------------------------------------------------
@@ -88,7 +91,7 @@ function global:Read-MatsuValue($tok) {
         }
     }
     if ($p -eq '[') {
-        $items = New-Object System.Collections.ArrayList
+        $items = [System.Collections.ArrayList]::new()
         $tok = Read-MatsuToken
         if ($tok.Groups['p'].Value -eq ']') { return , $items.ToArray() }
         while ($true) {
@@ -169,11 +172,11 @@ function global:Get-EditorErrorCode($Record) {
 }
 
 function global:New-MatsuError([long]$Code, [string]$Message) {
-    $ex = New-Object System.InvalidOperationException ("EditorError ${Code}: $Message")
+    $ex = [System.InvalidOperationException]::new("EditorError ${Code}: $Message")
     $Line = Get-MatsuCallerLine
     $ex.Data['Code'] = $Code
     $ex.Data['Line'] = $Line
-    New-Object System.Management.Automation.ErrorRecord $ex, 'EditorError', ([System.Management.Automation.ErrorCategory]::InvalidOperation), $null
+    [System.Management.Automation.ErrorRecord]::new($ex, 'EditorError', [System.Management.Automation.ErrorCategory]::InvalidOperation, $null)
 }
 
 # ---- Calls -----------------------------------------------------------------------------------
@@ -203,7 +206,7 @@ function global:Read-MatsuLine {
 function global:Invoke-MatsuCall([string]$Method, $Arguments) {
     $id = $global:MatsuNextId
     $global:MatsuNextId = $id + 1
-    $parts = New-Object System.Collections.Generic.List[string]
+    $parts = [System.Collections.Generic.List[string]]::new()
     foreach ($a in @($Arguments)) { $parts.Add((ConvertTo-MatsuJsonValue $a)) }
     $request = '{"jsonrpc":"2.0","id":' + $id + ',"method":' + (ConvertTo-MatsuJsonString $Method) + ',"params":[' + ($parts -join ',') + ']}'
     $global:MatsuOut.Write($global:MatsuRS + $request + "`n")
@@ -251,7 +254,7 @@ if ($null -eq $global:MatsuInfo -or -not $global:MatsuInfo.Contains('script')) {
 $global:MatsuName = [string]$global:MatsuInfo['script']['name']
 $global:MatsuSource = [string]$global:MatsuInfo['script']['source']
 
-. ([scriptblock]::Create([IO.File]::ReadAllText((Join-Path $env:MATSU_BOOT_DIR 'api_gen.ps1'), $utf8)))
+. ([scriptblock]::Create([IO.File]::ReadAllText(([IO.Path]::Combine($env:MATSU_BOOT_DIR, 'api_gen.ps1')), $utf8)))
 $global:Editor = New-MatsuEditor
 $global:Editor.Info = $global:MatsuInfo
 
