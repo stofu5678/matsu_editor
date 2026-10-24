@@ -216,27 +216,27 @@ pub(crate) fn concat(l: Tree, r: Tree) -> Tree {
 
 /// Splits the tree at byte offset `at` (counted over all pieces). A piece that contains `at`
 /// is cut in two. `at` must be on a character boundary.
-pub(crate) fn split(t: &Tree, at: usize, st: &Storages) -> (Tree, Tree) {
+pub(crate) fn split(t: &Tree, at: usize, st: &Storages) -> Result<(Tree, Tree)> {
     let Some(n) = t else {
-        return (None, None);
+        return Ok((None, None));
     };
     let lb = agg(&n.left).bytes;
     let plen = n.piece.end - n.piece.start;
-    if at <= lb {
-        let (a, b) = split(&n.left, at, st);
+    Ok(if at <= lb {
+        let (a, b) = split(&n.left, at, st)?;
         (a, Some(join(b, n.piece, n.right.clone())))
     } else if at >= lb + plen {
-        let (a, b) = split(&n.right, at - lb - plen, st);
+        let (a, b) = split(&n.right, at - lb - plen, st)?;
         (Some(join(n.left.clone(), n.piece, a)), b)
     } else {
         let cut = n.piece.start + (at - lb);
-        let p1 = st.piece(n.piece.store, n.piece.start, cut);
-        let p2 = st.piece(n.piece.store, cut, n.piece.end);
+        let p1 = st.piece(n.piece.store, n.piece.start, cut)?;
+        let p2 = st.piece(n.piece.store, cut, n.piece.end)?;
         (
             Some(join(n.left.clone(), p1, None)),
             Some(join(None, p2, n.right.clone())),
         )
-    }
+    })
 }
 
 /// The piece that contains the byte at `offset`, and the offset where it starts.
@@ -268,12 +268,20 @@ pub(crate) struct RawBreak {
 }
 
 /// The `k`-th line break (0-based) of the tree.
-pub(crate) fn nth_break(t: &Tree, k: usize, st: &Storages) -> Option<RawBreak> {
+pub(crate) fn nth_break(t: &Tree, k: usize, st: &Storages) -> Result<Option<RawBreak>> {
     nth_break_in(t, k, 0, false, st)
 }
 
-fn nth_break_in(t: &Tree, k: usize, base: usize, prev_cr: bool, st: &Storages) -> Option<RawBreak> {
-    let n = t.as_ref()?;
+fn nth_break_in(
+    t: &Tree,
+    k: usize,
+    base: usize,
+    prev_cr: bool,
+    st: &Storages,
+) -> Result<Option<RawBreak>> {
+    let Some(n) = t.as_ref() else {
+        return Ok(None);
+    };
     let la = agg(&n.left);
     let in_left = la.effective_breaks(prev_cr);
     if k < in_left {
@@ -286,13 +294,15 @@ fn nth_break_in(t: &Tree, k: usize, base: usize, prev_cr: bool, st: &Storages) -
     let in_piece = p.agg.breaks - skip;
     let piece_base = base + la.bytes;
     if k < in_piece {
-        let v = st.nth_view(&p, k + skip)?;
-        return Some(RawBreak {
+        let Some(v) = st.nth_view(&p, k + skip)? else {
+            return Ok(None);
+        };
+        return Ok(Some(RawBreak {
             start: piece_base + (v.off - p.start),
             len: v.len,
             kind: v.kind,
             open_cr: v.kind == Eol::Cr && v.off + v.len == p.end,
-        });
+        }));
     }
     nth_break_in(
         &n.right,
@@ -369,7 +379,9 @@ pub(crate) fn check_invariants(t: &Tree, st: &Storages) {
         assert!(n.piece.end > n.piece.start, "empty piece");
         assert_eq!(
             n.piece.agg,
-            st.piece(n.piece.store, n.piece.start, n.piece.end).agg
+            st.piece(n.piece.store, n.piece.start, n.piece.end)
+                .unwrap()
+                .agg
         );
         let agg = al.then(n.piece.agg).then(ar);
         assert_eq!(n.agg, agg);

@@ -27,6 +27,16 @@ pub trait Source: Send + Sync + fmt::Debug {
     }
 }
 
+impl<S: Source + ?Sized> Source for Arc<S> {
+    fn len(&self) -> u64 {
+        (**self).len()
+    }
+
+    fn read(&self, start: u64, end: u64) -> io::Result<Cow<'_, [u8]>> {
+        (**self).read(start, end)
+    }
+}
+
 /// A source held in memory. Cloning shares the bytes.
 #[derive(Clone, Debug)]
 pub struct MemorySource(Arc<[u8]>);
@@ -185,7 +195,7 @@ impl LineIndex {
     }
 
     /// The number of entries whose start is less than `pos`.
-    fn count_before(&self, pos: usize) -> usize {
+    fn entries_before(&self, pos: usize) -> usize {
         if self.epochs.is_empty() {
             // Fast path below 4 GiB: compare the stored 32-bit values.
             let Ok(pos) = u32::try_from(pos) else {
@@ -251,26 +261,60 @@ impl LineIndex {
         }
         Ok(())
     }
+}
+
+/// One line ending of an index: where it starts, how long it is and what it is.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Entry {
+    pub start: usize,
+    pub len: usize,
+    pub kind: Eol,
+}
+
+/// The line endings of the original data, sorted by position (ADR-0020, chapter 2).
+///
+/// Two implementations stand behind it: [`LineIndex`] (every line ending in memory, for files that
+/// are read whole) and [`super::block::BlockIndex`] (a count per block of the file, for files read
+/// by ranges). The piece tree and the layers above it only use the methods of this trait, so they
+/// do not know which one they have. Reading a range may need I/O, so the lookups can fail.
+pub(crate) trait EolIndex: fmt::Debug + Send + Sync {
+    /// The number of line endings the index knows.
+    fn len(&self) -> usize;
+
+    /// The number of entries whose start is less than `pos`.
+    fn count_before(&self, pos: usize) -> io::Result<usize>;
+
+    /// Entry `j` (`j < len()`).
+    fn entry(&self, j: usize) -> io::Result<Entry>;
+
+    /// The heap bytes the index itself holds (not caches of the source).
+    fn heap_bytes(&self) -> usize;
 
     /// The entries overlapping the byte range `s..e`, as an index range.
-    fn overlapping(&self, s: usize, e: usize) -> (usize, usize) {
+    fn overlapping(&self, s: usize, e: usize) -> io::Result<(usize, usize)> {
         if s >= e {
-            return (0, 0);
+            return Ok((0, 0));
         }
-        let before = self.count_before(s);
-        let lo = if before > 0 && self.start(before - 1) + self.eol_len(before - 1) > s {
-            before - 1
+        let before = self.count_before(s)?;
+        let lo = if before > 0 {
+            let prev = self.entry(before - 1)?;
+            if prev.start + prev.len > s {
+                before - 1
+            } else {
+                before
+            }
         } else {
             before
         };
-        let hi = self.count_before(e);
-        (lo, hi.max(lo))
+        let hi = self.count_before(e)?;
+        Ok((lo, hi.max(lo)))
     }
 
-    fn view(&self, j: usize, s: usize, e: usize) -> View {
-        let start = self.start(j);
-        let end = start + self.eol_len(j);
-        if start < s {
+    /// Entry `j` as the piece `s..e` sees it.
+    fn view(&self, j: usize, s: usize, e: usize) -> io::Result<View> {
+        let Entry { start, len, kind } = self.entry(j)?;
+        let end = start + len;
+        Ok(if start < s {
             View {
                 off: s,
                 len: end.min(e) - s,
@@ -286,14 +330,14 @@ impl LineIndex {
             View {
                 off: start,
                 len: end - start,
-                kind: self.kind(j),
+                kind,
             }
-        }
+        })
     }
 
     /// The aggregate of the byte range `s..e`.
-    pub fn agg(&self, s: usize, e: usize) -> Agg {
-        let (lo, hi) = self.overlapping(s, e);
+    fn agg(&self, s: usize, e: usize) -> io::Result<Agg> {
+        let (lo, hi) = self.overlapping(s, e)?;
         let mut agg = Agg {
             bytes: e - s,
             breaks: hi - lo,
@@ -301,20 +345,46 @@ impl LineIndex {
             last_cr: false,
         };
         if hi > lo {
-            let first = self.view(lo, s, e);
+            let first = self.view(lo, s, e)?;
             if first.off == s && first.kind == Eol::Lf {
                 agg.first_lf = first.len as u8;
             }
-            let last = self.view(hi - 1, s, e);
+            let last = self.view(hi - 1, s, e)?;
             agg.last_cr = last.kind == Eol::Cr && last.off + last.len == e;
         }
-        agg
+        Ok(agg)
     }
 
     /// The `n`-th line ending (0-based) seen from the piece `s..e`.
-    pub fn nth_view(&self, s: usize, e: usize, n: usize) -> Option<View> {
-        let (lo, hi) = self.overlapping(s, e);
-        (lo + n < hi).then(|| self.view(lo + n, s, e))
+    fn nth_view(&self, s: usize, e: usize, n: usize) -> io::Result<Option<View>> {
+        let (lo, hi) = self.overlapping(s, e)?;
+        if lo + n < hi {
+            self.view(lo + n, s, e).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+impl EolIndex for LineIndex {
+    fn len(&self) -> usize {
+        LineIndex::len(self)
+    }
+
+    fn count_before(&self, pos: usize) -> io::Result<usize> {
+        Ok(self.entries_before(pos))
+    }
+
+    fn entry(&self, j: usize) -> io::Result<Entry> {
+        Ok(Entry {
+            start: self.start(j),
+            len: self.eol_len(j),
+            kind: self.kind(j),
+        })
+    }
+
+    fn heap_bytes(&self) -> usize {
+        LineIndex::heap_bytes(self)
     }
 }
 
@@ -323,7 +393,7 @@ impl LineIndex {
 pub(crate) struct Original {
     pub source: Box<dyn Source>,
     pub codec: Arc<dyn Codec>,
-    pub index: LineIndex,
+    pub index: Box<dyn EolIndex>,
 }
 
 /// Text typed or pasted. UTF-8, append-only; clones of a document share it, and an old version only
@@ -424,25 +494,27 @@ impl Storages {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    pub fn with_index<R>(&self, store: Store, f: impl FnOnce(&LineIndex) -> R) -> R {
+    pub fn with_index<R>(&self, store: Store, f: impl FnOnce(&dyn EolIndex) -> R) -> R {
         match store {
-            Store::Original => f(&self.original.index),
+            Store::Original => f(&*self.original.index),
             Store::Add => f(&self.add_read().index),
         }
     }
 
-    pub fn piece(&self, store: Store, start: usize, end: usize) -> Piece {
-        let agg = self.with_index(store, |idx| idx.agg(start, end));
-        Piece {
+    /// The piece `start..end` of a storage, with its aggregate. Fails when the original data
+    /// cannot be read.
+    pub fn piece(&self, store: Store, start: usize, end: usize) -> Result<Piece> {
+        let agg = self.with_index(store, |idx| idx.agg(start, end))?;
+        Ok(Piece {
             store,
             start,
             end,
             agg,
-        }
+        })
     }
 
-    pub fn nth_view(&self, piece: &Piece, n: usize) -> Option<View> {
-        self.with_index(piece.store, |idx| idx.nth_view(piece.start, piece.end, n))
+    pub fn nth_view(&self, piece: &Piece, n: usize) -> Result<Option<View>> {
+        Ok(self.with_index(piece.store, |idx| idx.nth_view(piece.start, piece.end, n))?)
     }
 
     /// Appends `text` to the add buffer and returns its byte range there.
@@ -548,21 +620,21 @@ mod tests {
         assert_eq!(add.index.len(), 1);
         assert_eq!(add.index.kind(0), Eol::CrLf);
         // The first append's piece sees a CR, the second append's piece sees an LF.
-        assert!(add.index.agg(0, 2).last_cr);
-        assert_eq!(add.index.agg(2, 4).first_lf, 1);
+        assert!(add.index.agg(0, 2).unwrap().last_cr);
+        assert_eq!(add.index.agg(2, 4).unwrap().first_lf, 1);
         // A piece covering both sees one break.
-        assert_eq!(add.index.agg(0, 4).breaks, 1);
+        assert_eq!(add.index.agg(0, 4).unwrap().breaks, 1);
     }
 
     #[test]
     fn index_clips_a_crlf_at_piece_edges() {
         let mut idx = LineIndex::default();
         idx.scan(codec::utf8(), b"ab\r\ncd", 0, true).unwrap();
-        let head = idx.agg(0, 3);
+        let head = idx.agg(0, 3).unwrap();
         assert_eq!((head.breaks, head.last_cr), (1, true));
-        let tail = idx.agg(3, 6);
+        let tail = idx.agg(3, 6).unwrap();
         assert_eq!((tail.breaks, tail.first_lf), (1, 1));
-        let whole = idx.agg(0, 6);
+        let whole = idx.agg(0, 6).unwrap();
         assert_eq!((whole.breaks, whole.first_lf, whole.last_cr), (1, 0, false));
     }
 
@@ -579,16 +651,16 @@ mod tests {
             .unwrap();
         idx.scan(codec::utf8(), b"\n", far, true).unwrap();
         assert_eq!(idx.len(), 3);
-        assert_eq!(idx.agg(base, base + 10).breaks, 2);
+        assert_eq!(idx.agg(base, base + 10).unwrap().breaks, 2);
         // A CRLF cut by a piece edge is seen as a lone CR or a lone LF.
-        let head = idx.agg(base, base + 3);
+        let head = idx.agg(base, base + 3).unwrap();
         assert_eq!((head.breaks, head.last_cr), (1, true));
-        let tail = idx.agg(base + 3, base + 10);
+        let tail = idx.agg(base + 3, base + 10).unwrap();
         assert_eq!((tail.breaks, tail.first_lf), (2, 1));
-        assert_eq!(idx.agg(0, base).breaks, 0);
-        assert_eq!(idx.agg(0, 10 * GIB as usize).breaks, 3);
-        assert_eq!(idx.agg(base + 10, far).breaks, 0);
-        assert_eq!(idx.agg(far, far + 1).breaks, 1);
+        assert_eq!(idx.agg(0, base).unwrap().breaks, 0);
+        assert_eq!(idx.agg(0, 10 * GIB as usize).unwrap().breaks, 3);
+        assert_eq!(idx.agg(base + 10, far).unwrap().breaks, 0);
+        assert_eq!(idx.agg(far, far + 1).unwrap().breaks, 1);
         // Below 4 GiB the high words cost nothing.
         let mut small = LineIndex::default();
         small.scan(codec::utf8(), b"a\nb\n", 0, true).unwrap();
@@ -606,13 +678,18 @@ mod tests {
         assert_eq!(idx.len(), 2);
         idx.remove_entry(1);
         assert_eq!(idx.len(), 1);
-        assert_eq!(idx.agg(at - 4, at + 4).breaks, 1);
+        assert_eq!(idx.agg(at - 4, at + 4).unwrap().breaks, 1);
         // An entry that began a high word, followed by one that did not.
         let mut idx = LineIndex::default();
         idx.scan(codec::utf8(), b"\n\n\n", 4 * GIB as usize, true)
             .unwrap();
         idx.remove_entry(0);
         assert_eq!(idx.len(), 2);
-        assert_eq!(idx.agg(4 * GIB as usize, 4 * GIB as usize + 3).breaks, 2);
+        assert_eq!(
+            idx.agg(4 * GIB as usize, 4 * GIB as usize + 3)
+                .unwrap()
+                .breaks,
+            2
+        );
     }
 }

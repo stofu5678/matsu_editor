@@ -15,6 +15,9 @@ pub enum BufferError {
     Io(io::Error),
     /// The document refers to bytes that do not exist. A bug or a source that changed.
     Corrupt,
+    /// The document shows only the scanned start of a file that is still being scanned, and
+    /// cannot be edited yet (ADR-0020, chapter 2).
+    ReadOnly,
 }
 
 impl fmt::Display for BufferError {
@@ -27,6 +30,7 @@ impl fmt::Display for BufferError {
             Self::TooLarge => f.write_str("the document has too much added text"),
             Self::Io(e) => write!(f, "cannot read the source: {e}"),
             Self::Corrupt => f.write_str("the document refers to data that does not exist"),
+            Self::ReadOnly => f.write_str("the document is read-only while the file is scanned"),
         }
     }
 }

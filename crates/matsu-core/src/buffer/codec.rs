@@ -28,6 +28,10 @@ impl Codec for EncodingCodec {
         self.0.codec().char_len(bytes, i)
     }
 
+    fn boundary_at_or_after(&self, bytes: &[u8], from: usize, target: usize) -> usize {
+        self.0.codec().boundary_at_or_after(bytes, from, target)
+    }
+
     fn encode(&self, text: &str, out: &mut Vec<u8>) -> Result<(), Unmappable> {
         self.0.codec().encode(text, out)
     }

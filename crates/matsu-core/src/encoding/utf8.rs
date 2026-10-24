@@ -214,6 +214,16 @@ impl Codec for Utf8 {
         }
     }
 
+    fn boundary_at_or_after(&self, bytes: &[u8], from: usize, target: usize) -> usize {
+        // In UTF-8 a boundary is the next byte that is not a continuation byte (10xxxxxx).
+        let mut at = from.max(target);
+        let stop = bytes.len().min(at + 3);
+        while at < stop && bytes[at] & 0xC0 == 0x80 {
+            at += 1;
+        }
+        at
+    }
+
     fn encode(&self, text: &str, out: &mut Vec<u8>) -> Result<(), Unmappable> {
         for c in text.chars() {
             match stand_in_byte(c) {
