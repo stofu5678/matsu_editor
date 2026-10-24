@@ -581,16 +581,38 @@ pub(crate) fn unmark_close(view: &EditorView, cx: &mut App) {
 /// discarded now, without waiting for the housekeeping (a process that quits right after the last window closed
 /// would leave it behind), and that revision is not copied again.
 pub(crate) fn apply_close(view: &Entity<EditorView>, cx: &mut App) {
+    let view = view.read(cx).state_for_close(cx);
+    apply_close_of(view, cx);
+}
+
+/// [`apply_close`] for code that has the view borrowed (the view is replacing its own document).
+pub(crate) fn apply_close_view(view: &EditorView, cx: &mut App) {
+    apply_close_of(view.state_for_close(cx), cx);
+}
+
+/// The document of a view and the revision it has.
+pub(crate) struct CloseState {
+    document: Entity<SharedDocument>,
+    revision: Revision,
+}
+
+impl EditorView {
+    fn state_for_close(&self, cx: &App) -> CloseState {
+        CloseState {
+            document: self.document().clone(),
+            revision: revision_of(self, self.document().read(cx)),
+        }
+    }
+}
+
+fn apply_close_of(state: CloseState, cx: &mut App) {
     if !cx.has_global::<Keeper>() {
         return;
     }
-    let (document, current) = {
-        let view = view.read(cx);
-        (
-            view.document().clone(),
-            revision_of(view, view.document().read(cx)),
-        )
-    };
+    let CloseState {
+        document,
+        revision: current,
+    } = state;
     let mut keeper = cx.remove_global::<Keeper>();
     if keeper
         .marked

@@ -20,7 +20,8 @@ mod tests;
 mod window_tests;
 
 pub(crate) use keeper::{
-    apply_all_closes, apply_close, clear_copies, copy_saved, mark_close, start, unmark_close,
+    apply_all_closes, apply_close, apply_close_view, clear_copies, copy_saved, mark_close, start,
+    unmark_close,
 };
 
 use gpui::App;

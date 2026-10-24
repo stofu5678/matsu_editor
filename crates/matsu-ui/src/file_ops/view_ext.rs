@@ -35,6 +35,8 @@ impl EditorView {
         // Reopening the file keeps the mode (`CDocFileOperation::ReloadCurrentFile` loads with
         // the current one); any other new document starts without it.
         let mut new = new;
+        // The document goes: what the user threw away leaves no copy (and a cancelled flow never gets here).
+        crate::unsaved::apply_close_view(self, cx);
         if restore.is_some() {
             new.keep_view_mode(self.document.read(cx).view_mode());
             new.keep_watch_mode(self.document.read(cx).disk());

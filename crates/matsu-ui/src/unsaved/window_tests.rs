@@ -613,3 +613,34 @@ fn cancelling_the_close_question_keeps_the_copy(cx: &mut TestAppContext) {
     tick(cx, &f, t0 + Duration::from_secs(20));
     assert_eq!(doc_files(&f.dir).len(), 1);
 }
+
+#[gpui::test]
+fn closing_the_file_after_dont_save_removes_the_copy_when_the_document_is_replaced(
+    cx: &mut TestAppContext,
+) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "to be closed");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    let code = matsu_commands::sakura::FUNCTIONS
+        .iter()
+        .find(|f| f.name == "F_FILECLOSE")
+        .unwrap()
+        .code;
+    let ws = workspace(cx, f.handle);
+    let view = ws.read_with(cx, |ws, _| ws.editor().clone());
+    f.handle
+        .update(cx, |_, window, app| {
+            view.update(app, |view, cx| view.run_function(code, &[], window, cx))
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let window = VisualTestContext::from_window(f.handle, cx).into_mut();
+    assert!(window.has_pending_prompt());
+    window.simulate_prompt_answer("保存しない(N)");
+    window.run_until_parked();
+    cx.update(|app| flush(app));
+    assert!(doc_files(&f.dir).is_empty(), "no tick was needed");
+}
