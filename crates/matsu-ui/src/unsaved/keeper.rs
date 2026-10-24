@@ -333,12 +333,14 @@ impl Keeper {
 
     /// The copy of the document is not wanted any more (it was closed or saved): it is discarded now, and the
     /// tabs no longer name it.
-    fn discard_document(&mut self, document: EntityId, revision: Revision) {
+    fn discard_document(&mut self, document: &Entity<SharedDocument>, revision: Revision) {
         // Also before the first tick and before the writer exists: the revision is not to be copied later.
         let entry = self
             .entries
-            .entry(document)
+            .entry(document.entity_id())
             .or_insert_with(|| Entry::new(Instant::now()));
+        // So that the entry goes when the document does, also if no tick ever saw it.
+        entry.document.get_or_insert_with(|| document.downgrade());
         entry.suppressed = Some(revision);
         let State::Running(writer) = &self.state else {
             return;
@@ -537,7 +539,7 @@ pub(crate) fn discard_document(view: &EditorView, cx: &mut App) {
     let document = view.document();
     let revision = revision_of(view, document.read(cx));
     let mut keeper = cx.remove_global::<Keeper>();
-    keeper.discard_document(document.entity_id(), revision);
+    keeper.discard_document(document, revision);
     cx.set_global(keeper);
 }
 
