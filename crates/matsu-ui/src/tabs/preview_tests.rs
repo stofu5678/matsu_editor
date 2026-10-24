@@ -266,3 +266,68 @@ fn the_bar_has_a_tab_for_the_preview_also_when_the_windows_are_not_grouped(
     open(cx, handle);
     both_tabs_are_painted(cx, handle);
 }
+
+#[gpui::test]
+fn a_document_over_the_source_limit_is_not_previewed(cx: &mut TestAppContext) {
+    cx.update(gpui_component::init);
+    super::tests::tab_mode(cx, true, true);
+    let doc = SharedDocument::new(
+        matsu_core::model::DocumentModel::new(
+            matsu_core::buffer::Document::from_utf8(
+                "z".repeat(crate::preview::text::MAX_SOURCE_BYTES + 1)
+                    .into_bytes(),
+            )
+            .unwrap(),
+        ),
+        None,
+    );
+    let handle = cx.update(|app| open_editor_window(app, doc, None)).unwrap();
+    cx.run_until_parked();
+    open(cx, handle);
+    let ws = workspace(cx, handle);
+    let preview = preview_of(cx, &ws);
+    preview.read_with(cx, |p, _| {
+        assert!(p.too_large());
+        assert_eq!(p.shown().0, 0);
+    });
+}
+
+/// A click of `button` on the element painted with `selector`.
+fn click(
+    cx: &mut TestAppContext,
+    handle: AnyWindowHandle,
+    selector: &'static str,
+    button: gpui::MouseButton,
+) {
+    let visual = super::tests::visual(cx, handle);
+    let at = visual.debug_bounds(selector).expect("painted").center();
+    visual.simulate_mouse_down(at, button, gpui::Modifiers::default());
+    visual.simulate_mouse_up(at, button, gpui::Modifiers::default());
+    visual.run_until_parked();
+}
+
+#[gpui::test]
+fn the_close_button_of_the_bar_closes_the_preview_without_a_question(cx: &mut TestAppContext) {
+    let handle = window(cx, true);
+    // The source has changes; the preview has nothing to save.
+    type_text(cx, handle, "changed");
+    open(cx, handle);
+    click(cx, handle, "tab-bar-close", gpui::MouseButton::Left);
+    let ws = workspace(cx, handle);
+    ws.read_with(cx, |ws, _| {
+        assert_eq!(ws.tab_count(), 1);
+        assert!(ws.tab_content(0).unwrap().preview().is_none());
+    });
+    assert_eq!(super::tests::windows(cx), 1);
+}
+
+#[gpui::test]
+fn the_middle_button_on_the_tab_of_a_preview_closes_it(cx: &mut TestAppContext) {
+    let handle = window(cx, true);
+    type_text(cx, handle, "changed");
+    open(cx, handle);
+    click(cx, handle, "tab-1", gpui::MouseButton::Middle);
+    let ws = workspace(cx, handle);
+    ws.read_with(cx, |ws, _| assert_eq!(ws.tab_count(), 1));
+    assert_eq!(super::tests::windows(cx), 1);
+}

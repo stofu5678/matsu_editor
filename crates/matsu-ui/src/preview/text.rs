@@ -6,13 +6,19 @@
 
 use std::path::Path;
 
-use matsu_core::buffer::{Document, Pos};
+use matsu_core::buffer::{Chunk, Document, Pos};
 
 /// The most text the preview reads: 256 KiB. The parser behind the view turns the whole text into a
 /// tree (on a background thread) each time the text changes. In a debug build, in the tests, a
 /// README-like Markdown took 0.5 s for 16 KiB, 2.2 s for 64 KiB and 18 s for 256 KiB (a release
 /// build is much faster; it was not measured), so the cap is where a large README ends.
 pub(crate) const MAX_BYTES: usize = 256 << 10;
+
+/// The largest document (in bytes of the file, as it will be saved) that is previewed at all: 2 MiB.
+/// A bigger one shows only a notice. Reading a column of a line goes through the whole original
+/// piece it is in, so for a file that is one huge line (or any file in one piece) the cost is that
+/// of the file; this bound keeps it small without reading the file's own index.
+pub(crate) const MAX_SOURCE_BYTES: usize = 2 << 20;
 
 /// What the text is written in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,11 +56,39 @@ pub(crate) struct Extract {
     pub(crate) text: String,
     /// The document has more than `text` holds.
     pub(crate) truncated: bool,
+    /// The document is bigger than [`MAX_SOURCE_BYTES`] and nothing was read.
+    pub(crate) too_large: bool,
+}
+
+/// Whether the document is at most `limit` bytes. It walks the pieces in chunks and stops as soon
+/// as the sum passes `limit`, so a huge file is never read beyond that.
+fn fits(doc: &Document, limit: usize) -> bool {
+    let mut total = 0usize;
+    for chunk in doc.chunks_of(64 << 10) {
+        let Ok(chunk) = chunk else {
+            return false;
+        };
+        total += match chunk {
+            Chunk::Original(bytes) => bytes.len(),
+            Chunk::Added(text) => text.len(),
+        };
+        if total > limit {
+            return false;
+        }
+    }
+    true
 }
 
 /// Reads the lines of `doc` from the first until the text would pass `max_bytes`. A line that does
 /// not fit is cut at a character boundary.
 pub(crate) fn extract(doc: &Document, max_bytes: usize) -> Extract {
+    if !fits(doc, MAX_SOURCE_BYTES) {
+        return Extract {
+            text: String::new(),
+            truncated: true,
+            too_large: true,
+        };
+    }
     let mut text = String::new();
     for i in 0..doc.line_count() {
         let room = max_bytes.saturating_sub(text.len());
@@ -74,6 +108,7 @@ pub(crate) fn extract(doc: &Document, max_bytes: usize) -> Extract {
             return Extract {
                 text,
                 truncated: true,
+                too_large: false,
             };
         }
         text.push_str(&piece);
@@ -82,6 +117,7 @@ pub(crate) fn extract(doc: &Document, max_bytes: usize) -> Extract {
     Extract {
         text,
         truncated: false,
+        too_large: false,
     }
 }
 
@@ -92,16 +128,18 @@ pub(crate) fn extract(doc: &Document, max_bytes: usize) -> Extract {
 pub(crate) fn local_image(src: &str, base: Option<&Path>) -> Option<std::path::PathBuf> {
     let src = src.trim();
     let lower = src.to_ascii_lowercase();
+    // Two separators of either kind in a row (`\\server`, `/\server`, `\/server`, `//server`)
+    // name a file on another computer on Windows: opening it sends the user's credentials over
+    // the network, which a preview must not do.
+    let b = src.as_bytes();
+    if b.len() >= 2 && matches!(b[0], b'/' | b'\\') && matches!(b[1], b'/' | b'\\') {
+        return None;
+    }
     if src.is_empty()
         || lower.contains("://")
         || lower.starts_with("data:")
         || lower.starts_with("//")
     {
-        return None;
-    }
-    // `\\server\share` (and `\\?\UNC\...`) names a file on another computer: opening it sends
-    // the user's credentials over the network, which is what a preview must not do.
-    if src.starts_with("\\\\") {
         return None;
     }
     let path = Path::new(src);
@@ -164,10 +202,18 @@ mod tests {
     }
 
     #[test]
-    fn a_file_that_is_one_huge_line_is_read_up_to_the_cap_only() {
-        let doc = document(&"y".repeat(5_000_000));
+    fn a_document_over_the_source_limit_is_not_read() {
+        let doc = document(&"y".repeat(MAX_SOURCE_BYTES + 1));
+        let got = extract(&doc, MAX_BYTES);
+        assert!(got.too_large && got.truncated);
+        assert_eq!(got.text, "");
+    }
+
+    #[test]
+    fn a_document_at_the_source_limit_is_read_up_to_the_cap() {
+        let doc = document(&"y".repeat(MAX_SOURCE_BYTES));
         let got = extract(&doc, 1000);
-        assert!(got.truncated);
+        assert!(got.truncated && !got.too_large);
         assert_eq!(got.text.len(), 1000);
     }
 
@@ -190,6 +236,8 @@ mod tests {
             "file:///etc/passwd",
             "//example.com/t.gif",
             r"\\server\share\t.png",
+            r"/\server\share\t.png",
+            r"\/server/share/t.png",
             r"\\?\UNC\server\share\t.png",
             "data:image/png;base64,AAAA",
             "",

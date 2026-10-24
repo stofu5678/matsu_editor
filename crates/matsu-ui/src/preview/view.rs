@@ -24,6 +24,7 @@ pub(crate) struct PreviewView {
     state: Entity<TextViewState>,
     format: Format,
     truncated: bool,
+    too_large: bool,
     /// How many bytes of text the view was given last, and how many times it was given text.
     shown_len: usize,
     reads: u64,
@@ -52,6 +53,7 @@ impl PreviewView {
             state,
             format,
             truncated: read.truncated,
+            too_large: read.too_large,
             shown_len: read.text.len(),
             reads: 1,
             generation: 0,
@@ -73,6 +75,11 @@ impl PreviewView {
     #[cfg(test)]
     pub(crate) fn truncated(&self) -> bool {
         self.truncated
+    }
+
+    #[cfg(test)]
+    pub(crate) fn too_large(&self) -> bool {
+        self.too_large
     }
 
     /// The name of the document as the preview titles it.
@@ -113,6 +120,7 @@ impl PreviewView {
         self.shown_version = shared.version();
         let read = text::extract(shared.doc(), MAX_BYTES);
         self.truncated = read.truncated;
+        self.too_large = read.too_large;
         self.shown_len = read.text.len();
         self.reads += 1;
         self.state
@@ -130,6 +138,7 @@ impl PreviewView {
         self.shown_version = shared.version();
         let read = text::extract(shared.doc(), MAX_BYTES);
         self.truncated = read.truncated;
+        self.too_large = read.too_large;
         self.shown_len = read.text.len();
         self.reads += 1;
         self.state = new_state(format, &read.text, cx);
@@ -152,7 +161,12 @@ impl PreviewView {
             self.format.name(),
             self.document_name(cx)
         );
-        if self.truncated {
+        if self.too_large {
+            header.push_str(&format!(
+                "（大きいので、プレビューしません。{} MiB までのファイルを表示します）",
+                text::MAX_SOURCE_BYTES >> 20
+            ));
+        } else if self.truncated {
             header.push_str(&format!(
                 "（大きいので、先頭の {} KiB だけを表示しています）",
                 MAX_BYTES / 1024
