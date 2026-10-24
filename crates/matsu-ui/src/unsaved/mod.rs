@@ -16,6 +16,8 @@ pub(crate) mod restore;
 pub(crate) mod writer;
 
 #[cfg(test)]
+mod restore_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod window_tests;
