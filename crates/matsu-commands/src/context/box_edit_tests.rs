@@ -809,6 +809,15 @@ impl Layout for Wrap {
     fn tab_width(&self) -> usize {
         4
     }
+    /// A width table of its own: the Greek alpha is two columns wide, as in a font of the
+    /// ambiguous width setting (the short table of `PlainLayout` says one).
+    fn char_columns(&self, c: char) -> usize {
+        if c == '\u{3b1}' {
+            2
+        } else {
+            crate::convert::tabs::char_width(c)
+        }
+    }
     fn display_col(&self, doc: &Document, pos: Pos) -> R<usize> {
         let pos = doc.clamp_pos(pos)?;
         Ok(pos.col - self.rows(doc)[self.index(doc, pos)].col)
@@ -971,4 +980,32 @@ fn text_that_reaches_the_wrap_point_moves_the_box_to_the_right_edge() {
     let (text, _, cursor) = run_wrapped("abcdef\nxy", (0, 1), (1, 2), "XY", "paste", &[]);
     assert_eq!(text, "aXYbcdXYef\nxy");
     assert_eq!(cursor.box_caret_col(), Some(crate::context::MAX_BOX_COL));
+}
+
+#[test]
+fn overwrite_padding_uses_the_widths_of_the_layout() {
+    // `α` is two columns in this layout, so `X` over it leaves a space (`m_bOverWriteFixMode`)
+    let options = crate::edit_options::EditOptions {
+        overwrite_fix_mode: true,
+        ..Default::default()
+    };
+    crate::edit_options::with_options(options, || {
+        let mut model =
+            DocumentModel::new(Document::from_utf8("a\u{3b1}bc".as_bytes().to_vec()).unwrap());
+        let mut cursor = Cursor::default();
+        cursor.move_to(Pos::new(0, 1), false);
+        let mut layout = Wrap(100);
+        {
+            let mut cx = CommandContext::new(&mut model, &mut cursor, &mut layout, None);
+            cx.set_overwrite(true);
+            cx.type_text("X").unwrap();
+            // then `α` typed over the space that is left is wider, so it takes `b` too
+            cx.type_text("\u{3b1}").unwrap();
+        }
+        let doc = model.doc();
+        let text = doc
+            .text_between(Pos::new(0, 0), doc.end_pos().unwrap())
+            .unwrap();
+        assert_eq!(text, "aX\u{3b1}c");
+    });
 }

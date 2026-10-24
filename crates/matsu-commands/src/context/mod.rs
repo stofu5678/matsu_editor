@@ -46,7 +46,6 @@ use matsu_core::model::DocumentModel;
 
 use crate::clipboard::Clipboard;
 use crate::command::{CommandError, Result};
-use crate::convert::tabs::char_width;
 use crate::layout::Layout;
 
 pub use bookmarks::BookmarkJump;
@@ -626,7 +625,10 @@ impl<'a> CommandContext<'a> {
             if !options.overwrite_fix_mode || first == '\t' {
                 continue;
             }
-            let (before, after) = (char_width(first), char_width(typed));
+            let (before, after) = (
+                self.layout().char_columns(first),
+                self.layout().char_columns(typed),
+            );
             let spaces = if before >= after {
                 before - after
             } else if let Some(&(next, _)) = rest.front()
@@ -635,7 +637,7 @@ impl<'a> CommandContext<'a> {
                 if let Some((_, next_end)) = rest.pop_front() {
                     end = next_end.unwrap_or(end);
                 }
-                before + char_width(next) - after
+                before + self.layout().char_columns(next) - after
             } else {
                 0
             };
