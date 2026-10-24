@@ -330,7 +330,7 @@ fn a_document_that_is_closed_or_saved_loses_its_copy_at_once(cx: &mut TestAppCon
     // What `confirm_discard` does when the user answers 「保存しない」: no tick, no wait.
     let ws = workspace(cx, f.handle);
     let view = ws.read_with(cx, |ws, _| ws.editor().clone());
-    view.update(cx, |view, cx| super::discard_document(view, cx));
+    throw_away(cx, &view);
     cx.update(|app| flush(app));
     assert!(doc_files(&f.dir).is_empty());
     assert!(read_session(&f).windows.is_empty());
@@ -386,6 +386,19 @@ fn the_folder_is_not_made_before_something_is_to_be_kept(cx: &mut TestAppContext
     type_text(cx, &f, "now");
     tick(cx, &f, t0 + Duration::from_secs(11));
     assert!(f.dir.exists());
+}
+
+/// What the close flows do: the answer 「保存しない」 is marked, and the close makes it final.
+fn throw_away(cx: &mut TestAppContext, view: &Entity<crate::view::EditorView>) {
+    mark(cx, view);
+    cx.update(|app| super::apply_close(view, app));
+}
+
+fn mark(cx: &mut TestAppContext, view: &Entity<crate::view::EditorView>) {
+    view.update(cx, |view, cx| {
+        let this = cx.weak_entity();
+        super::mark_close(view, this, cx);
+    });
 }
 
 fn notice(cx: &mut TestAppContext, f: &Fixture) -> Option<String> {
@@ -452,7 +465,7 @@ fn a_revision_the_user_threw_away_is_not_copied_again_but_the_next_change_is(
     // 「保存しない」 in an exit of all windows: the document stays open while the other questions are asked.
     let ws = workspace(cx, f.handle);
     let view = ws.read_with(cx, |ws, _| ws.editor().clone());
-    view.update(cx, |view, cx| super::discard_document(view, cx));
+    throw_away(cx, &view);
     cx.update(|app| flush(app));
     for s in [10, 20, 40, 80] {
         tick(cx, &f, t0 + Duration::from_secs(s));
@@ -490,9 +503,113 @@ fn a_revision_thrown_away_before_the_first_tick_is_never_copied(cx: &mut TestApp
     type_text(cx, &f, "no tick yet");
     let ws = workspace(cx, f.handle);
     let view = ws.read_with(cx, |ws, _| ws.editor().clone());
-    view.update(cx, |view, cx| super::discard_document(view, cx));
+    throw_away(cx, &view);
     for s in [0, 5, 10, 20] {
         tick(cx, &f, t0 + Duration::from_secs(s));
     }
     assert!(!f.dir.exists() || doc_files(&f.dir).is_empty());
+}
+
+#[gpui::test]
+fn a_cancelled_flow_keeps_the_copy_of_a_document_the_user_said_not_to_save(
+    cx: &mut TestAppContext,
+) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "still open");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    let ws = workspace(cx, f.handle);
+    let view = ws.read_with(cx, |ws, _| ws.editor().clone());
+    // 「保存しない」 for this document, then 「キャンセル」 for the next one: nothing is closed.
+    mark(cx, &view);
+    for s in [10, 20, 60] {
+        tick(cx, &f, t0 + Duration::from_secs(s));
+    }
+    assert_eq!(doc_files(&f.dir).len(), 1, "the copy is still there");
+    // The next try asks again: the old answer is forgotten, and an edit since makes the mark void.
+    type_text(cx, &f, "more");
+    cx.update(|app| super::apply_close(&view, app));
+    tick(cx, &f, t0 + Duration::from_secs(70));
+    tick(cx, &f, t0 + Duration::from_secs(73));
+    assert_eq!(doc_files(&f.dir).len(), 1, "an edit voids the mark");
+}
+
+#[gpui::test]
+fn a_completed_exit_removes_the_copies_of_every_marked_document(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "thrown away at exit");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    let ws = workspace(cx, f.handle);
+    let view = ws.read_with(cx, |ws, _| ws.editor().clone());
+    mark(cx, &view);
+    cx.update(super::apply_all_closes);
+    cx.update(|app| flush(app));
+    assert!(doc_files(&f.dir).is_empty());
+}
+
+#[gpui::test]
+fn a_save_removes_the_copy_at_once_even_if_an_edit_follows(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "saved text");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    // The save path: the document is marked saved and tells the keeper.
+    let ws = workspace(cx, f.handle);
+    ws.update(cx, |ws, cx| {
+        let view = ws.editor().clone();
+        view.update(cx, |view, cx| {
+            let cursor = view.cursor().clone();
+            view.document().update(cx, |shared, cx| {
+                shared.parts_mut().0.mark_saved(&cursor);
+                super::copy_saved(cx.entity_id(), cx);
+            });
+        });
+    });
+    cx.update(|app| flush(app));
+    assert!(doc_files(&f.dir).is_empty(), "gone before any tick");
+    // An edit right after, before the next tick: no copy of the saved revision comes back.
+    type_text(cx, &f, "!");
+    tick(
+        cx,
+        &f,
+        t0 + Duration::from_secs(3) + Duration::from_millis(100),
+    );
+    assert!(doc_files(&f.dir).is_empty());
+}
+
+#[gpui::test]
+fn cancelling_the_close_question_keeps_the_copy(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "stays open");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    let code = matsu_commands::sakura::FUNCTIONS
+        .iter()
+        .find(|f| f.name == "F_WINCLOSE")
+        .unwrap()
+        .code;
+    let ws = workspace(cx, f.handle);
+    let view = ws.read_with(cx, |ws, _| ws.editor().clone());
+    f.handle
+        .update(cx, |_, window, app| {
+            view.update(app, |view, cx| view.run_function(code, &[], window, cx))
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let window = VisualTestContext::from_window(f.handle, cx).into_mut();
+    assert!(window.has_pending_prompt());
+    window.simulate_prompt_answer("キャンセル");
+    window.run_until_parked();
+    cx.update(|app| flush(app));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    tick(cx, &f, t0 + Duration::from_secs(20));
+    assert_eq!(doc_files(&f.dir).len(), 1);
 }

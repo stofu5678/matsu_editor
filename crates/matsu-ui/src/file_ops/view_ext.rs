@@ -139,6 +139,8 @@ impl EditorView {
             }
             if converted {
                 shared.parts_mut().0.mark_saved(cursor);
+                // Saved: the kept copy is not wanted any more, now and not at the next tick (ADR-0022).
+                crate::unsaved::copy_saved(cx.entity_id(), cx);
             }
             cx.notify();
             Ok(report)

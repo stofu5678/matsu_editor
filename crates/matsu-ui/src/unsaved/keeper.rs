@@ -201,6 +201,9 @@ pub(crate) struct Keeper {
     last_session: Option<Session>,
     session_retry_at: Option<Instant>,
     told_failure: bool,
+    /// Documents whose user said 「保存しない」 in a flow that is not over: the copy goes when the close really
+    /// happens ([`apply_close`]), not before, so a cancelled flow loses nothing.
+    marked: HashMap<EntityId, (WeakEntity<EditorView>, Revision)>,
 }
 
 impl Global for Keeper {}
@@ -215,6 +218,7 @@ impl Keeper {
             last_session: Some(Session::default()),
             session_retry_at: None,
             told_failure: false,
+            marked: HashMap::new(),
         }
     }
 
@@ -329,6 +333,26 @@ impl Keeper {
         for (_, report) in &mut self.windows {
             report.at = now;
         }
+    }
+
+    /// The document was saved: the copy goes (no suppression: a later edit is a new revision).
+    fn copy_saved(&mut self, document: EntityId) {
+        let State::Running(writer) = &self.state else {
+            return;
+        };
+        let Some(entry) = self.entries.get_mut(&document) else {
+            return;
+        };
+        if let Some(id) = entry.id.clone() {
+            writer.discard(id.clone());
+            for (_, report) in &mut self.windows {
+                if let Some(position) = report.ids.iter().position(|i| *i == id) {
+                    report.ids.remove(position);
+                    report.active = report.active.min(report.ids.len().saturating_sub(1));
+                }
+            }
+        }
+        entry.forget_copy();
     }
 
     /// The copy of the document is not wanted any more (it was closed or saved): it is discarded now, and the
@@ -527,19 +551,94 @@ pub(crate) fn app_tick(cx: &mut App, now: Instant) {
     cx.set_global(keeper);
 }
 
-/// The document is going away or was saved: its copy is discarded now, without waiting for the housekeeping
-/// (a process that quits right after the last window closed would leave it behind).
-///
-/// The revision it has now is not copied again: the user said they do not want it, and the document may stay open
-/// while the other questions of an exit are asked. The next change makes a new copy.
-pub(crate) fn discard_document(view: &EditorView, cx: &mut App) {
+/// The user said 「保存しない」 (or saved) in a flow that closes the document: it is remembered, with the revision
+/// it has now. Nothing is deleted yet: if the flow is cancelled (the next question of an exit, a file chooser),
+/// the copy is still there. [`apply_close`] and [`apply_all_closes`] make it final.
+pub(crate) fn mark_close(view: &EditorView, this: WeakEntity<EditorView>, cx: &mut App) {
     if !cx.has_global::<Keeper>() {
         return;
     }
     let document = view.document();
     let revision = revision_of(view, document.read(cx));
+    let id = document.entity_id();
     let mut keeper = cx.remove_global::<Keeper>();
-    keeper.discard_document(document, revision);
+    keeper.marked.insert(id, (this, revision));
+    cx.set_global(keeper);
+}
+
+/// A flow asks about the document again: the mark of the earlier answer is gone.
+pub(crate) fn unmark_close(view: &EditorView, cx: &mut App) {
+    if !cx.has_global::<Keeper>() {
+        return;
+    }
+    let id = view.document().entity_id();
+    let mut keeper = cx.remove_global::<Keeper>();
+    keeper.marked.remove(&id);
+    cx.set_global(keeper);
+}
+
+/// The document is really closing: if it is marked and still has the revision it had then, its copy is
+/// discarded now, without waiting for the housekeeping (a process that quits right after the last window closed
+/// would leave it behind), and that revision is not copied again.
+pub(crate) fn apply_close(view: &Entity<EditorView>, cx: &mut App) {
+    if !cx.has_global::<Keeper>() {
+        return;
+    }
+    let (document, current) = {
+        let view = view.read(cx);
+        (
+            view.document().clone(),
+            revision_of(view, view.document().read(cx)),
+        )
+    };
+    let mut keeper = cx.remove_global::<Keeper>();
+    if keeper
+        .marked
+        .remove(&document.entity_id())
+        .is_some_and(|(_, revision)| revision == current)
+    {
+        keeper.discard_document(&document, current);
+    }
+    cx.set_global(keeper);
+}
+
+/// The editor is about to quit with every question answered: every marked document that is unchanged since its
+/// answer loses its copy.
+pub(crate) fn apply_all_closes(cx: &mut App) {
+    if !cx.has_global::<Keeper>() {
+        return;
+    }
+    let marks: Vec<(WeakEntity<EditorView>, Revision)> = {
+        let mut keeper = cx.remove_global::<Keeper>();
+        let marks = keeper.marked.drain().map(|(_, mark)| mark).collect();
+        cx.set_global(keeper);
+        marks
+    };
+    for (view, revision) in marks {
+        let Some(view) = view.upgrade() else {
+            continue;
+        };
+        let current = {
+            let view = view.read(cx);
+            revision_of(view, view.document().read(cx))
+        };
+        if current == revision {
+            let document = view.read(cx).document().clone();
+            let mut keeper = cx.remove_global::<Keeper>();
+            keeper.discard_document(&document, revision);
+            cx.set_global(keeper);
+        }
+    }
+}
+
+/// The document was saved: its copy goes at once (and no snapshot queued before can come after it, the writer
+/// does the jobs in order). If the document is edited again before the next tick, the edit makes a new copy.
+pub(crate) fn copy_saved(document: EntityId, cx: &mut App) {
+    if !cx.has_global::<Keeper>() {
+        return;
+    }
+    let mut keeper = cx.remove_global::<Keeper>();
+    keeper.copy_saved(document);
     cx.set_global(keeper);
 }
 
