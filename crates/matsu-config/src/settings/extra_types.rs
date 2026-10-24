@@ -521,6 +521,30 @@ mod tests {
     }
 
     #[test]
+    fn without_room_for_the_sql_type_plsql_keeps_sql_files() {
+        // nTypesCount 17: the SQL type does not fit, so `.sql` must not fall back to the basic type
+        let types = DocumentTypes::from_profile(&profile("[Other]\r\nnTypesCount=17\r\n"));
+        assert_eq!(types.index_of_name("SQL"), None);
+        assert_eq!(types.type_index_for_file_name("a.sql"), 4);
+        // with room, the SQL type has it and PL/SQL does not
+        let types = DocumentTypes::builtin();
+        assert!(
+            types
+                .get(4)
+                .unwrap()
+                .type_exts
+                .split(',')
+                .all(|e| e != "sql")
+        );
+        // a PL/SQL type that the file gave its own extensions is left as it is
+        let types = DocumentTypes::from_profile(&profile(
+            "[Other]\r\nnTypesCount=17\r\n[Types(4)]\r\nszTypeExts=ora\r\n",
+        ));
+        assert_eq!(types.get(4).unwrap().type_exts, "ora");
+        assert_eq!(types.type_index_for_file_name("a.sql"), 0);
+    }
+
+    #[test]
     fn the_types_that_do_not_fit_are_left_out() {
         // nTypesCount 17: no number is free.
         let types = DocumentTypes::from_profile(&profile("[Other]\r\nnTypesCount=17\r\n"));

@@ -264,6 +264,20 @@ impl DocumentTypes {
                 })
             })
             .collect();
+        let mut types: Vec<TypeSettings> = types;
+        // `.sql` is the "SQL" type (ADR-0023). When that type could not be installed (the file leaves no
+        // number free) and the PL/SQL type is as built in, it keeps `.sql` as Sakura's did, so that such a
+        // file does not lose the coloring and the outline of its SQL files.
+        if !types
+            .iter()
+            .any(|t| is_file_name_match(&t.type_exts, "x.sql"))
+            && let Some(plsql) = types.get_mut(4)
+            && builtin
+                .get(4)
+                .is_some_and(|b| b.type_exts == plsql.type_exts)
+        {
+            plsql.type_exts.push_str(",sql");
+        }
         Self { types, keywords }
     }
 
