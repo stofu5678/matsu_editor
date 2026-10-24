@@ -149,6 +149,11 @@ impl Workspace {
         self.tab_content(index).map(|c| c.panes().active().clone())
     }
 
+    /// Whether one of the tabs is a preview (`crate::preview`).
+    pub(crate) fn has_preview_tab(&self) -> bool {
+        (0..self.tab_count()).any(|i| self.tab_content(i).is_some_and(|c| c.preview().is_some()))
+    }
+
     /// Tab `index` as the window sees every kind of tab (`content::TabPanel`).
     pub(crate) fn tab_panel(&self, index: usize) -> Option<&dyn content::TabPanel> {
         Some(self.tab_content(index)?.panel())

@@ -235,3 +235,34 @@ fn the_format_can_be_changed_by_the_menu(cx: &mut TestAppContext) {
     preview.update(cx, |p, cx| p.set_format(Format::Html, cx));
     assert_eq!(preview.read_with(cx, |p, _| p.format()), Format::Html);
 }
+
+/// The tab bar paints a tab for the source and one for the preview, grouped or not.
+fn both_tabs_are_painted(cx: &mut TestAppContext, handle: AnyWindowHandle) {
+    let visual = super::tests::visual(cx, handle);
+    visual.run_until_parked();
+    for index in 0..2 {
+        assert!(
+            visual
+                .debug_bounds(Box::leak(format!("tab-{index}").into_boxed_str()))
+                .is_some(),
+            "tab {index} is not painted"
+        );
+    }
+}
+
+#[gpui::test]
+fn the_bar_has_a_tab_for_the_preview(cx: &mut TestAppContext) {
+    let handle = window(cx, true);
+    open(cx, handle);
+    both_tabs_are_painted(cx, handle);
+}
+
+#[gpui::test]
+fn the_bar_has_a_tab_for_the_preview_also_when_the_windows_are_not_grouped(
+    cx: &mut TestAppContext,
+) {
+    let handle = window(cx, true);
+    super::tests::tab_mode(cx, true, false);
+    open(cx, handle);
+    both_tabs_are_painted(cx, handle);
+}

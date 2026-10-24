@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use matsu_core::buffer::Document;
+use matsu_core::buffer::{Document, Pos};
 
 /// The most text the preview reads: 256 KiB. The parser behind the view turns the whole text into a
 /// tree (on a background thread) each time the text changes. In a debug build, in the tests, a
@@ -57,22 +57,26 @@ pub(crate) struct Extract {
 pub(crate) fn extract(doc: &Document, max_bytes: usize) -> Extract {
     let mut text = String::new();
     for i in 0..doc.line_count() {
-        let Ok(Some(line)) = doc.line(i) else {
+        let room = max_bytes.saturating_sub(text.len());
+        // Only as much of the line as can fit is read, so that a file that is one huge line
+        // costs no more than the cap. Four bytes more than the room: a character is up to four
+        // bytes, so a piece that is shorter than `room` is the whole line.
+        let Ok(piece) = doc.text_between(Pos::new(i, 0), Pos::new(i, room.saturating_add(4)))
+        else {
             break;
         };
-        if text.len() + line.text.len() + 1 > max_bytes {
-            let room = max_bytes.saturating_sub(text.len());
-            let mut cut = room.min(line.text.len());
-            while !line.text.is_char_boundary(cut) {
+        if piece.len() + 1 > room {
+            let mut cut = room.min(piece.len());
+            while !piece.is_char_boundary(cut) {
                 cut -= 1;
             }
-            text.push_str(&line.text[..cut]);
+            text.push_str(&piece[..cut]);
             return Extract {
                 text,
                 truncated: true,
             };
         }
-        text.push_str(&line.text);
+        text.push_str(&piece);
         text.push('\n');
     }
     Extract {
@@ -93,6 +97,11 @@ pub(crate) fn local_image(src: &str, base: Option<&Path>) -> Option<std::path::P
         || lower.starts_with("data:")
         || lower.starts_with("//")
     {
+        return None;
+    }
+    // `\\server\share` (and `\\?\UNC\...`) names a file on another computer: opening it sends
+    // the user's credentials over the network, which is what a preview must not do.
+    if src.starts_with("\\\\") {
         return None;
     }
     let path = Path::new(src);
@@ -155,6 +164,14 @@ mod tests {
     }
 
     #[test]
+    fn a_file_that_is_one_huge_line_is_read_up_to_the_cap_only() {
+        let doc = document(&"y".repeat(5_000_000));
+        let got = extract(&doc, 1000);
+        assert!(got.truncated);
+        assert_eq!(got.text.len(), 1000);
+    }
+
+    #[test]
     fn only_files_are_loaded_as_images() {
         let base = Some(Path::new("/docs"));
         assert_eq!(
@@ -172,6 +189,8 @@ mod tests {
             "HTTPS://example.com/t.gif",
             "file:///etc/passwd",
             "//example.com/t.gif",
+            r"\\server\share\t.png",
+            r"\\?\UNC\server\share\t.png",
             "data:image/png;base64,AAAA",
             "",
         ] {
