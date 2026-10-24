@@ -214,10 +214,15 @@ impl Render for PreviewView {
             .key_context("Preview")
             .track_focus(&self.focus)
             .on_action(cx.listener(|this, _: &Refresh, _, cx| this.refresh(cx)))
-            .on_action(
-                cx.listener(|this, _: &AsMarkdown, _, cx| this.set_format(Format::Markdown, cx)),
-            )
-            .on_action(cx.listener(|this, _: &AsHtml, _, cx| this.set_format(Format::Html, cx)))
+            // The view that shows the text is made again, and the focus it had goes with it.
+            .on_action(cx.listener(|this, _: &AsMarkdown, window, cx| {
+                this.set_format(Format::Markdown, cx);
+                window.focus(&this.focus, cx);
+            }))
+            .on_action(cx.listener(|this, _: &AsHtml, window, cx| {
+                this.set_format(Format::Html, cx);
+                window.focus(&this.focus, cx);
+            }))
             .on_action(cx.listener(|this, _: &ToSource, window, cx| {
                 this.in_workspace(window, cx, |ws, window, cx| {
                     ws.preview_to_source(window, cx)

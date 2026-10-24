@@ -139,6 +139,13 @@ impl Workspace {
         self.content.panel().focus_handle(cx)
     }
 
+    /// Closes the window if every tab left in it is a preview: the documents they show are closed.
+    pub(crate) fn close_if_only_previews(&mut self, window: &mut Window, _: &mut Context<Self>) {
+        if self.has_preview_tab() && self.tab_editors().is_empty() {
+            window.remove_window();
+        }
+    }
+
     /// Whether the active tab is a preview.
     pub(crate) fn active_is_preview(&self) -> bool {
         self.content.preview().is_some()

@@ -479,3 +479,13 @@ fn the_source_opened_again_is_found_by_its_file(cx: &mut TestAppContext) {
     });
     let _ = std::fs::remove_file(&path);
 }
+
+#[gpui::test]
+fn closing_the_group_closes_the_previews_with_their_documents(cx: &mut TestAppContext) {
+    let handle = window(cx, true);
+    open(cx, handle);
+    // The source tab is active again; the group closes from there.
+    run(cx, handle, "F_GROUPCLOSE");
+    cx.run_until_parked();
+    assert_eq!(super::tests::windows(cx), 0);
+}

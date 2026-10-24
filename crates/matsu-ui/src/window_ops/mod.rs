@@ -393,11 +393,30 @@ pub(crate) async fn close_views(
     if !confirm_closing_several(cx, views.len()).await {
         return false;
     }
+    let handles: Vec<_> = views.iter().map(|(handle, _)| *handle).collect();
     for (handle, view) in views {
         if !crate::tabs::bar::close_document(cx, handle, &view).await {
             return false;
         }
     }
+    // A window whose documents are all closed but that still has a preview (a tab that is not a
+    // document of the group) goes with them.
+    let _ = cx.update(|window, app| {
+        for handle in handles {
+            let Some(workspace) = crate::file_ops::windows::workspace_of(app, handle) else {
+                continue;
+            };
+            if handle == window.window_handle() {
+                workspace.update(app, |ws, cx| ws.close_if_only_previews(window, cx));
+            } else {
+                handle
+                    .update(app, |_, other, app| {
+                        workspace.update(app, |ws, cx| ws.close_if_only_previews(other, cx));
+                    })
+                    .ok();
+            }
+        }
+    });
     true
 }
 
