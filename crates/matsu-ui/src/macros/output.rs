@@ -33,6 +33,8 @@ pub enum Kind {
 pub struct Line {
     pub kind: Kind,
     pub text: String,
+    /// What a click on this line does: the run that wrote it decides (a later run has its own).
+    pub jump: Option<Rc<JumpContext>>,
 }
 
 /// Where a line of the output that names a place of an SQL file leads (ADR-0023: the output of a
@@ -48,6 +50,9 @@ pub struct JumpContext {
     /// Added to a line that names no file: the lines the client counts start at this line of the
     /// document (a run of the selection).
     pub line_offset: usize,
+    /// Added to the column of an error on the first line of what was sent (a selection that starts
+    /// in the middle of a line), in UTF-16 code units.
+    pub column_offset: usize,
 }
 
 /// Where a click on a line of the output goes.
@@ -80,16 +85,18 @@ impl JumpContext {
             }
             None => {
                 let line = spot.line + self.line_offset;
+                // the first line of what was sent starts at a column of the document
+                let column = match spot.column {
+                    Some(column) if spot.line == 1 => Some(column + self.column_offset),
+                    column => column,
+                };
                 Some(match &self.file {
                     Some(path) => Place::File(TagTarget {
                         path: path.clone(),
                         line: Some(line),
-                        column: spot.column,
+                        column,
                     }),
-                    None => Place::Here {
-                        line,
-                        column: spot.column,
-                    },
+                    None => Place::Here { line, column },
                 })
             }
         }
@@ -98,7 +105,7 @@ impl JumpContext {
 
 #[derive(Default)]
 pub struct Output {
-    jump: Option<JumpContext>,
+    jump: Option<Rc<JumpContext>>,
     lines: Vec<Line>,
     /// The panel is shown.
     open: bool,
@@ -114,6 +121,7 @@ impl Output {
         self.lines.push(Line {
             kind,
             text: text.into(),
+            jump: None,
         });
         if self.lines.len() > MAX_LINES {
             self.lines.drain(..self.lines.len() - MAX_LINES);
@@ -140,6 +148,7 @@ impl Output {
                 _ => self.lines.push(Line {
                     kind: Kind::Out,
                     text: (*piece).to_owned(),
+                    jump: self.jump.clone(),
                 }),
             }
             if !last {
@@ -156,7 +165,7 @@ impl Output {
 
     /// Sets what a click on a line of the output does (`None`: nothing).
     pub fn set_jump(&mut self, jump: Option<JumpContext>) {
-        self.jump = jump;
+        self.jump = jump.map(Rc::new);
     }
 
     /// Starts a new run: the panel is emptied and shown.
@@ -184,12 +193,9 @@ impl Output {
     /// The lines that a click leads somewhere from, with the place.
     #[cfg(test)]
     pub fn places(&self) -> Vec<(String, Place)> {
-        let Some(jump) = &self.jump else {
-            return Vec::new();
-        };
         self.lines
             .iter()
-            .filter_map(|l| Some((l.text.clone(), jump.place(&l.text)?)))
+            .filter_map(|l| Some((l.text.clone(), l.jump.as_ref()?.place(&l.text)?)))
             .collect()
     }
 
@@ -242,7 +248,7 @@ impl Output {
             } else {
                 line.text.clone()
             };
-            let place = self.jump.as_ref().and_then(|jump| jump.place(&line.text));
+            let place = line.jump.as_ref().and_then(|jump| jump.place(&line.text));
             let row = crate::a11y::text(div().id(("macro-line", i)), &line.text)
                 .text_color(color)
                 .child(text);
@@ -327,6 +333,50 @@ mod tests {
         }
         assert_eq!(output.lines().len(), MAX_LINES);
         assert_eq!(output.lines()[0].text, "10");
+    }
+
+    fn context(offset: usize, column_offset: usize) -> JumpContext {
+        JumpContext {
+            style: ErrorStyle::BigQuery,
+            file: Some(PathBuf::from("/w/a.sql")),
+            folder: Some(PathBuf::from("/w")),
+            line_offset: offset,
+            column_offset,
+        }
+    }
+
+    fn line_of(place: &Place) -> Option<usize> {
+        match place {
+            Place::File(target) => target.line,
+            Place::Here { line, .. } => Some(*line),
+        }
+    }
+
+    #[test]
+    fn each_run_keeps_its_own_jump_context() {
+        let mut output = Output::default();
+        output.set_jump(Some(context(0, 0)));
+        output.trace("error at [1:1]", true);
+        output.set_jump(Some(context(5, 0)));
+        output.trace("error at [1:1]", true);
+        output.set_jump(None);
+        output.trace("error at [1:1]", true);
+        let places = output.places();
+        // the third run leads nowhere; the first two keep what they had
+        assert_eq!(places.len(), 2);
+        assert_eq!(line_of(&places[0].1), Some(1));
+        assert_eq!(line_of(&places[1].1), Some(6));
+    }
+
+    #[test]
+    fn only_the_first_line_gets_the_column_of_the_selection() {
+        let jump = context(2, 10);
+        let column = |text: &str| match jump.place(text) {
+            Some(Place::File(target)) => target.column,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(column("x at [1:5]"), Some(15));
+        assert_eq!(column("x at [2:5]"), Some(5));
     }
 
     #[test]

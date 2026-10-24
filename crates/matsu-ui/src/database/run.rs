@@ -19,6 +19,7 @@ use std::path::PathBuf;
 
 use gpui::{AsyncWindowContext, PromptLevel, WeakEntity};
 use matsu_config::databases::{self, Connection, Databases, Encoding, Kind, Problem};
+use matsu_core::buffer::col_to_utf16;
 use matsu_core::exec::ExecFlags;
 use matsu_core::sql_error::ErrorStyle;
 
@@ -226,16 +227,25 @@ fn jump_context(
             .as_ref()
             .map(PathBuf::from)
             .or_else(|| file.as_ref().and_then(|f| f.parent().map(PathBuf::from)));
-        let line_offset = if sent_selection {
-            view.cursor().selection().map_or(0, |(from, _)| from.line)
-        } else {
-            0
+        // the lines and the first column of what the client got count from the selection
+        let (line_offset, column_offset) = match view.cursor().selection() {
+            Some((from, _)) if sent_selection => {
+                let before = shared
+                    .doc()
+                    .line(from.line)
+                    .ok()
+                    .flatten()
+                    .map_or(0, |line| col_to_utf16(&line.text, from.col));
+                (from.line, before)
+            }
+            _ => (0, 0),
         };
         JumpContext {
             style: error_style(connection.kind),
             file,
             folder,
             line_offset,
+            column_offset,
         }
     })
     .ok()
