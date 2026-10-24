@@ -131,7 +131,7 @@
 | タイプ別設定「色」の灰色: 文字色統一、背景色統一、色のインポート・エクスポート、強調キーワードの選択（2〜10）、共通設定への移動 | `CPropTypesColor.cpp`、`CDlgSameColor.cpp`、`CDlgKeywordSelect.cpp`、`CImpExpManager.cpp` | 灰色 | C | M | 色のファイル形式 |
 | タイプ別設定「支援」の灰色: 補完の種類、保存時の改行混在の警告、C/C++ のスマートインデント、読み込み時のインデントスタイル検出 | `CPropTypesSupport.cpp` | 灰色 | C | M | 補完プラグイン |
 | 17 の組み込みタイプの個別の既定値 | `sakura_core/types/CType_*.cpp` | 17 個とも用意した（`builtin_types.rs`）。値がサクラの `CType_*.cpp` と全部合っているかは未確認 | A/C | S | なし |
-| 設定ファイルに保存しない状態: 検索の条件（正規表現・大文字小文字・単語・先頭から再検索など、`bSearch*`）、ウィンドウの位置と大きさ（`nWinPosX` `nWinSizeCX` `bSaveWindowSize` など）、アウトラインのドッキング位置・並べ替え・窓の位置（`eOutlineDockSide` など）、各ダイアログの位置（`rc*Dialog`）、タブの幅（`nTabMinWidth` など）、`bGrep*` の 10 個ほど、`nDiffFlgOpt`、`nTagsOpt`、`m_bTagJumpAnyWhere` | `CShareData_IO.cpp` | 実行中だけ覚える。ファイルの値は壊さず残す | C | M | 既存のキーを使うので、形式の判断は要らない。新しいキーなら要る |
+| 設定ファイルに保存しない状態（残り）: アウトラインのドッキング位置・並べ替え・窓の位置（`eOutlineDockSide` など）、各ダイアログの位置（`rc*Dialog`）、タブの幅（`nTabMinWidth` など）、Grep ダイアログの値（`bGrep*` の 10 個ほど、`nGrepCharSet`）、`nDiffFlgOpt`、`nTagsOpt`、`m_bTagJumpAnyWhere`。検索の条件（`bSearch*` 7 個）と、ウィンドウの位置と大きさ（`bSaveWindowSize` `nWinSizeType` `nWinSizeCX` `nWinSizeCY` `nSaveWindowPos` `nWinPosX` `nWinPosY`）は保存する（`saved_state/`）。「位置と大きさの設定」ダイアログ（`CDlgWinSize`、ボタンは灰色）がないので、保存の方式（継承・直接指定）は設定ファイルを直接書き換えて選ぶ | `CShareData_IO.cpp`、`CEditWnd.cpp` | 残りは実行中だけ覚える。ファイルの値は壊さず残す | C | M | 既存のキーを使うので、形式の判断は要らない。新しいキーなら要る |
 | `sakura.exe.ini`（`MultiUser`、`bIniReadOnly`） | `CShareData.cpp`、`CProfile` | `location.rs` が一部を読む。`bIniReadOnly` は未確認 | ユーザーの判断が要る: 設定ファイルの置き場所 | M | プロファイル |
 
 ### ダイアログとプロパティシート
@@ -140,7 +140,7 @@
 |---|---|---|---|---|---|
 | プラグインの設定（`CDlgPluginOption`） | `dlg/CDlgPluginOption.cpp` | なし | ユーザーの判断が要る: プラグイン | M | プラグイン |
 | プロファイルマネージャ | `dlg/CDlgProfileMgr.cpp` | なし | ユーザーの判断が要る: 設定の置き場所 | M | 同上 |
-| ウィンドウの位置と大きさ（`CDlgWinSize`） | `dlg/CDlgWinSize.cpp` | ボタンが灰色 | C | S | ウィンドウ位置の保存 |
+| ウィンドウの位置と大きさ（`CDlgWinSize`） | `dlg/CDlgWinSize.cpp` | ボタンが灰色 | C | S | 保存は入った（`saved_state/window.rs`）。ダイアログだけが残る |
 | 色統一（`CDlgSameColor`）、強調キーワード選択（`CDlgKeywordSelect`）、タイプ判別（`CDlgTypeAscertain`） | `typeprop/` | なし | C | S〜M | 色の部品 |
 | タイプ一覧の追加・削除・複製・上下・インポート・エクスポート・初期化・ファイルの関連付け | `typeprop/CDlgTypeList.cpp` | 「設定変更」「一時適用」だけ（`doc_types/list.rs`） | C | M | 設定の保存形式（`Types(N)`）の扱い |
 | ヘルプボタン | 各ダイアログ | 検索・Grep・実行・タグ作成・印刷設定・コントロールコード・ファイルツリーで未対応 | D | S | ヘルプの仕組み（下の「そのほか」） |

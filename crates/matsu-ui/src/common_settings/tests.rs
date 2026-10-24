@@ -111,6 +111,7 @@ pub(super) fn setup(cx: &mut TestAppContext, text: &str) -> (Ini, AnyWindowHandl
         ));
         crate::tabs::settings::install(cx, &user);
         super::install(cx, &user);
+        crate::saved_state::install(cx, &user);
         cx.set_global(user);
     });
     let handle = open_window(cx);
@@ -1313,4 +1314,107 @@ fn a_page_that_fits_has_nothing_to_scroll(cx: &mut TestAppContext) {
     cx.run_until_parked();
     let max = with_dialog(cx, |d, _, _| d.body_scroll.max_offset());
     assert_eq!(max, gpui::point(px(0.), px(0.)));
+}
+
+// ---- the states that Sakura keeps in the shared data ----
+
+#[gpui::test]
+fn the_search_options_of_a_search_are_kept_for_the_next_dialog(cx: &mut TestAppContext) {
+    use crate::saved_state::search::{remember, saved};
+    use crate::search::state::{ReplaceSettings, SearchOptions};
+    let (ini, handle) = setup(cx, "[Common]\r\nbSearchLoHiCase=1\r\n");
+    // read at the start
+    assert!(cx.update(|app| saved(app)).match_case);
+    let options = SearchOptions {
+        regex: true,
+        whole_word: true,
+        wrap: true,
+        notify_not_found: false,
+        ..Default::default()
+    };
+    let replace = ReplaceSettings {
+        consecutive_all: true,
+        in_selection: true,
+        ..Default::default()
+    };
+    cx.update(|app| remember(app, options, Some(&replace)));
+    for (key, value) in [
+        ("bSearchRegularExp", "1"),
+        ("bSearchLoHiCase", "0"),
+        ("bSearchWordOnly", "1"),
+        ("bSearchConsecutiveAll", "1"),
+        ("bSearchNOTIFYNOTFOUND", "0"),
+        ("bSearchAll", "1"),
+        ("bSearchSelectedArea", "1"),
+    ] {
+        assert_eq!(ini.get(key).as_deref(), Some(value), "{key}");
+    }
+    // The find dialog leaves the two options of the replace dialog as they were.
+    cx.update(|app| remember(app, SearchOptions::default(), None));
+    assert_eq!(ini.get("bSearchConsecutiveAll").as_deref(), Some("1"));
+    assert_eq!(ini.get("bSearchRegularExp").as_deref(), Some("0"));
+    // A dialog of any window starts with them.
+    cx.update(|app| remember(app, options, Some(&replace)));
+    let view = cx
+        .update(|app| crate::file_ops::windows::workspace_of(app, handle))
+        .unwrap()
+        .read_with(cx, |ws, _| ws.editor().clone());
+    handle
+        .update(cx, |_, window, app| {
+            view.update(app, |view, cx| {
+                view.open_search_panel(crate::search::panel::PanelMode::Replace, window, cx);
+                assert!(view.search.options().regex);
+                assert!(view.search.options().whole_word);
+                assert!(view.search.options().wrap);
+                assert!(view.search.options().auto_close, "not kept by Sakura");
+                assert!(view.search.replace.consecutive_all);
+            })
+        })
+        .unwrap();
+}
+
+#[gpui::test]
+fn the_size_of_the_window_is_kept_and_a_new_window_takes_it(cx: &mut TestAppContext) {
+    use crate::saved_state::window::{bounds_changed, flush, state};
+    use gpui::{Bounds, WindowBounds, point, px, size};
+    let (ini, handle) = setup(cx, "");
+    let windowed = |x: f32, y: f32, w: f32, h: f32| {
+        WindowBounds::Windowed(Bounds::new(point(px(x), px(y)), size(px(w), px(h))))
+    };
+    // by default the size is kept (`WINSIZEMODE_SAVE`) and the position is not
+    cx.update(|app| bounds_changed(app, windowed(11., 22., 640., 480.)));
+    assert_eq!(cx.update(|app| state(app)).width, 640);
+    assert_eq!(cx.update(|app| state(app)).x, i32::MIN);
+    cx.update(flush);
+    assert_eq!(ini.get("nWinSizeCX").as_deref(), Some("640"));
+    assert_eq!(ini.get("nWinSizeCY").as_deref(), Some("480"));
+    assert_eq!(ini.get("nWinSizeType").as_deref(), Some("0"));
+    // the position was never taken (`CW_USEDEFAULT`)
+    assert_eq!(ini.get("nWinPosX").as_deref(), Some("-2147483648"));
+    // a new window opens with that size
+    let second = open_window(cx);
+    let bounds = second.update(cx, |_, window, _| window.bounds()).unwrap();
+    assert_eq!(bounds.size, size(px(640.), px(480.)));
+    let _ = handle;
+}
+
+#[gpui::test]
+fn the_position_is_kept_only_with_its_mode_and_a_maximized_window_keeps_its_type(
+    cx: &mut TestAppContext,
+) {
+    use crate::saved_state::window::{bounds_changed, flush};
+    use gpui::{Bounds, WindowBounds, point, px, size};
+    let (ini, _handle) = setup(cx, "[Common]\r\nnSaveWindowPos=1\r\n");
+    let rect = Bounds::new(point(px(-20.), px(30.)), size(px(700.), px(500.)));
+    cx.update(|app| bounds_changed(app, WindowBounds::Windowed(rect)));
+    cx.update(|app| bounds_changed(app, WindowBounds::Maximized(rect)));
+    cx.update(flush);
+    assert_eq!(ini.get("nWinPosX").as_deref(), Some("-20"));
+    assert_eq!(ini.get("nWinPosY").as_deref(), Some("30"));
+    assert_eq!(ini.get("nWinSizeCX").as_deref(), Some("700"));
+    assert_eq!(ini.get("nWinSizeType").as_deref(), Some("2"));
+    // the next window is placed there, maximized (the test platform cannot open one that is)
+    let now = cx.update(|app| crate::saved_state::window::state(app));
+    assert!(now.maximized());
+    assert_eq!(now.origin(), Some(point(px(-20.), px(30.))));
 }
