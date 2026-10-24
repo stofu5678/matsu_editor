@@ -97,6 +97,29 @@ impl EditorView {
     }
 }
 
+impl EditorView {
+    /// A click on a line of the output panel that names a place of an SQL file (ADR-0023): the
+    /// same jump as a tag jump (`F_TAGJUMPBACK` comes back), or a move of the caret in this
+    /// window when the SQL has no file.
+    pub(crate) fn jump_to_place(
+        &mut self,
+        place: crate::macros::Place,
+        window: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) {
+        match place {
+            crate::macros::Place::Here { line, column } => {
+                self.go_to_tag(Some(line), column, cx);
+            }
+            crate::macros::Place::File(target) => {
+                super::start(window, cx, async move |view, cx| {
+                    jump_to_target(&view, cx, &target, false).await;
+                });
+            }
+        }
+    }
+}
+
 /// The target of the tag jump on the caret line of `view`, and the place of the caret.
 fn target_of(view: &EditorView, cx: &gpui::App) -> Option<TagTarget> {
     let shared = view.document().read(cx);

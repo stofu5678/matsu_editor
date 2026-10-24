@@ -493,3 +493,114 @@ fn f10_and_shift_f11_are_bound_to_them(cx: &mut TestAppContext) {
     w.wait_for_end(cx);
     assert!(w.output(cx).contains("run ["));
 }
+
+// ---- the jump from an error line (step 3 of ADR-0023) ----
+
+use crate::macros::Place;
+
+impl Win {
+    fn places(&self, cx: &mut TestAppContext) -> Vec<(String, Place)> {
+        self.view
+            .read_with(cx, |view, _| view.macros.output.places())
+    }
+
+    fn click(&self, cx: &mut TestAppContext, place: Place) {
+        let view = self.view.clone();
+        self.handle
+            .update(cx, |_, window, app| {
+                view.update(app, |view, cx| view.jump_to_place(place, window, cx))
+            })
+            .unwrap();
+        cx.run_until_parked();
+    }
+
+    fn caret(&self, cx: &mut TestAppContext) -> Pos {
+        self.view.read_with(cx, |view, _| view.cursor().caret())
+    }
+}
+
+#[gpui::test]
+fn a_client_error_line_leads_to_the_line_of_the_file(cx: &mut TestAppContext) {
+    // a fake client that writes `FILE:LINE: ERROR`, with the file relative to the folder of the run
+    let ini = "[Database]\nDefault=t\n\n[Connection.t]\nCommand=echo a.sql:3: ERROR: boom\n";
+    let (_dir, file, w) = setup(cx, Some(ini), "a.sql", "one;\ntwo;\nthree;\nfour;\n");
+    w.run(cx);
+    w.wait_for_end(cx);
+    let places = w.places(cx);
+    assert_eq!(places.len(), 1, "{places:?}");
+    assert_eq!(places[0].0, "a.sql:3: ERROR: boom");
+    let Place::File(target) = &places[0].1 else {
+        panic!("{:?}", places[0]);
+    };
+    assert_eq!(target.path, file);
+    assert_eq!(target.line, Some(3));
+    // the click moves the caret there
+    w.click(cx, places[0].1.clone());
+    assert_eq!(w.caret(cx).line, 2);
+}
+
+#[gpui::test]
+fn the_line_counts_from_the_selection_when_only_it_was_sent(cx: &mut TestAppContext) {
+    // the client (`cat`) writes back what it got; psql names the line of the input
+    let ini = format!("[Database]\nDefault=t\n\n[Connection.t]\nKind=postgresql\nCommand={COPY}\n");
+    let text = "select 1;\npsql:<stdin>:1: ERROR: boom\nselect 3;\n";
+    let (_dir, file, w) = setup(cx, Some(&ini), "a.sql", text);
+    w.select(cx, Pos::new(1, 0), Pos::new(1, 27));
+    w.run(cx);
+    w.wait_for_end(cx);
+    let places = w.places(cx);
+    assert_eq!(places.len(), 1, "{places:?}");
+    let Place::File(target) = &places[0].1 else {
+        panic!("{:?}", places[0]);
+    };
+    // line 1 of the selection is line 2 of the document
+    assert_eq!(
+        (target.path.as_path(), target.line),
+        (file.as_path(), Some(2))
+    );
+}
+
+#[gpui::test]
+fn another_command_takes_the_jump_away(cx: &mut TestAppContext) {
+    let ini = "[Database]\nDefault=t\n\n[Connection.t]\nCommand=echo a.sql:1: ERROR: x\n";
+    let (_dir, _file, w) = setup(cx, Some(ini), "a.sql", "x\n");
+    w.run(cx);
+    w.wait_for_end(cx);
+    // 外部コマンド実行 of a macro: its output has no errors to lead anywhere
+    let code = code_of("F_EXECMD");
+    let view = w.view.clone();
+    w.handle
+        .update(cx, |_, window, app| {
+            view.update(app, |view, cx| {
+                view.run_function(
+                    code,
+                    &[
+                        matsu_commands::command::Arg::Text("echo other a.sql:1: x".into()),
+                        matsu_commands::command::Arg::Int(1),
+                    ],
+                    window,
+                    cx,
+                )
+            })
+        })
+        .unwrap();
+    wait_until(cx, "the second run", |cx| {
+        w.output(cx).contains("other a.sql") && !w.running(cx)
+    });
+    // the line of the second run leads nowhere; the first run's error line keeps its place
+    let places = w.places(cx);
+    assert!(places.iter().all(|(text, _)| !text.starts_with("other")));
+    assert!(places.iter().any(|(text, _)| text == "a.sql:1: ERROR: x"));
+}
+
+#[gpui::test]
+fn a_document_without_a_file_gets_no_jump(cx: &mut TestAppContext) {
+    let ini = format!("[Database]\nDefault=t\n\n[Connection.t]\nKind=postgresql\nCommand={COPY}\n");
+    let (_dir, _file, _w) = setup(cx, Some(&ini), "a.sql", "x\n");
+    let w = open_file(cx, None);
+    w.type_text(cx, "psql:<stdin>:1: ERROR: boom");
+    w.run(cx);
+    w.wait_for_end(cx);
+    assert!(w.output(cx).contains("ERROR: boom"));
+    assert!(w.places(cx).is_empty());
+}

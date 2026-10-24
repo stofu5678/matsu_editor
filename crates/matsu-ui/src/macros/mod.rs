@@ -62,7 +62,7 @@ use crate::file_dialog::{self, Ask};
 use crate::view::EditorView;
 use output::PanelActions;
 
-pub(crate) use output::{Kind, Output};
+pub(crate) use output::{JumpContext, Kind, Output, Place};
 pub(crate) use registered::table as registered_table;
 pub(crate) use registered::{
     Auto, MacroList, run_auto_in, run_before_save, run_opened, run_opened_in_new, title_of,
@@ -865,6 +865,7 @@ impl EditorView {
     /// The output panel for the window to show under the text, while it is open.
     pub fn macro_panel(&self, view: Entity<EditorView>) -> Option<AnyElement> {
         let cancel = view.clone();
+        let jump = view.clone();
         self.macros.output.panel(PanelActions {
             running: self.macros.running.is_some() || self.macros.waiting.is_some(),
             on_cancel: Box::new(move |_, _, cx| {
@@ -875,6 +876,9 @@ impl EditorView {
                     view.macros.output.close();
                     cx.notify();
                 });
+            }),
+            on_jump: std::rc::Rc::new(move |place, window, cx| {
+                jump.update(cx, |view, cx| view.jump_to_place(place, window, cx));
             }),
         })
     }

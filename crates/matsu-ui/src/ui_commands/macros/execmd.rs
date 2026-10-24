@@ -61,6 +61,7 @@ impl UiCommand for Execmd {
             command,
             flags: ExecFlags(flags),
             folder,
+            jump: None,
         };
         start(window, cx, async move |view, cx| {
             run_command(&view, cx, request).await;

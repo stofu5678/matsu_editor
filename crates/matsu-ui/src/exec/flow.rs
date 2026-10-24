@@ -58,6 +58,9 @@ pub(crate) struct Request {
     pub flags: ExecFlags,
     /// The folder of the dialog or of the macro; used when `flags` has 0x200.
     pub folder: Option<String>,
+    /// Where a click on a line of the output panel leads (a database client's errors, ADR-0023);
+    /// the panel keeps it for this run.
+    pub jump: Option<crate::macros::JumpContext>,
 }
 
 /// What is read from the window before the process starts.
@@ -153,6 +156,7 @@ fn put(
     cx: &mut AsyncWindowContext,
     target: Target,
     text: &str,
+    jump: Option<&crate::macros::JumpContext>,
 ) -> bool {
     if text.is_empty() {
         // nothing to put, but a window that is gone ends the run
@@ -163,7 +167,7 @@ fn put(
             .run_with(cx, |command_cx| command_cx.insert_text(text))
             .is_ok(),
         Target::Panel => {
-            view.macros.output.trace(text, false);
+            view.macros.output.trace_jump(text, jump);
             cx.notify();
             true
         }
@@ -182,6 +186,7 @@ pub(crate) async fn run_command(
         return;
     };
     let flags = request.flags;
+    let jump = request.jump.clone();
     let to_window = flags.to_window(prepared.editable);
     let capture = flags.get_stdout();
     let had_selection = prepared.selection.is_some() || prepared.box_text.is_some();
@@ -327,6 +332,7 @@ pub(crate) async fn run_command(
             cx,
             target,
             &header_text(&date, &time, &prepared.command, eol),
+            jump.as_ref(),
         );
     }
 
@@ -350,7 +356,7 @@ pub(crate) async fn run_command(
             }
         }
         let idle = batch.is_empty() && exit.is_none();
-        keep_going = put(view, cx, target, &batch);
+        keep_going = put(view, cx, target, &batch, jump.as_ref());
         if exit.is_none() {
             // A command that never stops writing (`yes`) must not keep the window from drawing and
             // from hearing the 中断 button: wait a moment after every batch, longer when idle.
@@ -375,7 +381,7 @@ pub(crate) async fn run_command(
         }
         tail.push_str(&exit_code_text(exit.code.unwrap_or(0), eol));
     }
-    put(view, cx, target, &tail);
+    put(view, cx, target, &tail, jump.as_ref());
     close(view, cx, to_window, to_window, select_from);
 }
 
@@ -457,6 +463,7 @@ pub(crate) async fn run_dialog(view: &WeakEntity<EditorView>, cx: &mut AsyncWind
             command: choice.command,
             flags: choice.flags,
             folder,
+            jump: None,
         },
     )
     .await;

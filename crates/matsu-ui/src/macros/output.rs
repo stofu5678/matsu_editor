@@ -6,6 +6,12 @@ use gpui::{
     prelude::*, px, rgb,
 };
 
+use std::path::PathBuf;
+use std::rc::Rc;
+
+use matsu_core::sql_error::{ErrorStyle, parse};
+use matsu_core::tag_jump::TagTarget;
+
 use crate::view::FONT_FAMILY;
 
 /// The most lines that the panel keeps (older ones go).
@@ -27,10 +33,79 @@ pub enum Kind {
 pub struct Line {
     pub kind: Kind,
     pub text: String,
+    /// What a click on this line does: the run that wrote it decides (a later run has its own).
+    pub jump: Option<Rc<JumpContext>>,
+}
+
+/// Where a line of the output that names a place of an SQL file leads (ADR-0023: the output of a
+/// database client). Set by the run of a database function; a line that `style` finds a place in
+/// can be clicked.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JumpContext {
+    pub style: ErrorStyle,
+    /// The file that was run (`None`: a document without a file, run through the standard input).
+    pub file: Option<PathBuf>,
+    /// The folder that file names in the output are relative to.
+    pub folder: Option<PathBuf>,
+    /// Added to a line that names no file: the lines the client counts start at this line of the
+    /// document (a run of the selection).
+    pub line_offset: usize,
+    /// Added to the column of an error on the first line of what was sent (a selection that starts
+    /// in the middle of a line), in UTF-16 code units.
+    pub column_offset: usize,
+}
+
+/// Where a click on a line of the output goes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Place {
+    /// A line (and column) of the document that ran the client.
+    Here {
+        line: usize,
+        column: Option<usize>,
+    },
+    File(TagTarget),
+}
+
+impl JumpContext {
+    /// The place that the line `text` names.
+    pub fn place(&self, text: &str) -> Option<Place> {
+        let spot = parse(self.style, text)?;
+        match spot.file {
+            Some(file) => {
+                let path = PathBuf::from(&file);
+                let path = match (&self.folder, path.is_relative()) {
+                    (Some(folder), true) => folder.join(path),
+                    _ => path,
+                };
+                Some(Place::File(TagTarget {
+                    path,
+                    line: Some(spot.line),
+                    column: spot.column,
+                }))
+            }
+            None => {
+                let line = spot.line + self.line_offset;
+                // the first line of what was sent starts at a column of the document
+                let column = match spot.column {
+                    Some(column) if spot.line == 1 => Some(column + self.column_offset),
+                    column => column,
+                };
+                Some(match &self.file {
+                    Some(path) => Place::File(TagTarget {
+                        path: path.clone(),
+                        line: Some(line),
+                        column,
+                    }),
+                    None => Place::Here { line, column },
+                })
+            }
+        }
+    }
 }
 
 #[derive(Default)]
 pub struct Output {
+    jump: Option<Rc<JumpContext>>,
     lines: Vec<Line>,
     /// The panel is shown.
     open: bool,
@@ -46,6 +121,7 @@ impl Output {
         self.lines.push(Line {
             kind,
             text: text.into(),
+            jump: None,
         });
         if self.lines.len() > MAX_LINES {
             self.lines.drain(..self.lines.len() - MAX_LINES);
@@ -72,6 +148,7 @@ impl Output {
                 _ => self.lines.push(Line {
                     kind: Kind::Out,
                     text: (*piece).to_owned(),
+                    jump: self.jump.clone(),
                 }),
             }
             if !last {
@@ -86,8 +163,17 @@ impl Output {
         self.scroll.scroll_to_bottom();
     }
 
+    /// `trace` without a line break, for the output of a database client: the lines it starts lead
+    /// somewhere when clicked, as `jump` says. Other output (a macro's `TraceOut`) is not affected.
+    pub fn trace_jump(&mut self, text: &str, jump: Option<&JumpContext>) {
+        self.jump = jump.cloned().map(Rc::new);
+        self.trace(text, false);
+        self.jump = None;
+    }
+
     /// Starts a new run: the panel is emptied and shown.
     pub fn begin(&mut self) {
+        self.jump = None;
         self.lines.clear();
         self.open_line = false;
         self.open = true;
@@ -107,6 +193,15 @@ impl Output {
         self.open
     }
 
+    /// The lines that a click leads somewhere from, with the place.
+    #[cfg(test)]
+    pub fn places(&self) -> Vec<(String, Place)> {
+        self.lines
+            .iter()
+            .filter_map(|l| Some((l.text.clone(), l.jump.as_ref()?.place(&l.text)?)))
+            .collect()
+    }
+
     #[cfg(test)]
     pub fn lines(&self) -> &[Line] {
         &self.lines
@@ -120,12 +215,16 @@ impl Output {
 }
 
 type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
+/// What a click on a line that names a place does.
+pub type JumpHandler = Rc<dyn Fn(Place, &mut Window, &mut App)>;
 
 /// What the buttons of the panel do. Each takes the panel's owner (the view).
 pub struct PanelActions {
     pub running: bool,
     pub on_cancel: ClickHandler,
     pub on_close: ClickHandler,
+    /// A click on a line that names a place ([`JumpContext`]).
+    pub on_jump: JumpHandler,
 }
 
 impl Output {
@@ -147,9 +246,20 @@ impl Output {
             } else {
                 line.text.clone()
             };
-            crate::a11y::text(div().id(("macro-line", i)), &line.text)
+            let place = line.jump.as_ref().and_then(|jump| jump.place(&line.text));
+            let row = crate::a11y::text(div().id(("macro-line", i)), &line.text)
                 .text_color(color)
-                .child(text)
+                .child(text);
+            match place {
+                Some(place) => {
+                    let on_jump = actions.on_jump.clone();
+                    row.cursor_pointer()
+                        .text_color(rgb(0x0b5cad))
+                        .on_click(move |_, window, cx| on_jump(place.clone(), window, cx))
+                        .into_any_element()
+                }
+                None => row.into_any_element(),
+            }
         });
         let title = if actions.running {
             "マクロの出力 (実行中)"
@@ -221,6 +331,48 @@ mod tests {
         }
         assert_eq!(output.lines().len(), MAX_LINES);
         assert_eq!(output.lines()[0].text, "10");
+    }
+
+    fn context(offset: usize, column_offset: usize) -> JumpContext {
+        JumpContext {
+            style: ErrorStyle::BigQuery,
+            file: Some(PathBuf::from("/w/a.sql")),
+            folder: Some(PathBuf::from("/w")),
+            line_offset: offset,
+            column_offset,
+        }
+    }
+
+    fn line_of(place: &Place) -> Option<usize> {
+        match place {
+            Place::File(target) => target.line,
+            Place::Here { line, .. } => Some(*line),
+        }
+    }
+
+    #[test]
+    fn each_run_keeps_its_own_jump_context() {
+        let mut output = Output::default();
+        output.trace_jump("error at [1:1]\n", Some(&context(0, 0)));
+        output.trace_jump("error at [1:1]\n", Some(&context(5, 0)));
+        output.trace_jump("error at [1:1]\n", None);
+        output.trace("error at [1:1]", true);
+        let places = output.places();
+        // the last two lead nowhere (no context; a macro's own output); the first two keep what they had
+        assert_eq!(places.len(), 2);
+        assert_eq!(line_of(&places[0].1), Some(1));
+        assert_eq!(line_of(&places[1].1), Some(6));
+    }
+
+    #[test]
+    fn only_the_first_line_gets_the_column_of_the_selection() {
+        let jump = context(2, 10);
+        let column = |text: &str| match jump.place(text) {
+            Some(Place::File(target)) => target.column,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(column("x at [1:5]"), Some(15));
+        assert_eq!(column("x at [2:5]"), Some(5));
     }
 
     #[test]
