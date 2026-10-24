@@ -9,6 +9,9 @@ use super::content::MenuKind;
 use super::tests::{run, window, workspace};
 use crate::app::{KindMenus, active_menu_context};
 
+/// macOS puts the application menu before the menus of every kind; the tests leave it out.
+const APP_MENU: &str = "MATSU Editor";
+
 /// Makes the menus of every kind, as the application does at startup.
 fn make_menus(cx: &mut TestAppContext) {
     cx.update(|cx| {
@@ -23,6 +26,9 @@ fn bar_names(cx: &mut TestAppContext, handle: AnyWindowHandle) -> Vec<String> {
     let ws = workspace(cx, handle);
     let bar = ws.read_with(cx, |ws, _| ws.menu_bar.clone());
     bar.read_with(cx, |bar, cx| bar.menu_names(cx))
+        .into_iter()
+        .filter(|name| name != APP_MENU)
+        .collect()
 }
 
 /// Gives tab `index` of the window the kind `kind` and makes it the active tab.
@@ -57,6 +63,7 @@ fn the_application_makes_the_menus_of_every_kind(cx: &mut TestAppContext) {
                 .unwrap()
                 .iter()
                 .map(|m| m.name.to_string())
+                .filter(|name| name != APP_MENU)
                 .collect::<Vec<_>>()
         };
         assert!(
