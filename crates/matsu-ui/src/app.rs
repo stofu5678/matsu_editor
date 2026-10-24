@@ -18,6 +18,7 @@ use crate::launch::OpenRequest;
 use crate::menu::{Entry, MenuAction, Registered, label_with_shortcut, main_menu_for};
 use crate::menu_bar::MenuBar;
 use crate::panes::PaneSet;
+use crate::tabs::content::MenuKind;
 use crate::view::{EditorView, OpenRecentFile, OpenRecentFolder, RunFunction};
 use matsu_commands::keymap::{DisplayStyle, KeyMap};
 
@@ -58,9 +59,26 @@ impl gpui::Global for MenuGeneration {}
 
 /// The state that the native menu was made with (macOS), to make the menus again only when it
 /// changes.
-struct MenuStates(Option<crate::menu_state::FuncStates>);
+struct MenuStates {
+    states: Option<crate::menu_state::FuncStates>,
+    kind: MenuKind,
+}
 
 impl gpui::Global for MenuStates {}
+
+/// The menus of every kind of tab (ADR-0024), as the menu bars of the windows show them: a window
+/// shows the menus of the kind of its active tab. The native menu of macOS shows those of the
+/// active window's active tab, through `cx.set_menus`.
+pub(crate) struct KindMenus(std::collections::HashMap<MenuKind, Vec<gpui::OwnedMenu>>);
+
+impl gpui::Global for KindMenus {}
+
+impl KindMenus {
+    /// The menus of `kind`, once the application has made them.
+    pub(crate) fn of(cx: &App, kind: MenuKind) -> Option<Vec<gpui::OwnedMenu>> {
+        cx.try_global::<Self>()?.0.get(&kind).cloned()
+    }
+}
 
 /// macOS: makes the native menu again if the marks of the active window are not the ones it shows.
 /// Called when a window becomes active and after a function ran, because the native menu cannot
@@ -69,8 +87,12 @@ impl gpui::Global for MenuStates {}
 /// `always` skips the comparison: the snapshot does not include what the disk says (whether a
 /// file is there, a header of the same name), so a window that becomes active makes them again.
 fn refresh_menu_states(cx: &mut App, always: bool) {
-    let now = active_states(cx);
-    if !always && cx.try_global::<MenuStates>().is_some_and(|m| m.0 == now) {
+    let (kind, states) = active_menu_context(cx);
+    if !always
+        && cx
+            .try_global::<MenuStates>()
+            .is_some_and(|m| m.kind == kind && m.states == states)
+    {
         return;
     }
     refresh_menus(cx);
@@ -204,9 +226,10 @@ fn reopen(cx: &mut App) {
     cx.activate(true);
 }
 
-/// Sets the menus of the application: Sakura's main menu (`crate::menu`). macOS shows them in the
-/// menu bar of the screen; elsewhere the window draws them (`AppMenuBar`), from the copy in
-/// gpui-component's global state. An item runs its Sakura function on the editor
+/// Sets the menus of the application: Sakura's main menu (`crate::menu`) for an editor tab, and
+/// the menus of the other kinds of tab (ADR-0024). macOS shows the menus of the active window's
+/// active tab in the menu bar of the screen; elsewhere each window draws the menus of its active
+/// tab (`AppMenuBar`), from [`KindMenus`]. An item runs its Sakura function on the editor
 /// ([`RunFunction`]); a function without a command is grayed out. The shortcuts shown are those
 /// of `keymap`, the user's key map (matsu.ini).
 fn set_menus(cx: &mut App, keymap: &KeyMap) {
@@ -215,25 +238,99 @@ fn set_menus(cx: &mut App, keymap: &KeyMap) {
     } else {
         DisplayStyle::Sakura
     };
-    let mut menus = Vec::new();
-    // macOS: the pictures of the items, in the shape of `menus` (`native_menu_icons`).
-    let mut native_icons = Vec::new();
-    // macOS has Quit in the application menu, not in the File menu.
+    // The native menu shows the kind and the state of the window that is active now; elsewhere the
+    // window's own menu bar asks when a menu opens (`crate::menu_bar`).
+    let (kind_now, states) = if cfg!(target_os = "macos") {
+        active_menu_context(cx)
+    } else {
+        (MenuKind::Editor, None)
+    };
+    let by_kind = MenuKind::ALL
+        .iter()
+        .map(|&kind| {
+            let menus = menus_of(cx, keymap, kind, style, None).menus;
+            (kind, menus.into_iter().map(Menu::owned).collect())
+        })
+        .collect();
+    cx.set_global(KindMenus(by_kind));
+    let native = menus_of(cx, keymap, kind_now, style, states.as_ref());
+    cx.set_menus(native.menus);
+    // The native menu has just been made again, without pictures: give them (macOS; Windows and
+    // Linux draw the menu themselves). `menu_icons::enabled` is Sakura's 「アイコン付きメニュー」.
+    if cfg!(target_os = "macos") && crate::menu_icons::enabled(cx) {
+        matsu_platform::menu_icons::apply(
+            &native.icons,
+            f64::from(crate::bars::icons::ICON_SIZE as u32),
+        );
+    }
+    // For `scripts/mac-checks/menu-icons.sh`: write what the menu bar has, pictures included.
+    if cfg!(target_os = "macos")
+        && let Some(path) = std::env::var_os("MATSU_DUMP_MENU_ICONS")
+    {
+        let _ = std::fs::write(path, matsu_platform::menu_icons::describe());
+    }
+    cx.set_global(MenuStates {
+        states,
+        kind: kind_now,
+    });
+    let owned = cx.get_menus().unwrap_or_default();
+    GlobalState::global_mut(cx).set_app_menus(owned);
+    let generation = cx.try_global::<MenuGeneration>().map_or(0, |g| g.0);
+    cx.set_global(MenuGeneration(generation + 1));
+}
+
+/// The menus of one kind of tab, and the pictures of their items (macOS, `native_menu_icons`).
+struct BuiltMenus {
+    menus: Vec<Menu>,
+    icons: Vec<matsu_platform::menu_icons::Menu>,
+}
+
+/// Makes the menus of `kind`, with the marks of `states` on the items of the editor's.
+fn menus_of(
+    cx: &App,
+    keymap: &KeyMap,
+    kind: MenuKind,
+    style: DisplayStyle,
+    states: Option<&crate::menu_state::FuncStates>,
+) -> BuiltMenus {
+    let mut built = BuiltMenus {
+        menus: Vec::new(),
+        icons: Vec::new(),
+    };
+    // macOS has Quit in the application menu, not in the File menu, whatever the kind.
     if cfg!(target_os = "macos") {
-        menus
+        built
+            .menus
             .push(Menu::new("MATSU Editor").items([MenuItem::action("MATSU Editor を終了", Exit)]));
-        native_icons.push(matsu_platform::menu_icons::Menu {
+        built.icons.push(matsu_platform::menu_icons::Menu {
             title: "MATSU Editor".to_owned(),
             items: vec![matsu_platform::menu_icons::Node::Plain],
         });
     }
-    // The native menu shows the state of the window that is active now; elsewhere the window's
-    // own menu bar asks when a menu opens (`crate::menu_bar`).
-    let states = if cfg!(target_os = "macos") {
-        active_states(cx)
-    } else {
-        None
-    };
+    match kind {
+        MenuKind::Editor => editor_menus(cx, keymap, style, states, &mut built),
+        #[cfg(test)]
+        MenuKind::Probe => {
+            built
+                .menus
+                .push(Menu::new("Probe").items([MenuItem::action("Probe item", Unavailable)]));
+            built.icons.push(matsu_platform::menu_icons::Menu {
+                title: "Probe".to_owned(),
+                items: vec![matsu_platform::menu_icons::Node::Plain],
+            });
+        }
+    }
+    built
+}
+
+/// The menus of an editor tab: Sakura's main menu, or the user's (`[MainMenu]`).
+fn editor_menus(
+    cx: &App,
+    keymap: &KeyMap,
+    style: DisplayStyle,
+    states: Option<&crate::menu_state::FuncStates>,
+    built: &mut BuiltMenus,
+) {
     let recent = crate::history::menu::RecentLists::new(crate::history::current(cx))
         .with_names(crate::file_names::current(cx));
     // The row for the custom menus (`F_CUSTMENU_LIST`) lists the menus that have items.
@@ -252,37 +349,17 @@ fn set_menus(cx: &mut App, keymap: &KeyMap) {
         .unwrap_or_else(|| crate::menu::default_main_menu().clone());
     for top in main_menu_for(&main_menu, keymap, &Registered, &lists, &custom_menus) {
         if cfg!(target_os = "macos") {
-            native_icons.push(matsu_platform::menu_icons::Menu {
+            built.icons.push(matsu_platform::menu_icons::Menu {
                 title: top.label.clone(),
                 items: crate::native_menu_icons::tree(&top.entries, style),
             });
         }
         let mut items = gpui_items(top.entries, style);
-        if let Some(states) = &states {
+        if let Some(states) = states {
             crate::menu_state::apply_to_menu_items(&mut items, states);
         }
-        menus.push(Menu::new(top.label).items(items));
+        built.menus.push(Menu::new(top.label).items(items));
     }
-    cx.set_menus(menus);
-    // The native menu has just been made again, without pictures: give them (macOS; Windows and
-    // Linux draw the menu themselves). `menu_icons::enabled` is Sakura's 「アイコン付きメニュー」.
-    if cfg!(target_os = "macos") && crate::menu_icons::enabled(cx) {
-        matsu_platform::menu_icons::apply(
-            &native_icons,
-            f64::from(crate::bars::icons::ICON_SIZE as u32),
-        );
-    }
-    // For `scripts/mac-checks/menu-icons.sh`: write what the menu bar has, pictures included.
-    if cfg!(target_os = "macos")
-        && let Some(path) = std::env::var_os("MATSU_DUMP_MENU_ICONS")
-    {
-        let _ = std::fs::write(path, matsu_platform::menu_icons::describe());
-    }
-    cx.set_global(MenuStates(states));
-    let owned = cx.get_menus().unwrap_or_default();
-    GlobalState::global_mut(cx).set_app_menus(owned);
-    let generation = cx.try_global::<MenuGeneration>().map_or(0, |g| g.0);
-    cx.set_global(MenuGeneration(generation + 1));
 }
 
 /// How many documents the windows other than `except` have (the tabs of each).
@@ -294,21 +371,36 @@ pub(crate) fn documents_elsewhere(cx: &App, except: gpui::EntityId) -> usize {
         .sum()
 }
 
-/// The state of the window that is active, for the marks of the native menu. `None` when no
-/// editor window is active, or when it is busy (a command is running in it: the menus are made
-/// again when that ends).
-pub(crate) fn active_states(cx: &mut App) -> Option<crate::menu_state::FuncStates> {
-    let handle = cx.active_window()?;
+/// The kind of tab and the state of the window that is active, for the native menu: the state is
+/// `None` when no editor window is active, when the active tab is not an editor, or when the
+/// window is busy (a command is running in it: the menus are made again when that ends).
+pub(crate) fn active_menu_context(
+    cx: &mut App,
+) -> (MenuKind, Option<crate::menu_state::FuncStates>) {
+    let none = (MenuKind::Editor, None);
+    let Some(handle) = cx.active_window() else {
+        return none;
+    };
     // The root of a window is not the workspace (`Root` wraps it): the open windows know theirs.
-    let workspace = crate::file_ops::windows::workspace_of(cx, handle)?;
+    let Some(workspace) = crate::file_ops::windows::workspace_of(cx, handle) else {
+        return none;
+    };
     handle
         .update(cx, |_, window, cx| {
             let topmost = crate::window_ops::is_topmost(window, cx);
-            workspace
-                .read(cx)
-                .func_states(topmost, workspace.entity_id(), cx)
+            let workspace_ref = workspace.read(cx);
+            (
+                workspace_ref.menu_kind(),
+                workspace_ref.menu_states(topmost, workspace.entity_id(), cx),
+            )
         })
-        .ok()
+        .unwrap_or(none)
+}
+
+/// The state of the window that is active, for the marks of the native menu.
+#[cfg(test)]
+pub(crate) fn active_states(cx: &mut App) -> Option<crate::menu_state::FuncStates> {
+    active_menu_context(cx).1
 }
 
 pub(crate) fn gpui_items(entries: Vec<Entry>, style: DisplayStyle) -> Vec<MenuItem> {
@@ -458,15 +550,27 @@ impl Workspace {
         this: gpui::EntityId,
         cx: &App,
     ) -> crate::menu_state::FuncStates {
-        // The menus follow the kind of the active tab (ADR-0024); the editor is the only kind.
-        match self.content.panel().menu_kind() {
-            crate::tabs::content::MenuKind::Editor => crate::menu_state::FuncStates::of_view(
-                self.panes().active().read(cx),
-                self.outline.is_some(),
-                topmost,
-                self.tab_count() + documents_elsewhere(cx, this),
-                cx,
-            ),
+        crate::menu_state::FuncStates::of_view(
+            self.panes().active().read(cx),
+            self.outline.is_some(),
+            topmost,
+            self.tab_count() + documents_elsewhere(cx, this),
+            cx,
+        )
+    }
+
+    /// The state the check marks and gray items of the menus show, for the kind of the active tab:
+    /// `None` for a kind that is not an editor (its items stay as they are made).
+    pub(crate) fn menu_states(
+        &self,
+        topmost: bool,
+        this: gpui::EntityId,
+        cx: &App,
+    ) -> Option<crate::menu_state::FuncStates> {
+        match self.menu_kind() {
+            MenuKind::Editor => Some(self.func_states(topmost, this, cx)),
+            #[cfg(test)]
+            MenuKind::Probe => None,
         }
     }
 

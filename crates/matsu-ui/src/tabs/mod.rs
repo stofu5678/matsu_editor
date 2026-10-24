@@ -26,6 +26,8 @@ mod drop_tests;
 #[cfg(test)]
 mod file_tests;
 pub(crate) mod flows;
+#[cfg(test)]
+mod kind_menu_tests;
 pub(crate) mod list;
 #[cfg(test)]
 mod list_tests;
@@ -59,6 +61,9 @@ pub(crate) struct Tabs {
     /// by activity, `GetOpenedWindowArr`).
     recent: Vec<u64>,
     next_id: u64,
+    /// The tests give a tab a menu kind other than the editor's (`Workspace::menu_kind`).
+    #[cfg(test)]
+    pub(crate) kinds: std::collections::HashMap<u64, content::MenuKind>,
 }
 
 impl Tabs {
@@ -71,6 +76,8 @@ impl Tabs {
             active: 0,
             recent: vec![0],
             next_id: 1,
+            #[cfg(test)]
+            kinds: std::collections::HashMap::new(),
         }
     }
 
@@ -91,6 +98,23 @@ impl Workspace {
 
     pub(crate) fn active_tab(&self) -> usize {
         self.tabs.active
+    }
+
+    /// Which menus the window shows: those of the kind of the active tab (ADR-0024).
+    pub(crate) fn menu_kind(&self) -> content::MenuKind {
+        #[cfg(test)]
+        if let Some(kind) = self.tabs.kinds.get(&self.tabs.list[self.tabs.active].id) {
+            return *kind;
+        }
+        self.content.panel().menu_kind()
+    }
+
+    /// Gives the menu bar of this window the menus of the active tab's kind, and on macOS asks for
+    /// the native menu to be made again if the kind changed. Called when the active tab changes.
+    pub(crate) fn sync_menu_kind(&mut self, cx: &mut Context<Self>) {
+        let kind = self.menu_kind();
+        self.menu_bar.update(cx, |bar, cx| bar.set_kind(kind, cx));
+        crate::app::defer_refresh_menu_states(cx, false);
     }
 
     /// The panes of the active tab, which is an editor for now (`content::TabContent`).
@@ -172,6 +196,7 @@ impl Workspace {
         let new_view = self.panes().active().clone();
         self.move_window_state_between(&old_view, &new_view, false, window, cx);
         window.focus(&self.content.panel().focus_handle(cx), cx);
+        self.sync_menu_kind(cx);
         cx.notify();
     }
 
@@ -222,6 +247,7 @@ impl Workspace {
         } else if let Some(back) = self.tabs.list.iter().position(|t| t.id == previous) {
             self.activate_tab(back, window, cx);
         }
+        self.sync_menu_kind(cx);
         cx.notify();
     }
 
