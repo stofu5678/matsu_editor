@@ -149,7 +149,13 @@ fn open_window_with(
         workspace.update(cx, |_, workspace_cx| {
             workspace_cx
                 .observe_window_bounds(window, |_, window, cx| {
-                    crate::saved_state::window::bounds_changed(cx, window.window_bounds());
+                    // macOS reports a zoomed window as `Windowed`; its own flag says it is zoomed.
+                    let bounds = if cfg!(target_os = "macos") && window.is_maximized() {
+                        WindowBounds::Maximized(window.bounds())
+                    } else {
+                        window.window_bounds()
+                    };
+                    crate::saved_state::window::bounds_changed(cx, bounds);
                 })
                 .detach();
         });
