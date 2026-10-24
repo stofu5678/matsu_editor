@@ -432,12 +432,12 @@ mod tests {
         let types = DocumentTypes::from_profile(&profile("[Common]\r\nbDispSTATUSBAR=1\r\n"));
         assert_eq!(types.len(), 30);
         assert_eq!(types.get(2).unwrap().type_name, "C/C++");
-        // 17 to 26 are MATSU Editor's own types (ADR-0017), the rest copies of the basic type.
+        // 17 to 27 are MATSU Editor's own types (ADR-0017), the rest copies of the basic type.
         assert_eq!(types.get(17).unwrap().type_name, "JavaScript");
         assert_eq!(types.get(17).unwrap().idx, 17);
-        assert_eq!(types.get(27).unwrap().type_name, "設定27");
-        assert_eq!(types.get(27).unwrap().type_exts, "");
-        assert_eq!(types.get(27).unwrap().idx, 27);
+        assert_eq!(types.get(28).unwrap().type_name, "設定28");
+        assert_eq!(types.get(28).unwrap().type_exts, "");
+        assert_eq!(types.get(28).unwrap().idx, 28);
         assert_eq!(types.type_index_for_file_name("a.cpp"), 2);
     }
 

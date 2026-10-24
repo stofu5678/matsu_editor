@@ -28,5 +28,6 @@ pub mod python_builtins;
 pub mod ruby;
 pub mod rust;
 pub mod shell;
+pub mod sql;
 pub mod typescript;
 pub mod yaml;
