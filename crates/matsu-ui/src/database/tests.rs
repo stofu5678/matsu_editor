@@ -66,6 +66,8 @@ fn a_path_is_one_word_for_cmd() {
     // a variable is still expanded between quotes, and a quote cannot be in the name
     assert_eq!(q("C:\\100%.sql"), Err(BuildError::Unquotable('%')));
     assert_eq!(q("C:\\a\"b.sql"), Err(BuildError::Unquotable('"')));
+    // delayed expansion (`cmd /V:ON`) expands `!x!` between quotes too
+    assert_eq!(q("C:\\report!TEMP!.sql"), Err(BuildError::Unquotable('!')));
     assert_eq!(q("C:\\a\tb.sql"), Err(BuildError::Unquotable('\t')));
 }
 

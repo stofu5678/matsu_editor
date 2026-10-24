@@ -377,15 +377,23 @@ fn scan_for_password(kind: Kind, command: &str) -> Option<&'static str> {
         // `--password=x`, and the parameter of a connection string: `password=x` (libpq's
         // "host=h user=u password=x", ODBC's ";Pwd=x"). The key must start a word or follow a
         // separator, so `PGPASSWORD=` (below) and names such as `nopassword=` are not this.
-        for key in ["password=", "passwd=", "pwd=", "pass="] {
+        for key in [
+            "password=",
+            "passwd=",
+            "pwd=",
+            "pass=",
+            "sslpassword=",
+            "passphrase=",
+        ] {
             let mut from = 0;
             while let Some(found) = lower[from..].find(key) {
                 let at = from + found;
                 from = at + key.len();
                 let before = lower[..at].chars().next_back();
                 let value = lower[from..].chars().next();
-                if before.is_none_or(|c| matches!(c, '-' | ';' | ',' | '"' | '\'' | '(' | '{'))
-                    && value.is_some_and(|c| c != ';')
+                if before.is_none_or(|c| {
+                    matches!(c, '-' | ';' | ',' | '"' | '\'' | '(' | '{' | '?' | '&')
+                }) && value.is_some_and(|c| !matches!(c, ';' | '&'))
                 {
                     return Some(if before == Some('-') {
                         "--password="

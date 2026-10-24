@@ -144,6 +144,22 @@ fn passwords_on_the_command_line_are_found() {
         ),
         Some("password=")
     );
+    // the parameters of a URI: `?password=x`, `&password=x`, the key's passphrase
+    for command in [
+        "psql \"postgresql://alice@localhost/app?password=secret\" -f $F",
+        "psql \"postgresql://alice@localhost/app?sslmode=require&password=secret\"",
+        "psql postgresql://localhost/app?sslpassword=secret",
+        "tool mysql://h/db?passphrase=x",
+    ] {
+        assert!(found(Kind::PostgreSql, command).is_some(), "{command}");
+    }
+    assert_eq!(
+        found(
+            Kind::PostgreSql,
+            "psql \"postgresql://alice@localhost/app?sslmode=require&password=\""
+        ),
+        None
+    );
     assert_eq!(found(Kind::Other, "tool \"Server=h;Password=;\""), None);
     assert_eq!(
         found(Kind::Other, "tool --nopassword=1 --passwordfile=x"),

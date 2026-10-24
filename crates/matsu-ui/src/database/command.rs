@@ -11,7 +11,8 @@
 //! * Windows: the line is read by `CreateProcess` (the C runtime rules for the arguments) and, if
 //!   that fails, by `cmd.exe /C`. The name goes between double quotes. A Windows file name cannot
 //!   have a `"`, and between double quotes `& | < > ^ ( )` mean nothing to `cmd.exe`, but `%` still
-//!   starts a variable (`"%PATH%"`), so a name with a `%` is refused. So is a name with a control
+//!   starts a variable (`"%PATH%"`) and `!` does with delayed expansion (`cmd /V:ON`, also
+//!   inside quotes: `"!PATH!"`), so a name with a `%` or a `!` is refused. So is a name with a control
 //!   character.
 //!
 //! The text of the line then goes through `ExpandParameter` (`$F` and the like) in the exec flow,
@@ -80,7 +81,7 @@ pub(crate) fn quote_path(shell: Shell, path: &str) -> Result<String, BuildError>
     match shell {
         Shell::Posix => Ok(format!("'{}'", path.replace('\'', "'\\''"))),
         Shell::Cmd => {
-            if let Some(c) = path.chars().find(|c| matches!(c, '"' | '%')) {
+            if let Some(c) = path.chars().find(|c| matches!(c, '"' | '%' | '!')) {
                 return Err(BuildError::Unquotable(c));
             }
             Ok(format!("\"{path}\""))
