@@ -348,7 +348,7 @@ mod tests {
         // The built-in types are there without a file: .txt is テキスト.
         assert_eq!(s.view_settings(Some("a.txt")).type_index, 1);
         // Sakura's 17, MATSU Editor's own 10 (ADR-0017), and 3 copies of the basic type.
-        assert_eq!(s.document_types().len(), 30);
+        assert_eq!(s.document_types().len(), 36);
         assert!(s.key_rows().is_empty());
     }
 

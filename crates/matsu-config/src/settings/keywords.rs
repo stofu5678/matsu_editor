@@ -428,7 +428,7 @@ mod tests {
             assert_eq!(sets.get(i).unwrap().case_sensitive, case, "set {i}");
         }
         assert_eq!(sets.get(-1), None);
-        assert_eq!(sets.get(28), None);
+        assert_eq!(sets.get(33), None);
         assert_eq!(sets.index_of("Perl2"), Some(12));
     }
 
@@ -488,24 +488,24 @@ mod tests {
     fn the_sets_of_matsu_editor_are_found_by_name_and_a_deleted_one_stays_gone() {
         let mut p = Profile::new();
         let mut drafts = KeywordSets::builtin().drafts();
-        assert_eq!(drafts.len(), 28);
+        assert_eq!(drafts.len(), 33);
         assert!(store_sets(&mut p, &drafts).unwrap());
-        // The file has all 28 sets; MATSU Editor's own are found by name and not added a second time.
+        // The file has all 33 sets; MATSU Editor's own are found by name and not added a second time.
         let read = KeywordSets::from_profile(&p);
-        assert_eq!(read.len(), 28);
+        assert_eq!(read.len(), 33);
         assert_eq!(read.extra_index(ExtraSet::Rust), 22);
         // The user deletes "Rust": the key says that the file has the sets, so it stays gone.
         drafts.remove(22);
         store_sets(&mut p, &drafts).unwrap();
         let read = KeywordSets::from_profile(&p);
-        assert_eq!(read.len(), 27);
+        assert_eq!(read.len(), 32);
         assert_eq!(read.extra_index(ExtraSet::Rust), -1);
         assert_eq!(read.extra_index(ExtraSet::Go), 22);
         // Without the key (Sakura wrote the file) a missing set of MATSU Editor's own is added at the end.
         p.remove(SECTION, EXTRA_SETS_IN_FILE_KEY);
         let read = KeywordSets::from_profile(&p);
-        assert_eq!(read.len(), 28);
-        assert_eq!(read.extra_index(ExtraSet::Rust), 27);
+        assert_eq!(read.len(), 33);
+        assert_eq!(read.extra_index(ExtraSet::Rust), 32);
         // A set of Sakura's file that has the name of one of MATSU Editor's is that set.
         let p = profile(
             "[KeyWords]\r\nnKeyWordSetNum=18\r\nszSN[17]=Rust\r\nnKWN[17]=1\r\nszKW[17]=mine\t\r\n",
@@ -521,15 +521,23 @@ mod tests {
         // Written by the first versions: `bUmeExtraSetsInFile=1` and the 10 sets they had (no SQL).
         let mut p = Profile::new();
         let mut drafts = KeywordSets::builtin().drafts();
-        let sql = drafts.iter().position(|d| d.name == "SQL").unwrap();
-        drafts.remove(sql);
+        let later = [
+            "SQL",
+            "MySQL",
+            "PostgreSQL",
+            "SQL Server",
+            "SQLite",
+            "BigQuery",
+        ];
+        drafts.retain(|d| !later.contains(&d.name.as_str()));
         store_sets(&mut p, &drafts).unwrap();
         p.set(SECTION, EXTRA_SETS_IN_FILE_KEY, "1").unwrap();
         let read = KeywordSets::from_profile(&p);
-        // the user's own order is kept, SQL comes at the end
-        assert_eq!(read.len(), 28);
+        // the user's own order is kept, the later sets come at the end
+        assert_eq!(read.len(), 33);
         assert_eq!(read.extra_index(ExtraSet::Sql), 27);
         assert_eq!(read.get(27).unwrap().name, "SQL");
+        assert_eq!(read.extra_index(ExtraSet::BigQuery), 32);
         assert_eq!(read.extra_index(ExtraSet::Rust), 22);
         // and one that the user deleted of the old ones stays gone
         let rust = drafts.iter().position(|d| d.name == "Rust").unwrap();
@@ -543,7 +551,7 @@ mod tests {
         let go = drafts.iter().position(|d| d.name == "Go").unwrap();
         drafts.remove(go);
         store_sets(&mut p, &drafts).unwrap();
-        assert_eq!(p.get(SECTION, EXTRA_SETS_IN_FILE_KEY), Some("11"));
+        assert_eq!(p.get(SECTION, EXTRA_SETS_IN_FILE_KEY), Some("16"));
         let mut kept = KeywordSets::from_profile(&p).drafts();
         kept.retain(|d| d.name != "SQL");
         store_sets(&mut p, &kept).unwrap();

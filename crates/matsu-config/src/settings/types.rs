@@ -886,13 +886,28 @@ impl TypeSettings {
     }
 }
 
-/// `nTypesCount` in `[Other]`: how many `Types(N)` sections there are. A file without it (an old version)
-/// has 30; the value is limited to 1..=`MAX_TYPES` (`ShareData_IO_Types`).
+/// How many types Sakura has by default (`nTypesCount` of a file that it writes).
+pub const SAKURA_TYPES_COUNT: i32 = 30;
+
+/// How many types MATSU Editor has by default: Sakura's 17, MATSU Editor's own (ADR-0017, ADR-0023: 16 of
+/// them), and 3 free numbers, as Sakura's 30 left 3 after its 17 and the 10 first types of MATSU Editor.
+pub const DEFAULT_TYPES_COUNT: i32 = 36;
+
+/// `nTypesCount` in `[Other]`: how many `Types(N)` sections there are; the value is limited to
+/// 1..=`MAX_TYPES` (`ShareData_IO_Types`). A file without it (an old version) has [`DEFAULT_TYPES_COUNT`],
+/// and so has a file that says 30, the number Sakura writes (a file that Sakura or an older MATSU Editor wrote
+/// was not meant to leave out the types that came later): the numbers after 30 have no sections and are free.
+/// Any other number is what the file chose.
 pub fn types_count(profile: &Profile) -> i32 {
     let n = profile
         .get("Other", "nTypesCount")
         .and_then(parse_long)
-        .unwrap_or(30);
+        .unwrap_or(DEFAULT_TYPES_COUNT);
+    let n = if n == SAKURA_TYPES_COUNT {
+        DEFAULT_TYPES_COUNT
+    } else {
+        n
+    };
     clamp_to(n, 1, MAX_TYPES)
 }
 
@@ -998,7 +1013,7 @@ mod tests {
     fn missing_section_gives_the_defaults() {
         let p = Profile::new();
         assert_eq!(TypeSettings::read(&p, 0), TypeSettings::basic());
-        assert_eq!(types_count(&p), 30);
+        assert_eq!(types_count(&p), 36);
     }
 
     #[test]
@@ -1137,6 +1152,11 @@ mod tests {
         assert_eq!(types_count(&p), 60);
         let p = Profile::from_bytes(b"[Other]\r\nnTypesCount=0\r\n");
         assert_eq!(types_count(&p), 1);
+        // Sakura's 30 is read as the default (the types that came later are not left out); others are kept
+        let p = Profile::from_bytes(b"[Other]\r\nnTypesCount=30\r\n");
+        assert_eq!(types_count(&p), 36);
+        let p = Profile::from_bytes(b"[Other]\r\nnTypesCount=31\r\n");
+        assert_eq!(types_count(&p), 31);
     }
 
     #[test]
