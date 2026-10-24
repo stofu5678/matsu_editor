@@ -331,3 +331,25 @@ fn the_middle_button_on_the_tab_of_a_preview_closes_it(cx: &mut TestAppContext) 
     ws.read_with(cx, |ws, _| assert_eq!(ws.tab_count(), 1));
     assert_eq!(super::tests::windows(cx), 1);
 }
+
+#[gpui::test]
+fn the_next_window_function_works_from_a_preview(cx: &mut TestAppContext) {
+    // The wheel over the bar and the keys of the bar run this function on the view of the window.
+    let handle = window(cx, true);
+    open(cx, handle);
+    run(cx, handle, "F_NEXTWINDOW");
+    let ws = workspace(cx, handle);
+    ws.read_with(cx, |ws, _| assert_eq!(ws.active_tab(), 0));
+}
+
+#[gpui::test]
+fn the_list_of_the_tabs_opens_over_a_preview(cx: &mut TestAppContext) {
+    let handle = window(cx, true);
+    open(cx, handle);
+    click(cx, handle, "tab-list-button", gpui::MouseButton::Left);
+    let ws = workspace(cx, handle);
+    // The list belongs to the hidden view; the window draws it over the preview.
+    ws.read_with(cx, |ws, cx| {
+        assert!(ws.editor().read(cx).tab_list.is_some());
+    });
+}

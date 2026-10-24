@@ -36,6 +36,9 @@ impl Workspace {
         }
         let host = cx.weak_entity();
         let hidden = cx.new(|cx| EditorView::new(document.clone(), cx));
+        // The functions of the bar (next and previous window, the list of the tabs, close) run on
+        // this view and reach the window through it.
+        hidden.update(cx, |view, _| view.split_host = Some(host.clone()));
         let view = cx.new(|cx| PreviewView::new(document, host, cx));
         let tab = TabContent::Preview(PreviewTab::new(PaneSet::new(hidden), view));
         let at = self.active_tab() + 1;
