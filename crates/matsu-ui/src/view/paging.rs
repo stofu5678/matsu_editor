@@ -216,6 +216,8 @@ impl EditorView {
         // With Shift held GPUI's Windows and X11 backends turn a turn of the wheel into a
         // horizontal one (`handle_mouse_wheel_msg`); Sakura gets it as the vertical wheel, and
         // the key table and the combinations of the common settings decide what Shift does.
+        // (A tilt wheel turned with Shift held looks the same, and cannot be told apart here; that
+        // is the rarer of the two.)
         if !cfg!(target_os = "macos")
             && event.modifiers.shift
             && !event.delta.precise()
