@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::Read;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::*;
 
@@ -353,7 +353,13 @@ fn a_rejected_document_is_kept_for_thirty_days() {
     write(&store, &id, &info(), "damaged?");
     store.reject(&id).unwrap();
     assert!(!store.doc_path(&id).exists());
-    let kept = store.dir().join("rejected").join(format!("{id}.doc"));
+    let kept = fs::read_dir(store.dir().join("rejected"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    assert!(kept.file_name().unwrap().to_string_lossy().starts_with(&id));
     assert!(kept.exists());
     let now = SystemTime::now();
     assert_eq!(store.purge_rejected(now, REJECTED_KEEP).unwrap(), 0);
@@ -453,4 +459,74 @@ fn a_header_that_is_not_text_or_has_no_line_break_is_damaged() {
         fs::write(store.doc_path(&id), bytes).unwrap();
         assert!(matches!(store.open_doc(&id), Err(FormatError::Damaged(_))));
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_read_only_old_document_is_still_kept_30_days_from_the_day_it_is_rejected() {
+    use std::os::unix::fs::PermissionsExt;
+    let (_tmp, store) = store();
+    let id = Store::new_id();
+    write(&store, &id, &info(), "old and read-only");
+    let path = store.doc_path(&id);
+    let long_ago = SystemTime::now() - Duration::from_secs(90 * 24 * 60 * 60);
+    fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_modified(long_ago)
+        .unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o400)).unwrap();
+    store.reject(&id).unwrap();
+    assert_eq!(
+        store
+            .purge_rejected(SystemTime::now(), REJECTED_KEEP)
+            .unwrap(),
+        0
+    );
+    // Thirty days after the day it was rejected it goes.
+    let later = SystemTime::now() + REJECTED_KEEP + Duration::from_secs(60);
+    assert_eq!(store.purge_rejected(later, REJECTED_KEEP).unwrap(), 1);
+}
+
+#[test]
+fn the_day_of_the_rejection_is_in_the_name() {
+    let (_tmp, store) = store();
+    let id = Store::new_id();
+    write(&store, &id, &info(), "x");
+    let day = UNIX_EPOCH + Duration::from_secs(1_790_000_000);
+    store.reject_at(&id, day).unwrap();
+    let name = format!("{id}.1790000000.doc");
+    assert!(store.dir().join("rejected").join(&name).exists());
+    // A file of another name is judged by its last write.
+    fs::write(store.dir().join("rejected").join("other"), b"x").unwrap();
+    let removed = store
+        .purge_rejected(day + REJECTED_KEEP - Duration::from_secs(1), REJECTED_KEEP)
+        .unwrap();
+    assert_eq!(removed, 0);
+    let removed = store
+        .purge_rejected(day + REJECTED_KEEP, REJECTED_KEEP)
+        .unwrap();
+    assert!(removed >= 1);
+    assert!(!store.dir().join("rejected").join(&name).exists());
+}
+
+#[test]
+fn a_rejected_name_with_a_day_out_of_range_is_judged_by_its_last_write() {
+    let (_tmp, store) = store();
+    fs::create_dir_all(store.dir().join("rejected")).unwrap();
+    fs::write(
+        store
+            .dir()
+            .join("rejected")
+            .join("x.18446744073709551615.doc"),
+        b"x",
+    )
+    .unwrap();
+    assert_eq!(
+        store
+            .purge_rejected(SystemTime::now(), REJECTED_KEEP)
+            .unwrap(),
+        0
+    );
 }

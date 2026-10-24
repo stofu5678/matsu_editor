@@ -1,0 +1,740 @@
+//! The keeper in GPUI's headless test windows, with a real folder: the copies appear after the text has been
+//! still, and go when the document is saved or its tab is closed.
+
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
+
+use gpui::{AnyWindowHandle, Entity, TestAppContext, VisualTestContext};
+use matsu_config::Profile;
+use matsu_config::unsaved::Store;
+
+use super::keeper::{app_tick, flush, tick_window_at};
+use super::prefs::KeepPrefs;
+use crate::app::Workspace;
+use crate::document::SharedDocument;
+use crate::file_ops::windows::{open_editor_window, workspace_of};
+use crate::settings::UserSettings;
+
+struct Fixture {
+    handle: AnyWindowHandle,
+    dir: PathBuf,
+    _tmp: tempfile::TempDir,
+}
+
+fn fixture(cx: &mut TestAppContext) -> Fixture {
+    cx.update(gpui_component::init);
+    let tmp = tempfile::tempdir().unwrap();
+    let ini = tmp.path().join("matsu.ini");
+    let dir = matsu_config::unsaved::unsaved_dir(&ini);
+    cx.update(|app| {
+        app.set_global(UserSettings::from_profile(Profile::new(), Some(ini)));
+        app.set_global(KeepPrefs::default());
+    });
+    let handle = cx
+        .update(|app| open_editor_window(app, SharedDocument::empty(), None))
+        .unwrap();
+    cx.run_until_parked();
+    Fixture {
+        handle,
+        dir,
+        _tmp: tmp,
+    }
+}
+
+fn workspace(cx: &mut TestAppContext, handle: AnyWindowHandle) -> Entity<Workspace> {
+    cx.update(|app| workspace_of(app, handle)).unwrap()
+}
+
+fn tick(cx: &mut TestAppContext, f: &Fixture, now: Instant) {
+    let ws = workspace(cx, f.handle);
+    f.handle
+        .update(cx, |_, window, app| {
+            ws.update(app, |ws, cx| tick_window_at(ws, window, cx, now, false))
+        })
+        .unwrap();
+    cx.update(|app| flush(app));
+}
+
+/// The window loses the focus at `now`.
+fn deactivate(cx: &mut TestAppContext, f: &Fixture, now: Instant) {
+    let ws = workspace(cx, f.handle);
+    f.handle
+        .update(cx, |_, window, app| {
+            ws.update(app, |ws, cx| tick_window_at(ws, window, cx, now, true))
+        })
+        .unwrap();
+    cx.update(|app| flush(app));
+}
+
+fn type_text(cx: &mut TestAppContext, f: &Fixture, text: &str) {
+    VisualTestContext::from_window(f.handle, cx)
+        .into_mut()
+        .simulate_input(text);
+    cx.run_until_parked();
+}
+
+fn doc_files(dir: &std::path::Path) -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(dir)
+        .map(|rd| {
+            rd.filter_map(|e| e.ok())
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| n.ends_with(".doc"))
+                .collect()
+        })
+        .unwrap_or_default();
+    v.sort();
+    v
+}
+
+fn read_session(f: &Fixture) -> matsu_config::unsaved::Session {
+    // The folder is locked by the writer: read the file directly.
+    let text = std::fs::read(f.dir.join("session.ini")).unwrap_or_default();
+    let p = Profile::from_bytes(&text);
+    let docs = p.get("Session", "Window0.Docs").unwrap_or("").to_owned();
+    matsu_config::unsaved::Session {
+        windows: if docs.is_empty() {
+            vec![]
+        } else {
+            vec![matsu_config::unsaved::SessionWindow {
+                docs: docs.split(',').map(str::to_owned).collect(),
+                active: 0,
+            }]
+        },
+        active_window: 0,
+    }
+}
+
+fn kept_text(f: &Fixture, name: &str) -> String {
+    use std::io::Read as _;
+    let bytes = std::fs::read(f.dir.join(name)).unwrap();
+    // The header is two lines and the information; the text follows. Read it the way the store does.
+    let mut lines = bytes.splitn(3, |b| *b == b'\n');
+    lines.next();
+    let len: usize = std::str::from_utf8(lines.next().unwrap())
+        .unwrap()
+        .parse()
+        .unwrap();
+    let rest = lines.next().unwrap();
+    let mut text = String::new();
+    (&rest[len..]).read_to_string(&mut text).unwrap();
+    text
+}
+
+#[gpui::test]
+fn typed_text_is_kept_after_two_seconds_and_removed_when_saved(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    // Nothing to keep yet.
+    tick(cx, &f, t0);
+    assert!(doc_files(&f.dir).is_empty());
+    type_text(cx, &f, "こんにちは\nworld");
+    tick(cx, &f, t0 + Duration::from_secs(1));
+    assert!(doc_files(&f.dir).is_empty(), "written before two seconds");
+    tick(cx, &f, t0 + Duration::from_secs(4));
+    let files = doc_files(&f.dir);
+    assert_eq!(files.len(), 1, "{files:?}");
+    // Enter inserts the line ending of a new document: CR LF on Windows, LF elsewhere.
+    let eol = matsu_core::encoding::Eol::platform_default().as_str();
+    assert_eq!(kept_text(&f, &files[0]), format!("こんにちは{eol}world"));
+    let session = read_session(&f);
+    assert_eq!(session.windows.len(), 1);
+    assert_eq!(
+        session.windows[0].docs,
+        vec![files[0].trim_end_matches(".doc")]
+    );
+
+    // The user saves: the document is unmodified, and the copy goes at the next tick.
+    let ws = workspace(cx, f.handle);
+    ws.update(cx, |ws, cx| {
+        let view = ws.editor().clone();
+        view.update(cx, |view, cx| {
+            let cursor = view.cursor().clone();
+            view.document().update(cx, |shared, _| {
+                let (model, _) = shared.parts_mut();
+                model.mark_saved(&cursor);
+            });
+        });
+    });
+    tick(cx, &f, t0 + Duration::from_secs(5));
+    assert!(doc_files(&f.dir).is_empty());
+    assert!(read_session(&f).windows.is_empty());
+}
+
+#[gpui::test]
+fn a_document_that_is_still_being_typed_in_is_written_after_thirty_seconds(
+    cx: &mut TestAppContext,
+) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    for s in 0..30 {
+        type_text(cx, &f, "x");
+        tick(cx, &f, t0 + Duration::from_secs(s));
+    }
+    assert!(doc_files(&f.dir).is_empty());
+    type_text(cx, &f, "y");
+    tick(cx, &f, t0 + Duration::from_secs(30));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+}
+
+#[gpui::test]
+fn the_copy_of_a_document_whose_window_is_closed_is_discarded(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "closed");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    // The window goes (closed with 「保存しない」, or by a way that does not ask); no window ticks again.
+    f.handle
+        .update(cx, |_, window, _| window.remove_window())
+        .unwrap();
+    cx.run_until_parked();
+    cx.update(|app| app_tick(app, t0 + Duration::from_millis(3500)));
+    cx.update(|app| flush(app));
+    assert!(doc_files(&f.dir).is_empty());
+    assert!(read_session(&f).windows.is_empty());
+}
+
+#[gpui::test]
+fn a_window_that_stalls_does_not_lose_its_copy(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "slow");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    // The window did not tick for a minute (a long operation); the app's timer runs meanwhile.
+    cx.update(|app| app_tick(app, t0 + Duration::from_secs(60)));
+    cx.update(|app| flush(app));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+}
+
+#[gpui::test]
+fn nothing_is_kept_when_the_feature_is_off(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    cx.update(|app| {
+        app.set_global(KeepPrefs {
+            keep: false,
+            ..KeepPrefs::default()
+        })
+    });
+    let t0 = Instant::now();
+    type_text(cx, &f, "private");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(10));
+    assert!(!f.dir.exists() || doc_files(&f.dir).is_empty());
+}
+
+#[gpui::test]
+fn a_document_over_the_limit_is_not_kept_and_the_user_is_told(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    cx.update(|app| {
+        // One byte is already more than the limit of a megabyte, so use a limit of 1 MiB and a big text.
+        app.set_global(KeepPrefs {
+            max_mb: 1,
+            ..KeepPrefs::default()
+        })
+    });
+    let big = "a".repeat(1024 * 1024 + 10);
+    let ws = workspace(cx, f.handle);
+    ws.update(cx, |ws, cx| {
+        let view = ws.editor().clone();
+        view.update(cx, |view, cx| {
+            let cursor = view.cursor().clone();
+            let _ = cursor;
+            view.document().update(cx, |shared, _| {
+                let (model, _) = shared.parts_mut();
+                model
+                    .replace(
+                        matsu_core::buffer::Pos::new(0, 0),
+                        matsu_core::buffer::Pos::new(0, 0),
+                        &big,
+                    )
+                    .unwrap();
+            });
+        });
+    });
+    let t0 = Instant::now();
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(10));
+    assert!(!f.dir.exists() || doc_files(&f.dir).is_empty());
+    let notice = ws.read_with(cx, |ws, app| ws.editor().read(app).notice.clone());
+    assert!(notice.is_some_and(|n| n.contains("大きい")));
+}
+
+#[gpui::test]
+fn a_second_process_does_not_use_the_folder(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    // Another process holds the folder.
+    let held = Store::open(&f.dir).unwrap();
+    let t0 = Instant::now();
+    type_text(cx, &f, "mine");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(10));
+    assert!(doc_files(&f.dir).is_empty());
+    drop(held);
+    let ws = workspace(cx, f.handle);
+    let notice = ws.read_with(cx, |ws, app| ws.editor().read(app).notice.clone());
+    assert!(notice.is_some_and(|n| n.contains("別のマツエディタ")));
+}
+
+#[gpui::test]
+fn clearing_removes_the_copies_and_keeps_the_lock(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "to be cleared");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    let _ = cx.update(super::clear_copies);
+    cx.update(|app| flush(app));
+    assert!(doc_files(&f.dir).is_empty());
+    assert!(read_session(&f).windows.is_empty());
+    // The folder is still held by this process.
+    assert!(matches!(
+        Store::open(&f.dir),
+        Err(matsu_config::unsaved::StoreError::Locked)
+    ));
+    // The text is still unsaved: the copy comes back after the next change.
+    type_text(cx, &f, "!");
+    tick(cx, &f, t0 + Duration::from_secs(10));
+    tick(cx, &f, t0 + Duration::from_secs(13));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+}
+
+#[gpui::test]
+fn the_copies_stay_while_the_feature_is_off_and_no_window_ticks(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "kept on purpose");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    // The user turned it off and chose 「残す」: the windows stop ticking, the housekeeping goes on.
+    cx.update(|app| {
+        app.set_global(KeepPrefs {
+            keep: false,
+            ..KeepPrefs::default()
+        })
+    });
+    for s in [10, 20, 30] {
+        cx.update(|app| app_tick(app, t0 + Duration::from_secs(s)));
+    }
+    cx.update(|app| flush(app));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    assert_eq!(read_session(&f).windows.len(), 1);
+    // Turned on again: the window is not taken for a new one, and the copy is neither lost nor doubled.
+    cx.update(|app| app.set_global(KeepPrefs::default()));
+    tick(cx, &f, t0 + Duration::from_secs(31));
+    cx.update(|app| app_tick(app, t0 + Duration::from_secs(32)));
+    cx.update(|app| flush(app));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+}
+
+#[gpui::test]
+fn a_document_that_is_closed_or_saved_loses_its_copy_at_once(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "thrown away");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    // What `confirm_discard` does when the user answers 「保存しない」: no tick, no wait.
+    let ws = workspace(cx, f.handle);
+    let view = ws.read_with(cx, |ws, _| ws.editor().clone());
+    throw_away(cx, &view);
+    cx.update(|app| flush(app));
+    assert!(doc_files(&f.dir).is_empty());
+    assert!(read_session(&f).windows.is_empty());
+    // The document is still open and unsaved here, so the next change makes a new copy.
+    type_text(cx, &f, "!");
+    tick(cx, &f, t0 + Duration::from_secs(10));
+    tick(cx, &f, t0 + Duration::from_secs(13));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+}
+
+#[gpui::test]
+fn answering_dont_save_to_the_close_question_discards_the_copy_before_any_tick(
+    cx: &mut TestAppContext,
+) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "will be closed");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    let code = matsu_commands::sakura::FUNCTIONS
+        .iter()
+        .find(|f| f.name == "F_WINCLOSE")
+        .unwrap()
+        .code;
+    let ws = workspace(cx, f.handle);
+    let view = ws.read_with(cx, |ws, _| ws.editor().clone());
+    f.handle
+        .update(cx, |_, window, app| {
+            view.update(app, |view, cx| view.run_function(code, &[], window, cx))
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let window = VisualTestContext::from_window(f.handle, cx).into_mut();
+    assert!(
+        window.has_pending_prompt(),
+        "the question about the changes"
+    );
+    window.simulate_prompt_answer("保存しない(N)");
+    window.run_until_parked();
+    cx.update(|app| flush(app));
+    assert!(doc_files(&f.dir).is_empty());
+    assert!(read_session(&f).windows.is_empty());
+}
+
+#[gpui::test]
+fn the_folder_is_not_made_before_something_is_to_be_kept(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(10));
+    assert!(!f.dir.exists());
+    type_text(cx, &f, "now");
+    tick(cx, &f, t0 + Duration::from_secs(11));
+    assert!(f.dir.exists());
+}
+
+/// What the close flows do: the answer 「保存しない」 is marked, and the close makes it final.
+fn throw_away(cx: &mut TestAppContext, view: &Entity<crate::view::EditorView>) {
+    mark(cx, view);
+    cx.update(|app| super::apply_close(view, app));
+}
+
+fn mark(cx: &mut TestAppContext, view: &Entity<crate::view::EditorView>) {
+    view.update(cx, |view, cx| {
+        let this = cx.weak_entity();
+        super::mark_close(view, this, cx);
+    });
+}
+
+fn notice(cx: &mut TestAppContext, f: &Fixture) -> Option<String> {
+    let ws = workspace(cx, f.handle);
+    ws.read_with(cx, |ws, app| ws.editor().read(app).notice.clone())
+}
+
+#[gpui::test]
+fn a_failed_write_of_the_session_is_told_although_the_documents_are_written(
+    cx: &mut TestAppContext,
+) {
+    let f = fixture(cx);
+    // A folder where `session.ini` should be: the documents can be written, the session cannot.
+    std::fs::create_dir_all(f.dir.join("session.ini")).unwrap();
+    let t0 = Instant::now();
+    type_text(cx, &f, "text");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    tick(cx, &f, t0 + Duration::from_secs(4));
+    assert!(notice(cx, &f).is_some_and(|n| n.contains("消せない")));
+}
+
+#[cfg(unix)]
+#[gpui::test]
+fn a_removal_that_fails_after_the_feature_was_turned_off_is_told(cx: &mut TestAppContext) {
+    use std::os::unix::fs::PermissionsExt;
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "text");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    // Turned off, and the user chose to delete; the folder cannot be changed.
+    cx.update(|app| {
+        app.set_global(KeepPrefs {
+            keep: false,
+            ..KeepPrefs::default()
+        })
+    });
+    std::fs::set_permissions(&f.dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+    if std::fs::write(f.dir.join("probe"), b"x").is_ok() {
+        // The permissions are not enforced (running as root): nothing to test.
+        std::fs::set_permissions(&f.dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        return;
+    }
+    let _ = cx.update(super::clear_copies);
+    cx.update(|app| flush(app));
+    tick(cx, &f, t0 + Duration::from_secs(5));
+    let told = notice(cx, &f);
+    std::fs::set_permissions(&f.dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(told.is_some_and(|n| n.contains("消せない")));
+}
+
+#[gpui::test]
+fn a_revision_the_user_threw_away_is_not_copied_again_but_the_next_change_is(
+    cx: &mut TestAppContext,
+) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "discarded");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    // 「保存しない」 in an exit of all windows: the document stays open while the other questions are asked.
+    let ws = workspace(cx, f.handle);
+    let view = ws.read_with(cx, |ws, _| ws.editor().clone());
+    throw_away(cx, &view);
+    cx.update(|app| flush(app));
+    for s in [10, 20, 40, 80] {
+        tick(cx, &f, t0 + Duration::from_secs(s));
+    }
+    assert!(doc_files(&f.dir).is_empty(), "no copy without a change");
+    type_text(cx, &f, "!");
+    tick(cx, &f, t0 + Duration::from_secs(100));
+    tick(cx, &f, t0 + Duration::from_secs(103));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+}
+
+#[gpui::test]
+fn a_type_the_user_chose_is_in_the_copy(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "text");
+    let ws = workspace(cx, f.handle);
+    ws.update(cx, |ws, cx| {
+        ws.editor().clone().update(cx, |view, cx| {
+            view.document()
+                .update(cx, |shared, _| shared.set_type_locked(true));
+        });
+    });
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    let files = doc_files(&f.dir);
+    let bytes = std::fs::read(f.dir.join(&files[0])).unwrap();
+    assert!(String::from_utf8_lossy(&bytes).contains("DocType="));
+}
+
+#[gpui::test]
+fn a_revision_thrown_away_before_the_first_tick_is_never_copied(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "no tick yet");
+    let ws = workspace(cx, f.handle);
+    let view = ws.read_with(cx, |ws, _| ws.editor().clone());
+    throw_away(cx, &view);
+    for s in [0, 5, 10, 20] {
+        tick(cx, &f, t0 + Duration::from_secs(s));
+    }
+    assert!(!f.dir.exists() || doc_files(&f.dir).is_empty());
+}
+
+#[gpui::test]
+fn a_cancelled_flow_keeps_the_copy_of_a_document_the_user_said_not_to_save(
+    cx: &mut TestAppContext,
+) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "still open");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    let ws = workspace(cx, f.handle);
+    let view = ws.read_with(cx, |ws, _| ws.editor().clone());
+    // 「保存しない」 for this document, then 「キャンセル」 for the next one: nothing is closed.
+    mark(cx, &view);
+    for s in [10, 20, 60] {
+        tick(cx, &f, t0 + Duration::from_secs(s));
+    }
+    assert_eq!(doc_files(&f.dir).len(), 1, "the copy is still there");
+    // The next try asks again: the old answer is forgotten, and an edit since makes the mark void.
+    type_text(cx, &f, "more");
+    cx.update(|app| super::apply_close(&view, app));
+    tick(cx, &f, t0 + Duration::from_secs(70));
+    tick(cx, &f, t0 + Duration::from_secs(73));
+    assert_eq!(doc_files(&f.dir).len(), 1, "an edit voids the mark");
+}
+
+#[gpui::test]
+fn a_completed_exit_removes_the_copies_of_every_marked_document(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "thrown away at exit");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    let ws = workspace(cx, f.handle);
+    let view = ws.read_with(cx, |ws, _| ws.editor().clone());
+    mark(cx, &view);
+    cx.update(super::apply_all_closes);
+    cx.update(|app| flush(app));
+    assert!(doc_files(&f.dir).is_empty());
+}
+
+#[gpui::test]
+fn a_save_removes_the_copy_at_once_even_if_an_edit_follows(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "saved text");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    // The save path: the document is marked saved and tells the keeper.
+    let ws = workspace(cx, f.handle);
+    ws.update(cx, |ws, cx| {
+        let view = ws.editor().clone();
+        view.update(cx, |view, cx| {
+            let cursor = view.cursor().clone();
+            view.document().update(cx, |shared, cx| {
+                shared.parts_mut().0.mark_saved(&cursor);
+                super::copy_saved(cx.entity_id(), cx);
+            });
+        });
+    });
+    cx.update(|app| flush(app));
+    assert!(doc_files(&f.dir).is_empty(), "gone before any tick");
+    // An edit right after, before the next tick: no copy of the saved revision comes back.
+    type_text(cx, &f, "!");
+    tick(
+        cx,
+        &f,
+        t0 + Duration::from_secs(3) + Duration::from_millis(100),
+    );
+    assert!(doc_files(&f.dir).is_empty());
+}
+
+#[gpui::test]
+fn cancelling_the_close_question_keeps_the_copy(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "stays open");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    let code = matsu_commands::sakura::FUNCTIONS
+        .iter()
+        .find(|f| f.name == "F_WINCLOSE")
+        .unwrap()
+        .code;
+    let ws = workspace(cx, f.handle);
+    let view = ws.read_with(cx, |ws, _| ws.editor().clone());
+    f.handle
+        .update(cx, |_, window, app| {
+            view.update(app, |view, cx| view.run_function(code, &[], window, cx))
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let window = VisualTestContext::from_window(f.handle, cx).into_mut();
+    assert!(window.has_pending_prompt());
+    window.simulate_prompt_answer("キャンセル");
+    window.run_until_parked();
+    cx.update(|app| flush(app));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    tick(cx, &f, t0 + Duration::from_secs(20));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+}
+
+#[gpui::test]
+fn closing_the_file_after_dont_save_removes_the_copy_when_the_document_is_replaced(
+    cx: &mut TestAppContext,
+) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "to be closed");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    let code = matsu_commands::sakura::FUNCTIONS
+        .iter()
+        .find(|f| f.name == "F_FILECLOSE")
+        .unwrap()
+        .code;
+    let ws = workspace(cx, f.handle);
+    let view = ws.read_with(cx, |ws, _| ws.editor().clone());
+    f.handle
+        .update(cx, |_, window, app| {
+            view.update(app, |view, cx| view.run_function(code, &[], window, cx))
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let window = VisualTestContext::from_window(f.handle, cx).into_mut();
+    assert!(window.has_pending_prompt());
+    window.simulate_prompt_answer("保存しない(N)");
+    window.run_until_parked();
+    cx.update(|app| flush(app));
+    assert!(doc_files(&f.dir).is_empty(), "no tick was needed");
+}
+
+#[gpui::test]
+fn a_clear_that_cannot_get_the_folder_says_so_and_does_not_wait(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    // Another process holds the folder.
+    let held = Store::open(&f.dir).unwrap();
+    let problem = cx.update(super::clear_copies);
+    assert!(problem.is_some_and(|m| m.contains("消せませんでした")));
+    drop(held);
+}
+
+#[gpui::test]
+fn a_clear_is_queued_and_the_ui_does_not_wait_for_it(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "text");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    // It returns without a problem; the deletion is done by the writer, and is there after a wait of the test.
+    assert_eq!(cx.update(super::clear_copies), None);
+    cx.update(|app| flush(app));
+    assert!(doc_files(&f.dir).is_empty());
+}
+
+#[gpui::test]
+fn losing_the_focus_writes_the_latest_text_at_once(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "just typed");
+    tick(cx, &f, t0);
+    assert!(doc_files(&f.dir).is_empty(), "not before the wait");
+    deactivate(cx, &f, t0 + Duration::from_millis(100));
+    let files = doc_files(&f.dir);
+    assert_eq!(files.len(), 1);
+    assert_eq!(kept_text(&f, &files[0]), "just typed");
+}
+
+#[gpui::test]
+fn losing_the_focus_refreshes_the_caret_of_a_copy_whose_text_is_unchanged(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "line one\nline two");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    let files = doc_files(&f.dir);
+    let before = std::fs::read(f.dir.join(&files[0])).unwrap();
+    // Only the caret moves: the text and its revision are the same.
+    let ws = workspace(cx, f.handle);
+    ws.update(cx, |ws, cx| {
+        ws.editor().clone().update(cx, |view, cx| {
+            view.go_to(matsu_core::buffer::Pos::new(0, 2), cx);
+        });
+    });
+    tick(cx, &f, t0 + Duration::from_secs(5));
+    assert_eq!(
+        std::fs::read(f.dir.join(&files[0])).unwrap(),
+        before,
+        "a tick does not write it"
+    );
+    deactivate(cx, &f, t0 + Duration::from_secs(6));
+    let after = std::fs::read(f.dir.join(&files[0])).unwrap();
+    assert_ne!(after, before, "the caret is in the copy now");
+    assert!(String::from_utf8_lossy(&after).contains("CaretColumn=2"));
+}
+
+#[gpui::test]
+fn losing_the_focus_does_not_bring_back_a_revision_the_user_threw_away(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "thrown away");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    let ws = workspace(cx, f.handle);
+    let view = ws.read_with(cx, |ws, _| ws.editor().clone());
+    throw_away(cx, &view);
+    cx.update(|app| flush(app));
+    assert!(doc_files(&f.dir).is_empty());
+    deactivate(cx, &f, t0 + Duration::from_secs(10));
+    assert!(doc_files(&f.dir).is_empty());
+}

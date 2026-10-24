@@ -534,6 +534,7 @@ impl Workspace {
         })
         .detach();
         crate::file_watch::start(window, cx);
+        crate::unsaved::start(window, cx);
         // The message of the migration shows for 20 seconds: repaint the window then, so that it
         // goes at its time (nothing else repaints an idle window).
         if let Some(left) = crate::settings::startup_notice_left() {

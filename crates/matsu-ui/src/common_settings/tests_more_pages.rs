@@ -82,7 +82,8 @@ fn the_pages_have_every_control_that_sakura_has() {
     // the boxes 「表示例」 and the version of the regular expression library are not drawn; the
     // list of `IDD_PROP_FNAME` with its two boxes and eight buttons is one control.
     let count = |page: Page| controls(&page.items().unwrap()).len();
-    assert_eq!(count(Page::File), 18);
+    // 18 are Sakura's; the two about the copies of unsaved documents are MATSU Editor's (ADR-0022).
+    assert_eq!(count(Page::File), 18 + 2);
     assert_eq!(count(Page::Backup), 23);
     assert_eq!(count(Page::Format), 8);
     assert_eq!(count(Page::Search), 9);
@@ -230,6 +231,61 @@ fn ok_on_the_file_page_locks_the_open_files_in_the_new_mode(cx: &mut TestAppCont
     ok(cx);
     assert_eq!(held(cx), None);
     assert!(FileLock::acquire(&path, ShareMode::DenyReadWrite).is_ok());
+}
+
+#[gpui::test]
+fn the_file_page_has_the_two_checkboxes_of_the_copies_of_unsaved_documents(
+    cx: &mut TestAppContext,
+) {
+    use crate::unsaved::prefs::{KeepPrefs, prefs};
+    // The size limit is in the file only, and the dialog keeps it.
+    let (ini, handle) = setup(cx, "[MATSU]\r\nKeepUnsavedMaxMB=12\r\n");
+    let _restore = RestoreEditOptions::new();
+    assert_eq!(
+        cx.update(|app| prefs(app)),
+        KeepPrefs {
+            keep: true,
+            no_ask: false,
+            max_mb: 12
+        },
+        "the defaults and the limit of the file are in the windows from the start"
+    );
+    run(cx, handle, "F_OPTION_FILE");
+    assert!(with_dialog(cx, |d, _, _| d.values().bool("keep_unsaved")));
+    assert!(!with_dialog(cx, |d, _, _| d
+        .values()
+        .bool("keep_unsaved_no_ask")));
+    check(cx, "keep_unsaved_no_ask", true);
+    ok(cx);
+    assert_eq!(value(&ini, "MATSU", "KeepUnsaved").as_deref(), Some("1"));
+    assert_eq!(
+        value(&ini, "MATSU", "KeepUnsavedNoAsk").as_deref(),
+        Some("1")
+    );
+    assert_eq!(
+        value(&ini, "MATSU", "KeepUnsavedMaxMB").as_deref(),
+        Some("12"),
+        "the limit is not touched"
+    );
+    assert_eq!(
+        cx.update(|app| prefs(app)),
+        KeepPrefs {
+            keep: true,
+            no_ask: true,
+            max_mb: 12
+        }
+    );
+
+    // Turning it off asks what to do with the copies (「残す」 leaves them).
+    run(cx, handle, "F_OPTION_FILE");
+    check(cx, "keep_unsaved", false);
+    ok(cx);
+    assert!(!cx.update(|app| prefs(app)).keep);
+    assert_eq!(value(&ini, "MATSU", "KeepUnsaved").as_deref(), Some("0"));
+    let window = visual(cx, handle);
+    assert!(window.has_pending_prompt(), "the question about the copies");
+    window.simulate_prompt_answer("残す");
+    window.run_until_parked();
 }
 
 #[gpui::test]

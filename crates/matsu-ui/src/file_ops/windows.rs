@@ -235,7 +235,13 @@ async fn close_after_questions(
             })
             .unwrap_or(true);
         if unchanged {
-            cx.update(|window, _| window.remove_window()).ok();
+            cx.update(|window, app| {
+                for view in &views {
+                    crate::unsaved::apply_close(view, app);
+                }
+                window.remove_window();
+            })
+            .ok();
             return;
         }
     }

@@ -43,6 +43,11 @@ fn auto_save_is_on(values: &Values) -> bool {
     values.bool("auto_save")
 }
 
+/// The question about hot exit is asked only while the copies are kept (ADR-0022).
+fn unsaved_is_kept(values: &Values) -> bool {
+    values.bool("keep_unsaved")
+}
+
 /// `EnableFilePropInput`: the number of files is edited only while 「閉じて開く」 is off.
 fn drop_opens_many(values: &Values) -> bool {
     !values.bool("drop_file_and_close")
@@ -127,6 +132,24 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         .into(),
                         Item::Label("分ごと"),
                     ]),
+                    // Not Sakura's (ADR-0022): the section [MATSU] is MATSU Editor's own.
+                    Control::check(
+                        "keep_unsaved",
+                        "保存していない文書を残し、次の起動で戻す(&K)",
+                        crate::unsaved::prefs::KEY_KEEP,
+                        true,
+                    )
+                    .in_section(crate::unsaved::prefs::SECTION)
+                    .into(),
+                    Control::check(
+                        "keep_unsaved_no_ask",
+                        "終了のとき保存の確認をしない(&Z)",
+                        crate::unsaved::prefs::KEY_NO_ASK,
+                        false,
+                    )
+                    .in_section(crate::unsaved::prefs::SECTION)
+                    .when(unsaved_is_kept)
+                    .into(),
                 ],
             )],
         ]),
@@ -230,7 +253,7 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
 }
 
 /// What OK does to the windows: the history's options, and the save of an unmodified document.
-pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, _before: Option<&Values>) {
+pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: Option<&Values>) {
     crate::history::set_options(
         env.cx,
         HistoryOptions {
@@ -254,6 +277,16 @@ pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, _before: 
         no_filter_save_file: after.bool("no_filter_save_file"),
         auto_mime_decode: after.bool("auto_mime_decode"),
     });
+    // The copies of unsaved documents (ADR-0022). The size limit is not in the dialog: it stays as it was.
+    let old = crate::unsaved::prefs::prefs(env.cx);
+    env.cx.set_global(crate::unsaved::prefs::KeepPrefs {
+        keep: after.bool("keep_unsaved"),
+        no_ask: after.bool("keep_unsaved_no_ask"),
+        max_mb: old.max_mb,
+    });
+    if before.is_some_and(|b| b.bool("keep_unsaved")) && !after.bool("keep_unsaved") {
+        crate::unsaved::ask_to_clear(env.cx);
+    }
     // The open documents take the new mode (`CEditDoc::OnChangeSetting`).
     crate::file_ops::lock::apply_setting(env.cx, after.int("file_share_mode"));
 }

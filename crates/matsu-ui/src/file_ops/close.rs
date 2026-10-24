@@ -36,9 +36,18 @@ pub(crate) async fn confirm_discard(
     view: &WeakEntity<EditorView>,
     cx: &mut AsyncWindowContext,
 ) -> bool {
+    view.update(cx, |view, cx| crate::unsaved::unmark_close(view, cx))
+        .ok();
     let go_on = ask_about_changes(view, cx).await;
     if go_on {
-        view.update(cx, |view, cx| view.record_history(cx)).ok();
+        view.update(cx, |view, cx| {
+            view.record_history(cx);
+            // The user saved it or does not want it. The kept copy goes when the close really happens, not
+            // now: the flow may still be cancelled (ADR-0022).
+            let this = cx.weak_entity();
+            crate::unsaved::mark_close(view, this, cx);
+        })
+        .ok();
     }
     go_on
 }
@@ -129,6 +138,8 @@ pub(crate) fn close_tab_or_window(
         return false;
     };
     cx.update(|window, app| {
+        // The close happens: the copy of a document the user did not want goes now.
+        crate::unsaved::apply_close(&entity, app);
         let Some((handle, _)) = super::windows::find_tab_of(app, view) else {
             return;
         };
@@ -202,7 +213,13 @@ pub(crate) async fn save_and_close_window(
     if modified && !save(view, cx, SaveRequest::default()).await.is_safe() {
         return false;
     }
-    view.update(cx, |view, cx| view.record_history(cx)).ok();
+    view.update(cx, |view, cx| {
+        view.record_history(cx);
+        // Saved or unchanged: the close that follows makes the discard of its copy final.
+        let this = cx.weak_entity();
+        crate::unsaved::mark_close(view, this, cx);
+    })
+    .ok();
     close_tab_or_window(view, cx)
 }
 
@@ -340,7 +357,12 @@ pub(crate) async fn exit_all(cx: &mut AsyncWindowContext, kind: ExitKind) {
             checked.push((view.entity_id(), version));
         }
         if snapshot(cx) == checked {
-            cx.update(|_, app| app.quit()).ok();
+            cx.update(|_, app| {
+                // Every question is answered: what the user threw away leaves no copy.
+                crate::unsaved::apply_all_closes(app);
+                app.quit();
+            })
+            .ok();
             return;
         }
     }
