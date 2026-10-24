@@ -372,6 +372,7 @@ pub fn password_in_command(kind: Kind, command: &str) -> Option<&'static str> {
 
 fn scan_for_password(kind: Kind, command: &str) -> Option<&'static str> {
     for (index, word) in command.split_whitespace().enumerate() {
+        let quoted = word.starts_with(['"', '\'']);
         let word = word.trim_matches(['"', '\'']);
         let lower = word.to_ascii_lowercase();
         // `--password=x`, and the parameter of a connection string: `password=x` (libpq's
@@ -435,10 +436,11 @@ fn scan_for_password(kind: Kind, command: &str) -> Option<&'static str> {
             Kind::Oracle if index > 0 && !word.starts_with(['-', '@']) => {
                 if let Some((user, rest)) = word.split_once('/')
                     && !user.is_empty()
-                    && !user.contains(['@', '\\', ':', '$'])
+                    && !user.contains(['@', '\\', ':'])
                 {
                     let password = rest.split_once('@').map_or(rest, |(password, _)| password);
-                    if !password.is_empty() && !password.contains('/') {
+                    // a quoted word is a login, whatever it holds; a bare one with a `/` after it is a path
+                    if !password.is_empty() && (quoted || !password.contains('/')) {
                         return Some("user/password");
                     }
                 }

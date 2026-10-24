@@ -198,6 +198,15 @@ fn passwords_on_the_command_line_are_found() {
         Some("user/password")
     );
     assert_eq!(found(Kind::Oracle, "sqlplus -L / as sysdba @$F"), None);
+    assert_eq!(
+        found(Kind::Oracle, "sqlplus 'OPS$SCOTT/tiger@db' @$F"),
+        Some("user/password")
+    );
+    assert_eq!(
+        found(Kind::Oracle, "sqlplus \"scott/ti/ger@db\" @$F"),
+        Some("user/password")
+    );
+    assert_eq!(found(Kind::Oracle, "sqlplus -L scripts/dir/x.sql"), None);
     assert_eq!(found(Kind::Oracle, "sqlplus -L /@MYDB @$F"), None);
     assert_eq!(found(Kind::Oracle, "sqlplus -L scott@db @$F"), None);
     assert_eq!(found(Kind::Oracle, "/usr/bin/sqlplus -L /@db"), None);
