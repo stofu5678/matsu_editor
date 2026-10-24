@@ -41,7 +41,7 @@ pub(crate) async fn confirm_discard(
         view.update(cx, |view, cx| {
             view.record_history(cx);
             // The user saved it or does not want it: the kept copy goes now (ADR-0022).
-            crate::unsaved::discard_document(view.document(), cx);
+            crate::unsaved::discard_document(view, cx);
         })
         .ok();
     }
@@ -210,7 +210,7 @@ pub(crate) async fn save_and_close_window(
     view.update(cx, |view, cx| {
         view.record_history(cx);
         // Saved: the kept copy is not wanted any more (ADR-0022).
-        crate::unsaved::discard_document(view.document(), cx);
+        crate::unsaved::discard_document(view, cx);
     })
     .ok();
     close_tab_or_window(view, cx)

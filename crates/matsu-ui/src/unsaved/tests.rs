@@ -15,6 +15,7 @@ fn rev(version: u64) -> Revision {
         encoding: Encoding::Utf8,
         bom: false,
         eol: Eol::Lf,
+        doc_type: None,
     }
 }
 
@@ -558,4 +559,43 @@ fn a_session_written_after_the_feature_is_on_again_is_not_removed_by_the_retry()
     writer.flush();
     std::thread::sleep(Duration::from_millis(200));
     assert!(dir.join("session.ini").exists());
+}
+
+#[test]
+fn a_revision_with_another_type_is_another_revision() {
+    let mut chosen = rev(1);
+    chosen.doc_type = Some(3);
+    assert_ne!(rev(1), chosen);
+    let t0 = Instant::now();
+    let mut e = Entry::new(t0);
+    decide(&mut e, Want::Keep, rev(1), t0);
+    assert!(decide(&mut e, Want::Keep, rev(1), t0 + secs(2)).write);
+    e.shared.in_flight.store(false, Ordering::SeqCst);
+    *e.shared.written.lock().unwrap() = Some(rev(1));
+    // The user picks a type without touching the text: the copy is out of date.
+    assert_eq!(
+        decide(&mut e, Want::Keep, chosen, t0 + secs(3)),
+        Plan::default()
+    );
+    assert!(decide(&mut e, Want::Keep, chosen, t0 + secs(5)).write);
+}
+
+#[test]
+fn a_suppressed_revision_is_copied_again_after_a_change_and_a_return() {
+    let t0 = Instant::now();
+    let mut e = Entry::new(t0);
+    e.suppress_for_test(rev(1));
+    for s in 0..10 {
+        assert_eq!(
+            decide(&mut e, Want::Keep, rev(1), t0 + secs(s * 5)),
+            Plan::default()
+        );
+    }
+    // Another revision ends the suppression; going back to the first is then an ordinary revision.
+    decide(&mut e, Want::Keep, rev(2), t0 + secs(60));
+    assert_eq!(
+        decide(&mut e, Want::Keep, rev(1), t0 + secs(61)),
+        Plan::default()
+    );
+    assert!(decide(&mut e, Want::Keep, rev(1), t0 + secs(64)).write);
 }

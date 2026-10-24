@@ -32,6 +32,8 @@ pub(crate) struct Revision {
     pub encoding: Encoding,
     pub bom: bool,
     pub eol: Eol,
+    /// The type the user chose, if any.
+    pub doc_type: Option<i32>,
 }
 
 /// What the window and the thread share about one document.
@@ -228,8 +230,11 @@ fn run(
                 result
             }
             Job::Session(next) => {
-                pending.session_stuck = false;
                 let result = store.write_session(&next);
+                // The removal of the old session is over only when a new one is there.
+                if result.is_ok() {
+                    pending.session_stuck = false;
+                }
                 session_failed.store(result.is_err(), Ordering::SeqCst);
                 session = next;
                 result

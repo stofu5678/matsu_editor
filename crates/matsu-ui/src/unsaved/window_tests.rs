@@ -329,8 +329,8 @@ fn a_document_that_is_closed_or_saved_loses_its_copy_at_once(cx: &mut TestAppCon
     assert_eq!(doc_files(&f.dir).len(), 1);
     // What `confirm_discard` does when the user answers 「保存しない」: no tick, no wait.
     let ws = workspace(cx, f.handle);
-    let document = ws.read_with(cx, |ws, app| ws.editor().read(app).document().clone());
-    cx.update(|app| super::discard_document(&document, app));
+    let view = ws.read_with(cx, |ws, _| ws.editor().clone());
+    view.update(cx, |view, cx| super::discard_document(view, cx));
     cx.update(|app| flush(app));
     assert!(doc_files(&f.dir).is_empty());
     assert!(read_session(&f).windows.is_empty());
@@ -451,8 +451,8 @@ fn a_revision_the_user_threw_away_is_not_copied_again_but_the_next_change_is(
     assert_eq!(doc_files(&f.dir).len(), 1);
     // 「保存しない」 in an exit of all windows: the document stays open while the other questions are asked.
     let ws = workspace(cx, f.handle);
-    let document = ws.read_with(cx, |ws, app| ws.editor().read(app).document().clone());
-    cx.update(|app| super::discard_document(&document, app));
+    let view = ws.read_with(cx, |ws, _| ws.editor().clone());
+    view.update(cx, |view, cx| super::discard_document(view, cx));
     cx.update(|app| flush(app));
     for s in [10, 20, 40, 80] {
         tick(cx, &f, t0 + Duration::from_secs(s));
@@ -481,4 +481,18 @@ fn a_type_the_user_chose_is_in_the_copy(cx: &mut TestAppContext) {
     let files = doc_files(&f.dir);
     let bytes = std::fs::read(f.dir.join(&files[0])).unwrap();
     assert!(String::from_utf8_lossy(&bytes).contains("DocType="));
+}
+
+#[gpui::test]
+fn a_revision_thrown_away_before_the_first_tick_is_never_copied(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "no tick yet");
+    let ws = workspace(cx, f.handle);
+    let view = ws.read_with(cx, |ws, _| ws.editor().clone());
+    view.update(cx, |view, cx| super::discard_document(view, cx));
+    for s in [0, 5, 10, 20] {
+        tick(cx, &f, t0 + Duration::from_secs(s));
+    }
+    assert!(!f.dir.exists() || doc_files(&f.dir).is_empty());
 }

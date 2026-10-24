@@ -81,6 +81,11 @@ impl Entry {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn suppress_for_test(&mut self, revision: Revision) {
+        self.suppressed = Some(revision);
+    }
+
     /// Forgets the copy (after it was discarded or cleared). The next change starts a new one.
     pub(crate) fn forget_copy(&mut self) {
         self.id = None;
@@ -117,6 +122,10 @@ pub(crate) fn decide(entry: &mut Entry, want: Want, current: Revision, now: Inst
         }
         Want::Keep => {
             entry.warned_big = false;
+            // A change ends the suppression: a later return to the same revision is a revision like any other.
+            if entry.suppressed.is_some_and(|s| s != current) {
+                entry.suppressed = None;
+            }
             if entry.suppressed == Some(current) {
                 entry.seen = Some(current);
                 entry.first_pending = None;
@@ -325,13 +334,15 @@ impl Keeper {
     /// The copy of the document is not wanted any more (it was closed or saved): it is discarded now, and the
     /// tabs no longer name it.
     fn discard_document(&mut self, document: EntityId, revision: Revision) {
+        // Also before the first tick and before the writer exists: the revision is not to be copied later.
+        let entry = self
+            .entries
+            .entry(document)
+            .or_insert_with(|| Entry::new(Instant::now()));
+        entry.suppressed = Some(revision);
         let State::Running(writer) = &self.state else {
             return;
         };
-        let Some(entry) = self.entries.get_mut(&document) else {
-            return;
-        };
-        entry.suppressed = Some(revision);
         if let Some(id) = entry.id.clone() {
             writer.discard(id.clone());
             for (_, report) in &mut self.windows {
@@ -431,13 +442,19 @@ fn want_of(view: &EditorView, shared: &SharedDocument, prefs: &KeepPrefs) -> Wan
     Want::Keep
 }
 
-fn revision_of(shared: &SharedDocument) -> Revision {
+fn revision_of(view: &EditorView, shared: &SharedDocument) -> Revision {
     Revision {
         version: shared.version(),
         encoding: shared.file().encoding,
         bom: shared.file().bom,
         eol: shared.new_line(),
+        doc_type: doc_type_of(view, shared),
     }
+}
+
+/// The number of the type the user chose, if they did (the file name brings back the others).
+fn doc_type_of(view: &EditorView, shared: &SharedDocument) -> Option<i32> {
+    shared.type_locked().then(|| view.type_index() as i32)
 }
 
 /// The information kept with the copy (ADR-0022, section 3): what is needed to bring the document back and
@@ -470,7 +487,7 @@ pub(crate) fn info_of(view: &EditorView, shared: &SharedDocument) -> DocInfo {
         bom: shared.file().bom,
         line_ending: eol_name(shared.new_line()).to_owned(),
         // Only a type the user chose is kept: the file name brings back the others.
-        doc_type: shared.type_locked().then(|| view.type_index() as i32),
+        doc_type: doc_type_of(view, shared),
         caret_line: caret.line as u64,
         caret_column: column as u64,
         top_line: view.top_row() as u64,
@@ -513,11 +530,12 @@ pub(crate) fn app_tick(cx: &mut App, now: Instant) {
 ///
 /// The revision it has now is not copied again: the user said they do not want it, and the document may stay open
 /// while the other questions of an exit are asked. The next change makes a new copy.
-pub(crate) fn discard_document(document: &Entity<SharedDocument>, cx: &mut App) {
+pub(crate) fn discard_document(view: &EditorView, cx: &mut App) {
     if !cx.has_global::<Keeper>() {
         return;
     }
-    let revision = revision_of(document.read(cx));
+    let document = view.document();
+    let revision = revision_of(view, document.read(cx));
     let mut keeper = cx.remove_global::<Keeper>();
     keeper.discard_document(document.entity_id(), revision);
     cx.set_global(keeper);
@@ -610,7 +628,10 @@ pub(crate) fn tick_window_at(
             let key = document.entity_id();
             let (want, revision) = {
                 let shared = document.read(cx);
-                (want_of(view.read(cx), shared, &prefs), revision_of(shared))
+                (
+                    want_of(view.read(cx), shared, &prefs),
+                    revision_of(view.read(cx), shared),
+                )
             };
             let entry = keeper.entries.entry(key).or_insert_with(|| Entry::new(now));
             entry.document.get_or_insert_with(|| document.downgrade());
