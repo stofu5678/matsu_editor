@@ -53,6 +53,10 @@ pub enum Language {
     /// policy and the ANSI code page of 5.1), and the boot compiles it with
     /// `[scriptblock]::Create`, which the execution policy does not govern.
     PowerShell,
+    /// `.pl`: Perl. The editor starts `perl -` and sends the boot program, the API and the
+    /// `initialize` line (with the text of the script) on the standard input, so there is no
+    /// file whose path a Windows perl would have to open with the ANSI code page.
+    Perl,
     /// Run by the bundled script host (`matsu-script --engine <name>`), which sits next to the
     /// editor's executable.
     Bundled(Engine),
@@ -110,6 +114,7 @@ impl Language {
             "rb" => Some(Self::Ruby),
             "php" => Some(Self::Php),
             "ps1" => Some(Self::PowerShell),
+            "pl" => Some(Self::Perl),
             "lua" => Some(Self::Bundled(Engine::Lua)),
             "js" => Some(Self::Bundled(Engine::QuickJs)),
             "mruby" => Some(Self::Bundled(Engine::Mruby)),
@@ -126,6 +131,7 @@ impl Language {
             Self::Ruby => "Ruby",
             Self::Php => "PHP",
             Self::PowerShell => "PowerShell",
+            Self::Perl => "Perl",
             Self::Bundled(engine) => engine.display_name(),
         }
     }
@@ -145,6 +151,7 @@ impl Language {
             Self::Ruby => "ruby".into(),
             Self::Php => "php".into(),
             Self::PowerShell => powershell_interpreter(),
+            Self::Perl => "perl".into(),
         }
     }
 
@@ -161,6 +168,8 @@ impl Language {
             // A version manager (asdf, rbenv) answers with a shim; this is the real one.
             Self::Ruby => ("-e", "require 'rbconfig'; puts RbConfig.ruby"),
             Self::Php => ("-r", "echo PHP_BINARY;"),
+            // The interpreter, as Perl itself knows it.
+            Self::Perl => ("-e", "print $^X"),
         };
         let output = Command::new(interpreter)
             .arg(flag)
@@ -278,7 +287,7 @@ impl std::fmt::Display for StartError {
         match self {
             Self::UnknownLanguage { script } => write!(
                 f,
-                "{}: マクロの拡張子は .mjs、.js、.cjs、.ts、.py、.rb、.php、.ps1、.lua、.mruby、.upy のどれかにしてください",
+                "{}: マクロの拡張子は .mjs、.js、.cjs、.ts、.py、.rb、.php、.ps1、.pl、.lua、.mruby、.upy のどれかにしてください",
                 script.display()
             ),
             Self::Boot(err) => write!(f, "マクロの準備に失敗しました: {err}"),
@@ -411,15 +420,17 @@ pub type Sink = Arc<dyn Fn(HostEvent) + Send + Sync>;
 /// `Finished`.
 pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
     let script = match config.language {
-        Language::Bundled(_) | Language::PowerShell => Some(read_script(&config.script)?),
+        Language::Bundled(_) | Language::PowerShell | Language::Perl => {
+            Some(read_script(&config.script)?)
+        }
         Language::JavaScript
         | Language::TypeScript
         | Language::Python
         | Language::Ruby
         | Language::Php => None,
     };
-    // The bundled host needs no boot files.
-    let boot_dir = if matches!(config.language, Language::Bundled(_)) {
+    // The bundled host needs no boot files, and Perl gets its program on the standard input.
+    let boot_dir = if matches!(config.language, Language::Bundled(_) | Language::Perl) {
         None
     } else {
         Some(boot::write_boot_files(config.temp_dir.as_deref()).map_err(StartError::Boot)?)
@@ -472,6 +483,11 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
                         .unwrap_or(Path::new("")),
                 );
         }
+        Language::Perl => {
+            // The program comes from the standard input (`-`); the rest of the input, after its
+            // `__END__`, is the conversation. No PERL5OPT: it can switch modules and options on.
+            command.arg("-").env_remove("PERL5OPT");
+        }
         Language::Php => {
             // The errors go to the standard error (the output panel shows them as the macro's
             // output, with the line number), once, and as plain text.
@@ -517,6 +533,12 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
     // The writer: the lines go out in order, and a macro that does not read never blocks the
     // caller. When the child is gone the writes fail and the rest is dropped.
     let (writer, lines) = mpsc::channel::<String>();
+    if config.language == Language::Perl {
+        // The program, up to its `__END__`; what follows is read by the program as data.
+        writer
+            .send(boot::PERL_PROGRAM.to_owned())
+            .expect("the receiver is alive");
+    }
     writer
         .send(protocol::initialize_message(&InitializeInfo {
             editor_name: "MATSU Editor".into(),

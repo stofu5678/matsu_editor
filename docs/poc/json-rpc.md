@@ -255,6 +255,17 @@ Emacs の利用者を考えて調べた。6 つとも、次がすべて通った
 - 起動の時間: この PC（WSL2 の Linux ARM64、PowerShell 7.6）で、`-Command 1` が約 0.3〜0.7 秒、ブートを含めて 1〜1.5 秒。Node.js は約 0.1 秒。利用者には、マクロを動かしてから最初の動きまで 1 秒ほどかかるように見える。Windows と 5.1 の値は未測定（過去の記録: 5.1 の起動は約 150 ms、Windows ARM64）
 - 出力: 標準出力と標準エラーの文字コードは UTF-8（BOM なし）に設定する
 
+### Perl（`.pl`。2026-10-24 に実装。ADR-0025）
+
+- 起動: `perl -`。プログラム（`api_gen.pl` と `boot.pl`）を標準入力に書き、`__END__` で終える。Perl は `__END__` までをプログラムとして読み、残りは `DATA` ハンドルで読める。その残りが `initialize` の行と、呼び出しへの応答。ファイルを一つも作らない。Windows の perl はファイルを ANSI の API で開くので、一時フォルダーのパスに ANSI にない文字（英語版 Windows の日本語・中国語のユーザー名）があると開けないが、これなら起きない。`PERL5OPT` は外す（モジュールやオプションを差し込めるため）
+- JSON: `JSON::PP`（Perl 5.14 から標準）。`ascii` で書き出す。5.14 以降が対象（Module::CoreList で、JSON::PP の最初の版は 5.013009、つまり 5.14.0 に入る）。この PC は 5.38
+- 利用者のスクリプトは `initialize` の `params.script` で渡し、`eval` で動かす。文字列は文字（`use utf8` と同じ）で、先頭に `#line 1 "名前"` を付けるので、エラーは `名前 line N.` と出る。ブートの `strict` と `warnings` は引き継がない（`perl script.pl` と同じ）
+- 出力: `STDOUT` と `STDERR` は `:raw:utf8`（Windows が改行を CR LF にしない、コードページに依らず UTF-8）
+- `Editor->InsText('x')` のクラスメソッド。関数の形（`Editor::InsText('x')`）は使えない。サクラの表のほかの名前は `AUTOLOAD`、数字で始まる名前は `Editor->Call('1PageUp')`。`Editor->info` が `initialize` の内容（ハッシュ参照）
+- 数と文字列: Perl は区別が曖昧なので、数の値を持つ（印字して文字列の面も持つものを含み、文字列が数に読める）ものを数、そうでなければ文字列として送る。`"$x"` は常に文字列。NaN、無限大、参照は送る前に断る
+- エラー: エディタの `error` は `EditorError` オブジェクト（`code`、`message`、`file`、`line`）を `die` で投げる。文字列にすると `EditorError CODE: メッセージ at 名前 line N.`。N はエディタを呼んだ利用者の行
+- 起動の時間: `perl` 自体は約 5 ms。プログラムは約 2300 行（生成した API）
+
 ### Codex の指摘（1 回目）
 
 JSON-RPC の方式について、Codex が挙げた点。

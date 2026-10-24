@@ -17,6 +17,15 @@ pub const PHP_API: &str = "api_gen.php";
 pub const PS_BOOT: &str = "boot.ps1";
 pub const PS_API: &str = "api_gen.ps1";
 
+/// The Perl program: the API, the boot, and `__END__`, which the editor writes to the standard
+/// input of `perl -` before the conversation (nothing is written to a file for Perl).
+pub const PERL_PROGRAM: &str = concat!(
+    include_str!("boot/api_gen.pl"),
+    "\n",
+    include_str!("boot/boot.pl"),
+    "\npackage main;\n__END__"
+);
+
 const FILES: [(&str, &str); 10] = [
     (JS_BOOT, include_str!("boot/boot.cjs")),
     (JS_API, include_str!("boot/api.gen.cjs")),

@@ -588,7 +588,7 @@ impl EditorView {
     }
 
     /// Runs a macro file by its extension: `.mac` through the key macro player, the others
-    /// (`.mjs`, `.js`, `.cjs`, `.ts`, `.py`, `.rb`, `.php`, `.ps1`, `.lua`, `.mruby`, `.upy`) through the host.
+    /// (`.mjs`, `.js`, `.cjs`, `.ts`, `.py`, `.rb`, `.php`, `.ps1`, `.pl`, `.lua`, `.mruby`, `.upy`) through the host.
     /// The `Err` says what to show.
     fn run_macro_file(
         &mut self,
@@ -604,7 +604,7 @@ impl EditorView {
             }
             FileKind::Script(_) => self.start_script(path, window, cx),
             FileKind::Unknown => Err(format!(
-                "{}: マクロの拡張子は .mac、.mjs、.js、.cjs、.ts、.py、.rb、.php、.ps1、.lua、.mruby、.upy のどれかにしてください",
+                "{}: マクロの拡張子は .mac、.mjs、.js、.cjs、.ts、.py、.rb、.php、.ps1、.pl、.lua、.mruby、.upy のどれかにしてください",
                 path.display()
             )),
         }
