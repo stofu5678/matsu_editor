@@ -62,6 +62,10 @@ pub(crate) struct Extract {
 
 /// Whether the document is at most `limit` bytes. It walks the pieces in chunks and stops as soon
 /// as the sum passes `limit`, so a huge file is never read beyond that.
+pub(crate) fn within_source_limit(doc: &Document) -> bool {
+    fits(doc, MAX_SOURCE_BYTES)
+}
+
 fn fits(doc: &Document, limit: usize) -> bool {
     let mut total = 0usize;
     for chunk in doc.chunks_of(64 << 10) {

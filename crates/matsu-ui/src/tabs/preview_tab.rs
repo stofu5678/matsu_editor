@@ -34,6 +34,18 @@ impl Workspace {
             self.activate_tab(index, window, cx);
             return;
         }
+        // A document over the limit is refused before the tab (and its hidden view, which lays
+        // the document out) is made.
+        if !crate::preview::text::within_source_limit(document.read(cx).doc()) {
+            editor.update(cx, |view, cx| {
+                view.notice = Some(format!(
+                    "大きいので、プレビューしません（{} MiB までのファイルを表示します）。",
+                    crate::preview::text::MAX_SOURCE_BYTES >> 20
+                ));
+                cx.notify();
+            });
+            return;
+        }
         let host = cx.weak_entity();
         let hidden = cx.new(|cx| EditorView::new(document.clone(), cx));
         // The functions of the bar (next and previous window, the list of the tabs, close) run on
@@ -56,10 +68,21 @@ impl Workspace {
         else {
             return;
         };
-        let source = (0..self.tab_count()).find(|&i| {
-            self.tab_panes(i)
-                .is_some_and(|p| p.active().read(cx).document() == &document)
-        });
+        // The same document, or the same file: a source that was closed and opened again is a new
+        // document of the same file.
+        let path = document.read(cx).path().map(std::path::Path::to_path_buf);
+        let is_source = |view: &gpui::Entity<EditorView>, cx: &gpui::App| {
+            let other = view.read(cx).document();
+            other == &document
+                || path.as_deref().is_some_and(|path| {
+                    other
+                        .read(cx)
+                        .path()
+                        .is_some_and(|p| crate::file_ops::windows::same_file(p, path))
+                })
+        };
+        let source = (0..self.tab_count())
+            .find(|&i| self.tab_panes(i).is_some_and(|p| is_source(p.active(), cx)));
         // The source may have moved to another window (a separated tab, another group): go there
         // rather than open the document a second time.
         let me = cx.entity_id();
@@ -70,7 +93,7 @@ impl Workspace {
                 let workspace = workspace.read(cx);
                 (0..workspace.tab_count())
                     .filter_map(|i| workspace.tab_editor(i))
-                    .find(|view| view.read(cx).document() == &document)
+                    .find(|view| is_source(view, cx))
                     .map(|view| (handle, view))
             });
         match source {

@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use gpui::{AnyWindowHandle, Entity, TestAppContext};
+use gpui::{AnyWindowHandle, AppContext as _, Entity, TestAppContext};
 use matsu_commands::keymap::KeyMap;
 
 use super::content::MenuKind;
@@ -284,11 +284,12 @@ fn a_document_over_the_source_limit_is_not_previewed(cx: &mut TestAppContext) {
     let handle = cx.update(|app| open_editor_window(app, doc, None)).unwrap();
     cx.run_until_parked();
     open(cx, handle);
+    // Refused before the tab and its hidden view are made, with a notice in the status bar.
     let ws = workspace(cx, handle);
-    let preview = preview_of(cx, &ws);
-    preview.read_with(cx, |p, _| {
-        assert!(p.too_large());
-        assert_eq!(p.shown().0, 0);
+    ws.read_with(cx, |ws, cx| {
+        assert_eq!(ws.tab_count(), 1);
+        let notice = ws.editor().read(cx).notice.clone().unwrap_or_default();
+        assert!(notice.contains("プレビューしません"), "{notice}");
     });
 }
 
@@ -408,4 +409,63 @@ fn the_source_in_another_window_is_not_opened_again(cx: &mut TestAppContext) {
     // No second editor for the document in either window.
     a.read_with(cx, |ws, _| assert_eq!(ws.tab_count(), 1));
     b.read_with(cx, |ws, _| assert_eq!(ws.tab_count(), before));
+}
+
+/// A document of the file `path` with the text `# a`.
+fn file_document(path: &std::path::Path) -> SharedDocument {
+    SharedDocument::new(
+        matsu_core::model::DocumentModel::new(
+            matsu_core::buffer::Document::from_utf8(b"# a\n".to_vec()).unwrap(),
+        ),
+        Some(path.to_path_buf()),
+    )
+}
+
+#[gpui::test]
+fn the_source_opened_again_is_found_by_its_file(cx: &mut TestAppContext) {
+    cx.update(gpui_component::init);
+    super::tests::tab_mode(cx, true, true);
+    let path = std::env::temp_dir().join(format!("matsu-preview-{}.md", std::process::id()));
+    std::fs::write(&path, "# a\n").unwrap();
+    let handle = cx
+        .update(|app| open_editor_window(app, file_document(&path), None))
+        .unwrap();
+    cx.run_until_parked();
+    open(cx, handle);
+    let ws = workspace(cx, handle);
+    // The source tab is closed, and the same file is opened as a new document in a new tab.
+    handle
+        .update(cx, |_, window, app| {
+            ws.update(app, |ws, cx| {
+                let document = cx.new(|_| file_document(&path));
+                let editor = cx.new(|cx| crate::view::EditorView::new(document, cx));
+                ws.insert_tab(
+                    crate::panes::PaneSet::new(editor),
+                    usize::MAX,
+                    false,
+                    window,
+                    cx,
+                );
+                ws.close_tab_now(0, window, cx);
+            })
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let (before, preview_active) = ws.read_with(cx, |ws, _| {
+        let active = ws.tab_content(ws.active_tab()).unwrap();
+        (ws.tab_count(), active.preview().is_some())
+    });
+    assert_eq!(before, 2);
+    assert!(preview_active);
+    handle
+        .update(cx, |_, window, app| {
+            ws.update(app, |ws, cx| ws.preview_to_source(window, cx))
+        })
+        .unwrap();
+    // No second editor for the file: the tab that is there is shown.
+    ws.read_with(cx, |ws, _| {
+        assert_eq!(ws.tab_count(), before);
+        assert!(ws.tab_content(ws.active_tab()).unwrap().preview().is_none());
+    });
+    let _ = std::fs::remove_file(&path);
 }

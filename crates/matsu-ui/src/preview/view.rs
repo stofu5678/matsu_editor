@@ -77,11 +77,6 @@ impl PreviewView {
         self.truncated
     }
 
-    #[cfg(test)]
-    pub(crate) fn too_large(&self) -> bool {
-        self.too_large
-    }
-
     /// The name of the document as the preview titles it.
     pub(crate) fn document_name(&self, cx: &App) -> String {
         let shared = self.document.read(cx);
