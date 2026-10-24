@@ -51,6 +51,19 @@ my $RS = "\x1e";
 my $json = JSON::PP->new->ascii->canonical->allow_nonref;
 my $next_id = 1;
 
+# Perl keeps the name of a file as bytes, and the name in a `#line` directive is no exception: a
+# name with Japanese characters comes back from `caller` and from the "at FILE line N." of a
+# message as UTF-8 bytes, which the `:utf8` layer of STDERR would encode again. `fix_name` turns
+# those bytes back into the characters of the name. Set below, for a name that is not ASCII.
+my ($name_as_bytes, $name_as_chars);
+
+sub fix_name {
+    my ($text) = @_;
+    return $text if !defined $text || ref $text || !defined $name_as_bytes;
+    $text =~ s/\Q$name_as_bytes\E/$name_as_chars/g;
+    return $text;
+}
+
 sub read_line {
     # The script may have changed the record separator (`local $/;` to read a file whole).
     local $/ = "\n";
@@ -86,7 +99,7 @@ sub to_json_value {
 sub call {
     my ($method, @args) = @_;
     my (undef, $file, $line) = caller(1);
-    $file = '?' unless defined $file;
+    $file = defined $file ? fix_name($file) : '?';
     $line = 0 unless defined $line;
     my @params = map { to_json_value($_, $file, $line) } @args;
     my $id = $next_id++;
@@ -127,12 +140,28 @@ unless (ref $script eq 'HASH') {
 $Editor::CALL = \&call;
 $Editor::INFO = $info;
 
+# The name as `#line` gets it (MatsuUser::run turns quotes and line breaks into apostrophes).
+{
+    my $name = $script->{name};
+    $name =~ s/["\n\r]/'/g;
+    if ($name =~ /[^\x00-\x7f]/) {
+        $name_as_chars = $name;
+        $name_as_bytes = $name;
+        utf8::encode($name_as_bytes);
+        # As characters, each byte one: what the message holds after it joined the bytes in.
+        utf8::upgrade($name_as_bytes);
+        # The messages that Perl and the script make ("... at FILE line N.") say the name right.
+        $SIG{__WARN__} = sub { print STDERR map { fix_name($_) } @_ };
+        $SIG{__DIE__} = sub { die(@_) if ref $_[0]; die fix_name($_[0]) };
+    }
+}
+
 # The text of the script is characters (the JSON was decoded), so the literals in it are too.
 my $ok = MatsuUser::run($script->{source}, $script->{name});
 my $error = $@;
 unless ($ok) {
     if (ref $error || (defined $error && $error ne '')) {
-        $error = "$error";
+        $error = fix_name("$error");
         $error .= "\n" unless $error =~ /\n\z/;
         print STDERR $error;
         exit 1;

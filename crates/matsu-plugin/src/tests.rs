@@ -1366,6 +1366,43 @@ fn a_perl_script_cannot_break_the_boot_by_its_own_variables_and_settings() {
 }
 
 #[test]
+fn a_perl_script_in_a_folder_with_a_japanese_name_shows_the_name_right() {
+    // Perl holds file names as bytes: the name in the messages must not be encoded twice.
+    if !available(PL) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("テスト😀");
+    std::fs::create_dir(&folder).unwrap();
+    let script = folder.join("マクロ.pl");
+    let code = "warn \"warned\\n\" if 0;\n\
+        eval { Editor->GetLineCount(5); 1 } or print \"caught: $@\";\n\
+        eval { die 'plain' }; print \"plain: $@\";\n\
+        warn 'careful';\n\
+        Editor->GetLineCount(5);\n";
+    std::fs::write(&script, code).unwrap();
+    let mut config = MacroConfig::for_script(&script, None).unwrap();
+    config.temp_dir = Some(dir.path().to_path_buf());
+    let mut doc = TextModel::new("a", None);
+    let report = session::run_blocking(config, |m| api::handle_message(&mut doc, m)).unwrap();
+    let name = script.display().to_string();
+    let out = stdout(&report).join("\n");
+    assert!(
+        out.contains(&format!("EditorError -32602: GetLineCount: "))
+            && out.contains(&format!("at {name} line 2.")),
+        "{out}"
+    );
+    assert!(out.contains(&format!("plain at {name} line 3")), "{out}");
+    let err = report.lines(Stream::Stderr).join("\n");
+    assert!(err.contains(&format!("careful at {name} line 4")), "{err}");
+    assert!(err.contains(&format!("at {name} line 5")), "{err}");
+    assert!(
+        !err.contains('\u{e3}') && !out.contains('\u{e3}'),
+        "{err} {out}"
+    );
+}
+
+#[test]
 fn a_long_line_goes_both_ways_in_perl() {
     let code = "my $t = 'あ' x 200000;\nEditor->InsText($t);\nprint length(Editor->GetLineStr(1)), \"\\n\";\n";
     let Some((report, doc)) = run(PL, code, "") else {
