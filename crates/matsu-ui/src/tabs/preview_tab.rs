@@ -63,7 +63,11 @@ impl Workspace {
         match source {
             Some(index) => self.activate_tab(index, window, cx),
             None => {
+                let user = cx.try_global::<crate::settings::UserSettings>().cloned();
                 let editor = cx.new(|cx| EditorView::new(document, cx));
+                if let Some(user) = &user {
+                    editor.update(cx, |view, cx| view.apply_user_settings(user, cx));
+                }
                 self.insert_tab(PaneSet::new(editor), active + 1, true, window, cx);
             }
         }
