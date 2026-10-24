@@ -36,6 +36,9 @@ mod menu_tests;
 pub(crate) mod order;
 #[cfg(test)]
 mod pending_tests;
+mod preview_tab;
+#[cfg(test)]
+mod preview_tests;
 mod semantics;
 pub(crate) mod settings;
 #[cfg(test)]
@@ -128,25 +131,27 @@ impl Workspace {
 
     /// The panes of tab `index`.
     fn tab_panes(&self, index: usize) -> Option<&PaneSet> {
+        self.tab_content(index)?.editor_panes()
+    }
+
+    /// What tab `index` holds.
+    pub(crate) fn tab_content(&self, index: usize) -> Option<&content::TabContent> {
         if index == self.tabs.active {
-            Some(self.content.panes())
+            Some(&self.content)
         } else {
-            self.tabs
-                .list
-                .get(index)?
-                .parked
-                .as_ref()
-                .map(content::TabContent::panes)
+            self.tabs.list.get(index)?.parked.as_ref()
         }
+    }
+
+    /// The view that stands for tab `index` in the tab bar: its active pane, also for a tab that is
+    /// not an editor (the view of its document that it keeps out of sight).
+    pub(crate) fn tab_bar_view(&self, index: usize) -> Option<Entity<EditorView>> {
+        self.tab_content(index).map(|c| c.panes().active().clone())
     }
 
     /// Tab `index` as the window sees every kind of tab (`content::TabPanel`).
     pub(crate) fn tab_panel(&self, index: usize) -> Option<&dyn content::TabPanel> {
-        if index == self.tabs.active {
-            Some(self.content.panel())
-        } else {
-            Some(self.tabs.list.get(index)?.parked.as_ref()?.panel())
-        }
+        Some(self.tab_content(index)?.panel())
     }
 
     /// The view that stands for tab `index`: its active pane.
@@ -222,9 +227,27 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let mut incoming = panes;
-        incoming.forget_subscriptions();
-        let numbered = incoming.numbered();
+        self.insert_content(content::TabContent::Editor(panes), at, activate, window, cx);
+    }
+
+    /// [`insert_tab`](Self::insert_tab) for a tab of any kind.
+    pub(crate) fn insert_content(
+        &mut self,
+        content: content::TabContent,
+        at: usize,
+        activate: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let mut incoming = content;
+        // Only an editor's panes belong to the window as the views of its documents.
+        let numbered = match &mut incoming {
+            content::TabContent::Editor(panes) => {
+                panes.forget_subscriptions();
+                panes.numbered()
+            }
+            content::TabContent::Preview(_) => Vec::new(),
+        };
         let id = self.tabs.next_id;
         self.tabs.next_id += 1;
         let at = at.min(self.tab_count());
@@ -232,7 +255,7 @@ impl Workspace {
         // to be active, the old one comes back at the end.
         let previous = self.tabs.list[self.tabs.active].id;
         let old_view = self.panes().active().clone();
-        let parked = std::mem::replace(&mut self.content, content::TabContent::Editor(incoming));
+        let parked = std::mem::replace(&mut self.content, incoming);
         self.tabs.list[self.tabs.active].parked = Some(parked);
         self.tabs.list.insert(at, Tab { id, parked: None });
         self.tabs.active = at;
@@ -251,15 +274,28 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Takes tab `index` out of the window without closing it. The window must keep a tab, so this
-    /// is for windows with at least two. If the tab is the active one, the tab that was active
-    /// before takes its place.
+    /// Takes tab `index` out of the window without closing it, to put it in another window. The
+    /// window must keep a tab, so this is for windows with at least two. If the tab is the active
+    /// one, the tab that was active before takes its place. A tab that is not an editor stays
+    /// (`None`): it belongs to its window.
     pub(crate) fn take_tab(
         &mut self,
         index: usize,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<PaneSet> {
+        self.tab_panes(index)?;
+        self.remove_tab(index, window, cx)?.into_editor()
+    }
+
+    /// Takes tab `index` out of the window, of any kind. Like [`take_tab`](Self::take_tab) for the
+    /// rest.
+    pub(crate) fn remove_tab(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<content::TabContent> {
         if self.tab_count() < 2 || index >= self.tab_count() {
             return None;
         }
@@ -275,7 +311,7 @@ impl Workspace {
         }
         self.tabs.recent.retain(|id| *id != tab.id);
         cx.notify();
-        tab.parked.map(content::TabContent::into_panes)
+        tab.parked
     }
 
     /// Takes every tab out of the window, for a window that is about to close. The window has no
@@ -289,12 +325,16 @@ impl Workspace {
         // From the right, so that the order of the bar is kept in the end.
         while self.tab_count() > 1 {
             let last = self.tab_count() - 1;
-            if let Some(set) = self.take_tab(last, window, cx) {
+            // A tab that is not an editor is closed with its window.
+            if let Some(set) = self
+                .remove_tab(last, window, cx)
+                .and_then(content::TabContent::into_editor)
+            {
                 taken.push(set);
             }
         }
         let emptied = content::TabContent::Editor(PaneSet::emptied());
-        taken.push(std::mem::replace(&mut self.content, emptied).into_panes());
+        taken.extend(std::mem::replace(&mut self.content, emptied).into_editor());
         taken.reverse();
         taken
     }
@@ -307,7 +347,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        self.take_tab(index, window, cx).is_some()
+        self.remove_tab(index, window, cx).is_some()
     }
 
     /// Moves tab `from` to position `to` in the bar. The active tab stays active.

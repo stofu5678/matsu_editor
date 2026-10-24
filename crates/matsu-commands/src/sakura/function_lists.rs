@@ -378,6 +378,7 @@ pub static FUNCTION_LISTS: [&[u16]; 15] = [
         31351, // F_MINIMIZE_ALL
         31360, // F_REDRAW
         31370, // F_WIN_OUTPUT
+        32702, // F_PREVIEW_TAB (MATSU-only)
     ],
     // 支援
     &[

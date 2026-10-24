@@ -27,6 +27,8 @@ use gpui::{
 use gpui_component::tooltip::Tooltip;
 use matsu_commands::sakura::FUNCTIONS;
 
+use std::rc::Rc;
+
 use super::content::TabPanel;
 use super::list::{self, Start};
 use super::{flows, semantics, settings};
@@ -34,6 +36,9 @@ use crate::app::Workspace;
 use crate::file_ops::close::confirm_and_close_window;
 use crate::file_ops::windows::listed_workspaces;
 use crate::view::EditorView;
+
+/// What closing a tab does.
+type CloseTab = Rc<dyn Fn(&mut Window, &mut gpui::App)>;
 
 /// A tab of the bar.
 #[derive(Clone)]
@@ -48,6 +53,9 @@ struct Entry {
     active: bool,
     /// The position among the tabs of this window, when it is one of them.
     tab: Option<usize>,
+    /// The tab is a preview (`crate::preview`): its `view` is the hidden view of its document, and
+    /// closing it asks nothing.
+    preview: bool,
 }
 
 /// What is dragged when a tab moves: its position in the bar.
@@ -183,6 +191,7 @@ impl Workspace {
                      panel: &dyn TabPanel,
                      active,
                      tab,
+                     preview,
                      cx: &gpui::App| Entry {
             caption: panel.caption(cx),
             name: panel.accessible_name(cx),
@@ -191,14 +200,16 @@ impl Workspace {
             view,
             active,
             tab,
+            preview,
         };
         if tab_settings.grouped {
             let current = self.active_tab();
             return Some(
                 (0..self.tab_count())
                     .filter_map(|i| {
-                        let (view, panel) = (self.tab_editor(i)?, self.tab_panel(i)?);
-                        Some(entry(own, view, panel, i == current, Some(i), cx))
+                        let (view, panel) = (self.tab_bar_view(i)?, self.tab_panel(i)?);
+                        let preview = self.tab_content(i)?.preview().is_some();
+                        Some(entry(own, view, panel, i == current, Some(i), preview, cx))
                     })
                     .collect(),
             );
@@ -218,7 +229,7 @@ impl Workspace {
                     continue;
                 };
                 let mine = handle == own;
-                entries.push(entry(handle, view, panel, mine, None, cx));
+                entries.push(entry(handle, view, panel, mine, None, false, cx));
             }
         }
         Some(entries)
@@ -371,6 +382,7 @@ impl Workspace {
             tooltip,
             active,
             tab,
+            preview,
         } = entry;
         let select = {
             let view = view.clone();
@@ -398,15 +410,27 @@ impl Workspace {
                 });
             }
         };
-        let close = {
-            let view = view.clone();
-            move |window: &mut Window, cx: &mut gpui::App| {
+        // A preview has no document to ask about: its tab just goes.
+        let close: CloseTab = match tab {
+            Some(index) if preview => {
+                let workspace = cx.entity();
+                Rc::new(move |window: &mut Window, cx: &mut gpui::App| {
+                    let workspace = workspace.clone();
+                    window.defer(cx, move |window, cx| {
+                        workspace.update(cx, |ws, cx| ws.close_tab_or_window(index, window, cx));
+                    });
+                })
+            }
+            _ => {
                 let view = view.clone();
-                window
-                    .spawn(cx, async move |cx| {
-                        close_document(cx, handle, &view).await;
-                    })
-                    .detach();
+                Rc::new(move |window: &mut Window, cx: &mut gpui::App| {
+                    let view = view.clone();
+                    window
+                        .spawn(cx, async move |cx| {
+                            close_document(cx, handle, &view).await;
+                        })
+                        .detach();
+                })
             }
         };
         let close_for_button = close.clone();
@@ -415,7 +439,10 @@ impl Workspace {
         let open_menu = {
             let view = view.clone();
             cx.listener(move |this, event: &gpui::MouseUpEvent, window, cx| {
-                this.open_tab_menu(tab, handle, &view, event.position, window, cx);
+                // The tab menu is the editor's (custom menu 24): a preview has none.
+                if !preview {
+                    this.open_tab_menu(tab, handle, &view, event.position, window, cx);
+                }
                 cx.stop_propagation();
             })
         };
