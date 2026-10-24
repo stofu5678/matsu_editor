@@ -17,8 +17,11 @@ import sqlite3
 DATABASE = ":memory:"  # a file, e.g. r"C:\data\app.db"; ":memory:" is gone when the macro ends
 
 # The SQL: the selection if there is one, else the whole document. A line number counts from 1.
+# A statement ends at the end of a line: put each statement on lines of its own.
+first_line = 1
 if Editor.IsTextSelected():
     sql = Editor.GetSelectedString(0)
+    first_line = Editor.GetSelectLineFrom()  # so that an error names the line of the document
 else:
     count = Editor.GetLineCount(0)
     sql = "".join(Editor.GetLineStr(i) for i in range(1, count + 1))
@@ -28,7 +31,7 @@ conn = sqlite3.connect(DATABASE)
 
 # Split into statements the way SQLite does (a ";" inside a string or a trigger does not end
 # one), and keep the line each statement starts at for the error line.
-statement, start, number = "", 1, 0
+statement, start, number = "", first_line, first_line - 1
 for line in sql.splitlines(keepends=True):
     number += 1
     if not statement.strip():

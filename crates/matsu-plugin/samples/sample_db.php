@@ -14,9 +14,12 @@
 
 $database = ':memory:'; // a file, e.g. 'C:\data\app.db'; ':memory:' is gone when the macro ends
 
-// The SQL: the selection if there is one, else the whole document.
+// The SQL: the selection if there is one, else the whole document. A statement ends at the end
+// of a line: put each statement on lines of its own.
+$firstLine = 1;
 if (Editor::IsTextSelected()) {
     $sql = Editor::GetSelectedString(0);
+    $firstLine = Editor::GetSelectLineFrom(); // so that an error names the line of the document
 } else {
     $sql = '';
     $count = Editor::GetLineCount(0);
@@ -32,8 +35,8 @@ $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 // A statement ends at a line that ends with ";" (simple: a ";" at the end of a line inside a
 // string or a trigger is taken for the end), and the line it starts at is kept for the error.
 $statement = '';
-$start = 1;
-$number = 0;
+$start = $firstLine;
+$number = $firstLine - 1;
 $run = function () use ($pdo, &$statement, &$start, $name) {
     try {
         $result = $pdo->query($statement);

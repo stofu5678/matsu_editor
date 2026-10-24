@@ -17,10 +17,13 @@ import { DatabaseSync } from 'node:sqlite';
 
 const DATABASE = ':memory:'; // a file, e.g. 'C:\\data\\app.db'; ':memory:' is gone when the macro ends
 
-// The SQL: the selection if there is one, else the whole document.
+// The SQL: the selection if there is one, else the whole document. A statement ends at the end
+// of a line: put each statement on lines of its own.
 let sql;
+let firstLine = 1;
 if (Editor.IsTextSelected()) {
   sql = Editor.GetSelectedString(0);
+  firstLine = Editor.GetSelectLineFrom(); // so that an error names the line of the document
 } else {
   const count = Editor.GetLineCount(0);
   const lines = [];
@@ -34,15 +37,20 @@ const db = new DatabaseSync(DATABASE);
 // A statement ends at a line that ends with ";" (simple: a ";" at the end of a line inside a
 // string or a trigger is taken for the end), and the line it starts at is kept for the error.
 let statement = '';
-let start = 1;
-let number = 0;
+let start = firstLine;
+let number = firstLine - 1;
 const run = () => {
   try {
     const prepared = db.prepare(statement);
+    // rows as arrays keep the order of the columns (Node.js 24 and later; older ones give objects)
+    if (typeof prepared.setReturnArrays === 'function') prepared.setReturnArrays(true);
     if (prepared.columns().length > 0) {
       const rows = prepared.all();
       console.log(prepared.columns().map((c) => c.name).join('\t'));
-      for (const row of rows) console.log(Object.values(row).map((v) => (v ?? '')).join('\t'));
+      for (const row of rows) {
+        const values = Array.isArray(row) ? row : Object.values(row);
+        console.log(values.map((v) => (v ?? '')).join('\t'));
+      }
     } else {
       const result = prepared.run();
       console.log(`OK (${result.changes} rows)`);
