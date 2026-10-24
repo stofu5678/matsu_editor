@@ -518,10 +518,19 @@ fn want_of(view: &EditorView, shared: &SharedDocument, prefs: &KeepPrefs) -> Wan
     if !(shared.model().is_modified() || shared.format_changed()) {
         return Want::Drop;
     }
-    if let Some(max) = prefs.max_bytes()
-        && shared.doc().raw_len() as u64 > max
-    {
-        return Want::TooBig;
+    if let Some(max) = prefs.max_bytes() {
+        // A document that was brought back has its text as UTF-8, which can be bigger than the bytes it had in
+        // its own encoding (Japanese text in Shift_JIS grows by half). It may be as big as it came back and
+        // grow by the limit again, so that the copy it came from is not discarded for the way it was restored.
+        let came_back = shared.restored_len() as u64;
+        let allowed = if came_back > max {
+            came_back.saturating_add(max)
+        } else {
+            max
+        };
+        if shared.doc().raw_len() as u64 > allowed {
+            return Want::TooBig;
+        }
     }
     Want::Keep
 }

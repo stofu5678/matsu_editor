@@ -106,6 +106,8 @@ pub struct SharedDocument {
     /// The document was brought back from a copy of unsaved text (ADR-0022): it keeps the encoding, BOM and line
     /// ending it had, and a window does not give it the settings of a new document.
     restored: bool,
+    /// The size of the text (`Document::raw_len`) when the document was brought back, 0 for any other document.
+    restored_len: usize,
     /// Set for a restored document that has a file: the file was not looked at yet (「確認まだ」). The save checks it
     /// against this before it overwrites the file.
     restored_check: Option<RestoredCheck>,
@@ -139,6 +141,7 @@ impl SharedDocument {
             lock: FileLockState::default(),
             untitled_number: None,
             restored: false,
+            restored_len: 0,
             restored_check: None,
         }
     }
@@ -164,6 +167,7 @@ impl SharedDocument {
             lock: FileLockState::default(),
             untitled_number: None,
             restored: false,
+            restored_len: 0,
             restored_check: None,
         }
     }
@@ -179,6 +183,7 @@ impl SharedDocument {
         let mut shared = Self::from_text_file(file);
         shared.model.mark_unsaved();
         shared.restored = true;
+        shared.restored_len = shared.doc().raw_len();
         shared.untitled_number = untitled_number;
         if let Some(number) = untitled_number {
             reserve_untitled_number(number);
@@ -190,6 +195,11 @@ impl SharedDocument {
             shared.restored_check = Some(check);
         }
         shared
+    }
+
+    /// The size of the text when the document was brought back (0 if it was not).
+    pub(crate) fn restored_len(&self) -> usize {
+        self.restored_len
     }
 
     /// Whether the document was brought back from a copy.

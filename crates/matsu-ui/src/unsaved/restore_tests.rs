@@ -700,3 +700,58 @@ fn the_view_comes_back_where_it_was_even_when_the_caret_is_out_of_sight(cx: &mut
         assert_eq!(view.top_row(), 120, "the view is not moved to the caret");
     });
 }
+
+#[gpui::test]
+fn a_copy_that_is_over_the_limit_only_as_utf8_is_kept(cx: &mut TestAppContext) {
+    let f = fixture(cx, false);
+    // 400 000 characters: 800 000 bytes in Shift_JIS (under the limit of 1 MiB), 1 200 000 as UTF-8 (over).
+    cx.update(|app| {
+        app.set_global(KeepPrefs {
+            max_mb: 1,
+            ..KeepPrefs::default()
+        })
+    });
+    let file = f.tmp.path().join("big-sjis.txt");
+    std::fs::write(&file, b"x").unwrap();
+    let mut i = info(Some(&file));
+    i.encoding = matsu_core::encoding::Encoding::ShiftJis
+        .sakura_code()
+        .to_string();
+    let store = Store::open(&f.dir).unwrap();
+    let id = keep(&store, &i, &"あ".repeat(400_000));
+    store
+        .write_session(&Session {
+            windows: vec![one_window(&[&id])],
+            active_window: 0,
+        })
+        .unwrap();
+    drop(store);
+    cx.update(restore_all);
+    cx.run_until_parked();
+    let list = windows(cx);
+    let t0 = Instant::now();
+    for s in [0, 3, 6, 30] {
+        let ws = list[0].1.clone();
+        list[0]
+            .0
+            .update(cx, |_, window, app| {
+                ws.update(app, |ws, cx| {
+                    tick_window_at(ws, window, cx, t0 + Duration::from_secs(s), false);
+                })
+            })
+            .unwrap();
+        cx.update(|app| flush(app));
+    }
+    assert_eq!(
+        doc_files(&f.dir),
+        vec![format!("{id}.doc")],
+        "the copy is still there"
+    );
+    let notice = list[0]
+        .1
+        .read_with(cx, |ws, app| ws.editor().read(app).notice.clone());
+    assert!(
+        !notice.is_some_and(|n| n.contains("大きい")),
+        "no 'too big' notice"
+    );
+}
