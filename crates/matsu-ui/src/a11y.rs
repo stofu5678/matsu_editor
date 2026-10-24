@@ -28,6 +28,13 @@ pub(crate) fn editor(element: Stateful<Div>) -> Stateful<Div> {
         .aria_label(EDITOR_NAME)
 }
 
+/// The region of a preview (ADR-0024): a document named by its header. The rendered text is
+/// drawn as glyphs and not yet exposed (as the editor's is not), so a screen reader knows the
+/// region and what it shows.
+pub(crate) fn preview_region(element: Stateful<Div>, name: &str) -> Stateful<Div> {
+    element.role(Role::Document).aria_label(name.to_owned())
+}
+
 /// The name of a control for a screen reader, from a Sakura label: `フリーカーソル(&F)` is
 /// `フリーカーソル`, `&URL` is `URL`, `&&` is `&`. The access key is not part of the name (the
 /// platform has its own way to tell it).

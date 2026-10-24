@@ -181,6 +181,7 @@ pub(crate) fn run(
     app.run(move |cx: &mut App| {
         gpui_component::init(cx);
         crate::view::EditorView::bind_keys(cx);
+        crate::preview::bind_keys(cx);
         crate::history::install(cx, &user);
         crate::tabs::settings::install(cx, &user);
         crate::bars::install(cx, &user);
@@ -320,6 +321,16 @@ fn menus_of(
     }
     match kind {
         MenuKind::Editor => editor_menus(cx, keymap, style, states, &mut built),
+        MenuKind::Preview => {
+            for menu in crate::preview::menus::menus(!cfg!(target_os = "macos")) {
+                // No Sakura function, so no picture.
+                built.icons.push(matsu_platform::menu_icons::Menu {
+                    title: menu.name.to_string(),
+                    items: vec![matsu_platform::menu_icons::Node::Plain; menu.items.len()],
+                });
+                built.menus.push(menu);
+            }
+        }
         #[cfg(test)]
         MenuKind::Probe => {
             built
@@ -581,6 +592,7 @@ impl Workspace {
     ) -> Option<crate::menu_state::FuncStates> {
         match self.menu_kind() {
             MenuKind::Editor => Some(self.func_states(topmost, this, cx)),
+            MenuKind::Preview => None,
             #[cfg(test)]
             MenuKind::Probe => None,
         }
@@ -597,10 +609,24 @@ impl Render for Workspace {
         self.sync_outline(cx);
         let active = self.panes().active().clone();
         let editor = active.read(cx);
-        window.set_window_title(&editor.title_for(window.is_window_active(), cx));
+        // A preview (ADR-0024) draws its own view; the bars of the editor are not shown with it.
+        let preview = self.content.preview().map(|p| p.view().clone());
+        // The list of the tabs (the ▼ button of the bar) belongs to the view that runs its function:
+        // with a preview that is the hidden view, which is not drawn, so the list is drawn here.
+        let tab_list = editor.tab_list.clone();
+        let title = editor.title_for(window.is_window_active(), cx);
+        window.set_window_title(&if preview.is_some() {
+            format!("プレビュー: {title}")
+        } else {
+            title
+        });
         let status = self.content.panel().status(cx);
         let show_status_bar = editor.status_bar_shown();
-        let macro_panel = editor.macro_panel(active.clone());
+        let macro_panel = if preview.is_some() {
+            None
+        } else {
+            editor.macro_panel(active.clone())
+        };
         let ui_font = gpui_component::Theme::global(cx).font_family.clone();
         // A kind of tab with no status bar has no status (`TabPanel::status`).
         let status_bar = match (show_status_bar, &status) {
@@ -609,7 +635,7 @@ impl Render for Workspace {
         };
         let tab_bar = self.render_tab_bar(window, cx);
         // The minimap draws the pane that is active.
-        let minimap_shown = crate::minimap::current(cx).shown;
+        let minimap_shown = crate::minimap::current(cx).shown && preview.is_none();
         self.minimap.update(cx, |minimap, cx| {
             if minimap_shown {
                 minimap.follow(&active, cx);
@@ -619,9 +645,29 @@ impl Render for Workspace {
         });
         let minimap = minimap_shown.then(|| self.minimap.clone());
         let topmost = crate::window_ops::is_topmost(window, cx);
-        let toolbar = self.render_toolbar_at_scale(topmost, window.scale_factor(), cx);
-        let funckeys_top = self.render_funckeys(crate::bars::FuncKeyPlace::Top, window, cx);
-        let funckeys_bottom = self.render_funckeys(crate::bars::FuncKeyPlace::Bottom, window, cx);
+        let (toolbar, funckeys_top, funckeys_bottom) = if preview.is_some() {
+            (None, None, None)
+        } else {
+            (
+                self.render_toolbar_at_scale(topmost, window.scale_factor(), cx),
+                self.render_funckeys(crate::bars::FuncKeyPlace::Top, window, cx),
+                self.render_funckeys(crate::bars::FuncKeyPlace::Bottom, window, cx),
+            )
+        };
+        let body = match preview {
+            Some(view) => div()
+                .size_full()
+                .relative()
+                .child(view)
+                .children(tab_list)
+                .into_any_element(),
+            None => self.render_panes(cx).into_any_element(),
+        };
+        let outline = if self.content.preview().is_some() {
+            None
+        } else {
+            self.outline.clone()
+        };
         // A Wayland compositor without server-side decorations, such as WSLg's, leaves the title
         // bar and its buttons to the app.
         let client_decorated = cfg!(target_os = "linux")
@@ -657,16 +703,10 @@ impl Render for Workspace {
                     .flex_1()
                     .flex()
                     .overflow_hidden()
-                    .child(
-                        div()
-                            .flex_1()
-                            .h_full()
-                            .overflow_hidden()
-                            .child(self.render_panes(cx)),
-                    )
+                    .child(div().flex_1().h_full().overflow_hidden().child(body))
                     // Left of the outline, which is docked at the right (`CEditWnd::OnSize`).
                     .children(minimap)
-                    .children(self.outline.clone()),
+                    .children(outline),
             )
             .children(macro_panel)
             .children(funckeys_bottom)

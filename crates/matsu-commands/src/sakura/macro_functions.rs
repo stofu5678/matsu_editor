@@ -366,6 +366,7 @@ pub static MACRO_COMMANDS: &[MacroFunction] = &[
     MacroFunction { name: "MinimizeAll", function: "F_MINIMIZE_ALL", code: 31351, args: &[], result: None, key_macro: false },
     MacroFunction { name: "ReDraw", function: "F_REDRAW", code: 31360, args: &[], result: None, key_macro: true },
     MacroFunction { name: "ActivateWinOutput", function: "F_WIN_OUTPUT", code: 31370, args: &[], result: None, key_macro: true },
+    MacroFunction { name: "PreviewTab", function: "F_PREVIEW_TAB", code: 32702, args: &[], result: None, key_macro: true },
     MacroFunction { name: "TraceOut", function: "F_TRACEOUT", code: 32802, args: &[Str, Int], result: None, key_macro: false },
     MacroFunction { name: "WindowTopMost", function: "F_TOPMOST", code: 31334, args: &[Int], result: None, key_macro: true },
     MacroFunction { name: "GroupClose", function: "F_GROUPCLOSE", code: 31380, args: &[], result: None, key_macro: false },

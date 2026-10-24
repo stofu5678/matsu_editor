@@ -21,6 +21,8 @@ use crate::status::StatusInfo;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum MenuKind {
     Editor,
+    /// The preview tab: its own small menus (`crate::preview::menus`).
+    Preview,
     /// A second kind for the tests of the menu switching: one menu with one item.
     #[cfg(test)]
     Probe,
@@ -30,6 +32,7 @@ impl MenuKind {
     /// Every kind, for making the menus of all of them.
     pub(crate) const ALL: &'static [MenuKind] = &[
         MenuKind::Editor,
+        MenuKind::Preview,
         #[cfg(test)]
         MenuKind::Probe,
     ];
@@ -68,32 +71,57 @@ pub(crate) trait TabPanel {
 /// What a tab keeps: the active one in `Workspace::content`, the others in `Tabs`.
 pub(crate) enum TabContent {
     Editor(PaneSet),
+    /// The preview of a document (ADR-0024). It keeps a view of the document out of sight, so that
+    /// the window always has a view to ask (`panes`); it is not one of the window's editors
+    /// (`editor_panes`).
+    Preview(crate::preview::PreviewTab),
 }
 
 impl TabContent {
-    /// The panes of the editor this tab holds.
+    /// The panes the window asks of its active tab: an editor's, or the hidden view of a preview's
+    /// document.
     pub(crate) fn panes(&self) -> &PaneSet {
         match self {
             Self::Editor(panes) => panes,
+            Self::Preview(preview) => preview.panes(),
         }
     }
 
     pub(crate) fn panes_mut(&mut self) -> &mut PaneSet {
         match self {
             Self::Editor(panes) => panes,
+            Self::Preview(preview) => preview.panes_mut(),
         }
     }
 
-    /// The panes of the editor this tab holds, taken out of the tab.
-    pub(crate) fn into_panes(self) -> PaneSet {
+    /// The panes of the editor this tab is, or `None` for a tab of another kind.
+    pub(crate) fn editor_panes(&self) -> Option<&PaneSet> {
         match self {
-            Self::Editor(panes) => panes,
+            Self::Editor(panes) => Some(panes),
+            Self::Preview(_) => None,
+        }
+    }
+
+    /// The panes of the editor this tab is, taken out of the tab.
+    pub(crate) fn into_editor(self) -> Option<PaneSet> {
+        match self {
+            Self::Editor(panes) => Some(panes),
+            Self::Preview(_) => None,
+        }
+    }
+
+    /// The preview this tab is, or `None`.
+    pub(crate) fn preview(&self) -> Option<&crate::preview::PreviewTab> {
+        match self {
+            Self::Preview(preview) => Some(preview),
+            Self::Editor(_) => None,
         }
     }
 
     pub(crate) fn panel(&self) -> &dyn TabPanel {
         match self {
             Self::Editor(panes) => panes,
+            Self::Preview(preview) => preview,
         }
     }
 }
