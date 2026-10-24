@@ -1350,6 +1350,22 @@ fn a_perl_script_is_not_under_strict_and_warnings_of_the_boot() {
 }
 
 #[test]
+fn a_perl_script_cannot_break_the_boot_by_its_own_variables_and_settings() {
+    // `$json` is a name of the boot; the script's own is another variable. `local $/;` (slurp
+    // mode) and the output separators `$,` and `$\` must not reach the protocol.
+    let code = "$json = '{}'; $next_id = 'x'; $RS = 1;\n\
+        $, = '-'; $\\ = \"!\\n\";\n\
+        { local $/; print Editor->GetLineCount(0); }\n\
+        $\\ = undef; $, = undef;\n\
+        print \"done\\n\";\n";
+    let Some((report, _)) = run(PL, code, "a\nb") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(stdout(&report), ["2!", "done"]);
+}
+
+#[test]
 fn a_long_line_goes_both_ways_in_perl() {
     let code = "my $t = 'あ' x 200000;\nEditor->InsText($t);\nprint length(Editor->GetLineStr(1)), \"\\n\";\n";
     let Some((report, doc)) = run(PL, code, "") else {

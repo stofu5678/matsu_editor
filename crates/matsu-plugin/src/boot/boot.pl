@@ -52,6 +52,8 @@ my $json = JSON::PP->new->ascii->canonical->allow_nonref;
 my $next_id = 1;
 
 sub read_line {
+    # The script may have changed the record separator (`local $/;` to read a file whole).
+    local $/ = "\n";
     my $line = <main::DATA>;
     return $line;
 }
@@ -89,7 +91,9 @@ sub call {
     my @params = map { to_json_value($_, $file, $line) } @args;
     my $id = $next_id++;
     my $text = $json->encode({ jsonrpc => '2.0', id => $id, method => $method, params => \@params });
-    print STDOUT $RS, $text, "\n";
+    # And the output separators of `print` (`$,` and `$\`).
+    local ($,, $\) = (undef, undef);
+    print STDOUT "$RS$text\n";
     while (1) {
         my $reply = read_line();
         die EditorError->new(-32000, "The editor closed the connection before it answered $method", $file, $line)
@@ -105,17 +109,6 @@ sub call {
         }
         return $message->{result};
     }
-}
-
-# Runs the user's script. Nothing here is visible to it: no lexical, and no `strict` or
-# `warnings` (a script without them runs as it does under `perl script.pl`).
-sub run_user {
-    ## no critic
-    no strict;
-    no warnings;
-    my $name = $_[1];
-    $name =~ s/["\n\r]/'/g;
-    return eval "package main;\n#line 1 \"$name\"\n$_[0]\n;1";
 }
 
 # The first line is the initialize notification.
@@ -135,7 +128,7 @@ $Editor::CALL = \&call;
 $Editor::INFO = $info;
 
 # The text of the script is characters (the JSON was decoded), so the literals in it are too.
-my $ok = run_user($script->{source}, $script->{name});
+my $ok = MatsuUser::run($script->{source}, $script->{name});
 my $error = $@;
 unless ($ok) {
     if (ref $error || (defined $error && $error ne '')) {
