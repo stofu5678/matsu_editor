@@ -64,6 +64,9 @@ pub(crate) struct Entry {
     /// The revision the user chose to throw away (「保存しない」 while the document stays open, as in an exit of all
     /// windows): no copy is made of it again; the next change makes one.
     suppressed: Option<Revision>,
+    /// The information of the last write that was queued: caret, view and bookmarks are compared with it when the
+    /// window loses the focus, so a copy whose text is unchanged still gets the new place.
+    last_info: Option<DocInfo>,
 }
 
 impl Entry {
@@ -78,6 +81,7 @@ impl Entry {
             document: None,
             warned_big: false,
             suppressed: None,
+            last_info: None,
         }
     }
 
@@ -93,6 +97,7 @@ impl Entry {
         self.seen = None;
         self.first_pending = None;
         self.last_attempt = None;
+        self.last_info = None;
     }
 }
 
@@ -687,6 +692,14 @@ pub(crate) fn start(window: &mut Window, cx: &mut Context<Workspace>) {
         })
         .detach();
     }
+    // The window loses the focus (the user goes to another program): the latest text and place are written at
+    // once, not after the wait (ADR-0022, section 2).
+    cx.observe_window_activation(window, |workspace, window, cx| {
+        if !window.is_window_active() {
+            tick_window_at(workspace, window, cx, Instant::now(), true);
+        }
+    })
+    .detach();
     cx.spawn_in(window, async move |this, cx| {
         loop {
             cx.background_executor().timer(TICK).await;
@@ -707,7 +720,7 @@ pub(crate) fn tick_window(
     window: &mut Window,
     cx: &mut Context<Workspace>,
 ) {
-    tick_window_at(workspace, window, cx, Instant::now());
+    tick_window_at(workspace, window, cx, Instant::now(), false);
 }
 
 /// [`tick_window`] at the time `now`; the tests give the times.
@@ -716,6 +729,7 @@ pub(crate) fn tick_window_at(
     window: &mut Window,
     cx: &mut Context<Workspace>,
     now: Instant,
+    force: bool,
 ) {
     let prefs = prefs(cx);
     if !prefs.keep {
@@ -767,7 +781,28 @@ pub(crate) fn tick_window_at(
             };
             let entry = keeper.entries.entry(key).or_insert_with(|| Entry::new(now));
             entry.document.get_or_insert_with(|| document.downgrade());
-            let plan = decide(entry, want, revision, now);
+            let mut plan = decide(entry, want, revision, now);
+            // On `force` (the window lost the focus) a document that is to be kept is written now when its text,
+            // or its caret, view or bookmarks, are not what the last write has.
+            let mut info = None;
+            if force
+                && want == Want::Keep
+                && !plan.write
+                && !entry
+                    .shared
+                    .in_flight
+                    .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                let now_info = info_of(view.read(cx), document.read(cx));
+                if entry.shared.written() != Some(revision)
+                    || entry.last_info.as_ref() != Some(&now_info)
+                {
+                    plan.write = true;
+                    entry.first_pending = None;
+                    entry.last_attempt = Some(now);
+                }
+                info = Some(now_info);
+            }
             if plan.discard {
                 if let (Some(writer), Some(id)) = (writer, entry.id.clone()) {
                     writer.discard(id);
@@ -780,9 +815,10 @@ pub(crate) fn tick_window_at(
                     let shared = document.read(cx);
                     Snapshot {
                         doc: shared.doc().clone(),
-                        info: info_of(view.read(cx), shared),
+                        info: info.unwrap_or_else(|| info_of(view.read(cx), shared)),
                     }
                 };
+                entry.last_info = Some(snapshot.info.clone());
                 writer.write(id, &entry.shared, revision, snapshot);
             }
             if plan.warn_too_big {

@@ -402,10 +402,22 @@ pub(crate) fn clear_targets(store: &Store) -> (Vec<std::path::PathBuf>, Vec<std:
     let mut unreadable = Vec::new();
     let mut list = |dir: &std::path::Path, all: bool| match std::fs::read_dir(dir) {
         Ok(entries) => {
-            for path in entries.filter_map(|e| e.ok()).map(|e| e.path()) {
-                if path.is_file() && (all || is_ours(&path)) {
-                    targets.push(path);
+            let mut complete = true;
+            for entry in entries {
+                // An entry that cannot be listed or inspected makes the folder incomplete: it is looked at again.
+                let Ok(entry) = entry else {
+                    complete = false;
+                    continue;
+                };
+                let path = entry.path();
+                match entry.metadata() {
+                    Ok(meta) if meta.is_file() && (all || is_ours(&path)) => targets.push(path),
+                    Ok(_) => {}
+                    Err(_) => complete = false,
                 }
+            }
+            if !complete {
+                unreadable.push(dir.to_owned());
             }
         }
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}

@@ -49,7 +49,18 @@ fn tick(cx: &mut TestAppContext, f: &Fixture, now: Instant) {
     let ws = workspace(cx, f.handle);
     f.handle
         .update(cx, |_, window, app| {
-            ws.update(app, |ws, cx| tick_window_at(ws, window, cx, now))
+            ws.update(app, |ws, cx| tick_window_at(ws, window, cx, now, false))
+        })
+        .unwrap();
+    cx.update(|app| flush(app));
+}
+
+/// The window loses the focus at `now`.
+fn deactivate(cx: &mut TestAppContext, f: &Fixture, now: Instant) {
+    let ws = workspace(cx, f.handle);
+    f.handle
+        .update(cx, |_, window, app| {
+            ws.update(app, |ws, cx| tick_window_at(ws, window, cx, now, true))
         })
         .unwrap();
     cx.update(|app| flush(app));
@@ -669,4 +680,45 @@ fn a_clear_is_queued_and_the_ui_does_not_wait_for_it(cx: &mut TestAppContext) {
     assert_eq!(cx.update(super::clear_copies), None);
     cx.update(|app| flush(app));
     assert!(doc_files(&f.dir).is_empty());
+}
+
+#[gpui::test]
+fn losing_the_focus_writes_the_latest_text_at_once(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "just typed");
+    tick(cx, &f, t0);
+    assert!(doc_files(&f.dir).is_empty(), "not before the wait");
+    deactivate(cx, &f, t0 + Duration::from_millis(100));
+    let files = doc_files(&f.dir);
+    assert_eq!(files.len(), 1);
+    assert_eq!(kept_text(&f, &files[0]), "just typed");
+}
+
+#[gpui::test]
+fn losing_the_focus_refreshes_the_caret_of_a_copy_whose_text_is_unchanged(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "line one\nline two");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    let files = doc_files(&f.dir);
+    let before = std::fs::read(f.dir.join(&files[0])).unwrap();
+    // Only the caret moves: the text and its revision are the same.
+    let ws = workspace(cx, f.handle);
+    ws.update(cx, |ws, cx| {
+        ws.editor().clone().update(cx, |view, cx| {
+            view.go_to(matsu_core::buffer::Pos::new(0, 2), cx);
+        });
+    });
+    tick(cx, &f, t0 + Duration::from_secs(5));
+    assert_eq!(
+        std::fs::read(f.dir.join(&files[0])).unwrap(),
+        before,
+        "a tick does not write it"
+    );
+    deactivate(cx, &f, t0 + Duration::from_secs(6));
+    let after = std::fs::read(f.dir.join(&files[0])).unwrap();
+    assert_ne!(after, before, "the caret is in the copy now");
+    assert!(String::from_utf8_lossy(&after).contains("CaretColumn=2"));
 }

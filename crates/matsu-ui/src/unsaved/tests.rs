@@ -599,3 +599,32 @@ fn a_suppressed_revision_is_copied_again_after_a_change_and_a_return() {
     );
     assert!(decide(&mut e, Want::Keep, rev(1), t0 + secs(64)).write);
 }
+
+#[cfg(unix)]
+#[test]
+fn a_folder_that_can_be_listed_but_not_searched_is_kept_for_another_try() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let dir = dir.path().join("unsaved");
+    let writer = Writer::start_retrying(&dir, Duration::from_millis(30)).unwrap();
+    let rejected = dir.join("rejected");
+    std::fs::create_dir_all(&rejected).unwrap();
+    std::fs::write(rejected.join("old.doc"), b"x").unwrap();
+    // Readable but not searchable: the names can be read, the files cannot be looked at.
+    std::fs::set_permissions(&rejected, std::fs::Permissions::from_mode(0o400)).unwrap();
+    if std::fs::metadata(rejected.join("old.doc")).is_ok() {
+        // Not enforced (running as root): nothing to test.
+        std::fs::set_permissions(&rejected, std::fs::Permissions::from_mode(0o755)).unwrap();
+        return;
+    }
+    writer.clear();
+    writer.flush();
+    assert!(writer.failed(), "the clear is not complete");
+    std::fs::set_permissions(&rejected, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let start = Instant::now();
+    while writer.failed() && start.elapsed() < Duration::from_secs(5) {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(!writer.failed());
+    assert!(!rejected.join("old.doc").exists());
+}
