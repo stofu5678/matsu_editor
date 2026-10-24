@@ -370,10 +370,58 @@ pub fn password_in_command(kind: Kind, command: &str) -> Option<&'static str> {
     scan_for_password(kind, command).or_else(|| scan_for_password(kind, &tighten_equals(command)))
 }
 
+/// The words of a command line, as a shell reads them: blanks separate, a quote (`'` or `"`) keeps
+/// the blanks inside it in the word and is not part of it (so `"/opt/Oracle Client/sqlplus"` is
+/// one word). The flag says that a quote was in the word. A line with a quote that never closes
+/// is cut at the blanks, so that nothing after the quote hides from the scan.
+fn split_words(command: &str) -> Vec<(String, bool)> {
+    let mut words = Vec::new();
+    let mut word = String::new();
+    let mut in_word = false;
+    let mut quoted = false;
+    let mut open: Option<char> = None;
+    for c in command.chars() {
+        match open {
+            Some(q) if c == q => open = None,
+            Some(_) => word.push(c),
+            None if c == '"' || c == '\'' => {
+                open = Some(c);
+                in_word = true;
+                quoted = true;
+            }
+            None if c.is_whitespace() => {
+                if in_word {
+                    words.push((std::mem::take(&mut word), quoted));
+                    in_word = false;
+                    quoted = false;
+                }
+            }
+            None => {
+                word.push(c);
+                in_word = true;
+            }
+        }
+    }
+    if open.is_some() {
+        return command
+            .split_whitespace()
+            .map(|w| {
+                (
+                    w.trim_matches(['"', '\'']).to_owned(),
+                    w.starts_with(['"', '\'']),
+                )
+            })
+            .collect();
+    }
+    if in_word {
+        words.push((word, quoted));
+    }
+    words
+}
+
 fn scan_for_password(kind: Kind, command: &str) -> Option<&'static str> {
-    for (index, word) in command.split_whitespace().enumerate() {
-        let quoted = word.starts_with(['"', '\'']);
-        let word = word.trim_matches(['"', '\'']);
+    for (index, (word, quoted)) in split_words(command).into_iter().enumerate() {
+        let word = word.as_str();
         let lower = word.to_ascii_lowercase();
         // `--password=x`, and the parameter of a connection string: `password=x` (libpq's
         // "host=h user=u password=x", ODBC's ";Pwd=x"). The key must start a word or follow a
@@ -393,7 +441,8 @@ fn scan_for_password(kind: Kind, command: &str) -> Option<&'static str> {
                 let before = lower[..at].chars().next_back();
                 let value = lower[from..].chars().next();
                 if before.is_none_or(|c| {
-                    matches!(c, '-' | ';' | ',' | '"' | '\'' | '(' | '{' | '?' | '&')
+                    c.is_whitespace()
+                        || matches!(c, '-' | ';' | ',' | '"' | '\'' | '(' | '{' | '?' | '&')
                 }) && value.is_some_and(|c| {
                     // `&` ends an empty value only in the query of a URI
                     c != ';' && !(c == '&' && matches!(before, Some('?' | '&')))

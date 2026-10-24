@@ -203,7 +203,9 @@ async fn prepare_file(
             let shared = view.document().read(app);
             (
                 shared.path().map(PathBuf::from),
-                shared.model().is_modified(),
+                // a change of the encoding or the BOM is saved too (the client reads the file on
+                // disk), as the save and close flows count it (`CDocFile::IsChgCodeSet`)
+                shared.model().is_modified() || shared.format_changed(),
             )
         })
         .ok()

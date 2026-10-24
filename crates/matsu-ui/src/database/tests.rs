@@ -308,6 +308,28 @@ fn a_changed_document_asks_and_no_stops(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn a_changed_encoding_alone_also_asks_to_save(cx: &mut TestAppContext) {
+    // the client reads the file on disk, so an unsaved BOM is a change too
+    let (_dir, file, w) = setup(cx, Some(ECHO), "a.sql", "select 1;\n");
+    w.view.update(cx, |view, cx| {
+        let document = view.document().clone();
+        document.update(cx, |shared, _| {
+            shared.set_format(matsu_core::encoding::Encoding::Utf8, true)
+        });
+    });
+    w.run(cx);
+    let message = w.prompt(cx).expect("the question");
+    assert!(message.contains("変更されています"), "{message}");
+    w.answer(cx, "いいえ");
+    assert_eq!(w.output(cx), "");
+    assert!(
+        !std::fs::read(&file)
+            .unwrap()
+            .starts_with(&[0xEF, 0xBB, 0xBF])
+    );
+}
+
+#[gpui::test]
 fn cancel_also_stops(cx: &mut TestAppContext) {
     let (_dir, _file, w) = setup(cx, Some(ECHO), "a.sql", "select 1;\n");
     w.type_text(cx, "x");

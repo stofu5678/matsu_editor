@@ -207,6 +207,28 @@ fn passwords_on_the_command_line_are_found() {
         Some("user/password")
     );
     assert_eq!(found(Kind::Oracle, "sqlplus -L scripts/dir/x.sql"), None);
+    // a program path with blanks is one word, not a login
+    for command in [
+        "\"/opt/Oracle Client/sqlplus\" -L /@MYDB @$F",
+        "'/opt/Oracle Client/sqlplus' -L /@MYDB @$F",
+        "\"C:\\Program Files\\Oracle\\sqlplus.exe\" -L /@MYDB @$F",
+        "sqlplus -L /@MYDB @\"/my docs/a/b.sql\"",
+    ] {
+        assert_eq!(found(Kind::Oracle, command), None, "{command}");
+    }
+    // a login inside quotes with blanks, and what follows a quote that never closes
+    assert_eq!(
+        found(Kind::Oracle, "sqlplus \"scott/tiger@db as sysdba\" @$F"),
+        Some("user/password")
+    );
+    assert_eq!(
+        found(Kind::MySql, "mysql \"--init-command=x -psecret"),
+        Some("-p")
+    );
+    assert_eq!(
+        found(Kind::MySql, "\"/opt/My SQL/mysql\" -u me -psecret"),
+        Some("-p")
+    );
     assert_eq!(found(Kind::Oracle, "sqlplus -L /@MYDB @$F"), None);
     assert_eq!(found(Kind::Oracle, "sqlplus -L scott@db @$F"), None);
     assert_eq!(found(Kind::Oracle, "/usr/bin/sqlplus -L /@db"), None);
