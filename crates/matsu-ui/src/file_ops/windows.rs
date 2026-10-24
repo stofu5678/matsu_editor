@@ -246,7 +246,15 @@ async fn close_after_questions(
     cx: &mut gpui::AsyncWindowContext,
 ) {
     let mut asked: Vec<(gpui::EntityId, u64)> = Vec::new();
+    // Closing the last window ends the editor: with `KeepUnsavedNoAsk` the copies of the documents are enough
+    // (ADR-0022, section 5).
+    let hot = cx
+        .update(|_, app| crate::unsaved::hot_exit_enabled(app) && workspaces(app).len() == 1)
+        .unwrap_or(false);
     loop {
+        if hot {
+            crate::unsaved::settle(cx).await;
+        }
         let Ok(views) = workspace.read_with(cx, |ws, _| ws.tab_editors()) else {
             return;
         };
@@ -255,7 +263,7 @@ async fn close_after_questions(
             if asked.contains(&(view.entity_id(), version)) {
                 continue;
             }
-            if !close::confirm_discard(&view.downgrade(), cx).await {
+            if !close::confirm_discard_ending(&view.downgrade(), cx, hot).await {
                 return;
             }
             let version = view.read_with(cx, |v, app| v.document().read(app).version());

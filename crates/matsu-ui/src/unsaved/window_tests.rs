@@ -15,13 +15,13 @@ use crate::document::SharedDocument;
 use crate::file_ops::windows::{open_editor_window, workspace_of};
 use crate::settings::UserSettings;
 
-struct Fixture {
-    handle: AnyWindowHandle,
-    dir: PathBuf,
+pub(super) struct Fixture {
+    pub(super) handle: AnyWindowHandle,
+    pub(super) dir: PathBuf,
     _tmp: tempfile::TempDir,
 }
 
-fn fixture(cx: &mut TestAppContext) -> Fixture {
+pub(super) fn fixture(cx: &mut TestAppContext) -> Fixture {
     cx.update(gpui_component::init);
     let tmp = tempfile::tempdir().unwrap();
     let ini = tmp.path().join("matsu.ini");
@@ -41,11 +41,11 @@ fn fixture(cx: &mut TestAppContext) -> Fixture {
     }
 }
 
-fn workspace(cx: &mut TestAppContext, handle: AnyWindowHandle) -> Entity<Workspace> {
+pub(super) fn workspace(cx: &mut TestAppContext, handle: AnyWindowHandle) -> Entity<Workspace> {
     cx.update(|app| workspace_of(app, handle)).unwrap()
 }
 
-fn tick(cx: &mut TestAppContext, f: &Fixture, now: Instant) {
+pub(super) fn tick(cx: &mut TestAppContext, f: &Fixture, now: Instant) {
     let ws = workspace(cx, f.handle);
     f.handle
         .update(cx, |_, window, app| {
@@ -66,14 +66,14 @@ fn deactivate(cx: &mut TestAppContext, f: &Fixture, now: Instant) {
     cx.update(|app| flush(app));
 }
 
-fn type_text(cx: &mut TestAppContext, f: &Fixture, text: &str) {
+pub(super) fn type_text(cx: &mut TestAppContext, f: &Fixture, text: &str) {
     VisualTestContext::from_window(f.handle, cx)
         .into_mut()
         .simulate_input(text);
     cx.run_until_parked();
 }
 
-fn doc_files(dir: &std::path::Path) -> Vec<String> {
+pub(super) fn doc_files(dir: &std::path::Path) -> Vec<String> {
     let mut v: Vec<String> = std::fs::read_dir(dir)
         .map(|rd| {
             rd.filter_map(|e| e.ok())

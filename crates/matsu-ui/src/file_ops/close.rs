@@ -183,6 +183,37 @@ fn close_in(view: &Entity<EditorView>, window: &mut Window, app: &mut App) {
     window.remove_window();
 }
 
+/// [`confirm_discard`] for a flow that ends the editor (an exit of all windows, the close of the last window). When
+/// `hot` is set (`KeepUnsavedNoAsk`, ADR-0022 section 5) a document whose copy has its latest content is not asked
+/// about: it closes, and comes back at the next start. A document that has no such copy (a Grep window, one that is
+/// too big, a write that failed, the folder in use by another process) is asked about as always.
+pub(crate) async fn confirm_discard_ending(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    hot: bool,
+) -> bool {
+    if hot && view.read_with(cx, crate::unsaved::covered).unwrap_or(false) {
+        return true;
+    }
+    confirm_discard(view, cx).await
+}
+
+/// Whether closing the document of `view` ends the editor without a question about its copy: the setting is on,
+/// and the document is the only tab of the last window.
+async fn closing_ends_the_editor(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+) -> bool {
+    cx.update(|_, app| {
+        crate::unsaved::hot_exit_enabled(app)
+            && super::windows::workspaces(app).len() == 1
+            && super::windows::find_tab_of(app, view)
+                .and_then(|(handle, _)| super::windows::workspace_of(app, handle))
+                .is_some_and(|ws| ws.read(app).tab_count() == 1)
+    })
+    .unwrap_or(false)
+}
+
 /// `F_WINCLOSE`: closes the document after the question: its tab, or the window when it has no
 /// other tab (`Command_WINCLOSE` closes the edit window, which is a tab of the group). `false`
 /// if the user stopped it.
@@ -190,7 +221,12 @@ pub(crate) async fn confirm_and_close_window(
     view: &WeakEntity<EditorView>,
     cx: &mut AsyncWindowContext,
 ) -> bool {
-    if !confirm_discard(view, cx).await {
+    // The last tab of the last window ends the editor: with `KeepUnsavedNoAsk` the copy is enough.
+    let hot = closing_ends_the_editor(view, cx).await;
+    if hot {
+        crate::unsaved::settle(cx).await;
+    }
+    if !confirm_discard_ending(view, cx, hot).await {
         return false;
     }
     close_tab_or_window(view, cx)
@@ -338,7 +374,16 @@ pub(crate) async fn exit_all(cx: &mut AsyncWindowContext, kind: ExitKind) {
             }
         }
     }
+    // `KeepUnsavedNoAsk`: a document whose copy is up to date is not asked about (ADR-0022, section 5).
+    let hot = cx
+        .update(|_, app| crate::unsaved::hot_exit_enabled(app))
+        .unwrap_or(false);
     loop {
+        if hot {
+            // The latest content of every document is written before the questions, and again when a round
+            // starts over because something changed meanwhile.
+            crate::unsaved::settle(cx).await;
+        }
         let editors = cx
             .update(|_, app| super::windows::editors(app))
             .unwrap_or_default();
@@ -348,7 +393,7 @@ pub(crate) async fn exit_all(cx: &mut AsyncWindowContext, kind: ExitKind) {
             let Ok(mut window_cx) = handle.update(cx, |_, window, app| window.to_async(app)) else {
                 continue;
             };
-            if !confirm_discard(&weak, &mut window_cx).await {
+            if !confirm_discard_ending(&weak, &mut window_cx, hot).await {
                 return;
             }
             let version = weak

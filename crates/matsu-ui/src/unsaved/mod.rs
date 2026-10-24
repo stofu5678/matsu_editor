@@ -16,6 +16,8 @@ pub(crate) mod restore;
 pub(crate) mod writer;
 
 #[cfg(test)]
+mod quit_tests;
+#[cfg(test)]
 mod restore_tests;
 #[cfg(test)]
 mod tests;
@@ -23,8 +25,8 @@ mod tests;
 mod window_tests;
 
 pub(crate) use keeper::{
-    apply_all_closes, apply_close, apply_close_view, clear_copies, copy_saved, mark_close, start,
-    unmark_close,
+    apply_all_closes, apply_close, apply_close_view, clear_copies, copy_saved, covered,
+    hot_exit_enabled, mark_close, settle, settle_at_quit, start, unmark_close,
 };
 pub(crate) use restore::restore_all;
 

@@ -925,8 +925,7 @@ pub(crate) fn tick_window_at(
     cx.set_global(keeper);
 }
 
-/// Waits until the writer has done every job queued so far (for the tests; the quit flow of a later change
-/// uses it too).
+/// Waits until the writer has done every job queued so far (for the tests).
 #[cfg(test)]
 pub(crate) fn flush(cx: &App) {
     if let Some(Keeper {
@@ -936,4 +935,119 @@ pub(crate) fn flush(cx: &App) {
     {
         writer.flush();
     }
+}
+
+/// Whether the editor ends without the question 「保存しますか」 about the documents whose copy is kept:
+/// `KeepUnsaved` and `KeepUnsavedNoAsk` are both on (ADR-0022, section 5, decision 5).
+pub(crate) fn hot_exit_enabled(cx: &App) -> bool {
+    let prefs = prefs(cx);
+    prefs.keep && prefs.no_ask
+}
+
+/// Writes the latest text and place of every document that is to be kept, at once (as when a window loses the
+/// focus), in every window.
+///
+/// `current` is the window that runs the call, if there is one: a window cannot be entered again from inside its own
+/// update, so it is used as it is.
+fn queue_all_now(cx: &mut App, mut current: Option<&mut Window>) {
+    for (handle, workspace) in crate::file_ops::windows::workspaces(cx) {
+        match current.as_deref_mut() {
+            Some(window) if window.window_handle() == handle => {
+                workspace.update(cx, |ws, wcx| {
+                    tick_window_at(ws, window, wcx, Instant::now(), true);
+                });
+            }
+            _ => {
+                handle
+                    .update(cx, |_, window, app| {
+                        workspace.update(app, |ws, wcx| {
+                            tick_window_at(ws, window, wcx, Instant::now(), true);
+                        });
+                    })
+                    .ok();
+            }
+        }
+    }
+}
+
+/// A receiver that answers when the writer has done what it was given so far.
+fn barrier(cx: &App) -> Option<std::sync::mpsc::Receiver<()>> {
+    match cx.try_global::<Keeper>() {
+        Some(Keeper {
+            state: State::Running(writer),
+            ..
+        }) => Some(writer.barrier()),
+        _ => None,
+    }
+}
+
+/// How long the editor waits for the copies to be written before it goes on to ask (a slow or stuck disk).
+const SETTLE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Before the editor ends: the latest content of every document is written, and the call returns when the writer
+/// is done (or after [`SETTLE_TIMEOUT`]). Two rounds, because a write that was running when the first round
+/// asked cannot be asked again before it ends. The waiting is done on a thread of the background executor, not
+/// on the UI thread.
+pub(crate) async fn settle(cx: &mut gpui::AsyncWindowContext) {
+    for _ in 0..2 {
+        let rx = cx
+            .update(|window, app| {
+                queue_all_now(app, Some(window));
+                barrier(app)
+            })
+            .ok()
+            .flatten();
+        let Some(rx) = rx else {
+            return;
+        };
+        cx.background_executor()
+            .spawn(async move {
+                let _ = rx.recv_timeout(SETTLE_TIMEOUT);
+            })
+            .await;
+    }
+}
+
+/// The part of [`settle`] for the end of the process, which cannot wait for a window: the writes are asked for,
+/// and a future that ends when they are done is returned for `on_app_quit`.
+pub(crate) fn settle_at_quit(cx: &mut App) -> impl std::future::Future<Output = ()> + use<> {
+    queue_all_now(cx, None);
+    let rx = barrier(cx);
+    let executor = cx.background_executor().clone();
+    async move {
+        if let Some(rx) = rx {
+            executor
+                .spawn(async move {
+                    let _ = rx.recv_timeout(SETTLE_TIMEOUT);
+                })
+                .await;
+        }
+    }
+}
+
+/// Whether the copy of the document of `view` has its latest content, so that the editor may end without asking
+/// about it: the document is one that is kept (not a Grep window, not too big), its copy was written for the
+/// revision it has now, and the last write did not fail. Needs the folder to be in use by this process.
+pub(crate) fn covered(view: &EditorView, cx: &App) -> bool {
+    let Some(Keeper {
+        state: State::Running(_),
+        entries,
+        ..
+    }) = cx.try_global::<Keeper>()
+    else {
+        return false;
+    };
+    let shared = view.document().read(cx);
+    if want_of(view, shared, &prefs(cx)) != Want::Keep {
+        return false;
+    }
+    let Some(entry) = entries.get(&view.document().entity_id()) else {
+        return false;
+    };
+    entry.id.is_some()
+        && !entry
+            .shared
+            .failed
+            .load(std::sync::atomic::Ordering::SeqCst)
+        && entry.shared.written() == Some(revision_of(view, shared))
 }
