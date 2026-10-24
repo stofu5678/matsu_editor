@@ -148,6 +148,7 @@ pub(crate) fn restore_all(cx: &mut App) -> Restored {
 
     let mut result = Restored::default();
     let mut adopted = Vec::new();
+    let mut lock_failures = Vec::new();
     let mut front_handle: Option<AnyWindowHandle> = None;
     let mut shown_view: Option<Entity<EditorView>> = None;
     for (window_index, (ids, active)) in plan.iter().enumerate() {
@@ -164,7 +165,12 @@ pub(crate) fn restore_all(cx: &mut App) -> Restored {
                     continue;
                 }
             };
-            let (shared, changed) = make_document(kept.text, &kept.info);
+            let Some((shared, changed)) = make_document(kept.text, &kept.info) else {
+                // The text could not be made into a document: kept in `rejected/`, not shown empty.
+                let _ = store.reject(id);
+                result.rejected += 1;
+                continue;
+            };
             if changed {
                 result.changed_files += 1;
             }
@@ -179,7 +185,9 @@ pub(crate) fn restore_all(cx: &mut App) -> Restored {
                 continue;
             };
             handle.get_or_insert(opened_handle);
-            apply_view_state(&view, &kept.info, cx);
+            if let Some(failure) = apply_view_state(&view, &kept.info, cx) {
+                lock_failures.push((opened_handle, failure));
+            }
             adopted.push(Adopted {
                 view: view.clone(),
                 id: kept.id,
@@ -213,6 +221,14 @@ pub(crate) fn restore_all(cx: &mut App) -> Restored {
         crate::file_ops::windows::activate(cx, handle);
     }
     adopt_restored(cx, store, adopted);
+    // A file that another program has locked is told, as when it is opened (`TopWarningMessage`).
+    for (handle, failure) in lock_failures {
+        handle
+            .update(cx, |_, window, app| {
+                crate::file_ops::lock::report_failure_in(window, app, failure);
+            })
+            .ok();
+    }
     // On the tab that is in front. If no document came back, the window that opens next shows it (`app::run`).
     match (shown_view, result.notice()) {
         (Some(view), Some(text)) => {
@@ -241,7 +257,7 @@ fn read_kept(store: &Store, id: &str) -> Result<Kept, ()> {
 }
 
 /// The document as it was, and whether its file is not as it was when the copy was made.
-fn make_document(text: String, info: &DocInfo) -> (SharedDocument, bool) {
+fn make_document(text: String, info: &DocInfo) -> Option<(SharedDocument, bool)> {
     let encoding = info
         .encoding
         .trim()
@@ -264,10 +280,10 @@ fn make_document(text: String, info: &DocInfo) -> (SharedDocument, bool) {
     let document = if has_stand_in {
         let mut document = Document::empty();
         document.set_ext_eol(ext_eol);
-        let _ = document.insert(Pos::new(0, 0), &text);
+        document.insert(Pos::new(0, 0), &text).ok()?;
         document
     } else {
-        Document::from_utf8_with(text.into_bytes(), ext_eol).unwrap_or_else(|_| Document::empty())
+        Document::from_utf8_with(text.into_bytes(), ext_eol).ok()?
     };
     let path = info.path.as_ref().map(PathBuf::from);
     let modified = info.file_modified_secs.and_then(|secs| {
@@ -288,7 +304,7 @@ fn make_document(text: String, info: &DocInfo) -> (SharedDocument, bool) {
     if shared.path().is_none() && shared.untitled_number().is_none() {
         shared.number_untitled();
     }
-    (shared, changed)
+    Some((shared, changed))
 }
 
 /// Whether the file is not as it was: another time stamp or size. A file that is gone is not "changed": the
@@ -318,14 +334,19 @@ fn open_first(
 }
 
 /// Puts the caret, the view, the bookmarks and the chosen type back.
-fn apply_view_state(view: &Entity<EditorView>, info: &DocInfo, cx: &mut App) {
+fn apply_view_state(
+    view: &Entity<EditorView>,
+    info: &DocInfo,
+    cx: &mut App,
+) -> Option<crate::file_ops::lock::LockFailure> {
     let document = view.read(cx).document().clone();
     // A file with a name is locked as a file that was opened is (`CDocLocker::OnAfterLoad`).
     let share_mode = crate::file_ops::prefs::prefs(cx).file_share_mode;
-    document.update(cx, |shared, _| {
+    let failure = document.update(cx, |shared, _| {
         if shared.path().is_some_and(|p| p.is_file()) {
             shared.lock_after_load(share_mode);
         }
+        shared.take_lock_failure()
     });
     if let Some(index) = info.doc_type.and_then(|i| usize::try_from(i).ok()) {
         document.update(cx, |shared, cx| {
@@ -363,6 +384,7 @@ fn apply_view_state(view: &Entity<EditorView>, info: &DocInfo, cx: &mut App) {
         view.go_to(Pos::new(line, col), cx);
         cx.notify();
     });
+    failure
 }
 
 /// Brings the tab of `view` to the front of its window.
