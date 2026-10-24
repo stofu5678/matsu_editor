@@ -141,9 +141,11 @@ $Editor::CALL = \&call;
 $Editor::INFO = $info;
 
 # The name as `#line` gets it (MatsuUser::run turns quotes and line breaks into apostrophes).
+my $name = $script->{name};
+$name =~ s/["\n\r]/'/g;
+# The script's own name, as `perl script.pl` has it (FindBin and the like read it).
+$0 = $name;
 {
-    my $name = $script->{name};
-    $name =~ s/["\n\r]/'/g;
     if ($name =~ /[^\x00-\x7f]/) {
         $name_as_chars = $name;
         $name_as_bytes = $name;
@@ -157,7 +159,7 @@ $Editor::INFO = $info;
 }
 
 # The text of the script is characters (the JSON was decoded), so the literals in it are too.
-my $ok = MatsuUser::run($script->{source}, $script->{name});
+my $ok = MatsuUser::run($script->{source}, $name);
 my $error = $@;
 unless ($ok) {
     if (ref $error || (defined $error && $error ne '')) {

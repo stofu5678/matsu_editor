@@ -5,9 +5,9 @@
 # script's own name and line.
 package MatsuUser;
 
+# Takes the text and the name for `#line` (the boot has made a name that the directive can hold).
+# No `my` here: a variable of this sub would be visible to the script.
 sub run {
-    my $name = $_[1];
-    $name =~ s/["\n\r]/'/g;
-    return eval "package main;\n#line 1 \"$name\"\n$_[0]\n;1";
+    return eval "package main;\n#line 1 \"$_[1]\"\n$_[0]\n;1";
 }
 

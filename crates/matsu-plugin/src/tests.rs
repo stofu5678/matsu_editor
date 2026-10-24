@@ -1357,12 +1357,14 @@ fn a_perl_script_cannot_break_the_boot_by_its_own_variables_and_settings() {
         $, = '-'; $\\ = \"!\\n\";\n\
         { local $/; print Editor->GetLineCount(0); }\n\
         $\\ = undef; $, = undef;\n\
+        $name = 'v'; print \"$main::name\\n\";\n\
+        print $0 =~ /macro\\.pl\\z/ ? \"0 ok\\n\" : \"0 bad\\n\";\n\
         print \"done\\n\";\n";
     let Some((report, _)) = run(PL, code, "a\nb") else {
         return;
     };
     assert_clean_exit(&report);
-    assert_eq!(stdout(&report), ["2!", "done"]);
+    assert_eq!(stdout(&report), ["2!", "v", "0 ok", "done"]);
 }
 
 #[test]
@@ -1388,7 +1390,7 @@ fn a_perl_script_in_a_folder_with_a_japanese_name_shows_the_name_right() {
     let name = script.display().to_string();
     let out = stdout(&report).join("\n");
     assert!(
-        out.contains(&format!("EditorError -32602: GetLineCount: "))
+        out.contains("EditorError -32602: GetLineCount: ")
             && out.contains(&format!("at {name} line 2.")),
         "{out}"
     );
