@@ -198,6 +198,7 @@ fn info() -> DocInfo {
 fn snapshot(text: &str) -> Snapshot {
     Snapshot {
         doc: Document::from_utf8(text.as_bytes().to_vec()).unwrap(),
+        source: Encoding::Utf8,
         info: info(),
     }
 }
@@ -306,7 +307,7 @@ fn clear_removes_the_copies() {
 
 fn text_of(doc: &Document) -> Vec<u8> {
     let mut out = Vec::new();
-    write_text(doc, &mut out).unwrap();
+    write_text(doc, Encoding::Utf8, &mut out).unwrap();
     out
 }
 
@@ -627,4 +628,51 @@ fn a_folder_that_can_be_listed_but_not_searched_is_kept_for_another_try() {
     }
     assert!(!writer.failed());
     assert!(!rejected.join("old.doc").exists());
+}
+
+#[test]
+fn a_line_of_many_megabytes_is_written_in_pieces_and_comes_out_the_same() {
+    // 6 MiB of one line, with characters of 3 bytes and the end of the line only at the end.
+    let text: String = "あ".repeat(2 * 1024 * 1024) + "\r\nend";
+    let doc = Document::from_utf8(text.clone().into_bytes()).unwrap();
+    struct Pieces {
+        longest: usize,
+        all: Vec<u8>,
+    }
+    impl std::io::Write for Pieces {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.longest = self.longest.max(buf.len());
+            self.all.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut out = Pieces {
+        longest: 0,
+        all: Vec::new(),
+    };
+    write_text(&doc, Encoding::Utf8, &mut out).unwrap();
+    assert_eq!(out.all, text.as_bytes());
+    assert!(out.longest <= 64 * 1024 + 4, "{}", out.longest);
+}
+
+#[test]
+fn a_text_in_another_encoding_is_decoded_in_pieces_and_stand_ins_stay() {
+    // Shift_JIS bytes with an invalid byte 0xFF in the middle.
+    let mut bytes = Vec::new();
+    for _ in 0..50_000 {
+        bytes.extend_from_slice(&[0x82, 0xA0]);
+    }
+    bytes.push(0xFF);
+    bytes.extend_from_slice(b"\nend");
+    let source = std::sync::Arc::new(matsu_core::buffer::EncodingCodec(Encoding::ShiftJis));
+    let doc = Document::new(matsu_core::buffer::MemorySource::new(bytes), source).unwrap();
+    let mut out = Vec::new();
+    write_text(&doc, Encoding::ShiftJis, &mut out).unwrap();
+    let text = String::from_utf8(out).unwrap();
+    assert_eq!(text.chars().filter(|c| *c == 'あ').count(), 50_000);
+    assert!(text.contains('\u{10FFFF}'));
+    assert!(text.ends_with("\nend"));
 }

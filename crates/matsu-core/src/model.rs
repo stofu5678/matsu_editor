@@ -256,6 +256,11 @@ impl DocumentModel {
         self.history.is_modified()
     }
 
+    /// Records that the document is not saved, whatever its history says (see `History::mark_unsaved`).
+    pub fn mark_unsaved(&mut self) {
+        self.history.mark_unsaved();
+    }
+
     /// Records that the document was saved as it is now. `cursor` is the current cursor.
     pub fn mark_saved(&mut self, cursor: &Cursor) {
         self.history.mark_saved(&self.doc, cursor);

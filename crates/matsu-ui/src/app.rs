@@ -210,10 +210,19 @@ pub(crate) fn run(
         crate::database::install(cx, database_prefs);
         crate::print_setting::install(cx, print_prefs);
         cx.spawn(async move |cx| {
+            // The documents that were not saved the last time come back first (ADR-0022); the files of the
+            // command line are opened after them.
+            let mut restored = cx.update(crate::unsaved::restore_all).documents;
             while let Ok(request) = requests.recv().await {
                 cx.update(|cx| {
                     let launch = LaunchOptions::from_request(&request);
-                    if let Err(e) = open_from_outside_with(cx, request.paths, &launch) {
+                    // A launch that asks for nothing but a window needs none when documents came back.
+                    let nothing_to_open =
+                        request.paths.is_empty() && restored > 0 && launch.asks_only_for_a_window();
+                    restored = 0;
+                    if !nothing_to_open
+                        && let Err(e) = open_from_outside_with(cx, request.paths, &launch)
+                    {
                         eprintln!("matsu: cannot open a window: {e}");
                     }
                     // The windows of a launch that was handed over come to the front.
