@@ -520,11 +520,12 @@ fn want_of(view: &EditorView, shared: &SharedDocument, prefs: &KeepPrefs) -> Wan
     }
     if let Some(max) = prefs.max_bytes() {
         // A document that was brought back has its text as UTF-8, which can be bigger than the bytes it had in
-        // its own encoding (Japanese text in Shift_JIS grows by half). It may be as big as it came back and
-        // grow by the limit again, so that the copy it came from is not discarded for the way it was restored.
+        // its own encoding (Japanese text in Shift_JIS grows by half). It may be as big as it came back, and a
+        // little more (an eighth of the limit), so that the copy it came from is not discarded for the way it was
+        // restored, nor at the first character typed.
         let came_back = shared.restored_len() as u64;
         let allowed = if came_back > max {
-            came_back.saturating_add(max)
+            came_back.saturating_add(max / 8)
         } else {
             max
         };
