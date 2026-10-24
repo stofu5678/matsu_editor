@@ -74,6 +74,6 @@ foreach (preg_split('/(?<=\n)/', $sql, -1, PREG_SPLIT_NO_EMPTY) as $line) {
     }
 }
 // what is left may be only a comment
-if (trim(preg_replace('/--.*$/m', '', $statement)) !== '') {
+if (trim(preg_replace('/--.*$/m', '', preg_replace('/\/\*.*?\*\//s', '', $statement))) !== '') {
     echo $name . ':' . $start . ": ERROR: the last statement does not end with ';'\n";
 }

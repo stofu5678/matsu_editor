@@ -80,7 +80,7 @@ for (const line of sql.split(/(?<=\n)/)) {
   }
 }
 // what is left may be only a comment
-if (statement.replace(/--.*$/gm, '').trim() !== '') {
+if (statement.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--.*$/gm, '').trim() !== '') {
   console.log(`${name}:${start}: ERROR: the last statement does not end with ';'`);
 }
 db.close();

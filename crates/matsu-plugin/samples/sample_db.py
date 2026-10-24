@@ -12,6 +12,7 @@
 # Never write a password in a macro: use the driver's own way (a password file, an option file,
 # the environment, the cloud's login).
 
+import re
 import sqlite3
 
 DATABASE = ":memory:"  # a file, e.g. r"C:\data\app.db"; ":memory:" is gone when the macro ends
@@ -54,7 +55,8 @@ for line in sql.splitlines(keepends=True):
         statement = ""
 
 # what is left may be only a comment
-if "\n".join(line.split("--")[0] for line in statement.splitlines()).strip():
+left = re.sub(r"/\*.*?\*/", "", statement, flags=re.S)
+if "\n".join(line.split("--")[0] for line in left.splitlines()).strip():
     print(f"{name}:{start}: ERROR: the last statement does not end with ';'")
-conn.commit()
+# nothing is committed here: only the COMMIT of the document commits a transaction it began
 conn.close()

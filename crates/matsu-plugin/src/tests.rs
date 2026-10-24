@@ -748,7 +748,7 @@ fn the_sample_macros_run() {
 #[test]
 fn the_database_sample_macros_run() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("samples");
-    let sql = "create table t(a, b);\ninsert into t values (1, 'x'),\n  (2, 'y');\nselect * from t;\nselec 1;\nselect\n  a\nfrom t where a = 2; -- last\n-- the end\nbegin;\ncreate table u(x);\nrollback;\nselect count(*) from sqlite_master where name = 'u';\n";
+    let sql = "create table t(a, b);\ninsert into t values (1, 'x'),\n  (2, 'y');\nselect * from t;\nselec 1;\nselect\n  a\nfrom t where a = 2; -- last\n-- the end\nbegin;\ncreate table u(x);\nrollback;\nselect count(*) from sqlite_master where name = 'u';\n/* the end\n of it */\n";
     let mut ran = 0;
     for (language, name) in [
         (PY, "sample_db.py"),
