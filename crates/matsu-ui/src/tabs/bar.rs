@@ -224,12 +224,25 @@ impl Workspace {
             } else {
                 workspace.read(cx)
             };
+            // A window that has a preview has two tabs for one document; its own entries are tabs
+            // of this window then, so that a click selects one of them. A preview of another
+            // window is not listed (it cannot be revealed from here).
+            let mine = handle == own;
+            let own_tabs = mine && tabs.has_preview_tab();
             for i in 0..tabs.tab_count() {
-                let (Some(view), Some(panel)) = (tabs.tab_editor(i), tabs.tab_panel(i)) else {
+                let (Some(view), Some(panel)) = (tabs.tab_bar_view(i), tabs.tab_panel(i)) else {
                     continue;
                 };
-                let mine = handle == own;
-                entries.push(entry(handle, view, panel, mine, None, false, cx));
+                let preview = tabs.tab_content(i).is_some_and(|c| c.preview().is_some());
+                if preview && !mine {
+                    continue;
+                }
+                let (active, tab) = if own_tabs {
+                    (i == tabs.active_tab(), Some(i))
+                } else {
+                    (mine, None)
+                };
+                entries.push(entry(handle, view, panel, active, tab, preview, cx));
             }
         }
         Some(entries)
