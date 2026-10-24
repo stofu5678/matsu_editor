@@ -60,8 +60,26 @@ impl Workspace {
             self.tab_panes(i)
                 .is_some_and(|p| p.active().read(cx).document() == &document)
         });
+        // The source may have moved to another window (a separated tab, another group): go there
+        // rather than open the document a second time.
+        let me = cx.entity_id();
+        let elsewhere = crate::file_ops::windows::listed_workspaces(cx)
+            .into_iter()
+            .filter(|(_, workspace)| workspace.entity_id() != me)
+            .find_map(|(handle, workspace)| {
+                let workspace = workspace.read(cx);
+                (0..workspace.tab_count())
+                    .filter_map(|i| workspace.tab_editor(i))
+                    .find(|view| view.read(cx).document() == &document)
+                    .map(|view| (handle, view))
+            });
         match source {
             Some(index) => self.activate_tab(index, window, cx),
+            None if elsewhere.is_some() => {
+                if let Some((handle, view)) = elsewhere {
+                    super::flows::reveal(cx, handle, view);
+                }
+            }
             None => {
                 let user = cx.try_global::<crate::settings::UserSettings>().cloned();
                 let editor = cx.new(|cx| EditorView::new(document, cx));
@@ -71,6 +89,11 @@ impl Workspace {
                 self.insert_tab(PaneSet::new(editor), active + 1, true, window, cx);
             }
         }
+    }
+
+    /// Where the focus goes for the active tab.
+    pub(crate) fn active_focus(&self, cx: &gpui::App) -> gpui::FocusHandle {
+        self.content.panel().focus_handle(cx)
     }
 
     /// Whether the active tab is a preview.
