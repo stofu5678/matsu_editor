@@ -213,7 +213,13 @@ pub(crate) async fn save_and_close_window(
     if modified && !save(view, cx, SaveRequest::default()).await.is_safe() {
         return false;
     }
-    view.update(cx, |view, cx| view.record_history(cx)).ok();
+    view.update(cx, |view, cx| {
+        view.record_history(cx);
+        // Saved or unchanged: the close that follows makes the discard of its copy final.
+        let this = cx.weak_entity();
+        crate::unsaved::mark_close(view, this, cx);
+    })
+    .ok();
     close_tab_or_window(view, cx)
 }
 
