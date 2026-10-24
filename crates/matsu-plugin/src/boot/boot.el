@@ -133,15 +133,22 @@ are the code and the message."
 
 (defun editor--run (name source)
   "Evaluate the forms of SOURCE one at a time.  NAME is shown in the errors."
+  ;; The forms are read from one buffer and evaluated in another, so that what the script does
+  ;; to "the current buffer" (`goto-char', `set-buffer', `erase-buffer') cannot disturb the
+  ;; reading of the rest of it.
   (with-temp-buffer
     (insert source)
     (goto-char (point-min))
-    (let ((line 1))
+    (let ((reader (current-buffer))
+          (work (generate-new-buffer " *macro*"))
+          (line 1))
       (condition-case err
           (progn
             (while (editor--skip-to-form)
               (setq line (line-number-at-pos))
-              (eval (read (current-buffer)) t))
+              (let ((form (read reader)))
+                (with-current-buffer work
+                  (eval form t))))
             t)
         (error (editor--fail name line err))))))
 

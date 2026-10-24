@@ -1575,6 +1575,18 @@ fn an_emacs_lisp_macro_is_not_under_the_users_init_file_and_ends_cleanly() {
 }
 
 #[test]
+fn what_an_emacs_lisp_script_does_to_its_buffer_does_not_disturb_the_reading() {
+    // `goto-char` to the start would make the script read itself again.
+    let code = "(insert \"x\")\n(goto-char (point-min))\n(princ \"one\\n\")\n\
+        (set-buffer (get-buffer-create \"other\"))\n(erase-buffer)\n(princ \"two\\n\")\n";
+    let Some((report, _)) = run(EL, code, "") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(stdout(&report), ["one", "two"]);
+}
+
+#[test]
 fn a_long_line_goes_both_ways_in_emacs_lisp() {
     let code = "(editor-ins-text (make-string 50000 ?あ))\n\
         (princ (length (editor-get-line-str 1)))\n\
@@ -1584,7 +1596,7 @@ fn a_long_line_goes_both_ways_in_emacs_lisp() {
     };
     assert_clean_exit(&report);
     assert_eq!(doc.text().chars().count(), 50_000);
-    assert_eq!(stdout(&report), ["200000"]);
+    assert_eq!(stdout(&report), ["50000"]);
 }
 
 #[test]
