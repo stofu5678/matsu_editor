@@ -741,6 +741,65 @@ fn the_sample_macros_run() {
     }
 }
 
+/// The sample macros that run the SQL of the document on a database (ADR-0023) print the rows and
+/// the error with the line the statement starts at. They use SQLite, which each language has (Python
+/// built in; Node.js `node:sqlite` from 22.5; PHP `pdo_sqlite`): a language without it is skipped,
+/// the others must run.
+#[test]
+fn the_database_sample_macros_run() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("samples");
+    let sql = "create table t(a, b);\ninsert into t values (1, 'x'),\n  (2, 'y');\nselect * from t;\nselec 1;\nselect\n  a\nfrom t where a = 2; -- last\n-- the end\nbegin;\ncreate table u(x);\nrollback;\nselect count(*) from sqlite_master where name = 'u';\n/* the end\n of it */\n";
+    let mut ran = 0;
+    for (language, name) in [
+        (PY, "sample_db.py"),
+        (JS, "sample_db.mjs"),
+        (PHP, "sample_db.php"),
+    ] {
+        if !available(language) {
+            continue;
+        }
+        let mut config = MacroConfig::for_script(&dir.join(name), None).unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        config.temp_dir = Some(temp.path().to_path_buf());
+        let mut doc = TextModel::new(sql, None);
+        let report = session::run_blocking(config, |m| api::handle_message(&mut doc, m)).unwrap();
+        let stderr = report.lines(Stream::Stderr).join("\n");
+        if report.finished.exit_code != Some(0)
+            && (stderr.contains("sqlite") || stderr.contains("driver"))
+        {
+            // the language has no SQLite here
+            continue;
+        }
+        assert_clean_exit(&report);
+        let lines = stdout(&report);
+        assert!(lines.contains(&"a\tb"), "{name}: {lines:?}");
+        assert!(
+            lines.contains(&"1\tx") && lines.contains(&"2\ty"),
+            "{name}: {lines:?}"
+        );
+        // the error of the fifth line, in the form that a tag jump reads
+        assert!(
+            lines.iter().any(|l| l.starts_with("(無題):5: ERROR:")),
+            "{name}: {lines:?}"
+        );
+        // the statement after it, which starts at the sixth line
+        assert!(
+            lines.contains(&"a") && lines.contains(&"2"),
+            "{name}: {lines:?}"
+        );
+        // BEGIN and ROLLBACK of the document work (autocommit): the table of the rolled back part is not there
+        assert!(
+            lines.contains(&"count(*)") && lines.contains(&"0"),
+            "{name}: {lines:?}"
+        );
+        // the macro changes nothing in the document
+        assert_eq!(doc.text(), sql, "{name}");
+        ran += 1;
+    }
+    // Python is on every machine that runs these tests
+    assert!(ran >= 1 || !available(PY));
+}
+
 /// The boot folder is removed before `Finished` is reported, so a caller that exits at once
 /// (the editor closing, a command line run) does not leave it behind. The PoC removed it after
 /// the report and lost it on Windows (docs/poc/json-rpc.md).
