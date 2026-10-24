@@ -156,10 +156,18 @@ fn undo_and_redo_by_key_and_by_menu_action(cx: &mut TestAppContext) {
 #[gpui::test]
 fn a_function_without_a_command_says_so(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx, "abc");
-    // F10 is Sakura's run in SQL*Plus (SQL*Plusで実行), which has no command yet
-    cx.simulate_keystrokes("f10");
+    // the profile manager (プロファイルマネージャ) has no command yet (it needs a decision about
+    // where the settings file is, docs/sakura-gaps.md)
+    let code = matsu_commands::sakura::FUNCTIONS
+        .iter()
+        .find(|function| function.name == "F_PROFILEMGR")
+        .unwrap()
+        .code;
+    f.view.update_in(cx, |view, window, cx| {
+        view.run_function(code, &[], window, cx)
+    });
     let notice = f.view.read_with(cx, |v, _| v.notice.clone());
-    assert!(notice.unwrap().contains("F_PLSQL_COMPILE_ON_SQLPLUS"));
+    assert!(notice.unwrap().contains("F_PROFILEMGR"));
     // and the text is untouched
     assert_eq!(f.lines(cx), ["abc"]);
 }

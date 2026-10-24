@@ -1,0 +1,495 @@
+//! Tests of the database functions (ADR-0023). No database is needed: the "client" of a
+//! connection is `echo` (the file given to it is printed) or a program that copies its input to
+//! its output, which every CI runner has. The quoting of the file is also tested on its own for
+//! both shells; the `sh` one is tested against the real `sh` below (the Windows one by the
+//! Windows jobs of the CI).
+
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use gpui::{AnyWindowHandle, Entity, TestAppContext, VisualTestContext};
+use matsu_commands::sakura::FUNCTIONS;
+use matsu_config::databases::{Connection, Encoding, Kind};
+use matsu_core::buffer::Pos;
+
+use super::command::{BuildError, Shell, build, escape_for_expand, quote_path};
+use super::run::flags;
+use super::{DatabasePrefs, install};
+use crate::document::SharedDocument;
+use crate::file_ops::windows::{LoadRequest, editors, open_editor_window};
+use crate::view::EditorView;
+
+/// A program that copies its input to its output.
+const COPY: &str = if cfg!(windows) {
+    "findstr \"^\""
+} else {
+    "cat"
+};
+
+fn connection(command: &str) -> Connection {
+    Connection {
+        name: "test".into(),
+        kind: Kind::Other,
+        command: command.into(),
+        folder: None,
+        encoding: Encoding::Utf8,
+        input_encoding: None,
+    }
+}
+
+// ---- the command line ----
+
+#[test]
+fn a_path_is_one_word_for_sh() {
+    let q = |p: &str| quote_path(Shell::Posix, p).unwrap();
+    assert_eq!(q("/a/b.sql"), "'/a/b.sql'");
+    assert_eq!(q("/a b/c.sql"), "'/a b/c.sql'");
+    assert_eq!(q("/it's.sql"), "'/it'\\''s.sql'");
+    assert_eq!(q("/$HOME/`id`;&|<>*?.sql"), "'/$HOME/`id`;&|<>*?.sql'");
+    assert_eq!(q("/日本語.sql"), "'/日本語.sql'");
+    // a control character is refused, not passed on
+    assert_eq!(
+        quote_path(Shell::Posix, "/a\nb.sql"),
+        Err(BuildError::Unquotable('\n'))
+    );
+}
+
+#[test]
+fn a_path_is_one_word_for_cmd() {
+    let q = |p: &str| quote_path(Shell::Cmd, p);
+    assert_eq!(q("C:\\a b\\c.sql").unwrap(), "\"C:\\a b\\c.sql\"");
+    // between double quotes these mean nothing to cmd.exe
+    assert_eq!(
+        q("C:\\a&b|c<d>e^f(g).sql").unwrap(),
+        "\"C:\\a&b|c<d>e^f(g).sql\""
+    );
+    // a variable is still expanded between quotes, and a quote cannot be in the name
+    assert_eq!(q("C:\\100%.sql"), Err(BuildError::Unquotable('%')));
+    assert_eq!(q("C:\\a\"b.sql"), Err(BuildError::Unquotable('"')));
+    // delayed expansion (`cmd /V:ON`) expands `!x!` between quotes too
+    assert_eq!(q("C:\\report!TEMP!.sql"), Err(BuildError::Unquotable('!')));
+    assert_eq!(q("C:\\a\tb.sql"), Err(BuildError::Unquotable('\t')));
+}
+
+#[test]
+fn the_template_gets_the_quoted_file() {
+    let c = connection("psql -d db -f $F -v x=$$1");
+    assert_eq!(
+        build(Shell::Posix, &c, Some("/w/a b.sql")).unwrap(),
+        "psql -d db -f '/w/a b.sql' -v x=$1"
+    );
+    assert_eq!(
+        build(Shell::Cmd, &c, Some("C:\\w\\a b.sql")).unwrap(),
+        "psql -d db -f \"C:\\w\\a b.sql\" -v x=$1"
+    );
+    // a template without the file needs none
+    assert_eq!(
+        build(Shell::Posix, &connection("sqlite3 db"), None).unwrap(),
+        "sqlite3 db"
+    );
+    assert_eq!(build(Shell::Posix, &c, None), Err(BuildError::NoFile));
+}
+
+#[test]
+fn a_line_too_long_for_the_exec_flow_is_refused_not_cut() {
+    // a cut line could end inside the quotes
+    let long = format!("/{}.sql", "a".repeat(1100));
+    assert_eq!(
+        build(Shell::Posix, &connection("x $F"), Some(&long)),
+        Err(BuildError::TooLong)
+    );
+    assert!(build(Shell::Posix, &connection("x $F"), Some("/ok.sql")).is_ok());
+}
+
+#[test]
+fn every_dollar_is_doubled_for_the_expansion_of_the_exec_flow() {
+    // `ExpandParameter` turns `$$` back into `$`; the hostile-name test below goes through it
+    assert_eq!(escape_for_expand("a $F $$ b"), "a $$F $$$$ b");
+}
+
+#[test]
+fn the_option_bits_follow_the_connection() {
+    let mut c = connection("tool $F");
+    // the output is taken, in UTF-8 by default; nothing is sent to the input
+    assert_eq!(flags(&c).0, 0x01 | 0x80);
+    c.encoding = Encoding::ShiftJis;
+    assert_eq!(flags(&c).0, 0x01);
+    c.encoding = Encoding::Utf16;
+    c.folder = Some("/w".into());
+    assert_eq!(flags(&c).0, 0x01 | 0x08 | 0x200);
+    // without the file the text goes to the input, in the encoding of the output unless told
+    let mut c = connection("sqlite3 db");
+    assert_eq!(flags(&c).0, 0x01 | 0x80 | 0x04 | 0x100);
+    c.encoding = Encoding::ShiftJis;
+    c.input_encoding = Some(Encoding::Utf16);
+    assert_eq!(flags(&c).0, 0x01 | 0x04 | 0x10);
+}
+
+// ---- the flow ----
+
+struct Win {
+    handle: AnyWindowHandle,
+    view: Entity<EditorView>,
+}
+
+fn code_of(name: &str) -> u16 {
+    FUNCTIONS.iter().find(|f| f.name == name).unwrap().code
+}
+
+impl Win {
+    fn call(&self, cx: &mut TestAppContext, function: &str) {
+        let code = code_of(function);
+        let view = self.view.clone();
+        self.handle
+            .update(cx, |_, window, app| {
+                view.update(app, |view, cx| view.run_function(code, &[], window, cx))
+            })
+            .unwrap();
+        cx.run_until_parked();
+    }
+
+    fn run(&self, cx: &mut TestAppContext) {
+        self.call(cx, "F_PLSQL_COMPILE_ON_SQLPLUS");
+    }
+
+    fn cx<'a>(&self, cx: &'a mut TestAppContext) -> &'a mut VisualTestContext {
+        VisualTestContext::from_window(self.handle, cx).into_mut()
+    }
+
+    fn prompt(&self, cx: &mut TestAppContext) -> Option<String> {
+        self.cx(cx).pending_prompt().map(|(message, _)| message)
+    }
+
+    fn answer(&self, cx: &mut TestAppContext, button: &str) {
+        let c = self.cx(cx);
+        assert!(c.has_pending_prompt(), "no prompt to answer {button:?}");
+        c.simulate_prompt_answer(button);
+        c.run_until_parked();
+    }
+
+    fn output(&self, cx: &mut TestAppContext) -> String {
+        self.view.read_with(cx, |view, _| {
+            view.macros.output.text().replace("\r\n", "\n")
+        })
+    }
+
+    fn running(&self, cx: &mut TestAppContext) -> bool {
+        self.view
+            .read_with(cx, |view, _| view.support.exec_running.is_some())
+    }
+
+    fn type_text(&self, cx: &mut TestAppContext, text: &str) {
+        let text = text.to_owned();
+        self.view.update(cx, |view, cx| {
+            view.run_with(cx, |c| c.insert_text(&text)).unwrap();
+        });
+    }
+
+    fn select(&self, cx: &mut TestAppContext, from: Pos, to: Pos) {
+        self.view.update(cx, |view, _| view.cursor.select(from, to));
+    }
+
+    fn wait_for_end(&self, cx: &mut TestAppContext) {
+        wait_until(cx, "the end of the run", |cx| {
+            self.output(cx).contains("終了コード") && !self.running(cx)
+        });
+    }
+}
+
+/// Lets the window, the clock and the threads of the command run until `done` is true.
+fn wait_until(
+    cx: &mut TestAppContext,
+    what: &str,
+    mut done: impl FnMut(&mut TestAppContext) -> bool,
+) {
+    cx.executor().allow_parking();
+    let begun = std::time::Instant::now();
+    while begun.elapsed() < Duration::from_secs(60) {
+        cx.executor().advance_clock(Duration::from_millis(20));
+        cx.run_until_parked();
+        if done(cx) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    panic!("never happened: {what}");
+}
+
+fn open_file(cx: &mut TestAppContext, path: Option<&Path>) -> Win {
+    cx.update(gpui_component::init);
+    let request = path.map(|path| LoadRequest {
+        path: path.to_owned(),
+        encoding: None,
+    });
+    let handle = cx
+        .update(|cx| open_editor_window(cx, SharedDocument::empty(), request))
+        .unwrap();
+    cx.run_until_parked();
+    let view = cx.update(|app| {
+        editors(app)
+            .into_iter()
+            .find(|(h, _)| *h == handle)
+            .map(|(_, view)| view)
+            .unwrap()
+    });
+    Win { handle, view }
+}
+
+/// A folder with `databases.ini` (`ini` is its text; none: no file) and a window on `name`.
+fn setup(
+    cx: &mut TestAppContext,
+    ini: Option<&str>,
+    name: &str,
+    text: &str,
+) -> (tempfile::TempDir, PathBuf, Win) {
+    let dir = tempfile::tempdir().unwrap();
+    let settings = dir.path().join("settings");
+    std::fs::create_dir(&settings).unwrap();
+    let databases = settings.join("databases.ini");
+    if let Some(ini) = ini {
+        std::fs::write(&databases, ini).unwrap();
+    }
+    cx.update(|app| install(app, DatabasePrefs::at(databases.clone())));
+    let file = dir.path().join(name);
+    let text = if cfg!(windows) {
+        text.replace('\n', "\r\n")
+    } else {
+        text.to_owned()
+    };
+    std::fs::write(&file, text).unwrap();
+    let win = open_file(cx, Some(&file));
+    (dir, file, win)
+}
+
+const ECHO: &str = "[Database]\nDefault=t\n\n[Connection.t]\nCommand=echo run [$F]\n";
+
+#[gpui::test]
+fn the_file_goes_to_the_client_and_the_output_to_the_panel(cx: &mut TestAppContext) {
+    let (_dir, file, w) = setup(cx, Some(ECHO), "a.sql", "select 1;\n");
+    w.run(cx);
+    w.wait_for_end(cx);
+    let output = w.output(cx);
+    assert!(output.contains("run ["), "{output}");
+    assert!(output.contains(&file.display().to_string()), "{output}");
+    assert!(output.contains("#CmdLine  : echo run ["), "{output}");
+    // no question, the panel is open
+    assert!(w.prompt(cx).is_none());
+    assert!(w.view.read_with(cx, |v, _| v.macros.output.is_open()));
+}
+
+#[gpui::test]
+fn a_hostile_file_name_stays_one_word(cx: &mut TestAppContext) {
+    // quotes, `$F` (which would expand twice), `&` and `$(...)`: legal in a name on every OS
+    let name = "it's $F & echo INJECTED $(echo INJECTED).sql";
+    let (dir, file, w) = setup(cx, Some(ECHO), name, "select 1;\n");
+    w.run(cx);
+    w.wait_for_end(cx);
+    let output = w.output(cx);
+    assert!(output.contains(name), "{output}");
+    assert!(
+        output.lines().all(|line| line.trim() != "INJECTED"),
+        "{output}"
+    );
+    assert!(file.exists() && dir.path().join("settings").exists());
+}
+
+#[gpui::test]
+fn a_changed_document_asks_and_no_stops(cx: &mut TestAppContext) {
+    let (_dir, file, w) = setup(cx, Some(ECHO), "a.sql", "select 1;\n");
+    w.type_text(cx, "-- new\n");
+    w.run(cx);
+    let message = w.prompt(cx).expect("the question");
+    assert!(message.contains(&file.display().to_string()), "{message}");
+    assert!(message.contains("変更されています"), "{message}");
+    w.answer(cx, "いいえ");
+    // nothing ran, nothing was saved
+    assert_eq!(w.output(cx), "");
+    assert_eq!(std::fs::read_to_string(&file).unwrap().trim(), "select 1;");
+}
+
+#[gpui::test]
+fn a_changed_encoding_alone_also_asks_to_save(cx: &mut TestAppContext) {
+    // the client reads the file on disk, so an unsaved BOM is a change too
+    let (_dir, file, w) = setup(cx, Some(ECHO), "a.sql", "select 1;\n");
+    w.view.update(cx, |view, cx| {
+        let document = view.document().clone();
+        document.update(cx, |shared, _| {
+            shared.set_format(matsu_core::encoding::Encoding::Utf8, true)
+        });
+    });
+    w.run(cx);
+    let message = w.prompt(cx).expect("the question");
+    assert!(message.contains("変更されています"), "{message}");
+    w.answer(cx, "いいえ");
+    assert_eq!(w.output(cx), "");
+    assert!(
+        !std::fs::read(&file)
+            .unwrap()
+            .starts_with(&[0xEF, 0xBB, 0xBF])
+    );
+}
+
+#[gpui::test]
+fn cancel_also_stops(cx: &mut TestAppContext) {
+    let (_dir, _file, w) = setup(cx, Some(ECHO), "a.sql", "select 1;\n");
+    w.type_text(cx, "x");
+    w.run(cx);
+    w.answer(cx, "キャンセル");
+    assert_eq!(w.output(cx), "");
+}
+
+#[gpui::test]
+fn yes_saves_and_runs(cx: &mut TestAppContext) {
+    let (_dir, file, w) = setup(cx, Some(ECHO), "a.sql", "select 1;\n");
+    // no line break typed: on Windows the file has CR LF, and a lone LF would make the save ask
+    // about the mixed line endings
+    w.type_text(cx, "-- new ");
+    w.run(cx);
+    w.answer(cx, "はい");
+    w.wait_for_end(cx);
+    assert!(
+        std::fs::read_to_string(&file)
+            .unwrap()
+            .starts_with("-- new"),
+        "saved before the run"
+    );
+    assert!(w.output(cx).contains("run ["));
+}
+
+#[gpui::test]
+fn a_document_without_a_file_cannot_be_run_by_file(cx: &mut TestAppContext) {
+    let (_dir, _file, _w) = setup(cx, Some(ECHO), "a.sql", "");
+    // a second window on no file
+    let w = open_file(cx, None);
+    w.run(cx);
+    let message = w.prompt(cx).expect("the error");
+    assert!(message.contains("保存しないと"), "{message}");
+    w.answer(cx, "OK");
+    assert_eq!(w.output(cx), "");
+}
+
+#[gpui::test]
+fn a_connection_without_the_file_takes_the_text_on_its_input(cx: &mut TestAppContext) {
+    let ini = format!("[Database]\nDefault=t\n\n[Connection.t]\nCommand={COPY}\n");
+    let (_dir, _file, w) = setup(cx, Some(&ini), "a.sql", "select 1;\nselect 2;\n");
+    // no file is needed and no question about saving is asked
+    w.type_text(cx, "-- edited\n");
+    w.run(cx);
+    assert!(w.prompt(cx).is_none());
+    w.wait_for_end(cx);
+    let output = w.output(cx);
+    assert!(output.contains("-- edited"), "{output}");
+    assert!(output.contains("select 2;"), "{output}");
+}
+
+#[gpui::test]
+fn the_selection_is_what_a_connection_without_the_file_gets(cx: &mut TestAppContext) {
+    let ini = format!("[Database]\nDefault=t\n\n[Connection.t]\nCommand={COPY}\n");
+    let (_dir, _file, w) = setup(cx, Some(&ini), "a.sql", "select 1;\nselect 2;\n");
+    w.select(cx, Pos::new(1, 0), Pos::new(1, 9));
+    w.run(cx);
+    w.wait_for_end(cx);
+    let output = w.output(cx);
+    assert!(output.contains("select 2;"), "{output}");
+    assert!(!output.contains("select 1;"), "{output}");
+}
+
+#[gpui::test]
+fn the_folder_of_the_connection_is_where_the_client_runs(cx: &mut TestAppContext) {
+    let list = if cfg!(windows) { "cmd /C dir /B" } else { "ls" };
+    let work = tempfile::tempdir().unwrap();
+    std::fs::write(work.path().join("marker-in-the-folder.txt"), "").unwrap();
+    // an INI value is one line; backslashes of a Windows path are kept
+    let ini = format!(
+        "[Database]\nDefault=t\n\n[Connection.t]\nCommand={list}\nFolder={}\n",
+        work.path().display()
+    );
+    let (_dir, _file, w) = setup(cx, Some(&ini), "a.sql", "x\n");
+    w.run(cx);
+    w.wait_for_end(cx);
+    assert!(w.output(cx).contains("marker-in-the-folder.txt"));
+}
+
+#[gpui::test]
+fn a_password_in_the_command_is_not_run(cx: &mut TestAppContext) {
+    let ini = "[Database]\nDefault=t\n\n[Connection.t]\nKind=mysql\nCommand=echo mysql -u me -psecret db\n";
+    let (_dir, _file, w) = setup(cx, Some(ini), "a.sql", "x\n");
+    w.run(cx);
+    let message = w.prompt(cx).expect("the refusal");
+    assert!(message.contains("パスワード"), "{message}");
+    // the secret is not repeated in the message
+    assert!(!message.contains("secret"), "{message}");
+    w.answer(cx, "OK");
+    assert_eq!(w.output(cx), "");
+}
+
+#[gpui::test]
+fn without_a_file_the_example_is_offered_and_made(cx: &mut TestAppContext) {
+    let (dir, _file, w) = setup(cx, None, "a.sql", "x\n");
+    let databases = dir.path().join("settings").join("databases.ini");
+    w.run(cx);
+    let message = w.prompt(cx).expect("the offer");
+    assert!(message.contains("databases.ini"), "{message}");
+    w.answer(cx, "作る");
+    let told = w.prompt(cx).expect("where it is");
+    assert!(told.contains("Default="), "{told}");
+    w.answer(cx, "OK");
+    let text = std::fs::read_to_string(&databases).unwrap();
+    assert!(text.contains("[Connection.postgresql]"), "{text}");
+    // examples only: nothing is chosen, so the next run asks for the choice
+    w.run(cx);
+    let message = w.prompt(cx).expect("no default");
+    assert!(message.contains("Default="), "{message}");
+    w.answer(cx, "OK");
+    assert_eq!(w.output(cx), "");
+}
+
+#[gpui::test]
+fn declining_the_example_makes_nothing(cx: &mut TestAppContext) {
+    let (dir, _file, w) = setup(cx, None, "a.sql", "x\n");
+    w.run(cx);
+    w.answer(cx, "作らない");
+    assert!(w.prompt(cx).is_none());
+    assert!(!dir.path().join("settings").join("databases.ini").exists());
+}
+
+#[gpui::test]
+fn a_default_that_is_not_in_the_file_says_so(cx: &mut TestAppContext) {
+    let ini = "[Database]\nDefault=gone\n\n[Connection.t]\nCommand=echo x\n";
+    let (_dir, _file, w) = setup(cx, Some(ini), "a.sql", "x\n");
+    w.run(cx);
+    let message = w.prompt(cx).expect("the problem");
+    assert!(message.contains("Default=gone"), "{message}");
+    w.answer(cx, "OK");
+    assert_eq!(w.output(cx), "");
+}
+
+#[gpui::test]
+fn a_mistake_in_the_default_is_told_with_its_reason(cx: &mut TestAppContext) {
+    let ini = "[Database]\nDefault=t\n\n[Connection.t]\nKind=cobol\nCommand=echo x\n";
+    let (_dir, _file, w) = setup(cx, Some(ini), "a.sql", "x\n");
+    w.run(cx);
+    let message = w.prompt(cx).expect("the problem");
+    assert!(message.contains("cobol"), "{message}");
+    w.answer(cx, "OK");
+}
+
+#[gpui::test]
+fn activating_shows_the_output_panel(cx: &mut TestAppContext) {
+    let (_dir, _file, w) = setup(cx, Some(ECHO), "a.sql", "x\n");
+    assert!(!w.view.read_with(cx, |v, _| v.macros.output.is_open()));
+    w.call(cx, "F_ACTIVATE_SQLPLUS");
+    assert!(w.view.read_with(cx, |v, _| v.macros.output.is_open()));
+}
+
+#[gpui::test]
+fn f10_and_shift_f11_are_bound_to_them(cx: &mut TestAppContext) {
+    // the keys of Sakura's table reach the commands (no "まだ使えない")
+    let (_dir, _file, w) = setup(cx, Some(ECHO), "a.sql", "x\n");
+    w.cx(cx).simulate_keystrokes("shift-f11");
+    assert!(w.view.read_with(cx, |v, _| v.macros.output.is_open()));
+    assert!(w.view.read_with(cx, |v, _| v.notice.is_none()));
+    w.cx(cx).simulate_keystrokes("f10");
+    w.wait_for_end(cx);
+    assert!(w.output(cx).contains("run ["));
+}

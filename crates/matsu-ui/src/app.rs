@@ -147,6 +147,16 @@ pub(crate) fn run(
             matsu_config::location::write_path(&candidates).map(std::path::Path::to_path_buf),
         )
     };
+    // The connections of the database functions (`databases.ini`), next to the settings file.
+    let database_prefs = {
+        let candidates = matsu_config::location::candidate_paths(
+            matsu_config::location::Os::current(),
+            &matsu_config::location::Environment::from_process(),
+        );
+        crate::database::DatabasePrefs::beside(
+            matsu_config::location::write_path(&candidates).map(std::path::Path::to_path_buf),
+        )
+    };
     // The eight print settings (`[Print]`), saved to the same file.
     let print_prefs = {
         let candidates = matsu_config::location::candidate_paths(
@@ -197,6 +207,7 @@ pub(crate) fn run(
 
         crate::search::history::install(cx, search_history);
         crate::exec::install(cx, exec_prefs);
+        crate::database::install(cx, database_prefs);
         crate::print_setting::install(cx, print_prefs);
         cx.spawn(async move |cx| {
             while let Ok(request) = requests.recv().await {

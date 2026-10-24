@@ -3,6 +3,7 @@
 //! The flows of open, save and close are in `crate::file_ops`; the commands read their arguments
 //! and start them.
 
+pub mod activate_sqlplus;
 pub mod base64_decode;
 pub mod browse;
 pub mod exit_all;
@@ -35,6 +36,7 @@ pub mod open_folder_in_explorer;
 pub mod open_header_source;
 pub mod open_powershell;
 pub mod open_powershell_as_admin;
+pub mod plsql_compile_on_sqlplus;
 pub mod print;
 pub mod print_pagesetup;
 pub mod print_preview;

@@ -610,10 +610,11 @@ fn run_function_says_whether_the_command_succeeded(cx: &mut TestAppContext) {
         .view
         .update_in(cx, |v, window, cx| v.run_function(30200, &[], window, cx));
     assert!(!failed);
-    // a function that has no command here yet (F_ACTIVATE_SQLPLUS: no Oracle)
+    // a function that has no command here yet (F_PROFILEMGR: waits for a decision on where the
+    // settings file is)
     let missing = f
         .view
-        .update_in(cx, |v, window, cx| v.run_function(30170, &[], window, cx));
+        .update_in(cx, |v, window, cx| v.run_function(30191, &[], window, cx));
     assert!(!missing);
     assert_eq!(f.lines(cx), ["A"]);
 }
