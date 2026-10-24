@@ -152,6 +152,13 @@ fn open_window_with(
                     // macOS reports a zoomed window as `Windowed`; its own flag says it is zoomed.
                     let bounds = if cfg!(target_os = "macos") && window.is_maximized() {
                         WindowBounds::Maximized(window.bounds())
+                    } else if cfg!(target_os = "macos") {
+                        // macOS gives the frame with the title bar, and opens a window from the
+                        // size of its content.
+                        crate::saved_state::window::with_content_size(
+                            window.window_bounds(),
+                            window.viewport_size(),
+                        )
                     } else {
                         window.window_bounds()
                     };

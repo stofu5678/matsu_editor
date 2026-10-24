@@ -146,6 +146,23 @@ impl WindowState {
     }
 }
 
+/// `bounds` of a window that is not maximized, with the size of its content in place of the size
+/// of its frame. The windows open from the size of their content (macOS: `initWithContentRect`),
+/// and the frame that `window_bounds()` gives has the title bar in it, so a window would grow by a
+/// title bar each time it is opened from what it saved.
+pub(crate) fn with_content_size(
+    bounds: WindowBounds,
+    content: gpui::Size<gpui::Pixels>,
+) -> WindowBounds {
+    match bounds {
+        WindowBounds::Windowed(mut b) => {
+            b.size = content;
+            WindowBounds::Windowed(b)
+        }
+        other => other,
+    }
+}
+
 /// The state now.
 pub(crate) fn state(cx: &App) -> WindowState {
     cx.try_global::<WindowState>().copied().unwrap_or_default()
@@ -297,6 +314,25 @@ mod tests {
         };
         assert!(!set.record(windowed(0., 0., 300., 300.)));
         assert_eq!((set.width, set.height), (800, 600));
+    }
+
+    #[test]
+    fn the_size_of_the_content_is_kept_not_the_size_of_the_frame() {
+        // a frame of 600 x 478 with a title bar of 28 has a content of 600 x 450
+        let frame = windowed(10., 20., 600., 478.);
+        let content = size(px(600.), px(450.));
+        let mut s = WindowState::default();
+        assert!(s.record(with_content_size(frame, content)));
+        assert_eq!((s.width, s.height), (600, 450));
+        // the position is the frame's, and a maximized window is left alone
+        let mut p = WindowState {
+            pos_mode: SaveMode::Save,
+            ..Default::default()
+        };
+        p.record(with_content_size(frame, content));
+        assert_eq!((p.x, p.y), (10, 20));
+        let max = WindowBounds::Maximized(Bounds::new(point(px(0.), px(0.)), content));
+        assert_eq!(with_content_size(max, size(px(1.), px(1.))), max);
     }
 
     #[test]
