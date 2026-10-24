@@ -67,6 +67,7 @@ mod panes;
 pub mod print;
 pub mod print_setting;
 mod reconvert;
+mod saved_state;
 pub mod search;
 pub mod segments;
 pub mod settings;

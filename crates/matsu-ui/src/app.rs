@@ -186,6 +186,7 @@ pub(crate) fn run(
         crate::bars::install(cx, &user);
         crate::minimap::install(cx, &user);
         crate::common_settings::install(cx, &user);
+        crate::saved_state::install(cx, &user);
         // Every window that `open_editor_window` makes applies matsu.ini (read once, above). Before the
         // menus: the row for the custom menus reads it.
         cx.set_global(user);
@@ -195,6 +196,7 @@ pub(crate) fn run(
         // The files that are open go into the history, with the caret they have now.
         cx.on_app_quit(|cx| {
             crate::history::view::record_all(cx);
+            crate::saved_state::window::flush(cx);
             std::future::ready(())
         })
         .detach();

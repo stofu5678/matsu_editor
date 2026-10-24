@@ -110,18 +110,31 @@ fn open_window_with(
     let count = window_count(cx);
     // `-SX=` `-SY=` `-WX=` `-WY=` of the launch that opens this window.
     let placement = super::start_options::take_next_placement(cx);
-    let default_size = size(px(1000.), px(700.));
+    // The size and the position that the windows kept (`CEditWnd::_GetWindowRectForInit`); the
+    // command line wins over them.
+    let saved = crate::saved_state::window::state(cx);
+    let default_size = saved.size().unwrap_or_else(|| size(px(1000.), px(700.)));
     let window_size = placement.map_or(default_size, |p| p.size_or(default_size));
     let mut bounds = Bounds::centered(None, window_size, cx);
-    // Windows after the first are shifted so that they do not hide each other.
-    let shift = px(30. * (count % 8) as f32);
-    bounds.origin.x += shift;
-    bounds.origin.y += shift;
+    match saved.origin() {
+        Some(origin) => bounds.origin = origin,
+        None => {
+            // Windows after the first are shifted so that they do not hide each other.
+            let shift = px(30. * (count % 8) as f32);
+            bounds.origin.x += shift;
+            bounds.origin.y += shift;
+        }
+    }
     if let Some(placement) = placement {
         placement.place(&mut bounds);
     }
+    let window_bounds = if saved.maximized() {
+        WindowBounds::Maximized(bounds)
+    } else {
+        WindowBounds::Windowed(bounds)
+    };
     let options = WindowOptions {
-        window_bounds: Some(WindowBounds::Windowed(bounds)),
+        window_bounds: Some(window_bounds),
         icon: crate::app_icon::window_icon(),
         titlebar: Some(gpui::TitlebarOptions {
             title: Some("MATSU Editor".into()),
@@ -132,6 +145,14 @@ fn open_window_with(
     let handle = cx.open_window(options, move |window, cx| {
         let workspace = build(window, cx);
         install(window, cx, &workspace);
+        // The windows keep their size and position when the settings say so (`OnSize`, `OnMove`).
+        workspace.update(cx, |_, workspace_cx| {
+            workspace_cx
+                .observe_window_bounds(window, |_, window, cx| {
+                    crate::saved_state::window::bounds_changed(cx, window.window_bounds());
+                })
+                .detach();
+        });
         cx.new(|cx| Root::new(workspace, window, cx))
     })?;
     Ok(handle.into())
