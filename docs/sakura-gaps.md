@@ -29,7 +29,7 @@
 | 領域 | 行数 | 主な不足 |
 |---|---|---|
 | コマンドと関数 | 15 | 関数コードのあるコマンドで未登録は 9 つ（うち 4 つは FD が今のラウンドで実装か判断、2 つは SQL*Plus で ADR-0023） |
-| マクロ | 8 | キーマクロの文（`Sleep` など）、`GetLineAttribute` の種類 3・4、矩形の `MoveCursor`、`ExecExtMacro` の第 2 引数 |
+| マクロ | 6 | `GetLineAttribute` の種類 3・4、矩形の `MoveCursor`、`ChgmodEOL` の第 2 引数、入れ子の `AddRefUndoBuffer`、`.mac` の文字コード、再生中の分割コマンド |
 | 設定 | 13 | 共通設定の灰色の部品 31 個とタイプ別設定の灰色の部品 55 個。コマンドが設定を読まず、サクラの既定の値で動くもの |
 | ダイアログ | 12 | プラグイン、プロファイル、ウィンドウの位置と大きさ、色統一、強調キーワード選択、タイプ一覧の操作 |
 | プラグイン | 3 | 全部。常駐プラグインは ADR-0007 のとおり別の設計 |
@@ -52,7 +52,6 @@
 | 5 | フリーカーソルとキャレットの形（DOS 風）、`F_DELETE` などの追従 | 設定が 3 つ、コマンドの「Not done」が 2 つ、同じ部分 |
 | 6 | 巨大ファイルの続き（ADR-0020 の PR 2〜4） | 10GB を開く目標（Phase 6）の本体。部品（#214、#216）はあるが、開く経路につながっていない |
 | 7 | アウトラインの残りの解析器（PL/SQL、COBOL、アセンブラ、TeX、Erlang、ルールファイル）とドッキング位置 | 1 解析器ずつ独立して入れられる。並列に向く |
-| 8 | キーマクロの文（`Sleep`、`SetDrawSwitch`、メッセージボックス）と `ExecExtMacro` の第 2 引数 | マクロの互換。サクラのマクロが途中で止まる |
 | 9 | タイプ別設定の灰色の部品（文字間隔、行間、TSV、TAB の表示、インデント、禁則） | レイアウトに `Kinsoku` などの下地はある。画面と設定をつなぐ |
 | 10 | タイプ一覧の操作（追加・削除・複製・上下・インポート・エクスポート・初期化）と色の取り込み・書き出し | 利用者がタイプを増やす手段がない |
 | 11 | 17 の組み込みタイプの個別の既定値の確認 | 「基本」のコピーから始めている型があるかもしれない（未確認。下の設定表） |
@@ -108,10 +107,8 @@
 
 | 項目 | サクラの場所 | MATSU の今 | 判断 | 大きさ | 依存 |
 |---|---|---|---|---|---|
-| キーマクロ（`.mac`）の文としての `Sleep`、`SetDrawSwitch`、`MessageBox` `ErrorMsg` `WarnMsg` `InfoMsg` `OkCancelBox` `YesNoBox` | `CMacro::HandleCommand`（`macro/CMacro.cpp`） | マクロが「まだ使えない」で止まる（`macros/statements.rs`） | C | M | タイマー、ダイアログ（`InputBox` の仕組みを使える） |
 | `GetLineAttribute` の種類 3（差分）・4（アウトラインの印） | `CMacro.cpp` の `F_GETLINEATTRIBUTE` | 「未実装」を返す（`functions/state.rs`）。差分の印は #93 で入ったので、3 は実装できる | A | S | 4 はアウトラインの印 |
 | `MoveCursor` の矩形（オプション 2）、`Jump` の PL/SQL とテキスト折り返しの行番号 | `CMacro.cpp` | エラーを返す（`matsu-plugin/src/api.rs`） | C | M | PL/SQL は ADR-0023 |
-| `ExecExtMacro` の第 2 引数（コードを直接渡す形）と `-M=` の `-MTYPE=` による文字列の実行 | `CMacro.cpp`、`CCommandLine.cpp` | ファイルだけ実行できる | C | M | マクロのホスト |
 | `ChgmodEOL` の第 2 引数（ロック）、`HalfPageUp(n)` 系・`PageUp(n)` 系の行数引数 | `CMacro.cpp` | 未対応（#209） | C | S | なし |
 | 入れ子のマクロの `AddRefUndoBuffer` を閉じ忘れたときの戻し方 | `CMacro.cpp` | 外側が終わるまで閉じない（#97） | C | S | なし |
 | `.mac` の文字コード（BOM なしの古いファイルを Shift_JIS として読むか） | `CMacroManagerBase`、`CKeyMacroMgr` | UTF-8 だけ。確かめていない（#44）。未確認 | C | S | なし |

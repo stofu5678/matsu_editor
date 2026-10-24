@@ -601,7 +601,8 @@ fn launch_options_split_what_is_for_every_file_and_what_is_for_the_first() {
     assert_eq!(
         options.after_load(true).unwrap().macro_,
         Some(MacroLaunch::Text {
-            language: "JS".into()
+            language: "JS".into(),
+            code: "x".into()
         })
     );
     let line = crate::command_line::parse(&["-M=x".into(), "-MTYPE=File".into()]);
@@ -654,11 +655,12 @@ fn the_macro_of_opening_sees_the_type_of_the_type_option(cx: &mut TestAppContext
 }
 
 #[gpui::test]
-fn the_macro_text_of_mtype_is_told_not_to_be_done(cx: &mut TestAppContext) {
+fn the_macro_text_of_mtype_is_run(cx: &mut TestAppContext) {
     init(cx);
     let dir = TempDir::new();
     let path = dir.write("a.txt", b"abc\n");
-    launch(cx, &dir, &["-M=x", "-MTYPE=js", "a.txt"]);
+    // `-M=` is the text of a key macro when `-MTYPE=` says `mac` (`CMDLINEOPT_MTYPE`)
+    launch(cx, &dir, &["-M=Char(65);", "-MTYPE=mac", "a.txt"]);
     let view = view_of(cx, &path);
-    assert_eq!(all_text(&view, cx), "abc\n");
+    assert_eq!(all_text(&view, cx), "Aabc\n");
 }

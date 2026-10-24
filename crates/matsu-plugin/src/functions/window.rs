@@ -187,6 +187,13 @@ fn message_kind(method: &str, params: &[Value]) -> Option<(Buttons, Icon)> {
     })
 }
 
+/// The buttons and the icon of the message function `method` (`MessageBox`, `ErrorMsg`, ...) for a
+/// `MessageBox` type of `kind` (only `MessageBox` reads it). `None` for any other name. A key macro
+/// shows its boxes with this (`CMacro::HandleCommand`).
+pub fn message_style(method: &str, kind: i64) -> Option<(Buttons, Icon)> {
+    message_kind(method, &[Value::Null, Value::from(kind)])
+}
+
 /// Longest default path for the file dialogs (`MAX_PATH`; CMacro.cpp refuses a longer one).
 const MAX_PATH: usize = 260;
 
