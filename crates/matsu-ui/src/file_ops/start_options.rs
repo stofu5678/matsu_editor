@@ -96,8 +96,8 @@ impl FileOptions {
 enum MacroLaunch {
     /// A file (`-MTYPE=` is empty or `file`), made absolute with the folder of the launch.
     File(PathBuf),
-    /// The text of a macro in the language of the extension `-MTYPE=` names.
-    Text { language: String },
+    /// The text of a macro (`-M=`) in the language of the extension `-MTYPE=` names.
+    Text { language: String, code: String },
 }
 
 /// The size and the place of a new window (`-SX=` `-SY=` `-WX=` `-WY=`), in pixels.
@@ -181,6 +181,7 @@ impl LaunchOptions {
             } else {
                 MacroLaunch::Text {
                     language: line.macro_type.clone(),
+                    code: line.macro_.clone(),
                 }
             }
         });
@@ -422,12 +423,8 @@ fn run_macro_in(m: &MacroLaunch, view: &Entity<EditorView>, window: &mut Window,
         MacroLaunch::File(path) => {
             view.exec_ext_macro(path, window, cx).ok();
         }
-        MacroLaunch::Text { language } => {
-            // Not done: the macro host runs files, not the text of the option.
-            let message = format!(
-                "-MTYPE={language}: マクロの文字列を実行する機能はまだありません。ファイルを -M= で指定してください。"
-            );
-            view.macro_failed(message, window, cx);
+        MacroLaunch::Text { language, code } => {
+            view.exec_macro_text(code, language, window, cx).ok();
         }
     });
 }

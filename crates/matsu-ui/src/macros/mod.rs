@@ -127,6 +127,25 @@ pub(crate) fn file_kind(path: &Path) -> FileKind {
     }
 }
 
+/// The file that holds the code of a script given as text. It lives in a directory of its own that
+/// only this user can use, made new for it (`matsu_plugin::boot::private_dir`: another user cannot
+/// plant a directory or swap the file), and both are removed when this is dropped: the script
+/// ended, or its window was closed.
+struct TempScript {
+    _dir: matsu_plugin::boot::BootDir,
+    path: PathBuf,
+}
+
+impl TempScript {
+    fn create(ext: &str, code: &str) -> Result<Self, String> {
+        let dir = matsu_plugin::boot::private_dir(None)
+            .map_err(|e| format!("一時フォルダーを作れません: {e}"))?;
+        let path = dir.path().join(format!("macro.{ext}"));
+        std::fs::write(&path, code).map_err(|e| format!("{}: {e}", path.display()))?;
+        Ok(Self { _dir: dir, path })
+    }
+}
+
 /// What the queue of a playing key macro holds.
 enum Item {
     Call(Step),
@@ -180,6 +199,9 @@ pub(crate) struct MacroState {
     /// A macro is running: the commands it runs are not recorded.
     suspended: bool,
     running: Option<Running>,
+    /// The file that holds the code of a script given as text (`F_EXECEXTMACRO` with a type); it is
+    /// removed when the script ends.
+    temp_script: Option<TempScript>,
     /// Counts the scripts that were started, so that the answer of a dialog that was open when
     /// its macro ended is not sent to the next one.
     serial: u64,
@@ -587,6 +609,59 @@ impl EditorView {
             .map_err(|message| self.macro_error(message, window, cx))
     }
 
+    /// `F_EXECEXTMACRO` with a second argument (`Command_EXECEXTMACRO` with `pszType`): `code` is
+    /// the text of a macro in the language that the extension `ext` names (`CSMacroMgr::Load` with
+    /// `LoadKeyMacroStr`), not a file. Records the call if a key macro is being recorded, with both
+    /// arguments so that the recording plays back (Sakura records only the first, which then
+    /// plays as a file name). Errors go to the panel.
+    pub(crate) fn exec_macro_text(
+        &mut self,
+        code: &str,
+        ext: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), CommandError> {
+        if self.macros.running.is_some() {
+            return Err(self.macro_error("マクロを実行中です".into(), window, cx));
+        }
+        if self.macros.recorder.is_recording() && !self.macros.suspended {
+            self.macros.recorder.record(
+                F_EXECEXTMACRO,
+                &[Arg::Text(code.to_owned()), Arg::Text(ext.to_owned())],
+            );
+        }
+        self.run_macro_text(code, ext, window, cx)
+            .map_err(|message| self.macro_error(message, window, cx))
+    }
+
+    /// Runs the text of a macro by the extension that names its language: `mac` through the key
+    /// macro player; the others through the host, from a file of a temporary name (the host runs
+    /// files). The `Err` says what to show.
+    fn run_macro_text(
+        &mut self,
+        code: &str,
+        ext: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let ext = ext.trim().trim_start_matches('.');
+        if ext.eq_ignore_ascii_case("mac") {
+            let key_macro =
+                KeyMacro::from_text(code).map_err(|e| format!("マクロの文字列: {e}"))?;
+            return self.start_key_macro(key_macro.steps().to_vec(), None, window, cx);
+        }
+        let named = PathBuf::from(format!("macro.{ext}"));
+        if !matches!(file_kind(&named), FileKind::Script(_)) {
+            return Err(format!(
+                "マクロの種類 {ext:?} は使えません。mac、mjs、js、cjs、ts、py、rb、php、ps1、pl、lua、mruby、upy のどれかにしてください"
+            ));
+        }
+        let temp = TempScript::create(ext, code)?;
+        self.start_script(&temp.path, window, cx)?;
+        self.macros.temp_script = Some(temp);
+        Ok(())
+    }
+
     /// Runs a macro file by its extension: `.mac` through the key macro player, the others
     /// (`.mjs`, `.js`, `.cjs`, `.ts`, `.py`, `.rb`, `.php`, `.ps1`, `.pl`, `.el`, `.lua`, `.mruby`, `.upy`) through the host.
     /// The `Err` says what to show.
@@ -814,6 +889,7 @@ impl EditorView {
             }
             HostEvent::Finished(finished) => {
                 let running = self.macros.running.take();
+                self.macros.temp_script = None;
                 // A call of the script that was waiting gets no answer: the script is gone.
                 self.macros.waiting = None;
                 let (name, timeout_text) =
