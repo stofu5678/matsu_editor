@@ -262,23 +262,41 @@ async fn the_migration_message_is_shown_in_the_status_bar(cx: &mut TestAppContex
     assert_eq!(shown.as_deref(), Some("migrated"));
 }
 
-/// The message goes at its time (20 seconds): a timer of the window clears it and repaints. (The clock of the
-/// test is GPUI's, which `Instant` does not follow, so what is checked is that the timer ran.)
+/// The message goes at its time (20 seconds): a timer of the window clears it and repaints.
+///
+/// Two clocks meet here: the notice counts real time (`Instant`), and the timer of the window waits
+/// for what is left of it on GPUI's clock, which the test moves by hand. Between the moment the
+/// notice is set and the moment the window makes its timer, real time passes (a second or more on a
+/// busy machine), so the timer is shorter than 20 seconds by that gap and a fixed 19 seconds can
+/// outrun it. The test measures the gap on the real clock and moves the clock to just before the
+/// end of the timer, and then just past it.
 #[gpui::test]
 async fn the_migration_message_goes_after_20_seconds(cx: &mut TestAppContext) {
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
+    let set_at = Instant::now();
     crate::settings::set_startup_notice("migrated");
     let handle = window(cx, Some(UserSettings::none()));
     let mut vcx = VisualTestContext::from_window(handle, cx);
     let view = view_of(&mut vcx);
-    vcx.executor().advance_clock(Duration::from_secs(19));
+    // The timer was made at some moment before now, so it waits for at least 20 s minus the gap,
+    // and for at most 20 s.
+    let gap = set_at.elapsed();
+    let just_before = Duration::from_secs(20)
+        .checked_sub(gap + Duration::from_millis(1))
+        .expect("the window took less than 20 s to open");
+    vcx.executor().advance_clock(just_before);
     vcx.run_until_parked();
     let shown = view.read_with(&vcx, |v, app| v.status(app).notice);
-    assert_eq!(shown.as_deref(), Some("migrated"), "still there at 19 s");
+    assert_eq!(
+        shown.as_deref(),
+        Some("migrated"),
+        "still there before its time"
+    );
 
-    vcx.executor().advance_clock(Duration::from_secs(2));
+    // Past 20 s on the timer's clock, whatever the gap was.
+    vcx.executor().advance_clock(gap + Duration::from_millis(2));
     vcx.run_until_parked();
     let shown = view.read_with(&vcx, |v, app| v.status(app).notice);
-    assert_eq!(shown, None, "gone at 21 s");
+    assert_eq!(shown, None, "gone after its time");
 }
