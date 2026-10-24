@@ -56,7 +56,7 @@ pub(crate) fn ask_to_clear(cx: &mut App) {
             let problem = cx.update(clear_copies);
             if let Some(message) = problem {
                 // The kept text is still there: said in an editor window.
-                cx.update(|app| tell(app, message));
+                cx.update(|app| tell(app, window, message));
             }
         }
         Some(())
@@ -64,9 +64,9 @@ pub(crate) fn ask_to_clear(cx: &mut App) {
     .detach();
 }
 
-/// Shows `message` in the status bar of the first editor window.
-fn tell(cx: &mut App, message: &'static str) {
-    if let Some((_, workspace)) = crate::file_ops::windows::workspaces(cx).into_iter().next() {
+/// Shows `message` in the status bar of the window that asked the question.
+fn tell(cx: &mut App, window: gpui::AnyWindowHandle, message: &'static str) {
+    if let Some(workspace) = crate::file_ops::windows::workspace_of(cx, window) {
         let view = workspace.read(cx).editor().clone();
         view.update(cx, |view, cx| {
             view.notice = Some(message.to_owned());
