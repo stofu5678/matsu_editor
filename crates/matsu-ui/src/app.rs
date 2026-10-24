@@ -643,6 +643,9 @@ impl Render for Workspace {
         let editor = active.read(cx);
         // A preview (ADR-0024) draws its own view; the bars of the editor are not shown with it.
         let preview = self.content.preview().map(|p| p.view().clone());
+        // The list of the tabs (the ▼ button of the bar) belongs to the view that runs its function:
+        // with a preview that is the hidden view, which is not drawn, so the list is drawn here.
+        let tab_list = editor.tab_list.clone();
         let title = editor.title_for(window.is_window_active(), cx);
         window.set_window_title(&if preview.is_some() {
             format!("プレビュー: {title}")
@@ -684,7 +687,12 @@ impl Render for Workspace {
             )
         };
         let body = match preview {
-            Some(view) => view.into_any_element(),
+            Some(view) => div()
+                .size_full()
+                .relative()
+                .child(view)
+                .children(tab_list)
+                .into_any_element(),
             None => self.render_panes(cx).into_any_element(),
         };
         let outline = if self.content.preview().is_some() {
