@@ -1,6 +1,6 @@
-//! Generates the JavaScript, Python, Ruby and PHP parts of the macro API from `catalog::entries()` (`api::FUNCS` and every row of Sakura's macro tables), and
+//! Generates the JavaScript, Python, Ruby, PHP and PowerShell parts of the macro API from `catalog::entries()` (`api::FUNCS` and every row of Sakura's macro tables), and
 //! checks that the committed files (`boot/api.gen.cjs`, `boot/api_gen.py`, `boot/api_gen.rb`,
-//! `boot/api_gen.php`) are up to date. Only the tests
+//! `boot/api_gen.php`, `boot/api_gen.ps1`) are up to date. Only the tests
 //! use it: to regenerate, run `MATSU_UPDATE_GENERATED=1 cargo test -p matsu-plugin generated_files`.
 
 use crate::api::Ty;
@@ -276,6 +276,60 @@ const PHP_FALLBACK: &str = r#"    /**
     }
 "#;
 
+/// The PowerShell part (`api_gen.ps1`): `New-MatsuEditor` returns the `$Editor` object, whose
+/// script methods are the API. Each method sends its arguments (`$args`, as many as were given)
+/// to `Invoke-MatsuCall` of the boot. The text is ASCII, so a PowerShell that reads it in the
+/// ANSI code page sees the same characters.
+pub(super) fn generate_ps() -> String {
+    let mut out = String::new();
+    out.push_str(&format!("# {GENERATED_NOTE}\n\n"));
+    out.push_str(
+        "# The names of the editor's macro API (the names and the arguments of Sakura's macros).\n",
+    );
+    out.push_str("$global:MatsuApiNames = @(\n");
+    for func in entries().iter().filter(|e| e.is_identifier()) {
+        out.push_str(&format!("    # {}\n", ascii_only(&signature_text(func))));
+        for line in wrap(&func.doc, 90) {
+            out.push_str(&format!("    # {}\n", ascii_only(&line)));
+        }
+        out.push_str(&format!("    '{}'\n", func.name));
+    }
+    out.push_str(")\n\n");
+    out.push_str(PS_INSTALL);
+    out
+}
+
+/// The text with every character above ASCII written as `\u{XXXX}`.
+fn ascii_only(text: &str) -> String {
+    text.chars()
+        .map(|c| {
+            if c.is_ascii() {
+                c.to_string()
+            } else {
+                format!("\\u{{{:X}}}", u32::from(c))
+            }
+        })
+        .collect()
+}
+
+/// The part of `api_gen.ps1` that does not depend on the table.
+const PS_INSTALL: &str = r#"function global:New-MatsuEditor {
+    $editor = [System.Management.Automation.PSObject]::new()
+    foreach ($name in $global:MatsuApiNames) {
+        # The body is made from text, so that each method knows its own name.
+        $body = [scriptblock]::Create("Invoke-MatsuCall '$name' `$args")
+        $editor.PSObject.Members.Add([System.Management.Automation.PSScriptMethod]::new($name, $body))
+    }
+    # Any other name of Sakura's macro functions, including those that start with a digit
+    # ('1PageUp'): $Editor.Call('1PageUp'). The editor answers a name it does not know with an
+    # error.
+    $call = [scriptblock]::Create('param($name) Invoke-MatsuCall $name $args')
+    $editor.PSObject.Members.Add([System.Management.Automation.PSScriptMethod]::new('Call', $call))
+    $editor.PSObject.Members.Add([System.Management.Automation.PSNoteProperty]::new('Info', $null))
+    $editor
+}
+"#;
+
 /// `Name(param: type, optional?: type) -> type`, for the comments of the generated code.
 fn signature_text(func: &Entry) -> String {
     let params: Vec<String> = func
@@ -330,6 +384,7 @@ mod tests {
             ("api_gen.py", generate_py()),
             ("api_gen.rb", generate_rb()),
             ("api_gen.php", generate_php()),
+            ("api_gen.ps1", generate_ps()),
         ];
         let update = std::env::var_os("MATSU_UPDATE_GENERATED").is_some();
         for (name, expected) in files {

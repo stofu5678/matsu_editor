@@ -48,6 +48,11 @@ pub enum Language {
     Python,
     Ruby,
     Php,
+    /// `.ps1`: PowerShell 7 (`pwsh`), or Windows PowerShell 5.1 where `pwsh` is not installed.
+    /// The editor sends the text of the script in `initialize` (a file would meet the execution
+    /// policy and the ANSI code page of 5.1), and the boot compiles it with
+    /// `[scriptblock]::Create`, which the execution policy does not govern.
+    PowerShell,
     /// Run by the bundled script host (`matsu-script --engine <name>`), which sits next to the
     /// editor's executable.
     Bundled(Engine),
@@ -104,6 +109,7 @@ impl Language {
             "py" => Some(Self::Python),
             "rb" => Some(Self::Ruby),
             "php" => Some(Self::Php),
+            "ps1" => Some(Self::PowerShell),
             "lua" => Some(Self::Bundled(Engine::Lua)),
             "js" => Some(Self::Bundled(Engine::QuickJs)),
             "mruby" => Some(Self::Bundled(Engine::Mruby)),
@@ -119,6 +125,7 @@ impl Language {
             Self::Python => "Python",
             Self::Ruby => "Ruby",
             Self::Php => "PHP",
+            Self::PowerShell => "PowerShell",
             Self::Bundled(engine) => engine.display_name(),
         }
     }
@@ -137,6 +144,7 @@ impl Language {
             Self::Python => "python3".into(),
             Self::Ruby => "ruby".into(),
             Self::Php => "php".into(),
+            Self::PowerShell => powershell_interpreter(),
         }
     }
 
@@ -147,7 +155,7 @@ impl Language {
     pub fn real_interpreter_path(self, interpreter: &OsStr) -> io::Result<PathBuf> {
         let (flag, code) = match self {
             // The host is the executable itself; there is no launcher to see through.
-            Self::Bundled(_) => return Ok(PathBuf::from(interpreter)),
+            Self::Bundled(_) | Self::PowerShell => return Ok(PathBuf::from(interpreter)),
             Self::JavaScript | Self::TypeScript => ("-p", "process.execPath"),
             Self::Python => ("-c", "import sys; print(sys.executable)"),
             // A version manager (asdf, rbenv) answers with a shim; this is the real one.
@@ -189,6 +197,30 @@ pub fn parse_node_version(output: &str) -> Option<(u32, u32, u32)> {
     let mut next = || parts.next()?.parse().ok();
     Some((next()?, next()?, next()?))
 }
+
+/// `pwsh` (PowerShell 7), or on Windows, where Windows PowerShell 5.1 is part of the system,
+/// `powershell` when `pwsh` is not installed. A user who wants the other one points the macro
+/// at it with `MacroConfig::interpreter`.
+fn powershell_interpreter() -> OsString {
+    if cfg!(windows) && !on_path("pwsh.exe") {
+        "powershell".into()
+    } else {
+        "pwsh".into()
+    }
+}
+
+/// Whether a file of this name is in one of the directories of the `PATH`.
+fn on_path(file: &str) -> bool {
+    std::env::var_os("PATH")
+        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(file).is_file()))
+}
+
+/// What the PowerShell macros start with. `-Command` runs the text as it is; a script file would
+/// be held back by the execution policy (Restricted is the default of Windows clients), and
+/// text that is compiled to a script block is not. The boot files are read from the folder that
+/// the editor made (`MATSU_BOOT_DIR`), so no path is quoted into this text.
+const POWERSHELL_BOOTSTRAP: &str = "$d = $env:MATSU_BOOT_DIR; \
+    . ([scriptblock]::Create([IO.File]::ReadAllText([IO.Path]::Combine($d, 'boot.ps1'), [Text.Encoding]::UTF8)))";
 
 /// What the editor tells the host about one run. `for_script` fills in the defaults; the
 /// editor then changes the fields it has settings for.
@@ -246,7 +278,7 @@ impl std::fmt::Display for StartError {
         match self {
             Self::UnknownLanguage { script } => write!(
                 f,
-                "{}: マクロの拡張子は .mjs、.js、.cjs、.ts、.py、.rb、.php、.lua、.mruby、.upy のどれかにしてください",
+                "{}: マクロの拡張子は .mjs、.js、.cjs、.ts、.py、.rb、.php、.ps1、.lua、.mruby、.upy のどれかにしてください",
                 script.display()
             ),
             Self::Boot(err) => write!(f, "マクロの準備に失敗しました: {err}"),
@@ -379,7 +411,7 @@ pub type Sink = Arc<dyn Fn(HostEvent) + Send + Sync>;
 /// `Finished`.
 pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
     let script = match config.language {
-        Language::Bundled(_) => Some(read_script(&config.script)?),
+        Language::Bundled(_) | Language::PowerShell => Some(read_script(&config.script)?),
         Language::JavaScript
         | Language::TypeScript
         | Language::Python
@@ -424,6 +456,21 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
                 .arg("UTF-8")
                 .arg(boot_files(boot::RB_BOOT))
                 .arg(&config.script);
+        }
+        Language::PowerShell => {
+            // The text of the script goes in `initialize`, so there is no path to open. No
+            // profile and no prompt: the user's profile would change the output and may wait
+            // for input.
+            command
+                .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"])
+                .arg(POWERSHELL_BOOTSTRAP)
+                .env(
+                    "MATSU_BOOT_DIR",
+                    boot_dir
+                        .as_ref()
+                        .map(|dir| dir.path())
+                        .unwrap_or(Path::new("")),
+                );
         }
         Language::Php => {
             // The errors go to the standard error (the output panel shows them as the macro's

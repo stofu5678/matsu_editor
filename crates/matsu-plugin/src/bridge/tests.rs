@@ -651,6 +651,7 @@ fn run_macro(language: Language, code: &str, f: &mut Fixture) -> Option<crate::s
         Language::Python => "macro.py",
         Language::Ruby => "macro.rb",
         Language::Php => "macro.php",
+        Language::PowerShell => "macro.ps1",
         Language::Bundled(_) => unreachable!("the bundled engines are tested in matsu-script"),
     };
     let script = dir.path().join(name);
@@ -778,7 +779,7 @@ try { Editor::lower_case_name(); } catch (BadMethodCallException $e) { echo "no 
                     "no method"
                 ]
             ),
-            Language::Bundled(_) => unreachable!(),
+            Language::Bundled(_) | Language::PowerShell => unreachable!(),
         }
     }
 }
@@ -879,6 +880,7 @@ fn run_macro_with_env(
         Language::Python => "macro.py",
         Language::Ruby => "macro.rb",
         Language::Php => "macro.php",
+        Language::PowerShell => "macro.ps1",
         Language::Bundled(_) => unreachable!("the bundled engines are tested in matsu-script"),
     };
     let script = dir.path().join(name);
