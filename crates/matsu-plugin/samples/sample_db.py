@@ -21,7 +21,8 @@ DATABASE = ":memory:"  # a file, e.g. r"C:\data\app.db"; ":memory:" is gone when
 first_line = 1
 if Editor.IsTextSelected():
     sql = Editor.GetSelectedString(0)
-    first_line = Editor.GetSelectLineFrom()  # so that an error names the line of the document
+    # so that an error names the line of the document (not the row of a wrapped line)
+    first_line = Editor.LayoutToLogicLineNum(Editor.GetSelectLineFrom())
 else:
     count = Editor.GetLineCount(0)
     sql = "".join(Editor.GetLineStr(i) for i in range(1, count + 1))

@@ -19,7 +19,8 @@ $database = ':memory:'; // a file, e.g. 'C:\data\app.db'; ':memory:' is gone whe
 $firstLine = 1;
 if (Editor::IsTextSelected()) {
     $sql = Editor::GetSelectedString(0);
-    $firstLine = Editor::GetSelectLineFrom(); // so that an error names the line of the document
+    // so that an error names the line of the document (not the row of a wrapped line)
+    $firstLine = Editor::LayoutToLogicLineNum(Editor::GetSelectLineFrom());
 } else {
     $sql = '';
     $count = Editor::GetLineCount(0);
@@ -64,7 +65,8 @@ foreach (preg_split('/(?<=\n)/', $sql, -1, PREG_SPLIT_NO_EMPTY) as $line) {
         $start = $number;
     }
     $statement .= $line;
-    if (str_ends_with(rtrim($line), ';')) {
+    // a "--" comment after the ";" is not part of the line's end
+    if (str_ends_with(rtrim(preg_replace('/--.*$/', '', $line)), ';')) {
         $run();
         $statement = '';
     }

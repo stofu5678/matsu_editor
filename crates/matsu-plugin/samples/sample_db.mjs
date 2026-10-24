@@ -23,7 +23,8 @@ let sql;
 let firstLine = 1;
 if (Editor.IsTextSelected()) {
   sql = Editor.GetSelectedString(0);
-  firstLine = Editor.GetSelectLineFrom(); // so that an error names the line of the document
+  // so that an error names the line of the document (not the row of a wrapped line)
+  firstLine = Editor.LayoutToLogicLineNum(Editor.GetSelectLineFrom());
 } else {
   const count = Editor.GetLineCount(0);
   const lines = [];
@@ -67,7 +68,8 @@ for (const line of sql.split(/(?<=\n)/)) {
     start = number;
   }
   statement += line;
-  if (line.trimEnd().endsWith(';')) {
+  // a "--" comment after the ";" is not part of the line's end
+  if (line.replace(/--.*$/, '').trimEnd().endsWith(';')) {
     run();
     statement = '';
   }
