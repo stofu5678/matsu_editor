@@ -2,11 +2,11 @@
 //! (`sakura_core/prop/CPropComEdit.cpp`).
 //!
 //! Live: copy without a selection, paste of a row at the start of the row, the conversion of line
-//! endings in a paste, and where the file dialogs start (`eOpenDialogDir`, `szOpenDialogSelDir`,
-//! read by `crate::file_dialog`). Not available yet: the copy of wrapped rows with a line ending
-//! and the deselection after a copy, drag and drop, the options of the overwrite mode, selecting
-//! a URL by a click, the Vista style dialog (a Windows thing), the extended line endings and the
-//! lock of the box selection.
+//! endings in a paste, drag and drop inside the window, selecting a URL by a click, and where the
+//! file dialogs start (`eOpenDialogDir`, `szOpenDialogSelDir`, read by `crate::file_dialog`). Not
+//! available yet: the copy of wrapped rows with a line ending and the deselection after a copy,
+//! the options of the overwrite mode, the Vista style dialog (a Windows thing), the extended line
+//! endings and the lock of the box selection.
 
 use gpui::{Context, Window};
 use matsu_commands::edit_options;
@@ -83,7 +83,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         "bUseOLE_DragDrop",
                         true,
                     )
-                    .unavailable()
                     .into(),
                     Control::check(
                         "use_ole_drop_source",
@@ -91,7 +90,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         "bUseOLE_DropSource",
                         true,
                     )
-                    .unavailable()
                     .when(drag_drop_is_on)
                     .into(),
                 ],
@@ -136,7 +134,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         "bSelectClickedURL",
                         true,
                     )
-                    .unavailable()
                     .into(),
                 ],
             ),
@@ -241,5 +238,9 @@ pub(in crate::common_settings) fn apply(_env: &mut Env, after: &Values, _before:
     // Open documents read it on their next edit (`SharedDocument::parts_mut`), as Sakura reads it
     // where it makes a line; the lines that exist are not split again.
     options.ext_eol = after.bool("enable_ext_eol");
+    // The mouse reads them at each press (`view/mouse.rs`).
+    options.drag_drop = after.bool("use_ole_drag_drop");
+    options.drop_source = after.bool("use_ole_drop_source");
+    options.select_clicked_url = after.bool("select_clicked_url");
     edit_options::set(options);
 }

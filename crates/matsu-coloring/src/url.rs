@@ -135,6 +135,38 @@ pub fn url_len(b: &[u8], before: Option<u8>) -> usize {
     mail_len(b, before)
 }
 
+/// `CEditView::IsCurrentPositionURL` (`sakura_core/view/CEditView.cpp`) without the regular
+/// expression keywords: the byte range of the URL (or mail address) of `line` that covers the byte
+/// column `col`, if there is one. `line` has no line ending. The scan starts `_MAX_PATH` (260) units
+/// before `col`, as Sakura's does, and a URL has to start at a keyword head, as the coloring's
+/// does.
+pub fn url_at(line: &str, col: usize) -> Option<std::ops::Range<usize>> {
+    const MAX_PATH: usize = 260;
+    let bytes = line.as_bytes();
+    let mut i = col.saturating_sub(MAX_PATH);
+    while i <= col && i < bytes.len() {
+        if line.is_char_boundary(i) {
+            let head = line[..i]
+                .chars()
+                .next_back()
+                .is_none_or(|c| !crate::charkind::is_keyword_char(c));
+            if head {
+                let before = i.checked_sub(1).map(|b| bytes[b]);
+                let n = url_len(&bytes[i..], before);
+                if n > 0 {
+                    if col < i + n {
+                        return Some(i..i + n);
+                    }
+                    i += n;
+                    continue;
+                }
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
 /// The characters of the local part of a mail address: `0x21` to `0x7E` without `"(),:;<>@[\]`
 /// (`IsValidChar` in `IsMailAddress`).
 fn is_mail_char(b: u8) -> bool {
@@ -192,6 +224,23 @@ mod tests {
 
     fn url(s: &str) -> usize {
         url_len(s.as_bytes(), None)
+    }
+
+    #[test]
+    fn the_url_under_a_column() {
+        let line = "see http://example.com/a ok";
+        assert_eq!(url_at(line, 4), Some(4..24));
+        assert_eq!(url_at(line, 23), Some(4..24));
+        assert_eq!(url_at(line, 24), None);
+        assert_eq!(url_at(line, 0), None);
+        // a URL after Japanese text; the columns are bytes
+        let line = "表https://a.b/c";
+        assert_eq!(url_at(line, 3), Some(3..line.len()));
+        assert_eq!(url_at(line, 1), None);
+        // not at a keyword head: part of a word
+        assert_eq!(url_at("xhttp://a.b", 3), None);
+        // a mail address
+        assert_eq!(url_at("to a@b.com now", 4), Some(3..10));
     }
 
     #[test]

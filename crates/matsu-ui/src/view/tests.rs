@@ -19,12 +19,15 @@ use crate::document::SharedDocument;
 use crate::file_names::title::default_title;
 use crate::geometry::Metrics;
 
-struct Fixture {
-    document: Entity<SharedDocument>,
-    view: Entity<EditorView>,
+pub(super) struct Fixture {
+    pub(super) document: Entity<SharedDocument>,
+    pub(super) view: Entity<EditorView>,
 }
 
-fn setup<'a>(cx: &'a mut TestAppContext, text: &str) -> (Fixture, &'a mut VisualTestContext) {
+pub(super) fn setup<'a>(
+    cx: &'a mut TestAppContext,
+    text: &str,
+) -> (Fixture, &'a mut VisualTestContext) {
     let doc = Document::from_utf8(text.as_bytes().to_vec()).unwrap();
     let document = cx.new(|_| SharedDocument::new(DocumentModel::new(doc), None));
     let shared = document.clone();
@@ -37,7 +40,7 @@ fn setup<'a>(cx: &'a mut TestAppContext, text: &str) -> (Fixture, &'a mut Visual
 }
 
 impl Fixture {
-    fn lines(&self, cx: &mut VisualTestContext) -> Vec<String> {
+    pub(super) fn lines(&self, cx: &mut VisualTestContext) -> Vec<String> {
         self.document.read_with(cx, |shared, _| {
             let doc = shared.doc();
             (0..doc.line_count())
@@ -46,7 +49,7 @@ impl Fixture {
         })
     }
 
-    fn caret(&self, cx: &mut VisualTestContext) -> Pos {
+    pub(super) fn caret(&self, cx: &mut VisualTestContext) -> Pos {
         self.view.read_with(cx, |v, _| v.cursor.caret())
     }
 
@@ -57,7 +60,7 @@ impl Fixture {
 
 /// The window position of the cell at `row` and `col`, from what the last paint of the test
 /// window measured (the test platform has no fonts, so the sizes are the fallbacks).
-fn point_of(
+pub(super) fn point_of(
     f: &Fixture,
     cx: &mut VisualTestContext,
     row: usize,

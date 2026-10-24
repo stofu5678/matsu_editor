@@ -116,10 +116,27 @@ pub(crate) struct Marked {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Drag {
     None,
-    /// Selecting from `anchor` to the pointer.
+    /// Selecting from the range `bgn` (the empty range at the click, or the word, the URL that the
+    /// press selected) to the pointer; with `words` both ends snap to word boundaries
+    /// (`m_sSelectBgn`, `m_bBeginWordSelect`).
     Select {
-        anchor: Pos,
+        bgn: (Pos, Pos),
+        words: bool,
     },
+    /// Selecting rows (the line number column) or logical lines (a triple click) from `bgn`.
+    Lines {
+        bgn: (Pos, Pos),
+        logical: bool,
+    },
+    /// An Alt drag: the corner of a box selection follows the pointer.
+    Box,
+    /// The button went down in the selection (with drag and drop on): a click if the pointer stays,
+    /// a drag of the text once it moves ([`Drag::Drop`]).
+    Press {
+        down: gpui::Point<gpui::Pixels>,
+    },
+    /// Dragging the selected text; [`EditorView::drop_caret`] shows where it would go.
+    Drop,
     /// Dragging the scroll bar thumb.
     Thumb {
         start_y: f32,
@@ -169,6 +186,12 @@ pub struct EditorView {
     /// The composition replaced a selection when it started: its commit overwrites nothing more.
     pub(crate) composing_over_selection: bool,
     pub(crate) drag: Drag,
+    /// Where a drag of the selected text would drop it: the caret is drawn there meanwhile
+    /// (Sakura moves the caret with the pointer, `OnMOUSEMOVE` while `m_bDragMode`).
+    pub(crate) drop_caret: Option<Pos>,
+    /// Which click of a series the last press was: 1 to 4 (single, double, triple, quadruple).
+    /// Sakura keeps it as `m_dwTripleClickCheck` (`mouse.rs`).
+    pub(crate) click_phase: u8,
     /// The auto scroll of the middle button (`view/autoscroll.rs`).
     pub(crate) autoscroll: autoscroll::AutoScroll,
     pub(crate) notice: Option<String>,
@@ -245,6 +268,8 @@ impl EditorView {
             composing: false,
             composing_over_selection: false,
             drag: Drag::None,
+            drop_caret: None,
+            click_phase: 1,
             autoscroll: Default::default(),
             notice: None,
             prefs: ViewPrefs::new(Default::default()),
@@ -813,12 +838,28 @@ impl Render for EditorView {
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
-            .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
+            .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up_outside))
             .on_mouse_down(MouseButton::Middle, cx.listener(Self::on_middle_mouse_down))
             .on_mouse_up(MouseButton::Middle, cx.listener(Self::on_middle_mouse_up))
             .on_mouse_up_out(
                 MouseButton::Middle,
                 cx.listener(Self::on_middle_mouse_up_outside),
+            )
+            .on_mouse_down(
+                MouseButton::Navigate(gpui::NavigationDirection::Back),
+                cx.listener(Self::on_side_mouse_down),
+            )
+            .on_mouse_up(
+                MouseButton::Navigate(gpui::NavigationDirection::Back),
+                cx.listener(Self::on_side_mouse_up),
+            )
+            .on_mouse_down(
+                MouseButton::Navigate(gpui::NavigationDirection::Forward),
+                cx.listener(Self::on_side_mouse_down),
+            )
+            .on_mouse_up(
+                MouseButton::Navigate(gpui::NavigationDirection::Forward),
+                cx.listener(Self::on_side_mouse_up),
             )
             .on_mouse_down(MouseButton::Right, cx.listener(Self::on_right_mouse_down))
             .on_mouse_up(MouseButton::Right, cx.listener(Self::on_right_mouse_up))
@@ -853,6 +894,8 @@ impl Render for EditorView {
 
 #[cfg(test)]
 mod colors_tests;
+#[cfg(test)]
+mod mouse_tests;
 #[cfg(test)]
 mod paging_tests;
 #[cfg(test)]

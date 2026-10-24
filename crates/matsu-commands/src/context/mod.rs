@@ -31,6 +31,8 @@ mod modified_lines;
 #[cfg(test)]
 mod modified_lines_tests;
 mod motion;
+mod mouse;
+mod mouse_drop;
 mod paragraph;
 mod view_mode;
 mod word;
@@ -53,6 +55,7 @@ pub use funclist::FuncListJump;
 pub use modes::{eol_of_macro_value, macro_value_of_eol};
 pub use modified_lines::ModifiedLineJump;
 pub(crate) use motion::is_indent_char;
+pub use mouse::DragSelection;
 
 /// One edit of the text, in the coordinates of the document before the edit for `old_end` and
 /// after it for `new_end`: the text from `start` to `old_end` is gone, and the text from `start`
