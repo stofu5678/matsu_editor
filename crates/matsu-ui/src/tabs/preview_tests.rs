@@ -523,3 +523,65 @@ fn the_keys_of_the_window_work_with_the_focus_in_the_preview(cx: &mut TestAppCon
     cx.run_until_parked();
     assert_eq!(ws.read_with(cx, |ws, _| ws.active_tab()), 0);
 }
+
+#[gpui::test]
+fn joining_from_a_window_with_only_a_preview_does_nothing(cx: &mut TestAppContext) {
+    let first = window(cx, true);
+    open(cx, first);
+    let ws = workspace(cx, first);
+    handle_close_source(cx, first);
+    let _second = cx
+        .update(|app| open_editor_window(app, SharedDocument::empty(), None))
+        .unwrap();
+    cx.run_until_parked();
+    run(cx, first, "F_TAB_JOINTNEXT");
+    cx.run_until_parked();
+    // The window still has its preview and can be drawn.
+    ws.read_with(cx, |ws, _| {
+        assert_eq!(ws.tab_count(), 1);
+        assert!(ws.tab_content(0).unwrap().preview().is_some());
+    });
+    assert_eq!(super::tests::windows(cx), 2);
+}
+
+/// Closes the first tab (the source) of the window.
+fn handle_close_source(cx: &mut TestAppContext, handle: AnyWindowHandle) {
+    let ws = workspace(cx, handle);
+    handle
+        .update(cx, |_, window, app| {
+            ws.update(app, |ws, cx| ws.close_tab_now(0, window, cx))
+        })
+        .unwrap();
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn closing_the_other_tabs_from_a_preview_keeps_the_preview(cx: &mut TestAppContext) {
+    let handle = window(cx, true);
+    open(cx, handle);
+    run(cx, handle, "F_TAB_CLOSEOTHER");
+    cx.run_until_parked();
+    assert_eq!(super::tests::windows(cx), 1);
+    let ws = workspace(cx, handle);
+    ws.read_with(cx, |ws, _| {
+        assert!(ws.tab_content(ws.active_tab()).unwrap().preview().is_some());
+    });
+}
+
+#[gpui::test]
+fn closing_the_tabs_on_the_right_works_from_a_preview(cx: &mut TestAppContext) {
+    let handle = window(cx, true);
+    open(cx, handle);
+    // A new document opens after the preview; go back to the preview.
+    run(cx, handle, "F_FILENEW");
+    let ws = workspace(cx, handle);
+    ws.read_with(cx, |ws, _| assert_eq!(ws.tab_count(), 3));
+    handle
+        .update(cx, |_, window, app| {
+            ws.update(app, |ws, cx| ws.activate_tab(1, window, cx))
+        })
+        .unwrap();
+    run(cx, handle, "F_TAB_CLOSERIGHT");
+    cx.run_until_parked();
+    ws.read_with(cx, |ws, _| assert_eq!(ws.tab_count(), 2));
+}

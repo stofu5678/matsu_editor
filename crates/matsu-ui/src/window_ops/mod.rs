@@ -364,10 +364,16 @@ pub(crate) async fn close_windows(
     if !keep_current {
         closing.extend(mine);
     }
+    // A window whose documents are all closed but that still has a preview (a tab that is not a
+    // document of the group) goes with them. Not when one document stays (`keep_current`).
+    let handles: Vec<_> = closing
+        .iter()
+        .map(|(handle, _)| *handle)
+        .chain(std::iter::once(current))
+        .collect();
     let closed = close_views(cx, closing).await;
-    // The window that runs it may have only a preview left, which has no document to close.
     if closed && !keep_current {
-        close_preview_only_windows(cx, vec![current]);
+        close_preview_only_windows(cx, handles);
     }
     closed
 }
@@ -398,15 +404,11 @@ pub(crate) async fn close_views(
     if !confirm_closing_several(cx, views.len()).await {
         return false;
     }
-    let handles: Vec<_> = views.iter().map(|(handle, _)| *handle).collect();
     for (handle, view) in views {
         if !crate::tabs::bar::close_document(cx, handle, &view).await {
             return false;
         }
     }
-    // A window whose documents are all closed but that still has a preview (a tab that is not a
-    // document of the group) goes with them.
-    close_preview_only_windows(cx, handles);
     true
 }
 

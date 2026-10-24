@@ -338,8 +338,12 @@ impl Workspace {
                 taken.push(set);
             }
         }
-        let emptied = content::TabContent::Editor(PaneSet::emptied());
-        taken.extend(std::mem::replace(&mut self.content, emptied).into_editor());
+        // A window left with only a preview keeps it: there are no panes to take, and the window
+        // must still be drawable if the caller does not close it (a join that finds nothing).
+        if self.content.editor_panes().is_some() {
+            let emptied = content::TabContent::Editor(PaneSet::emptied());
+            taken.extend(std::mem::replace(&mut self.content, emptied).into_editor());
+        }
         taken.reverse();
         taken
     }
