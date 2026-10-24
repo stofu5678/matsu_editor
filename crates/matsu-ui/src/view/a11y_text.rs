@@ -19,6 +19,7 @@ use std::rc::Rc;
 
 use gpui::A11ySubtreeBuilder;
 use gpui::accesskit::{Node, Rect, Role, TextDirection, TextPosition, TextSelection};
+use matsu_commands::text::word::search_next_word;
 use matsu_core::buffer::Pos;
 use matsu_layout::{LayoutConfig, RowInfo};
 
@@ -80,37 +81,26 @@ pub(crate) struct Text {
     pub(crate) selection: Option<(At, At)>,
 }
 
-/// The class of a character for the starts of words. Space (and the line break) goes with the
-/// word before it; the marks of punctuation are a word each; a run of the same class is a word.
-fn class(c: char) -> u8 {
-    match c {
-        ' ' | '\t' | '\n' | '\u{3000}' => 0,
-        'a'..='z' | 'A'..='Z' | '0'..='9' | '_' => 1,
-        '\u{3041}'..='\u{3096}' => 2,
-        '\u{30A1}'..='\u{30FA}' | 'ー' => 3,
-        '\u{4E00}'..='\u{9FFF}' | '々' => 4,
-        c if c.is_alphanumeric() => 5,
-        _ => 6,
-    }
-}
-
-/// The index (in characters) where each word of `text` starts. `before` is the class of the
-/// character just before the text when the text goes on from a soft wrap (the row before it): a
-/// word that starts right at the wrap then starts at 0. At the start of a line it is `None` and
-/// the first character is implicitly the start of a word (AccessKit). Trailing spaces belong to
-/// the word before; leading spaces of a line are a word of their own.
-fn word_starts(text: &str, before: Option<u8>) -> Vec<usize> {
+/// The index (in characters) where each word of `text` starts, by the rules of the word keys
+/// (`matsu_commands::text::word::search_next_word`: Sakura's `SearchNextWordPosition`), so that
+/// the screen reader moves by word where Ctrl+Right does. Trailing spaces belong to the word
+/// before; leading spaces of a line are a word of their own. `before` is the character just
+/// before the text when it goes on from a soft wrap (the row before it): a word that starts right
+/// at the wrap then starts at 0. At the start of a line it is `None` and the first character is
+/// implicitly the start of a word (AccessKit).
+fn word_starts(text: &str, before: Option<char>) -> Vec<usize> {
+    let skip = usize::from(before.is_some());
+    let line: Vec<char> = before.into_iter().chain(text.chars()).collect();
     let mut starts = Vec::new();
-    let mut prev = before;
-    for (i, c) in text.chars().enumerate() {
-        let k = class(c);
-        if let Some(p) = prev
-            && k != 0
-            && (p == 0 || p != k || k == 6)
-        {
-            starts.push(i);
+    let mut at = 0;
+    while let Some(next) = search_next_word(&line, 0, at, false) {
+        // The end of the text is where the key stops when no word follows: not a start. (`next`
+        // is never 0, and the prepended character is not part of the text.)
+        if next >= line.len() {
+            break;
         }
-        prev = Some(k);
+        starts.push(next - skip);
+        at = next;
     }
     starts
 }
@@ -145,22 +135,6 @@ impl Snapshot {
             widths.push(w as f32 * unit);
             x += w;
         }
-        // A row that goes on from a soft wrap continues the word before it unless the characters
-        // around the wrap say otherwise. Without the row before it (it is above the screen),
-        // the wrap counts as a space.
-        let before = (row.row_in_line > 0).then(|| {
-            index
-                .checked_sub(1)
-                .and_then(|i| self.rows[i].text().chars().next_back())
-                .map_or(0, class)
-        });
-        // AccessKit reads the starts as `u8` and goes wrong on a run with more characters than
-        // that: such a row is one word (no starts).
-        let words = if char_lengths.len() > usize::from(u8::MAX) {
-            Vec::new()
-        } else {
-            word_starts(&value, before)
-        };
         if row.eol.is_some() {
             // One character for every kind of line break (a CRLF counts as one: the AccessKit
             // rule), after the last character, one cell wide as its mark.
@@ -170,6 +144,22 @@ impl Snapshot {
             widths.push(unit);
             x += 1;
         }
+        // A row that goes on from a soft wrap continues the word before it unless the characters
+        // around the wrap say otherwise. Without the row before it (it is above the screen),
+        // the wrap counts as a space.
+        let before = (row.row_in_line > 0).then(|| {
+            index
+                .checked_sub(1)
+                .and_then(|i| self.rows[i].text().chars().next_back())
+                .unwrap_or(' ')
+        });
+        // AccessKit reads the starts as `u8` and goes wrong on a run with more characters than
+        // that (the line break counts): such a row is one word (no starts).
+        let words = if char_lengths.len() > usize::from(u8::MAX) {
+            Vec::new()
+        } else {
+            word_starts(row.text(), before)
+        };
         // The width counts the cell of the mark of the end of the text, where the caret can be.
         let width = (x - origin + u32::from(row.eol.is_none())) as f32 * unit;
         let x0 = f64::from((self.left + row.start_column as f32 * self.cell) * self.scale);

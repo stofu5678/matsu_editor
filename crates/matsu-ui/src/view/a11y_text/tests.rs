@@ -45,11 +45,15 @@ fn words_start_where_the_kind_of_character_changes() {
     // leading spaces are a word of their own
     assert_eq!(word_starts("  ab", None), [2]);
     assert_eq!(word_starts("ひらがなカタカナ漢字abc", None), [4, 8, 10]);
+    // the same rules as Ctrl+Right: symbols make a word together, the prolonged sound mark goes
+    // with the kana around it
+    assert_eq!(word_starts("a+-b", None), [1, 3]);
+    assert_eq!(word_starts("あーい", None), Vec::<usize>::new());
     assert_eq!(word_starts("", None), Vec::<usize>::new());
     // after a soft wrap: a word that starts at the wrap, and one that goes on
-    assert_eq!(word_starts("kl", Some(0)), [0]);
-    assert_eq!(word_starts("kl", Some(1)), Vec::<usize>::new());
-    assert_eq!(word_starts("kl mn", Some(1)), [3]);
+    assert_eq!(word_starts("kl", Some(' ')), [0]);
+    assert_eq!(word_starts("kl", Some('k')), Vec::<usize>::new());
+    assert_eq!(word_starts("kl mn", Some('k')), [3]);
 }
 
 #[gpui::test]
@@ -245,4 +249,12 @@ fn a_box_selection_is_the_caret_only(cx: &mut TestAppContext) {
     let text = text_of(&f.view, cx);
     let (anchor, focus) = text.selection.unwrap();
     assert_eq!(anchor, focus);
+}
+
+#[gpui::test]
+fn a_row_of_255_characters_and_a_line_break_has_no_word_starts(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, &format!("{}a\nb", "a ".repeat(127)));
+    let text = text_of(&f.view, cx);
+    assert_eq!(text.runs[0].char_lengths.len(), 256);
+    assert!(text.runs[0].word_starts.is_empty());
 }
