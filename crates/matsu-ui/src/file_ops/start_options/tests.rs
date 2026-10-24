@@ -601,7 +601,8 @@ fn launch_options_split_what_is_for_every_file_and_what_is_for_the_first() {
     assert_eq!(
         options.after_load(true).unwrap().macro_,
         Some(MacroLaunch::Text {
-            language: "JS".into()
+            language: "JS".into(),
+            code: "x".into()
         })
     );
     let line = crate::command_line::parse(&["-M=x".into(), "-MTYPE=File".into()]);

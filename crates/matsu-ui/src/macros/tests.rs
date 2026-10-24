@@ -1200,3 +1200,4 @@ fn a_macro_waits_for_the_warning_of_a_lock_that_failed(cx: &mut TestAppContext) 
     assert_eq!(f.lines(cx), ["Zabc"]);
 }
 mod registered_tests;
+mod statements_tests;

@@ -23,7 +23,7 @@ use crate::file_dialog::{self, Answer, Ask};
 use crate::input_dialog::InputRequest;
 
 /// The caption of the message boxes (Sakura shows "sakura macro").
-const CAPTION: &str = "MATSU Editor マクロ";
+pub(super) const CAPTION: &str = "MATSU Editor マクロ";
 
 impl EditorView {
     /// The environment for one call: what the window reports. `message` is the line of the call,
@@ -123,15 +123,10 @@ impl EditorView {
                 buttons,
                 icon,
             } => {
-                let level = match icon {
-                    Icon::Error => PromptLevel::Critical,
-                    Icon::Warning => PromptLevel::Warning,
-                    Icon::Question | Icon::Information | Icon::None => PromptLevel::Info,
-                };
-                let answer = window.prompt(level, CAPTION, Some(&text), buttons.labels(), cx);
+                let answer = self.message_prompt(&text, buttons, icon, window, cx);
                 self.wait_for(serial, pending, window, cx, async move {
                     // A prompt that is dropped without an answer is a closed box.
-                    Ok(Value::from(buttons.result(answer.await.ok())))
+                    Ok(Value::from(buttons.result(answer.await)))
                 });
             }
             Deferred::FileOpen { default, .. } => {
@@ -197,6 +192,25 @@ impl EditorView {
             }
         }
         true
+    }
+
+    /// Shows a message box (`MessageBox` of Windows, as a prompt of the window). The answer is the
+    /// index of the button that was pressed, `None` for a box that was closed without one.
+    pub(super) fn message_prompt(
+        &self,
+        text: &str,
+        buttons: window::Buttons,
+        icon: Icon,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl Future<Output = Option<usize>> + 'static {
+        let level = match icon {
+            Icon::Error => PromptLevel::Critical,
+            Icon::Warning => PromptLevel::Warning,
+            Icon::Question | Icon::Information | Icon::None => PromptLevel::Info,
+        };
+        let answer = window.prompt(level, CAPTION, Some(text), buttons.labels(), cx);
+        async move { answer.await.ok() }
     }
 
     /// Waits for `answer` and then sends the result to the macro that asked (`serial` is its
