@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
-use gpui::{App, Context, EntityId, Global, WeakEntity, Window, WindowId};
+use gpui::{App, Context, Entity, EntityId, Global, WeakEntity, Window, WindowId};
 use matsu_config::unsaved::{DocInfo, Session, SessionWindow, Store, StoreError};
 use matsu_core::buffer::Eol;
 use matsu_core::buffer::col_to_utf16;
@@ -197,6 +197,28 @@ impl Keeper {
             last_session: Some(Session::default()),
             session_retry_at: None,
             told_failure: false,
+        }
+    }
+
+    /// Tells the user once when something in the folder fails to be written or removed (a document, `session.ini`,
+    /// a copy to discard, a clear), and again after it worked in between. `document_failed` is a failure of the
+    /// write of a document the window knows.
+    fn tell_failure(&mut self, document_failed: bool, view: &Entity<EditorView>, cx: &mut App) {
+        let writer_failed =
+            matches!(&self.state, State::Running(w) if w.failed() || w.session_failed());
+        if document_failed || writer_failed {
+            if !self.told_failure {
+                self.told_failure = true;
+                view.update(cx, |view, cx| {
+                    view.notice = Some(
+                        "保存していない文書のコピーを書けない、または消せないものがあります。"
+                            .to_owned(),
+                    );
+                    cx.notify();
+                });
+            }
+        } else {
+            self.told_failure = false;
         }
     }
 
@@ -527,6 +549,12 @@ pub(crate) fn tick_window_at(
 ) {
     let prefs = prefs(cx);
     if !prefs.keep {
+        // A removal that failed after the user turned the feature off (and chose to delete) is still said.
+        if cx.has_global::<Keeper>() {
+            let mut keeper = cx.remove_global::<Keeper>();
+            keeper.tell_failure(false, &workspace.editor().clone(), cx);
+            cx.set_global(keeper);
+        }
         return;
     }
     if !cx.has_global::<Keeper>() {
@@ -604,15 +632,10 @@ pub(crate) fn tick_window_at(
                 ids.push(id);
             }
         }
-        if let Some(view) = failed_notice.filter(|_| !keeper.told_failure) {
-            keeper.told_failure = true;
-            view.update(cx, |view, cx| {
-                view.notice = Some("保存していない文書を残せません。".to_owned());
-                cx.notify();
-            });
-        } else if writer.is_some_and(|w| !w.failed()) {
-            keeper.told_failure = false;
-        }
+        let view = failed_notice
+            .clone()
+            .unwrap_or_else(|| workspace.editor().clone());
+        keeper.tell_failure(failed_notice.is_some(), &view, cx);
         let id = window.window_handle().window_id();
         let report = WindowReport {
             ids,

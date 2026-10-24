@@ -241,15 +241,12 @@ fn run(
             }
             Job::Clear => {
                 session = Session::default();
-                let result = store.clear();
-                if result.is_ok() {
-                    pending.stuck.clear();
-                } else {
-                    // What is there now is removed one by one at the next tries. Not the whole folder again:
-                    // by then the feature may be on, and the copies written since must stay.
-                    pending.stuck.extend(copies_in(store));
-                }
-                result
+                // What is there now is removed file by file, and what cannot be removed is remembered by name
+                // and tried again. Not the whole folder again: by then the feature may be on, and the copies
+                // written since must stay.
+                pending.stuck.clear();
+                pending.leftovers.clear();
+                clear_now(store, &mut pending)
             }
             Job::Barrier(tx) => {
                 let _ = tx.send(());
@@ -291,14 +288,20 @@ const RETRY_STUCK: std::time::Duration = std::time::Duration::from_secs(5);
 struct Pending {
     /// Copies that could not be removed.
     stuck: Vec<String>,
+    /// Files of a clear that could not be removed: documents, temporary files, the rejected ones.
+    leftovers: Vec<std::path::PathBuf>,
 }
 
 impl Pending {
     fn is_empty(&self) -> bool {
-        self.stuck.is_empty()
+        self.stuck.is_empty() && self.leftovers.is_empty()
     }
 
     fn retry(&mut self, store: &Store, session: &mut Session) {
+        self.leftovers.retain(|path| remove_file(path).is_err());
+        if self.leftovers.is_empty() {
+            let _ = std::fs::remove_dir(store.dir().join("rejected"));
+        }
         self.stuck
             .retain(|id| match store.discard_doc(id, session) {
                 Ok(next) => {
@@ -310,18 +313,61 @@ impl Pending {
     }
 }
 
-/// The ids of the copies that are in the folder.
-pub(crate) fn copies_in(store: &Store) -> Vec<String> {
-    let Ok(entries) = std::fs::read_dir(store.dir()) else {
-        return Vec::new();
+/// Removes a file; a file that is not there is removed.
+fn remove_file(path: &std::path::Path) -> io::Result<()> {
+    match std::fs::remove_file(path) {
+        Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
+        _ => Ok(()),
+    }
+}
+
+/// The files `clear` removes, listed now: the documents, the temporary files, `session.ini`, and what is in
+/// `rejected/`. `lock` and anything else stay.
+pub(crate) fn clear_targets(store: &Store) -> Vec<std::path::PathBuf> {
+    let mut targets = Vec::new();
+    let mut list = |dir: &std::path::Path, all: bool| {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for path in entries.filter_map(|e| e.ok()).map(|e| e.path()) {
+            if !path.is_file() {
+                continue;
+            }
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            let ext = path.extension().and_then(|e| e.to_str());
+            let stem_is_id = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .is_some_and(matsu_config::unsaved::is_valid_id);
+            if all
+                || name == "session.ini"
+                || ext == Some("tmp")
+                || (ext == Some("doc") && stem_is_id)
+            {
+                targets.push(path);
+            }
+        }
     };
-    entries
-        .filter_map(|e| e.ok())
-        .filter_map(|e| {
-            let path = e.path();
-            let stem = path.file_stem()?.to_str()?.to_owned();
-            (path.extension()? == "doc" && matsu_config::unsaved::is_valid_id(&stem))
-                .then_some(stem)
-        })
-        .collect()
+    list(store.dir(), false);
+    list(&store.dir().join("rejected"), true);
+    targets
+}
+
+/// Removes everything [`clear_targets`] lists. What cannot be removed goes to `pending.leftovers`, and the
+/// result is an error then.
+fn clear_now(store: &Store, pending: &mut Pending) -> io::Result<()> {
+    let mut first_error = None;
+    for path in clear_targets(store) {
+        if let Err(e) = remove_file(&path) {
+            first_error.get_or_insert(e);
+            // `session.ini` is written again by the keeper; the others are asked for again.
+            if path.file_name().and_then(|n| n.to_str()) != Some("session.ini") {
+                pending.leftovers.push(path);
+            }
+        }
+    }
+    if first_error.is_none() {
+        let _ = std::fs::remove_dir(store.dir().join("rejected"));
+    }
+    first_error.map_or(Ok(()), Err)
 }

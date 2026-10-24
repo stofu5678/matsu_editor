@@ -385,3 +385,49 @@ fn the_folder_is_not_made_before_something_is_to_be_kept(cx: &mut TestAppContext
     tick(cx, &f, t0 + Duration::from_secs(11));
     assert!(f.dir.exists());
 }
+
+fn notice(cx: &mut TestAppContext, f: &Fixture) -> Option<String> {
+    let ws = workspace(cx, f.handle);
+    ws.read_with(cx, |ws, app| ws.editor().read(app).notice.clone())
+}
+
+#[gpui::test]
+fn a_failed_write_of_the_session_is_told_although_the_documents_are_written(
+    cx: &mut TestAppContext,
+) {
+    let f = fixture(cx);
+    // A folder where `session.ini` should be: the documents can be written, the session cannot.
+    std::fs::create_dir_all(f.dir.join("session.ini")).unwrap();
+    let t0 = Instant::now();
+    type_text(cx, &f, "text");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    tick(cx, &f, t0 + Duration::from_secs(4));
+    assert!(notice(cx, &f).is_some_and(|n| n.contains("消せない")));
+}
+
+#[cfg(unix)]
+#[gpui::test]
+fn a_removal_that_fails_after_the_feature_was_turned_off_is_told(cx: &mut TestAppContext) {
+    use std::os::unix::fs::PermissionsExt;
+    let f = fixture(cx);
+    let t0 = Instant::now();
+    type_text(cx, &f, "text");
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    // Turned off, and the user chose to delete; the folder cannot be changed.
+    cx.update(|app| {
+        app.set_global(KeepPrefs {
+            keep: false,
+            ..KeepPrefs::default()
+        })
+    });
+    std::fs::set_permissions(&f.dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+    cx.update(super::clear_copies);
+    tick(cx, &f, t0 + Duration::from_secs(5));
+    let told = notice(cx, &f);
+    std::fs::set_permissions(&f.dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(told.is_some_and(|n| n.contains("消せない")));
+}

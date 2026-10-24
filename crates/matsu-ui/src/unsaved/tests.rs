@@ -414,7 +414,7 @@ fn a_failure_is_not_reported_as_over_by_a_wait_that_retried_nothing() {
 }
 
 #[test]
-fn the_copies_in_the_folder_are_listed_by_id() {
+fn the_files_a_clear_removes_are_listed_by_name() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("unsaved")).unwrap();
     let id = Store::new_id();
@@ -423,5 +423,50 @@ fn the_copies_in_the_folder_are_listed_by_id() {
         .unwrap();
     std::fs::write(store.dir().join("notes.doc"), b"not ours").unwrap();
     std::fs::write(store.dir().join(format!("{id}.doc.1.tmp")), b"x").unwrap();
-    assert_eq!(super::writer::copies_in(&store), vec![id]);
+    std::fs::create_dir(store.dir().join("rejected")).unwrap();
+    std::fs::write(store.dir().join("rejected").join("anything"), b"x").unwrap();
+    let mut names: Vec<String> = super::writer::clear_targets(&store)
+        .iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    let mut want = vec![
+        format!("{id}.doc"),
+        format!("{id}.doc.1.tmp"),
+        "anything".to_owned(),
+    ];
+    want.sort();
+    assert_eq!(names, want);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_clear_that_cannot_remove_a_rejected_file_goes_on_trying_for_it_alone() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let dir = dir.path().join("unsaved");
+    let writer = Writer::start_retrying(&dir, Duration::from_millis(30)).unwrap();
+    let rejected = dir.join("rejected");
+    std::fs::create_dir_all(&rejected).unwrap();
+    std::fs::write(rejected.join("old.doc"), b"x").unwrap();
+    // A folder that cannot be changed: its files cannot be removed.
+    std::fs::set_permissions(&rejected, std::fs::Permissions::from_mode(0o555)).unwrap();
+    writer.clear();
+    writer.flush();
+    assert!(writer.failed(), "the clear is not complete");
+    assert!(rejected.join("old.doc").exists());
+    // A copy that is written after the clear is not touched by the tries.
+    let shared = std::sync::Arc::new(super::writer::Shared::default());
+    let id = Store::new_id();
+    writer.write(id.clone(), &shared, rev(1), snapshot("new copy"));
+    writer.flush();
+    std::fs::set_permissions(&rejected, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let start = Instant::now();
+    while writer.failed() && start.elapsed() < Duration::from_secs(5) {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(!writer.failed());
+    assert!(!rejected.join("old.doc").exists());
+    drop(writer);
+    assert_eq!(read_back(&dir, &id), "new copy");
 }
