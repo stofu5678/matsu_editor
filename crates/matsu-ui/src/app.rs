@@ -347,10 +347,10 @@ pub(crate) fn gpui_items(entries: Vec<Entry>, style: DisplayStyle) -> Vec<MenuIt
 /// The content of the window: menu bar, tab bar, editor, status bar.
 ///
 /// A window holds its documents in tabs (ADR-0015); a tab is what a window held before: a document
-/// and its panes. The panes of the tab that is active are in `panes`; the other tabs keep theirs
+/// and its panes. The content of the tab that is active is `content`; the other tabs keep theirs
 /// in `tabs` (see `crate::tabs`).
 pub struct Workspace {
-    pub(crate) panes: PaneSet,
+    pub(crate) content: crate::tabs::content::TabContent,
     pub(crate) tabs: crate::tabs::Tabs,
     /// The outline pane docked at the right of the window, while it is open (`crate::outline`).
     pub(crate) outline: Option<Entity<crate::outline::pane::OutlinePane>>,
@@ -382,7 +382,7 @@ impl Workspace {
         let active = panes.active().clone();
         window.focus(&active.focus_handle(cx), cx);
         let mut workspace = Self {
-            panes,
+            content: crate::tabs::content::TabContent::Editor(panes),
             tabs: crate::tabs::Tabs::new(),
             outline: None,
             menu_bar: MenuBar::new(cx),
@@ -426,7 +426,7 @@ impl Workspace {
             if window.is_window_active() {
                 defer_refresh_menu_states(cx, true);
                 // Another program may have changed the file while the window was in the background.
-                crate::file_watch::spawn_check(this.panes.active().clone(), window, cx);
+                crate::file_watch::spawn_check(this.panes().active().clone(), window, cx);
             }
         })
         .detach();
@@ -459,9 +459,9 @@ impl Workspace {
         cx: &App,
     ) -> crate::menu_state::FuncStates {
         // The menus follow the kind of the active tab (ADR-0024); the editor is the only kind.
-        match crate::tabs::content::TabPanel::menu_kind(&self.panes) {
+        match self.content.panel().menu_kind() {
             crate::tabs::content::MenuKind::Editor => crate::menu_state::FuncStates::of_view(
-                self.panes.active().read(cx),
+                self.panes().active().read(cx),
                 self.outline.is_some(),
                 topmost,
                 self.tab_count() + documents_elsewhere(cx, this),
@@ -472,17 +472,17 @@ impl Workspace {
 
     /// The pane the user works in (the only pane unless the window is split).
     pub fn editor(&self) -> &Entity<EditorView> {
-        self.panes.active()
+        self.panes().active()
     }
 }
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_outline(cx);
-        let active = self.panes.active().clone();
+        let active = self.panes().active().clone();
         let editor = active.read(cx);
         window.set_window_title(&editor.title_for(window.is_window_active(), cx));
-        let status = crate::tabs::content::TabPanel::status(&self.panes, cx);
+        let status = self.content.panel().status(cx);
         let show_status_bar = editor.status_bar_shown();
         let macro_panel = editor.macro_panel(active.clone());
         let ui_font = gpui_component::Theme::global(cx).font_family.clone();

@@ -11,8 +11,8 @@
 //! * [`flows`]: what the tab functions do across windows: gather, spread, separate, join, and
 //!   where a new document opens.
 //!
-//! The panes of the tab that is active are in `Workspace::panes`, so the code of the split view
-//! works on the active tab as before; the other tabs keep their panes in [`Tabs`]. A key macro
+//! The content of the tab that is active is `Workspace::content` (its panes, `Workspace::panes()`),
+//! so the code of the split view works on the active tab as before; the other tabs keep their panes in [`Tabs`]. A key macro
 //! belongs to the tab where it was started (Sakura records in one edit window), while the search
 //! pattern and the status bar follow the user from tab to tab.
 
@@ -41,13 +41,11 @@ mod tests;
 
 use gpui::{Context, Entity, Window};
 
-use content::TabPanel as _;
-
 use crate::app::Workspace;
 use crate::panes::PaneSet;
 use crate::view::EditorView;
 
-/// A tab. The panes of the active tab are `Workspace::panes`, so its own set is `None`.
+/// A tab. The content of the active tab is `Workspace::content`, so its own is `None`.
 pub(crate) struct Tab {
     id: u64,
     parked: Option<content::TabContent>,
@@ -95,10 +93,19 @@ impl Workspace {
         self.tabs.active
     }
 
+    /// The panes of the active tab, which is an editor for now (`content::TabContent`).
+    pub(crate) fn panes(&self) -> &PaneSet {
+        self.content.panes()
+    }
+
+    pub(crate) fn panes_mut(&mut self) -> &mut PaneSet {
+        self.content.panes_mut()
+    }
+
     /// The panes of tab `index`.
     fn tab_panes(&self, index: usize) -> Option<&PaneSet> {
         if index == self.tabs.active {
-            Some(&self.panes)
+            Some(self.content.panes())
         } else {
             self.tabs
                 .list
@@ -112,7 +119,7 @@ impl Workspace {
     /// Tab `index` as the window sees every kind of tab (`content::TabPanel`).
     pub(crate) fn tab_panel(&self, index: usize) -> Option<&dyn content::TabPanel> {
         if index == self.tabs.active {
-            Some(&self.panes)
+            Some(self.content.panel())
         } else {
             Some(self.tabs.list.get(index)?.parked.as_ref()?.panel())
         }
@@ -153,22 +160,18 @@ impl Workspace {
         if index == self.tabs.active || index >= self.tab_count() {
             return;
         }
-        let old_view = self.panes.active().clone();
-        let Some(incoming) = self.tabs.list[index]
-            .parked
-            .take()
-            .map(content::TabContent::into_panes)
-        else {
+        let old_view = self.panes().active().clone();
+        let Some(incoming) = self.tabs.list[index].parked.take() else {
             return;
         };
-        let parked = std::mem::replace(&mut self.panes, incoming);
-        self.tabs.list[self.tabs.active].parked = Some(content::TabContent::Editor(parked));
+        let parked = std::mem::replace(&mut self.content, incoming);
+        self.tabs.list[self.tabs.active].parked = Some(parked);
         self.tabs.active = index;
         let id = self.tabs.list[index].id;
         self.tabs.touch(id);
-        let new_view = self.panes.active().clone();
+        let new_view = self.panes().active().clone();
         self.move_window_state_between(&old_view, &new_view, false, window, cx);
-        window.focus(&self.panes.focus_handle(cx), cx);
+        window.focus(&self.content.panel().focus_handle(cx), cx);
         cx.notify();
     }
 
@@ -203,19 +206,19 @@ impl Workspace {
         // The new tab is built as the active one and the old one is parked; if the new tab is not
         // to be active, the old one comes back at the end.
         let previous = self.tabs.list[self.tabs.active].id;
-        let old_view = self.panes.active().clone();
-        let parked = std::mem::replace(&mut self.panes, incoming);
-        self.tabs.list[self.tabs.active].parked = Some(content::TabContent::Editor(parked));
+        let old_view = self.panes().active().clone();
+        let parked = std::mem::replace(&mut self.content, content::TabContent::Editor(incoming));
+        self.tabs.list[self.tabs.active].parked = Some(parked);
         self.tabs.list.insert(at, Tab { id, parked: None });
         self.tabs.active = at;
         for (index, pane) in numbered {
             self.adopt_into_window(index, pane, window, cx);
         }
         self.tabs.touch(id);
-        let new_view = self.panes.active().clone();
+        let new_view = self.panes().active().clone();
         self.move_window_state_between(&old_view, &new_view, false, window, cx);
         if activate {
-            window.focus(&self.panes.focus_handle(cx), cx);
+            window.focus(&self.content.panel().focus_handle(cx), cx);
         } else if let Some(back) = self.tabs.list.iter().position(|t| t.id == previous) {
             self.activate_tab(back, window, cx);
         }
@@ -264,7 +267,8 @@ impl Workspace {
                 taken.push(set);
             }
         }
-        taken.push(std::mem::replace(&mut self.panes, PaneSet::emptied()));
+        let emptied = content::TabContent::Editor(PaneSet::emptied());
+        taken.push(std::mem::replace(&mut self.content, emptied).into_panes());
         taken.reverse();
         taken
     }

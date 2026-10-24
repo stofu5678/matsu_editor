@@ -176,7 +176,7 @@ impl Workspace {
     /// Splits the window, or removes the split, the way `F_SPLIT_V`, `F_SPLIT_H` and
     /// `F_SPLIT_VH` do (`CSplitterWnd::VSplitOnOff` and the others).
     pub fn split(&mut self, kind: SplitKind, window: &mut Window, cx: &mut Context<Self>) {
-        let set = &self.panes;
+        let set = &self.panes();
         let (w, h) = set.area_size();
         let (rh, rv) = request(kind, set.grid, set.h * w, set.v * h, w, h);
         self.do_split(rh, rv, window, cx);
@@ -184,8 +184,8 @@ impl Workspace {
 
     /// `CSplitterWnd::DoSplit`: the bars at `h` and `v` pixels (0: none).
     fn do_split(&mut self, h: f32, v: f32, window: &mut Window, cx: &mut Context<Self>) {
-        let (w, height) = self.panes.area_size();
-        let plan = do_split(self.panes.grid, self.panes.active, h, v, w, height);
+        let (w, height) = self.panes().area_size();
+        let plan = do_split(self.panes().grid, self.panes().active, h, v, w, height);
         self.apply(plan, w, height, window, cx);
     }
 
@@ -200,30 +200,30 @@ impl Workspace {
         // A macro that runs belongs to its pane: the pane stays until the macro ends.
         let busy = (0..4).find(|&i| {
             !plan.grid.shows(i)
-                && self.panes.slots[i]
+                && self.panes().slots[i]
                     .as_ref()
                     .is_some_and(|p| p.read(cx).is_macro_running())
         });
         if busy.is_some() {
-            let active = self.panes.active().clone();
+            let active = self.panes().active().clone();
             active.update(cx, |view, cx| {
                 view.notice = Some("マクロの実行中は、その画面の分割を解除できない".into());
                 cx.notify();
             });
             return;
         }
-        let old_active = self.panes.active;
+        let old_active = self.panes().active;
         // The panes that come to be shown start like the pane the user is in.
         for &i in plan.grid.panes() {
-            if self.panes.slots[i].is_none() {
+            if self.panes().slots[i].is_none() {
                 self.make_pane(i, window, cx);
             }
         }
         for &(from, to) in &plan.copies {
-            let status = self.panes.slots[from]
+            let status = self.panes().slots[from]
                 .as_ref()
                 .map(|p| p.read(cx).view_status());
-            if let (Some(status), Some(pane)) = (status, self.panes.slots[to].clone()) {
+            if let (Some(status), Some(pane)) = (status, self.panes().slots[to].clone()) {
                 pane.update(cx, |view, cx| {
                     view.apply_view_status(status);
                     cx.notify();
@@ -237,21 +237,21 @@ impl Workspace {
             Active::Pane(n) => n,
             Active::ByCaret => self.pane_2_has_the_caret(cx),
         };
-        self.panes.grid = plan.grid;
-        self.panes.h = if w > 0.0 { plan.h / w } else { 0.0 };
-        self.panes.v = if height > 0.0 { plan.v / height } else { 0.0 };
+        self.panes_mut().grid = plan.grid;
+        self.panes_mut().h = if w > 0.0 { plan.h / w } else { 0.0 };
+        self.panes_mut().v = if height > 0.0 { plan.v / height } else { 0.0 };
         // The window's own state moves with the user to the pane that is active afterwards; the
         // panes that go away are dropped after that.
         self.move_window_state(old_active, new_active, window, cx);
         for i in 0..4 {
             if !plan.grid.shows(i) {
-                self.panes.slots[i] = None;
-                self.panes.subscriptions[i].clear();
+                self.panes_mut().slots[i] = None;
+                self.panes_mut().subscriptions[i].clear();
             }
         }
-        self.panes.active = new_active;
+        self.panes_mut().active = new_active;
         self.note_scroll_positions(cx);
-        if let Some(pane) = self.panes.pane(new_active) {
+        if let Some(pane) = self.panes().pane(new_active) {
             window.focus(&pane.read(cx).focus_handle(cx), cx);
         }
         cx.notify();
@@ -261,7 +261,7 @@ impl Workspace {
     /// `DoSplit`).
     fn stagger_pane_2(&mut self, bar: f32, height: f32, cx: &mut Context<Self>) {
         let (Some(first), Some(second)) =
-            (self.panes.pane(0).cloned(), self.panes.pane(2).cloned())
+            (self.panes().pane(0).cloned(), self.panes().pane(2).cloned())
         else {
             return;
         };
@@ -281,7 +281,7 @@ impl Workspace {
     /// `pcViewArr[2]->GetTextArea().GetViewTopLine() < pcViewArr[2]->GetCaret().GetCaretLayoutPos().y`:
     /// the caret is below the first row of pane 2, so pane 2 becomes active.
     fn pane_2_has_the_caret(&self, cx: &App) -> usize {
-        let Some(pane) = self.panes.pane(2) else {
+        let Some(pane) = self.panes().pane(2) else {
             return 0;
         };
         let view = pane.read(cx);
@@ -293,7 +293,7 @@ impl Workspace {
 
     /// A pane for slot `index`, made like the active pane.
     fn make_pane(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let source = self.panes.active().clone();
+        let source = self.panes().active().clone();
         let seed = source.read(cx).pane_seed();
         let document = source.read(cx).document().clone();
         let host = cx.weak_entity();
@@ -318,8 +318,8 @@ impl Workspace {
             let pane = pane.clone();
             move |this, _, cx| this.pane_changed(&pane, cx)
         });
-        self.panes.subscriptions[index] = vec![focus, watch];
-        self.panes.slots[index] = Some(pane);
+        self.panes_mut().subscriptions[index] = vec![focus, watch];
+        self.panes_mut().slots[index] = Some(pane);
     }
 
     /// `adopt` for a pane that comes from another window or is new: it also learns its window.
@@ -342,19 +342,19 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(index) = self.panes.index_of(pane) {
+        if let Some(index) = self.panes().index_of(pane) {
             self.activate(index, window, cx);
         }
     }
 
     /// Makes the pane `index` the active one.
     fn activate(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if index == self.panes.active || !self.panes.grid.shows(index) {
+        if index == self.panes().active || !self.panes().grid.shows(index) {
             return;
         }
-        let old = self.panes.active;
+        let old = self.panes().active;
         self.move_window_state(old, index, window, cx);
-        self.panes.active = index;
+        self.panes_mut().active = index;
         cx.notify();
     }
 
@@ -370,8 +370,10 @@ impl Workspace {
         if from == to {
             return;
         }
-        let (Some(old), Some(new)) = (self.panes.slots[from].clone(), self.panes.slots[to].clone())
-        else {
+        let (Some(old), Some(new)) = (
+            self.panes().slots[from].clone(),
+            self.panes().slots[to].clone(),
+        ) else {
             return;
         };
         self.move_window_state_between(&old, &new, true, window, cx);
@@ -405,8 +407,8 @@ impl Workspace {
 
     fn note_scroll_positions(&mut self, cx: &App) {
         for i in 0..4 {
-            if let Some(pane) = &self.panes.slots[i] {
-                self.panes.scrolled[i] = pane.read(cx).scroll();
+            if let Some(pane) = &self.panes().slots[i] {
+                self.panes_mut().scrolled[i] = pane.read(cx).scroll();
             }
         }
     }
@@ -418,7 +420,7 @@ impl Workspace {
     /// `CEditView::SyncScrollV` uses pane `index ^ 1` and `SyncScrollH` pane `index ^ 2`
     /// (`sakura_core/view/CEditView_Scroll.cpp`), if the pane is shown.
     fn pane_changed(&mut self, pane: &Entity<EditorView>, cx: &mut Context<Self>) {
-        let Some(index) = self.panes.index_of(pane) else {
+        let Some(index) = self.panes().index_of(pane) else {
             return;
         };
         let (x, y) = pane.read(cx).scroll();
@@ -428,8 +430,8 @@ impl Workspace {
         let metrics = *pane.read(cx).metrics();
         let top_row = y / metrics.line_height;
         let left_col = x / metrics.cell_width;
-        let (last_x, last_y) = self.panes.scrolled[index];
-        self.panes.scrolled[index] = (x, y);
+        let (last_x, last_y) = self.panes().scrolled[index];
+        self.panes_mut().scrolled[index] = (x, y);
         // `m_bSplitterWndVScroll` and `m_bSplitterWndHScroll`: the common settings (ウィンドウ).
         let sync = crate::common_settings::splitter_sync(cx);
         if sync.vertical && y != last_y {
@@ -447,10 +449,10 @@ impl Workspace {
         top_row: Option<(f32, bool)>,
         cx: &mut Context<Self>,
     ) {
-        if !self.panes.grid.shows(partner) {
+        if !self.panes().grid.shows(partner) {
             return;
         }
-        let Some(other) = self.panes.slots[partner].clone() else {
+        let Some(other) = self.panes().slots[partner].clone() else {
             return;
         };
         // Remember what the partner will have, so that its change is not synchronized back.
@@ -463,7 +465,7 @@ impl Workspace {
             cx.notify();
             view.scroll()
         });
-        self.panes.scrolled[partner] = after;
+        self.panes_mut().scrolled[partner] = after;
     }
 
     // ---- the bars ----
@@ -477,14 +479,14 @@ impl Workspace {
     ) {
         if event.click_count >= 2 {
             // OnLButtonDblClk: a double click removes the split on that bar.
-            let (w, h) = self.panes.area_size();
-            let keep_h = if self.panes.grid.cols > 1 {
-                self.panes.h * w
+            let (w, h) = self.panes().area_size();
+            let keep_h = if self.panes().grid.cols > 1 {
+                self.panes().h * w
             } else {
                 0.0
             };
-            let keep_v = if self.panes.grid.rows > 1 {
-                self.panes.v * h
+            let keep_v = if self.panes().grid.rows > 1 {
+                self.panes().v * h
             } else {
                 0.0
             };
@@ -496,16 +498,16 @@ impl Workspace {
             cx.stop_propagation();
             return;
         }
-        self.panes.dragging = Some(bar);
+        self.panes_mut().dragging = Some(bar);
         cx.stop_propagation();
     }
 
     fn drag_to(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
-        if self.panes.dragging.is_none() {
+        if self.panes().dragging.is_none() {
             return;
         }
         if !event.dragging() {
-            self.panes.dragging = None;
+            self.panes_mut().dragging = None;
             return;
         }
         self.move_bar(event.position, cx);
@@ -513,34 +515,34 @@ impl Workspace {
 
     /// Moves the bar being dragged to `position`, within the area.
     fn move_bar(&mut self, position: gpui::Point<Pixels>, cx: &mut Context<Self>) {
-        let Some(bar) = self.panes.dragging else {
+        let Some(bar) = self.panes().dragging else {
             return;
         };
-        let area = self.panes.area.get();
-        let (w, h) = self.panes.area_size();
+        let area = self.panes().area.get();
+        let (w, h) = self.panes().area_size();
         // OnMouseMove keeps the tracker inside the area (1 pixel from the top left, 6 from the
         // bottom right).
         let x = f32::from(position.x - area.origin.x).clamp(1.0, (w - 6.0).max(1.0));
         let y = f32::from(position.y - area.origin.y).clamp(1.0, (h - 6.0).max(1.0));
         if matches!(bar, Bar::Cols | Bar::Both) {
-            self.panes.h = x / w;
+            self.panes_mut().h = x / w;
         }
         if matches!(bar, Bar::Rows | Bar::Both) {
-            self.panes.v = y / h;
+            self.panes_mut().v = y / h;
         }
         cx.notify();
     }
 
     /// OnLButtonUp: the split with the bars where the user dropped them.
     fn end_drag(&mut self, event: &MouseUpEvent, window: &mut Window, cx: &mut Context<Self>) {
-        if self.panes.dragging.is_none() {
+        if self.panes().dragging.is_none() {
             return;
         }
         // The release can be outside the area, where no move reached us.
         self.move_bar(event.position, cx);
-        self.panes.dragging = None;
-        let (w, h) = self.panes.area_size();
-        let set = &self.panes;
+        self.panes_mut().dragging = None;
+        let (w, h) = self.panes().area_size();
+        let set = &self.panes();
         let x = if set.grid.cols > 1 { set.h * w } else { 0.0 };
         let y = if set.grid.rows > 1 { set.v * h } else { 0.0 };
         self.do_split(x, y, window, cx);
@@ -550,7 +552,7 @@ impl Workspace {
 
     /// The text area: the pane itself when the window is not split, else the panes and the bars.
     pub(crate) fn render_panes(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let set = &self.panes;
+        let set = &self.panes();
         let area = set.area.clone();
         let measure = canvas(move |bounds, _, _| area.set(bounds), |_, _, _, _| {})
             .absolute()
