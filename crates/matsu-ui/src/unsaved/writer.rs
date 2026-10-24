@@ -246,6 +246,7 @@ fn run(
                 // written since must stay.
                 pending.stuck.clear();
                 pending.leftovers.clear();
+                pending.unreadable.clear();
                 clear_now(store, &mut pending)
             }
             Job::Barrier(tx) => {
@@ -290,18 +291,42 @@ struct Pending {
     stuck: Vec<String>,
     /// Files of a clear that could not be removed: documents, temporary files, the rejected ones.
     leftovers: Vec<std::path::PathBuf>,
+    /// Folders a clear could not read, with the time of the clear: listed again at the next try, and only what
+    /// is not newer than the clear is removed.
+    unreadable: Vec<(std::path::PathBuf, std::time::SystemTime)>,
 }
 
 impl Pending {
     fn is_empty(&self) -> bool {
-        self.stuck.is_empty() && self.leftovers.is_empty()
+        self.stuck.is_empty() && self.leftovers.is_empty() && self.unreadable.is_empty()
     }
 
     fn retry(&mut self, store: &Store, session: &mut Session) {
+        let unreadable = std::mem::take(&mut self.unreadable);
+        for (dir, cleared_at) in unreadable {
+            match std::fs::read_dir(&dir) {
+                Ok(entries) => {
+                    for entry in entries.filter_map(|e| e.ok()) {
+                        let old = entry
+                            .metadata()
+                            .and_then(|m| m.modified())
+                            .is_ok_and(|t| t <= cleared_at);
+                        let ours = dir.file_name().is_some_and(|n| n == "rejected")
+                            || is_ours(&entry.path());
+                        if old && ours && entry.path().is_file() {
+                            self.leftovers.push(entry.path());
+                        }
+                    }
+                }
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(_) => self.unreadable.push((dir, cleared_at)),
+            }
+        }
         self.leftovers.retain(|path| remove_file(path).is_err());
-        if self.leftovers.is_empty() {
+        if self.leftovers.is_empty() && self.unreadable.is_empty() {
             let _ = std::fs::remove_dir(store.dir().join("rejected"));
         }
+        sync_dirs(store);
         self.stuck
             .retain(|id| match store.discard_doc(id, session) {
                 Ok(next) => {
@@ -321,43 +346,45 @@ fn remove_file(path: &std::path::Path) -> io::Result<()> {
     }
 }
 
+/// Whether a file in the folder itself is one this module made (`lock` and anything else is not).
+fn is_ours(path: &std::path::Path) -> bool {
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let ext = path.extension().and_then(|e| e.to_str());
+    let stem_is_id = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .is_some_and(matsu_config::unsaved::is_valid_id);
+    name == "session.ini" || ext == Some("tmp") || (ext == Some("doc") && stem_is_id)
+}
+
 /// The files `clear` removes, listed now: the documents, the temporary files, `session.ini`, and what is in
-/// `rejected/`. `lock` and anything else stay.
-pub(crate) fn clear_targets(store: &Store) -> Vec<std::path::PathBuf> {
+/// `rejected/`. `lock` and anything else stay. A folder that cannot be read is returned too, to be listed again.
+pub(crate) fn clear_targets(store: &Store) -> (Vec<std::path::PathBuf>, Vec<std::path::PathBuf>) {
     let mut targets = Vec::new();
-    let mut list = |dir: &std::path::Path, all: bool| {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            return;
-        };
-        for path in entries.filter_map(|e| e.ok()).map(|e| e.path()) {
-            if !path.is_file() {
-                continue;
-            }
-            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            let ext = path.extension().and_then(|e| e.to_str());
-            let stem_is_id = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .is_some_and(matsu_config::unsaved::is_valid_id);
-            if all
-                || name == "session.ini"
-                || ext == Some("tmp")
-                || (ext == Some("doc") && stem_is_id)
-            {
-                targets.push(path);
+    let mut unreadable = Vec::new();
+    let mut list = |dir: &std::path::Path, all: bool| match std::fs::read_dir(dir) {
+        Ok(entries) => {
+            for path in entries.filter_map(|e| e.ok()).map(|e| e.path()) {
+                if path.is_file() && (all || is_ours(&path)) {
+                    targets.push(path);
+                }
             }
         }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(_) => unreadable.push(dir.to_owned()),
     };
     list(store.dir(), false);
     list(&store.dir().join("rejected"), true);
-    targets
+    (targets, unreadable)
 }
 
-/// Removes everything [`clear_targets`] lists. What cannot be removed goes to `pending.leftovers`, and the
-/// result is an error then.
+/// Removes everything [`clear_targets`] lists. What cannot be removed goes to `pending`, and the result is an
+/// error then.
 fn clear_now(store: &Store, pending: &mut Pending) -> io::Result<()> {
+    let cleared_at = std::time::SystemTime::now();
+    let (targets, unreadable) = clear_targets(store);
     let mut first_error = None;
-    for path in clear_targets(store) {
+    for path in targets {
         if let Err(e) = remove_file(&path) {
             first_error.get_or_insert(e);
             // `session.ini` is written again by the keeper; the others are asked for again.
@@ -366,8 +393,25 @@ fn clear_now(store: &Store, pending: &mut Pending) -> io::Result<()> {
             }
         }
     }
+    for dir in unreadable {
+        first_error.get_or_insert_with(|| io::Error::from(io::ErrorKind::PermissionDenied));
+        pending.unreadable.push((dir, cleared_at));
+    }
     if first_error.is_none() {
         let _ = std::fs::remove_dir(store.dir().join("rejected"));
     }
+    sync_dirs(store);
     first_error.map_or(Ok(()), Err)
+}
+
+/// Asks the OS to record the removals. Best effort, like the save of a document.
+fn sync_dirs(store: &Store) {
+    #[cfg(unix)]
+    for dir in [store.dir().to_owned(), store.dir().join("rejected")] {
+        if let Ok(d) = std::fs::File::open(dir) {
+            let _ = d.sync_all();
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = store;
 }

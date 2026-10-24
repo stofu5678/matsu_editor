@@ -206,7 +206,12 @@ impl Keeper {
     fn tell_failure(&mut self, document_failed: bool, view: &Entity<EditorView>, cx: &mut App) {
         let writer_failed =
             matches!(&self.state, State::Running(w) if w.failed() || w.session_failed());
-        if document_failed || writer_failed {
+        // Every document counts, not only the ones of this window: one latch for the whole process.
+        let any_document_failed = self
+            .entries
+            .values()
+            .any(|e| e.shared.failed.load(std::sync::atomic::Ordering::SeqCst));
+        if document_failed || any_document_failed || writer_failed {
             if !self.told_failure {
                 self.told_failure = true;
                 view.update(cx, |view, cx| {

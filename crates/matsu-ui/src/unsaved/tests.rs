@@ -425,7 +425,9 @@ fn the_files_a_clear_removes_are_listed_by_name() {
     std::fs::write(store.dir().join(format!("{id}.doc.1.tmp")), b"x").unwrap();
     std::fs::create_dir(store.dir().join("rejected")).unwrap();
     std::fs::write(store.dir().join("rejected").join("anything"), b"x").unwrap();
-    let mut names: Vec<String> = super::writer::clear_targets(&store)
+    let (targets, unreadable) = super::writer::clear_targets(&store);
+    assert!(unreadable.is_empty());
+    let mut names: Vec<String> = targets
         .iter()
         .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
         .collect();
@@ -451,6 +453,11 @@ fn a_clear_that_cannot_remove_a_rejected_file_goes_on_trying_for_it_alone() {
     std::fs::write(rejected.join("old.doc"), b"x").unwrap();
     // A folder that cannot be changed: its files cannot be removed.
     std::fs::set_permissions(&rejected, std::fs::Permissions::from_mode(0o555)).unwrap();
+    if std::fs::write(rejected.join("probe"), b"x").is_ok() {
+        // The permissions are not enforced (running as root): nothing to test.
+        std::fs::set_permissions(&rejected, std::fs::Permissions::from_mode(0o755)).unwrap();
+        return;
+    }
     writer.clear();
     writer.flush();
     assert!(writer.failed(), "the clear is not complete");
@@ -469,4 +476,32 @@ fn a_clear_that_cannot_remove_a_rejected_file_goes_on_trying_for_it_alone() {
     assert!(!rejected.join("old.doc").exists());
     drop(writer);
     assert_eq!(read_back(&dir, &id), "new copy");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_clear_that_cannot_read_rejected_goes_on_trying() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let dir = dir.path().join("unsaved");
+    let writer = Writer::start_retrying(&dir, Duration::from_millis(30)).unwrap();
+    let rejected = dir.join("rejected");
+    std::fs::create_dir_all(&rejected).unwrap();
+    std::fs::write(rejected.join("old.doc"), b"x").unwrap();
+    std::fs::set_permissions(&rejected, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if std::fs::read_dir(&rejected).is_ok() {
+        // Not enforced (running as root): nothing to test.
+        std::fs::set_permissions(&rejected, std::fs::Permissions::from_mode(0o755)).unwrap();
+        return;
+    }
+    writer.clear();
+    writer.flush();
+    assert!(writer.failed(), "an unreadable folder is not a clean clear");
+    std::fs::set_permissions(&rejected, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let start = Instant::now();
+    while writer.failed() && start.elapsed() < Duration::from_secs(5) {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(!writer.failed());
+    assert!(!rejected.join("old.doc").exists());
 }

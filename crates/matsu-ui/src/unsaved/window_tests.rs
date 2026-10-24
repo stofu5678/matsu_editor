@@ -425,6 +425,11 @@ fn a_removal_that_fails_after_the_feature_was_turned_off_is_told(cx: &mut TestAp
         })
     });
     std::fs::set_permissions(&f.dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+    if std::fs::write(f.dir.join("probe"), b"x").is_ok() {
+        // The permissions are not enforced (running as root): nothing to test.
+        std::fs::set_permissions(&f.dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        return;
+    }
     cx.update(super::clear_copies);
     tick(cx, &f, t0 + Duration::from_secs(5));
     let told = notice(cx, &f);
