@@ -698,7 +698,7 @@ fn ok_writes_the_sets_and_the_types_and_keeps_the_rest_of_the_file(cx: &mut Test
             .contains("<mine>\t")
     );
     assert_eq!(after.get("KeyWords", "nCurrentKeyWordSetIdx"), Some("0"));
-    assert_eq!(after.get("KeyWords", "bUmeExtraSetsInFile"), Some("1"));
+    assert_eq!(after.get("KeyWords", "bUmeExtraSetsInFile"), Some("11"));
     // The type that used C/C++ has no set; the Java type moved from 4 to 3.
     let types = DocumentTypes::from_profile(&after);
     assert_eq!(types.get(0).unwrap().keyword_set_idx[0], -1);

@@ -64,7 +64,14 @@ pub const MAX_KEYWORD_LEN: usize = 63;
 pub const SECTION: &str = "KeyWords";
 /// The key that tells that MATSU Editor wrote the sets, with its own among them (ADR-0017): they are all in the
 /// file then, and a set that is not there was deleted. Sakura does not know the key.
+///
+/// The value is how many of MATSU Editor's own sets the writer had ([`ExtraSet::ALL`]`.len()`), so that a set
+/// added by a later version (not in that many) is told from one the user deleted. The first versions wrote
+/// `1` for "true" when they had [`LEGACY_EXTRA_SET_COUNT`] sets.
 pub const EXTRA_SETS_IN_FILE_KEY: &str = "bUmeExtraSetsInFile";
+
+/// How many of MATSU Editor's own sets the versions had that wrote `bUmeExtraSetsInFile=1`.
+const LEGACY_EXTRA_SET_COUNT: usize = 10;
 
 /// One keyword set (`CKeyWordSetMgr` keeps these side by side in arrays).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -149,7 +156,7 @@ impl KeywordSets {
     /// What the editor has without a settings file: the 17 sets of Sakura (`CShareData::InitKeyword`), then
     /// MATSU Editor's own.
     pub fn builtin() -> Self {
-        Self::with_extras(Self::sakura_sets(), false)
+        Self::with_extras(Self::sakura_sets(), 0)
     }
 
     /// Finds MATSU Editor's own sets among `sets` (by name), and puts the ones that are missing after `sets`, as
@@ -158,15 +165,16 @@ impl KeywordSets {
     /// exist).
     ///
     /// A file that [MATSU Editor wrote](EXTRA_SETS_IN_FILE_KEY) has the sets itself, so a missing one was deleted
-    /// by the user and stays gone (`in_file`).
-    fn with_extras(mut sets: Vec<KeywordSet>, in_file: bool) -> Self {
-        let room = !in_file && sets.len() >= SAKURA_KEYWORD_SET_COUNT;
+    /// by the user and stays gone, unless it is one that came after the `known` sets the writer had (a set of a
+    /// later version is added). `known` is 0 for a file that MATSU Editor did not write.
+    fn with_extras(mut sets: Vec<KeywordSet>, known: usize) -> Self {
+        let room = sets.len() >= SAKURA_KEYWORD_SET_COUNT;
         let extra = ExtraSet::ALL
             .iter()
             .map(|s| {
                 if let Some(at) = sets.iter().position(|set| set.name == s.name()) {
                     i32::try_from(at).unwrap_or(-1)
-                } else if room && sets.len() < MAX_KEYWORD_SETS {
+                } else if room && s.ordinal() >= known && sets.len() < MAX_KEYWORD_SETS {
                     sets.push(s.to_set());
                     i32::try_from(sets.len() - 1).unwrap_or(-1)
                 } else {
@@ -220,7 +228,11 @@ impl KeywordSets {
         let Some(count) = profile.get_i32(S, "nKeyWordSetNum") else {
             return Self::builtin();
         };
-        let in_file = profile.get_bool(S, EXTRA_SETS_IN_FILE_KEY) == Some(true);
+        let known = match profile.get_i32(S, EXTRA_SETS_IN_FILE_KEY) {
+            Some(1) => LEGACY_EXTRA_SET_COUNT,
+            Some(n) => usize::try_from(n).unwrap_or(0),
+            None => 0,
+        };
         let count = usize::try_from(count).unwrap_or(0).min(MAX_KEYWORD_SETS);
         let sets = (0..count)
             .map(|i| {
@@ -240,7 +252,7 @@ impl KeywordSets {
                 KeywordSet::new(&name, case, words)
             })
             .collect();
-        Self::with_extras(sets, in_file)
+        Self::with_extras(sets, known)
     }
 
     /// How many sets there are.
@@ -312,7 +324,11 @@ pub fn store_sets(profile: &mut Profile, drafts: &[SetDraft]) -> Result<bool, Pr
         Ok::<(), ProfileError>(())
     };
     put(profile, "nKeyWordSetNum", &drafts.len().to_string())?;
-    put(profile, EXTRA_SETS_IN_FILE_KEY, "1")?;
+    put(
+        profile,
+        EXTRA_SETS_IN_FILE_KEY,
+        &ExtraSet::ALL.len().to_string(),
+    )?;
     for (i, set) in drafts.iter().enumerate() {
         let mut words = String::new();
         for word in &set.words {
@@ -498,6 +514,41 @@ mod tests {
         assert_eq!(read.extra_index(ExtraSet::Rust), 17);
         assert!(read.get(17).unwrap().contains("mine"));
         assert_eq!(read.len(), 18 + ExtraSet::ALL.len() - 1);
+    }
+
+    #[test]
+    fn a_set_of_a_later_version_is_added_but_a_deleted_one_stays_gone() {
+        // Written by the first versions: `bUmeExtraSetsInFile=1` and the 10 sets they had (no SQL).
+        let mut p = Profile::new();
+        let mut drafts = KeywordSets::builtin().drafts();
+        let sql = drafts.iter().position(|d| d.name == "SQL").unwrap();
+        drafts.remove(sql);
+        store_sets(&mut p, &drafts).unwrap();
+        p.set(SECTION, EXTRA_SETS_IN_FILE_KEY, "1").unwrap();
+        let read = KeywordSets::from_profile(&p);
+        // the user's own order is kept, SQL comes at the end
+        assert_eq!(read.len(), 28);
+        assert_eq!(read.extra_index(ExtraSet::Sql), 27);
+        assert_eq!(read.get(27).unwrap().name, "SQL");
+        assert_eq!(read.extra_index(ExtraSet::Rust), 22);
+        // and one that the user deleted of the old ones stays gone
+        let rust = drafts.iter().position(|d| d.name == "Rust").unwrap();
+        drafts.remove(rust);
+        store_sets(&mut p, &drafts).unwrap();
+        p.set(SECTION, EXTRA_SETS_IN_FILE_KEY, "1").unwrap();
+        let read = KeywordSets::from_profile(&p);
+        assert_eq!(read.extra_index(ExtraSet::Rust), -1);
+        assert_eq!(read.extra_index(ExtraSet::Sql), 26);
+        // a file written now says how many sets it knew: a deleted SQL stays gone
+        let go = drafts.iter().position(|d| d.name == "Go").unwrap();
+        drafts.remove(go);
+        store_sets(&mut p, &drafts).unwrap();
+        assert_eq!(p.get(SECTION, EXTRA_SETS_IN_FILE_KEY), Some("11"));
+        let mut kept = KeywordSets::from_profile(&p).drafts();
+        kept.retain(|d| d.name != "SQL");
+        store_sets(&mut p, &kept).unwrap();
+        let read = KeywordSets::from_profile(&p);
+        assert_eq!(read.extra_index(ExtraSet::Sql), -1);
     }
 
     #[test]
