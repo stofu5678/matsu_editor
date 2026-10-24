@@ -655,6 +655,11 @@ fn remember_keys(editor: &mut EditorView, mode: PanelMode, cx: &mut Context<Edit
     if editor.search.pattern_error().is_some() {
         return;
     }
+    // The options go to the shared data too, where the next dialog of any window reads them
+    // (`m_pShareData->m_Common.m_sSearch.m_sSearchOption = m_sSearchOption`).
+    let options = editor.search.options();
+    let replace = (mode == PanelMode::Replace).then(|| editor.search.replace.clone());
+    crate::saved_state::search::remember(cx, options, replace.as_ref());
     editor.remember_search_key(cx);
     if mode == PanelMode::Replace {
         editor.remember_replace_key(cx);
@@ -878,6 +883,14 @@ impl EditorView {
         self.close_grep_panel(window, cx);
         // Going to a line does not touch the search.
         if mode != PanelMode::Jump {
+            // The dialog starts with the options the last search of any window left
+            // (`CDlgFind::SetData`: `m_sSearchOption = m_pShareData->...m_sSearchOption`).
+            let saved = crate::saved_state::search::saved(cx);
+            self.search
+                .set_options(saved.options(self.search.options()));
+            if mode == PanelMode::Replace {
+                self.search.replace.consecutive_all = saved.consecutive_all;
+            }
             match self.dialog_seed(cx) {
                 Some(seed) => self.search.set_pattern(&seed),
                 // No selection and no word: the newest search string, if another window put

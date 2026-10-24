@@ -57,6 +57,14 @@ impl Fixture {
             o.regex = true;
             v.search.set_options(o);
         });
+        // A dialog starts with the options the last search left, so the box was ticked there.
+        cx.update(|_, app| {
+            let o = crate::search::state::SearchOptions {
+                regex: true,
+                ..Default::default()
+            };
+            crate::saved_state::search::remember(app, o, None);
+        });
     }
 }
 

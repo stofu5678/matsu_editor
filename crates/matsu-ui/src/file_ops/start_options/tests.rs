@@ -313,7 +313,13 @@ fn the_window_gets_the_size_and_the_place(cx: &mut TestAppContext) {
     assert_eq!(bounds.size.height, px(600.));
     assert_eq!(bounds.origin.x, px(40.));
     assert_eq!(bounds.origin.y, px(50.));
-    // the next window is the default again
+    // the next window is the default again (the size that the first one took is not kept)
+    cx.update(|app| {
+        app.set_global(crate::saved_state::window::WindowState {
+            size_mode: crate::saved_state::window::SaveMode::Default,
+            ..Default::default()
+        });
+    });
     launch(cx, &dir, &[]);
     let second = cx.windows()[1];
     let bounds = second.update(cx, |_, window, _| window.bounds()).unwrap();
