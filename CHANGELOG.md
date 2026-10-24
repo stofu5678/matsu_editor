@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.3.0](https://github.com/stofu5678/matsu_editor/compare/v0.2.0...v0.3.0) (2026-10-24)
+
+
+### Features
+
+* add the last Sakura functions and expose the status bar message ([#232](https://github.com/stofu5678/matsu_editor/issues/232)) ([4e7b3f4](https://github.com/stofu5678/matsu_editor/commit/4e7b3f40439ded74fa54f4a7f542145a5d6d45b7))
+* **commands:** jump from a database client's error line to the SQL (ADR-0023) ([#249](https://github.com/stofu5678/matsu_editor/issues/249)) ([1b068d7](https://github.com/stofu5678/matsu_editor/commit/1b068d75aa717f74e1e4bcdda4d4e337220c6951))
+* **commands:** run SQL on the default database connection (ADR-0023) ([#237](https://github.com/stofu5678/matsu_editor/issues/237)) ([93f89bc](https://github.com/stofu5678/matsu_editor/commit/93f89bc71bbf52a48ae9b0ddce34fbb7d117d606))
+* **config:** add the store for unsaved documents (ADR-0022) ([#233](https://github.com/stofu5678/matsu_editor/issues/233)) ([49d18f0](https://github.com/stofu5678/matsu_editor/commit/49d18f0bfc395ca36c08653f9f34042617430d42))
+* **macos:** show Sakura's icons in the native menu bar (ADR-0024) ([#234](https://github.com/stofu5678/matsu_editor/issues/234)) ([741c1ba](https://github.com/stofu5678/matsu_editor/commit/741c1baee1791b2ca9c463237d8dc77572c40cd7))
+* **macros:** run Emacs Lisp macros (ADR-0025) ([#247](https://github.com/stofu5678/matsu_editor/issues/247)) ([fe1cf1f](https://github.com/stofu5678/matsu_editor/commit/fe1cf1f0e5d3e990ed6c56ddfbc82a16037715ac))
+* **macros:** run Perl macros (ADR-0025) ([#245](https://github.com/stofu5678/matsu_editor/issues/245)) ([7d83bc3](https://github.com/stofu5678/matsu_editor/commit/7d83bc3fdf4dcfee7fc3a29188028a4794023052))
+* **macros:** run PowerShell macros (ADR-0025) ([#244](https://github.com/stofu5678/matsu_editor/issues/244)) ([aefd4e4](https://github.com/stofu5678/matsu_editor/commit/aefd4e4260f6dd3cce4b7c37efdbe2d375eda038))
+* **macros:** run TypeScript macros with Node.js (ADR-0025) ([#235](https://github.com/stofu5678/matsu_editor/issues/235)) ([4343e6a](https://github.com/stofu5678/matsu_editor/commit/4343e6af20c6f515ec528bd0ad460723986284a9))
+* **settings:** make the edit, general and window settings work ([#239](https://github.com/stofu5678/matsu_editor/issues/239)) ([93abbf1](https://github.com/stofu5678/matsu_editor/commit/93abbf14bf0eaae6293f0e9512ff7e4eb1585381))
+* **ui:** keep unsaved documents in the background (ADR-0022) ([#241](https://github.com/stofu5678/matsu_editor/issues/241)) ([154ba97](https://github.com/stofu5678/matsu_editor/commit/154ba97c74bd2a437a323221ac9c513b3847eb83))
+* **ui:** show the menus of the kind of the active tab (ADR-0024) ([#243](https://github.com/stofu5678/matsu_editor/issues/243)) ([22bf0f9](https://github.com/stofu5678/matsu_editor/commit/22bf0f98bc37a7c61a2b6f661297f259ac537bf8))
+* **view:** add Sakura's mouse operations ([#236](https://github.com/stofu5678/matsu_editor/issues/236)) ([550916f](https://github.com/stofu5678/matsu_editor/commit/550916f13c0a3252812ce97946582073d7969829))
+
+
+### Bug Fixes
+
+* **view:** forget the held mouse buttons when the window loses the activation ([#246](https://github.com/stofu5678/matsu_editor/issues/246)) ([f0b662c](https://github.com/stofu5678/matsu_editor/commit/f0b662ccc48c22a5ed81587954b04fa854712ce8))
+
 ## [0.2.0](https://github.com/stofu5678/matsu_editor/compare/v0.1.0...v0.2.0) (2026-10-23)
 
 
