@@ -218,6 +218,7 @@ fn run(
                 let result = write_doc(store, &id, &snapshot);
                 match &result {
                     Ok(()) => {
+                        pending.fresh.insert(id.clone());
                         *shared.written.lock().unwrap_or_else(|e| e.into_inner()) = Some(revision);
                         shared.failed.store(false, Ordering::SeqCst);
                     }
@@ -247,6 +248,7 @@ fn run(
                 pending.stuck.clear();
                 pending.leftovers.clear();
                 pending.unreadable.clear();
+                pending.fresh.clear();
                 clear_now(store, &mut pending)
             }
             Job::Barrier(tx) => {
@@ -294,6 +296,8 @@ struct Pending {
     /// Folders a clear could not read, with the time of the clear: listed again at the next try, and only what
     /// is not newer than the clear is removed.
     unreadable: Vec<(std::path::PathBuf, std::time::SystemTime)>,
+    /// The ids of the copies written since the last clear: a retry never removes them, whatever their time.
+    fresh: std::collections::HashSet<String>,
 }
 
 impl Pending {
@@ -306,16 +310,31 @@ impl Pending {
         for (dir, cleared_at) in unreadable {
             match std::fs::read_dir(&dir) {
                 Ok(entries) => {
-                    for entry in entries.filter_map(|e| e.ok()) {
-                        let old = entry
-                            .metadata()
-                            .and_then(|m| m.modified())
-                            .is_ok_and(|t| t <= cleared_at);
-                        let ours = dir.file_name().is_some_and(|n| n == "rejected")
-                            || is_ours(&entry.path());
-                        if old && ours && entry.path().is_file() {
-                            self.leftovers.push(entry.path());
+                    let mut complete = true;
+                    for entry in entries {
+                        // An entry that cannot be inspected makes the listing incomplete: look again later.
+                        let Ok(entry) = entry else {
+                            complete = false;
+                            continue;
+                        };
+                        let path = entry.path();
+                        let Ok(meta) = entry.metadata() else {
+                            complete = false;
+                            continue;
+                        };
+                        let ours =
+                            dir.file_name().is_some_and(|n| n == "rejected") || is_ours(&path);
+                        let written_since = path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .is_some_and(|stem| self.fresh.contains(stem));
+                        let old = meta.modified().is_ok_and(|t| t <= cleared_at);
+                        if meta.is_file() && ours && old && !written_since {
+                            self.leftovers.push(path);
                         }
+                    }
+                    if !complete {
+                        self.unreadable.push((dir, cleared_at));
                     }
                 }
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {}
