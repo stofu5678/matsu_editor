@@ -127,6 +127,47 @@ pub(crate) fn file_kind(path: &Path) -> FileKind {
     }
 }
 
+/// The file that holds the code of a script given as text. It is removed when this is dropped: the
+/// script ended, or its window was closed.
+struct TempScript(PathBuf);
+
+impl TempScript {
+    /// Writes `code` to a new file of a name no other has (within this process and the ones
+    /// before it that left files behind): `create_new` fails for a name that is taken.
+    fn create(ext: &str, code: &str) -> Result<Self, String> {
+        use std::io::Write as _;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let folder = std::env::temp_dir().join("matsu-macro-text");
+        std::fs::create_dir_all(&folder).map_err(|e| format!("{}: {e}", folder.display()))?;
+        for _ in 0..100 {
+            let n = NEXT.fetch_add(1, Ordering::Relaxed);
+            let path = folder.join(format!("{}-{n}.{ext}", std::process::id()));
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(mut file) => {
+                    let temp = Self(path);
+                    file.write_all(code.as_bytes())
+                        .map_err(|e| format!("{}: {e}", temp.0.display()))?;
+                    return Ok(temp);
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(e) => return Err(format!("{}: {e}", path.display())),
+            }
+        }
+        Err(format!("{}: 一時ファイルを作れません", folder.display()))
+    }
+}
+
+impl Drop for TempScript {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 /// What the queue of a playing key macro holds.
 enum Item {
     Call(Step),
@@ -182,7 +223,7 @@ pub(crate) struct MacroState {
     running: Option<Running>,
     /// The file that holds the code of a script given as text (`F_EXECEXTMACRO` with a type); it is
     /// removed when the script ends.
-    temp_script: Option<PathBuf>,
+    temp_script: Option<TempScript>,
     /// Counts the scripts that were started, so that the answer of a dialog that was open when
     /// its macro ended is not sent to the next one.
     serial: u64,
@@ -637,24 +678,10 @@ impl EditorView {
                 "マクロの種類 {ext:?} は使えません。mac、mjs、js、cjs、ts、py、rb、php、ps1、pl、lua、mruby、upy のどれかにしてください"
             ));
         }
-        let folder = std::env::temp_dir().join("matsu-macro-text");
-        std::fs::create_dir_all(&folder).map_err(|e| format!("{}: {e}", folder.display()))?;
-        let path = folder.join(format!(
-            "{}-{}.{ext}",
-            std::process::id(),
-            self.macros.serial + 1
-        ));
-        std::fs::write(&path, code).map_err(|e| format!("{}: {e}", path.display()))?;
-        match self.start_script(&path, window, cx) {
-            Ok(()) => {
-                self.macros.temp_script = Some(path);
-                Ok(())
-            }
-            Err(message) => {
-                let _ = std::fs::remove_file(&path);
-                Err(message)
-            }
-        }
+        let temp = TempScript::create(ext, code)?;
+        self.start_script(&temp.0, window, cx)?;
+        self.macros.temp_script = Some(temp);
+        Ok(())
     }
 
     /// Runs a macro file by its extension: `.mac` through the key macro player, the others
@@ -884,9 +911,7 @@ impl EditorView {
             }
             HostEvent::Finished(finished) => {
                 let running = self.macros.running.take();
-                if let Some(temp) = self.macros.temp_script.take() {
-                    let _ = std::fs::remove_file(temp);
-                }
+                self.macros.temp_script = None;
                 // A call of the script that was waiting gets no answer: the script is gone.
                 self.macros.waiting = None;
                 let (name, timeout_text) =
