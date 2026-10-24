@@ -58,6 +58,9 @@ pub(crate) struct Request {
     pub flags: ExecFlags,
     /// The folder of the dialog or of the macro; used when `flags` has 0x200.
     pub folder: Option<String>,
+    /// Where a click on a line of the output panel leads (a database client's errors, ADR-0023);
+    /// the panel keeps it for this run.
+    pub jump: Option<crate::macros::JumpContext>,
 }
 
 /// What is read from the window before the process starts.
@@ -182,6 +185,7 @@ pub(crate) async fn run_command(
         return;
     };
     let flags = request.flags;
+    let jump = request.jump.clone();
     let to_window = flags.to_window(prepared.editable);
     let capture = flags.get_stdout();
     let had_selection = prepared.selection.is_some() || prepared.box_text.is_some();
@@ -277,6 +281,11 @@ pub(crate) async fn run_command(
     } else {
         Target::Panel
     };
+    if target == Target::Panel {
+        // what a click on a line of the output does for this run (nothing, for most commands)
+        view.update(cx, |view, _| view.macros.output.set_jump(jump))
+            .ok();
+    }
     let eol = if to_window {
         prepared.eol.as_str()
     } else {
@@ -457,6 +466,7 @@ pub(crate) async fn run_dialog(view: &WeakEntity<EditorView>, cx: &mut AsyncWind
             command: choice.command,
             flags: choice.flags,
             folder,
+            jump: None,
         },
     )
     .await;

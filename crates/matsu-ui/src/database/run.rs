@@ -18,13 +18,15 @@
 use std::path::PathBuf;
 
 use gpui::{AsyncWindowContext, PromptLevel, WeakEntity};
-use matsu_config::databases::{self, Connection, Databases, Encoding, Problem};
+use matsu_config::databases::{self, Connection, Databases, Encoding, Kind, Problem};
 use matsu_core::exec::ExecFlags;
+use matsu_core::sql_error::ErrorStyle;
 
 use super::command::{self, Shell};
 use crate::exec::flow::{Request, run_command};
 use crate::file_ops::ask::{Answer, ask, confirm, tell};
 use crate::file_ops::save::{SaveRequest, save};
+use crate::macros::JumpContext;
 use crate::view::EditorView;
 
 /// The shown name of a document without a file (`STR_NO_TITLE1`).
@@ -179,6 +181,7 @@ pub(crate) async fn run_document(view: &WeakEntity<EditorView>, cx: &mut AsyncWi
             return;
         }
     };
+    let jump = jump_context(view, cx, &connection);
     run_command(
         view,
         cx,
@@ -187,9 +190,55 @@ pub(crate) async fn run_document(view: &WeakEntity<EditorView>, cx: &mut AsyncWi
             command: command::escape_for_expand(&line),
             flags: flags(&connection),
             folder: connection.folder.clone(),
+            jump,
         },
     )
     .await;
+}
+
+/// The error style of the client of a connection.
+pub(crate) fn error_style(kind: Kind) -> ErrorStyle {
+    match kind {
+        Kind::Oracle => ErrorStyle::Oracle,
+        Kind::MySql => ErrorStyle::MySql,
+        Kind::PostgreSql => ErrorStyle::PostgreSql,
+        Kind::SqlServer => ErrorStyle::SqlServer,
+        Kind::Sqlite => ErrorStyle::Sqlite,
+        Kind::BigQuery => ErrorStyle::BigQuery,
+        Kind::Other => ErrorStyle::Generic,
+    }
+}
+
+/// What a click on an error line of the output leads to (ADR-0023, step 3): the document that ran,
+/// the folder that file names are relative to, and, when only the selection went to the client, the
+/// line it starts at (the client counts from the start of what it got).
+fn jump_context(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    connection: &Connection,
+) -> Option<JumpContext> {
+    let sent_selection = !connection.uses_file();
+    view.read_with(cx, |view, app| {
+        let shared = view.document().read(app);
+        let file = shared.path().map(PathBuf::from);
+        let folder = connection
+            .folder
+            .as_ref()
+            .map(PathBuf::from)
+            .or_else(|| file.as_ref().and_then(|f| f.parent().map(PathBuf::from)));
+        let line_offset = if sent_selection {
+            view.cursor().selection().map_or(0, |(from, _)| from.line)
+        } else {
+            0
+        };
+        JumpContext {
+            style: error_style(connection.kind),
+            file,
+            folder,
+            line_offset,
+        }
+    })
+    .ok()
 }
 
 /// Steps 1 and 2 of Sakura's command: the question about saving and the file. `None` when the

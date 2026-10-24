@@ -14,6 +14,7 @@ pub mod jump_history;
 pub mod model;
 pub mod modified;
 pub mod search;
+pub mod sql_error;
 pub mod tag_file;
 pub mod tag_jump;
 pub mod tags_make;
