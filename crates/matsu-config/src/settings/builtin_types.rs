@@ -45,7 +45,7 @@
 //! | 1 | テキスト | txt, log, 1st, err, ps |
 //! | 2 | C/C++ | c, cpp, cxx, cc, cp, c++, h, hpp, hxx, hh, hp, h++, rc, hm |
 //! | 3 | HTML | html, htm, shtml, plg |
-//! | 4 | PL/SQL | sql, plsql |
+//! | 4 | PL/SQL | plsql, pls, plb, pck, pkb, pks (Sakura: sql, plsql; `.sql` is the "SQL" type of ADR-0023) |
 //! | 5 | COBOL | cbl, cpy, pco, cob |
 //! | 6 | Java | java, jav |
 //! | 7 | アセンブラ | asm |
@@ -203,7 +203,7 @@ fn html() -> TypeSettings {
 
 /// `CType_Sql`.
 fn sql() -> TypeSettings {
-    let mut t = named(4, "PL/SQL", "sql,plsql");
+    let mut t = named(4, "PL/SQL", "plsql,pls,plb,pck,pkb,pks");
     t.line_comments[0] = LineComment::new("--", -1);
     t.block_comments[0] = BlockComment::new("/*", "*/");
     t.string_type = string_type::PLSQL;

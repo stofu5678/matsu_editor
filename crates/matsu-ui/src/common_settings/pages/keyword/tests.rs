@@ -298,13 +298,14 @@ fn a_changed_set_writes_every_set_with_the_sets_of_matsu_editor_and_keeps_the_ty
     let mut entries = from_rows(&store::SETS.load(&p));
     entries[1].words.push("<mine>".to_owned());
     assert!(store::SETS.store(&rows_of(&entries), &mut p).unwrap());
-    assert_eq!(p.get("KeyWords", "nKeyWordSetNum"), Some("27"));
+    assert_eq!(p.get("KeyWords", "nKeyWordSetNum"), Some("33"));
     assert_eq!(p.get("KeyWords", "szSN[26]"), Some("YAML"));
+    assert_eq!(p.get("KeyWords", "szSN[27]"), Some("SQL"));
     // No set was deleted: no type needs its numbers changed, so no type section was made.
     assert_eq!(p.get("Types(0)", "nInts"), None);
-    // Reading gives the same 27 sets (MATSU Editor's own are found by name, not added again), with the change.
+    // Reading gives the same 33 sets (MATSU Editor's own are found by name, not added again), with the change.
     let types = DocumentTypes::from_profile(&p);
-    assert_eq!(types.keywords().len(), 27);
+    assert_eq!(types.keywords().len(), 33);
     assert!(types.keywords().get(1).unwrap().contains("<mine>"));
     assert_eq!(types.keywords().extra_index(ExtraSet::Rust), 22);
     let rust = types.iter().find(|t| t.type_name == "Rust").unwrap();
@@ -322,7 +323,7 @@ fn deleting_a_set_moves_the_numbers_of_the_types_and_sets_of_matsu_editor_stay_f
     entry::remove_set(&mut entries, go);
     entry::remove_set(&mut entries, 4);
     assert!(store::SETS.store(&rows_of(&entries), &mut p).unwrap());
-    assert_eq!(p.get("KeyWords", "nKeyWordSetNum"), Some("25"));
+    assert_eq!(p.get("KeyWords", "nKeyWordSetNum"), Some("31"));
     let types = DocumentTypes::from_profile(&p);
     let names: Vec<&str> = types.keywords().iter().map(|s| s.name.as_str()).collect();
     assert!(!names.contains(&"Java") && !names.contains(&"Go"));
@@ -465,7 +466,7 @@ fn the_page_starts_at_the_set_the_file_chose_last(cx: &mut TestAppContext) {
     let (_ini, _handle) = open(cx, "[KeyWords]\r\nnCurrentKeyWordSetIdx=99\r\n");
     assert_eq!(
         chosen_set(cx),
-        Some(26),
+        Some(32),
         "a number past the sets is the last set"
     );
     cancel(cx);
@@ -688,7 +689,7 @@ fn ok_writes_the_sets_and_the_types_and_keeps_the_rest_of_the_file(cx: &mut Test
     key(cx, 'a');
     ok(cx);
     let after = ini.profile();
-    assert_eq!(after.get("KeyWords", "nKeyWordSetNum"), Some("26"));
+    assert_eq!(after.get("KeyWords", "nKeyWordSetNum"), Some("32"));
     assert_eq!(after.get("KeyWords", "szSN[00]"), Some("HTML"));
     assert!(
         after
@@ -697,7 +698,7 @@ fn ok_writes_the_sets_and_the_types_and_keeps_the_rest_of_the_file(cx: &mut Test
             .contains("<mine>\t")
     );
     assert_eq!(after.get("KeyWords", "nCurrentKeyWordSetIdx"), Some("0"));
-    assert_eq!(after.get("KeyWords", "bUmeExtraSetsInFile"), Some("1"));
+    assert_eq!(after.get("KeyWords", "bUmeExtraSetsInFile"), Some("16"));
     // The type that used C/C++ has no set; the Java type moved from 4 to 3.
     let types = DocumentTypes::from_profile(&after);
     assert_eq!(types.get(0).unwrap().keyword_set_idx[0], -1);
@@ -712,7 +713,7 @@ fn ok_writes_the_sets_and_the_types_and_keeps_the_rest_of_the_file(cx: &mut Test
     // The next dialog starts from what was written.
     run(cx, _handle, "F_OPTION");
     with_dialog(cx, |d, _, dcx| d.select_page(Page::Keyword, dcx));
-    assert_eq!(entries_in(cx).len(), 26);
+    assert_eq!(entries_in(cx).len(), 32);
     assert_eq!(entries_in(cx)[3].name, "Java");
     cancel(cx);
 }

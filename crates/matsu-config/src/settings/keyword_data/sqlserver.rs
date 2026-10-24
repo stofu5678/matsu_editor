@@ -1,0 +1,51 @@
+//! MATSU Editor's own keyword set for SQL Server, Transact-SQL (ADR-0023): words of "Reserved Keywords
+//! (Transact-SQL)" and of its data types, hints and flow-control statements that the common SQL set
+//! (`sql.rs`) does not have and that statements, clauses and types use all the time. The set is not case
+//! sensitive, so the words are in lower case. Written from the documentation, not from any editor's syntax
+//! file.
+
+/// The words.
+pub const WORDS: &[&str] = &[
+    "apply",
+    "backup",
+    "break",
+    "bulk",
+    "catch",
+    "charindex",
+    "checkpoint",
+    "coalesce",
+    "continue",
+    "datetimeoffset",
+    "dbcc",
+    "deallocate",
+    "deleted",
+    "goto",
+    "getdate",
+    "inserted",
+    "maxdop",
+    "newid",
+    "nocount",
+    "nonclustered",
+    "ntext",
+    "openquery",
+    "openrowset",
+    "option",
+    "output",
+    "print",
+    "proc",
+    "raiserror",
+    "readonly",
+    "recompile",
+    "restore",
+    "schemabinding",
+    "smalldatetime",
+    "smallmoney",
+    "sp_executesql",
+    "sysdatetime",
+    "throw",
+    "tran",
+    "try",
+    "uniqueidentifier",
+    "updlock",
+    "waitfor",
+];

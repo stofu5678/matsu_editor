@@ -264,6 +264,20 @@ impl DocumentTypes {
                 })
             })
             .collect();
+        let mut types: Vec<TypeSettings> = types;
+        // `.sql` is the "SQL" type (ADR-0023). When that type could not be installed (the file leaves no
+        // number free) and the PL/SQL type is as built in, it keeps `.sql` as Sakura's did, so that such a
+        // file does not lose the coloring and the outline of its SQL files.
+        if !types
+            .iter()
+            .any(|t| is_file_name_match(&t.type_exts, "x.sql"))
+            && let Some(plsql) = types.get_mut(4)
+            && builtin
+                .get(4)
+                .is_some_and(|b| b.type_exts == plsql.type_exts)
+        {
+            plsql.type_exts.push_str(",sql");
+        }
         Self { types, keywords }
     }
 
@@ -393,7 +407,7 @@ mod tests {
     #[test]
     fn the_builtin_types_are_chosen_by_extension() {
         let types = DocumentTypes::builtin();
-        assert_eq!(types.len(), 30);
+        assert_eq!(types.len(), 36);
         let name_of = |file: &str| {
             types
                 .get(types.type_index_for_file_name(file))
@@ -428,16 +442,16 @@ mod tests {
 
     #[test]
     fn a_file_without_types_has_the_builtin_ones_umes_own_and_added_copies_up_to_30() {
-        // An old file with no `nTypesCount`: 30 types.
+        // An old file with no `nTypesCount`: 36 types (Sakura's 30 and the later ones).
         let types = DocumentTypes::from_profile(&profile("[Common]\r\nbDispSTATUSBAR=1\r\n"));
-        assert_eq!(types.len(), 30);
+        assert_eq!(types.len(), 36);
         assert_eq!(types.get(2).unwrap().type_name, "C/C++");
-        // 17 to 26 are MATSU Editor's own types (ADR-0017), the rest copies of the basic type.
+        // 17 to 32 are MATSU Editor's own types (ADR-0017), the rest copies of the basic type.
         assert_eq!(types.get(17).unwrap().type_name, "JavaScript");
         assert_eq!(types.get(17).unwrap().idx, 17);
-        assert_eq!(types.get(27).unwrap().type_name, "設定27");
-        assert_eq!(types.get(27).unwrap().type_exts, "");
-        assert_eq!(types.get(27).unwrap().idx, 27);
+        assert_eq!(types.get(33).unwrap().type_name, "設定33");
+        assert_eq!(types.get(33).unwrap().type_exts, "");
+        assert_eq!(types.get(33).unwrap().idx, 33);
         assert_eq!(types.type_index_for_file_name("a.cpp"), 2);
     }
 

@@ -17,6 +17,12 @@
 //! | Ruby | rb, rake, gemspec, Rakefile, Gemfile, Guardfile, Vagrantfile | Ruby |
 //! | シェルスクリプト | sh, bash, zsh, .bashrc, .bash_profile, .zshrc, .profile | Shell |
 //! | YAML | yml, yaml | YAML |
+//! | SQL | sql, ddl, dml | SQL |
+//! | MySQL | mysql, mariadb | SQL + MySQL |
+//! | PostgreSQL | psql, pgsql | SQL + PostgreSQL |
+//! | SQL Server | tsql | SQL + SQL Server |
+//! | SQLite | sqlite3 | SQL + SQLite |
+//! | BigQuery | bqsql, bq | SQL + BigQuery |
 //!
 //! The Python type of Sakura also gets the set [`ExtraSet::PythonBuiltins`] as its second keyword set.
 //!
@@ -55,6 +61,7 @@ use super::keyword_data as data;
 use super::keywords::{KeywordSet, KeywordSets, SAKURA_KEYWORD_SET_COUNT};
 use super::type_rules::{
     BlockComment, DEFAULT_REGEX_COLOR, LineComment, RegexKeyword, outline_type, smart_indent,
+    string_type,
 };
 use super::types::TypeSettings;
 
@@ -71,11 +78,17 @@ pub enum ExtraSet {
     Ruby,
     Shell,
     Yaml,
+    Sql,
+    MySql,
+    PostgreSql,
+    SqlServer,
+    Sqlite,
+    BigQuery,
 }
 
 impl ExtraSet {
     /// All the sets, in order.
-    pub const ALL: [ExtraSet; 10] = [
+    pub const ALL: [ExtraSet; 16] = [
         ExtraSet::PythonBuiltins,
         ExtraSet::JavaScript,
         ExtraSet::TypeScript,
@@ -86,6 +99,12 @@ impl ExtraSet {
         ExtraSet::Ruby,
         ExtraSet::Shell,
         ExtraSet::Yaml,
+        ExtraSet::Sql,
+        ExtraSet::MySql,
+        ExtraSet::PostgreSql,
+        ExtraSet::SqlServer,
+        ExtraSet::Sqlite,
+        ExtraSet::BigQuery,
     ];
 
     /// The position in [`ExtraSet::ALL`].
@@ -119,12 +138,27 @@ impl ExtraSet {
             ExtraSet::Ruby => "Ruby",
             ExtraSet::Shell => "Shell",
             ExtraSet::Yaml => "YAML",
+            ExtraSet::Sql => "SQL",
+            ExtraSet::MySql => "MySQL",
+            ExtraSet::PostgreSql => "PostgreSQL",
+            ExtraSet::SqlServer => "SQL Server",
+            ExtraSet::Sqlite => "SQLite",
+            ExtraSet::BigQuery => "BigQuery",
         }
     }
 
-    /// CSS ignores case; the others are case sensitive.
+    /// CSS and the SQL sets ignore case; the others are case sensitive.
     fn case_sensitive(self) -> bool {
-        self != ExtraSet::Css
+        !matches!(
+            self,
+            ExtraSet::Css
+                | ExtraSet::Sql
+                | ExtraSet::MySql
+                | ExtraSet::PostgreSql
+                | ExtraSet::SqlServer
+                | ExtraSet::Sqlite
+                | ExtraSet::BigQuery
+        )
     }
 
     fn words(self) -> &'static [&'static str] {
@@ -139,6 +173,12 @@ impl ExtraSet {
             ExtraSet::Ruby => data::ruby::WORDS,
             ExtraSet::Shell => data::shell::WORDS,
             ExtraSet::Yaml => data::yaml::WORDS,
+            ExtraSet::Sql => data::sql::WORDS,
+            ExtraSet::MySql => data::mysql::WORDS,
+            ExtraSet::PostgreSql => data::postgresql::WORDS,
+            ExtraSet::SqlServer => data::sqlserver::WORDS,
+            ExtraSet::Sqlite => data::sqlite::WORDS,
+            ExtraSet::BigQuery => data::bigquery::WORDS,
         }
     }
 
@@ -250,8 +290,38 @@ pub(super) fn extra_types(sets: &KeywordSets) -> Vec<TypeSettings> {
     // YAML does not allow tab characters for indentation.
     spaces(&mut yaml, 2);
 
+    // The database functions (ADR-0023) run SQL of several dialects. The user decided on 2026-10-24 to go
+    // beyond what Sakura has: `.sql` is the generic "SQL" type (Sakura's "PL/SQL" keeps Oracle's own
+    // extensions), and each dialect has a type that the user chooses for a file (the type list,
+    // `F_CHGMOD_TYPE`) or that its own extension finds. The rules are the ones all dialects share: `--` and
+    // `/* */` comments, a quote doubled inside a string. A dialect type uses the common set and, as its
+    // second set, the words of the dialect. What the rules cannot say (`#` comments of MySQL, `$$` strings of
+    // PostgreSQL, backquoted and bracketed names) is not colored. The outline is the one of PL/SQL, which
+    // `.sql` files had (procedures and functions), so they keep it.
+    let sql_type = |name: &str, exts: &str, dialect: Option<ExtraSet>| {
+        let mut t = named(0, name, exts);
+        t.line_comments[0] = LineComment::new("--", -1);
+        t.block_comments[0] = BlockComment::new("/*", "*/");
+        t.string_type = string_type::PLSQL;
+        t.keyword_set_idx[0] = kw(ExtraSet::Sql);
+        if let Some(dialect) = dialect {
+            t.keyword_set_idx[1] = kw(dialect);
+        }
+        t.default_outline = outline_type::PLSQL;
+        set_disp(&mut t, names::NUMBER, true);
+        set_disp(&mut t, names::BRACKET_PAIR, true);
+        t
+    };
+    let sql = sql_type("SQL", "sql,ddl,dml", None);
+    let mysql = sql_type("MySQL", "mysql,mariadb", Some(ExtraSet::MySql));
+    let postgresql = sql_type("PostgreSQL", "psql,pgsql", Some(ExtraSet::PostgreSql));
+    let sql_server = sql_type("SQL Server", "tsql", Some(ExtraSet::SqlServer));
+    let sqlite = sql_type("SQLite", "sqlite3", Some(ExtraSet::Sqlite));
+    let big_query = sql_type("BigQuery", "bqsql,bq", Some(ExtraSet::BigQuery));
+
     vec![
-        javascript, typescript, json, css, markdown, rust, go, ruby, shell, yaml,
+        javascript, typescript, json, css, markdown, rust, go, ruby, shell, yaml, sql, mysql,
+        postgresql, sql_server, sqlite, big_query,
     ]
 }
 
@@ -262,7 +332,7 @@ mod tests {
     use super::*;
     use crate::profile::Profile;
 
-    const NAMES: [&str; 10] = [
+    const NAMES: [&str; 16] = [
         "JavaScript",
         "TypeScript",
         "JSON",
@@ -273,6 +343,12 @@ mod tests {
         "Ruby",
         "シェルスクリプト",
         "YAML",
+        "SQL",
+        "MySQL",
+        "PostgreSQL",
+        "SQL Server",
+        "SQLite",
+        "BigQuery",
     ];
 
     fn profile(text: &str) -> Profile {
@@ -298,16 +374,16 @@ mod tests {
     #[test]
     fn without_a_settings_file_the_types_follow_sakuras_17_in_order() {
         let types = DocumentTypes::builtin();
-        assert_eq!(types.len(), 30);
-        assert_eq!(names_from(&types, 17, 10), NAMES);
-        for i in 17..27 {
+        assert_eq!(types.len(), 36);
+        assert_eq!(names_from(&types, 17, 16), NAMES);
+        for i in 17..33 {
             let t = types.get(i).unwrap();
             assert_eq!(t.idx as usize, i);
             assert_eq!(t.id as usize, i);
         }
         // The slots after MATSU Editor's types are the copies of the basic type, as before.
-        assert_eq!(types.get(27).unwrap().type_name, "設定27");
-        assert_eq!(types.get(29).unwrap().type_exts, "");
+        assert_eq!(types.get(33).unwrap().type_name, "設定33");
+        assert_eq!(types.get(33).unwrap().type_exts, "");
     }
 
     #[test]
@@ -382,6 +458,16 @@ mod tests {
             ("run.zsh", "シェルスクリプト"),
             ("ci.yml", "YAML"),
             ("ci.yaml", "YAML"),
+            // `.sql` is the generic SQL type; the dialects and Oracle have extensions of their own
+            ("q.sql", "SQL"),
+            ("q.ddl", "SQL"),
+            ("q.mysql", "MySQL"),
+            ("q.pgsql", "PostgreSQL"),
+            ("q.tsql", "SQL Server"),
+            ("q.sqlite3", "SQLite"),
+            ("q.bqsql", "BigQuery"),
+            ("q.plsql", "PL/SQL"),
+            ("q.pkb", "PL/SQL"),
             // Sakura's own types stay where they were.
             ("a.py", "Python"),
             ("a.cpp", "C/C++"),
@@ -401,9 +487,9 @@ mod tests {
             text.push_str(&placeholder(n));
         }
         let types = DocumentTypes::from_profile(&profile(&text));
-        assert_eq!(types.len(), 30);
-        assert_eq!(names_from(&types, 17, 10), NAMES);
-        assert_eq!(types.get(27).unwrap().type_name, "設定27");
+        assert_eq!(types.len(), 36);
+        assert_eq!(names_from(&types, 17, 16), NAMES);
+        assert_eq!(types.get(33).unwrap().type_name, "設定33");
         assert_eq!(types.type_index_for_file_name("lib.rs"), 22);
         // The keys of the placeholder did not leak in.
         assert_eq!(types.get(17).unwrap().keyword_set_idx[0], 18);
@@ -420,16 +506,42 @@ mod tests {
         // Read the way Sakura does: a copy of the basic type with the keys of the file.
         assert_eq!(types.get(19).unwrap().type_name, "Zig");
         assert_eq!(types.get(19).unwrap().line_comments[0].delimiter, "//");
-        // The free numbers are 18 and 20 to 29: ten of them.
-        let free = [18, 20, 21, 22, 23, 24, 25, 26, 27, 28];
+        // The free numbers are 18 and 20 to 35 (the 30 of the file is read as 36): sixteen of them are used.
+        let free = [
+            18, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34,
+        ];
         for (n, name) in free.iter().zip(NAMES) {
             assert_eq!(types.get(*n).unwrap().type_name, name, "slot {n}");
         }
-        assert_eq!(types.get(29).unwrap().type_name, "設定29");
         assert_eq!(types.type_index_for_file_name("a.mine"), 17);
         assert_eq!(types.type_index_for_file_name("a.zig"), 19);
         assert_eq!(types.type_index_for_file_name("a.js"), 18);
         assert_eq!(types.type_index_for_file_name("a.yml"), 28);
+        assert_eq!(types.type_index_for_file_name("a.pgsql"), 31);
+    }
+
+    #[test]
+    fn without_room_for_the_sql_type_plsql_keeps_sql_files() {
+        // nTypesCount 17: the SQL type does not fit, so `.sql` must not fall back to the basic type
+        let types = DocumentTypes::from_profile(&profile("[Other]\r\nnTypesCount=17\r\n"));
+        assert_eq!(types.index_of_name("SQL"), None);
+        assert_eq!(types.type_index_for_file_name("a.sql"), 4);
+        // with room, the SQL type has it and PL/SQL does not
+        let types = DocumentTypes::builtin();
+        assert!(
+            types
+                .get(4)
+                .unwrap()
+                .type_exts
+                .split(',')
+                .all(|e| e != "sql")
+        );
+        // a PL/SQL type that the file gave its own extensions is left as it is
+        let types = DocumentTypes::from_profile(&profile(
+            "[Other]\r\nnTypesCount=17\r\n[Types(4)]\r\nszTypeExts=ora\r\n",
+        ));
+        assert_eq!(types.get(4).unwrap().type_exts, "ora");
+        assert_eq!(types.type_index_for_file_name("a.sql"), 0);
     }
 
     #[test]
@@ -446,7 +558,7 @@ mod tests {
         // nTypesCount 60: MATSU Editor's ten, then copies of the basic type.
         let types = DocumentTypes::from_profile(&profile("[Other]\r\nnTypesCount=60\r\n"));
         assert_eq!(types.len(), 60);
-        assert_eq!(names_from(&types, 17, 10), NAMES);
+        assert_eq!(names_from(&types, 17, 16), NAMES);
         assert_eq!(types.get(59).unwrap().type_name, "設定59");
     }
 
@@ -461,7 +573,7 @@ mod tests {
             ));
         }
         let types = DocumentTypes::from_profile(&profile(&text));
-        assert_eq!(types.keywords().len(), 30);
+        assert_eq!(types.keywords().len(), 36);
         assert_eq!(types.keywords().get(19).unwrap().name, "S19");
         assert_eq!(types.keywords().get(20).unwrap().name, "Python built-ins");
         let python = types.keyword_sets_of(13);
@@ -598,6 +710,36 @@ mod tests {
     }
 
     #[test]
+    fn the_sql_type_has_the_rules_the_dialects_share() {
+        let types = DocumentTypes::builtin();
+        let sql = types.get(types.index_of_name("SQL").unwrap()).unwrap();
+        assert_eq!(sql.line_comments[0].delimiter, "--");
+        assert_eq!(sql.block_comments[0], BlockComment::new("/*", "*/"));
+        // a quote is doubled inside a string, as in Sakura's PL/SQL
+        assert_eq!(sql.string_type, types.get(4).unwrap().string_type);
+        assert_eq!(types.get(4).unwrap().type_name, "PL/SQL");
+        let sets = types.keyword_sets_of(types.index_of_name("SQL").unwrap());
+        assert_eq!(sets[0].1.name, "SQL");
+        assert!(!sets[0].1.case_sensitive);
+        // `.sql` is this type (Sakura's PL/SQL keeps Oracle's extensions), and so is its outline
+        assert_eq!(
+            types
+                .get(types.type_index_for_file_name("a.sql"))
+                .unwrap()
+                .type_name,
+            "SQL"
+        );
+        assert_eq!(sql.default_outline, types.get(4).unwrap().default_outline);
+        // a dialect has the common set and the words of its own, in this order
+        let my = types.keyword_sets_of(types.index_of_name("MySQL").unwrap());
+        assert_eq!(
+            my.iter().map(|(_, s)| s.name.as_str()).collect::<Vec<_>>(),
+            ["SQL", "MySQL"]
+        );
+        assert!(my[1].1.contains("AUTO_INCREMENT"));
+    }
+
+    #[test]
     fn some_files_have_their_language_by_name() {
         let types = DocumentTypes::builtin();
         let name_of = |f: &str| {
@@ -651,6 +793,15 @@ mod tests {
         assert!(has(ExtraSet::Ruby, "elsif"));
         assert!(has(ExtraSet::Shell, "fi"));
         assert!(has(ExtraSet::Yaml, "null"));
+        // not case sensitive: Sakura's PL/SQL set is, but SQL is written both ways
+        assert!(has(ExtraSet::Sql, "select"));
+        assert!(has(ExtraSet::Sql, "SELECT"));
+        assert!(has(ExtraSet::Sql, "unnest"));
+        assert!(has(ExtraSet::MySql, "unsigned"));
+        assert!(has(ExtraSet::PostgreSql, "bigserial"));
+        assert!(has(ExtraSet::SqlServer, "nocount"));
+        assert!(has(ExtraSet::Sqlite, "rowid"));
+        assert!(has(ExtraSet::BigQuery, "safe_divide"));
         assert!(!has(ExtraSet::JavaScript, "Const"));
         for (i, set) in ExtraSet::ALL.iter().enumerate() {
             assert_eq!(set.ordinal(), i);
@@ -660,7 +811,7 @@ mod tests {
             );
         }
         assert_eq!(ExtraSet::from_default_index(16), None);
-        assert_eq!(ExtraSet::from_default_index(27), None);
+        assert_eq!(ExtraSet::from_default_index(33), None);
         assert_eq!(ExtraSet::from_default_index(-1), None);
     }
 }
