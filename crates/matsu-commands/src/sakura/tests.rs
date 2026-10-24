@@ -30,9 +30,9 @@ fn key(name: &str) -> &'static KeyBinding {
         .unwrap_or_else(|| panic!("no key {name}"))
 }
 
-/// Functions that only MATSU Editor has (`xtask/src/matsu_extras.rs`): `F_COPY_LF` and `F_COPY_CR`,
+/// Functions that only MATSU Editor has (`xtask/src/matsu_extras.rs`): `F_COPY_LF`, `F_COPY_CR` and `F_PREVIEW_TAB`,
 /// also in the main menu. The counts in the comments above are Sakura's.
-const MATSU_ONLY: usize = 2;
+const MATSU_ONLY: usize = 3;
 
 #[test]
 fn counts_match_sakura() {

@@ -15,6 +15,7 @@ pub mod minimize_all;
 pub mod nextgroup;
 pub mod nextwindow;
 pub mod prevgroup;
+pub mod preview_tab;
 pub mod prevwindow;
 pub mod redraw;
 pub mod showtab;

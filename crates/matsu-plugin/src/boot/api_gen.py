@@ -2243,6 +2243,11 @@ def install(call):
             implemented)."""
             return call("ActivateWinOutput", _pack())
 
+        def PreviewTab(self) -> None:
+            """MATSU Editor's own F_PREVIEW_TAB (not in Sakura). Runs the command that a key,
+            the menu and a key macro run."""
+            return call("PreviewTab", _pack())
+
         def TraceOut(self, arg1: str = _UNSET, arg2: int = _UNSET) -> None:
             """MATSU Editor's own F_TRACEOUT (not in Sakura). Runs the command that a key, the
             menu and a key macro run."""

@@ -408,6 +408,7 @@ pub static FUNCTIONS: &[Function] = &[
     Function { code: 31352, name: "F_MAXIMIZE_H", id: "maximize_h", kind: Command, groups: &[12], label: Some("横方向に最大化") },
     Function { code: 31360, name: "F_REDRAW", id: "redraw", kind: Command, groups: &[12], label: Some("再描画") },
     Function { code: 31370, name: "F_WIN_OUTPUT", id: "win_output", kind: Command, groups: &[12], label: Some("アウトプット") },
+    Function { code: 32702, name: "F_PREVIEW_TAB", id: "preview_tab", kind: Command, groups: &[12], label: Some("プレビューを別のタブで開く") },
     Function { code: 31380, name: "F_GROUPCLOSE", id: "groupclose", kind: Command, groups: &[12], label: Some("グループを閉じる") },
     Function { code: 31381, name: "F_NEXTGROUP", id: "nextgroup", kind: Command, groups: &[12], label: Some("次のグループ") },
     Function { code: 31382, name: "F_PREVGROUP", id: "prevgroup", kind: Command, groups: &[12], label: Some("前のグループ") },
