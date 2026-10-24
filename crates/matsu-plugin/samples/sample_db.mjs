@@ -51,6 +51,7 @@ const run = () => {
     const prepared = db.prepare(statement);
     // rows as arrays keep the order of the columns and the repeated names
     prepared.setReturnArrays(true);
+    prepared.setReadBigInts(true); // an integer beyond 2**53 is shown as it is, not an error
     if (prepared.columns().length > 0) {
       const rows = prepared.all();
       console.log(prepared.columns().map((c) => c.name).join('\t'));
