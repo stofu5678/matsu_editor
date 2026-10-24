@@ -210,22 +210,27 @@ fn a_text_of_a_script_runs_through_the_host(cx: &mut TestAppContext) {
             Arg::Text("cjs".into()),
         ],
     );
+    // while it runs, the code is in a directory of its own that only this user can use
+    let held = f
+        .view
+        .read_with(cx, |v, _| {
+            v.macros.temp_script.as_ref().map(|t| t.path.clone())
+        })
+        .expect("the code is in a file");
+    let dir = held.parent().unwrap().to_path_buf();
+    assert!(held.is_file());
+    assert_ne!(dir, std::env::temp_dir());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&dir).unwrap().permissions().mode();
+        assert_eq!(mode & 0o077, 0, "{mode:o}");
+    }
     f.wait_until_done(cx);
     assert_eq!(f.lines(cx), ["js"]);
     assert_eq!(results(&f.output(cx)), ["ok"], "{}", f.output(cx));
-    // the file that held the code is gone
-    let left = std::fs::read_dir(std::env::temp_dir().join("matsu-macro-text"))
-        .map(|d| {
-            d.filter_map(Result::ok)
-                .filter(|e| {
-                    e.file_name()
-                        .to_string_lossy()
-                        .starts_with(&format!("{}-", std::process::id()))
-                })
-                .count()
-        })
-        .unwrap_or(0);
-    assert_eq!(left, 0);
+    // the file and its directory are gone
+    assert!(!held.exists() && !dir.exists());
 }
 
 #[gpui::test]

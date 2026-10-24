@@ -127,44 +127,22 @@ pub(crate) fn file_kind(path: &Path) -> FileKind {
     }
 }
 
-/// The file that holds the code of a script given as text. It is removed when this is dropped: the
-/// script ended, or its window was closed.
-struct TempScript(PathBuf);
-
-impl TempScript {
-    /// Writes `code` to a new file of a name no other has (within this process and the ones
-    /// before it that left files behind): `create_new` fails for a name that is taken.
-    fn create(ext: &str, code: &str) -> Result<Self, String> {
-        use std::io::Write as _;
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let folder = std::env::temp_dir().join("matsu-macro-text");
-        std::fs::create_dir_all(&folder).map_err(|e| format!("{}: {e}", folder.display()))?;
-        for _ in 0..100 {
-            let n = NEXT.fetch_add(1, Ordering::Relaxed);
-            let path = folder.join(format!("{}-{n}.{ext}", std::process::id()));
-            match std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&path)
-            {
-                Ok(mut file) => {
-                    let temp = Self(path);
-                    file.write_all(code.as_bytes())
-                        .map_err(|e| format!("{}: {e}", temp.0.display()))?;
-                    return Ok(temp);
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-                Err(e) => return Err(format!("{}: {e}", path.display())),
-            }
-        }
-        Err(format!("{}: 一時ファイルを作れません", folder.display()))
-    }
+/// The file that holds the code of a script given as text. It lives in a directory of its own that
+/// only this user can use, made new for it (`matsu_plugin::boot::private_dir`: another user cannot
+/// plant a directory or swap the file), and both are removed when this is dropped: the script
+/// ended, or its window was closed.
+struct TempScript {
+    _dir: matsu_plugin::boot::BootDir,
+    path: PathBuf,
 }
 
-impl Drop for TempScript {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
+impl TempScript {
+    fn create(ext: &str, code: &str) -> Result<Self, String> {
+        let dir = matsu_plugin::boot::private_dir(None)
+            .map_err(|e| format!("一時フォルダーを作れません: {e}"))?;
+        let path = dir.path().join(format!("macro.{ext}"));
+        std::fs::write(&path, code).map_err(|e| format!("{}: {e}", path.display()))?;
+        Ok(Self { _dir: dir, path })
     }
 }
 
@@ -679,7 +657,7 @@ impl EditorView {
             ));
         }
         let temp = TempScript::create(ext, code)?;
-        self.start_script(&temp.0, window, cx)?;
+        self.start_script(&temp.path, window, cx)?;
         self.macros.temp_script = Some(temp);
         Ok(())
     }

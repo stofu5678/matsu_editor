@@ -97,14 +97,16 @@ impl Drop for BootDir {
     }
 }
 
-/// Writes the boot files to a new directory inside `parent` (the user's temporary directory
-/// when `None`). The mode is 0700 on Unix; on Windows the directory gets the access rights
-/// of its parent, which is the user's own temporary directory.
-pub fn write_boot_files(parent: Option<&Path>) -> io::Result<BootDir> {
+/// Makes a new, empty directory inside `parent` (the user's temporary directory when `None`) and
+/// gives its owner the removal. The name is new and the mode is 0700 on Unix, so only this user
+/// can read or write what an interpreter loads from it, and a directory that somebody else made
+/// beforehand is never used. On Windows the directory gets the access rights of its parent, which
+/// is the user's own temporary directory.
+pub fn private_dir(parent: Option<&Path>) -> io::Result<BootDir> {
     let mut builder = tempfile::Builder::new();
     builder.prefix("matsu-macro-");
     // tempfile makes the directory with the default mode (0755 with a umask of 022), so the
-    // mode is asked for: only this user may read or write the code that the interpreter loads.
+    // mode is asked for.
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -114,10 +116,15 @@ pub fn write_boot_files(parent: Option<&Path>) -> io::Result<BootDir> {
         Some(parent) => builder.tempdir_in(parent)?,
         None => builder.tempdir()?,
     };
-    // From here on `BootDir` owns the removal, including when a write below fails.
-    let boot = BootDir {
+    Ok(BootDir {
         path: Some(dir.keep()),
-    };
+    })
+}
+
+/// Writes the boot files to a new private directory inside `parent` ([`private_dir`]).
+pub fn write_boot_files(parent: Option<&Path>) -> io::Result<BootDir> {
+    // `BootDir` owns the removal, including when a write below fails.
+    let boot = private_dir(parent)?;
     for (name, contents) in FILES {
         std::fs::write(boot.path().join(name), contents)?;
     }
@@ -133,6 +140,27 @@ mod tests {
         let dir = super::write_boot_files(None).unwrap();
         let mode = std::fs::metadata(dir.path()).unwrap().permissions().mode();
         assert_eq!(mode & 0o077, 0, "{mode:o}");
+    }
+
+    #[test]
+    fn a_private_dir_is_new_empty_and_private() {
+        let parent = tempfile::tempdir().unwrap();
+        // a directory of a foreign owner with the name we might guess is not used
+        std::fs::create_dir(parent.path().join("matsu-macro-text")).unwrap();
+        let a = super::private_dir(Some(parent.path())).unwrap();
+        let b = super::private_dir(Some(parent.path())).unwrap();
+        assert_ne!(a.path(), b.path());
+        assert_ne!(a.path().file_name().unwrap(), "matsu-macro-text");
+        assert_eq!(std::fs::read_dir(a.path()).unwrap().count(), 0);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(a.path()).unwrap().permissions().mode();
+            assert_eq!(mode & 0o077, 0, "{mode:o}");
+        }
+        let path = a.path().to_path_buf();
+        drop(a);
+        assert!(!path.exists());
     }
 
     #[test]
