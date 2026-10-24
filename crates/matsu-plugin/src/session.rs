@@ -57,6 +57,11 @@ pub enum Language {
     /// `initialize` line (with the text of the script) on the standard input, so there is no
     /// file whose path a Windows perl would have to open with the ANSI code page.
     Perl,
+    /// `.el`: Emacs Lisp, run by `emacs -Q --batch --load boot.el` (Emacs 30 or later, whose JSON
+    /// functions are built in; 29 works if it was built with JSON support). The boot reads the
+    /// script, which the editor sends in `initialize`, one top-level form at a time, so that an
+    /// error says the line where its form began.
+    EmacsLisp,
     /// Run by the bundled script host (`matsu-script --engine <name>`), which sits next to the
     /// editor's executable.
     Bundled(Engine),
@@ -115,6 +120,7 @@ impl Language {
             "php" => Some(Self::Php),
             "ps1" => Some(Self::PowerShell),
             "pl" => Some(Self::Perl),
+            "el" => Some(Self::EmacsLisp),
             "lua" => Some(Self::Bundled(Engine::Lua)),
             "js" => Some(Self::Bundled(Engine::QuickJs)),
             "mruby" => Some(Self::Bundled(Engine::Mruby)),
@@ -132,6 +138,7 @@ impl Language {
             Self::Php => "PHP",
             Self::PowerShell => "PowerShell",
             Self::Perl => "Perl",
+            Self::EmacsLisp => "Emacs Lisp",
             Self::Bundled(engine) => engine.display_name(),
         }
     }
@@ -152,6 +159,7 @@ impl Language {
             Self::Php => "php".into(),
             Self::PowerShell => powershell_interpreter(),
             Self::Perl => "perl".into(),
+            Self::EmacsLisp => "emacs".into(),
         }
     }
 
@@ -162,7 +170,9 @@ impl Language {
     pub fn real_interpreter_path(self, interpreter: &OsStr) -> io::Result<PathBuf> {
         let (flag, code) = match self {
             // The host is the executable itself; there is no launcher to see through.
-            Self::Bundled(_) | Self::PowerShell => return Ok(PathBuf::from(interpreter)),
+            Self::Bundled(_) | Self::PowerShell | Self::EmacsLisp => {
+                return Ok(PathBuf::from(interpreter));
+            }
             Self::JavaScript | Self::TypeScript => ("-p", "process.execPath"),
             Self::Python => ("-c", "import sys; print(sys.executable)"),
             // A version manager (asdf, rbenv) answers with a shim; this is the real one.
@@ -287,7 +297,7 @@ impl std::fmt::Display for StartError {
         match self {
             Self::UnknownLanguage { script } => write!(
                 f,
-                "{}: マクロの拡張子は .mjs、.js、.cjs、.ts、.py、.rb、.php、.ps1、.pl、.lua、.mruby、.upy のどれかにしてください",
+                "{}: マクロの拡張子は .mjs、.js、.cjs、.ts、.py、.rb、.php、.ps1、.pl、.el、.lua、.mruby、.upy のどれかにしてください",
                 script.display()
             ),
             Self::Boot(err) => write!(f, "マクロの準備に失敗しました: {err}"),
@@ -420,7 +430,7 @@ pub type Sink = Arc<dyn Fn(HostEvent) + Send + Sync>;
 /// `Finished`.
 pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
     let script = match config.language {
-        Language::Bundled(_) | Language::PowerShell | Language::Perl => {
+        Language::Bundled(_) | Language::PowerShell | Language::Perl | Language::EmacsLisp => {
             Some(read_script(&config.script)?)
         }
         Language::JavaScript
@@ -482,6 +492,13 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
                         .map(|dir| dir.path())
                         .unwrap_or(Path::new("")),
                 );
+        }
+        Language::EmacsLisp => {
+            // -Q: neither the user's init file nor the site's. The boot is the only thing that
+            // runs; it ends the process itself.
+            command
+                .args(["-Q", "--batch", "--load"])
+                .arg(boot_files(boot::EL_BOOT));
         }
         Language::Perl => {
             // The program comes from the standard input (`-`); the rest of the input, after its

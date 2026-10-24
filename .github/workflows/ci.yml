@@ -160,6 +160,12 @@ jobs:
           sudo apt-get install --no-install-recommends -y build-essential clang cmake \
             libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev libx11-xcb-dev \
             libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libzstd-dev
+      # The runner images have no Emacs, which the Emacs Lisp macro tests need (Ubuntu 24.04 has
+      # Emacs 29.3, built with JSON support). Without it they skip. The other OSes skip them: an
+      # install through brew or choco costs minutes on runners that are scarce or slow already.
+      - name: Install Emacs for the Emacs Lisp macro tests
+        if: needs.changes.outputs.code == 'true' && runner.os == 'Linux'
+        run: sudo apt-get install --no-install-recommends -y emacs-nox
       - if: needs.changes.outputs.code == 'true'
         uses: Swatinem/rust-cache@v2
       - if: needs.changes.outputs.code == 'true'
