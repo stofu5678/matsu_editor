@@ -462,10 +462,20 @@ fn the_source_opened_again_is_found_by_its_file(cx: &mut TestAppContext) {
             ws.update(app, |ws, cx| ws.preview_to_source(window, cx))
         })
         .unwrap();
-    // No second editor for the file: the tab that is there is shown.
-    ws.read_with(cx, |ws, _| {
+    // No second editor for the file: the tab that is there is shown, and the preview follows its
+    // document now.
+    ws.read_with(cx, |ws, cx| {
         assert_eq!(ws.tab_count(), before);
         assert!(ws.tab_content(ws.active_tab()).unwrap().preview().is_none());
+        let source = ws.editor().read(cx).document().clone();
+        let previews: Vec<_> = (0..ws.tab_count())
+            .filter_map(|i| {
+                ws.tab_content(i)
+                    .and_then(super::content::TabContent::preview)
+            })
+            .collect();
+        assert_eq!(previews.len(), 1);
+        assert!(previews[0].view().read(cx).document() == &source);
     });
     let _ = std::fs::remove_file(&path);
 }

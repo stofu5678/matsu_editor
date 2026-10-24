@@ -97,7 +97,27 @@ impl Workspace {
                     .map(|view| (handle, view))
             });
         match source {
-            Some(index) => self.activate_tab(index, window, cx),
+            Some(index) => {
+                let view = self.tab_panes(index).map(|p| p.active().clone());
+                let reopened = view
+                    .as_ref()
+                    .is_some_and(|v| v.read(cx).document() != &document);
+                match view {
+                    // The source was closed and its file opened again: that is another document,
+                    // so the preview, which follows the old one, is made again for the new one.
+                    Some(view) if reopened => {
+                        self.close_tab_now(active, window, cx);
+                        if let Some(index) = self.tab_of(&view) {
+                            self.activate_tab(index, window, cx);
+                        }
+                        self.open_preview(window, cx);
+                        if let Some(index) = self.tab_of(&view) {
+                            self.activate_tab(index, window, cx);
+                        }
+                    }
+                    _ => self.activate_tab(index, window, cx),
+                }
+            }
             None if elsewhere.is_some() => {
                 if let Some((handle, view)) = elsewhere {
                     super::flows::reveal(cx, handle, view);
