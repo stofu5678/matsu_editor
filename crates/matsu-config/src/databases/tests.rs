@@ -283,6 +283,9 @@ fn passwords_on_the_command_line_are_found() {
     assert_eq!(found(Kind::MySql, "mysql -p;secret"), Some("-p"));
     assert_eq!(found(Kind::MySql, "mysql -p|secret"), Some("-p"));
     assert_eq!(found(Kind::SqlServer, "sqlcmd -S h -P(secret)"), Some("-P"));
+    // a password that is a separator, or begins with one
+    assert_eq!(found(Kind::MySql, "mysql -p&&secret"), Some("-p"));
+    assert_eq!(found(Kind::MySql, "mysql -u me -p;"), Some("-p"));
     assert_eq!(found(Kind::MySql, "mysql -p ; psql"), None);
     assert_eq!(found(Kind::MySql, "mysql -p && psql -p5432"), None);
     assert_eq!(found(Kind::MySql, "mysql -u me -p"), None);

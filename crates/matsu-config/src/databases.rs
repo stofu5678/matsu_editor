@@ -404,18 +404,11 @@ pub fn password_in_command(kind: Kind, command: &str) -> Option<&'static str> {
         })
 }
 
-/// Whether the character that ends `segment` in `text` (a cut: `;` `|` `(` `)` `&`) is followed at once by
-/// something that is not a blank, as in `-p(secret)`. `segment` is a slice of `text`.
+/// Whether a cut character follows `segment` in `text` (`segment` is a slice of `text`), at once: the command
+/// ends with something and then a `;` `|` `(` `)` `&`, as in `-p(secret)`, `-p&&secret` or `-p;`.
 fn glued_to_next(text: &str, segment: &str) -> bool {
     let start = segment.as_ptr() as usize - text.as_ptr() as usize;
-    let rest = &text[start + segment.len()..];
-    let mut chars = rest.chars();
-    match (chars.next(), chars.next()) {
-        (Some(cut), Some(next)) => {
-            matches!(cut, ';' | '|' | '(' | ')' | '&') && !next.is_whitespace() && next != cut
-        }
-        _ => false,
-    }
+    text[start + segment.len()..].starts_with([';', '|', '(', ')', '&'])
 }
 
 /// Whether the command `segment` ends with the option that takes the password and has no value after it:
