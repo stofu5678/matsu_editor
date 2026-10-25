@@ -272,9 +272,9 @@ impl Erlang {
         if p >= end {
             return end;
         }
-        if p + 1 < end && buf[p] == '-' && buf[p + 1] == '>' {
-            self.state = State::FuncFound;
-        } else if p + 3 < end && buf[p..p + 4] == ['w', 'h', 'e', 'n'] {
+        let arrow = p + 1 < end && buf[p] == '-' && buf[p + 1] == '>';
+        let when = p + 3 < end && buf[p..p + 4] == ['w', 'h', 'e', 'n'];
+        if arrow || when {
             self.state = State::FuncFound;
         } else if is_comment(buf[p]) {
             return end;
