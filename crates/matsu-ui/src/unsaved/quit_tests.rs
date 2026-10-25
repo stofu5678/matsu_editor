@@ -415,3 +415,64 @@ fn the_end_of_the_process_waits_for_the_writer_itself(cx: &mut TestAppContext) {
     let bytes = std::fs::read(f.dir.join(&files[0])).unwrap();
     assert!(String::from_utf8_lossy(&bytes).ends_with("last words"));
 }
+
+#[gpui::test]
+fn a_cancelled_close_takes_back_what_it_left_out_for_the_copies(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    cx.update(|app| {
+        app.set_global(KeepPrefs {
+            no_ask: true,
+            max_mb: 1,
+            ..KeepPrefs::default()
+        });
+        app.set_global(crate::tabs::settings::TabSettings {
+            show_bar: true,
+            grouped: true,
+            new_window: false,
+        });
+        let mut options = crate::tabs::settings::options(app);
+        options.retain_empty = false;
+        options.close_one_win = false;
+        app.set_global(options);
+    });
+    // Tab A is covered by its copy.
+    type_text(cx, &f, "covered tab");
+    let t0 = Instant::now();
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    let ws = workspace(cx, f.handle);
+    let a = ws.read_with(cx, |ws, app| ws.editor().read(app).document().entity_id());
+    // Tab B is too big to be kept.
+    run(cx, &f, "F_FILENEW");
+    let big = "x".repeat(1024 * 1024 + 10);
+    ws.update(cx, |ws, cx| {
+        ws.editor().clone().update(cx, |view, cx| {
+            view.document().update(cx, |shared, _| {
+                let (model, _) = shared.parts_mut();
+                model
+                    .replace(
+                        matsu_core::buffer::Pos::new(0, 0),
+                        matsu_core::buffer::Pos::new(0, 0),
+                        &big,
+                    )
+                    .unwrap();
+            });
+        });
+    });
+    tick(cx, &f, t0 + Duration::from_secs(10));
+    let window = VisualTestContext::from_window(f.handle, cx).into_mut();
+    assert!(!window.simulate_close());
+    window.run_until_parked();
+    assert!(asks(cx, &f), "the question about the big tab");
+    assert!(
+        cx.update(|app| super::keeper::kept_for_exit(app, a)),
+        "A was left out for its copy"
+    );
+    let window = VisualTestContext::from_window(f.handle, cx).into_mut();
+    window.simulate_prompt_answer("キャンセル");
+    window.run_until_parked();
+    assert!(
+        !cx.update(|app| super::keeper::kept_for_exit(app, a)),
+        "the cancelled flow took it back"
+    );
+}

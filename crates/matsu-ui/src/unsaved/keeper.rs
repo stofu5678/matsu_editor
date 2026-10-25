@@ -1099,3 +1099,11 @@ pub(crate) fn covered(view: &EditorView, cx: &App) -> bool {
             .load(std::sync::atomic::Ordering::SeqCst)
         && entry.shared.written() == Some(revision_of(view, shared))
 }
+
+/// Whether the copy of the document is left for the end of the editor (for the tests).
+#[cfg(test)]
+pub(crate) fn kept_for_exit(cx: &App, document: EntityId) -> bool {
+    cx.try_global::<Keeper>()
+        .and_then(|k| k.entries.get(&document))
+        .is_some_and(|e| e.kept_for_exit)
+}

@@ -224,6 +224,18 @@ pub(crate) async fn confirm_discard_ending_by(
     (confirm_discard(view, cx).await, false)
 }
 
+/// A flow that left questions out for the copies (`confirm_discard_ending`) was cancelled: the documents are not
+/// closed, so the copy of none of them stays for the end of the editor any more (a document that goes back to its
+/// saved text and closes later must not leave its old copy behind).
+pub(crate) fn forget_left_out(views: &[Entity<EditorView>], cx: &mut AsyncWindowContext) {
+    cx.update(|_, app| {
+        for view in views {
+            view.update(app, |view, cx| crate::unsaved::unmark_close(view, cx));
+        }
+    })
+    .ok();
+}
+
 /// Whether closing the document of `view` ends the editor without a question about its copy: the setting is on,
 /// and the document is the only tab of the last window.
 pub(crate) fn closing_ends_the_editor(app: &mut App, view: &WeakEntity<EditorView>) -> bool {
@@ -413,7 +425,7 @@ pub(crate) async fn exit_all(cx: &mut AsyncWindowContext, kind: ExitKind) {
             .update(|_, app| super::windows::editors(app))
             .unwrap_or_default();
         let mut checked = Vec::new();
-        for (handle, view) in editors {
+        for (handle, view) in editors.clone() {
             let weak = view.downgrade();
             let Ok(mut window_cx) = handle.update(cx, |_, window, app| window.to_async(app)) else {
                 continue;
@@ -423,6 +435,9 @@ pub(crate) async fn exit_all(cx: &mut AsyncWindowContext, kind: ExitKind) {
             })
             .await
             {
+                // The flow is over: what it left out for the copies is taken back.
+                let views: Vec<_> = editors.iter().map(|(_, v)| v.clone()).collect();
+                forget_left_out(&views, cx);
                 return;
             }
             let version = weak

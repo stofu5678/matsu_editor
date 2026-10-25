@@ -271,6 +271,8 @@ async fn close_after_questions(
             let (go_on, by_copy) =
                 close::confirm_discard_ending_by(&view.downgrade(), cx, &ends).await;
             if !go_on {
+                // The flow is over: what it left out for the copies is taken back.
+                close::forget_left_out(&views, cx);
                 return;
             }
             if by_copy {
