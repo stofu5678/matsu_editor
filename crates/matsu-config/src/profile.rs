@@ -486,6 +486,16 @@ impl Profile {
         self.lines.len() != before
     }
 
+    /// Removes the first section with this name, with its header and entries. Returns whether there was one.
+    pub fn remove_section(&mut self, section: &str) -> bool {
+        let Some(header) = self.find_section(section) else {
+            return false;
+        };
+        let range = self.section_range(header);
+        self.lines.drain(header..range.end);
+        true
+    }
+
     /// The bytes of the file with every unchanged line exactly as it was read.
     ///
     /// A file read as Shift_JIS is written as Shift_JIS. If a changed line has a character Shift_JIS cannot

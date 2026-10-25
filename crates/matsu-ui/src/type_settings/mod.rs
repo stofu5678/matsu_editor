@@ -122,7 +122,7 @@ pub(crate) fn dialog_window(cx: &App) -> Option<AnyWindowHandle> {
 
 /// The settings file as it is now (another window may have written it), or what the application
 /// read when there is no file on disk.
-fn current_profile(cx: &App) -> Profile {
+pub(crate) fn current_profile(cx: &App) -> Profile {
     crate::history::settings_path(cx)
         .and_then(|path| Profile::load(&path).ok())
         .or_else(|| {

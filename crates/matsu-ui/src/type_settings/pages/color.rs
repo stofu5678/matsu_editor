@@ -12,7 +12,7 @@
 //!
 //! Not available yet: the choice of the keyword sets (`CDlgKeywordSelect`, the sets are in the
 //! common settings 強調キーワード, which MATSU Editor does not have yet), 文字色統一 and 背景色統一
-//! (`CDlgSameColor`), and the import and export of the colors (`CImpExpManager`).
+//! (`CDlgSameColor`). The import and export of the colors are in `color_file`.
 
 use matsu_config::settings::ColorSet;
 
@@ -226,12 +226,16 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                         .into(),
                 ]),
                 Item::Row(vec![
-                    Control::button(COLORS_IMPORT, "インポート(&I)...", no_action)
-                        .unavailable()
-                        .into(),
-                    Control::button(COLORS_EXPORT, "エクスポート(&X)...", no_action)
-                        .unavailable()
-                        .into(),
+                    Control::button(COLORS_IMPORT, "インポート(&I)...", |d, window, cx| {
+                        d.colors_import(window, cx)
+                    })
+                    .into(),
+                    Control::button(
+                        COLORS_EXPORT,
+                        "エクスポート(&X)...",
+                        |d, window, cx| d.colors_export(window, cx),
+                    )
+                    .into(),
                 ]),
             ],
         )],

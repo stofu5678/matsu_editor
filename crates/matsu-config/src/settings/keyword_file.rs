@@ -104,7 +104,12 @@ pub fn render(name: &str, case_sensitive: bool, words: &[String]) -> Vec<u8> {
 /// The file name the export offers (`MakeExportFileName`): the characters a file name cannot have become
 /// `_`, a `/` the full-width `／`, and the extension `kwd` follows.
 pub fn export_file_name(set_name: &str) -> String {
-    let name: String = set_name
+    export_file_name_with(set_name, "kwd")
+}
+
+/// [`export_file_name`] for another kind of file (`ini` for a type, `col` for colors).
+pub fn export_file_name_with(name: &str, extension: &str) -> String {
+    let name: String = name
         .chars()
         .map(|c| match c {
             '\t' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
@@ -112,7 +117,7 @@ pub fn export_file_name(set_name: &str) -> String {
             c => c,
         })
         .collect();
-    format!("{name}.kwd")
+    format!("{name}.{extension}")
 }
 
 #[cfg(test)]
