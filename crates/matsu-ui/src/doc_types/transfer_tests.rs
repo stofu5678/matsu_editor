@@ -203,6 +203,26 @@ fn the_color_source_is_the_type_named_in_the_question_even_after_the_types_move(
 }
 
 #[gpui::test]
+fn the_export_writes_the_type_chosen_before_the_dialog_even_when_it_moved(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, "");
+    let cx = &mut VisualTestContext::from_window(handle, cx);
+    let view = view_of(cx);
+    let list = open_list(&view, cx);
+    let target = ini.folder().join("t.ini");
+    // Type 3 (HTML, id 3) moves to number 2 after the dialog was asked.
+    select(&list, cx, 3);
+    list.update_in(cx, |l, window, lcx| l.move_selected(true, window, lcx));
+    cx.run_until_parked();
+    assert!(list.update_in(cx, |l, window, lcx| l.export_to(3, &target, window, lcx)));
+    let text = String::from_utf8(std::fs::read(&target).unwrap()[3..].to_vec()).unwrap();
+    assert!(text.contains("szTypeName=HTML"), "{text}");
+    // A type that is gone is not exported.
+    let gone = ini.folder().join("gone.ini");
+    assert!(!list.update_in(cx, |l, window, lcx| l.export_to(9999, &gone, window, lcx)));
+    assert!(!gone.exists());
+}
+
+#[gpui::test]
 fn a_file_that_is_not_a_type_file_is_refused(cx: &mut TestAppContext) {
     let (ini, handle) = setup(cx, "");
     let cx = &mut VisualTestContext::from_window(handle, cx);
@@ -261,7 +281,7 @@ fn a_type_is_exported_with_its_keyword_files_and_imported_again(cx: &mut TestApp
     let list = open_list(&view, cx);
     select(&list, cx, 2);
     let target = ini.folder().join("C／C++.ini");
-    assert!(list.update_in(cx, |l, window, lcx| l.export_to(&target, window, lcx)));
+    assert!(list.update_in(cx, |l, window, lcx| l.export_to(2, &target, window, lcx)));
     cx.run_until_parked();
     let text = String::from_utf8(std::fs::read(&target).unwrap()[3..].to_vec()).unwrap();
     assert!(text.starts_with("; タイプ別設定 Ver1"), "{text}");

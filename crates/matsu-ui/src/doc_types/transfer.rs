@@ -311,10 +311,10 @@ impl TypeList {
 
     /// エクスポート: asks for a file name.
     pub(super) fn export(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(name) = with_user(cx, |user| {
+        let Some((id, name)) = with_user(cx, |user| {
             user.document_types()
                 .get(self.selected)
-                .map(|t| type_file::export_file_name(&t.type_name))
+                .map(|t| (t.id, type_file::export_file_name(&t.type_name)))
         }) else {
             return;
         };
@@ -335,7 +335,7 @@ impl TypeList {
             if let Some(path) = path {
                 this.update_in(cx, |this, window, cx| {
                     import_folder::remember(cx, &path);
-                    this.export_to(&path, window, cx);
+                    this.export_to(id, &path, window, cx);
                 })
                 .ok();
             }
@@ -347,13 +347,21 @@ impl TypeList {
     /// the type was written.
     pub(super) fn export_to(
         &mut self,
+        id: i32,
         path: &Path,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
         let profile = crate::type_settings::current_profile(cx);
-        let exported_type =
-            type_file::export_type(&profile, self.selected, env!("CARGO_PKG_VERSION"));
+        // The type chosen before the dialog, found by its id in the file as it is now.
+        let Some(index) = DocumentTypes::from_profile(&profile)
+            .iter()
+            .position(|t| t.id == id)
+        else {
+            self.say("エクスポートするタイプが無くなりました。", window, cx);
+            return false;
+        };
+        let exported_type = type_file::export_type(&profile, index, env!("CARGO_PKG_VERSION"));
         let written = exported_type
             .as_ref()
             .ok()

@@ -99,8 +99,8 @@ fn last_page(cx: &App) -> usize {
 struct OpenSheet {
     window: AnyWindowHandle,
     dialog: WeakEntity<CommonSettingsDialog>,
-    /// The type the sheet is for.
-    index: usize,
+    /// The id of the type the sheet is for (the number of the type changes when the list of types does).
+    id: i32,
 }
 
 impl Global for OpenSheet {}
@@ -194,11 +194,15 @@ pub(crate) fn open(
     opener: Option<AnyWindowHandle>,
 ) -> Option<Entity<CommonSettingsDialog>> {
     if let Some(dialog) = current_dialog(cx) {
-        let (window, open_index) = {
+        let (window, open_id) = {
             let open = cx.global::<OpenSheet>();
-            (open.window, open.index)
+            (open.window, open.id)
         };
-        if open_index != index {
+        // The type asked for, by its id: its number may be another one than when the sheet was opened.
+        let wanted = DocumentTypes::from_profile(&current_profile(cx))
+            .get(index)
+            .map(|t| t.id);
+        if wanted != Some(open_id) {
             // The sheet of another type is open: it is closed (nothing is written) and the one
             // that was asked for takes its place.
             window
@@ -217,6 +221,7 @@ pub(crate) fn open(
     let page = page.unwrap_or_else(|| last_page(cx));
     let profile = current_profile(cx);
     let sheet = sheet(&profile, index)?;
+    let id = sheet.target.original.id;
     let title = "タイプ別設定";
     let bounds = Bounds::centered(None, size(px(800.), px(620.)), cx);
     let options = WindowOptions {
@@ -245,7 +250,7 @@ pub(crate) fn open(
     cx.set_global(OpenSheet {
         window: handle.into(),
         dialog: dialog.downgrade(),
-        index,
+        id,
     });
     remember_page(cx, page);
     Some(dialog)
@@ -298,33 +303,16 @@ pub(crate) fn commit(cx: &mut App, target: &TypeTarget, values: &Values) {
         return;
     }
     // The list of types may have changed while the sheet was open (a type moved or deleted in the list of
-    // types): the type is found again by its id, and nothing is written when it is gone.
-    let profile_now = current_profile(cx);
-    let types_now = DocumentTypes::from_profile(&profile_now);
-    let id = target.original.id;
-    let Some(index) = (types_now.get(target.index).is_some_and(|t| t.id == id))
-        .then_some(target.index)
-        .or_else(|| types_now.iter().position(|t| t.id == id))
-    else {
-        return;
-    };
-    let moved;
-    let target = if index == target.index {
-        target
-    } else {
-        moved = TypeTarget {
-            index,
-            original: target.original.clone(),
-            unused_slot: is_unused_slot(&profile_now, index),
-        };
-        &moved
-    };
-    let number = i32::try_from(target.index).unwrap_or(0);
+    // types, in this process or another): the type is found again by its id in the file as the
+    // transaction reads it, and nothing is written when it is gone.
     let mut written: Option<Profile> = None;
+    let mut index_written: Option<usize> = None;
     crate::history::write_settings(cx, |profile| {
-        write_type(profile, &new, number, target)?;
-        written = Some(profile.clone());
-        Ok(true)
+        index_written = write_by_id(profile, &new, target)?;
+        if index_written.is_some() {
+            written = Some(profile.clone());
+        }
+        Ok(index_written.is_some())
     });
     let user = cx.try_global::<UserSettings>().cloned();
     let profile = written.unwrap_or_else(|| {
@@ -333,12 +321,39 @@ pub(crate) fn commit(cx: &mut App, target: &TypeTarget, values: &Values) {
             .and_then(|user| user.profile().cloned())
             .unwrap_or_default();
         // The values are valid, so this only fails for a key or value the file cannot hold.
-        let _ = write_type(&mut profile, &new, number, target);
+        index_written = write_by_id(&mut profile, &new, target).ok().flatten();
         profile
     });
+    let Some(index) = index_written else {
+        return;
+    };
     let path = user.as_ref().and_then(crate::settings::history_file);
     cx.set_global(UserSettings::from_profile(profile, path));
-    crate::doc_types::refresh_open_views(cx, target.index);
+    crate::doc_types::refresh_open_views(cx, index);
+}
+
+/// [`write_type`] for the type of the sheet, found in `profile` by its id. Returns its number, or `None`
+/// when the file has no such type (nothing is written then).
+fn write_by_id(
+    profile: &mut Profile,
+    new: &TypeSettings,
+    target: &TypeTarget,
+) -> Result<Option<usize>, matsu_config::ProfileError> {
+    let id = target.original.id;
+    let types = DocumentTypes::from_profile(profile);
+    let Some(index) = (types.get(target.index).is_some_and(|t| t.id == id))
+        .then_some(target.index)
+        .or_else(|| types.iter().position(|t| t.id == id))
+    else {
+        return Ok(None);
+    };
+    let found = TypeTarget {
+        index,
+        original: target.original.clone(),
+        unused_slot: is_unused_slot(profile, index),
+    };
+    write_type(profile, new, i32::try_from(index).unwrap_or(0), &found)?;
+    Ok(Some(index))
 }
 
 /// Writes what the user changed into type `number` of `profile`, over the type as `profile` has it

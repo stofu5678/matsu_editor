@@ -41,6 +41,25 @@ fn ok_writes_to_the_type_even_when_it_moved_in_the_list(cx: &mut TestAppContext)
 }
 
 #[gpui::test]
+fn opening_the_sheet_of_the_type_now_at_the_number_replaces_the_sheet_of_the_moved_one(
+    cx: &mut TestAppContext,
+) {
+    let (ini, _a) = setup(cx, &own_types());
+    cx.update(|app| open(app, 18, None, None)).unwrap();
+    // The type of the sheet (id 1018) moves to number 17; number 18 is another type now.
+    change_list(&ini, |p| {
+        move_type(p, 18, true).unwrap();
+    });
+    cx.update(|app| open(app, 18, None, None)).unwrap();
+    type_in(cx, TAB_SPACE, "8");
+    ok(cx);
+    // The sheet was for the type now at 18 (id 1017), not the one that was moved.
+    assert_eq!(ini.get("Types(18)", "id").as_deref(), Some("1017"));
+    assert_eq!(ints(&ini, 18)[3], 8);
+    assert_eq!(ints(&ini, 17)[3], 4);
+}
+
+#[gpui::test]
 fn ok_writes_nothing_when_the_type_was_deleted(cx: &mut TestAppContext) {
     let (ini, _a) = setup(cx, &own_types());
     cx.update(|app| open(app, 18, None, None)).unwrap();
