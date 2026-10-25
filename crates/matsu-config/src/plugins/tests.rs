@@ -487,6 +487,13 @@ fn the_errors_of_a_registration() {
         s.install(&d, "Bad", false),
         Err(InstallError::ReservedChar(' '))
     );
+    // A folder name that the slot cannot hold is refused, not cut.
+    let long = "f".repeat(64);
+    plugin(&d.user, &long, "long", 0);
+    assert_eq!(
+        s.install(&d, &long, false),
+        Err(InstallError::FolderNameTooLong)
+    );
     // The table is full at 40.
     for i in 0..MAX_PLUGIN {
         plugin(&d.user, &format!("P{i}"), &format!("id{i}"), 0);

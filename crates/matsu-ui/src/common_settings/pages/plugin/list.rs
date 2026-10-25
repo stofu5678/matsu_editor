@@ -181,6 +181,7 @@ pub(super) fn install_error_text(error: &InstallError) -> String {
         }
         InstallError::IdStartsWithDigit => "Plugin.IDの先頭に数字は使用できません".into(),
         InstallError::IdTooLong => "Plugin.IDは63文字までです".into(),
+        InstallError::FolderNameTooLong => "フォルダー名は63文字までです".into(),
         InstallError::TableFull => "プラグインをこれ以上登録できません".into(),
         InstallError::SameId { .. } => "ユーザーキャンセル".into(),
     }

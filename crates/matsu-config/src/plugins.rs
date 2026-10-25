@@ -230,6 +230,11 @@ impl PluginSettings {
         folder: &str,
         replace_same_id: bool,
     ) -> Result<usize, InstallError> {
+        // The slot holds 63 characters of the name (`MAX_PLUGIN_NAME`); Sakura cuts a longer one
+        // silently, and the plugin is not found again by the cut name.
+        if folder.chars().count() > ID_MAX_CHARS {
+            return Err(InstallError::FolderNameTooLong);
+        }
         let path = dirs.def_file(folder).ok_or(InstallError::NoDefinition)?;
         let bytes = std::fs::read(path).map_err(|_| InstallError::NoDefinition)?;
         let profile = Profile::from_bytes(&bytes);
@@ -287,6 +292,8 @@ pub enum InstallError {
     /// The ID has more than [`ID_MAX_CHARS`] characters. Sakura cuts it silently, and then the
     /// plugin is never found again by its ID; MATSU refuses it (the help says 63 at most).
     IdTooLong,
+    /// The name of the folder has more than [`ID_MAX_CHARS`] characters (`MAX_PLUGIN_NAME`).
+    FolderNameTooLong,
     /// `STR_PLGMGR_INST_MAX`: no empty slot.
     TableFull,
     /// A plugin with the same ID is registered under the name `folder`
