@@ -13,6 +13,15 @@ use super::with_user;
 /// `MAX_TYPES`: the most types the list has.
 const MAX_TYPES: usize = matsu_config::settings::types::MAX_TYPES as usize;
 
+/// The number of the type with this id in the settings file as it is now (the transaction reads the latest
+/// file, which another process may have changed since this one loaded it).
+fn id_index(profile: &matsu_config::Profile, id: i32) -> Result<usize, ListError> {
+    matsu_config::settings::DocumentTypes::from_profile(profile)
+        .iter()
+        .position(|t| t.id == id)
+        .ok_or(ListError::NoSuchType)
+}
+
 /// What a button does for the selected type (`LBN_SELCHANGE` of `CDlgTypeList::DispatchEvent`, `SetData`).
 impl TypeList {
     /// 追加 and 複製: while there is room.
@@ -179,7 +188,9 @@ impl TypeList {
             return;
         };
         let me = cx.entity_id();
-        match edit_types(cx, me, |profile| type_list::delete_type(profile, index)) {
+        match edit_types(cx, me, |profile| {
+            type_list::delete_type(profile, id_index(profile, id)?)
+        }) {
             // `if (m_nTypesCount <= iDocType) iDocType = m_nTypesCount - 1`: `reload` limits it.
             Ok(()) => self.reload(index, cx),
             Err(e) => self.explain(&e, window, cx),
@@ -209,7 +220,9 @@ impl TypeList {
             return;
         };
         let me = cx.entity_id();
-        match edit_types(cx, me, |profile| type_list::reset_type(profile, index)) {
+        match edit_types(cx, me, |profile| {
+            type_list::reset_type(profile, id_index(profile, id)?)
+        }) {
             Ok(name) => {
                 self.reload(index, cx);
                 self.say(&format!("{name} を初期化しました。"), window, cx);
