@@ -263,7 +263,10 @@ async fn close_after_questions(
             if asked.contains(&(view.entity_id(), version)) {
                 continue;
             }
-            if !close::confirm_discard_ending(&view.downgrade(), cx, hot).await {
+            // Asked again at the moment of the question: windows may have opened while the copies were written.
+            let ends =
+                |app: &mut App| crate::unsaved::hot_exit_enabled(app) && workspaces(app).len() == 1;
+            if !close::confirm_discard_ending(&view.downgrade(), cx, &ends).await {
                 return;
             }
             let version = view.read_with(cx, |v, app| v.document().read(app).version());

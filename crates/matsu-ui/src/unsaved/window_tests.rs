@@ -18,7 +18,7 @@ use crate::settings::UserSettings;
 pub(super) struct Fixture {
     pub(super) handle: AnyWindowHandle,
     pub(super) dir: PathBuf,
-    _tmp: tempfile::TempDir,
+    pub(super) _tmp: tempfile::TempDir,
 }
 
 pub(super) fn fixture(cx: &mut TestAppContext) -> Fixture {

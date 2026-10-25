@@ -222,3 +222,92 @@ fn a_cancelled_flow_does_not_make_the_hot_exit_delete_the_copy(cx: &mut TestAppC
         "the copy that covers the document stays"
     );
 }
+
+/// Runs `confirm_discard_ending` in the window of the fixture, and says what it answered (`None` while it asks).
+fn ending(
+    cx: &mut TestAppContext,
+    f: &Fixture,
+    ends: impl Fn(&mut gpui::App) -> bool + 'static,
+) -> std::rc::Rc<std::cell::Cell<Option<bool>>> {
+    let answer = std::rc::Rc::new(std::cell::Cell::new(None));
+    let ws = workspace(cx, f.handle);
+    let view = ws.read_with(cx, |ws, _| ws.editor().downgrade());
+    let out = answer.clone();
+    f.handle
+        .update(cx, |_, window, app| {
+            window
+                .spawn(app, async move |cx| {
+                    let go_on =
+                        crate::file_ops::close::confirm_discard_ending(&view, cx, &ends).await;
+                    out.set(Some(go_on));
+                })
+                .detach();
+        })
+        .unwrap();
+    cx.run_until_parked();
+    answer
+}
+
+#[gpui::test]
+fn a_window_that_opens_while_the_copies_are_written_makes_the_close_ask(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    hot(cx, true);
+    type_text(cx, &f, "text");
+    let t0 = Instant::now();
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    let view = workspace(cx, f.handle).read_with(cx, |ws, _| ws.editor().downgrade());
+    // At the moment of the decision another window has opened: this close is not the end any more.
+    let answer = ending(cx, &f, move |app| {
+        open_editor_window(app, SharedDocument::empty(), None).unwrap();
+        crate::file_ops::close::closing_ends_the_editor(app, &view)
+    });
+    assert!(asks(cx, &f), "the question is asked");
+    assert_eq!(answer.get(), None);
+    assert_eq!(doc_files(&f.dir).len(), 1);
+}
+
+#[gpui::test]
+fn closing_without_the_question_records_the_file_in_the_history(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    hot(cx, true);
+    cx.update(|app| {
+        app.set_global(crate::history::HistoryState::in_memory(
+            crate::history::HistoryOptions::default(),
+        ))
+    });
+    let path = f.dir.parent().unwrap().join("named.txt");
+    std::fs::write(&path, "x").unwrap();
+    // A second window with the named document (the fixture's window has none).
+    let handle = cx
+        .update(|app| {
+            open_editor_window(
+                app,
+                SharedDocument::new(
+                    matsu_core::model::DocumentModel::empty(),
+                    Some(path.clone()),
+                ),
+                None,
+            )
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let named = Fixture {
+        handle,
+        dir: f.dir.clone(),
+        _tmp: tempfile::tempdir().unwrap(),
+    };
+    type_text(cx, &named, "edited");
+    let t0 = Instant::now();
+    tick(cx, &named, t0);
+    tick(cx, &named, t0 + Duration::from_secs(3));
+    let answer = ending(cx, &named, |_| true);
+    assert_eq!(answer.get(), Some(true), "no question");
+    let known = cx.update(|app| {
+        crate::history::current(app)
+            .and_then(|h| h.file(&crate::history::view::path_text(&path)).cloned())
+            .is_some()
+    });
+    assert!(known, "the file is in the history");
+    assert_eq!(doc_files(&f.dir).len(), 1, "the copy stays");
+}
