@@ -58,6 +58,11 @@ impl EditorView {
         if self.is_grep_window() {
             return None;
         }
+        // The place and the bookmarks are not restored yet (the scan of the file is running, or
+        // failed): what the history has stays, the start of the file would replace it.
+        if let Some(waiting) = &self.pending_scan_restore {
+            return waiting.remembered();
+        }
         let shared = self.document().read(cx);
         let path = path_text(shared.path()?);
         let doc = shared.doc();

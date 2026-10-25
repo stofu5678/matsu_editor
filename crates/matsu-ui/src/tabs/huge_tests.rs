@@ -305,6 +305,13 @@ fn a_place_and_bookmarks_past_the_scanned_start_come_back_when_the_scan_is_done(
     };
     // Past what is scanned: nothing is cut to the start yet.
     assert!(marks(cx, &view).is_empty());
+    // Closing now would write the history again: with what it had, not the start of the file.
+    let kept = view.read_with(cx, |v, app| v.history_entry(app)).unwrap();
+    assert_eq!(kept.caret_y, 89_999);
+    assert_eq!(
+        kept.marks,
+        matsu_config::history::marks::encode_marks([50_000, 95_000])
+    );
     wait_for_scan(cx, &view);
     assert_eq!(
         view.read_with(cx, |v, _| v.cursor.caret()),

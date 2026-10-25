@@ -27,6 +27,13 @@ pub(crate) struct ScanRestore {
     history: Option<(FileEntry, HistoryOptions)>,
 }
 
+impl ScanRestore {
+    /// The entry the history had for the file, to write again as it is.
+    pub(crate) fn remembered(&self) -> Option<FileEntry> {
+        self.history.as_ref().map(|(entry, _)| entry.clone())
+    }
+}
+
 impl EditorView {
     /// Starts the task that follows the scan of the document's file, if it has one: it shows the
     /// scanned part as it grows and the complete document at the end. The task ends when the
@@ -171,12 +178,17 @@ impl EditorView {
         if self.pending_scan_restore.is_none() || self.document.read(cx).is_scanning() {
             return;
         }
+        // A scan that failed leaves it where it is: the history keeps what it had.
+        let finished = self
+            .pending_scan_restore
+            .as_ref()
+            .is_some_and(|r| self.document.read(cx).scan_finished(r.id));
+        if !finished {
+            return;
+        }
         let Some(restore) = self.pending_scan_restore.take() else {
             return;
         };
-        if !self.document.read(cx).scan_finished(restore.id) {
-            return;
-        }
         let kept_place = self.cursor.caret() == restore.at_load;
         if kept_place
             && let Some(pos) = restore.caret
