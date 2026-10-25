@@ -87,13 +87,18 @@ pub(crate) struct Text {
 /// before; leading spaces of a line are a word of their own. `before` is the character just
 /// before the text when it goes on from a soft wrap (the row before it): a word that starts right
 /// at the wrap then starts at 0. At the start of a line it is `None` and the first character is
-/// implicitly the start of a word (AccessKit).
-fn word_starts(text: &str, before: Option<char>) -> Vec<usize> {
+/// implicitly the start of a word (AccessKit). `line_break` is whether the row ends with a line
+/// break (the run holds one `\n`): the key stops before it, so the break is a start too.
+fn word_starts(text: &str, before: Option<char>, line_break: bool) -> Vec<usize> {
     let skip = usize::from(before.is_some());
-    let line: Vec<char> = before.into_iter().chain(text.chars()).collect();
+    let line: Vec<char> = before
+        .into_iter()
+        .chain(text.chars())
+        .chain(line_break.then_some('\n'))
+        .collect();
     let mut starts = Vec::new();
     let mut at = 0;
-    while let Some(next) = search_next_word(&line, 0, at, false) {
+    while let Some(next) = search_next_word(&line, usize::from(line_break), at, false) {
         // The end of the text is where the key stops when no word follows: not a start. (`next`
         // is never 0, and the prepended character is not part of the text.)
         if next >= line.len() {
@@ -158,7 +163,7 @@ impl Snapshot {
         let words = if char_lengths.len() > usize::from(u8::MAX) {
             Vec::new()
         } else {
-            word_starts(row.text(), before)
+            word_starts(row.text(), before, row.eol.is_some())
         };
         // The width counts the cell of the mark of the end of the text, where the caret can be.
         let width = (x - origin + u32::from(row.eol.is_none())) as f32 * unit;

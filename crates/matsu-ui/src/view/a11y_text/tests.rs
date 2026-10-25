@@ -40,20 +40,23 @@ fn at(run: usize, index: usize) -> At {
 #[test]
 fn words_start_where_the_kind_of_character_changes() {
     // Trailing spaces belong to the word before; each mark of punctuation is a word.
-    assert_eq!(word_starts("ab cd", None), [3]);
-    assert_eq!(word_starts("ab, cd", None), [2, 4]);
+    assert_eq!(word_starts("ab cd", None, false), [3]);
+    assert_eq!(word_starts("ab, cd", None, false), [2, 4]);
     // leading spaces are a word of their own
-    assert_eq!(word_starts("  ab", None), [2]);
-    assert_eq!(word_starts("ひらがなカタカナ漢字abc", None), [4, 8, 10]);
+    assert_eq!(word_starts("  ab", None, false), [2]);
+    assert_eq!(
+        word_starts("ひらがなカタカナ漢字abc", None, false),
+        [4, 8, 10]
+    );
     // the same rules as Ctrl+Right: symbols make a word together, the prolonged sound mark goes
     // with the kana around it
-    assert_eq!(word_starts("a+-b", None), [1, 3]);
-    assert_eq!(word_starts("あーい", None), Vec::<usize>::new());
-    assert_eq!(word_starts("", None), Vec::<usize>::new());
+    assert_eq!(word_starts("a+-b", None, false), [1, 3]);
+    assert_eq!(word_starts("あーい", None, false), Vec::<usize>::new());
+    assert_eq!(word_starts("", None, false), Vec::<usize>::new());
     // after a soft wrap: a word that starts at the wrap, and one that goes on
-    assert_eq!(word_starts("kl", Some(' ')), [0]);
-    assert_eq!(word_starts("kl", Some('k')), Vec::<usize>::new());
-    assert_eq!(word_starts("kl mn", Some('k')), [3]);
+    assert_eq!(word_starts("kl", Some(' '), false), [0]);
+    assert_eq!(word_starts("kl", Some('k'), false), Vec::<usize>::new());
+    assert_eq!(word_starts("kl mn", Some('k'), false), [3]);
 }
 
 #[gpui::test]
@@ -66,8 +69,8 @@ fn a_word_that_starts_at_a_soft_wrap_starts_a_word_in_its_run(cx: &mut TestAppCo
     );
     let text = text_of(&f.view, cx);
     assert_eq!(values(&text), ["abcdefghi ", "kl\n", "abcdefghij", "kl"]);
-    // "kl" follows a space: a new word. The second "kl" goes on from "abcdefghij".
-    assert_eq!(text.runs[1].word_starts, [0]);
+    // "kl" follows a space: a new word, and the line break after it is a start (where the key stops). The second "kl" goes on from "abcdefghij".
+    assert_eq!(text.runs[1].word_starts, [0, 2]);
     assert!(text.runs[3].word_starts.is_empty());
 }
 
@@ -257,4 +260,24 @@ fn a_row_of_255_characters_and_a_line_break_has_no_word_starts(cx: &mut TestAppC
     let text = text_of(&f.view, cx);
     assert_eq!(text.runs[0].char_lengths.len(), 256);
     assert!(text.runs[0].word_starts.is_empty());
+}
+
+#[test]
+fn the_line_break_is_a_word_start_where_ctrl_right_stops() {
+    assert_eq!(word_starts("abc", None, true), [3]);
+    assert_eq!(word_starts("ab cd", None, true), [3, 5]);
+    assert_eq!(word_starts("", None, true), Vec::<usize>::new());
+    assert_eq!(word_starts("abc", None, false), Vec::<usize>::new());
+}
+
+#[gpui::test]
+fn the_word_before_a_line_break_ends_at_it_for_crlf_and_lf(cx: &mut TestAppContext) {
+    for text in ["abc\r\ndef", "abc\ndef"] {
+        let (f, cx) = setup(cx, text);
+        let text = text_of(&f.view, cx);
+        assert_eq!(values(&text), ["abc\n", "def"]);
+        // Ctrl+Right from "abc" stops before the line break (index 3), as the key does.
+        assert_eq!(text.runs[0].word_starts, [3]);
+        assert!(text.runs[1].word_starts.is_empty());
+    }
 }
