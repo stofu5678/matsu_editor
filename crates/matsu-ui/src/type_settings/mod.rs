@@ -307,13 +307,19 @@ pub(crate) fn commit(cx: &mut App, target: &TypeTarget, values: &Values) {
     // transaction reads it, and nothing is written when it is gone.
     let mut written: Option<Profile> = None;
     let mut index_written: Option<usize> = None;
+    let mut transaction_ran = false;
     crate::history::write_settings(cx, |profile| {
+        transaction_ran = true;
         index_written = write_by_id(profile, &new, target)?;
         if index_written.is_some() {
             written = Some(profile.clone());
         }
         Ok(index_written.is_some())
     });
+    if transaction_ran && written.is_none() {
+        // The type is gone from the file: the list this process has is the old one, and stays.
+        return;
+    }
     let user = cx.try_global::<UserSettings>().cloned();
     let profile = written.unwrap_or_else(|| {
         let mut profile = user

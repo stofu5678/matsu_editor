@@ -331,6 +331,22 @@ fn a_document_keeps_its_chosen_type_when_the_types_move(cx: &mut TestAppContext)
 }
 
 #[gpui::test]
+fn the_zoom_stays_when_the_type_of_the_document_only_changes_its_number(cx: &mut TestAppContext) {
+    let (_ini, handle) = setup(cx, &own_types(20));
+    let cx = &mut VisualTestContext::from_window(handle, cx);
+    let view = view_of(cx);
+    run(&view, cx, "F_CHANGETYPE", &[Arg::Int(19)]);
+    run(&view, cx, "F_SETFONTSIZEUP", &[Arg::Int(1)]);
+    let px = view.read_with(cx, |v, _| v.font_px());
+    let list = open_list(&view, cx);
+    select(&list, cx, 18);
+    list.update_in(cx, |l, window, lcx| l.move_selected(true, window, lcx));
+    cx.run_until_parked();
+    assert_eq!(type_index(&view, cx), 17);
+    assert_eq!(view.read_with(cx, |v, _| v.font_px()), px);
+}
+
+#[gpui::test]
 fn a_document_that_has_the_type_of_its_name_takes_the_type_of_its_name_again(
     cx: &mut TestAppContext,
 ) {

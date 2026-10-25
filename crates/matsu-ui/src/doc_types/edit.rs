@@ -104,14 +104,16 @@ impl EditorView {
             let new_id = user.document_types().get(index).map(|t| t.id);
             (index, new_id, user.view_settings_of_type(index))
         });
-        if index != current || new_id != old_id {
+        // The same type (by id) at another number keeps the temporary changes (zoom, wrap); another type
+        // drops them.
+        if new_id != old_id {
             self.apply_settings(settings, cx);
-            if index != current {
-                self.document
-                    .update(cx, |shared, cx| shared.announce_type(index, cx));
-            }
         } else {
             self.apply_changed_settings(settings, cx);
+        }
+        if index != current {
+            self.document
+                .update(cx, |shared, cx| shared.announce_type(index, cx));
         }
     }
 }
