@@ -381,47 +381,47 @@ pub fn password_in_command(kind: Kind, command: &str) -> Option<&'static str> {
             // the commands by themselves, and the whole line for the rules that every client shares
             // (`password=`, a URI with a password): a quote that the cutting does not understand cannot
             // hide those
-            let mut parts: Vec<(Kind, &str, bool)> = Vec::new();
+            let mut parts: Vec<(Kind, &str)> = Vec::new();
             for segment in split_commands(text) {
                 let kinds = program_kinds(segment);
-                let glued = glued_to_next(text, segment);
                 if kinds.is_empty() {
-                    parts.push((kind, segment, glued));
+                    parts.push((kind, segment));
                 }
-                parts.extend(kinds.into_iter().map(|k| (k, segment, glued)));
+                parts.extend(kinds.into_iter().map(|k| (k, segment)));
+                // A program that is run directly (Windows) gets `-p(secret)`, `-p&&secret` and
+                // `alice/(secret)@DB` as one argument, but the cutting leaves the first half in this
+                // command and the second in the next. So when a cut character follows at once, the
+                // command is also looked at with the rest of that argument.
+                if let Some(longer) = with_glued_word(text, segment) {
+                    let kinds = program_kinds(segment);
+                    if kinds.is_empty() {
+                        parts.push((kind, longer));
+                    }
+                    parts.extend(kinds.into_iter().map(|k| (k, longer)));
+                }
             }
-            parts.push((Kind::Other, text, false));
+            parts.push((Kind::Other, text));
             parts
         })
-        .find_map(|(k, segment, glued)| {
-            // `mysql -p(secret)`: a program that is run directly (Windows) gets `(secret)` as the rest
-            // of the argument, but the cutting leaves `-p` at the end of the command and `secret` in
-            // the next one
-            if glued && ends_with_open_password(k, segment) {
-                return Some(if k == Kind::SqlServer { "-P" } else { "-p" });
-            }
-            password_in_text(k, segment)
-        })
+        .find_map(|(k, segment)| password_in_text(k, segment))
 }
 
-/// Whether a cut character follows `segment` in `text` (`segment` is a slice of `text`), at once: the command
-/// ends with something and then a `;` `|` `(` `)` `&`, as in `-p(secret)`, `-p&&secret` or `-p;`.
-fn glued_to_next(text: &str, segment: &str) -> bool {
+/// `segment` (a slice of `text`) and, when a cut character (`;` `|` `(` `)` `&`) follows it at once, the rest of
+/// the word that the cut character is in, up to the next blank: `mysql -p` and `(secret)` of `mysql
+/// -p(secret)`. `None` when nothing glued follows.
+fn with_glued_word<'a>(text: &'a str, segment: &str) -> Option<&'a str> {
     let start = segment.as_ptr() as usize - text.as_ptr() as usize;
-    text[start + segment.len()..].starts_with([';', '|', '(', ')', '&'])
-}
-
-/// Whether the command `segment` ends with the option that takes the password and has no value after it:
-/// `-p` of MySQL, `-P` of sqlcmd, as a word of its own.
-fn ends_with_open_password(kind: Kind, segment: &str) -> bool {
-    let option = match kind {
-        Kind::MySql => "-p",
-        Kind::SqlServer => "-P",
-        _ => return false,
-    };
-    segment
-        .strip_suffix(option)
-        .is_some_and(|before| before.is_empty() || before.ends_with(|c: char| c.is_whitespace()))
+    let end = start + segment.len();
+    let rest = &text[end..];
+    if !rest.starts_with([';', '|', '(', ')', '&']) {
+        return None;
+    }
+    // a blank before the cut character is a blank between two commands
+    if segment.ends_with(|c: char| c.is_whitespace()) {
+        return None;
+    }
+    let word_end = rest.find(char::is_whitespace).map_or(rest.len(), |i| i);
+    Some(&text[start..end + word_end])
 }
 
 /// The commands of a line: it is cut at `;`, `|` and parentheses, and at `&` when it is `&&` or has blanks
