@@ -1790,3 +1790,12 @@ fn measure_open_by_ranges() {
         println!("the middle line: {:?}", t.elapsed());
     }
 }
+
+#[test]
+fn a_cancel_while_opening_by_ranges_is_honored() {
+    let dir = TempDir::new();
+    let path = dir.write("cancel.txt", "line\n".repeat(100).as_bytes());
+    let error =
+        open_file_with(&path, &huge_options(10), &mut |_, _| ControlFlow::Break(())).unwrap_err();
+    assert!(matches!(error, FileError::Cancelled), "{error}");
+}

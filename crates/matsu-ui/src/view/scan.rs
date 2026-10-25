@@ -17,20 +17,22 @@ impl EditorView {
     /// scanned part as it grows and the complete document at the end. The task ends when the
     /// document is replaced or the window is gone.
     pub(crate) fn watch_scan(&mut self, cx: &mut Context<Self>) {
-        let document = self.document.clone();
-        let Some(id) = document.read(cx).scan_id() else {
+        // The task follows the document, not this view: another pane of the document goes on
+        // when this one is closed. It ends when the document is gone.
+        let document = self.document.downgrade();
+        let Some(id) = self.document.read(cx).scan_id() else {
             return;
         };
         cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor().timer(POLL).await;
-                let tick = document.update(cx, |shared, cx| shared.scan_tick(id, cx));
+                let Ok(tick) = document.update(cx, |shared, cx| shared.scan_tick(id, cx)) else {
+                    break;
+                };
                 match tick {
+                    // the percentage of the status bar
                     ScanTick::Running => {
-                        // the percentage of the status bar
-                        if this.update(cx, |_, cx| cx.notify()).is_err() {
-                            break;
-                        }
+                        this.update(cx, |_, cx| cx.notify()).ok();
                     }
                     ScanTick::Gone => break,
                     ScanTick::Finished | ScanTick::Failed => {
@@ -43,26 +45,35 @@ impl EditorView {
         .detach();
     }
 
-    /// The scan is done: the document can be edited now. A jump that waited for it runs.
+    /// The scan is done: the document can be edited now.
     fn scan_ended(&mut self, tick: ScanTick, cx: &mut Context<Self>) {
-        let waiting = self.pending_scan_jump.take();
-        if tick == ScanTick::Finished {
+        self.notice = if tick == ScanTick::Finished {
             let lines = self.document.read(cx).doc().line_count();
-            self.notice = Some(format!("改行位置を調べ終えました ({lines} 行)"));
-            cx.notify();
-            if let Some((reg, args)) = waiting {
-                self.run_registration(reg, &args, cx);
-            }
+            Some(format!("改行位置を調べ終えました ({lines} 行)"))
         } else {
-            self.notice = None;
-            cx.notify();
+            None
+        };
+        cx.notify();
+    }
+
+    /// When the document changes: a jump that waited for the scan runs when the scan is done (in
+    /// every pane of the document that asked for one), and is dropped when the scan failed.
+    pub(super) fn run_pending_scan_jump(&mut self, cx: &mut Context<Self>) {
+        if self.pending_scan_jump.is_none() || self.document.read(cx).is_scanning() {
+            return;
+        }
+        let complete = !self.document.read(cx).is_partial();
+        if let Some((reg, args)) = self.pending_scan_jump.take()
+            && complete
+        {
+            self.run_registration(reg, &args, cx);
         }
     }
 
     /// While the scan runs, a jump to the end of the file or to a line it has not reached waits
     /// for the scan (ADR-0020, chapter 2: 「走査が終わるまで待つ」). Returns whether `reg` was
     /// held back.
-    pub(super) fn defer_for_scan(
+    pub(crate) fn defer_for_scan(
         &mut self,
         reg: &'static Registration,
         args: &[Arg],

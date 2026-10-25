@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use gpui::{AnyWindowHandle, Entity, TestAppContext};
+use gpui::{AnyWindowHandle, AppContext as _, Entity, TestAppContext};
 use matsu_commands::command::Arg;
 use matsu_core::buffer::ScanOptions;
 
@@ -223,5 +223,31 @@ fn iso_2022_jp_over_the_threshold_is_read_whole(cx: &mut TestAppContext) {
             .text),
         "あいうえお"
     );
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[gpui::test]
+fn the_go_to_line_dialog_waits_for_the_scan_too(cx: &mut TestAppContext) {
+    let (handle, dir) = opened(cx, "big.txt", big_text().as_bytes());
+    let view = active_view(cx, handle);
+    view.update(cx, |v, cx| v.go_to_line(90_000, cx));
+    assert_eq!(caret_line(cx, &view), 0);
+    wait_for_scan(cx, &view);
+    assert_eq!(caret_line(cx, &view), 89_999);
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[gpui::test]
+fn another_pane_of_the_document_runs_its_own_waiting_jump(cx: &mut TestAppContext) {
+    let (handle, dir) = opened(cx, "big.txt", big_text().as_bytes());
+    let view = active_view(cx, handle);
+    // A second view of the same document, as a split pane is.
+    let document = view.read_with(cx, |v, _| v.document().clone());
+    let pane = cx.new(|cx| EditorView::new(document.clone(), cx));
+    pane.update(cx, |v, cx| v.go_to_line(95_000, cx));
+    assert_eq!(caret_line(cx, &pane), 0);
+    wait_for_scan(cx, &view);
+    cx.run_until_parked();
+    assert_eq!(caret_line(cx, &pane), 94_999);
     std::fs::remove_dir_all(dir).ok();
 }

@@ -351,6 +351,10 @@ fn open_ranged(
     let first_eol =
         crate::buffer::find_eol(encoding.codec(), &probe, 0, options.ext_eol).map(|(_, eol)| eol);
     drop(probe);
+    // The cancel of the caller is honored here, before a thread is started.
+    if progress(len, len).is_break() {
+        return Err(FileError::Cancelled);
+    }
     let scan_options = ScanOptions {
         ext_eol: options.ext_eol,
         ..options.huge_scan
@@ -361,7 +365,6 @@ fn open_ranged(
     while job.progress().scanned == 0 && !job.is_finished() && waited.elapsed() < FIRST_BLOCK_WAIT {
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
-    let _ = progress(len, len);
     // A scan that is done already (a small file) gives the complete document at once.
     let (document, scan) = if job.is_finished() {
         (job.finish().map_err(scan_to_file_error)?, None)

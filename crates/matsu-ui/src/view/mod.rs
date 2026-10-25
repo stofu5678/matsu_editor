@@ -577,6 +577,7 @@ impl EditorView {
         self.support.completion = None;
         self.clamp_scroll();
         cx.notify();
+        self.run_pending_scan_jump(cx);
     }
 
     /// Lays out some more of a large document each frame, until it is all done.
