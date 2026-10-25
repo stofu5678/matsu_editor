@@ -483,6 +483,8 @@ pub(super) fn store(v: &Values, original: &TypeSettings) -> TypeSettings {
     } else {
         v.int(OUTLINE)
     };
+    // the name is kept whichever rule is chosen (`GetData`: 「ルールを使っていなくてもファイル名を保持」)
+    t.outline_rule_filename = fit(v.text(OUTLINE_RULE_FILE), PATH_BUFFER);
 
     // カラー
     for (item, name) in ColorSet::all_names().enumerate() {
@@ -589,6 +591,7 @@ pub(super) fn merge(base: &TypeSettings, old: &TypeSettings, new: &TypeSettings)
         kinsoku_hide,
         kinsoku_kuto_enabled,
         default_outline,
+        outline_rule_filename,
         use_type_font,
         font,
         string_type,

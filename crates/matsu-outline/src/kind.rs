@@ -72,9 +72,12 @@ pub enum OutlineKind {
     /// The file tree (`F_FILETREE`, `OUTLINE_FILETREE`): nothing is analyzed in the document
     /// (`Command_FUNCLIST` does nothing for it); the pane builds the tree from the settings.
     FileTree,
-    /// A kind that is not ported yet: TeX, the rule file or Erlang
-    /// (the value is `nDefaultOutline`). The list is empty.
-    Unsupported(i32),
+    /// TeX: a tree of chapters, sections and the like.
+    Tex,
+    /// Erlang: a list of functions.
+    Erlang,
+    /// The rule file of the type (`OUTLINE_FILE`): a tree.
+    RuleFile,
 }
 
 /// How a result is shown (`VIEWTYPE_LIST`, `VIEWTYPE_TREE`).
@@ -103,9 +106,9 @@ impl OutlineKind {
             outline_type::PLSQL => Self::PlSql,
             outline_type::COBOL => Self::Cobol,
             outline_type::ASM => Self::Asm,
-            outline_type::TEX | outline_type::FILE | outline_type::ERLANG => {
-                Self::Unsupported(value)
-            }
+            outline_type::TEX => Self::Tex,
+            outline_type::FILE => Self::RuleFile,
+            outline_type::ERLANG => Self::Erlang,
             _ => Self::Text,
         }
     }
@@ -113,17 +116,13 @@ impl OutlineKind {
     /// List or tree (`SetData`).
     pub fn view(self) -> ViewType {
         match self {
-            Self::C | Self::Perl | Self::VisualBasic | Self::PlSql | Self::Asm | Self::Bookmark => {
-                ViewType::List
-            }
-            Self::Unsupported(v) => {
-                // Erlang is a list; TeX and the rule file are trees
-                if v == outline_type::ERLANG {
-                    ViewType::List
-                } else {
-                    ViewType::Tree
-                }
-            }
+            Self::C
+            | Self::Perl
+            | Self::VisualBasic
+            | Self::PlSql
+            | Self::Asm
+            | Self::Erlang
+            | Self::Bookmark => ViewType::List,
             _ => ViewType::Tree,
         }
     }
@@ -147,17 +146,11 @@ impl OutlineKind {
             Self::Bookmark => "ブックマーク",
             // `LS(F_FILETREE)`, the name of the function
             Self::FileTree => "ファイルツリー",
-            Self::Unsupported(v) => match v {
-                outline_type::TEX => "TeX",
-                outline_type::FILE => "ルールファイル",
-                _ => "Erlang 関数一覧",
-            },
+            // `SetWindowText( GetHwnd(), L"TeX" )`
+            Self::Tex => "TeX",
+            Self::RuleFile => "ルールファイル",
+            Self::Erlang => "Erlang 関数一覧",
         }
-    }
-
-    /// Whether the analyzer of this kind exists here.
-    pub fn is_supported(self) -> bool {
-        !matches!(self, Self::Unsupported(_))
     }
 }
 
@@ -173,6 +166,9 @@ pub struct Request<'a> {
     pub bookmarks: &'a [usize],
     /// 空行を無視する of the bookmark list.
     pub ignore_blank_bookmarks: bool,
+    /// The bytes of the rule file of the type (`szOutlineRuleFilename`), for
+    /// [`OutlineKind::RuleFile`]; `None` when the file cannot be opened.
+    pub rule_file: Option<&'a [u8]>,
 }
 
 impl<'a> Request<'a> {
@@ -183,6 +179,7 @@ impl<'a> Request<'a> {
             heading_marks: crate::text::DEFAULT_HEADING_MARKS,
             bookmarks: &[],
             ignore_blank_bookmarks: false,
+            rule_file: None,
         }
     }
 }
@@ -193,11 +190,18 @@ pub struct Analysis {
     pub items: FuncInfoArr,
     /// The kind the list is shown as (`nListType`): C/C++ is settled by the file name here.
     pub kind: OutlineKind,
+    /// The title that replaces the one of the kind (`sTitleOverride`): `;Title=` of a rule file.
+    pub title: Option<String>,
+    /// A message for the user (a regular expression of the rule file that cannot be compiled;
+    /// `ErrorMessage( STR_DOCOUTLINE_REGEX )`). The list is empty then.
+    pub error: Option<String>,
 }
 
 /// Runs the analyzer of `request.kind` on the lines of `src`.
 pub fn analyze(src: &dyn LineSource, request: &Request<'_>) -> Analysis {
     let mut kind = request.kind;
+    let mut title = None;
+    let mut error = None;
     let items = match request.kind {
         OutlineKind::C | OutlineKind::CCpp | OutlineKind::Cpp => {
             let c_kind = match request.kind {
@@ -231,7 +235,20 @@ pub fn analyze(src: &dyn LineSource, request: &Request<'_>) -> Analysis {
             request.ignore_blank_bookmarks,
         ),
         // `case OUTLINE_FILETREE: /* 特に何もしない*/` (`Command_FUNCLIST`)
-        OutlineKind::FileTree | OutlineKind::Unsupported(_) => FuncInfoArr::new(),
+        OutlineKind::FileTree => FuncInfoArr::new(),
+        OutlineKind::Tex => crate::tex::make_topic_list_tex(src),
+        OutlineKind::Erlang => crate::erlang::make_func_list_erlang(src),
+        OutlineKind::RuleFile => {
+            let outline = crate::rule_file::make_func_list_rule_file(src, request.rule_file);
+            title = outline.title;
+            error = outline.error;
+            outline.items
+        }
     };
-    Analysis { items, kind }
+    Analysis {
+        items,
+        kind,
+        title,
+        error,
+    }
 }

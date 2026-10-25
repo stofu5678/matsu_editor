@@ -96,13 +96,15 @@ pub(crate) struct Row {
 /// What an analysis gave, ready to show.
 struct Shown {
     analysis: Analysis,
-    title: &'static str,
+    /// The title of the pane: the one of the kind, or the one the rule file sets.
+    title: String,
     view: ViewType,
     tree: Vec<TreeNode>,
     /// The line numbers as the list shows them (the rows of the wrapped view, or the lines).
     list_lines: Vec<usize>,
     clip_text: String,
-    unsupported: bool,
+    /// A message under the title: a regular expression of the rule file that cannot be used.
+    error: Option<String>,
 }
 
 pub(crate) struct OutlinePane {
@@ -213,11 +215,11 @@ impl OutlinePane {
         self.rows.iter().position(|r| r.key == key)
     }
 
-    pub(crate) fn title(&self) -> &'static str {
+    pub(crate) fn title(&self) -> &str {
         if self.outline_type == OutlineKind::FileTree {
             return OutlineKind::FileTree.title();
         }
-        self.shown.as_ref().map_or("", |s| s.title)
+        self.shown.as_ref().map_or("", |s| s.title.as_str())
     }
 
     #[cfg(test)]
@@ -271,7 +273,8 @@ impl OutlinePane {
             return;
         };
         let kind = super::resolve_kind(Requested::Default, &view, cx);
-        if kind != self.outline_type {
+        // a rule file may differ from type to type, so the outline of a rule file is made again
+        if kind != self.outline_type || kind == OutlineKind::RuleFile {
             self.analyze(Requested::Default, cx);
         }
     }
@@ -305,6 +308,15 @@ impl OutlinePane {
         let heading_marks = cx
             .try_global::<super::HeadingMarks>()
             .map(|marks| marks.0.clone());
+        // the rule file of the type, read by the analysis (`CTextInputStream_AbsIni`)
+        let rule_file = (kind == OutlineKind::RuleFile).then(|| {
+            let name = view.read(cx).view_settings().outline.rule_file.clone();
+            let ini_dir = crate::doc_types::with_user(cx, |user| {
+                crate::settings::history_file(user)
+                    .and_then(|path| path.parent().map(Path::to_owned))
+            });
+            (name, ini_dir)
+        });
         let (doc, file_path, bookmarks, new_line_len) = {
             let shared = self.document.read(cx);
             let bookmarks: Vec<usize> = if kind == OutlineKind::Bookmark {
@@ -326,7 +338,11 @@ impl OutlinePane {
             let analysis = cx
                 .background_executor()
                 .spawn(async move {
+                    let rule_bytes = rule_file
+                        .as_ref()
+                        .and_then(|(name, ini_dir)| read_rule_file(name, ini_dir.as_deref()));
                     let mut request = Request::new(kind);
+                    request.rule_file = rule_bytes.as_deref();
                     request.file_path = file_path.as_deref();
                     request.bookmarks = &bookmarks;
                     request.ignore_blank_bookmarks = options.ignore_blank_bookmarks;
@@ -419,12 +435,15 @@ impl OutlinePane {
             self.expanded.extend(tree.iter().map(|n| n.order));
         }
         self.shown = Some(Shown {
-            title: kind.title(),
+            title: analysis
+                .title
+                .clone()
+                .unwrap_or_else(|| kind.title().to_owned()),
             view: view_type,
             tree,
             list_lines,
             clip_text,
-            unsupported: !kind.is_supported(),
+            error: analysis.error.clone(),
             analysis,
         });
         self.rebuild_rows();
@@ -1050,6 +1069,27 @@ impl OutlinePane {
     }
 }
 
+/// The bytes of the rule file `name` (`CTextInputStream_AbsIni`): a relative path is looked for
+/// under the folder of the settings file, then under the folder of the program
+/// (`GetInidirOrExedir`). `None` when it cannot be opened.
+fn read_rule_file(name: &str, ini_dir: Option<&Path>) -> Option<Vec<u8>> {
+    if name.is_empty() {
+        return None;
+    }
+    // the settings are written with Windows paths; a backslash separates folders on every OS
+    let on_this_os = if cfg!(windows) {
+        name.to_owned()
+    } else {
+        name.replace('\\', "/")
+    };
+    let path = crate::support::help::inidir_or_exedir(
+        &on_this_os,
+        ini_dir,
+        crate::support::help::exe_dir().as_deref(),
+    );
+    std::fs::read(path).ok()
+}
+
 /// A clone of the document, read by the analyzers.
 struct DocumentSource {
     doc: matsu_core::buffer::Document,
@@ -1302,10 +1342,12 @@ impl Render for OutlinePane {
         } else {
             self.title()
         };
-        let message = self.shown.as_ref().and_then(|s| {
-            s.unsupported
-                .then_some("このタイプのアウトライン解析にはまだ対応していません")
-        });
+        // `ErrorMessage( STR_DOCOUTLINE_REGEX )` is a box in Sakura; here it stays under the title
+        let message = self
+            .shown
+            .as_ref()
+            .and_then(|s| s.error.as_ref())
+            .map(|m| m.replace('\n', " "));
 
         crate::a11y::group(div().id("outline-pane"), pane_name)
             .key_context("Outline")

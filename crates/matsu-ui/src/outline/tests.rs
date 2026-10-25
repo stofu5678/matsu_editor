@@ -25,9 +25,19 @@ fn code_of(name: &str) -> u16 {
 
 /// A window with the document `text` in a file called `path` (so that the type is chosen by it).
 fn window(cx: &mut TestAppContext, text: &str, path: &str) -> AnyWindowHandle {
+    window_with(cx, text, path, UserSettings::none())
+}
+
+/// Like [`window`], with the settings of the user.
+fn window_with(
+    cx: &mut TestAppContext,
+    text: &str,
+    path: &str,
+    user: UserSettings,
+) -> AnyWindowHandle {
     cx.update(gpui_component::init);
     cx.update(|cx| {
-        cx.set_global(UserSettings::none());
+        cx.set_global(user);
         cx.set_global(TabSettings {
             show_bar: true,
             grouped: true,
@@ -188,12 +198,17 @@ fn the_toggle_closes_the_pane_of_the_same_kind_only(cx: &mut TestAppContext) {
     // a pane of the bookmarks is not closed by the toggle of the outline: it shows the outline
     run(cx, handle, "F_BOOKMARK_VIEW");
     assert_eq!(
-        pane(cx, handle).unwrap().read_with(cx, |p, _| p.title()),
+        pane(cx, handle)
+            .unwrap()
+            .read_with(cx, |p, _| p.title().to_owned()),
         "ブックマーク"
     );
     run(cx, handle, "F_OUTLINE_TOGGLE");
     let p = pane(cx, handle).expect("it was not closed");
-    assert_eq!(p.read_with(cx, |p, _| p.title()), "C++ メソッドツリー");
+    assert_eq!(
+        p.read_with(cx, |p, _| p.title().to_owned()),
+        "C++ メソッドツリー"
+    );
     // F_OUTLINE with the same kind only gives the focus; the pane is the same
     run(cx, handle, "F_OUTLINE");
     assert_eq!(pane(cx, handle).unwrap().entity_id(), p.entity_id());
@@ -298,13 +313,76 @@ fn the_function_list_marks_move_between_the_functions(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn a_kind_that_is_not_ported_says_so(cx: &mut TestAppContext) {
-    // the type of ".tex" has the outline of TeX
-    let handle = window(cx, "\\section{a}\n", "a.tex");
+fn tex_and_erlang_show_their_outline(cx: &mut TestAppContext) {
+    // the type of ".tex" has the outline of TeX, a tree
+    let handle = window(cx, "\\section{a}\n\\section{b}\n", "a.tex");
+    run(cx, handle, "F_OUTLINE");
+    let p = pane(cx, handle).unwrap();
+    assert_eq!(p.read_with(cx, |p, _| p.title().to_owned()), "TeX");
+    let text = labels(cx, handle);
+    assert_eq!(text, ["1. a", "2. b"], "{text:?}");
+
+    // Sakura has no type for Erlang; the basic type can use its outline
+    let (dir, user) = rule_file_settings("erlang", 14, None);
+    let handle = window_with(cx, "-module(m).\nf(A, B) -> A.\n", "a.zzz", user);
+    run(cx, handle, "F_OUTLINE");
+    let p = pane(cx, handle).unwrap();
+    assert_eq!(
+        p.read_with(cx, |p, _| p.title().to_owned()),
+        "Erlang 関数一覧"
+    );
+    let text = labels(cx, handle);
+    assert!(text.iter().any(|l| l.contains("f/2")), "{text:?}");
+    std::fs::remove_dir_all(dir).ok();
+}
+
+/// A folder with the settings file whose basic type has the kind of outline `outline` and the
+/// rule file `rules.txt` (`rule`, or none at all when it is `None`).
+fn rule_file_settings(name: &str, outline: i32, rule: Option<&[u8]>) -> (PathBuf, UserSettings) {
+    let dir = std::env::temp_dir().join(format!("matsu-outline-{name}-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    if let Some(rule) = rule {
+        std::fs::write(dir.join("rules.txt"), rule).unwrap();
+    }
+    let ini = format!(
+        "[Types(0)]\r\nnDefaultOutline={outline}\r\nszOutlineRuleFilename=rules.txt\r\n\
+         [Other]\r\nnTypesCount=17\r\n"
+    );
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(ini.as_bytes());
+    let profile = matsu_config::Profile::from_bytes(&bytes);
+    let user = UserSettings::from_profile(profile, Some(dir.join("matsu.ini")));
+    (dir, user)
+}
+
+#[gpui::test]
+fn the_rule_file_of_the_type_makes_the_outline(cx: &mut TestAppContext) {
+    let mut rule = vec![0xEF, 0xBB, 0xBF];
+    rule.extend_from_slice(";Title=規則の見出し\r\n#  /// Head\r\n".as_bytes());
+    let (dir, user) = rule_file_settings("rule", 12, Some(&rule));
+    // a name the types do not know has the basic type; the relative name starts at the folder of
+    // the settings file
+    let handle = window_with(cx, "# a\nb\n# c\n", "a.zzz", user);
+    run(cx, handle, "F_OUTLINE");
+    let p = pane(cx, handle).unwrap();
+    // the title of the file replaces the title of the kind
+    assert_eq!(p.read_with(cx, |p, _| p.title().to_owned()), "規則の見出し");
+    assert_eq!(labels(cx, handle), ["# a", "# c"]);
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[gpui::test]
+fn a_rule_file_that_is_not_there_gives_an_empty_list(cx: &mut TestAppContext) {
+    let (dir, user) = rule_file_settings("missing", 12, None);
+    let handle = window_with(cx, "# a\n", "a.zzz", user);
     run(cx, handle, "F_OUTLINE");
     let p = pane(cx, handle).unwrap();
     assert!(p.read_with(cx, |p, _| p.rows().is_empty()));
-    assert_eq!(p.read_with(cx, |p, _| p.title()), "TeX");
+    assert_eq!(
+        p.read_with(cx, |p, _| p.title().to_owned()),
+        "ルールファイル"
+    );
+    std::fs::remove_dir_all(dir).ok();
 }
 
 #[gpui::test]
@@ -313,7 +391,10 @@ fn plsql_cobol_and_assembler_show_their_outline(cx: &mut TestAppContext) {
     let handle = window(cx, "create procedure p\nis\nbegin null; end;\n", "a.sql");
     run(cx, handle, "F_OUTLINE");
     let p = pane(cx, handle).unwrap();
-    assert_eq!(p.read_with(cx, |p, _| p.title()), "PL/SQL 関数一覧");
+    assert_eq!(
+        p.read_with(cx, |p, _| p.title().to_owned()),
+        "PL/SQL 関数一覧"
+    );
     let text = labels(cx, handle);
     assert!(text.iter().any(|l| l.contains('p')), "{text:?}");
     assert!(!p.read_with(cx, |p, _| p.rows().is_empty()));
@@ -322,7 +403,10 @@ fn plsql_cobol_and_assembler_show_their_outline(cx: &mut TestAppContext) {
     let handle = window(cx, "start:\n  mov eax, 1\nf PROC\n", "a.asm");
     run(cx, handle, "F_OUTLINE");
     let p = pane(cx, handle).unwrap();
-    assert_eq!(p.read_with(cx, |p, _| p.title()), "アセンブラ アウトライン");
+    assert_eq!(
+        p.read_with(cx, |p, _| p.title().to_owned()),
+        "アセンブラ アウトライン"
+    );
     let text = labels(cx, handle);
     assert!(text.iter().any(|l| l.contains("start")), "{text:?}");
     assert!(text.iter().any(|l| l.contains('f')), "{text:?}");
@@ -335,7 +419,10 @@ fn plsql_cobol_and_assembler_show_their_outline(cx: &mut TestAppContext) {
     );
     run(cx, handle, "F_OUTLINE");
     let p = pane(cx, handle).unwrap();
-    assert_eq!(p.read_with(cx, |p, _| p.title()), "COBOL アウトライン");
+    assert_eq!(
+        p.read_with(cx, |p, _| p.title().to_owned()),
+        "COBOL アウトライン"
+    );
     let text = labels(cx, handle);
     assert!(text.iter().any(|l| l == "PROCEDURE DIVISION"), "{text:?}");
     assert!(text.iter().any(|l| l == "MAIN-PARA"), "{text:?}");

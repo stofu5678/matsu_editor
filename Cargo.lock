@@ -4029,6 +4029,7 @@ version = "0.3.0"
 dependencies = [
  "matsu-config",
  "matsu-core",
+ "matsu-regex",
 ]
 
 [[package]]
