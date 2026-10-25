@@ -58,7 +58,9 @@ use super::keyword_file;
 use super::keywords::{
     KeywordSets, MAX_KEYWORD_LEN, MAX_KEYWORD_SETS, MAX_SET_NAME_LEN, SetDraft, store_sets,
 };
-use super::type_list::{Entry, ListError, check_count, load, new_id, store};
+use super::type_list::{
+    Entry, FIRST_IMPLIED, ListError, check_count, end_regex_list, load, new_id, store,
+};
 use super::types::TypeSettings;
 use crate::profile::{Profile, ProfileError};
 
@@ -130,6 +132,7 @@ pub fn export_type(
         }
         out.set(TYPES, key, value)?;
     }
+    end_regex_list(&mut out, TYPES, settings)?;
     let sets = KeywordSets::from_profile(profile);
     let mut keyword_files = Vec::new();
     for (i, &set_index) in settings
@@ -313,7 +316,7 @@ pub fn import_type(
     let entry = Entry { settings, raw };
     if index == old_len {
         entries.push(entry);
-        store(profile, old_len, &mut entries, old_len)?;
+        store(profile, FIRST_IMPLIED.min(old_len), &mut entries, old_len)?;
     } else {
         // See `reset_type`: the numbers after it are written too.
         entries[index] = entry;

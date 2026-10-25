@@ -52,6 +52,8 @@ pub(crate) struct Ascertain {
     pub(super) add: bool,
     /// The name of the selected type, the other choice of 読込先.
     to_name: String,
+    /// The id of that type: it is found again when the question is answered.
+    to_id: Option<i32>,
     /// The choices of 色選択 with their text.
     choices: Vec<(ColorChoice, String)>,
     pub(super) color: usize,
@@ -163,12 +165,16 @@ impl TypeList {
             }
         }
         let to_name = self.labels.get(self.selected).cloned().unwrap_or_default();
+        let to_id = with_user(cx, |user| {
+            user.document_types().get(self.selected).map(|t| t.id)
+        });
         self.ascertain = Some(Ascertain {
             file,
             path,
             // The default is 新規追加 (`CheckDlgButton(IDC_RADIO_TYPE_ADD, TRUE)`) when there is room.
             add: self.has_room(),
             to_name,
+            to_id,
             choices,
             color: 0,
             scroll: ScrollHandle::new(),
@@ -192,6 +198,7 @@ impl TypeList {
             file,
             path,
             add,
+            to_id,
             choices,
             color,
             ..
@@ -200,7 +207,20 @@ impl TypeList {
         let target = if add {
             Target::Add
         } else {
-            Target::Overwrite(self.selected)
+            // The type that was named in the question, found again: another window may have moved or
+            // deleted it.
+            let index = to_id.and_then(|id| {
+                with_user(cx, |user| {
+                    user.document_types().iter().position(|t| t.id == id)
+                })
+            });
+            match index {
+                Some(index) => Target::Overwrite(index),
+                None => {
+                    self.say("インポート先のタイプが無くなりました。", window, cx);
+                    return;
+                }
+            }
         };
         // The color file is read here, so that the message can say if it was not.
         let mut shown = Vec::new();

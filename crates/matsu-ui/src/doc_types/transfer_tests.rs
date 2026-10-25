@@ -158,6 +158,27 @@ fn the_colors_may_come_from_a_color_file_next_to_the_type_file(cx: &mut TestAppC
 }
 
 #[gpui::test]
+fn the_import_does_not_replace_another_type_when_the_target_is_gone(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, "");
+    let cx = &mut VisualTestContext::from_window(handle, cx);
+    let view = view_of(cx);
+    let list = open_list(&view, cx);
+    let file = write_sakura_files(&ini);
+    select(&list, cx, 20);
+    list.update_in(cx, |l, window, lcx| l.import_chosen(&file, window, lcx));
+    cx.run_until_parked();
+    list.update(cx, |l, _| l.ascertain.as_mut().unwrap().add = false);
+    // The type named in the question is deleted (by id 20) before the answer.
+    list.update_in(cx, |l, window, lcx| l.delete_now(20, window, lcx));
+    cx.run_until_parked();
+    let names_before = types(&ini);
+    list.update_in(cx, |l, window, lcx| l.ascertain_ok(window, lcx));
+    cx.run_until_parked();
+    assert_eq!(types(&ini), names_before);
+    assert!(cx.has_pending_prompt());
+}
+
+#[gpui::test]
 fn a_file_that_is_not_a_type_file_is_refused(cx: &mut TestAppContext) {
     let (ini, handle) = setup(cx, "");
     let cx = &mut VisualTestContext::from_window(handle, cx);

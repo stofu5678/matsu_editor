@@ -55,6 +55,11 @@ use super::doc_types::DocumentTypes;
 use super::types::{MAX_TYPES, SAKURA_TYPES_COUNT, TypeSettings};
 use crate::profile::{Profile, ProfileError};
 
+/// The first number a type of MATSU Editor's own may be implied at ([`DocumentTypes::from_profile`]). A type
+/// that is added is written together with the ones from here on, because its extensions change which of them
+/// are implied.
+pub(crate) const FIRST_IMPLIED: usize = super::builtin_types::BUILTIN_TYPE_COUNT;
+
 /// `m_szTypeName` holds 64 UTF-16 units, the last is the end of the string.
 const NAME_UNITS: usize = 63;
 
@@ -160,21 +165,7 @@ pub(crate) fn write_entry(
         profile.set(&name, key, value)?;
     }
     entry.settings.write(profile, number)?;
-    // A list shorter than the limit ends with a blank `RxKey[NNN]=`: without it a type that starts from a
-    // built-in one (the first types of a file) would get the keywords of that type back.
-    let defined = entry
-        .settings
-        .regex_keywords
-        .iter()
-        .filter(|k| !k.pattern.is_empty())
-        .count()
-        .min(super::type_rules::MAX_REGEX_KEYWORDS);
-    if defined < super::type_rules::MAX_REGEX_KEYWORDS {
-        let key = format!("RxKey[{defined:03}]");
-        if profile.get(&name, &key).is_none() {
-            profile.set(&name, &key, "")?;
-        }
-    }
+    end_regex_list(profile, &name, &entry.settings)?;
     // `write` always writes the new-file keys. The ones the file did not set stay unset.
     for key in NEW_FILE_KEYS {
         match entry.raw.iter().find(|(k, _)| k == key) {
@@ -182,6 +173,29 @@ pub(crate) fn write_entry(
             None => {
                 profile.remove(&name, key);
             }
+        }
+    }
+    Ok(())
+}
+
+/// A list of regex keywords shorter than the limit ends with a blank `RxKey[NNN]=`: without it a type that
+/// starts from a built-in one (the first types of a file) would get the keywords of that type back, and so
+/// would a type imported over the basic type.
+pub(crate) fn end_regex_list(
+    profile: &mut Profile,
+    section: &str,
+    settings: &TypeSettings,
+) -> Result<(), ProfileError> {
+    let defined = settings
+        .regex_keywords
+        .iter()
+        .filter(|k| !k.pattern.is_empty())
+        .count()
+        .min(super::type_rules::MAX_REGEX_KEYWORDS);
+    if defined < super::type_rules::MAX_REGEX_KEYWORDS {
+        let key = format!("RxKey[{defined:03}]");
+        if profile.get(section, &key).is_none() {
+            profile.set(section, &key, "")?;
         }
     }
     Ok(())
@@ -318,7 +332,7 @@ pub fn add_type(profile: &mut Profile) -> Result<usize, ListError> {
     entry.settings.type_name = name_for_added(&names(&entries), old_len);
     entry.settings.type_exts.clear();
     entries.push(entry);
-    store(profile, old_len, &mut entries, old_len)?;
+    store(profile, FIRST_IMPLIED.min(old_len), &mut entries, old_len)?;
     Ok(old_len)
 }
 
@@ -333,7 +347,7 @@ pub fn copy_type(profile: &mut Profile, index: usize) -> Result<usize, ListError
     entry.settings.type_name = name_for_copy(&entry.settings.type_name, &names(&entries));
     entry.settings.id = new_id(old_len, &entries);
     entries.push(entry);
-    store(profile, old_len, &mut entries, old_len)?;
+    store(profile, FIRST_IMPLIED.min(old_len), &mut entries, old_len)?;
     Ok(old_len)
 }
 

@@ -317,6 +317,25 @@ fn keyword_files_of_names_that_differ_only_in_case_get_different_files() {
 }
 
 #[test]
+fn an_exported_type_without_regex_keywords_does_not_get_those_of_the_basic_type() {
+    // C/C++ has none; the importer's basic type has one.
+    let out = export_type(&Profile::new(), 2, "0.3.0").unwrap();
+    let file = TypeFile::parse(&out.bytes).unwrap();
+    let mut other = profile("[Types(0)]\r\nRxKey[000]=URL,/x/k\r\n");
+    let n = import_type(
+        &mut other,
+        &file,
+        Target::Add,
+        Colors::AsFile,
+        &mut no_files,
+    )
+    .unwrap()
+    .index;
+    let t = DocumentTypes::from_profile(&other).get(n).unwrap().clone();
+    assert!(t.regex_keywords.iter().all(|k| k.pattern.is_empty()));
+}
+
+#[test]
 fn a_type_with_japanese_text_goes_out_and_comes_back() {
     let mut p = Profile::new();
     let i = add_type(&mut p).unwrap();
