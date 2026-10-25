@@ -259,6 +259,15 @@ fn passwords_on_the_command_line_are_found() {
         None
     );
     assert_eq!(found(Kind::PostgreSql, "psql -f 100%.sql"), None);
+    // short options of MySQL in one word
+    assert_eq!(
+        found(Kind::MySql, "mysql -u alice -vpS3cr3t app"),
+        Some("-p")
+    );
+    assert_eq!(found(Kind::MySql, "mysql -svpS3cr3t"), Some("-p"));
+    assert_eq!(found(Kind::MySql, "mysql -vp app"), None);
+    assert_eq!(found(Kind::MySql, "mysql -v -p app"), None);
+    assert_eq!(found(Kind::MySql, "mysql -uroot app"), None);
     // escaped quotes are letters to a shell: the words are looked at by blanks too
     assert_eq!(
         found(

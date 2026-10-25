@@ -439,6 +439,17 @@ fn remove_backslashes(text: &str) -> String {
     out
 }
 
+/// `-psecret`, and the same after short options that take no value (`-vpsecret` is `-v -psecret`): MySQL
+/// reads a word of short options one letter at a time. A bare `-p` asks for the password and is fine.
+fn mysql_cluster_password(word: &str) -> bool {
+    const FLAGS: &str = "vsBNtEfwCAGHqrnTUVWZ";
+    let Some(rest) = word.strip_prefix('-').filter(|r| !r.starts_with('-')) else {
+        return false;
+    };
+    let after_flags = rest.trim_start_matches(|c| FLAGS.contains(c));
+    after_flags.starts_with('p') && after_flags.len() > 1
+}
+
 fn password_in_text(kind: Kind, command: &str) -> Option<&'static str> {
     // both as written (`-p` after an empty `--opt=`) and with `key = value` tightened; and with
     // the words read by quotes and by blanks alone (a shell's escapes, `\"`, can make a quote
@@ -571,9 +582,7 @@ fn scan_for_password(kind: Kind, command: &str, quote_aware: bool) -> Option<&'s
         }
         match kind {
             // `-psecret` (a bare `-p` asks for it; psql's `-p5432` is a port, so only MySQL)
-            Kind::MySql if word.starts_with("-p") && !word.starts_with("--") && word.len() > 2 => {
-                return Some("-p");
-            }
+            Kind::MySql if mysql_cluster_password(word) => return Some("-p"),
             // `-P secret` and `-Psecret` (sqlcmd; its other options use a lower case p)
             Kind::SqlServer if word.starts_with("-P") => return Some("-P"),
             // `user/password@service` and `user/password` (the local database). Not a first word

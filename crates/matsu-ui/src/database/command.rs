@@ -235,11 +235,11 @@ pub(crate) fn build(
     let mut line = String::new();
     let mut quote = Quote::Bare;
     let mut escaped = false;
-    for part in parts {
+    for (index, part) in parts.iter().enumerate() {
         match part {
             Part::Text(text) => {
-                follow(shell, &text, &mut quote, &mut escaped);
-                line.push_str(&text);
+                follow(shell, text, &mut quote, &mut escaped);
+                line.push_str(text);
             }
             Part::File => {
                 let file = file.ok_or(BuildError::NoFile)?;
@@ -249,7 +249,11 @@ pub(crate) fn build(
                 }
                 // read by more than one shell, only a plain name is safe: the quoting for the first
                 // shell does not reach the second
-                if (strict || quote != Quote::Bare)
+                // `psql -c "\\i '"$F"'"`: a name that touches a quote of the template is spliced into
+                // an argument that the client reads itself, as if it were inside the quote
+                let touches_quote = line.ends_with(['"', '\''])
+                    || matches!(parts.get(index + 1), Some(Part::Text(next)) if next.starts_with(['"', '\'']));
+                if (strict || touches_quote || quote != Quote::Bare)
                     && let Some(c) = file.chars().find(|&c| !is_plain(shell, c))
                 {
                     return Err(BuildError::Unquotable(c));

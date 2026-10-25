@@ -116,6 +116,17 @@ fn a_template_that_quotes_the_file_itself_gets_plain_names_only() {
         built(Shell::Posix, "psql \\\" $F", "/w/a b.sql").unwrap(),
         "psql \\\" '/w/a b.sql'"
     );
+    // a name that touches a quote of the template is spliced into the argument of the client
+    assert!(built(Shell::Posix, "psql -c \"\\i '\"$F\"'\"", "/tmp/x'`id`'.sql").is_err());
+    assert!(built(Shell::Posix, "psql -c \"\\i '\"$F\"'\"", "/tmp/x.sql").is_ok());
+    assert!(
+        built(
+            Shell::Cmd,
+            "psql -c \"\\i '\"$F\"'\"",
+            "C:\\w\\x'`whoami`'.sql"
+        )
+        .is_err()
+    );
     // outside quotes it is one word, whatever the name is
     assert_eq!(
         built(Shell::Posix, "psql -f $F", "/w/it's a;b.sql").unwrap(),
