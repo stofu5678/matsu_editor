@@ -402,7 +402,7 @@ impl Element for EditorElement {
         let top_margin = settings.top_margin() as f32;
         let body_height = (f32::from(bounds.size.height) - top_margin).max(0.0);
         let count = (body_height / line_height).ceil() as usize + 1;
-        let rows: Vec<RowInfo> = layout.rows(doc, first_row, count).unwrap_or_default();
+        let mut rows: Vec<RowInfo> = layout.rows(doc, first_row, count).unwrap_or_default();
 
         let digits = doc.line_count().max(1).to_string().len().max(3);
         // The text starts `nLineNumberRightSpace` pixels after the line numbers
@@ -788,6 +788,9 @@ impl Element for EditorElement {
         // What the screen readers get (`a11y_text.rs`): the rows move, nothing is copied. The
         // strings are made only when a screen reader asks.
         let scale = window.scale_factor();
+        // Not the row of the overscan below the screen: its text is not seen, and a caret there is
+        // out of the view. A row cut by the edge stays.
+        rows.truncate(((body_height - y_offset) / line_height).ceil().max(0.0) as usize);
         let at = |pos| {
             layout
                 .pos_to_row(doc, pos)

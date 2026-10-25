@@ -281,3 +281,20 @@ fn the_word_before_a_line_break_ends_at_it_for_crlf_and_lf(cx: &mut TestAppConte
         assert!(text.runs[1].word_starts.is_empty());
     }
 }
+
+#[gpui::test]
+fn no_row_below_the_screen_is_a_run(cx: &mut TestAppContext) {
+    let lines: Vec<String> = (0..2000).map(|i| format!("line {i}")).collect();
+    let (f, cx) = setup(cx, &lines.join("\n"));
+    let text = text_of(&f.view, cx);
+    let (line_height, view_height) = f.view.read_with(cx, |v, _| {
+        (
+            v.a11y_text.borrow().as_ref().unwrap().line_height,
+            v.metrics.view_height,
+        )
+    });
+    // At scroll 0 the top of the last run is above the bottom of the text area.
+    let last = (text.runs.len() - 1) as f32;
+    assert!(last * line_height < view_height, "{last} rows");
+    assert!((last + 1.0) * line_height >= view_height);
+}
