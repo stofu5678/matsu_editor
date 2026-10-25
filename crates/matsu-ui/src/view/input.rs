@@ -219,12 +219,18 @@ impl EntityInputHandler for EditorView {
             return;
         }
         self.record_typed_text(text);
-        let (from, to) = self.input_target(range_utf16, cx);
+        let (from, to) = self.input_target(range_utf16.clone(), cx);
         self.marked = None;
         self.composing = false;
         self.run_with(cx, |command_cx| {
+            let (mut from, mut to) = (from, to);
             if !was_composing {
                 command_cx.begin_block();
+                // The free cursor mode: text committed right of the end of the line follows
+                // spaces, in the same undo block (`InsertData_CEditView`).
+                if range_utf16.is_none() && from == to && command_cx.pad_free_caret().is_ok() {
+                    (from, to) = (command_cx.caret(), command_cx.caret());
+                }
             }
             // Overwrite mode: the committed text replaces as many chars after it as it has, as
             // Sakura does char by char (`WM_IME_CHAR` runs `F_IME_CHAR` there, and
@@ -264,7 +270,7 @@ impl EntityInputHandler for EditorView {
         if self.isearch.is_some() {
             return; // the composition is not shown; its commit goes to the pattern
         }
-        let (from, to) = self.input_target(range_utf16, cx);
+        let (from, to) = self.input_target(range_utf16.clone(), cx);
         // Text being composed has no line break.
         let text = text.replace(['\r', '\n'], "");
         let opened = !self.composing;
@@ -273,8 +279,13 @@ impl EntityInputHandler for EditorView {
         }
         self.composing = true;
         let edit = self.run_with(cx, |command_cx| {
+            let (mut from, mut to) = (from, to);
             if opened {
                 command_cx.begin_block();
+                // The free cursor mode: the composition starts after spaces that fill the gap.
+                if range_utf16.is_none() && from == to && command_cx.pad_free_caret().is_ok() {
+                    (from, to) = (command_cx.caret(), command_cx.caret());
+                }
             }
             let edit = command_cx.replace(from, to, &text).ok()?;
             // The caret goes where the IME asks, else to the end of the composition.

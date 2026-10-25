@@ -450,7 +450,8 @@ impl CommandContext<'_> {
         let col = if self.cursor.is_box() {
             self.box_caret_col()?
         } else {
-            self.caret_display_col()?
+            // the free cursor mode: the rectangle starts where the caret is shown
+            self.caret_col_with_free()?
         };
         let first_row = self.layout.row_start(self.doc(), self.caret())?;
         self.cursor.clear_selection();

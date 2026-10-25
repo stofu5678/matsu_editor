@@ -119,7 +119,7 @@ impl CommandContext<'_> {
     /// on the text again, before something is put there (`InsertData_CEditView`: one space per
     /// column). Does nothing when the caret is not in the gap. A selection is not looked at: the
     /// callers pad only without one.
-    pub(crate) fn pad_free_caret(&mut self) -> Result<()> {
+    pub fn pad_free_caret(&mut self) -> Result<()> {
         let Some(col) = self.caret_free_col()? else {
             return Ok(());
         };
@@ -283,6 +283,32 @@ mod tests {
             e.run("cursor_right").run("cursor_right");
             e.run("indent_tab");
             assert_eq!(e.marked().replace('|', ""), "ab  \t");
+        });
+    }
+
+    #[test]
+    fn a_soft_tab_in_the_gap_counts_from_the_caret_column() {
+        with_options(free(), || {
+            let mut e = Editor::new("ab|").with_tab_width(4).with_ins_space(true);
+            for _ in 0..4 {
+                e.run("cursor_right");
+            }
+            assert_eq!(e.cursor().free_col(), Some(6));
+            e.run("indent_tab");
+            // the gap is filled to column 6, then the tab goes on to the stop at column 8
+            assert_eq!(e.marked(), "ab      |");
+        });
+    }
+
+    #[test]
+    fn a_box_paste_starts_at_the_column_of_the_free_caret() {
+        use crate::clipboard::ClipKind;
+        with_options(free(), || {
+            let mut e = Editor::new("ab|\ncdefgh").with_clipboard("12\n34", ClipKind::Normal);
+            e.run("cursor_right").run("cursor_right");
+            e.run("pastebox");
+            // the first row is padded to column 4, the second gets the text at column 4 (the last row of a paste gets a line ending, as in `pastebox`)
+            assert_eq!(e.marked().replace(['|', '['], ""), "ab  12\ncdef34gh\n");
         });
     }
 

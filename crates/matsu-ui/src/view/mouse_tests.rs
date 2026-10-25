@@ -652,3 +652,24 @@ fn without_the_free_cursor_mode_a_click_right_of_the_text_goes_to_its_end(cx: &m
         assert_eq!(v.cursor.free_col(), None);
     });
 }
+
+#[gpui::test]
+fn an_ime_composition_in_the_gap_follows_spaces_in_one_undo_step(cx: &mut TestAppContext) {
+    use gpui::EntityInputHandler as _;
+    let _serial = crate::common_settings::options_lock();
+    let _o = options();
+    edit_options::set(EditOptions {
+        free_cursor: true,
+        ..EditOptions::default()
+    });
+    let (f, cx) = setup(cx, "ab\ncd");
+    down_at(&f, cx, 0, 5, 1, Modifiers::default());
+    up_at(&f, cx, 0, 5, Modifiers::default());
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_and_mark_text_in_range(None, "に", Some(1..1), window, cx);
+        v.replace_text_in_range(None, "日", window, cx);
+    });
+    assert_eq!(f.lines(cx), ["ab   日", "cd"]);
+    cx.simulate_keystrokes("ctrl-z");
+    assert_eq!(f.lines(cx), ["ab", "cd"]);
+}

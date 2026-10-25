@@ -100,6 +100,10 @@ impl CommandContext<'_> {
         }
         self.refuse_edit_in_box()?;
         let selection = self.selection();
+        if selection.is_none() {
+            // the free cursor mode: the gap is filled before the width of the soft tab is known
+            self.pad_free_caret()?;
+        }
         let (from, mut to) = selection.unwrap_or((self.caret(), self.caret()));
         // `DelCharForOverwrite(pData, nDataLen)` with the tab char: with `m_bOverWriteFixMode` the
         // width the replaced char had beyond a tab char's (one column) stays as spaces after the
