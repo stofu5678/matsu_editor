@@ -735,3 +735,22 @@ fn the_backends_cancel_a_composition_in_the_gap_with_an_empty_commit(cx: &mut Te
         up_at(&f, cx, 0, 5, Modifiers::default());
     }
 }
+
+#[gpui::test]
+fn an_empty_commit_in_the_gap_changes_nothing(cx: &mut TestAppContext) {
+    use gpui::EntityInputHandler as _;
+    let _serial = crate::common_settings::options_lock();
+    let _o = options();
+    edit_options::set(EditOptions {
+        free_cursor: true,
+        ..EditOptions::default()
+    });
+    let (f, cx) = setup(cx, "ab\ncd");
+    down_at(&f, cx, 0, 5, 1, Modifiers::default());
+    up_at(&f, cx, 0, 5, Modifiers::default());
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_text_in_range(None, "", window, cx);
+    });
+    assert_eq!(f.lines(cx), ["ab", "cd"]);
+    assert!(!f.document.read_with(cx, |d, _| d.model().is_modified()));
+}

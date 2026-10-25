@@ -236,7 +236,11 @@ impl EntityInputHandler for EditorView {
                 command_cx.begin_block();
                 // The free cursor mode: text committed right of the end of the line follows
                 // spaces, in the same undo block (`InsertData_CEditView`).
-                if range_utf16.is_none() && from == to && command_cx.pad_free_caret().is_ok() {
+                if !text.is_empty()
+                    && range_utf16.is_none()
+                    && from == to
+                    && command_cx.pad_free_caret().is_ok()
+                {
                     (from, to) = (command_cx.caret(), command_cx.caret());
                 }
             }

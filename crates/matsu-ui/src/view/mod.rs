@@ -557,6 +557,8 @@ impl EditorView {
         let _ = self.layout.resync(doc);
         let _ = self.layout.layout_for(doc, LAYOUT_BUDGET);
         let _ = self.cursor.clamp_if_outside(doc);
+        // The text of the line may have grown under a caret that stood right of its end.
+        self.cursor.set_free_col(None);
         self.layout_version = version;
         self.drop_composition(cx);
         // the candidates were made for the old text
