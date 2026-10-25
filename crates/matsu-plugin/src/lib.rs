@@ -20,6 +20,7 @@
 //! - `model`: a plain text model that implements the API.
 
 pub mod api;
+pub mod applescript;
 pub mod boot;
 pub mod bridge;
 pub mod catalog;

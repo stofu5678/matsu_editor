@@ -1,4 +1,4 @@
-//! `F_EXECEXTMACRO`: runs a macro file (`.mac`, `.mjs`, `.js`, `.cjs`, `.ts`, `.py`, `.rb`, `.php`, `.ps1`, `.pl`, `.el`, `.lua`,
+//! `F_EXECEXTMACRO`: runs a macro file (`.mac`, `.mjs`, `.js`, `.cjs`, `.ts`, `.py`, `.rb`, `.php`, `.ps1`, `.pl`, `.el`, `.applescript`, `.lua`,
 //! `.mruby` or `.upy`). With a text argument that is the file; without one the user chooses it.
 //! With a second text argument (a language, written as its file extension) the first one is the
 //! code of the macro, not a file.

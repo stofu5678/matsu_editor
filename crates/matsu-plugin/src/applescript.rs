@@ -1,0 +1,194 @@
+//! AppleScript macros (`.applescript`, macOS only; ADR-0025).
+//!
+//! `osascript` runs one script. The editor builds it from the boot prefix (`boot/boot.applescript`:
+//! the handlers that talk to the editor through the standard input and output), the user's script
+//! inside `script UserMacro ... end script`, and a suffix with `on run`. The program is written to
+//! a file in the private boot folder.
+//!
+//! `osascript` reports an error with the range of characters in the program
+//! (`file:START-END: execution error: ...`). [`Program::translate_error`] turns that into the name of
+//! the user's script and the line in it.
+
+/// The handlers and the beginning of `script UserMacro`.
+const PREFIX: &str = include_str!("boot/boot.applescript");
+
+/// What follows the user's script: the end of the script object, and the `on run` that reads
+/// `initialize`, runs the macro and answers with [`END_MARK`] (osascript prints the value that
+/// `run` returns; the session drops that line).
+const SUFFIX: &str = "\nend script\n\non run\n\tmy editorStart()\n\tset ignoredResult to run UserMacro\n\treturn \"matsu-end\"\nend run\n";
+
+/// The line that `osascript` prints for the result of the program. It is not output of the macro.
+pub const END_MARK: &str = "matsu-end";
+
+/// The program and where the user's script is in it.
+#[derive(Debug, Clone)]
+pub struct Program {
+    /// The text of the whole program.
+    pub text: String,
+    /// The number of lines before the first line of the user's script.
+    pub lines_before_user: usize,
+    /// How many lines the user's script has.
+    user_lines: usize,
+    /// What the errors call the script (its path).
+    pub name: String,
+}
+
+impl Program {
+    /// The program for the user's script `source`, named `name` in the errors.
+    pub fn build(source: &str, name: &str) -> Self {
+        let mut text = String::from(PREFIX);
+        let lines_before_user = text.matches('\n').count();
+        text.push_str(source);
+        if !source.ends_with('\n') {
+            text.push('\n');
+        }
+        let user_lines = source.lines().count().max(1);
+        text.push_str(SUFFIX);
+        Self {
+            text,
+            lines_before_user,
+            user_lines,
+            name: name.to_owned(),
+        }
+    }
+
+    /// A line of the standard error of `osascript`, with the character range of the program in
+    /// it turned into `name:LINE` when it is in the user's script (and into `name` when it is in
+    /// the boot, whose lines mean nothing to the user). Any other line is returned as it is.
+    pub fn translate_error(&self, line: &str) -> String {
+        let Some((start, rest)) = split_range(line) else {
+            return line.to_owned();
+        };
+        let Some(program_line) = self.line_at(start) else {
+            return line.to_owned();
+        };
+        let first_user_line = self.lines_before_user + 1;
+        if program_line >= first_user_line && program_line < first_user_line + self.user_lines {
+            format!(
+                "{}:{}{rest}",
+                self.name,
+                program_line - self.lines_before_user
+            )
+        } else {
+            format!("{}{rest}", self.name)
+        }
+    }
+
+    /// The line (from 1) of the program where the character offset `offset` is. Offsets count
+    /// UTF-16 code units, as Cocoa strings do.
+    fn line_at(&self, offset: usize) -> Option<usize> {
+        let mut units = 0;
+        let mut line = 1;
+        for c in self.text.chars() {
+            if units >= offset {
+                return Some(line);
+            }
+            units += c.len_utf16();
+            if c == '\n' {
+                line += 1;
+            }
+        }
+        (units >= offset).then_some(line)
+    }
+}
+
+/// `path:START-END: rest` as (START, ": rest"), for the messages of `osascript`.
+fn split_range(line: &str) -> Option<(usize, &str)> {
+    // The path may hold colons; the range is the last `:digits-digits:` before the kind of error.
+    let kind = line
+        .find(": execution error")
+        .or_else(|| line.find(": syntax error"))?;
+    let head = &line[..kind];
+    let colon = head.rfind(':')?;
+    let (start, end) = head[colon + 1..].split_once('-')?;
+    let start: usize = start.parse().ok()?;
+    end.parse::<usize>().ok()?;
+    Some((start, &line[kind..]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_program_holds_the_user_script_in_a_script_object() {
+        let program = Program::build("set a to 1\nset b to 2", "/m/a.applescript");
+        assert!(
+            program
+                .text
+                .contains("script UserMacro\nset a to 1\nset b to 2\n")
+        );
+        assert!(program.text.ends_with("end run\n"));
+        assert!(program.text.contains("on run\n\tmy editorStart()"));
+        // The prefix ends with the line `script UserMacro`, and the script starts on the next one.
+        let line = program.text.lines().nth(program.lines_before_user).unwrap();
+        assert_eq!(line, "set a to 1");
+    }
+
+    #[test]
+    fn the_boot_is_ascii() {
+        assert!(PREFIX.is_ascii());
+    }
+
+    #[test]
+    fn an_error_range_becomes_the_line_of_the_user_script() {
+        let program = Program::build(
+            "set a to 1\nset b to 2\nerror \"boom\"\n",
+            "/m/a.applescript",
+        );
+        // The offset of `error` in line 3 of the user's script.
+        let offset: usize = program
+            .text
+            .lines()
+            .take(program.lines_before_user + 2)
+            .map(|l| l.encode_utf16().count() + 1)
+            .sum::<usize>()
+            + 2;
+        let line = format!(
+            "/tmp/x/macro.applescript:{offset}-{}: execution error: boom (-2700)",
+            offset + 5
+        );
+        assert_eq!(
+            program.translate_error(&line),
+            "/m/a.applescript:3: execution error: boom (-2700)"
+        );
+    }
+
+    #[test]
+    fn an_error_in_the_boot_has_no_line() {
+        let program = Program::build("set a to 1\n", "/m/a.applescript");
+        let line =
+            "/tmp/x/macro.applescript:100-110: execution error: EditorError -32602: x (-32602)";
+        assert_eq!(
+            program.translate_error(line),
+            "/m/a.applescript: execution error: EditorError -32602: x (-32602)"
+        );
+    }
+
+    #[test]
+    fn offsets_count_utf16_units() {
+        // An emoji is two units; the error after it in the user's script is still on line 2.
+        let program = Program::build("set a to \"😀\"\nerror \"x\"\n", "n");
+        let before: usize = program
+            .text
+            .lines()
+            .take(program.lines_before_user + 1)
+            .map(|l| l.encode_utf16().count() + 1)
+            .sum();
+        let line = format!("f:{before}-{}: execution error: x (-2700)", before + 3);
+        assert_eq!(
+            program.translate_error(&line),
+            "n:2: execution error: x (-2700)"
+        );
+    }
+
+    #[test]
+    fn other_lines_stay() {
+        let program = Program::build("", "n");
+        assert_eq!(program.translate_error("hello"), "hello");
+        assert_eq!(
+            program.translate_error("a:b: execution error: x"),
+            "a:b: execution error: x"
+        );
+    }
+}

@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::applescript;
 use crate::boot;
 use crate::protocol::{self, InitializeInfo, ScriptSource};
 
@@ -62,6 +63,10 @@ pub enum Language {
     /// script, which the editor sends in `initialize`, one top-level form at a time, so that an
     /// error says the line where its form began.
     EmacsLisp,
+    /// `.applescript`: AppleScript, macOS only (`osascript`). The editor builds one script from the
+    /// boot, the user's script and an `on run` ([`crate::applescript`]); the boot talks to the editor
+    /// through AppleScriptObjC. On another OS the macro does not start, and says why.
+    AppleScript,
     /// Run by the bundled script host (`matsu-script --engine <name>`), which sits next to the
     /// editor's executable.
     Bundled(Engine),
@@ -121,6 +126,7 @@ impl Language {
             "ps1" => Some(Self::PowerShell),
             "pl" => Some(Self::Perl),
             "el" => Some(Self::EmacsLisp),
+            "applescript" => Some(Self::AppleScript),
             "lua" => Some(Self::Bundled(Engine::Lua)),
             "js" => Some(Self::Bundled(Engine::QuickJs)),
             "mruby" => Some(Self::Bundled(Engine::Mruby)),
@@ -139,6 +145,7 @@ impl Language {
             Self::PowerShell => "PowerShell",
             Self::Perl => "Perl",
             Self::EmacsLisp => "Emacs Lisp",
+            Self::AppleScript => "AppleScript",
             Self::Bundled(engine) => engine.display_name(),
         }
     }
@@ -160,6 +167,7 @@ impl Language {
             Self::PowerShell => powershell_interpreter(),
             Self::Perl => "perl".into(),
             Self::EmacsLisp => "emacs".into(),
+            Self::AppleScript => "osascript".into(),
         }
     }
 
@@ -170,7 +178,7 @@ impl Language {
     pub fn real_interpreter_path(self, interpreter: &OsStr) -> io::Result<PathBuf> {
         let (flag, code) = match self {
             // The host is the executable itself; there is no launcher to see through.
-            Self::Bundled(_) | Self::PowerShell | Self::EmacsLisp => {
+            Self::Bundled(_) | Self::PowerShell | Self::EmacsLisp | Self::AppleScript => {
                 return Ok(PathBuf::from(interpreter));
             }
             Self::JavaScript | Self::TypeScript => ("-p", "process.execPath"),
@@ -280,6 +288,10 @@ pub enum StartError {
         script: PathBuf,
     },
     Boot(std::io::Error),
+    /// The language runs only on some operating systems, and this is not one of them.
+    NotSupportedHere {
+        language: Language,
+    },
     /// The script could not be read (the bundled host gets its text from the editor).
     ReadScript {
         script: PathBuf,
@@ -297,8 +309,13 @@ impl std::fmt::Display for StartError {
         match self {
             Self::UnknownLanguage { script } => write!(
                 f,
-                "{}: マクロの拡張子は .mjs、.js、.cjs、.ts、.py、.rb、.php、.ps1、.pl、.el、.lua、.mruby、.upy のどれかにしてください",
+                "{}: マクロの拡張子は .mjs、.js、.cjs、.ts、.py、.rb、.php、.ps1、.pl、.el、.applescript、.lua、.mruby、.upy のどれかにしてください",
                 script.display()
+            ),
+            Self::NotSupportedHere { language } => write!(
+                f,
+                "{} のマクロは macOS でだけ動かせます (osascript が要ります)",
+                language.display_name()
             ),
             Self::Boot(err) => write!(f, "マクロの準備に失敗しました: {err}"),
             Self::ReadScript { script, source } => write!(
@@ -429,10 +446,24 @@ pub type Sink = Arc<dyn Fn(HostEvent) + Send + Sync>;
 /// Starts the macro. The events go to `sink` from other threads, in order, ending with
 /// `Finished`.
 pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
+    if config.language == Language::AppleScript && !cfg!(target_os = "macos") {
+        return Err(StartError::NotSupportedHere {
+            language: config.language,
+        });
+    }
+    // AppleScript: the user's script goes into the program that osascript runs, so it is not sent in
+    // `initialize`.
+    let program = if config.language == Language::AppleScript {
+        let user = read_script(&config.script)?;
+        Some(applescript::Program::build(&user.source, &user.name))
+    } else {
+        None
+    };
     let script = match config.language {
         Language::Bundled(_) | Language::PowerShell | Language::Perl | Language::EmacsLisp => {
             Some(read_script(&config.script)?)
         }
+        Language::AppleScript => None,
         Language::JavaScript
         | Language::TypeScript
         | Language::Python
@@ -445,6 +476,10 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
     } else {
         Some(boot::write_boot_files(config.temp_dir.as_deref()).map_err(StartError::Boot)?)
     };
+    if let (Some(dir), Some(program)) = (&boot_dir, &program) {
+        std::fs::write(dir.path().join(boot::AS_PROGRAM), &program.text)
+            .map_err(StartError::Boot)?;
+    }
     let boot_files = |name: &str| {
         boot_dir
             .as_ref()
@@ -499,6 +534,10 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
             command
                 .args(["-Q", "--batch", "--load"])
                 .arg(boot_files(boot::EL_BOOT));
+        }
+        Language::AppleScript => {
+            // One script file; the stdin and stdout are the conversation.
+            command.arg(boot_files(boot::AS_PROGRAM));
         }
         Language::Perl => {
             // The program comes from the standard input (`-`); the rest of the input, after its
@@ -596,6 +635,7 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
         })
     };
 
+    let is_applescript = config.language == Language::AppleScript;
     let (done_tx, done_rx) = mpsc::channel::<()>();
     {
         let sink = gated.clone();
@@ -604,6 +644,10 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
             read_lines(stdout, |line| {
                 let split = protocol::split_output_line(line);
                 if let Some(text) = split.user {
+                    // osascript prints the value that the program returns: not the macro's output.
+                    if text == applescript::END_MARK && is_applescript {
+                        return;
+                    }
                     sink(HostEvent::Output {
                         stream: Stream::Stdout,
                         text: text.to_string(),
@@ -622,7 +666,10 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
             read_lines(stderr, |line| {
                 sink(HostEvent::Output {
                     stream: Stream::Stderr,
-                    text: line.to_string(),
+                    text: match &program {
+                        Some(program) => program.translate_error(line),
+                        None => line.to_string(),
+                    },
                 });
             });
             let _ = done_tx.send(());
