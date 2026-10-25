@@ -54,6 +54,12 @@ pub struct EditOptions {
     /// `m_bOverWriteBoxDelete` (`bOverWriteBoxDelete`): typing over a box in overwrite mode deletes
     /// the box first. Off by default.
     pub overwrite_box_delete: bool,
+    /// `m_bIsFreeCursorMode` (`bIsFreeCursorMode`): the caret may stand to the right of the end of
+    /// a line. Off by default.
+    pub free_cursor: bool,
+    /// `GetCaretType() == 1` (`nCaretType`, the low 4 bits): the MS-DOS style caret, a block (half
+    /// as high in insert mode) instead of the thin bar of the Windows style. Off by default.
+    pub dos_caret: bool,
 }
 
 impl EditOptions {
@@ -73,6 +79,8 @@ impl EditOptions {
         not_overwrite_crlf: true,
         overwrite_fix_mode: false,
         overwrite_box_delete: false,
+        free_cursor: false,
+        dos_caret: false,
     };
 }
 

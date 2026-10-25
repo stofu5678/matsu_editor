@@ -17,6 +17,7 @@
 mod a11y_text;
 pub(crate) mod autoscroll;
 mod bracket_marks;
+mod caret_shape;
 mod colors;
 mod diff_mark;
 mod element;
@@ -592,11 +593,18 @@ impl EditorView {
     }
 
     /// The display column of the caret on its row. In a box selection the caret can be to the right
-    /// of the end of the text (see `matsu_core::cursor::Cursor::box_caret_col`).
+    /// of the end of the text (see `matsu_core::cursor::Cursor::box_caret_col`), and so can the caret of
+    /// the free cursor mode (`Cursor::free_col`).
     pub(crate) fn caret_column(&self, cx: &App) -> u32 {
         let column = self.caret_row(cx).column;
+        // The free cursor mode: the caret to the right of the end of the line.
+        let free = self
+            .cursor
+            .free_col()
+            .filter(|_| matsu_commands::edit_options::get().free_cursor);
         self.cursor
             .box_caret_col()
+            .or(free)
             .map_or(column, |c| u32::try_from(c).unwrap_or(u32::MAX).max(column))
     }
 

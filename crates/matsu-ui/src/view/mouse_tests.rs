@@ -608,3 +608,47 @@ fn the_side_buttons_run_their_functions(cx: &mut TestAppContext) {
     cx.simulate_mouse_up(p, forward, ctrl());
     assert_eq!(f.caret(cx), Pos::new(0, 0));
 }
+
+// ---- the free cursor ----
+
+#[gpui::test]
+fn in_the_free_cursor_mode_a_click_right_of_the_text_puts_the_caret_there(cx: &mut TestAppContext) {
+    // `CCaret::MoveCursorProperly`: the column of the click, when the mode is on.
+    // Declared first, so that it is let go last: the options are back before the next test.
+    let _serial = crate::common_settings::options_lock();
+    let _o = options();
+    edit_options::set(EditOptions {
+        free_cursor: true,
+        ..EditOptions::default()
+    });
+    let (f, cx) = setup(cx, "ab\ncdef");
+    down_at(&f, cx, 0, 6, 1, Modifiers::default());
+    up_at(&f, cx, 0, 6, Modifiers::default());
+    f.view.read_with(cx, |v, app| {
+        assert_eq!(v.cursor.caret(), Pos::new(0, 2));
+        assert_eq!(v.cursor.free_col(), Some(6));
+        assert_eq!(v.caret_column(app), 6);
+    });
+    // typing there fills the gap with spaces
+    cx.simulate_input("x");
+    assert_eq!(f.lines(cx), ["ab    x", "cdef"]);
+    // a click on the text leaves the gap
+    down_at(&f, cx, 1, 1, 1, Modifiers::default());
+    up_at(&f, cx, 1, 1, Modifiers::default());
+    f.view.read_with(cx, |v, _| {
+        assert_eq!(v.cursor.caret(), Pos::new(1, 1));
+        assert_eq!(v.cursor.free_col(), None);
+    });
+}
+
+#[gpui::test]
+fn without_the_free_cursor_mode_a_click_right_of_the_text_goes_to_its_end(cx: &mut TestAppContext) {
+    let _o = options();
+    let (f, cx) = setup(cx, "ab\ncdef");
+    down_at(&f, cx, 0, 6, 1, Modifiers::default());
+    up_at(&f, cx, 0, 6, Modifiers::default());
+    f.view.read_with(cx, |v, _| {
+        assert_eq!(v.cursor.caret(), Pos::new(0, 2));
+        assert_eq!(v.cursor.free_col(), None);
+    });
+}

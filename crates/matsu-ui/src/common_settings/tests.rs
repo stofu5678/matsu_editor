@@ -672,20 +672,55 @@ fn a_number_in_the_file_that_is_too_large_is_put_into_range_by_ok(cx: &mut TestA
 
 #[gpui::test]
 fn what_is_not_available_is_shown_but_never_written(cx: &mut TestAppContext) {
-    let (ini, handle) = setup(cx, "[Common]\r\nbIsFreeCursorMode=1\r\nnCaretType=1\r\n");
+    let (ini, handle) = setup(cx, "[Common]\r\nNoCaretMoveByActivation=1\r\n");
     run(cx, handle, "F_OPTION_GENERAL");
     // The value of the file is shown, and a click does nothing.
-    assert!(with_dialog(cx, |d, _, _| d.values().bool("free_caret")));
-    check(cx, "free_caret", false);
-    assert!(with_dialog(cx, |d, _, _| d.values().bool("free_caret")));
-    choose(cx, "caret_type", 0);
-    assert_eq!(with_dialog(cx, |d, _, _| d.values().int("caret_type")), 1);
-    assert!(!with_dialog(cx, |d, w, dcx| d.use_access_key('f', w, dcx)));
+    assert!(with_dialog(cx, |d, _, _| d
+        .values()
+        .bool("no_move_activate_by_mouse")));
+    check(cx, "no_move_activate_by_mouse", false);
+    assert!(with_dialog(cx, |d, _, _| d
+        .values()
+        .bool("no_move_activate_by_mouse")));
+    assert!(!with_dialog(cx, |d, w, dcx| d.use_access_key('o', w, dcx)));
     ok(cx);
-    assert_eq!(ini.get("bIsFreeCursorMode").as_deref(), Some("1"));
-    assert_eq!(ini.get("nCaretType").as_deref(), Some("1"));
+    assert_eq!(ini.get("NoCaretMoveByActivation").as_deref(), Some("1"));
     assert_eq!(ini.get("bTaskTrayUse"), None);
     assert_eq!(ini.get("bVistaStyleFileDialog"), None);
+}
+
+#[gpui::test]
+fn the_free_cursor_and_the_caret_shape_are_read_from_the_dialog(cx: &mut TestAppContext) {
+    // The options of the commands are not set here: they are shared by every test of the process,
+    // and the free cursor changes how the caret moves. `general_options` is what OK applies.
+    let (_ini, handle) = setup(cx, "");
+    run(cx, handle, "F_OPTION_GENERAL");
+    let read = |cx: &mut TestAppContext| {
+        with_dialog(cx, |d, _, _| {
+            super::pages::general::general_options(EditOptions::DEFAULT, d.values())
+        })
+    };
+    let options = read(cx);
+    assert!(!options.free_cursor && !options.dos_caret);
+    check(cx, "free_caret", true);
+    choose(cx, "caret_type", 1);
+    let options = read(cx);
+    assert!(options.free_cursor && options.dos_caret);
+    choose(cx, "caret_type", 0);
+    let options = read(cx);
+    assert!(options.free_cursor && !options.dos_caret);
+    cancel(cx);
+}
+
+#[gpui::test]
+fn the_free_cursor_and_the_caret_shape_are_kept_in_the_file(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, "");
+    run(cx, handle, "F_OPTION_GENERAL");
+    // Sakura's keys (`ShareData_IO_Common`): the free cursor is `bIsFreeCursorMode`, the shape
+    // `nCaretType`. Written with the other settings, as they stand.
+    ok(cx);
+    assert_eq!(ini.get("bIsFreeCursorMode").as_deref(), Some("0"));
+    assert_eq!(ini.get("nCaretType").as_deref(), Some("0"));
 }
 
 #[gpui::test]

@@ -92,6 +92,24 @@ impl EditorView {
         .ok()
     }
 
+    /// The display column under the point when it is to the right of the text of its row, for the
+    /// free cursor mode.
+    fn free_column_for_point(&self, p: Point<Pixels>, cx: &gpui::App) -> Option<usize> {
+        let paint = self.paint?;
+        let x = f32::from(p.x) - paint.origin_x + self.scroll_x;
+        let y = f32::from(p.y) - paint.origin_y;
+        crate::hit::free_column_at(
+            &self.layout,
+            self.document.read(cx).doc(),
+            &self.metrics,
+            self.scroll_y,
+            x,
+            y,
+        )
+        .ok()
+        .flatten()
+    }
+
     /// The layout row under the point (the last one below the text, the first one above), as the
     /// position where it starts, and the display column of the nearest edge between cells: where a
     /// box selection puts its corner.
@@ -348,6 +366,8 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) -> ((Pos, Pos), bool) {
         let m = event.modifiers;
+        // A click to the right of the text puts the caret there in the free cursor mode.
+        let free = self.free_column_for_point(event.position, cx).unwrap_or(0);
         if m.shift {
             // A box is dropped before the selection grows from the caret.
             if self.cursor.is_box() && self.cursor.has_selection() {
@@ -356,7 +376,7 @@ impl EditorView {
                     .ok();
             }
             let anchor = self.cursor.anchor().unwrap_or(self.cursor.caret());
-            self.run_with(cx, |command_cx| command_cx.move_caret(pos, true))
+            self.run_with(cx, |command_cx| command_cx.move_caret_free(pos, free, true))
                 .ok();
             if m.control {
                 // Shift and Ctrl: the selection grows by words from the word at the anchor.
@@ -374,8 +394,10 @@ impl EditorView {
             }
             return ((anchor, anchor), false);
         }
-        self.run_with(cx, |command_cx| command_cx.move_caret(pos, false))
-            .ok();
+        self.run_with(cx, |command_cx| {
+            command_cx.move_caret_free(pos, free, false)
+        })
+        .ok();
         if m.control {
             // Ctrl: the word at the click (`Command_SELECTWORD`), and the drag goes by words.
             let selected = self
