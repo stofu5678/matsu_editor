@@ -4,10 +4,11 @@ use std::borrow::Cow;
 use std::ops::Range;
 use std::sync::Arc;
 
+use super::block::BlockIndex;
 use super::codec::{Codec, EncodingCodec, Eol};
 use super::error::{BufferError, Result};
 use super::position::Pos;
-use super::storage::{LineIndex, MemorySource, Original, Source, Storages};
+use super::storage::{EolIndex, LineIndex, MemorySource, Original, Source, Storages};
 use super::tree::{self, Store, Tree};
 use crate::encoding::Encoding;
 
@@ -62,6 +63,10 @@ impl Break {
 pub struct Document {
     root: Tree,
     st: Arc<Storages>,
+    /// Set on a document that shows only the scanned start of a file being scanned
+    /// ([`Document::from_block_index`]): edits are refused until the scan is done and the
+    /// complete document replaces this one (ADR-0020, chapter 2).
+    read_only: bool,
 }
 
 impl Default for Document {
@@ -159,10 +164,10 @@ impl Document {
                 ext_eol,
             );
             let (s, e) = doc.st.append_add(&text)?;
-            doc.root = (e > s).then(|| {
-                let piece = doc.st.piece(Store::Add, s, e);
-                tree::join(None, piece, None)
-            });
+            if e > s {
+                let piece = doc.st.piece(Store::Add, s, e)?;
+                doc.root = Some(tree::join(None, piece, None));
+            }
             // The original is empty now: no piece refers to the file's bytes.
             return Ok(doc);
         }
@@ -173,10 +178,41 @@ impl Document {
         drop(bytes);
         let mut doc = Self::build(source, codec, index, ext_eol);
         if len > 0 {
-            let piece = doc.st.piece(Store::Original, 0, len as usize);
+            let piece = doc.st.piece(Store::Original, 0, len as usize)?;
             doc.root = Some(tree::join(None, piece, None));
         }
         Ok(doc)
+    }
+
+    /// A document over a file that was scanned into a block index (ADR-0020, chapter 2). The
+    /// source and the codec are the ones the scan used ([`BlockIndex::source`]). Nothing is read
+    /// from the source here beyond the ends of the scanned part.
+    ///
+    /// The document shows the scanned start of the file as one piece. When the index is complete
+    /// that is the whole file and the document can be edited. While a scan is still running the
+    /// index only covers the start; the document then is read-only
+    /// ([`Document::is_read_only`]) and a new one is made when the scan has finished.
+    pub fn from_block_index(index: BlockIndex) -> Result<Self> {
+        let (source, codec) = (index.source().clone(), index.codec().clone());
+        let ext_eol = index.ext_eol();
+        if index.covered_len() > source.len() {
+            return Err(BufferError::Corrupt);
+        }
+        let covered = usize::try_from(index.covered_len()).map_err(|_| BufferError::TooLarge)?;
+        let read_only = !index.is_complete();
+        let mut doc = Self::build(source, codec, index, ext_eol);
+        doc.read_only = read_only;
+        if covered > 0 {
+            let piece = doc.st.piece(Store::Original, 0, covered)?;
+            doc.root = Some(tree::join(None, piece, None));
+        }
+        Ok(doc)
+    }
+
+    /// Whether edits are refused: the document shows the scanned start of a file that is still
+    /// being scanned ([`Document::from_block_index`]).
+    pub fn is_read_only(&self) -> bool {
+        self.read_only
     }
 
     /// A document over `source` with a line index the caller made, without reading the source.
@@ -190,7 +226,10 @@ impl Document {
         let len = source.len();
         let mut doc = Self::build(source, codec, index, true);
         if len > 0 {
-            let piece = doc.st.piece(Store::Original, 0, len as usize);
+            let piece = doc
+                .st
+                .piece(Store::Original, 0, len as usize)
+                .expect("a prebuilt in-memory index does not fail");
             doc.root = Some(tree::join(None, piece, None));
         }
         doc
@@ -199,17 +238,18 @@ impl Document {
     fn build(
         source: impl Source + 'static,
         codec: Arc<dyn Codec>,
-        index: LineIndex,
+        index: impl EolIndex + 'static,
         ext_eol: bool,
     ) -> Self {
         let original = Original {
             source: Box::new(source),
             codec,
-            index,
+            index: Box::new(index),
         };
         Self {
             root: None,
             st: Arc::new(Storages::new(original, ext_eol)),
+            read_only: false,
         }
     }
 
@@ -224,8 +264,10 @@ impl Document {
     }
 
     /// The `k`-th line break, with a CRLF over two pieces joined.
-    fn brk(&self, k: usize) -> Option<Break> {
-        let raw = tree::nth_break(&self.root, k, &self.st)?;
+    fn brk(&self, k: usize) -> Result<Option<Break>> {
+        let Some(raw) = tree::nth_break(&self.root, k, &self.st)? else {
+            return Ok(None);
+        };
         let mut b = Break {
             start: raw.start,
             len: raw.len,
@@ -238,28 +280,38 @@ impl Document {
             b.kind = Eol::CrLf;
             b.len += usize::from(next.agg.first_lf);
         }
-        Some(b)
+        Ok(Some(b))
     }
 
     /// Where line `i` starts (`i` may be the number of breaks: the text after the last break).
-    fn line_start(&self, i: usize) -> usize {
+    fn line_start(&self, i: usize) -> Result<usize> {
         if i == 0 {
-            0
+            Ok(0)
         } else {
-            self.brk(i - 1).map_or(self.total(), |b| b.end())
+            Ok(self.brk(i - 1)?.map_or(self.total(), |b| b.end()))
         }
     }
 
     /// Where the text of line `i` ends (before its line ending).
-    fn line_text_end(&self, i: usize) -> usize {
-        self.brk(i).map_or(self.total(), |b| b.start)
+    fn line_text_end(&self, i: usize) -> Result<usize> {
+        Ok(self.brk(i)?.map_or(self.total(), |b| b.start))
     }
 
     /// The number of lines. The empty text after the last line ending is not a line, and an empty
     /// document has no lines (Sakura: `sakura_core/doc/logic/CDocLineMgr.cpp`).
+    ///
+    /// Finding out whether text follows the last line ending may read the source. When that read
+    /// fails (a file read by ranges that was changed outside), this returns the number of line
+    /// endings, which misses the last line when it has no ending; a caller that must tell the
+    /// failure uses [`Document::try_line_count`].
     pub fn line_count(&self) -> usize {
+        self.try_line_count().unwrap_or_else(|_| self.break_count())
+    }
+
+    /// Like [`Document::line_count`], but reports a failure to read the source.
+    pub fn try_line_count(&self) -> Result<usize> {
         let breaks = self.break_count();
-        if self.has_tail() { breaks + 1 } else { breaks }
+        Ok(if self.has_tail()? { breaks + 1 } else { breaks })
     }
 
     /// The number of rows of the text: its line breaks plus one. Unlike [`line_count`](Self::line_count)
@@ -270,14 +322,14 @@ impl Document {
     }
 
     /// Whether there is text after the last line break.
-    fn has_tail(&self) -> bool {
+    fn has_tail(&self) -> Result<bool> {
         let breaks = self.break_count();
         let end = if breaks == 0 {
             0
         } else {
-            self.brk(breaks - 1).map_or(0, |b| b.end())
+            self.brk(breaks - 1)?.map_or(0, |b| b.end())
         };
-        self.total() > end
+        Ok(self.total() > end)
     }
 
     /// The end of the document: `(line_count, 0)` when it is empty or ends with a line ending,
@@ -292,28 +344,28 @@ impl Document {
         let (mut lo, mut hi) = (0, breaks);
         while lo < hi {
             let mid = (lo + hi).div_ceil(2);
-            if self.line_start(mid) <= raw {
+            if self.line_start(mid)? <= raw {
                 lo = mid;
             } else {
                 hi = mid - 1;
             }
         }
-        let start = self.line_start(lo);
+        let start = self.line_start(lo)?;
         // A raw offset inside a CRLF is at the end of the text of its line.
-        let end = raw.min(self.line_text_end(lo));
+        let end = raw.min(self.line_text_end(lo)?);
         let col = self.decoded_len(start, end)?;
         Ok(Pos { line: lo, col })
     }
 
     fn pos_to_raw(&self, pos: Pos) -> Result<usize> {
-        if pos.line >= self.line_count() {
+        if pos.line >= self.try_line_count()? {
             return Ok(self.total());
         }
-        let start = self.line_start(pos.line);
+        let start = self.line_start(pos.line)?;
         if pos.col == 0 {
             return Ok(start);
         }
-        let end = self.line_text_end(pos.line);
+        let end = self.line_text_end(pos.line)?;
         self.raw_for_col(start, end, pos.col)
     }
 
@@ -392,11 +444,11 @@ impl Document {
 
     /// Line `i` (0-based), or `None` if there is no such line.
     pub fn line(&self, i: usize) -> Result<Option<Line>> {
-        if i >= self.line_count() {
+        if i >= self.try_line_count()? {
             return Ok(None);
         }
-        let start = self.line_start(i);
-        let brk = self.brk(i);
+        let start = self.line_start(i)?;
+        let brk = self.brk(i)?;
         let end = brk.map_or(self.total(), |b| b.start);
         Ok(Some(Line {
             text: self.decode_range(start, end)?,
@@ -406,10 +458,10 @@ impl Document {
 
     /// The length in bytes of the text of line `i` (the largest `col` there), or `None`.
     pub fn line_len(&self, i: usize) -> Result<Option<usize>> {
-        if i >= self.line_count() {
+        if i >= self.try_line_count()? {
             return Ok(None);
         }
-        self.decoded_len(self.line_start(i), self.line_text_end(i))
+        self.decoded_len(self.line_start(i)?, self.line_text_end(i)?)
             .map(Some)
     }
 
@@ -493,6 +545,9 @@ impl Document {
 
     /// Replaces the text between two positions with `text`.
     pub fn replace(&mut self, from: Pos, to: Pos, text: &str) -> Result<Edit> {
+        if self.read_only {
+            return Err(BufferError::ReadOnly);
+        }
         let (a, b) = (self.pos_to_raw(from)?, self.pos_to_raw(to)?);
         let (a, b) = (a.min(b), a.max(b));
         if a == b && text.is_empty() {
@@ -505,8 +560,8 @@ impl Document {
         } else {
             Some(self.st.append_add(text)?)
         };
-        let (left, rest) = tree::split(&self.root, a, &self.st);
-        let (_, right) = tree::split(&rest, b - a, &self.st);
+        let (left, rest) = tree::split(&self.root, a, &self.st)?;
+        let (_, right) = tree::split(&rest, b - a, &self.st)?;
         let root = match added {
             None => tree::concat(left, right),
             Some((s, e)) => Some(match tree::last_piece(&left) {
@@ -517,11 +572,11 @@ impl Document {
                         && last.end == s
                         && self.st.add_ext_eol_at(last.start) == self.st.ext_eol() =>
                 {
-                    let merged = self.st.piece(Store::Add, last.start, e);
+                    let merged = self.st.piece(Store::Add, last.start, e)?;
                     let rest = tree::pop_last(&left).and_then(|(rest, _)| rest);
                     tree::join(rest, merged, right)
                 }
-                _ => tree::join(left, self.st.piece(Store::Add, s, e), right),
+                _ => tree::join(left, self.st.piece(Store::Add, s, e)?, right),
             }),
         };
         // Build the new version and read the positions from it before replacing this one, so
@@ -529,6 +584,7 @@ impl Document {
         let next = Self {
             root,
             st: Arc::clone(&self.st),
+            read_only: false,
         };
         let start = next.raw_to_pos(a)?;
         let end = if text.is_empty() {

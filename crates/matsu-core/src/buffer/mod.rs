@@ -16,6 +16,7 @@
 //! * **Columns.** The tree only knows raw bytes of the storages. A column is the decoded UTF-8
 //!   length inside one line, so it is converted by decoding that line only.
 
+mod block;
 mod codec;
 mod document;
 mod error;
@@ -26,6 +27,10 @@ mod tree;
 #[cfg(test)]
 mod tests;
 
+pub use block::{
+    BlockIndex, BlockScanner, DEFAULT_INDEX_BLOCK_SIZE, ScanError, ScanFailure, ScanJob,
+    ScanOptions, ScanProgress, ScanState, scan_blocks,
+};
 pub(crate) use codec::find_eol;
 pub use codec::{Codec, EncodingCodec, Eol, INVALID_BYTE_BASE, Unmappable};
 #[cfg(test)]
