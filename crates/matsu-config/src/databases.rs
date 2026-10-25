@@ -366,29 +366,36 @@ fn read_connection(profile: &Profile, section: &str, name: &str) -> Result<Conne
 ///
 /// This looks for the usual forms of the clients of ADR-0023; it cannot know every client.
 pub fn password_in_command(kind: Kind, command: &str) -> Option<&'static str> {
-    // The client says more than the `Kind=` of the file: `mysql -psecret` is looked at as MySQL's even
-    // when the connection says `other`.
-    let kinds = [kind, kind_of_program(command)];
+    // The clients the command line names say more than the `Kind=` of the file: `mysql -psecret`, also
+    // as `env mysql -psecret` or `x && mysql -psecret`, is looked at as MySQL's when the connection
+    // says `other`.
+    let mut kinds = vec![kind];
+    kinds.extend(kinds_of_programs(command));
     // a shell removes a backslash before a letter (`--passw\ord=x` is `--password=x`)
     let unescaped = remove_backslashes(command);
     [command, unescaped.as_str()]
         .into_iter()
-        .flat_map(|text| kinds.into_iter().map(move |k| (k, text)))
+        .flat_map(|text| kinds.iter().map(move |&k| (k, text)))
         .find_map(|(k, text)| password_in_text(k, text))
 }
 
-/// The kind the program of the command line says, else `Other`.
-fn kind_of_program(command: &str) -> Kind {
-    let (words, _) = split_words(command).into_iter().next().unzip();
-    let program = words.unwrap_or_default().to_ascii_lowercase();
-    let name = program.rsplit(['/', '\\']).next().unwrap_or("");
-    let name = name.strip_suffix(".exe").unwrap_or(name);
-    match name {
-        "mysql" | "mariadb" | "mysqlsh" => Kind::MySql,
-        "sqlcmd" => Kind::SqlServer,
-        "sqlplus" | "sql" | "sqlldr" => Kind::Oracle,
-        _ => Kind::Other,
-    }
+/// The kinds of the clients that any word of the command line names (`mysql`, `sqlcmd`, `sqlplus`, ...).
+fn kinds_of_programs(command: &str) -> Vec<Kind> {
+    command
+        .split(|c: char| c.is_whitespace() || matches!(c, '&' | '|' | ';' | '(' | ')' | '"' | '\''))
+        .filter(|w| !w.is_empty())
+        .filter_map(|word| {
+            let word = word.to_ascii_lowercase();
+            let name = word.rsplit(['/', '\\']).next().unwrap_or("");
+            let name = name.strip_suffix(".exe").unwrap_or(name);
+            match name {
+                "mysql" | "mariadb" | "mysqlsh" => Some(Kind::MySql),
+                "sqlcmd" => Some(Kind::SqlServer),
+                "sqlplus" | "sql" | "sqlcl" | "sqlldr" => Some(Kind::Oracle),
+                _ => None,
+            }
+        })
+        .collect()
 }
 
 /// `text` without the backslashes that a shell would remove (a backslash and the character after it become

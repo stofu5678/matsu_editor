@@ -15,6 +15,15 @@
 //!   inside quotes: `"!PATH!"`), so a name with a `%` or a `!` is refused. So is a name with a control
 //!   character.
 //!
+//! * The place of `$F` in the quotes of the template is followed (`-f '$F'`, `-c "psql -f $F"`): the name
+//!   is escaped for the quote it is in, so that writing the quotes oneself does not open a hole.
+//! * Only a known client (`psql`, `mysql`, `sqlcmd`, ...; `is_database_client`) takes a name that is not
+//!   plain, and only when the template is one command with its arguments (no `;`, `&`, `|`, `<`, `>`,
+//!   backquote, `$(`). Any other program may read the name as code (`sh -c`, `eval`, `pwsh -Command`, a script of
+//!   the user's): the quoting for the first shell does not reach the second, so such a template gets
+//!   names of letters, digits and `. _ - / + , : = @ ~` only (and `\` for `cmd.exe`). That list was
+//!   chosen after the review of ADR-0023 (step 6), which tried the payloads in the tests.
+//!
 //! The text of the line then goes through `ExpandParameter` (`$F` and the like) in the exec flow,
 //! as every command line does; [`escape_for_expand`] doubles each `$` so that a `$` in a file name
 //! or in the template comes out unchanged.
@@ -63,7 +72,7 @@ impl fmt::Display for BuildError {
             BuildError::NoFile => f.write_str("実行するファイルがありません。"),
             BuildError::Unquotable(c) => write!(
                 f,
-                "ファイルの名前に、コマンドに安全に渡せない文字（{}）があります。名前を変えてから実行してください。",
+                "ファイルの名前に、コマンドに安全に渡せない文字（{}）があります。名前を変えてから実行してください。接続のコマンドが psql や mysql などのクライアントで始まる 1 つのコマンドなら、空白などの入った名前も使えます。",
                 c.escape_default()
             ),
             BuildError::EscapeBeforeFile => f.write_str(
@@ -112,12 +121,6 @@ fn follow(shell: Shell, text: &str, quote: &mut Quote, escaped: &mut bool) {
     }
 }
 
-/// The characters that `powershell.exe` and `pwsh.exe` read as code or as separators in the text of
-/// `-Command`: a file name with one of them is refused when the client is PowerShell.
-const POWERSHELL_SPECIAL: &[char] = &[
-    '`', '$', ';', '\'', ',', '(', ')', '{', '}', '&', '|', '<', '>', '@', '#',
-];
-
 /// The name of the program of the line (its first word, without the folder and `.exe`, in lower case).
 fn program_of(text: &str) -> String {
     let text = text.trim_start();
@@ -131,38 +134,32 @@ fn program_of(text: &str) -> String {
     name.strip_suffix(".exe").unwrap_or(&name).to_owned()
 }
 
-/// Whether the program is PowerShell.
-fn is_powershell(program: &str) -> bool {
-    matches!(program, "powershell" | "pwsh")
-}
-
-/// Whether the program reads one of its arguments as another command line (`sh -c "..."`, `ssh host
-/// "..."`, `cmd /c "..."`). A name put inside such an argument is read by two shells, and the quoting for the
-/// first does not protect it from the second.
-fn runs_a_command_line(program: &str) -> bool {
+/// The command line clients of the databases of ADR-0023 (and a few like them). Only these are known to take
+/// a file name as a file name: any other program may read an argument as code (`sh -c`, `eval`, `env pwsh
+/// -Command`, `python -c`, a script of the user's), and then the quoting for the first shell is not enough.
+fn is_database_client(program: &str) -> bool {
     matches!(
         program,
-        "sh" | "bash"
-            | "zsh"
-            | "dash"
-            | "ksh"
-            | "fish"
-            | "csh"
-            | "tcsh"
-            | "ash"
-            | "busybox"
-            | "ssh"
-            | "su"
-            | "sudo"
-            | "doas"
-            | "env"
-            | "xargs"
-            | "nohup"
-            | "cmd"
-            | "wsl"
-            | "start"
+        "sqlplus"
+            | "sql"
+            | "sqlcl"
+            | "mysql"
+            | "mariadb"
+            | "mysqlsh"
+            | "psql"
+            | "sqlcmd"
+            | "sqlite3"
+            | "bq"
+            | "duckdb"
+            | "usql"
+            | "clickhouse-client"
+            | "snowsql"
     )
 }
+
+/// Characters of the template (outside the name) with which it is more than one command or reads a
+/// substitution, so that it is not just a client with its arguments.
+const COMPOUND: &[char] = &[';', '&', '|', '(', ')', '<', '>', '`', '\n', '\r'];
 
 /// Whether `c` is a character that two shells read the same way: letters and digits (of any language) and
 /// `. _ - / + , : = @ ~`, and the backslash of a Windows path for `cmd.exe`.
@@ -226,7 +223,10 @@ pub(crate) fn build(
     file: Option<&str>,
 ) -> Result<String, BuildError> {
     let parts = template_parts(&connection.command);
-    // Every program the template names, not only the first (`env pwsh ...`, `echo x & cmd /c ...`)
+    // A name goes in with the full quoting only when the template is a known client with its arguments. Any
+    // other program, or a template that has more than one command, may have the name read again as code (a
+    // shell's `-c`, `eval`, `env pwsh -Command`, `$(...)`), and the quoting for the first shell does not
+    // reach the second: then only a plain name is safe.
     let text: String = parts
         .iter()
         .filter_map(|p| match p {
@@ -235,17 +235,11 @@ pub(crate) fn build(
         })
         .collect::<Vec<_>>()
         .join(" ");
-    let programs: Vec<String> = text
-        .split(['&', '|', ';', '(', ')', '\n'])
-        .map(program_of)
-        .chain(text.split_whitespace().map(program_of))
-        .collect();
-    let powershell = programs.iter().any(|p| is_powershell(p));
-    // a command line that another shell reads again, or a substitution inside the line: the name is
-    // read by more than one shell, wherever `$F` is
-    let nested = programs.iter().any(|p| runs_a_command_line(p))
-        || (shell == Shell::Posix
-            && (text.contains("$(") || text.contains('`') || text.contains("${")));
+    let client = is_database_client(&program_of(&text))
+        && !text.contains(COMPOUND)
+        && !text.contains("$(")
+        && !text.contains("${");
+    let strict = !client;
     let mut line = String::new();
     let mut quote = Quote::Bare;
     let mut escaped = false;
@@ -261,13 +255,9 @@ pub(crate) fn build(
                     // `\$F`: the escape would take the first character of the name
                     return Err(BuildError::EscapeBeforeFile);
                 }
-                if powershell && let Some(c) = file.chars().find(|c| POWERSHELL_SPECIAL.contains(c))
-                {
-                    return Err(BuildError::Unquotable(c));
-                }
                 // read by more than one shell, only a plain name is safe: the quoting for the first
                 // shell does not reach the second
-                if nested && let Some(c) = file.chars().find(|&c| !is_plain(shell, c)) {
+                if strict && let Some(c) = file.chars().find(|&c| !is_plain(shell, c)) {
                     return Err(BuildError::Unquotable(c));
                 }
                 line.push_str(&quote_in(shell, quote, file)?);
