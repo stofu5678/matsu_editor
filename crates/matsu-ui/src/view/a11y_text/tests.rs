@@ -40,23 +40,29 @@ fn at(run: usize, index: usize) -> At {
 #[test]
 fn words_start_where_the_kind_of_character_changes() {
     // Trailing spaces belong to the word before; each mark of punctuation is a word.
-    assert_eq!(word_starts("ab cd", None, false), [3]);
-    assert_eq!(word_starts("ab, cd", None, false), [2, 4]);
+    assert_eq!(word_starts("ab cd", None, false, false), [3]);
+    assert_eq!(word_starts("ab, cd", None, false, false), [2, 4]);
     // leading spaces are a word of their own
-    assert_eq!(word_starts("  ab", None, false), [2]);
+    assert_eq!(word_starts("  ab", None, false, false), [2]);
     assert_eq!(
-        word_starts("ひらがなカタカナ漢字abc", None, false),
+        word_starts("ひらがなカタカナ漢字abc", None, false, false),
         [4, 8, 10]
     );
     // the same rules as Ctrl+Right: symbols make a word together, the prolonged sound mark goes
     // with the kana around it
-    assert_eq!(word_starts("a+-b", None, false), [1, 3]);
-    assert_eq!(word_starts("あーい", None, false), Vec::<usize>::new());
-    assert_eq!(word_starts("", None, false), Vec::<usize>::new());
+    assert_eq!(word_starts("a+-b", None, false, false), [1, 3]);
+    assert_eq!(
+        word_starts("あーい", None, false, false),
+        Vec::<usize>::new()
+    );
+    assert_eq!(word_starts("", None, false, false), Vec::<usize>::new());
     // after a soft wrap: a word that starts at the wrap, and one that goes on
-    assert_eq!(word_starts("kl", Some(' '), false), [0]);
-    assert_eq!(word_starts("kl", Some('k'), false), Vec::<usize>::new());
-    assert_eq!(word_starts("kl mn", Some('k'), false), [3]);
+    assert_eq!(word_starts("kl", Some(' '), false, false), [0]);
+    assert_eq!(
+        word_starts("kl", Some('k'), false, false),
+        Vec::<usize>::new()
+    );
+    assert_eq!(word_starts("kl mn", Some('k'), false, false), [3]);
 }
 
 #[gpui::test]
@@ -264,10 +270,10 @@ fn a_row_of_255_characters_and_a_line_break_has_no_word_starts(cx: &mut TestAppC
 
 #[test]
 fn the_line_break_is_a_word_start_where_ctrl_right_stops() {
-    assert_eq!(word_starts("abc", None, true), [3]);
-    assert_eq!(word_starts("ab cd", None, true), [3, 5]);
-    assert_eq!(word_starts("", None, true), Vec::<usize>::new());
-    assert_eq!(word_starts("abc", None, false), Vec::<usize>::new());
+    assert_eq!(word_starts("abc", None, true, false), [3]);
+    assert_eq!(word_starts("ab cd", None, true, false), [3, 5]);
+    assert_eq!(word_starts("", None, true, false), Vec::<usize>::new());
+    assert_eq!(word_starts("abc", None, false, false), Vec::<usize>::new());
 }
 
 #[gpui::test]
@@ -297,4 +303,12 @@ fn no_row_below_the_screen_is_a_run(cx: &mut TestAppContext) {
     let last = (text.runs.len() - 1) as f32;
     assert!(last * line_height < view_height, "{last} rows");
     assert!((last + 1.0) * line_height >= view_height);
+}
+
+#[test]
+fn with_the_stop_at_both_ends_setting_a_word_end_is_a_start_too() {
+    // "ab cd": Ctrl+Right stops at 2 (the end of "ab") and then at 3 with the setting on.
+    assert_eq!(word_starts("ab cd", None, false, true), [2, 3]);
+    assert_eq!(word_starts("ab cd", None, false, false), [3]);
+    assert_eq!(word_starts("ab \n", None, true, true), [2, 3]);
 }

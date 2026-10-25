@@ -89,7 +89,14 @@ pub(crate) struct Text {
 /// at the wrap then starts at 0. At the start of a line it is `None` and the first character is
 /// implicitly the start of a word (AccessKit). `line_break` is whether the row ends with a line
 /// break (the run holds one `\n`): the key stops before it, so the break is a start too.
-fn word_starts(text: &str, before: Option<char>, line_break: bool) -> Vec<usize> {
+/// `stops_both_ends` is the common setting of the same name (the key stops at the end of a word
+/// as well, before the spaces after it).
+fn word_starts(
+    text: &str,
+    before: Option<char>,
+    line_break: bool,
+    stops_both_ends: bool,
+) -> Vec<usize> {
     let skip = usize::from(before.is_some());
     let line: Vec<char> = before
         .into_iter()
@@ -98,7 +105,7 @@ fn word_starts(text: &str, before: Option<char>, line_break: bool) -> Vec<usize>
         .collect();
     let mut starts = Vec::new();
     let mut at = 0;
-    while let Some(next) = search_next_word(&line, usize::from(line_break), at, false) {
+    while let Some(next) = search_next_word(&line, usize::from(line_break), at, stops_both_ends) {
         // The end of the text is where the key stops when no word follows: not a start. (`next`
         // is never 0, and the prepended character is not part of the text.)
         if next >= line.len() {
@@ -114,9 +121,10 @@ impl Snapshot {
     /// The runs and the selection. This is the part that costs, so it runs only when a screen
     /// reader asks for the tree.
     pub(crate) fn text(&self) -> Text {
+        let stops_both_ends = matsu_commands::edit_options::get().stops_both_ends_word;
         let mut runs = Vec::with_capacity(self.rows.len());
         for (i, row) in self.rows.iter().enumerate() {
-            runs.push(self.run(i, row));
+            runs.push(self.run(i, row, stops_both_ends));
         }
         // A caret in an invisible place is no selection (it would sit on the wrong text).
         let selection = self
@@ -126,7 +134,7 @@ impl Snapshot {
         Text { runs, selection }
     }
 
-    fn run(&self, index: usize, row: &RowInfo) -> Run {
+    fn run(&self, index: usize, row: &RowInfo, stops_both_ends: bool) -> Run {
         let mut value = String::from(row.text());
         let mut char_lengths: Vec<u8> = value.chars().map(|c| c.len_utf8() as u8).collect();
         let mut x = row.start_column;
@@ -163,7 +171,7 @@ impl Snapshot {
         let words = if char_lengths.len() > usize::from(u8::MAX) {
             Vec::new()
         } else {
-            word_starts(row.text(), before, row.eol.is_some())
+            word_starts(row.text(), before, row.eol.is_some(), stops_both_ends)
         };
         // The width counts the cell of the mark of the end of the text, where the caret can be.
         let width = (x - origin + u32::from(row.eol.is_none())) as f32 * unit;
