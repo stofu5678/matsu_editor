@@ -117,6 +117,9 @@ pub struct Changes {
     pub selection_changed: bool,
     /// The command could not do what was asked in this state (Sakura: `ErrorBeep()`).
     pub beep: bool,
+    /// A command was refused because view mode is on (it beeped too). `matsu-ui` tells why when
+    /// the document is read-only for another reason than the user's choice.
+    pub refused_in_view_mode: bool,
     /// `F_SET_QUOTESTRING` set this quote string. `matsu-ui` keeps it for the commands after (it is
     /// shared by all windows in Sakura) and hands it to the next context ([`CommandContext::
     /// with_quote_string`]).
@@ -457,6 +460,7 @@ impl<'a> CommandContext<'a> {
     pub(crate) fn refuse_in_view_mode(&mut self) -> Result<()> {
         if self.view_mode {
             self.beep();
+            self.changes.refused_in_view_mode = true;
             return Err(CommandError::Refused("editing in view mode"));
         }
         Ok(())

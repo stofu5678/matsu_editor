@@ -247,6 +247,20 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         .into(),
                     Item::Label("MBから"),
                 ]),
+                // Not Sakura's (ADR-0020, chapter 7): the name of the key is a proposal.
+                Item::Row(vec![
+                    Control::number(
+                        "huge_file_size_mb",
+                        "",
+                        "nHugeFileSizeMB",
+                        crate::file_ops::prefs::HUGE_FILE_SIZE_MB_DEFAULT,
+                        1,
+                        1_000_000,
+                    )
+                    .named("範囲ごとに読むファイルの大きさ（MB）")
+                    .into(),
+                    Item::Label("MB以上のファイルは、範囲ごとに読んで開く(&H)"),
+                ]),
             ],
         ),
     ]
@@ -276,6 +290,8 @@ pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: O
         no_filter_save_new: after.bool("no_filter_save_new"),
         no_filter_save_file: after.bool("no_filter_save_file"),
         auto_mime_decode: after.bool("auto_mime_decode"),
+        huge_file_size_mb: after.int("huge_file_size_mb"),
+        huge_scan: crate::file_ops::prefs::prefs(env.cx).huge_scan,
     });
     // The copies of unsaved documents (ADR-0022). The size limit is not in the dialog: it stays as it was.
     let old = crate::unsaved::prefs::prefs(env.cx);

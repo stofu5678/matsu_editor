@@ -173,6 +173,18 @@ pub(crate) async fn save(
         return SaveOutcome::Cancelled;
     };
 
+    // 0. A document that shows only the scanned start of its file (ADR-0020) would lose the rest.
+    let partial = view
+        .read_with(cx, |view, app| {
+            view.document().read(app).partial_reason("保存")
+        })
+        .ok()
+        .flatten();
+    if let Some(why) = partial {
+        tell(cx, PromptLevel::Critical, &format!("{why}。"), None).await;
+        return SaveOutcome::Cancelled;
+    }
+
     // 1. The path.
     let plain = request.path.is_none()
         && !request.dialog

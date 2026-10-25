@@ -29,6 +29,7 @@ mod mouse;
 pub(crate) mod paging;
 pub(crate) mod pane;
 mod ruler;
+mod scan;
 mod settings;
 #[cfg(test)]
 mod settings_tests;
@@ -209,6 +210,16 @@ pub struct EditorView {
     /// The auto scroll of the middle button (`view/autoscroll.rs`).
     pub(crate) autoscroll: autoscroll::AutoScroll,
     pub(crate) notice: Option<String>,
+    /// A jump to a place the scan of the file has not reached, held back until it is done
+    /// (`view/scan.rs`).
+    pub(crate) pending_scan_jump: Option<(u64, &'static Registration, Vec<Arg>)>,
+    /// The last command was refused because the document is read-only (`view/scan.rs`).
+    refused_edit: bool,
+    /// The jump that waited for the scan runs now: it was recorded already.
+    replaying_scan_jump: bool,
+    /// The caret and the history of a file that was opened while it is scanned, to restore when
+    /// the scan is done (`view/scan.rs`).
+    pub(crate) pending_scan_restore: Option<scan::ScanRestore>,
     /// The settings of the file and the temporary changes (`view/settings.rs`).
     pub(crate) prefs: ViewPrefs,
     /// The size of the selection counted last (`status_info.rs`).
@@ -289,6 +300,10 @@ impl EditorView {
             click_phase: 1,
             autoscroll: Default::default(),
             notice: None,
+            pending_scan_jump: None,
+            refused_edit: false,
+            replaying_scan_jump: false,
+            pending_scan_restore: None,
             prefs: ViewPrefs::new(Default::default()),
             selection_count: Default::default(),
             print: Default::default(),
@@ -367,7 +382,10 @@ impl EditorView {
             let overwrite = shared.overwrite();
             // View mode, or a file that cannot be written (`CEditDoc::IsEditable`).
             let uneditable = crate::file_ops::prefs::prefs(cx).uneditable_if_unwritable;
-            let view_mode = shared.view_mode() || shared.locked_by_unwritable(uneditable);
+            // A document that shows only the scanned start of its file is read-only too.
+            let view_mode = shared.view_mode()
+                || shared.locked_by_unwritable(uneditable)
+                || shared.is_partial();
             let (model, path) = shared.parts_mut();
             let mut adapter = RowLayout(layout);
             let quote = cx
@@ -415,7 +433,14 @@ impl EditorView {
         if self.isearch_intercept(reg.sakura, args, cx) {
             return true;
         }
-        self.record_call(reg.sakura, args);
+        // While the file is scanned, a jump to a place it has not reached waits.
+        if self.defer_for_scan(reg, args, cx) {
+            return true;
+        }
+        // A jump that waited for the scan was recorded when it was asked for.
+        if !std::mem::take(&mut self.replaying_scan_jump) {
+            self.record_call(reg.sakura, args);
+        }
         self.completion_before_command(reg.sakura);
         // `MoveCursorLayout(row, ..)` names a row of the whole text, and `MoveCursor` with a box
         // needs the row of its target: a document that is still being laid out in the background
@@ -429,6 +454,7 @@ impl EditorView {
         self.notice = result
             .err()
             .map(|e: CommandError| format!("{}: {e}", reg.id));
+        self.say_why_refused(cx);
         cx.notify();
         ok
     }
@@ -512,6 +538,7 @@ impl EditorView {
         if let Err(e) = result {
             self.notice = Some(format!("{}: {e}", reg.id));
         }
+        self.say_why_refused(cx);
         cx.notify();
         ok
     }
@@ -533,6 +560,7 @@ impl EditorView {
             self.marked = None;
             self.notice = None;
         }
+        self.refused_edit = changes.refused_in_view_mode;
         self.completion_after_command(changes, cx);
         // While a macro runs, a command that moved nothing leaves the view where it is:
         // `SetViewTop` scrolls away from the caret, and the calls after it must not scroll back
@@ -565,6 +593,8 @@ impl EditorView {
         self.support.completion = None;
         self.clamp_scroll();
         cx.notify();
+        self.run_pending_scan_jump(cx);
+        self.apply_scan_restore(cx);
     }
 
     /// Lays out some more of a large document each frame, until it is all done.
@@ -659,6 +689,7 @@ impl EditorView {
                 .as_ref()
                 .map(|a| a.message().to_owned())
                 .or_else(|| self.notice.clone())
+                .or_else(|| shared.scan_text())
                 .or_else(crate::settings::startup_notice),
         }
     }

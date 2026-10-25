@@ -10,6 +10,7 @@
 
 use std::path::Path;
 
+use matsu_core::buffer::ScanOptions;
 use matsu_core::encoding::Encoding;
 use matsu_core::file::{FileError, OpenOptions, Progress, TextFile, open_file_with};
 
@@ -27,6 +28,18 @@ pub fn open_text_file(
     defaults: &NewDocumentDefaults,
     progress: Progress<'_>,
 ) -> Result<TextFile, OpenError> {
+    open_text_file_with(path, encoding, defaults, None, progress)
+}
+
+/// Like [`open_text_file`]. `huge` is the size from which a file is opened by ranges and the
+/// settings of its scan (ADR-0020); `None` reads every file whole.
+pub fn open_text_file_with(
+    path: &Path,
+    encoding: Option<Encoding>,
+    defaults: &NewDocumentDefaults,
+    huge: Option<(u64, ScanOptions)>,
+    progress: Progress<'_>,
+) -> Result<TextFile, OpenError> {
     let mut options = OpenOptions {
         encoding,
         default_eol: defaults.eol,
@@ -34,6 +47,10 @@ pub fn open_text_file(
         ext_eol: matsu_commands::edit_options::get().ext_eol,
         ..OpenOptions::default()
     };
+    if let Some((from, scan)) = huge {
+        options.huge_file_len = Some(from);
+        options.huge_scan = scan;
+    }
     options.detect.default_encoding = defaults.encoding;
     match open_file_with(path, &options, progress) {
         Err(FileError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {

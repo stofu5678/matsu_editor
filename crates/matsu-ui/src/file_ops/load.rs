@@ -16,7 +16,7 @@ use super::windows::{self, LoadRequest};
 use crate::document::SharedDocument;
 use crate::file_dialog::{self, Ask};
 use crate::history::view::{code_change_message, encoding_of, remembered};
-use crate::open::open_text_file;
+use crate::open::open_text_file_with;
 use crate::view::EditorView;
 
 /// Files at least this big show their progress in the status bar. Smaller ones are read before
@@ -62,8 +62,15 @@ async fn read_file(
     let defaults = cx
         .update(|_, app| crate::settings::new_document_defaults(app, name.as_deref()))
         .unwrap_or_default();
+    // A big file is opened by ranges (ADR-0020, chapter 7).
+    let huge = cx
+        .update(|_, app| {
+            let prefs = super::prefs::prefs(app);
+            (prefs.huge_file_len(), prefs.huge_scan)
+        })
+        .ok();
     let task = cx.background_executor().spawn(async move {
-        let result = open_text_file(&target, encoding, &defaults, &mut |done, total| {
+        let result = open_text_file_with(&target, encoding, &defaults, huge, &mut |done, total| {
             shared.done.store(done, Ordering::Relaxed);
             shared.total.store(total, Ordering::Relaxed);
             ControlFlow::Continue(())
@@ -208,11 +215,18 @@ pub(crate) async fn load_here(
                 if let Some(ext) = super::start_options::expected_type(cx, path) {
                     view.apply_launch_type(&ext, cx);
                 }
-                if let Some(entry) = &previous {
-                    let options = crate::history::options(cx);
-                    view.restore_from_history(entry, options, cx);
+                let history = previous
+                    .clone()
+                    .map(|entry| (entry, crate::history::options(cx)));
+                // The place and the bookmarks of a file scanned in the background may be past
+                // what is scanned yet: they are restored, and the history written, when the scan
+                // is done.
+                if !view.defer_restore(None, history.clone(), cx) {
+                    if let Some((entry, options)) = &history {
+                        view.restore_from_history(entry, *options, cx);
+                    }
+                    view.record_history(cx);
                 }
-                view.record_history(cx);
                 true
             });
             let replaced = replaced.unwrap_or(false);
