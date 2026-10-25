@@ -80,8 +80,7 @@ enum Job {
     Session(Session),
     Discard(String),
     Clear,
-    /// Answers when every job before it is done (for the tests; the quit flow of a later change uses it too).
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// Answers when every job before it is done.
     Barrier(Sender<()>),
 }
 
@@ -183,12 +182,18 @@ impl Writer {
         self.session_failed.load(Ordering::SeqCst)
     }
 
-    /// Waits until every job queued so far is done. Never on the UI thread while it matters.
+    /// Waits until every job queued so far is done. Never on the UI thread while it matters: see
+    /// [`Writer::barrier`].
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn flush(&self) {
+        let _ = self.barrier().recv();
+    }
+
+    /// A receiver that gets an answer when every job queued so far is done, to be waited for off the UI thread.
+    pub(crate) fn barrier(&self) -> mpsc::Receiver<()> {
         let (tx, rx) = mpsc::channel();
         self.send(Job::Barrier(tx));
-        let _ = rx.recv();
+        rx
     }
 }
 

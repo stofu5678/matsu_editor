@@ -198,7 +198,9 @@ pub(crate) fn run(
         cx.on_app_quit(|cx| {
             crate::history::view::record_all(cx);
             crate::saved_state::window::flush(cx);
-            std::future::ready(())
+            // The copies of the unsaved documents have their latest content when the process ends, however
+            // it was asked to end (ADR-0022).
+            crate::unsaved::settle_at_quit(cx)
         })
         .detach();
         cx.on_window_closed(|cx, _| {

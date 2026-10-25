@@ -11,8 +11,8 @@ use matsu_config::Profile;
 pub const SECTION: &str = "MATSU";
 /// Keep unsaved documents and bring them back at the next start. On by default.
 pub const KEY_KEEP: &str = "KeepUnsaved";
-/// Do not ask 「保存しますか」 when the editor quits (hot exit). Off by default. Read by the quit flow (a later
-/// change); the setting is kept here so that the page has it.
+/// Do not ask 「保存しますか」 when the editor ends (hot exit): the last window closes, or all windows are closed. Off by
+/// default. Read by the close flows (`file_ops::close`, `file_ops::windows`).
 pub const KEY_NO_ASK: &str = "KeepUnsavedNoAsk";
 /// A document larger than this many MiB is not kept; 0 means no limit. 64 by default.
 pub const KEY_MAX_MB: &str = "KeepUnsavedMaxMB";

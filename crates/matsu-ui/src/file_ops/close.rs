@@ -183,6 +183,72 @@ fn close_in(view: &Entity<EditorView>, window: &mut Window, app: &mut App) {
     window.remove_window();
 }
 
+/// [`confirm_discard`] for a flow that ends the editor (an exit of all windows, the close of the last window). When
+/// `ends` says that this close really ends the editor (`KeepUnsavedNoAsk`, ADR-0022 section 5): a document whose
+/// copy has its latest content is not asked about, it closes and comes back at the next start. `ends` is asked here,
+/// right before the question would be left out, not earlier: windows can open while the copies are written. A
+/// document that has no such copy (a Grep window, one that is too big, a write that failed, the folder in use by
+/// another process) is asked about as always.
+pub(crate) async fn confirm_discard_ending(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    ends: &dyn Fn(&mut App) -> bool,
+) -> bool {
+    confirm_discard_ending_by(view, cx, ends).await.0
+}
+
+/// [`confirm_discard_ending`] that also says whether the question was left out because the copy covers the
+/// document (the second value), so that a flow that goes on asking about other documents can ask again about this
+/// one if the close stops being the end of the editor meanwhile.
+pub(crate) async fn confirm_discard_ending_by(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    ends: &dyn Fn(&mut App) -> bool,
+) -> (bool, bool) {
+    // An answer of an earlier flow that was cancelled does not count any more.
+    view.update(cx, |view, cx| crate::unsaved::unmark_close(view, cx))
+        .ok();
+    let covered = cx.update(|_, app| ends(app)).unwrap_or(false)
+        && view.read_with(cx, crate::unsaved::covered).unwrap_or(false);
+    if covered {
+        // The file goes into the history with its caret, bookmarks and encoding, as it does after the question
+        // (`CMruListener::OnBeforeClose`); the copy of the document is not marked for discard.
+        view.update(cx, |view, cx| {
+            view.record_history(cx);
+            // The copy stays when the document goes, also if the process lives on a while (a dialog).
+            crate::unsaved::retain_for_exit(view, cx);
+        })
+        .ok();
+        return (true, true);
+    }
+    (confirm_discard(view, cx).await, false)
+}
+
+/// A flow that left questions out for the copies (`confirm_discard_ending`) was cancelled: the documents are not
+/// closed, so the copy of none of them stays for the end of the editor any more (a document that goes back to its
+/// saved text and closes later must not leave its old copy behind).
+pub(crate) fn forget_left_out(views: &[Entity<EditorView>], cx: &mut AsyncWindowContext) {
+    cx.update(|_, app| {
+        for view in views {
+            view.update(app, |view, cx| crate::unsaved::unmark_close(view, cx));
+        }
+    })
+    .ok();
+}
+
+/// Whether closing the document of `view` ends the editor without a question about its copy: the setting is on,
+/// and the document is the only tab of the last window.
+pub(crate) fn closing_ends_the_editor(app: &mut App, view: &WeakEntity<EditorView>) -> bool {
+    crate::unsaved::hot_exit_enabled(app)
+        // The last tab of a window that stays (`m_bTab_RetainEmptyWin`, `close_in`) is not the end.
+        && !(crate::tabs::settings::current(app).bound()
+            && crate::tabs::settings::options(app).retain_empty)
+        && super::windows::workspaces(app).len() == 1
+        && super::windows::find_tab_of(app, view)
+            .and_then(|(handle, _)| super::windows::workspace_of(app, handle))
+            .is_some_and(|ws| ws.read(app).tab_count() == 1)
+}
+
 /// `F_WINCLOSE`: closes the document after the question: its tab, or the window when it has no
 /// other tab (`Command_WINCLOSE` closes the edit window, which is a tab of the group). `false`
 /// if the user stopped it.
@@ -190,7 +256,14 @@ pub(crate) async fn confirm_and_close_window(
     view: &WeakEntity<EditorView>,
     cx: &mut AsyncWindowContext,
 ) -> bool {
-    if !confirm_discard(view, cx).await {
+    // The last tab of the last window ends the editor: with `KeepUnsavedNoAsk` the copy is enough.
+    let hot = cx
+        .update(|_, app| closing_ends_the_editor(app, view))
+        .unwrap_or(false);
+    if hot {
+        crate::unsaved::settle(cx).await;
+    }
+    if !confirm_discard_ending(view, cx, &|app| closing_ends_the_editor(app, view)).await {
         return false;
     }
     close_tab_or_window(view, cx)
@@ -338,17 +411,33 @@ pub(crate) async fn exit_all(cx: &mut AsyncWindowContext, kind: ExitKind) {
             }
         }
     }
+    // `KeepUnsavedNoAsk`: a document whose copy is up to date is not asked about (ADR-0022, section 5).
+    let hot = cx
+        .update(|_, app| crate::unsaved::hot_exit_enabled(app))
+        .unwrap_or(false);
     loop {
+        if hot {
+            // The latest content of every document is written before the questions, and again when a round
+            // starts over because something changed meanwhile.
+            crate::unsaved::settle(cx).await;
+        }
         let editors = cx
             .update(|_, app| super::windows::editors(app))
             .unwrap_or_default();
         let mut checked = Vec::new();
-        for (handle, view) in editors {
+        for (handle, view) in editors.clone() {
             let weak = view.downgrade();
             let Ok(mut window_cx) = handle.update(cx, |_, window, app| window.to_async(app)) else {
                 continue;
             };
-            if !confirm_discard(&weak, &mut window_cx).await {
+            if !confirm_discard_ending(&weak, &mut window_cx, &|app| {
+                crate::unsaved::hot_exit_enabled(app)
+            })
+            .await
+            {
+                // The flow is over: what it left out for the copies is taken back.
+                let views: Vec<_> = editors.iter().map(|(_, v)| v.clone()).collect();
+                forget_left_out(&views, cx);
                 return;
             }
             let version = weak

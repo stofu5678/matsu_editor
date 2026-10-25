@@ -254,7 +254,17 @@ async fn close_after_questions(
     cx: &mut gpui::AsyncWindowContext,
 ) {
     let mut asked: Vec<(gpui::EntityId, u64)> = Vec::new();
+    // The tabs whose question was left out because their copy is kept.
+    let mut by_copy_only: Vec<gpui::EntityId> = Vec::new();
+    // Closing the last window ends the editor: with `KeepUnsavedNoAsk` the copies of the documents are enough
+    // (ADR-0022, section 5).
+    let hot = cx
+        .update(|_, app| crate::unsaved::hot_exit_enabled(app) && workspaces(app).len() == 1)
+        .unwrap_or(false);
     loop {
+        if hot {
+            crate::unsaved::settle(cx).await;
+        }
         let Ok(views) = workspace.read_with(cx, |ws, _| ws.tab_editors()) else {
             return;
         };
@@ -263,8 +273,20 @@ async fn close_after_questions(
             if asked.contains(&(view.entity_id(), version)) {
                 continue;
             }
-            if !close::confirm_discard(&view.downgrade(), cx).await {
+            // Asked again at the moment of the question: windows may have opened while the copies were written.
+            let ends =
+                |app: &mut App| crate::unsaved::hot_exit_enabled(app) && workspaces(app).len() == 1;
+            let (go_on, by_copy) =
+                close::confirm_discard_ending_by(&view.downgrade(), cx, &ends).await;
+            if !go_on {
+                // The flow is over: what it left out for the copies is taken back.
+                close::forget_left_out(&views, cx);
                 return;
+            }
+            if by_copy {
+                by_copy_only.push(view.entity_id());
+            } else {
+                by_copy_only.retain(|id| *id != view.entity_id());
             }
             let version = view.read_with(cx, |v, app| v.document().read(app).version());
             asked.push((view.entity_id(), version));
@@ -276,6 +298,16 @@ async fn close_after_questions(
                 })
             })
             .unwrap_or(true);
+        // Another window opened while a later question was open: closing this one is not the end of the editor
+        // any more, and the tabs that were not asked about are asked now.
+        let still_ends = cx
+            .update(|_, app| crate::unsaved::hot_exit_enabled(app) && workspaces(app).len() == 1)
+            .unwrap_or(false);
+        if unchanged && !by_copy_only.is_empty() && !still_ends {
+            asked.retain(|(id, _)| !by_copy_only.contains(id));
+            by_copy_only.clear();
+            continue;
+        }
         if unchanged {
             cx.update(|window, app| {
                 for view in &views {
