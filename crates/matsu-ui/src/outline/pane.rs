@@ -273,7 +273,8 @@ impl OutlinePane {
             return;
         };
         let kind = super::resolve_kind(Requested::Default, &view, cx);
-        if kind != self.outline_type {
+        // a rule file may differ from type to type, so the outline of a rule file is made again
+        if kind != self.outline_type || kind == OutlineKind::RuleFile {
             self.analyze(Requested::Default, cx);
         }
     }
