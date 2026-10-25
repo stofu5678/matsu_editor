@@ -270,21 +270,31 @@ impl EntityInputHandler for EditorView {
         if self.isearch.is_some() {
             return; // the composition is not shown; its commit goes to the pattern
         }
-        let (from, to) = self.input_target(range_utf16.clone(), cx);
+        let (mut from, to) = self.input_target(range_utf16.clone(), cx);
         // Text being composed has no line break.
         let text = text.replace(['\r', '\n'], "");
         let opened = !self.composing;
+        // A composition that is cancelled takes the spaces of the free cursor gap with it.
+        let old_pad = self.marked.as_ref().map_or(0, |m| m.pad);
+        if text.is_empty() && range_utf16.is_none() && old_pad > 0 {
+            from.col = from.col.saturating_sub(old_pad);
+        }
         if opened {
             self.composing_over_selection = from != to;
         }
         self.composing = true;
+        let mut pad = old_pad;
         let edit = self.run_with(cx, |command_cx| {
             let (mut from, mut to) = (from, to);
             if opened {
                 command_cx.begin_block();
                 // The free cursor mode: the composition starts after spaces that fill the gap.
-                if range_utf16.is_none() && from == to && command_cx.pad_free_caret().is_ok() {
-                    (from, to) = (command_cx.caret(), command_cx.caret());
+                if !text.is_empty() && range_utf16.is_none() && from == to {
+                    let before = command_cx.caret();
+                    if command_cx.pad_free_caret().is_ok() {
+                        (from, to) = (command_cx.caret(), command_cx.caret());
+                        pad = from.col - before.col;
+                    }
                 }
             }
             let edit = command_cx.replace(from, to, &text).ok()?;
@@ -303,6 +313,7 @@ impl EntityInputHandler for EditorView {
         self.marked = edit.filter(|_| !text.is_empty()).map(|edit| Marked {
             line: edit.start.line,
             range: edit.start.col..edit.start.col + text.len(),
+            pad,
         });
         if text.is_empty() {
             self.end_composition(cx);

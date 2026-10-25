@@ -673,3 +673,29 @@ fn an_ime_composition_in_the_gap_follows_spaces_in_one_undo_step(cx: &mut TestAp
     cx.simulate_keystrokes("ctrl-z");
     assert_eq!(f.lines(cx), ["ab", "cd"]);
 }
+
+#[gpui::test]
+fn cancelling_a_composition_in_the_gap_takes_the_spaces_with_it(cx: &mut TestAppContext) {
+    use gpui::EntityInputHandler as _;
+    let _serial = crate::common_settings::options_lock();
+    let _o = options();
+    edit_options::set(EditOptions {
+        free_cursor: true,
+        ..EditOptions::default()
+    });
+    let (f, cx) = setup(cx, "ab\ncd");
+    down_at(&f, cx, 0, 5, 1, Modifiers::default());
+    up_at(&f, cx, 0, 5, Modifiers::default());
+    // One call: the test window ends a composition between two calls.
+    f.view.update_in(cx, |v, window, cx| {
+        let first_line = |v: &EditorView, cx: &gpui::App| {
+            v.document.read(cx).doc().line(0).unwrap().unwrap().text
+        };
+        v.replace_and_mark_text_in_range(None, "に", Some(1..1), window, cx);
+        v.replace_and_mark_text_in_range(None, "にほ", Some(2..2), window, cx);
+        assert_eq!(first_line(v, cx), "ab   にほ");
+        v.replace_and_mark_text_in_range(None, "", None, window, cx);
+        assert_eq!(first_line(v, cx), "ab");
+    });
+    assert_eq!(f.lines(cx), ["ab", "cd"]);
+}

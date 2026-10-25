@@ -114,6 +114,9 @@ pub(crate) struct Marked {
     pub line: usize,
     /// Byte columns of the line.
     pub range: Range<usize>,
+    /// The spaces right before `range` that the composition put there to fill the gap of the
+    /// free cursor mode. They go when the composition is cancelled.
+    pub pad: usize,
 }
 
 /// What the mouse is doing between button down and button up.
