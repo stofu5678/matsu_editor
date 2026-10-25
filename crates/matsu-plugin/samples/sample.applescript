@@ -15,7 +15,11 @@ if fileName is "" then set fileName to "(無題)"
 editorPrint("行数: " & lineCount & " ファイル: " & fileName)
 repeat with i from 1 to lineCount
 	set lineText to editorCall("GetLineStr", {i})
-	if lineText ends with linefeed then set lineText to text 1 thru -2 of lineText
+	if lineText is linefeed then
+		set lineText to ""
+	else if lineText ends with linefeed then
+		set lineText to text 1 thru -2 of lineText
+	end if
 	editorPrint((i as text) & ": " & lineText)
 end repeat
 
