@@ -270,7 +270,7 @@ fn the_pages_are_in_sakuras_order() {
 /// The pages that keep their own state (the kind chosen, the row selected) in controls with no key
 /// of their own: the id of such a control starts with the page's prefix. The prefixes of the pages
 /// that are not built yet are here too, so that each page can be built without changing this list.
-const KEYLESS_PREFIXES: [&str; 7] = [
+const KEYLESS_PREFIXES: [&str; 8] = [
     "toolbar_",
     "keybind_",
     "custmenu_",
@@ -278,6 +278,7 @@ const KEYLESS_PREFIXES: [&str; 7] = [
     "macro_",
     "mainmenu_",
     "helper_",
+    "plugin_",
 ];
 
 #[test]
@@ -397,12 +398,17 @@ fn a_second_function_brings_the_open_dialog_to_its_page(cx: &mut TestAppContext)
 }
 
 #[gpui::test]
-fn a_page_that_is_not_there_yet_says_so(cx: &mut TestAppContext) {
+fn every_page_is_there(cx: &mut TestAppContext) {
     let (_ini, handle) = setup(cx, "");
     run(cx, handle, "F_OPTION");
-    with_dialog(cx, |d, _, dcx| d.select_page(Page::Plugin, dcx));
-    assert!(with_dialog(cx, |d, _, _| d.page_controls()).is_empty());
-    // It still draws, and OK from there writes the other pages as they were.
+    for page in Page::ALL {
+        with_dialog(cx, |d, _, dcx| d.select_page(page, dcx));
+        assert!(
+            !with_dialog(cx, |d, _, _| d.page_controls()).is_empty(),
+            "{}",
+            page.title()
+        );
+    }
     cx.run_until_parked();
     ok(cx);
 }
@@ -1235,7 +1241,7 @@ fn the_access_keys_choose_radio_buttons_and_fill_boxes(cx: &mut TestAppContext) 
 #[gpui::test]
 fn alt_x_is_cancel_and_alt_o_is_ok_where_no_label_has_the_letter(cx: &mut TestAppContext) {
     let (ini, handle) = setup(cx, "");
-    // The page 「プラグイン」 is not there yet and has no labels.
+    // The page 「プラグイン」 has no label with x or o.
     run(cx, handle, "F_OPTION");
     with_dialog(cx, |d, _, dcx| d.select_page(Page::Plugin, dcx));
     with_dialog(cx, |d, w, dcx| d.use_access_key('x', w, dcx));

@@ -1,3 +1,5 @@
 # The inputs and the macros of the Sakura comparison are byte-exact: no line ending conversion on any
 # checkout (the Windows runners check out with core.autocrlf=true).
 crates/matsu/tests/sakura_oracle/** -text
+# The sample plugin definitions are read as they are (a BOM and CRLF, like the files of Sakura plugins).
+crates/matsu-plugin/samples/plugins/**/*.def -text

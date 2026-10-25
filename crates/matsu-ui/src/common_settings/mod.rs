@@ -157,7 +157,7 @@ impl Page {
             Page::Keyword => pages::keyword::items(),
             Page::Support => Some(pages::support::items()),
             Page::Macro => pages::macros::items(),
-            _ => None,
+            Page::Plugin => pages::plugin::items(),
         }
     }
 
@@ -181,8 +181,7 @@ impl Page {
             Page::Keyword => pages::keyword::apply(env, after, before),
             Page::Support => pages::support::apply(env, after, before),
             Page::Macro => pages::macros::apply(env, after, before),
-            // The other pages have nothing to tell the windows (yet).
-            _ => {}
+            Page::Plugin => pages::plugin::apply(env, after, before),
         }
     }
 }
@@ -202,6 +201,7 @@ pub(crate) fn install(cx: &mut App, user: &crate::settings::UserSettings) {
     // The pages look for the folder of the settings file (`%SAKURADATA%`) in the global.
     cx.set_global(user.clone());
     let profile = user.profile().cloned().unwrap_or_default();
+    pages::plugin::refresh_dirs(cx);
     let values = Values::load(&all_controls(), &profile);
     let mut env = Env { cx, opener: None };
     for page in Page::ALL {

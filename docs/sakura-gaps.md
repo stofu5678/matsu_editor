@@ -125,7 +125,7 @@
 | 共通設定「ウィンドウ」の灰色 4 個: 水平スクロールバー（ビューに水平スクロールバーが無い）、ダークモード、位置と大きさの設定、言語 | `CPropComWin.cpp` | ルーラーの高さ・隙間と行番号の隙間はつないだ（`settings/view_settings.rs`、`view/element.rs`）。残りは灰色 | C | M | 言語は ADR 要（利用者向けの文言の多言語化） |
 | 共通設定「タブバー」の灰色: アイコン、多段、表示位置。「ツールバー」のフラットなボタン。「検索」の灰色 5 個（他のビューの条件を引き継ぐ、正規表現ライブラリ、リアルタイム表示、Enter とダブルクリックでタグジャンプ）。「マクロ」の Python フォルダー、キャンセル確認の待ち時間 | `CPropComTab.cpp` ほか | 灰色 | C | S〜M | ADR-0024（タブ） |
 | 共通設定「ファイル」の排他制御以外の不足 | `CPropComFile.cpp` | 排他制御は #145 で入った。「名前を付けて保存」の全ファイル表示 2 つは、保存ダイアログの絞り込みに依存（#137） | C | S | ファイルダイアログの絞り込み |
-| 共通設定「プラグイン」のページ | `CPropComPlugin.cpp` | ページの枠だけ。中身なし | ユーザーの判断が要る: プラグインの設計（ADR） | L | プラグイン |
+| 共通設定「プラグイン」のページ | `CPropComPlugin.cpp` | 有効のチェック、40 個の一覧、新規プラグインを追加、削除、フォルダーを開く、配布元（ADR-0026 の PR 1）。ZIP の導入、設定、ReadMe は後の PR | D | M | ADR-0026 の PR 2〜 |
 | タイプ別設定「画面」の灰色: 文字の間隔、行の間隔、TAB の表示、SPACE の挿入、TSV モード、自動インデント、全角空白も、スマートインデント、インデント対象文字、折り返し行のインデント、改行時に末尾の空白を削除、禁則（句読点ぶら下げ・行頭・行末） | `CPropTypesScreen.cpp` | 灰色。`matsu-layout` に禁則（`kinsoku.rs`）と折り返しインデントの下地はあるが、設定の部品をつないでいない。文字間隔・TSV は `matsu-layout` の「Not done」 | C | M〜L | 設定をつなぐ。TSV・文字間隔はレイアウトの変更 |
 | タイプ別設定「ウィンドウ」の灰色: 文字コードの既定、CP、CESU-8 優先、IME の状態と入力モード、文書アイコン、折り返し単位、桁数、縦線、背景画像（パス、位置、繰り返し、スクロール、透明度） | `CPropTypesWindow.cpp` | 灰色 | C | M〜L | 背景画像は描画の変更 |
 | タイプ別設定「色」の灰色: 文字色統一、背景色統一、強調キーワードの選択（2〜10）、共通設定への移動 | `CPropTypesColor.cpp`、`CDlgSameColor.cpp`、`CDlgKeywordSelect.cpp`、`CImpExpManager.cpp` | 灰色（色のインポート・エクスポートは入った: `type_settings/pages/color_file.rs`） | C | M | 色統一・キーワード選択のダイアログ |
@@ -157,7 +157,7 @@
 |---|---|---|---|---|---|
 | プラグインの仕組み: `plugin.def`、ジャック（Outline、SmartIndent、Complement、DocumentOpen/Close/BeforeSave/AfterSave、CommandPlugin）、`F_PLUGCOMMAND`、`F_PLUGIN_LIST` | `sakura_core/plugin/` | なし。`matsu-plugin` クレートは名前に反して、マクロのホスト | ユーザーの判断が要る: ADR（ADR-0007 が「常駐プラグインは別に設計」） | L | ADR |
 | プラグインのメニュー・ツールバー・キー割り当て・補完・アウトラインの項目 | `CPluginManager.cpp` ほか | 種別「プラグイン」は一覧が空。補完の候補元にプラグインはない（`support/completion.rs`） | 同上 | M | 同上 |
-| プラグインの設定ページとオプション | `CPropComPlugin.cpp`、`CDlgPluginOption.cpp` | 枠だけ | 同上 | M | 同上 |
+| プラグインの設定ページとオプション | `CPropComPlugin.cpp`、`CDlgPluginOption.cpp` | ページは PR 1 で入った。`plugin.def` と `plugins\<名前>.ini` の読み書きも入った（`matsu-config/src/plugins/`）。オプションのダイアログは未着手 | D | M | ADR-0026 の PR 5 |
 
 ### 検索と置換、Grep
 
