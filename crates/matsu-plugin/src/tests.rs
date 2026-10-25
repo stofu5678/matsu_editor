@@ -1857,6 +1857,30 @@ fn a_long_answer_is_read_in_pieces_in_applescript() {
 }
 
 #[test]
+fn a_character_split_between_two_reads_is_decoded_whole_in_applescript() {
+    // The editor's own answers are ASCII, but the line may hold UTF-8 as it is. 100,000 characters
+    // of three bytes are 300 KB: the reads of the pipe (64 KB at most) end in the middle of a
+    // character, and every piece must wait for the rest of its line before it is decoded.
+    let id = std::cell::Cell::new(0_u64);
+    let code = "set t to editorCall(\"GetLineStr\", {1})\n\
+        editorPrint((length of t) as text)\n\
+        editorPrint(text 1 thru 3 of t)\n";
+    let Some((report, _)) = run_with(AS, code, "", PATIENT, |_, message| {
+        let request: serde_json::Value = serde_json::from_str(message).ok()?;
+        id.set(request["id"].as_u64()?);
+        let text = "あい😀".repeat(25_000);
+        Some(format!(
+            "{{\"jsonrpc\":\"2.0\",\"id\":{},\"result\":\"{text}\"}}",
+            id.get()
+        ))
+    }) else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(stdout(&report), ["75000", "あい😀"]);
+}
+
+#[test]
 fn an_infinite_applescript_macro_is_stopped_by_the_timeout() {
     let Some((report, _)) = run_with(
         AS,

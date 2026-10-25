@@ -33,28 +33,38 @@ on editorPrint(someText)
 end editorPrint
 
 -- One line from the standard input without its line break, or `missing value` at the end.
+-- The bytes are kept as bytes until a whole line is there, and only then decoded: a read of the
+-- pipe can end in the middle of a character of more than one byte.
 on editorReadLine()
+	set newlineData to (current application's NSString's stringWithString:linefeed)'s dataUsingEncoding:(editorUTF8)
 	repeat
-		set theRange to editorBuffer's rangeOfString:linefeed
+		set bufferLength to editorBuffer's |length|()
+		set theRange to editorBuffer's rangeOfData:newlineData options:0 range:{location:0, |length|:bufferLength}
 		-- NSNotFound is 2^63 - 1, which AppleScript holds as a real that does not equal the
 		-- constant: any position that is not huge is a position.
 		if (location of theRange) < 1.0E+15 then
-			set lineText to (editorBuffer's substringToIndex:(location of theRange)) as text
-			set my editorBuffer to editorBuffer's substringFromIndex:((location of theRange) + 1)
-			return lineText
+			set lineEnd to location of theRange
+			set lineData to editorBuffer's subdataWithRange:{location:0, |length|:lineEnd}
+			set my editorBuffer to (editorBuffer's subdataWithRange:{location:lineEnd + 1, |length|:(bufferLength - lineEnd - 1)})'s mutableCopy()
+			return my editorDecode(lineData)
 		end if
 		set chunk to (current application's NSFileHandle's fileHandleWithStandardInput())'s availableData()
 		if (chunk's |length|()) is 0 then
-			if (editorBuffer's |length|()) is 0 then return missing value
-			set lineText to editorBuffer as text
-			set my editorBuffer to current application's NSString's |string|()
-			return lineText
+			if bufferLength is 0 then return missing value
+			set lineData to editorBuffer
+			set my editorBuffer to current application's NSMutableData's |data|()
+			return my editorDecode(lineData)
 		end if
-		set chunkText to current application's NSString's alloc()'s initWithData:chunk encoding:(editorUTF8)
-		if chunkText is missing value then error "the editor sent text that is not UTF-8" number -32700
-		set my editorBuffer to editorBuffer's stringByAppendingString:chunkText
+		editorBuffer's appendData:chunk
 	end repeat
 end editorReadLine
+
+-- The bytes of a line as text.
+on editorDecode(lineData)
+	set lineString to current application's NSString's alloc()'s initWithData:lineData encoding:(editorUTF8)
+	if lineString is missing value then error "the editor sent text that is not UTF-8" number -32700
+	return lineString as text
+end editorDecode
 
 -- A JSON text as an NSDictionary, or `missing value` if it is not one.
 on editorParse(jsonText)
@@ -129,7 +139,7 @@ end editorInfo
 
 -- Reads the `initialize` line.
 on editorStart()
-	set my editorBuffer to current application's NSString's |string|()
+	set my editorBuffer to current application's NSMutableData's |data|()
 	set firstLine to my editorReadLine()
 	if firstLine is missing value then error "the editor did not send initialize" number -32700
 	set firstObject to my editorParse(firstLine)
