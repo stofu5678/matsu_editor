@@ -882,6 +882,10 @@ fn the_page_commands_take_the_number_of_rows_of_the_macro(cx: &mut TestAppContex
     assert_eq!(at(&view, cx), (107, 102));
     run_with_rows(&view, cx, F_1PAGE_UP, 4);
     assert_eq!(at(&view, cx), (103, 98));
+    // a number beyond an `int` is clamped and cannot overflow the scroll target
+    place(&view, cx, 100, 98);
+    run_with_rows(&view, cx, F_1PAGE_DOWN, i64::MAX);
+    assert_eq!(caret_line(&view, cx), LINES - 1);
     // 0 and negative numbers give the default (`nScrollNum <= 0`).
     for count in [0, -3] {
         place(&view, cx, 100, 98);

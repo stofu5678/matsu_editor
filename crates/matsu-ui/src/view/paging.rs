@@ -90,7 +90,10 @@ impl EditorView {
     /// `Command_1PageUp` take the default when it is 0 or less). No argument is 0.
     pub(crate) fn rows_arg(args: &[Arg]) -> usize {
         match args.first() {
-            Some(Arg::Int(n)) if *n > 0 => usize::try_from(*n).unwrap_or(usize::MAX),
+            // `_wtoi` gives an `int`, so a larger number is clamped to that range
+            Some(Arg::Int(n)) if *n > 0 => {
+                usize::try_from((*n).min(i64::from(i32::MAX))).unwrap_or(0)
+            }
             _ => 0,
         }
     }
