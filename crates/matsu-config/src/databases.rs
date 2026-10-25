@@ -381,10 +381,14 @@ pub fn password_in_command(kind: Kind, command: &str) -> Option<&'static str> {
             // the commands by themselves, and the whole line for the rules that every client shares
             // (`password=`, a URI with a password): a quote that the cutting does not understand cannot
             // hide those
-            let mut parts: Vec<(Kind, &str)> = split_commands(text)
-                .into_iter()
-                .map(|segment| (program_kind(segment).unwrap_or(kind), segment))
-                .collect();
+            let mut parts: Vec<(Kind, &str)> = Vec::new();
+            for segment in split_commands(text) {
+                let kinds = program_kinds(segment);
+                if kinds.is_empty() {
+                    parts.push((kind, segment));
+                }
+                parts.extend(kinds.into_iter().map(|k| (k, segment)));
+            }
             parts.push((Kind::Other, text));
             parts
         })
@@ -440,19 +444,20 @@ fn split_commands(text: &str) -> Vec<&str> {
     parts
 }
 
-/// The kind of the client that the command `segment` runs: its program (the first word, or the first word after
-/// `env`, `sudo` and the like with their options), not any word, so that a host called `mysql` in `psql -h
-/// mysql` is not taken for the client. A client that has no password rules of its own (`psql`) gives
-/// `Other`, so that the connection's `Kind=` is not applied to it. `None` for a program that is not known.
-fn program_kind(segment: &str) -> Option<Kind> {
+/// The kinds of the clients that the command `segment` runs: its program (the first word), not any word, so
+/// that a host called `mysql` in `psql -h mysql` is not taken for the client. After `env`, `sudo` and the like
+/// the program is somewhere after their options and operands (`sudo -u me mysql`), and a word of those can be
+/// a name of a client too (`sudo -u mysql sqlcmd`), so every client in the segment is a kind then. A client that has
+/// no password rules of its own (`psql`) gives `Other`, so that the connection's `Kind=` is not applied to
+/// it. Empty for a program that is not known.
+fn program_kinds(segment: &str) -> Vec<Kind> {
     const WRAPPERS: &[&str] = &[
         "env", "sudo", "doas", "nohup", "time", "exec", "command", "xargs",
     ];
     let words = segment
         .split(|c: char| c.is_whitespace() || matches!(c, '"' | '\''))
         .filter(|w| !w.is_empty());
-    // after `env`, `sudo` and the like, the program is somewhere after their options (`sudo -u me
-    // mysql`), so every word is looked at; otherwise only the first
+    let mut kinds = Vec::new();
     let mut wrapped = false;
     for word in words {
         let word = word.to_ascii_lowercase();
@@ -462,19 +467,27 @@ fn program_kind(segment: &str) -> Option<Kind> {
             wrapped = true;
             continue;
         }
-        match name {
-            "mysql" | "mariadb" | "mysqlsh" => return Some(Kind::MySql),
-            "sqlcmd" => return Some(Kind::SqlServer),
-            "sqlplus" | "sql" | "sqlcl" | "sqlldr" => return Some(Kind::Oracle),
-            // a client with no rules of its own ends the search too: `env psql -h mysql` has no MySQL
+        let known = match name {
+            "mysql" | "mariadb" | "mysqlsh" => Some(Kind::MySql),
+            "sqlcmd" => Some(Kind::SqlServer),
+            "sqlplus" | "sql" | "sqlcl" | "sqlldr" => Some(Kind::Oracle),
             "psql" | "sqlite3" | "bq" | "duckdb" | "usql" | "clickhouse-client" | "snowsql" => {
-                return Some(Kind::Other);
+                Some(Kind::Other)
             }
-            _ if !wrapped => return None,
-            _ => {}
+            _ => None,
+        };
+        match known {
+            Some(kind) => {
+                kinds.push(kind);
+                if !wrapped || kind == Kind::Other {
+                    break;
+                }
+            }
+            None if !wrapped => break,
+            None => {}
         }
     }
-    None
+    kinds
 }
 
 /// `text` with each `%XX` (two hexadecimal digits that make an ASCII character) replaced by that character,

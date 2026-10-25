@@ -268,6 +268,12 @@ fn passwords_on_the_command_line_are_found() {
         split_commands("a && b | c ; d (e) f&g & h"),
         ["a ", "", " b ", " c ", " d ", "e", " f&g ", " h"]
     );
+    // a name of a client among the operands of a wrapper does not hide the real client
+    assert_eq!(
+        found(Kind::SqlServer, "sudo -u mysql sqlcmd -U me -P secret"),
+        Some("-P")
+    );
+    assert_eq!(found(Kind::Other, "sudo -u mysql sqlcmd -S host -E"), None);
     // a separator inside quotes is part of the value
     assert_eq!(
         split_commands("a 'b;c' \"d|e\" f\\;g ; h"),
