@@ -71,7 +71,12 @@ fn wait_for_scan(cx: &mut TestAppContext, view: &Entity<EditorView>) {
 }
 
 fn opened(cx: &mut TestAppContext, name: &str, bytes: &[u8]) -> (AnyWindowHandle, PathBuf) {
-    let dir = temp_dir("huge");
+    // A folder of its own: the tests run at the same time.
+    static COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let dir = temp_dir(&format!(
+        "huge-{}",
+        COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
     let path = write_big(&dir, name, bytes);
     let handle = window(cx, true);
     slow_scan(cx);
@@ -79,7 +84,8 @@ fn opened(cx: &mut TestAppContext, name: &str, bytes: &[u8]) -> (AnyWindowHandle
     // The file is read on a background thread that the test executor does not wait for.
     for _ in 0..6000 {
         let view = active_view(cx, handle);
-        if view.read_with(cx, |v, cx| v.document().read(cx).path().is_some()) {
+        // The name is on the tab while the file is still read: wait for the text.
+        if view.read_with(cx, |v, cx| v.document().read(cx).doc().raw_len() > 0) {
             break;
         }
         cx.run_until_parked();
