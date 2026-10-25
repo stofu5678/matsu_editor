@@ -298,7 +298,9 @@ fn a_file_of_the_tree_is_opened_in_this_window_when_it_takes_a_file(cx: &mut Tes
     assert_eq!(opened, Some(dir.path().join("a.txt")));
     // the pane stays, still showing the tree
     assert_eq!(
-        pane(cx, handle).unwrap().read_with(cx, |p, _| p.title()),
+        pane(cx, handle)
+            .unwrap()
+            .read_with(cx, |p, _| p.title().to_owned()),
         "ファイルツリー"
     );
 }
@@ -399,7 +401,10 @@ fn the_function_shows_toggles_and_gives_way_to_the_outline(cx: &mut TestAppConte
     // the outline of the type takes the pane over
     run_with(cx, handle, "F_OUTLINE", &[]);
     let p = pane(cx, handle).unwrap();
-    assert_ne!(p.read_with(cx, |p, _| p.title()), "ファイルツリー");
+    assert_ne!(
+        p.read_with(cx, |p, _| p.title().to_owned()),
+        "ファイルツリー"
+    );
     assert!(labels(cx, handle).iter().all(|l| l != "Project"));
     // and back
     run_with(cx, handle, "F_FILETREE", &[]);

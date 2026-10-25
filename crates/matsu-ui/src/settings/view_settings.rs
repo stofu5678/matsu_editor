@@ -264,7 +264,7 @@ pub struct ViewSettings {
 }
 
 /// The settings of the type that the outline pane uses.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OutlineSettings {
     /// `nDefaultOutline` ([`matsu_config::settings::type_rules::outline_type`]): the kind of the
     /// analysis of F_OUTLINE.
@@ -272,6 +272,9 @@ pub struct OutlineSettings {
     /// `bLineNumIsCRLF`: the pane numbers the lines of the text, not the rows of the wrapped
     /// view.
     pub line_num_is_crlf: bool,
+    /// `szOutlineRuleFilename`: the rule file of [`matsu_config::settings::type_rules::outline_type::FILE`]
+    /// as the type says it (a relative path starts at the folder of the settings file).
+    pub rule_file: String,
 }
 
 /// `m_nRulerHeight` of a new `CommonSetting` (`sakura_core/env/CShareData.cpp`).
@@ -574,6 +577,7 @@ impl ViewSettings {
             outline: OutlineSettings {
                 kind: t.default_outline,
                 line_num_is_crlf: t.line_num_is_crlf,
+                rule_file: t.outline_rule_filename.clone(),
             },
         }
     }

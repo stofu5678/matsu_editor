@@ -2,11 +2,11 @@
 //! (`sakura_core/typeprop/CPropTypesScreen.cpp`).
 //!
 //! Live: the name and the extensions, the wrap method and column, the TAB width, the English word
-//! wrap, the hanging of line ends and punctuation, and the standard rule of the outline. Not
-//! available yet: the space between characters and lines, how a TAB is drawn, TSV mode, the
-//! indent (auto indent, smart indent, the wrapped line indent, the trailing spaces), the rule
-//! file of the outline, the font of the type, the line breaking rules for the head and the tail
-//! of a line and the characters that hang.
+//! wrap, the hanging of line ends and punctuation, and the rule of the outline (the standard rule
+//! or a rule file). Not available yet: the space between characters and lines, how a TAB is
+//! drawn, TSV mode, the indent (auto indent, smart indent, the wrapped line indent, the trailing
+//! spaces), the font of the type, the line breaking rules for the head and the tail of a line and
+//! the characters that hang.
 
 use matsu_config::settings::type_rules::outline_type;
 
@@ -130,6 +130,22 @@ fn type_font_label(
     let values = dialog.values();
     let font = values.bool(USE_TYPE_FONT).then(|| values.font(TYPE_FONT));
     crate::common_settings::model::font_label(font.as_ref(), cx)
+}
+
+/// `IDC_BUTTON_RULEFILE_REF`: chooses the rule file of the outline (`*.rul;*.rule;*.txt`); a file
+/// under the folder of the settings file is given relative to it (`CDlgOpenFile::SelectFile`).
+fn browse_rule_file(
+    dialog: &mut CommonSettingsDialog,
+    window: &mut gpui::Window,
+    cx: &mut gpui::Context<CommonSettingsDialog>,
+) {
+    crate::support::browse::browse_into(
+        dialog,
+        window,
+        cx,
+        OUTLINE_RULE_FILE,
+        "アウトライン解析ルールファイルの選択",
+    );
 }
 
 /// Choosing the standard rule selects the first of the list (`IDC_RADIO_OUTLINEDEFAULT`).
@@ -278,18 +294,15 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                             OUTLINE_FILE,
                             OUTLINE_STANDARD,
                         )
-                        .unavailable()
                         .on_change(outline_mode_changed)
                         .into(),
                         Item::Row(vec![
                             Control::text(OUTLINE_RULE_FILE, "", "", "")
                                 .named("ルールファイル")
-                                .unavailable()
                                 .when(outline_is_file)
                                 .into(),
-                            Control::button(OUTLINE_RULE_BROWSE, "(&1)...", |_, _, _| {})
+                            Control::button(OUTLINE_RULE_BROWSE, "(&1)...", browse_rule_file)
                                 .named("ルールファイルを参照")
-                                .unavailable()
                                 .when(outline_is_file)
                                 .into(),
                         ]),
