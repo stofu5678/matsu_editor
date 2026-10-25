@@ -15,6 +15,7 @@ pub mod history;
 pub mod location;
 /// Temporary (ADR-0021): takes the settings of the old name over. Delete at 1.0.
 pub mod migrate_old_name;
+pub mod plugins;
 pub mod profile;
 pub mod save_filter;
 pub mod settings;
