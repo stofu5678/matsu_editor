@@ -384,8 +384,9 @@ pub fn reset_type(profile: &mut Profile, index: usize) -> Result<String, ListErr
     };
     let name = entry.settings.type_name.clone();
     entries[index] = entry;
-    // Only this number changes.
-    write_entry(profile, index, &mut entries[index])?;
+    // The numbers after it are written too: a type that is only implied (MATSU Editor's own) must not move
+    // to another number when this one stops being a free number.
+    store(profile, index, &mut entries, old_len)?;
     Ok(name)
 }
 

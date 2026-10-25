@@ -58,7 +58,7 @@ use super::keyword_file;
 use super::keywords::{
     KeywordSets, MAX_KEYWORD_LEN, MAX_KEYWORD_SETS, MAX_SET_NAME_LEN, SetDraft, store_sets,
 };
-use super::type_list::{Entry, ListError, check_count, load, new_id, store, write_entry};
+use super::type_list::{Entry, ListError, check_count, load, new_id, store};
 use super::types::TypeSettings;
 use crate::profile::{Profile, ProfileError};
 
@@ -143,7 +143,16 @@ pub fn export_type(
         };
         let n = i + 1;
         out.set(TYPE_EX, &format!("szKeyword[{n}]"), &set.name)?;
-        let file_name = keyword_file::export_file_name(&set.name);
+        // Two sets whose names make the same file name get different files.
+        let mut file_name = keyword_file::export_file_name(&set.name);
+        let mut copy = 1;
+        while keyword_files
+            .iter()
+            .any(|k: &KeywordExport| k.file_name == file_name)
+        {
+            copy += 1;
+            file_name = keyword_file::export_file_name(&format!("{}_{copy}", set.name));
+        }
         let words: Vec<String> = set.words().to_vec();
         keyword_files.push(KeywordExport {
             bytes: keyword_file::render(&set.name, set.case_sensitive, &words),
@@ -300,12 +309,14 @@ pub fn import_type(
                 .map(|value| ((*key).to_owned(), value.to_owned()))
         })
         .collect();
-    let mut entry = Entry { settings, raw };
+    let entry = Entry { settings, raw };
     if index == old_len {
         entries.push(entry);
         store(profile, old_len, &mut entries, old_len)?;
     } else {
-        write_entry(profile, index, &mut entry)?;
+        // See `reset_type`: the numbers after it are written too.
+        entries[index] = entry;
+        store(profile, index, &mut entries, old_len)?;
     }
     Ok(Imported {
         index,

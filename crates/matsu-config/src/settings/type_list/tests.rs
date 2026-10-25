@@ -302,6 +302,19 @@ fn the_basic_type_goes_back_to_the_built_in_settings() {
 }
 
 #[test]
+fn resetting_a_type_of_matsu_does_not_move_the_ones_after_it() {
+    let mut p = Profile::new();
+    let before = names(&p);
+    reset_type(&mut p, 17).unwrap();
+    let after = names(&p);
+    assert_eq!(after.len(), before.len());
+    assert_eq!(after[17], "設定18");
+    // The type of MATSU Editor that was there comes back in a free number at the end.
+    assert_eq!(after[18..33], before[18..33]);
+    assert!(after[33..].contains(&"JavaScript".to_owned()));
+}
+
+#[test]
 fn a_file_without_a_count_gets_the_count_of_the_list() {
     let mut p = Profile::new();
     delete_type(&mut p, 20).unwrap();
