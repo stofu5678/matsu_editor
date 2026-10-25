@@ -278,6 +278,19 @@ fn the_example_file_is_made_once() {
     assert!(!create_example_file(&path).unwrap());
     assert_eq!(std::fs::read(&path).unwrap(), b"[Database]\nDefault=mine\n");
     assert!(first.starts_with(&[0xEF, 0xBB, 0xBF]));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let again = dir.join("private").join(FILE_NAME);
+        assert!(create_example_file(&again).unwrap());
+        let mode = std::fs::metadata(&again).unwrap().permissions().mode();
+        assert_eq!(mode & 0o077, 0, "{mode:o}");
+        // a link that is already there is not followed
+        let link = dir.join("link.ini");
+        std::os::unix::fs::symlink(dir.join("nowhere"), &link).unwrap();
+        assert!(!create_example_file(&link).unwrap_or(false));
+        assert!(!dir.join("nowhere").exists());
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
 

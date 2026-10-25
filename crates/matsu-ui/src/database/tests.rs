@@ -451,6 +451,26 @@ fn the_file_goes_to_the_client_and_the_output_to_the_panel(cx: &mut TestAppConte
 }
 
 #[gpui::test]
+fn a_run_leaves_no_trace_in_the_history_of_commands(cx: &mut TestAppContext) {
+    // the commands the user ran by hand are kept in `matsu.ini` (`[Cmd]`); the command of a connection is
+    // in `databases.ini` and nowhere else, so what it holds does not get copied into another file
+    let (dir, _file, w) = setup(cx, Some(ECHO), "a.sql", "select 1;\n");
+    let ini = dir.path().join("matsu.ini");
+    cx.update(|app| {
+        crate::exec::install(app, crate::exec::ExecPrefs::load(None, Some(ini.clone())))
+    });
+    w.run(cx);
+    w.wait_for_end(cx);
+    assert!(
+        cx.update(|app| crate::exec::history(app))
+            .commands
+            .items()
+            .is_empty()
+    );
+    assert!(!ini.exists(), "nothing was written to the settings file");
+}
+
+#[gpui::test]
 fn a_hostile_file_name_stays_one_word(cx: &mut TestAppContext) {
     // quotes, `$F` (which would expand twice), `&` and `$(...)`: legal in a name on every OS
     let name = "it's $F & echo INJECTED $(echo INJECTED).sql";

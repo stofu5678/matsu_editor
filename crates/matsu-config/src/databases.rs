@@ -618,11 +618,13 @@ pub fn create_example_file(path: &Path) -> io::Result<bool> {
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)?;
     }
-    match std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)
-    {
+    let mut options = std::fs::OpenOptions::new();
+    // `create_new` does not follow a link that is already there; the file names hosts and users, so
+    // it is private to the user (like the settings file's temporary copy, `Profile::save`)
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    match options.open(path) {
         Ok(mut file) => {
             file.write_all(&example_file_bytes())?;
             file.sync_all()?;
