@@ -37,6 +37,10 @@ pub struct Program {
 impl Program {
     /// The program for the user's script `source`, named `name` in the errors.
     pub fn build(source: &str, name: &str) -> Self {
+        // Old Mac files end their lines with CR; the program has LF alone, so the lines are counted
+        // the same way by everyone.
+        let source = source.replace("\r\n", "\n").replace('\r', "\n");
+        let source = source.as_str();
         let mut text = String::from(PREFIX);
         let lines_before_user = text.matches('\n').count();
         text.push_str(source);
@@ -133,6 +137,18 @@ mod tests {
         // The prefix ends with the line `script UserMacro`, and the script starts on the next one.
         let line = program.text.lines().nth(program.lines_before_user).unwrap();
         assert_eq!(line, "set a to 1");
+    }
+
+    #[test]
+    fn line_breaks_are_made_alike() {
+        let program = Program::build("set a to 1\rset b to 2\r\nset c to 3", "n");
+        assert!(
+            program
+                .text
+                .contains("set a to 1\nset b to 2\nset c to 3\n")
+        );
+        assert!(!program.text.contains('\r'));
+        assert_eq!(program.user_lines, 3);
     }
 
     #[test]
