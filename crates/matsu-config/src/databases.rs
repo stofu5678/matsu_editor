@@ -366,6 +366,49 @@ fn read_connection(profile: &Profile, section: &str, name: &str) -> Result<Conne
 ///
 /// This looks for the usual forms of the clients of ADR-0023; it cannot know every client.
 pub fn password_in_command(kind: Kind, command: &str) -> Option<&'static str> {
+    // The client says more than the `Kind=` of the file: `mysql -psecret` is looked at as MySQL's even
+    // when the connection says `other`.
+    let kinds = [kind, kind_of_program(command)];
+    // a shell removes a backslash before a letter (`--passw\ord=x` is `--password=x`)
+    let unescaped = remove_backslashes(command);
+    [command, unescaped.as_str()]
+        .into_iter()
+        .flat_map(|text| kinds.into_iter().map(move |k| (k, text)))
+        .find_map(|(k, text)| password_in_text(k, text))
+}
+
+/// The kind the program of the command line says, else `Other`.
+fn kind_of_program(command: &str) -> Kind {
+    let (words, _) = split_words(command).into_iter().next().unzip();
+    let program = words.unwrap_or_default().to_ascii_lowercase();
+    let name = program.rsplit(['/', '\\']).next().unwrap_or("");
+    let name = name.strip_suffix(".exe").unwrap_or(name);
+    match name {
+        "mysql" | "mariadb" | "mysqlsh" => Kind::MySql,
+        "sqlcmd" => Kind::SqlServer,
+        "sqlplus" | "sql" | "sqlldr" => Kind::Oracle,
+        _ => Kind::Other,
+    }
+}
+
+/// `text` without the backslashes that a shell would remove (a backslash and the character after it become
+/// that character). A Windows path loses its separators too, which the scan does not need.
+fn remove_backslashes(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            if let Some(next) = chars.next() {
+                out.push(next);
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn password_in_text(kind: Kind, command: &str) -> Option<&'static str> {
     // both as written (`-p` after an empty `--opt=`) and with `key = value` tightened; and with
     // the words read by quotes and by blanks alone (a shell's escapes, `\"`, can make a quote
     // mean nothing, so what the quotes hide is looked at again)

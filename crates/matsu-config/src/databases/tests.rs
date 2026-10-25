@@ -231,6 +231,18 @@ fn passwords_on_the_command_line_are_found() {
         Some("--password=")
     );
     assert_eq!(found(Kind::MySql, "mysql --password2 db"), None);
+    // a shell removes a backslash before a letter, and the program says the kind when the file does not
+    assert_eq!(
+        found(Kind::MySql, "mysql --passw\\ord=secret"),
+        Some("--password=")
+    );
+    assert_eq!(found(Kind::Other, "mysql -u me -psecret db"), Some("-p"));
+    assert_eq!(
+        found(Kind::PostgreSql, "/usr/bin/mysql -psecret"),
+        Some("-p")
+    );
+    assert_eq!(found(Kind::Other, "sqlcmd -U me -P secret"), Some("-P"));
+    assert_eq!(found(Kind::Other, "psql -p5432 -d db"), None);
     // escaped quotes are letters to a shell: the words are looked at by blanks too
     assert_eq!(
         found(

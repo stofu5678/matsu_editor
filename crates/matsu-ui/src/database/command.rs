@@ -226,12 +226,26 @@ pub(crate) fn build(
     file: Option<&str>,
 ) -> Result<String, BuildError> {
     let parts = template_parts(&connection.command);
-    let program = match parts.first() {
-        Some(Part::Text(text)) => program_of(text),
-        _ => String::new(),
-    };
-    let powershell = is_powershell(&program);
-    let nested = runs_a_command_line(&program);
+    // Every program the template names, not only the first (`env pwsh ...`, `echo x & cmd /c ...`)
+    let text: String = parts
+        .iter()
+        .filter_map(|p| match p {
+            Part::Text(text) => Some(text.as_str()),
+            Part::File => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let programs: Vec<String> = text
+        .split(['&', '|', ';', '(', ')', '\n'])
+        .map(program_of)
+        .chain(text.split_whitespace().map(program_of))
+        .collect();
+    let powershell = programs.iter().any(|p| is_powershell(p));
+    // a command line that another shell reads again, or a substitution inside the line: the name is
+    // read by more than one shell, wherever `$F` is
+    let nested = programs.iter().any(|p| runs_a_command_line(p))
+        || (shell == Shell::Posix
+            && (text.contains("$(") || text.contains('`') || text.contains("${")));
     let mut line = String::new();
     let mut quote = Quote::Bare;
     let mut escaped = false;
@@ -251,12 +265,9 @@ pub(crate) fn build(
                 {
                     return Err(BuildError::Unquotable(c));
                 }
-                // inside the quotes of an argument that another shell reads again, only a plain name is
-                // safe: the quoting for the first shell does not reach the second
-                if nested
-                    && quote != Quote::Bare
-                    && let Some(c) = file.chars().find(|&c| !is_plain(shell, c))
-                {
+                // read by more than one shell, only a plain name is safe: the quoting for the first
+                // shell does not reach the second
+                if nested && let Some(c) = file.chars().find(|&c| !is_plain(shell, c)) {
                     return Err(BuildError::Unquotable(c));
                 }
                 line.push_str(&quote_in(shell, quote, file)?);

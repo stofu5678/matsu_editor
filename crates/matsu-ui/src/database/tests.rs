@@ -189,8 +189,40 @@ fn a_program_that_reads_a_command_line_gets_only_plain_names_inside_its_quotes()
             );
         }
     }
-    // outside the quotes of its argument it is one word for the first shell, as always
-    assert!(built(Shell::Posix, "sh $F", "/w/a b;c.sql").is_ok());
+    // not only inside quotes: `sh -c $F` has the shell remove the quotes and read the name again
+    for template in [
+        "sh -c $F",
+        "env pwsh -Command Write-Output $F",
+        "echo x ; bash -c $F",
+        "psql -f \"$(realpath $F)\"",
+        "psql -f `realpath $F`",
+    ] {
+        assert!(
+            built(Shell::Posix, template, "/w/a.sql").is_ok(),
+            "{template}"
+        );
+        assert!(
+            built(Shell::Posix, template, "/w/a;id;#.sql").is_err(),
+            "{template}"
+        );
+    }
+    // Windows: a second command that starts another shell
+    assert!(
+        built(
+            Shell::Cmd,
+            "echo Running & cmd /c \"sqlcmd -i $F\"",
+            "C:\\w\\a.sql"
+        )
+        .is_ok()
+    );
+    assert!(
+        built(
+            Shell::Cmd,
+            "echo Running & cmd /c \"sqlcmd -i $F\"",
+            "C:\\w\\a & echo INJECTED & rem .sql"
+        )
+        .is_err()
+    );
     // and a program that does not read a command line is not limited
     assert!(built(Shell::Posix, "psql -f \"$F\"", "/w/a b;c.sql").is_ok());
 }
