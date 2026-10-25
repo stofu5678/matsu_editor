@@ -18,6 +18,7 @@ property editorBuffer : missing value
 property editorNextId : 1
 property editorInfoObject : missing value
 property editorUTF8 : 4
+property editorStarted : false
 
 -- Writes the text to the standard output at once (no buffer to flush).
 on editorWrite(someText)
@@ -100,7 +101,7 @@ on editorCall(methodName, argList)
 					set resultObject to replyObject's objectForKey:"result"
 					if resultObject is missing value then return missing value
 					if (resultObject's isKindOfClass:(current application's NSString)) as boolean then return resultObject as text
-					if (resultObject's isKindOfClass:(current application's NSNumber)) as boolean then return resultObject as number
+					if (resultObject's isKindOfClass:(current application's NSNumber)) as boolean then return my editorNumber(resultObject)
 					return missing value
 				end if
 			end if
@@ -108,13 +109,21 @@ on editorCall(methodName, argList)
 	end repeat
 end editorCall
 
+-- A number of the editor: an integer if it is whole, a real if not.
+on editorNumber(someNumber)
+	set realValue to someNumber's doubleValue() as real
+	set wholeValue to round realValue rounding toward zero
+	if realValue is wholeValue then return wholeValue
+	return realValue
+end editorNumber
+
 -- What the editor told the macro in `initialize`, by key path: editorInfo("editor.name"),
 -- editorInfo("document.path"), editorInfo("processId"). `missing value` if there is none.
 on editorInfo(keyPath)
 	set theValue to editorInfoObject's valueForKeyPath:keyPath
 	if theValue is missing value then return missing value
 	if (theValue's isKindOfClass:(current application's NSString)) as boolean then return theValue as text
-	if (theValue's isKindOfClass:(current application's NSNumber)) as boolean then return theValue as number
+	if (theValue's isKindOfClass:(current application's NSNumber)) as boolean then return my editorNumber(theValue)
 	return missing value
 end editorInfo
 

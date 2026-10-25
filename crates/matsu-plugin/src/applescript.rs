@@ -14,8 +14,10 @@ const PREFIX: &str = include_str!("boot/boot.applescript");
 
 /// What follows the user's script: the end of the script object, and the `on run` that reads
 /// `initialize`, runs the macro and answers with [`END_MARK`] (osascript prints the value that
-/// `run` returns; the session drops that line).
-const SUFFIX: &str = "\nend script\n\non run\n\tmy editorStart()\n\tset ignoredResult to run UserMacro\n\treturn \"matsu-end-7f3a91c2-applescript-result\"\nend run\n";
+/// `run` returns; the session drops that line). A script object with no statements of its own
+/// runs the `on run` of the script around it, which would start again and wait for `initialize`
+/// for good; `editorStarted` ends that.
+const SUFFIX: &str = "\nend script\n\non run\n\tif editorStarted then return\n\tset my editorStarted to true\n\tmy editorStart()\n\tset ignoredResult to run UserMacro\n\treturn \"matsu-end-7f3a91c2-applescript-result\"\nend run\n";
 
 /// The line that `osascript` prints for the result of the program. It is not output of the macro.
 /// (A long token, so that a macro does not print it by chance.)
@@ -102,9 +104,11 @@ impl Program {
 /// write the range as `START-END`; both are read.)
 fn split_range(line: &str) -> Option<(usize, &str)> {
     // The path may hold colons; the range is the last two numbers before the kind of error.
-    let kind = line
-        .find(": execution error")
-        .or_else(|| line.find(": syntax error"))?;
+    // A syntax error of the compiler is a "script error" (-2741), a failure at run time an
+    // "execution error".
+    let kind = [": execution error", ": script error", ": syntax error"]
+        .iter()
+        .find_map(|kind| line.find(kind))?;
     let (before, last) = line[..kind].rsplit_once(':')?;
     let number = |text: &str| -> Option<usize> {
         text.bytes()
@@ -134,7 +138,7 @@ mod tests {
                 .contains("script UserMacro\nset a to 1\nset b to 2\n")
         );
         assert!(program.text.ends_with("end run\n"));
-        assert!(program.text.contains("on run\n\tmy editorStart()"));
+        assert!(program.text.contains("\n\tmy editorStart()\n"));
         // The prefix ends with the line `script UserMacro`, and the script starts on the next one.
         let line = program.text.lines().nth(program.lines_before_user).unwrap();
         assert_eq!(line, "set a to 1");
@@ -222,6 +226,26 @@ mod tests {
         assert_eq!(
             program.translate_error(&line),
             "n:1: execution error: x (-2700)"
+        );
+    }
+
+    #[test]
+    fn a_syntax_error_is_a_script_error() {
+        let program = Program::build("set a to 1\nset b to to 2\n", "n");
+        let offset: usize = program
+            .text
+            .lines()
+            .take(program.lines_before_user + 1)
+            .map(|l| l.encode_utf16().count() + 1)
+            .sum::<usize>()
+            + 9;
+        let line = format!(
+            "/t/m.applescript:{offset}:{}: script error: Expected expression but found \u{201c}to\u{201d}. (-2741)",
+            offset + 2
+        );
+        assert_eq!(
+            program.translate_error(&line),
+            "n:2: script error: Expected expression but found \u{201c}to\u{201d}. (-2741)"
         );
     }
 
