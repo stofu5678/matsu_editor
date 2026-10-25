@@ -352,14 +352,6 @@ pub(crate) fn run_command(
 
 #[cfg(test)]
 mod tests;
-
-/// The lock of the tests that set the options of the commands (OK of the dialog and starting the
-/// application set them for the whole process). A test of another module that depends on an
-/// option holds it, so that those tests do not change the option under it.
-#[cfg(test)]
-pub(crate) fn options_lock() -> std::sync::MutexGuard<'static, ()> {
-    tests::serial()
-}
 #[cfg(test)]
 mod tests_more_pages;
 #[cfg(test)]

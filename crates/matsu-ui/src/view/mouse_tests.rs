@@ -614,10 +614,8 @@ fn the_side_buttons_run_their_functions(cx: &mut TestAppContext) {
 #[gpui::test]
 fn in_the_free_cursor_mode_a_click_right_of_the_text_puts_the_caret_there(cx: &mut TestAppContext) {
     // `CCaret::MoveCursorProperly`: the column of the click, when the mode is on.
-    // Declared first, so that it is let go last: the options are back before the next test.
-    let _serial = crate::common_settings::options_lock();
-    let _o = options();
-    edit_options::set(EditOptions {
+    // This thread only: the other tests run at the same time with the options of the process.
+    let _free = edit_options::options_for_this_thread(EditOptions {
         free_cursor: true,
         ..EditOptions::default()
     });
@@ -656,9 +654,8 @@ fn without_the_free_cursor_mode_a_click_right_of_the_text_goes_to_its_end(cx: &m
 #[gpui::test]
 fn an_ime_composition_in_the_gap_follows_spaces_in_one_undo_step(cx: &mut TestAppContext) {
     use gpui::EntityInputHandler as _;
-    let _serial = crate::common_settings::options_lock();
-    let _o = options();
-    edit_options::set(EditOptions {
+    // This thread only: the other tests run at the same time with the options of the process.
+    let _free = edit_options::options_for_this_thread(EditOptions {
         free_cursor: true,
         ..EditOptions::default()
     });
@@ -677,9 +674,8 @@ fn an_ime_composition_in_the_gap_follows_spaces_in_one_undo_step(cx: &mut TestAp
 #[gpui::test]
 fn cancelling_a_composition_in_the_gap_takes_the_spaces_with_it(cx: &mut TestAppContext) {
     use gpui::EntityInputHandler as _;
-    let _serial = crate::common_settings::options_lock();
-    let _o = options();
-    edit_options::set(EditOptions {
+    // This thread only: the other tests run at the same time with the options of the process.
+    let _free = edit_options::options_for_this_thread(EditOptions {
         free_cursor: true,
         ..EditOptions::default()
     });
@@ -705,9 +701,8 @@ fn the_backends_cancel_a_composition_in_the_gap_with_an_empty_commit(cx: &mut Te
     // Windows ends a composition with `replace_text_in_range(None, "")`; X11 and Wayland with the
     // marked range and an empty text.
     use gpui::EntityInputHandler as _;
-    let _serial = crate::common_settings::options_lock();
-    let _o = options();
-    edit_options::set(EditOptions {
+    // This thread only: the other tests run at the same time with the options of the process.
+    let _free = edit_options::options_for_this_thread(EditOptions {
         free_cursor: true,
         ..EditOptions::default()
     });
@@ -739,9 +734,8 @@ fn the_backends_cancel_a_composition_in_the_gap_with_an_empty_commit(cx: &mut Te
 #[gpui::test]
 fn an_empty_commit_in_the_gap_changes_nothing(cx: &mut TestAppContext) {
     use gpui::EntityInputHandler as _;
-    let _serial = crate::common_settings::options_lock();
-    let _o = options();
-    edit_options::set(EditOptions {
+    // This thread only: the other tests run at the same time with the options of the process.
+    let _free = edit_options::options_for_this_thread(EditOptions {
         free_cursor: true,
         ..EditOptions::default()
     });
