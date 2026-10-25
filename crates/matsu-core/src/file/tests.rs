@@ -1818,3 +1818,17 @@ fn a_document_that_can_be_edited_never_comes_with_a_running_scan() {
         );
     }
 }
+
+#[test]
+fn a_crlf_at_the_edge_of_the_probe_for_the_first_line_ending_is_seen_whole() {
+    let dir = TempDir::new();
+    // The first line is 1 MiB - 1 bytes: its CR is the last byte of the probe.
+    let mut bytes = vec![b'a'; 1024 * 1024 - 1];
+    bytes.extend_from_slice(b"\r\nnext\r\n");
+    let path = dir.write("edge.txt", &bytes);
+    let mut options = huge_options(1);
+    options.huge_scan = ScanOptions::default();
+    let mut file = open_file(&path, &options).unwrap();
+    assert_eq!(file.new_line, Eol::CrLf);
+    drop(file.take_scan());
+}

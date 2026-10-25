@@ -347,7 +347,8 @@ fn open_ranged(
     }
     // The first line ending, as the whole read finds it. A first line longer than the probe has
     // none here and takes the default.
-    let probe = source.read(0, source.len().min(PROBE_LEN))?;
+    // A few bytes more, so that a CR LF at the edge is seen whole.
+    let probe = source.read(0, source.len().min(PROBE_LEN + 16))?;
     let first_eol =
         crate::buffer::find_eol(encoding.codec(), &probe, 0, options.ext_eol).map(|(_, eol)| eol);
     drop(probe);
