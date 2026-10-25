@@ -25,6 +25,9 @@
 //! | [`python`] | `MakeFuncList_python` | Python |
 //! | [`perl`] | `MakeFuncList_Perl` | Perl |
 //! | [`vb`] | `MakeFuncList_VisualBasic` | Visual Basic |
+//! | [`plsql`] | `MakeFuncList_PLSQL` | PL/SQL |
+//! | [`cobol`] | `MakeTopicList_cobol` | COBOL |
+//! | [`asm`] | `MakeTopicList_asm` | assembler |
 //! | [`text`] | `MakeTopicList_txt`, `MakeTopicList_wztxt` | text, text with levels |
 //! | [`html`] | `MakeTopicList_html` | HTML, XML |
 //! | [`bookmark`] | `MakeFuncList_BookMark` | the bookmark list |
@@ -38,16 +41,19 @@
 //! * A character outside the BMP counts as one character, not two code units; where Sakura tests
 //!   for a two-unit character (`GetSizeOfChar`) the analyzers test for such a character.
 //! * `m_bEnableExtEol` (NEL, LS and PS as line endings) is off, as it is by default in Sakura.
-//! * Not ported yet: PL/SQL, COBOL, assembler, TeX, Erlang and the rule file.
+//! * Not ported yet: TeX, Erlang and the rule file.
 
+pub mod asm;
 pub mod bookmark;
 mod chars;
+pub mod cobol;
 pub mod cpp;
 pub mod html;
 mod info;
 pub mod java;
 mod kind;
 pub mod perl;
+pub mod plsql;
 pub mod python;
 mod source;
 pub mod text;

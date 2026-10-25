@@ -61,12 +61,18 @@ pub enum OutlineKind {
     Html,
     Xml,
     Python,
+    /// PL/SQL: a list of functions, procedures and packages.
+    PlSql,
+    /// COBOL: a tree of labels under their divisions.
+    Cobol,
+    /// Assembler: a list of labels and procedures.
+    Asm,
     /// The bookmarked lines (`F_BOOKMARK_VIEW`).
     Bookmark,
     /// The file tree (`F_FILETREE`, `OUTLINE_FILETREE`): nothing is analyzed in the document
     /// (`Command_FUNCLIST` does nothing for it); the pane builds the tree from the settings.
     FileTree,
-    /// A kind that is not ported yet: PL/SQL, COBOL, assembler, TeX, the rule file or Erlang
+    /// A kind that is not ported yet: TeX, the rule file or Erlang
     /// (the value is `nDefaultOutline`). The list is empty.
     Unsupported(i32),
 }
@@ -94,12 +100,12 @@ impl OutlineKind {
             outline_type::HTML => Self::Html,
             outline_type::XML => Self::Xml,
             outline_type::PYTHON => Self::Python,
-            outline_type::PLSQL
-            | outline_type::COBOL
-            | outline_type::ASM
-            | outline_type::TEX
-            | outline_type::FILE
-            | outline_type::ERLANG => Self::Unsupported(value),
+            outline_type::PLSQL => Self::PlSql,
+            outline_type::COBOL => Self::Cobol,
+            outline_type::ASM => Self::Asm,
+            outline_type::TEX | outline_type::FILE | outline_type::ERLANG => {
+                Self::Unsupported(value)
+            }
             _ => Self::Text,
         }
     }
@@ -107,13 +113,12 @@ impl OutlineKind {
     /// List or tree (`SetData`).
     pub fn view(self) -> ViewType {
         match self {
-            Self::C | Self::Perl | Self::VisualBasic | Self::Bookmark => ViewType::List,
+            Self::C | Self::Perl | Self::VisualBasic | Self::PlSql | Self::Asm | Self::Bookmark => {
+                ViewType::List
+            }
             Self::Unsupported(v) => {
-                // PL/SQL, assembler and Erlang are lists; COBOL, TeX and the rule file are trees
-                if matches!(
-                    v,
-                    outline_type::PLSQL | outline_type::ASM | outline_type::ERLANG
-                ) {
+                // Erlang is a list; TeX and the rule file are trees
+                if v == outline_type::ERLANG {
                     ViewType::List
                 } else {
                     ViewType::Tree
@@ -136,13 +141,13 @@ impl OutlineKind {
             Self::Html => "HTML",
             Self::Xml => "XML",
             Self::Python => "Python メソッドツリー",
+            Self::PlSql => "PL/SQL 関数一覧",
+            Self::Cobol => "COBOL アウトライン",
+            Self::Asm => "アセンブラ アウトライン",
             Self::Bookmark => "ブックマーク",
             // `LS(F_FILETREE)`, the name of the function
             Self::FileTree => "ファイルツリー",
             Self::Unsupported(v) => match v {
-                outline_type::PLSQL => "PL/SQL 関数一覧",
-                outline_type::COBOL => "COBOL アウトライン",
-                outline_type::ASM => "アセンブラ アウトライン",
                 outline_type::TEX => "TeX",
                 outline_type::FILE => "ルールファイル",
                 _ => "Erlang 関数一覧",
@@ -217,6 +222,9 @@ pub fn analyze(src: &dyn LineSource, request: &Request<'_>) -> Analysis {
         OutlineKind::Html => crate::html::make_topic_list_html(src, false),
         OutlineKind::Xml => crate::html::make_topic_list_html(src, true),
         OutlineKind::Python => crate::python::make_func_list_python(src),
+        OutlineKind::PlSql => crate::plsql::make_func_list_plsql(src),
+        OutlineKind::Cobol => crate::cobol::make_topic_list_cobol(src),
+        OutlineKind::Asm => crate::asm::make_topic_list_asm(src),
         OutlineKind::Bookmark => crate::bookmark::make_bookmark_list(
             src,
             request.bookmarks.iter().copied(),

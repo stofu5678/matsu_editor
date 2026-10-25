@@ -299,12 +299,46 @@ fn the_function_list_marks_move_between_the_functions(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn a_kind_that_is_not_ported_says_so(cx: &mut TestAppContext) {
-    // the type of ".sql" has the outline of PL/SQL
-    let handle = window(cx, "create procedure p;\n", "a.sql");
+    // the type of ".tex" has the outline of TeX
+    let handle = window(cx, "\\section{a}\n", "a.tex");
     run(cx, handle, "F_OUTLINE");
     let p = pane(cx, handle).unwrap();
     assert!(p.read_with(cx, |p, _| p.rows().is_empty()));
+    assert_eq!(p.read_with(cx, |p, _| p.title()), "TeX");
+}
+
+#[gpui::test]
+fn plsql_cobol_and_assembler_show_their_outline(cx: &mut TestAppContext) {
+    // the type of ".sql" has the outline of PL/SQL, a list
+    let handle = window(cx, "create procedure p\nis\nbegin null; end;\n", "a.sql");
+    run(cx, handle, "F_OUTLINE");
+    let p = pane(cx, handle).unwrap();
     assert_eq!(p.read_with(cx, |p, _| p.title()), "PL/SQL 関数一覧");
+    let text = labels(cx, handle);
+    assert!(text.iter().any(|l| l.contains('p')), "{text:?}");
+    assert!(!p.read_with(cx, |p, _| p.rows().is_empty()));
+
+    // ".asm": labels and procedures
+    let handle = window(cx, "start:\n  mov eax, 1\nf PROC\n", "a.asm");
+    run(cx, handle, "F_OUTLINE");
+    let p = pane(cx, handle).unwrap();
+    assert_eq!(p.read_with(cx, |p, _| p.title()), "アセンブラ アウトライン");
+    let text = labels(cx, handle);
+    assert!(text.iter().any(|l| l.contains("start")), "{text:?}");
+    assert!(text.iter().any(|l| l.contains('f')), "{text:?}");
+
+    // ".cbl": a tree with the division as a node
+    let handle = window(
+        cx,
+        "       PROCEDURE DIVISION.\n       MAIN-PARA.\n",
+        "a.cbl",
+    );
+    run(cx, handle, "F_OUTLINE");
+    let p = pane(cx, handle).unwrap();
+    assert_eq!(p.read_with(cx, |p, _| p.title()), "COBOL アウトライン");
+    let text = labels(cx, handle);
+    assert!(text.iter().any(|l| l == "PROCEDURE DIVISION"), "{text:?}");
+    assert!(text.iter().any(|l| l == "MAIN-PARA"), "{text:?}");
 }
 
 #[gpui::test]

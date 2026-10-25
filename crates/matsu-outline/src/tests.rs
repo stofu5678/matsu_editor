@@ -5,11 +5,14 @@
 
 use matsu_core::buffer::Document;
 
+use crate::asm::make_topic_list_asm;
 use crate::bookmark::make_bookmark_list;
+use crate::cobol::make_topic_list_cobol;
 use crate::cpp::{CKind, kind_of_file_name, make_func_list_c};
 use crate::html::make_topic_list_html;
 use crate::java::make_func_list_java;
 use crate::perl::make_func_list_perl;
+use crate::plsql::make_func_list_plsql;
 use crate::python::make_func_list_python;
 use crate::text::{DEFAULT_HEADING_MARKS, make_topic_list_txt, make_topic_list_wztxt};
 use crate::tree::{
@@ -574,6 +577,14 @@ fn analyze_runs_the_analyzer_of_the_kind() {
     // a kind that is not ported gives an empty list
     let rule = OutlineKind::from_setting(matsu_config::settings::type_rules::outline_type::FILE);
     assert!(!rule.is_supported());
+    // PL/SQL, COBOL and assembler are ported
+    for value in [
+        matsu_config::settings::type_rules::outline_type::PLSQL,
+        matsu_config::settings::type_rules::outline_type::COBOL,
+        matsu_config::settings::type_rules::outline_type::ASM,
+    ] {
+        assert!(OutlineKind::from_setting(value).is_supported());
+    }
     assert!(analyze(&src, &Request::new(rule)).items.is_empty());
 }
 
@@ -585,6 +596,9 @@ fn views_of_the_kinds() {
         (OutlineKind::Perl, List),
         (OutlineKind::VisualBasic, List),
         (OutlineKind::Bookmark, List),
+        (OutlineKind::PlSql, List),
+        (OutlineKind::Asm, List),
+        (OutlineKind::Cobol, Tree),
         (OutlineKind::Cpp, Tree),
         (OutlineKind::Java, Tree),
         (OutlineKind::Python, Tree),
@@ -655,7 +669,7 @@ fn the_java_tree_groups_members_under_their_classes() {
     ]);
     let mut arr = c_list(&text, CKind::Cpp);
     prepare_append_texts(&mut arr);
-    let tree = build_java_tree(&arr);
+    let tree = build_java_tree(&arr, true);
     let top: Vec<_> = tree.iter().map(|n| n.label.as_str()).collect();
     assert_eq!(top, ["ns 名前空間", "Foo クラス", "グローバル", "S 構造体"]);
     let ns = &tree[0];
@@ -747,4 +761,262 @@ fn the_text_of_the_copy_button() {
         clip_text_list(&arr, "a.cpp"),
         "a.cpp(1,1): f(宣言)\r\na.cpp(2,1): g\r\n"
     );
+}
+
+// ---- PL/SQL (CDocOutline::MakeFuncList_PLSQL) ----
+
+fn plsql(text: &str) -> String {
+    dump(&make_func_list_plsql(&VecSource::new(text)))
+}
+
+#[test]
+fn plsql_functions_and_procedures() {
+    let text = lines(&[
+        "CREATE OR REPLACE FUNCTION normalize_name(p IN VARCHAR2) RETURN VARCHAR2",
+        "IS",
+        "BEGIN",
+        "  RETURN p;",
+        "END normalize_name;",
+        "/",
+        "create or replace procedure Check_It",
+        "is",
+        "begin null; end;",
+    ]);
+    // the line is the line of the keyword, the info 11 is a function body and 21 a procedure body
+    assert_eq!(plsql(&text), "1:0:11:normalize_name\n7:0:21:Check_It");
+}
+
+#[test]
+fn plsql_declarations_end_at_the_semicolon() {
+    let text = lines(&[
+        "PACKAGE p IS",
+        "  FUNCTION f(a NUMBER) RETURN NUMBER;",
+        "  PROCEDURE g(",
+        "    b IN NUMBER",
+        "  );",
+        "END p;",
+    ]);
+    // 10: a function declaration, 20: a procedure declaration, 31: a package specification
+    assert_eq!(plsql(&text), "1:0:31:p\n2:0:10:f\n3:0:20:g");
+}
+
+#[test]
+fn plsql_package_and_package_body_with_as_and_is() {
+    let text = lines(&[
+        "CREATE PACKAGE spec AS",
+        "  PROCEDURE ping;",
+        "END spec;",
+        "CREATE PACKAGE BODY spec AS",
+        "  PROCEDURE ping IS BEGIN NULL; END;",
+        "END spec;",
+        "CREATE PACKAGE BODY other IS",
+        "END other;",
+    ]);
+    // the package is listed at PACKAGE (31 the specification, 41 the body), the procedures inside
+    // are listed in the order they come
+    assert_eq!(
+        plsql(&text),
+        "1:0:31:spec\n2:0:20:ping\n4:0:41:spec\n5:0:21:ping\n7:0:41:other"
+    );
+}
+
+#[test]
+fn plsql_as_is_read_for_a_package_only() {
+    // Sakura takes `AS` as the start of the body of a package only; a procedure with `AS` stays
+    // a declaration until the next `;` (kept as it is: the parameters can hold `CAST(x AS t)`)
+    let text = lines(&["PROCEDURE p AS", "BEGIN NULL; END;"]);
+    assert_eq!(plsql(&text), "1:0:20:p");
+}
+
+#[test]
+fn plsql_ignores_comments_and_texts() {
+    let text = lines(&[
+        "-- FUNCTION in_line_comment IS",
+        "/* PROCEDURE in_block",
+        "   IS */",
+        "x := 'PROCEDURE in_text IS';",
+        "y := 'it''s FUNCTION not_a IS';",
+        "FUNCTION real_one RETURN NUMBER IS",
+    ]);
+    assert_eq!(plsql(&text), "6:0:11:real_one");
+}
+
+#[test]
+fn plsql_japanese_names_and_crlf() {
+    let text = "CREATE PROCEDURE 顧客_更新(p NUMBER)\r\nIS\r\nBEGIN NULL; END;\r\n-- 手続き\r\nFUNCTION 取得\r\nRETURN NUMBER IS BEGIN RETURN 1; END;\r\n";
+    assert_eq!(plsql(text), "1:0:21:顧客_更新\n5:0:11:取得");
+    // the name of a character outside the BMP is a word as well
+    assert_eq!(plsql("PROCEDURE a\u{20bb7}b IS\n"), "1:0:21:a\u{20bb7}b");
+}
+
+#[test]
+fn plsql_a_long_word_is_skipped() {
+    // a word of more than 70 units is not kept: PROCEDURE with such a name lists nothing
+    let long = "x".repeat(80);
+    assert_eq!(plsql(&format!("PROCEDURE {long} IS\n")), "");
+    // the word after it is read again
+    assert_eq!(plsql(&format!("{long} PROCEDURE ok IS\n")), "1:0:21:ok");
+    let kept = "y".repeat(70);
+    assert_eq!(
+        plsql(&format!("PROCEDURE {kept} IS\n")),
+        format!("1:0:21:{kept}")
+    );
+}
+
+#[test]
+fn plsql_without_a_closing_newline_misses_the_last_word() {
+    // a word is closed by the next character, so one at the very end of the source is lost
+    assert_eq!(plsql("PROCEDURE p IS"), "");
+    assert_eq!(plsql("PROCEDURE p IS\n"), "1:0:21:p");
+}
+
+// ---- COBOL (CDocOutline::MakeTopicList_cobol) ----
+
+fn cobol(text: &str) -> String {
+    dump(&make_topic_list_cobol(&VecSource::new(text)))
+}
+
+#[test]
+fn cobol_labels_under_their_divisions() {
+    let text = lines(&[
+        "      * a comment line",
+        "       IDENTIFICATION DIVISION.",
+        "       PROGRAM-ID. SAMPLE.",
+        "       PROCEDURE DIVISION.",
+        "       MAIN-PROCEDURE.",
+        "           DISPLAY MESSAGE-TEXT",
+        "           STOP RUN.",
+        "      * not a label",
+        "       CLEAN-UP.",
+        "           CONTINUE.",
+    ]);
+    // the divisions are not items; the label is up to the period, and the name is
+    // "division::label". The whole word "DIVISION" is kept (Sakura drops its last letter).
+    assert_eq!(
+        cobol(&text),
+        "3:0:0:IDENTIFICATION DIVISION::PROGRAM-ID\n\
+         5:0:0:PROCEDURE DIVISION::MAIN-PROCEDURE\n\
+         9:0:0:PROCEDURE DIVISION::CLEAN-UP"
+    );
+}
+
+#[test]
+fn cobol_blanks_in_a_label_are_squeezed() {
+    let text = lines(&[
+        "       data   division  .",
+        "       01  REC    PIC  X(3).",
+        "       WORKING-STORAGE   SECTION.",
+    ]);
+    // a run of blanks is one blank; "division" is found in any case (the name is the text up to
+    // and with the word)
+    assert_eq!(
+        cobol(&text),
+        "2:0:0:data division::01 REC PIC X(3)\n3:0:0:data division::WORKING-STORAGE SECTION"
+    );
+}
+
+#[test]
+fn cobol_before_any_division_the_name_starts_with_the_separator() {
+    let text = lines(&["       START-HERE.", "      *comment"]);
+    assert_eq!(cobol(&text), "1:0:0:::START-HERE");
+}
+
+#[test]
+fn cobol_japanese_labels_crlf_and_short_lines() {
+    let text = "       ENVIRONMENT DIVISION.\r\n       初期処理.\r\n\r\n   \r\n       終了処理 SECTION.\r\n";
+    assert_eq!(
+        cobol(text),
+        "2:0:0:ENVIRONMENT DIVISION::初期処理\n5:0:0:ENVIRONMENT DIVISION::終了処理 SECTION"
+    );
+    // a line of 7 blanks and the line ending has the line ending at the 8th column: an empty label
+    assert_eq!(cobol("       \n"), "1:0:0:::");
+    // a blank 8th column is not a label
+    assert_eq!(cobol("        X.\n"), "");
+}
+
+#[test]
+fn cobol_tree_has_a_node_per_division() {
+    let text = lines(&[
+        "       DATA DIVISION.",
+        "       A-SECTION.",
+        "       B-SECTION.",
+        "       PROCEDURE DIVISION.",
+        "       MAIN.",
+    ]);
+    let arr = make_topic_list_cobol(&VecSource::new(&text));
+    // the tree of COBOL has the division as it is, with no " クラス" after it
+    let tree = build_java_tree(&arr, false);
+    let top: Vec<_> = tree.iter().map(|n| n.label.as_str()).collect();
+    assert_eq!(top, ["DATA DIVISION", "PROCEDURE DIVISION"]);
+    let labels: Vec<_> = tree[0].children.iter().map(|n| n.label.as_str()).collect();
+    assert_eq!(labels, ["A-SECTION", "B-SECTION"]);
+    assert_eq!(tree[1].children[0].label, "MAIN");
+    assert_eq!(tree[1].children[0].item, Some(2));
+    assert_eq!(tree[0].item, None);
+}
+
+// ---- assembler (CDocOutline::MakeTopicList_asm) ----
+
+fn asm(text: &str) -> String {
+    dump(&make_topic_list_asm(&VecSource::new(text)))
+}
+
+#[test]
+fn asm_labels_and_procedures() {
+    let text = lines(&[
+        "; a comment",
+        ".386",
+        "AddValues PROC",
+        "    push ebp",
+        "calculate:",
+        "    mov eax, 1 ; loop: here",
+        "AddValues ENDP",
+        "next:    mov eax, 2",
+        "FindMax proc near",
+        "FindMax endp",
+    ]);
+    // 50 PROC, 51 a label (the colon is cut off), 52 ENDP; the procedure words are in any case
+    assert_eq!(
+        asm(&text),
+        "3:0:50:AddValues\n5:0:51:calculate\n7:0:52:AddValues\n8:0:51:next\n9:0:50:FindMax\n10:0:52:FindMax"
+    );
+}
+
+#[test]
+fn asm_the_first_two_tokens_only() {
+    // a colon at the end of the second token is not a label; one alone is not either
+    assert_eq!(asm("mov eax:\n:\n"), "");
+    // "x::" keeps one colon
+    assert_eq!(asm("x::\n"), "1:0:51:x:");
+    // tabs and CRLF separate tokens
+    assert_eq!(asm("\tfoo\tPROC\r\n"), "1:0:50:foo");
+}
+
+#[test]
+fn asm_tokens_with_quotes_and_backslashes_are_not_read() {
+    // the first token has a quote: nothing is listed
+    assert_eq!(asm("\"a\": b PROC\n"), "");
+    assert_eq!(asm("a\\b: x\n"), "");
+    assert_eq!(asm("it's: x\n"), "");
+    // the second token has one: the first is still a label, but not a procedure
+    assert_eq!(asm("lbl: 'x'\n"), "1:0:51:lbl");
+    assert_eq!(asm("name 'PROC'\n"), "");
+    // a blank inside double quotes does not separate the tokens
+    assert_eq!(asm("\"a b\" PROC\n"), "");
+}
+
+#[test]
+fn asm_japanese_names_and_a_full_width_blank() {
+    assert_eq!(
+        asm("初期化:\r\n処理 PROC\r\n"),
+        "1:0:51:初期化\n2:0:50:処理"
+    );
+    // the full-width blank does not separate tokens
+    assert_eq!(asm("名前\u{3000}PROC\n"), "");
+}
+
+#[test]
+fn asm_a_nul_ends_the_line() {
+    assert_eq!(asm("a:\0b: c\n"), "1:0:51:a");
+    assert_eq!(asm("x PROC\n"), "1:0:50:x");
 }
