@@ -277,6 +277,22 @@ fn passwords_on_the_command_line_are_found() {
         split_commands("a && b | c ; d (e) f&g & h"),
         ["a ", "", " b ", " c ", " d ", "e", " f&g ", " h"]
     );
+    // run directly (Windows), `mysql -p(secret)` has `(secret)` for the password; the line is cut at the
+    // parenthesis, but the password is found, while a plain `-p` before a real separator is not
+    assert_eq!(found(Kind::MySql, "mysql -u me -p(secret)"), Some("-p"));
+    assert_eq!(found(Kind::MySql, "mysql -p;secret"), Some("-p"));
+    assert_eq!(found(Kind::MySql, "mysql -p|secret"), Some("-p"));
+    assert_eq!(found(Kind::SqlServer, "sqlcmd -S h -P(secret)"), Some("-P"));
+    assert_eq!(found(Kind::MySql, "mysql -p ; psql"), None);
+    assert_eq!(found(Kind::MySql, "mysql -p && psql -p5432"), None);
+    assert_eq!(found(Kind::MySql, "mysql -u me -p"), None);
+    assert_eq!(
+        found(
+            Kind::PostgreSql,
+            "psql -p5432 -f $F && mysql --login-path=mylogin"
+        ),
+        None
+    );
     // a name of a client among the operands of a wrapper does not hide the real client
     assert_eq!(
         found(Kind::SqlServer, "sudo -u mysql sqlcmd -U me -P secret"),

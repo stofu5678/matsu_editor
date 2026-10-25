@@ -381,18 +381,54 @@ pub fn password_in_command(kind: Kind, command: &str) -> Option<&'static str> {
             // the commands by themselves, and the whole line for the rules that every client shares
             // (`password=`, a URI with a password): a quote that the cutting does not understand cannot
             // hide those
-            let mut parts: Vec<(Kind, &str)> = Vec::new();
+            let mut parts: Vec<(Kind, &str, bool)> = Vec::new();
             for segment in split_commands(text) {
                 let kinds = program_kinds(segment);
+                let glued = glued_to_next(text, segment);
                 if kinds.is_empty() {
-                    parts.push((kind, segment));
+                    parts.push((kind, segment, glued));
                 }
-                parts.extend(kinds.into_iter().map(|k| (k, segment)));
+                parts.extend(kinds.into_iter().map(|k| (k, segment, glued)));
             }
-            parts.push((Kind::Other, text));
+            parts.push((Kind::Other, text, false));
             parts
         })
-        .find_map(|(k, segment)| password_in_text(k, segment))
+        .find_map(|(k, segment, glued)| {
+            // `mysql -p(secret)`: a program that is run directly (Windows) gets `(secret)` as the rest
+            // of the argument, but the cutting leaves `-p` at the end of the command and `secret` in
+            // the next one
+            if glued && ends_with_open_password(k, segment) {
+                return Some(if k == Kind::SqlServer { "-P" } else { "-p" });
+            }
+            password_in_text(k, segment)
+        })
+}
+
+/// Whether the character that ends `segment` in `text` (a cut: `;` `|` `(` `)` `&`) is followed at once by
+/// something that is not a blank, as in `-p(secret)`. `segment` is a slice of `text`.
+fn glued_to_next(text: &str, segment: &str) -> bool {
+    let start = segment.as_ptr() as usize - text.as_ptr() as usize;
+    let rest = &text[start + segment.len()..];
+    let mut chars = rest.chars();
+    match (chars.next(), chars.next()) {
+        (Some(cut), Some(next)) => {
+            matches!(cut, ';' | '|' | '(' | ')' | '&') && !next.is_whitespace() && next != cut
+        }
+        _ => false,
+    }
+}
+
+/// Whether the command `segment` ends with the option that takes the password and has no value after it:
+/// `-p` of MySQL, `-P` of sqlcmd, as a word of its own.
+fn ends_with_open_password(kind: Kind, segment: &str) -> bool {
+    let option = match kind {
+        Kind::MySql => "-p",
+        Kind::SqlServer => "-P",
+        _ => return false,
+    };
+    segment
+        .strip_suffix(option)
+        .is_some_and(|before| before.is_empty() || before.ends_with(|c: char| c.is_whitespace()))
 }
 
 /// The commands of a line: it is cut at `;`, `|` and parentheses, and at `&` when it is `&&` or has blanks
