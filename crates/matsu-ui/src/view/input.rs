@@ -219,7 +219,15 @@ impl EntityInputHandler for EditorView {
             return;
         }
         self.record_typed_text(text);
-        let (from, to) = self.input_target(range_utf16.clone(), cx);
+        let (mut from, to) = self.input_target(range_utf16.clone(), cx);
+        // A composition cancelled with an empty text (the backends do it through this call) takes
+        // the spaces of the free cursor gap with it.
+        if text.is_empty()
+            && let Some(m) = self.marked.as_ref().filter(|m| m.pad > 0)
+            && from == Pos::new(m.line, m.range.start)
+        {
+            from.col = from.col.saturating_sub(m.pad);
+        }
         self.marked = None;
         self.composing = false;
         self.run_with(cx, |command_cx| {

@@ -699,3 +699,39 @@ fn cancelling_a_composition_in_the_gap_takes_the_spaces_with_it(cx: &mut TestApp
     });
     assert_eq!(f.lines(cx), ["ab", "cd"]);
 }
+
+#[gpui::test]
+fn the_backends_cancel_a_composition_in_the_gap_with_an_empty_commit(cx: &mut TestAppContext) {
+    // Windows ends a composition with `replace_text_in_range(None, "")`; X11 and Wayland with the
+    // marked range and an empty text.
+    use gpui::EntityInputHandler as _;
+    let _serial = crate::common_settings::options_lock();
+    let _o = options();
+    edit_options::set(EditOptions {
+        free_cursor: true,
+        ..EditOptions::default()
+    });
+    let (f, cx) = setup(cx, "ab\ncd");
+    down_at(&f, cx, 0, 5, 1, Modifiers::default());
+    up_at(&f, cx, 0, 5, Modifiers::default());
+    for with_range in [false, true] {
+        f.view.update_in(cx, |v, window, cx| {
+            let first_line = |v: &EditorView, cx: &gpui::App| {
+                v.document.read(cx).doc().line(0).unwrap().unwrap().text
+            };
+            v.replace_and_mark_text_in_range(None, "に", Some(1..1), window, cx);
+            assert_eq!(first_line(v, cx), "ab   に");
+            let range = if with_range {
+                v.marked_text_range(window, cx)
+            } else {
+                None
+            };
+            v.replace_text_in_range(range, "", window, cx);
+            assert_eq!(first_line(v, cx), "ab");
+        });
+        assert_eq!(f.lines(cx), ["ab", "cd"]);
+        // the caret is back at the end of the text; the click put it in the gap again
+        down_at(&f, cx, 0, 5, 1, Modifiers::default());
+        up_at(&f, cx, 0, 5, Modifiers::default());
+    }
+}
