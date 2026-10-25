@@ -79,10 +79,51 @@ fn the_file_is_utf8_with_a_bom() {
     let bytes = KeyMacro::new().to_bytes();
     assert_eq!(&bytes[..3], [0xEF, 0xBB, 0xBF]);
     assert_eq!(KeyMacro::from_bytes(&bytes).unwrap(), KeyMacro::new());
-    // A file without a BOM is read as well.
+    // A file without a BOM is read as well (ASCII reads the same in both encodings).
     assert_eq!(KeyMacro::from_bytes(b"Down();").unwrap().len(), 1);
     assert!(matches!(
         KeyMacro::from_bytes(&[0xFF, 0xFE, 0x41, 0x00]),
+        Err(LoadError::NotUtf8)
+    ));
+    // with a BOM the text must be UTF-8
+    assert!(matches!(
+        KeyMacro::from_bytes(b"\xEF\xBB\xBFInsText('\x83');"),
+        Err(LoadError::NotUtf8)
+    ));
+}
+
+#[test]
+fn a_file_without_a_bom_is_shift_jis() {
+    // Sakura: `CTextInputStream` reads a file without the UTF-8 BOM as CP932.
+    // InsText('日本語' ) in Shift_JIS: 日 93 FA, 本 96 7B, 語 8C EA
+    let sjis = b"InsText('\x93\xFA\x96\x7B\x8C\xEA\\r\\n');\r\nChar(97);\r\n";
+    let m = KeyMacro::from_bytes(sjis).unwrap();
+    assert_eq!(m.len(), 2);
+    assert!(
+        m.to_text().contains("InsText('日本語\\r\\n');"),
+        "{}",
+        m.to_text()
+    );
+    // the same text in UTF-8 without a BOM is not valid Shift_JIS here: Sakura gets an
+    // encoding error too (or mojibake, for bytes that happen to be valid)
+    let utf8 = "InsText('日本語');".as_bytes();
+    assert!(KeyMacro::from_bytes(utf8).map_or(true, |m| !m.to_text().contains("日本語")));
+    // with the BOM it is UTF-8
+    let mut with_bom = vec![0xEF, 0xBB, 0xBF];
+    with_bom.extend_from_slice(utf8);
+    assert!(
+        KeyMacro::from_bytes(&with_bom)
+            .unwrap()
+            .to_text()
+            .contains("日本語")
+    );
+    // duplicate codes convert too (CP932 without the round-trip check): 0x8790 is ≒, and
+    // 0xED40 is 纊 (NEC-selected IBM extension)
+    let m = KeyMacro::from_bytes(b"InsText('\x87\x90\xED\x40');").unwrap();
+    assert!(m.to_text().contains("InsText('≒纊');"), "{}", m.to_text());
+    // a byte that Shift_JIS cannot convert
+    assert!(matches!(
+        KeyMacro::from_bytes(b"InsText('\x81');"),
         Err(LoadError::NotUtf8)
     ));
 }

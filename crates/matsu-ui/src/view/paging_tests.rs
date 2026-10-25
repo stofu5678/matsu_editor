@@ -75,6 +75,15 @@ fn run(view: &Entity<EditorView>, cx: &mut VisualTestContext, code: u16) {
     cx.update(|window, cx| view.update(cx, |v, cx| v.run_function(code, &[], window, cx)));
 }
 
+fn run_with_rows(view: &Entity<EditorView>, cx: &mut VisualTestContext, code: u16, rows: i64) {
+    let view = view.clone();
+    cx.update(|window, cx| {
+        view.update(cx, |v, cx| {
+            v.run_function(code, &[Arg::Int(rows)], window, cx)
+        })
+    });
+}
+
 fn place(view: &Entity<EditorView>, cx: &mut VisualTestContext, line: usize, top: usize) {
     view.update(cx, |v, cx| {
         v.run_with(cx, |c| c.move_caret(Pos::new(line, 0), false))
@@ -853,4 +862,51 @@ fn shift_and_the_wheel_as_gpui_delivers_them_on_windows(cx: &mut TestAppContext)
         Modifiers::shift(),
     );
     assert_eq!(view.read_with(cx, |v, _| v.scroll_x), 3.0 * cell);
+}
+
+const F_HALF_PAGE_UP: u16 = 30340;
+const F_HALF_PAGE_DOWN: u16 = 30341;
+
+#[gpui::test]
+fn the_page_commands_take_the_number_of_rows_of_the_macro(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx);
+    let n = rows(&view, cx);
+    // `HalfPageDown(5)`: Command_HalfPageDown moves the caret by 5 rows, not by half a page.
+    place(&view, cx, 100, 98);
+    run_with_rows(&view, cx, F_HALF_PAGE_DOWN, 5);
+    assert_eq!(caret_line(&view, cx), 105);
+    run_with_rows(&view, cx, F_HALF_PAGE_UP, 2);
+    assert_eq!(caret_line(&view, cx), 103);
+    // `PageDown(4)` moves the caret and the view by 4 rows, `PageUp(4)` back.
+    run_with_rows(&view, cx, F_1PAGE_DOWN, 4);
+    assert_eq!(at(&view, cx), (107, 102));
+    run_with_rows(&view, cx, F_1PAGE_UP, 4);
+    assert_eq!(at(&view, cx), (103, 98));
+    // a number beyond an `int` is clamped and cannot overflow the scroll target
+    place(&view, cx, 100, 98);
+    run_with_rows(&view, cx, F_1PAGE_DOWN, i64::MAX);
+    assert_eq!(caret_line(&view, cx), LINES - 1);
+    // 0 and negative numbers give the default (`nScrollNum <= 0`).
+    for count in [0, -3] {
+        place(&view, cx, 100, 98);
+        run_with_rows(&view, cx, F_HALF_PAGE_DOWN, count);
+        assert_eq!(caret_line(&view, cx), 100 + n / 2, "{count}");
+        place(&view, cx, 100, 98);
+        run_with_rows(&view, cx, F_1PAGE_DOWN, count);
+        assert_eq!(at(&view, cx), (100 + n - 1, 98 + n - 1), "{count}");
+    }
+}
+
+#[gpui::test]
+fn the_box_pages_take_the_number_of_rows_too(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx);
+    place(&view, cx, 100, 98);
+    view.update(cx, |v, cx| {
+        v.run_with(cx, |c| c.move_caret(Pos::new(100, 3), false))
+            .unwrap();
+    });
+    run_with_rows(&view, cx, F_HALF_PAGE_DOWN_BOX, 6);
+    assert_eq!(box_corners(&view, cx), Some(((100, 3), (106, 3))));
+    run_with_rows(&view, cx, F_1PAGE_DOWN_BOX, 3);
+    assert_eq!(at(&view, cx), (109, 101));
 }

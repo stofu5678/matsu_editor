@@ -352,6 +352,25 @@ impl<'a> CommandContext<'a> {
         self.model.bookmarks().contains(line)
     }
 
+    /// The DIFF mark of line `line` as the macro function `GetLineAttribute` type 3 gives it
+    /// (`m_cDiffmarked`, `EDiffMark` in `sakura_core/docplus/CDiffManager.h`): 0 none, 1 added,
+    /// 2 changed, 3 deleted, 4 deleted after the end of the file.
+    pub fn diff_mark_number(&self, line: usize) -> i64 {
+        use matsu_core::diff::DiffMark;
+        match self.model.diff_marks().get(line) {
+            None => 0,
+            Some(DiffMark::Append) => 1,
+            Some(DiffMark::Change) => 2,
+            Some(DiffMark::Delete) => 3,
+            Some(DiffMark::DeleteEx) => 4,
+        }
+    }
+
+    /// Whether line `line` has the outline mark (`GetFuncListMark`; set by the last outline analysis).
+    pub fn has_funclist_mark(&self, line: usize) -> bool {
+        self.model.funclist_marks().contains(line)
+    }
+
     /// Whether line `line` differs from the saved version (Sakura: `CModifyVisitor::IsLineModified`).
     pub fn is_line_modified(&self, line: usize) -> bool {
         self.model.is_line_modified(line)

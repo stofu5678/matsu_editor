@@ -130,6 +130,12 @@ impl DocumentModel {
         self.history.close_all(&self.doc, cursor);
     }
 
+    /// Puts the depth of the open undo block back to `depth` (see
+    /// [`History::restore_depth`](crate::undo::History::restore_depth)).
+    pub fn restore_block_depth(&mut self, depth: usize, cursor: &Cursor) {
+        self.history.restore_depth(depth, &self.doc, cursor);
+    }
+
     /// Replaces the text between two positions (in either order, clamped) with `text`.
     pub fn replace(&mut self, from: Pos, to: Pos, text: &str) -> Result<Edit> {
         self.replace_inner(from, to, text, false)

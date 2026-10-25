@@ -191,6 +191,9 @@ pub(crate) struct MacroState {
     queue: VecDeque<Item>,
     /// The macro files that are being played, outermost first (for the cycle check).
     active: Vec<PathBuf>,
+    /// The depth of the open undo block when each of those files began (the reference count
+    /// `CMacroBeforeAfter::ExecKeyMacroBefore` remembers); the file puts it back when it ends.
+    undo_depths: Vec<Option<usize>>,
     /// `drain_key_macro` is on the stack: a macro file named by a call joins the queue and the
     /// loop that is running goes on with it, so playback never recurses.
     draining: bool,
@@ -400,6 +403,28 @@ impl EditorView {
         });
         self.macros.current = Some(CurrentMacro::Recorded(recorded));
         failure
+    }
+
+    /// A macro file begins: returns the depth of the undo block, to put back when the file ends
+    /// (the reference count `CMacroBeforeAfter::ExecKeyMacroBefore` remembers). The command that
+    /// runs the file has left the block already (`F_EXECEXTMACRO` stores it first, "再帰処理対策"
+    /// in `CViewCommander::HandleCommand`). `None`: a composition of the user's is open and its
+    /// block is not the macro's.
+    fn enter_undo_block(&mut self, cx: &mut Context<Self>) -> Option<usize> {
+        (!self.composing).then(|| self.document.read(cx).model().history().depth())
+    }
+
+    /// A macro file ends: puts the undo block back to the depth it had when the file began. The
+    /// blocks that it entered with `AddRefUndoBuffer()` and did not leave are left, and the ones
+    /// that it left too often are entered again (Sakura: `CMacroBeforeAfter::ExecKeyMacroAfter`
+    /// calls `SetRefCount` with the count of `ExecKeyMacroBefore`, or stores the block when that
+    /// was 0). The outer macro goes on in its own block.
+    fn leave_undo_block(&mut self, depth: Option<usize>, cx: &mut Context<Self>) {
+        let Some(depth) = depth else { return };
+        let cursor = &self.cursor;
+        self.document.update(cx, |shared, _| {
+            shared.parts_mut().0.restore_block_depth(depth, cursor);
+        });
     }
 
     /// Leaves the undo blocks that a macro entered with `AddRefUndoBuffer()` and did not leave
@@ -713,6 +738,8 @@ impl EditorView {
                 ));
             }
             self.macros.active.push(id);
+            let depth = self.enter_undo_block(cx);
+            self.macros.undo_depths.push(depth);
             items.extend(steps.into_iter().map(Item::Call));
             items.push(Item::Leave);
         } else {
@@ -737,6 +764,7 @@ impl EditorView {
     fn clear_key_macro(&mut self) {
         self.macros.queue.clear();
         self.macros.active.clear();
+        self.macros.undo_depths.clear();
     }
 
     /// Runs the calls of the key macro one after the other, as the keys would. It stops at the
@@ -748,6 +776,9 @@ impl EditorView {
                 None => break,
                 Some(Item::Leave) => {
                     self.macros.active.pop();
+                    if let Some(depth) = self.macros.undo_depths.pop() {
+                        self.leave_undo_block(depth, cx);
+                    }
                     continue;
                 }
                 Some(Item::Call(step)) => step,
