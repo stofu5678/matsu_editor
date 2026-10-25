@@ -117,6 +117,10 @@ fn a_file_without_a_bom_is_shift_jis() {
             .to_text()
             .contains("日本語")
     );
+    // duplicate codes convert too (CP932 without the round-trip check): 0x8790 is ≒, and
+    // 0xED40 is 纊 (NEC-selected IBM extension)
+    let m = KeyMacro::from_bytes(b"InsText('\x87\x90\xED\x40');").unwrap();
+    assert!(m.to_text().contains("InsText('≒纊');"), "{}", m.to_text());
     // a byte that Shift_JIS cannot convert
     assert!(matches!(
         KeyMacro::from_bytes(b"InsText('\x81');"),

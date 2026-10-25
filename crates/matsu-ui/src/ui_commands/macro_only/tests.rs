@@ -914,7 +914,7 @@ fn a_nested_macro_puts_the_undo_block_back_to_where_it_was(cx: &mut TestAppConte
         &outer,
         format!(
             "AddRefUndoBuffer();\nChar(12354);\nExecExternalMacro(\"{}\");\nChar(12358);\nSetUndoBuffer();\nChar(12360);\n",
-            inner.display()
+            inner.to_string_lossy().replace('\\', "\\\\")
         ),
     )
     .unwrap();
@@ -938,7 +938,7 @@ fn a_nested_macro_that_leaves_too_often_gets_the_outer_block_back(cx: &mut TestA
         &outer,
         format!(
             "AddRefUndoBuffer();\nChar(12354);\nExecExternalMacro(\"{}\");\nChar(12358);\nSetUndoBuffer();\n",
-            inner.display()
+            inner.to_string_lossy().replace('\\', "\\\\")
         ),
     )
     .unwrap();

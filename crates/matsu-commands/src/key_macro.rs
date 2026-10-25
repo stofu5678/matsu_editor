@@ -41,7 +41,7 @@ use std::io;
 use std::path::Path;
 
 use matsu_core::buffer::Eol;
-use matsu_core::encoding::{Encoding, INVALID_BYTE_BASE};
+use matsu_core::encoding::decode_cp932_strict;
 
 use crate::command::{Arg, CommandError};
 use crate::context::{CommandContext, macro_value_of_eol};
@@ -256,15 +256,7 @@ impl KeyMacro {
             Some(rest) => std::str::from_utf8(rest)
                 .map_err(|_| LoadError::NotUtf8)?
                 .to_owned(),
-            None => {
-                let mut text = String::new();
-                Encoding::ShiftJis.codec().decode(bytes, &mut text);
-                // an invalid byte decodes to a stand-in char
-                if text.chars().any(|c| c as u32 >= INVALID_BYTE_BASE) {
-                    return Err(LoadError::NotUtf8);
-                }
-                text
-            }
+            None => decode_cp932_strict(bytes).ok_or(LoadError::NotUtf8)?,
         };
         Ok(Self::from_text(&text)?)
     }
