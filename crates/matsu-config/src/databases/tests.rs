@@ -262,6 +262,7 @@ fn passwords_on_the_command_line_are_found() {
     // a word that only looks like a client is not one; encoded delimiters stay delimiters
     assert_eq!(found(Kind::Other, "psql -h mysql -p5432 -d app"), None);
     assert_eq!(found(Kind::Other, "psql -h sqlcmd -P5432"), None);
+    assert_eq!(found(Kind::Other, "env psql -h mysql -p5432 -f $F"), None);
     assert_eq!(
         found(
             Kind::PostgreSql,

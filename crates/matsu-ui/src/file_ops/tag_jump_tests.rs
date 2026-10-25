@@ -21,27 +21,29 @@ fn a_jump_from_the_output_opens_a_regular_file_and_not_through_a_link() {
     use super::tag_jump::is_plain_local_file;
 
     let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("a.sql");
+    // the folder for temporary files is itself behind a link on macOS (`/var` is `/private/var`)
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let file = root.join("a.sql");
     std::fs::write(&file, "select 1;\n").unwrap();
     assert!(is_plain_local_file(&file, true));
     assert!(is_plain_local_file(&file, false));
     // a folder and a file that is not there are not files
-    assert!(!is_plain_local_file(dir.path(), true));
-    assert!(!is_plain_local_file(&dir.path().join("none.sql"), true));
+    assert!(!is_plain_local_file(&root, true));
+    assert!(!is_plain_local_file(&root.join("none.sql"), true));
     #[cfg(unix)]
     {
         // a link to a file, and a file in a linked folder: opened without the rule (`false`, the
         // systems where a link cannot lead to a network path), refused with it (Windows)
-        let link = dir.path().join("link.sql");
+        let link = root.join("link.sql");
         std::os::unix::fs::symlink(&file, &link).unwrap();
-        let folder_link = dir.path().join("folder");
-        std::os::unix::fs::symlink(dir.path(), &folder_link).unwrap();
+        let folder_link = root.join("folder");
+        std::os::unix::fs::symlink(&root, &folder_link).unwrap();
         assert!(is_plain_local_file(&link, false));
         assert!(!is_plain_local_file(&link, true));
         assert!(is_plain_local_file(&folder_link.join("a.sql"), false));
         assert!(!is_plain_local_file(&folder_link.join("a.sql"), true));
         // a pipe is not a regular file
-        let pipe = dir.path().join("pipe");
+        let pipe = root.join("pipe");
         let made = std::process::Command::new("mkfifo").arg(&pipe).status();
         if made.is_ok_and(|s| s.success()) {
             assert!(!is_plain_local_file(&pipe, false));

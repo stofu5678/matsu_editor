@@ -414,7 +414,13 @@ fn kinds_of_programs(command: &str) -> Vec<Kind> {
                 kinds.push(kind);
                 break;
             }
-            if !wrapped {
+            // the program is found when it is the first word, or any client after a wrapper (a client
+            // with no rules of its own, `psql`, ends the search too: `env psql -h mysql` has no MySQL)
+            let other_client = matches!(
+                name,
+                "psql" | "sqlite3" | "bq" | "duckdb" | "usql" | "clickhouse-client" | "snowsql"
+            );
+            if !wrapped || other_client {
                 break;
             }
         }
