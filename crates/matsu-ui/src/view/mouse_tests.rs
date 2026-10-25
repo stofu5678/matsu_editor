@@ -748,3 +748,21 @@ fn an_empty_commit_in_the_gap_changes_nothing(cx: &mut TestAppContext) {
     assert_eq!(f.lines(cx), ["ab", "cd"]);
     assert!(!f.document.read_with(cx, |d, _| d.model().is_modified()));
 }
+
+#[gpui::test]
+fn cancelling_with_the_marked_range_takes_the_gap_spaces_too(cx: &mut TestAppContext) {
+    use gpui::EntityInputHandler as _;
+    let _free = edit_options::options_for_this_thread(EditOptions {
+        free_cursor: true,
+        ..EditOptions::default()
+    });
+    let (f, cx) = setup(cx, "ab\ncd");
+    down_at(&f, cx, 0, 5, 1, Modifiers::default());
+    up_at(&f, cx, 0, 5, Modifiers::default());
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_and_mark_text_in_range(None, "に", Some(1..1), window, cx);
+        let range = v.marked_text_range(window, cx);
+        v.replace_and_mark_text_in_range(range, "", None, window, cx);
+    });
+    assert_eq!(f.lines(cx), ["ab", "cd"]);
+}

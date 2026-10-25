@@ -288,7 +288,11 @@ impl EntityInputHandler for EditorView {
         let opened = !self.composing;
         // A composition that is cancelled takes the spaces of the free cursor gap with it.
         let old_pad = self.marked.as_ref().map_or(0, |m| m.pad);
-        if text.is_empty() && range_utf16.is_none() && old_pad > 0 {
+        let marked_start = self
+            .marked
+            .as_ref()
+            .map(|m| Pos::new(m.line, m.range.start));
+        if text.is_empty() && old_pad > 0 && Some(from) == marked_start {
             from.col = from.col.saturating_sub(old_pad);
         }
         if opened {
