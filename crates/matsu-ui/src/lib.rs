@@ -12,7 +12,7 @@
 //! * [`ui_command`]: the commands that need the window (the size of the view, dialogs), one per file
 //!   under `ui_commands/` like the core commands, found by the same Sakura function codes.
 //! * [`macros`]: key macros (record, save, load, play) and macro files (`.mac`, `.mjs`, `.js`, `.ts`, `.py`,
-//!   `.rb`, `.php`, `.ps1`, `.pl`, `.el`, `.lua`, `.mruby`, `.upy`).
+//!   `.rb`, `.php`, `.ps1`, `.pl`, `.el`, `.applescript`, `.lua`, `.mruby`, `.upy`).
 //! * [`open`]: where a file is read into a document (encoding detection, BOM, size limit).
 //! * `file_ops`: the flows of the file functions: open, save, close, reopen, and the questions
 //!   they ask.

@@ -18,6 +18,8 @@ pub const PS_BOOT: &str = "boot.ps1";
 pub const PS_API: &str = "api_gen.ps1";
 pub const EL_BOOT: &str = "boot.el";
 pub const EL_API: &str = "api_gen.el";
+/// The file that osascript runs: written for each run (the user's script is in it).
+pub const AS_PROGRAM: &str = "macro.applescript";
 
 /// The Perl program: the runner of the script (`run_user.pl`), the API, the boot, and `__END__`.
 /// The editor writes it to the standard input of `perl -` before the conversation (nothing is
