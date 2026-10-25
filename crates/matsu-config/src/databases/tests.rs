@@ -259,6 +259,24 @@ fn passwords_on_the_command_line_are_found() {
         None
     );
     assert_eq!(found(Kind::PostgreSql, "psql -f 100%.sql"), None);
+    // a word that only looks like a client is not one; encoded delimiters stay delimiters
+    assert_eq!(found(Kind::Other, "psql -h mysql -p5432 -d app"), None);
+    assert_eq!(found(Kind::Other, "psql -h sqlcmd -P5432"), None);
+    assert_eq!(
+        found(
+            Kind::PostgreSql,
+            "psql postgresql://alice%3Aadmin@localhost/app"
+        ),
+        None
+    );
+    assert_eq!(
+        found(Kind::Other, "env -i HOME=x mysql -psecret"),
+        Some("-p")
+    );
+    assert_eq!(
+        found(Kind::Other, "echo x && sudo -u me mysql -psecret"),
+        Some("-p")
+    );
     // short options of MySQL in one word
     assert_eq!(
         found(Kind::MySql, "mysql -u alice -vpS3cr3t app"),

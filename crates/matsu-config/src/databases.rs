@@ -381,26 +381,50 @@ pub fn password_in_command(kind: Kind, command: &str) -> Option<&'static str> {
         .find_map(|(k, text)| password_in_text(k, text))
 }
 
-/// The kinds of the clients that any word of the command line names (`mysql`, `sqlcmd`, `sqlplus`, ...).
+/// The kinds of the clients the command line runs: the program of each command (the first word after `&`,
+/// `|`, `;` or a parenthesis, and after `env`, `sudo` and the like with their options), not any word, so that
+/// a host called `mysql` in `psql -h mysql` is not taken for the client.
 fn kinds_of_programs(command: &str) -> Vec<Kind> {
-    command
-        .split(|c: char| c.is_whitespace() || matches!(c, '&' | '|' | ';' | '(' | ')' | '"' | '\''))
-        .filter(|w| !w.is_empty())
-        .filter_map(|word| {
+    const WRAPPERS: &[&str] = &[
+        "env", "sudo", "doas", "nohup", "time", "exec", "command", "xargs",
+    ];
+    let mut kinds = Vec::new();
+    for segment in command.split(['&', '|', ';', '(', ')']) {
+        let words = segment
+            .split(|c: char| c.is_whitespace() || matches!(c, '"' | '\''))
+            .filter(|w| !w.is_empty());
+        // after `env`, `sudo` and the like, the program is somewhere after their options (`sudo -u me
+        // mysql`), so every word is looked at; otherwise only the first
+        let mut wrapped = false;
+        for word in words {
             let word = word.to_ascii_lowercase();
             let name = word.rsplit(['/', '\\']).next().unwrap_or("");
             let name = name.strip_suffix(".exe").unwrap_or(name);
-            match name {
+            if WRAPPERS.contains(&name) {
+                wrapped = true;
+                continue;
+            }
+            let kind = match name {
                 "mysql" | "mariadb" | "mysqlsh" => Some(Kind::MySql),
                 "sqlcmd" => Some(Kind::SqlServer),
                 "sqlplus" | "sql" | "sqlcl" | "sqlldr" => Some(Kind::Oracle),
                 _ => None,
+            };
+            if let Some(kind) = kind {
+                kinds.push(kind);
+                break;
             }
-        })
-        .collect()
+            if !wrapped {
+                break;
+            }
+        }
+    }
+    kinds
 }
 
-/// `text` with each `%XX` (two hexadecimal digits that make an ASCII character) replaced by that character.
+/// `text` with each `%XX` (two hexadecimal digits that make an ASCII character) replaced by that character,
+/// except the characters that a URI is made of (`: @ / ? & = # %`): `alice%3Aadmin@host` is a user called
+/// `alice:admin`, not a user and a password.
 fn percent_decode(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = String::with_capacity(text.len());
@@ -410,6 +434,7 @@ fn percent_decode(text: &str) -> String {
             && let Some(hex) = text.get(i + 1..i + 3)
             && let Ok(byte) = u8::from_str_radix(hex, 16)
             && byte.is_ascii()
+            && !matches!(byte, b':' | b'@' | b'/' | b'?' | b'&' | b'=' | b'#' | b'%')
         {
             out.push(char::from(byte));
             i += 3;
