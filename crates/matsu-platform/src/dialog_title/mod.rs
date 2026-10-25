@@ -6,7 +6,7 @@
 //! the icon says what kind of box it is. GPUI's box on Windows (`gpui-pre-windows`, `prompt` of
 //! `window.rs`) is a TaskDialog whose title is the English word of its level: "Info", "Warning" or
 //! "Critical". GPUI cannot be changed from here, so on Windows the title of such a box is replaced when
-//! the box is shown ([`windows`]): a window of the dialog class of this process whose title is one of those
+//! the box is shown (the module `windows`): a window of the dialog class of this process whose title is one of those
 //! three words gets [`app_title`].
 //!
 //! macOS (`NSAlert`) and Linux (GPUI's own box) have no title bar text for these boxes, so nothing changes

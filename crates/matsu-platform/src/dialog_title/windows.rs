@@ -15,8 +15,8 @@ use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::System::Threading::GetCurrentProcessId;
 use windows_sys::Win32::UI::Accessibility::{HWINEVENTHOOK, SetWinEventHook};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EVENT_OBJECT_SHOW, GetClassNameW, GetWindowTextW, OBJID_WINDOW, SMTO_ABORTIFHUNG,
-    SendMessageTimeoutW, WINEVENT_OUTOFCONTEXT, WM_SETTEXT,
+    EVENT_OBJECT_SHOW, GetClassNameW, OBJID_WINDOW, SMTO_ABORTIFHUNG, SendMessageTimeoutW,
+    WINEVENT_OUTOFCONTEXT, WM_GETTEXT, WM_SETTEXT,
 };
 
 use super::replacement;
@@ -48,12 +48,33 @@ pub(super) fn install(title: String) {
     }
 }
 
-/// The text of a window as the system gives it (`GetClassNameW`, `GetWindowTextW`).
-fn read(hwnd: HWND, f: unsafe extern "system" fn(HWND, *mut u16, i32) -> i32) -> String {
-    let mut buffer = [0u16; 256];
-    // SAFETY: the buffer is valid for 256 units and the call writes at most that many, with the NUL.
-    let len = unsafe { f(hwnd, buffer.as_mut_ptr(), buffer.len() as i32) };
+/// The class of a window (`GetClassNameW` sends no message).
+fn class_of(hwnd: HWND) -> String {
+    let mut buffer = [0u16; 64];
+    // SAFETY: the buffer is valid for 64 units and the call writes at most that many, with the NUL.
+    let len = unsafe { GetClassNameW(hwnd, buffer.as_mut_ptr(), buffer.len() as i32) };
     String::from_utf16_lossy(&buffer[..usize::try_from(len).unwrap_or(0)])
+}
+
+/// The title of a window, asked with a time limit: `GetWindowTextW` sends `WM_GETTEXT` to a window of
+/// another thread and waits for the answer without limit.
+fn title_of(hwnd: HWND) -> Option<String> {
+    let mut buffer = [0u16; 256];
+    let mut len = 0usize;
+    // SAFETY: the buffer is valid for 256 units, which is what is passed as the size; the answer is the
+    // number of units written, without the NUL.
+    let sent = unsafe {
+        SendMessageTimeoutW(
+            hwnd,
+            WM_GETTEXT,
+            buffer.len(),
+            buffer.as_mut_ptr() as isize,
+            SMTO_ABORTIFHUNG,
+            TIMEOUT_MS,
+            &mut len,
+        )
+    };
+    (sent != 0).then(|| String::from_utf16_lossy(&buffer[..len.min(buffer.len() - 1)]))
 }
 
 unsafe extern "system" fn on_event(
@@ -71,9 +92,14 @@ unsafe extern "system" fn on_event(
     let Some((title, wide)) = TITLE.get() else {
         return;
     };
-    let class = read(hwnd, GetClassNameW);
-    let current = read(hwnd, GetWindowTextW);
-    if replacement(&class, &current, title).is_none() {
+    // the class first: only a dialog is asked for its title
+    if class_of(hwnd) != super::DIALOG_CLASS {
+        return;
+    }
+    let Some(current) = title_of(hwnd) else {
+        return;
+    };
+    if replacement(super::DIALOG_CLASS, &current, title).is_none() {
         return;
     }
     let mut result = 0usize;
