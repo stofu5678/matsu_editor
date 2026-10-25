@@ -208,7 +208,7 @@ pub struct EditorView {
     pub(crate) notice: Option<String>,
     /// A jump to a place the scan of the file has not reached, held back until it is done
     /// (`view/scan.rs`).
-    pub(crate) pending_scan_jump: Option<(&'static Registration, Vec<Arg>)>,
+    pub(crate) pending_scan_jump: Option<(u64, &'static Registration, Vec<Arg>)>,
     /// The last command was refused because the document is read-only (`view/scan.rs`).
     refused_edit: bool,
     /// The settings of the file and the temporary changes (`view/settings.rs`).

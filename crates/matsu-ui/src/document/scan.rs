@@ -75,6 +75,11 @@ impl SharedDocument {
         self.scan.as_ref().map(|s| s.id)
     }
 
+    /// Whether the scan of number `id` ended with the complete document.
+    pub(crate) fn scan_finished(&self, id: u64) -> bool {
+        self.scan_done == Some(id)
+    }
+
     /// Whether the scan is running.
     pub(crate) fn is_scanning(&self) -> bool {
         self.scan.as_ref().is_some_and(|s| s.failure.is_none())
@@ -126,6 +131,7 @@ impl SharedDocument {
         let Some(scan) = self.scan.as_mut().filter(|s| s.id == id) else {
             return ScanTick::Gone;
         };
+        let id = scan.id;
         if scan.failure.is_some() {
             return ScanTick::Failed;
         }
@@ -146,6 +152,7 @@ impl SharedDocument {
             ScanState::Done => match scan.job.snapshot() {
                 // The scan is done, so this document covers the whole file.
                 Ok(doc) => {
+                    self.scan_done = Some(id);
                     self.scan = None;
                     self.model.replace_scanned_document(doc);
                     self.changed(cx);

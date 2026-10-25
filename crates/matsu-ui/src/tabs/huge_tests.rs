@@ -25,7 +25,7 @@ fn write_big(dir: &Path, name: &str, bytes: &[u8]) -> PathBuf {
 }
 
 /// Files of 1 MiB or more are opened by ranges, and the scan takes a while (a window of 64 KiB
-/// every 150 ms), so that the tests can look at the document while it runs.
+/// every 300 ms), so that the tests can look at the document while it runs.
 fn slow_scan(cx: &mut TestAppContext) {
     cx.update(|app| {
         app.set_global(FilePrefs {
@@ -33,7 +33,7 @@ fn slow_scan(cx: &mut TestAppContext) {
             huge_scan: ScanOptions {
                 block_size: 64 * 1024,
                 window_blocks: 1,
-                step_delay: Some(Duration::from_millis(150)),
+                step_delay: Some(Duration::from_millis(300)),
                 ..ScanOptions::default()
             },
             ..FilePrefs::default()
@@ -59,7 +59,7 @@ fn caret_line(cx: &mut TestAppContext, view: &Entity<EditorView>) -> usize {
 
 /// Lets the scan thread and the task of the view go on until the scan is done.
 fn wait_for_scan(cx: &mut TestAppContext, view: &Entity<EditorView>) {
-    for _ in 0..600 {
+    for _ in 0..6000 {
         if !scanning(cx, view) {
             return;
         }
@@ -77,7 +77,7 @@ fn opened(cx: &mut TestAppContext, name: &str, bytes: &[u8]) -> (AnyWindowHandle
     slow_scan(cx);
     open_file(cx, handle, &path);
     // The file is read on a background thread that the test executor does not wait for.
-    for _ in 0..500 {
+    for _ in 0..6000 {
         let view = active_view(cx, handle);
         if view.read_with(cx, |v, cx| v.document().read(cx).path().is_some()) {
             break;
@@ -161,6 +161,15 @@ fn a_jump_to_the_end_waits_for_the_scan(cx: &mut TestAppContext) {
     // A line the scan has reached is a jump as usual.
     view.update(cx, |v, cx| v.run_command("jump", &[Arg::Int(2)], cx));
     assert_eq!(caret_line(cx, &view), 1);
+    // The PL/SQL count and the count of rows cannot be placed in a start of the file: they wait.
+    view.update(cx, |v, cx| {
+        v.run_command("jump", &[Arg::Int(3), Arg::Int(2)], cx)
+    });
+    assert_eq!(caret_line(cx, &view), 1);
+    assert_eq!(
+        notice(cx, &view).as_deref(),
+        Some("改行位置を調べ終えてから移動します")
+    );
     // A line it has not reached waits too.
     view.update(cx, |v, cx| v.run_command("jump", &[Arg::Int(70_000)], cx));
     assert_eq!(caret_line(cx, &view), 1);

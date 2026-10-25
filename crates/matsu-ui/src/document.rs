@@ -118,6 +118,8 @@ pub struct SharedDocument {
     restored_check: Option<RestoredCheck>,
     /// The scan behind a file opened by ranges, until it is done (`document/scan.rs`).
     scan: Option<ScanWatch>,
+    /// The number of the scan that ended with the complete document (`document/scan.rs`).
+    scan_done: Option<u64>,
     /// The file is read by ranges (ADR-0020): it stays open behind the document.
     ranged: bool,
 }
@@ -153,6 +155,7 @@ impl SharedDocument {
             restored_len: 0,
             restored_check: None,
             scan: None,
+            scan_done: None,
             ranged: false,
         }
     }
@@ -184,6 +187,7 @@ impl SharedDocument {
             restored_len: 0,
             restored_check: None,
             scan: None,
+            scan_done: None,
             ranged,
         };
         if let Some(job) = scan {

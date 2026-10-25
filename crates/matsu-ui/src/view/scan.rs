@@ -63,8 +63,10 @@ impl EditorView {
             return;
         }
         let complete = !self.document.read(cx).is_partial();
-        if let Some((reg, args)) = self.pending_scan_jump.take()
+        // Only a jump that waited for the scan that ended: the document may have been replaced.
+        if let Some((id, reg, args)) = self.pending_scan_jump.take()
             && complete
+            && self.document.read(cx).scan_finished(id)
         {
             self.run_registration(reg, &args, cx);
         }
@@ -86,22 +88,29 @@ impl EditorView {
         let beyond = match reg.sakura {
             "F_GOFILEEND" | "F_GOFILEEND_SEL" | "F_GOFILEEND_BOX" => true,
             "F_JUMP" => {
-                let line = match args.first() {
+                let number = |arg: Option<&Arg>| match arg {
                     Some(Arg::Int(n)) => Some(*n),
                     Some(Arg::Text(text)) => text.trim().parse::<i64>().ok(),
                     _ => None,
                 };
+                let option = args.get(1).map_or(Some(1), |a| number(Some(a)));
+                // Only the plain count of lines (option 1) is the number of a scanned line; the
+                // others count rows or the valid lines of PL/SQL, which no prefix can place.
                 // The last line that is scanned may be cut short: it counts as not reached.
-                line.is_some_and(|n| {
-                    usize::try_from(n).is_ok_and(|n| n >= shared.doc().line_count())
-                })
+                option != Some(1)
+                    || number(args.first()).is_some_and(|n| {
+                        usize::try_from(n).is_ok_and(|n| n >= shared.doc().line_count())
+                    })
             }
             _ => false,
         };
         if !beyond {
             return false;
         }
-        self.pending_scan_jump = Some((reg, args.to_vec()));
+        let Some(id) = shared.scan_id() else {
+            return false;
+        };
+        self.pending_scan_jump = Some((id, reg, args.to_vec()));
         self.notice = Some("改行位置を調べ終えてから移動します".to_owned());
         cx.notify();
         true
