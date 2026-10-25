@@ -206,6 +206,9 @@ pub(crate) struct Keeper {
     /// The session `session.ini` was last asked to have; `None` when that write failed and must be tried again.
     last_session: Option<Session>,
     session_retry_at: Option<Instant>,
+    /// A copy was left at the end of the editor: `session.ini` is not written any more, so that it keeps the
+    /// tabs and windows as they were for the next start.
+    session_frozen: bool,
     told_failure: bool,
     /// Documents whose user said 「保存しない」 in a flow that is not over: the copy goes when the close really
     /// happens ([`apply_close`]), not before, so a cancelled flow loses nothing.
@@ -223,6 +226,7 @@ impl Keeper {
             active_window: None,
             last_session: Some(Session::default()),
             session_retry_at: None,
+            session_frozen: false,
             told_failure: false,
             marked: HashMap::new(),
         }
@@ -302,6 +306,7 @@ impl Keeper {
         };
         self.windows
             .retain(|(_, r)| now.duration_since(r.at) < GONE_AFTER);
+        let mut left_for_exit = false;
         self.entries.retain(|_, entry| {
             if entry
                 .document
@@ -312,6 +317,7 @@ impl Keeper {
             }
             // A copy that was left to cover the document at the end of the editor is not removed with it.
             if entry.kept_for_exit {
+                left_for_exit = true;
                 return false;
             }
             if let (Some(writer), Some(id)) = (writer, entry.id.take()) {
@@ -319,9 +325,13 @@ impl Keeper {
             }
             false
         });
+        self.session_frozen |= left_for_exit;
         let Some(writer) = writer else {
             return;
         };
+        if self.session_frozen {
+            return;
+        }
         // A write of `session.ini` that failed is asked again, but not more often than a document is.
         if writer.session_failed()
             && self.last_session.is_some()
