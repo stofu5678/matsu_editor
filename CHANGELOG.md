@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.4.0](https://github.com/stofu5678/matsu_editor/compare/v0.3.0...v0.4.0) (2026-10-25)
+
+
+### Features
+
+* **core:** add the block line index and the background scan (ADR-0020) ([#259](https://github.com/stofu5678/matsu_editor/issues/259)) ([3dcee4f](https://github.com/stofu5678/matsu_editor/commit/3dcee4f51e6cd629711f734e1e4e5d4e7d7d9432))
+* **macros:** finish GetLineAttribute, the page commands' counts, nested undo and BOM-less .mac ([#274](https://github.com/stofu5678/matsu_editor/issues/274)) ([34dffa7](https://github.com/stofu5678/matsu_editor/commit/34dffa74714146b08da7403ff992973ff94714d1))
+* **macros:** run AppleScript macros on macOS (ADR-0025) ([#270](https://github.com/stofu5678/matsu_editor/issues/270)) ([9f3ec15](https://github.com/stofu5678/matsu_editor/commit/9f3ec159e6c563808c56757574ad479ee2a6ee61))
+* **outline:** port the PL/SQL, COBOL and assembler analyzers ([#257](https://github.com/stofu5678/matsu_editor/issues/257)) ([0db95bc](https://github.com/stofu5678/matsu_editor/commit/0db95bc2526c69d7e63935708839bdbe89b771d3))
+* **outline:** port the TeX, Erlang and rule file analyzers ([#272](https://github.com/stofu5678/matsu_editor/issues/272)) ([e45d7dc](https://github.com/stofu5678/matsu_editor/commit/e45d7dcd823651fd40ff7e8099833759c39ebfff))
+* **plugins:** read plugin.def and show the plugins in the settings (ADR-0026) ([#275](https://github.com/stofu5678/matsu_editor/issues/275)) ([27154b1](https://github.com/stofu5678/matsu_editor/commit/27154b1132d56c79e01d7b1dd4e0ef8e613e8e21))
+* **settings:** add, delete, copy and move types, and import and export them ([#271](https://github.com/stofu5678/matsu_editor/issues/271)) ([1f327f4](https://github.com/stofu5678/matsu_editor/commit/1f327f43880dbe3184a055ade887b54cce8f45af))
+* **ui:** open huge files by ranges with a background scan (ADR-0020) ([#276](https://github.com/stofu5678/matsu_editor/issues/276)) ([e733a41](https://github.com/stofu5678/matsu_editor/commit/e733a416db169245b088bcc32e69279bab8a1f21))
+* **ui:** quit without the save question when the copies are kept (ADR-0022) ([#258](https://github.com/stofu5678/matsu_editor/issues/258)) ([b1ce144](https://github.com/stofu5678/matsu_editor/commit/b1ce144373b2fd939586e3273bc7ad7ee9f2b2ae))
+* **view:** add Sakura's free cursor and the caret shapes ([#277](https://github.com/stofu5678/matsu_editor/issues/277)) ([1853219](https://github.com/stofu5678/matsu_editor/commit/1853219f3a3a64d4ab43304ff2bb8089c0388f8f))
+* **view:** expose the editor text to screen readers ([#260](https://github.com/stofu5678/matsu_editor/issues/260)) ([0838872](https://github.com/stofu5678/matsu_editor/commit/08388723aba137b171234aa7ec28d769d70bb281))
+
+
+### Bug Fixes
+
+* **commands:** security review of the database functions (ADR-0023) ([#273](https://github.com/stofu5678/matsu_editor/issues/273)) ([909a6f3](https://github.com/stofu5678/matsu_editor/commit/909a6f39ef4192d729517161d87b4e4ee983ee11))
+
 ## [0.3.0](https://github.com/stofu5678/matsu_editor/compare/v0.2.0...v0.3.0) (2026-10-25)
 
 
