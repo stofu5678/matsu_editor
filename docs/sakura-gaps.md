@@ -230,7 +230,7 @@
 
 | 項目 | サクラの場所 | MATSU の今 | 判断 | 大きさ | 依存 |
 |---|---|---|---|---|---|
-| エディタの本文の読み上げ（可視行の TextRun、キャレット、選択） | － | なし（#169、#204）。設計は #204 に出ている（GPUI の `a11y_synthetic_children` と accesskit） | C | L | GPUI |
+| エディタの本文の読み上げ（可視行の TextRun、キャレット、選択） | － | 入れた（`view/a11y_text.rs`）: 画面に出ている行を TextRun に、キャレットと選択を TextSelection にして、Div の `a11y_synthetic_children` で出す。文字の位置と幅、単語の始まりつき。Windows（UI Automation の TextPattern）と Mac（AX）での確認は調整役。画面の外の行（余白）とキャレットが画面外のときの選択は出さない | C | － | GPUI |
 | ステータスバーのメッセージ部が UI Automation / AX に出ない | － | #232 で直した: `Label` にして、メッセージがあるあいだは live region。サンドボックスで確かめる | C | － | なし |
 | ポップアップメニューの入れ物と区切り線に名前がない、項目のチェック・灰色・位置 | － | gpui-component の限界（#177、#204）。報告の下書きは `.claude/handoff/drafts/`。ユーザーが再現してから投稿 | ユーザーの判断が要る: ほかの OSS への投稿 | － | gpui-component |
 | 無効なボタン・入力欄の disabled、Table の名前 | － | `Button` と `Input` は gpui-component の限界（#177）。表の名前は未対応（`pending-checks.md`） | B/C | S | gpui-component |
