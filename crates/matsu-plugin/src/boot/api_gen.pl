@@ -2044,6 +2044,11 @@ sub ReDraw { shift; return $CALL->('ReDraw', @_) }
 # does not have yet answers the error -32001 (not implemented).
 sub ActivateWinOutput { shift; return $CALL->('ActivateWinOutput', @_) }
 
+# PreviewTab() -> null
+# MATSU Editor's own F_PREVIEW_TAB (not in Sakura). Runs the command that a key, the menu
+# and a key macro run.
+sub PreviewTab { shift; return $CALL->('PreviewTab', @_) }
+
 # TraceOut(arg1: string?, arg2: int?) -> null
 # MATSU Editor's own F_TRACEOUT (not in Sakura). Runs the command that a key, the menu and a
 # key macro run.

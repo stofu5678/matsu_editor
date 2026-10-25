@@ -829,7 +829,7 @@ pub(crate) fn tick_window_at(
         let mut ids = Vec::new();
         let mut active = 0;
         let mut failed_notice = None;
-        for (index, view) in tabs.iter().enumerate() {
+        for view in tabs.iter() {
             let document = view.read(cx).document().clone();
             let key = document.entity_id();
             let (want, revision) = {
@@ -897,7 +897,9 @@ pub(crate) fn tick_window_at(
                 failed_notice = Some(view.clone());
             }
             if let Some(id) = entry.id.clone().filter(|_| want == Want::Keep) {
-                if index == workspace.active_tab() {
+                // The tab that is shown: the one with the document of the window's view (a preview
+                // between the tabs shifts the numbers, so the position is not compared).
+                if document == *workspace.editor().read(cx).document() {
                     active = ids.len();
                 }
                 ids.push(id);

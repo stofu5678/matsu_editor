@@ -364,7 +364,18 @@ pub(crate) async fn close_windows(
     if !keep_current {
         closing.extend(mine);
     }
-    close_views(cx, closing).await
+    // A window whose documents are all closed but that still has a preview (a tab that is not a
+    // document of the group) goes with them. Not when one document stays (`keep_current`).
+    let handles: Vec<_> = closing
+        .iter()
+        .map(|(handle, _)| *handle)
+        .chain(std::iter::once(current))
+        .collect();
+    let closed = close_views(cx, closing).await;
+    if closed && !keep_current {
+        close_preview_only_windows(cx, handles);
+    }
+    closed
 }
 
 /// `STR_ERR_CSHAREDATA19`.
@@ -399,6 +410,26 @@ pub(crate) async fn close_views(
         }
     }
     true
+}
+
+/// Closes the windows among `handles` that have only previews left.
+fn close_preview_only_windows(cx: &mut AsyncWindowContext, handles: Vec<AnyWindowHandle>) {
+    let _ = cx.update(|window, app| {
+        for handle in handles {
+            let Some(workspace) = crate::file_ops::windows::workspace_of(app, handle) else {
+                continue;
+            };
+            if handle == window.window_handle() {
+                workspace.update(app, |ws, cx| ws.close_if_only_previews(window, cx));
+            } else {
+                handle
+                    .update(app, |_, other, app| {
+                        workspace.update(app, |ws, cx| ws.close_if_only_previews(other, cx));
+                    })
+                    .ok();
+            }
+        }
+    });
 }
 
 /// Runs Sakura's function `code` in the window `handle`, as if it was typed there. Used by the

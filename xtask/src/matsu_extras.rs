@@ -17,7 +17,7 @@ pub struct Extra {
     pub code: u16,
     pub name: &'static str,
     pub id: &'static str,
-    /// The index into the function groups (5 is クリップボード系).
+    /// The index into the function groups (5 is クリップボード系, 12 is ウィンドウ系).
     pub group: usize,
     pub label: &'static str,
     /// The function after which this one is placed in the function table, the main menu and
@@ -50,6 +50,17 @@ pub const EXTRAS: &[Extra] = &[
         after: "F_COPY_LF",
         access_key: 'M',
         macro_name: "CopyCR",
+    },
+    // The preview tab (ADR-0024): Sakura has nothing like it.
+    Extra {
+        code: 32702,
+        name: "F_PREVIEW_TAB",
+        id: "preview_tab",
+        group: 12,
+        label: "プレビューを別のタブで開く",
+        after: "F_WIN_OUTPUT",
+        access_key: 'G',
+        macro_name: "PreviewTab",
     },
 ];
 

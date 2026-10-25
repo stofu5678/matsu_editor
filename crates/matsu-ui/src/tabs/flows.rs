@@ -395,6 +395,23 @@ pub(crate) async fn close_side(
             if !settings::current(app).show_bar {
                 return None;
             }
+            // From a preview the sides are those of its tab among the tabs of the window; the
+            // previews on a side stay.
+            let workspace = workspace_of(app, handle)?;
+            if workspace.read(app).active_is_preview() {
+                let ws = workspace.read(app);
+                let (at, count) = (ws.active_tab(), ws.tab_count());
+                let range = if left {
+                    order::left_range(at)
+                } else {
+                    order::right_range(at, count)
+                };
+                return Some(
+                    range
+                        .filter_map(|i| ws.tab_editor(i).map(|view| (handle, view)))
+                        .collect::<Vec<_>>(),
+                );
+            }
             let current = workspace_of(app, handle)?.read(app).editor().clone();
             let views = group_views(app, handle);
             let at = views.iter().position(|(_, v)| *v == current)?;

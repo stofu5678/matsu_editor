@@ -189,6 +189,14 @@ fn install(window: &mut Window, cx: &mut App, workspace: &Entity<Workspace>) {
             && crate::tabs::settings::options(cx).close_one_win
             && workspace.read(cx).tab_count() > 1
         {
+            // The active tab is a preview: it goes, with no question.
+            if workspace.read(cx).active_is_preview() {
+                let workspace = workspace.clone();
+                window.defer(cx, move |window, cx| {
+                    workspace.update(cx, |ws, cx| ws.close_active_preview(window, cx));
+                });
+                return false;
+            }
             if !asking.replace(true) {
                 let view = workspace.read(cx).editor().downgrade();
                 let asking = asking.clone();

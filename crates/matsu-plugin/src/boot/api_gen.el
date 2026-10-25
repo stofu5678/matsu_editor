@@ -2931,6 +2931,13 @@ command that this editor does not have yet answers the error -32001 (not
 implemented)."
   (apply #'editor-call "ActivateWinOutput" args))
 
+(defun editor-preview-tab (&rest args)
+  "PreviewTab() -> null
+
+MATSU Editor's own F_PREVIEW_TAB (not in Sakura). Runs the command that a key,
+the menu and a key macro run."
+  (apply #'editor-call "PreviewTab" args))
+
 (defun editor-trace-out (&rest args)
   "TraceOut(arg1: string?, arg2: int?) -> null
 
