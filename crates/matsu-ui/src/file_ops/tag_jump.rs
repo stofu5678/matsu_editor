@@ -136,6 +136,14 @@ pub(crate) fn is_plain_local_file(path: &std::path::Path, refuse_links: bool) ->
         let mut so_far = std::path::PathBuf::new();
         for part in path.components() {
             so_far.push(part);
+            // the drive (`C:`, `\\?\C:`) and the root are not links, and a drive alone is not a path to
+            // ask for
+            if matches!(
+                part,
+                std::path::Component::Prefix(_) | std::path::Component::RootDir
+            ) {
+                continue;
+            }
             match std::fs::symlink_metadata(&so_far) {
                 Ok(meta) if meta.file_type().is_symlink() => return false,
                 Ok(_) => {}
