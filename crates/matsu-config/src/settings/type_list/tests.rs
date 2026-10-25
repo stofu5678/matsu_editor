@@ -60,6 +60,27 @@ fn the_names_follow_sakuras_rules() {
 }
 
 #[test]
+fn a_number_too_big_at_the_end_of_a_name_does_not_stop_the_copy() {
+    for source in [
+        "Type18446744073709551615",
+        "Type18446744073709551616",
+        "99999999999999999999999",
+    ] {
+        let copy = name_for_copy(source, &["基本", source]);
+        assert_ne!(copy, source);
+        assert!(copy.encode_utf16().count() <= 63);
+    }
+    // Many names in the way: still ends.
+    let source = "Type18446744073709551615";
+    let taken: Vec<String> = std::iter::once(source.to_owned())
+        .chain((2..30).map(|n| format!("{source}{n}")))
+        .collect();
+    let refs: Vec<&str> = taken.iter().map(String::as_str).collect();
+    let copy = name_for_copy(source, &refs);
+    assert!(!refs.contains(&copy.as_str()));
+}
+
+#[test]
 fn a_type_is_added_at_the_end_as_a_copy_of_the_basic_type() {
     let mut p = profile("[Types(0)]\r\nnInts=0,80,0,8,-1,-1,0,0,0,0,0,0\r\n");
     let before = names(&p);

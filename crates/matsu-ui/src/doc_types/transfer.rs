@@ -17,9 +17,11 @@ use gpui::{
     ClickEvent, Context, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Role,
     ScrollHandle, StatefulInteractiveElement, Styled, Toggled, Window, div, px, rgb, rgba,
 };
+use matsu_config::settings::DocumentTypes;
 use matsu_config::settings::type_file::{
     self, Colors, STRUCTURE_VERSION, TYPE_WILDCARD, Target, TypeFile,
 };
+use matsu_config::settings::type_list::ListError;
 
 use super::edit::edit_types;
 use super::list::{SELECTED_BG, TEXT, TypeList};
@@ -39,7 +41,7 @@ pub(crate) enum ColorChoice {
     /// The colors of the file.
     AsFile,
     /// The colors of the type with this number.
-    OfType(usize),
+    OfType(i32),
     /// A color file in the folder of the file.
     File(String),
 }
@@ -149,14 +151,14 @@ impl TypeList {
     fn ask(&mut self, file: TypeFile, path: PathBuf, cx: &mut Context<Self>) {
         let mut choices = vec![(ColorChoice::AsFile, AS_IT_IS.to_owned())];
         with_user(cx, |user| {
-            for (i, t) in user.document_types().iter().enumerate() {
+            for t in user.document_types().iter() {
                 // `CDlgTypeAscertain::SetData` has no spaces inside the parentheses.
                 let text = if t.type_exts.is_empty() {
                     t.type_name.clone()
                 } else {
                     format!("{} ({})", t.type_name, t.type_exts)
                 };
-                choices.push((ColorChoice::OfType(i), text));
+                choices.push((ColorChoice::OfType(t.id), text));
             }
         });
         if let Some(dir) = path.parent() {
@@ -204,29 +206,17 @@ impl TypeList {
             ..
         } = question;
         let dir = path.parent().map(Path::to_owned).unwrap_or_default();
-        let target = if add {
-            Target::Add
-        } else {
-            // The type that was named in the question, found again: another window may have moved or
-            // deleted it.
-            let index = to_id.and_then(|id| {
-                with_user(cx, |user| {
-                    user.document_types().iter().position(|t| t.id == id)
-                })
-            });
-            match index {
-                Some(index) => Target::Overwrite(index),
-                None => {
-                    self.say("インポート先のタイプが無くなりました。", window, cx);
-                    return;
-                }
-            }
-        };
+        // The types named in the question are found again inside the settings transaction (by id): another
+        // window or process may have moved or deleted them.
         // The color file is read here, so that the message can say if it was not.
         let mut shown = Vec::new();
+        let mut color_type = None;
         let colors = match choices.get(color).map(|(choice, _)| choice) {
             None | Some(ColorChoice::AsFile) => Colors::AsFile,
-            Some(ColorChoice::OfType(i)) => Colors::OfType(*i),
+            Some(ColorChoice::OfType(id)) => {
+                color_type = Some(*id);
+                Colors::AsFile
+            }
             Some(ColorChoice::File(name)) => {
                 let base = with_user(cx, |user| {
                     user.document_types()
@@ -253,6 +243,21 @@ impl TypeList {
         let mut read_keyword_file = |name: &str| std::fs::read(dir.join(name)).ok();
         let me = cx.entity_id();
         let result = edit_types(cx, me, |profile| {
+            let index_of = |id: i32| {
+                DocumentTypes::from_profile(profile)
+                    .iter()
+                    .position(|t| t.id == id)
+                    .ok_or(ListError::NoSuchType)
+            };
+            let target = if add {
+                Target::Add
+            } else {
+                Target::Overwrite(index_of(to_id.ok_or(ListError::NoSuchType)?)?)
+            };
+            let colors = match color_type {
+                Some(id) => Colors::OfType(index_of(id)?),
+                None => colors,
+            };
             type_file::import_type(profile, &file, target, colors, &mut read_keyword_file)
         });
         match result {
@@ -269,6 +274,11 @@ impl TypeList {
                 }
                 self.say(&message, window, cx);
             }
+            Err(ListError::NoSuchType) => self.say(
+                "インポート先、または色の取り込み元のタイプが無くなりました。",
+                window,
+                cx,
+            ),
             Err(e) => self.explain(&e, window, cx),
         }
     }

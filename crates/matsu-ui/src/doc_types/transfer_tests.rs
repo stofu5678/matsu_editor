@@ -179,6 +179,30 @@ fn the_import_does_not_replace_another_type_when_the_target_is_gone(cx: &mut Tes
 }
 
 #[gpui::test]
+fn the_color_source_is_the_type_named_in_the_question_even_after_the_types_move(
+    cx: &mut TestAppContext,
+) {
+    let (ini, handle) = setup(cx, "");
+    let cx = &mut VisualTestContext::from_window(handle, cx);
+    let view = view_of(cx);
+    let list = open_list(&view, cx);
+    let file = write_sakura_files(&ini);
+    list.update_in(cx, |l, window, lcx| l.import_chosen(&file, window, lcx));
+    cx.run_until_parked();
+    // The colors of C/C++ (id 2, the third type, the fourth choice).
+    list.update(cx, |l, _| l.ascertain.as_mut().unwrap().color = 3);
+    let cpp = types(&ini).get(2).unwrap().colors.get("CMT").unwrap().text;
+    // The type before it is deleted: C/C++ is number 1 now.
+    list.update_in(cx, |l, window, lcx| l.delete_now(1, window, lcx));
+    cx.run_until_parked();
+    list.update_in(cx, |l, window, lcx| l.ascertain_ok(window, lcx));
+    cx.run_until_parked();
+    let after = types(&ini);
+    let imported = after.get(after.len() - 1).unwrap();
+    assert_eq!(imported.colors.get("CMT").unwrap().text, cpp);
+}
+
+#[gpui::test]
 fn a_file_that_is_not_a_type_file_is_refused(cx: &mut TestAppContext) {
     let (ini, handle) = setup(cx, "");
     let cx = &mut VisualTestContext::from_window(handle, cx);

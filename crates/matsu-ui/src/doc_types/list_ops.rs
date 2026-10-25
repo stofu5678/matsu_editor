@@ -15,7 +15,7 @@ const MAX_TYPES: usize = matsu_config::settings::types::MAX_TYPES as usize;
 
 /// The number of the type with this id in the settings file as it is now (the transaction reads the latest
 /// file, which another process may have changed since this one loaded it).
-fn id_index(profile: &matsu_config::Profile, id: i32) -> Result<usize, ListError> {
+pub(super) fn id_index(profile: &matsu_config::Profile, id: i32) -> Result<usize, ListError> {
     matsu_config::settings::DocumentTypes::from_profile(profile)
         .iter()
         .position(|t| t.id == id)
@@ -122,9 +122,13 @@ impl TypeList {
         if !self.has_room() {
             return;
         }
-        let selected = self.selected;
+        let Some((id, _, _)) = self.selected_type(cx) else {
+            return;
+        };
         let me = cx.entity_id();
-        match edit_types(cx, me, |profile| type_list::copy_type(profile, selected)) {
+        match edit_types(cx, me, |profile| {
+            type_list::copy_type(profile, id_index(profile, id)?)
+        }) {
             Ok(index) => self.reload(index, cx),
             Err(e) => self.explain(&e, window, cx),
         }
@@ -140,10 +144,12 @@ impl TypeList {
         if !allowed {
             return;
         }
-        let selected = self.selected;
+        let Some((id, _, _)) = self.selected_type(cx) else {
+            return;
+        };
         let me = cx.entity_id();
         match edit_types(cx, me, |profile| {
-            type_list::move_type(profile, selected, up)
+            type_list::move_type(profile, id_index(profile, id)?, up)
         }) {
             Ok(index) => self.reload(index, cx),
             Err(e) => self.explain(&e, window, cx),

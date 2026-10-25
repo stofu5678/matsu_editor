@@ -259,11 +259,19 @@ pub fn name_for_copy(source: &str, names: &[&str]) -> String {
             let digits = name.chars().rev().take_while(char::is_ascii_digit).count();
             if digits > 0 {
                 let start = name.len() - digits;
-                n = name[start..]
+                // A number too big for `u64` is not a number here (the loop below must end): the name
+                // keeps its digits and gets a number of its own.
+                match name[start..]
                     .parse::<u64>()
-                    .unwrap_or(u64::MAX)
-                    .saturating_add(1);
-                name.truncate(start);
+                    .ok()
+                    .and_then(|v| v.checked_add(1))
+                {
+                    Some(next) => {
+                        n = next;
+                        name.truncate(start);
+                    }
+                    None => n += 1,
+                }
             } else {
                 n += 1;
             }
