@@ -479,7 +479,7 @@ fn program_kinds(segment: &str) -> Vec<Kind> {
         match known {
             Some(kind) => {
                 kinds.push(kind);
-                if !wrapped || kind == Kind::Other {
+                if !wrapped {
                     break;
                 }
             }

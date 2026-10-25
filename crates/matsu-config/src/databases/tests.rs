@@ -262,7 +262,16 @@ fn passwords_on_the_command_line_are_found() {
     // a word that only looks like a client is not one; encoded delimiters stay delimiters
     assert_eq!(found(Kind::Other, "psql -h mysql -p5432 -d app"), None);
     assert_eq!(found(Kind::Other, "psql -h sqlcmd -P5432"), None);
-    assert_eq!(found(Kind::Other, "env psql -h mysql -p5432 -f $F"), None);
+    // after a wrapper every client of the command is looked at (its operands can be the name of one, `sudo -u psql mysql`),
+    // so a host called `mysql` after `env psql` is taken for the client: refusing is the safe mistake
+    assert_eq!(
+        found(Kind::Other, "env psql -h mysql -p5432 -f $F"),
+        Some("-p")
+    );
+    assert_eq!(
+        found(Kind::MySql, "sudo -u psql mysql -psecret"),
+        Some("-p")
+    );
     // the commands of a line: cut at `;` `|` `&&` and ` & `, not at the `&` inside a word
     assert_eq!(
         split_commands("a && b | c ; d (e) f&g & h"),
