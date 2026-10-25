@@ -264,9 +264,7 @@ impl PluginDef {
             .iter()
             .map(|p| p.handler.as_str())
             .chain(self.commands.iter().map(|c| c.handler.as_str()));
-        handlers
-            .any(is_vbscript)
-            .then_some(Unsupported::VbScript)
+        handlers.any(is_vbscript).then_some(Unsupported::VbScript)
     }
 
     /// The commands the plugin has (`GetCommandCount`).

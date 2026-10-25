@@ -122,7 +122,10 @@ fn the_install_count_stops_at_an_empty_command_too() {
     let p = profile("[Command]\r\nC[1]=a.js\r\nC[2]=\r\nC[3]=c.js\r\n");
     assert_eq!(PluginDef::install_command_count(&p), 1);
     // `ReadPluginDefCommand` keeps an empty handler and goes on.
-    assert_eq!(def("[Command]\r\nC[1]=a.js\r\nC[2]=\r\nC[3]=c.js\r\n").command_count(), 3);
+    assert_eq!(
+        def("[Command]\r\nC[1]=a.js\r\nC[2]=\r\nC[3]=c.js\r\n").command_count(),
+        3
+    );
 }
 
 #[test]
@@ -159,7 +162,9 @@ fn the_options_inherit_the_section_and_skip_what_has_no_key() {
 
 #[test]
 fn an_option_without_a_section_or_a_key_is_ignored_and_a_type_that_is_unknown_is_a_string() {
-    let d = def("[Option]\r\nO[1].Key=A\r\nO[2].Section=S\r\nO[2].Key=\r\nO[3].Key=C\r\nO[3].Type=zzz\r\n");
+    let d = def(
+        "[Option]\r\nO[1].Key=A\r\nO[2].Section=S\r\nO[2].Key=\r\nO[3].Key=C\r\nO[3].Type=zzz\r\n",
+    );
     // O[1] has no section, O[2] no key; O[3] takes the section of O[2] (it was read).
     assert_eq!(d.options.len(), 1);
     assert_eq!(d.options[0].key, "C");
@@ -171,7 +176,9 @@ fn an_option_without_a_section_or_a_key_is_ignored_and_a_type_that_is_unknown_is
 fn the_choices_of_an_option_are_not_taken_from_the_one_before() {
     // Sakura keeps `sSelect` from one option to the next (an old bug), so an option with no
     // `Select` shows the choices of the previous one. Here it has none (ADR-0026, PR).
-    let d = def("[Option]\r\nO[1].Section=S\r\nO[1].Key=A\r\nO[1].Type=Sel\r\nO[1].Select=a|b\r\nO[2].Key=B\r\nO[2].Type=Sel\r\n");
+    let d = def(
+        "[Option]\r\nO[1].Section=S\r\nO[1].Key=A\r\nO[1].Type=Sel\r\nO[1].Select=a|b\r\nO[2].Key=B\r\nO[2].Type=Sel\r\n",
+    );
     assert_eq!(d.options[0].selects().len(), 2);
     assert!(d.options[1].selects().is_empty());
 }
@@ -211,7 +218,8 @@ fn the_language_file_replaces_the_texts_it_has() {
 
 #[test]
 fn a_definition_in_shift_jis_is_read() {
-    let (bytes, _, _) = encoding_rs::SHIFT_JIS.encode("[Plugin]\r\nId=a.b\r\nName=日本語の名前\r\nType=wsh\r\n");
+    let (bytes, _, _) =
+        encoding_rs::SHIFT_JIS.encode("[Plugin]\r\nId=a.b\r\nName=日本語の名前\r\nType=wsh\r\n");
     let d = PluginDef::from_bytes(&bytes, None);
     assert_eq!(d.name, "日本語の名前");
     assert_eq!(d.id, "a.b");
@@ -298,7 +306,10 @@ fn a_removed_slot_is_written_empty_and_keeps_its_id_until_then() {
     assert!(s.store(&mut p).unwrap());
     assert_eq!(p.get("Plugin", "P[00].Id"), Some(""));
     assert_eq!(p.get("Plugin", "P[00].Name"), Some(""));
-    assert_eq!(PluginSettings::from_profile(&p).table[0].state, PluginState::None);
+    assert_eq!(
+        PluginSettings::from_profile(&p).table[0].state,
+        PluginState::None
+    );
 }
 
 #[test]
@@ -349,7 +360,10 @@ fn the_places_are_next_to_the_settings_and_the_executable() {
     let d = SearchDirs::new(Path::new("/a/cfg/matsu.ini"), Some(Path::new("/b/exe")));
     assert_eq!(d.user, Path::new("/a/cfg/plugins"));
     assert_eq!(d.exe.as_deref(), Some(Path::new("/b/exe/plugins")));
-    assert_eq!(d.option_file("Sample"), Path::new("/a/cfg/plugins/Sample.ini"));
+    assert_eq!(
+        d.option_file("Sample"),
+        Path::new("/a/cfg/plugins/Sample.ini")
+    );
     // The same folder is looked at once.
     let same = SearchDirs::new(Path::new("/a/matsu.ini"), Some(Path::new("/a")));
     assert_eq!(same.exe, None);
@@ -457,7 +471,10 @@ fn the_errors_of_a_registration() {
     let root = tempfile::tempdir().unwrap();
     let d = dirs(root.path());
     let mut s = PluginSettings::default();
-    assert_eq!(s.install(&d, "Missing", false), Err(InstallError::NoDefinition));
+    assert_eq!(
+        s.install(&d, "Missing", false),
+        Err(InstallError::NoDefinition)
+    );
     plugin(&d.user, "NoId", "", 0);
     assert_eq!(s.install(&d, "NoId", false), Err(InstallError::NoId));
     plugin(&d.user, "Digit", "9x", 0);
@@ -466,14 +483,20 @@ fn the_errors_of_a_registration() {
         Err(InstallError::IdStartsWithDigit)
     );
     plugin(&d.user, "Bad", "a b", 0);
-    assert_eq!(s.install(&d, "Bad", false), Err(InstallError::ReservedChar(' ')));
+    assert_eq!(
+        s.install(&d, "Bad", false),
+        Err(InstallError::ReservedChar(' '))
+    );
     // The table is full at 40.
     for i in 0..MAX_PLUGIN {
         plugin(&d.user, &format!("P{i}"), &format!("id{i}"), 0);
         s.install(&d, &format!("P{i}"), false).unwrap();
     }
     plugin(&d.user, "OneMore", "more", 0);
-    assert_eq!(s.install(&d, "OneMore", false), Err(InstallError::TableFull));
+    assert_eq!(
+        s.install(&d, "OneMore", false),
+        Err(InstallError::TableFull)
+    );
 }
 
 #[test]
@@ -483,8 +506,16 @@ fn the_definition_is_read_with_its_language_file() {
     plugin(&d.user, "Sample", "s", 0);
     let local = d.user.join("Sample").join("local");
     fs::create_dir_all(&local).unwrap();
-    fs::write(local.join("plugin_ja_JP.def"), utf8_bom("[Plugin]\r\nName=日本語\r\n")).unwrap();
-    fs::write(local.join("plugin_en_US.def"), utf8_bom("[Plugin]\r\nName=English\r\n")).unwrap();
+    fs::write(
+        local.join("plugin_ja_JP.def"),
+        utf8_bom("[Plugin]\r\nName=日本語\r\n"),
+    )
+    .unwrap();
+    fs::write(
+        local.join("plugin_en_US.def"),
+        utf8_bom("[Plugin]\r\nName=English\r\n"),
+    )
+    .unwrap();
     assert_eq!(d.load_def("Sample", "ja_JP").unwrap().name, "日本語");
     assert_eq!(d.load_def("Sample", "en_US").unwrap().name, "English");
     assert_eq!(d.load_def("Sample", "fr_FR").unwrap().name, "Sample");

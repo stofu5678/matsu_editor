@@ -331,7 +331,9 @@ impl SearchDirs {
             .parent()
             .unwrap_or_else(|| Path::new(""))
             .join(FOLDER_NAME);
-        let exe = exe_dir.map(|dir| dir.join(FOLDER_NAME)).filter(|p| *p != user);
+        let exe = exe_dir
+            .map(|dir| dir.join(FOLDER_NAME))
+            .filter(|p| *p != user);
         SearchDirs { user, exe }
     }
 

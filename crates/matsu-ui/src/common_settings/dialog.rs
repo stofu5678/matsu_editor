@@ -155,6 +155,8 @@ impl CommonSettingsDialog {
             })
             .collect();
         let controls = all_controls();
+        // The page プラグイン looks for the plugin folders while its values are loaded.
+        super::pages::plugin::refresh_dirs(cx);
         let values = Values::load(&controls, profile);
         Self::build(
             page.index(),

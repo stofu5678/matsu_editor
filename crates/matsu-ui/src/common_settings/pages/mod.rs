@@ -11,6 +11,7 @@ pub(super) mod keys;
 pub(super) mod keyword;
 pub(super) mod macros;
 pub(super) mod main_menu;
+pub(super) mod plugin;
 pub(super) mod search;
 pub(super) mod status_bar;
 pub(super) mod support;
