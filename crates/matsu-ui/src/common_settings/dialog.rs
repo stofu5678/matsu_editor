@@ -327,6 +327,12 @@ impl CommonSettingsDialog {
         &self.values
     }
 
+    /// Changes several values at once (an import of a page). The controls show them afterwards.
+    pub(crate) fn edit_values(&mut self, change: impl FnOnce(&mut Values), cx: &mut Context<Self>) {
+        change(&mut self.values);
+        cx.notify();
+    }
+
     /// The controls of the page that is shown, in the order they are drawn.
     pub(crate) fn page_controls(&self) -> Vec<Control> {
         self.pages[self.page]

@@ -2,6 +2,7 @@
 //! `sakura_core/typeprop/CPropTypes.cpp`), one module each.
 
 pub(super) mod color;
+mod color_file;
 pub(super) mod keyhelp;
 mod keyhelp_io;
 pub(super) mod regex;

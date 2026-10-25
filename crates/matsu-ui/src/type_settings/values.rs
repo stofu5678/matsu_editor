@@ -74,12 +74,12 @@ fn tab_width_in_range(tab: i32, wrap_column: i32) -> i32 {
 }
 
 /// A `COLORREF` as the dialog holds it.
-fn color_value(color: u32) -> i32 {
+pub(in crate::type_settings) fn color_value(color: u32) -> i32 {
     i32::from_ne_bytes(color.to_ne_bytes())
 }
 
 /// The `COLORREF` of a value of the dialog.
-fn color_of(value: i32) -> u32 {
+pub(in crate::type_settings) fn color_of(value: i32) -> u32 {
     u32::from_ne_bytes(value.to_ne_bytes()) & 0x00ff_ffff
 }
 

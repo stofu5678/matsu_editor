@@ -984,7 +984,9 @@ fn a_type_that_is_not_there_has_no_sheet() {
     assert_eq!(t.tab_space, 4);
 }
 
+mod colors;
 mod lists;
+mod moved;
 mod transfer;
 
 // ---- 支援 ----

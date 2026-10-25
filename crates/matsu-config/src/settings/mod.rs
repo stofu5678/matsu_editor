@@ -20,6 +20,8 @@ pub mod macros;
 pub mod main_menu;
 pub mod print;
 pub mod search_keys;
+pub mod type_file;
+pub mod type_list;
 pub mod type_rules;
 pub mod types;
 
