@@ -15,14 +15,18 @@
 //!   inside quotes: `"!PATH!"`), so a name with a `%` or a `!` is refused. So is a name with a control
 //!   character.
 //!
-//! * The place of `$F` in the quotes of the template is followed (`-f '$F'`, `-c "psql -f $F"`): the name
-//!   is escaped for the quote it is in, so that writing the quotes oneself does not open a hole.
+//! The review of ADR-0023 (step 6) tried payloads on this, and the rules below are what was left:
+//!
+//! * The quotes of the template are followed up to `$F`. Written bare, the name is one word, quoted as
+//!   above. Written inside a quote of the template (`-f '$F'`, `-c "\i $F"`), the name is an argument that
+//!   the client or another shell reads itself (`psql -c '\i $F'` runs a backquote), and no escaping is known
+//!   to be right for that, so only a plain name goes in (letters, digits and `. _ - / + , : = @ ~`, and `\`
+//!   for `cmd.exe`), as it is.
 //! * Only a known client (`psql`, `mysql`, `sqlcmd`, ...; `is_database_client`) takes a name that is not
 //!   plain, and only when the template is one command with its arguments (no `;`, `&`, `|`, `<`, `>`,
-//!   backquote, `$(`). Any other program may read the name as code (`sh -c`, `eval`, `pwsh -Command`, a script of
-//!   the user's): the quoting for the first shell does not reach the second, so such a template gets
-//!   names of letters, digits and `. _ - / + , : = @ ~` only (and `\` for `cmd.exe`). That list was
-//!   chosen after the review of ADR-0023 (step 6), which tried the payloads in the tests.
+//!   backquote, `$(`). Any other program may read the name as code (`sh -c`, `eval`, `pwsh -Command`, a
+//!   script of the user's): the quoting for the first shell does not reach the second, so such a template
+//!   gets a plain name only.
 //!
 //! The text of the line then goes through `ExpandParameter` (`$F` and the like) in the exec flow,
 //! as every command line does; [`escape_for_expand`] doubles each `$` so that a `$` in a file name
@@ -171,39 +175,25 @@ fn is_plain(shell: Shell, c: char) -> bool {
 
 /// `path` as it goes into the line where the quote state is `quote`:
 ///
-/// * outside quotes: one word, between single quotes (`sh`) or double quotes (`cmd.exe`);
-/// * between single quotes: the path with each `'` as `'\''` (`sh`);
-/// * between double quotes: for `sh`, with `\`, `"`, `$` and the backquote escaped by a backslash (inside
-///   double quotes `sh` still expands `$(...)` and the backquote); for `cmd.exe` as it is.
+/// * outside quotes: one word, between single quotes (`sh`) or double quotes (`cmd.exe`), with each `'` of
+///   the name as `'\''` for `sh`;
+/// * inside a quote of the template: as it is. [`build`] lets only a plain name get here (the client or the
+///   other shell reads that argument itself, and no escaping is known to be right for it).
 fn quote_in(shell: Shell, quote: Quote, path: &str) -> Result<String, BuildError> {
     if let Some(c) = path.chars().find(|c| c.is_control()) {
         // a line break inside quotes is harmless to `sh`, but a name with one is never meant
         return Err(BuildError::Unquotable(c));
     }
-    match shell {
-        Shell::Posix => Ok(match quote {
-            Quote::Bare => format!("'{}'", path.replace('\'', "'\\''")),
-            Quote::Single => path.replace('\'', "'\\''"),
-            Quote::Double => {
-                let mut out = String::with_capacity(path.len());
-                for c in path.chars() {
-                    if matches!(c, '\\' | '"' | '$' | '`') {
-                        out.push('\\');
-                    }
-                    out.push(c);
-                }
-                out
-            }
-        }),
-        Shell::Cmd => {
+    match (shell, quote) {
+        (Shell::Posix, Quote::Bare) => Ok(format!("'{}'", path.replace('\'', "'\\''"))),
+        (Shell::Cmd, Quote::Bare) => {
             if let Some(c) = path.chars().find(|c| matches!(c, '"' | '%' | '!')) {
                 return Err(BuildError::Unquotable(c));
             }
-            Ok(match quote {
-                Quote::Double => path.to_owned(),
-                Quote::Bare | Quote::Single => format!("\"{path}\""),
-            })
+            Ok(format!("\"{path}\""))
         }
+        // the name was checked to be plain
+        (_, Quote::Single | Quote::Double) => Ok(path.to_owned()),
     }
 }
 
@@ -239,6 +229,8 @@ pub(crate) fn build(
         && !text.contains(COMPOUND)
         && !text.contains("$(")
         && !text.contains("${");
+    // `psql -c '\\i $F'`: inside a quote of the template the name is part of an argument that the client
+    // reads itself (a backquote runs a command in psql), whatever the shell does with it
     let strict = !client;
     let mut line = String::new();
     let mut quote = Quote::Bare;
@@ -257,7 +249,9 @@ pub(crate) fn build(
                 }
                 // read by more than one shell, only a plain name is safe: the quoting for the first
                 // shell does not reach the second
-                if strict && let Some(c) = file.chars().find(|&c| !is_plain(shell, c)) {
+                if (strict || quote != Quote::Bare)
+                    && let Some(c) = file.chars().find(|&c| !is_plain(shell, c))
+                {
                     return Err(BuildError::Unquotable(c));
                 }
                 line.push_str(&quote_in(shell, quote, file)?);

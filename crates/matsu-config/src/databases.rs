@@ -373,7 +373,9 @@ pub fn password_in_command(kind: Kind, command: &str) -> Option<&'static str> {
     kinds.extend(kinds_of_programs(command));
     // a shell removes a backslash before a letter (`--passw\ord=x` is `--password=x`)
     let unescaped = remove_backslashes(command);
-    [command, unescaped.as_str()]
+    // a connection string is read with `%XX` decoded (`?pass%77ord=x` is `?password=x`)
+    let decoded = percent_decode(command);
+    [command, unescaped.as_str(), decoded.as_str()]
         .into_iter()
         .flat_map(|text| kinds.iter().map(move |&k| (k, text)))
         .find_map(|(k, text)| password_in_text(k, text))
@@ -396,6 +398,28 @@ fn kinds_of_programs(command: &str) -> Vec<Kind> {
             }
         })
         .collect()
+}
+
+/// `text` with each `%XX` (two hexadecimal digits that make an ASCII character) replaced by that character.
+fn percent_decode(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%'
+            && let Some(hex) = text.get(i + 1..i + 3)
+            && let Ok(byte) = u8::from_str_radix(hex, 16)
+            && byte.is_ascii()
+        {
+            out.push(char::from(byte));
+            i += 3;
+        } else {
+            let c = text[i..].chars().next().unwrap_or('\u{fffd}');
+            out.push(c);
+            i += c.len_utf8();
+        }
+    }
+    out
 }
 
 /// `text` without the backslashes that a shell would remove (a backslash and the character after it become

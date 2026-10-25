@@ -243,6 +243,22 @@ fn passwords_on_the_command_line_are_found() {
     );
     assert_eq!(found(Kind::Other, "sqlcmd -U me -P secret"), Some("-P"));
     assert_eq!(found(Kind::Other, "psql -p5432 -d db"), None);
+    // `%XX` in a connection string is decoded by the client
+    assert_eq!(
+        found(
+            Kind::PostgreSql,
+            "psql 'postgresql://alice@localhost/app?pass%77ord=secret'"
+        ),
+        Some("password=")
+    );
+    assert_eq!(
+        found(
+            Kind::PostgreSql,
+            "psql postgresql://alice@h/app?sslmode=require%26x"
+        ),
+        None
+    );
+    assert_eq!(found(Kind::PostgreSql, "psql -f 100%.sql"), None);
     // escaped quotes are letters to a shell: the words are looked at by blanks too
     assert_eq!(
         found(
