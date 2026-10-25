@@ -211,6 +211,8 @@ pub struct EditorView {
     pub(crate) pending_scan_jump: Option<(u64, &'static Registration, Vec<Arg>)>,
     /// The last command was refused because the document is read-only (`view/scan.rs`).
     refused_edit: bool,
+    /// The jump that waited for the scan runs now: it was recorded already.
+    replaying_scan_jump: bool,
     /// The caret and the history of a file that was opened while it is scanned, to restore when
     /// the scan is done (`view/scan.rs`).
     pub(crate) pending_scan_restore: Option<scan::ScanRestore>,
@@ -296,6 +298,7 @@ impl EditorView {
             notice: None,
             pending_scan_jump: None,
             refused_edit: false,
+            replaying_scan_jump: false,
             pending_scan_restore: None,
             prefs: ViewPrefs::new(Default::default()),
             selection_count: Default::default(),
@@ -430,7 +433,10 @@ impl EditorView {
         if self.defer_for_scan(reg, args, cx) {
             return true;
         }
-        self.record_call(reg.sakura, args);
+        // A jump that waited for the scan was recorded when it was asked for.
+        if !std::mem::take(&mut self.replaying_scan_jump) {
+            self.record_call(reg.sakura, args);
+        }
         self.completion_before_command(reg.sakura);
         // `MoveCursorLayout(row, ..)` names a row of the whole text, and `MoveCursor` with a box
         // needs the row of its target: a document that is still being laid out in the background

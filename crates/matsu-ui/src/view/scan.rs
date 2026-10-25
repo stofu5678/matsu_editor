@@ -90,7 +90,9 @@ impl EditorView {
             && complete
             && self.document.read(cx).scan_finished(id)
         {
+            self.replaying_scan_jump = true;
             self.run_registration(reg, &args, cx);
+            self.replaying_scan_jump = false;
         }
     }
 
@@ -132,6 +134,8 @@ impl EditorView {
         let Some(id) = shared.scan_id() else {
             return false;
         };
+        // Recorded now, in its place among the commands; the run that follows does not record.
+        self.record_call(reg.sakura, args);
         self.pending_scan_jump = Some((id, reg, args.to_vec()));
         self.notice = Some("改行位置を調べ終えてから移動します".to_owned());
         cx.notify();
