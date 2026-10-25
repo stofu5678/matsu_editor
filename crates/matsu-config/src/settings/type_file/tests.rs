@@ -290,6 +290,33 @@ fn a_type_goes_out_and_comes_back_the_same() {
 }
 
 #[test]
+fn keyword_files_of_names_that_differ_only_in_case_get_different_files() {
+    use crate::settings::keywords::{SetDraft, store_sets};
+    let mut p = Profile::new();
+    let set = |name: &str, word: &str| SetDraft {
+        name: name.to_owned(),
+        case_sensitive: true,
+        words: vec![word.to_owned()],
+    };
+    store_sets(&mut p, &[set("Foo", "a"), set("foo", "b")]).unwrap();
+    let i = add_type(&mut p).unwrap();
+    p.set(
+        &format!("Types({i})"),
+        "nInts",
+        &format!("{i},10240,0,4,0,1,0,1,1,0,0,0"),
+    )
+    .unwrap();
+    let out = export_type(&p, i, "0.3.0").unwrap();
+    assert_eq!(out.keyword_files.len(), 2);
+    let lower: Vec<_> = out
+        .keyword_files
+        .iter()
+        .map(|k| k.file_name.to_lowercase())
+        .collect();
+    assert_ne!(lower[0], lower[1]);
+}
+
+#[test]
 fn a_type_with_japanese_text_goes_out_and_comes_back() {
     let mut p = Profile::new();
     let i = add_type(&mut p).unwrap();

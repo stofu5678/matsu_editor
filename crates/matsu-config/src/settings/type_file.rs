@@ -148,7 +148,8 @@ pub fn export_type(
         let mut copy = 1;
         while keyword_files
             .iter()
-            .any(|k: &KeywordExport| k.file_name == file_name)
+            // Windows and macOS file systems do not tell `Foo.kwd` from `foo.kwd`.
+            .any(|k: &KeywordExport| k.file_name.to_lowercase() == file_name.to_lowercase())
         {
             copy += 1;
             file_name = keyword_file::export_file_name(&format!("{}_{copy}", set.name));

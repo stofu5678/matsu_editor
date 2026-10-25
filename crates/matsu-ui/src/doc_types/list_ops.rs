@@ -44,6 +44,16 @@ impl TypeList {
         cx.notify();
     }
 
+    /// The list was changed from another window: shows the new list, with the same type selected.
+    /// `before` are the ids of the types as the list was.
+    pub(super) fn follow_the_list(&mut self, before: &[i32], cx: &mut Context<Self>) {
+        let index = before
+            .get(self.selected)
+            .and_then(|&id| Self::index_of_id(cx, id))
+            .unwrap_or(self.selected);
+        self.reload(index, cx);
+    }
+
     /// `InfoMessage`. Nobody waits for the answer.
     pub(super) fn say(&self, message: &str, window: &mut Window, cx: &mut Context<Self>) {
         drop(window.prompt(PromptLevel::Info, message, None, &["OK"], cx));
@@ -91,7 +101,8 @@ impl TypeList {
         if !self.has_room() {
             return;
         }
-        match edit_types(cx, type_list::add_type) {
+        let me = cx.entity_id();
+        match edit_types(cx, me, type_list::add_type) {
             Ok(index) => self.reload(index, cx),
             Err(e) => self.explain(&e, window, cx),
         }
@@ -103,7 +114,8 @@ impl TypeList {
             return;
         }
         let selected = self.selected;
-        match edit_types(cx, |profile| type_list::copy_type(profile, selected)) {
+        let me = cx.entity_id();
+        match edit_types(cx, me, |profile| type_list::copy_type(profile, selected)) {
             Ok(index) => self.reload(index, cx),
             Err(e) => self.explain(&e, window, cx),
         }
@@ -120,7 +132,10 @@ impl TypeList {
             return;
         }
         let selected = self.selected;
-        match edit_types(cx, |profile| type_list::move_type(profile, selected, up)) {
+        let me = cx.entity_id();
+        match edit_types(cx, me, |profile| {
+            type_list::move_type(profile, selected, up)
+        }) {
             Ok(index) => self.reload(index, cx),
             Err(e) => self.explain(&e, window, cx),
         }
@@ -163,7 +178,8 @@ impl TypeList {
         let Some(index) = Self::index_of_id(cx, id) else {
             return;
         };
-        match edit_types(cx, |profile| type_list::delete_type(profile, index)) {
+        let me = cx.entity_id();
+        match edit_types(cx, me, |profile| type_list::delete_type(profile, index)) {
             // `if (m_nTypesCount <= iDocType) iDocType = m_nTypesCount - 1`: `reload` limits it.
             Ok(()) => self.reload(index, cx),
             Err(e) => self.explain(&e, window, cx),
@@ -192,7 +208,8 @@ impl TypeList {
         let Some(index) = Self::index_of_id(cx, id) else {
             return;
         };
-        match edit_types(cx, |profile| type_list::reset_type(profile, index)) {
+        let me = cx.entity_id();
+        match edit_types(cx, me, |profile| type_list::reset_type(profile, index)) {
             Ok(name) => {
                 self.reload(index, cx);
                 self.say(&format!("{name} を初期化しました。"), window, cx);

@@ -315,6 +315,28 @@ fn resetting_a_type_of_matsu_does_not_move_the_ones_after_it() {
 }
 
 #[test]
+fn a_type_without_regex_keywords_does_not_get_those_of_the_type_it_replaces() {
+    let regex_count = |p: &Profile, i: usize| {
+        DocumentTypes::from_profile(p)
+            .get(i)
+            .unwrap()
+            .regex_keywords
+            .iter()
+            .filter(|k| !k.pattern.is_empty())
+            .count()
+    };
+    // テキスト has regex keywords (URL); C/C++ has none.
+    let mut p = Profile::new();
+    assert!(regex_count(&p, 1) > 0);
+    assert_eq!(move_type(&mut p, 2, true), Ok(1));
+    assert_eq!(regex_count(&p, 1), 0, "C/C++ moved to number 1");
+    assert!(regex_count(&p, 2) > 0, "テキスト moved to number 2");
+    let mut p = Profile::new();
+    reset_type(&mut p, 1).unwrap();
+    assert_eq!(regex_count(&p, 1), 0);
+}
+
+#[test]
 fn a_file_without_a_count_gets_the_count_of_the_list() {
     let mut p = Profile::new();
     delete_type(&mut p, 20).unwrap();

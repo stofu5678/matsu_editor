@@ -297,6 +297,28 @@ pub(crate) fn commit(cx: &mut App, target: &TypeTarget, values: &Values) {
     if new == *target.original {
         return;
     }
+    // The list of types may have changed while the sheet was open (a type moved or deleted in the list of
+    // types): the type is found again by its id, and nothing is written when it is gone.
+    let profile_now = current_profile(cx);
+    let types_now = DocumentTypes::from_profile(&profile_now);
+    let id = target.original.id;
+    let Some(index) = (types_now.get(target.index).is_some_and(|t| t.id == id))
+        .then_some(target.index)
+        .or_else(|| types_now.iter().position(|t| t.id == id))
+    else {
+        return;
+    };
+    let moved;
+    let target = if index == target.index {
+        target
+    } else {
+        moved = TypeTarget {
+            index,
+            original: target.original.clone(),
+            unused_slot: is_unused_slot(&profile_now, index),
+        };
+        &moved
+    };
     let number = i32::try_from(target.index).unwrap_or(0);
     let mut written: Option<Profile> = None;
     crate::history::write_settings(cx, |profile| {

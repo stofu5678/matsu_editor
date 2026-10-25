@@ -2,7 +2,7 @@
 //! new list (`CDlgTypeList` sends `MYWM_CHANGESETTING` to all editors after each change,
 //! `SendChangeSetting`, `SendChangeSettingType`, `SendChangeSettingType2`).
 
-use gpui::{App, Context};
+use gpui::{App, Context, EntityId};
 use matsu_config::Profile;
 use matsu_config::settings::type_list::ListError;
 
@@ -13,9 +13,11 @@ use crate::view::EditorView;
 /// Applies `change` to the settings file as it is now (another window or process may have changed it),
 /// writes the file, and brings every window up to date. A file that cannot be written (no place for
 /// it, no right to write) leaves the change for this session, as the type settings do. When
-/// `change` fails nothing is changed.
+/// `change` fails nothing is changed. The other lists of types that are open (in other windows) show the new list
+/// and keep their type selected; `except` is the list that makes the change (it is being updated).
 pub(crate) fn edit_types<R>(
     cx: &mut App,
+    except: EntityId,
     change: impl FnOnce(&mut Profile) -> Result<R, ListError>,
 ) -> Result<R, ListError> {
     let before: Vec<i32> = with_user(cx, |user| {
@@ -63,16 +65,20 @@ pub(crate) fn edit_types<R>(
     {
         let path = user.as_ref().and_then(crate::settings::history_file);
         cx.set_global(UserSettings::from_profile(profile, path));
-        follow_the_list(cx, &before);
+        follow_the_list(cx, &before, except);
     }
     outcome
 }
 
 /// Every view takes the new list. `before` are the ids of the types as the list was.
-fn follow_the_list(cx: &mut App, before: &[i32]) {
+fn follow_the_list(cx: &mut App, before: &[i32], except: EntityId) {
     for (_, workspace) in crate::file_ops::windows::workspaces(cx) {
         for view in workspace.read(cx).all_views() {
             view.update(cx, |view, cx| view.follow_type_list(before, cx));
+            let list = view.read(cx).doc_type.list.clone();
+            if let Some(list) = list.filter(|l| l.entity_id() != except) {
+                list.update(cx, |list, cx| list.follow_the_list(before, cx));
+            }
         }
     }
 }

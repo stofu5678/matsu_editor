@@ -160,6 +160,21 @@ pub(crate) fn write_entry(
         profile.set(&name, key, value)?;
     }
     entry.settings.write(profile, number)?;
+    // A list shorter than the limit ends with a blank `RxKey[NNN]=`: without it a type that starts from a
+    // built-in one (the first types of a file) would get the keywords of that type back.
+    let defined = entry
+        .settings
+        .regex_keywords
+        .iter()
+        .filter(|k| !k.pattern.is_empty())
+        .count()
+        .min(super::type_rules::MAX_REGEX_KEYWORDS);
+    if defined < super::type_rules::MAX_REGEX_KEYWORDS {
+        let key = format!("RxKey[{defined:03}]");
+        if profile.get(&name, &key).is_none() {
+            profile.set(&name, &key, "")?;
+        }
+    }
     // `write` always writes the new-file keys. The ones the file did not set stay unset.
     for key in NEW_FILE_KEYS {
         match entry.raw.iter().find(|(k, _)| k == key) {

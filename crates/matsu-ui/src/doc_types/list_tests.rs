@@ -359,6 +359,36 @@ fn a_document_that_has_the_type_of_its_name_takes_the_type_of_its_name_again(
 }
 
 #[gpui::test]
+fn another_open_list_shows_the_change_and_keeps_its_type_selected(cx: &mut TestAppContext) {
+    let (_ini, first) = setup(cx, &own_types(20));
+    let second = cx
+        .update(|cx| open_editor_window(cx, SharedDocument::empty(), None))
+        .unwrap();
+    cx.run_until_parked();
+    let view_of_window = |cx: &mut TestAppContext, handle: AnyWindowHandle| {
+        cx.update(|app| crate::file_ops::windows::workspace_of(app, handle))
+            .unwrap()
+            .read_with(cx, |ws, _| ws.editor().clone())
+    };
+    let (view_a, view_b) = (view_of_window(cx, first), view_of_window(cx, second));
+    let cx_a = &mut VisualTestContext::from_window(first, cx);
+    let list_a = open_list(&view_a, cx_a);
+    let cx_b = &mut VisualTestContext::from_window(second, cx);
+    let list_b = open_list(&view_b, cx_b);
+    select(&list_b, cx_b, 19);
+    // The first window deletes type 5 (its id is 5).
+    let cx_a = &mut VisualTestContext::from_window(first, cx);
+    select(&list_a, cx_a, 5);
+    list_a.update_in(cx_a, |l, window, lcx| l.delete_now(5, window, lcx));
+    cx_a.run_until_parked();
+    let cx_b = &mut VisualTestContext::from_window(second, cx);
+    // Type 19 is number 18 now, and still selected in the other list.
+    assert_eq!(selected(&list_b, cx_b), 18);
+    assert_eq!(labels(&list_b, cx_b).len(), 19);
+    assert_eq!(labels(&list_b, cx_b)[18], "自分19 ( x19 )");
+}
+
+#[gpui::test]
 fn without_a_settings_file_the_list_changes_for_the_session(cx: &mut TestAppContext) {
     cx.update(gpui_component::init);
     cx.update(|cx| cx.set_global(UserSettings::none()));

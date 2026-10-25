@@ -231,7 +231,8 @@ impl TypeList {
             }
         };
         let mut read_keyword_file = |name: &str| std::fs::read(dir.join(name)).ok();
-        let result = edit_types(cx, |profile| {
+        let me = cx.entity_id();
+        let result = edit_types(cx, me, |profile| {
             type_file::import_type(profile, &file, target, colors, &mut read_keyword_file)
         });
         match result {
