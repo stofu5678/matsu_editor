@@ -304,6 +304,18 @@ fn passwords_on_the_command_line_are_found() {
         ),
         None
     );
+    // a program in quotes is one word, whatever its path holds
+    assert_eq!(
+        found(Kind::MySql, "\"/opt/psql clients/mysql\" -psecret"),
+        Some("-p")
+    );
+    assert_eq!(
+        found(
+            Kind::Other,
+            "\"C:\\Program Files\\MySQL\\mysql.exe\" -psecret"
+        ),
+        Some("-p")
+    );
     // a name of a client among the operands of a wrapper does not hide the real client
     assert_eq!(
         found(Kind::SqlServer, "sudo -u mysql sqlcmd -U me -P secret"),

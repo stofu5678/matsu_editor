@@ -420,7 +420,7 @@ fn with_glued_word<'a>(text: &'a str, segment: &str) -> Option<&'a str> {
     if segment.ends_with(|c: char| c.is_whitespace()) {
         return None;
     }
-    let word_end = rest.find(char::is_whitespace).map_or(rest.len(), |i| i);
+    let word_end = rest.find(char::is_whitespace).unwrap_or(rest.len());
     Some(&text[start..end + word_end])
 }
 
@@ -483,8 +483,10 @@ fn program_kinds(segment: &str) -> Vec<Kind> {
     const WRAPPERS: &[&str] = &[
         "env", "sudo", "doas", "nohup", "time", "exec", "command", "xargs",
     ];
-    let words = segment
-        .split(|c: char| c.is_whitespace() || matches!(c, '"' | '\''))
+    // the words as a shell reads them: `"/opt/psql clients/mysql"` is one word, the program
+    let words = split_words(segment)
+        .into_iter()
+        .map(|(word, _)| word)
         .filter(|w| !w.is_empty());
     let mut kinds = Vec::new();
     let mut wrapped = false;
