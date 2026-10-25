@@ -41,7 +41,8 @@ impl Program {
         // the same way by everyone.
         let source = source.replace("\r\n", "\n").replace('\r', "\n");
         let source = source.as_str();
-        let mut text = String::from(PREFIX);
+        // A checkout on Windows may have CR LF in the prefix.
+        let mut text = PREFIX.replace("\r\n", "\n");
         let lines_before_user = text.matches('\n').count();
         text.push_str(source);
         if !source.ends_with('\n') {

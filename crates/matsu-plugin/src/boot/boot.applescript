@@ -35,7 +35,9 @@ end editorPrint
 on editorReadLine()
 	repeat
 		set theRange to editorBuffer's rangeOfString:linefeed
-		if (location of theRange) is not (current application's NSNotFound) then
+		-- NSNotFound is 2^63 - 1, which AppleScript holds as a real that does not equal the
+		-- constant: any position that is not huge is a position.
+		if (location of theRange) < 1.0E+15 then
 			set lineText to (editorBuffer's substringToIndex:(location of theRange)) as text
 			set my editorBuffer to editorBuffer's substringFromIndex:((location of theRange) + 1)
 			return lineText
