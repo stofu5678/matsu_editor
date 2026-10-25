@@ -71,6 +71,16 @@ fn wait_for_scan(cx: &mut TestAppContext, view: &Entity<EditorView>) {
 }
 
 fn opened(cx: &mut TestAppContext, name: &str, bytes: &[u8]) -> (AnyWindowHandle, PathBuf) {
+    opened_with(cx, name, bytes, |_, _| {})
+}
+
+/// Like `opened`; `before` runs with the path just before the file is opened.
+fn opened_with(
+    cx: &mut TestAppContext,
+    name: &str,
+    bytes: &[u8],
+    before: impl FnOnce(&mut TestAppContext, &Path),
+) -> (AnyWindowHandle, PathBuf) {
     // A folder of its own: the tests run at the same time.
     static COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
     let dir = temp_dir(&format!(
@@ -80,6 +90,7 @@ fn opened(cx: &mut TestAppContext, name: &str, bytes: &[u8]) -> (AnyWindowHandle
     let path = write_big(&dir, name, bytes);
     let handle = window(cx, true);
     slow_scan(cx);
+    before(cx, &path);
     open_file(cx, handle, &path);
     // The file is read on a background thread that the test executor does not wait for.
     for _ in 0..6000 {
@@ -264,5 +275,46 @@ fn another_pane_of_the_document_runs_its_own_waiting_jump(cx: &mut TestAppContex
     wait_for_scan(cx, &view);
     cx.run_until_parked();
     assert_eq!(caret_line(cx, &pane), 94_999);
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[gpui::test]
+fn a_place_and_bookmarks_past_the_scanned_start_come_back_when_the_scan_is_done(
+    cx: &mut TestAppContext,
+) {
+    use crate::history::{HistoryOptions, HistoryState, view::path_text};
+    use matsu_config::history::FileEntry;
+    use matsu_core::buffer::Pos;
+
+    let (handle, dir) = opened_with(cx, "big.txt", big_text().as_bytes(), |cx, path| {
+        cx.update(|app| {
+            app.set_global(HistoryState::in_memory(HistoryOptions::default()));
+            let mut entry = FileEntry::new(path_text(path));
+            entry.caret_x = 3;
+            entry.caret_y = 89_999;
+            entry.marks = matsu_config::history::marks::encode_marks([50_000, 95_000]);
+            crate::history::add_file(app, entry);
+        });
+    });
+    let view = active_view(cx, handle);
+    assert!(scanning(cx, &view));
+    let marks = |cx: &mut TestAppContext, view: &Entity<EditorView>| -> Vec<usize> {
+        view.read_with(cx, |v, app| {
+            v.document().read(app).model().bookmarks().iter().collect()
+        })
+    };
+    // Past what is scanned: nothing is cut to the start yet.
+    assert!(marks(cx, &view).is_empty());
+    wait_for_scan(cx, &view);
+    assert_eq!(
+        view.read_with(cx, |v, _| v.cursor.caret()),
+        Pos::new(89_999, 3)
+    );
+    assert_eq!(marks(cx, &view), [50_000, 95_000]);
+    // The history was written with the restored place, not one cut to the start.
+    let entry = cx.update(|app| {
+        crate::history::current(app).and_then(|h| h.file(&path_text(&dir.join("big.txt"))).cloned())
+    });
+    assert_eq!(entry.map(|e| e.caret_y), Some(89_999));
     std::fs::remove_dir_all(dir).ok();
 }

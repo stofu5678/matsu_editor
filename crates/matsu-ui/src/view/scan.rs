@@ -5,12 +5,27 @@ use std::time::Duration;
 
 use gpui::{App, Context};
 use matsu_commands::command::{Arg, Registration};
+use matsu_config::history::FileEntry;
+use matsu_core::buffer::Pos;
 
 use super::EditorView;
 use crate::document::ScanTick;
+use crate::history::HistoryOptions;
 
 /// How often the task of the view looks at the scan.
 const POLL: Duration = Duration::from_millis(100);
+
+/// What is restored after a file is opened when the scan has not reached it yet.
+pub(crate) struct ScanRestore {
+    /// The scan the restore waits for.
+    id: u64,
+    /// Where the caret was put when the file was opened: it is restored only if it is still there.
+    at_load: Pos,
+    /// The place of a reload.
+    caret: Option<Pos>,
+    /// The place and the bookmarks the history remembers; the history is written after them.
+    history: Option<(FileEntry, HistoryOptions)>,
+}
 
 impl EditorView {
     /// Starts the task that follows the scan of the document's file, if it has one: it shows the
@@ -124,5 +139,55 @@ impl EditorView {
         {
             self.notice = Some(why);
         }
+    }
+
+    /// Holds back the restore of the caret (a reload) and of the history (`CMruListener`) while
+    /// the document shows only the scanned start of its file: they would be cut to it, and the
+    /// history would be written with the cut values. Returns whether they were held back; if not,
+    /// the caller restores now.
+    pub(crate) fn defer_restore(
+        &mut self,
+        caret: Option<Pos>,
+        history: Option<(FileEntry, HistoryOptions)>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let shared = self.document.read(cx);
+        let Some(id) = shared.scan_id().filter(|_| shared.is_scanning()) else {
+            return false;
+        };
+        let held = self.pending_scan_restore.take().filter(|r| r.id == id);
+        self.pending_scan_restore = Some(ScanRestore {
+            id,
+            at_load: self.cursor.caret(),
+            caret: caret.or(held.as_ref().and_then(|r| r.caret)),
+            history: history.or(held.and_then(|r| r.history)),
+        });
+        true
+    }
+
+    /// When the document changes: restores what waited for the scan, once it is done (and drops
+    /// it when the scan failed). A caret that the user moved meanwhile stays where it is.
+    pub(super) fn apply_scan_restore(&mut self, cx: &mut Context<Self>) {
+        if self.pending_scan_restore.is_none() || self.document.read(cx).is_scanning() {
+            return;
+        }
+        let Some(restore) = self.pending_scan_restore.take() else {
+            return;
+        };
+        if !self.document.read(cx).scan_finished(restore.id) {
+            return;
+        }
+        let kept_place = self.cursor.caret() == restore.at_load;
+        if kept_place
+            && let Some(pos) = restore.caret
+            && let Ok(pos) = self.document.read(cx).doc().clamp_pos(pos)
+        {
+            self.go_to(pos, cx);
+        }
+        if let Some((entry, mut options)) = restore.history {
+            options.restore_cur_position &= kept_place;
+            self.restore_from_history(&entry, options, cx);
+        }
+        self.record_history(cx);
     }
 }

@@ -369,7 +369,11 @@ fn open_ranged(
     let (document, scan) = if job.is_finished() {
         (job.finish().map_err(scan_to_file_error)?, None)
     } else {
-        (job.snapshot().map_err(scan_to_file_error)?, Some(job))
+        let document = job.snapshot().map_err(scan_to_file_error)?;
+        // The scan may have ended since `is_finished` was asked: a complete document can be
+        // edited, so the job must not be kept to put the same text over an edit later.
+        let scan = document.is_read_only().then_some(job);
+        (document, scan)
     };
     let fallback = if encoding == options.detect.default_encoding {
         options.default_eol

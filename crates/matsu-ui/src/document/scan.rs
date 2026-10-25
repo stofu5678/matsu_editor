@@ -142,6 +142,13 @@ impl SharedDocument {
                 if grown && scan.last_swap.elapsed() >= MIN_SWAP_INTERVAL {
                     scan.last_swap = Instant::now();
                     if let Ok(doc) = scan.job.snapshot() {
+                        // The worker may have scanned the rest since the state was read: the
+                        // document covers the whole file and can be edited, so the scan is over
+                        // now. A later poll must not put the same text over an edit.
+                        if !doc.is_read_only() {
+                            self.complete_scan(id, doc, cx);
+                            return ScanTick::Finished;
+                        }
                         scan.shown = doc.raw_len() as u64;
                         self.model.replace_scanned_document(doc);
                         self.changed(cx);
@@ -152,10 +159,7 @@ impl SharedDocument {
             ScanState::Done => match scan.job.snapshot() {
                 // The scan is done, so this document covers the whole file.
                 Ok(doc) => {
-                    self.scan_done = Some(id);
-                    self.scan = None;
-                    self.model.replace_scanned_document(doc);
-                    self.changed(cx);
+                    self.complete_scan(id, doc, cx);
                     ScanTick::Finished
                 }
                 Err(e) => {
@@ -172,6 +176,19 @@ impl SharedDocument {
                 ScanTick::Failed
             }
         }
+    }
+
+    /// The scan is over: `doc` covers the whole file and takes the place of the document.
+    fn complete_scan(
+        &mut self,
+        id: u64,
+        doc: matsu_core::buffer::Document,
+        cx: &mut Context<Self>,
+    ) {
+        self.scan_done = Some(id);
+        self.scan = None;
+        self.model.replace_scanned_document(doc);
+        self.changed(cx);
     }
 
     /// The scan stopped: what was scanned stays on the screen, read-only. The file was probably

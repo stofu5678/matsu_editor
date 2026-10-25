@@ -215,11 +215,18 @@ pub(crate) async fn load_here(
                 if let Some(ext) = super::start_options::expected_type(cx, path) {
                     view.apply_launch_type(&ext, cx);
                 }
-                if let Some(entry) = &previous {
-                    let options = crate::history::options(cx);
-                    view.restore_from_history(entry, options, cx);
+                let history = previous
+                    .clone()
+                    .map(|entry| (entry, crate::history::options(cx)));
+                // The place and the bookmarks of a file scanned in the background may be past
+                // what is scanned yet: they are restored, and the history written, when the scan
+                // is done.
+                if !view.defer_restore(None, history.clone(), cx) {
+                    if let Some((entry, options)) = &history {
+                        view.restore_from_history(entry, *options, cx);
+                    }
+                    view.record_history(cx);
                 }
-                view.record_history(cx);
                 true
             });
             let replaced = replaced.unwrap_or(false);

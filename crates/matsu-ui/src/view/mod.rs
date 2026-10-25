@@ -211,6 +211,9 @@ pub struct EditorView {
     pub(crate) pending_scan_jump: Option<(u64, &'static Registration, Vec<Arg>)>,
     /// The last command was refused because the document is read-only (`view/scan.rs`).
     refused_edit: bool,
+    /// The caret and the history of a file that was opened while it is scanned, to restore when
+    /// the scan is done (`view/scan.rs`).
+    pub(crate) pending_scan_restore: Option<scan::ScanRestore>,
     /// The settings of the file and the temporary changes (`view/settings.rs`).
     pub(crate) prefs: ViewPrefs,
     /// The size of the selection counted last (`status_info.rs`).
@@ -293,6 +296,7 @@ impl EditorView {
             notice: None,
             pending_scan_jump: None,
             refused_edit: false,
+            pending_scan_restore: None,
             prefs: ViewPrefs::new(Default::default()),
             selection_count: Default::default(),
             print: Default::default(),
@@ -578,6 +582,7 @@ impl EditorView {
         self.clamp_scroll();
         cx.notify();
         self.run_pending_scan_jump(cx);
+        self.apply_scan_restore(cx);
     }
 
     /// Lays out some more of a large document each frame, until it is all done.

@@ -1799,3 +1799,22 @@ fn a_cancel_while_opening_by_ranges_is_honored() {
         open_file_with(&path, &huge_options(10), &mut |_, _| ControlFlow::Break(())).unwrap_err();
     assert!(matches!(error, FileError::Cancelled), "{error}");
 }
+
+#[test]
+fn a_document_that_can_be_edited_never_comes_with_a_running_scan() {
+    // The scan of a small file ends about when the open looks at it: whichever way it falls, a
+    // complete document is not kept with a job that would put the same text over an edit.
+    let dir = TempDir::new();
+    let path = dir.write("race.txt", "line\n".repeat(40).as_bytes());
+    let mut options = huge_options(1);
+    options.huge_scan.block_size = 8;
+    options.huge_scan.window_blocks = 1;
+    for _ in 0..300 {
+        let mut file = open_file(&path, &options).unwrap();
+        let scan = file.take_scan();
+        assert!(
+            file.document.is_read_only() || scan.is_none(),
+            "a document that can be edited came with a scan"
+        );
+    }
+}
