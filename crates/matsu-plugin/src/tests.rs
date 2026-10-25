@@ -45,8 +45,14 @@ fn available(language: Language) -> bool {
         return false;
     }
     let interpreter = language.default_interpreter();
+    // osascript has no --version: it is asked to run a one-line script.
+    let probe: &[&str] = if language == Language::AppleScript {
+        &["-e", "return 1"]
+    } else {
+        &["--version"]
+    };
     let output = Command::new(&interpreter)
-        .arg("--version")
+        .args(probe)
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()

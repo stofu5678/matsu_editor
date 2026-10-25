@@ -283,8 +283,8 @@ Emacs の利用者を考えて調べた。6 つとも、次がすべて通った
 - 中継（ADR-0025 の「実装のときに確かめる」の項目）: AppleScript は標準入出力を直接は扱えないので、AppleScriptObjC（`use framework "Foundation"`）で、`NSFileHandle`（標準入力から `availableData` を読んで行にためる。標準出力へはすぐ書く）と `NSJSONSerialization`（JSON の読み書き）を使う。`osascript` 自身が中継になるので、別の中継プログラムは要らない。ほかの言語と同じ JSON-RPC の行（RS で始まる 1 行 1 要求）
 - JSON: 書き出しは UTF-8 のまま（`\uXXXX` にしない。macOS の標準出力は UTF-8 で、受け取る側も UTF-8 を読める）。整数の値の実数（`4 / 2`）は整数として送られる（`NSNumber`）
 - 関数: 名前ごとのハンドラーは作れない（`copy`・`delete`・`print` などが AppleScript の語のため）。`editorCall("InsText", {"x"})` の形で、サクラの名前と引数の並びで呼ぶ。`editorPrint(テキスト)` で出力パネルへ 1 行書く（`log` は標準エラー）。`editorInfo("editor.name")` が `initialize` の内容（キーパス）。`tell` の中では `my editorCall(...)`
-- エラー: エディタの `error` は AppleScript のエラー（番号がエディタの番号、文字は `EditorError 番号: メッセージ`）。`try ... on error errorText number errorNumber` で受ける。捕まえなかったエラーは `osascript` が `ファイル:開始-終了: execution error: ...` と出すので、エディタが文字の範囲を `名前:行` に直す（UTF-16 の文字数で数える。前置きの中の範囲は行なしで `名前` だけ）。構文エラーも同じ
-- 戻り値: `osascript` は `run` が返した値を標準出力に出すので、後置きは `matsu-end` を返し、エディタがその行を捨てる
+- エラー: エディタの `error` は AppleScript のエラー（番号がエディタの番号、文字は `EditorError 番号: メッセージ`）。`try ... on error errorText number errorNumber` で受ける。捕まえなかったエラーは `osascript` が `ファイル:開始:終了: execution error: ...`（`開始-終了` の形も読む） と出すので、エディタが文字の範囲を `名前:行` に直す（UTF-16 の文字数で数える。前置きの中の範囲は行なしで `名前` だけ）。構文エラーも同じ
+- 戻り値: `osascript` は `run` が返した値を標準出力に出すので、後置きは長い印の文字列（`applescript::END_MARK`）を返し、エディタがその行を捨てる
 - 文字コード: プログラムのファイルは UTF-8。日本語・絵文字の文字列は往復のテストで確かめる（macOS の CI で実行）
 - macOS 以外では、マクロは始まらず「AppleScript のマクロは macOS でだけ動かせます」と出る
 

@@ -6,7 +6,7 @@
 //! a file in the private boot folder.
 //!
 //! `osascript` reports an error with the range of characters in the program
-//! (`file:START-END: execution error: ...`). [`Program::translate_error`] turns that into the name of
+//! (`file:START:END: execution error: ...`). [`Program::translate_error`] turns that into the name of
 //! the user's script and the line in it.
 
 /// The handlers and the beginning of `script UserMacro`.
@@ -15,10 +15,11 @@ const PREFIX: &str = include_str!("boot/boot.applescript");
 /// What follows the user's script: the end of the script object, and the `on run` that reads
 /// `initialize`, runs the macro and answers with [`END_MARK`] (osascript prints the value that
 /// `run` returns; the session drops that line).
-const SUFFIX: &str = "\nend script\n\non run\n\tmy editorStart()\n\tset ignoredResult to run UserMacro\n\treturn \"matsu-end\"\nend run\n";
+const SUFFIX: &str = "\nend script\n\non run\n\tmy editorStart()\n\tset ignoredResult to run UserMacro\n\treturn \"matsu-end-7f3a91c2-applescript-result\"\nend run\n";
 
 /// The line that `osascript` prints for the result of the program. It is not output of the macro.
-pub const END_MARK: &str = "matsu-end";
+/// (A long token, so that a macro does not print it by chance.)
+pub const END_MARK: &str = "matsu-end-7f3a91c2-applescript-result";
 
 /// The program and where the user's script is in it.
 #[derive(Debug, Clone)]
@@ -92,18 +93,27 @@ impl Program {
     }
 }
 
-/// `path:START-END: rest` as (START, ": rest"), for the messages of `osascript`.
+/// `path:START:END: rest` as (START, ": rest"), for the messages of `osascript`. (Some versions
+/// write the range as `START-END`; both are read.)
 fn split_range(line: &str) -> Option<(usize, &str)> {
-    // The path may hold colons; the range is the last `:digits-digits:` before the kind of error.
+    // The path may hold colons; the range is the last two numbers before the kind of error.
     let kind = line
         .find(": execution error")
         .or_else(|| line.find(": syntax error"))?;
-    let head = &line[..kind];
-    let colon = head.rfind(':')?;
-    let (start, end) = head[colon + 1..].split_once('-')?;
-    let start: usize = start.parse().ok()?;
-    end.parse::<usize>().ok()?;
-    Some((start, &line[kind..]))
+    let (before, last) = line[..kind].rsplit_once(':')?;
+    let number = |text: &str| -> Option<usize> {
+        text.bytes()
+            .all(|b| b.is_ascii_digit())
+            .then(|| text.parse().ok())
+            .flatten()
+    };
+    if let Some((start, end)) = last.split_once('-') {
+        number(end)?;
+        return Some((number(start)?, &line[kind..]));
+    }
+    number(last)?;
+    let (_, start) = before.rsplit_once(':')?;
+    Some((number(start)?, &line[kind..]))
 }
 
 #[cfg(test)]
@@ -145,7 +155,7 @@ mod tests {
             .sum::<usize>()
             + 2;
         let line = format!(
-            "/tmp/x/macro.applescript:{offset}-{}: execution error: boom (-2700)",
+            "/tmp/x/macro.applescript:{offset}:{}: execution error: boom (-2700)",
             offset + 5
         );
         assert_eq!(
@@ -158,7 +168,7 @@ mod tests {
     fn an_error_in_the_boot_has_no_line() {
         let program = Program::build("set a to 1\n", "/m/a.applescript");
         let line =
-            "/tmp/x/macro.applescript:100-110: execution error: EditorError -32602: x (-32602)";
+            "/tmp/x/macro.applescript:100:110: execution error: EditorError -32602: x (-32602)";
         assert_eq!(
             program.translate_error(line),
             "/m/a.applescript: execution error: EditorError -32602: x (-32602)"
@@ -175,10 +185,26 @@ mod tests {
             .take(program.lines_before_user + 1)
             .map(|l| l.encode_utf16().count() + 1)
             .sum();
-        let line = format!("f:{before}-{}: execution error: x (-2700)", before + 3);
+        let line = format!("f:{before}:{}: execution error: x (-2700)", before + 3);
         assert_eq!(
             program.translate_error(&line),
             "n:2: execution error: x (-2700)"
+        );
+    }
+
+    #[test]
+    fn the_dash_form_is_read_too() {
+        let program = Program::build("error \"x\"\n", "n");
+        let offset: usize = program
+            .text
+            .lines()
+            .take(program.lines_before_user)
+            .map(|l| l.encode_utf16().count() + 1)
+            .sum();
+        let line = format!("/a:b/f:{offset}-{}: execution error: x (-2700)", offset + 3);
+        assert_eq!(
+            program.translate_error(&line),
+            "n:1: execution error: x (-2700)"
         );
     }
 

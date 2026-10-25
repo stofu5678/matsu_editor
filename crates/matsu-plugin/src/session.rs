@@ -645,13 +645,12 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
                 let split = protocol::split_output_line(line);
                 if let Some(text) = split.user {
                     // osascript prints the value that the program returns: not the macro's output.
-                    if text == applescript::END_MARK && is_applescript {
-                        return;
+                    if !(is_applescript && text == applescript::END_MARK) {
+                        sink(HostEvent::Output {
+                            stream: Stream::Stdout,
+                            text: text.to_string(),
+                        });
                     }
-                    sink(HostEvent::Output {
-                        stream: Stream::Stdout,
-                        text: text.to_string(),
-                    });
                 }
                 if let Some(message) = split.message {
                     sink(HostEvent::Message(message.to_string()));
