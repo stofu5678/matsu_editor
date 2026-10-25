@@ -194,6 +194,17 @@ pub(crate) async fn confirm_discard_ending(
     cx: &mut AsyncWindowContext,
     ends: &dyn Fn(&mut App) -> bool,
 ) -> bool {
+    confirm_discard_ending_by(view, cx, ends).await.0
+}
+
+/// [`confirm_discard_ending`] that also says whether the question was left out because the copy covers the
+/// document (the second value), so that a flow that goes on asking about other documents can ask again about this
+/// one if the close stops being the end of the editor meanwhile.
+pub(crate) async fn confirm_discard_ending_by(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    ends: &dyn Fn(&mut App) -> bool,
+) -> (bool, bool) {
     // An answer of an earlier flow that was cancelled does not count any more.
     view.update(cx, |view, cx| crate::unsaved::unmark_close(view, cx))
         .ok();
@@ -203,9 +214,9 @@ pub(crate) async fn confirm_discard_ending(
         // The file goes into the history with its caret, bookmarks and encoding, as it does after the question
         // (`CMruListener::OnBeforeClose`); the copy of the document is not marked for discard.
         view.update(cx, |view, cx| view.record_history(cx)).ok();
-        return true;
+        return (true, true);
     }
-    confirm_discard(view, cx).await
+    (confirm_discard(view, cx).await, false)
 }
 
 /// Whether closing the document of `view` ends the editor without a question about its copy: the setting is on,

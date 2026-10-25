@@ -311,3 +311,66 @@ fn closing_without_the_question_records_the_file_in_the_history(cx: &mut TestApp
     assert!(known, "the file is in the history");
     assert_eq!(doc_files(&f.dir).len(), 1, "the copy stays");
 }
+
+#[gpui::test]
+fn a_tab_whose_question_was_left_out_is_asked_when_a_window_opens_during_a_later_question(
+    cx: &mut TestAppContext,
+) {
+    let f = fixture(cx);
+    cx.update(|app| {
+        app.set_global(KeepPrefs {
+            no_ask: true,
+            max_mb: 1,
+            ..KeepPrefs::default()
+        });
+        app.set_global(crate::tabs::settings::TabSettings {
+            show_bar: true,
+            grouped: true,
+            new_window: false,
+        });
+        let mut options = crate::tabs::settings::options(app);
+        options.retain_empty = false;
+        options.close_one_win = false;
+        app.set_global(options);
+    });
+    // Tab A is covered by its copy.
+    type_text(cx, &f, "covered tab");
+    let t0 = Instant::now();
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    // Tab B is too big to be kept, so it is asked about.
+    run(cx, &f, "F_FILENEW");
+    let ws = workspace(cx, f.handle);
+    assert_eq!(ws.read_with(cx, |ws, _| ws.tab_count()), 2);
+    let big = "x".repeat(1024 * 1024 + 10);
+    ws.update(cx, |ws, cx| {
+        ws.editor().clone().update(cx, |view, cx| {
+            view.document().update(cx, |shared, _| {
+                let (model, _) = shared.parts_mut();
+                model
+                    .replace(
+                        matsu_core::buffer::Pos::new(0, 0),
+                        matsu_core::buffer::Pos::new(0, 0),
+                        &big,
+                    )
+                    .unwrap();
+            });
+        });
+    });
+    tick(cx, &f, t0 + Duration::from_secs(10));
+    // The close button of the last window: A is left out, B is asked about.
+    let window = VisualTestContext::from_window(f.handle, cx).into_mut();
+    assert!(!window.simulate_close());
+    window.run_until_parked();
+    assert!(asks(cx, &f), "the question about the big tab");
+    // A window opens while the question is open: the close is not the end any more.
+    cx.update(|app| open_editor_window(app, SharedDocument::empty(), None))
+        .unwrap();
+    cx.run_until_parked();
+    let window = VisualTestContext::from_window(f.handle, cx).into_mut();
+    window.simulate_prompt_answer("保存しない(N)");
+    window.run_until_parked();
+    // The tab that was left out is asked about now, and the window is still there.
+    assert!(asks(cx, &f), "the first tab is asked about now");
+    assert!(cx.update(|app| app.windows().contains(&f.handle)));
+}
