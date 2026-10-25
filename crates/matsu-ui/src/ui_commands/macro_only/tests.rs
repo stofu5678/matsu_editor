@@ -902,6 +902,57 @@ fn a_block_that_the_macro_left_open_is_closed_when_it_ends(cx: &mut TestAppConte
 }
 
 #[gpui::test]
+fn a_nested_macro_puts_the_undo_block_back_to_where_it_was(cx: &mut TestAppContext) {
+    // Sakura: `ExecKeyMacroBefore` remembers the reference count of the undo block and
+    // `ExecKeyMacroAfter` sets it back, so an `AddRefUndoBuffer()` that the inner macro does not
+    // close is closed when the inner macro ends, and the outer macro goes on in its own block.
+    let dir = tempfile::tempdir().unwrap();
+    let inner = dir.path().join("inner.mac");
+    std::fs::write(&inner, "AddRefUndoBuffer();\nChar(12356);\n").unwrap();
+    let outer = dir.path().join("outer.mac");
+    std::fs::write(
+        &outer,
+        format!(
+            "AddRefUndoBuffer();\nChar(12354);\nExecExternalMacro(\"{}\");\nChar(12358);\nSetUndoBuffer();\nChar(12360);\n",
+            inner.display()
+        ),
+    )
+    .unwrap();
+    let (f, cx) = setup(cx, "");
+    f.run(cx, "F_EXECEXTMACRO", &[path_arg(&outer)]);
+    assert_eq!(f.text(cx), "あいうえ");
+    // the last character is its own step: the outer block was left by SetUndoBuffer()
+    f.run(cx, "F_UNDO", &[]);
+    assert_eq!(f.text(cx), "あいう");
+    f.run(cx, "F_UNDO", &[]);
+    assert_eq!(f.text(cx), "", "the three are one step");
+}
+
+#[gpui::test]
+fn a_nested_macro_that_leaves_too_often_gets_the_outer_block_back(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let inner = dir.path().join("inner.mac");
+    std::fs::write(&inner, "Char(12356);\nSetUndoBuffer();\n").unwrap();
+    let outer = dir.path().join("outer.mac");
+    std::fs::write(
+        &outer,
+        format!(
+            "AddRefUndoBuffer();\nChar(12354);\nExecExternalMacro(\"{}\");\nChar(12358);\nSetUndoBuffer();\n",
+            inner.display()
+        ),
+    )
+    .unwrap();
+    let (f, cx) = setup(cx, "");
+    f.run(cx, "F_EXECEXTMACRO", &[path_arg(&outer)]);
+    assert_eq!(f.text(cx), "あいう");
+    // the inner macro's SetUndoBuffer() stored あい; the block was entered again for う
+    f.run(cx, "F_UNDO", &[]);
+    assert_eq!(f.text(cx), "あい");
+    f.run(cx, "F_UNDO", &[]);
+    assert_eq!(f.text(cx), "");
+}
+
+#[gpui::test]
 fn the_quote_string_is_shared_by_the_windows(cx: &mut TestAppContext) {
     let (a, cx_a) = setup(cx, "x\ny");
     a.run(cx_a, "F_SET_QUOTESTRING", &[text("| ")]);

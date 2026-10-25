@@ -18,11 +18,11 @@ impl UiCommand for OnePageUp {
     fn run(
         &self,
         view: &mut EditorView,
-        _: &[Arg],
+        args: &[Arg],
         _: &mut Window,
         cx: &mut Context<EditorView>,
     ) -> Result {
-        view.page_by(-1, false, cx)
+        view.page_by(-1, EditorView::rows_arg(args), false, cx)
     }
 }
 

@@ -22,7 +22,8 @@
 //! * `F_EXECKEYMACRO`: [`KeyMacro::play`] on the focused document's `CommandContext`.
 //!
 //! The file is UTF-8 with a BOM, one call per line (`Char(97);`, `InsText('a\n');`), as
-//! Sakura writes it (`CTextOutputStream` defaults to UTF-8 with BOM).
+//! Sakura writes it (`CTextOutputStream` defaults to UTF-8 with BOM). A file without a BOM is
+//! read as Shift_JIS, as Sakura does ([`KeyMacro::from_bytes`]).
 //!
 //! # Differences from Sakura
 //!
@@ -40,6 +41,7 @@ use std::io;
 use std::path::Path;
 
 use matsu_core::buffer::Eol;
+use matsu_core::encoding::{Encoding, INVALID_BYTE_BASE};
 
 use crate::command::{Arg, CommandError};
 use crate::context::{CommandContext, macro_value_of_eol};
@@ -241,10 +243,30 @@ impl KeyMacro {
         bytes
     }
 
-    /// Reads the bytes of a file (UTF-8, with or without a BOM).
+    /// Reads the bytes of a file: UTF-8 when it starts with a BOM, else Shift_JIS (code page 932).
+    ///
+    /// Sakura: `CKeyMacroMgr::LoadKeyMacro` reads the file with `CTextInputStream`, which looks
+    /// for the UTF-8 BOM and, "if it is not UTF-8", reads every line as `CP_SJIS`
+    /// (`CTextInputStream::ReadLineW`, `sakura_core/io/CTextStream.cpp`). So a file without a BOM
+    /// is Shift_JIS even when it is valid UTF-8 (only ASCII reads the same in both), and bytes
+    /// that the code page cannot convert are an encoding error (`CError_TextEncoding`,
+    /// `STR_ERR_MACRO_ENCODING`).
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, LoadError> {
-        let text = std::str::from_utf8(bytes).map_err(|_| LoadError::NotUtf8)?;
-        Ok(Self::from_text(text)?)
+        let text = match bytes.strip_prefix(b"\xEF\xBB\xBF") {
+            Some(rest) => std::str::from_utf8(rest)
+                .map_err(|_| LoadError::NotUtf8)?
+                .to_owned(),
+            None => {
+                let mut text = String::new();
+                Encoding::ShiftJis.codec().decode(bytes, &mut text);
+                // an invalid byte decodes to a stand-in char
+                if text.chars().any(|c| c as u32 >= INVALID_BYTE_BASE) {
+                    return Err(LoadError::NotUtf8);
+                }
+                text
+            }
+        };
+        Ok(Self::from_text(&text)?)
     }
 
     pub fn save(&self, path: &Path) -> io::Result<()> {
@@ -339,6 +361,8 @@ impl std::error::Error for ParseError {}
 #[derive(Debug)]
 pub enum LoadError {
     Io(io::Error),
+    /// The bytes are not valid in the encoding the file is read in (UTF-8 with a BOM, else
+    /// Shift_JIS).
     NotUtf8,
     Parse(ParseError),
 }
@@ -347,7 +371,10 @@ impl fmt::Display for LoadError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Io(e) => write!(f, "{e}"),
-            Self::NotUtf8 => write!(f, "the file is not UTF-8"),
+            Self::NotUtf8 => write!(
+                f,
+                "the text cannot be converted: save the file as UTF-8 with a BOM or as Shift_JIS"
+            ),
             Self::Parse(e) => write!(f, "{e}"),
         }
     }

@@ -28,8 +28,8 @@
 
 | 領域 | 行数 | 主な不足 |
 |---|---|---|
-| コマンドと関数 | 15 | 関数コードのあるコマンドで未登録は 9 つ（うち 4 つは FD が今のラウンドで実装か判断、2 つは SQL*Plus で ADR-0023） |
-| マクロ | 6 | `GetLineAttribute` の種類 3・4、矩形の `MoveCursor`、`ChgmodEOL` の第 2 引数、入れ子の `AddRefUndoBuffer`、`.mac` の文字コード、再生中の分割コマンド |
+| コマンドと関数 | 14 | 関数コードのあるコマンドで未登録は 9 つ（うち 4 つは FD が今のラウンドで実装か判断、2 つは SQL*Plus で ADR-0023） |
+| マクロ | 2 | 矩形の `MoveCursor`、再生中の分割コマンド |
 | 設定 | 13 | 共通設定の灰色の部品 31 個とタイプ別設定の灰色の部品 55 個。コマンドが設定を読まず、サクラの既定の値で動くもの |
 | ダイアログ | 12 | プラグイン、プロファイル、ウィンドウの位置と大きさ、色統一、強調キーワード選択、タイプ一覧のファイルの関連付け |
 | プラグイン | 3 | 全部。常駐プラグインは ADR-0007 のとおり別の設計 |
@@ -98,20 +98,17 @@
 | `F_WordDeleteToStart` `F_WordDeleteToEnd` の矩形 | `CViewCommander_Edit.cpp` | サクラはビープ。MATSU は動かすかどうか未確認 | C | S | なし |
 | `F_DELETE` `F_DELETE_BACK` のフリーカーソル時と折り返し時の動き | `CViewCommander_Edit.cpp`（2008.08.03 nasukoji） | 未対応（`delete.rs`、`delete_back.rs` の「Not done yet」） | C | M | フリーカーソル |
 | `F_WCHAR` の改行時に末尾の空白を削る、インデント対象文字、スマートインデント（上書きの細部は共通設定「編集」から読む形でつないだ） | `CViewCommander_Edit.cpp` | 未対応（`input_char.rs`）。タイプ別設定の部品が灰色 | A/C | M | タイプ別設定をつなぐ |
-| `F_MERGE` の矩形選択 | `Command_MERGE` 834-836 行 | サクラは何もせず戻る。MATSU はエラーを返し、マクロが止まる（#194） | A | S | なし |
 | 単語削除などで、サクラがメッセージボックスを出す箇所（`STR_ERR_DLGEDITVWCMDNW7` など） | `CViewCommander_Edit.cpp` | メッセージは出さない | C | S | なし |
 
 ### マクロ
+
+マクロの細部で直したもの（ラウンド 23）: `GetLineAttribute` の種類 3（差分の印。0 なし、1 追加、2 変更、3 削除、4 EOF 以降の削除）と 4（アウトラインの印）。`HalfPageUp(n)` `HalfPageDown(n)` `PageUp(n)` `PageDown(n)`（選択・矩形の型も）の行数引数（0 以下は既定）。入れ子の `.mac` が終わるとき、`AddRefUndoBuffer` の深さを始める前の値に戻す（`ExecKeyMacroAfter`）。BOM なしの `.mac` は Shift_JIS として読む（`CTextInputStream`）。`ChgmodEOL` の第 2 引数は、サクラの表（`CSMacroMgr.cpp` 304 行）に無く、実在しない。`F_MERGE` の矩形選択は、すでにサクラどおり何もせず戻る。
 
 `MacroFunction` 59 個と `MacroOnly` 23 個の名前は、すべてコードのどこかにある。さらに、マクロの名前の表の結果のある行 62 個すべてに、プラグインのホスト（`matsu-plugin/src/functions/`）の実装と、その単体テストがあることを確かめた。サクラとの比較（oracle）のケースは別に 727 件ある。次は、実装があっても一部だけのもの。
 
 | 項目 | サクラの場所 | MATSU の今 | 判断 | 大きさ | 依存 |
 |---|---|---|---|---|---|
-| `GetLineAttribute` の種類 3（差分）・4（アウトラインの印） | `CMacro.cpp` の `F_GETLINEATTRIBUTE` | 「未実装」を返す（`functions/state.rs`）。差分の印は #93 で入ったので、3 は実装できる | A | S | 4 はアウトラインの印 |
 | `MoveCursor` の矩形（オプション 2）、`Jump` の PL/SQL とテキスト折り返しの行番号 | `CMacro.cpp` | エラーを返す（`matsu-plugin/src/api.rs`） | C | M | PL/SQL は ADR-0023 |
-| `ChgmodEOL` の第 2 引数（ロック）、`HalfPageUp(n)` 系・`PageUp(n)` 系の行数引数 | `CMacro.cpp` | 未対応（#209） | C | S | なし |
-| 入れ子のマクロの `AddRefUndoBuffer` を閉じ忘れたときの戻し方 | `CMacro.cpp` | 外側が終わるまで閉じない（#97） | C | S | なし |
-| `.mac` の文字コード（BOM なしの古いファイルを Shift_JIS として読むか） | `CMacroManagerBase`、`CKeyMacroMgr` | UTF-8 だけ。確かめていない（#44）。未確認 | C | S | なし |
 | キーマクロ再生中の分割コマンド（次のコマンドが分割前の大きさで動く） | － | 既知の不具合（#91）。直していない | A | M | マクロの再生の作り |
 
 ### 設定

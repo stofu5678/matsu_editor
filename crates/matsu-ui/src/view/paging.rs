@@ -85,23 +85,39 @@ impl EditorView {
         })
     }
 
+    /// The first argument of the page commands, `HalfPageUp(n)` and the like: the number of rows to
+    /// move (`CMacro::HandleCommand` passes `_wtoi` of it as `lparam1`; `Command_HalfPageUp` and
+    /// `Command_1PageUp` take the default when it is 0 or less). No argument is 0.
+    pub(crate) fn rows_arg(args: &[Arg]) -> usize {
+        match args.first() {
+            Some(Arg::Int(n)) if *n > 0 => usize::try_from(*n).unwrap_or(usize::MAX),
+            _ => 0,
+        }
+    }
+
     /// `Command_1PageUp/Down`: the caret moves a page less one row and the view scrolls by as many
     /// rows, so the caret keeps its place on the screen. The view scrolls even when the caret
     /// cannot move (2014.01.10 Moca in Sakura's comment).
     pub(crate) fn page_by(
         &mut self,
         direction: isize,
+        count: usize,
         extend: bool,
         cx: &mut Context<Self>,
     ) -> Result {
-        self.page_with(direction, cx, |view, rows, cx| {
+        self.page_with(direction, count, cx, |view, rows, cx| {
             view.move_caret_rows(rows, extend, cx)
         })
     }
 
     /// `F_1PageUp_BOX` and `F_1PageDown_BOX`: [`page_by`](Self::page_by) with the box selection.
-    pub(crate) fn page_by_box(&mut self, direction: isize, cx: &mut Context<Self>) -> Result {
-        self.page_with(direction, cx, |view, rows, cx| {
+    pub(crate) fn page_by_box(
+        &mut self,
+        direction: isize,
+        count: usize,
+        cx: &mut Context<Self>,
+    ) -> Result {
+        self.page_with(direction, count, cx, |view, rows, cx| {
             view.move_caret_rows_box(rows, cx)
         })
     }
@@ -109,10 +125,15 @@ impl EditorView {
     fn page_with(
         &mut self,
         direction: isize,
+        count: usize,
         cx: &mut Context<Self>,
         move_caret: impl FnOnce(&mut Self, isize, &mut Context<Self>) -> Result,
     ) -> Result {
-        let rows = (self.metrics.visible_rows() as isize - 1).max(1);
+        let rows = if count > 0 {
+            count as isize
+        } else {
+            (self.metrics.visible_rows() as isize - 1).max(1)
+        };
         let top = self.top_row() as isize;
         let moved = move_caret(self, direction * rows, cx);
         self.scroll_top_to(top + direction * rows, cx);
@@ -124,18 +145,34 @@ impl EditorView {
     pub(crate) fn half_page_by(
         &mut self,
         direction: isize,
+        count: usize,
         extend: bool,
         cx: &mut Context<Self>,
     ) -> Result {
-        let rows = (self.metrics.visible_rows() / 2) as isize;
+        let rows = self.half_page_rows(count);
         self.move_caret_rows(direction * rows, extend, cx)
     }
 
     /// `F_HalfPageUp_BOX` and `F_HalfPageDown_BOX`: [`half_page_by`](Self::half_page_by) with the
     /// box selection.
-    pub(crate) fn half_page_by_box(&mut self, direction: isize, cx: &mut Context<Self>) -> Result {
-        let rows = (self.metrics.visible_rows() / 2) as isize;
+    pub(crate) fn half_page_by_box(
+        &mut self,
+        direction: isize,
+        count: usize,
+        cx: &mut Context<Self>,
+    ) -> Result {
+        let rows = self.half_page_rows(count);
         self.move_caret_rows_box(direction * rows, cx)
+    }
+
+    /// The rows of a half page move: the macro's count, or half the rows of the view when the
+    /// count is 0 or less (`if( nScrollNum <= 0 ) nScrollNum = m_nViewRowNum / 2`).
+    fn half_page_rows(&self, count: usize) -> isize {
+        if count > 0 {
+            count as isize
+        } else {
+            (self.metrics.visible_rows() / 2) as isize
+        }
     }
 
     /// `Command_WndScrollUp` (`direction` 1: the text moves up, the top row grows) and
