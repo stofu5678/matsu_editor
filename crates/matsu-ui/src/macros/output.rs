@@ -9,7 +9,7 @@ use gpui::{
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use matsu_core::sql_error::{ErrorStyle, parse};
+use matsu_core::sql_error::{ErrorStyle, is_safe_jump_path, parse};
 use matsu_core::tag_jump::TagTarget;
 
 use crate::view::FONT_FAMILY;
@@ -72,6 +72,11 @@ impl JumpContext {
         let spot = parse(self.style, text)?;
         match spot.file {
             Some(file) => {
+                // a path that the data of the output can make up must not reach a network share
+                // or a device (`is_safe_jump_path`)
+                if !is_safe_jump_path(&file) {
+                    return None;
+                }
                 let path = PathBuf::from(&file);
                 let path = match (&self.folder, path.is_relative()) {
                     (Some(folder), true) => folder.join(path),
@@ -362,6 +367,31 @@ mod tests {
         assert_eq!(places.len(), 2);
         assert_eq!(line_of(&places[0].1), Some(1));
         assert_eq!(line_of(&places[1].1), Some(6));
+    }
+
+    #[test]
+    fn a_line_that_the_data_can_make_up_does_not_lead_to_a_network_path_or_a_device() {
+        let jump = JumpContext {
+            style: ErrorStyle::Generic,
+            ..context(0, 0)
+        };
+        for text in [
+            "\\\\evil\\share\\x.sql:1: boom",
+            "//evil/share/x.sql:1: boom",
+            "\\\\?\\C:\\x.sql:1: boom",
+            "NUL:1: boom",
+            "dir/com1.sql:1: boom",
+        ] {
+            assert_eq!(jump.place(text), None, "{text}");
+        }
+        // a relative or an absolute local path is a place
+        for text in [
+            "sub/../a.sql:2: boom",
+            "/etc/hosts:1: boom",
+            "C:\\w\\a.sql:3: boom",
+        ] {
+            assert!(jump.place(text).is_some(), "{text}");
+        }
     }
 
     #[test]

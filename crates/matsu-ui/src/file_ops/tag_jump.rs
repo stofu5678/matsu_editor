@@ -112,12 +112,46 @@ impl EditorView {
                 self.go_to_tag(Some(line), column, cx);
             }
             crate::macros::Place::File(target) => {
+                // only a regular file (a pipe or a device would stop the window; a path that
+                // starts like a network path never gets here, `is_safe_jump_path`)
+                if !is_plain_local_file(&target.path, cfg!(windows)) {
+                    self.notice = Some(CANNOT_JUMP.to_owned());
+                    cx.notify();
+                    return;
+                }
                 super::start(window, cx, async move |view, cx| {
                     jump_to_target(&view, cx, &target, false).await;
                 });
             }
         }
     }
+}
+
+/// Whether `path` is a regular file that a jump from the output of a client may open. `is_file` follows
+/// links, and a link can point to a network path (`\\\\host\\share`, which Windows supports), where the
+/// check itself would send the user's credentials. So with `refuse_links` (Windows) no part of the path
+/// may be a link: each part is looked at without following it, from the root down.
+pub(crate) fn is_plain_local_file(path: &std::path::Path, refuse_links: bool) -> bool {
+    if refuse_links {
+        let mut so_far = std::path::PathBuf::new();
+        for part in path.components() {
+            so_far.push(part);
+            // the drive (`C:`, `\\?\C:`) and the root are not links, and a drive alone is not a path to
+            // ask for
+            if matches!(
+                part,
+                std::path::Component::Prefix(_) | std::path::Component::RootDir
+            ) {
+                continue;
+            }
+            match std::fs::symlink_metadata(&so_far) {
+                Ok(meta) if meta.file_type().is_symlink() => return false,
+                Ok(_) => {}
+                Err(_) => return false,
+            }
+        }
+    }
+    path.is_file()
 }
 
 /// The target of the tag jump on the caret line of `view`, and the place of the caret.

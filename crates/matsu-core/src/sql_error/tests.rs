@@ -109,6 +109,41 @@ fn oracle_clients() {
 }
 
 #[test]
+fn a_jump_does_not_reach_a_network_path_or_a_device() {
+    for path in [
+        "a.sql",
+        "sub/b.sql",
+        "/work/a.sql",
+        "C:\\work\\a.sql",
+        "../up/a.sql",
+        "日本語/ファイル.sql",
+        "console.sql",
+        "com10.sql",
+        "com0.sql",
+    ] {
+        assert!(is_safe_jump_path(path), "{path}");
+    }
+    for path in [
+        "",
+        "\\\\evil\\share\\x.sql",
+        "//evil/share/x.sql",
+        "\\\\?\\C:\\x.sql",
+        "\\\\.\\COM1",
+        "\\/evil/x.sql",
+        "/\\evil\\x.sql",
+        "NUL",
+        "nul.txt",
+        "dir/CON.sql",
+        "C:\\x\\com1",
+        "LPT9.sql",
+        "AUX",
+        "a\0b.sql",
+    ] {
+        assert!(!is_safe_jump_path(path), "{path:?}");
+    }
+}
+
+#[test]
 fn the_common_form_works_for_every_style() {
     for style in [
         ErrorStyle::Generic,

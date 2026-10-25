@@ -366,6 +366,215 @@ fn read_connection(profile: &Profile, section: &str, name: &str) -> Result<Conne
 ///
 /// This looks for the usual forms of the clients of ADR-0023; it cannot know every client.
 pub fn password_in_command(kind: Kind, command: &str) -> Option<&'static str> {
+    // a shell removes a backslash before a letter (`--passw\ord=x` is `--password=x`)
+    let unescaped = remove_backslashes(command);
+    // a connection string is read with `%XX` decoded (`?pass%77ord=x` is `?password=x`)
+    let decoded = percent_decode(command);
+    // Each command of the line (`a && b`, `a | b`) is looked at by itself, with the rules of its own
+    // client: the client the command names says more than the `Kind=` of the file (`mysql -psecret`
+    // is MySQL's when the connection says `other`, also as `env mysql -psecret`), and the rules of one
+    // client must not be applied to the command of another (`psql -p5432 && mysql ...`: psql's `-p` is a
+    // port).
+    [command, unescaped.as_str(), decoded.as_str()]
+        .into_iter()
+        .flat_map(|text| {
+            // the commands by themselves, and the whole line for the rules that every client shares
+            // (`password=`, a URI with a password): a quote that the cutting does not understand cannot
+            // hide those
+            let mut parts: Vec<(Kind, &str)> = Vec::new();
+            for segment in split_commands(text) {
+                let kinds = program_kinds(segment);
+                if kinds.is_empty() {
+                    parts.push((kind, segment));
+                }
+                parts.extend(kinds.into_iter().map(|k| (k, segment)));
+                // A program that is run directly (Windows) gets `-p(secret)`, `-p&&secret` and
+                // `alice/(secret)@DB` as one argument, but the cutting leaves the first half in this
+                // command and the second in the next. So when a cut character follows at once, the
+                // command is also looked at with the rest of that argument.
+                if let Some(longer) = with_glued_word(text, segment) {
+                    let kinds = program_kinds(segment);
+                    if kinds.is_empty() {
+                        parts.push((kind, longer));
+                    }
+                    parts.extend(kinds.into_iter().map(|k| (k, longer)));
+                }
+            }
+            parts.push((Kind::Other, text));
+            parts
+        })
+        .find_map(|(k, segment)| password_in_text(k, segment))
+}
+
+/// `segment` (a slice of `text`) and, when a cut character (`;` `|` `(` `)` `&`) follows it at once, the rest of
+/// the word that the cut character is in, up to the next blank: `mysql -p` and `(secret)` of `mysql
+/// -p(secret)`. `None` when nothing glued follows.
+fn with_glued_word<'a>(text: &'a str, segment: &str) -> Option<&'a str> {
+    let start = segment.as_ptr() as usize - text.as_ptr() as usize;
+    let end = start + segment.len();
+    let rest = &text[end..];
+    if !rest.starts_with([';', '|', '(', ')', '&']) {
+        return None;
+    }
+    // a blank before the cut character is a blank between two commands
+    if segment.ends_with(|c: char| c.is_whitespace()) {
+        return None;
+    }
+    let word_end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+    Some(&text[start..end + word_end])
+}
+
+/// The commands of a line: it is cut at `;`, `|` and parentheses, and at `&` when it is `&&` or has blanks
+/// around it (`a & b`), outside quotes. A `&` inside a word is a character of that word
+/// (`?sslmode=require&password=x` of a connection string, `password=&secret`), and so is a separator
+/// inside quotes (`--password=';secret'`).
+fn split_commands(text: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut start = 0;
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    for (i, &(at, c)) in chars.iter().enumerate() {
+        if std::mem::take(&mut escaped) {
+            continue;
+        }
+        match (quote, c) {
+            (None, '\\') | (Some('"'), '\\') => {
+                escaped = true;
+                continue;
+            }
+            (None, '"' | '\'') => {
+                quote = Some(c);
+                continue;
+            }
+            (Some(q), _) if q == c => {
+                quote = None;
+                continue;
+            }
+            (Some(_), _) => continue,
+            (None, _) => {}
+        }
+        let cut = match c {
+            ';' | '|' | '(' | ')' => true,
+            '&' => {
+                let before = i.checked_sub(1).map(|j| chars[j].1);
+                let after = chars.get(i + 1).map(|&(_, c)| c);
+                before.is_none_or(|c| c.is_whitespace() || c == '&')
+                    || after.is_none_or(|c| c.is_whitespace() || c == '&')
+            }
+            _ => false,
+        };
+        if cut {
+            parts.push(&text[start..at]);
+            start = at + c.len_utf8();
+        }
+    }
+    parts.push(&text[start..]);
+    parts
+}
+
+/// The kinds of the clients that the command `segment` runs: its program (the first word), not any word, so
+/// that a host called `mysql` in `psql -h mysql` is not taken for the client. After `env`, `sudo` and the like
+/// the program is somewhere after their options and operands (`sudo -u me mysql`), and a word of those can be
+/// a name of a client too (`sudo -u mysql sqlcmd`), so every client in the segment is a kind then. A client that has
+/// no password rules of its own (`psql`) gives `Other`, so that the connection's `Kind=` is not applied to
+/// it. Empty for a program that is not known.
+fn program_kinds(segment: &str) -> Vec<Kind> {
+    const WRAPPERS: &[&str] = &[
+        "env", "sudo", "doas", "nohup", "time", "exec", "command", "xargs",
+    ];
+    // the words as a shell reads them: `"/opt/psql clients/mysql"` is one word, the program
+    let words = split_words(segment)
+        .into_iter()
+        .map(|(word, _)| word)
+        .filter(|w| !w.is_empty());
+    let mut kinds = Vec::new();
+    let mut wrapped = false;
+    for word in words {
+        let word = word.to_ascii_lowercase();
+        let name = word.rsplit(['/', '\\']).next().unwrap_or("");
+        let name = name.strip_suffix(".exe").unwrap_or(name);
+        if WRAPPERS.contains(&name) {
+            wrapped = true;
+            continue;
+        }
+        let known = match name {
+            "mysql" | "mariadb" | "mysqlsh" => Some(Kind::MySql),
+            "sqlcmd" => Some(Kind::SqlServer),
+            "sqlplus" | "sql" | "sqlcl" | "sqlldr" => Some(Kind::Oracle),
+            "psql" | "sqlite3" | "bq" | "duckdb" | "usql" | "clickhouse-client" | "snowsql" => {
+                Some(Kind::Other)
+            }
+            _ => None,
+        };
+        match known {
+            Some(kind) => {
+                kinds.push(kind);
+                if !wrapped {
+                    break;
+                }
+            }
+            None if !wrapped => break,
+            None => {}
+        }
+    }
+    kinds
+}
+
+/// `text` with each `%XX` (two hexadecimal digits that make an ASCII character) replaced by that character,
+/// except the characters that a URI is made of (`: @ / ? & = # %`): `alice%3Aadmin@host` is a user called
+/// `alice:admin`, not a user and a password.
+fn percent_decode(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%'
+            && let Some(hex) = text.get(i + 1..i + 3)
+            && let Ok(byte) = u8::from_str_radix(hex, 16)
+            && byte.is_ascii()
+            && !matches!(byte, b':' | b'@' | b'/' | b'?' | b'&' | b'=' | b'#' | b'%')
+        {
+            out.push(char::from(byte));
+            i += 3;
+        } else {
+            let c = text[i..].chars().next().unwrap_or('\u{fffd}');
+            out.push(c);
+            i += c.len_utf8();
+        }
+    }
+    out
+}
+
+/// `text` without the backslashes that a shell would remove (a backslash and the character after it become
+/// that character). A Windows path loses its separators too, which the scan does not need.
+fn remove_backslashes(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            if let Some(next) = chars.next() {
+                out.push(next);
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// `-psecret`, and the same after short options that take no value (`-vpsecret` is `-v -psecret`): MySQL
+/// reads a word of short options one letter at a time. A bare `-p` asks for the password and is fine.
+fn mysql_cluster_password(word: &str) -> bool {
+    const FLAGS: &str = "vsBNtEfwCAGHqrnTUVWZ";
+    let Some(rest) = word.strip_prefix('-').filter(|r| !r.starts_with('-')) else {
+        return false;
+    };
+    let after_flags = rest.trim_start_matches(|c| FLAGS.contains(c));
+    after_flags.starts_with('p') && after_flags.len() > 1
+}
+
+fn password_in_text(kind: Kind, command: &str) -> Option<&'static str> {
     // both as written (`-p` after an empty `--opt=`) and with `key = value` tightened; and with
     // the words read by quotes and by blanks alone (a shell's escapes, `\"`, can make a quote
     // mean nothing, so what the quotes hide is looked at again)
@@ -497,9 +706,7 @@ fn scan_for_password(kind: Kind, command: &str, quote_aware: bool) -> Option<&'s
         }
         match kind {
             // `-psecret` (a bare `-p` asks for it; psql's `-p5432` is a port, so only MySQL)
-            Kind::MySql if word.starts_with("-p") && !word.starts_with("--") && word.len() > 2 => {
-                return Some("-p");
-            }
+            Kind::MySql if mysql_cluster_password(word) => return Some("-p"),
             // `-P secret` and `-Psecret` (sqlcmd; its other options use a lower case p)
             Kind::SqlServer if word.starts_with("-P") => return Some("-P"),
             // `user/password@service` and `user/password` (the local database). Not a first word
@@ -618,11 +825,13 @@ pub fn create_example_file(path: &Path) -> io::Result<bool> {
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)?;
     }
-    match std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)
-    {
+    let mut options = std::fs::OpenOptions::new();
+    // `create_new` does not follow a link that is already there; the file names hosts and users, so
+    // it is private to the user (like the settings file's temporary copy, `Profile::save`)
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    match options.open(path) {
         Ok(mut file) => {
             file.write_all(&example_file_bytes())?;
             file.sync_all()?;

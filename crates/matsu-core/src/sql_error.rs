@@ -188,6 +188,42 @@ fn oracle(text: &str) -> Option<ErrorSpot> {
     None
 }
 
+/// Whether a jump may open the file `path` that a line of the output names (a security rule, ADR-0023).
+///
+/// The output of a client holds data that other people wrote (the rows of a table, a message), so a line
+/// such as `\\\\evil\\share\\x.sql:1: boom` can be made to appear, and a click on it must not reach out to
+/// another machine (opening a path on a network share sends the user's credentials to it) or open a
+/// device. So a path that starts with two slashes or backslashes (a network path, `\\?\\`, `\\.\\`), has a
+/// NUL, or ends in the name of a Windows device (`CON`, `NUL`, `COM1`, ..., with or without an
+/// extension) is not a place. The caller also checks that the path is a regular file.
+pub fn is_safe_jump_path(path: &str) -> bool {
+    if path.is_empty() || path.contains('\0') {
+        return false;
+    }
+    if path.starts_with("\\\\")
+        || path.starts_with("//")
+        || path.starts_with("\\/")
+        || path.starts_with("/\\")
+    {
+        return false;
+    }
+    let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+    let stem = name
+        .split('.')
+        .next()
+        .unwrap_or(name)
+        .trim_end()
+        .to_ascii_uppercase();
+    let device = matches!(
+        stem.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    ) || ["COM", "LPT"].iter().any(|p| {
+        stem.strip_prefix(p)
+            .is_some_and(|n| n.len() == 1 && n.chars().all(|c| c.is_ascii_digit() && c != '0'))
+    });
+    !device
+}
+
 /// The place that `text` (a line of the output) names, in the way of `style`, or in the common
 /// `FILE:LINE:` form.
 pub fn parse(style: ErrorStyle, text: &str) -> Option<ErrorSpot> {
