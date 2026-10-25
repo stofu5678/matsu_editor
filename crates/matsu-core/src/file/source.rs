@@ -6,6 +6,38 @@ use std::sync::Arc;
 
 use crate::buffer::Source;
 
+/// A file read by ranges, without its BOM: the first `start` bytes are not part of the text.
+#[derive(Debug)]
+pub(crate) struct OffsetSource {
+    inner: super::RangedFile,
+    start: u64,
+}
+
+impl OffsetSource {
+    pub fn new(inner: super::RangedFile, start: u64) -> Self {
+        Self {
+            start: start.min(inner.len()),
+            inner,
+        }
+    }
+}
+
+impl Source for OffsetSource {
+    fn len(&self) -> u64 {
+        self.inner.len() - self.start
+    }
+
+    fn read(&self, start: u64, end: u64) -> io::Result<Cow<'_, [u8]>> {
+        if start > end || end > self.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "range out of bounds",
+            ));
+        }
+        self.inner.read(self.start + start, self.start + end)
+    }
+}
+
 /// The bytes of a file held in memory. The first `start` bytes (the BOM) are not part of the text.
 #[derive(Debug)]
 pub(crate) struct FileBytes {

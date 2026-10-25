@@ -32,6 +32,9 @@ pub struct ScanOptions {
     pub window_blocks: usize,
     /// Whether NEL, LS and PS end a line (`bEnableExtEol`; the same setting the document gets).
     pub ext_eol: bool,
+    /// How long a [`ScanJob`] waits after each read. `None` goes as fast as it can. For tests of
+    /// what is shown while a scan runs, and for a scan that must leave the disk to others.
+    pub step_delay: Option<std::time::Duration>,
 }
 
 impl Default for ScanOptions {
@@ -40,6 +43,7 @@ impl Default for ScanOptions {
             block_size: DEFAULT_INDEX_BLOCK_SIZE,
             window_blocks: DEFAULT_WINDOW_BLOCKS,
             ext_eol: false,
+            step_delay: None,
         }
     }
 }
@@ -113,6 +117,16 @@ pub struct ScanProgress {
 }
 
 impl ScanProgress {
+    /// The number of line endings the whole file has, estimated from the share scanned (the
+    /// exact count once the scan is done). The scanned part has the line endings found so far;
+    /// the rest is taken to have as many per byte.
+    pub fn estimated_breaks(&self) -> u64 {
+        if self.scanned == 0 || self.scanned >= self.total {
+            return self.breaks;
+        }
+        (u128::from(self.breaks) * u128::from(self.total) / u128::from(self.scanned)) as u64
+    }
+
     /// The share scanned, 0 to 100 (100 for an empty file).
     pub fn percent(&self) -> u8 {
         if self.total == 0 {
@@ -403,10 +417,11 @@ impl ScanJob {
                 .store(ScanState::Done.to_u8(), Ordering::Release);
         }
         let worker = shared.clone();
+        let delay = options.step_delay;
         let thread = std::thread::Builder::new()
             .name("matsu-block-scan".into())
             .spawn(move || {
-                let result = run(&mut scanner, &worker);
+                let result = run(&mut scanner, &worker, delay);
                 let state = match &result {
                     Ok(()) => ScanState::Done,
                     Err(ScanError::Cancelled) => ScanState::Cancelled,
@@ -485,12 +500,19 @@ impl Drop for ScanJob {
     }
 }
 
-fn run(scanner: &mut BlockScanner, shared: &JobShared) -> Result<(), ScanError> {
+fn run(
+    scanner: &mut BlockScanner,
+    shared: &JobShared,
+    delay: Option<std::time::Duration>,
+) -> Result<(), ScanError> {
     while !scanner.is_done() {
         if shared.cancel.load(Ordering::Acquire) {
             return Err(ScanError::Cancelled);
         }
         scanner.step()?;
+        if let Some(delay) = delay {
+            std::thread::sleep(delay);
+        }
         let progress = scanner.progress();
         shared.breaks.store(progress.breaks, Ordering::Release);
         shared.scanned.store(progress.scanned, Ordering::Release);

@@ -82,8 +82,9 @@ fn the_pages_have_every_control_that_sakura_has() {
     // the boxes 「表示例」 and the version of the regular expression library are not drawn; the
     // list of `IDD_PROP_FNAME` with its two boxes and eight buttons is one control.
     let count = |page: Page| controls(&page.items().unwrap()).len();
-    // 18 are Sakura's; the two about the copies of unsaved documents are MATSU Editor's (ADR-0022).
-    assert_eq!(count(Page::File), 18 + 2);
+    // 18 are Sakura's; the two about the copies of unsaved documents are MATSU Editor's (ADR-0022),
+    // and the size from which a file is opened by ranges (ADR-0020).
+    assert_eq!(count(Page::File), 18 + 3);
     assert_eq!(count(Page::Backup), 23);
     assert_eq!(count(Page::Format), 8);
     assert_eq!(count(Page::Search), 9);
@@ -154,6 +155,8 @@ fn the_keys_are_sakuras_and_in_the_sections_sakura_writes() {
     ] {
         assert!(has("Common", key), "[Common] {key}");
     }
+    // Not Sakura's (ADR-0020, chapter 7).
+    assert!(has("Common", "nHugeFileSizeMB"));
     // `ShareData_IO_Nickname`, `ShareData_IO_Statusbar`
     for key in ["bShortPath", "nShortPathMaxWidth"] {
         assert!(has("Nickname", key), "[Nickname] {key}");
@@ -441,10 +444,11 @@ fn the_options_of_the_watching_the_warnings_and_the_automatic_save_reach_the_win
         cx,
         "[Common]\r\nbCheckFileTimeStamp=0\r\nnAutoloadDelay=4\r\nbAlertIfLargeFile=1\r\n\
          nAlertFileSize=20\r\nbBackUpType2_Opt1=120\r\nbBackUpType2_Opt3=9\r\n\
-         bAutoMIMEdecode=1\r\nbNoFilterSaveFile=0\r\n",
+         bAutoMIMEdecode=1\r\nbNoFilterSaveFile=0\r\nnHugeFileSizeMB=512\r\n",
     );
     let started = cx.update(|app| crate::file_ops::prefs::prefs(app));
     assert!(started.auto_mime_decode);
+    assert_eq!(started.huge_file_size_mb, 512);
     assert!(started.no_filter_save_new && !started.no_filter_save_file);
     assert!(!started.check_file_time_stamp);
     assert_eq!(started.autoload_delay, 4);

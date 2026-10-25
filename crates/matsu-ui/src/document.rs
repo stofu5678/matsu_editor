@@ -26,6 +26,11 @@ use crate::file_ops::lock::{FileLockState, LockFailure};
 use crate::file_watch::state::{self, DiskState, WatchMode};
 use crate::settings::NewDocumentDefaults;
 
+mod scan;
+
+pub(crate) use scan::ScanTick;
+use scan::ScanWatch;
+
 /// `m_nNonameSequences`: how many numbers were given to untitled windows.
 #[cfg(not(test))]
 static UNTITLED_SEQUENCE: AtomicU32 = AtomicU32::new(0);
@@ -111,6 +116,10 @@ pub struct SharedDocument {
     /// Set for a restored document that has a file: the file was not looked at yet (「確認まだ」). The save checks it
     /// against this before it overwrites the file.
     restored_check: Option<RestoredCheck>,
+    /// The scan behind a file opened by ranges, until it is done (`document/scan.rs`).
+    scan: Option<ScanWatch>,
+    /// The file is read by ranges (ADR-0020): it stays open behind the document.
+    ranged: bool,
 }
 
 impl EventEmitter<DocumentEvent> for SharedDocument {}
@@ -143,6 +152,8 @@ impl SharedDocument {
             restored: false,
             restored_len: 0,
             restored_check: None,
+            scan: None,
+            ranged: false,
         }
     }
 
@@ -150,11 +161,14 @@ impl SharedDocument {
     /// model, and the encoding, BOM and line ending stay for the status bar and for saving.
     pub fn from_text_file(mut file: TextFile) -> Self {
         let doc = std::mem::take(&mut file.document);
-        let mut model = DocumentModel::new(doc);
+        // Not `DocumentModel::new`, which reads the first line to guess the line ending: that
+        // line can be as big as a file opened by ranges.
+        let model = DocumentModel::with_new_line(doc, file.new_line);
         sync_ext_eol(&model);
-        model.set_new_line(file.new_line);
         let disk = DiskState::of_path(file.path.as_deref());
-        Self {
+        let scan = file.take_scan();
+        let ranged = file.is_ranged();
+        let mut shared = Self {
             model,
             path: file.path.clone(),
             version: 0,
@@ -169,7 +183,13 @@ impl SharedDocument {
             restored: false,
             restored_len: 0,
             restored_check: None,
+            scan: None,
+            ranged,
+        };
+        if let Some(job) = scan {
+            shared.attach_scan(job);
         }
+        shared
     }
 
     /// A document brought back from a copy of unsaved text (ADR-0022). It is modified, its text is the base of its
@@ -384,6 +404,9 @@ impl SharedDocument {
     /// [`take_lock_failure`](Self::take_lock_failure).
     pub(crate) fn lock_file(&mut self, mode: i32) {
         let path = self.path.clone().filter(|_| !self.view_mode);
+        // A file read by ranges is open behind the document, and on Windows a lock that denies
+        // reading cannot be taken while it is: the file is locked against writing only.
+        let mode = if self.ranged && mode == 2 { 1 } else { mode };
         self.lock.lock(path.as_deref(), mode);
     }
 

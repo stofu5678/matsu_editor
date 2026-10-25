@@ -68,6 +68,9 @@ impl EditorView {
         self.scroll_x = 0.0;
         self.scroll_y = 0.0;
         self.notice = None;
+        self.pending_scan_jump = None;
+        // A file opened by ranges is scanned behind its document.
+        self.watch_scan(cx);
         // The new document is not the result of a Grep.
         self.grep.forget_result();
         // The new document may be of another type (matsu.ini): then it has that type's font, wrap

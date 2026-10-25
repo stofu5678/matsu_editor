@@ -29,6 +29,7 @@ fn options(block_size: usize, window_blocks: usize, ext_eol: bool) -> ScanOption
         block_size,
         window_blocks,
         ext_eol,
+        ..ScanOptions::default()
     }
 }
 

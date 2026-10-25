@@ -27,6 +27,8 @@ mod drop_tests;
 mod file_tests;
 pub(crate) mod flows;
 #[cfg(test)]
+mod huge_tests;
+#[cfg(test)]
 mod kind_menu_tests;
 pub(crate) mod list;
 #[cfg(test)]

@@ -16,7 +16,7 @@ use super::windows::{self, LoadRequest};
 use crate::document::SharedDocument;
 use crate::file_dialog::{self, Ask};
 use crate::history::view::{code_change_message, encoding_of, remembered};
-use crate::open::open_text_file;
+use crate::open::open_text_file_with;
 use crate::view::EditorView;
 
 /// Files at least this big show their progress in the status bar. Smaller ones are read before
@@ -62,8 +62,15 @@ async fn read_file(
     let defaults = cx
         .update(|_, app| crate::settings::new_document_defaults(app, name.as_deref()))
         .unwrap_or_default();
+    // A big file is opened by ranges (ADR-0020, chapter 7).
+    let huge = cx
+        .update(|_, app| {
+            let prefs = super::prefs::prefs(app);
+            (prefs.huge_file_len(), prefs.huge_scan)
+        })
+        .ok();
     let task = cx.background_executor().spawn(async move {
-        let result = open_text_file(&target, encoding, &defaults, &mut |done, total| {
+        let result = open_text_file_with(&target, encoding, &defaults, huge, &mut |done, total| {
             shared.done.store(done, Ordering::Relaxed);
             shared.total.store(total, Ordering::Relaxed);
             ControlFlow::Continue(())
