@@ -74,6 +74,10 @@ impl CommandContext<'_> {
         if !extend && let Some((start, _)) = self.selection() {
             return self.move_caret(start, false);
         }
+        // In the free cursor mode the caret comes back through the gap one column at a time.
+        if self.free_left(extend)? {
+            return Ok(());
+        }
         if let Some(pos) = char_left(self.doc(), self.caret())? {
             self.move_caret(pos, extend)?;
         }
@@ -92,6 +96,10 @@ impl CommandContext<'_> {
         }
         if !extend && let Some((_, end)) = self.selection() {
             return self.move_caret(end, false);
+        }
+        // In the free cursor mode the caret goes on through the gap, one column at a time.
+        if self.free_right(extend)? {
+            return Ok(());
         }
         if let Some(pos) = char_right(self.doc(), self.caret())? {
             self.move_caret(pos, extend)?;
@@ -113,12 +121,15 @@ impl CommandContext<'_> {
         }
         let goal = match self.cursor.goal_col() {
             Some(goal) => goal,
-            None => self.caret_display_col()?,
+            None => self.caret_col_with_free()?,
         };
         let target = self
             .layout
             .move_rows(self.model.doc(), self.caret(), rows, goal)?;
         self.cursor.move_to(target, extend);
+        // The free cursor mode keeps the goal column on a row that is shorter
+        // (`m_bIsFreeCursorMode` in `CCaret::Cursor_UPDOWN`).
+        self.stand_free(goal)?;
         self.cursor.set_goal_col(Some(goal));
         Ok(())
     }

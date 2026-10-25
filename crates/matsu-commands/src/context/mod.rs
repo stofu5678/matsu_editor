@@ -22,6 +22,7 @@ mod boxsel;
 mod clipboard;
 mod convert;
 mod diff;
+mod free_cursor;
 mod funclist;
 mod indent;
 mod lines;
@@ -256,7 +257,8 @@ impl<'a> CommandContext<'a> {
     /// Ends the context and returns what changed.
     pub fn finish(mut self) -> Changes {
         self.changes.caret_moved = self.cursor.caret() != self.start.caret()
-            || self.cursor.box_caret_col() != self.start.box_caret_col();
+            || self.cursor.box_caret_col() != self.start.box_caret_col()
+            || self.cursor.free_col() != self.start.free_col();
         self.changes.selection_changed = self.cursor.anchor() != self.start.anchor()
             || self.cursor.mode() != self.start.mode()
             || self.cursor.box_anchor_col() != self.start.box_anchor_col();
@@ -512,6 +514,10 @@ impl<'a> CommandContext<'a> {
             }
         }
         self.refuse_edit_in_box()?;
+        if self.selection().is_none() {
+            // Text typed to the right of the end of a line follows spaces (free cursor mode).
+            self.pad_free_caret()?;
+        }
         let (from, to) = self.selection().unwrap_or((self.caret(), self.caret()));
         let edit = self.replace(from, to, text)?;
         self.cursor.move_to(edit.end, false);
@@ -684,6 +690,9 @@ impl<'a> CommandContext<'a> {
             return self.insert_text(text);
         }
         self.refuse_edit_in_box()?;
+        if self.selection().is_none() {
+            self.pad_free_caret()?;
+        }
         if self.overwrite && self.selection().is_none() {
             let at = self.caret();
             let plan = self.overwrite_replacement(at, text)?;

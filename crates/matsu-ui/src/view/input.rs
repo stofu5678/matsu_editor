@@ -219,12 +219,30 @@ impl EntityInputHandler for EditorView {
             return;
         }
         self.record_typed_text(text);
-        let (from, to) = self.input_target(range_utf16, cx);
+        let (mut from, to) = self.input_target(range_utf16.clone(), cx);
+        // A composition cancelled with an empty text (the backends do it through this call) takes
+        // the spaces of the free cursor gap with it.
+        if text.is_empty()
+            && let Some(m) = self.marked.as_ref().filter(|m| m.pad > 0)
+            && from == Pos::new(m.line, m.range.start)
+        {
+            from.col = from.col.saturating_sub(m.pad);
+        }
         self.marked = None;
         self.composing = false;
         self.run_with(cx, |command_cx| {
+            let (mut from, mut to) = (from, to);
             if !was_composing {
                 command_cx.begin_block();
+                // The free cursor mode: text committed right of the end of the line follows
+                // spaces, in the same undo block (`InsertData_CEditView`).
+                if !text.is_empty()
+                    && range_utf16.is_none()
+                    && from == to
+                    && command_cx.pad_free_caret().is_ok()
+                {
+                    (from, to) = (command_cx.caret(), command_cx.caret());
+                }
             }
             // Overwrite mode: the committed text replaces as many chars after it as it has, as
             // Sakura does char by char (`WM_IME_CHAR` runs `F_IME_CHAR` there, and
@@ -264,17 +282,36 @@ impl EntityInputHandler for EditorView {
         if self.isearch.is_some() {
             return; // the composition is not shown; its commit goes to the pattern
         }
-        let (from, to) = self.input_target(range_utf16, cx);
+        let (mut from, to) = self.input_target(range_utf16.clone(), cx);
         // Text being composed has no line break.
         let text = text.replace(['\r', '\n'], "");
         let opened = !self.composing;
+        // A composition that is cancelled takes the spaces of the free cursor gap with it.
+        let old_pad = self.marked.as_ref().map_or(0, |m| m.pad);
+        let marked_start = self
+            .marked
+            .as_ref()
+            .map(|m| Pos::new(m.line, m.range.start));
+        if text.is_empty() && old_pad > 0 && Some(from) == marked_start {
+            from.col = from.col.saturating_sub(old_pad);
+        }
         if opened {
             self.composing_over_selection = from != to;
         }
         self.composing = true;
+        let mut pad = old_pad;
         let edit = self.run_with(cx, |command_cx| {
+            let (mut from, mut to) = (from, to);
             if opened {
                 command_cx.begin_block();
+                // The free cursor mode: the composition starts after spaces that fill the gap.
+                if !text.is_empty() && range_utf16.is_none() && from == to {
+                    let before = command_cx.caret();
+                    if command_cx.pad_free_caret().is_ok() {
+                        (from, to) = (command_cx.caret(), command_cx.caret());
+                        pad = from.col - before.col;
+                    }
+                }
             }
             let edit = command_cx.replace(from, to, &text).ok()?;
             // The caret goes where the IME asks, else to the end of the composition.
@@ -292,6 +329,7 @@ impl EntityInputHandler for EditorView {
         self.marked = edit.filter(|_| !text.is_empty()).map(|edit| Marked {
             line: edit.start.line,
             range: edit.start.col..edit.start.col + text.len(),
+            pad,
         });
         if text.is_empty() {
             self.end_composition(cx);

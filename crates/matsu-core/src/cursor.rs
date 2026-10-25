@@ -19,6 +19,12 @@
 //! `sakura_core/view/CCaret.h`). The goal is a *display* column, which only the layout can
 //! compute, so a [`Cursor`] just stores it. Every change of the caret that is not a vertical move
 //! clears it; the next vertical move then takes the column of the caret.
+//!
+//! # Free cursor
+//!
+//! With Sakura's free cursor mode the caret may stand to the right of the end of a line
+//! (`m_bIsFreeCursorMode`). The position stays the end of the line and the cursor keeps the
+//! display column the caret stands at ([`Cursor::free_col`]), like the corners of a box do.
 
 use crate::buffer::{Document, Pos, Result};
 use crate::jump_history::JumpHistory;
@@ -58,6 +64,10 @@ pub struct Cursor {
     /// Plain moves extend the selection (Sakura: `m_bSelectingLock` of `CViewSelect`, switched on
     /// by `F_BEGIN_SEL` and `F_BEGIN_BOX`, and off by anything that drops the selection).
     selecting_lock: bool,
+    /// The display column of the caret when it stands to the right of the end of its line (the
+    /// free cursor mode). `None` when the caret is on the text. The commands that set it check
+    /// the rest (the caret is at the end of a row, the column is past the text).
+    free_col: Option<usize>,
 }
 
 impl Cursor {
@@ -115,6 +125,7 @@ impl Cursor {
     /// `Command_BEGIN_BOXSELECT`). With `lock` the plain moves extend the box.
     pub fn begin_box(&mut self, col: usize, lock: bool) {
         self.anchor = None;
+        self.free_col = None;
         self.mode = SelectionMode::Rectangular;
         self.box_cols = Some(BoxCols {
             anchor: col,
@@ -144,6 +155,7 @@ impl Cursor {
             caret: col,
         });
         self.goal_col = None;
+        self.free_col = None;
     }
 
     /// The corners of a box selection as `(position, display column)`: the anchor and the caret.
@@ -152,6 +164,17 @@ impl Cursor {
         let cols = self.box_cols?;
         let anchor = self.anchor?;
         Some(((anchor, cols.anchor), (self.caret, cols.caret)))
+    }
+
+    /// The display column of the caret when it stands to the right of the end of its line (the
+    /// free cursor mode of Sakura), else `None`. The position is the end of the line then.
+    pub fn free_col(&self) -> Option<usize> {
+        self.free_col
+    }
+
+    /// Sets or clears [`free_col`](Self::free_col). Every other change of the caret clears it.
+    pub fn set_free_col(&mut self, col: Option<usize>) {
+        self.free_col = col;
     }
 
     /// The display column that vertical moves aim for, if a vertical move has set one.
@@ -188,6 +211,7 @@ impl Cursor {
         }
         self.caret = pos;
         self.goal_col = None;
+        self.free_col = None;
     }
 
     /// Selects from `anchor` to `caret` (the caret may come first).
@@ -197,6 +221,7 @@ impl Cursor {
         self.caret = caret;
         self.anchor = (anchor != caret).then_some(anchor);
         self.goal_col = None;
+        self.free_col = None;
     }
 
     /// Drops the selection and keeps the caret.
@@ -249,6 +274,7 @@ impl Cursor {
     /// Clamps the caret and the anchor into `doc`. Call it after the text changed under a cursor
     /// that was not the one that edited (another view of the same document).
     pub fn clamp(&mut self, doc: &Document) -> Result<()> {
+        self.free_col = None;
         self.caret = doc.clamp_pos(self.caret)?;
         if let Some(a) = self.anchor {
             let a = doc.clamp_pos(a)?;
@@ -315,6 +341,31 @@ mod tests {
         c.move_to(Pos::new(0, 2), true);
         assert!(!c.has_selection());
         assert_eq!(c, Cursor::new(Pos::new(0, 2)));
+    }
+
+    #[test]
+    fn every_move_but_the_free_one_clears_the_free_column() {
+        let mut c = Cursor::new(Pos::new(0, 2));
+        c.set_free_col(Some(9));
+        assert_eq!(c.free_col(), Some(9));
+        c.move_to(Pos::new(0, 2), false);
+        assert_eq!(c.free_col(), None);
+        c.set_free_col(Some(9));
+        c.select(Pos::new(0, 0), Pos::new(0, 2));
+        assert_eq!(c.free_col(), None);
+        c.set_free_col(Some(9));
+        c.begin_box(9, false);
+        assert_eq!(c.free_col(), None);
+        c.set_free_col(Some(9));
+        c.move_box_to(Pos::new(0, 2), 9);
+        assert_eq!(c.free_col(), None);
+        // dropping the selection keeps the caret where it stands
+        c.set_free_col(Some(9));
+        c.clear_selection();
+        assert_eq!(c.free_col(), Some(9));
+        let doc = Document::from_utf8(b"ab".to_vec()).unwrap();
+        c.clamp(&doc).unwrap();
+        assert_eq!(c.free_col(), None);
     }
 
     #[test]

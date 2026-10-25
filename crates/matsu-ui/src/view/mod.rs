@@ -17,6 +17,7 @@
 mod a11y_text;
 pub(crate) mod autoscroll;
 mod bracket_marks;
+mod caret_shape;
 mod colors;
 mod diff_mark;
 mod element;
@@ -113,6 +114,9 @@ pub(crate) struct Marked {
     pub line: usize,
     /// Byte columns of the line.
     pub range: Range<usize>,
+    /// The spaces right before `range` that the composition put there to fill the gap of the
+    /// free cursor mode. They go when the composition is cancelled.
+    pub pad: usize,
 }
 
 /// What the mouse is doing between button down and button up.
@@ -553,6 +557,8 @@ impl EditorView {
         let _ = self.layout.resync(doc);
         let _ = self.layout.layout_for(doc, LAYOUT_BUDGET);
         let _ = self.cursor.clamp_if_outside(doc);
+        // The text of the line may have grown under a caret that stood right of its end.
+        self.cursor.set_free_col(None);
         self.layout_version = version;
         self.drop_composition(cx);
         // the candidates were made for the old text
@@ -592,11 +598,18 @@ impl EditorView {
     }
 
     /// The display column of the caret on its row. In a box selection the caret can be to the right
-    /// of the end of the text (see `matsu_core::cursor::Cursor::box_caret_col`).
+    /// of the end of the text (see `matsu_core::cursor::Cursor::box_caret_col`), and so can the caret of
+    /// the free cursor mode (`Cursor::free_col`).
     pub(crate) fn caret_column(&self, cx: &App) -> u32 {
         let column = self.caret_row(cx).column;
+        // The free cursor mode: the caret to the right of the end of the line.
+        let free = self
+            .cursor
+            .free_col()
+            .filter(|_| matsu_commands::edit_options::get().free_cursor);
         self.cursor
             .box_caret_col()
+            .or(free)
             .map_or(column, |c| u32::try_from(c).unwrap_or(u32::MAX).max(column))
     }
 

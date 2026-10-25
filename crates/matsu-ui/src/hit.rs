@@ -25,6 +25,23 @@ pub fn position_at(
     position_in_row(layout, doc, m, row, x)
 }
 
+/// The display column of a click to the right of the text of its row, or `None` when the click
+/// is on the text. The free cursor mode puts the caret there (`CCaret::MoveCursorProperly`: the
+/// column of the click, `ClientToLayout`, which rounds down).
+pub fn free_column_at(
+    layout: &DocumentLayout,
+    doc: &Document,
+    m: &Metrics,
+    scroll_y: f32,
+    x: f32,
+    y: f32,
+) -> Result<Option<usize>> {
+    let row = row_at(m, scroll_y, y, layout.row_count());
+    let (col, _) = column_at(m, x);
+    let target = layout.row_to_pos(doc, row, col)?;
+    Ok((target.extra_columns > 0).then_some(col as usize))
+}
+
 /// Like [`position_at`], on a given row.
 pub fn position_in_row(
     layout: &DocumentLayout,

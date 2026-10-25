@@ -4,8 +4,16 @@
 //! end of a line this deletes the line ending and joins the next line; at the end of the
 //! document nothing happens (and no beep).
 //!
-//! Not done yet: with the free cursor mode (`m_bIsFreeCursorMode`) a caret past the end of the
-//! line first pads the line with spaces (the 2008.08.03 nasukoji case in the source).
+//! With the free cursor mode (`m_bIsFreeCursorMode`) a caret to the right of the end of the line
+//! first fills the gap with spaces (the 2008.08.03 nasukoji case in the source, which calls
+//! `Command_INSTEXT` with an empty text to do it), so the line ending that follows is deleted
+//! and the next line joins after the spaces. On the last line, which has no line ending, the
+//! spaces stay and nothing is deleted.
+//!
+//! Wrapping changes nothing here. Sakura's other branch of the same code (the "行終端が折り返し"
+//! case) deletes the first char of the next row when the caret is at the wrap point; a caret
+//! at the end of a wrapped row is the start of the next row in this program (`Layout::row_end`),
+//! so the ordinary deletion of the char after the caret is that deletion.
 
 use matsu_core::cursor::char_right;
 
@@ -24,6 +32,7 @@ impl Command for Delete {
         if cx.delete_selection()? {
             return Ok(());
         }
+        cx.pad_free_caret()?;
         let caret = cx.caret();
         if let Some(next) = char_right(cx.doc(), caret)? {
             cx.delete_range(caret, next)?;
@@ -52,6 +61,44 @@ mod tests {
         check("delete", "ab|\ncd", "ab|cd");
         check("delete", "ab|\n", "ab|");
         check("delete", "a\n|\nb", "a\n|b");
+    }
+
+    #[test]
+    fn in_the_free_cursor_gap_it_pads_with_spaces_and_joins_the_next_line() {
+        use crate::edit_options::{EditOptions, with_options};
+        let free = EditOptions {
+            free_cursor: true,
+            ..EditOptions::DEFAULT
+        };
+        with_options(free, || {
+            let mut e = Editor::new("ab|\ncd");
+            e.run("cursor_right").run("cursor_right");
+            e.run("delete");
+            assert_eq!(e.marked(), "ab  |cd");
+            // one undo step
+            e.run("undo");
+            assert_eq!(e.marked().replace(['|', '['], ""), "ab\ncd");
+            // CRLF and Japanese text: the gap is counted in columns
+            let mut e = Editor::new("日本|\r\nxy");
+            e.run("cursor_right")
+                .run("cursor_right")
+                .run("cursor_right");
+            e.run("delete");
+            assert_eq!(e.marked(), "日本   |xy");
+            // the last line has no line ending: the spaces stay, nothing is deleted
+            let mut e = Editor::new("ab|");
+            e.run("cursor_right").run("cursor_right");
+            e.run("delete");
+            assert_eq!(e.marked(), "ab  |");
+            // a selection is deleted as it is
+            let mut e = Editor::new("a[bc|d\nxy");
+            e.run("delete");
+            assert_eq!(e.marked(), "a|d\nxy");
+        });
+        // without the mode the same keys go to the next line
+        let mut e = Editor::new("ab|\ncd");
+        e.run("cursor_right").run("cursor_right");
+        assert_eq!(e.marked(), "ab\nc|d");
     }
 
     #[test]
