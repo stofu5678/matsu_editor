@@ -374,3 +374,44 @@ fn a_tab_whose_question_was_left_out_is_asked_when_a_window_opens_during_a_later
     assert!(asks(cx, &f), "the first tab is asked about now");
     assert!(cx.update(|app| app.windows().contains(&f.handle)));
 }
+
+#[gpui::test]
+fn the_copy_of_a_document_closed_without_the_question_stays_while_the_process_lives_on(
+    cx: &mut TestAppContext,
+) {
+    let f = fixture(cx);
+    hot(cx, true);
+    type_text(cx, &f, "closed at the end");
+    let t0 = Instant::now();
+    tick(cx, &f, t0);
+    tick(cx, &f, t0 + Duration::from_secs(3));
+    assert_eq!(doc_files(&f.dir).len(), 1);
+    let answer = ending(cx, &f, |_| true);
+    assert_eq!(answer.get(), Some(true), "no question");
+    // The window goes, but the process does not end (a dialog that is not an editor window is open): the
+    // housekeeping must not remove the copy with the document.
+    f.handle
+        .update(cx, |_, window, _| window.remove_window())
+        .unwrap();
+    cx.run_until_parked();
+    for s in [10, 20, 60] {
+        cx.update(|app| super::keeper::app_tick(app, t0 + Duration::from_secs(s)));
+    }
+    cx.update(|app| super::keeper::flush(app));
+    assert_eq!(doc_files(&f.dir).len(), 1, "the copy is still there");
+}
+
+#[gpui::test]
+fn the_end_of_the_process_waits_for_the_writer_itself(cx: &mut TestAppContext) {
+    let f = fixture(cx);
+    hot(cx, true);
+    type_text(cx, &f, "last words");
+    assert!(doc_files(&f.dir).is_empty());
+    // What the quit callback does: the future that comes back is dropped at once (GPUI waits 200 ms for it), so
+    // the copy must be written by the time the call returns.
+    cx.update(|app| drop(super::settle_at_quit(app)));
+    let files = doc_files(&f.dir);
+    assert_eq!(files.len(), 1);
+    let bytes = std::fs::read(f.dir.join(&files[0])).unwrap();
+    assert!(String::from_utf8_lossy(&bytes).ends_with("last words"));
+}

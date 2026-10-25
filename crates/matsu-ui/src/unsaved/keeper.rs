@@ -64,6 +64,10 @@ pub(crate) struct Entry {
     /// The revision the user chose to throw away (「保存しない」 while the document stays open, as in an exit of all
     /// windows): no copy is made of it again; the next change makes one.
     suppressed: Option<Revision>,
+    /// The question about the document was left out at the end of the editor because the copy covers it: the copy
+    /// stays when the document goes (the process may live on for a while, with a dialog open), and comes back at
+    /// the next start.
+    kept_for_exit: bool,
 }
 
 impl Entry {
@@ -78,6 +82,7 @@ impl Entry {
             document: None,
             warned_big: false,
             suppressed: None,
+            kept_for_exit: false,
         }
     }
 
@@ -93,6 +98,7 @@ impl Entry {
         self.seen = None;
         self.first_pending = None;
         self.last_attempt = None;
+        self.kept_for_exit = false;
     }
 }
 
@@ -303,6 +309,10 @@ impl Keeper {
                 .is_none_or(|d| d.upgrade().is_some())
             {
                 return true;
+            }
+            // A copy that was left to cover the document at the end of the editor is not removed with it.
+            if entry.kept_for_exit {
+                return false;
             }
             if let (Some(writer), Some(id)) = (writer, entry.id.take()) {
                 writer.discard(id);
@@ -648,6 +658,25 @@ pub(crate) fn unmark_close(view: &EditorView, cx: &mut App) {
     let id = view.document().entity_id();
     let mut keeper = cx.remove_global::<Keeper>();
     keeper.marked.remove(&id);
+    if let Some(entry) = keeper.entries.get_mut(&id) {
+        entry.kept_for_exit = false;
+    }
+    cx.set_global(keeper);
+}
+
+/// The question about the document was left out because its copy covers it (the end of the editor with
+/// `KeepUnsavedNoAsk`): the copy is not removed when the document goes, even if the process lives on (a dialog that
+/// is not an editor window keeps it running). Only an explicit discard, a save, or a document that has nothing to
+/// keep any more (back to its saved text) removes it.
+pub(crate) fn retain_for_exit(view: &EditorView, cx: &mut App) {
+    if !cx.has_global::<Keeper>() {
+        return;
+    }
+    let id = view.document().entity_id();
+    let mut keeper = cx.remove_global::<Keeper>();
+    if let Some(entry) = keeper.entries.get_mut(&id) {
+        entry.kept_for_exit = true;
+    }
     cx.set_global(keeper);
 }
 
@@ -842,6 +871,9 @@ pub(crate) fn tick_window_at(
             let entry = keeper.entries.entry(key).or_insert_with(|| Entry::new(now));
             entry.document.get_or_insert_with(|| document.downgrade());
             let mut plan = decide(entry, want, revision, now);
+            if want != Want::Keep {
+                entry.kept_for_exit = false;
+            }
             // On `force` (the window lost the focus) a document that is to be kept is written now when its text,
             // or its caret, view or bookmarks, are not what the last write has.
             let mut info = None;
@@ -1012,22 +1044,24 @@ pub(crate) async fn settle(cx: &mut gpui::AsyncWindowContext) {
 }
 
 /// The part of [`settle`] for the end of the process, which cannot wait for a window or enter the application
-/// again: the writes are asked for (also for a document whose earlier write is still running), and a future that
-/// ends when they are done is returned for `on_app_quit`.
+/// again. The writes are asked for (also for a document whose earlier write is still running), and this function
+/// itself waits, on the thread that ends the process, until the writer is done or [`QUIT_WAIT`] has passed.
+/// The wait is here and not in a future for `on_app_quit`, because GPUI waits for those futures only 200 ms, and
+/// the end of a Windows session (`WM_ENDSESSION`) leaves the process without `Drop` (it calls `process::exit`).
 pub(crate) fn settle_at_quit(cx: &mut App) -> impl std::future::Future<Output = ()> + use<> {
     queue_all_now(cx, None);
-    let rx = barrier(cx);
-    let executor = cx.background_executor().clone();
-    async move {
-        if let Some(rx) = rx {
-            executor
-                .spawn(async move {
-                    let _ = rx.recv_timeout(SETTLE_TIMEOUT);
-                })
-                .await;
-        }
+    if let Some(rx) = barrier(cx) {
+        let _ = rx.recv_timeout(QUIT_WAIT);
     }
+    std::future::ready(())
 }
+
+/// How long the end of the process waits for the copies to be written. Windows ends a program that has not
+/// answered the end of the session after about five seconds (`WaitToKillAppTimeout`, 5000 ms by default), and
+/// the rest of the shutdown needs time too: three seconds are for the copies. A copy is a few kilobytes to
+/// megabytes written and flushed once; a disk that needs more than this is stuck, and the document was written
+/// at most two seconds before its last change anyway (the wait after typing).
+const QUIT_WAIT: Duration = Duration::from_secs(3);
 
 /// Whether the copy of the document of `view` has its latest content, so that the editor may end without asking
 /// about it: the document is one that is kept (not a Grep window, not too big), its copy was written for the

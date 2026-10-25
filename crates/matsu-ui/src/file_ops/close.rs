@@ -213,7 +213,12 @@ pub(crate) async fn confirm_discard_ending_by(
     if covered {
         // The file goes into the history with its caret, bookmarks and encoding, as it does after the question
         // (`CMruListener::OnBeforeClose`); the copy of the document is not marked for discard.
-        view.update(cx, |view, cx| view.record_history(cx)).ok();
+        view.update(cx, |view, cx| {
+            view.record_history(cx);
+            // The copy stays when the document goes, also if the process lives on a while (a dialog).
+            crate::unsaved::retain_for_exit(view, cx);
+        })
+        .ok();
         return (true, true);
     }
     (confirm_discard(view, cx).await, false)

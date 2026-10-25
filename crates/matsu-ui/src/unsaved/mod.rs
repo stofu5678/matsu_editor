@@ -26,7 +26,7 @@ mod window_tests;
 
 pub(crate) use keeper::{
     apply_all_closes, apply_close, apply_close_view, clear_copies, copy_saved, covered,
-    hot_exit_enabled, mark_close, settle, settle_at_quit, start, unmark_close,
+    hot_exit_enabled, mark_close, retain_for_exit, settle, settle_at_quit, start, unmark_close,
 };
 pub(crate) use restore::restore_all;
 
