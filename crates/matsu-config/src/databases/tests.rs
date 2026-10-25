@@ -263,6 +263,45 @@ fn passwords_on_the_command_line_are_found() {
     assert_eq!(found(Kind::Other, "psql -h mysql -p5432 -d app"), None);
     assert_eq!(found(Kind::Other, "psql -h sqlcmd -P5432"), None);
     assert_eq!(found(Kind::Other, "env psql -h mysql -p5432 -f $F"), None);
+    // the commands of a line: cut at `;` `|` `&&` and ` & `, not at the `&` inside a word
+    assert_eq!(
+        split_commands("a && b | c ; d (e) f&g & h"),
+        ["a ", "", " b ", " c ", " d ", "e", " f&g ", " h"]
+    );
+    // a separator inside quotes is part of the value
+    assert_eq!(
+        split_commands("a 'b;c' \"d|e\" f\\;g ; h"),
+        ["a 'b;c' \"d|e\" f\\;g ", " h"]
+    );
+    assert_eq!(
+        found(Kind::MySql, "mysql --password=';secret'"),
+        Some("--password=")
+    );
+    assert_eq!(found(Kind::MySql, "mysql -u me '-p;secret'"), Some("-p"));
+    // the rules of one client are for its own command only
+    assert_eq!(
+        found(
+            Kind::PostgreSql,
+            "psql -p5432 -f $F && mysql --login-path=mylogin"
+        ),
+        None
+    );
+    assert_eq!(
+        found(Kind::PostgreSql, "mysql --login-path=l ; psql -p5432 -f $F"),
+        None
+    );
+    assert_eq!(found(Kind::MySql, "psql -p5432 | mysql -u me"), None);
+    assert_eq!(
+        found(
+            Kind::PostgreSql,
+            "psql -p5432 -f $F && mysql -u me -psecret"
+        ),
+        Some("-p")
+    );
+    assert_eq!(
+        found(Kind::PostgreSql, "mysql -psecret ; psql -p5432"),
+        Some("-p")
+    );
     assert_eq!(
         found(
             Kind::PostgreSql,

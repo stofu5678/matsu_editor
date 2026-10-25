@@ -366,66 +366,115 @@ fn read_connection(profile: &Profile, section: &str, name: &str) -> Result<Conne
 ///
 /// This looks for the usual forms of the clients of ADR-0023; it cannot know every client.
 pub fn password_in_command(kind: Kind, command: &str) -> Option<&'static str> {
-    // The clients the command line names say more than the `Kind=` of the file: `mysql -psecret`, also
-    // as `env mysql -psecret` or `x && mysql -psecret`, is looked at as MySQL's when the connection
-    // says `other`.
-    let mut kinds = vec![kind];
-    kinds.extend(kinds_of_programs(command));
     // a shell removes a backslash before a letter (`--passw\ord=x` is `--password=x`)
     let unescaped = remove_backslashes(command);
     // a connection string is read with `%XX` decoded (`?pass%77ord=x` is `?password=x`)
     let decoded = percent_decode(command);
+    // Each command of the line (`a && b`, `a | b`) is looked at by itself, with the rules of its own
+    // client: the client the command names says more than the `Kind=` of the file (`mysql -psecret`
+    // is MySQL's when the connection says `other`, also as `env mysql -psecret`), and the rules of one
+    // client must not be applied to the command of another (`psql -p5432 && mysql ...`: psql's `-p` is a
+    // port).
     [command, unescaped.as_str(), decoded.as_str()]
         .into_iter()
-        .flat_map(|text| kinds.iter().map(move |&k| (k, text)))
-        .find_map(|(k, text)| password_in_text(k, text))
+        .flat_map(|text| {
+            // the commands by themselves, and the whole line for the rules that every client shares
+            // (`password=`, a URI with a password): a quote that the cutting does not understand cannot
+            // hide those
+            let mut parts: Vec<(Kind, &str)> = split_commands(text)
+                .into_iter()
+                .map(|segment| (program_kind(segment).unwrap_or(kind), segment))
+                .collect();
+            parts.push((Kind::Other, text));
+            parts
+        })
+        .find_map(|(k, segment)| password_in_text(k, segment))
 }
 
-/// The kinds of the clients the command line runs: the program of each command (the first word after `&`,
-/// `|`, `;` or a parenthesis, and after `env`, `sudo` and the like with their options), not any word, so that
-/// a host called `mysql` in `psql -h mysql` is not taken for the client.
-fn kinds_of_programs(command: &str) -> Vec<Kind> {
+/// The commands of a line: it is cut at `;`, `|` and parentheses, and at `&` when it is `&&` or has blanks
+/// around it (`a & b`), outside quotes. A `&` inside a word is a character of that word
+/// (`?sslmode=require&password=x` of a connection string, `password=&secret`), and so is a separator
+/// inside quotes (`--password=';secret'`).
+fn split_commands(text: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut start = 0;
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    for (i, &(at, c)) in chars.iter().enumerate() {
+        if std::mem::take(&mut escaped) {
+            continue;
+        }
+        match (quote, c) {
+            (None, '\\') | (Some('"'), '\\') => {
+                escaped = true;
+                continue;
+            }
+            (None, '"' | '\'') => {
+                quote = Some(c);
+                continue;
+            }
+            (Some(q), _) if q == c => {
+                quote = None;
+                continue;
+            }
+            (Some(_), _) => continue,
+            (None, _) => {}
+        }
+        let cut = match c {
+            ';' | '|' | '(' | ')' => true,
+            '&' => {
+                let before = i.checked_sub(1).map(|j| chars[j].1);
+                let after = chars.get(i + 1).map(|&(_, c)| c);
+                before.is_none_or(|c| c.is_whitespace() || c == '&')
+                    || after.is_none_or(|c| c.is_whitespace() || c == '&')
+            }
+            _ => false,
+        };
+        if cut {
+            parts.push(&text[start..at]);
+            start = at + c.len_utf8();
+        }
+    }
+    parts.push(&text[start..]);
+    parts
+}
+
+/// The kind of the client that the command `segment` runs: its program (the first word, or the first word after
+/// `env`, `sudo` and the like with their options), not any word, so that a host called `mysql` in `psql -h
+/// mysql` is not taken for the client. A client that has no password rules of its own (`psql`) gives
+/// `Other`, so that the connection's `Kind=` is not applied to it. `None` for a program that is not known.
+fn program_kind(segment: &str) -> Option<Kind> {
     const WRAPPERS: &[&str] = &[
         "env", "sudo", "doas", "nohup", "time", "exec", "command", "xargs",
     ];
-    let mut kinds = Vec::new();
-    for segment in command.split(['&', '|', ';', '(', ')']) {
-        let words = segment
-            .split(|c: char| c.is_whitespace() || matches!(c, '"' | '\''))
-            .filter(|w| !w.is_empty());
-        // after `env`, `sudo` and the like, the program is somewhere after their options (`sudo -u me
-        // mysql`), so every word is looked at; otherwise only the first
-        let mut wrapped = false;
-        for word in words {
-            let word = word.to_ascii_lowercase();
-            let name = word.rsplit(['/', '\\']).next().unwrap_or("");
-            let name = name.strip_suffix(".exe").unwrap_or(name);
-            if WRAPPERS.contains(&name) {
-                wrapped = true;
-                continue;
+    let words = segment
+        .split(|c: char| c.is_whitespace() || matches!(c, '"' | '\''))
+        .filter(|w| !w.is_empty());
+    // after `env`, `sudo` and the like, the program is somewhere after their options (`sudo -u me
+    // mysql`), so every word is looked at; otherwise only the first
+    let mut wrapped = false;
+    for word in words {
+        let word = word.to_ascii_lowercase();
+        let name = word.rsplit(['/', '\\']).next().unwrap_or("");
+        let name = name.strip_suffix(".exe").unwrap_or(name);
+        if WRAPPERS.contains(&name) {
+            wrapped = true;
+            continue;
+        }
+        match name {
+            "mysql" | "mariadb" | "mysqlsh" => return Some(Kind::MySql),
+            "sqlcmd" => return Some(Kind::SqlServer),
+            "sqlplus" | "sql" | "sqlcl" | "sqlldr" => return Some(Kind::Oracle),
+            // a client with no rules of its own ends the search too: `env psql -h mysql` has no MySQL
+            "psql" | "sqlite3" | "bq" | "duckdb" | "usql" | "clickhouse-client" | "snowsql" => {
+                return Some(Kind::Other);
             }
-            let kind = match name {
-                "mysql" | "mariadb" | "mysqlsh" => Some(Kind::MySql),
-                "sqlcmd" => Some(Kind::SqlServer),
-                "sqlplus" | "sql" | "sqlcl" | "sqlldr" => Some(Kind::Oracle),
-                _ => None,
-            };
-            if let Some(kind) = kind {
-                kinds.push(kind);
-                break;
-            }
-            // the program is found when it is the first word, or any client after a wrapper (a client
-            // with no rules of its own, `psql`, ends the search too: `env psql -h mysql` has no MySQL)
-            let other_client = matches!(
-                name,
-                "psql" | "sqlite3" | "bq" | "duckdb" | "usql" | "clickhouse-client" | "snowsql"
-            );
-            if !wrapped || other_client {
-                break;
-            }
+            _ if !wrapped => return None,
+            _ => {}
         }
     }
-    kinds
+    None
 }
 
 /// `text` with each `%XX` (two hexadecimal digits that make an ASCII character) replaced by that character,
