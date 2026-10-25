@@ -112,6 +112,13 @@ impl EditorView {
                 self.go_to_tag(Some(line), column, cx);
             }
             crate::macros::Place::File(target) => {
+                // only a regular file (a pipe or a device would stop the window; a path that
+                // starts like a network path never gets here, `is_safe_jump_path`)
+                if !target.path.is_file() {
+                    self.notice = Some(CANNOT_JUMP.to_owned());
+                    cx.notify();
+                    return;
+                }
                 super::start(window, cx, async move |view, cx| {
                     jump_to_target(&view, cx, &target, false).await;
                 });
