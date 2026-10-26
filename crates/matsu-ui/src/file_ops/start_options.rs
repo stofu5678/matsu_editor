@@ -260,10 +260,11 @@ impl LaunchOptions {
                 .filter(|_| view.read(cx).document().read(cx).is_scanning());
             if let Some(scan) = scan {
                 // The line may be past what is scanned (ADR-0020): go there when the scan is done.
-                let view = view.clone();
+                let view = view.downgrade();
                 cx.spawn(async move |cx| {
                     if wait_for_scan(&view, scan, cx).await {
-                        view.update(cx, |view, cx| view.go_by_launch(&caret, true, cx));
+                        view.update(cx, |view, cx| view.go_by_launch(&caret, true, cx))
+                            .ok();
                     }
                 })
                 .detach();
@@ -449,40 +450,46 @@ fn apply_after_load(
 /// that is scanned in the background (ADR-0020): they wait for the end of the scan, because a
 /// place in the file may be one the scan has not reached, and the macro may move there. Nothing
 /// waits for them; the next file can be opened meanwhile.
-pub(crate) fn after_load_when_scanned(
-    handle: AnyWindowHandle,
-    view: &Entity<EditorView>,
-    path: &Path,
-    cx: &mut App,
-) {
-    let (view, path) = (view.clone(), path.to_owned());
-    let Some(scan) = view.read(cx).document().read(cx).scan_id() else {
+pub(crate) fn after_load_when_scanned(view: &Entity<EditorView>, path: &Path, cx: &mut App) {
+    // The task holds the view weakly: a tab that is closed meanwhile ends the scan with its
+    // document, and the options are dropped.
+    let (view, path) = (view.downgrade(), path.to_owned());
+    let Some(scan) = view
+        .upgrade()
+        .and_then(|view| view.read(cx).document().read(cx).scan_id())
+    else {
         return;
     };
     cx.spawn(async move |cx| {
         let finished = wait_for_scan(&view, scan, cx).await;
         cx.update(|app| {
-            let weak = view.downgrade();
             // Only for the document that was opened: it was closed or replaced meanwhile, or the
             // scan failed, and the options were not for what is there.
-            if !finished {
+            let tab = finished
+                .then(|| view.upgrade())
+                .flatten()
+                .and_then(|entity| {
+                    // The tab may have moved to another window meanwhile.
+                    crate::file_ops::windows::find_tab_of(app, &view)
+                        .map(|(handle, _)| (handle, entity))
+                });
+            let Some((handle, entity)) = tab else {
                 app.default_global::<Expected>().0.remove(&path);
                 return;
-            }
-            // The tab may have moved to another window meanwhile.
-            let handle =
-                crate::file_ops::windows::find_tab_of(app, &weak).map_or(handle, |(h, _)| h);
+            };
             crate::macros::run_auto_in(
                 handle,
-                &view,
+                &entity,
                 crate::macros::Auto::Opened,
                 app,
                 move |app| {
-                    let handle = crate::file_ops::windows::find_tab_of(app, &weak)
-                        .map_or(handle, |(h, _)| h);
+                    let Some((handle, _)) = crate::file_ops::windows::find_tab_of(app, &view)
+                    else {
+                        return;
+                    };
                     handle
                         .update(app, |_, window, app| {
-                            apply_after_load(&weak, &path, true, window, app)
+                            apply_after_load(&view, &path, true, window, app)
                         })
                         .ok();
                 },
@@ -493,22 +500,23 @@ pub(crate) fn after_load_when_scanned(
 }
 
 /// Waits until the scan of number `scan` of the document of `view` is over. Whether it ended with
-/// the complete document (not failed, and the document not replaced meanwhile).
-async fn wait_for_scan(view: &Entity<EditorView>, scan: u64, cx: &mut gpui::AsyncApp) -> bool {
+/// the complete document (not failed, and the view and its document not gone meanwhile).
+async fn wait_for_scan(view: &WeakEntity<EditorView>, scan: u64, cx: &mut gpui::AsyncApp) -> bool {
     loop {
-        let (running, finished) = view.read_with(cx, |view, app| {
+        let state = view.read_with(cx, |view, app| {
             let shared = view.document().read(app);
-            (shared.scan_id() == Some(scan), shared.scan_finished(scan))
+            if shared.scan_finished(scan) {
+                Some(true)
+            } else if shared.scan_id() != Some(scan) || !shared.is_scanning() {
+                Some(false)
+            } else {
+                None
+            }
         });
-        if finished {
-            return true;
-        }
-        if !running {
-            return false;
-        }
-        let failed = view.read_with(cx, |view, app| !view.document().read(app).is_scanning());
-        if failed {
-            return false;
+        match state {
+            Ok(Some(done)) => return done,
+            Ok(None) => {}
+            Err(_) => return false,
         }
         cx.background_executor()
             .timer(std::time::Duration::from_millis(50))

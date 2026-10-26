@@ -176,6 +176,9 @@ async fn settle_encoding(
     // If the file cannot be read in that encoding, the detected one stays.
     match read_file(view, cx, path, Some(old)).await {
         Ok(again) => Ok(again),
+        // The user said no to the question before a huge file is read whole in that encoding:
+        // nothing is opened.
+        Err(FileError::Cancelled) => Err(FileError::Cancelled),
         Err(_) => Ok(file),
     }
 }
@@ -286,11 +289,8 @@ pub(crate) async fn load_here(
                     .unwrap_or(false);
                 if scanning {
                     if let Some(entity) = view.upgrade() {
-                        let handle = cx.window_handle();
                         cx.update(|_, app| {
-                            super::start_options::after_load_when_scanned(
-                                handle, &entity, path, app,
-                            )
+                            super::start_options::after_load_when_scanned(&entity, path, app)
                         })
                         .ok();
                     }
