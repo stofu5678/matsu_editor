@@ -353,3 +353,52 @@ fn a_tab_dropped_over_another_window_joins_its_tabs(cx: &mut TestAppContext) {
     assert_eq!(tab_count(cx, second), 2);
     assert_eq!(active_view(cx, second), moved);
 }
+
+// ---- the room beside the tabs, and the active tab in a row that scrolls ----
+
+#[gpui::test]
+fn a_double_click_beside_the_tabs_makes_a_document(cx: &mut TestAppContext) {
+    // OnLButtonDblClk: the whole room right of the last tab answers, not a sliver of it.
+    let handle = tabs(cx, 2);
+    let boxes = draw(cx, handle);
+    let area = strip(cx, handle);
+    let y = boxes[0].center().y;
+    let x = (boxes[1].right() + area.right()) / 2.;
+    let vcx = visual(cx, handle);
+    vcx.simulate_event(gpui::MouseDownEvent {
+        position: point(x, y),
+        modifiers: Modifiers::default(),
+        button: MouseButton::Left,
+        click_count: 2,
+        first_mouse: false,
+    });
+    cx.run_until_parked();
+    assert_eq!(tab_count(cx, handle), 3);
+}
+
+#[gpui::test]
+fn the_active_tab_is_brought_into_view_in_a_row_that_scrolls(cx: &mut TestAppContext) {
+    let handle = tabs(cx, 30);
+    options(
+        cx,
+        TabOptions {
+            min_width: 50,
+            ..Default::default()
+        },
+    );
+    let visible = |cx: &mut TestAppContext, i: usize| {
+        let boxes = draw(cx, handle);
+        let area = strip(cx, handle);
+        boxes[i].left() >= area.left() - px(1.) && boxes[i].right() <= area.right() + px(1.)
+    };
+    // The new document is the last tab, and the active one.
+    assert!(visible(cx, 29));
+    let ws = workspace(cx, handle);
+    handle
+        .update(cx, |_, window, app| {
+            ws.update(app, |ws, cx| ws.activate_tab(0, window, cx));
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert!(visible(cx, 0), "the first tab is shown after it is chosen");
+}

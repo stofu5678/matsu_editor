@@ -66,6 +66,16 @@ struct Entry {
     icon: TabIcon,
 }
 
+/// What the scrolling row of tabs remembers between frames: its scroll position, and the active
+/// tab and tab count it was last kept in view for.
+#[derive(Default)]
+struct StripScroll {
+    handle: gpui::ScrollHandle,
+    shown: Option<(usize, usize)>,
+    /// The user scrolled the row since then: the active tab is left where it is.
+    by_hand: bool,
+}
+
 /// Where the drag of a tab began, kept from its start to the release of the button
 /// (`m_nSrcTab`, `m_ptSrcCursor` of `CTabWnd`). GPUI tells the elements under the pointer about a
 /// drop, and a drop outside the window has none, so the window finds out itself
@@ -338,7 +348,28 @@ impl Workspace {
         strip = if options.multi_line {
             strip.flex_wrap()
         } else {
-            strip.overflow_x_scroll()
+            // The active tab is kept in view (the minimal scroll, so it costs nothing while it is) until
+            // the user scrolls the row by hand; a new active tab or tab count brings it back.
+            let scroll =
+                window.use_keyed_state("tab-strip-scroll", cx, |_, _| StripScroll::default());
+            let active = entries.iter().position(|e| e.active);
+            let count = entries.len();
+            let handle = scroll.update(cx, |state, _| {
+                if let Some(active) = active {
+                    if state.shown != Some((active, count)) {
+                        state.shown = Some((active, count));
+                        state.by_hand = false;
+                    }
+                    if !state.by_hand {
+                        state.handle.scroll_to_item(active);
+                    }
+                }
+                state.handle.clone()
+            });
+            strip = strip.on_scroll_wheel(move |_, _, cx| {
+                scroll.update(cx, |state, _| state.by_hand = true);
+            });
+            strip.overflow_x_scroll().track_scroll(&handle)
         };
         for (i, entry) in entries.iter().cloned().enumerate() {
             strip = strip.child(self.render_tab(i, entry, own, options, keep_close_visible, cx));
@@ -415,8 +446,7 @@ impl Workspace {
         // `OnLButtonDblClk`: a double click beside the tabs makes a new document. Several rows fill
         // the width (the tab control stretches them), so only a single row has room beside them.
         if !options.multi_line {
-            // Equal-width tabs take the room first.
-            let room = div().flex_grow(0.001).on_mouse_down(
+            let room = div().flex_grow(1.).on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
                     if event.click_count >= 2 {
@@ -565,7 +595,8 @@ impl Workspace {
             // grows to fill its row.
             .min_w(px(min_width as f32))
             .max_w(px(max_width as f32))
-            .when(options.same_width, |tab| tab.flex_1())
+            // (a grow factor far above the room's keeps the room from taking a share)
+            .when(options.same_width, |tab| tab.flex_1().flex_grow(1000.))
             .when(!options.same_width, |tab| tab.flex_shrink_1())
             .when(!options.same_width && options.multi_line, |tab| {
                 tab.flex_grow(1.)
