@@ -532,7 +532,11 @@ mod tests {
         // Two names that a lossy conversion would make the same.
         for bytes in [&b"b\xff.js"[..], &b"b\xfe.js"[..]] {
             let name = std::ffi::OsStr::from_bytes(bytes);
-            std::fs::write(dir.path().join(name), "y").unwrap();
+            // macOS refuses such a name (APFS wants valid text): nothing to check there.
+            if std::fs::write(dir.path().join(name), "y").is_err() {
+                eprintln!("SKIP: this file system does not take a name that is not text");
+                return;
+            }
         }
         let error = fingerprint(dir.path()).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
