@@ -15,6 +15,15 @@ use crate::history::HistoryOptions;
 /// How often the task of the view looks at the scan.
 const POLL: Duration = Duration::from_millis(100);
 
+/// A jump that waits for the scan: the scan it waits for, the command and its arguments, and the
+/// hold on the macro that asked for it (the next step of the macro waits until the jump has run).
+pub(crate) type PendingScanJump = (
+    u64,
+    &'static Registration,
+    Vec<Arg>,
+    Option<crate::macros::wait::FlowGuard>,
+);
+
 /// What is restored after a file is opened when the scan has not reached it yet.
 pub(crate) struct ScanRestore {
     /// The scan the restore waits for.
@@ -86,13 +95,15 @@ impl EditorView {
         }
         let complete = !self.document.read(cx).is_partial();
         // Only a jump that waited for the scan that ended: the document may have been replaced.
-        if let Some((id, reg, args)) = self.pending_scan_jump.take()
+        if let Some((id, reg, args, hold)) = self.pending_scan_jump.take()
             && complete
             && self.document.read(cx).scan_finished(id)
         {
             self.replaying_scan_jump = true;
             self.run_registration(reg, &args, cx);
             self.replaying_scan_jump = false;
+            // The macro goes on after the jump.
+            drop(hold);
         }
     }
 
@@ -136,7 +147,10 @@ impl EditorView {
         };
         // Recorded now, in its place among the commands; the run that follows does not record.
         self.record_call(reg.sakura, args);
-        self.pending_scan_jump = Some((id, reg, args.to_vec()));
+        // A macro that asked waits for the jump (`macros/wait.rs`): its next step needs the text
+        // that the jump moves to, and the edits are refused until the scan is done.
+        let hold = crate::macros::wait::track(cx);
+        self.pending_scan_jump = Some((id, reg, args.to_vec(), hold));
         self.notice = Some("改行位置を調べ終えてから移動します".to_owned());
         cx.notify();
         true

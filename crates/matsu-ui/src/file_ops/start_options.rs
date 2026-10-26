@@ -252,6 +252,21 @@ impl LaunchOptions {
                 view_top: None,
                 ..self.file.clone()
             };
+            let scanning = view.read(cx).document().read(cx).is_scanning();
+            if scanning {
+                // The line may be past what is scanned (ADR-0020): go there when the scan is done.
+                let view = view.clone();
+                cx.spawn(async move |cx| {
+                    while view.read_with(cx, |view, app| view.document().read(app).is_scanning()) {
+                        cx.background_executor()
+                            .timer(std::time::Duration::from_millis(50))
+                            .await;
+                    }
+                    view.update(cx, |view, cx| view.go_by_launch(&caret, true, cx));
+                })
+                .detach();
+                return;
+            }
             view.update(cx, |view, cx| view.go_by_launch(&caret, true, cx));
         }
     }
@@ -401,23 +416,73 @@ pub(crate) fn after_load(
     path: &Path,
     loaded: bool,
 ) {
-    let Ok(Some(after)) = cx.update(|_, app| app.default_global::<Expected>().0.remove(path))
-    else {
+    cx.update(|window, app| apply_after_load(view, path, loaded, window, app))
+        .ok();
+}
+
+/// [`after_load`] where the window is in hand.
+fn apply_after_load(
+    view: &WeakEntity<EditorView>,
+    path: &Path,
+    loaded: bool,
+    window: &mut Window,
+    app: &mut App,
+) {
+    let Some(after) = app.default_global::<Expected>().0.remove(path) else {
         return;
     };
-    cx.update(|window, app| {
-        let Some(view) = view.upgrade() else {
-            return;
-        };
-        if loaded {
-            // `-TYPE=` was applied when the file was read (see `expected_type`).
-            view.update(app, |view, cx| view.go_by_launch(&after.file, false, cx));
+    let Some(view) = view.upgrade() else {
+        return;
+    };
+    if loaded {
+        // `-TYPE=` was applied when the file was read (see `expected_type`).
+        view.update(app, |view, cx| view.go_by_launch(&after.file, false, cx));
+    }
+    if let Some(m) = &after.macro_ {
+        run_macro_in(m, &view, window, app);
+    }
+}
+
+/// The macro of オープン後 and then the options of the launch (`-X=` `-Y=` `-M=`...), for a file
+/// that is scanned in the background (ADR-0020): they wait for the end of the scan, because a
+/// place in the file may be one the scan has not reached, and the macro may move there. Nothing
+/// waits for them; the next file can be opened meanwhile.
+pub(crate) fn after_load_when_scanned(
+    handle: AnyWindowHandle,
+    view: &Entity<EditorView>,
+    path: &Path,
+    cx: &mut App,
+) {
+    let (view, path) = (view.clone(), path.to_owned());
+    cx.spawn(async move |cx| {
+        loop {
+            // The tab was closed, or the document was replaced: the options were not for it.
+            let scanning = view.read_with(cx, |view, app| view.document().read(app).is_scanning());
+            if !scanning {
+                break;
+            }
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(50))
+                .await;
         }
-        if let Some(m) = &after.macro_ {
-            run_macro_in(m, &view, window, app);
-        }
+        cx.update(|app| {
+            let weak = view.downgrade();
+            crate::macros::run_auto_in(
+                handle,
+                &view,
+                crate::macros::Auto::Opened,
+                app,
+                move |app| {
+                    handle
+                        .update(app, |_, window, app| {
+                            apply_after_load(&weak, &path, true, window, app)
+                        })
+                        .ok();
+                },
+            );
+        });
     })
-    .ok();
+    .detach();
 }
 
 /// `-M=`: runs the macro in the window `handle` (`F_EXECEXTMACRO`).

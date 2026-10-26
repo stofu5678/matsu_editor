@@ -16,7 +16,7 @@ use super::windows::{self, LoadRequest};
 use crate::document::SharedDocument;
 use crate::file_dialog::{self, Ask};
 use crate::history::view::{code_change_message, encoding_of, remembered};
-use crate::open::open_text_file_with;
+use crate::open::{HugeOpen, open_text_file_with};
 use crate::view::EditorView;
 
 /// Files at least this big show their progress in the status bar. Smaller ones are read before
@@ -46,12 +46,53 @@ pub(crate) fn progress_text(path: &Path, done: u64, total: u64) -> String {
     )
 }
 
-/// Reads `path` on a background task. A big file shows its progress in the view.
+/// Reads `path` on a background task. A big file shows its progress in the view. A huge file in an
+/// encoding that has to be read whole is read after the user agreed (ADR-0020 9.9); when the user
+/// did not, the result is [`FileError::Cancelled`], which is not told.
 async fn read_file(
     view: &WeakEntity<EditorView>,
     cx: &mut AsyncWindowContext,
     path: &Path,
     encoding: Option<Encoding>,
+) -> Result<TextFile, FileError> {
+    match read_file_asking(view, cx, path, encoding, true).await {
+        Err(FileError::WholeReadNeeded {
+            len,
+            encoding: found,
+        }) => {
+            let (message, detail) = whole_read_message(path, len, found);
+            if confirm(cx, &message, Some(&detail), ["読み込む(Y)", "キャンセル"]).await {
+                read_file_asking(view, cx, path, encoding, false).await
+            } else {
+                Err(FileError::Cancelled)
+            }
+        }
+        other => other,
+    }
+}
+
+/// The question before a huge file in an encoding that cannot be read by ranges is read whole
+/// (ADR-0020 9.9; the words are the editor's own, Sakura has none): what it costs.
+pub(crate) fn whole_read_message(path: &Path, len: u64, encoding: Encoding) -> (String, String) {
+    let mb = len.div_ceil(1024 * 1024);
+    (
+        format!(
+            "'{}'\nは {mb} MB の {} のファイルです。",
+            path.display(),
+            encoding.short_name()
+        ),
+        "この文字コードは範囲ごとに読めないので、全体を読み込んで変換します。\
+         時間がかかり、ファイルの大きさの 2〜3 倍のメモリを使います。読み込みますか？"
+            .to_owned(),
+    )
+}
+
+async fn read_file_asking(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    path: &Path,
+    encoding: Option<Encoding>,
+    ask: bool,
 ) -> Result<TextFile, FileError> {
     let size = std::fs::metadata(path).map_or(0, |m| m.len());
     let progress = Arc::new(Progress::default());
@@ -66,7 +107,11 @@ async fn read_file(
     let huge = cx
         .update(|_, app| {
             let prefs = super::prefs::prefs(app);
-            (prefs.huge_file_len(), prefs.huge_scan)
+            HugeOpen {
+                from: prefs.huge_file_len(),
+                scan: prefs.huge_scan,
+                ask_before_whole_read: ask,
+            }
         })
         .ok();
     let task = cx.background_executor().spawn(async move {
@@ -233,6 +278,24 @@ pub(crate) async fn load_here(
             if replaced {
                 // `CDocLocker::OnAfterLoad` locked the new document.
                 super::lock::report_failure(view, cx).await;
+                // A file that is scanned in the background (ADR-0020): the macro of オープン後 and
+                // the options of the launch run when the scan is done (a place in the file may be
+                // past what is scanned). The macro that opened the file waits for the scan too.
+                let scanning = view
+                    .read_with(cx, |view, app| view.document().read(app).is_scanning())
+                    .unwrap_or(false);
+                if scanning {
+                    if let Some(entity) = view.upgrade() {
+                        let handle = cx.window_handle();
+                        cx.update(|_, app| {
+                            super::start_options::after_load_when_scanned(
+                                handle, &entity, path, app,
+                            )
+                        })
+                        .ok();
+                    }
+                    return true;
+                }
                 // The file is open: the macro of オープン後 (`FileLoad`).
                 crate::macros::run_opened(view, cx).await;
             } else if unlocked {
@@ -254,8 +317,11 @@ pub(crate) async fn load_here(
                 cx.notify();
             })
             .ok();
-            let (message, detail) = open_error_message(path, &error);
-            tell(cx, PromptLevel::Critical, &message, Some(&detail)).await;
+            // The user's own "no" to the question before a whole read is not an error.
+            if !matches!(error, FileError::Cancelled) {
+                let (message, detail) = open_error_message(path, &error);
+                tell(cx, PromptLevel::Critical, &message, Some(&detail)).await;
+            }
             // Pending until the error is read: a macro that opened the file waits for the box.
             cx.update(|_, app| windows::finish_pending(app, view)).ok();
             super::start_options::after_load(view, cx, path, false);

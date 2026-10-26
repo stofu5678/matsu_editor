@@ -1832,3 +1832,31 @@ fn a_crlf_at_the_edge_of_the_probe_for_the_first_line_ending_is_seen_whole() {
     assert_eq!(file.new_line, Eol::CrLf);
     drop(file.take_scan());
 }
+
+#[test]
+fn a_huge_file_that_has_to_be_read_whole_can_be_asked_about_first() {
+    let dir = TempDir::new();
+    let path = dir.write("jis.txt", b"\x1b$B$\"$$\x1b(B\nabc\n");
+    let mut options = huge_options(1);
+    options.encoding = Some(Encoding::Jis);
+    options.ask_before_whole_read = true;
+    let error = open_file(&path, &options).unwrap_err();
+    assert!(
+        matches!(
+            error,
+            FileError::WholeReadNeeded {
+                encoding: Encoding::Jis,
+                ..
+            }
+        ),
+        "{error}"
+    );
+    // Under the size, or for a file that can be read by ranges, there is nothing to ask.
+    let mut small = options.clone();
+    small.huge_file_len = Some(1000);
+    assert!(open_file(&path, &small).is_ok());
+    let utf8 = dir.write("utf8.txt", b"abc\n");
+    let mut options = huge_options(1);
+    options.ask_before_whole_read = true;
+    assert!(open_file(&utf8, &options).is_ok());
+}
