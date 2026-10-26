@@ -1115,3 +1115,21 @@ fn replace_all_over_cuts_replaces_every_match_once() {
         }
     }
 }
+
+#[test]
+fn left_goes_past_an_empty_cut_line_after_enter() {
+    use crate::cursor::char_left;
+
+    let text = "abcdefghij".repeat(10);
+    let mut doc = long_doc(text.as_bytes(), Encoding::Utf8, 4, 16);
+    assert!(doc.line_count() > 3);
+    // Enter at the start of line 2 puts a real line ending at the end of line 1, and leaves an
+    // empty cut line after it.
+    doc.insert(Pos { line: 2, col: 0 }, "\n").unwrap();
+    assert!(doc.line(1).unwrap().unwrap().eol.is_some());
+    assert_eq!(doc.line(2).unwrap().unwrap().text, "");
+    let left = char_left(&doc, Pos { line: 3, col: 0 }).unwrap().unwrap();
+    // before the real line ending: the end of the text of line 1
+    assert_eq!(left.line, 1);
+    assert_eq!(left.col, doc.line(1).unwrap().unwrap().text.len());
+}
