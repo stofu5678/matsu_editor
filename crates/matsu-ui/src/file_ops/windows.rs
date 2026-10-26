@@ -64,7 +64,7 @@ pub(crate) fn open_editor_window(
     }
     // matsu.ini, read once at startup (`app::run`); every window applies it.
     let user = cx.try_global::<crate::settings::UserSettings>().cloned();
-    open_window_with(cx, move |window, cx| {
+    open_window_with(cx, None, move |window, cx| {
         let document = cx.new(|_| shared);
         let workspace = cx.new(|cx| Workspace::new(document, window, cx));
         let editor = workspace.read(cx).editor().clone();
@@ -93,9 +93,20 @@ pub(crate) fn open_window_with_panes(
     cx: &mut App,
     panes: PaneSet,
 ) -> Result<AnyWindowHandle, Option<Box<PaneSet>>> {
+    open_window_with_panes_at(cx, panes, None)
+}
+
+/// [`open_window_with_panes`] with the position of the window's top left corner on the screen,
+/// for a tab that was dragged out of the bar (`CTabWnd::SeparateGroup` puts the window where the
+/// tab was dropped).
+pub(crate) fn open_window_with_panes_at(
+    cx: &mut App,
+    panes: PaneSet,
+    origin: Option<gpui::Point<gpui::Pixels>>,
+) -> Result<AnyWindowHandle, Option<Box<PaneSet>>> {
     let slot = Rc::new(std::cell::RefCell::new(Some(panes)));
     let taken = slot.clone();
-    open_window_with(cx, move |window, cx| {
+    open_window_with(cx, origin, move |window, cx| {
         let panes = taken.borrow_mut().take().expect("the panes are used once");
         cx.new(|cx| Workspace::with_panes(panes, window, cx))
     })
@@ -105,6 +116,7 @@ pub(crate) fn open_window_with_panes(
 /// Opens a window whose content `build` makes, and registers it.
 fn open_window_with(
     cx: &mut App,
+    origin: Option<gpui::Point<gpui::Pixels>>,
     build: impl FnOnce(&mut Window, &mut App) -> Entity<Workspace> + 'static,
 ) -> gpui::Result<AnyWindowHandle> {
     let count = window_count(cx);
@@ -127,6 +139,9 @@ fn open_window_with(
     }
     if let Some(placement) = placement {
         placement.place(&mut bounds);
+    }
+    if let Some(origin) = origin {
+        bounds.origin = origin;
     }
     let window_bounds = if saved.maximized() {
         WindowBounds::Maximized(bounds)

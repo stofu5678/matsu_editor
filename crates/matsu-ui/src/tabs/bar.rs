@@ -10,9 +10,14 @@
 //! * The two buttons at the right end: ▼ lists the tabs by their captions on a left click and by
 //!   their paths on a right click ([`super::list`], `OnLButtonDown`, `OnRButtonDown`), and × closes
 //!   what the settings say (`OnLButtonUp`: [`close_function`]).
-//! * A tab can be dragged to another place of the bar (`ReorderTab`). Dragging a tab out of the
-//!   window to make a new one (`SeparateGroup` on a drop outside the bar) needs the OS to move a
-//!   drag across windows, which GPUI cannot do: `F_TAB_SEPARATE` does it.
+//! * A tab can be dragged to another place of the bar (`ReorderTab`). A tab dropped outside the
+//!   window goes to the window under the pointer, or makes a window of its own where it was
+//!   dropped (`OnTabLButtonUp`: `SeparateGroup`; [`Workspace::finish_tab_drag`]). GPUI cannot drop
+//!   a drag into another window, so the drop is found from the position of the pointer on the
+//!   screen.
+//! * The settings of the page タブバー: icons (`bDispTabIcon`, [`super::icon`]), several rows
+//!   (`bTabMultiLine`), the place of the bar (`eTabPosition`) and the widths of the tabs
+//!   (`nTabMaxWidth`, `nTabMinWidth`, `nTabMinWidthOnMulti`, [`settings::TabOptions::width_limits`]).
 //!
 //! With the tabs grouped (Sakura's tab mode) the bar shows the tabs of this window. With the bar
 //! shown but the windows not grouped ("タブをまとめない") every window has one document, and the
@@ -30,6 +35,7 @@ use matsu_commands::sakura::FUNCTIONS;
 use std::rc::Rc;
 
 use super::content::TabPanel;
+use super::icon::TabIcon;
 use super::list::{self, Start};
 use super::{flows, semantics, settings};
 use crate::app::Workspace;
@@ -56,6 +62,31 @@ struct Entry {
     /// The tab is a preview (`crate::preview`): its `view` is the hidden view of its document, and
     /// closing it asks nothing.
     preview: bool,
+    /// The icon the tab shows with `bDispTabIcon`.
+    icon: TabIcon,
+}
+
+/// Where the drag of a tab began, kept from its start to the release of the button
+/// (`m_nSrcTab`, `m_ptSrcCursor` of `CTabWnd`). GPUI tells the elements under the pointer about a
+/// drop, and a drop outside the window has none, so the window finds out itself
+/// ([`Workspace::finish_tab_drag`]).
+#[derive(Clone, Copy)]
+pub(crate) struct TabDragOrigin {
+    pub window: AnyWindowHandle,
+    pub index: usize,
+    /// The pointer in the window when the drag began.
+    pub start: gpui::Point<gpui::Pixels>,
+}
+
+/// The drag of a tab that is going on, if any.
+#[derive(Default)]
+pub(crate) struct TabDrag(pub Option<TabDragOrigin>);
+
+impl gpui::Global for TabDrag {}
+
+/// The drag of a tab ends: forgets where it began and returns that.
+pub(crate) fn end_tab_drag(cx: &mut gpui::App) -> Option<TabDragOrigin> {
+    cx.default_global::<TabDrag>().0.take()
 }
 
 /// What is dragged when a tab moves: its position in the bar.
@@ -201,6 +232,7 @@ impl Workspace {
                      tab,
                      preview,
                      cx: &gpui::App| Entry {
+            icon: panel.icon(cx),
             caption: panel.caption(cx),
             name: panel.accessible_name(cx),
             tooltip: panel.tooltip(cx),
@@ -271,12 +303,17 @@ impl Workspace {
         let keep_close_visible = window.is_a11y_active();
         // `m_sTabBar.m_lf`: the font of the text of the tabs (the text size is 12 pixels without one).
         let font = settings::tab_font(cx);
+        // `m_eTabPosition`: the border is on the side that faces the editor.
+        let bottom = options.position == settings::TabPosition::Bottom;
         let mut bar = semantics::bar(div().id("tab-bar"), entries.len())
             .flex()
             .flex_row()
+            // With several rows the buttons keep the height of one (`DrawListBtn`: at the top).
+            .items_start()
             .w_full()
             .bg(rgb(0xe4e4e4))
-            .border_b_1()
+            .when(bottom, |bar| bar.border_t_1())
+            .when(!bottom, |bar| bar.border_b_1())
             .border_color(rgb(0xc0c0c0))
             .text_size(px(font.size_px().unwrap_or(12.)))
             .text_color(rgb(0x1e1e1e));
@@ -289,8 +326,22 @@ impl Workspace {
         if font.italic() {
             bar = bar.italic();
         }
+        // The tabs: wrapped into rows with `bTabMultiLine` (`TCS_MULTILINE`), else in one row that
+        // scrolls when they do not fit (the tab control shows scroll arrows).
+        let mut strip = div()
+            .id("tab-strip")
+            .debug_selector(|| "tab-strip".to_owned())
+            .flex()
+            .flex_row()
+            .flex_1()
+            .min_w_0();
+        strip = if options.multi_line {
+            strip.flex_wrap()
+        } else {
+            strip.overflow_x_scroll()
+        };
         for (i, entry) in entries.iter().cloned().enumerate() {
-            bar = bar.child(self.render_tab(i, entry, own, options, keep_close_visible, cx));
+            strip = strip.child(self.render_tab(i, entry, own, options, keep_close_visible, cx));
         }
         // `OnLButtonDown`: the list of the captions opens on the press, as a menu does.
         let list_button = semantics::button(div().id("tab-list"), semantics::LIST_BUTTON_NAME)
@@ -361,24 +412,53 @@ impl Workspace {
                 },
             ));
         }
+        // `OnLButtonDblClk`: a double click beside the tabs makes a new document. Several rows fill
+        // the width (the tab control stretches them), so only a single row has room beside them.
+        if !options.multi_line {
+            // Equal-width tabs take the room first.
+            let room = div().flex_grow(0.001).on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
+                    if event.click_count >= 2 {
+                        this.run_after_event(function_code("F_FILENEW"), window, cx);
+                    }
+                }),
+            );
+            strip = strip.child(room);
+        }
         Some(
-            bar.child(
-                div()
-                    .flex_1()
-                    // `OnLButtonDblClk`: a double click beside the tabs makes a new document.
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, event: &gpui::MouseDownEvent, window, cx| {
-                            if event.click_count >= 2 {
-                                this.run_after_event(function_code("F_FILENEW"), window, cx);
-                            }
-                        }),
-                    ),
-            )
-            .child(list_button)
-            .child(close_button)
-            .into_any_element(),
+            bar.child(strip)
+                .child(list_button)
+                .child(close_button)
+                .into_any_element(),
         )
+    }
+
+    /// The left button went up outside the elements of the window: if a tab was being dragged and the
+    /// pointer is outside the window, the tab leaves it (`OnTabLButtonUp`, `DRAG_DRAG` with the
+    /// drop outside the tab bar and outside this window).
+    ///
+    /// Where the button went up decides (`SeparateGroup`): over another window of the editor the
+    /// tab joins its tabs, anywhere else it makes a window of its own where it was dropped. Only in
+    /// the tab mode (`bDispTabWnd && !bDispTabWndMultiWin`); a window with one tab has nothing to
+    /// separate from, but the tab can still join another window.
+    pub(crate) fn finish_tab_drag(
+        &mut self,
+        position: gpui::Point<gpui::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let origin = end_tab_drag(cx);
+        let Some(origin) = origin.filter(|o| o.window == window.window_handle()) else {
+            return;
+        };
+        let inside = gpui::Bounds::new(gpui::Point::default(), window.viewport_size());
+        if inside.contains(&position) || !cx.has_active_drag() {
+            return;
+        }
+        window.defer(cx, move |window, app| {
+            flows::drag_tab_out(app, window, origin, position);
+        });
     }
 
     /// Whether the tabs have a tooltip: not while a popup menu (the tab menu) is open.
@@ -404,6 +484,7 @@ impl Workspace {
             active,
             tab,
             preview,
+            icon,
         } = entry;
         let select = {
             let view = view.clone();
@@ -467,6 +548,7 @@ impl Workspace {
                 cx.stop_propagation();
             })
         };
+        let (min_width, max_width) = options.width_limits();
         let group = SharedString::from(format!("tab-group-{index}"));
         let mut element = semantics::tab(div().id(("tab", index)), &name, active, index)
             .flex()
@@ -476,9 +558,18 @@ impl Workspace {
             .px_2()
             .py_0p5()
             .group(group.clone())
-            // `m_bSameTabWidth`: every tab is as wide as the others.
-            .when(!options.same_width, |tab| tab.max_w(px(220.)))
-            .when(options.same_width, |tab| tab.w(px(160.)).flex_none())
+            // The widths (`CTabWnd::Refresh`, `TabCtrl_SetItemSize`): between `nTabMinWidth` (or
+            // `nTabMinWidthOnMulti` in several rows) and `nTabMaxWidth`. `m_bSameTabWidth`: every tab
+            // gets the same share of the row, `(width - 8) / count` before the limits (`flex: 1 1 0`).
+            // Else a tab is as wide as its text, shrinks when the row is full and, in several rows,
+            // grows to fill its row.
+            .min_w(px(min_width as f32))
+            .max_w(px(max_width as f32))
+            .when(options.same_width, |tab| tab.flex_1())
+            .when(!options.same_width, |tab| tab.flex_shrink_1())
+            .when(!options.same_width && options.multi_line, |tab| {
+                tab.flex_grow(1.)
+            })
             .border_r_1()
             .border_color(rgb(0xc0c0c0))
             .bg(if active { rgb(0xffffff) } else { rgb(0xd8d8d8) })
@@ -495,8 +586,12 @@ impl Workspace {
             .on_mouse_up(MouseButton::Right, open_menu)
             // `OnTabMButtonUp`: the middle button closes the tab.
             .on_mouse_up(MouseButton::Middle, move |_, window, cx| close(window, cx))
+            // `m_bDispTabIcon`: the icon is left of the text.
+            .when(options.disp_icon, |tab| tab.child(icon.element()))
             .child(
                 div()
+                    .debug_selector(move || format!("tab-caption-{index}"))
+                    .min_w_0()
                     .overflow_hidden()
                     .whitespace_nowrap()
                     .text_ellipsis()
@@ -510,6 +605,7 @@ impl Workspace {
                 tab.child(
                     semantics::tab_close_button(div().id(("tab-close", index)), &name)
                         .px_1()
+                        .flex_none()
                         .cursor_pointer()
                         .hover(|s| s.bg(rgb(0xc8c8c8)))
                         .when(auto, |button| {
@@ -531,7 +627,16 @@ impl Workspace {
                         from,
                         caption: caption.clone(),
                     },
-                    |dragged, _, _, cx| cx.new(|_| dragged.clone()),
+                    |dragged, _, window, cx| {
+                        // `m_ptSrcCursor`: where the drag began, for the window a drop outside
+                        // the window makes.
+                        cx.set_global(TabDrag(Some(TabDragOrigin {
+                            window: window.window_handle(),
+                            index: dragged.from,
+                            start: window.mouse_position(),
+                        })));
+                        cx.new(|_| dragged.clone())
+                    },
                 )
                 .on_drop(cx.listener(move |this, dragged: &DraggedTab, _, cx| {
                     this.move_tab(dragged.from, from, cx);

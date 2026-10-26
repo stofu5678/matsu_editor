@@ -10,14 +10,15 @@
 
 use gpui::{AnyWindowHandle, App, AppContext as _, Context, Entity, Window};
 
+use super::bar::TabDragOrigin;
 use super::order;
 use super::settings::{self, TabSettings};
 use crate::app::Workspace;
 use crate::document::SharedDocument;
 use crate::file_ops::close::show_in_window;
 use crate::file_ops::windows::{
-    LoadRequest, editors, has_pending, open_editor_window, open_window_with_panes, workspace_of,
-    workspaces,
+    LoadRequest, editors, has_pending, open_editor_window, open_window_with_panes,
+    open_window_with_panes_at, workspace_of, workspaces,
 };
 use crate::panes::PaneSet;
 use crate::view::EditorView;
@@ -331,6 +332,101 @@ pub(crate) fn separate_tab(cx: &mut App, window: &mut Window) -> bool {
             }
         },
         None => false,
+    }
+}
+
+/// The window of the editor that has `screen` (a point on the screen) over its area, other than
+/// `except`. Sakura asks `WindowFromPoint` for the window under the pointer; GPUI does not know
+/// the stacking of the windows, so the first one in the list of the editor's windows answers.
+fn window_at(
+    cx: &mut App,
+    except: AnyWindowHandle,
+    screen: gpui::Point<gpui::Pixels>,
+) -> Option<(AnyWindowHandle, Entity<Workspace>)> {
+    workspaces(cx).into_iter().find(|(handle, _)| {
+        *handle != except
+            && handle
+                .update(cx, |_, window, _| window.bounds().contains(&screen))
+                .unwrap_or(false)
+    })
+}
+
+/// A tab dropped outside its window (`CTabWnd::OnTabLButtonUp`, `DRAG_DRAG`, then `SeparateGroup`):
+/// over another window of the editor it joins that window's tabs and becomes active there;
+/// elsewhere it makes a window of its own, which is moved by what the pointer moved since the drag
+/// began, so that the tab stays under the pointer (`SeparateGroup`: `rcNormalPosition` shifted by
+/// `ptDrop - ptDrag`; a maximized window gives a window of the default place, as GPUI cannot
+/// place the zoomed state). `drop` is where the button went up, in the window `window`.
+///
+/// Only in the tab mode, and not while a file is being read (its task belongs to the window). The
+/// only tab of a window has nothing to separate from, so it moves only into another window, which
+/// closes the empty one (`F_TAB_JOINTNEXT` does the same). A preview stays where it is (it follows
+/// its source). Returns whether the tab moved.
+pub(crate) fn drag_tab_out(
+    cx: &mut App,
+    window: &mut Window,
+    origin: TabDragOrigin,
+    drop: gpui::Point<gpui::Pixels>,
+) -> bool {
+    let handle = window.window_handle();
+    if !settings::current(cx).bound() || has_pending(cx, handle) {
+        return false;
+    }
+    let Some(workspace) = workspace_of(cx, handle) else {
+        return false;
+    };
+    let (alone, movable) = workspace.read_with(cx, |ws, _| {
+        (ws.tab_count() < 2, ws.tab_panes(origin.index).is_some())
+    });
+    if !movable {
+        return false;
+    }
+    let screen = window.bounds().origin + drop;
+    let target = window_at(cx, handle, screen);
+    if alone && target.is_none() {
+        return false;
+    }
+    let set = workspace.update(cx, |ws, wcx| {
+        if alone {
+            ws.take_all_tabs(window, wcx).pop()
+        } else {
+            ws.take_tab(origin.index, window, wcx)
+        }
+    });
+    let Some(set) = set else {
+        return false;
+    };
+    if let Some((target_handle, target_ws)) = target {
+        target_handle
+            .update(cx, |_, target_window, app| {
+                target_ws.update(app, |ws, wcx| {
+                    ws.insert_tab(set, usize::MAX, true, target_window, wcx)
+                });
+                target_window.activate_window();
+            })
+            .ok();
+        if alone {
+            window.remove_window();
+        }
+        return true;
+    }
+    // The new window is where the tab was dropped, by the same shift as the pointer's.
+    let at = (!window.is_maximized()).then(|| {
+        let mut at = window.bounds().origin + (drop - origin.start);
+        at.y = at.y.max(gpui::px(0.));
+        at
+    });
+    match open_window_with_panes_at(cx, set, at) {
+        Ok(_) => true,
+        Err(back) => {
+            // The tab stays where it was.
+            if let Some(set) = back.map(|b| *b) {
+                workspace.update(cx, |ws, wcx| {
+                    ws.insert_tab(set, origin.index, true, window, wcx)
+                });
+            }
+            false
+        }
     }
 }
 

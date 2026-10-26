@@ -830,12 +830,21 @@ fn the_dialog_starts_from_the_tab_mode_the_windows_have(cx: &mut TestAppContext)
 
 #[gpui::test]
 fn the_options_of_the_tabs_are_written_and_taken(cx: &mut TestAppContext) {
-    let (ini, handle) = setup(cx, "[Common]\r\nbDispTabWnd=1\r\n");
-    assert_eq!(
-        cx.update(|app| crate::tabs::settings::options(app)),
-        TabOptions::default()
+    let (ini, handle) = setup(
+        cx,
+        "[Common]\r\nbDispTabWnd=1\r\nnTabMaxWidth=250\r\nnTabMinWidth=70\r\nnTabMinWidthOnMulti=110\r\n",
     );
+    let widths = TabOptions {
+        max_width: 250,
+        min_width: 70,
+        min_width_multi: 110,
+        ..TabOptions::default()
+    };
+    assert_eq!(cx.update(|app| crate::tabs::settings::options(app)), widths);
     run(cx, handle, "F_OPTION_TAB");
+    check(cx, "tab_icon", true);
+    check(cx, "tab_multi_line", true);
+    choose(cx, "tab_position", 1);
     check(cx, "tab_retain_empty", false);
     check(cx, "tab_close_one_win", true);
     check(cx, "tab_same_width", true);
@@ -850,10 +859,20 @@ fn the_options_of_the_tabs_are_written_and_taken(cx: &mut TestAppContext) {
             same_width: true,
             disp_close: DispTabClose::Auto,
             change_by_wheel: true,
-            ..TabOptions::default()
+            disp_icon: true,
+            multi_line: true,
+            position: crate::tabs::settings::TabPosition::Bottom,
+            ..widths
         }
     );
     for (key, value) in [
+        ("bDispTabIcon", "1"),
+        ("bTabMultiLine", "1"),
+        ("eTabPosition", "1"),
+        // Not in the dialog: kept as they were.
+        ("nTabMaxWidth", "250"),
+        ("nTabMinWidth", "70"),
+        ("nTabMinWidthOnMulti", "110"),
         ("bTab_RetainEmptyWin", "0"),
         ("bTab_CloseOneWin", "1"),
         ("bSameTabWidth", "1"),
@@ -862,8 +881,6 @@ fn the_options_of_the_tabs_are_written_and_taken(cx: &mut TestAppContext) {
     ] {
         assert_eq!(ini.get(key).as_deref(), Some(value), "{key}");
     }
-    // Not available yet: not written.
-    assert_eq!(ini.get("bDispTabIcon"), None);
 }
 
 fn active_editor(

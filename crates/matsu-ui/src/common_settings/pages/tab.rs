@@ -7,7 +7,9 @@
 //! the tabs (`bSameTabWidth`), their close buttons (`bDispTabClose`) and the wheel over the bar
 //! (`bChgWndByWheel`), the sorting of the tab list (`bSortTabList`) and the caption of the tabs
 //! (`szTabWndCaption`, expanded like the title of the window), and the font of the tabs
-//! (`lfTabFont`, with the font dialog). Not available yet: the icons, the rows and the place of the tabs.
+//! (`lfTabFont`, with the font dialog), the icons (`bDispTabIcon`), the rows (`bTabMultiLine`) and the
+//! place of the bar (`eTabPosition`). The widths of the tabs (`nTabMaxWidth`, `nTabMinWidth`,
+//! `nTabMinWidthOnMulti`) have no control in Sakura's dialog; they are read from the file.
 //!
 //! `EnableTabPropInput` (`CPropComTab.cpp`) says which controls can be used: all of them need the
 //! bar; the last three of the mode need the grouping too.
@@ -21,7 +23,7 @@ use super::super::model::{Control, Item, Values};
 use crate::font_dialog::model::{Choice, Style, face_fits};
 use crate::tabs::caption::{self, TabCaption};
 use crate::tabs::flows;
-use crate::tabs::settings::{self, DispTabClose, TabFont, TabOptions};
+use crate::tabs::settings::{self, DispTabClose, TabFont, TabOptions, TabPosition};
 
 /// `DispTabCloseArr` (`CPropComTab.cpp`).
 const DISP_CLOSE: &[(&str, i32)] = &[("なし", 0), ("常に表示", 1), ("自動表示", 2)];
@@ -82,7 +84,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
             vec![
                 Item::Row(vec![
                     Control::check("tab_icon", "アイコン表示(&I)", "bDispTabIcon", false)
-                        .unavailable()
                         .when(bar_is_shown)
                         .into(),
                     Control::check("tab_same_width", "等幅(&E)", "bSameTabWidth", false)
@@ -118,11 +119,9 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                     .when(bar_is_shown)
                     .into(),
                     Control::check("tab_multi_line", "多段(&M)", "bTabMultiLine", false)
-                        .unavailable()
                         .when(bar_is_shown)
                         .into(),
                     Control::choice("tab_position", "表示位置(&P)", "eTabPosition", 0, POSITION)
-                        .unavailable()
                         .when(bar_is_shown)
                         .into(),
                 ]),
@@ -192,7 +191,7 @@ fn tab_font_label(
 }
 
 /// The options of the tabs, from the values.
-fn options(values: &Values) -> TabOptions {
+fn options(values: &Values, current: TabOptions) -> TabOptions {
     TabOptions {
         retain_empty: values.bool("tab_retain_empty"),
         close_one_win: values.bool("tab_close_one_win"),
@@ -202,6 +201,13 @@ fn options(values: &Values) -> TabOptions {
         sort_list: values.bool("tab_sort_list"),
         // The list switches this itself; the page does not have it.
         list_full: false,
+        disp_icon: values.bool("tab_icon"),
+        multi_line: values.bool("tab_multi_line"),
+        position: TabPosition::from_code(values.int("tab_position")),
+        // Sakura's dialog has no control for the widths: they stay as the file has them.
+        max_width: current.max_width,
+        min_width: current.min_width,
+        min_width_multi: current.min_width_multi,
     }
 }
 
@@ -224,8 +230,9 @@ pub(in crate::common_settings) fn blocked(
 /// What OK does to the windows: the bar and the grouping are switched for every window at once,
 /// as `F_SHOWTAB` and `F_BIND_WINDOW` do (`ResetGroupId` and a message to all windows).
 pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: Option<&Values>) {
-    let mut tab_options = options(after);
-    tab_options.list_full = settings::options(env.cx).list_full;
+    let current = settings::options(env.cx);
+    let mut tab_options = options(after, current);
+    tab_options.list_full = current.list_full;
     // The caption and the font first: the windows draw again when the options are set.
     env.cx
         .set_global(TabCaption(after.text("tab_caption").to_owned()));

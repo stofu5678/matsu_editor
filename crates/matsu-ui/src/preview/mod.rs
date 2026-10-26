@@ -88,6 +88,14 @@ impl TabPanel for PreviewTab {
         }
     }
 
+    /// A preview shows the icon its document would (a file's, or the application's).
+    fn icon(&self, cx: &App) -> crate::tabs::icon::TabIcon {
+        crate::tabs::icon::TabIcon::of(
+            self.view.read(cx).document().read(cx).path().is_some(),
+            false,
+        )
+    }
+
     fn accessible_name(&self, cx: &App) -> String {
         self.caption(cx)
     }
