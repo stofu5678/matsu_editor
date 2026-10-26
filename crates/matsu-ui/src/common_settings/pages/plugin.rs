@@ -19,6 +19,7 @@
 //! Not built here (they come in later PRs of ADR-0026): ZIPプラグインを導入, 設定 (the options of a
 //! plugin), ReadMe.
 
+mod confirm;
 mod list;
 pub(in crate::common_settings) mod rows;
 
@@ -67,6 +68,12 @@ pub(in crate::common_settings) fn items() -> Option<Vec<Item>> {
         Item::Label("プラグイン一覧"),
         Item::Custom(list::draw),
         Item::Row(vec![
+            Control::button(list::ENABLE_ONE, "有効にする(&V)", list::enable_selected)
+                .when(list::can_enable)
+                .into(),
+            Control::button(list::DISABLE_ONE, "無効にする(&N)", list::disable_selected)
+                .when(list::can_disable)
+                .into(),
             Control::button(list::REMOVE, "削除(&R)", list::remove)
                 .when(list::can_remove)
                 .into(),
@@ -83,8 +90,22 @@ pub(in crate::common_settings) fn items() -> Option<Vec<Item>> {
     ])
 }
 
-/// What OK does to the windows. Nothing runs the plugins yet, so there is nothing to tell them.
-pub(in crate::common_settings) fn apply(_env: &mut Env, _after: &Values, _before: Option<&Values>) {
+/// What OK does besides writing `matsu.ini`: writes `plugins.ini`, the record of what the user
+/// enabled (ADR-0026, chapter 5). `before` is `None` when the application starts, and nothing is
+/// written then. Nothing runs the plugins yet, so the windows have nothing to be told.
+pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: Option<&Values>) {
+    if before.is_none() {
+        return;
+    }
+    let Some(dirs) = search_dirs(env.cx) else {
+        return;
+    };
+    let path = dirs.consent_file();
+    let mut file = matsu_config::plugins::consent::ConsentFile::load(&path);
+    if rows::write_consent(after.rows(list::LIST), &mut file) {
+        // A file that cannot be written leaves the choice for this session only, as the settings do.
+        let _ = file.save(&path);
+    }
 }
 
 #[cfg(test)]

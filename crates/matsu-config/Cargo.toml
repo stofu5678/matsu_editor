@@ -11,6 +11,8 @@ publish.workspace = true
 [dependencies]
 # Shift_JIS (Windows-31J) decoding and encoding for sakura.ini files that have no BOM.
 encoding_rs = "0.8.35"
+# The SHA-256 of the files of a plugin when the user enables it (ADR-0026, chapter 4). Already in Cargo.lock.
+sha2 = "0.10"
 # Sakura's print settings (`[Print]`) are read into the types of the print layout.
 matsu-print = { path = "../matsu-print" }
 
