@@ -425,9 +425,14 @@ fn the_line_of_a_launch_is_reached_when_the_scan_is_done(cx: &mut TestAppContext
     assert!(scanning(cx, &view));
     assert_eq!(caret_line(cx, &view), 0, "the line is not scanned yet");
     wait_for_scan(cx, &view);
-    for _ in 0..50 {
+    // The task of the launch looks at the scan every 50 ms of the clock of the test.
+    for _ in 0..600 {
+        if caret_line(cx, &view) == 89_999 {
+            break;
+        }
+        cx.executor().advance_clock(Duration::from_millis(100));
         cx.run_until_parked();
-        std::thread::sleep(Duration::from_millis(5));
+        std::thread::sleep(Duration::from_millis(10));
     }
     assert_eq!(
         view.read_with(cx, |v, _| v.cursor.caret()),
