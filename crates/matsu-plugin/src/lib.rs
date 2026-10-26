@@ -16,6 +16,8 @@
 //! - `api`: the basic API (one table). `codegen` (tests only) generates the JS, Python, Ruby and PHP parts
 //!   from it.
 //! - `session`: the child process, its threads, the timeout and the cancel.
+//! - `plugin_host`: a resident host for a plugin (ADR-0026): lazy start, the time limits, and what
+//!   to do with a host that fails.
 //! - `boot`: the boot libraries that the editor ships (`src/boot/`) and their private folder.
 //! - `model`: a plain text model that implements the API.
 
@@ -27,6 +29,7 @@ pub mod catalog;
 pub mod functions;
 pub mod host;
 pub mod model;
+pub mod plugin_host;
 pub mod protocol;
 pub mod session;
 

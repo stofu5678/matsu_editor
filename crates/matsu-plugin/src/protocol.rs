@@ -184,6 +184,17 @@ pub struct InitializeInfo {
     /// host: a Windows program opens a path with the ANSI code page, which cannot name every
     /// file). `None` for the interpreters that get the path as an argument.
     pub script: Option<ScriptSource>,
+    /// Set when the process is a plugin host (ADR-0026): it brings no script and waits for
+    /// `plugin/invoke` calls.
+    pub plugin: Option<PluginIdentity>,
+}
+
+/// Which plugin a host serves, as `params.plugin` of `initialize`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginIdentity {
+    pub id: String,
+    /// The folder of the plugin.
+    pub dir: String,
 }
 
 /// The name and the text of the user's script, as `params.script` of `initialize`.
@@ -215,6 +226,10 @@ pub fn initialize_message(info: &InitializeInfo) -> String {
     });
     if let Some(script) = &info.script {
         params["script"] = json!({"name": script.name, "source": script.source});
+    }
+    if let Some(plugin) = &info.plugin {
+        params["kind"] = json!("plugin");
+        params["plugin"] = json!({"id": plugin.id, "dir": plugin.dir});
     }
     ascii_json(&json!({
         "jsonrpc": "2.0",
@@ -341,6 +356,7 @@ mod tests {
                 name: "C:\\work\\絵文字😀.lua".into(),
                 source: "print('あ')\n".into(),
             }),
+            plugin: None,
         });
         assert!(line.is_ascii() && !line.contains('\n'));
         let value: Value = serde_json::from_str(&line).unwrap();

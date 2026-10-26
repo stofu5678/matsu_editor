@@ -12,7 +12,7 @@ use std::process::ExitCode;
 use std::rc::Rc;
 
 use matsu_script::engine::{self, ENGINES};
-use matsu_script::rpc::{Connection, Editor};
+use matsu_script::rpc::{Connection, Editor, PluginLink, Start};
 
 fn main() -> ExitCode {
     let Some(name) = engine_argument() else {
@@ -31,15 +31,23 @@ fn main() -> ExitCode {
     };
 
     let mut connection = Connection::new(io::stdin().lock(), io::stdout());
-    let init = match connection.read_initialize() {
+    let init = match connection.read_start() {
         Ok(init) => init,
         Err(message) => {
             eprintln!("matsu-script: {message}");
             return ExitCode::from(2);
         }
     };
-    let editor: Rc<RefCell<dyn Editor>> = Rc::new(RefCell::new(connection));
-    let result = engine.run(&init, editor);
+    let result = match init {
+        Start::Macro(init) => {
+            let editor: Rc<RefCell<dyn Editor>> = Rc::new(RefCell::new(connection));
+            engine.run(&init, editor)
+        }
+        Start::Plugin(init) => {
+            let link: Rc<RefCell<dyn PluginLink>> = Rc::new(RefCell::new(connection));
+            engine.serve(&init, link)
+        }
+    };
     let _ = io::stdout().flush();
     match result {
         Ok(()) => ExitCode::SUCCESS,
