@@ -203,6 +203,8 @@ pub(crate) struct MacroState {
     /// A macro is running: the commands it runs are not recorded.
     suspended: bool,
     running: Option<Running>,
+    /// A plugin is in a call on this window (`plugin_call`): the calls of plugins go one at a time.
+    plugin_running: bool,
     /// The file that holds the code of a script given as text (`F_EXECEXTMACRO` with a type); it is
     /// removed when the script ends.
     temp_script: Option<TempScript>,

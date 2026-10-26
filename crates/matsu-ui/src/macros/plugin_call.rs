@@ -265,7 +265,12 @@ pub(crate) fn prepare_command(
     let reuse = runtime
         .hosts
         .get(&def.id)
-        .filter(|host| host.borrow().settings().resident == want_resident)
+        .filter(|host| {
+            let host = host.borrow();
+            // A plugin that was replaced by another folder gets a host of its own folder.
+            host.settings().resident == want_resident
+                && Some(&host.settings().dir) == plugin_dir.as_ref()
+        })
         .cloned();
     let host = match reuse {
         Some(host) => host,
@@ -382,6 +387,22 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
         mut api,
     } = prepared;
     let limit = limit_of(jack);
+    // One plugin at a time on a window: the calls would share the undo block of the document, and
+    // a macro that runs has the window already.
+    let busy = editor.update(cx, |view, _| {
+        view.macros.plugin_running || view.macros.running.is_some()
+    });
+    if busy {
+        let message =
+            format!("プラグイン {label}: ほかのプラグインかマクロが動いている間は動かせません");
+        editor.update(cx, |view, cx| {
+            view.macros.output.begin();
+            view.macros.output.push(Kind::Note, message.clone());
+            view.notice = Some(message);
+            cx.notify();
+        });
+        return;
+    }
     if let Err(error) = host.borrow_mut().begin(jack, &handler, args, limit) {
         let message = format!("プラグイン {label}: {error}");
         editor.update(cx, |view, cx| {
@@ -399,6 +420,7 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
             format!("プラグイン {label} の {jack} ({handler}) を開始します"),
         );
         cx.notify();
+        view.macros.plugin_running = true;
         let depth = view.enter_undo_block(cx);
         // Everything the plugin does is one step of undo: the block is open until the call ends.
         if depth.is_some() {
@@ -452,6 +474,7 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                     let stopped = host.borrow().is_stopped();
                     set_stopped(&id, stopped);
                     let _ = weak.update(cx, |view, cx| {
+                        view.macros.plugin_running = false;
                         view.leave_undo_block(depth, cx);
                         if let Outcome::Failed(text) | Outcome::Died(text) = &outcome {
                             view.macros.output.push(Kind::Err, text.clone());
@@ -471,7 +494,7 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                 }
             };
             if !alive {
-                // The window is gone: the call ends with it.
+                // The window is gone: the call ends with it (and so does the claim on it).
                 host.borrow_mut().cancel();
                 break;
             }

@@ -497,3 +497,75 @@ fn a_plugin_that_asks_without_end_leaves_the_window_its_turn(cx: &mut TestAppCon
     set_test_interpreter(None);
     cx.update(|_, app| shutdown(app, "io.github.stofu5678.matsu-editor.sample.hello-js"));
 }
+
+#[gpui::test]
+fn a_plugin_that_was_replaced_by_another_folder_gets_a_host_of_that_folder(
+    cx: &mut TestAppContext,
+) {
+    let Some(host) = script_host() else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    set_test_interpreter(Some(host));
+    let first = Place::new();
+    let second = Place::new();
+    let (_view, cx) = setup(cx, "");
+    enable_sample(cx, &first, true, true);
+    let one = cx
+        .update(|_, app| prepare_command(app, &first.dirs(), "HelloJs", 1))
+        .unwrap();
+    let dir_one = one.host.borrow().settings().dir.clone();
+    enable_sample(cx, &second, true, true);
+    let two = cx
+        .update(|_, app| prepare_command(app, &second.dirs(), "HelloJs", 1))
+        .unwrap();
+    let dir_two = two.host.borrow().settings().dir.clone();
+    assert_ne!(dir_one, dir_two);
+    assert!(dir_two.starts_with(second.dir.path()), "{dir_two:?}");
+    set_test_interpreter(None);
+    cx.update(|_, app| shutdown(app, &two.id));
+}
+
+#[gpui::test]
+fn a_second_plugin_call_waits_until_the_first_is_over(cx: &mut TestAppContext) {
+    let Some(host) = script_host() else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    set_test_interpreter(Some(host));
+    let place = Place::new();
+    let dirs = place.dirs();
+    let (view, cx) = setup(cx, "");
+    let script = dirs.plugin_dir("HelloJs").unwrap().join("command.js");
+    fs::write(&script, "while (true) {}").unwrap();
+    enable_sample(cx, &place, true, true);
+    let first = cx
+        .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
+        .unwrap();
+    let id = first.id.clone();
+    let editor = view.clone();
+    cx.update(|_, app| run(editor, first, app));
+    assert!(view.read_with(cx, |v, _| v.macros.plugin_running));
+    // Another call on the same window is refused at once, and says why.
+    let second = cx
+        .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
+        .unwrap();
+    let editor = view.clone();
+    cx.update(|_, app| run(editor, second, app));
+    let output = view.read_with(cx, |v, _| v.macro_output_text());
+    assert!(
+        output.contains("ほかのプラグインかマクロが動いている間"),
+        "{output}"
+    );
+    // Disabling the plugin ends the loop at once (no wait for a polite end), and frees the window.
+    let started = std::time::Instant::now();
+    cx.update(|_, app| shutdown(app, &id));
+    assert!(
+        started.elapsed() < Duration::from_millis(1000),
+        "{:?}",
+        started.elapsed()
+    );
+    wait_for(&view, cx, "中断しました");
+    assert!(!view.read_with(cx, |v, _| v.macros.plugin_running));
+    set_test_interpreter(None);
+}

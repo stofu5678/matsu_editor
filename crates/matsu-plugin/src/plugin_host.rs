@@ -420,10 +420,13 @@ impl PluginHost {
         drop(process);
     }
 
-    /// Ends the process at once (the plugin was disabled, or the editor closes).
+    /// Ends the process at once (the plugin was disabled, or the editor closes). A process that
+    /// is in a call is killed on the spot: it cannot read a request to end while its handler
+    /// runs, and nobody should wait for it. An idle one is asked to end, and given a moment.
     pub fn shutdown(&mut self) {
-        self.interrupted |= self.current.take().is_some();
-        self.close_process(true);
+        let in_a_call = self.current.take().is_some();
+        self.interrupted |= in_a_call;
+        self.close_process(!in_a_call);
     }
 
     /// Runs a call to its end on this thread. `answer` gets each request of the plugin (a line)
