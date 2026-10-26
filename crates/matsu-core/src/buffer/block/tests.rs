@@ -954,15 +954,20 @@ fn text_edited_across_a_cut_stays_the_same_text() {
     let mut doc = long_doc(text.as_bytes(), Encoding::Utf8, 16, 64);
     let mut expected = text.clone();
     // An insertion at the start of a cut line.
-    let edit = doc.insert(Pos { line: 3, col: 0 }, "[").unwrap();
-    // The typed text is in the line that starts there, and the caret is after it.
-    assert!(doc.line(3).unwrap().unwrap().text.starts_with('['));
-    assert!(!doc.line(2).unwrap().unwrap().text.contains('['));
-    assert_eq!(edit.end, Pos { line: 3, col: 1 });
     let at: usize = (0..3)
         .map(|i| doc.line(i).unwrap().unwrap().text.len())
         .sum();
+    let edit = doc.insert(Pos { line: 3, col: 0 }, "[").unwrap();
+    // A cut belongs to the text after it (a deletion of text before it leaves it): text typed at
+    // the start of the line that follows a cut goes to the end of the line before, which is
+    // the same place in the file, and the caret is after it.
+    assert!(doc.line(2).unwrap().unwrap().text.ends_with('['));
+    assert_eq!(edit.end, Pos { line: 3, col: 0 });
     expected.insert(at, '[');
+    // typed again at the caret: the text goes on in order
+    let edit = doc.insert(edit.end, "]").unwrap();
+    expected.insert(at + 1, ']');
+    assert_eq!(edit.end, Pos { line: 3, col: 0 });
     assert_eq!(joined(&doc), expected);
     // A deletion from one cut line into the next one.
     doc.delete(Pos { line: 1, col: 5 }, Pos { line: 4, col: 3 })
@@ -1075,5 +1080,38 @@ fn left_crosses_a_cut_by_going_one_char_back() {
         // and Right comes back over the cut
         let right = char_right(&doc, left).unwrap().unwrap();
         assert_eq!(doc.clamp_pos(right).unwrap(), at);
+    }
+}
+
+#[test]
+fn replace_all_over_cuts_replaces_every_match_once() {
+    use crate::search::{Control, PlainMatcher, PlainOptions, ReplaceTarget, replace_all};
+
+    // The matches end at a cut ("abc|abc"), start at one, and are the whole line.
+    for (text, pattern, new, expected) in [
+        ("abcabc", "c", "X", "abXabX"),
+        ("abcabc", "a", "X", "XbcXbc"),
+        ("aaaaaaaaaaaa", "a", "bb", "bbbbbbbbbbbbbbbbbbbbbbbb"),
+    ] {
+        for (block, long) in [(3, 3), (2, 2), (4, 5), (1, 1)] {
+            let mut doc = long_doc(text.as_bytes(), Encoding::Utf8, block, long);
+            let matcher = PlainMatcher::new(pattern, PlainOptions::default());
+            let result = replace_all(
+                &mut doc,
+                &matcher,
+                new,
+                ReplaceTarget::Match,
+                None,
+                Control::new(),
+            )
+            .unwrap();
+            assert_eq!(
+                joined(&doc),
+                expected,
+                "{text} {pattern} block {block} long {long}"
+            );
+            assert_eq!(result.count, text.matches(pattern).count());
+            doc.check_invariants();
+        }
     }
 }

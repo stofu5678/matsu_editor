@@ -438,10 +438,6 @@ impl BlockIndex {
 }
 
 impl EolIndex for BlockIndex {
-    fn has_virtual(&self) -> bool {
-        true
-    }
-
     fn len(&self) -> usize {
         usize::try_from(self.breaks).unwrap_or(usize::MAX)
     }

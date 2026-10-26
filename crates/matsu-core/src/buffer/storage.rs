@@ -290,32 +290,12 @@ pub(crate) trait EolIndex: fmt::Debug + Send + Sync {
     /// The heap bytes the index itself holds (not caches of the source).
     fn heap_bytes(&self) -> usize;
 
-    /// Whether the index has entries of length 0: virtual line breaks, where the scan cut a very
-    /// long line (ADR-0020, 9.10). Such an entry at `x` belongs to the piece that *ends* at `x`
-    /// (a piece `s..e` has it when `s < x <= e`), so that text inserted at `x` comes after the
-    /// break, in the line that starts there.
-    fn has_virtual(&self) -> bool {
-        false
-    }
-
-    /// The number of entries that start before `pos`, and a virtual break at `pos`.
-    fn count_through(&self, pos: usize) -> io::Result<usize> {
-        let before = self.count_before(pos)?;
-        if self.has_virtual() && before < self.len() {
-            let next = self.entry(before)?;
-            if next.start == pos && next.len == 0 {
-                return Ok(before + 1);
-            }
-        }
-        Ok(before)
-    }
-
     /// The entries overlapping the byte range `s..e`, as an index range.
     fn overlapping(&self, s: usize, e: usize) -> io::Result<(usize, usize)> {
         if s >= e {
             return Ok((0, 0));
         }
-        let before = self.count_through(s)?;
+        let before = self.count_before(s)?;
         let lo = if before > 0 {
             let prev = self.entry(before - 1)?;
             if prev.start + prev.len > s {
@@ -326,7 +306,7 @@ pub(crate) trait EolIndex: fmt::Debug + Send + Sync {
         } else {
             before
         };
-        let hi = self.count_through(e)?;
+        let hi = self.count_before(e)?;
         Ok((lo, hi.max(lo)))
     }
 
