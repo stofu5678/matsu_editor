@@ -35,6 +35,9 @@ pub const SECTION_PREFIX: &str = "Plugin.";
 /// The most files a plugin folder can have. A folder with more (a `node_modules`) is not a plugin
 /// that can be checked, and is refused.
 pub const MAX_FILES: usize = 5000;
+/// The most bytes that a plugin folder can have. The files are read to hash them every time the
+/// settings are loaded, so the size is bounded too.
+pub const MAX_BYTES: u64 = 64 * 1024 * 1024;
 
 /// The file that is next to the settings file `settings`.
 pub fn path_beside(settings: &Path) -> PathBuf {
@@ -54,7 +57,7 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn walk(root: &Path, dir: &Path, out: &mut Vec<FileHash>) -> io::Result<()> {
+fn walk(root: &Path, dir: &Path, out: &mut Vec<FileHash>, bytes: &mut u64) -> io::Result<()> {
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
@@ -66,20 +69,29 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<FileHash>) -> io::Result<()> {
             .unwrap_or(&path)
             .components()
             .map(|c| {
-                c.as_os_str().to_str().map(str::to_owned).ok_or_else(|| {
-                    io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        format!("a file name that is not text: {}", path.display()),
-                    )
-                })
+                // A line break in a name could not be written to the record as a line.
+                c.as_os_str()
+                    .to_str()
+                    .filter(|name| !name.contains(['\n', '\r']))
+                    .map(str::to_owned)
+                    .ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            format!("a file name that is not text: {}", path.display()),
+                        )
+                    })
             })
             .collect::<io::Result<Vec<_>>>()?
             .join("/");
         if meta.is_dir() {
-            walk(root, &path, out)?;
+            walk(root, &path, out, bytes)?;
         } else if meta.is_file() {
             if out.len() >= MAX_FILES {
                 return Err(io::Error::other("too many files"));
+            }
+            *bytes += meta.len();
+            if *bytes > MAX_BYTES {
+                return Err(io::Error::other("the files are too large"));
             }
             out.push(FileHash {
                 path: relative,
@@ -107,7 +119,7 @@ fn hash_file(path: &Path) -> io::Result<String> {
 /// The SHA-256 of every file under `dir`, in the order of their paths.
 pub fn fingerprint(dir: &Path) -> io::Result<Vec<FileHash>> {
     let mut files = Vec::new();
-    walk(dir, dir, &mut files)?;
+    walk(dir, dir, &mut files, &mut 0)?;
     files.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(files)
 }
@@ -524,6 +536,23 @@ mod tests {
         }
         let error = fingerprint(dir.path()).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_name_with_a_line_break_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "a\nb.js", "x");
+        assert!(fingerprint(dir.path()).is_err());
+    }
+
+    #[test]
+    fn a_folder_that_is_too_large_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = std::fs::File::create(dir.path().join("big.bin")).unwrap();
+        file.set_len(MAX_BYTES + 1).unwrap();
+        let error = fingerprint(dir.path()).unwrap_err();
+        assert!(error.to_string().contains("too large"), "{error}");
     }
 
     #[test]
