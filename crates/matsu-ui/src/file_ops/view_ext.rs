@@ -69,6 +69,8 @@ impl EditorView {
         self.scroll_y = 0.0;
         self.notice = None;
         self.pending_scan_jump = None;
+        self.line_color_cache
+            .set_ranged(self.document.read(cx).is_ranged());
         self.pending_scan_restore = None;
         // A file opened by ranges is scanned behind its document. The place to go back to
         // (a reload) may be past what is scanned yet.

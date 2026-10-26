@@ -67,6 +67,8 @@ pub struct Document {
     /// ([`Document::from_block_index`]): edits are refused until the scan is done and the
     /// complete document replaces this one (ADR-0020, chapter 2).
     read_only: bool,
+    /// The document was made over a file read by ranges ([`Document::from_block_index`]).
+    ranged: bool,
 }
 
 impl Default for Document {
@@ -202,11 +204,28 @@ impl Document {
         let read_only = !index.is_complete();
         let mut doc = Self::build(source, codec, index, ext_eol);
         doc.read_only = read_only;
+        doc.ranged = true;
         if covered > 0 {
             let piece = doc.st.piece(Store::Original, 0, covered)?;
             doc.root = Some(tree::join(None, piece, None));
         }
         Ok(doc)
+    }
+
+    /// Whether the document is over a file that is read by ranges ([`Document::from_block_index`]).
+    /// Its lines are cut at about [`DEFAULT_LONG_LINE`](super::DEFAULT_LONG_LINE) bytes, and a
+    /// caller that reads many lines can skip the long ones ([`Document::line_raw_len`]).
+    pub fn is_ranged(&self) -> bool {
+        self.ranged
+    }
+
+    /// The length in bytes, as the file has them, of the text of line `i` (without its line
+    /// ending), or `None` if there is no such line. It reads the index only, never the text.
+    pub fn line_raw_len(&self, i: usize) -> Result<Option<usize>> {
+        if i >= self.try_line_count()? {
+            return Ok(None);
+        }
+        Ok(Some(self.line_text_end(i)? - self.line_start(i)?))
     }
 
     /// Whether edits are refused: the document shows the scanned start of a file that is still
@@ -250,6 +269,7 @@ impl Document {
             root: None,
             st: Arc::new(Storages::new(original, ext_eol)),
             read_only: false,
+            ranged: false,
         }
     }
 
@@ -452,7 +472,8 @@ impl Document {
         let end = brk.map_or(self.total(), |b| b.start);
         Ok(Some(Line {
             text: self.decode_range(start, end)?,
-            eol: brk.map(|b| b.kind),
+            // A virtual break (length 0) is no line ending of the file: the line goes on.
+            eol: brk.filter(|b| b.len > 0).map(|b| b.kind),
         }))
     }
 
@@ -585,6 +606,7 @@ impl Document {
             root,
             st: Arc::clone(&self.st),
             read_only: false,
+            ranged: self.ranged,
         };
         let start = next.raw_to_pos(a)?;
         let end = if text.is_empty() {

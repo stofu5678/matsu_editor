@@ -190,3 +190,39 @@ fn a_colored_document_paints(cx: &mut TestAppContext) {
     assert_eq!(state_at(&view, cx, 2), ColorState::Block(0));
     assert_eq!(state_at(&view, cx, 3), ColorState::Normal);
 }
+
+#[gpui::test]
+fn a_very_long_line_of_a_file_read_by_ranges_has_no_colors(cx: &mut TestAppContext) {
+    use super::colors::LineColorRequest;
+
+    let long = "int a; ".repeat(10_000);
+    let text = format!("{long}\nint b;\n");
+    let (view, cx) = setup(cx, &text, "a.c");
+    cx.run_until_parked();
+    let runs_of = |cx: &mut VisualTestContext, line: usize| {
+        view.read_with(cx, |v, cx| {
+            let shared = v.document.read(cx);
+            let ll = v.layout.line_layout(shared.doc(), line).unwrap().unwrap();
+            let upto = ll.text.len();
+            v.colored_line(LineColorRequest {
+                rules: &v.prefs.settings.coloring,
+                version: shared.version(),
+                line,
+                layout: &ll,
+                state: &ColorState::Normal,
+                upto,
+                want_next: true,
+                next_known: None,
+            })
+        })
+    };
+    // Read whole, the line is colored.
+    assert!(!runs_of(cx, 0).runs.is_empty());
+    // Read by ranges, it is not (and its state goes on unchanged); a short line still is.
+    view.read_with(cx, |v, _| v.line_color_cache.set_ranged(true));
+    view.read_with(cx, |v, _| v.line_color_cache.clear());
+    let long_line = runs_of(cx, 0);
+    assert!(long_line.runs.is_empty());
+    assert_eq!(long_line.next, Some(ColorState::Normal));
+    assert!(!runs_of(cx, 1).runs.is_empty());
+}

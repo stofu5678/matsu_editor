@@ -272,13 +272,15 @@ impl EditorView {
         // The typing mode changes only notify the document (no `Changed` event, no new layout):
         // repaint for the caret and the status bar.
         cx.observe(&document, |_, _, cx| cx.notify()).detach();
+        let line_color_cache = colors::LineColorCache::default();
+        line_color_cache.set_ranged(document.read(cx).is_ranged());
         Self {
             document,
             layout,
             layout_version,
             color_states: Default::default(),
             color_version: layout_version,
-            line_color_cache: Default::default(),
+            line_color_cache,
             a11y_text: Default::default(),
             cursor: Cursor::default(),
             keymap: KeyMap::default(),

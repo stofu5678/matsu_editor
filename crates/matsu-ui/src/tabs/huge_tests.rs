@@ -325,3 +325,65 @@ fn a_place_and_bookmarks_past_the_scanned_start_come_back_when_the_scan_is_done(
     assert_eq!(entry.map(|e| e.caret_y), Some(89_999));
     std::fs::remove_dir_all(dir).ok();
 }
+
+// ---- a very long line ----
+
+#[gpui::test]
+fn a_file_of_one_very_long_line_opens_as_lines_of_a_size_that_can_be_shown(
+    cx: &mut TestAppContext,
+) {
+    // 3 MiB without a line ending, cut into lines of about 256 KiB.
+    let text = "0123456789abcdef".repeat(3 * 1024 * 1024 / 16);
+    let dir = temp_dir("huge-long-line");
+    let path = write_big(&dir, "one.txt", text.as_bytes());
+    let handle = window(cx, true);
+    cx.update(|app| {
+        app.set_global(FilePrefs {
+            huge_file_size_mb: 1,
+            huge_scan: ScanOptions {
+                long_line: 256 * 1024,
+                ..ScanOptions::default()
+            },
+            ..FilePrefs::default()
+        });
+    });
+    open_file(cx, handle, &path);
+    let view = {
+        let mut found = None;
+        for _ in 0..6000 {
+            let view = active_view(cx, handle);
+            if view.read_with(cx, |v, cx| v.document().read(cx).doc().raw_len() > 0) {
+                found = Some(view);
+                break;
+            }
+            cx.run_until_parked();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        found.expect("the file was not read")
+    };
+    wait_for_scan(cx, &view);
+    let lines = line_count(cx, &view);
+    assert!(
+        (11..=14).contains(&lines),
+        "3 MiB in lines of about 256 KiB: {lines}"
+    );
+    view.read_with(cx, |v, cx| {
+        let doc = v.document().read(cx).doc();
+        for i in 0..lines {
+            let len = doc.line_raw_len(i).unwrap().unwrap();
+            assert!(len <= 256 * 1024 + 64 * 1024, "line {i} has {len} bytes");
+        }
+    });
+    // The file is still one line when it is saved: the text is the same.
+    view.read_with(cx, |v, cx| {
+        let doc = v.document().read(cx).doc();
+        let end = doc.end_pos().unwrap();
+        assert_eq!(
+            doc.text_between(matsu_core::buffer::Pos::new(0, 0), end)
+                .unwrap()
+                .len(),
+            text.len()
+        );
+    });
+    std::fs::remove_dir_all(dir).ok();
+}

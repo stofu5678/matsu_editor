@@ -28,8 +28,8 @@ mod tree;
 mod tests;
 
 pub use block::{
-    BlockIndex, BlockScanner, DEFAULT_INDEX_BLOCK_SIZE, ScanError, ScanFailure, ScanJob,
-    ScanOptions, ScanProgress, ScanState, scan_blocks,
+    BlockIndex, BlockScanner, DEFAULT_INDEX_BLOCK_SIZE, DEFAULT_LONG_LINE, ScanError, ScanFailure,
+    ScanJob, ScanOptions, ScanProgress, ScanState, scan_blocks,
 };
 pub(crate) use codec::find_eol;
 pub use codec::{Codec, EncodingCodec, Eol, INVALID_BYTE_BASE, Unmappable};

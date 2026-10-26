@@ -33,9 +33,15 @@ const COLORS_BUDGET: Duration = Duration::from_millis(4);
 /// takes long enough to be felt at every blink of the caret.
 const LONG_LINE: usize = 2048;
 
-/// The colors of the last long line that was painted, with what they were made from.
+/// A line of this many bytes is not colored in a file that is read by ranges (ADR-0020, 9.10):
+/// the lines made of a very long line are about 1 MiB each, and scanning one at every frame would
+/// make the window crawl. The states skip them too.
+const RANGED_NO_COLOR_BYTES: usize = matsu_coloring::SKIP_LINE_BYTES;
+
+/// The colors of the last long line that was painted, with what they were made from, and whether
+/// the document is read by ranges.
 #[derive(Default)]
-pub(crate) struct LineColorCache(RefCell<Option<CachedLine>>);
+pub(crate) struct LineColorCache(RefCell<Option<CachedLine>>, std::cell::Cell<bool>);
 
 struct CachedLine {
     version: u64,
@@ -50,6 +56,11 @@ struct CachedLine {
 impl LineColorCache {
     pub(crate) fn clear(&self) {
         self.0.borrow_mut().take();
+    }
+
+    /// The document is read by ranges (or is not): see [`RANGED_NO_COLOR_BYTES`].
+    pub(crate) fn set_ranged(&self, ranged: bool) {
+        self.1.set(ranged);
     }
 }
 
@@ -95,6 +106,13 @@ impl EditorView {
             want_next,
             next_known,
         } = request;
+        // No colors for a line of a very long line (and so no scan of it).
+        if self.line_color_cache.1.get() && ll.text.len() >= RANGED_NO_COLOR_BYTES {
+            return ColoredLine {
+                runs: Arc::new(Vec::new()),
+                next: want_next.then(|| next_known.unwrap_or_else(|| state.clone())),
+            };
+        }
         let long = ll.text.len() >= LONG_LINE;
         if long
             && let Some(hit) = self.line_color_cache.0.borrow_mut().as_mut().filter(|c| {
@@ -137,7 +155,10 @@ impl EditorView {
             self.color_states.reset();
             self.color_version = version;
         }
-        if self.color_states.is_complete(shared.doc(), &rules) {
+        // A file read by ranges has no states made from the top: the colors of the lines on the
+        // screen come from a window of lines above them (`ColorStates::state_at`), and a comment
+        // that began further up is missed (ADR-0020, chapter 6).
+        if shared.is_ranged() || self.color_states.is_complete(shared.doc(), &rules) {
             return;
         }
         let done = self
