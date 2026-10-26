@@ -59,12 +59,21 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<FileHash>) -> io::Result<()> {
         let entry = entry?;
         let path = entry.path();
         let meta = std::fs::symlink_metadata(&path)?;
+        // A name that is not text cannot be told apart from another by its lossy form, and
+        // two files could share a path in the record; such a plugin is refused.
         let relative = path
             .strip_prefix(root)
             .unwrap_or(&path)
             .components()
-            .map(|c| c.as_os_str().to_string_lossy().into_owned())
-            .collect::<Vec<_>>()
+            .map(|c| {
+                c.as_os_str().to_str().map(str::to_owned).ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("a file name that is not text: {}", path.display()),
+                    )
+                })
+            })
+            .collect::<io::Result<Vec<_>>>()?
             .join("/");
         if meta.is_dir() {
             walk(root, &path, out)?;
@@ -500,6 +509,21 @@ mod tests {
             file.consent_for_dir("p", Some(dir.path())),
             Consent::Changed(_)
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_name_that_is_not_text_is_refused() {
+        use std::os::unix::ffi::OsStrExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "a.js", "x");
+        // Two names that a lossy conversion would make the same.
+        for bytes in [&b"b\xff.js"[..], &b"b\xfe.js"[..]] {
+            let name = std::ffi::OsStr::from_bytes(bytes);
+            std::fs::write(dir.path().join(name), "y").unwrap();
+        }
+        let error = fingerprint(dir.path()).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     }
 
     #[test]

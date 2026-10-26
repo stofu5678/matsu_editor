@@ -676,3 +676,70 @@ fn adding_a_plugin_does_not_enable_it_and_removing_one_forgets_it(cx: &mut TestA
     assert!(file.record(HELLO_JS_ID).is_none());
     assert!(file.record("newer.id").is_some());
 }
+
+// ---- a plugin that changes while the user decides, and one that is added again ----
+
+use super::list::enable_row_checked;
+
+#[gpui::test]
+fn a_plugin_that_changed_while_the_screen_was_open_is_not_enabled(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, INI);
+    put_sample(&dir_of(&ini), "HelloJs");
+    run(cx, handle, "F_OPTION_PLUGIN");
+    let dir = dir_of(&ini).join("plugins/HelloJs");
+    let shown = matsu_config::plugins::consent::fingerprint(&dir).unwrap();
+    // The files are replaced after the user was shown the plugin.
+    fs::write(dir.join("command.js"), "Editor.InsText('new hook');").unwrap();
+    let result = with_dialog(cx, |d, _, dcx| {
+        let dirs = super::search_dirs(dcx).unwrap();
+        select(d, 0, dcx);
+        enable_row_checked(d, 0, &dirs, Some(&shown), dcx)
+    });
+    assert!(result.unwrap_err().contains("変わりました"));
+    assert_eq!(row_texts(cx, 0)[CONSENT], "off");
+    // Shown again with the new files, it can be enabled.
+    let shown = matsu_config::plugins::consent::fingerprint(&dir).unwrap();
+    let result = with_dialog(cx, |d, _, dcx| {
+        let dirs = super::search_dirs(dcx).unwrap();
+        enable_row_checked(d, 0, &dirs, Some(&shown), dcx)
+    });
+    assert_eq!(result, Ok(()));
+    assert_eq!(row_texts(cx, 0)[CONSENT], "on");
+    cancel(cx);
+}
+
+#[gpui::test]
+fn a_plugin_that_is_removed_and_added_again_before_ok_is_off(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, INI);
+    put_sample(&dir_of(&ini), "HelloJs");
+    run(cx, handle, "F_OPTION_PLUGIN");
+    enable(cx, 0).unwrap();
+    ok(cx);
+    assert!(
+        ConsentFile::load(&consent_path(&ini))
+            .record(HELLO_JS_ID)
+            .is_some()
+    );
+
+    run(cx, handle, "F_OPTION_PLUGIN");
+    assert_eq!(row_texts(cx, 0)[STATE], "有効");
+    with_dialog(cx, |d, _, dcx| {
+        select(d, 0, dcx);
+        remove_selected(d, None, dcx);
+    });
+    let index = with_dialog(cx, |d, _, dcx| {
+        let dirs = super::search_dirs(dcx).unwrap();
+        add_folder(d, &dirs, "HelloJs", false, dcx)
+    })
+    .unwrap();
+    // The agreement of the file does not come back with the folder.
+    assert_eq!(row_texts(cx, index)[CONSENT], "off");
+    assert_eq!(row_texts(cx, index)[STATE], "追加");
+    ok(cx);
+    assert!(
+        ConsentFile::load(&consent_path(&ini))
+            .record(HELLO_JS_ID)
+            .is_none(),
+        "the cancellation reached plugins.ini"
+    );
+}

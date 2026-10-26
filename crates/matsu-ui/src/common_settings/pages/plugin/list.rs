@@ -220,6 +220,9 @@ pub(super) fn add_folder(
     let mut list = dialog.values().rows(LIST).to_vec();
     let consent = rows::consent_of(Some(dirs));
     list[index] = rows::row_of(index, &settings.table[index], Some(dirs), &consent);
+    // A plugin that is added is off until the user enables it, also when the folder was enabled
+    // before (and removed in this dialog): adding must not bring an agreement back.
+    rows::set_consent(&mut list[index], false, "");
     dialog.set_rows(LIST, list, cx);
     select(dialog, index, cx);
     Ok(index)
@@ -339,6 +342,23 @@ pub(super) fn enable_selected(
         return;
     };
     let name = row[rows::NAME].clone();
+    // The files are read before the screen is shown, and again when the user agrees: a plugin
+    // that was changed or replaced in between is not enabled on the strength of the old screen.
+    let Some(dir) = dirs.plugin_dir(&folder) else {
+        notice(window, cx, "プラグインのフォルダーが見つかりません");
+        return;
+    };
+    let shown = match matsu_config::plugins::consent::fingerprint(&dir) {
+        Ok(files) => files,
+        Err(error) => {
+            notice(
+                window,
+                cx,
+                &format!("プラグインのファイルを調べられませんでした\n理由：{error}"),
+            );
+            return;
+        }
+    };
     let detail = describe_folder(&dirs, &folder);
     let answer = window.prompt(
         PromptLevel::Info,
@@ -350,7 +370,7 @@ pub(super) fn enable_selected(
     cx.spawn_in(window, async move |this, cx| {
         if let Ok(0) = answer.await {
             this.update_in(cx, |this, window, cx| {
-                if let Err(message) = enable_row(this, index, &dirs, cx) {
+                if let Err(message) = enable_row_checked(this, index, &dirs, Some(&shown), cx) {
                     notice(window, cx, &message);
                 }
             })
@@ -361,10 +381,23 @@ pub(super) fn enable_selected(
 }
 
 /// Marks the plugin of the row `index` as enabled with the files that are there now.
+#[cfg(test)]
 pub(super) fn enable_row(
     dialog: &mut CommonSettingsDialog,
     index: usize,
     dirs: &SearchDirs,
+    cx: &mut Context<CommonSettingsDialog>,
+) -> Result<(), String> {
+    enable_row_checked(dialog, index, dirs, None, cx)
+}
+
+/// Like [`enable_row`]; when `shown` is given, the files must be the ones that the user was
+/// shown, and a plugin that has changed since is refused.
+pub(super) fn enable_row_checked(
+    dialog: &mut CommonSettingsDialog,
+    index: usize,
+    dirs: &SearchDirs,
+    shown: Option<&[matsu_config::plugins::consent::FileHash]>,
     cx: &mut Context<CommonSettingsDialog>,
 ) -> Result<(), String> {
     let mut list = dialog.values().rows(LIST).to_vec();
@@ -376,6 +409,12 @@ pub(super) fn enable_row(
         .ok_or("プラグインのフォルダーが見つかりません")?;
     let files = matsu_config::plugins::consent::fingerprint(&dir)
         .map_err(|error| format!("プラグインのファイルを調べられませんでした\n理由：{error}"))?;
+    if shown.is_some_and(|shown| shown != files) {
+        return Err(
+            "確認している間にプラグインのファイルが変わりました。もう一度「有効にする」を押してください"
+                .into(),
+        );
+    }
     rows::set_consent(
         row,
         true,
