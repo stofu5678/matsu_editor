@@ -335,6 +335,15 @@ pub(crate) fn separate_tab(cx: &mut App, window: &mut Window) -> bool {
     }
 }
 
+/// Where the content of the window (where the pointer positions are measured from) starts on the
+/// screen. `Window::bounds` is the frame, which on macOS includes the title bar above the content;
+/// the content is at the bottom of the frame, so the difference in height is the title bar.
+fn content_origin(window: &Window) -> gpui::Point<gpui::Pixels> {
+    let frame = window.bounds();
+    let inset = (frame.size.height - window.viewport_size().height).max(gpui::px(0.));
+    gpui::point(frame.origin.x, frame.origin.y + inset)
+}
+
 /// The window of the editor that has `screen` (a point on the screen) over its area, other than
 /// `except`. Sakura asks `WindowFromPoint` for the window under the pointer; GPUI does not know
 /// the stacking of the windows, so the first one in the list of the editor's windows answers.
@@ -381,7 +390,7 @@ pub(crate) fn drag_tab_out(
     if !movable {
         return false;
     }
-    let screen = window.bounds().origin + drop;
+    let screen = content_origin(window) + drop;
     let target = window_at(cx, handle, screen);
     if alone && target.is_none() {
         return false;
@@ -412,9 +421,9 @@ pub(crate) fn drag_tab_out(
     }
     // The new window is where the tab was dropped, by the same shift as the pointer's.
     let at = (!window.is_maximized()).then(|| {
-        let mut at = window.bounds().origin + (drop - origin.start);
-        at.y = at.y.max(gpui::px(0.));
-        at
+        // Both points are in the window, so the shift does not depend on where its content starts.
+        // A screen above or left of the main one has negative coordinates, which stay.
+        window.bounds().origin + (drop - origin.start)
     });
     match open_window_with_panes_at(cx, set, at) {
         Ok(_) => true,
