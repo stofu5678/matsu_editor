@@ -39,10 +39,25 @@ const MAX_DEPTH: usize = 64;
 type Hooks = Persistent<Object<'static>>;
 
 /// A runtime and its context, with the list of the promises that nobody handled.
+///
+/// The fields are dropped in this order, and the order matters: the objects that `hooks` keeps
+/// alive must go before the runtime does (QuickJS asserts that no object is left when the runtime
+/// is freed).
 struct Vm {
-    runtime: Runtime,
-    context: Context,
     hooks: Rc<RefCell<Option<Hooks>>>,
+    context: Context,
+    runtime: Runtime,
+}
+
+impl Drop for Vm {
+    /// Lets go of what the boot keeps (the tracker of the promises holds the list too) while the
+    /// runtime is still there: an object that is freed after the runtime started to free itself
+    /// trips QuickJS's own check, which aborts the process.
+    fn drop(&mut self) {
+        self.runtime.set_host_promise_rejection_tracker(None);
+        drop(self.hooks.borrow_mut().take());
+        self.runtime.run_gc();
+    }
 }
 
 impl Vm {
