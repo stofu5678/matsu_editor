@@ -153,6 +153,7 @@ fn the_colors_of_a_long_line_are_kept_between_frames(cx: &mut TestAppContext) {
                 upto,
                 want_next,
                 next_known: None,
+                raw_len: None,
             })
         })
     };
@@ -199,7 +200,7 @@ fn a_very_long_line_of_a_file_read_by_ranges_has_no_colors(cx: &mut TestAppConte
     let text = format!("{long}\nint b;\n");
     let (view, cx) = setup(cx, &text, "a.c");
     cx.run_until_parked();
-    let runs_of = |cx: &mut VisualTestContext, line: usize| {
+    let runs_of = |cx: &mut VisualTestContext, line: usize, raw_len: Option<usize>| {
         view.read_with(cx, |v, cx| {
             let shared = v.document.read(cx);
             let ll = v.layout.line_layout(shared.doc(), line).unwrap().unwrap();
@@ -213,16 +214,18 @@ fn a_very_long_line_of_a_file_read_by_ranges_has_no_colors(cx: &mut TestAppConte
                 upto,
                 want_next: true,
                 next_known: None,
+                raw_len,
             })
         })
     };
     // Read whole, the line is colored.
-    assert!(!runs_of(cx, 0).runs.is_empty());
-    // Read by ranges, it is not (and its state goes on unchanged); a short line still is.
-    view.read_with(cx, |v, _| v.line_color_cache.set_ranged(true));
+    assert!(!runs_of(cx, 0, None).runs.is_empty());
     view.read_with(cx, |v, _| v.line_color_cache.clear());
-    let long_line = runs_of(cx, 0);
+    // Read by ranges, a line of the length at which the states skip it is not (and its state
+    // goes on unchanged); a short line still is.
+    let skip = matsu_coloring::SKIP_LINE_BYTES;
+    let long_line = runs_of(cx, 0, Some(skip));
     assert!(long_line.runs.is_empty());
     assert_eq!(long_line.next, Some(ColorState::Normal));
-    assert!(!runs_of(cx, 1).runs.is_empty());
+    assert!(!runs_of(cx, 1, Some(skip - 1)).runs.is_empty());
 }

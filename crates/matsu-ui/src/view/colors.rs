@@ -33,15 +33,9 @@ const COLORS_BUDGET: Duration = Duration::from_millis(4);
 /// takes long enough to be felt at every blink of the caret.
 const LONG_LINE: usize = 2048;
 
-/// A line of this many bytes is not colored in a file that is read by ranges (ADR-0020, 9.10):
-/// the lines made of a very long line are about 1 MiB each, and scanning one at every frame would
-/// make the window crawl. The states skip them too.
-const RANGED_NO_COLOR_BYTES: usize = matsu_coloring::SKIP_LINE_BYTES;
-
-/// The colors of the last long line that was painted, with what they were made from, and whether
-/// the document is read by ranges.
+/// The colors of the last long line that was painted, with what they were made from.
 #[derive(Default)]
-pub(crate) struct LineColorCache(RefCell<Option<CachedLine>>, std::cell::Cell<bool>);
+pub(crate) struct LineColorCache(RefCell<Option<CachedLine>>);
 
 struct CachedLine {
     version: u64,
@@ -56,11 +50,6 @@ struct CachedLine {
 impl LineColorCache {
     pub(crate) fn clear(&self) {
         self.0.borrow_mut().take();
-    }
-
-    /// The document is read by ranges (or is not): see [`RANGED_NO_COLOR_BYTES`].
-    pub(crate) fn set_ranged(&self, ranged: bool) {
-        self.1.set(ranged);
     }
 }
 
@@ -80,6 +69,20 @@ pub(super) struct LineColorRequest<'a> {
     /// The state of the next line, when the states have it already: it saves scanning the line a
     /// second time.
     pub next_known: Option<ColorState>,
+    /// The length in bytes of the line as the file has it, for a document that is read by ranges
+    /// ([`Document::line_raw_len`]); `None` for any other. A line of
+    /// [`matsu_coloring::SKIP_LINE_BYTES`] or more has no colors there (ADR-0020, 9.10), by the
+    /// same measure as the states use, so that the colors do not depend on what is on the screen.
+    pub raw_len: Option<usize>,
+}
+
+/// The `raw_len` of a request for `line` of `doc`.
+pub(super) fn raw_len_of(doc: &matsu_core::buffer::Document, line: usize) -> Option<usize> {
+    if doc.is_ranged() {
+        doc.line_raw_len(line).ok().flatten()
+    } else {
+        None
+    }
 }
 
 /// The colors of a line for the painting.
@@ -105,9 +108,10 @@ impl EditorView {
             upto,
             want_next,
             next_known,
+            raw_len,
         } = request;
         // No colors for a line of a very long line (and so no scan of it).
-        if self.line_color_cache.1.get() && ll.text.len() >= RANGED_NO_COLOR_BYTES {
+        if raw_len.is_some_and(|n| n >= matsu_coloring::SKIP_LINE_BYTES) {
             return ColoredLine {
                 runs: Arc::new(Vec::new()),
                 next: want_next.then(|| next_known.unwrap_or_else(|| state.clone())),

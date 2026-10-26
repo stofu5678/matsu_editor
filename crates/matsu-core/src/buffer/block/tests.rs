@@ -1051,3 +1051,29 @@ fn without_a_limit_a_long_line_stays_one_line() {
         "5000 bytes is far under the default limit"
     );
 }
+
+#[test]
+fn left_crosses_a_cut_by_going_one_char_back() {
+    use crate::cursor::{char_left, char_right};
+
+    let text = "あいうえお".repeat(40);
+    let doc = long_doc(text.as_bytes(), Encoding::Utf8, 8, 30);
+    assert!(doc.line_count() > 3);
+    for line in 1..doc.line_count() {
+        let before = doc.line(line - 1).unwrap().unwrap();
+        assert!(before.eol.is_none());
+        let at = Pos { line, col: 0 };
+        let left = char_left(&doc, at).unwrap().unwrap();
+        // one character (3 bytes) inside the line before, not the end of it
+        assert_eq!(
+            left,
+            Pos {
+                line: line - 1,
+                col: before.text.len() - 3
+            }
+        );
+        // and Right comes back over the cut
+        let right = char_right(&doc, left).unwrap().unwrap();
+        assert_eq!(doc.clamp_pos(right).unwrap(), at);
+    }
+}

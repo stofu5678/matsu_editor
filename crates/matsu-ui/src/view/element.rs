@@ -521,6 +521,7 @@ impl Element for EditorElement {
                         upto,
                         want_next,
                         next_known,
+                        raw_len: super::colors::raw_len_of(doc, row.line),
                     });
                     carried = colored.next.map(|next| (row.line + 1, next));
                     line_colors = Some((row.line, colored.runs));
