@@ -303,10 +303,7 @@ pub fn char_left(doc: &Document, pos: Pos) -> Result<Option<Pos>> {
     // offset where this line starts, so Left (and Backspace) would stay. It goes one char back
     // into the line, past empty cut lines (Enter at a cut leaves one).
     let mut prev = pos.line - 1;
-    loop {
-        let Some(line) = doc.line(prev)? else {
-            break;
-        };
+    while let Some(line) = doc.line(prev)? {
         if line.eol.is_some() {
             break;
         }
