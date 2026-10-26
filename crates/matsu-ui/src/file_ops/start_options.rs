@@ -450,7 +450,12 @@ fn apply_after_load(
 /// that is scanned in the background (ADR-0020): they wait for the end of the scan, because a
 /// place in the file may be one the scan has not reached, and the macro may move there. Nothing
 /// waits for them; the next file can be opened meanwhile.
-pub(crate) fn after_load_when_scanned(view: &Entity<EditorView>, path: &Path, cx: &mut App) {
+pub(crate) fn after_load_when_scanned(
+    view: &Entity<EditorView>,
+    path: &Path,
+    hold: Option<crate::macros::wait::FlowGuard>,
+    cx: &mut App,
+) {
     // The task holds the view weakly: a tab that is closed meanwhile ends the scan with its
     // document, and the options are dropped.
     let (view, path) = (view.downgrade(), path.to_owned());
@@ -483,15 +488,15 @@ pub(crate) fn after_load_when_scanned(view: &Entity<EditorView>, path: &Path, cx
                 crate::macros::Auto::Opened,
                 app,
                 move |app| {
-                    let Some((handle, _)) = crate::file_ops::windows::find_tab_of(app, &view)
-                    else {
-                        return;
-                    };
-                    handle
-                        .update(app, |_, window, app| {
-                            apply_after_load(&view, &path, true, window, app)
-                        })
-                        .ok();
+                    if let Some((handle, _)) = crate::file_ops::windows::find_tab_of(app, &view) {
+                        handle
+                            .update(app, |_, window, app| {
+                                apply_after_load(&view, &path, true, window, app)
+                            })
+                            .ok();
+                    }
+                    // A macro that opened the file goes on when the macros of the opening are over.
+                    drop(hold);
                 },
             );
         });

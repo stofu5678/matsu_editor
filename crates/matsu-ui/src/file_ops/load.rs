@@ -289,8 +289,13 @@ pub(crate) async fn load_here(
                     .unwrap_or(false);
                 if scanning {
                     if let Some(entity) = view.upgrade() {
+                        // The macro that opened the file waits for the work that follows.
+                        let hold = view
+                            .update(cx, |_, cx| crate::macros::wait::track(cx))
+                            .ok()
+                            .flatten();
                         cx.update(|_, app| {
-                            super::start_options::after_load_when_scanned(&entity, path, app)
+                            super::start_options::after_load_when_scanned(&entity, path, hold, app)
                         })
                         .ok();
                     }
