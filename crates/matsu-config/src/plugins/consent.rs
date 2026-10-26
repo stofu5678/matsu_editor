@@ -77,14 +77,12 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<FileHash>) -> io::Result<()> {
                 sha256: hash_file(&path)?,
             });
         } else if meta.file_type().is_symlink() {
-            // A link is not followed: the link itself (where it points) is what is recorded, so that
-            // a link that is made to point elsewhere is a change.
-            let target = std::fs::read_link(&path)?;
-            let text = format!("symlink:{}", target.to_string_lossy());
-            out.push(FileHash {
-                path: relative,
-                sha256: hex(&Sha256::digest(text.as_bytes())),
-            });
+            // A link would let the contents change without a change in the folder, so a plugin
+            // with a link cannot be checked (and cannot be enabled).
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!("symbolic link: {relative}"),
+            ));
         }
     }
     Ok(())
@@ -293,11 +291,13 @@ impl ConsentFile {
     /// [`consent`](Self::consent) for the folder `dir`. A folder that cannot be read (it is gone)
     /// is a change of every file.
     pub fn consent_for_dir(&self, id: &str, dir: Option<&Path>) -> Consent {
-        let now = dir.and_then(|dir| fingerprint(dir).ok());
-        match (self.record(id), now) {
-            (None, _) => Consent::Off,
-            (Some(record), None) => Consent::Changed(compare(&record.files, &[])),
-            (Some(_), Some(now)) => self.consent(id, &now),
+        // Nothing is read for a plugin that was never enabled.
+        let Some(record) = self.record(id) else {
+            return Consent::Off;
+        };
+        match dir.and_then(|dir| fingerprint(dir).ok()) {
+            None => Consent::Changed(compare(&record.files, &[])),
+            Some(now) => self.consent(id, &now),
         }
     }
 }
@@ -472,7 +472,7 @@ mod tests {
     }
 
     #[test]
-    fn japanese_names_and_a_link_are_handled() {
+    fn japanese_names_are_handled() {
         let dir = tempfile::tempdir().unwrap();
         write(dir.path(), "日本語/スクリプト.js", "あ");
         let files = fingerprint(dir.path()).unwrap();
@@ -481,15 +481,25 @@ mod tests {
         file.enable("日本語のID", "フォルダー", &files, "d")
             .unwrap();
         assert_eq!(file.consent("日本語のID", &files), Consent::On);
-        #[cfg(unix)]
-        {
-            std::os::unix::fs::symlink("/etc/hostname", dir.path().join("link")).unwrap();
-            let first = fingerprint(dir.path()).unwrap();
-            std::fs::remove_file(dir.path().join("link")).unwrap();
-            std::os::unix::fs::symlink("/etc/passwd", dir.path().join("link")).unwrap();
-            let second = fingerprint(dir.path()).unwrap();
-            assert_ne!(first, second, "a link made to point elsewhere is a change");
-        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_plugin_with_a_link_cannot_be_checked() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "a.js", "x");
+        std::os::unix::fs::symlink("a.js", dir.path().join("link.js")).unwrap();
+        assert!(fingerprint(dir.path()).is_err());
+        // An enabled plugin that gets a link is stopped.
+        std::fs::remove_file(dir.path().join("link.js")).unwrap();
+        let mut file = ConsentFile::default();
+        file.enable("p", "F", &fingerprint(dir.path()).unwrap(), "d")
+            .unwrap();
+        std::os::unix::fs::symlink("a.js", dir.path().join("link.js")).unwrap();
+        assert!(matches!(
+            file.consent_for_dir("p", Some(dir.path())),
+            Consent::Changed(_)
+        ));
     }
 
     #[test]
