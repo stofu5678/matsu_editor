@@ -359,13 +359,19 @@ impl gpui::Global for ScreenPositions {}
 
 /// The window of the editor that has `screen` (a point on the screen) over its area, other than
 /// `except`. Sakura asks `WindowFromPoint` for the window under the pointer; GPUI does not know
-/// the stacking of the windows, so the first one in the list of the editor's windows answers.
+/// the stacking of the windows on every platform, so where it does not say the first window in the
+/// list of the editor's windows answers.
 fn window_at(
     cx: &mut App,
     except: AnyWindowHandle,
     screen: gpui::Point<gpui::Pixels>,
 ) -> Option<(AnyWindowHandle, Entity<Workspace>)> {
-    workspaces(cx).into_iter().find(|(handle, _)| {
+    // Front to back where the platform says (macOS, X11); else in the order of registration.
+    let mut all = workspaces(cx);
+    if let Some(stack) = cx.window_stack() {
+        all.sort_by_key(|(handle, _)| stack.iter().position(|h| h == handle).unwrap_or(usize::MAX));
+    }
+    all.into_iter().find(|(handle, _)| {
         *handle != except
             && handle
                 .update(cx, |_, window, _| {
