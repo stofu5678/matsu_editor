@@ -39,7 +39,7 @@ mod codegen;
 mod tests;
 
 /// The JSON value of a call's argument and result, for a host that answers a call itself.
-pub use serde_json::Value;
+pub use serde_json::{Value, json};
 
 use session::{EndReason, Finished};
 

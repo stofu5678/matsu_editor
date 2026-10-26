@@ -372,8 +372,26 @@ mod tests {
             process_id: 1,
             document_path: None,
             script: None,
+            plugin: None,
         });
         assert!(none.contains(r#""path":null"#));
-        assert!(!none.contains("script"));
+        assert!(!none.contains("script") && !none.contains("plugin"));
+        let plugin = initialize_message(&InitializeInfo {
+            editor_name: "MATSU Editor".into(),
+            editor_version: "0.0.0".into(),
+            process_id: 1,
+            document_path: None,
+            script: None,
+            plugin: Some(PluginIdentity {
+                id: "jp.example.あ".into(),
+                dir: "C:\\plugins\\あ".into(),
+            }),
+        });
+        assert!(plugin.is_ascii());
+        let value: Value = serde_json::from_str(&plugin).unwrap();
+        assert_eq!(value["params"]["kind"], "plugin");
+        assert_eq!(value["params"]["plugin"]["id"], "jp.example.あ");
+        assert_eq!(value["params"]["plugin"]["dir"], "C:\\plugins\\あ");
+        assert!(value["params"].get("script").is_none());
     }
 }

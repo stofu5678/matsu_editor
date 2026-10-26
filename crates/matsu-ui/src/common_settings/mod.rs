@@ -63,6 +63,11 @@ pub(crate) struct Env<'a> {
     pub opener: Option<AnyWindowHandle>,
 }
 
+/// What MATSU cannot run of a plugin, in words (for the error of a call, as the settings page shows it).
+pub(crate) fn plugin_unsupported_text(why: &matsu_config::plugins::Unsupported) -> String {
+    pages::plugin::rows::unsupported_text(why)
+}
+
 /// The pages of the property sheet, in Sakura's order (`ComPropSheetInfoList`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Page {

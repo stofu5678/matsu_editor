@@ -38,6 +38,7 @@
 mod host;
 mod menu_call;
 mod output;
+pub(crate) mod plugin_call;
 mod registered;
 mod statements;
 mod ui_calls;

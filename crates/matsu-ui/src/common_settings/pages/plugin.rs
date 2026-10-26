@@ -74,6 +74,9 @@ pub(in crate::common_settings) fn items() -> Option<Vec<Item>> {
             Control::button(list::DISABLE_ONE, "無効にする(&N)", list::disable_selected)
                 .when(list::can_disable)
                 .into(),
+            Control::button(list::RUN_TEST, "試しに実行(&T)", list::run_test)
+                .when(list::can_run_test)
+                .into(),
             Control::button(list::REMOVE, "削除(&R)", list::remove)
                 .when(list::can_remove)
                 .into(),
@@ -100,6 +103,13 @@ pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: O
     let Some(dirs) = search_dirs(env.cx) else {
         return;
     };
+    // A plugin that is off or gone stops running; its process ends.
+    for row in after.rows(list::LIST) {
+        let id = row[rows::ID].as_str();
+        if !id.is_empty() && (row[rows::CONSENT] == "off" || row[rows::CODE] == "deleted") {
+            crate::macros::plugin_call::shutdown(env.cx, id);
+        }
+    }
     let path = dirs.consent_file();
     let mut file = matsu_config::plugins::consent::ConsentFile::load(&path);
     if rows::write_consent(after.rows(list::LIST), &mut file) {

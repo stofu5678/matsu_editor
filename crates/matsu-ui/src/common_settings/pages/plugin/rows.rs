@@ -98,6 +98,7 @@ const DELETED: &str = "削除";
 const ENABLED: &str = "有効";
 const DISABLED: &str = "無効";
 const CHANGED: &str = "変更あり（停止）";
+const STOPPED: &str = "停止（失敗が続きました）";
 const NOT_FOUND: &str = "見つかりません";
 
 fn code_of(state: PluginState) -> &'static str {
@@ -121,7 +122,7 @@ fn state_of(code: &str) -> PluginState {
 }
 
 /// What MATSU cannot run, in words (ADR-0026, chapter 1).
-pub(super) fn unsupported_text(why: &Unsupported) -> String {
+pub(in crate::common_settings) fn unsupported_text(why: &Unsupported) -> String {
     match why {
         Unsupported::Dll => "DLL プラグインは使えません".to_owned(),
         Unsupported::VbScript => "VBScript は使えません".to_owned(),
@@ -152,6 +153,7 @@ fn state_text(state: PluginState, note: &str, consent: &str) -> String {
             (NOT_FOUND_NOTE, _) => NOT_FOUND.to_owned(),
             ("", "on") => ENABLED.to_owned(),
             ("", "changed") => CHANGED.to_owned(),
+            ("", "stopped") => STOPPED.to_owned(),
             ("", _) => DISABLED.to_owned(),
             (note, _) => note.to_owned(),
         },
@@ -223,6 +225,8 @@ pub(super) fn row_of(
     let plugin_dir = dirs.and_then(|dirs| dirs.plugin_dir(&rec.name));
     row[CONSENT] = match consent.consent_for_dir(&rec.id, plugin_dir.as_deref()) {
         Consent::Off => "off",
+        // Three failures in a row stopped it (ADR-0026, chapter 2).
+        Consent::On if crate::macros::plugin_call::is_stopped(&rec.id) => "stopped",
         Consent::On => "on",
         Consent::Changed(_) => "changed",
     }
