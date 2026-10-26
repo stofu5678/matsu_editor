@@ -252,17 +252,19 @@ impl LaunchOptions {
                 view_top: None,
                 ..self.file.clone()
             };
-            let scanning = view.read(cx).document().read(cx).is_scanning();
-            if scanning {
+            let scan = view
+                .read(cx)
+                .document()
+                .read(cx)
+                .scan_id()
+                .filter(|_| view.read(cx).document().read(cx).is_scanning());
+            if let Some(scan) = scan {
                 // The line may be past what is scanned (ADR-0020): go there when the scan is done.
                 let view = view.clone();
                 cx.spawn(async move |cx| {
-                    while view.read_with(cx, |view, app| view.document().read(app).is_scanning()) {
-                        cx.background_executor()
-                            .timer(std::time::Duration::from_millis(50))
-                            .await;
+                    if wait_for_scan(&view, scan, cx).await {
+                        view.update(cx, |view, cx| view.go_by_launch(&caret, true, cx));
                     }
-                    view.update(cx, |view, cx| view.go_by_launch(&caret, true, cx));
                 })
                 .detach();
                 return;
@@ -454,25 +456,30 @@ pub(crate) fn after_load_when_scanned(
     cx: &mut App,
 ) {
     let (view, path) = (view.clone(), path.to_owned());
+    let Some(scan) = view.read(cx).document().read(cx).scan_id() else {
+        return;
+    };
     cx.spawn(async move |cx| {
-        loop {
-            // The tab was closed, or the document was replaced: the options were not for it.
-            let scanning = view.read_with(cx, |view, app| view.document().read(app).is_scanning());
-            if !scanning {
-                break;
-            }
-            cx.background_executor()
-                .timer(std::time::Duration::from_millis(50))
-                .await;
-        }
+        let finished = wait_for_scan(&view, scan, cx).await;
         cx.update(|app| {
             let weak = view.downgrade();
+            // Only for the document that was opened: it was closed or replaced meanwhile, or the
+            // scan failed, and the options were not for what is there.
+            if !finished {
+                app.default_global::<Expected>().0.remove(&path);
+                return;
+            }
+            // The tab may have moved to another window meanwhile.
+            let handle =
+                crate::file_ops::windows::find_tab_of(app, &weak).map_or(handle, |(h, _)| h);
             crate::macros::run_auto_in(
                 handle,
                 &view,
                 crate::macros::Auto::Opened,
                 app,
                 move |app| {
+                    let handle = crate::file_ops::windows::find_tab_of(app, &weak)
+                        .map_or(handle, |(h, _)| h);
                     handle
                         .update(app, |_, window, app| {
                             apply_after_load(&weak, &path, true, window, app)
@@ -483,6 +490,30 @@ pub(crate) fn after_load_when_scanned(
         });
     })
     .detach();
+}
+
+/// Waits until the scan of number `scan` of the document of `view` is over. Whether it ended with
+/// the complete document (not failed, and the document not replaced meanwhile).
+async fn wait_for_scan(view: &Entity<EditorView>, scan: u64, cx: &mut gpui::AsyncApp) -> bool {
+    loop {
+        let (running, finished) = view.read_with(cx, |view, app| {
+            let shared = view.document().read(app);
+            (shared.scan_id() == Some(scan), shared.scan_finished(scan))
+        });
+        if finished {
+            return true;
+        }
+        if !running {
+            return false;
+        }
+        let failed = view.read_with(cx, |view, app| !view.document().read(app).is_scanning());
+        if failed {
+            return false;
+        }
+        cx.background_executor()
+            .timer(std::time::Duration::from_millis(50))
+            .await;
+    }
 }
 
 /// `-M=`: runs the macro in the window `handle` (`F_EXECEXTMACRO`).
