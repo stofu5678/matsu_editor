@@ -365,3 +365,20 @@ fn shutting_a_host_down_in_a_call_ends_the_call_for_whoever_follows_it() {
     assert!(host.poll(Duration::ZERO).is_none());
     assert_eq!(host.failures(), 0);
 }
+
+#[test]
+fn a_host_that_was_shut_down_in_a_call_serves_the_next_call_normally() {
+    let dir = plugin_dir(&[
+        ("loop.js", "while (true) {}"),
+        ("ok.js", "console.log('fine');"),
+    ]);
+    let mut host = host(dir.path(), true);
+    host.begin("Command", "loop.js", Value::Null, PATIENT)
+        .unwrap();
+    host.shutdown();
+    // Nobody polled for the end of the first call; the second is not taken for it.
+    let mut world = World::new("");
+    let report = world.call(&mut host, "ok.js", PATIENT);
+    assert_eq!(report.outcome, Outcome::Ok);
+    assert_eq!(stdout(&report), ["fine"]);
+}

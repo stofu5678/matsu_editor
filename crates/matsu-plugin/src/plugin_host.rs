@@ -266,6 +266,9 @@ impl PluginHost {
         if self.current.is_some() {
             return Err(BeginError::Busy);
         }
+        // A new call replaces the end of the one that `shutdown` cut off: nobody follows that
+        // one any more, and its end must not be taken for this call's.
+        self.interrupted = false;
         let path = self.settings.dir.join(handler);
         let source = read_handler(&path).map_err(|source| BeginError::Handler {
             path: path.clone(),
