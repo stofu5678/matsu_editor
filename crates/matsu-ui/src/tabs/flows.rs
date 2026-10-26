@@ -355,7 +355,10 @@ fn window_at(
     workspaces(cx).into_iter().find(|(handle, _)| {
         *handle != except
             && handle
-                .update(cx, |_, window, _| window.bounds().contains(&screen))
+                .update(cx, |_, window, _| {
+                    // A minimized window keeps its old frame but is not on the screen.
+                    window.is_visible() && window.bounds().contains(&screen)
+                })
                 .unwrap_or(false)
     })
 }
