@@ -433,3 +433,67 @@ fn a_plugin_that_fails_three_times_is_stopped_and_shows_it(cx: &mut TestAppConte
     set_test_interpreter(None);
     cx.update(|_, app| shutdown(app, id));
 }
+
+#[gpui::test]
+fn everything_a_plugin_does_in_a_call_is_undone_by_one_undo(cx: &mut TestAppContext) {
+    let Some(host) = script_host() else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    set_test_interpreter(Some(host));
+    let place = Place::new();
+    let dirs = place.dirs();
+    let (view, cx) = setup(cx, "元");
+    let script = dirs.plugin_dir("HelloJs").unwrap().join("command.js");
+    fs::write(
+        &script,
+        "Editor.GoFileEnd(); Editor.InsText('a'); Editor.InsText('b'); Editor.InsText('c');",
+    )
+    .unwrap();
+    enable_sample(cx, &place, true, true);
+    let prepared = cx
+        .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
+        .unwrap();
+    let editor = view.clone();
+    cx.update(|_, app| run(editor, prepared, app));
+    wait_for(&view, cx, "正常に終了しました");
+    assert_eq!(text_of(&view, cx), "元abc");
+    let undo = super::super::function_code("F_UNDO").unwrap();
+    view.update_in(cx, |v, window, cx| v.run_function(undo, &[], window, cx));
+    assert_eq!(
+        text_of(&view, cx),
+        "元",
+        "one undo takes back the whole call"
+    );
+    set_test_interpreter(None);
+    cx.update(|_, app| shutdown(app, "io.github.stofu5678.matsu-editor.sample.hello-js"));
+}
+
+#[gpui::test]
+fn a_plugin_that_asks_without_end_leaves_the_window_its_turn(cx: &mut TestAppContext) {
+    let Some(host) = script_host() else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    set_test_interpreter(Some(host));
+    let place = Place::new();
+    let dirs = place.dirs();
+    let (view, cx) = setup(cx, "");
+    let script = dirs.plugin_dir("HelloJs").unwrap().join("command.js");
+    // Hundreds of requests and lines of output in a row.
+    fs::write(
+        &script,
+        "for (let i = 0; i < 500; i++) { Editor.GetLineCount(0); console.log(i); } Editor.InsText('done');",
+    )
+    .unwrap();
+    enable_sample(cx, &place, true, true);
+    let prepared = cx
+        .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
+        .unwrap();
+    let editor = view.clone();
+    cx.update(|_, app| run(editor, prepared, app));
+    wait_for(&view, cx, "正常に終了しました");
+    assert_eq!(text_of(&view, cx), "done");
+    set_test_interpreter(None);
+    cx.update(|_, app| shutdown(app, "io.github.stofu5678.matsu-editor.sample.hello-js"));
+}

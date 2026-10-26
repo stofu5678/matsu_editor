@@ -382,3 +382,68 @@ fn a_host_that_was_shut_down_in_a_call_serves_the_next_call_normally() {
     assert_eq!(report.outcome, Outcome::Ok);
     assert_eq!(stdout(&report), ["fine"]);
 }
+
+#[test]
+fn each_handler_file_has_its_own_global_scope_and_may_declare_what_another_declares() {
+    let dir = plugin_dir(&[
+        (
+            "a.js",
+            "const config = 'a'; var seen = typeof other; globalThis.fromA = (globalThis.fromA || 0) + 1; console.log('a', config, seen, fromA);",
+        ),
+        (
+            "b.js",
+            "const config = 'b'; class Thing {} console.log('b', config, typeof fromA, typeof seen);",
+        ),
+    ]);
+    let mut host = host(dir.path(), true);
+    let mut world = World::new("");
+    let a = world.call(&mut host, "a.js", PATIENT);
+    assert_eq!(a.outcome, Outcome::Ok, "{:?}", a.output);
+    // The second file declares the same `const` without trouble, and does not see the first's.
+    let b = world.call(&mut host, "b.js", PATIENT);
+    assert_eq!(b.outcome, Outcome::Ok, "{:?}", b.output);
+    assert_eq!(stdout(&b), ["b b undefined undefined"]);
+    // The first file again: its own `globalThis` value is still there.
+    let again = world.call(&mut host, "a.js", PATIENT);
+    assert_eq!(again.outcome, Outcome::Ok, "{:?}", again.output);
+    assert_eq!(stdout(&again), ["a a undefined 2"]);
+}
+
+#[test]
+fn a_resident_handler_with_a_let_or_a_const_can_be_called_again_and_keeps_var_state() {
+    let code = "let local = 1; const fixed = 2; class K {} var kept = (typeof kept === 'number' ? kept : 0) + 1; function f() { return kept; } console.log(local + fixed, f());";
+    let dir = plugin_dir(&[("again.js", code)]);
+    let mut host = host(dir.path(), true);
+    let mut world = World::new("");
+    for expected in ["3 1", "3 2", "3 3"] {
+        let report = world.call(&mut host, "again.js", PATIENT);
+        assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
+        assert_eq!(stdout(&report), [expected]);
+    }
+}
+
+#[test]
+fn the_line_of_an_error_is_the_line_of_the_file_also_inside_the_block() {
+    let dir = plugin_dir(&[("e.js", "let a = 1;\nlet b = 2;\nthrow new Error('三行目');")]);
+    let mut host = host(dir.path(), false);
+    let mut world = World::new("");
+    let report = world.call(&mut host, "e.js", PATIENT);
+    let Outcome::Failed(text) = &report.outcome else {
+        panic!("{:?}", report.outcome);
+    };
+    assert!(text.contains("e.js:3"), "{text}");
+}
+
+#[test]
+fn a_handler_outside_the_folder_is_not_run() {
+    let outer = tempfile::tempdir().unwrap();
+    std::fs::write(outer.path().join("outside.js"), "Editor.InsText('no');").unwrap();
+    let plugin = outer.path().join("plugin");
+    std::fs::create_dir_all(&plugin).unwrap();
+    let mut host = host(&plugin, false);
+    let error = host
+        .begin("Command", "../outside.js", Value::Null, PATIENT)
+        .unwrap_err();
+    assert!(matches!(error, BeginError::Outside { .. }), "{error}");
+    assert!(!host.is_running());
+}

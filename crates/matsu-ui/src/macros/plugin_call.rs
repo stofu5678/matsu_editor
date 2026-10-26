@@ -320,7 +320,19 @@ pub(crate) fn set_test_interpreter(path: Option<PathBuf>) {
     TEST_INTERPRETER.with(|cell| *cell.borrow_mut() = path);
 }
 
+/// How many events of a plugin the window takes before it lets go for a moment.
+const EVENTS_IN_A_ROW: usize = 32;
+
 impl EditorView {
+    /// Opens the undo block that holds a whole call of a plugin; [`EditorView::leave_undo_block`]
+    /// with the depth from before closes it.
+    fn open_undo_block(&mut self, cx: &mut Context<Self>) {
+        let cursor = &self.cursor;
+        self.document.update(cx, |shared, _| {
+            shared.parts_mut().0.begin_block(cursor);
+        });
+    }
+
     /// Answers one request of a plugin on this view: the `Plugin.*` calls from `api`, every other
     /// call on the document, as a macro's call is (`bridge`). A call that needs a dialog is not
     /// answered here (`matsu_plugin::bridge::UNAVAILABLE`).
@@ -387,10 +399,16 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
             format!("プラグイン {label} の {jack} ({handler}) を開始します"),
         );
         cx.notify();
-        view.enter_undo_block(cx)
+        let depth = view.enter_undo_block(cx);
+        // Everything the plugin does is one step of undo: the block is open until the call ends.
+        if depth.is_some() {
+            view.open_undo_block(cx);
+        }
+        depth
     });
     let weak = editor.downgrade();
     cx.spawn(async move |cx| {
+        let mut busy = 0_usize;
         loop {
             let progress = host.borrow_mut().poll(Duration::ZERO);
             let Some(progress) = progress else {
@@ -399,6 +417,13 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                     .await;
                 continue;
             };
+            // A plugin that never stops printing or asking must not keep the window from painting
+            // and taking clicks: after a number of events in a row, the window goes first.
+            busy += 1;
+            if busy >= EVENTS_IN_A_ROW {
+                busy = 0;
+                super::yield_now().await;
+            }
             let alive = match progress {
                 Progress::Output { stream, text } => weak
                     .update(cx, |view, cx| {

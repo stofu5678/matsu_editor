@@ -9,6 +9,7 @@
 //! `EditorError`, defines `console`, and describes an uncaught error.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::io::Write;
 use std::rc::Rc;
 
@@ -90,6 +91,18 @@ impl Vm {
         })
     }
 
+    /// A runtime for one handler file of a plugin, with the macro API and the `Plugin` object.
+    fn for_plugin(init: &PluginInit, editor: Rc<RefCell<dyn Editor>>) -> Result<Self, String> {
+        let vm = Self::new()?;
+        vm.context.with(|ctx| -> Result<(), String> {
+            let hooks = install(&ctx, &init.info, Some(&init.plugin), editor)
+                .map_err(|e| format!("cannot set up QuickJS: {e}"))?;
+            *vm.hooks.borrow_mut() = Some(Persistent::save(&ctx, hooks));
+            Ok(())
+        })?;
+        Ok(vm)
+    }
+
     /// Promise callbacks (an `async` function, `.then`) run after the script, before the end;
     /// then a promise that was rejected and not handled is an error. This locks the runtime, so it
     /// cannot be inside `context.with`.
@@ -134,23 +147,26 @@ impl Engine for QuickJs {
     /// global scope is there for the next one. Each `plugin/invoke` runs the text of its handler
     /// as a classic script, as a macro does.
     fn serve(&self, init: &PluginInit, link: Rc<RefCell<dyn PluginLink>>) -> Result<(), String> {
-        let vm = Vm::new()?;
         let editor: Rc<RefCell<dyn Editor>> = Rc::new(RefCell::new(LinkEditor(link.clone())));
-        vm.context.with(|ctx| -> Result<(), String> {
-            let hooks = install(&ctx, &init.info, Some(&init.plugin), editor)
-                .map_err(|e| format!("cannot set up QuickJS: {e}"))?;
-            *vm.hooks.borrow_mut() = Some(Persistent::save(&ctx, hooks));
-            Ok(())
-        })?;
+        // One runtime for each handler file: what a handler leaves in the global scope is there
+        // the next time the same file is called, and a file never sees another's (ADR-0026).
+        let mut vms: HashMap<String, Vm> = HashMap::new();
         loop {
             let invoke = link.borrow_mut().next_invoke()?;
             let Some(invoke) = invoke else {
                 return Ok(());
             };
-            let outcome = vm
-                .context
-                .with(|ctx| run_handler(&ctx, &invoke, &vm.hooks))
-                .and_then(|()| vm.finish());
+            let outcome = match vms.entry(invoke.name.clone()) {
+                std::collections::hash_map::Entry::Occupied(entry) => Ok(entry.into_mut()),
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    Vm::for_plugin(init, editor.clone()).map(|vm| entry.insert(vm))
+                }
+            }
+            .and_then(|vm| {
+                vm.context
+                    .with(|ctx| run_handler(&ctx, &invoke, &vm.hooks))
+                    .and_then(|()| vm.finish())
+            });
             let answer = match outcome {
                 Ok(()) => Ok(serde_json::json!({"ok": true})),
                 Err(message) => Err(RpcError::new(HANDLER_FAILED, message)),
@@ -176,7 +192,11 @@ fn run_handler(
         .call::<_, ()>((invoke.jack.as_str(), args))
         .map_err(|e| e.to_string())?;
     let options = named(&invoke.name.replace('\0', "?"));
-    let result = ctx.eval_with_options::<Value, _>(invoke.source.as_str(), options);
+    // The text goes in a block, on the same first line (the line numbers of the errors stay): the
+    // `let`, `const` and `class` of its top level belong to this call, so the same file can be
+    // called again, while `var`, `function` and `globalThis.x` stay for the next call.
+    let source = format!("{{{}\n}}", invoke.source);
+    let result = ctx.eval_with_options::<Value, _>(source, options);
     match result.catch(ctx) {
         Ok(_) => Ok(()),
         Err(rquickjs::CaughtError::Exception(exception)) => {

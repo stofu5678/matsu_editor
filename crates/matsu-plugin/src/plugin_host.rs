@@ -139,6 +139,9 @@ pub enum BeginError {
     Busy,
     /// The file of the handler cannot be read (it must be UTF-8).
     Handler { path: PathBuf, source: io::Error },
+    /// The handler is not a file in the folder of the plugin (`..`, an absolute path, or a link
+    /// that leads out). The agreement of the user covers the files of the folder and no others.
+    Outside { handler: String },
     /// The process did not start.
     Start(StartError),
 }
@@ -148,6 +151,10 @@ impl std::fmt::Display for BeginError {
         match self {
             Self::Stopped => write!(f, "失敗が続いたので止めています"),
             Self::Busy => write!(f, "前の呼び出しがまだ終わっていません"),
+            Self::Outside { handler } => write!(
+                f,
+                "{handler} はプラグインのフォルダーの外にあります。フォルダーの中のファイルだけ動かせます"
+            ),
             Self::Handler { path, source } => write!(
                 f,
                 "{} を読めませんでした (UTF-8 で保存してください): {source}",
@@ -269,7 +276,7 @@ impl PluginHost {
         // A new call replaces the end of the one that `shutdown` cut off: nobody follows that
         // one any more, and its end must not be taken for this call's.
         self.interrupted = false;
-        let path = self.settings.dir.join(handler);
+        let path = handler_path(&self.settings.dir, handler)?;
         let source = read_handler(&path).map_err(|source| BeginError::Handler {
             path: path.clone(),
             source,
@@ -470,6 +477,34 @@ impl Report {
     }
 }
 
+/// The file of a handler: a path under the folder of the plugin, after the links are followed
+/// too. The files that the user agreed to are those of the folder (`consent::fingerprint`), so
+/// nothing else may run.
+fn handler_path(dir: &Path, handler: &str) -> Result<PathBuf, BeginError> {
+    let outside = || BeginError::Outside {
+        handler: handler.to_owned(),
+    };
+    let relative = Path::new(handler);
+    if relative.is_absolute()
+        || relative
+            .components()
+            .any(|c| !matches!(c, std::path::Component::Normal(_)))
+    {
+        return Err(outside());
+    }
+    let path = dir.join(relative);
+    let unreadable = |source| BeginError::Handler {
+        path: path.clone(),
+        source,
+    };
+    let root = dir.canonicalize().map_err(unreadable)?;
+    let real = path.canonicalize().map_err(unreadable)?;
+    if !real.starts_with(&root) {
+        return Err(outside());
+    }
+    Ok(path)
+}
+
 /// The text of a handler: UTF-8, without the BOM.
 fn read_handler(path: &Path) -> io::Result<String> {
     let bytes = std::fs::read(path)?;
@@ -582,6 +617,49 @@ mod tests {
         ));
         host.reset();
         assert!(!host.is_stopped() && host.failures() == 0);
+    }
+
+    #[test]
+    fn a_handler_outside_the_folder_is_refused_before_anything_starts() {
+        let dir = tempfile::tempdir().unwrap();
+        let plugin = dir.path().join("plugin");
+        std::fs::create_dir_all(plugin.join("sub")).unwrap();
+        std::fs::write(plugin.join("sub").join("ok.js"), "1;").unwrap();
+        std::fs::write(dir.path().join("outside.js"), "1;").unwrap();
+        let mut host = PluginHost::new(HostSettings::new(
+            "p",
+            &plugin,
+            Language::Bundled(session::Engine::QuickJs),
+            false,
+        ));
+        let absolute = dir.path().join("outside.js").display().to_string();
+        for handler in [
+            "../outside.js",
+            "sub/../../outside.js",
+            absolute.as_str(),
+            "./../outside.js",
+        ] {
+            let error = host
+                .begin("Command", handler, Value::Null, Duration::from_secs(1))
+                .unwrap_err();
+            assert!(
+                matches!(error, BeginError::Outside { .. }),
+                "{handler}: {error}"
+            );
+        }
+        assert!(!host.is_running());
+        // A file in a folder of the plugin is fine (the process is not started here: the path is
+        // checked by `handler_path` alone).
+        assert!(handler_path(&plugin, "sub/ok.js").is_ok());
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(dir.path().join("outside.js"), plugin.join("link.js"))
+                .unwrap();
+            assert!(matches!(
+                handler_path(&plugin, "link.js"),
+                Err(BeginError::Outside { .. })
+            ));
+        }
     }
 
     #[test]
