@@ -344,6 +344,19 @@ fn content_origin(window: &Window) -> gpui::Point<gpui::Pixels> {
     gpui::point(frame.origin.x, frame.origin.y + inset)
 }
 
+/// Whether the positions of the windows on the screen are true. A Wayland compositor does not tell
+/// a program where its windows are (`Window::bounds` keeps the position first asked for), so a drop
+/// cannot be matched to a window there. [`ScreenPositions`] overrides the answer (for tests).
+fn screen_positions_known(cx: &App) -> bool {
+    cx.try_global::<ScreenPositions>()
+        .map_or_else(|| cx.compositor_name() != "Wayland", |known| known.0)
+}
+
+/// Says whether the positions of the windows are known, instead of asking the compositor.
+pub(crate) struct ScreenPositions(pub bool);
+
+impl gpui::Global for ScreenPositions {}
+
 /// The window of the editor that has `screen` (a point on the screen) over its area, other than
 /// `except`. Sakura asks `WindowFromPoint` for the window under the pointer; GPUI does not know
 /// the stacking of the windows, so the first one in the list of the editor's windows answers.
@@ -393,8 +406,14 @@ pub(crate) fn drag_tab_out(
     if !movable {
         return false;
     }
+    // Without true positions a tab only leaves for a window of its own (placed by the compositor).
+    let known = screen_positions_known(cx);
     let screen = content_origin(window) + drop;
-    let target = window_at(cx, handle, screen);
+    let target = if known {
+        window_at(cx, handle, screen)
+    } else {
+        None
+    };
     if alone && target.is_none() {
         return false;
     }
@@ -423,7 +442,7 @@ pub(crate) fn drag_tab_out(
         return true;
     }
     // The new window is where the tab was dropped, by the same shift as the pointer's.
-    let at = (!window.is_maximized()).then(|| {
+    let at = (known && !window.is_maximized()).then(|| {
         // Both points are in the window, so the shift does not depend on where its content starts.
         // A screen above or left of the main one has negative coordinates, which stay.
         window.bounds().origin + (drop - origin.start)

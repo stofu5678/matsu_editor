@@ -402,3 +402,26 @@ fn the_active_tab_is_brought_into_view_in_a_row_that_scrolls(cx: &mut TestAppCon
     cx.run_until_parked();
     assert!(visible(cx, 0), "the first tab is shown after it is chosen");
 }
+
+#[gpui::test]
+fn where_positions_are_unknown_a_tab_only_makes_a_window(cx: &mut TestAppContext) {
+    // Wayland: `Window::bounds` is not the real place, so the drop is not matched to a window.
+    use super::tests::run;
+    let first = tabs(cx, 2);
+    run(cx, first, "F_FILENEW_NEWWINDOW");
+    let second = cx.windows().into_iter().find(|h| *h != first).unwrap();
+    cx.update(|app| app.set_global(super::flows::ScreenPositions(false)));
+    let a = first.update(cx, |_, w, _| w.bounds()).unwrap();
+    let b = second.update(cx, |_, w, _| w.bounds()).unwrap();
+    let screen = point(b.right() - px(5.), b.bottom() - px(5.));
+    assert!(b.contains(&screen) && !a.contains(&screen));
+    let to = screen - a.origin;
+    drag(cx, first, 1, point(to.x, to.y));
+    assert_eq!(
+        windows(cx),
+        3,
+        "a window of its own, not the one under the pointer"
+    );
+    assert_eq!(tab_count(cx, second), 1);
+    assert_eq!(tab_count(cx, first), 1);
+}
