@@ -103,10 +103,14 @@ pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: O
     let Some(dirs) = search_dirs(env.cx) else {
         return;
     };
-    // A plugin that is off or gone stops running; its process ends.
+    // A plugin that is off or gone (or all of them, when plugins are switched off) stops running;
+    // its process ends.
+    let all_off = !after.bool(list::ENABLE);
     for row in after.rows(list::LIST) {
         let id = row[rows::ID].as_str();
-        if !id.is_empty() && (row[rows::CONSENT] == "off" || row[rows::CODE] == "deleted") {
+        if !id.is_empty()
+            && (all_off || row[rows::CONSENT] == "off" || row[rows::CODE] == "deleted")
+        {
             crate::macros::plugin_call::shutdown(env.cx, id);
         }
     }

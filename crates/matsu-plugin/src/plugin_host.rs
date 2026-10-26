@@ -62,6 +62,9 @@ pub fn limit_of(jack: &str) -> Duration {
         .map_or(DEFAULT_LIMIT, |(_, limit)| *limit)
 }
 
+/// How many events the host keeps for the window.
+const EVENT_BACKLOG: usize = 4096;
+
 /// How long a process that was told to end may take before it is killed.
 const SHUTDOWN_GRACE: Duration = Duration::from_millis(1500);
 
@@ -176,6 +179,9 @@ pub struct PluginHost {
     stopped: bool,
     next_id: i64,
     current: Option<Current>,
+    /// [`shutdown`](Self::shutdown) ended a call that was running: the next [`poll`](Self::poll)
+    /// says so, so that whoever follows the call can clean up.
+    interrupted: bool,
 }
 
 impl PluginHost {
@@ -187,6 +193,7 @@ impl PluginHost {
             stopped: false,
             next_id: 1,
             current: None,
+            interrupted: false,
         }
     }
 
@@ -233,7 +240,9 @@ impl PluginHost {
         let mut config = MacroConfig::for_plugin(identity, self.settings.language, None);
         config.interpreter = self.settings.interpreter.clone();
         config.temp_dir = self.settings.temp_dir.clone();
-        let (tx, events) = mpsc::channel();
+        // Bounded: a plugin that prints without end waits here (on the reader thread of the
+        // host) for the window to catch up, instead of piling up in memory.
+        let (tx, events) = mpsc::sync_channel(EVENT_BACKLOG);
         let sink: Sink = Arc::new(move |event| {
             let _ = tx.send(event);
         });
@@ -297,12 +306,19 @@ impl PluginHost {
     /// Waits up to `wait` for the next thing that happens in the call. `None` when nothing did
     /// (or no call runs); ask again.
     pub fn poll(&mut self, wait: Duration) -> Option<Progress> {
+        if std::mem::take(&mut self.interrupted) {
+            return Some(Progress::Done(Outcome::Cancelled));
+        }
         let (id, deadline) = {
             let current = self.current.as_ref()?;
             (current.id, current.deadline)
         };
         let until = (Instant::now() + wait).min(deadline);
         loop {
+            // The limit holds even when the plugin keeps the queue full (a loop that prints).
+            if Instant::now() >= deadline {
+                return Some(self.finish(Outcome::TimedOut));
+            }
             let left = until.saturating_duration_since(Instant::now());
             let received = self.process.as_ref()?.events.recv_timeout(left);
             match received {
@@ -396,7 +412,7 @@ impl PluginHost {
 
     /// Ends the process at once (the plugin was disabled, or the editor closes).
     pub fn shutdown(&mut self) {
-        self.current = None;
+        self.interrupted |= self.current.take().is_some();
         self.close_process(true);
     }
 

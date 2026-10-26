@@ -332,3 +332,36 @@ fn a_language_that_cannot_serve_a_plugin_yet_says_so() {
         .unwrap_err();
     assert!(error.to_string().contains("まだ動かせません"), "{error}");
 }
+
+#[test]
+fn a_handler_that_prints_without_end_still_meets_its_limit() {
+    let dir = plugin_dir(&[("flood.js", "while (true) console.log('x');")]);
+    let mut host = host(dir.path(), false);
+    let mut world = World::new("");
+    let started = Instant::now();
+    let report = world.call(&mut host, "flood.js", Duration::from_millis(500));
+    assert_eq!(report.outcome, Outcome::TimedOut);
+    assert!(
+        started.elapsed() < Duration::from_secs(15),
+        "{:?}",
+        started.elapsed()
+    );
+    assert!(!host.is_running());
+}
+
+#[test]
+fn shutting_a_host_down_in_a_call_ends_the_call_for_whoever_follows_it() {
+    let dir = plugin_dir(&[("loop.js", "while (true) {}")]);
+    let mut host = host(dir.path(), true);
+    host.begin("Command", "loop.js", Value::Null, PATIENT)
+        .unwrap();
+    host.shutdown();
+    assert!(!host.is_running() && !host.is_busy());
+    // The one who polls is told once that the call is over, and it is not a failure.
+    assert!(matches!(
+        host.poll(Duration::ZERO),
+        Some(Progress::Done(Outcome::Cancelled))
+    ));
+    assert!(host.poll(Duration::ZERO).is_none());
+    assert_eq!(host.failures(), 0);
+}
