@@ -229,10 +229,24 @@ fn starts_strict(source: &str) -> bool {
     for quote in ['"', '\''] {
         let directive = format!("{quote}use strict{quote}");
         if let Some(after) = rest.strip_prefix(directive.as_str()) {
-            // The directive ends the statement: `;`, a line break, or the end of the text (or a
-            // closing brace); `"use strict" + x` is an expression, not a directive.
+            // The directive ends the statement: `;`, a closing brace, the end of the text, or a
+            // line break after which the next token cannot go on with the string (`"use strict"
+            // + x` and `"use strict" in x` are expressions, not directives).
             let after = after.trim_start_matches([' ', '\t']);
-            return after.is_empty() || after.starts_with([';', '\n', '\r', '}']);
+            if after.is_empty() || after.starts_with([';', '}']) {
+                return true;
+            }
+            if !after.starts_with(['\n', '\r']) {
+                return false;
+            }
+            let next = after.trim_start();
+            let word: String = next
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$')
+                .collect();
+            return next.is_empty()
+                || next.starts_with([';', '}', '\'', '"', '{'])
+                || (!word.is_empty() && word != "in" && word != "instanceof");
         }
     }
     false
@@ -509,6 +523,9 @@ mod tests {
             "x = 1; 'use strict';",
             "\"use strict\" + x",
             "\"use  strict\";",
+            "\"use strict\"\n+ 1; undeclared = 1;",
+            "\"use strict\"\n(f)",
+            "\"use strict\"\nin x",
             "/* unclosed",
             "",
         ] {
