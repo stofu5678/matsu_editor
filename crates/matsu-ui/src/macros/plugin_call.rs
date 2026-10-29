@@ -420,8 +420,8 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
     let limit = limit_of(jack);
     // One plugin at a time on a window: the calls would share the undo block of the document, and
     // a macro that runs has the window already.
-    let busy = editor.update(cx, |view, _| {
-        view.macros.plugin_running || view.macros.running.is_some()
+    let busy = editor.update(cx, |view, cx| {
+        view.plugin_in_call(cx) || view.macros.running.is_some()
     });
     if busy {
         let message =
@@ -452,6 +452,8 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
         );
         cx.notify();
         view.macros.plugin_running = true;
+        view.document
+            .update(cx, |shared, _| shared.set_plugin_busy(true));
         let depth = view.enter_undo_block(cx);
         // Everything the plugin does is one step of undo: the block is open until the call ends.
         if depth.is_some() {
@@ -466,6 +468,12 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
         loop {
             let progress = host.borrow_mut().poll(Duration::ZERO);
             let Some(progress) = progress else {
+                // The editor of the call is gone (its document was closed): the call ends with it,
+                // also when the plugin is computing and says nothing.
+                if weak.upgrade().is_none() {
+                    host.borrow_mut().cancel();
+                    break;
+                }
                 cx.background_executor()
                     .timer(Duration::from_millis(10))
                     .await;
@@ -517,6 +525,7 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                     set_stopped(&id, stopped);
                     let _ = weak.update(cx, |view, cx| {
                         view.macros.plugin_running = false;
+                        view.document.update(cx, |shared, _| shared.set_plugin_busy(false));
                         // The undo history of a document that was replaced is gone with it.
                         if view.document.read(cx).generation() == generation {
                             view.leave_undo_block(depth, cx);

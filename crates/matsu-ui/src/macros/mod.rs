@@ -302,6 +302,11 @@ fn function_name(code: u16) -> String {
 }
 
 impl EditorView {
+    /// A call of a plugin runs on the document of this view (also one shown in another pane).
+    pub(crate) fn plugin_in_call(&self, cx: &gpui::App) -> bool {
+        self.macros.plugin_running || self.document.read(cx).plugin_busy()
+    }
+
     pub fn is_recording_key_macro(&self) -> bool {
         self.macros.is_recording()
     }
@@ -576,7 +581,7 @@ impl EditorView {
         if let Some(message) = self.stop_key_macro_recording(cx) {
             self.macro_failed(message, window, cx);
         }
-        if self.macros.busy() {
+        if self.macros.busy() || self.plugin_in_call(cx) {
             return Err(self.macro_error("マクロを実行中です".into(), window, cx));
         }
         let result = match self.macros.current_macro(cx) {
@@ -628,7 +633,7 @@ impl EditorView {
     ) -> Result<(), CommandError> {
         // A key macro that is playing may name a macro file: its calls go on in the middle. A call
         // of a plugin has the document and the undo block until it ends (`plugin_call`).
-        if self.macros.running.is_some() || self.macros.plugin_running {
+        if self.macros.running.is_some() || self.plugin_in_call(cx) {
             return Err(self.macro_error("マクロを実行中です".into(), window, cx));
         }
         if self.macros.recorder.is_recording() && !self.macros.suspended {

@@ -85,6 +85,9 @@ pub struct SharedDocument {
     /// Counts the documents that this one has been replaced by (`replace_with`): a call that began on
     /// a document can tell that it is a different one now.
     generation: u64,
+    /// A call of a plugin is running on this document (every pane that shows it shares the undo
+    /// history, so one call at a time).
+    plugin_busy: bool,
     /// Typing overwrites instead of inserting. Sakura keeps the mode per document
     /// (`CDocEditor::m_bInsMode`) and starts in insert mode.
     overwrite: bool,
@@ -147,6 +150,7 @@ impl SharedDocument {
             path,
             version: 0,
             generation: 0,
+            plugin_busy: false,
             overwrite: false,
             view_mode: false,
             type_locked: false,
@@ -180,6 +184,7 @@ impl SharedDocument {
             path: file.path.clone(),
             version: 0,
             generation: 0,
+            plugin_busy: false,
             overwrite: false,
             view_mode: false,
             type_locked: false,
@@ -600,6 +605,14 @@ impl SharedDocument {
 
     /// How many times the document was replaced by another one in place (opening a file in the
     /// window, reloading it). Not changed by an edit.
+    pub fn plugin_busy(&self) -> bool {
+        self.plugin_busy
+    }
+
+    pub fn set_plugin_busy(&mut self, busy: bool) {
+        self.plugin_busy = busy;
+    }
+
     pub fn generation(&self) -> u64 {
         self.generation
     }

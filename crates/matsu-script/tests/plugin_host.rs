@@ -585,3 +585,21 @@ fn a_handler_that_asks_for_strict_mode_gets_it_in_every_form_and_one_that_does_n
     let this = world.call(&mut host, "strict_this.js", PATIENT);
     assert_eq!(stdout(&this), ["true"]);
 }
+
+#[test]
+fn a_flood_of_meaningless_messages_does_not_keep_a_poll_from_returning() {
+    let dir = plugin_dir(&[("junk.js", "for (;;) console.log('\\x1e{}');")]);
+    let mut host = host(dir.path(), false);
+    host.begin("Command", "junk.js", Value::Null, PATIENT)
+        .unwrap();
+    for _ in 0..50 {
+        let started = Instant::now();
+        let _ = host.poll(Duration::ZERO);
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "{:?}",
+            started.elapsed()
+        );
+    }
+    host.shutdown();
+}

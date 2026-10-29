@@ -51,7 +51,13 @@ pub(super) fn can_remove(values: &Values) -> bool {
 /// 有効にする can be used on a plugin that MATSU can run and that is not enabled (or was enabled and
 /// has changed).
 pub(super) fn can_enable(values: &Values) -> bool {
-    selected_row(values).is_some_and(|row| rows::can_enable(row) && row[rows::CONSENT] != "on")
+    // A plugin that was stopped by failures can be enabled again also while the page shows it as on
+    // (the page was opened before the failures).
+    selected_row(values).is_some_and(|row| {
+        rows::can_enable(row)
+            && (row[rows::CONSENT] != "on"
+                || crate::macros::plugin_call::is_stopped(&row[rows::ID]))
+    })
 }
 
 /// 無効にする can be used on a plugin that is enabled, or stopped for a change.

@@ -62,6 +62,9 @@ pub fn limit_of(jack: &str) -> Duration {
         .map_or(DEFAULT_LIMIT, |(_, limit)| *limit)
 }
 
+/// How many meaningless messages [`PluginHost::poll`] drops in one call.
+const MAX_DROPPED_IN_A_ROW: usize = 256;
+
 /// How many events the host keeps for the window.
 const EVENT_BACKLOG: usize = 4096;
 
@@ -324,6 +327,9 @@ impl PluginHost {
             (current.id, current.deadline)
         };
         let until = (Instant::now() + wait).min(deadline);
+        // Messages that mean nothing are dropped, but only so many in a row: a plugin that sends
+        // them without end must not keep the caller (the window) from its other work.
+        let mut dropped = 0_usize;
         loop {
             // The limit holds even when the plugin keeps the queue full (a loop that prints).
             if Instant::now() >= deadline {
@@ -338,7 +344,12 @@ impl PluginHost {
                 Ok(HostEvent::Message(text)) => match classify(&text, id) {
                     Message::Request => return Some(Progress::Request(text)),
                     Message::Answer(outcome) => return Some(self.finish(outcome)),
-                    Message::Other => {}
+                    Message::Other => {
+                        dropped += 1;
+                        if dropped >= MAX_DROPPED_IN_A_ROW {
+                            return None;
+                        }
+                    }
                 },
                 Ok(HostEvent::Finished(finished)) => {
                     let text = crate::describe(&finished, "");

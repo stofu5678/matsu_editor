@@ -647,3 +647,47 @@ fn a_plugin_does_not_edit_a_document_that_replaced_the_one_it_began_on(cx: &mut 
     assert!(!view.read_with(cx, |v, _| v.macros.plugin_running));
     set_test_interpreter(None);
 }
+
+#[gpui::test]
+fn two_panes_of_one_document_do_not_run_plugins_or_macros_at_once(cx: &mut TestAppContext) {
+    let Some(host) = script_host() else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    set_test_interpreter(Some(host));
+    let place = Place::new();
+    let dirs = place.dirs();
+    let (first, cx) = setup(cx, "元");
+    let shared = first.read_with(cx, |v, _| v.document().clone());
+    let (second, cx2) = cx.add_window_view(move |window, cx| {
+        let view = EditorView::new(shared, cx);
+        window.focus(&view.focus_handle, cx);
+        view
+    });
+    let script = dirs.plugin_dir("HelloJs").unwrap().join("command.js");
+    fs::write(&script, "while (true) {}").unwrap();
+    enable_sample(cx2, &place, true, true);
+    let prepared = cx2
+        .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
+        .unwrap();
+    let id = prepared.id.clone();
+    let editor = first.clone();
+    cx2.update(|_, app| run(editor, prepared, app));
+    // The other pane shares the undo history: it is refused, for a plugin and for a macro.
+    let again = cx2
+        .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
+        .unwrap();
+    let editor = second.clone();
+    cx2.update(|_, app| run(editor, again, app));
+    let output = second.read_with(cx2, |v, _| v.macro_output_text());
+    assert!(
+        output.contains("ほかのプラグインかマクロが動いている間"),
+        "{output}"
+    );
+    let started = second.update_in(cx2, |v, window, cx| {
+        v.exec_macro_text("Editor.InsText('x');", "js", window, cx)
+    });
+    assert!(started.is_err());
+    cx2.update(|_, app| shutdown(app, &id));
+    set_test_interpreter(None);
+}
