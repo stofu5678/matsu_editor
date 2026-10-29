@@ -3,7 +3,10 @@
 //!
 //! GPUI gives the handler UTF-16 offsets within one text. Here that text is the line of the
 //! caret, or the line of the composition while there is one; an offset is converted to a byte
-//! column of that line. A selection that spans lines cannot be told in these offsets, so it is
+//! column of that line. For a very long line (ADR-0020, 9.10) the text is a window of about
+//! `INPUT_WINDOW` bytes on each side of the composition (else of the caret), so that the line is
+//! not decoded as a whole; the offsets are relative to the window, and the window stays where the
+//! composition began while it lasts. A selection that spans lines cannot be told in these offsets, so it is
 //! reported as the caret.
 //!
 //! While a composition lasts, its text is in the document (marked, and underlined by the paint).
@@ -19,33 +22,87 @@ use matsu_core::buffer::{Pos, col_from_utf16, col_to_utf16};
 
 use super::{EditorView, Marked};
 
+/// Bytes on each side of the anchor that the IME sees of a very long line.
+const INPUT_WINDOW: usize = 2048;
+
+/// The text that the IME's UTF-16 offsets refer to: all of a line, or a window of a very long one
+/// (`base` is the column where the window starts).
+struct InputText {
+    line: usize,
+    base: usize,
+    text: String,
+}
+
+impl InputText {
+    /// The UTF-16 offset of line column `col`, clamped to the window.
+    fn utf16(&self, col: usize) -> usize {
+        col_to_utf16(
+            &self.text,
+            col.saturating_sub(self.base).min(self.text.len()),
+        )
+    }
+
+    /// The line column of a UTF-16 offset in the window.
+    fn col(&self, units: usize) -> usize {
+        self.base + col_from_utf16(&self.text, units)
+    }
+}
+
 impl EditorView {
-    /// The line that the IME's offsets refer to: the composition's, else the caret's.
-    fn input_line(&self, cx: &gpui::App) -> (usize, String) {
+    /// The text that the IME's offsets refer to: the composition's line, else the caret's.
+    fn input_line(&self, cx: &gpui::App) -> InputText {
         let line = self
             .marked
             .as_ref()
             .map_or(self.cursor.caret().line, |m| m.line);
-        let text = self
-            .document
-            .read(cx)
-            .doc()
+        let doc = self.document.read(cx).doc();
+        if doc.is_long_line(line) {
+            let anchor = match &self.marked {
+                Some(m) => m.range.start,
+                None if self.cursor.caret().line == line => self.cursor.caret().col,
+                None => 0,
+            };
+            let end = self
+                .marked
+                .as_ref()
+                .map_or(anchor, |m| m.range.end.max(anchor));
+            let slice = doc
+                .line_slice(
+                    line,
+                    anchor.saturating_sub(INPUT_WINDOW),
+                    end.saturating_add(INPUT_WINDOW),
+                )
+                .ok()
+                .flatten();
+            if let Some(slice) = slice {
+                return InputText {
+                    line,
+                    base: slice.start_col,
+                    text: slice.text,
+                };
+            }
+        }
+        let text = doc
             .line(line)
             .ok()
             .flatten()
             .map(|l| l.text)
             .unwrap_or_default();
-        (line, text)
+        InputText {
+            line,
+            base: 0,
+            text,
+        }
     }
 
     /// The range that an input call means: the explicit UTF-16 range, else the composition,
     /// else the selection, else the caret.
     fn input_target(&self, range_utf16: Option<Range<usize>>, cx: &gpui::App) -> (Pos, Pos) {
         if let Some(r) = range_utf16 {
-            let (line, text) = self.input_line(cx);
+            let t = self.input_line(cx);
             return (
-                Pos::new(line, col_from_utf16(&text, r.start)),
-                Pos::new(line, col_from_utf16(&text, r.end)),
+                Pos::new(t.line, t.col(r.start)),
+                Pos::new(t.line, t.col(r.end)),
             );
         }
         if let Some(m) = &self.marked {
@@ -67,15 +124,22 @@ impl EditorView {
         if !self.composing || self.composing_over_selection {
             return;
         }
-        let marked = self
-            .document
-            .read(cx)
-            .doc()
-            .line(m.line)
-            .ok()
-            .flatten()
-            .and_then(|l| l.text.get(m.range.clone()).map(str::to_owned))
-            .unwrap_or_default();
+        let marked = {
+            let doc = self.document.read(cx).doc();
+            if doc.is_long_line(m.line) {
+                doc.line_slice(m.line, m.range.start, m.range.end)
+                    .ok()
+                    .flatten()
+                    .map(|s| s.text)
+                    .unwrap_or_default()
+            } else {
+                doc.line(m.line)
+                    .ok()
+                    .flatten()
+                    .and_then(|l| l.text.get(m.range.clone()).map(str::to_owned))
+                    .unwrap_or_default()
+            }
+        };
         self.run_with(cx, |command_cx| {
             if !command_cx.is_overwrite() {
                 return;
@@ -140,11 +204,11 @@ impl EntityInputHandler for EditorView {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<String> {
-        let (_, text) = self.input_line(cx);
-        let start = col_from_utf16(&text, range_utf16.start);
-        let end = col_from_utf16(&text, range_utf16.end).max(start);
-        *actual_range = Some(col_to_utf16(&text, start)..col_to_utf16(&text, end));
-        text.get(start..end).map(str::to_owned)
+        let t = self.input_line(cx);
+        let start = col_from_utf16(&t.text, range_utf16.start);
+        let end = col_from_utf16(&t.text, range_utf16.end).max(start);
+        *actual_range = Some(col_to_utf16(&t.text, start)..col_to_utf16(&t.text, end));
+        t.text.get(start..end).map(str::to_owned)
     }
 
     fn selected_text_range(
@@ -153,9 +217,10 @@ impl EntityInputHandler for EditorView {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<UTF16Selection> {
-        let (line, text) = self.input_line(cx);
+        let t = self.input_line(cx);
+        let line = t.line;
         let caret = self.cursor.caret();
-        let utf16 = |col| col_to_utf16(&text, col);
+        let utf16 = |col| t.utf16(col);
         let selection = self
             .cursor
             .selection()
@@ -181,8 +246,8 @@ impl EntityInputHandler for EditorView {
 
     fn marked_text_range(&self, _: &mut Window, cx: &mut Context<Self>) -> Option<Range<usize>> {
         let m = self.marked.as_ref()?;
-        let (_, text) = self.input_line(cx);
-        Some(col_to_utf16(&text, m.range.start)..col_to_utf16(&text, m.range.end))
+        let t = self.input_line(cx);
+        Some(t.utf16(m.range.start)..t.utf16(m.range.end))
     }
 
     fn unmark_text(&mut self, _: &mut Window, cx: &mut Context<Self>) {
@@ -344,11 +409,11 @@ impl EntityInputHandler for EditorView {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
-        let (line, text) = self.input_line(cx);
-        let start = col_from_utf16(&text, range_utf16.start);
-        let end = col_from_utf16(&text, range_utf16.end).max(start);
-        let a = self.point_of(Pos::new(line, start), cx)?;
-        let b = self.point_of(Pos::new(line, end), cx)?;
+        let t = self.input_line(cx);
+        let start = t.col(range_utf16.start);
+        let end = t.col(range_utf16.end).max(start);
+        let a = self.point_of(Pos::new(t.line, start), cx)?;
+        let b = self.point_of(Pos::new(t.line, end), cx)?;
         let width = (b.x - a.x).max(px(self.metrics.cell_width));
         Some(Bounds::new(a, size(width, px(self.metrics.line_height))))
     }
@@ -359,10 +424,10 @@ impl EntityInputHandler for EditorView {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<usize> {
-        let (line, text) = self.input_line(cx);
+        let t = self.input_line(cx);
         let pos = self
             .position_for_point(p, cx)
-            .filter(|pos| pos.line == line)?;
-        Some(col_to_utf16(&text, pos.col))
+            .filter(|pos| pos.line == t.line)?;
+        Some(t.utf16(pos.col))
     }
 }

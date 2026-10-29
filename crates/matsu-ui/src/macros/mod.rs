@@ -354,14 +354,15 @@ impl EditorView {
         let Some(marked) = self.marked.clone() else {
             return;
         };
+        // the marked text only: a very long line is not decoded as a whole
         let text = self
             .document
             .read(cx)
             .doc()
-            .line(marked.line)
+            .line_slice(marked.line, marked.range.start, marked.range.end)
             .ok()
             .flatten()
-            .and_then(|line| line.text.get(marked.range.clone()).map(str::to_owned));
+            .map(|slice| slice.text);
         if let Some(text) = text {
             self.record_typed_text(&text);
         }

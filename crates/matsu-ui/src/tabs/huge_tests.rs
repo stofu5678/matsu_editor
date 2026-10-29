@@ -456,6 +456,100 @@ fn a_file_of_one_very_long_line_opens_scrolls_and_takes_the_caret_and_a_selectio
     std::fs::remove_dir_all(dir).ok();
 }
 
+#[gpui::test]
+fn the_input_handler_sees_a_window_of_a_very_long_line_and_edits_the_right_place(
+    cx: &mut TestAppContext,
+) {
+    use gpui::EntityInputHandler;
+    use matsu_core::buffer::Pos;
+
+    let text = "0123456789abcdef".repeat(3 * 1024 * 1024 / 16);
+    let dir = temp_dir("huge-long-line-ime");
+    let path = write_big(&dir, "one.txt", text.as_bytes());
+    let handle = window(cx, true);
+    cx.update(|app| {
+        app.set_global(FilePrefs {
+            huge_file_size_mb: 1,
+            ..FilePrefs::default()
+        });
+    });
+    open_file(cx, handle, &path);
+    let view = {
+        let mut found = None;
+        for _ in 0..6000 {
+            let view = active_view(cx, handle);
+            if view.read_with(cx, |v, cx| v.document().read(cx).doc().raw_len() > 0) {
+                found = Some(view);
+                break;
+            }
+            cx.run_until_parked();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        found.expect("the file was not read")
+    };
+    wait_for_scan(cx, &view);
+    view.update(cx, |v, _| v.cursor.move_to(Pos::new(0, 1_000_000), false));
+    // What the OS asks without any composition: the window around the caret, not the line.
+    let (selected, seen, actual) = handle
+        .update(cx, |_, window, cx| {
+            view.update(cx, |v, cx| {
+                let selected = v.selected_text_range(false, window, cx).unwrap();
+                let mut actual = None;
+                let seen = v
+                    .text_for_range(0..usize::MAX, &mut actual, window, cx)
+                    .unwrap();
+                (selected, seen, actual)
+            })
+        })
+        .unwrap();
+    assert!(seen.len() <= 5000, "the window has {} bytes", seen.len());
+    assert!(selected.range.is_empty() && selected.range.start <= 2048);
+    assert_eq!(actual.map(|r| r.end), Some(seen.len()));
+    // A composition in the middle, and its commit.
+    let marked = handle
+        .update(cx, |_, window, cx| {
+            view.update(cx, |v, cx| {
+                v.replace_and_mark_text_in_range(None, "あ", None, window, cx);
+                v.marked_text_range(window, cx)
+            })
+        })
+        .unwrap();
+    let start = selected.range.start;
+    assert_eq!(marked, Some(start..start + 1));
+    let slice_at = |cx: &mut TestAppContext, from: usize, to: usize| {
+        view.read_with(cx, |v, cx| {
+            let doc = v.document().read(cx).doc();
+            doc.line_slice(0, from, to).unwrap().unwrap().text
+        })
+    };
+    assert_eq!(slice_at(cx, 1_000_000, 1_000_003), "あ");
+    handle
+        .update(cx, |_, window, cx| {
+            view.update(cx, |v, cx| {
+                v.replace_text_in_range(Some(start..start + 1), "い", window, cx);
+            })
+        })
+        .unwrap();
+    assert_eq!(slice_at(cx, 1_000_000, 1_000_003), "い");
+    assert_eq!(caret_of(cx, &view), Pos::new(0, 1_000_003));
+    // Plain typing (more than one char) goes to the caret.
+    handle
+        .update(cx, |_, window, cx| {
+            view.update(cx, |v, cx| {
+                v.replace_text_in_range(None, "xy", window, cx);
+            })
+        })
+        .unwrap();
+    assert_eq!(slice_at(cx, 1_000_003, 1_000_005), "xy");
+    let len = view.read_with(cx, |v, cx| v.document().read(cx).doc().line_len(0).unwrap());
+    assert_eq!(len, Some(text.len() + 5));
+    std::fs::remove_dir_all(dir).ok();
+}
+
+fn caret_of(cx: &mut TestAppContext, view: &Entity<EditorView>) -> matsu_core::buffer::Pos {
+    view.read_with(cx, |v, _| v.cursor.caret())
+}
+
 // ---- after the scan: the options of the launch and the moves of macros ----
 
 fn launch(cx: &mut TestAppContext, dir: &Path, args: &[&str]) {
