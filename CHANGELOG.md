@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.0](https://github.com/stofu5678/matsu_editor/compare/v0.4.0...v0.5.0) (2026-10-29)
+
+
+### Features
+
+* **plugins:** ask before a plugin is enabled and stop changed ones (ADR-0026) ([#279](https://github.com/stofu5678/matsu_editor/issues/279)) ([2e35f27](https://github.com/stofu5678/matsu_editor/commit/2e35f27f993c83f3379ea40429a05ac71392bb19))
+* **plugins:** run plugins in a resident host (ADR-0026) ([#282](https://github.com/stofu5678/matsu_editor/issues/282)) ([58a9842](https://github.com/stofu5678/matsu_editor/commit/58a9842e443b227030f18fd202b92b0e33e8c18c))
+* **tabs:** add Sakura's multi-row tabs, the tab position, icons and widths ([#280](https://github.com/stofu5678/matsu_editor/issues/280)) ([6cde271](https://github.com/stofu5678/matsu_editor/commit/6cde2711186efbaa76c462a673177338dca27d33))
+* **ui:** run launch positions and macro moves after the scan of a huge file (ADR-0020) ([#281](https://github.com/stofu5678/matsu_editor/issues/281)) ([b27993d](https://github.com/stofu5678/matsu_editor/commit/b27993d656349d2d5f3cc1d76faddaa2812a739d))
+* **view:** limit layout, coloring and outline on huge files (ADR-0020) ([#283](https://github.com/stofu5678/matsu_editor/issues/283)) ([d9ed4e6](https://github.com/stofu5678/matsu_editor/commit/d9ed4e64299fab50dcee74e58743c01943c3d14b))
+
 ## [0.4.0](https://github.com/stofu5678/matsu_editor/compare/v0.3.0...v0.4.0) (2026-10-25)
 
 
