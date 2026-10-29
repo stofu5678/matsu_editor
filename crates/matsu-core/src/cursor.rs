@@ -299,22 +299,7 @@ pub fn char_left(doc: &Document, pos: Pos) -> Result<Option<Pos>> {
     if pos.line == 0 {
         return Ok(None);
     }
-    // A line that a scan cut (ADR-0020, 9.10) has no line ending: the end of its text is the raw
-    // offset where this line starts, so Left (and Backspace) would stay. It goes one char back
-    // into the line, past empty cut lines (Enter at a cut leaves one).
-    let mut prev = pos.line - 1;
-    while let Some(line) = doc.line(prev)? {
-        if line.eol.is_some() {
-            break;
-        }
-        if let Some(last) = line.text.chars().next_back() {
-            return Ok(Some(Pos::new(prev, line.text.len() - last.len_utf8())));
-        }
-        if prev == 0 {
-            return Ok(None);
-        }
-        prev -= 1;
-    }
+    let prev = pos.line - 1;
     Ok(Some(Pos::new(prev, doc.line_len(prev)?.unwrap_or(0))))
 }
 

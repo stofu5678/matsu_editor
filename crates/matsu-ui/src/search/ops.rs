@@ -570,14 +570,13 @@ fn apply_edits(
 /// side, the buffer joins them into one CRLF and moves the start back before the CR (`a\rX\nb`
 /// without `X`: the edit began at `(1, 0)` and `start` is `(0, 1)`). So when `start` is at the end
 /// of a line that ends with a CR, the edit may have begun at the start of the next line; the
-/// candidate that holds the removed text and gives the same edit again is the one. The same holds at
-/// the end of a line that a scan cut (no line ending, ADR-0020 9.10): an edit that removed the
-/// text from the start of the next line took the cut with it and `start` is at the end of this one.
+/// candidate that holds the removed text and gives the same edit again is the one.
 fn old_range(doc: &Document, e: &AppliedEdit) -> (Pos, Pos) {
-    let at_cr_end = doc.line(e.start.line).ok().flatten().is_some_and(|l| {
-        l.text.len() == e.start.col
-            && (l.eol == Some(Eol::Cr) || (l.eol.is_none() && e.start.line + 1 < doc.line_count()))
-    });
+    let at_cr_end = doc
+        .line(e.start.line)
+        .ok()
+        .flatten()
+        .is_some_and(|l| l.eol == Some(Eol::Cr) && l.text.len() == e.start.col);
     let ext_eol = doc.ext_eol();
     let end_of = |at: Pos| {
         end_in_doc(doc, at, &e.removed).unwrap_or_else(|| end_after(at, &e.removed, ext_eol))
@@ -709,72 +708,6 @@ mod tests {
         let mut cx = CommandContext::new(&mut model, &mut cursor, &mut layout, None);
         apply_edits(&mut cx, &result.edits).expect("the edits apply");
         (all(model.doc()), all(&expected))
-    }
-
-    /// A document over `text` as a scan of a huge file makes it: cut into lines of about
-    /// `long` bytes (blocks of `block` bytes).
-    fn cut_doc(text: &str, block: usize, long: usize) -> Document {
-        use matsu_core::buffer::{EncodingCodec, MemorySource, ScanOptions, scan_blocks};
-        use matsu_core::encoding::Encoding;
-        use std::sync::Arc;
-
-        let options = ScanOptions {
-            block_size: block,
-            long_line: long,
-            ..ScanOptions::default()
-        };
-        let index = scan_blocks(
-            Arc::new(MemorySource::new(text.as_bytes().to_vec())),
-            Arc::new(EncodingCodec(Encoding::Utf8)),
-            options,
-            |_| std::ops::ControlFlow::Continue(()),
-        )
-        .unwrap();
-        Document::from_block_index(index).unwrap()
-    }
-
-    #[test]
-    fn edits_of_text_next_to_a_cut_are_replayed() {
-        use matsu_commands::layout::PlainLayout;
-        use matsu_core::cursor::Cursor;
-        use matsu_core::model::DocumentModel;
-        use matsu_core::search::{Control, PlainMatcher, PlainOptions};
-
-        for (text, pattern, with) in [
-            ("abcdefabcdef", "d", "X"),
-            ("abcdefabcdef", "c", "X"),
-            ("abcdefabcdef", "a", ""),
-            ("abcdefabcdef", "f", "\n"),
-            ("aaaaaaaaaaaa", "a", "bb"),
-        ] {
-            for (block, long) in [(3, 3), (2, 2), (4, 6)] {
-                let matcher = PlainMatcher::new(pattern, PlainOptions::default());
-                let all = |d: &Document| {
-                    d.text_between(Pos::new(0, 0), Pos::new(d.line_count(), 0))
-                        .unwrap()
-                };
-                let mut expected = cut_doc(text, block, long);
-                let result = replace_all(
-                    &mut expected,
-                    &matcher,
-                    with,
-                    ReplaceTarget::Match,
-                    None,
-                    Control::new(),
-                )
-                .unwrap();
-                let mut model = DocumentModel::new(cut_doc(text, block, long));
-                let mut cursor = Cursor::default();
-                let mut layout = PlainLayout::default();
-                let mut cx = CommandContext::new(&mut model, &mut cursor, &mut layout, None);
-                apply_edits(&mut cx, &result.edits).expect("the edits apply");
-                assert_eq!(
-                    all(model.doc()),
-                    all(&expected),
-                    "{text:?} {pattern:?} -> {with:?}, block {block}, long {long}"
-                );
-            }
-        }
     }
 
     #[test]

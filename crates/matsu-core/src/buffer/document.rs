@@ -472,8 +472,7 @@ impl Document {
         let end = brk.map_or(self.total(), |b| b.start);
         Ok(Some(Line {
             text: self.decode_range(start, end)?,
-            // A virtual break (length 0) is no line ending of the file: the line goes on.
-            eol: brk.filter(|b| b.len > 0).map(|b| b.kind),
+            eol: brk.map(|b| b.kind),
         }))
     }
 

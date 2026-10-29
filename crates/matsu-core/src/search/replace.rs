@@ -118,24 +118,13 @@ pub fn apply_replacements(
     let mut applied = Vec::with_capacity(replacements.len());
     // The end of the previous edit, before and after it was made.
     let mut shift: Option<(Pos, Pos)> = None;
-    // In a document that is read by ranges, the end of a line that a scan cut and the start of
-    // the next line are one place in the file (ADR-0020, 9.10), and an edit reports it as the
-    // second. The positions of the plan are made that way too, so that they can be compared.
-    let canonical = |p: Pos| {
-        if doc.is_ranged() {
-            doc.clamp_pos(p).unwrap_or(p)
-        } else {
-            p
-        }
-    };
     for r in replacements {
-        let (r_start, r_end) = (canonical(r.start), canonical(r.end));
         let (start, end) = match shift {
-            Some((old, new)) => (shift_pos(old, new, r_start), shift_pos(old, new, r_end)),
-            None => (r_start, r_end),
+            Some((old, new)) => (shift_pos(old, new, r.start), shift_pos(old, new, r.end)),
+            None => (r.start, r.end),
         };
         applied.push(apply_one(&mut work, start, end, r)?);
-        shift = Some((r_end, applied[applied.len() - 1].end));
+        shift = Some((r.end, applied[applied.len() - 1].end));
     }
     *doc = work;
     Ok(applied)

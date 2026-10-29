@@ -41,8 +41,8 @@ use std::io;
 use std::sync::{Arc, Mutex};
 
 pub use scan::{
-    BlockScanner, DEFAULT_LONG_LINE, ScanError, ScanFailure, ScanJob, ScanOptions, ScanProgress,
-    ScanState, scan_blocks,
+    BlockScanner, ScanError, ScanFailure, ScanJob, ScanOptions, ScanProgress, ScanState,
+    scan_blocks,
 };
 
 use super::codec::{self, Codec, Eol};
@@ -397,12 +397,6 @@ impl BlockIndex {
         );
         let expected = self.breaks_before_block(block + 1).unwrap_or(0)
             - self.breaks_before_block(block).unwrap_or(0);
-        // One more than the line endings the bytes hold: the scan cut a long line at the start of
-        // this block (a virtual line break, which has no bytes: its length is 0).
-        if expected == table.len() as u64 + 1 {
-            table.offs.insert(0, 0);
-            table.meta.insert(0, kind_bits(Eol::Lf));
-        }
         if table.len() as u64 != expected {
             // The bytes are not the ones that were scanned.
             return Err(io::Error::new(
