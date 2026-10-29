@@ -290,6 +290,29 @@ pub(crate) trait EolIndex: fmt::Debug + Send + Sync {
     /// The heap bytes the index itself holds (not caches of the source).
     fn heap_bytes(&self) -> usize;
 
+    /// From how many bytes a line of the original is long (ADR-0020, 9.10), if the index cares.
+    fn long_line_bytes(&self) -> Option<usize> {
+        None
+    }
+
+    /// The decoded length of the original bytes `start..end` of one very long line, found from
+    /// what the scan recorded about the line, without decoding it from the start (ADR-0020,
+    /// 9.10). `None` when the index cannot say: the caller decodes the bytes.
+    fn decoded_len_long(&self, _start: usize, _end: usize) -> io::Result<Option<usize>> {
+        Ok(None)
+    }
+
+    /// Where, in the original bytes `start..end` of one very long line, `cols` bytes of the
+    /// decoded text from `start` have passed (rounded down to a character); `None` as above.
+    fn raw_at_decoded_long(
+        &self,
+        _start: usize,
+        _end: usize,
+        _cols: usize,
+    ) -> io::Result<Option<usize>> {
+        Ok(None)
+    }
+
     /// The entries overlapping the byte range `s..e`, as an index range.
     fn overlapping(&self, s: usize, e: usize) -> io::Result<(usize, usize)> {
         if s >= e {
@@ -582,11 +605,31 @@ impl Storages {
         match store {
             Store::Add => Ok(end - start),
             Store::Original => {
+                if let Some(len) = self.original.index.decoded_len_long(start, end)? {
+                    return Ok(len);
+                }
                 scratch.clear();
                 self.decode_into(store, start, end, scratch)?;
                 Ok(scratch.len())
             }
         }
+    }
+
+    /// From how many bytes a line of the original is long.
+    pub fn long_line_bytes(&self) -> Option<usize> {
+        self.original.index.long_line_bytes()
+    }
+
+    /// The decoded length of the original bytes `start..end`, if the line index can tell it without
+    /// reading them (a very long line, ADR-0020, 9.10).
+    pub fn original_decoded_len(&self, start: usize, end: usize) -> Result<Option<usize>> {
+        Ok(self.original.index.decoded_len_long(start, end)?)
+    }
+
+    /// Where `cols` bytes of decoded text have passed in the original bytes `start..end`, if the
+    /// line index can tell it without reading them.
+    pub fn original_raw_at(&self, start: usize, end: usize, cols: usize) -> Result<Option<usize>> {
+        Ok(self.original.index.raw_at_decoded_long(start, end, cols)?)
     }
 
     /// The heap bytes of the line indexes (for reports and tests).

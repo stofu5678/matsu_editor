@@ -69,6 +69,20 @@ pub(super) struct LineColorRequest<'a> {
     /// The state of the next line, when the states have it already: it saves scanning the line a
     /// second time.
     pub next_known: Option<ColorState>,
+    /// The length in bytes of the line as the file has it, for a document that is read by ranges
+    /// ([`Document::line_raw_len`]); `None` for any other. A line of
+    /// [`matsu_coloring::SKIP_LINE_BYTES`] or more has no colors there (ADR-0020, 9.10), by the
+    /// same measure as the states use, so that the colors do not depend on what is on the screen.
+    pub raw_len: Option<usize>,
+}
+
+/// The `raw_len` of a request for `line` of `doc`.
+pub(super) fn raw_len_of(doc: &matsu_core::buffer::Document, line: usize) -> Option<usize> {
+    if doc.is_ranged() {
+        doc.line_raw_len(line).ok().flatten()
+    } else {
+        None
+    }
 }
 
 /// The colors of a line for the painting.
@@ -94,7 +108,15 @@ impl EditorView {
             upto,
             want_next,
             next_known,
+            raw_len,
         } = request;
+        // No colors for a line of a very long line (and so no scan of it).
+        if raw_len.is_some_and(|n| n >= matsu_coloring::SKIP_LINE_BYTES) {
+            return ColoredLine {
+                runs: Arc::new(Vec::new()),
+                next: want_next.then(|| next_known.unwrap_or_else(|| state.clone())),
+            };
+        }
         let long = ll.text.len() >= LONG_LINE;
         if long
             && let Some(hit) = self.line_color_cache.0.borrow_mut().as_mut().filter(|c| {
@@ -137,7 +159,10 @@ impl EditorView {
             self.color_states.reset();
             self.color_version = version;
         }
-        if self.color_states.is_complete(shared.doc(), &rules) {
+        // A file read by ranges has no states made from the top: the colors of the lines on the
+        // screen come from a window of lines above them (`ColorStates::state_at`), and a comment
+        // that began further up is missed (ADR-0020, chapter 6).
+        if shared.is_ranged() || self.color_states.is_complete(shared.doc(), &rules) {
             return;
         }
         let done = self

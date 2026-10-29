@@ -289,11 +289,18 @@ impl Cursor {
 pub fn char_left(doc: &Document, pos: Pos) -> Result<Option<Pos>> {
     let pos = doc.clamp_pos(pos)?;
     if pos.col > 0 {
-        let line = doc.line(pos.line)?.map(|l| l.text).unwrap_or_default();
-        let len = line
-            .get(..pos.col)
-            .and_then(|s| s.chars().next_back())
-            .map_or(pos.col, char::len_utf8);
+        let len = if doc.is_long_line(pos.line) {
+            // Only the end of the text before the caret is read (ADR-0020, 9.10).
+            let from = pos.col.saturating_sub(8);
+            doc.line_slice(pos.line, from, pos.col)?
+                .and_then(|s| s.text.chars().next_back().map(char::len_utf8))
+        } else {
+            let line = doc.line(pos.line)?.map(|l| l.text).unwrap_or_default();
+            line.get(..pos.col)
+                .and_then(|s| s.chars().next_back())
+                .map(char::len_utf8)
+        }
+        .unwrap_or(pos.col);
         return Ok(Some(Pos::new(pos.line, pos.col - len)));
     }
     if pos.line == 0 {
@@ -311,13 +318,17 @@ pub fn char_right(doc: &Document, pos: Pos) -> Result<Option<Pos>> {
     if pos >= doc.end_pos()? {
         return Ok(None);
     }
-    let line = doc.line(pos.line)?.map(|l| l.text).unwrap_or_default();
-    Ok(Some(
-        match line.get(pos.col..).and_then(|s| s.chars().next()) {
-            Some(c) => Pos::new(pos.line, pos.col + c.len_utf8()),
-            None => Pos::new(pos.line + 1, 0),
-        },
-    ))
+    let next = if doc.is_long_line(pos.line) {
+        doc.line_slice(pos.line, pos.col, pos.col + 8)?
+            .and_then(|s| s.text.chars().next())
+    } else {
+        let line = doc.line(pos.line)?.map(|l| l.text).unwrap_or_default();
+        line.get(pos.col..).and_then(|s| s.chars().next())
+    };
+    Ok(Some(match next {
+        Some(c) => Pos::new(pos.line, pos.col + c.len_utf8()),
+        None => Pos::new(pos.line + 1, 0),
+    }))
 }
 
 #[cfg(test)]

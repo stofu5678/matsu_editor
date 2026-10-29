@@ -521,6 +521,7 @@ impl Element for EditorElement {
                         upto,
                         want_next,
                         next_known,
+                        raw_len: super::colors::raw_len_of(doc, row.line),
                     });
                     carried = colored.next.map(|next| (row.line + 1, next));
                     line_colors = Some((row.line, colored.runs));
@@ -1317,10 +1318,10 @@ fn overwrite_caret_cells(
     caret: matsu_core::buffer::Pos,
 ) -> u32 {
     let Some(c) = doc
-        .line(caret.line)
+        .rest_of_line(caret.line, caret.col, 8)
         .ok()
         .flatten()
-        .and_then(|l| l.text.get(caret.col..)?.chars().next())
+        .and_then(|(rest, _)| rest.chars().next())
     else {
         return 1;
     };

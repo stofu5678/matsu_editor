@@ -69,6 +69,9 @@ use crate::document::{DocumentEvent, SharedDocument};
 use crate::keys::chord_of;
 use crate::view::EditorView;
 
+/// What the pane says about a file that is read by ranges (ADR-0020, 9.11).
+pub(crate) const HUGE_FILE_MESSAGE: &str = "巨大なファイルなので、アウトライン解析は使えません";
+
 /// The fixed part of the width of the docked pane when the window is narrow.
 const MIN_WIDTH: f32 = 160.0;
 
@@ -223,6 +226,11 @@ impl OutlinePane {
     }
 
     #[cfg(test)]
+    pub(crate) fn message(&self) -> Option<&str> {
+        self.shown.as_ref().and_then(|s| s.error.as_deref())
+    }
+
+    #[cfg(test)]
     pub(crate) fn is_stale(&self) -> bool {
         self.stale
     }
@@ -317,6 +325,9 @@ impl OutlinePane {
             });
             (name, ini_dir)
         });
+        // The outline of the text is not made for a file read by ranges (ADR-0020, 9.11): it would
+        // read the whole file. The pane says so.
+        let huge = kind != OutlineKind::Bookmark && self.document.read(cx).is_ranged();
         let (doc, file_path, bookmarks, new_line_len) = {
             let shared = self.document.read(cx);
             let bookmarks: Vec<usize> = if kind == OutlineKind::Bookmark {
@@ -325,7 +336,11 @@ impl OutlinePane {
                 Vec::new()
             };
             (
-                shared.doc().clone(),
+                if huge {
+                    matsu_core::buffer::Document::empty()
+                } else {
+                    shared.doc().clone()
+                },
                 shared.path().map(|p| p.to_string_lossy().into_owned()),
                 bookmarks,
                 shared.new_line().as_str().len(),
@@ -349,7 +364,11 @@ impl OutlinePane {
                     if let Some(marks) = &heading_marks {
                         request.heading_marks = marks;
                     }
-                    analyze(&source, &request)
+                    let mut analysis = analyze(&source, &request);
+                    if huge {
+                        analysis.error = Some(HUGE_FILE_MESSAGE.to_owned());
+                    }
+                    analysis
                 })
                 .await;
             this.update(cx, |this, cx| {

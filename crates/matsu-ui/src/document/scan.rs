@@ -75,6 +75,12 @@ impl SharedDocument {
         self.scan.as_ref().map(|s| s.id)
     }
 
+    /// Whether the file is read by ranges (ADR-0020): a huge file, whose long lines are cut, whose
+    /// lines far down are not colored from the top, and that has no outline.
+    pub(crate) fn is_ranged(&self) -> bool {
+        self.ranged
+    }
+
     /// Whether the scan of number `id` ended with the complete document.
     pub(crate) fn scan_finished(&self, id: u64) -> bool {
         self.scan_done == Some(id)

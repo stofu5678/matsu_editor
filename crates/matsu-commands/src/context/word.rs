@@ -31,15 +31,42 @@ impl LineChars {
 impl CommandContext<'_> {
     /// The line `line` with its line ending, or `None` if there is no such line (the empty line
     /// after a final line ending is none).
-    fn line_chars(&self, line: usize) -> Result<Option<LineChars>> {
-        let Some(l) = self.doc().line(line)? else {
-            return Ok(None);
+    ///
+    /// Of a very long line (ADR-0020, 9.10) only the part around the column `col` is taken, so
+    /// that a move in it does not decode it all: the words that are searched are those in it.
+    fn line_chars(&self, line: usize, col: usize) -> Result<Option<LineChars>> {
+        /// How far from the column a very long line is taken, in bytes.
+        const AROUND: usize = 4096;
+        let (text, base, eol) = if self.doc().is_long_line(line) {
+            let Some(slice) = self.doc().line_slice(
+                line,
+                col.saturating_sub(AROUND),
+                col.saturating_add(AROUND),
+            )?
+            else {
+                return Ok(None);
+            };
+            // the line ending is at the end of the line: only if the part reaches it
+            let reaches_end =
+                self.doc().line_len(line)? == Some(slice.start_col + slice.text.len());
+            let eol = if reaches_end {
+                self.doc().line_eol(line)?
+            } else {
+                None
+            };
+            (slice.text, slice.start_col, eol)
+        } else {
+            let Some(l) = self.doc().line(line)? else {
+                return Ok(None);
+            };
+            (l.text, 0, l.eol)
         };
-        let mut chars = Vec::with_capacity(l.text.len() + 2);
-        let mut offsets = Vec::with_capacity(l.text.len() + 3);
-        let mut off = 0;
-        let eol = l.eol.map_or("", matsu_core::model::eol_text);
-        for c in l.text.chars().chain(eol.chars()) {
+        let l = (text, eol);
+        let mut chars = Vec::with_capacity(l.0.len() + 2);
+        let mut offsets = Vec::with_capacity(l.0.len() + 3);
+        let mut off = base;
+        let eol = l.1.map_or("", matsu_core::model::eol_text);
+        for c in l.0.chars().chain(eol.chars()) {
             chars.push(c);
             offsets.push(off);
             off += c.len_utf8();
@@ -55,7 +82,7 @@ impl CommandContext<'_> {
     /// The range of the word at `pos` (Sakura: `WhereCurrentWord`), or `None` on a line ending,
     /// at the end of a line, or on a line that does not exist.
     pub fn word_range_at(&self, pos: Pos) -> Result<Option<(Pos, Pos)>> {
-        let Some(line) = self.line_chars(pos.line)? else {
+        let Some(line) = self.line_chars(pos.line, pos.col)? else {
             return Ok(None);
         };
         let Some(idx) = line.index_of(pos.col) else {
@@ -106,7 +133,7 @@ impl CommandContext<'_> {
             self.cursor.clear_selection();
         }
         let caret = self.caret();
-        if let Some(line) = self.line_chars(caret.line)?
+        if let Some(line) = self.line_chars(caret.line, caret.col)?
             && let Some(idx) = line.index_of(caret.col)
             && let Some(to) =
                 word::search_prev_word(&line.chars, line.eol_len, idx, stops_both_ends())
@@ -127,7 +154,7 @@ impl CommandContext<'_> {
         let mut try_again = false;
         loop {
             let caret = self.caret();
-            let Some(line) = self.line_chars(caret.line)? else {
+            let Some(line) = self.line_chars(caret.line, caret.col)? else {
                 return Ok(());
             };
             if try_again {

@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 
+use super::long::LongAnchor;
 use super::{BlockIndex, DEFAULT_INDEX_BLOCK_SIZE, EolLens, walk_eols};
 use crate::buffer::codec::Codec;
 use crate::buffer::{BufferError, Document, Source};
@@ -17,6 +18,11 @@ const DEFAULT_WINDOW_BLOCKS: usize = 64;
 
 /// The largest block the scan cuts. A line ending table keeps offsets in 32 bits.
 const MAX_BLOCK_SIZE: usize = 1 << 30;
+
+/// A line of this many bytes is a long line: the scan records the decoded length of every block
+/// in it, so that a place in it can be found without decoding the line from its start
+/// (ADR-0020, 9.10).
+pub const DEFAULT_LONG_LINE: usize = 1024 * 1024;
 
 /// How far past the edge of a block the scan looks: the longest character is 4 bytes, a UTF-16
 /// high surrogate looks 2 bytes further and a UTF-32 CRLF is 8 bytes.
@@ -35,6 +41,9 @@ pub struct ScanOptions {
     /// How long a [`ScanJob`] waits after each read. `None` goes as fast as it can. For tests of
     /// what is shown while a scan runs, and for a scan that must leave the disk to others.
     pub step_delay: Option<std::time::Duration>,
+    /// A line that has this many bytes without a line ending is a long line (see
+    /// [`DEFAULT_LONG_LINE`]). 0 means there are none.
+    pub long_line: usize,
 }
 
 impl Default for ScanOptions {
@@ -44,6 +53,7 @@ impl Default for ScanOptions {
             window_blocks: DEFAULT_WINDOW_BLOCKS,
             ext_eol: false,
             step_delay: None,
+            long_line: DEFAULT_LONG_LINE,
         }
     }
 }
@@ -172,9 +182,28 @@ pub struct BlockScanner {
     block_size: usize,
     window: u64,
     ext_eol: bool,
+    long_line: u64,
+    /// The bytes since the last line ending, at `pos`.
+    since_break: u64,
+    /// While a long line goes on: where it started, and how long the part before the next block
+    /// is in the decoded text.
+    long: Option<(u64, u64)>,
+    /// The blocks that are in the index (the number of the next block).
+    blocks: usize,
     pos: u64,
     len: u64,
     breaks: u64,
+}
+
+/// What a block holds, as far as breaks are concerned.
+struct BlockBreaks {
+    /// Where the block ends, in the bytes of the window.
+    end: usize,
+    /// The line endings that start in it.
+    count: u64,
+    /// The start of the first and the end of the last, in the bytes of the window.
+    first_start: Option<usize>,
+    last_end: Option<usize>,
 }
 
 impl BlockScanner {
@@ -193,7 +222,13 @@ impl BlockScanner {
         }
         let block_size = options.block_size.clamp(1, MAX_BLOCK_SIZE);
         let len = source.len();
-        let index = BlockIndex::new(source.clone(), codec.clone(), options.ext_eol, block_size);
+        let index = BlockIndex::new(
+            source.clone(),
+            codec.clone(),
+            options.ext_eol,
+            block_size,
+            options.long_line,
+        );
         Ok(Self {
             lens: index.lens,
             index: Arc::new(Mutex::new(index)),
@@ -202,6 +237,10 @@ impl BlockScanner {
             block_size,
             window: (block_size as u64).saturating_mul(options.window_blocks.max(1) as u64),
             ext_eol: options.ext_eol,
+            long_line: options.long_line as u64,
+            since_break: 0,
+            long: None,
+            blocks: 0,
             pos: 0,
             len,
             breaks: 0,
@@ -238,11 +277,13 @@ impl BlockScanner {
             return Ok(());
         }
         let at_eof;
+        // (a handle of its own: `bytes` borrows it while the blocks are noted)
+        let source = Arc::clone(&self.source);
         let bytes = {
             let want = self.window.saturating_add(LOOKAHEAD as u64);
             let end = self.pos.saturating_add(want).min(self.len);
             at_eof = end == self.len;
-            let bytes = self.source.read(self.pos, end)?;
+            let bytes = source.read(self.pos, end)?;
             if bytes.len() as u64 != end - self.pos {
                 return Err(io::Error::from(io::ErrorKind::UnexpectedEof).into());
             }
@@ -252,6 +293,7 @@ impl BlockScanner {
         // The lookahead is a multiple of 4 so that a cut stays aligned for UTF-16 and UTF-32.
         let reach = target.next_multiple_of(4) + LOOKAHEAD;
         let mut blocks: Vec<(u64, u64)> = Vec::new();
+        let mut anchors: Vec<LongAnchor> = Vec::new();
         let mut bs = 0;
         while bs < bytes.len() {
             let remaining = bytes.len() - bs;
@@ -261,8 +303,13 @@ impl BlockScanner {
                 break;
             }
             blocks.try_reserve(1)?;
-            let (end, breaks) = if at_eof && remaining <= target {
-                let mut count = 0;
+            let found = if at_eof && remaining <= target {
+                let mut found = BlockBreaks {
+                    end: bytes.len(),
+                    count: 0,
+                    first_start: None,
+                    last_end: None,
+                };
                 walk_eols(
                     &*self.codec,
                     &self.lens,
@@ -270,35 +317,125 @@ impl BlockScanner {
                     bs,
                     usize::MAX,
                     self.ext_eol,
-                    |_, _, _| {
-                        count += 1;
+                    |off, len, _| {
+                        found.count += 1;
+                        found.first_start.get_or_insert(off);
+                        found.last_end = Some(off + len);
                     },
                 );
-                (bytes.len(), count)
+                found
             } else {
                 self.cut_block(&bytes, bs, reach)
             };
-            blocks.push((self.pos + bs as u64, breaks));
-            bs = end;
+            self.note_long_line(&bytes, bs, &found, &blocks, &mut anchors)?;
+            let block_len = (found.end - bs) as u64;
+            self.since_break = match found.last_end {
+                Some(last_end) => (found.end - last_end) as u64,
+                None => self.since_break + block_len,
+            };
+            blocks.push((self.pos + bs as u64, found.count));
+            bs = found.end;
         }
         debug_assert!(bs > 0, "a window always yields a block");
         let mut index = lock(&self.index);
         index.try_reserve(blocks.len())?;
+        index.long_anchors.try_reserve(anchors.len())?;
         index.extend(&blocks, self.pos + bs as u64);
+        index.long_anchors.extend(anchors);
+        self.blocks += blocks.len();
         self.breaks = index.breaks;
         self.pos += bs as u64;
         Ok(())
     }
 
-    /// Cuts the block that starts at `bs` of `bytes`: returns where it ends and how many line
+    /// The decoded length of `bytes`.
+    fn decoded_len(&self, bytes: &[u8]) -> u64 {
+        let mut text = String::with_capacity(bytes.len());
+        self.codec.decode(bytes, &mut text);
+        text.len() as u64
+    }
+
+    /// A block that is in a long line gets an anchor: where the line started and how long the
+    /// decoded text of the line is before the block. The line is known to be long when it has gone
+    /// on for `long_line` bytes; its start is read again then, once (about `long_line` bytes), and
+    /// the blocks of the start get their anchors. `blocks` are the blocks of this window that were
+    /// cut already.
+    fn note_long_line(
+        &mut self,
+        bytes: &[u8],
+        bs: usize,
+        found: &BlockBreaks,
+        blocks: &[(u64, u64)],
+        anchors: &mut Vec<LongAnchor>,
+    ) -> Result<(), ScanError> {
+        let block = self.blocks + blocks.len();
+        // The block starts with a line ending: the line before it ended at the edge.
+        if found.first_start == Some(bs) {
+            self.long = None;
+            return Ok(());
+        }
+        let at = self.pos + bs as u64;
+        if self.long.is_none() && self.long_line > 0 && self.since_break >= self.long_line {
+            let line_start = at - self.since_break;
+            let head = self.source.read(line_start, at)?;
+            if head.len() as u64 != at - line_start {
+                return Err(io::Error::from(io::ErrorKind::UnexpectedEof).into());
+            }
+            // the blocks that start in the line so far: in the index, and in this window
+            let mut starts: Vec<(usize, u64)> = {
+                let index = lock(&self.index);
+                let first = index.starts.partition_point(|&s| s < line_start);
+                (first..index.starts.len())
+                    .map(|i| (i, index.starts[i]))
+                    .collect()
+            };
+            starts.extend(
+                blocks
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, b)| b.0 >= line_start)
+                    .map(|(j, b)| (self.blocks + j, b.0)),
+            );
+            anchors.try_reserve(starts.len() + 1)?;
+            let (mut done, mut dec) = (0usize, 0u64);
+            for (number, start) in starts {
+                let upto = (start - line_start) as usize;
+                dec += self.decoded_len(&head[done..upto]);
+                done = upto;
+                anchors.push(LongAnchor {
+                    block: number,
+                    line_start,
+                    dec_before: dec,
+                });
+            }
+            let dec = dec + self.decoded_len(&head[done..]);
+            self.long = Some((line_start, dec));
+        }
+        if let Some((line_start, dec)) = self.long {
+            anchors.try_reserve(1)?;
+            anchors.push(LongAnchor {
+                block,
+                line_start,
+                dec_before: dec,
+            });
+            let part = &bytes[bs..found.first_start.unwrap_or(found.end)];
+            let dec = dec + self.decoded_len(part);
+            // A line ending in this block ends the line.
+            self.long = found.first_start.is_none().then_some((line_start, dec));
+        }
+        Ok(())
+    }
+
+    /// Cuts the block that starts at `bs` of `bytes`: returns where it ends and which line
     /// endings start in it. The block is at least `block_size` long (or reaches the end of
     /// `bytes`), ends at a character boundary and does not cut a line ending.
-    fn cut_block(&self, bytes: &[u8], bs: usize, reach: usize) -> (usize, u64) {
+    fn cut_block(&self, bytes: &[u8], bs: usize, reach: usize) -> BlockBreaks {
         let until = bs + self.block_size;
         // Only these bytes are searched for line endings: the search of a block must not run to
         // the end of the window (a file without line endings would cost a window per block).
         let ahead = &bytes[..(bs + reach).min(bytes.len())];
         let mut count = 0;
+        let mut first_start = None;
         let mut last_end = None;
         let next = walk_eols(
             &*self.codec,
@@ -309,6 +446,7 @@ impl BlockScanner {
             self.ext_eol,
             |off, len, _| {
                 count += 1;
+                first_start.get_or_insert(off);
                 last_end = Some(off + len);
             },
         );
@@ -327,7 +465,12 @@ impl BlockScanner {
         if let Some(next) = next {
             end = end.min(next);
         }
-        (end.min(bytes.len()), count)
+        BlockBreaks {
+            end: end.min(bytes.len()),
+            count,
+            first_start,
+            last_end,
+        }
     }
 }
 

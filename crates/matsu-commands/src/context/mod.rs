@@ -481,18 +481,17 @@ impl<'a> CommandContext<'a> {
     fn joined_by(&self, a: Pos, b: Pos, text: &str) -> Result<Joined> {
         // The CR that ends the line before `a` and the LF that ends the line of `b`, if `a` is at
         // the start of a line and `b` at the end of the text of one.
-        let cr_before = if a.col == 0 && a.line > 0 {
-            self.doc()
-                .line(a.line - 1)?
-                .filter(|l| l.eol == Some(Eol::Cr))
-                .map(|l| Pos::new(a.line - 1, l.text.len()))
-        } else {
-            None
-        };
-        let lf_after = self
-            .doc()
-            .line(b.line)?
-            .is_some_and(|l| l.eol == Some(Eol::Lf) && l.text.len() == b.col);
+        // (Only the line endings and the lengths are asked for: a very long line is not decoded
+        // for every edit.)
+        let cr_before =
+            if a.col == 0 && a.line > 0 && self.doc().line_eol(a.line - 1)? == Some(Eol::Cr) {
+                let len = self.doc().line_len(a.line - 1)?.unwrap_or(0);
+                Some(Pos::new(a.line - 1, len))
+            } else {
+                None
+            };
+        let lf_after = self.doc().line_eol(b.line)? == Some(Eol::Lf)
+            && self.doc().line_len(b.line)? == Some(b.col);
         // They are joined by the new text if it starts with an LF or ends with a CR, and by each
         // other if nothing is put between them.
         Ok(Joined {
@@ -568,13 +567,28 @@ impl<'a> CommandContext<'a> {
         if chars == 0 {
             return Ok(at);
         }
-        let Some(line) = self.doc().line(at.line)? else {
-            return Ok(at);
+        // The text from the caret on, as far as `chars` chars need it (a very long line is not
+        // decoded as a whole).
+        let (rest, eol) = if self.doc().is_long_line(at.line) {
+            let Some(slice) = self.doc().line_slice(
+                at.line,
+                at.col,
+                at.col.saturating_add(chars.saturating_mul(4)),
+            )?
+            else {
+                return Ok(at);
+            };
+            (slice.text, self.doc().line_eol(at.line)?)
+        } else {
+            let Some(line) = self.doc().line(at.line)? else {
+                return Ok(at);
+            };
+            (line.text.get(at.col..).unwrap_or("").to_owned(), line.eol)
         };
-        let rest = line.text.get(at.col..).unwrap_or("");
+        let rest = rest.as_str();
         if rest.is_empty() {
             // `bEol`: the caret is at the end of the text. `Command_DELETE` joins the next line.
-            let deletes_eol = line.eol.is_some() && !crate::edit_options::get().not_overwrite_crlf;
+            let deletes_eol = eol.is_some() && !crate::edit_options::get().not_overwrite_crlf;
             return Ok(if deletes_eol {
                 Pos::new(at.line + 1, 0)
             } else {
@@ -594,14 +608,23 @@ impl<'a> CommandContext<'a> {
         col: usize,
         limit: usize,
     ) -> Result<(OverwriteRest, bool)> {
-        let Some(l) = self.doc().line(line)? else {
-            return Ok((VecDeque::new(), false));
+        let (text, eol) = if self.doc().is_long_line(line) {
+            // only the part that the chars come from
+            let Some(slice) =
+                self.doc()
+                    .line_slice(line, col, col.saturating_add(limit.saturating_mul(4)))?
+            else {
+                return Ok((VecDeque::new(), false));
+            };
+            (slice.text, self.doc().line_eol(line)?.is_some())
+        } else {
+            let Some(l) = self.doc().line(line)? else {
+                return Ok((VecDeque::new(), false));
+            };
+            (l.text.get(col..).unwrap_or("").to_owned(), l.eol.is_some())
         };
         let mut at = col;
-        let chars = l
-            .text
-            .get(col..)
-            .unwrap_or("")
+        let chars = text
             .chars()
             .take(limit)
             .map(|c| {
@@ -609,7 +632,7 @@ impl<'a> CommandContext<'a> {
                 (c, Some(Pos::new(line, at)))
             })
             .collect();
-        Ok((chars, l.eol.is_some()))
+        Ok((chars, eol))
     }
 
     /// What typing `text` at `at` in overwrite mode replaces, char by char as Sakura does

@@ -384,6 +384,238 @@ fn a_place_and_bookmarks_past_the_scanned_start_come_back_when_the_scan_is_done(
     std::fs::remove_dir_all(dir).ok();
 }
 
+// ---- a very long line ----
+
+#[gpui::test]
+fn a_file_of_one_very_long_line_opens_scrolls_and_takes_the_caret_and_a_selection(
+    cx: &mut TestAppContext,
+) {
+    use matsu_core::buffer::Pos;
+
+    // 3 MiB without a line ending: a very long line (from 1 MiB, ADR-0020 9.10).
+    let text = "0123456789abcdef".repeat(3 * 1024 * 1024 / 16);
+    let dir = temp_dir("huge-long-line");
+    let path = write_big(&dir, "one.txt", text.as_bytes());
+    let handle = window(cx, true);
+    cx.update(|app| {
+        app.set_global(FilePrefs {
+            huge_file_size_mb: 1,
+            ..FilePrefs::default()
+        });
+    });
+    open_file(cx, handle, &path);
+    let view = {
+        let mut found = None;
+        for _ in 0..6000 {
+            let view = active_view(cx, handle);
+            if view.read_with(cx, |v, cx| v.document().read(cx).doc().raw_len() > 0) {
+                found = Some(view);
+                break;
+            }
+            cx.run_until_parked();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        found.expect("the file was not read")
+    };
+    wait_for_scan(cx, &view);
+    let caret = |cx: &mut TestAppContext| view.read_with(cx, |v, _| v.cursor.caret());
+    // One line of the file, in as many rows as the text has parts of the length of a row.
+    assert_eq!(line_count(cx, &view), 1);
+    let rows = text.len().div_ceil(matsu_layout::LONG_ROW_BYTES);
+    assert_eq!(view.read_with(cx, |v, _| v.layout().row_count()), rows);
+    // The rows give the text.
+    let shown = view.read_with(cx, |v, cx| {
+        let doc = v.document().read(cx).doc();
+        v.layout().rows(doc, 100, 5).unwrap()
+    });
+    assert_eq!(shown.len(), 5);
+    assert_eq!(shown[0].text(), &text[100 * 4096..101 * 4096]);
+    // The caret goes down by rows and to the end, and comes back.
+    for _ in 0..3 {
+        run(cx, handle, "F_DOWN");
+    }
+    assert_eq!(caret(cx), Pos::new(0, 3 * 4096));
+    run(cx, handle, "F_GOFILEEND");
+    assert_eq!(caret(cx), Pos::new(0, text.len()));
+    run(cx, handle, "F_LEFT");
+    assert_eq!(caret(cx), Pos::new(0, text.len() - 1));
+    run(cx, handle, "F_UP");
+    assert_eq!(caret(cx).line, 0);
+    assert!(caret(cx).col < text.len() - 4000);
+    // A selection from the caret to the end of the file.
+    run(cx, handle, "F_GOFILEEND_SEL");
+    let selection = view.read_with(cx, |v, _| v.cursor.selection());
+    assert_eq!(selection.map(|(_, b)| b), Some(Pos::new(0, text.len())));
+    // A char typed in the middle goes there.
+    view.update(cx, |v, cx| {
+        v.cursor.move_to(Pos::new(0, 1_000_000), false);
+        v.type_char('Z', cx);
+    });
+    let len = view.read_with(cx, |v, cx| v.document().read(cx).doc().line_len(0).unwrap());
+    assert_eq!(len, Some(text.len() + 1));
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[gpui::test]
+fn the_input_handler_sees_a_window_of_a_very_long_line_and_edits_the_right_place(
+    cx: &mut TestAppContext,
+) {
+    use gpui::EntityInputHandler;
+    use matsu_core::buffer::Pos;
+
+    let text = "0123456789abcdef".repeat(3 * 1024 * 1024 / 16);
+    let dir = temp_dir("huge-long-line-ime");
+    let path = write_big(&dir, "one.txt", text.as_bytes());
+    let handle = window(cx, true);
+    cx.update(|app| {
+        app.set_global(FilePrefs {
+            huge_file_size_mb: 1,
+            ..FilePrefs::default()
+        });
+    });
+    open_file(cx, handle, &path);
+    let view = {
+        let mut found = None;
+        for _ in 0..6000 {
+            let view = active_view(cx, handle);
+            if view.read_with(cx, |v, cx| v.document().read(cx).doc().raw_len() > 0) {
+                found = Some(view);
+                break;
+            }
+            cx.run_until_parked();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        found.expect("the file was not read")
+    };
+    wait_for_scan(cx, &view);
+    view.update(cx, |v, _| v.cursor.move_to(Pos::new(0, 1_000_000), false));
+    // What the OS asks without any composition: the window around the caret, not the line.
+    let (selected, seen, actual) = handle
+        .update(cx, |_, window, cx| {
+            view.update(cx, |v, cx| {
+                let selected = v.selected_text_range(false, window, cx).unwrap();
+                let mut actual = None;
+                let seen = v
+                    .text_for_range(0..usize::MAX, &mut actual, window, cx)
+                    .unwrap();
+                (selected, seen, actual)
+            })
+        })
+        .unwrap();
+    assert!(seen.len() <= 5000, "the window has {} bytes", seen.len());
+    assert!(selected.range.is_empty() && selected.range.start <= 2048);
+    assert_eq!(actual.map(|r| r.end), Some(seen.len()));
+    // A composition in the middle, and its commit.
+    let marked = handle
+        .update(cx, |_, window, cx| {
+            view.update(cx, |v, cx| {
+                v.replace_and_mark_text_in_range(None, "あ", None, window, cx);
+                v.marked_text_range(window, cx)
+            })
+        })
+        .unwrap();
+    let start = selected.range.start;
+    assert_eq!(marked, Some(start..start + 1));
+    let slice_at = |cx: &mut TestAppContext, from: usize, to: usize| {
+        view.read_with(cx, |v, cx| {
+            let doc = v.document().read(cx).doc();
+            doc.line_slice(0, from, to).unwrap().unwrap().text
+        })
+    };
+    assert_eq!(slice_at(cx, 1_000_000, 1_000_003), "あ");
+    handle
+        .update(cx, |_, window, cx| {
+            view.update(cx, |v, cx| {
+                v.replace_text_in_range(Some(start..start + 1), "い", window, cx);
+            })
+        })
+        .unwrap();
+    assert_eq!(slice_at(cx, 1_000_000, 1_000_003), "い");
+    assert_eq!(caret_of(cx, &view), Pos::new(0, 1_000_003));
+    // Plain typing (more than one char) goes to the caret.
+    handle
+        .update(cx, |_, window, cx| {
+            view.update(cx, |v, cx| {
+                v.replace_text_in_range(None, "xy", window, cx);
+            })
+        })
+        .unwrap();
+    assert_eq!(slice_at(cx, 1_000_003, 1_000_005), "xy");
+    let len = view.read_with(cx, |v, cx| v.document().read(cx).doc().line_len(0).unwrap());
+    assert_eq!(len, Some(text.len() + 5));
+    std::fs::remove_dir_all(dir).ok();
+}
+
+fn caret_of(cx: &mut TestAppContext, view: &Entity<EditorView>) -> matsu_core::buffer::Pos {
+    view.read_with(cx, |v, _| v.cursor.caret())
+}
+
+#[gpui::test]
+fn no_path_decodes_a_very_long_line_as_a_whole(cx: &mut TestAppContext) {
+    use matsu_core::buffer::{Pos, largest_decode, reset_largest_decode};
+
+    let text = "0123456789abcdef".repeat(3 * 1024 * 1024 / 16);
+    let dir = temp_dir("huge-long-line-decode");
+    let path = write_big(&dir, "one.txt", text.as_bytes());
+    let handle = window(cx, true);
+    cx.update(|app| {
+        app.set_global(FilePrefs {
+            huge_file_size_mb: 1,
+            ..FilePrefs::default()
+        });
+    });
+    reset_largest_decode();
+    open_file(cx, handle, &path);
+    let view = {
+        let mut found = None;
+        for _ in 0..6000 {
+            let view = active_view(cx, handle);
+            if view.read_with(cx, |v, cx| v.document().read(cx).doc().raw_len() > 0) {
+                found = Some(view);
+                break;
+            }
+            cx.run_until_parked();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        found.expect("the file was not read")
+    };
+    // the end of the scan restores the place and records the history
+    wait_for_scan(cx, &view);
+    cx.run_until_parked();
+    // a click and a drag in the middle, through the same code as the mouse
+    let rows = view.read_with(cx, |v, _| v.layout().row_count());
+    for row in [rows / 2, rows / 2 + 1, rows - 1] {
+        for x in [0.0_f32, 33.0, 400.0] {
+            view.read_with(cx, |v, cx| {
+                let doc = v.document().read(cx).doc();
+                crate::hit::position_in_row(v.layout(), doc, v.metrics(), row, x).unwrap();
+            });
+        }
+    }
+    // the caret moves, text is typed, a copy is kept, the history is recorded and read back
+    view.update(cx, |v, cx| v.go_to(Pos::new(0, 1_500_000), cx));
+    run(cx, handle, "F_RIGHT");
+    run(cx, handle, "F_DOWN");
+    view.update(cx, |v, cx| v.type_char('Z', cx));
+    let entry = view.read_with(cx, |v, cx| {
+        let shared = v.document().read(cx);
+        let _ = crate::unsaved::keeper::info_of(v, shared);
+        v.history_entry(cx).expect("a file")
+    });
+    view.update(cx, |v, cx| {
+        v.record_history(cx);
+        let options = crate::history::HistoryOptions::default();
+        v.restore_from_history(&entry, options, cx);
+    });
+    assert!(entry.caret_x > 1_500_000);
+    let largest = largest_decode();
+    assert!(
+        largest <= 64 * 1024,
+        "a path decoded {largest} bytes of the line at once"
+    );
+    std::fs::remove_dir_all(dir).ok();
+}
+
 // ---- after the scan: the options of the launch and the moves of macros ----
 
 fn launch(cx: &mut TestAppContext, dir: &Path, args: &[&str]) {

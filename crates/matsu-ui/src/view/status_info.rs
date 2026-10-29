@@ -44,6 +44,8 @@ pub(crate) fn measure(
     let codec = encoding.codec();
     let mut bytes = Vec::new();
     let mut size = 0;
+    // (the count of the very long lines, which are not read)
+    let mut extra = 0;
     let mut add = |text: &str| {
         if by_byte {
             bytes.clear();
@@ -54,20 +56,34 @@ pub(crate) fn measure(
             size += sakura_utf16_len(text);
         }
     };
-    for (index, line) in (from.line..).zip(doc.lines(from.line..to.line.saturating_add(1))) {
-        let Ok(line) = line else {
-            break;
-        };
+    for index in from.line..to.line.saturating_add(1).min(doc.line_count()) {
         let first = index == from.line;
         let last = index == to.line;
         let start = if first { from.col } else { 0 };
+        // A very long line (ADR-0020, 9.10) is not read for a count: its bytes stand for its
+        // characters, which is right for narrow ones.
+        if doc.is_long_line(index) {
+            let end = if last {
+                to.col
+            } else {
+                doc.line_len(index).ok().flatten().unwrap_or(start)
+            };
+            extra += end.saturating_sub(start);
+            if !last && let Ok(Some(eol)) = doc.line_eol(index) {
+                add(eol_text(eol));
+            }
+            continue;
+        }
+        let Ok(Some(line)) = doc.line(index) else {
+            break;
+        };
         let end = if last { to.col } else { line.text.len() };
         add(line.text.get(start..end.max(start)).unwrap_or(""));
         if !last && let Some(eol) = line.eol {
             add(eol_text(eol));
         }
     }
-    size
+    size + extra
 }
 
 impl EditorView {
@@ -89,25 +105,32 @@ impl EditorView {
         let Some(info) = info else {
             return (line, self.caret_column(cx) + 1);
         };
+        // In a very long line (ADR-0020, 9.10) the part of the line before the row is not read:
+        // its bytes stand for its columns, which is right for narrow characters.
+        let long = by_text && doc.is_long_line(caret.line);
         let column = if options.column_by_char {
-            let from = if by_text {
+            let from = if by_text && !long {
                 Pos::new(caret.line, 0)
             } else {
                 info.start
             };
             let before = doc.text_between(from, caret).unwrap_or_default();
-            u32::try_from(sakura_utf16_len(&before)).unwrap_or(u32::MAX)
+            let skipped = if long { info.start.col } else { 0 };
+            u32::try_from(skipped + sakura_utf16_len(&before)).unwrap_or(u32::MAX)
         } else if by_text {
-            // The rows before this one in the line, each without its indent.
-            let before = info.row_in_line;
-            let rows = self
-                .layout
-                .rows(doc, at.row - before, before)
-                .unwrap_or_default();
-            let wide: u32 = rows
-                .iter()
-                .map(|r| r.end_column.saturating_sub(r.start_column))
-                .sum();
+            let wide: u32 = if long {
+                u32::try_from(info.start.col).unwrap_or(u32::MAX)
+            } else {
+                // The rows before this one in the line, each without its indent.
+                let before = info.row_in_line;
+                let rows = self
+                    .layout
+                    .rows(doc, at.row - before, before)
+                    .unwrap_or_default();
+                rows.iter()
+                    .map(|r| r.end_column.saturating_sub(r.start_column))
+                    .sum()
+            };
             wide + self.caret_column(cx).saturating_sub(info.start_column)
         } else {
             self.caret_column(cx)
@@ -120,12 +143,12 @@ impl EditorView {
     pub(crate) fn caret_char_code(&self, options: &StatusbarOptions, cx: &App) -> String {
         let shared = self.document.read(cx);
         let caret = self.cursor.caret();
-        let Ok(Some(line)) = shared.doc().line(caret.line) else {
+        let Ok(Some((rest, eol))) = shared.doc().rest_of_line(caret.line, caret.col, 64) else {
             return String::new();
         };
-        match line.text.get(caret.col..).filter(|rest| !rest.is_empty()) {
+        match Some(rest.as_str()).filter(|rest| !rest.is_empty()) {
             Some(rest) => char_code(shared.file().encoding, rest, &options.char_code),
-            None => line.eol.map(eol_name).unwrap_or_default().to_owned(),
+            None => eol.map(eol_name).unwrap_or_default().to_owned(),
         }
     }
 
@@ -134,11 +157,12 @@ impl EditorView {
     pub(crate) fn caret_char_rest(&self, cx: &App) -> Option<String> {
         let shared = self.document.read(cx);
         let caret = self.cursor.caret();
-        let line = shared.doc().line(caret.line).ok()??;
-        line.text
-            .get(caret.col..)
-            .filter(|rest| !rest.is_empty())
-            .map(str::to_owned)
+        // (a very long line is cut after 4 KiB)
+        let (rest, _) = shared
+            .doc()
+            .rest_of_line(caret.line, caret.col, 4096)
+            .ok()??;
+        Some(rest).filter(|rest| !rest.is_empty())
     }
 
     /// The message of the selection (`PrintSelectionInfoMsg`), or `None` when it is empty.

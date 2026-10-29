@@ -419,11 +419,21 @@ impl EditorView {
         if !self.prefs.settings.coloring.shows_url() {
             return None;
         }
-        let line = self.document.read(cx).doc().line(pos.line).ok().flatten()?;
-        let range = matsu_coloring::url_at(&line.text, pos.col)?;
+        let doc = self.document.read(cx).doc();
+        // Of a very long line only the part around the click is looked at.
+        let (text, base) = if doc.is_long_line(pos.line) {
+            let slice = doc
+                .line_slice(pos.line, pos.col.saturating_sub(2048), pos.col + 2048)
+                .ok()
+                .flatten()?;
+            (slice.text, slice.start_col)
+        } else {
+            (doc.line(pos.line).ok().flatten()?.text, 0)
+        };
+        let range = matsu_coloring::url_at(&text, pos.col.checked_sub(base)?)?;
         Some((
-            Pos::new(pos.line, range.start),
-            Pos::new(pos.line, range.end),
+            Pos::new(pos.line, base + range.start),
+            Pos::new(pos.line, base + range.end),
         ))
     }
 

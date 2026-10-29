@@ -444,3 +444,54 @@ fn the_heading_marks_of_the_common_settings_pick_the_topics_of_a_text(cx: &mut T
     assert!(text.iter().any(|l| l.contains("star")), "{text:?}");
     assert!(!text.iter().any(|l| l.contains("head")), "{text:?}");
 }
+
+#[gpui::test]
+fn a_file_read_by_ranges_has_no_outline_of_its_text(cx: &mut TestAppContext) {
+    use matsu_core::file::{OpenOptions, open_file};
+
+    cx.update(gpui_component::init);
+    cx.update(|cx| {
+        cx.set_global(UserSettings::none());
+        cx.set_global(TabSettings {
+            show_bar: true,
+            grouped: true,
+            new_window: false,
+        })
+    });
+    let dir = std::env::temp_dir().join(format!("matsu-ui-outline-huge-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("a.cpp");
+    std::fs::write(&path, CPP).unwrap();
+    let options = OpenOptions {
+        huge_file_len: Some(1),
+        ..OpenOptions::default()
+    };
+    let file = open_file(&path, &options).unwrap();
+    assert!(file.is_ranged());
+    let shared = SharedDocument::from_text_file(file);
+    let handle = cx
+        .update(|cx| open_editor_window(cx, shared, None))
+        .unwrap();
+    cx.run_until_parked();
+    run(cx, handle, "F_OUTLINE");
+    for _ in 0..200 {
+        cx.run_until_parked();
+        if !pane(cx, handle)
+            .unwrap()
+            .read_with(cx, |p, _| p.is_analyzing())
+        {
+            break;
+        }
+    }
+    let pane = pane(cx, handle).expect("the pane opens");
+    pane.read_with(cx, |p, _| {
+        assert!(p.rows().is_empty());
+        assert_eq!(
+            p.message(),
+            Some("巨大なファイルなので、アウトライン解析は使えません")
+        );
+    });
+    // The list of bookmarks does not read the text: it is still there.
+    run(cx, handle, "F_BOOKMARK_VIEW");
+    std::fs::remove_dir_all(&dir).ok();
+}
