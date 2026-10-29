@@ -514,7 +514,9 @@ fn handler_path(dir: &Path, handler: &str) -> Result<PathBuf, BeginError> {
     let outside = || BeginError::Outside {
         handler: handler.to_owned(),
     };
-    let relative = Path::new(handler);
+    // `plugin.def` files are written for Windows: the separator there is a backslash.
+    let normalized = handler.replace('\\', "/");
+    let relative = Path::new(&normalized);
     if relative.is_absolute()
         || relative
             .components()
@@ -681,6 +683,12 @@ mod tests {
         // A file in a folder of the plugin is fine (the process is not started here: the path is
         // checked by `handler_path` alone).
         assert!(handler_path(&plugin, "sub/ok.js").is_ok());
+        // The Windows spelling of a path in a folder works, and of one that leaves it does not.
+        assert!(handler_path(&plugin, "sub\\ok.js").is_ok());
+        assert!(matches!(
+            handler_path(&plugin, "sub\\..\\..\\outside.js"),
+            Err(BeginError::Outside { .. })
+        ));
         #[cfg(unix)]
         {
             std::os::unix::fs::symlink(dir.path().join("outside.js"), plugin.join("link.js"))

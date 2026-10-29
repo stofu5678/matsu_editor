@@ -504,6 +504,15 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                     release_document(&document, depth, generation, cx);
                     break;
                 }
+                // The window loaded another document: a plugin that computes without asking
+                // anything is stopped too (the next poll tells the end).
+                let replaced = weak
+                    .update(cx, |view, cx| view.document.read(cx).generation() != generation)
+                    .unwrap_or(false);
+                if replaced {
+                    host.borrow_mut().shutdown();
+                    continue;
+                }
                 cx.background_executor()
                     .timer(Duration::from_millis(10))
                     .await;
