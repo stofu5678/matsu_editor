@@ -743,3 +743,57 @@ fn a_plugin_that_is_removed_and_added_again_before_ok_is_off(cx: &mut TestAppCon
         "the cancellation reached plugins.ini"
     );
 }
+// ---- the host (ADR-0026, PR 3) ----
+
+use super::list::{RUN_TEST, can_run_test};
+
+#[test]
+fn a_plugin_that_three_failures_stopped_says_so_and_can_be_enabled_again() {
+    let dir = temp();
+    put_sample(dir.path(), "HelloJs");
+    let dirs = dirs_in(dir.path());
+    let files =
+        matsu_config::plugins::consent::fingerprint(&dirs.plugin_dir("HelloJs").unwrap()).unwrap();
+    let mut consent = ConsentFile::default();
+    consent.enable(HELLO_JS_ID, "HelloJs", &files, "d").unwrap();
+    consent.save(&dirs.consent_file()).unwrap();
+    let mut settings = PluginSettings::default();
+    settings.table[0] = registered("HelloJs", HELLO_JS_ID, 1);
+    assert_eq!(rows_of(&settings, Some(&dirs))[0][STATE], "有効");
+    crate::macros::plugin_call::set_stopped(HELLO_JS_ID, true);
+    let rows = rows_of(&settings, Some(&dirs));
+    crate::macros::plugin_call::set_stopped(HELLO_JS_ID, false);
+    assert_eq!(rows[0][STATE], "停止（失敗が続きました）");
+    assert_eq!(rows[0][CONSENT], "stopped");
+    assert!(row_can_enable(&rows[0]));
+    // The agreement stays in `plugins.ini` when OK writes the rows.
+    let mut file = ConsentFile::load(&dirs.consent_file());
+    assert!(!write_consent(&rows, &mut file));
+    assert!(file.record(HELLO_JS_ID).is_some());
+}
+
+#[gpui::test]
+fn the_test_run_button_needs_a_plugin_that_can_run_and_has_a_command(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, INI);
+    put_sample(&dir_of(&ini), "HelloJs");
+    put_sample(&dir_of(&ini), "HelloVbs");
+    run(cx, handle, "F_OPTION_PLUGIN");
+    let usable = |cx: &mut TestAppContext| {
+        with_dialog(cx, |d, _, _| {
+            let control = d
+                .page_controls()
+                .into_iter()
+                .find(|c| c.id == RUN_TEST)
+                .unwrap();
+            d.is_usable(&control) && can_run_test(d.values())
+        })
+    };
+    assert!(!usable(cx), "nothing is selected");
+    with_dialog(cx, |d, _, dcx| select(d, 0, dcx));
+    assert!(usable(cx));
+    with_dialog(cx, |d, _, dcx| select(d, 1, dcx));
+    assert!(!usable(cx), "VBScript cannot run");
+    with_dialog(cx, |d, _, dcx| select(d, 2, dcx));
+    assert!(!usable(cx), "the folder is gone");
+    cancel(cx);
+}

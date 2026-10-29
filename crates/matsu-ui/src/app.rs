@@ -196,6 +196,8 @@ pub(crate) fn run(
         cx.on_action(|_: &Exit, cx| cx.quit());
         // The files that are open go into the history, with the caret they have now.
         cx.on_app_quit(|cx| {
+            // The processes of the plugins end first: none is left running behind the editor.
+            crate::macros::plugin_call::shutdown_all(cx);
             crate::history::view::record_all(cx);
             crate::saved_state::window::flush(cx);
             // The copies of the unsaved documents have their latest content when the process ends, however

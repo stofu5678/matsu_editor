@@ -37,6 +37,49 @@ pub struct Initialize {
     pub script: Script,
 }
 
+/// How the editor started the host: a macro that runs once, or a plugin that waits for calls
+/// (`params.kind` of `initialize`, ADR-0026).
+#[derive(Debug)]
+pub enum Start {
+    Macro(Initialize),
+    Plugin(PluginInit),
+}
+
+/// What `initialize` told a plugin host.
+#[derive(Debug)]
+pub struct PluginInit {
+    /// `params` without `plugin`: what the plugin sees as `Editor.info`.
+    pub info: Value,
+    /// `params.plugin`: `{"id": ..., "dir": ...}` of the plugin.
+    pub plugin: Value,
+}
+
+/// A call of a handler (`plugin/invoke`): the editor reads the file of the handler and sends its
+/// text, so that a path in any character set works (as for a macro).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Invoke {
+    /// The id to answer under.
+    pub id: Value,
+    pub jack: String,
+    /// The name that errors show: the path of the file.
+    pub name: String,
+    pub source: String,
+    /// What the jack hands to the handler (`Plugin.args`).
+    pub args: Value,
+}
+
+/// The connection of a plugin host: the calls from the editor, and what a script asks of the
+/// editor (`Editor`).
+pub trait PluginLink: Editor {
+    /// The next `plugin/invoke`, or `None` when the editor closed the input or sent
+    /// `plugin/shutdown`. Other messages are skipped.
+    fn next_invoke(&mut self) -> Result<Option<Invoke>, String>;
+
+    /// Answers an invoke: `Ok` when the handler ended, the error with the text of what went wrong
+    /// otherwise.
+    fn respond(&mut self, id: &Value, outcome: Result<Value, RpcError>) -> Result<(), String>;
+}
+
 pub struct Connection<R: BufRead, W: Write> {
     input: R,
     output: W,
@@ -63,8 +106,17 @@ impl<R: BufRead, W: Write> Connection<R, W> {
         Ok(Some(protocol::trim_line_end(&text).to_string()))
     }
 
-    /// Reads the first line, which is the `initialize` notification.
+    /// Reads the first line, which is the `initialize` notification, for a macro.
     pub fn read_initialize(&mut self) -> Result<Initialize, String> {
+        match self.read_start()? {
+            Start::Macro(init) => Ok(init),
+            Start::Plugin(_) => Err("initialize is for a plugin, not for a macro".into()),
+        }
+    }
+
+    /// Reads the first line, which is the `initialize` notification. A plugin says so with
+    /// `params.kind` and brings no script.
+    pub fn read_start(&mut self) -> Result<Start, String> {
         let line = self
             .read_line()
             .map_err(|e| format!("cannot read initialize: {e}"))?
@@ -75,6 +127,13 @@ impl<R: BufRead, W: Write> Connection<R, W> {
             return Err("the first message must be initialize".into());
         }
         let mut info = message["params"].clone();
+        if info["kind"] == "plugin" {
+            let plugin = info
+                .as_object_mut()
+                .and_then(|params| params.remove("plugin"))
+                .ok_or("initialize of a plugin carries no plugin (params.plugin)")?;
+            return Ok(Start::Plugin(PluginInit { info, plugin }));
+        }
         let script = info
             .as_object_mut()
             .and_then(|params| params.remove("script"))
@@ -85,13 +144,69 @@ impl<R: BufRead, W: Write> Connection<R, W> {
                 .map(str::to_string)
                 .ok_or(format!("params.script.{key} must be a string"))
         };
-        Ok(Initialize {
+        Ok(Start::Macro(Initialize {
             info,
             script: Script {
                 name: field("name")?,
                 source: field("source")?,
             },
-        })
+        }))
+    }
+}
+
+impl<R: BufRead, W: Write> PluginLink for Connection<R, W> {
+    fn next_invoke(&mut self) -> Result<Option<Invoke>, String> {
+        loop {
+            let Some(text) = self
+                .read_line()
+                .map_err(|e| format!("cannot read from the editor: {e}"))?
+            else {
+                return Ok(None);
+            };
+            let Ok(message) = serde_json::from_str::<Value>(&text) else {
+                continue;
+            };
+            match message["method"].as_str() {
+                Some("plugin/shutdown") => return Ok(None),
+                Some("plugin/invoke") => {
+                    let params = &message["params"];
+                    let field = |key: &str| params[key].as_str().unwrap_or_default().to_owned();
+                    return Ok(Some(Invoke {
+                        id: message["id"].clone(),
+                        jack: field("jack"),
+                        name: field("name"),
+                        source: field("source"),
+                        args: params.get("args").cloned().unwrap_or(Value::Null),
+                    }));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn respond(&mut self, id: &Value, outcome: Result<Value, RpcError>) -> Result<(), String> {
+        let message = match outcome {
+            Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
+            Err(error) => json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "error": {"code": error.code, "message": error.message},
+            }),
+        };
+        let line = format!("{RS}{}\n", protocol::ascii_json(&message));
+        self.output
+            .write_all(line.as_bytes())
+            .and_then(|()| self.output.flush())
+            .map_err(|e| format!("cannot write to the editor: {e}"))
+    }
+}
+
+/// An [`Editor`] that is a plugin link: the engines bind the macro API to an `Editor`.
+pub struct LinkEditor(pub std::rc::Rc<std::cell::RefCell<dyn PluginLink>>);
+
+impl Editor for LinkEditor {
+    fn call(&mut self, method: &str, params: Vec<Value>) -> Result<Value, CallError> {
+        self.0.borrow_mut().call(method, params)
     }
 }
 
@@ -206,6 +321,70 @@ mod tests {
             other => panic!("{other:?}"),
         }
         assert!(matches!(c.call("Up", vec![]), Err(CallError::Closed(_))));
+    }
+
+    #[test]
+    fn a_plugin_starts_without_a_script_and_a_macro_is_not_a_plugin() {
+        let mut c = connection(concat!(
+            r#"{"jsonrpc":"2.0","method":"initialize","params":{"apiVersion":1,"kind":"plugin","#,
+            r#""plugin":{"id":"a.b","dir":"C:\\p"}}}"#,
+            "\n"
+        ));
+        match c.read_start().unwrap() {
+            Start::Plugin(init) => {
+                assert_eq!(init.plugin["id"], "a.b");
+                assert_eq!(init.info, json!({"apiVersion": 1, "kind": "plugin"}));
+            }
+            other => panic!("{other:?}"),
+        }
+        let mut c = connection(
+            "{\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"params\":{\"kind\":\"plugin\"}}\n",
+        );
+        assert!(c.read_start().is_err(), "a plugin without params.plugin");
+        let mut c = connection(
+            "{\"jsonrpc\":\"2.0\",\"method\":\"initialize\",\"params\":{\"kind\":\"plugin\",\"plugin\":{}}}\n",
+        );
+        assert!(
+            c.read_initialize().is_err(),
+            "a macro start refuses a plugin"
+        );
+    }
+
+    #[test]
+    fn invokes_are_read_one_after_the_other_and_shutdown_ends() {
+        let mut c = connection(concat!(
+            "{\"method\":\"note\"}\n",
+            "garbage\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"plugin/invoke\",\"params\":{\"jack\":\"Command\",",
+            "\"name\":\"C:\\\\あ.js\",\"source\":\"1\",\"args\":{\"n\":1}}}\n",
+            "{\"jsonrpc\":\"2.0\",\"method\":\"plugin/shutdown\"}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"plugin/invoke\",\"params\":{}}\n",
+        ));
+        let invoke = c.next_invoke().unwrap().unwrap();
+        assert_eq!(invoke.id, json!(7));
+        assert_eq!(invoke.jack, "Command");
+        assert_eq!(invoke.name, "C:\\あ.js");
+        assert_eq!(invoke.args, json!({"n": 1}));
+        assert_eq!(c.next_invoke().unwrap(), None);
+        // The end of the input ends it too.
+        assert_eq!(connection("").next_invoke().unwrap(), None);
+    }
+
+    #[test]
+    fn an_answer_to_an_invoke_is_one_ascii_line_with_the_rs() {
+        let mut c = connection("");
+        c.respond(&json!(7), Ok(json!({"ok": true}))).unwrap();
+        c.respond(&json!(8), Err(RpcError::new(-32000, "あ")))
+            .unwrap();
+        let written = String::from_utf8(c.output.clone()).unwrap();
+        assert!(written.is_ascii());
+        let lines: Vec<_> = written.lines().collect();
+        assert_eq!(lines.len(), 2);
+        let first: Value = serde_json::from_str(&lines[0][RS.len_utf8()..]).unwrap();
+        assert_eq!(first["id"], 7);
+        assert_eq!(first["result"]["ok"], true);
+        let second: Value = serde_json::from_str(&lines[1][RS.len_utf8()..]).unwrap();
+        assert_eq!(second["error"]["message"], "あ");
     }
 
     #[test]

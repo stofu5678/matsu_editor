@@ -6,7 +6,7 @@ use std::ffi::{OsStr, OsString};
 use std::io;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -263,9 +263,34 @@ pub struct MacroConfig {
     pub temp_dir: Option<PathBuf>,
     /// The path of the document for `initialize`, `None` when it is not a file.
     pub document_path: Option<String>,
+    /// Set for a plugin host (ADR-0026): the process waits for `plugin/invoke` calls instead of
+    /// running a script, and `script` is only its place in the error messages.
+    pub plugin: Option<crate::protocol::PluginIdentity>,
 }
 
+/// A plugin host lives as long as the plugin is used; the time limits are the invokes' (see
+/// [`crate::plugin_host`]). This is the time after which the process is stopped anyway.
+pub const PLUGIN_LIFETIME: Duration = Duration::from_secs(60 * 60 * 24 * 365);
+
 impl MacroConfig {
+    /// The configuration of a host for the plugin `plugin`, run by `language`. Only the bundled
+    /// QuickJS can serve a plugin for now.
+    pub fn for_plugin(
+        plugin: crate::protocol::PluginIdentity,
+        language: Language,
+        document_path: Option<String>,
+    ) -> Self {
+        Self {
+            script: PathBuf::from(&plugin.dir),
+            language,
+            interpreter: language.default_interpreter(),
+            timeout: PLUGIN_LIFETIME,
+            temp_dir: None,
+            document_path,
+            plugin: Some(plugin),
+        }
+    }
+
     /// A configuration from the file's extension: the usual interpreter and the default timeout.
     pub fn for_script(script: &Path, document_path: Option<String>) -> Result<Self, StartError> {
         let language = Language::of_file(script).ok_or_else(|| StartError::UnknownLanguage {
@@ -278,6 +303,7 @@ impl MacroConfig {
             timeout: DEFAULT_TIMEOUT,
             temp_dir: None,
             document_path,
+            plugin: None,
         })
     }
 }
@@ -290,6 +316,10 @@ pub enum StartError {
     Boot(std::io::Error),
     /// The language runs only on some operating systems, and this is not one of them.
     NotSupportedHere {
+        language: Language,
+    },
+    /// The language cannot serve a plugin yet.
+    PluginNotSupported {
         language: Language,
     },
     /// The script could not be read (the bundled host gets its text from the editor).
@@ -315,6 +345,11 @@ impl std::fmt::Display for StartError {
             Self::NotSupportedHere { language } => write!(
                 f,
                 "{} のマクロは macOS でだけ動かせます (osascript が要ります)",
+                language.display_name()
+            ),
+            Self::PluginNotSupported { language } => write!(
+                f,
+                "{} のプラグインはまだ動かせません (今は .js だけです)",
                 language.display_name()
             ),
             Self::Boot(err) => write!(f, "マクロの準備に失敗しました: {err}"),
@@ -387,12 +422,20 @@ struct Waiting {
 
 /// A running macro: answer requests with `send` and stop it with `cancel`.
 pub struct Session {
+    pid: u32,
+    /// The process, shared with the supervisor thread, so that it can be killed on the spot.
+    child: Arc<Mutex<Child>>,
     writer: mpsc::Sender<String>,
     cancel: Arc<AtomicBool>,
     waiting: Arc<Mutex<Waiting>>,
 }
 
 impl Session {
+    /// The id of the operating system's process of the macro.
+    pub fn process_id(&self) -> u32 {
+        self.pid
+    }
+
     /// The window starts to wait for the user on behalf of the macro (a dialog is open): the
     /// timeout stops running until the matching [`release`](Self::release). A macro that is
     /// stopped by the timeout while the user reads its message box would be a bug.
@@ -431,6 +474,15 @@ impl Session {
     /// Kills the macro. `Finished` follows with `EndReason::Cancelled`.
     pub fn cancel(&self) {
         self.cancel.store(true, Ordering::SeqCst);
+        self.kill_now();
+    }
+
+    /// Kills the process before returning. The supervisor thread would do it within 10 ms, but a
+    /// caller that ends right after (a test, the editor quitting) must not leave a handler that
+    /// loops behind: nothing else stops it, as it does not read its input.
+    fn kill_now(&self) {
+        let mut child = self.child.lock().unwrap_or_else(PoisonError::into_inner);
+        let _ = child.kill();
     }
 }
 
@@ -438,6 +490,7 @@ impl Drop for Session {
     /// A macro whose owner has gone (the window closed, for one) is stopped.
     fn drop(&mut self) {
         self.cancel.store(true, Ordering::SeqCst);
+        self.kill_now();
     }
 }
 
@@ -451,6 +504,11 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
             language: config.language,
         });
     }
+    if config.plugin.is_some() && config.language != Language::Bundled(Engine::QuickJs) {
+        return Err(StartError::PluginNotSupported {
+            language: config.language,
+        });
+    }
     // AppleScript: the user's script goes into the program that osascript runs, so it is not sent in
     // `initialize`.
     let program = if config.language == Language::AppleScript {
@@ -460,6 +518,8 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
         None
     };
     let script = match config.language {
+        // A plugin host brings no script: the handlers come with each call.
+        Language::Bundled(_) if config.plugin.is_some() => None,
         Language::Bundled(_) | Language::PowerShell | Language::Perl | Language::EmacsLisp => {
             Some(read_script(&config.script)?)
         }
@@ -582,6 +642,7 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
         interpreter: config.interpreter.clone(),
         source,
     })?;
+    let pid = child.id();
     let stdin = child.stdin.take().expect("stdin is piped");
     let stdout = child.stdout.take().expect("stdout is piped");
     let stderr = child.stderr.take().expect("stderr is piped");
@@ -602,6 +663,7 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
             process_id: std::process::id(),
             document_path: config.document_path.clone(),
             script,
+            plugin: config.plugin.clone(),
         }))
         .expect("the receiver is alive");
     thread::spawn(move || {
@@ -675,6 +737,8 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
         });
     }
 
+    let child = Arc::new(Mutex::new(child));
+    let supervised = child.clone();
     let cancel = Arc::new(AtomicBool::new(false));
     let supervisor_cancel = cancel.clone();
     let deadline = Instant::now() + config.timeout;
@@ -685,8 +749,18 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
         let mut boot_dir = boot_dir;
         let mut reason = EndReason::Exited;
         let status = loop {
-            match child.try_wait() {
-                Ok(Some(status)) => break Some(status),
+            let polled = supervised
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .try_wait();
+            match polled {
+                Ok(Some(status)) => {
+                    // Killed by `cancel` or by the drop of the session, before the loop saw the flag.
+                    if supervisor_cancel.load(Ordering::SeqCst) {
+                        reason = EndReason::Cancelled;
+                    }
+                    break Some(status);
+                }
                 Ok(None) => {}
                 Err(_) => break None,
             }
@@ -702,6 +776,7 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
                 }
             }
             if reason != EndReason::Exited {
+                let mut child = supervised.lock().unwrap_or_else(PoisonError::into_inner);
                 let _ = child.kill();
                 break child.wait().ok();
             }
@@ -730,6 +805,8 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
     });
 
     Ok(Session {
+        pid,
+        child,
         writer,
         cancel,
         waiting,

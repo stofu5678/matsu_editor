@@ -9,6 +9,7 @@
 //! `EditorError`, defines `console`, and describes an uncaught error.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::io::Write;
 use std::rc::Rc;
 
@@ -21,7 +22,7 @@ use rquickjs::{
 use serde_json::{Number, Value as Json};
 
 use crate::engine::Engine;
-use crate::rpc::{CallError, Editor, Initialize};
+use crate::rpc::{CallError, Editor, Initialize, Invoke, LinkEditor, PluginInit, PluginLink};
 
 pub struct QuickJs;
 
@@ -38,8 +39,30 @@ const MAX_DEPTH: usize = 64;
 /// What the boot (`quickjs.js`) gives back to Rust, kept across `Context::with` calls.
 type Hooks = Persistent<Object<'static>>;
 
-impl Engine for QuickJs {
-    fn run(&self, init: &Initialize, editor: Rc<RefCell<dyn Editor>>) -> Result<(), String> {
+/// A runtime and its context, with the list of the promises that nobody handled.
+///
+/// The fields are dropped in this order, and the order matters: the objects that `hooks` keeps
+/// alive must go before the runtime does (QuickJS asserts that no object is left when the runtime
+/// is freed).
+struct Vm {
+    hooks: Rc<RefCell<Option<Hooks>>>,
+    context: Context,
+    runtime: Runtime,
+}
+
+impl Drop for Vm {
+    /// Lets go of what the boot keeps (the tracker of the promises holds the list too) while the
+    /// runtime is still there: an object that is freed after the runtime started to free itself
+    /// trips QuickJS's own check, which aborts the process.
+    fn drop(&mut self) {
+        self.runtime.set_host_promise_rejection_tracker(None);
+        drop(self.hooks.borrow_mut().take());
+        self.runtime.run_gc();
+    }
+}
+
+impl Vm {
+    fn new() -> Result<Self, String> {
         let runtime = Runtime::new().map_err(|e| format!("cannot set up QuickJS: {e}"))?;
         runtime.set_max_stack_size(MAX_STACK);
         let context = Context::full(&runtime).map_err(|e| format!("cannot set up QuickJS: {e}"))?;
@@ -61,20 +84,38 @@ impl Engine for QuickJs {
                 }
             },
         )));
+        Ok(Self {
+            runtime,
+            context,
+            hooks,
+        })
+    }
 
-        context.with(|ctx| start(&ctx, init, editor, &hooks))?;
+    /// A runtime for one handler file of a plugin, with the macro API and the `Plugin` object.
+    fn for_plugin(init: &PluginInit, editor: Rc<RefCell<dyn Editor>>) -> Result<Self, String> {
+        let vm = Self::new()?;
+        vm.context.with(|ctx| -> Result<(), String> {
+            let hooks = install(&ctx, &init.info, Some(&init.plugin), editor)
+                .map_err(|e| format!("cannot set up QuickJS: {e}"))?;
+            *vm.hooks.borrow_mut() = Some(Persistent::save(&ctx, hooks));
+            Ok(())
+        })?;
+        Ok(vm)
+    }
 
-        // Promise callbacks (an `async` function, `.then`) run after the script, before the end.
-        // This locks the runtime, so it cannot be inside `context.with`.
+    /// Promise callbacks (an `async` function, `.then`) run after the script, before the end;
+    /// then a promise that was rejected and not handled is an error. This locks the runtime, so it
+    /// cannot be inside `context.with`.
+    fn finish(&self) -> Result<(), String> {
         loop {
-            match runtime.execute_pending_job() {
+            match self.runtime.execute_pending_job() {
                 Ok(true) => {}
                 Ok(false) => break,
                 // A callback that threw (`queueMicrotask`): the exception is still pending.
                 Err(_) => {
-                    return context.with(|ctx| {
+                    return self.context.with(|ctx| {
                         let exception = ctx.catch();
-                        Err(match restore_hooks(&ctx, &hooks) {
+                        Err(match restore_hooks(&ctx, &self.hooks) {
                             Ok(hooks) => describe_value(&hooks, exception),
                             Err(message) => message,
                         })
@@ -82,8 +123,8 @@ impl Engine for QuickJs {
                 }
             }
         }
-        context.with(|ctx| {
-            let hooks = restore_hooks(&ctx, &hooks)?;
+        self.context.with(|ctx| {
+            let hooks = restore_hooks(&ctx, &self.hooks)?;
             let unhandled: Function = hooks.get("unhandled").map_err(|e| e.to_string())?;
             let reasons: Array = unhandled.call(()).map_err(|e| e.to_string())?;
             match reasons.get::<Value>(0) {
@@ -91,6 +132,83 @@ impl Engine for QuickJs {
                 _ => Ok(()),
             }
         })
+    }
+}
+
+impl Engine for QuickJs {
+    fn run(&self, init: &Initialize, editor: Rc<RefCell<dyn Editor>>) -> Result<(), String> {
+        let vm = Vm::new()?;
+        vm.context
+            .with(|ctx| start(&ctx, init, editor, &vm.hooks))?;
+        vm.finish()
+    }
+
+    /// A plugin: one runtime for as long as the host lives, so that what a handler leaves in the
+    /// global scope is there for the next one. Each `plugin/invoke` runs the text of its handler
+    /// as a classic script, as a macro does.
+    fn serve(&self, init: &PluginInit, link: Rc<RefCell<dyn PluginLink>>) -> Result<(), String> {
+        let editor: Rc<RefCell<dyn Editor>> = Rc::new(RefCell::new(LinkEditor(link.clone())));
+        // One runtime for each handler file: what a handler leaves in the global scope is there
+        // the next time the same file is called, and a file never sees another's (ADR-0026).
+        let mut vms: HashMap<String, Vm> = HashMap::new();
+        loop {
+            let invoke = link.borrow_mut().next_invoke()?;
+            let Some(invoke) = invoke else {
+                return Ok(());
+            };
+            let outcome = match vms.entry(invoke.name.clone()) {
+                std::collections::hash_map::Entry::Occupied(entry) => Ok(entry.into_mut()),
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    Vm::for_plugin(init, editor.clone()).map(|vm| entry.insert(vm))
+                }
+            }
+            .and_then(|vm| {
+                vm.context
+                    .with(|ctx| run_handler(&ctx, &invoke, &vm.hooks))
+                    .and_then(|()| vm.finish())
+            });
+            let answer = match outcome {
+                Ok(()) => Ok(serde_json::json!({"ok": true})),
+                Err(message) => Err(RpcError::new(HANDLER_FAILED, message)),
+            };
+            link.borrow_mut().respond(&invoke.id, answer)?;
+        }
+    }
+}
+
+/// The code of the error answer to an invoke whose handler failed.
+pub const HANDLER_FAILED: i64 = -32000;
+
+/// Runs one handler: tells the boot the jack and its arguments, then evaluates the text.
+fn run_handler(
+    ctx: &Ctx<'_>,
+    invoke: &Invoke,
+    saved: &RefCell<Option<Hooks>>,
+) -> Result<(), String> {
+    let hooks = restore_hooks(ctx, saved)?;
+    let begin: Function = hooks.get("begin").map_err(|e| e.to_string())?;
+    let args = json_to_js(ctx, &invoke.args).map_err(|e| e.to_string())?;
+    begin
+        .call::<_, ()>((invoke.jack.as_str(), args))
+        .map_err(|e| e.to_string())?;
+    let mut options = named(&invoke.name.replace('\0', "?"));
+    // Loose unless the handler asks otherwise (rquickjs evaluates strictly by default): the plugins
+    // of Sakura are JScript, which assigns to names that were never declared.
+    options.strict = false;
+    // The text is the body of a function, on the same first line (the line numbers of the errors
+    // stay): its `let`, `const`, `class`, `var` and functions belong to this call, so the same file
+    // can be called again, and a `"use strict"` at its start is a directive of that body, as it is
+    // in a file of its own. What a plugin wants to keep is put in `globalThis`. `this` is
+    // `globalThis` (in a strict body too, as in a script).
+    let source = format!("(function () {{{}\n}}).call(globalThis)", invoke.source);
+    let result = ctx.eval_with_options::<Value, _>(source, options);
+    match result.catch(ctx) {
+        Ok(_) => Ok(()),
+        Err(rquickjs::CaughtError::Exception(exception)) => {
+            Err(describe_value(&hooks, exception.into_value()))
+        }
+        Err(rquickjs::CaughtError::Value(value)) => Err(describe_value(&hooks, value)),
+        Err(rquickjs::CaughtError::Error(error)) => Err(error.to_string()),
     }
 }
 
@@ -109,7 +227,8 @@ fn start(
     editor: Rc<RefCell<dyn Editor>>,
     saved: &RefCell<Option<Hooks>>,
 ) -> Result<(), String> {
-    let hooks = install(ctx, init, editor).map_err(|e| format!("cannot set up QuickJS: {e}"))?;
+    let hooks = install(ctx, &init.info, None, editor)
+        .map_err(|e| format!("cannot set up QuickJS: {e}"))?;
     *saved.borrow_mut() = Some(Persistent::save(ctx, hooks.clone()));
 
     // The name is what the stack shows (`name:3:5`). A NUL cannot be in a C string.
@@ -142,7 +261,8 @@ fn named(filename: &str) -> EvalOptions {
 /// Binds the macro API and returns the object of the boot (`describe`, `track`, `unhandled`).
 fn install<'js>(
     ctx: &Ctx<'js>,
-    init: &Initialize,
+    info: &Json,
+    plugin: Option<&Json>,
     editor: Rc<RefCell<dyn Editor>>,
 ) -> rquickjs::Result<Object<'js>> {
     // The script's output goes through Rust and is flushed: the requests are written to the same
@@ -162,18 +282,57 @@ fn install<'js>(
     let mut names = Vec::with_capacity(entries().len());
     for func in entries() {
         names.push(func.name);
-        raw.set(func.name, bind(ctx, func, editor.clone())?)?;
+        raw.set(func.name, bind(ctx, func.name, Some(func), editor.clone())?)?;
     }
-    let info = json_to_js(ctx, &init.info)?;
+    let info = json_to_js(ctx, info)?;
+    // The `Plugin` object: the calls the editor answers itself (the definition file, the options).
+    let plugin = match plugin {
+        None => Value::new_null(ctx.clone()),
+        Some(plugin) => {
+            let object = Object::new(ctx.clone())?;
+            let plugin_raw = Object::new(ctx.clone())?;
+            for name in PLUGIN_CALLS {
+                plugin_raw.set(
+                    name.trim_start_matches("Plugin."),
+                    bind(ctx, name, None, editor.clone())?,
+                )?;
+            }
+            object.set("raw", plugin_raw)?;
+            object.set(
+                "names",
+                PLUGIN_CALLS
+                    .iter()
+                    .map(|n| n.trim_start_matches("Plugin."))
+                    .collect::<Vec<_>>(),
+            )?;
+            object.set("id", json_to_js(ctx, &plugin["id"])?)?;
+            object.set("dir", json_to_js(ctx, &plugin["dir"])?)?;
+            object.into_value()
+        }
+    };
     let boot: Function = ctx.eval_with_options(BOOT, named("matsu-script:boot"))?;
-    boot.call((raw, names, info, write))
+    boot.call((raw, names, info, write, plugin))
 }
 
-/// One function of the macro API as a Rust function for JavaScript. It takes the array of the
-/// arguments and answers `[true, result]` or `[false, code, message]`.
+/// The calls of the `Plugin` object (Sakura's `CPluginIfObj`: `help/plugin/Text/implementation02.html`).
+/// They go to the editor under these names; the editor reads the definition file and the options
+/// of the plugin.
+pub const PLUGIN_CALLS: &[&str] = &[
+    "Plugin.GetPluginDir",
+    "Plugin.GetDef",
+    "Plugin.GetOption",
+    "Plugin.SetOption",
+    "Plugin.GetString",
+    "Plugin.GetCommandNo",
+];
+
+/// One function of the macro API (or a call of the `Plugin` object, which has no entry) as a Rust
+/// function for JavaScript. It takes the array of the arguments and answers `[true, result]` or
+/// `[false, code, message]`.
 fn bind<'js>(
     ctx: &Ctx<'js>,
-    func: &'static Entry,
+    name: &'static str,
+    func: Option<&'static Entry>,
     editor: Rc<RefCell<dyn Editor>>,
 ) -> rquickjs::Result<Function<'js>> {
     Function::new(ctx.clone(), move |ctx: Ctx<'js>, args: Array<'js>| {
@@ -189,18 +348,16 @@ fn bind<'js>(
             match js_to_json(&arg?, 0) {
                 Ok(value) => params.push(value),
                 Err(got) => {
-                    let (name, ty) = func
-                        .params
-                        .get(index)
+                    let (param, ty) = func
+                        .and_then(|func| func.params.get(index))
                         .map_or(("?", "a value"), |p| (p.name, p.ty.name()));
                     return failed(RpcError::invalid_params(format!(
-                        "{}: argument \"{name}\" must be {ty}, got {got}",
-                        func.name
+                        "{name}: argument \"{param}\" must be {ty}, got {got}"
                     )));
                 }
             }
         }
-        let answer = editor.borrow_mut().call(func.name, params);
+        let answer = editor.borrow_mut().call(name, params);
         match answer {
             Ok(result) => {
                 let answer = Array::new(ctx.clone())?;

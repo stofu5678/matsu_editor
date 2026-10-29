@@ -82,6 +82,12 @@ pub struct SharedDocument {
     model: DocumentModel,
     path: Option<PathBuf>,
     version: u64,
+    /// Counts the documents that this one has been replaced by (`replace_with`): a call that began on
+    /// a document can tell that it is a different one now.
+    generation: u64,
+    /// A call of a plugin is running on this document (every pane that shows it shares the undo
+    /// history, so one call at a time).
+    plugin_busy: bool,
     /// Typing overwrites instead of inserting. Sakura keeps the mode per document
     /// (`CDocEditor::m_bInsMode`) and starts in insert mode.
     overwrite: bool,
@@ -143,6 +149,8 @@ impl SharedDocument {
             model,
             path,
             version: 0,
+            generation: 0,
+            plugin_busy: false,
             overwrite: false,
             view_mode: false,
             type_locked: false,
@@ -175,6 +183,8 @@ impl SharedDocument {
             model,
             path: file.path.clone(),
             version: 0,
+            generation: 0,
+            plugin_busy: false,
             overwrite: false,
             view_mode: false,
             type_locked: false,
@@ -245,12 +255,14 @@ impl SharedDocument {
     /// document for the one it saw, and a view cannot skip the re-layout for a reused number.
     pub fn replace_with(&mut self, new: SharedDocument, cx: &mut Context<Self>) -> u64 {
         let version = self.version;
+        let generation = self.generation + 1;
         // The number belongs to the window, not to the file (`EditNode::m_nId` stays when the
         // file is closed or another is opened): the new document keeps it, and an untitled one
         // that has none gets it now (`CDocFileOperation::FileClose`, `GetNoNameNumber`).
         let number = self.untitled_number;
         *self = new;
         self.version = version;
+        self.generation = generation;
         self.untitled_number = number.or(self.untitled_number);
         if self.path.is_none() {
             self.number_untitled();
@@ -589,6 +601,20 @@ impl SharedDocument {
     /// Tells the views that the document has type `index`; each applies the settings of the type.
     pub fn announce_type(&mut self, index: usize, cx: &mut Context<Self>) {
         cx.emit(DocumentEvent::TypeChanged { index });
+    }
+
+    /// How many times the document was replaced by another one in place (opening a file in the
+    /// window, reloading it). Not changed by an edit.
+    pub fn plugin_busy(&self) -> bool {
+        self.plugin_busy
+    }
+
+    pub fn set_plugin_busy(&mut self, busy: bool) {
+        self.plugin_busy = busy;
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
 
     /// Counts the changes of the text. A view compares it with the version its layout matches.

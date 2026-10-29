@@ -9,12 +9,18 @@ use crate::lua::Lua;
 use crate::micropython::MicroPython;
 use crate::mruby::Mruby;
 use crate::quickjs::QuickJs;
-use crate::rpc::{Editor, Initialize};
+use crate::rpc::{Editor, Initialize, PluginInit, PluginLink};
 
 pub trait Engine {
     /// Runs the script to its end. The `Err` is the text for the standard error: an error of the
     /// script with its line number.
     fn run(&self, init: &Initialize, editor: Rc<RefCell<dyn Editor>>) -> Result<(), String>;
+
+    /// Serves a plugin: answers each `plugin/invoke` until the editor closes the connection
+    /// (ADR-0026). Only the engines that say so can; the others are for macros.
+    fn serve(&self, _init: &PluginInit, _link: Rc<RefCell<dyn PluginLink>>) -> Result<(), String> {
+        Err("this engine cannot run plugins yet (only quickjs can)".into())
+    }
 }
 
 /// The names that `--engine` accepts.

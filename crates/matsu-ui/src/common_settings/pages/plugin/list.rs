@@ -19,6 +19,7 @@ pub(super) const ENABLE: &str = "enable_plugin";
 pub(super) const OPEN_FOLDER: &str = "plugin_open_folder";
 pub(super) const SEARCH_NEW: &str = "plugin_search_new";
 pub(super) const REMOVE: &str = "plugin_remove";
+pub(super) const RUN_TEST: &str = "plugin_run_test";
 pub(super) const ENABLE_ONE: &str = "plugin_enable_one";
 pub(super) const DISABLE_ONE: &str = "plugin_disable_one";
 pub(super) const URL: &str = "plugin_url";
@@ -50,12 +51,25 @@ pub(super) fn can_remove(values: &Values) -> bool {
 /// 有効にする can be used on a plugin that MATSU can run and that is not enabled (or was enabled and
 /// has changed).
 pub(super) fn can_enable(values: &Values) -> bool {
-    selected_row(values).is_some_and(|row| rows::can_enable(row) && row[rows::CONSENT] != "on")
+    // A plugin that was stopped by failures can be enabled again also while the page shows it as on
+    // (the page was opened before the failures).
+    selected_row(values).is_some_and(|row| {
+        rows::can_enable(row)
+            && (row[rows::CONSENT] != "on"
+                || crate::macros::plugin_call::is_stopped(&row[rows::ID]))
+    })
 }
 
 /// 無効にする can be used on a plugin that is enabled, or stopped for a change.
 pub(super) fn can_disable(values: &Values) -> bool {
     selected_row(values).is_some_and(|row| rows::has_plugin(row) && row[rows::CONSENT] != "off")
+}
+
+/// 試しに実行 can be used on a plugin that can run and that has a command.
+pub(super) fn can_run_test(values: &Values) -> bool {
+    selected_row(values).is_some_and(|row| {
+        rows::can_enable(row) && row[rows::COMMANDS].parse::<usize>().is_ok_and(|n| n > 0)
+    })
 }
 
 /// 配布元 can be used on a plugin that has a web address. Only `http` and `https` are opened: a
@@ -415,6 +429,7 @@ pub(super) fn enable_row_checked(
                 .into(),
         );
     }
+    crate::macros::plugin_call::reset(cx, &row[rows::ID].clone());
     rows::set_consent(
         row,
         true,
@@ -489,6 +504,35 @@ pub(super) fn open_folder(
     match super::search_dirs(cx) {
         Some(dirs) if dirs.ensure_user_dir() => cx.open_with_system(&dirs.user),
         _ => notice(window, cx, "プラグインフォルダーを作成出来ません"),
+    }
+}
+
+/// 試しに実行: runs the first command of the plugin on the document of the window that opened
+/// the settings. The plugin has to be saved, enabled and unchanged (OK first). The commands of the
+/// menus and the keys come later (ADR-0026, PR 4); this is the way to see a plugin run until then.
+pub(super) fn run_test(
+    dialog: &mut CommonSettingsDialog,
+    window: &mut Window,
+    cx: &mut Context<CommonSettingsDialog>,
+) {
+    let Some(row) = selected_row(dialog.values()).filter(|row| rows::can_enable(row)) else {
+        return;
+    };
+    let folder = row[rows::FOLDER].clone();
+    let Some(dirs) = super::search_dirs(cx) else {
+        return;
+    };
+    let editor = dialog
+        .opener()
+        .and_then(|handle| crate::file_ops::windows::workspace_of(cx, handle))
+        .map(|workspace| workspace.read(cx).editor().clone());
+    let Some(editor) = editor else {
+        notice(window, cx, "プラグインを動かす文書のウィンドウがありません");
+        return;
+    };
+    match crate::macros::plugin_call::prepare_command(cx, &dirs, &folder, 1) {
+        Ok(prepared) => crate::macros::plugin_call::run(editor, prepared, cx),
+        Err(message) => notice(window, cx, &message),
     }
 }
 

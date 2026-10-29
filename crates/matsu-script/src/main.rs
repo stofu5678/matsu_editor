@@ -12,9 +12,10 @@ use std::process::ExitCode;
 use std::rc::Rc;
 
 use matsu_script::engine::{self, ENGINES};
-use matsu_script::rpc::{Connection, Editor};
+use matsu_script::rpc::{Connection, Editor, PluginLink, Start};
 
 fn main() -> ExitCode {
+    exit_with_the_editor();
     let Some(name) = engine_argument() else {
         eprintln!(
             "usage: matsu-script --engine <{}>  (the editor starts this program)",
@@ -31,15 +32,23 @@ fn main() -> ExitCode {
     };
 
     let mut connection = Connection::new(io::stdin().lock(), io::stdout());
-    let init = match connection.read_initialize() {
+    let init = match connection.read_start() {
         Ok(init) => init,
         Err(message) => {
             eprintln!("matsu-script: {message}");
             return ExitCode::from(2);
         }
     };
-    let editor: Rc<RefCell<dyn Editor>> = Rc::new(RefCell::new(connection));
-    let result = engine.run(&init, editor);
+    let result = match init {
+        Start::Macro(init) => {
+            let editor: Rc<RefCell<dyn Editor>> = Rc::new(RefCell::new(connection));
+            engine.run(&init, editor)
+        }
+        Start::Plugin(init) => {
+            let link: Rc<RefCell<dyn PluginLink>> = Rc::new(RefCell::new(connection));
+            engine.serve(&init, link)
+        }
+    };
     let _ = io::stdout().flush();
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -58,3 +67,23 @@ fn engine_argument() -> Option<String> {
         _ => None,
     }
 }
+
+/// A host whose editor has gone ends too. A handler that loops never reads its input, so the
+/// closing of the pipe does not tell it; the editor kills it when it quits, and this is the second
+/// line for the cases where the editor could not (it was killed, it crashed). On the systems where
+/// the parent of an orphan changes, the change is the sign.
+#[cfg(unix)]
+fn exit_with_the_editor() {
+    let parent = std::os::unix::process::parent_id();
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            if std::os::unix::process::parent_id() != parent {
+                std::process::exit(1);
+            }
+        }
+    });
+}
+
+#[cfg(not(unix))]
+fn exit_with_the_editor() {}

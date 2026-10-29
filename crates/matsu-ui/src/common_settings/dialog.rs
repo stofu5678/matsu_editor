@@ -308,6 +308,11 @@ impl CommonSettingsDialog {
 
     // ---- state, for the window and for the tests ----
 
+    /// The window that the dialog was opened from.
+    pub(crate) fn opener(&self) -> Option<AnyWindowHandle> {
+        self.opener
+    }
+
     #[cfg(test)]
     pub(crate) fn page(&self) -> Page {
         Page::ALL.get(self.page).copied().unwrap_or(Page::General)
