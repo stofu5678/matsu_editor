@@ -9,16 +9,18 @@ use gpui::{
     Window, div, prelude::FluentBuilder as _, px, rgb,
 };
 use gpui_component::{h_flex, v_flex};
-use matsu_config::plugins::{InstallError, RESERVED_CHARS, SearchDirs};
+use matsu_config::plugins::{DEFAULT_LANGUAGE, InstallError, RESERVED_CHARS, SearchDirs};
 
 use super::super::super::dialog::CommonSettingsDialog;
 use super::super::super::model::Values;
-use super::rows;
+use super::{confirm, rows};
 
 pub(super) const ENABLE: &str = "enable_plugin";
 pub(super) const OPEN_FOLDER: &str = "plugin_open_folder";
 pub(super) const SEARCH_NEW: &str = "plugin_search_new";
 pub(super) const REMOVE: &str = "plugin_remove";
+pub(super) const ENABLE_ONE: &str = "plugin_enable_one";
+pub(super) const DISABLE_ONE: &str = "plugin_disable_one";
 pub(super) const URL: &str = "plugin_url";
 pub(super) const LIST: &str = "plugin_list";
 pub(super) const SELECTED: &str = "plugin_selected";
@@ -43,6 +45,17 @@ pub(super) fn enabled(values: &Values) -> bool {
 /// 削除 can be used on a slot that has a plugin (`IDC_PLUGIN_Remove`).
 pub(super) fn can_remove(values: &Values) -> bool {
     selected_row(values).is_some_and(rows::has_plugin)
+}
+
+/// 有効にする can be used on a plugin that MATSU can run and that is not enabled (or was enabled and
+/// has changed).
+pub(super) fn can_enable(values: &Values) -> bool {
+    selected_row(values).is_some_and(|row| rows::can_enable(row) && row[rows::CONSENT] != "on")
+}
+
+/// 無効にする can be used on a plugin that is enabled, or stopped for a change.
+pub(super) fn can_disable(values: &Values) -> bool {
+    selected_row(values).is_some_and(|row| rows::has_plugin(row) && row[rows::CONSENT] != "off")
 }
 
 /// 配布元 can be used on a plugin that has a web address. Only `http` and `https` are opened: a
@@ -203,8 +216,14 @@ pub(super) fn add_folder(
 ) -> Result<usize, InstallError> {
     let mut settings = settings_of(dialog);
     let index = settings.install(dirs, folder, replace)?;
-    let fresh = rows::rows_of(&settings, Some(dirs));
-    dialog.set_rows(LIST, fresh, cx);
+    // Only the slot that changed: the other rows keep what the user did to them in this dialog.
+    let mut list = dialog.values().rows(LIST).to_vec();
+    let consent = rows::consent_of(Some(dirs));
+    list[index] = rows::row_of(index, &settings.table[index], Some(dirs), &consent);
+    // A plugin that is added is off until the user enables it, also when the folder was enabled
+    // before (and removed in this dialog): adding must not bring an agreement back.
+    rows::set_consent(&mut list[index], false, "");
+    dialog.set_rows(LIST, list, cx);
     select(dialog, index, cx);
     Ok(index)
 }
@@ -233,14 +252,16 @@ pub(super) fn search_new(
     }
     cx.spawn_in(window, async move |this, cx| {
         for folder in found {
-            // `STR_PLGMGR_INSTALL` (`Select3Message`: はい, いいえ, キャンセル)
-            let question = format!("プラグイン「{folder}」をインストールしますか？");
+            // `STR_PLGMGR_INSTALL` (`Select3Message`), with what ADR-0026 says the user must see.
+            let question =
+                format!("プラグイン「{folder}」を追加しますか？（追加しただけでは動きません）");
+            let detail = describe_folder(&dirs, &folder);
             let Ok(answer) = this.update_in(cx, |_, window, cx| {
                 window.prompt(
                     PromptLevel::Info,
                     &question,
-                    None,
-                    &["はい", "いいえ", "キャンセル"],
+                    Some(&detail),
+                    &["追加", "追加しない", "キャンセル"],
                     cx,
                 )
             }) else {
@@ -293,6 +314,130 @@ pub(super) fn search_new(
         }
     })
     .detach();
+}
+
+/// The confirmation text of the plugin in `folder`.
+fn describe_folder(dirs: &SearchDirs, folder: &str) -> String {
+    match dirs.load_def(folder, DEFAULT_LANGUAGE) {
+        Some(def) => confirm::describe(&def, dirs.plugin_dir(folder).as_deref()),
+        None => "プラグイン定義ファイル（plugin.def）を読めません".to_owned(),
+    }
+}
+
+/// 有効にする: shows the confirmation screen; when the user agrees, the plugin is enabled with the
+/// files as they are now. `plugins.ini` is written when OK is pressed.
+pub(super) fn enable_selected(
+    dialog: &mut CommonSettingsDialog,
+    window: &mut Window,
+    cx: &mut Context<CommonSettingsDialog>,
+) {
+    let Some(index) = usize::try_from(dialog.values().int(SELECTED)).ok() else {
+        return;
+    };
+    let Some(row) = selected_row(dialog.values()).filter(|row| rows::can_enable(row)) else {
+        return;
+    };
+    let folder = row[rows::FOLDER].clone();
+    let Some(dirs) = super::search_dirs(cx) else {
+        return;
+    };
+    let name = row[rows::NAME].clone();
+    // The files are read before the screen is shown, and again when the user agrees: a plugin
+    // that was changed or replaced in between is not enabled on the strength of the old screen.
+    let Some(dir) = dirs.plugin_dir(&folder) else {
+        notice(window, cx, "プラグインのフォルダーが見つかりません");
+        return;
+    };
+    let shown = match matsu_config::plugins::consent::fingerprint(&dir) {
+        Ok(files) => files,
+        Err(error) => {
+            notice(
+                window,
+                cx,
+                &format!("プラグインのファイルを調べられませんでした\n理由：{error}"),
+            );
+            return;
+        }
+    };
+    let detail = describe_folder(&dirs, &folder);
+    let answer = window.prompt(
+        PromptLevel::Info,
+        &format!("プラグイン「{name}」を有効にしますか？"),
+        Some(&detail),
+        &["有効にする", "キャンセル"],
+        cx,
+    );
+    cx.spawn_in(window, async move |this, cx| {
+        if let Ok(0) = answer.await {
+            this.update_in(cx, |this, window, cx| {
+                if let Err(message) = enable_row_checked(this, index, &dirs, Some(&shown), cx) {
+                    notice(window, cx, &message);
+                }
+            })
+            .ok();
+        }
+    })
+    .detach();
+}
+
+/// Marks the plugin of the row `index` as enabled with the files that are there now.
+#[cfg(test)]
+pub(super) fn enable_row(
+    dialog: &mut CommonSettingsDialog,
+    index: usize,
+    dirs: &SearchDirs,
+    cx: &mut Context<CommonSettingsDialog>,
+) -> Result<(), String> {
+    enable_row_checked(dialog, index, dirs, None, cx)
+}
+
+/// Like [`enable_row`]; when `shown` is given, the files must be the ones that the user was
+/// shown, and a plugin that has changed since is refused.
+pub(super) fn enable_row_checked(
+    dialog: &mut CommonSettingsDialog,
+    index: usize,
+    dirs: &SearchDirs,
+    shown: Option<&[matsu_config::plugins::consent::FileHash]>,
+    cx: &mut Context<CommonSettingsDialog>,
+) -> Result<(), String> {
+    let mut list = dialog.values().rows(LIST).to_vec();
+    let Some(row) = list.get_mut(index).filter(|row| rows::can_enable(row)) else {
+        return Ok(());
+    };
+    let dir = dirs
+        .plugin_dir(&row[rows::FOLDER])
+        .ok_or("プラグインのフォルダーが見つかりません")?;
+    let files = matsu_config::plugins::consent::fingerprint(&dir)
+        .map_err(|error| format!("プラグインのファイルを調べられませんでした\n理由：{error}"))?;
+    if shown.is_some_and(|shown| shown != files) {
+        return Err(
+            "確認している間にプラグインのファイルが変わりました。もう一度「有効にする」を押してください"
+                .into(),
+        );
+    }
+    rows::set_consent(
+        row,
+        true,
+        &matsu_config::plugins::consent::manifest_text(&files),
+    );
+    dialog.set_rows(LIST, list, cx);
+    Ok(())
+}
+
+/// 無効にする: the plugin does not run; the record of the agreement is removed when OK is pressed.
+pub(super) fn disable_selected(
+    dialog: &mut CommonSettingsDialog,
+    _: &mut Window,
+    cx: &mut Context<CommonSettingsDialog>,
+) {
+    let Some(index) = usize::try_from(dialog.values().int(SELECTED)).ok() else {
+        return;
+    };
+    let mut list = dialog.values().rows(LIST).to_vec();
+    if let Some(row) = list.get_mut(index).filter(|row| rows::has_plugin(row)) {
+        rows::set_consent(row, false, "");
+        dialog.set_rows(LIST, list, cx);
+    }
 }
 
 /// 削除 (`UninstallPlugin`): the slot is emptied, except for its ID.

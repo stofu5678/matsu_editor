@@ -54,6 +54,7 @@
 //!
 //! Nothing here runs a plugin: it reads, registers and removes them.
 
+pub mod consent;
 pub mod def;
 pub mod options;
 
@@ -360,6 +361,11 @@ impl SearchDirs {
     pub fn plugin_dir(&self, folder: &str) -> Option<PathBuf> {
         self.def_file(folder)
             .and_then(|file| file.parent().map(Path::to_owned))
+    }
+
+    /// `plugins.ini`: what the user agreed to run, next to the settings file ([`consent`]).
+    pub fn consent_file(&self) -> PathBuf {
+        consent::path_beside(&self.user.with_file_name("matsu.ini"))
     }
 
     /// The file of the options of the plugin `folder`: `plugins\<folder>.ini` next to the settings

@@ -91,7 +91,7 @@ fn a_registered_plugin_shows_what_its_definition_says() {
     let row = &rows[2];
     // The name is the one of the language file (the language is Japanese).
     assert_eq!(row[NAME], "ハロー (JavaScript)");
-    assert_eq!(row[STATE], "登録済み");
+    assert_eq!(row[STATE], "無効");
     assert_eq!(row[ID], HELLO_JS_ID);
     assert_eq!(row[FOLDER], "HelloJs");
     assert_eq!(row[COMMANDS], "1");
@@ -266,7 +266,7 @@ fn the_page_lists_the_registered_plugins(cx: &mut TestAppContext) {
     assert!(!with_dialog(cx, |d, _, _| d.page_controls()).is_empty());
     assert!(with_dialog(cx, |d, _, _| d.values().bool(ENABLE)));
     assert_eq!(with_dialog(cx, |d, _, _| d.values().rows(LIST).len()), 40);
-    assert_eq!(row_texts(cx, 0)[STATE], "登録済み");
+    assert_eq!(row_texts(cx, 0)[STATE], "無効");
     assert_eq!(row_texts(cx, 1)[STATE], "VBScript は使えません");
     assert_eq!(row_texts(cx, 2)[STATE], "見つかりません");
     assert_eq!(row_texts(cx, 3)[STATE], "");
@@ -385,7 +385,7 @@ fn removing_a_plugin_empties_its_slot_when_ok_is_pressed(cx: &mut TestAppContext
     run(cx, handle, "F_OPTION_PLUGIN");
     // Nothing is selected: nothing happens.
     with_dialog(cx, |d, _, dcx| remove_selected(d, None, dcx));
-    assert_eq!(row_texts(cx, 0)[STATE], "登録済み");
+    assert_eq!(row_texts(cx, 0)[STATE], "無効");
     with_dialog(cx, |d, _, dcx| {
         select(d, 0, dcx);
         remove_selected(d, None, dcx);
@@ -444,4 +444,302 @@ fn every_control_of_the_page_is_known_to_the_dialog() {
     for control in &all {
         assert!(seen.insert(control.id) || matches!(control.kind, Kind::Radio { .. }));
     }
+}
+
+// ---- what the user agreed to run (ADR-0026, chapter 4) ----
+
+use super::list::{DISABLE_ONE, ENABLE_ONE, can_disable, can_enable, disable_selected, enable_row};
+use super::rows::{CONSENT, MANIFEST, NOTE, can_enable as row_can_enable, write_consent};
+use matsu_config::plugins::consent::{Consent, ConsentFile};
+
+fn consent_path(ini: &Ini) -> std::path::PathBuf {
+    dir_of(ini).join("plugins.ini")
+}
+
+fn enable(cx: &mut TestAppContext, index: usize) -> Result<(), String> {
+    with_dialog(cx, |d, _, dcx| {
+        let dirs = super::search_dirs(dcx).unwrap();
+        select(d, index, dcx);
+        enable_row(d, index, &dirs, dcx)
+    })
+}
+
+#[test]
+fn a_plugin_that_was_added_is_off_and_enabling_marks_the_row_with_the_files() {
+    let dir = temp();
+    put_sample(dir.path(), "HelloJs");
+    let dirs = dirs_in(dir.path());
+    let mut settings = PluginSettings::default();
+    settings.table[0] = registered("HelloJs", HELLO_JS_ID, 1);
+    let mut rows = rows_of(&settings, Some(&dirs));
+    assert_eq!(rows[0][CONSENT], "off");
+    assert!(row_can_enable(&rows[0]));
+    rows::set_consent(&mut rows[0], true, "abc");
+    assert_eq!(rows[0][STATE], "有効");
+    assert_eq!(rows[0][MANIFEST], "abc");
+    rows::set_consent(&mut rows[0], false, "");
+    assert_eq!(rows[0][STATE], "無効");
+    // A slot with nothing, and one that MATSU cannot run, cannot be enabled.
+    assert!(!row_can_enable(&rows[5]));
+    put_sample(dir.path(), "HelloVbs");
+    settings.table[1] = registered("HelloVbs", HELLO_VBS_ID, 1);
+    let rows = rows_of(&settings, Some(&dirs));
+    assert!(!row_can_enable(&rows[1]));
+    assert_eq!(rows[1][NOTE], "VBScript は使えません");
+    // A plugin that is not there cannot either.
+    settings.table[2] = registered("Gone", "gone", 0);
+    assert!(!row_can_enable(&rows_of(&settings, Some(&dirs))[2]));
+}
+
+#[test]
+fn what_ok_writes_to_plugins_ini_follows_the_rows() {
+    let dir = temp();
+    put_sample(dir.path(), "HelloJs");
+    let dirs = dirs_in(dir.path());
+    let mut settings = PluginSettings::default();
+    settings.table[0] = registered("HelloJs", HELLO_JS_ID, 1);
+    let mut rows = rows_of(&settings, Some(&dirs));
+    let mut file = ConsentFile::default();
+    // Nothing was done: nothing is written.
+    assert!(!write_consent(&rows, &mut file));
+    let files =
+        matsu_config::plugins::consent::fingerprint(&dirs.plugin_dir("HelloJs").unwrap()).unwrap();
+    let manifest = matsu_config::plugins::consent::manifest_text(&files);
+    rows::set_consent(&mut rows[0], true, &manifest);
+    assert!(write_consent(&rows, &mut file));
+    assert_eq!(
+        file.consent_for_dir(HELLO_JS_ID, dirs.plugin_dir("HelloJs").as_deref()),
+        Consent::On
+    );
+    rows::set_consent(&mut rows[0], false, "");
+    assert!(write_consent(&rows, &mut file));
+    assert!(file.record(HELLO_JS_ID).is_none());
+    // A removed plugin is forgotten too.
+    rows::set_consent(&mut rows[0], true, &manifest);
+    write_consent(&rows, &mut file);
+    uninstall(&mut rows, 0, Some(&dirs));
+    assert!(write_consent(&rows, &mut file));
+    assert!(file.record(HELLO_JS_ID).is_none());
+}
+
+#[gpui::test]
+fn enabling_in_the_dialog_is_kept_by_ok_and_cancel_keeps_nothing(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, INI);
+    put_sample(&dir_of(&ini), "HelloJs");
+    run(cx, handle, "F_OPTION_PLUGIN");
+    assert_eq!(row_texts(cx, 0)[STATE], "無効");
+    assert_eq!(enable(cx, 0), Ok(()));
+    assert_eq!(row_texts(cx, 0)[STATE], "有効");
+    cancel(cx);
+    assert!(!consent_path(&ini).exists(), "キャンセル writes nothing");
+
+    run(cx, handle, "F_OPTION_PLUGIN");
+    assert_eq!(enable(cx, 0), Ok(()));
+    ok(cx);
+    let file = ConsentFile::load(&consent_path(&ini));
+    let record = file.record(HELLO_JS_ID).unwrap();
+    assert_eq!(record.folder, "HelloJs");
+    assert_eq!(record.date.len(), 10);
+    let names: Vec<_> = record.files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "command.js",
+            "local/plugin_ja_JP.def",
+            "opened.js",
+            "plugin.def"
+        ]
+    );
+    // The settings file does not hold the agreement.
+    assert!(!String::from_utf8_lossy(&ini.bytes()).contains("Enabled"));
+
+    // The next time, the plugin is on.
+    run(cx, handle, "F_OPTION_PLUGIN");
+    assert_eq!(row_texts(cx, 0)[STATE], "有効");
+    cancel(cx);
+}
+
+#[gpui::test]
+fn a_changed_file_stops_the_plugin_until_it_is_enabled_again(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, INI);
+    put_sample(&dir_of(&ini), "HelloJs");
+    run(cx, handle, "F_OPTION_PLUGIN");
+    enable(cx, 0).unwrap();
+    ok(cx);
+
+    let script = dir_of(&ini).join("plugins/HelloJs/command.js");
+    fs::write(&script, "Editor.InsText('changed');").unwrap();
+    run(cx, handle, "F_OPTION_PLUGIN");
+    assert_eq!(row_texts(cx, 0)[STATE], "変更あり（停止）");
+    assert_eq!(row_texts(cx, 0)[CONSENT], "changed");
+    // OK without doing anything keeps the stop (and the old record).
+    ok(cx);
+    let record = ConsentFile::load(&consent_path(&ini))
+        .record(HELLO_JS_ID)
+        .unwrap();
+    assert!(record.files.iter().any(|f| f.path == "command.js"));
+
+    run(cx, handle, "F_OPTION_PLUGIN");
+    with_dialog(cx, |d, _, dcx| select(d, 0, dcx));
+    with_dialog(cx, |d, _, _| {
+        assert!(can_enable(d.values()) && can_disable(d.values()));
+    });
+    enable(cx, 0).unwrap();
+    assert_eq!(row_texts(cx, 0)[STATE], "有効");
+    ok(cx);
+    run(cx, handle, "F_OPTION_PLUGIN");
+    assert_eq!(row_texts(cx, 0)[STATE], "有効");
+
+    // A file that is added is a change too.
+    fs::write(dir_of(&ini).join("plugins/HelloJs/extra.js"), "x").unwrap();
+    cancel(cx);
+    run(cx, handle, "F_OPTION_PLUGIN");
+    assert_eq!(row_texts(cx, 0)[STATE], "変更あり（停止）");
+    cancel(cx);
+}
+
+#[gpui::test]
+fn disabling_forgets_the_agreement_and_the_buttons_follow_the_state(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, INI);
+    put_sample(&dir_of(&ini), "HelloJs");
+    put_sample(&dir_of(&ini), "HelloVbs");
+    run(cx, handle, "F_OPTION_PLUGIN");
+    let usable = |cx: &mut TestAppContext, id: &str| {
+        with_dialog(cx, |d, _, _| {
+            let control = d.page_controls().into_iter().find(|c| c.id == id).unwrap();
+            d.is_usable(&control)
+        })
+    };
+    // Nothing selected, then the plugin that is off, on, and the one MATSU cannot run.
+    assert!(!usable(cx, ENABLE_ONE) && !usable(cx, DISABLE_ONE));
+    with_dialog(cx, |d, _, dcx| select(d, 0, dcx));
+    assert!(usable(cx, ENABLE_ONE) && !usable(cx, DISABLE_ONE));
+    enable(cx, 0).unwrap();
+    assert!(!usable(cx, ENABLE_ONE) && usable(cx, DISABLE_ONE));
+    with_dialog(cx, |d, _, dcx| select(d, 1, dcx));
+    assert!(!usable(cx, ENABLE_ONE) && !usable(cx, DISABLE_ONE));
+    ok(cx);
+    assert!(
+        ConsentFile::load(&consent_path(&ini))
+            .record(HELLO_JS_ID)
+            .is_some()
+    );
+
+    run(cx, handle, "F_OPTION_PLUGIN");
+    with_dialog(cx, |d, w, dcx| {
+        select(d, 0, dcx);
+        disable_selected(d, w, dcx);
+    });
+    assert_eq!(row_texts(cx, 0)[STATE], "無効");
+    ok(cx);
+    assert!(
+        ConsentFile::load(&consent_path(&ini))
+            .record(HELLO_JS_ID)
+            .is_none()
+    );
+}
+
+#[gpui::test]
+fn adding_a_plugin_does_not_enable_it_and_removing_one_forgets_it(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, INI);
+    put_sample(&dir_of(&ini), "HelloJs");
+    run(cx, handle, "F_OPTION_PLUGIN");
+    enable(cx, 0).unwrap();
+    ok(cx);
+
+    run(cx, handle, "F_OPTION_PLUGIN");
+    // Another plugin is added: it is off, and the first one stays on.
+    let plugins = dir_of(&ini).join("plugins");
+    fs::create_dir_all(plugins.join("Newer")).unwrap();
+    fs::write(
+        plugins.join("Newer").join("plugin.def"),
+        "\u{feff}[Plugin]\r\nId=newer.id\r\nType=script\r\n[Plug]\r\nDocumentBeforeSave=a.js\r\n",
+    )
+    .unwrap();
+    let index = with_dialog(cx, |d, _, dcx| {
+        let dirs = super::search_dirs(dcx).unwrap();
+        add_folder(d, &dirs, "Newer", false, dcx)
+    })
+    .unwrap();
+    assert_eq!(row_texts(cx, index)[STATE], "追加");
+    assert_eq!(row_texts(cx, index)[CONSENT], "off");
+    assert_eq!(row_texts(cx, 0)[STATE], "有効");
+    // Enabling it shows in the state of the new row.
+    enable(cx, index).unwrap();
+    assert_eq!(row_texts(cx, index)[STATE], "追加・有効");
+    with_dialog(cx, |d, _, dcx| {
+        select(d, 0, dcx);
+        remove_selected(d, None, dcx);
+    });
+    ok(cx);
+    let file = ConsentFile::load(&consent_path(&ini));
+    assert!(file.record(HELLO_JS_ID).is_none());
+    assert!(file.record("newer.id").is_some());
+}
+
+// ---- a plugin that changes while the user decides, and one that is added again ----
+
+use super::list::enable_row_checked;
+
+#[gpui::test]
+fn a_plugin_that_changed_while_the_screen_was_open_is_not_enabled(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, INI);
+    put_sample(&dir_of(&ini), "HelloJs");
+    run(cx, handle, "F_OPTION_PLUGIN");
+    let dir = dir_of(&ini).join("plugins/HelloJs");
+    let shown = matsu_config::plugins::consent::fingerprint(&dir).unwrap();
+    // The files are replaced after the user was shown the plugin.
+    fs::write(dir.join("command.js"), "Editor.InsText('new hook');").unwrap();
+    let result = with_dialog(cx, |d, _, dcx| {
+        let dirs = super::search_dirs(dcx).unwrap();
+        select(d, 0, dcx);
+        enable_row_checked(d, 0, &dirs, Some(&shown), dcx)
+    });
+    assert!(result.unwrap_err().contains("変わりました"));
+    assert_eq!(row_texts(cx, 0)[CONSENT], "off");
+    // Shown again with the new files, it can be enabled.
+    let shown = matsu_config::plugins::consent::fingerprint(&dir).unwrap();
+    let result = with_dialog(cx, |d, _, dcx| {
+        let dirs = super::search_dirs(dcx).unwrap();
+        enable_row_checked(d, 0, &dirs, Some(&shown), dcx)
+    });
+    assert_eq!(result, Ok(()));
+    assert_eq!(row_texts(cx, 0)[CONSENT], "on");
+    cancel(cx);
+}
+
+#[gpui::test]
+fn a_plugin_that_is_removed_and_added_again_before_ok_is_off(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, INI);
+    put_sample(&dir_of(&ini), "HelloJs");
+    run(cx, handle, "F_OPTION_PLUGIN");
+    enable(cx, 0).unwrap();
+    ok(cx);
+    assert!(
+        ConsentFile::load(&consent_path(&ini))
+            .record(HELLO_JS_ID)
+            .is_some()
+    );
+
+    run(cx, handle, "F_OPTION_PLUGIN");
+    assert_eq!(row_texts(cx, 0)[STATE], "有効");
+    with_dialog(cx, |d, _, dcx| {
+        select(d, 0, dcx);
+        remove_selected(d, None, dcx);
+    });
+    let index = with_dialog(cx, |d, _, dcx| {
+        let dirs = super::search_dirs(dcx).unwrap();
+        add_folder(d, &dirs, "HelloJs", false, dcx)
+    })
+    .unwrap();
+    // The agreement of the file does not come back with the folder.
+    assert_eq!(row_texts(cx, index)[CONSENT], "off");
+    assert_eq!(row_texts(cx, index)[STATE], "追加");
+    ok(cx);
+    assert!(
+        ConsentFile::load(&consent_path(&ini))
+            .record(HELLO_JS_ID)
+            .is_none(),
+        "the cancellation reached plugins.ini"
+    );
 }
