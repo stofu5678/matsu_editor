@@ -65,6 +65,37 @@ const KEY_CHANGE_BY_WHEEL: &str = "bChgWndByWheel";
 /// `bSortTabList` and `bTab_ListFull`: the tab list is sorted, and shows the paths.
 const KEY_SORT_LIST: &str = "bSortTabList";
 const KEY_LIST_FULL: &str = "bTab_ListFull";
+/// `bDispTabIcon`: the tabs show an icon.
+const KEY_DISP_ICON: &str = "bDispTabIcon";
+/// `bTabMultiLine`: the tabs wrap into several rows.
+const KEY_MULTI_LINE: &str = "bTabMultiLine";
+/// `eTabPosition`: the bar is at the top or the bottom.
+const KEY_POSITION: &str = "eTabPosition";
+/// `nTabMaxWidth`, `nTabMinWidth` and `nTabMinWidthOnMulti`: the widths of a tab, in pixels.
+/// Sakura's dialog has no control for them; they are set in the file.
+const KEY_MAX_WIDTH: &str = "nTabMaxWidth";
+const KEY_MIN_WIDTH: &str = "nTabMinWidth";
+const KEY_MIN_WIDTH_MULTI: &str = "nTabMinWidthOnMulti";
+
+/// `ETabPosition`: where the tab bar is (`sakura_core/env/CommonSetting.h`).
+///
+/// Sakura has `Left` (2) and `Right` (3) too, but the dialog has them under `#if 0`
+/// (`CPropComTab.cpp`) and `CEditWnd::OnSize` places the bar only for `Top` and `Bottom`, so any
+/// other value in the file is read as the top.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum TabPosition {
+    /// `TabPosition_Top` (0): under the toolbar. Sakura's default.
+    #[default]
+    Top,
+    /// `TabPosition_Bottom` (1): above the function keys and the status bar.
+    Bottom,
+}
+
+impl TabPosition {
+    pub(crate) fn from_code(code: i32) -> Self {
+        if code == 1 { Self::Bottom } else { Self::Top }
+    }
+}
 
 /// `EDispTabClose`: when a tab shows its close button (`sakura_core/env/CommonSetting.h`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -109,6 +140,33 @@ pub(crate) struct TabOptions {
     /// `m_bTab_ListFull`: the tab list shows the paths, not the captions. The item of the list
     /// that switches the display changes it (not the common settings).
     pub list_full: bool,
+    /// `m_bDispTabIcon`: each tab shows an icon.
+    pub disp_icon: bool,
+    /// `m_bTabMultiLine`: the tabs that do not fit in a row go on to the next row.
+    pub multi_line: bool,
+    /// `m_eTabPosition`: the bar is at the top or at the bottom.
+    pub position: TabPosition,
+    /// `m_nTabMaxWidth`: the widest a tab gets (pixels).
+    pub max_width: i32,
+    /// `m_nTabMinWidth`: the narrowest a tab gets in a single row (pixels).
+    pub min_width: i32,
+    /// `m_nTabMinWidthOnMulti`: the narrowest a tab gets in several rows (pixels).
+    pub min_width_multi: i32,
+}
+
+impl TabOptions {
+    /// The width limits of a tab as the layout uses them: `(min, max)` in pixels. A value that is
+    /// not positive is not a width, so it is taken as 1; a minimum above the maximum is cut to it
+    /// (`CTabWnd::Refresh` tests `MAX_TABITEM_WIDTH < cx` first, so the maximum wins there).
+    pub(crate) fn width_limits(&self) -> (i32, i32) {
+        let max = self.max_width.max(1);
+        let min = if self.multi_line {
+            self.min_width_multi
+        } else {
+            self.min_width
+        };
+        (min.clamp(1, max), max)
+    }
 }
 
 impl Default for TabOptions {
@@ -121,6 +179,12 @@ impl Default for TabOptions {
             change_by_wheel: false,
             sort_list: true,
             list_full: false,
+            disp_icon: false,
+            multi_line: false,
+            position: TabPosition::Top,
+            max_width: 200,
+            min_width: 60,
+            min_width_multi: 100,
         }
     }
 }
@@ -141,6 +205,20 @@ impl TabOptions {
             change_by_wheel: get(KEY_CHANGE_BY_WHEEL, default.change_by_wheel),
             sort_list: get(KEY_SORT_LIST, default.sort_list),
             list_full: get(KEY_LIST_FULL, default.list_full),
+            disp_icon: get(KEY_DISP_ICON, default.disp_icon),
+            multi_line: get(KEY_MULTI_LINE, default.multi_line),
+            position: profile
+                .get_i32("Common", KEY_POSITION)
+                .map_or(default.position, TabPosition::from_code),
+            max_width: profile
+                .get_i32("Common", KEY_MAX_WIDTH)
+                .unwrap_or(default.max_width),
+            min_width: profile
+                .get_i32("Common", KEY_MIN_WIDTH)
+                .unwrap_or(default.min_width),
+            min_width_multi: profile
+                .get_i32("Common", KEY_MIN_WIDTH_MULTI)
+                .unwrap_or(default.min_width_multi),
         }
     }
 }
@@ -293,5 +371,62 @@ mod tests {
         let p = profile("[Common]\r\nbDispTabWnd=1\r\nbDispTabWndMultiWin=1\r\n");
         let s = TabSettings::from_profile(&p);
         assert!(s.show_bar && !s.grouped && !s.bound());
+    }
+
+    #[test]
+    fn the_defaults_of_the_bar_are_sakuras() {
+        // CShareData::InitShareData: bDispTabIcon FALSE, bTabMultiLine false, TabPosition_Top,
+        // nTabMaxWidth 200, nTabMinWidth 60, nTabMinWidthOnMulti 100.
+        let options = TabOptions::from_profile(&Profile::new());
+        assert_eq!(options, TabOptions::default());
+        assert!(!options.disp_icon && !options.multi_line);
+        assert_eq!(options.position, TabPosition::Top);
+        assert_eq!(options.width_limits(), (60, 200));
+        let multi = TabOptions {
+            multi_line: true,
+            ..options
+        };
+        assert_eq!(multi.width_limits(), (100, 200));
+    }
+
+    #[test]
+    fn the_keys_of_the_bar_are_read() {
+        let p = profile(
+            "[Common]\r\nbDispTabIcon=1\r\nbTabMultiLine=1\r\neTabPosition=1\r\n\
+             nTabMaxWidth=300\r\nnTabMinWidth=80\r\nnTabMinWidthOnMulti=120\r\n",
+        );
+        let o = TabOptions::from_profile(&p);
+        assert!(o.disp_icon && o.multi_line);
+        assert_eq!(o.position, TabPosition::Bottom);
+        assert_eq!(
+            (o.max_width, o.min_width, o.min_width_multi),
+            (300, 80, 120)
+        );
+        assert_eq!(o.width_limits(), (120, 300), "rows have their own minimum");
+    }
+
+    #[test]
+    fn a_position_sakura_does_not_place_is_the_top() {
+        // Left (2) and Right (3) exist in the enum, but only Top and Bottom are placed.
+        for code in [0, 2, 3, -1, 99] {
+            assert_eq!(TabPosition::from_code(code), TabPosition::Top, "{code}");
+        }
+        assert_eq!(TabPosition::from_code(1), TabPosition::Bottom);
+    }
+
+    #[test]
+    fn the_width_limits_stay_usable() {
+        let wide = TabOptions {
+            min_width: 500,
+            max_width: 200,
+            ..Default::default()
+        };
+        assert_eq!(wide.width_limits(), (200, 200), "the maximum wins");
+        let zero = TabOptions {
+            min_width: 0,
+            max_width: -5,
+            ..Default::default()
+        };
+        assert_eq!(zero.width_limits(), (1, 1));
     }
 }
