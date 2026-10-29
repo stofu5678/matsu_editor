@@ -658,7 +658,7 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<(), CommandError> {
-        if self.macros.running.is_some() || self.macros.plugin_running {
+        if self.macros.running.is_some() || self.plugin_in_call(cx) {
             return Err(self.macro_error("マクロを実行中です".into(), window, cx));
         }
         if self.macros.recorder.is_recording() && !self.macros.suspended {

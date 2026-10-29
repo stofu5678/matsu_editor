@@ -691,3 +691,46 @@ fn two_panes_of_one_document_do_not_run_plugins_or_macros_at_once(cx: &mut TestA
     cx2.update(|_, app| shutdown(app, &id));
     set_test_interpreter(None);
 }
+
+#[gpui::test]
+fn closing_the_pane_that_began_a_call_frees_the_document_for_the_other_pane(
+    cx: &mut TestAppContext,
+) {
+    let Some(host) = script_host() else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    set_test_interpreter(Some(host));
+    let place = Place::new();
+    let dirs = place.dirs();
+    let (first, cx) = setup(cx, "元");
+    let shared = first.read_with(cx, |v, _| v.document().clone());
+    let (second, cx2) = cx.add_window_view(move |window, cx| {
+        let view = EditorView::new(shared, cx);
+        window.focus(&view.focus_handle, cx);
+        view
+    });
+    let script = dirs.plugin_dir("HelloJs").unwrap().join("command.js");
+    // The plugin computes without a word: only the closing of its pane can end it early.
+    fs::write(&script, "while (true) {}").unwrap();
+    enable_sample(cx2, &place, true, true);
+    let prepared = cx2
+        .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
+        .unwrap();
+    let editor = second.clone();
+    cx2.update(|_, app| run(editor, prepared, app));
+    assert!(first.read_with(cx2, |v, cx| v.plugin_in_call(cx)));
+    // The pane that began the call goes away.
+    drop(second);
+    cx2.update(|window, _| window.remove_window());
+    for _ in 0..300 {
+        cx2.executor().advance_clock(Duration::from_millis(20));
+        cx2.run_until_parked();
+        if !first.read_with(cx2, |v, cx| v.plugin_in_call(cx)) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!first.read_with(cx2, |v, cx| v.plugin_in_call(cx)));
+    set_test_interpreter(None);
+}

@@ -377,6 +377,26 @@ impl EditorView {
     }
 }
 
+/// The pane that began a call is gone: the document is free for the others again, and the undo
+/// block of the call is closed (the cursor of the pane is gone with it).
+fn release_document(
+    document: &Entity<crate::document::SharedDocument>,
+    depth: Option<usize>,
+    generation: u64,
+    cx: &mut gpui::AsyncApp,
+) {
+    document.update(cx, |shared, _| {
+        shared.set_plugin_busy(false);
+        // The history of a document that was replaced is another one.
+        if let (Some(depth), true) = (depth, shared.generation() == generation) {
+            shared
+                .parts_mut()
+                .0
+                .restore_block_depth(depth, &matsu_core::cursor::Cursor::default());
+        }
+    });
+}
+
 /// The answer to a request of a plugin whose document was replaced.
 fn replaced_reply(text: &str) -> Option<String> {
     use matsu_plugin::protocol::{self, RpcError};
@@ -463,6 +483,9 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
     });
     let (depth, generation) = depth;
     let weak = editor.downgrade();
+    // The document outlives the pane that began the call when another pane shows it: what the call
+    // holds on the document is let go also when that pane is gone.
+    let document = editor.read(cx).document.clone();
     cx.spawn(async move |cx| {
         let mut busy = 0_usize;
         loop {
@@ -472,6 +495,7 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                 // also when the plugin is computing and says nothing.
                 if weak.upgrade().is_none() {
                     host.borrow_mut().cancel();
+                    release_document(&document, depth, generation, cx);
                     break;
                 }
                 cx.background_executor()
@@ -550,6 +574,7 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
             if !alive {
                 // The window is gone: the call ends with it (and so does the claim on it).
                 host.borrow_mut().cancel();
+                release_document(&document, depth, generation, cx);
                 break;
             }
         }
