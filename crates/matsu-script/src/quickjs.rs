@@ -192,13 +192,15 @@ fn run_handler(
         .call::<_, ()>((invoke.jack.as_str(), args))
         .map_err(|e| e.to_string())?;
     let mut options = named(&invoke.name.replace('\0', "?"));
-    // A block in front would take the directive "use strict" out of the start of the script and
-    // the handler would run loose without a word: strictness is asked of the evaluation instead.
-    options.strict = starts_strict(&invoke.source);
-    // The text goes in a block, on the same first line (the line numbers of the errors stay): the
-    // `let`, `const` and `class` of its top level belong to this call, so the same file can be
-    // called again, while `var`, `function` and `globalThis.x` stay for the next call.
-    let source = format!("{{{}\n}}", invoke.source);
+    // Loose unless the handler asks otherwise (rquickjs evaluates strictly by default): the plugins
+    // of Sakura are JScript, which assigns to names that were never declared.
+    options.strict = false;
+    // The text is the body of a function, on the same first line (the line numbers of the errors
+    // stay): its `let`, `const`, `class`, `var` and functions belong to this call, so the same file
+    // can be called again, and a `"use strict"` at its start is a directive of that body, as it is
+    // in a file of its own. What a plugin wants to keep is put in `globalThis`. `this` is
+    // `globalThis` (in a strict body too, as in a script).
+    let source = format!("(function () {{{}\n}}).call(globalThis)", invoke.source);
     let result = ctx.eval_with_options::<Value, _>(source, options);
     match result.catch(ctx) {
         Ok(_) => Ok(()),
@@ -208,48 +210,6 @@ fn run_handler(
         Err(rquickjs::CaughtError::Value(value)) => Err(describe_value(&hooks, value)),
         Err(rquickjs::CaughtError::Error(error)) => Err(error.to_string()),
     }
-}
-
-/// Whether the text begins with the directive `"use strict"` (after white space and comments).
-fn starts_strict(source: &str) -> bool {
-    let mut rest = source.trim_start_matches('\u{feff}');
-    loop {
-        rest = rest.trim_start();
-        if let Some(after) = rest.strip_prefix("//") {
-            rest = after.split_once('\n').map_or("", |(_, tail)| tail);
-        } else if let Some(after) = rest.strip_prefix("/*") {
-            let Some((_, tail)) = after.split_once("*/") else {
-                return false;
-            };
-            rest = tail;
-        } else {
-            break;
-        }
-    }
-    for quote in ['"', '\''] {
-        let directive = format!("{quote}use strict{quote}");
-        if let Some(after) = rest.strip_prefix(directive.as_str()) {
-            // The directive ends the statement: `;`, a closing brace, the end of the text, or a
-            // line break after which the next token cannot go on with the string (`"use strict"
-            // + x` and `"use strict" in x` are expressions, not directives).
-            let after = after.trim_start_matches([' ', '\t']);
-            if after.is_empty() || after.starts_with([';', '}']) {
-                return true;
-            }
-            if !after.starts_with(['\n', '\r']) {
-                return false;
-            }
-            let next = after.trim_start();
-            let word: String = next
-                .chars()
-                .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$')
-                .collect();
-            return next.is_empty()
-                || next.starts_with([';', '}', '\'', '"', '{'])
-                || (!word.is_empty() && word != "in" && word != "instanceof");
-        }
-    }
-    false
 }
 
 fn restore_hooks<'js>(
@@ -507,31 +467,6 @@ fn json_to_js<'js>(ctx: &Ctx<'js>, value: &Json) -> rquickjs::Result<Value<'js>>
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_directive_use_strict_is_found_at_the_start() {
-        for yes in [
-            "'use strict'; x = 1;",
-            "\"use strict\"\nx = 1",
-            "  // c\n/* d */ \"use strict\";",
-            "\u{feff}\"use strict\"",
-            "'use strict'",
-        ] {
-            assert!(starts_strict(yes), "{yes:?}");
-        }
-        for no in [
-            "x = 1; 'use strict';",
-            "\"use strict\" + x",
-            "\"use  strict\";",
-            "\"use strict\"\n+ 1; undeclared = 1;",
-            "\"use strict\"\n(f)",
-            "\"use strict\"\nin x",
-            "/* unclosed",
-            "",
-        ] {
-            assert!(!starts_strict(no), "{no:?}");
-        }
-    }
 
     fn with_context<R>(f: impl FnOnce(&Ctx<'_>) -> R) -> R {
         let runtime = Runtime::new().unwrap();

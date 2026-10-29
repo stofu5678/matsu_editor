@@ -377,6 +377,23 @@ impl EditorView {
     }
 }
 
+/// The answer to a request of a plugin whose document was replaced.
+fn replaced_reply(text: &str) -> Option<String> {
+    use matsu_plugin::protocol::{self, RpcError};
+    match protocol::parse_request(text) {
+        Ok(request) => request.id.map(|id| {
+            protocol::response_error(
+                &id,
+                &RpcError::new(
+                    protocol::INTERNAL_ERROR,
+                    "the document of this call was closed or replaced",
+                ),
+            )
+        }),
+        Err(rejection) => Some(protocol::response_error(&rejection.id, &rejection.error)),
+    }
+}
+
 /// The words for how a call ended, for the output panel.
 fn describe(outcome: &Outcome, limit: Duration) -> String {
     match outcome {
@@ -440,8 +457,9 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
         if depth.is_some() {
             view.open_undo_block(cx);
         }
-        depth
+        (depth, view.document.read(cx).generation())
     });
+    let (depth, generation) = depth;
     let weak = editor.downgrade();
     cx.spawn(async move |cx| {
         let mut busy = 0_usize;
@@ -472,12 +490,22 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                     })
                     .is_ok(),
                 Progress::Request(text) => {
-                    let reply = weak
-                        .update(cx, |view, cx| view.answer_plugin_request(&text, &mut api, cx));
+                    let reply = weak.update(cx, |view, cx| {
+                        // The call belongs to the document it began on. If the window loaded
+                        // another one meanwhile, the plugin is refused and stopped: it must not
+                        // edit what it was not given (ADR-0026, chapter 2).
+                        if view.document.read(cx).generation() != generation {
+                            return (replaced_reply(&text), true);
+                        }
+                        (view.answer_plugin_request(&text, &mut api, cx), false)
+                    });
                     match reply {
-                        Ok(reply) => {
+                        Ok((reply, replaced)) => {
                             if let Some(line) = reply {
                                 host.borrow().reply(line);
+                            }
+                            if replaced {
+                                host.borrow_mut().shutdown();
                             }
                             true
                         }
@@ -489,7 +517,10 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                     set_stopped(&id, stopped);
                     let _ = weak.update(cx, |view, cx| {
                         view.macros.plugin_running = false;
-                        view.leave_undo_block(depth, cx);
+                        // The undo history of a document that was replaced is gone with it.
+                        if view.document.read(cx).generation() == generation {
+                            view.leave_undo_block(depth, cx);
+                        }
                         if let Outcome::Failed(text) | Outcome::Died(text) = &outcome {
                             view.macros.output.push(Kind::Err, text.clone());
                         }

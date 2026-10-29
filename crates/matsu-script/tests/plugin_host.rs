@@ -388,7 +388,7 @@ fn each_handler_file_has_its_own_global_scope_and_may_declare_what_another_decla
     let dir = plugin_dir(&[
         (
             "a.js",
-            "const config = 'a'; var seen = typeof other; globalThis.fromA = (globalThis.fromA || 0) + 1; console.log('a', config, seen, fromA);",
+            "const config = 'a'; globalThis.seen = typeof other; globalThis.fromA = (globalThis.fromA || 0) + 1; console.log('a', config, seen, fromA);",
         ),
         (
             "b.js",
@@ -410,12 +410,12 @@ fn each_handler_file_has_its_own_global_scope_and_may_declare_what_another_decla
 }
 
 #[test]
-fn a_resident_handler_with_a_let_or_a_const_can_be_called_again_and_keeps_var_state() {
-    let code = "let local = 1; const fixed = 2; class K {} var kept = (typeof kept === 'number' ? kept : 0) + 1; function f() { return kept; } console.log(local + fixed, f());";
+fn a_resident_handler_with_a_let_or_a_const_can_be_called_again_and_keeps_global_this_state() {
+    let code = "let local = 1; const fixed = 2; class K {} var mine = 1; function f() { return globalThis.kept; } globalThis.kept = (typeof globalThis.kept === 'number' ? globalThis.kept : 0) + 1; console.log(local + fixed, f(), typeof mine);";
     let dir = plugin_dir(&[("again.js", code)]);
     let mut host = host(dir.path(), true);
     let mut world = World::new("");
-    for expected in ["3 1", "3 2", "3 3"] {
+    for expected in ["3 1 number", "3 2 number", "3 3 number"] {
         let report = world.call(&mut host, "again.js", PATIENT);
         assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
         assert_eq!(stdout(&report), [expected]);
@@ -527,12 +527,30 @@ fn shutting_down_and_cancelling_a_looping_call_kill_the_process() {
 }
 
 #[test]
-fn a_handler_that_asks_for_strict_mode_gets_it_and_one_that_does_not_runs_loose() {
+fn a_handler_that_asks_for_strict_mode_gets_it_in_every_form_and_one_that_does_not_runs_loose() {
     let dir = plugin_dir(&[
-        ("strict.js", "'use strict';\nundeclared = 1;"),
+        ("plain.js", "'use strict';\nundeclared = 1;"),
         (
-            "strict_comment.js",
-            "// a comment first\n\"use strict\"; undeclared2 = 1;",
+            "comment_first.js",
+            "// a comment first\n\"use strict\"; undeclared = 1;",
+        ),
+        (
+            "second_directive.js",
+            "\"custom\"; \"use strict\"; undeclared = 1;",
+        ),
+        (
+            "comment_after.js",
+            "\"use strict\" /* c */; undeclared = 1;",
+        ),
+        ("comment_next.js", "\"use strict\"\n// c\nundeclared = 1;"),
+        // Not directives: the string is part of an expression, and the handler is loose.
+        (
+            "expression.js",
+            "\"use strict\"\n+ 1; undeclared = 1; console.log(typeof undeclared);",
+        ),
+        (
+            "after_code.js",
+            "var a = 1; \"use strict\"; undeclared = 1; console.log(typeof undeclared);",
         ),
         (
             "loose.js",
@@ -545,7 +563,13 @@ fn a_handler_that_asks_for_strict_mode_gets_it_and_one_that_does_not_runs_loose(
     ]);
     let mut host = host(dir.path(), true);
     let mut world = World::new("");
-    for file in ["strict.js", "strict_comment.js"] {
+    for file in [
+        "plain.js",
+        "comment_first.js",
+        "second_directive.js",
+        "comment_after.js",
+        "comment_next.js",
+    ] {
         let report = world.call(&mut host, file, PATIENT);
         let Outcome::Failed(text) = &report.outcome else {
             panic!("{file}: {:?}", report.outcome);
@@ -553,9 +577,11 @@ fn a_handler_that_asks_for_strict_mode_gets_it_and_one_that_does_not_runs_loose(
         assert!(text.contains("is not defined"), "{file}: {text}");
         host.reset();
     }
-    let loose = world.call(&mut host, "loose.js", PATIENT);
-    assert_eq!(loose.outcome, Outcome::Ok, "{:?}", loose.output);
-    assert_eq!(stdout(&loose), ["number"]);
+    for file in ["loose.js", "after_code.js"] {
+        let report = world.call(&mut host, file, PATIENT);
+        assert_eq!(report.outcome, Outcome::Ok, "{file}: {:?}", report.output);
+        assert_eq!(stdout(&report), ["number"], "{file}");
+    }
     let this = world.call(&mut host, "strict_this.js", PATIENT);
     assert_eq!(stdout(&this), ["true"]);
 }
