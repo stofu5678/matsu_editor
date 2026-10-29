@@ -1318,10 +1318,10 @@ fn overwrite_caret_cells(
     caret: matsu_core::buffer::Pos,
 ) -> u32 {
     let Some(c) = doc
-        .line(caret.line)
+        .rest_of_line(caret.line, caret.col, 8)
         .ok()
         .flatten()
-        .and_then(|l| l.text.get(caret.col..)?.chars().next())
+        .and_then(|(rest, _)| rest.chars().next())
     else {
         return 1;
     };

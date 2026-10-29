@@ -795,3 +795,261 @@ fn perf_report() {
         );
     }
 }
+
+// ---- very long lines (ADR-0020, 9.10) ----
+
+mod long_lines {
+    use std::borrow::Cow;
+    use std::io;
+    use std::ops::ControlFlow;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use matsu_core::buffer::{
+        Document, EncodingCodec, MemorySource, Pos, ScanOptions, Source, scan_blocks,
+    };
+    use matsu_core::encoding::Encoding;
+
+    use super::super::{DocumentLayout, LONG_ROW_BYTES};
+    use crate::config::LayoutConfig;
+
+    /// A source that counts the bytes it hands out.
+    #[derive(Debug)]
+    struct Counting {
+        inner: MemorySource,
+        read: Arc<AtomicU64>,
+    }
+
+    impl Source for Counting {
+        fn len(&self) -> u64 {
+            self.inner.len()
+        }
+
+        fn read(&self, start: u64, end: u64) -> io::Result<Cow<'_, [u8]>> {
+            self.read.fetch_add(end - start, Ordering::Relaxed);
+            self.inner.read(start, end)
+        }
+    }
+
+    /// A document read by ranges, with lines from `long` bytes counted as long, and the counter
+    /// of the bytes read from its source.
+    fn ranged(text: &str, block: usize, long: usize) -> (Document, Arc<AtomicU64>) {
+        let read = Arc::new(AtomicU64::new(0));
+        let source = Arc::new(Counting {
+            inner: MemorySource::new(text.as_bytes().to_vec()),
+            read: read.clone(),
+        });
+        let options = ScanOptions {
+            block_size: block,
+            long_line: long,
+            ..ScanOptions::default()
+        };
+        let index = scan_blocks(
+            source,
+            Arc::new(EncodingCodec(Encoding::Utf8)),
+            options,
+            |_| ControlFlow::Continue(()),
+        )
+        .unwrap();
+        (Document::from_block_index(index).unwrap(), read)
+    }
+
+    fn long_text() -> String {
+        // about 50 KB in a line, with characters of 1, 2 and 3 bytes, and a tab
+        let mut line = String::new();
+        let mut i = 0;
+        while line.len() < 50_000 {
+            line.push_str(["abc", "é", "日本語", "\t", "x"][i % 5]);
+            i += 1;
+        }
+        format!("first\n{line}\nlast")
+    }
+
+    #[test]
+    fn a_very_long_line_has_a_row_for_each_part_of_its_text() {
+        let text = long_text();
+        let (doc, _) = ranged(&text, 256, 4096);
+        assert!(doc.is_long_line(1));
+        assert!(!doc.is_long_line(0));
+        let layout = DocumentLayout::laid_out(&doc, LayoutConfig::default()).unwrap();
+        let line = doc.line(1).unwrap().unwrap().text;
+        let rows_of_line = line.len().div_ceil(LONG_ROW_BYTES);
+        assert_eq!(layout.rows_in_line(1), Some(rows_of_line));
+        assert_eq!(layout.row_count(), 1 + rows_of_line + 1);
+        // the rows give the text back, in order, and no row is longer than its part
+        let rows = layout.rows(&doc, 1, rows_of_line).unwrap();
+        let joined: String = rows.iter().map(|r| r.text()).collect();
+        assert_eq!(joined, line);
+        for (k, row) in rows.iter().enumerate() {
+            assert_eq!(row.line, 1);
+            assert_eq!(row.row_in_line, k);
+            assert!(row.text().len() <= LONG_ROW_BYTES + 3);
+            assert_eq!(row.wrapped, k + 1 < rows_of_line);
+            assert_eq!(row.eol.is_some(), k + 1 == rows_of_line);
+            if k > 0 {
+                assert_eq!(row.start, rows[k - 1].end);
+            }
+        }
+    }
+
+    #[test]
+    fn places_and_rows_map_to_each_other_in_a_very_long_line() {
+        let text = long_text();
+        let (doc, _) = ranged(&text, 256, 4096);
+        let layout = DocumentLayout::laid_out(&doc, LayoutConfig::default()).unwrap();
+        let line = doc.line(1).unwrap().unwrap().text;
+        // every character start of the line
+        let mut col = 0;
+        for c in line.chars() {
+            let pos = Pos::new(1, col);
+            let at = layout.pos_to_row(&doc, pos).unwrap();
+            let back = layout.row_to_pos(&doc, at.row, at.column).unwrap();
+            assert_eq!(back.pos, pos, "col {col}");
+            // the row is the one that holds the column
+            let row = layout.row(&doc, at.row).unwrap();
+            assert!(row.start.col <= col && col <= row.end.col, "col {col}");
+            col += c.len_utf8();
+        }
+        // moving by rows stays in the line, and the ends of the text are the ends of the line
+        let down = layout.move_rows(&doc, Pos::new(1, 10), 2, 5).unwrap();
+        assert_eq!(down.pos.line, 1);
+        let far = layout.move_rows(&doc, Pos::new(1, 10), 10_000, 5).unwrap();
+        assert!(far.row <= layout.row_count());
+    }
+
+    #[test]
+    fn a_very_long_line_is_not_read_as_a_whole() {
+        let line = "0123456789abcdef日本語".repeat(1_200_000 / 25);
+        let text = format!("head\n{line}\ntail");
+        let (doc, read) = ranged(&text, 4096, 32 * 1024);
+        let mut layout = DocumentLayout::new(&doc, LayoutConfig::default()).unwrap();
+        read.store(0, Ordering::Relaxed);
+        layout.layout_all(&doc).unwrap();
+        let rows = layout.rows_in_line(1).unwrap();
+        assert!(rows > 200);
+        let used = |what: &str, limit: u64, f: &mut dyn FnMut()| {
+            let before = read.load(Ordering::Relaxed);
+            f();
+            let used = read.load(Ordering::Relaxed) - before;
+            assert!(
+                used < limit,
+                "{what}: {used} bytes were read (limit {limit})"
+            );
+        };
+        let len = doc.line_len(1).unwrap().unwrap();
+        // counting the rows of the line reads no text of it
+        assert!(read.load(Ordering::Relaxed) < 64 * 1024);
+        let mut middle = None;
+        used("a place in the middle", 64 * 1024, &mut || {
+            middle = Some(layout.pos_to_row(&doc, Pos::new(1, len / 2)).unwrap());
+        });
+        let middle = middle.unwrap();
+        used("a click in the middle", 64 * 1024, &mut || {
+            let target = layout.row_to_pos(&doc, middle.row, 7).unwrap();
+            assert_eq!(target.pos.line, 1);
+        });
+        // a screen of 40 rows: about the text of the rows
+        used("a screen in the middle", 40 * 4096 * 4, &mut || {
+            assert_eq!(layout.rows(&doc, middle.row, 40).unwrap().len(), 40);
+        });
+        used("the end of the line", 64 * 1024, &mut || {
+            layout.pos_to_row(&doc, Pos::new(1, len)).unwrap();
+        });
+        used("the first screen", 40 * 4096 * 4, &mut || {
+            layout.rows(&doc, 0, 40).unwrap();
+        });
+    }
+
+    #[test]
+    fn an_edit_in_a_very_long_line_keeps_the_rows_right() {
+        let text = long_text();
+        let (mut doc, _) = ranged(&text, 256, 4096);
+        let mut layout = DocumentLayout::laid_out(&doc, LayoutConfig::default()).unwrap();
+        let before = layout.rows_in_line(1).unwrap();
+        let edit = doc
+            .insert(Pos::new(1, 20_000), &"Z".repeat(10_000))
+            .unwrap();
+        layout.edited(&doc, &edit).unwrap();
+        let line_len = doc.line_len(1).unwrap().unwrap();
+        assert_eq!(
+            layout.rows_in_line(1),
+            Some(line_len.div_ceil(LONG_ROW_BYTES))
+        );
+        assert!(layout.rows_in_line(1).unwrap() > before);
+        let rows = layout.rows(&doc, 1, 100).unwrap();
+        let joined: String = rows
+            .iter()
+            .filter(|r| r.line == 1)
+            .map(|r| r.text())
+            .collect();
+        assert_eq!(joined, doc.line(1).unwrap().unwrap().text);
+    }
+}
+
+/// `MATSU_LAYOUT_FILE=<path> cargo test --release -p matsu-layout --lib measure_layout_of_a_file --
+/// --ignored --nocapture`: the time of what the window does with a big file opened by ranges
+/// (ADR-0020): the layout of its lines, the first screen, a place in the middle, the end.
+#[test]
+#[ignore = "measures the file named by MATSU_LAYOUT_FILE"]
+fn measure_layout_of_a_file() {
+    use std::time::Instant;
+
+    use matsu_core::buffer::Pos;
+    use matsu_core::file::{OpenOptions, open_file};
+
+    let Ok(path) = std::env::var("MATSU_LAYOUT_FILE") else {
+        return;
+    };
+    let status = |key: &str| {
+        std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|s| s.lines().find(|l| l.starts_with(key)).map(str::to_owned))
+            .unwrap_or_default()
+    };
+    let options = OpenOptions {
+        huge_file_len: Some(1),
+        ..OpenOptions::default()
+    };
+    let t = Instant::now();
+    let mut file = open_file(&path, &options).unwrap();
+    let job = file.take_scan().expect("the scan runs");
+    let doc = job.finish().unwrap();
+    println!("open and scan: {:?}", t.elapsed());
+    let t = Instant::now();
+    let mut layout = DocumentLayout::new(&doc, LayoutConfig::default()).unwrap();
+    layout.layout_all(&doc).unwrap();
+    println!(
+        "layout of {} lines, {} rows: {:?}",
+        doc.line_count(),
+        layout.row_count(),
+        t.elapsed()
+    );
+    let rows = layout.row_count();
+    let time = |what: &str, f: &mut dyn FnMut()| {
+        let t = Instant::now();
+        f();
+        println!("{what}: {:?}", t.elapsed());
+    };
+    time("the first 60 rows", &mut || {
+        layout.rows(&doc, 0, 60).unwrap();
+    });
+    time("60 rows in the middle", &mut || {
+        layout.rows(&doc, rows / 2, 60).unwrap();
+    });
+    time("a click in the middle", &mut || {
+        layout.row_to_pos(&doc, rows / 2, 10).unwrap();
+    });
+    time("the position of the end", &mut || {
+        let end = doc.end_pos().unwrap();
+        layout.pos_to_row(&doc, end).unwrap();
+    });
+    time(
+        "the caret one char left of a place in the middle",
+        &mut || {
+            let at = layout.row_to_pos(&doc, rows / 2, 10).unwrap().pos;
+            matsu_core::cursor::char_left(&doc, at).unwrap();
+            matsu_core::cursor::char_right(&doc, Pos::new(at.line, at.col)).unwrap();
+        },
+    );
+    println!("{} {}", status("VmRSS"), status("VmHWM"));
+}

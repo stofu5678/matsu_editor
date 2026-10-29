@@ -325,3 +325,75 @@ fn a_place_and_bookmarks_past_the_scanned_start_come_back_when_the_scan_is_done(
     assert_eq!(entry.map(|e| e.caret_y), Some(89_999));
     std::fs::remove_dir_all(dir).ok();
 }
+
+// ---- a very long line ----
+
+#[gpui::test]
+fn a_file_of_one_very_long_line_opens_scrolls_and_takes_the_caret_and_a_selection(
+    cx: &mut TestAppContext,
+) {
+    use matsu_core::buffer::Pos;
+
+    // 3 MiB without a line ending: a very long line (from 1 MiB, ADR-0020 9.10).
+    let text = "0123456789abcdef".repeat(3 * 1024 * 1024 / 16);
+    let dir = temp_dir("huge-long-line");
+    let path = write_big(&dir, "one.txt", text.as_bytes());
+    let handle = window(cx, true);
+    cx.update(|app| {
+        app.set_global(FilePrefs {
+            huge_file_size_mb: 1,
+            ..FilePrefs::default()
+        });
+    });
+    open_file(cx, handle, &path);
+    let view = {
+        let mut found = None;
+        for _ in 0..6000 {
+            let view = active_view(cx, handle);
+            if view.read_with(cx, |v, cx| v.document().read(cx).doc().raw_len() > 0) {
+                found = Some(view);
+                break;
+            }
+            cx.run_until_parked();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        found.expect("the file was not read")
+    };
+    wait_for_scan(cx, &view);
+    let caret = |cx: &mut TestAppContext| view.read_with(cx, |v, _| v.cursor.caret());
+    // One line of the file, in as many rows as the text has parts of the length of a row.
+    assert_eq!(line_count(cx, &view), 1);
+    let rows = text.len().div_ceil(matsu_layout::LONG_ROW_BYTES);
+    assert_eq!(view.read_with(cx, |v, _| v.layout().row_count()), rows);
+    // The rows give the text.
+    let shown = view.read_with(cx, |v, cx| {
+        let doc = v.document().read(cx).doc();
+        v.layout().rows(doc, 100, 5).unwrap()
+    });
+    assert_eq!(shown.len(), 5);
+    assert_eq!(shown[0].text(), &text[100 * 4096..101 * 4096]);
+    // The caret goes down by rows and to the end, and comes back.
+    for _ in 0..3 {
+        run(cx, handle, "F_DOWN");
+    }
+    assert_eq!(caret(cx), Pos::new(0, 3 * 4096));
+    run(cx, handle, "F_GOFILEEND");
+    assert_eq!(caret(cx), Pos::new(0, text.len()));
+    run(cx, handle, "F_LEFT");
+    assert_eq!(caret(cx), Pos::new(0, text.len() - 1));
+    run(cx, handle, "F_UP");
+    assert_eq!(caret(cx).line, 0);
+    assert!(caret(cx).col < text.len() - 4000);
+    // A selection from the caret to the end of the file.
+    run(cx, handle, "F_GOFILEEND_SEL");
+    let selection = view.read_with(cx, |v, _| v.cursor.selection());
+    assert_eq!(selection.map(|(_, b)| b), Some(Pos::new(0, text.len())));
+    // A char typed in the middle goes there.
+    view.update(cx, |v, cx| {
+        v.cursor.move_to(Pos::new(0, 1_000_000), false);
+        v.type_char('Z', cx);
+    });
+    let len = view.read_with(cx, |v, cx| v.document().read(cx).doc().line_len(0).unwrap());
+    assert_eq!(len, Some(text.len() + 1));
+    std::fs::remove_dir_all(dir).ok();
+}

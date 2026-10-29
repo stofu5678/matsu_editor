@@ -68,7 +68,9 @@ mod width;
 mod wrap;
 
 pub use config::{LayoutConfig, MAX_LINE_COLUMNS, MIN_LINE_COLUMNS, Wrap, WrapIndent};
-pub use document::{DocumentLayout, LineLayout, Progress, RowInfo, RowPos, RowRef, RowTarget};
+pub use document::{
+    DocumentLayout, LONG_ROW_BYTES, LineLayout, Progress, RowInfo, RowPos, RowRef, RowTarget,
+};
 pub use kinsoku::{CharSet, DEFAULT_HEAD, DEFAULT_KUTO, DEFAULT_TAIL, Kinsoku};
 pub use map::{Located, Position, offset_to_position, position_to_offset};
 pub use width::{INVALID_BYTE_BASE, WidthRule};

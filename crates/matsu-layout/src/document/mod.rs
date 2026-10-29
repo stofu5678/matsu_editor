@@ -87,9 +87,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
-use matsu_core::buffer::{Document, Edit, Eol, Pos, Result};
+use matsu_core::buffer::{Document, Edit, Eol, LineSlice, Pos, Result};
 
-use crate::config::LayoutConfig;
+use crate::config::{LayoutConfig, Wrap};
 use crate::map::{offset_to_position, position_to_offset};
 use crate::wrap::{Row, layout_line};
 
@@ -109,10 +109,19 @@ const EDIT_EXACT_LIMIT: usize = 4096;
 /// The lines per step of [`DocumentLayout::layout_for`] between two looks at the clock.
 const STEP_LINES: usize = 512;
 
+/// How many bytes of the decoded text a row of a very long line holds (ADR-0020, 9.10): such a
+/// line is broken at fixed places on the screen, and only the row that is shown is read.
+pub const LONG_ROW_BYTES: usize = 4096;
+
 /// One line laid out: its text, whether it ends with a line ending, and its rows.
+///
+/// For a very long line it is one row of the line: `text` is the text of the row, which starts at
+/// the column `base` of the line. The ranges of `rows` are in `text`.
 #[derive(Clone, Debug)]
 pub struct LineLayout {
     pub text: String,
+    /// The column of the line where `text` starts: 0 except for a row of a very long line.
+    pub base: usize,
     pub has_eol: bool,
     /// The kind of the line ending (`has_eol` is `eol.is_some()`).
     pub eol: Option<Eol>,
@@ -188,29 +197,33 @@ impl RowInfo {
     /// The text on the row, without the line ending.
     pub fn text(&self) -> &str {
         match &self.layout {
-            Some(l) => &l.text[self.start.col..self.end.col],
+            Some(l) => &l.text[self.start.col - l.base..self.end.col - l.base],
             None => "",
         }
     }
 }
 
+/// The key of a cached layout: the line and, for a row of a very long line, the row (0 for any
+/// other line).
+type CacheKey = (usize, usize);
+
 #[derive(Default)]
 struct Cache {
-    lines: HashMap<usize, (u64, Arc<LineLayout>)>,
+    lines: HashMap<CacheKey, (u64, Arc<LineLayout>)>,
     tick: u64,
 }
 
 impl Cache {
-    fn get(&mut self, line: usize) -> Option<Arc<LineLayout>> {
+    fn get(&mut self, key: CacheKey) -> Option<Arc<LineLayout>> {
         self.tick += 1;
         let tick = self.tick;
-        self.lines.get_mut(&line).map(|e| {
+        self.lines.get_mut(&key).map(|e| {
             e.0 = tick;
             Arc::clone(&e.1)
         })
     }
 
-    fn insert(&mut self, line: usize, layout: Arc<LineLayout>) {
+    fn insert(&mut self, key: CacheKey, layout: Arc<LineLayout>) {
         if self.lines.len() >= CACHE_LINES {
             // Drop the older half: a scan over 512 entries, once per 256 inserts.
             let mut ticks: Vec<u64> = self.lines.values().map(|e| e.0).collect();
@@ -219,14 +232,14 @@ impl Cache {
             self.lines.retain(|_, e| e.0 >= cut);
         }
         self.tick += 1;
-        self.lines.insert(line, (self.tick, layout));
+        self.lines.insert(key, (self.tick, layout));
     }
 
     /// Forgets lines `first..` (when the lines after an edit moved) or `first..end` (when they
     /// did not).
     fn forget(&mut self, first: usize, end: Option<usize>) {
         self.lines
-            .retain(|&l, _| l < first || end.is_some_and(|e| l >= e));
+            .retain(|&(l, _), _| l < first || end.is_some_and(|e| l >= e));
     }
 }
 
@@ -336,8 +349,15 @@ impl DocumentLayout {
     fn lay_out_lines(&self, doc: &Document, first: usize, n: usize) -> Result<Vec<u32>> {
         let mut counts = Vec::with_capacity(n);
         let mut scratch = Vec::new();
-        for line in doc.lines(first..first + n) {
-            let line = line?;
+        for i in first..first + n {
+            // A very long line is counted from its length, without decoding it.
+            if let Some(rows) = self.long_rows(doc, i)? {
+                counts.push(rows);
+                continue;
+            }
+            let Some(line) = doc.line(i)? else {
+                break;
+            };
             counts.push(count_rows(
                 &self.cfg,
                 &line.text,
@@ -386,11 +406,17 @@ impl DocumentLayout {
         while row < first_row.saturating_add(count) && line < self.seq.len() {
             let mut n = self.seq.get(line).map_or(1, |c| c as usize);
             if line >= self.done {
-                let Some(layout) = self.line_layout(doc, line)? else {
-                    break;
+                let exact = match self.long_rows(doc, line)? {
+                    Some(rows) => rows as usize,
+                    None => {
+                        let Some(layout) = self.line_layout(doc, line)? else {
+                            break;
+                        };
+                        layout.rows.len()
+                    }
                 };
-                if layout.rows.len() != n {
-                    n = layout.rows.len();
+                if exact != n {
+                    n = exact;
                     self.seq.replace(line, 1, &[n as u32]);
                 }
             }
@@ -522,9 +548,15 @@ impl DocumentLayout {
     // ---- lines and rows ----
 
     /// The rows of line `line`, from the cache or laid out now. `None` past the last line.
+    ///
+    /// For a very long line (ADR-0020, 9.10) this is its first row only ([`LineLayout::base`]);
+    /// the others are made by [`DocumentLayout::rows`] and the position functions.
     pub fn line_layout(&self, doc: &Document, line: usize) -> Result<Option<Arc<LineLayout>>> {
-        if let Some(hit) = self.cache().get(line) {
+        if let Some(hit) = self.cache().get((line, 0)) {
             return Ok(Some(hit));
+        }
+        if let Some(rows) = self.long_rows(doc, line)? {
+            return self.long_row_layout(doc, line, 0, rows as usize).map(Some);
         }
         let Some(l) = doc.line(line)? else {
             return Ok(None);
@@ -534,26 +566,104 @@ impl DocumentLayout {
         layout_line(&l.text, has_eol, &self.cfg, &mut rows);
         let layout = Arc::new(LineLayout {
             text: l.text,
+            base: 0,
             has_eol,
             eol: l.eol,
             rows,
         });
-        self.cache().insert(line, Arc::clone(&layout));
+        self.cache().insert((line, 0), Arc::clone(&layout));
         Ok(Some(layout))
     }
 
-    fn info(&self, row: usize, line: usize, k: usize, layout: &Arc<LineLayout>) -> RowInfo {
-        let r = &layout.rows[k.min(layout.rows.len() - 1)];
+    // ---- very long lines ----
+
+    /// The number of rows of line `line` if it is a very long one: a row for each
+    /// [`LONG_ROW_BYTES`] of its decoded text, counted from its length without decoding it.
+    fn long_rows(&self, doc: &Document, line: usize) -> Result<Option<u32>> {
+        if !doc.is_long_line(line) {
+            return Ok(None);
+        }
+        let len = doc.line_len(line)?.unwrap_or(0);
+        Ok(Some(len.div_ceil(LONG_ROW_BYTES).max(1) as u32))
+    }
+
+    /// The column where row `k` of the very long line `line` starts: `k * LONG_ROW_BYTES`, cut
+    /// back to the start of a character.
+    fn long_row_start(&self, doc: &Document, line: usize, k: usize) -> Result<usize> {
+        if k == 0 {
+            return Ok(0);
+        }
+        let at = k * LONG_ROW_BYTES;
+        Ok(doc.line_slice(line, at, at)?.map_or(0, |s| s.start_col))
+    }
+
+    /// Row `k` of the very long line `line`, which has `rows` rows: only the text of the row is
+    /// read. The row does not wrap again; its width is the width of its text.
+    fn long_row_layout(
+        &self,
+        doc: &Document,
+        line: usize,
+        k: usize,
+        rows: usize,
+    ) -> Result<Arc<LineLayout>> {
+        let k = k.min(rows - 1);
+        if let Some(hit) = self.cache().get((line, k)) {
+            return Ok(hit);
+        }
+        let last = k + 1 >= rows;
+        let from = self.long_row_start(doc, line, k)?;
+        let to = if last {
+            usize::MAX
+        } else {
+            self.long_row_start(doc, line, k + 1)?
+        };
+        let slice = doc.line_slice(line, from, to)?.unwrap_or(LineSlice {
+            start_col: from,
+            text: String::new(),
+        });
+        // One row of any width: the text of the row is laid out as a line that never wraps.
+        let mut cfg = self.cfg.clone();
+        cfg.wrap = Wrap::Columns(u32::MAX);
+        let mut laid = Vec::new();
+        layout_line(&slice.text, false, &cfg, &mut laid);
+        let width = laid.last().map_or(0, |r| r.end_column);
+        let eol = if last { doc.line_eol(line)? } else { None };
+        let row = Row {
+            range: 0..slice.text.len(),
+            start_column: 0,
+            end_column: width,
+            wrapped: !last,
+        };
+        let layout = Arc::new(LineLayout {
+            text: slice.text,
+            base: slice.start_col,
+            has_eol: eol.is_some(),
+            eol,
+            rows: vec![row],
+        });
+        self.cache().insert((line, k), Arc::clone(&layout));
+        Ok(layout)
+    }
+
+    fn info(
+        &self,
+        row: usize,
+        line: usize,
+        k: usize,
+        layout: &Arc<LineLayout>,
+        in_layout: usize,
+    ) -> RowInfo {
+        let r = &layout.rows[in_layout.min(layout.rows.len() - 1)];
         RowInfo {
             row,
             line,
             row_in_line: k,
-            start: Pos::new(line, r.range.start),
-            end: Pos::new(line, r.range.end),
+            start: Pos::new(line, layout.base + r.range.start),
+            end: Pos::new(line, layout.base + r.range.end),
             start_column: r.start_column,
             end_column: r.end_column,
             wrapped: r.wrapped,
-            eol: if k + 1 >= layout.rows.len() {
+            eol: if in_layout + 1 >= layout.rows.len() {
                 layout.eol
             } else {
                 None
@@ -593,13 +703,26 @@ impl DocumentLayout {
                 }
                 break;
             }
+            // A line that is not laid out yet shows the rows that are counted for it.
+            let shown = self.seq.get(line).map_or(1, |c| c as usize);
+            if let Some(rows) = self.long_rows(doc, line)? {
+                // a very long line: each row is read when it is shown
+                let rows = rows as usize;
+                while k < shown && out.len() < count {
+                    let layout = self.long_row_layout(doc, line, k, rows)?;
+                    out.push(self.info(row, line, k, &layout, 0));
+                    row += 1;
+                    k += 1;
+                }
+                line += 1;
+                k = 0;
+                continue;
+            }
             let Some(layout) = self.line_layout(doc, line)? else {
                 break;
             };
-            // A line that is not laid out yet shows the rows that are counted for it.
-            let shown = self.seq.get(line).map_or(1, |c| c as usize);
             while k < shown && out.len() < count {
-                out.push(self.info(row, line, k, &layout));
+                out.push(self.info(row, line, k, &layout, k));
                 row += 1;
                 k += 1;
             }
@@ -625,6 +748,26 @@ impl DocumentLayout {
             return Ok(RowPos {
                 row: self.seq.total_rows() as usize,
                 column: 0,
+            });
+        }
+        // a very long line: the row that holds the column, and the column on it
+        if let Some(rows) = self.long_rows(doc, pos.line)? {
+            let rows = rows as usize;
+            let mut k = (pos.col / LONG_ROW_BYTES).min(rows - 1);
+            if k + 1 < rows && pos.col >= self.long_row_start(doc, pos.line, k + 1)? {
+                k += 1;
+            }
+            let layout = self.long_row_layout(doc, pos.line, k, rows)?;
+            let p = offset_to_position(
+                &layout.text,
+                &layout.rows,
+                &self.cfg,
+                pos.col.saturating_sub(layout.base),
+            );
+            let shown = self.seq.get(pos.line).map_or(1, |c| c as usize);
+            return Ok(RowPos {
+                row: self.first_row_of_line(pos.line) + k.min(shown - 1),
+                column: p.column,
             });
         }
         let Some(layout) = self.line_layout(doc, pos.line)? else {
@@ -656,6 +799,15 @@ impl DocumentLayout {
         };
         if r.line >= self.seq.len() {
             return Ok(eof);
+        }
+        if let Some(rows) = self.long_rows(doc, r.line)? {
+            let layout = self.long_row_layout(doc, r.line, r.row_in_line, rows as usize)?;
+            let at = position_to_offset(&layout.text, &layout.rows, &self.cfg, 0, column);
+            return Ok(RowTarget {
+                row,
+                pos: Pos::new(r.line, layout.base + at.offset),
+                extra_columns: at.extra_columns,
+            });
         }
         let Some(layout) = self.line_layout(doc, r.line)? else {
             return Ok(eof);

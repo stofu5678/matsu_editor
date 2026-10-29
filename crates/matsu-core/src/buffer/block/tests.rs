@@ -882,3 +882,163 @@ fn measure_scan_of_a_file() {
         t.elapsed()
     );
 }
+
+// ---- very long lines: places found from the anchors (ADR-0020, 9.10) ----
+
+fn long_options(block_size: usize, long_line: usize) -> ScanOptions {
+    ScanOptions {
+        block_size,
+        window_blocks: 3,
+        long_line,
+        ..ScanOptions::default()
+    }
+}
+
+/// A document over `bytes` as the scan of a huge file makes it, and the dense document over the
+/// same bytes to compare with.
+fn long_and_dense(bytes: &[u8], enc: Encoding, block: usize, long: usize) -> (Document, Document) {
+    let index = scan_blocks(source(bytes), codec(enc), long_options(block, long), |_| {
+        ControlFlow::Continue(())
+    })
+    .unwrap();
+    assert!(
+        index.long_anchors.len() > 5 || long == 0,
+        "the line is long"
+    );
+    let dense = Document::new(MemorySource::new(bytes.to_vec()), codec(enc)).unwrap();
+    (Document::from_block_index(index).unwrap(), dense)
+}
+
+#[test]
+fn places_in_a_very_long_line_agree_with_the_dense_document() {
+    let long = "日本語abc\t漢字 テキスト".repeat(40);
+    let text = format!("short\n{long}\nafter\r\n{long}");
+    for enc in [
+        Encoding::Utf8,
+        Encoding::ShiftJis,
+        Encoding::Utf16Le,
+        Encoding::Utf16Be,
+        Encoding::EucJp,
+    ] {
+        let bytes = encode(enc, &text);
+        for (block, limit) in [(16, 100), (8, 64), (33, 300)] {
+            let (ranged, dense) = long_and_dense(&bytes, enc, block, limit);
+            assert_eq!(ranged.line_count(), dense.line_count());
+            for line in 0..dense.line_count() {
+                let len = dense.line_len(line).unwrap().unwrap();
+                assert_eq!(ranged.line_len(line).unwrap(), Some(len), "{enc:?} {line}");
+                // every place of the line, and ranges inside it
+                let step = (len / 37).max(1);
+                for col in (0..=len + 2).step_by(step) {
+                    let p = Pos { line, col };
+                    assert_eq!(
+                        ranged.clamp_pos(p).unwrap(),
+                        dense.clamp_pos(p).unwrap(),
+                        "{enc:?} block {block} line {line} col {col}"
+                    );
+                    for to in (col..=len).step_by(step * 3) {
+                        let q = Pos { line, col: to };
+                        assert_eq!(
+                            ranged.text_between(p, q).unwrap(),
+                            dense.text_between(p, q).unwrap(),
+                            "{enc:?} block {block} line {line} cols {col}..{to}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn invalid_bytes_in_a_very_long_line_count_as_stand_ins() {
+    // 0xFF is not UTF-8: it is one byte in the file and four in the decoded text.
+    let mut bytes = Vec::new();
+    for i in 0..400 {
+        bytes.extend_from_slice(b"ab");
+        if i % 7 == 0 {
+            bytes.push(0xFF);
+        }
+    }
+    bytes.push(b'\n');
+    bytes.extend_from_slice(b"end");
+    let (ranged, dense) = long_and_dense(&bytes, Encoding::Utf8, 16, 100);
+    let len = dense.line_len(0).unwrap().unwrap();
+    assert_eq!(ranged.line_len(0).unwrap(), Some(len));
+    for col in (0..=len).step_by(13) {
+        let p = Pos { line: 0, col };
+        assert_eq!(ranged.clamp_pos(p).unwrap(), dense.clamp_pos(p).unwrap());
+    }
+}
+
+#[test]
+fn the_anchors_start_where_the_line_gets_long_and_end_with_the_line() {
+    let text = format!("{}\nshort\n{}\n", "a".repeat(500), "b".repeat(500));
+    let index = scan(text.as_bytes(), Encoding::Utf8, long_options(16, 100));
+    let anchors = &index.long_anchors;
+    assert!(!anchors.is_empty());
+    // two lines, so two lines' starts
+    let starts: std::collections::BTreeSet<u64> = anchors.iter().map(|a| a.line_start).collect();
+    assert_eq!(starts.len(), 2);
+    assert!(starts.contains(&0));
+    // the decoded length before an anchor grows along a line
+    for pair in anchors.windows(2) {
+        if pair[0].line_start == pair[1].line_start {
+            assert!(pair[0].dec_before < pair[1].dec_before);
+        }
+    }
+    // a file without a long line has no anchors
+    let none = scan(b"a\nb\nc\n", Encoding::Utf8, options(2, 1, false));
+    assert!(none.long_anchors.is_empty());
+}
+
+#[test]
+fn slices_of_a_very_long_line_tile_the_line_and_agree_with_the_dense_document() {
+    let long = "日本語abc\t漢字 テキスト".repeat(60);
+    let text = format!("short\n{long}\nlast");
+    for enc in [Encoding::Utf8, Encoding::ShiftJis, Encoding::Utf16Le] {
+        let bytes = encode(enc, &text);
+        let (ranged, dense) = long_and_dense(&bytes, enc, 16, 100);
+        assert!(!ranged.is_long_line(0));
+        assert!(ranged.is_long_line(1));
+        assert!(
+            !dense.is_long_line(1),
+            "a document that is read whole has none"
+        );
+        let whole = dense.line(1).unwrap().unwrap().text;
+        let len = whole.len();
+        // slices of 37 columns, each cut back to a character: they follow one another
+        let mut joined = String::new();
+        let mut at = 0;
+        let mut starts = Vec::new();
+        while at < len {
+            let next = ranged
+                .line_slice(1, at, at + 37)
+                .unwrap()
+                .expect("the line is there");
+            assert!(next.start_col <= at);
+            starts.push(next.start_col);
+            // the end of a slice is where the next one starts
+            let after = ranged
+                .line_slice(1, at + 37, at + 37)
+                .unwrap()
+                .unwrap()
+                .start_col;
+            assert_eq!(
+                next.start_col + next.text.len(),
+                after.min(len),
+                "{enc:?} at {at}"
+            );
+            joined.push_str(&next.text);
+            at += 37;
+        }
+        assert_eq!(joined.len(), len);
+        assert_eq!(whole.get(starts[0]..), Some(joined.as_str()));
+        // the rest of the line, and its line ending
+        let (rest, eol) = ranged.rest_of_line(1, 41, 10).unwrap().unwrap();
+        assert!(rest.len() <= 14 && whole[41..].starts_with(&rest));
+        assert_eq!(eol, dense.line(1).unwrap().unwrap().eol);
+        assert_eq!(ranged.line_eol(2).unwrap(), None);
+        assert_eq!(ranged.line_eol(1).unwrap(), dense.line_eol(1).unwrap());
+    }
+}

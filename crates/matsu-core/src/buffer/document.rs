@@ -19,6 +19,14 @@ pub struct Line {
     pub eol: Option<Eol>,
 }
 
+/// A part of the decoded text of a line ([`Document::line_slice`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LineSlice {
+    /// The column of the first character of `text` in the line.
+    pub start_col: usize,
+    pub text: String,
+}
+
 /// The result of an edit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Edit {
@@ -228,6 +236,70 @@ impl Document {
         Ok(Some(self.line_text_end(i)? - self.line_start(i)?))
     }
 
+    /// The text of line `i` from column `col` on, and the line ending of the line. For a very long
+    /// line (see [`Document::is_long_line`]) the text is cut after about `max_bytes` bytes, so that
+    /// a caller that looks at the characters near the caret does not decode the line. `None` if
+    /// there is no such line. `col` should be at a character.
+    pub fn rest_of_line(
+        &self,
+        i: usize,
+        col: usize,
+        max_bytes: usize,
+    ) -> Result<Option<(String, Option<Eol>)>> {
+        if self.is_long_line(i) {
+            let Some(slice) = self.line_slice(i, col, col.saturating_add(max_bytes))? else {
+                return Ok(None);
+            };
+            return Ok(Some((slice.text, self.line_eol(i)?)));
+        }
+        Ok(self
+            .line(i)?
+            .map(|l| (l.text.get(col..).unwrap_or("").to_owned(), l.eol)))
+    }
+
+    /// The line ending of line `i`: `None` for the last line when it has none (and when there is
+    /// no such line). It reads the index only.
+    pub fn line_eol(&self, i: usize) -> Result<Option<Eol>> {
+        if i >= self.try_line_count()? {
+            return Ok(None);
+        }
+        Ok(self.brk(i)?.map(|b| b.kind))
+    }
+
+    /// Whether line `i` is a very long one (ADR-0020, 9.10): the document is read by ranges and
+    /// the line has so many bytes that it is not decoded as a whole. Places in it are found from
+    /// what the scan recorded; ask for a part of it with [`Document::line_slice`].
+    pub fn is_long_line(&self, i: usize) -> bool {
+        let Some(limit) = self.st.long_line_bytes() else {
+            return false;
+        };
+        self.line_raw_len(i)
+            .ok()
+            .flatten()
+            .is_some_and(|len| len >= limit)
+    }
+
+    /// The decoded text of line `i` from column `from_col` to column `to_col` (bytes of the
+    /// decoded text, as in [`Pos`]), each cut back to the start of a character, or the end of the
+    /// line. For a very long line this reads only that part. `None` if there is no such line.
+    pub fn line_slice(
+        &self,
+        i: usize,
+        from_col: usize,
+        to_col: usize,
+    ) -> Result<Option<LineSlice>> {
+        if i >= self.try_line_count()? {
+            return Ok(None);
+        }
+        let (start, end) = (self.line_start(i)?, self.line_text_end(i)?);
+        let a = self.raw_for_col(start, end, from_col)?;
+        let b = self.raw_for_col(start, end, to_col.max(from_col))?.max(a);
+        Ok(Some(LineSlice {
+            start_col: self.decoded_len(start, a)?,
+            text: self.decode_range(a, b)?,
+        }))
+    }
+
     /// Whether edits are refused: the document shows the scanned start of a file that is still
     /// being scanned ([`Document::from_block_index`]).
     pub fn is_read_only(&self) -> bool {
@@ -419,19 +491,39 @@ impl Document {
                     }
                 }
                 Store::Original => {
-                    let bytes = st.read_original(s, e)?;
-                    let codec = &st.original.codec;
-                    let (mut i, mut seen) = (0, 0);
-                    while i < bytes.len() {
-                        let n = codec.char_len(&bytes, i).clamp(1, bytes.len() - i);
-                        scratch.clear();
-                        codec.decode(&bytes[i..i + n], &mut scratch);
-                        if seen + scratch.len() > remaining {
-                            found = Some(raw + i);
+                    // A very long line is not decoded from its start (ADR-0020, 9.10).
+                    if let Some(len) = st.original_decoded_len(s, e)? {
+                        if remaining >= len {
+                            remaining -= len;
                             return Ok(());
                         }
-                        seen += scratch.len();
-                        i += n;
+                        if let Some(at) = st.original_raw_at(s, e, remaining)? {
+                            found = Some(raw + (at - s));
+                            return Ok(());
+                        }
+                    }
+                    // Read in parts, so that a place near the start of a huge piece does not read
+                    // all of it. A part is read a few bytes long, to see a character at its end.
+                    const PART: usize = 256 * 1024;
+                    let codec = &st.original.codec;
+                    let (mut off, mut seen) = (0, 0);
+                    while s + off < e {
+                        let take = (e - (s + off)).min(PART);
+                        let look = (take + 8).min(e - (s + off));
+                        let bytes = st.read_original(s + off, s + off + look)?;
+                        let mut i = 0;
+                        while i < take {
+                            let n = codec.char_len(&bytes, i).clamp(1, bytes.len() - i);
+                            scratch.clear();
+                            codec.decode(&bytes[i..i + n], &mut scratch);
+                            if seen + scratch.len() > remaining {
+                                found = Some(raw + off + i);
+                                return Ok(());
+                            }
+                            seen += scratch.len();
+                            i += n;
+                        }
+                        off += i;
                     }
                     remaining -= seen;
                 }

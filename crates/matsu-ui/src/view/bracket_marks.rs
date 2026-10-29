@@ -110,10 +110,9 @@ fn marks_checked(
             continue;
         }
         let ch = doc
-            .line(pos.line)
+            .rest_of_line(pos.line, pos.col, 8)
             .ok()??
-            .text
-            .get(pos.col..)?
+            .0
             .chars()
             .next()?;
         marks.push(Mark {

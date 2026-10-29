@@ -31,6 +31,7 @@
 //! scanned ([`ScanError::Stateful`]); the caller reads them whole as before (ADR-0020, chapter 3,
 //! plan A).
 
+mod long;
 mod scan;
 #[cfg(test)]
 mod tests;
@@ -40,9 +41,10 @@ use std::fmt;
 use std::io;
 use std::sync::{Arc, Mutex};
 
+use long::{CharsCache, LongAnchor};
 pub use scan::{
-    BlockScanner, ScanError, ScanFailure, ScanJob, ScanOptions, ScanProgress, ScanState,
-    scan_blocks,
+    BlockScanner, DEFAULT_LONG_LINE, ScanError, ScanFailure, ScanJob, ScanOptions, ScanProgress,
+    ScanState, scan_blocks,
 };
 
 use super::codec::{self, Codec, Eol};
@@ -223,6 +225,11 @@ pub struct BlockIndex {
     covered: u64,
     /// The number of line endings in `0..covered`.
     breaks: u64,
+    /// The blocks that are in a long line, sorted by block (ADR-0020, 9.10).
+    long_anchors: Vec<LongAnchor>,
+    chars: Arc<Mutex<CharsCache>>,
+    /// The size from which a line is long (see [`ScanOptions::long_line`]); 0 when there are none.
+    long_line: usize,
     tables: Arc<Mutex<TableCache>>,
 }
 
@@ -245,6 +252,7 @@ impl BlockIndex {
         codec: Arc<dyn Codec>,
         ext_eol: bool,
         block_size: usize,
+        long_line: usize,
     ) -> Self {
         Self {
             source,
@@ -256,6 +264,9 @@ impl BlockIndex {
             breaks_before: Vec::new(),
             covered: 0,
             breaks: 0,
+            long_anchors: Vec::new(),
+            chars: Arc::default(),
+            long_line,
             tables: Arc::default(),
         }
     }
@@ -466,5 +477,25 @@ impl EolIndex for BlockIndex {
 
     fn heap_bytes(&self) -> usize {
         BlockIndex::heap_bytes(self)
+    }
+
+    fn long_line_bytes(&self) -> Option<usize> {
+        (self.long_line > 0).then_some(self.long_line)
+    }
+
+    fn decoded_len_long(&self, start: usize, end: usize) -> io::Result<Option<usize>> {
+        Ok(BlockIndex::decoded_len_long(self, start as u64, end as u64)?.map(|n| n as usize))
+    }
+
+    fn raw_at_decoded_long(
+        &self,
+        start: usize,
+        end: usize,
+        cols: usize,
+    ) -> io::Result<Option<usize>> {
+        Ok(
+            BlockIndex::raw_at_decoded_long(self, start as u64, end as u64, cols as u64)?
+                .map(|n| n as usize),
+        )
     }
 }
