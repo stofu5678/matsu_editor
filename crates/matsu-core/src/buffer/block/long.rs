@@ -139,7 +139,7 @@ impl BlockIndex {
         while at < bytes.len() {
             chars.push((at as u32, decoded));
             let n = self.codec.char_len(&bytes, at).clamp(1, bytes.len() - at);
-            decoded += if n == 1 && bytes[at] < 0x80 {
+            decoded += if n == 1 && bytes[at] < 0x80 && self.ascii_bytes {
                 1
             } else {
                 scratch.clear();

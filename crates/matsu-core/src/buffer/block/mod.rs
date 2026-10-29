@@ -230,6 +230,9 @@ pub struct BlockIndex {
     chars: Arc<Mutex<CharsCache>>,
     /// The size from which a line is long (see [`ScanOptions::long_line`]); 0 when there are none.
     long_line: usize,
+    /// A byte below 0x80 that stands alone decodes to itself in this codec (not in UTF-16, where
+    /// an odd byte is an invalid one).
+    ascii_bytes: bool,
     tables: Arc<Mutex<TableCache>>,
 }
 
@@ -254,6 +257,11 @@ impl BlockIndex {
         block_size: usize,
         long_line: usize,
     ) -> Self {
+        let ascii_bytes = {
+            let mut text = String::new();
+            codec.decode(b"a", &mut text);
+            text == "a"
+        };
         Self {
             source,
             lens: EolLens::new(&*codec),
@@ -266,6 +274,7 @@ impl BlockIndex {
             breaks: 0,
             long_anchors: Vec::new(),
             chars: Arc::default(),
+            ascii_bytes,
             long_line,
             tables: Arc::default(),
         }

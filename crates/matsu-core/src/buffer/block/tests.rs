@@ -1042,3 +1042,13 @@ fn slices_of_a_very_long_line_tile_the_line_and_agree_with_the_dense_document() 
         assert_eq!(ranged.line_eol(1).unwrap(), dense.line_eol(1).unwrap());
     }
 }
+
+#[test]
+fn an_odd_byte_at_the_end_of_a_utf16_long_line_counts_as_an_invalid_byte() {
+    let mut bytes = encode(Encoding::Utf16Le, &"abc日本語".repeat(120));
+    bytes.push(0x41);
+    let (ranged, dense) = long_and_dense(&bytes, Encoding::Utf16Le, 16, 100);
+    let len = dense.line_len(0).unwrap().unwrap();
+    assert_eq!(ranged.line_len(0).unwrap(), Some(len));
+    assert_eq!(ranged.end_pos().unwrap(), dense.end_pos().unwrap());
+}
