@@ -93,7 +93,7 @@ pub(crate) fn shutdown_all(cx: &mut App) {
         .map(|(_, host)| host)
         .collect();
     for host in hosts {
-        host.borrow_mut().shutdown();
+        host.borrow_mut().shutdown_now();
     }
 }
 
@@ -386,9 +386,13 @@ fn release_document(
     cx: &mut gpui::AsyncApp,
 ) {
     document.update(cx, |shared, _| {
+        // A document that was replaced is another one, with a busy state of its own (another call
+        // may have begun on it), and its own history.
+        if shared.generation() != generation {
+            return;
+        }
         shared.set_plugin_busy(false);
-        // The history of a document that was replaced is another one.
-        if let (Some(depth), true) = (depth, shared.generation() == generation) {
+        if let Some(depth) = depth {
             shared
                 .parts_mut()
                 .0
@@ -441,7 +445,9 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
     // One plugin at a time on a window: the calls would share the undo block of the document, and
     // a macro that runs has the window already.
     let busy = editor.update(cx, |view, cx| {
-        view.plugin_in_call(cx) || view.macros.running.is_some()
+        // The whole state of the macros: a script, a key macro that plays or waits for a dialog (the
+        // settings that started this call may be the dialog it waits for), or another call.
+        view.plugin_in_call(cx) || view.macros.busy()
     });
     if busy {
         let message =
@@ -549,9 +555,9 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                     set_stopped(&id, stopped);
                     let ended = weak.update(cx, |view, cx| {
                         view.macros.plugin_running = false;
-                        view.document.update(cx, |shared, _| shared.set_plugin_busy(false));
-                        // The undo history of a document that was replaced is gone with it.
+                        // Only the document the call began on: a replaced one is not ours to free.
                         if view.document.read(cx).generation() == generation {
+                            view.document.update(cx, |shared, _| shared.set_plugin_busy(false));
                             view.leave_undo_block(depth, cx);
                         }
                         if let Outcome::Failed(text) | Outcome::Died(text) = &outcome {

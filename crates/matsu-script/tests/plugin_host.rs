@@ -603,3 +603,49 @@ fn a_flood_of_meaningless_messages_does_not_keep_a_poll_from_returning() {
     }
     host.shutdown();
 }
+
+#[cfg(unix)]
+#[test]
+fn an_idle_host_is_shut_down_without_the_caller_waiting_and_leaves_no_process() {
+    let dir = plugin_dir(&[("ok.js", "1;")]);
+    let mut host = host(dir.path(), true);
+    let mut world = World::new("");
+    assert_eq!(world.call(&mut host, "ok.js", PATIENT).outcome, Outcome::Ok);
+    let pid = host.process_id().unwrap();
+    let started = Instant::now();
+    host.shutdown();
+    assert!(
+        started.elapsed() < Duration::from_millis(500),
+        "{:?}",
+        started.elapsed()
+    );
+    assert!(!host.is_running());
+    assert!(gone_soon(pid), "the process {pid} is still there");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_call_that_is_not_resident_ends_without_the_caller_waiting_for_the_process() {
+    let dir = plugin_dir(&[("ok.js", "1;")]);
+    let mut host = host(dir.path(), false);
+    let mut world = World::new("");
+    host.begin("Command", "ok.js", Value::Null, PATIENT)
+        .unwrap();
+    let pid = host.process_id().unwrap();
+    let outcome = loop {
+        if let Some(Progress::Done(outcome)) = host.poll(Duration::from_millis(50)) {
+            break outcome;
+        }
+    };
+    assert_eq!(outcome, Outcome::Ok);
+    assert!(gone_soon(pid), "the process {pid} is still there");
+    // And the quit path kills what is idle on the spot.
+    let mut resident = self::host(dir.path(), true);
+    assert_eq!(
+        world.call(&mut resident, "ok.js", PATIENT).outcome,
+        Outcome::Ok
+    );
+    let pid = resident.process_id().unwrap();
+    resident.shutdown_now();
+    assert!(gone_soon(pid));
+}

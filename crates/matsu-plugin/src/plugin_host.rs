@@ -418,26 +418,42 @@ impl PluginHost {
                 "jsonrpc": "2.0",
                 "method": "plugin/shutdown",
             })));
-            let end = Instant::now() + SHUTDOWN_GRACE;
-            while let Some(left) = end.checked_duration_since(Instant::now()) {
-                match process.events.recv_timeout(left) {
-                    Ok(HostEvent::Finished(_)) | Err(RecvTimeoutError::Disconnected) => return,
-                    Ok(_) => {}
-                    Err(RecvTimeoutError::Timeout) => break,
+            // The wait is on a thread of its own: the caller may be the window, which must not
+            // stand still for a host that is slow to leave. The process is killed there if it has
+            // not gone within the grace.
+            std::thread::spawn(move || {
+                let end = Instant::now() + SHUTDOWN_GRACE;
+                while let Some(left) = end.checked_duration_since(Instant::now()) {
+                    match process.events.recv_timeout(left) {
+                        Ok(HostEvent::Finished(_)) | Err(RecvTimeoutError::Disconnected) => return,
+                        Ok(_) => {}
+                        Err(RecvTimeoutError::Timeout) => break,
+                    }
                 }
-            }
+                // Dropping the session kills a process that is still there.
+                drop(process);
+            });
+            return;
         }
         // Dropping the session kills a process that is still there.
         drop(process);
     }
 
-    /// Ends the process at once (the plugin was disabled, or the editor closes). A process that
-    /// is in a call is killed on the spot: it cannot read a request to end while its handler
-    /// runs, and nobody should wait for it. An idle one is asked to end, and given a moment.
+    /// Ends the process (the plugin was disabled). A process that is in a call is killed on the
+    /// spot: it cannot read a request to end while its handler runs, and nobody should wait for it.
+    /// An idle one is asked to end and left to do so; a thread kills it if it takes too long.
+    /// This returns at once.
     pub fn shutdown(&mut self) {
         let in_a_call = self.current.take().is_some();
         self.interrupted |= in_a_call;
         self.close_process(!in_a_call);
+    }
+
+    /// Kills the process on the spot, idle or not (the editor quits, or the host is dropped): no
+    /// process is left behind, and nothing waits.
+    pub fn shutdown_now(&mut self) {
+        self.interrupted |= self.current.take().is_some();
+        self.close_process(false);
     }
 
     /// Runs a call to its end on this thread. `answer` gets each request of the plugin (a line)
@@ -469,7 +485,7 @@ impl PluginHost {
 
 impl Drop for PluginHost {
     fn drop(&mut self) {
-        self.shutdown();
+        self.shutdown_now();
     }
 }
 

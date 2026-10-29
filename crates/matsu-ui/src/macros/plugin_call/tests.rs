@@ -734,3 +734,84 @@ fn closing_the_pane_that_began_a_call_frees_the_document_for_the_other_pane(
     assert!(!first.read_with(cx2, |v, cx| v.plugin_in_call(cx)));
     set_test_interpreter(None);
 }
+
+#[gpui::test]
+fn a_plugin_does_not_start_while_a_key_macro_waits_for_a_dialog(cx: &mut TestAppContext) {
+    let Some(host) = script_host() else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    set_test_interpreter(Some(host));
+    let place = Place::new();
+    let dirs = place.dirs();
+    let (view, cx) = setup(cx, "元");
+    enable_sample(cx, &place, true, true);
+    // A key macro waits for the settings dialog (the wait is on; no script session runs).
+    view.update(cx, |v, _| v.macros.waiting = Some(1));
+    let prepared = cx
+        .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
+        .unwrap();
+    let id = prepared.id.clone();
+    let editor = view.clone();
+    cx.update(|_, app| run(editor, prepared, app));
+    let output = view.read_with(cx, |v, _| v.macro_output_text());
+    assert!(
+        output.contains("ほかのプラグインかマクロが動いている間"),
+        "{output}"
+    );
+    assert_eq!(text_of(&view, cx), "元");
+    assert!(!view.read_with(cx, |v, _| v.macros.plugin_running));
+    // The same for a key macro that still has calls to play.
+    view.update(cx, |v, _| {
+        v.macros.waiting = None;
+        v.macros.queue.push_back(super::super::Item::Leave);
+    });
+    let prepared = cx
+        .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
+        .unwrap();
+    let editor = view.clone();
+    cx.update(|_, app| run(editor, prepared, app));
+    assert!(!view.read_with(cx, |v, _| v.macros.plugin_running));
+    cx.update(|_, app| shutdown(app, &id));
+    set_test_interpreter(None);
+}
+
+#[gpui::test]
+fn the_end_of_a_call_does_not_free_the_busy_mark_of_a_document_that_replaced_its_own(
+    cx: &mut TestAppContext,
+) {
+    let Some(host) = script_host() else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    set_test_interpreter(Some(host));
+    let place = Place::new();
+    let dirs = place.dirs();
+    let (view, cx) = setup(cx, "");
+    let script = dirs.plugin_dir("HelloJs").unwrap().join("command.js");
+    fs::write(&script, "while (true) { Editor.InsText('x'); }").unwrap();
+    enable_sample(cx, &place, true, true);
+    let prepared = cx
+        .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
+        .unwrap();
+    let editor = view.clone();
+    cx.update(|_, app| run(editor, prepared, app));
+    // The window loads another document; a call of another pane begins on it (the mark is set)
+    // before the first call has noticed.
+    let doc = Document::from_utf8("新".as_bytes().to_vec()).unwrap();
+    view.update(cx, |view, cx| {
+        view.load_document(SharedDocument::new(DocumentModel::new(doc), None), None, cx);
+        view.document
+            .update(cx, |shared, _| shared.set_plugin_busy(true));
+    });
+    wait_for(&view, cx, "中断しました");
+    for _ in 0..20 {
+        cx.executor().advance_clock(Duration::from_millis(20));
+        cx.run_until_parked();
+    }
+    assert!(
+        view.read_with(cx, |v, cx| v.document.read(cx).plugin_busy()),
+        "the end of the old call freed the mark of the new document"
+    );
+    set_test_interpreter(None);
+}
