@@ -55,6 +55,8 @@ pub(crate) trait TabPanel {
     fn caption(&self, cx: &App) -> String;
     /// The tooltip of the tab.
     fn tooltip(&self, cx: &App) -> String;
+    /// The icon of the tab, when the bar shows icons (`bDispTabIcon`).
+    fn icon(&self, cx: &App) -> super::icon::TabIcon;
     /// The name an assistive technology reads for the tab.
     fn accessible_name(&self, cx: &App) -> String;
     /// Where the focus goes when the tab becomes active.
@@ -133,6 +135,14 @@ impl TabPanel for PaneSet {
 
     fn tooltip(&self, cx: &App) -> String {
         crate::app::Workspace::tooltip_of(self.active().read(cx), cx)
+    }
+
+    fn icon(&self, cx: &App) -> super::icon::TabIcon {
+        let view = self.active().read(cx);
+        super::icon::TabIcon::of(
+            view.document().read(cx).path().is_some(),
+            view.is_grep_window(),
+        )
     }
 
     fn accessible_name(&self, cx: &App) -> String {

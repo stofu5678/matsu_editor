@@ -41,7 +41,7 @@ mod output;
 mod registered;
 mod statements;
 mod ui_calls;
-mod wait;
+pub(crate) mod wait;
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};

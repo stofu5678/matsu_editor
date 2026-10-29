@@ -13,6 +13,13 @@ pub enum FileError {
     /// The file is larger than the limit the caller set (or than the address space). Nothing was
     /// read.
     TooLarge { len: u64, max: u64 },
+    /// The file is over the size from which files are read by ranges, but its encoding
+    /// (ISO-2022-JP, UTF-7) cannot be, and the caller asked to be told before it is read whole
+    /// ([`crate::file::OpenOptions::ask_before_whole_read`]). Nothing was read.
+    WholeReadNeeded {
+        len: u64,
+        encoding: crate::encoding::Encoding,
+    },
     /// The progress callback asked to stop. A cancelled save leaves the target as it was.
     Cancelled,
     /// Saving was refused because characters cannot be written in the encoding. Nothing was
@@ -34,6 +41,10 @@ impl fmt::Display for FileError {
             Self::TooLarge { len, max } => write!(
                 f,
                 "the file is too large to open ({len} bytes; the limit is {max} bytes)"
+            ),
+            Self::WholeReadNeeded { len, encoding } => write!(
+                f,
+                "the file ({len} bytes, {encoding:?}) has to be read whole"
             ),
             Self::Cancelled => f.write_str("cancelled"),
             Self::Unmappable(r) => write!(
