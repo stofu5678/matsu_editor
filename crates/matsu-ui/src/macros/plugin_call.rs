@@ -547,7 +547,7 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                 Progress::Done(outcome) => {
                     let stopped = host.borrow().is_stopped();
                     set_stopped(&id, stopped);
-                    let _ = weak.update(cx, |view, cx| {
+                    let ended = weak.update(cx, |view, cx| {
                         view.macros.plugin_running = false;
                         view.document.update(cx, |shared, _| shared.set_plugin_busy(false));
                         // The undo history of a document that was replaced is gone with it.
@@ -568,6 +568,10 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                         view.notice = Some(format!("プラグイン {label}: {message}"));
                         cx.notify();
                     });
+                    if ended.is_err() {
+                        // The pane is gone: the document is let go all the same.
+                        release_document(&document, depth, generation, cx);
+                    }
                     break;
                 }
             };
