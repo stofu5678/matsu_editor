@@ -606,3 +606,44 @@ fn a_macro_cannot_start_while_a_plugin_is_in_a_call(cx: &mut TestAppContext) {
     assert!(!view.read_with(cx, |v, _| v.macros.busy()));
     set_test_interpreter(None);
 }
+
+#[gpui::test]
+fn a_plugin_does_not_edit_a_document_that_replaced_the_one_it_began_on(cx: &mut TestAppContext) {
+    let Some(host) = script_host() else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    set_test_interpreter(Some(host));
+    let place = Place::new();
+    let dirs = place.dirs();
+    let (view, cx) = setup(cx, "");
+    let script = dirs.plugin_dir("HelloJs").unwrap().join("command.js");
+    fs::write(&script, "while (true) { Editor.InsText('x'); }").unwrap();
+    enable_sample(cx, &place, true, true);
+    let prepared = cx
+        .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
+        .unwrap();
+    let editor = view.clone();
+    cx.update(|_, app| run(editor, prepared, app));
+    for _ in 0..600 {
+        cx.executor().advance_clock(Duration::from_millis(20));
+        cx.run_until_parked();
+        if text_of(&view, cx).contains('x') {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        text_of(&view, cx).contains('x'),
+        "the plugin edits its document"
+    );
+    // The window loads another document in place, as opening a file in it does.
+    let doc = Document::from_utf8("新".as_bytes().to_vec()).unwrap();
+    view.update(cx, |view, cx| {
+        view.load_document(SharedDocument::new(DocumentModel::new(doc), None), None, cx);
+    });
+    wait_for(&view, cx, "中断しました");
+    assert_eq!(text_of(&view, cx), "新", "the new document was not touched");
+    assert!(!view.read_with(cx, |v, _| v.macros.plugin_running));
+    set_test_interpreter(None);
+}
