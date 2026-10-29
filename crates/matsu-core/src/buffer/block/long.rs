@@ -184,14 +184,18 @@ impl BlockIndex {
 
     /// Where the line of `start..end` starts, and the decoded length of the line up to `start`.
     fn dec_of_start(&self, start: u64, end: u64) -> io::Result<Option<(u64, u64)>> {
-        if let Some(found) = self.dec_at(start)? {
+        let Some((line_start, _)) = self.dec_at(end)? else {
+            return Ok(None);
+        };
+        // The anchor at the start is the line's own; a block can hold the end of one long line
+        // and the start of the next, and then the anchor is the first line's.
+        if let Some(found) = self.dec_at(start)?
+            && found.0 == line_start
+        {
             return Ok(Some(found));
         }
         // Before the first anchor of the line (less than a block of it): the anchor at the end
         // knows where the line starts.
-        let Some((line_start, _)) = self.dec_at(end)? else {
-            return Ok(None);
-        };
         if start < line_start || start - line_start > 2 * self.block_size as u64 {
             return Ok(None);
         }

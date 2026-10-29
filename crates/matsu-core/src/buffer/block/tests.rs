@@ -1052,3 +1052,34 @@ fn an_odd_byte_at_the_end_of_a_utf16_long_line_counts_as_an_invalid_byte() {
     assert_eq!(ranged.line_len(0).unwrap(), Some(len));
     assert_eq!(ranged.end_pos().unwrap(), dense.end_pos().unwrap());
 }
+
+#[test]
+fn two_long_lines_that_share_a_block_are_both_found_from_the_anchors() {
+    // The first line ends in the middle of a block, and the second starts there.
+    let text = format!(
+        "{}\n{}\n{}",
+        "a".repeat(5000),
+        "日".repeat(1700),
+        "c".repeat(3000)
+    );
+    let (ranged, dense) = long_and_dense(text.as_bytes(), Encoding::Utf8, 64, 500);
+    let index = scan(text.as_bytes(), Encoding::Utf8, long_options(64, 500));
+    for line in 0..3 {
+        let len = dense.line_len(line).unwrap().unwrap();
+        assert_eq!(ranged.line_len(line).unwrap(), Some(len));
+        for col in (0..=len).step_by(97) {
+            let p = Pos { line, col };
+            assert_eq!(ranged.clamp_pos(p).unwrap(), dense.clamp_pos(p).unwrap());
+        }
+    }
+    // the second line, as bytes: it is answered from the anchors, not by decoding it
+    let start = 5001;
+    let end = start + 1700 * 3;
+    assert!(index.decoded_len_long(start, end).unwrap().is_some());
+    assert!(
+        index
+            .raw_at_decoded_long(start, end, 1000)
+            .unwrap()
+            .is_some()
+    );
+}
