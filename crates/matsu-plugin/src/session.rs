@@ -6,7 +6,7 @@ use std::ffi::{OsStr, OsString};
 use std::io;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -423,6 +423,8 @@ struct Waiting {
 /// A running macro: answer requests with `send` and stop it with `cancel`.
 pub struct Session {
     pid: u32,
+    /// The process, shared with the supervisor thread, so that it can be killed on the spot.
+    child: Arc<Mutex<Child>>,
     writer: mpsc::Sender<String>,
     cancel: Arc<AtomicBool>,
     waiting: Arc<Mutex<Waiting>>,
@@ -472,6 +474,15 @@ impl Session {
     /// Kills the macro. `Finished` follows with `EndReason::Cancelled`.
     pub fn cancel(&self) {
         self.cancel.store(true, Ordering::SeqCst);
+        self.kill_now();
+    }
+
+    /// Kills the process before returning. The supervisor thread would do it within 10 ms, but a
+    /// caller that ends right after (a test, the editor quitting) must not leave a handler that
+    /// loops behind: nothing else stops it, as it does not read its input.
+    fn kill_now(&self) {
+        let mut child = self.child.lock().unwrap_or_else(PoisonError::into_inner);
+        let _ = child.kill();
     }
 }
 
@@ -479,6 +490,7 @@ impl Drop for Session {
     /// A macro whose owner has gone (the window closed, for one) is stopped.
     fn drop(&mut self) {
         self.cancel.store(true, Ordering::SeqCst);
+        self.kill_now();
     }
 }
 
@@ -725,6 +737,8 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
         });
     }
 
+    let child = Arc::new(Mutex::new(child));
+    let supervised = child.clone();
     let cancel = Arc::new(AtomicBool::new(false));
     let supervisor_cancel = cancel.clone();
     let deadline = Instant::now() + config.timeout;
@@ -735,8 +749,18 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
         let mut boot_dir = boot_dir;
         let mut reason = EndReason::Exited;
         let status = loop {
-            match child.try_wait() {
-                Ok(Some(status)) => break Some(status),
+            let polled = supervised
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .try_wait();
+            match polled {
+                Ok(Some(status)) => {
+                    // Killed by `cancel` or by the drop of the session, before the loop saw the flag.
+                    if supervisor_cancel.load(Ordering::SeqCst) {
+                        reason = EndReason::Cancelled;
+                    }
+                    break Some(status);
+                }
                 Ok(None) => {}
                 Err(_) => break None,
             }
@@ -752,6 +776,7 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
                 }
             }
             if reason != EndReason::Exited {
+                let mut child = supervised.lock().unwrap_or_else(PoisonError::into_inner);
                 let _ = child.kill();
                 break child.wait().ok();
             }
@@ -781,6 +806,7 @@ pub fn start(config: MacroConfig, sink: Sink) -> Result<Session, StartError> {
 
     Ok(Session {
         pid,
+        child,
         writer,
         cancel,
         waiting,

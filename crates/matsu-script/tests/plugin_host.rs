@@ -447,3 +447,81 @@ fn a_handler_outside_the_folder_is_not_run() {
     assert!(matches!(error, BeginError::Outside { .. }), "{error}");
     assert!(!host.is_running());
 }
+
+/// Whether a process with this id is still there (unix only; elsewhere the check is skipped).
+#[cfg(unix)]
+fn process_is_there(pid: u32) -> bool {
+    std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+/// Waits until the process is gone, up to two seconds.
+#[cfg(unix)]
+fn gone_soon(pid: u32) -> bool {
+    let end = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < end {
+        if !process_is_there(pid) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    false
+}
+
+#[cfg(unix)]
+#[test]
+fn dropping_a_host_that_loops_kills_its_process_before_returning() {
+    let dir = plugin_dir(&[("loop.js", "while (true) {}")]);
+    let mut host = host(dir.path(), true);
+    host.begin("Command", "loop.js", Value::Null, PATIENT)
+        .unwrap();
+    let pid = host.process_id().unwrap();
+    assert!(process_is_there(pid));
+    // The test ends right after the drop, as the editor does when it quits: the process must not
+    // depend on a thread that may never run again.
+    drop(host);
+    assert!(gone_soon(pid), "the process {pid} is still there");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_call_that_times_out_leaves_no_process_behind() {
+    let dir = plugin_dir(&[("loop.js", "while (true) {}")]);
+    let mut host = host(dir.path(), false);
+    host.begin(
+        "Command",
+        "loop.js",
+        Value::Null,
+        Duration::from_millis(200),
+    )
+    .unwrap();
+    let pid = host.process_id().unwrap();
+    let outcome = loop {
+        if let Some(Progress::Done(outcome)) = host.poll(Duration::from_millis(50)) {
+            break outcome;
+        }
+    };
+    assert_eq!(outcome, Outcome::TimedOut);
+    assert!(gone_soon(pid), "the process {pid} is still there");
+}
+
+#[cfg(unix)]
+#[test]
+fn shutting_down_and_cancelling_a_looping_call_kill_the_process() {
+    let dir = plugin_dir(&[("loop.js", "while (true) {}")]);
+    for how in ["shutdown", "cancel"] {
+        let mut host = host(dir.path(), true);
+        host.begin("Command", "loop.js", Value::Null, PATIENT)
+            .unwrap();
+        let pid = host.process_id().unwrap();
+        if how == "shutdown" {
+            host.shutdown();
+        } else {
+            host.cancel();
+        }
+        assert!(gone_soon(pid), "{how}: the process {pid} is still there");
+    }
+}

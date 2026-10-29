@@ -83,6 +83,20 @@ pub(crate) fn shutdown(cx: &mut App, id: &str) {
     }
 }
 
+/// The editor quits: every plugin process ends now, also one whose handler loops (nothing but a
+/// kill stops it, and it would go on using the processor after the editor is gone).
+pub(crate) fn shutdown_all(cx: &mut App) {
+    let hosts: Vec<SharedHost> = cx
+        .default_global::<Runtime>()
+        .hosts
+        .drain()
+        .map(|(_, host)| host)
+        .collect();
+    for host in hosts {
+        host.borrow_mut().shutdown();
+    }
+}
+
 /// What the plugin asks of the editor besides the document (`Plugin.*`): the definition file and
 /// the options of the plugin (Sakura's `CPluginIfObj`, `sakura_core/plugin/CPluginIfObj.h`).
 pub(crate) struct DefApi {
