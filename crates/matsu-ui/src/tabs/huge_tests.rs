@@ -9,7 +9,7 @@ use matsu_commands::command::Arg;
 use matsu_core::buffer::ScanOptions;
 
 use super::file_tests::{open_file, temp_dir};
-use super::tests::{active_view, run, window};
+use super::tests::{active_view, answer, run, visual, window};
 use crate::file_ops::prefs::FilePrefs;
 use crate::view::EditorView;
 
@@ -223,8 +223,8 @@ fn a_file_under_the_threshold_opens_as_before(cx: &mut TestAppContext) {
     std::fs::remove_dir_all(dir).ok();
 }
 
-#[gpui::test]
-fn iso_2022_jp_over_the_threshold_is_read_whole(cx: &mut TestAppContext) {
+/// About 1.3 MiB of ISO-2022-JP: 70 000 lines of five hiragana.
+fn jis_bytes() -> Vec<u8> {
     let line = b"\x1b$B$\"$$$&$($*\x1b(B\n";
     let bytes: Vec<u8> = line
         .iter()
@@ -233,8 +233,51 @@ fn iso_2022_jp_over_the_threshold_is_read_whole(cx: &mut TestAppContext) {
         .take(line.len() * 70_000)
         .collect();
     assert!(bytes.len() > 1024 * 1024);
-    let (handle, dir) = opened(cx, "jis.txt", &bytes);
-    let view = active_view(cx, handle);
+    bytes
+}
+
+/// Opens `bytes` as a file `name` and waits for the question before a file is read whole.
+fn opened_until_asked(
+    cx: &mut TestAppContext,
+    name: &str,
+    bytes: &[u8],
+) -> (AnyWindowHandle, PathBuf) {
+    static COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1000);
+    let dir = temp_dir(&format!(
+        "huge-{}",
+        COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let path = write_big(&dir, name, bytes);
+    let handle = window(cx, true);
+    slow_scan(cx);
+    open_file(cx, handle, &path);
+    for _ in 0..6000 {
+        if visual(cx, handle).has_pending_prompt() {
+            return (handle, dir);
+        }
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("the question was not asked");
+}
+
+fn wait_for_text(cx: &mut TestAppContext, handle: AnyWindowHandle) -> Entity<EditorView> {
+    for _ in 0..6000 {
+        let view = active_view(cx, handle);
+        if view.read_with(cx, |v, cx| v.document().read(cx).doc().raw_len() > 0) {
+            return view;
+        }
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("the file was not read");
+}
+
+#[gpui::test]
+fn iso_2022_jp_over_the_threshold_is_read_whole_after_the_question(cx: &mut TestAppContext) {
+    let (handle, dir) = opened_until_asked(cx, "jis.txt", &jis_bytes());
+    answer(cx, handle, "読み込む(Y)");
+    let view = wait_for_text(cx, handle);
     assert!(!scanning(cx, &view));
     assert!(!view.read_with(cx, |v, cx| v.document().read(cx).is_partial()));
     assert_eq!(line_count(cx, &view), 70_000);
@@ -249,6 +292,21 @@ fn iso_2022_jp_over_the_threshold_is_read_whole(cx: &mut TestAppContext) {
             .text),
         "あいうえお"
     );
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[gpui::test]
+fn a_no_to_the_question_opens_nothing_and_tells_no_error(cx: &mut TestAppContext) {
+    let (handle, dir) = opened_until_asked(cx, "jis.txt", &jis_bytes());
+    answer(cx, handle, "キャンセル");
+    for _ in 0..50 {
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    // No error box follows, and the window still shows its untitled document.
+    assert!(!visual(cx, handle).has_pending_prompt());
+    let view = active_view(cx, handle);
+    assert_eq!(line_count(cx, &view), 0);
     std::fs::remove_dir_all(dir).ok();
 }
 
@@ -323,5 +381,143 @@ fn a_place_and_bookmarks_past_the_scanned_start_come_back_when_the_scan_is_done(
         crate::history::current(app).and_then(|h| h.file(&path_text(&dir.join("big.txt"))).cloned())
     });
     assert_eq!(entry.map(|e| e.caret_y), Some(89_999));
+    std::fs::remove_dir_all(dir).ok();
+}
+
+// ---- after the scan: the options of the launch and the moves of macros ----
+
+fn launch(cx: &mut TestAppContext, dir: &Path, args: &[&str]) {
+    use crate::file_ops::start_options::LaunchOptions;
+    use crate::file_ops::windows::open_from_outside_with;
+    use crate::launch::OpenRequest;
+    use matsu_platform::instance::Request;
+
+    let request = OpenRequest::from_launch(&Request {
+        cwd: dir.to_owned(),
+        args: args.iter().map(std::ffi::OsString::from).collect(),
+    });
+    let options = LaunchOptions::from_request(&request);
+    cx.update(|cx| open_from_outside_with(cx, request.paths, &options))
+        .unwrap();
+}
+
+fn view_of(cx: &mut TestAppContext, path: &Path) -> Entity<EditorView> {
+    for _ in 0..6000 {
+        if let Some((_, view)) = cx.update(|cx| crate::file_ops::windows::find_open(cx, path))
+            && view.read_with(cx, |v, cx| v.document().read(cx).doc().raw_len() > 0)
+        {
+            return view;
+        }
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("the file was not opened");
+}
+
+#[gpui::test]
+fn the_line_of_a_launch_is_reached_when_the_scan_is_done(cx: &mut TestAppContext) {
+    cx.update(gpui_component::init);
+    slow_scan(cx);
+    let dir = temp_dir("huge-launch");
+    let path = write_big(&dir, "big.txt", big_text().as_bytes());
+    launch(cx, &dir, &["-X=3", "-Y=90000", "big.txt"]);
+    let view = view_of(cx, &path);
+    assert!(scanning(cx, &view));
+    assert_eq!(caret_line(cx, &view), 0, "the line is not scanned yet");
+    wait_for_scan(cx, &view);
+    // The task of the launch looks at the scan every 50 ms of the clock of the test.
+    for _ in 0..600 {
+        if caret_line(cx, &view) == 89_999 {
+            break;
+        }
+        cx.executor().advance_clock(Duration::from_millis(100));
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(
+        view.read_with(cx, |v, _| v.cursor.caret()),
+        matsu_core::buffer::Pos::new(89_999, 2)
+    );
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[gpui::test]
+fn the_macro_of_a_launch_runs_after_the_scan(cx: &mut TestAppContext) {
+    cx.update(gpui_component::init);
+    slow_scan(cx);
+    let dir = temp_dir("huge-launch-macro");
+    let path = write_big(&dir, "big.txt", big_text().as_bytes());
+    // The edit is refused while the file is scanned: it must come after.
+    launch(
+        cx,
+        &dir,
+        &["-M=GoFileEnd();\nChar(88);\n", "-MTYPE=mac", "big.txt"],
+    );
+    let view = view_of(cx, &path);
+    wait_for_scan(cx, &view);
+    let last = |cx: &mut TestAppContext| {
+        view.read_with(cx, |v, cx| {
+            let doc = v.document().read(cx).doc();
+            doc.line(doc.line_count() - 1).unwrap().unwrap().text
+        })
+    };
+    for _ in 0..600 {
+        if last(cx).ends_with('X') {
+            break;
+        }
+        cx.executor().advance_clock(Duration::from_millis(100));
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let output = view.read_with(cx, |v, _| v.macro_output_text());
+    let state = view.read_with(cx, |v, cx| {
+        (
+            v.cursor.caret(),
+            v.document().read(cx).doc().line_count(),
+            v.document().read(cx).is_scanning(),
+        )
+    });
+    assert_eq!(last(cx), "X", "{output} {state:?}");
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[gpui::test]
+fn a_move_in_a_macro_waits_and_the_next_step_comes_after_it(cx: &mut TestAppContext) {
+    let (handle, dir) = opened(cx, "big.txt", big_text().as_bytes());
+    let view = active_view(cx, handle);
+    assert!(scanning(cx, &view));
+    // `GoFileEnd` waits for the scan, and `Char` (refused while it runs) waits for the move.
+    handle
+        .update(cx, |_, window, app| {
+            view.update(app, |v, cx| {
+                v.exec_macro_text("GoFileEnd();\nChar(88);\n", "mac", window, cx)
+            })
+        })
+        .unwrap()
+        .unwrap();
+    wait_for_scan(cx, &view);
+    let last = |cx: &mut TestAppContext| {
+        view.read_with(cx, |v, cx| {
+            let doc = v.document().read(cx).doc();
+            doc.line(doc.line_count() - 1).unwrap().unwrap().text
+        })
+    };
+    for _ in 0..600 {
+        if last(cx).ends_with('X') {
+            break;
+        }
+        cx.executor().advance_clock(Duration::from_millis(100));
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let output = view.read_with(cx, |v, _| v.macro_output_text());
+    let state = view.read_with(cx, |v, cx| {
+        (
+            v.cursor.caret(),
+            v.document().read(cx).doc().line_count(),
+            v.document().read(cx).is_scanning(),
+        )
+    });
+    assert_eq!(last(cx), "X", "{output} {state:?}");
     std::fs::remove_dir_all(dir).ok();
 }

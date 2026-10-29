@@ -31,13 +31,25 @@ pub fn open_text_file(
     open_text_file_with(path, encoding, defaults, None, progress)
 }
 
-/// Like [`open_text_file`]. `huge` is the size from which a file is opened by ranges and the
-/// settings of its scan (ADR-0020); `None` reads every file whole.
+/// When a file is opened by ranges (ADR-0020).
+#[derive(Clone, Copy, Debug)]
+pub struct HugeOpen {
+    /// The size in bytes from which a file is opened by ranges.
+    pub from: u64,
+    /// The settings of the scan.
+    pub scan: ScanOptions,
+    /// A file of that size in an encoding that has to be read whole is not read: the open fails
+    /// with `FileError::WholeReadNeeded`, so that the user is asked first (ADR-0020 9.9).
+    pub ask_before_whole_read: bool,
+}
+
+/// Like [`open_text_file`]. `huge` says when a file is opened by ranges; `None` reads every file
+/// whole.
 pub fn open_text_file_with(
     path: &Path,
     encoding: Option<Encoding>,
     defaults: &NewDocumentDefaults,
-    huge: Option<(u64, ScanOptions)>,
+    huge: Option<HugeOpen>,
     progress: Progress<'_>,
 ) -> Result<TextFile, OpenError> {
     let mut options = OpenOptions {
@@ -47,9 +59,10 @@ pub fn open_text_file_with(
         ext_eol: matsu_commands::edit_options::get().ext_eol,
         ..OpenOptions::default()
     };
-    if let Some((from, scan)) = huge {
-        options.huge_file_len = Some(from);
-        options.huge_scan = scan;
+    if let Some(huge) = huge {
+        options.huge_file_len = Some(huge.from);
+        options.huge_scan = huge.scan;
+        options.ask_before_whole_read = huge.ask_before_whole_read;
     }
     options.detect.default_encoding = defaults.encoding;
     match open_file_with(path, &options, progress) {
