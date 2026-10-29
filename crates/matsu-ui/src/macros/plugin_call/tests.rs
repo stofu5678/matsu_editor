@@ -569,3 +569,40 @@ fn a_second_plugin_call_waits_until_the_first_is_over(cx: &mut TestAppContext) {
     assert!(!view.read_with(cx, |v, _| v.macros.plugin_running));
     set_test_interpreter(None);
 }
+
+#[gpui::test]
+fn a_macro_cannot_start_while_a_plugin_is_in_a_call(cx: &mut TestAppContext) {
+    let Some(host) = script_host() else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    set_test_interpreter(Some(host));
+    let place = Place::new();
+    let dirs = place.dirs();
+    let (view, cx) = setup(cx, "元");
+    let script = dirs.plugin_dir("HelloJs").unwrap().join("command.js");
+    fs::write(&script, "while (true) {}").unwrap();
+    enable_sample(cx, &place, true, true);
+    let prepared = cx
+        .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
+        .unwrap();
+    let id = prepared.id.clone();
+    let editor = view.clone();
+    cx.update(|_, app| run(editor, prepared, app));
+    assert!(view.read_with(cx, |v, _| v.macros.busy()));
+    // Neither a macro text nor a macro file starts, and the document is not touched.
+    let started = view.update_in(cx, |v, window, cx| {
+        v.exec_macro_text("Editor.InsText('x');", "js", window, cx)
+    });
+    assert!(started.is_err());
+    let file = place.dir.path().join("m.js");
+    fs::write(&file, "Editor.InsText('y');").unwrap();
+    let started = view.update_in(cx, |v, window, cx| v.exec_ext_macro(&file, window, cx));
+    assert!(started.is_err());
+    assert_eq!(text_of(&view, cx), "元");
+    // When the plugin has ended, a macro may start again.
+    cx.update(|_, app| shutdown(app, &id));
+    wait_for(&view, cx, "中断しました");
+    assert!(!view.read_with(cx, |v, _| v.macros.busy()));
+    set_test_interpreter(None);
+}

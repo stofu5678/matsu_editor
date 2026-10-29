@@ -283,7 +283,10 @@ impl MacroState {
     }
 
     fn busy(&self) -> bool {
-        self.running.is_some() || !self.queue.is_empty() || self.waiting.is_some()
+        self.running.is_some()
+            || self.plugin_running
+            || !self.queue.is_empty()
+            || self.waiting.is_some()
     }
 }
 
@@ -623,8 +626,9 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<(), CommandError> {
-        // A key macro that is playing may name a macro file: its calls go on in the middle.
-        if self.macros.running.is_some() {
+        // A key macro that is playing may name a macro file: its calls go on in the middle. A call
+        // of a plugin has the document and the undo block until it ends (`plugin_call`).
+        if self.macros.running.is_some() || self.macros.plugin_running {
             return Err(self.macro_error("マクロを実行中です".into(), window, cx));
         }
         if self.macros.recorder.is_recording() && !self.macros.suspended {
@@ -649,7 +653,7 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<(), CommandError> {
-        if self.macros.running.is_some() {
+        if self.macros.running.is_some() || self.macros.plugin_running {
             return Err(self.macro_error("マクロを実行中です".into(), window, cx));
         }
         if self.macros.recorder.is_recording() && !self.macros.suspended {

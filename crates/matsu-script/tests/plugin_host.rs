@@ -525,3 +525,37 @@ fn shutting_down_and_cancelling_a_looping_call_kill_the_process() {
         assert!(gone_soon(pid), "{how}: the process {pid} is still there");
     }
 }
+
+#[test]
+fn a_handler_that_asks_for_strict_mode_gets_it_and_one_that_does_not_runs_loose() {
+    let dir = plugin_dir(&[
+        ("strict.js", "'use strict';\nundeclared = 1;"),
+        (
+            "strict_comment.js",
+            "// a comment first\n\"use strict\"; undeclared2 = 1;",
+        ),
+        (
+            "loose.js",
+            "undeclared3 = 1; console.log(typeof undeclared3);",
+        ),
+        (
+            "strict_this.js",
+            "'use strict'; function f() { return this === undefined; } console.log(f());",
+        ),
+    ]);
+    let mut host = host(dir.path(), true);
+    let mut world = World::new("");
+    for file in ["strict.js", "strict_comment.js"] {
+        let report = world.call(&mut host, file, PATIENT);
+        let Outcome::Failed(text) = &report.outcome else {
+            panic!("{file}: {:?}", report.outcome);
+        };
+        assert!(text.contains("is not defined"), "{file}: {text}");
+        host.reset();
+    }
+    let loose = world.call(&mut host, "loose.js", PATIENT);
+    assert_eq!(loose.outcome, Outcome::Ok, "{:?}", loose.output);
+    assert_eq!(stdout(&loose), ["number"]);
+    let this = world.call(&mut host, "strict_this.js", PATIENT);
+    assert_eq!(stdout(&this), ["true"]);
+}
