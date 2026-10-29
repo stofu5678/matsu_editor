@@ -18,7 +18,7 @@
 use std::time::Duration;
 
 use gpui::{AsyncWindowContext, Context, Global, WeakEntity};
-use matsu_core::buffer::{Pos, col_from_utf16};
+use matsu_core::buffer::Pos;
 use matsu_core::tag_jump::{TagTarget, find_target};
 
 use super::close::confirm_and_close_window;
@@ -89,10 +89,7 @@ impl EditorView {
         else {
             return;
         };
-        let col = match (column, doc.line(index)) {
-            (Some(column), Ok(Some(text))) => col_from_utf16(&text.text, column - 1),
-            _ => 0,
-        };
+        let col = column.map_or(0, |column| doc.col_from_utf16_col(index, column - 1));
         self.go_to(Pos::new(index, col), cx);
     }
 }

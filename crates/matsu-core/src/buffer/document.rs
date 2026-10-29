@@ -7,7 +7,7 @@ use std::sync::Arc;
 use super::block::BlockIndex;
 use super::codec::{Codec, EncodingCodec, Eol};
 use super::error::{BufferError, Result};
-use super::position::Pos;
+use super::position::{Pos, col_from_utf16, col_to_utf16};
 use super::storage::{EolIndex, LineIndex, MemorySource, Original, Source, Storages};
 use super::tree::{self, Store, Tree};
 use crate::encoding::Encoding;
@@ -83,6 +83,23 @@ impl Default for Document {
     fn default() -> Self {
         Self::empty()
     }
+}
+
+thread_local! {
+    static LARGEST_DECODE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The largest range of raw bytes that one decode on this thread has covered since the last
+/// [`reset_largest_decode`]. For tests that check a path does not decode a huge line.
+#[doc(hidden)]
+pub fn largest_decode() -> usize {
+    LARGEST_DECODE.with(std::cell::Cell::get)
+}
+
+/// Sets [`largest_decode`] back to 0.
+#[doc(hidden)]
+pub fn reset_largest_decode() {
+    LARGEST_DECODE.with(|n| n.set(0));
 }
 
 impl Document {
@@ -545,6 +562,7 @@ impl Document {
     }
 
     fn decode_range(&self, start: usize, end: usize) -> Result<String> {
+        LARGEST_DECODE.with(|n| n.set(n.get().max(end.saturating_sub(start))));
         let mut out = String::new();
         tree::visit(&self.root, start, end, &mut |p, s, e, _| -> Result<()> {
             self.st.decode_into(p.store, s, e, &mut out)
@@ -566,6 +584,37 @@ impl Document {
             text: self.decode_range(start, end)?,
             eol: brk.map(|b| b.kind),
         }))
+    }
+
+    /// The UTF-16 column of byte column `col` in line `i`. A very long line is not decoded: its
+    /// byte column stands for it (exact for narrow chars, near for others, as the status bar).
+    pub fn utf16_col(&self, i: usize, col: usize) -> usize {
+        if self.is_long_line(i) {
+            return col;
+        }
+        self.line(i)
+            .ok()
+            .flatten()
+            .map_or(col, |line| col_to_utf16(&line.text, col))
+    }
+
+    /// The byte column in line `i` of the UTF-16 column `units`, the inverse of
+    /// [`Document::utf16_col`]. In a very long line it is `units` clamped to the line and cut back
+    /// to a character, reading only a part around it.
+    pub fn col_from_utf16_col(&self, i: usize, units: usize) -> usize {
+        if self.is_long_line(i) {
+            let len = self.line_len(i).ok().flatten().unwrap_or(0);
+            let col = units.min(len);
+            return self
+                .line_slice(i, col, col)
+                .ok()
+                .flatten()
+                .map_or(col, |s| s.start_col);
+        }
+        self.line(i)
+            .ok()
+            .flatten()
+            .map_or(0, |line| col_from_utf16(&line.text, units))
     }
 
     /// The length in bytes of the text of line `i` (the largest `col` there), or `None`.

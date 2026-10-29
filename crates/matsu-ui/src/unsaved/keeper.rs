@@ -15,7 +15,6 @@ use std::time::{Duration, Instant, UNIX_EPOCH};
 use gpui::{App, Context, Entity, EntityId, Global, WeakEntity, Window, WindowId};
 use matsu_config::unsaved::{DocInfo, Session, SessionWindow, Store, StoreError};
 use matsu_core::buffer::Eol;
-use matsu_core::buffer::col_to_utf16;
 
 use super::prefs::{KeepPrefs, prefs};
 use super::writer::{RETRY_STUCK, Revision, Shared, Snapshot, Writer};
@@ -576,11 +575,7 @@ fn doc_type_of(view: &EditorView, shared: &SharedDocument) -> Option<i32> {
 pub(crate) fn info_of(view: &EditorView, shared: &SharedDocument) -> DocInfo {
     let doc = shared.doc();
     let caret = view.cursor().caret();
-    let column = doc
-        .line(caret.line)
-        .ok()
-        .flatten()
-        .map_or(caret.col, |line| col_to_utf16(&line.text, caret.col));
+    let column = doc.utf16_col(caret.line, caret.col);
     // A document that was brought back and whose file is not looked at yet keeps the time and the size it came with
     // (the watching of the file may have taken the new time since: the choice 「以後通知メッセージのみ」), so
     // that the check before the save still works after another restart.

@@ -550,6 +550,72 @@ fn caret_of(cx: &mut TestAppContext, view: &Entity<EditorView>) -> matsu_core::b
     view.read_with(cx, |v, _| v.cursor.caret())
 }
 
+#[gpui::test]
+fn no_path_decodes_a_very_long_line_as_a_whole(cx: &mut TestAppContext) {
+    use matsu_core::buffer::{Pos, largest_decode, reset_largest_decode};
+
+    let text = "0123456789abcdef".repeat(3 * 1024 * 1024 / 16);
+    let dir = temp_dir("huge-long-line-decode");
+    let path = write_big(&dir, "one.txt", text.as_bytes());
+    let handle = window(cx, true);
+    cx.update(|app| {
+        app.set_global(FilePrefs {
+            huge_file_size_mb: 1,
+            ..FilePrefs::default()
+        });
+    });
+    reset_largest_decode();
+    open_file(cx, handle, &path);
+    let view = {
+        let mut found = None;
+        for _ in 0..6000 {
+            let view = active_view(cx, handle);
+            if view.read_with(cx, |v, cx| v.document().read(cx).doc().raw_len() > 0) {
+                found = Some(view);
+                break;
+            }
+            cx.run_until_parked();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        found.expect("the file was not read")
+    };
+    // the end of the scan restores the place and records the history
+    wait_for_scan(cx, &view);
+    cx.run_until_parked();
+    // a click and a drag in the middle, through the same code as the mouse
+    let rows = view.read_with(cx, |v, _| v.layout().row_count());
+    for row in [rows / 2, rows / 2 + 1, rows - 1] {
+        for x in [0.0_f32, 33.0, 400.0] {
+            view.read_with(cx, |v, cx| {
+                let doc = v.document().read(cx).doc();
+                crate::hit::position_in_row(v.layout(), doc, v.metrics(), row, x).unwrap();
+            });
+        }
+    }
+    // the caret moves, text is typed, a copy is kept, the history is recorded and read back
+    view.update(cx, |v, cx| v.go_to(Pos::new(0, 1_500_000), cx));
+    run(cx, handle, "F_RIGHT");
+    run(cx, handle, "F_DOWN");
+    view.update(cx, |v, cx| v.type_char('Z', cx));
+    let entry = view.read_with(cx, |v, cx| {
+        let shared = v.document().read(cx);
+        let _ = crate::unsaved::keeper::info_of(v, shared);
+        v.history_entry(cx).expect("a file")
+    });
+    view.update(cx, |v, cx| {
+        v.record_history(cx);
+        let options = crate::history::HistoryOptions::default();
+        v.restore_from_history(&entry, options, cx);
+    });
+    assert!(entry.caret_x > 1_500_000);
+    let largest = largest_decode();
+    assert!(
+        largest <= 64 * 1024,
+        "a path decoded {largest} bytes of the line at once"
+    );
+    std::fs::remove_dir_all(dir).ok();
+}
+
 // ---- after the scan: the options of the launch and the moves of macros ----
 
 fn launch(cx: &mut TestAppContext, dir: &Path, args: &[&str]) {

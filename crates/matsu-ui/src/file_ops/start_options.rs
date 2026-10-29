@@ -37,7 +37,7 @@ use gpui::{
     AnyWindowHandle, App, AsyncWindowContext, Bounds, Context, Entity, Global, Pixels, Size,
     WeakEntity, Window, point, px, size,
 };
-use matsu_core::buffer::{Eol, Pos, col_from_utf16, col_to_utf16};
+use matsu_core::buffer::{Eol, Pos};
 use matsu_core::encoding::{AUTODETECT_CODE, Encoding};
 
 use crate::command_line::{CommandLine, GrepArgs};
@@ -587,16 +587,12 @@ impl EditorView {
         let target = if line >= doc.line_count() {
             doc.end_pos().unwrap_or_default()
         } else {
-            let text_of = |i: usize| doc.line(i).ok().flatten().map(|l| l.text);
-            let text = text_of(line).unwrap_or_default();
             let units = match options.caret_x {
                 Some(x) => x,
-                None if keep_column => {
-                    col_to_utf16(&text_of(caret.line).unwrap_or_default(), caret.col)
-                }
+                None if keep_column => doc.utf16_col(caret.line, caret.col),
                 None => 0,
             };
-            Pos::new(line, col_from_utf16(&text, units))
+            Pos::new(line, doc.col_from_utf16_col(line, units))
         };
         self.go_to(target, cx);
     }

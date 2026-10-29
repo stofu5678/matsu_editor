@@ -23,7 +23,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use gpui::{AnyWindowHandle, App, Entity};
 use matsu_config::unsaved::{DocFile, DocInfo, REJECTED_KEEP, Store, unsaved_dir};
-use matsu_core::buffer::{Document, Eol, Pos, col_from_utf16};
+use matsu_core::buffer::{Document, Eol, Pos};
 use matsu_core::encoding::Encoding;
 use matsu_core::file::TextFile;
 
@@ -370,15 +370,10 @@ fn apply_view_state(
     let line = usize::try_from(info.caret_line)
         .unwrap_or(0)
         .min(lines.saturating_sub(1));
-    let text = document
+    let col = document
         .read(cx)
         .doc()
-        .line(line)
-        .ok()
-        .flatten()
-        .map(|l| l.text)
-        .unwrap_or_default();
-    let col = col_from_utf16(&text, usize::try_from(info.caret_column).unwrap_or(0));
+        .col_from_utf16_col(line, usize::try_from(info.caret_column).unwrap_or(0));
     view.update(cx, |view, cx| {
         // The caret first (it scrolls to itself), then the view where it was: the caret may be out of sight.
         view.go_to(Pos::new(line, col), cx);
