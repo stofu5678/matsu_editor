@@ -182,6 +182,8 @@ pub(crate) fn run(
         gpui_component::init(cx);
         crate::view::EditorView::bind_keys(cx);
         crate::preview::bind_keys(cx);
+        // the title of the confirmation boxes (Windows), as Sakura's: the name of the application
+        matsu_platform::dialog_title::install();
         crate::history::install(cx, &user);
         crate::tabs::settings::install(cx, &user);
         crate::bars::install(cx, &user);
