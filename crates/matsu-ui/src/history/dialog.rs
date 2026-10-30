@@ -345,7 +345,8 @@ impl FavoriteDialog {
         cx: &mut Context<Self>,
         change: impl FnOnce(&mut History) + 'static,
     ) {
-        let answer = window.prompt(
+        let answer = crate::boxes::prompt(
+            window,
             PromptLevel::Warning,
             &message,
             None,

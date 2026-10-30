@@ -172,7 +172,8 @@ impl FileTreeDialog {
             self.delete_now(window, cx);
             return;
         }
-        let answer = window.prompt(
+        let answer = crate::boxes::prompt(
+            window,
             PromptLevel::Info,
             DELETE_QUESTION,
             None,

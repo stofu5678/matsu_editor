@@ -46,7 +46,14 @@ impl UiCommand for StatusMsg {
             0 => view.notice = Some(text.to_owned()),
             1 if status_bar => view.notice = Some(text.to_owned()),
             1 => {
-                let answer = window.prompt(PromptLevel::Info, CAPTION, Some(text), &["OK"], cx);
+                let answer = crate::boxes::prompt(
+                    window,
+                    PromptLevel::Info,
+                    CAPTION,
+                    Some(text),
+                    &["OK"],
+                    cx,
+                );
                 // The box is modal for the user, not for the macro: Sakura's `InfoMessage` waits,
                 // which this window does not do for a command (the macro functions that return
                 // the answer, `InfoMsg`, do).

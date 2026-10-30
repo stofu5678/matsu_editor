@@ -418,7 +418,14 @@ impl CommonSettingsDialog {
         cx: &mut Context<Self>,
         action: fn(&mut Self, &mut Window, &mut Context<Self>),
     ) {
-        let answer = window.prompt(PromptLevel::Info, question, None, &["OK", "キャンセル"], cx);
+        let answer = crate::boxes::prompt(
+            window,
+            PromptLevel::Info,
+            question,
+            None,
+            &["OK", "キャンセル"],
+            cx,
+        );
         cx.spawn_in(window, async move |this, cx| {
             if let Ok(0) = answer.await {
                 this.update_in(cx, action).ok();
@@ -458,7 +465,7 @@ impl CommonSettingsDialog {
             message.as_str()
         };
         // Nobody waits for this answer.
-        drop(window.prompt(PromptLevel::Info, text, None, &["OK"], cx));
+        crate::boxes::tell(window, PromptLevel::Info, text, None, cx);
     }
 
     /// 「設定」 beside the name (`TVN_ENDLABELEDIT`): the box becomes the name of the selected node.

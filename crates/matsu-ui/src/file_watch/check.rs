@@ -196,9 +196,14 @@ pub(crate) async fn run(
         }
         Action::Ask => {
             let (message, detail) = question(&path, modified);
-            let reply = match cx
-                .prompt(PromptLevel::Warning, &message, Some(&detail), &LABELS)
-                .await
+            let reply = match crate::boxes::prompt_async(
+                cx,
+                PromptLevel::Warning,
+                &message,
+                Some(&detail),
+                &LABELS,
+            )
+            .await
             {
                 Ok(index) => REPLIES.get(index).copied().unwrap_or(Reply::Close),
                 Err(_) => Reply::Close,

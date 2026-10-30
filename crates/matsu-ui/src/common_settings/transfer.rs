@@ -26,7 +26,7 @@ pub(crate) fn exported(path: &Path) -> String {
 
 /// Tells the user something (`InfoMessage`). Nobody waits for the answer.
 pub(crate) fn say(message: &str, window: &mut Window, cx: &mut Context<CommonSettingsDialog>) {
-    drop(window.prompt(PromptLevel::Info, message, None, &["OK"], cx));
+    crate::boxes::tell(window, PromptLevel::Info, message, None, cx);
 }
 
 /// What to do with the file that was chosen.

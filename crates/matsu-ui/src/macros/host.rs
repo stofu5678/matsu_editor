@@ -209,7 +209,7 @@ impl EditorView {
             Icon::Warning => PromptLevel::Warning,
             Icon::Question | Icon::Information | Icon::None => PromptLevel::Info,
         };
-        let answer = window.prompt(level, CAPTION, Some(text), buttons.labels(), cx);
+        let answer = crate::boxes::prompt(window, level, CAPTION, Some(text), buttons.labels(), cx);
         async move { answer.await.ok() }
     }
 

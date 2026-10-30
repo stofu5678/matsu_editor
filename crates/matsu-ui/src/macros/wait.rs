@@ -98,13 +98,15 @@ pub(crate) fn track(cx: &Context<EditorView>) -> Option<FlowGuard> {
 
 /// A message box whose answer nobody needs (the OK of a warning): a macro that waits for the call
 /// that showed it waits until the box is closed (Sakura's boxes are modal). Without a macro the
-/// answer is dropped, as before.
+/// answer is still held until the box is closed: GPUI's Windows box is cancelled when its answer
+/// is dropped.
 pub(crate) fn keep_box(
     answer: impl std::future::Future + 'static,
     _window: &mut Window,
     cx: &mut Context<EditorView>,
 ) {
     let Some(tracked) = track(cx) else {
+        crate::boxes::hold(answer, cx);
         return;
     };
     cx.spawn(async move |_, _| {

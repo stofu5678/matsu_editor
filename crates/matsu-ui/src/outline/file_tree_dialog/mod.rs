@@ -277,7 +277,7 @@ impl FileTreeDialog {
 
     /// Tells the user something (`InfoMessage`). Nobody waits for the answer.
     pub(crate) fn say(&self, message: &str, window: &mut Window, cx: &mut Context<Self>) {
-        drop(window.prompt(PromptLevel::Info, message, None, &["OK"], cx));
+        crate::boxes::tell(window, PromptLevel::Info, message, None, cx);
     }
 
     pub(crate) fn focus_first(&self, window: &mut Window, cx: &mut Context<Self>) {

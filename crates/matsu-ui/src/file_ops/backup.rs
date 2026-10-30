@@ -497,10 +497,7 @@ async fn question(
     } else {
         &[YES, NO]
     };
-    match cx
-        .prompt(PromptLevel::Info, message, Some(detail), labels)
-        .await
-    {
+    match crate::boxes::prompt_async(cx, PromptLevel::Info, message, Some(detail), labels).await {
         Ok(0) => Reply::Yes,
         Ok(1) => Reply::No,
         _ => Reply::Cancel,

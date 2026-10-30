@@ -55,7 +55,14 @@ impl EditorView {
 
     /// Shows a message box with an OK button (Sakura's `InfoMessage`).
     pub(crate) fn info_box(&self, message: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let answer = window.prompt(PromptLevel::Info, BOX_TITLE, Some(message), &["OK"], cx);
+        let answer = crate::boxes::prompt(
+            window,
+            PromptLevel::Info,
+            BOX_TITLE,
+            Some(message),
+            &["OK"],
+            cx,
+        );
         crate::macros::keep_box(answer, window, cx);
     }
 
@@ -67,7 +74,8 @@ impl EditorView {
             return false;
         };
         let message = regex_error_message(error);
-        let answer = window.prompt(
+        let answer = crate::boxes::prompt(
+            window,
             PromptLevel::Warning,
             REGEX_ERROR_TITLE,
             Some(&message),
@@ -93,7 +101,8 @@ impl EditorView {
             Ok(replacer) => Ok(Some(replacer)),
             Err(e) => {
                 let message = regex_error_message(&e);
-                let answer = window.prompt(
+                let answer = crate::boxes::prompt(
+                    window,
                     PromptLevel::Warning,
                     REGEX_ERROR_TITLE,
                     Some(&message),

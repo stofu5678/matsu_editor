@@ -49,7 +49,8 @@ pub(crate) fn ask_to_clear(cx: &mut App) {
     cx.spawn(async move |cx| {
         let answer = window
             .update(cx, |_, window, cx| {
-                window.prompt(
+                crate::boxes::prompt(
+                    window,
                     gpui::PromptLevel::Warning,
                     "保存していない文書を残す機能をオフにしました。",
                     Some("今まで残した内容（次の起動で戻すためのコピー）を消しますか。"),

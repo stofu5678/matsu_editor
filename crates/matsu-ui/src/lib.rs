@@ -25,6 +25,7 @@ mod a11y;
 pub mod app;
 mod app_icon;
 mod bars;
+mod boxes;
 mod clipboard;
 mod command_line;
 mod common_settings;

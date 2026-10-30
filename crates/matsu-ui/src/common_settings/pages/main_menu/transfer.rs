@@ -41,7 +41,7 @@ fn exported(path: &Path) -> String {
 
 fn say(message: String, window: &mut Window, cx: &mut Context<CommonSettingsDialog>) {
     // Nobody waits for this answer.
-    drop(window.prompt(PromptLevel::Info, &message, None, &["OK"], cx));
+    crate::boxes::tell(window, PromptLevel::Info, &message, None, cx);
 }
 
 impl CommonSettingsDialog {
