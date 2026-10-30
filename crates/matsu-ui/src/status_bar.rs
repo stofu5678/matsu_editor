@@ -270,7 +270,14 @@ impl EditorView {
         else {
             return;
         };
-        let answer = window.prompt(PromptLevel::Info, BOX_TITLE, Some(&message), &["OK"], cx);
+        let answer = crate::boxes::prompt(
+            window,
+            PromptLevel::Info,
+            BOX_TITLE,
+            Some(&message),
+            &["OK"],
+            cx,
+        );
         cx.spawn_in(window, async move |_, _| {
             let _ = answer.await;
         })

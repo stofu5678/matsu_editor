@@ -24,7 +24,7 @@ pub(crate) async fn ask(
     detail: Option<&str>,
     labels: [&str; 3],
 ) -> Answer {
-    match cx.prompt(level, message, detail, &labels).await {
+    match crate::boxes::prompt_async(cx, level, message, detail, &labels).await {
         Ok(0) => Answer::Yes,
         Ok(1) => Answer::No,
         _ => Answer::Cancel,
@@ -39,8 +39,7 @@ pub(crate) async fn confirm(
     labels: [&str; 2],
 ) -> bool {
     matches!(
-        cx.prompt(PromptLevel::Warning, message, detail, &labels)
-            .await,
+        crate::boxes::prompt_async(cx, PromptLevel::Warning, message, detail, &labels).await,
         Ok(0)
     )
 }
@@ -52,7 +51,7 @@ pub(crate) async fn tell(
     message: &str,
     detail: Option<&str>,
 ) {
-    let _ = cx.prompt(level, message, detail, &["OK"]).await;
+    let _ = crate::boxes::prompt_async(cx, level, message, detail, &["OK"]).await;
 }
 
 /// The name of a document in a question: its path, or 無題 (`STR_NO_TITLE1`) and the number of

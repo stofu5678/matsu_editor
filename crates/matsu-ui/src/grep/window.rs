@@ -350,7 +350,8 @@ impl EditorView {
         } else {
             BOX_TITLE
         };
-        let answer = window.prompt(
+        let answer = crate::boxes::prompt(
+            window,
             PromptLevel::Warning,
             title,
             Some(&error.message),
@@ -374,8 +375,14 @@ impl EditorView {
             let Some(text) = clipboard_replacement(cx) else {
                 // `ErrorMessage( STR_DLGREPLC_CLIPBOARD )`
                 let message = super::panel::NO_CLIPBOARD;
-                let answer =
-                    window.prompt(PromptLevel::Critical, BOX_TITLE, Some(message), &["OK"], cx);
+                let answer = crate::boxes::prompt(
+                    window,
+                    PromptLevel::Critical,
+                    BOX_TITLE,
+                    Some(message),
+                    &["OK"],
+                    cx,
+                );
                 crate::macros::keep_box(answer, window, cx);
                 return Err(CommandError::BadArgs(message.to_owned()));
             };
@@ -403,7 +410,8 @@ impl EditorView {
             GrepError::Pattern(_) => crate::search::state::REGEX_ERROR_TITLE,
             _ => BOX_TITLE,
         };
-        let answer = window.prompt(
+        let answer = crate::boxes::prompt(
+            window,
             PromptLevel::Warning,
             title,
             Some(&error.message()),

@@ -660,10 +660,10 @@ impl CommonSettingsDialog {
             Ok(false) => {}
             Err(Refused::Full) => {
                 // Nobody waits for this answer.
-                drop(window.prompt(PromptLevel::Info, spec.full_message, None, &["OK"], cx));
+                crate::boxes::tell(window, PromptLevel::Info, spec.full_message, None, cx);
             }
             Err(Refused::Rejected(message)) => {
-                drop(window.prompt(PromptLevel::Info, &message, None, &["OK"], cx));
+                crate::boxes::tell(window, PromptLevel::Info, &message, None, cx);
             }
         }
     }
@@ -725,7 +725,7 @@ impl CommonSettingsDialog {
                 if let Some(message) = super::pages::tab::blocked(cx, &self.values, &self.original)
                 {
                     // Nothing is written; the dialog stays so that the user can choose again.
-                    drop(window.prompt(PromptLevel::Info, message, None, &["OK"], cx));
+                    crate::boxes::tell(window, PromptLevel::Info, message, None, cx);
                     return;
                 }
                 apply::commit(
@@ -756,13 +756,20 @@ impl CommonSettingsDialog {
         cx: &mut Context<Self>,
         action: impl FnOnce(&mut App) + 'static,
     ) {
-        let answer = window.prompt(PromptLevel::Info, question, None, &["OK", "キャンセル"], cx);
+        let answer = crate::boxes::prompt(
+            window,
+            PromptLevel::Info,
+            question,
+            None,
+            &["OK", "キャンセル"],
+            cx,
+        );
         cx.spawn_in(window, async move |this, cx| {
             if let Ok(0) = answer.await {
                 this.update_in(cx, |_, window, cx| {
                     action(cx);
                     // Nobody waits for this answer.
-                    drop(window.prompt(PromptLevel::Info, done, None, &["OK"], cx));
+                    crate::boxes::tell(window, PromptLevel::Info, done, None, cx);
                 })
                 .ok();
             }

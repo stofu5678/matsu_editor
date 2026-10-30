@@ -79,7 +79,8 @@ fn compute(own: &[EndedLine], other: &[EndedLine], options: DiffOptions) -> Outc
 impl EditorView {
     /// A box with a warning and an OK button (Sakura's `WarningMessage`).
     pub(crate) fn warning_box(&self, message: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let answer = window.prompt(
+        let answer = crate::boxes::prompt(
+            window,
             PromptLevel::Warning,
             "MATSU Editor",
             Some(message),

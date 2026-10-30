@@ -170,7 +170,14 @@ pub(crate) fn report_failure_in_view(
     window: &mut Window,
     cx: &mut Context<EditorView>,
 ) {
-    let answer = window.prompt(PromptLevel::Warning, &failure.message(), None, &["OK"], cx);
+    let answer = crate::boxes::prompt(
+        window,
+        PromptLevel::Warning,
+        &failure.message(),
+        None,
+        &["OK"],
+        cx,
+    );
     crate::macros::keep_box(answer, window, cx);
 }
 

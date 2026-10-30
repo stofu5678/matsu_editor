@@ -194,7 +194,7 @@ pub(super) fn select(
 
 /// Says something with one button (`InfoMessage`, `WarningMessage`). Nobody waits for the answer.
 fn notice(window: &mut Window, cx: &mut App, message: &str) {
-    drop(window.prompt(PromptLevel::Info, message, None, &["OK"], cx));
+    crate::boxes::tell(window, PromptLevel::Info, message, None, cx);
 }
 
 /// `STR_PLGMGR_INST_*`: why a plugin was not registered.
@@ -271,7 +271,8 @@ pub(super) fn search_new(
                 format!("プラグイン「{folder}」を追加しますか？（追加しただけでは動きません）");
             let detail = describe_folder(&dirs, &folder);
             let Ok(answer) = this.update_in(cx, |_, window, cx| {
-                window.prompt(
+                crate::boxes::prompt(
+                    window,
                     PromptLevel::Info,
                     &question,
                     Some(&detail),
@@ -305,7 +306,14 @@ pub(super) fn search_new(
                     format_args!("　いいえ→　インストール済みの「{old}」を使用"),
                 );
                 let Ok(answer) = this.update_in(cx, |_, window, cx| {
-                    window.prompt(PromptLevel::Info, &question, None, &["はい", "いいえ"], cx)
+                    crate::boxes::prompt(
+                        window,
+                        PromptLevel::Info,
+                        &question,
+                        None,
+                        &["はい", "いいえ"],
+                        cx,
+                    )
                 }) else {
                     return;
                 };
@@ -374,7 +382,8 @@ pub(super) fn enable_selected(
         }
     };
     let detail = describe_folder(&dirs, &folder);
-    let answer = window.prompt(
+    let answer = crate::boxes::prompt(
+        window,
         PromptLevel::Info,
         &format!("プラグイン「{name}」を有効にしますか？"),
         Some(&detail),
@@ -482,7 +491,14 @@ pub(super) fn remove(
         return;
     };
     let question = format!("{} を削除しますか", row[rows::FOLDER]);
-    let answer = window.prompt(PromptLevel::Info, &question, None, &["はい", "いいえ"], cx);
+    let answer = crate::boxes::prompt(
+        window,
+        PromptLevel::Info,
+        &question,
+        None,
+        &["はい", "いいえ"],
+        cx,
+    );
     cx.spawn_in(window, async move |this, cx| {
         if let Ok(0) = answer.await {
             this.update_in(cx, |this, _, cx| {

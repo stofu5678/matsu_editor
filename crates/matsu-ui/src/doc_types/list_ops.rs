@@ -65,7 +65,7 @@ impl TypeList {
 
     /// `InfoMessage`. Nobody waits for the answer.
     pub(super) fn say(&self, message: &str, window: &mut Window, cx: &mut Context<Self>) {
-        drop(window.prompt(PromptLevel::Info, message, None, &["OK"], cx));
+        crate::boxes::tell(window, PromptLevel::Info, message, None, cx);
     }
 
     /// Why an operation did not work, when the user has something to do about it.
@@ -89,7 +89,8 @@ impl TypeList {
         cx: &mut Context<Self>,
         then: impl FnOnce(&mut Self, &mut Window, &mut Context<Self>) + 'static,
     ) {
-        let answer = window.prompt(
+        let answer = crate::boxes::prompt(
+            window,
             PromptLevel::Info,
             message,
             None,

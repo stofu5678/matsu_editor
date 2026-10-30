@@ -212,7 +212,7 @@ pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: O
         if let Some(opener) = env.opener {
             opener
                 .update(env.cx, |_, window, cx| {
-                    drop(window.prompt(PromptLevel::Info, CHANGED_ELSEWHERE, None, &["OK"], cx));
+                    crate::boxes::tell(window, PromptLevel::Info, CHANGED_ELSEWHERE, None, cx);
                 })
                 .ok();
         }
@@ -232,7 +232,7 @@ pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: O
 
 /// Tells the user something (`InfoMessage`); nobody waits for the answer.
 fn say(window: &mut Window, cx: &mut Context<CommonSettingsDialog>, text: &str) {
-    drop(window.prompt(PromptLevel::Info, text, None, &["OK"], cx));
+    crate::boxes::tell(window, PromptLevel::Info, text, None, cx);
 }
 
 impl CommonSettingsDialog {
@@ -319,7 +319,8 @@ impl CommonSettingsDialog {
         let question = format!(
             "「{name}」のセットを削除します。\nよろしいですか？\n削除しようとするセットは、以下のファイルタイプに割り当てられています。\n削除したセットは無効になります。\n\n{users}"
         );
-        let answer = window.prompt(
+        let answer = crate::boxes::prompt(
+            window,
             PromptLevel::Info,
             &question,
             None,
@@ -411,7 +412,8 @@ impl CommonSettingsDialog {
         let Some(at) = current(self.values()) else {
             return;
         };
-        let answer = window.prompt(
+        let answer = crate::boxes::prompt(
+            window,
             PromptLevel::Info,
             CLEAN_QUESTION,
             None,

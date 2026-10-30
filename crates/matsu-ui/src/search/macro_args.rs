@@ -132,7 +132,8 @@ impl EditorView {
                 && let Err(error) = build_matcher(pattern, &options)
             {
                 // `CheckRegexpSyntax( ..., true )` shows the box; the macro goes on.
-                let answer = window.prompt(
+                let answer = crate::boxes::prompt(
+                    window,
                     gpui::PromptLevel::Warning,
                     super::state::REGEX_ERROR_TITLE,
                     Some(&regex_error_message(&error)),

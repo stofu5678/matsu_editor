@@ -186,7 +186,7 @@ fn feature_on(values: &Values) -> bool {
 
 fn say(message: &str, window: &mut gpui::Window, cx: &mut gpui::Context<CommonSettingsDialog>) {
     // Nobody waits for this answer.
-    drop(window.prompt(PromptLevel::Info, message, None, &["OK"], cx));
+    crate::boxes::tell(window, PromptLevel::Info, message, None, cx);
 }
 
 /// The folder of the settings file, where a relative path starts.
