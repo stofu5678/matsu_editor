@@ -57,6 +57,8 @@ windows-sys = { version = "0.61", features = [
     "Win32_Graphics_Gdi",
     "Win32_Storage_Xps",
     "Win32_UI_Controls_Dialogs",
+    # The title of the boxes of GPUI (src/dialog_title/windows.rs): SetWinEventHook
+    "Win32_UI_Accessibility",
     # ShellExecuteW (src/shell/windows.rs)
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
