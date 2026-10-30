@@ -231,6 +231,155 @@ fn passwords_on_the_command_line_are_found() {
         Some("--password=")
     );
     assert_eq!(found(Kind::MySql, "mysql --password2 db"), None);
+    // a shell removes a backslash before a letter, and the program says the kind when the file does not
+    assert_eq!(
+        found(Kind::MySql, "mysql --passw\\ord=secret"),
+        Some("--password=")
+    );
+    assert_eq!(found(Kind::Other, "mysql -u me -psecret db"), Some("-p"));
+    assert_eq!(
+        found(Kind::PostgreSql, "/usr/bin/mysql -psecret"),
+        Some("-p")
+    );
+    assert_eq!(found(Kind::Other, "sqlcmd -U me -P secret"), Some("-P"));
+    assert_eq!(found(Kind::Other, "psql -p5432 -d db"), None);
+    // `%XX` in a connection string is decoded by the client
+    assert_eq!(
+        found(
+            Kind::PostgreSql,
+            "psql 'postgresql://alice@localhost/app?pass%77ord=secret'"
+        ),
+        Some("password=")
+    );
+    assert_eq!(
+        found(
+            Kind::PostgreSql,
+            "psql postgresql://alice@h/app?sslmode=require%26x"
+        ),
+        None
+    );
+    assert_eq!(found(Kind::PostgreSql, "psql -f 100%.sql"), None);
+    // a word that only looks like a client is not one; encoded delimiters stay delimiters
+    assert_eq!(found(Kind::Other, "psql -h mysql -p5432 -d app"), None);
+    assert_eq!(found(Kind::Other, "psql -h sqlcmd -P5432"), None);
+    // after a wrapper every client of the command is looked at (its operands can be the name of one, `sudo -u psql mysql`),
+    // so a host called `mysql` after `env psql` is taken for the client: refusing is the safe mistake
+    assert_eq!(
+        found(Kind::Other, "env psql -h mysql -p5432 -f $F"),
+        Some("-p")
+    );
+    assert_eq!(
+        found(Kind::MySql, "sudo -u psql mysql -psecret"),
+        Some("-p")
+    );
+    // the commands of a line: cut at `;` `|` `&&` and ` & `, not at the `&` inside a word
+    assert_eq!(
+        split_commands("a && b | c ; d (e) f&g & h"),
+        ["a ", "", " b ", " c ", " d ", "e", " f&g ", " h"]
+    );
+    // run directly (Windows), `mysql -p(secret)` has `(secret)` for the password; the line is cut at the
+    // parenthesis, but the password is found, while a plain `-p` before a real separator is not
+    assert_eq!(found(Kind::MySql, "mysql -u me -p(secret)"), Some("-p"));
+    assert_eq!(found(Kind::MySql, "mysql -p;secret"), Some("-p"));
+    assert_eq!(found(Kind::MySql, "mysql -p|secret"), Some("-p"));
+    assert_eq!(found(Kind::SqlServer, "sqlcmd -S h -P(secret)"), Some("-P"));
+    // a password that is a separator, or begins with one
+    assert_eq!(found(Kind::MySql, "mysql -p&&secret"), Some("-p"));
+    assert_eq!(found(Kind::MySql, "mysql -u me -p;"), Some("-p"));
+    assert_eq!(
+        found(Kind::Oracle, "sqlplus alice/(secret)@DB @$F"),
+        Some("user/password")
+    );
+    assert_eq!(
+        found(Kind::Other, "sqlplus alice/(secret)@DB"),
+        Some("user/password")
+    );
+    assert_eq!(found(Kind::MySql, "mysql -p ; psql"), None);
+    assert_eq!(found(Kind::MySql, "mysql -p && psql -p5432"), None);
+    assert_eq!(found(Kind::MySql, "mysql -u me -p"), None);
+    assert_eq!(
+        found(
+            Kind::PostgreSql,
+            "psql -p5432 -f $F && mysql --login-path=mylogin"
+        ),
+        None
+    );
+    // a program in quotes is one word, whatever its path holds
+    assert_eq!(
+        found(Kind::MySql, "\"/opt/psql clients/mysql\" -psecret"),
+        Some("-p")
+    );
+    assert_eq!(
+        found(
+            Kind::Other,
+            "\"C:\\Program Files\\MySQL\\mysql.exe\" -psecret"
+        ),
+        Some("-p")
+    );
+    // a name of a client among the operands of a wrapper does not hide the real client
+    assert_eq!(
+        found(Kind::SqlServer, "sudo -u mysql sqlcmd -U me -P secret"),
+        Some("-P")
+    );
+    assert_eq!(found(Kind::Other, "sudo -u mysql sqlcmd -S host -E"), None);
+    // a separator inside quotes is part of the value
+    assert_eq!(
+        split_commands("a 'b;c' \"d|e\" f\\;g ; h"),
+        ["a 'b;c' \"d|e\" f\\;g ", " h"]
+    );
+    assert_eq!(
+        found(Kind::MySql, "mysql --password=';secret'"),
+        Some("--password=")
+    );
+    assert_eq!(found(Kind::MySql, "mysql -u me '-p;secret'"), Some("-p"));
+    // the rules of one client are for its own command only
+    assert_eq!(
+        found(
+            Kind::PostgreSql,
+            "psql -p5432 -f $F && mysql --login-path=mylogin"
+        ),
+        None
+    );
+    assert_eq!(
+        found(Kind::PostgreSql, "mysql --login-path=l ; psql -p5432 -f $F"),
+        None
+    );
+    assert_eq!(found(Kind::MySql, "psql -p5432 | mysql -u me"), None);
+    assert_eq!(
+        found(
+            Kind::PostgreSql,
+            "psql -p5432 -f $F && mysql -u me -psecret"
+        ),
+        Some("-p")
+    );
+    assert_eq!(
+        found(Kind::PostgreSql, "mysql -psecret ; psql -p5432"),
+        Some("-p")
+    );
+    assert_eq!(
+        found(
+            Kind::PostgreSql,
+            "psql postgresql://alice%3Aadmin@localhost/app"
+        ),
+        None
+    );
+    assert_eq!(
+        found(Kind::Other, "env -i HOME=x mysql -psecret"),
+        Some("-p")
+    );
+    assert_eq!(
+        found(Kind::Other, "echo x && sudo -u me mysql -psecret"),
+        Some("-p")
+    );
+    // short options of MySQL in one word
+    assert_eq!(
+        found(Kind::MySql, "mysql -u alice -vpS3cr3t app"),
+        Some("-p")
+    );
+    assert_eq!(found(Kind::MySql, "mysql -svpS3cr3t"), Some("-p"));
+    assert_eq!(found(Kind::MySql, "mysql -vp app"), None);
+    assert_eq!(found(Kind::MySql, "mysql -v -p app"), None);
+    assert_eq!(found(Kind::MySql, "mysql -uroot app"), None);
     // escaped quotes are letters to a shell: the words are looked at by blanks too
     assert_eq!(
         found(
@@ -278,6 +427,19 @@ fn the_example_file_is_made_once() {
     assert!(!create_example_file(&path).unwrap());
     assert_eq!(std::fs::read(&path).unwrap(), b"[Database]\nDefault=mine\n");
     assert!(first.starts_with(&[0xEF, 0xBB, 0xBF]));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let again = dir.join("private").join(FILE_NAME);
+        assert!(create_example_file(&again).unwrap());
+        let mode = std::fs::metadata(&again).unwrap().permissions().mode();
+        assert_eq!(mode & 0o077, 0, "{mode:o}");
+        // a link that is already there is not followed
+        let link = dir.join("link.ini");
+        std::os::unix::fs::symlink(dir.join("nowhere"), &link).unwrap();
+        assert!(!create_example_file(&link).unwrap_or(false));
+        assert!(!dir.join("nowhere").exists());
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
 

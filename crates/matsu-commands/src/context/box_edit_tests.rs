@@ -1009,3 +1009,93 @@ fn overwrite_padding_uses_the_widths_of_the_layout() {
         assert_eq!(text, "aX\u{3b1}c");
     });
 }
+
+// ---- the free cursor and delete on wrapped rows ----
+
+/// Runs the commands `ids` on `text` with the wrapping layout (3 chars a row), the caret at
+/// `caret`, the free cursor mode as given. Returns the text and the cursor.
+fn run_wrapped_ids(text: &str, caret: Pos, free: bool, ids: &[&str]) -> (String, Cursor) {
+    let options = crate::edit_options::EditOptions {
+        free_cursor: free,
+        ..crate::edit_options::EditOptions::DEFAULT
+    };
+    crate::edit_options::with_options(options, || {
+        let mut model = DocumentModel::new(Document::from_utf8(text.as_bytes().to_vec()).unwrap());
+        let mut cursor = Cursor::default();
+        cursor.move_to(caret, false);
+        let mut layout = Wrap(3);
+        for id in ids {
+            let mut cx = CommandContext::new(&mut model, &mut cursor, &mut layout, None);
+            Registry::global().run(id, &mut cx, &[]).unwrap();
+        }
+        let doc = model.doc();
+        let out = doc
+            .text_between(Pos::new(0, 0), doc.end_pos().unwrap())
+            .unwrap();
+        (out, cursor)
+    })
+}
+
+#[test]
+fn delete_at_the_wrap_point_deletes_the_first_char_of_the_next_row() {
+    // Sakura: `Command_DELETE`, "非フリーカーソル時（ちょうどカーソルが折り返し位置にある）には
+    // 次の行の先頭文字を削除したい"
+    for free in [false, true] {
+        let (text, cursor) = run_wrapped_ids("abcdef", Pos::new(0, 3), free, &["delete"]);
+        assert_eq!(text, "abcef");
+        assert_eq!((cursor.caret(), cursor.free_col()), (Pos::new(0, 3), None));
+    }
+}
+
+#[test]
+fn delete_back_at_the_start_of_a_wrapped_row_deletes_the_last_char_of_the_row_before() {
+    // `Command_DELETE_BACK`: `Command_LEFT` puts the caret on the last char of the row before,
+    // and `nIdx < GetLengthWithoutEOL()` lets it be deleted; the line ending of a line before
+    // is deleted when the caret goes up a row.
+    for free in [false, true] {
+        let (text, cursor) = run_wrapped_ids("abcdef", Pos::new(0, 3), free, &["delete_back"]);
+        assert_eq!(text, "abdef");
+        assert_eq!(cursor.caret(), Pos::new(0, 2));
+        let (text, cursor) = run_wrapped_ids("abcdef\nxy", Pos::new(1, 0), free, &["delete_back"]);
+        assert_eq!(text, "abcdefxy");
+        assert_eq!(cursor.caret(), Pos::new(0, 6));
+    }
+}
+
+#[test]
+fn the_free_caret_stands_only_after_the_last_row_of_a_line() {
+    // "abcdef" is the rows "abc" and "def"; "x" is a row of its own
+    let run = |from: Pos, ids: &[&str]| run_wrapped_ids("abcdef\nx", from, true, ids).1;
+    // down from the end of "def" (column 3) to "x": the caret stands at column 3
+    let cursor = run(Pos::new(0, 6), &["cursor_down"]);
+    assert_eq!(
+        (cursor.caret(), cursor.free_col()),
+        (Pos::new(1, 1), Some(3))
+    );
+    // up from there to the row "def" and then to "abc", which wraps: the caret is on the text at
+    // the end of the row, which is the start of the next row; the gap is not there
+    let cursor = run(Pos::new(0, 6), &["cursor_down", "cursor_up", "cursor_up"]);
+    assert_eq!(cursor.free_col(), None);
+    // right at the end of the last row goes on into the gap
+    let cursor = run(Pos::new(0, 6), &["cursor_right"]);
+    assert_eq!(
+        (cursor.caret(), cursor.free_col()),
+        (Pos::new(0, 6), Some(4))
+    );
+    // right at the end of a wrapped row does not: that is the start of the next row
+    let cursor = run(Pos::new(0, 2), &["cursor_right", "cursor_right"]);
+    assert_eq!((cursor.caret(), cursor.free_col()), (Pos::new(0, 4), None));
+}
+
+#[test]
+fn delete_in_the_gap_of_the_last_wrapped_row_pads_and_joins() {
+    let (text, cursor) = run_wrapped_ids(
+        "abcdef\nx",
+        Pos::new(0, 6),
+        true,
+        &["cursor_right", "cursor_right", "delete"],
+    );
+    // the caret was at column 5 of the row "def": two spaces, then the next line
+    assert_eq!(text, "abcdef  x");
+    assert_eq!(cursor.caret(), Pos::new(0, 8));
+}

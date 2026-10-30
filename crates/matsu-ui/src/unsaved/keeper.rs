@@ -15,7 +15,6 @@ use std::time::{Duration, Instant, UNIX_EPOCH};
 use gpui::{App, Context, Entity, EntityId, Global, WeakEntity, Window, WindowId};
 use matsu_config::unsaved::{DocInfo, Session, SessionWindow, Store, StoreError};
 use matsu_core::buffer::Eol;
-use matsu_core::buffer::col_to_utf16;
 
 use super::prefs::{KeepPrefs, prefs};
 use super::writer::{RETRY_STUCK, Revision, Shared, Snapshot, Writer};
@@ -64,6 +63,10 @@ pub(crate) struct Entry {
     /// The revision the user chose to throw away (「保存しない」 while the document stays open, as in an exit of all
     /// windows): no copy is made of it again; the next change makes one.
     suppressed: Option<Revision>,
+    /// The question about the document was left out at the end of the editor because the copy covers it: the copy
+    /// stays when the document goes (the process may live on for a while, with a dialog open), and comes back at
+    /// the next start.
+    kept_for_exit: bool,
 }
 
 impl Entry {
@@ -78,6 +81,7 @@ impl Entry {
             document: None,
             warned_big: false,
             suppressed: None,
+            kept_for_exit: false,
         }
     }
 
@@ -93,6 +97,7 @@ impl Entry {
         self.seen = None;
         self.first_pending = None;
         self.last_attempt = None;
+        self.kept_for_exit = false;
     }
 }
 
@@ -200,6 +205,9 @@ pub(crate) struct Keeper {
     /// The session `session.ini` was last asked to have; `None` when that write failed and must be tried again.
     last_session: Option<Session>,
     session_retry_at: Option<Instant>,
+    /// A copy was left at the end of the editor: `session.ini` is not written any more, so that it keeps the
+    /// tabs and windows as they were for the next start.
+    session_frozen: bool,
     told_failure: bool,
     /// Documents whose user said 「保存しない」 in a flow that is not over: the copy goes when the close really
     /// happens ([`apply_close`]), not before, so a cancelled flow loses nothing.
@@ -217,6 +225,7 @@ impl Keeper {
             active_window: None,
             last_session: Some(Session::default()),
             session_retry_at: None,
+            session_frozen: false,
             told_failure: false,
             marked: HashMap::new(),
         }
@@ -296,6 +305,7 @@ impl Keeper {
         };
         self.windows
             .retain(|(_, r)| now.duration_since(r.at) < GONE_AFTER);
+        let mut left_for_exit = false;
         self.entries.retain(|_, entry| {
             if entry
                 .document
@@ -304,14 +314,23 @@ impl Keeper {
             {
                 return true;
             }
+            // A copy that was left to cover the document at the end of the editor is not removed with it.
+            if entry.kept_for_exit {
+                left_for_exit = true;
+                return false;
+            }
             if let (Some(writer), Some(id)) = (writer, entry.id.take()) {
                 writer.discard(id);
             }
             false
         });
+        self.session_frozen |= left_for_exit;
         let Some(writer) = writer else {
             return;
         };
+        if self.session_frozen {
+            return;
+        }
         // A write of `session.ini` that failed is asked again, but not more often than a document is.
         if writer.session_failed()
             && self.last_session.is_some()
@@ -556,11 +575,7 @@ fn doc_type_of(view: &EditorView, shared: &SharedDocument) -> Option<i32> {
 pub(crate) fn info_of(view: &EditorView, shared: &SharedDocument) -> DocInfo {
     let doc = shared.doc();
     let caret = view.cursor().caret();
-    let column = doc
-        .line(caret.line)
-        .ok()
-        .flatten()
-        .map_or(caret.col, |line| col_to_utf16(&line.text, caret.col));
+    let column = doc.utf16_col(caret.line, caret.col);
     // A document that was brought back and whose file is not looked at yet keeps the time and the size it came with
     // (the watching of the file may have taken the new time since: the choice 「以後通知メッセージのみ」), so
     // that the check before the save still works after another restart.
@@ -648,6 +663,25 @@ pub(crate) fn unmark_close(view: &EditorView, cx: &mut App) {
     let id = view.document().entity_id();
     let mut keeper = cx.remove_global::<Keeper>();
     keeper.marked.remove(&id);
+    if let Some(entry) = keeper.entries.get_mut(&id) {
+        entry.kept_for_exit = false;
+    }
+    cx.set_global(keeper);
+}
+
+/// The question about the document was left out because its copy covers it (the end of the editor with
+/// `KeepUnsavedNoAsk`): the copy is not removed when the document goes, even if the process lives on (a dialog that
+/// is not an editor window keeps it running). Only an explicit discard, a save, or a document that has nothing to
+/// keep any more (back to its saved text) removes it.
+pub(crate) fn retain_for_exit(view: &EditorView, cx: &mut App) {
+    if !cx.has_global::<Keeper>() {
+        return;
+    }
+    let id = view.document().entity_id();
+    let mut keeper = cx.remove_global::<Keeper>();
+    if let Some(entry) = keeper.entries.get_mut(&id) {
+        entry.kept_for_exit = true;
+    }
     cx.set_global(keeper);
 }
 
@@ -842,6 +876,9 @@ pub(crate) fn tick_window_at(
             let entry = keeper.entries.entry(key).or_insert_with(|| Entry::new(now));
             entry.document.get_or_insert_with(|| document.downgrade());
             let mut plan = decide(entry, want, revision, now);
+            if want != Want::Keep {
+                entry.kept_for_exit = false;
+            }
             // On `force` (the window lost the focus) a document that is to be kept is written now when its text,
             // or its caret, view or bookmarks, are not what the last write has.
             let mut info = None;
@@ -850,13 +887,16 @@ pub(crate) fn tick_window_at(
                 // A revision the user threw away stays thrown away.
                 && entry.suppressed != Some(revision)
                 && !plan.write
-                && !entry
+            {
+                // A write that is running does not stop this one: the writer does them in the order they were
+                // given, so the later one ends last (at the end of the editor there is no second round to wait for).
+                let now_info = info_of(view.read(cx), document.read(cx));
+                // A write that is still running may supersede what looks current: write again.
+                if entry
                     .shared
                     .in_flight
                     .load(std::sync::atomic::Ordering::SeqCst)
-            {
-                let now_info = info_of(view.read(cx), document.read(cx));
-                if entry.shared.written() != Some(revision)
+                    || entry.shared.written() != Some(revision)
                     || entry.shared.written_info().as_ref() != Some(&now_info)
                 {
                     plan.write = true;
@@ -927,8 +967,7 @@ pub(crate) fn tick_window_at(
     cx.set_global(keeper);
 }
 
-/// Waits until the writer has done every job queued so far (for the tests; the quit flow of a later change
-/// uses it too).
+/// Waits until the writer has done every job queued so far (for the tests).
 #[cfg(test)]
 pub(crate) fn flush(cx: &App) {
     if let Some(Keeper {
@@ -938,4 +977,130 @@ pub(crate) fn flush(cx: &App) {
     {
         writer.flush();
     }
+}
+
+/// Whether the editor ends without the question 「保存しますか」 about the documents whose copy is kept:
+/// `KeepUnsaved` and `KeepUnsavedNoAsk` are both on (ADR-0022, section 5, decision 5).
+pub(crate) fn hot_exit_enabled(cx: &App) -> bool {
+    let prefs = prefs(cx);
+    prefs.keep && prefs.no_ask
+}
+
+/// Writes the latest text and place of every document that is to be kept, at once (as when a window loses the
+/// focus), in every window.
+///
+/// `current` is the window that runs the call, if there is one: a window cannot be entered again from inside its own
+/// update, so it is used as it is.
+fn queue_all_now(cx: &mut App, mut current: Option<&mut Window>) {
+    for (handle, workspace) in crate::file_ops::windows::workspaces(cx) {
+        match current.as_deref_mut() {
+            Some(window) if window.window_handle() == handle => {
+                workspace.update(cx, |ws, wcx| {
+                    tick_window_at(ws, window, wcx, Instant::now(), true);
+                });
+            }
+            _ => {
+                handle
+                    .update(cx, |_, window, app| {
+                        workspace.update(app, |ws, wcx| {
+                            tick_window_at(ws, window, wcx, Instant::now(), true);
+                        });
+                    })
+                    .ok();
+            }
+        }
+    }
+}
+
+/// A receiver that answers when the writer has done what it was given so far.
+fn barrier(cx: &App) -> Option<std::sync::mpsc::Receiver<()>> {
+    match cx.try_global::<Keeper>() {
+        Some(Keeper {
+            state: State::Running(writer),
+            ..
+        }) => Some(writer.barrier()),
+        _ => None,
+    }
+}
+
+/// How long the editor waits for the copies to be written before it goes on to ask (a slow or stuck disk).
+const SETTLE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Before the editor ends: the latest content of every document is written, and the call returns when the writer
+/// is done (or after [`SETTLE_TIMEOUT`]). Two rounds, because a write that was running when the first round
+/// asked cannot be asked again before it ends. The waiting is done on a thread of the background executor, not
+/// on the UI thread.
+pub(crate) async fn settle(cx: &mut gpui::AsyncWindowContext) {
+    for _ in 0..2 {
+        let rx = cx
+            .update(|window, app| {
+                queue_all_now(app, Some(window));
+                barrier(app)
+            })
+            .ok()
+            .flatten();
+        let Some(rx) = rx else {
+            return;
+        };
+        cx.background_executor()
+            .spawn(async move {
+                let _ = rx.recv_timeout(SETTLE_TIMEOUT);
+            })
+            .await;
+    }
+}
+
+/// The part of [`settle`] for the end of the process, which cannot wait for a window or enter the application
+/// again. The writes are asked for (also for a document whose earlier write is still running), and this function
+/// itself waits, on the thread that ends the process, until the writer is done or [`QUIT_WAIT`] has passed.
+/// The wait is here and not in a future for `on_app_quit`, because GPUI waits for those futures only 200 ms, and
+/// the end of a Windows session (`WM_ENDSESSION`) leaves the process without `Drop` (it calls `process::exit`).
+pub(crate) fn settle_at_quit(cx: &mut App) -> impl std::future::Future<Output = ()> + use<> {
+    queue_all_now(cx, None);
+    if let Some(rx) = barrier(cx) {
+        let _ = rx.recv_timeout(QUIT_WAIT);
+    }
+    std::future::ready(())
+}
+
+/// How long the end of the process waits for the copies to be written. Windows ends a program that has not
+/// answered the end of the session after about five seconds (`WaitToKillAppTimeout`, 5000 ms by default), and
+/// the rest of the shutdown needs time too: three seconds are for the copies. A copy is a few kilobytes to
+/// megabytes written and flushed once; a disk that needs more than this is stuck, and the document was written
+/// at most two seconds before its last change anyway (the wait after typing).
+const QUIT_WAIT: Duration = Duration::from_secs(3);
+
+/// Whether the copy of the document of `view` has its latest content, so that the editor may end without asking
+/// about it: the document is one that is kept (not a Grep window, not too big), its copy was written for the
+/// revision it has now, and the last write did not fail. Needs the folder to be in use by this process.
+pub(crate) fn covered(view: &EditorView, cx: &App) -> bool {
+    let Some(Keeper {
+        state: State::Running(_),
+        entries,
+        ..
+    }) = cx.try_global::<Keeper>()
+    else {
+        return false;
+    };
+    let shared = view.document().read(cx);
+    if want_of(view, shared, &prefs(cx)) != Want::Keep {
+        return false;
+    }
+    let Some(entry) = entries.get(&view.document().entity_id()) else {
+        return false;
+    };
+    entry.id.is_some()
+        && !entry
+            .shared
+            .failed
+            .load(std::sync::atomic::Ordering::SeqCst)
+        && entry.shared.written() == Some(revision_of(view, shared))
+}
+
+/// Whether the copy of the document is left for the end of the editor (for the tests).
+#[cfg(test)]
+pub(crate) fn kept_for_exit(cx: &App, document: EntityId) -> bool {
+    cx.try_global::<Keeper>()
+        .and_then(|k| k.entries.get(&document))
+        .is_some_and(|e| e.kept_for_exit)
 }

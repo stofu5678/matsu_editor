@@ -27,10 +27,15 @@ mod drop_tests;
 mod file_tests;
 pub(crate) mod flows;
 #[cfg(test)]
+mod huge_tests;
+pub(crate) mod icon;
+#[cfg(test)]
 mod kind_menu_tests;
 pub(crate) mod list;
 #[cfg(test)]
 mod list_tests;
+#[cfg(test)]
+mod look_tests;
 #[cfg(test)]
 mod menu_tests;
 pub(crate) mod order;

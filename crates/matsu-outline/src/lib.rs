@@ -28,6 +28,9 @@
 //! | [`plsql`] | `MakeFuncList_PLSQL` | PL/SQL |
 //! | [`cobol`] | `MakeTopicList_cobol` | COBOL |
 //! | [`asm`] | `MakeTopicList_asm` | assembler |
+//! | [`tex`] | `MakeTopicList_tex` | TeX |
+//! | [`erlang`] | `MakeFuncList_Erlang` | Erlang |
+//! | [`rule_file`] | `MakeFuncList_RuleFile` | the rule file of the type |
 //! | [`text`] | `MakeTopicList_txt`, `MakeTopicList_wztxt` | text, text with levels |
 //! | [`html`] | `MakeTopicList_html` | HTML, XML |
 //! | [`bookmark`] | `MakeFuncList_BookMark` | the bookmark list |
@@ -41,13 +44,15 @@
 //! * A character outside the BMP counts as one character, not two code units; where Sakura tests
 //!   for a two-unit character (`GetSizeOfChar`) the analyzers test for such a character.
 //! * `m_bEnableExtEol` (NEL, LS and PS as line endings) is off, as it is by default in Sakura.
-//! * Not ported yet: TeX, Erlang and the rule file.
+//! * The rule file is read by the window and given as bytes ([`Request::rule_file`]); the
+//!   regular expressions of the rules go through `matsu-regex`.
 
 pub mod asm;
 pub mod bookmark;
 mod chars;
 pub mod cobol;
 pub mod cpp;
+pub mod erlang;
 pub mod html;
 mod info;
 pub mod java;
@@ -55,13 +60,18 @@ mod kind;
 pub mod perl;
 pub mod plsql;
 pub mod python;
+pub mod rule_file;
 mod source;
+pub mod tex;
 pub mod text;
 pub mod tree;
 pub mod vb;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod tests_tex_erlang_rule;
 
 pub use info::{FuncInfo, FuncInfoArr, NO_CLIP_TEXT, func_obj};
 pub use kind::{Analysis, OutlineKind, Request, ViewType, analyze};

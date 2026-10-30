@@ -5,8 +5,9 @@
 //! history (and the buttons that clear them), the two confirmations before windows close
 //! ([`CloseConfirm`]), and the scrolling ([`ScrollOptions`]): the rows a held up or down key
 //! moves, and the keys and buttons that turn the wheel into a page or a sideways scroll
-//! (`crate::view::paging`). Not available yet: the free cursor, the mouse activation, the caret
-//! shape, the task tray (MATSU Editor is one process, ADR-0016), "少し滑らかにする" (it only
+//! (`crate::view::paging`), the free cursor (`matsu_commands::context`'s `free_cursor`) and the
+//! shape of the caret (`crate::view::caret_shape`). Not available yet: the mouse activation, the
+//! task tray (MATSU Editor is one process, ADR-0016), "少し滑らかにする" (it only
 //! redraws between the steps, which GPUI cannot do inside a command; the result of the move is
 //! the same) and the screen cache (GPUI draws the window itself; there is no device context to
 //! keep).
@@ -105,7 +106,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         "bIsFreeCursorMode",
                         false,
                     )
-                    .unavailable()
                     .into(),
                     Control::check(
                         "stops_both_ends_word",
@@ -134,12 +134,8 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
             Item::Group(
                 "カーソル形状",
                 vec![Item::Row(vec![
-                    Control::radio("caret_type", "&Windows風", "nCaretType", 0, 0)
-                        .unavailable()
-                        .into(),
-                    Control::radio("caret_type", "MS-&DOS風", "nCaretType", 1, 0)
-                        .unavailable()
-                        .into(),
+                    Control::radio("caret_type", "&Windows風", "nCaretType", 0, 0).into(),
+                    Control::radio("caret_type", "MS-&DOS風", "nCaretType", 1, 0).into(),
                 ])],
             ),
             Item::Group(
@@ -299,13 +295,24 @@ fn clear_folders(
     );
 }
 
+/// The options of the commands that this page sets, on top of `options`.
+pub(in crate::common_settings) fn general_options(
+    mut options: edit_options::EditOptions,
+    after: &Values,
+) -> edit_options::EditOptions {
+    options.stops_both_ends_word = after.bool("stops_both_ends_word");
+    options.stops_both_ends_paragraph = after.bool("stops_both_ends_paragraph");
+    options.free_cursor = after.bool("free_caret");
+    // `GetCaretType()`: the low 4 bits of `nCaretType`; 1 is the MS-DOS style, anything else the
+    // Windows style (`ShowEditCaret` tests for 0 and 1 only).
+    options.dos_caret = after.int("caret_type") & 0xf == 1;
+    options
+}
+
 /// What OK does to the windows: the options of the commands, and the lists of the menus (the
 /// history reads its size from the file).
 pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: Option<&Values>) {
-    let mut options = edit_options::get();
-    options.stops_both_ends_word = after.bool("stops_both_ends_word");
-    options.stops_both_ends_paragraph = after.bool("stops_both_ends_paragraph");
-    edit_options::set(options);
+    edit_options::set(general_options(edit_options::get(), after));
     env.cx.set_global(ScrollOptions {
         repeated_lines: after.int("repeated_scroll_lines").clamp(1, 10) as usize,
         page_by_wheel: after.int("wheel_page_scroll"),

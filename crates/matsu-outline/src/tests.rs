@@ -574,18 +574,25 @@ fn analyze_runs_the_analyzer_of_the_kind() {
 
     // an unknown value of the setting is the text topics, as in Sakura
     assert_eq!(OutlineKind::from_setting(99), OutlineKind::Text);
-    // a kind that is not ported gives an empty list
-    let rule = OutlineKind::from_setting(matsu_config::settings::type_rules::outline_type::FILE);
-    assert!(!rule.is_supported());
-    // PL/SQL, COBOL and assembler are ported
-    for value in [
-        matsu_config::settings::type_rules::outline_type::PLSQL,
-        matsu_config::settings::type_rules::outline_type::COBOL,
-        matsu_config::settings::type_rules::outline_type::ASM,
-    ] {
-        assert!(OutlineKind::from_setting(value).is_supported());
-    }
-    assert!(analyze(&src, &Request::new(rule)).items.is_empty());
+    // TeX, the rule file and Erlang have their own kinds; the rule file without a file is empty
+    use matsu_config::settings::type_rules::outline_type;
+    assert_eq!(
+        OutlineKind::from_setting(outline_type::TEX),
+        OutlineKind::Tex
+    );
+    assert_eq!(
+        OutlineKind::from_setting(outline_type::FILE),
+        OutlineKind::RuleFile
+    );
+    assert_eq!(
+        OutlineKind::from_setting(outline_type::ERLANG),
+        OutlineKind::Erlang
+    );
+    assert!(
+        analyze(&src, &Request::new(OutlineKind::RuleFile))
+            .items
+            .is_empty()
+    );
 }
 
 #[test]
@@ -598,6 +605,9 @@ fn views_of_the_kinds() {
         (OutlineKind::Bookmark, List),
         (OutlineKind::PlSql, List),
         (OutlineKind::Asm, List),
+        (OutlineKind::Erlang, List),
+        (OutlineKind::Tex, Tree),
+        (OutlineKind::RuleFile, Tree),
         (OutlineKind::Cobol, Tree),
         (OutlineKind::Cpp, Tree),
         (OutlineKind::Java, Tree),

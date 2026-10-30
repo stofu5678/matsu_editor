@@ -25,6 +25,23 @@ pub fn position_at(
     position_in_row(layout, doc, m, row, x)
 }
 
+/// The display column of a click to the right of the text of its row, or `None` when the click
+/// is on the text. The free cursor mode puts the caret there (`CCaret::MoveCursorProperly`: the
+/// column of the click, `ClientToLayout`, which rounds down).
+pub fn free_column_at(
+    layout: &DocumentLayout,
+    doc: &Document,
+    m: &Metrics,
+    scroll_y: f32,
+    x: f32,
+    y: f32,
+) -> Result<Option<usize>> {
+    let row = row_at(m, scroll_y, y, layout.row_count());
+    let (col, _) = column_at(m, x);
+    let target = layout.row_to_pos(doc, row, col)?;
+    Ok((target.extra_columns > 0).then_some(col as usize))
+}
+
 /// Like [`position_at`], on a given row.
 pub fn position_in_row(
     layout: &DocumentLayout,
@@ -38,14 +55,15 @@ pub fn position_in_row(
     if target.extra_columns > 0 {
         return Ok(target.pos);
     }
-    let Some(line) = doc.line(target.pos.line)? else {
-        return Ok(target.pos);
+    // Only the char at the column is needed: a very long line is not decoded as a whole.
+    let text = if doc.is_long_line(target.pos.line) {
+        doc.line_slice(target.pos.line, target.pos.col, target.pos.col + 4)?
+            .map(|slice| slice.text)
+    } else {
+        doc.line(target.pos.line)?
+            .and_then(|line| line.text.get(target.pos.col..).map(str::to_owned))
     };
-    let Some(c) = line
-        .text
-        .get(target.pos.col..)
-        .and_then(|rest| rest.chars().next())
-    else {
+    let Some(c) = text.and_then(|rest| rest.chars().next()) else {
         return Ok(target.pos);
     };
     let start = layout.pos_to_row(doc, target.pos)?.column;

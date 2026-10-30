@@ -64,7 +64,7 @@ pub(crate) fn open_editor_window(
     }
     // matsu.ini, read once at startup (`app::run`); every window applies it.
     let user = cx.try_global::<crate::settings::UserSettings>().cloned();
-    open_window_with(cx, move |window, cx| {
+    open_window_with(cx, None, move |window, cx| {
         let document = cx.new(|_| shared);
         let workspace = cx.new(|cx| Workspace::new(document, window, cx));
         let editor = workspace.read(cx).editor().clone();
@@ -93,9 +93,20 @@ pub(crate) fn open_window_with_panes(
     cx: &mut App,
     panes: PaneSet,
 ) -> Result<AnyWindowHandle, Option<Box<PaneSet>>> {
+    open_window_with_panes_at(cx, panes, None)
+}
+
+/// [`open_window_with_panes`] with the position of the window's top left corner on the screen,
+/// for a tab that was dragged out of the bar (`CTabWnd::SeparateGroup` puts the window where the
+/// tab was dropped).
+pub(crate) fn open_window_with_panes_at(
+    cx: &mut App,
+    panes: PaneSet,
+    origin: Option<gpui::Point<gpui::Pixels>>,
+) -> Result<AnyWindowHandle, Option<Box<PaneSet>>> {
     let slot = Rc::new(std::cell::RefCell::new(Some(panes)));
     let taken = slot.clone();
-    open_window_with(cx, move |window, cx| {
+    open_window_with(cx, origin, move |window, cx| {
         let panes = taken.borrow_mut().take().expect("the panes are used once");
         cx.new(|cx| Workspace::with_panes(panes, window, cx))
     })
@@ -105,6 +116,7 @@ pub(crate) fn open_window_with_panes(
 /// Opens a window whose content `build` makes, and registers it.
 fn open_window_with(
     cx: &mut App,
+    origin: Option<gpui::Point<gpui::Pixels>>,
     build: impl FnOnce(&mut Window, &mut App) -> Entity<Workspace> + 'static,
 ) -> gpui::Result<AnyWindowHandle> {
     let count = window_count(cx);
@@ -127,6 +139,9 @@ fn open_window_with(
     }
     if let Some(placement) = placement {
         placement.place(&mut bounds);
+    }
+    if let Some(origin) = origin {
+        bounds.origin = origin;
     }
     let window_bounds = if saved.maximized() {
         WindowBounds::Maximized(bounds)
@@ -254,7 +269,17 @@ async fn close_after_questions(
     cx: &mut gpui::AsyncWindowContext,
 ) {
     let mut asked: Vec<(gpui::EntityId, u64)> = Vec::new();
+    // The tabs whose question was left out because their copy is kept.
+    let mut by_copy_only: Vec<gpui::EntityId> = Vec::new();
+    // Closing the last window ends the editor: with `KeepUnsavedNoAsk` the copies of the documents are enough
+    // (ADR-0022, section 5).
+    let hot = cx
+        .update(|_, app| crate::unsaved::hot_exit_enabled(app) && workspaces(app).len() == 1)
+        .unwrap_or(false);
     loop {
+        if hot {
+            crate::unsaved::settle(cx).await;
+        }
         let Ok(views) = workspace.read_with(cx, |ws, _| ws.tab_editors()) else {
             return;
         };
@@ -263,8 +288,20 @@ async fn close_after_questions(
             if asked.contains(&(view.entity_id(), version)) {
                 continue;
             }
-            if !close::confirm_discard(&view.downgrade(), cx).await {
+            // Asked again at the moment of the question: windows may have opened while the copies were written.
+            let ends =
+                |app: &mut App| crate::unsaved::hot_exit_enabled(app) && workspaces(app).len() == 1;
+            let (go_on, by_copy) =
+                close::confirm_discard_ending_by(&view.downgrade(), cx, &ends).await;
+            if !go_on {
+                // The flow is over: what it left out for the copies is taken back.
+                close::forget_left_out(&views, cx);
                 return;
+            }
+            if by_copy {
+                by_copy_only.push(view.entity_id());
+            } else {
+                by_copy_only.retain(|id| *id != view.entity_id());
             }
             let version = view.read_with(cx, |v, app| v.document().read(app).version());
             asked.push((view.entity_id(), version));
@@ -276,6 +313,16 @@ async fn close_after_questions(
                 })
             })
             .unwrap_or(true);
+        // Another window opened while a later question was open: closing this one is not the end of the editor
+        // any more, and the tabs that were not asked about are asked now.
+        let still_ends = cx
+            .update(|_, app| crate::unsaved::hot_exit_enabled(app) && workspaces(app).len() == 1)
+            .unwrap_or(false);
+        if unchanged && !by_copy_only.is_empty() && !still_ends {
+            asked.retain(|(id, _)| !by_copy_only.contains(id));
+            by_copy_only.clear();
+            continue;
+        }
         if unchanged {
             cx.update(|window, app| {
                 for view in &views {

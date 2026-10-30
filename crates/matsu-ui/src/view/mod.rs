@@ -14,8 +14,10 @@
 //! The context tells the layout about each edit as it happens (`RowLayout`), so a command that
 //! edits and then moves vertically sees the new rows.
 
+mod a11y_text;
 pub(crate) mod autoscroll;
 mod bracket_marks;
+mod caret_shape;
 mod colors;
 mod diff_mark;
 mod element;
@@ -27,6 +29,7 @@ mod mouse;
 pub(crate) mod paging;
 pub(crate) mod pane;
 mod ruler;
+mod scan;
 mod settings;
 #[cfg(test)]
 mod settings_tests;
@@ -37,8 +40,8 @@ use std::ops::Range;
 
 use gpui::{
     App, Context, CursorStyle, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
-    KeyDownEvent, MouseButton, ParentElement, Render, SharedString, Styled, Subscription, Window,
-    actions, div, px,
+    KeyDownEvent, MouseButton, ParentElement, Render, SharedString,
+    StatefulInteractiveElement as _, Styled, Subscription, Window, actions, div, px,
 };
 use matsu_commands::command::{Arg, CommandError, Registration};
 use matsu_commands::context::{Changes, CommandContext};
@@ -112,6 +115,9 @@ pub(crate) struct Marked {
     pub line: usize,
     /// Byte columns of the line.
     pub range: Range<usize>,
+    /// The spaces right before `range` that the composition put there to fill the gap of the
+    /// free cursor mode. They go when the composition is cancelled.
+    pub pad: usize,
 }
 
 /// What the mouse is doing between button down and button up.
@@ -167,6 +173,8 @@ pub struct EditorView {
     pub(crate) color_version: u64,
     /// The colors of the last long line painted (`view/colors.rs`).
     pub(crate) line_color_cache: colors::LineColorCache,
+    /// The rows on the screen, left by the last paint for the screen readers (`a11y_text.rs`).
+    a11y_text: a11y_text::Shared,
     pub(crate) cursor: Cursor,
     pub(crate) keymap: KeyMap,
     pub(crate) focus_handle: FocusHandle,
@@ -202,6 +210,16 @@ pub struct EditorView {
     /// The auto scroll of the middle button (`view/autoscroll.rs`).
     pub(crate) autoscroll: autoscroll::AutoScroll,
     pub(crate) notice: Option<String>,
+    /// A jump to a place the scan of the file has not reached, held back until it is done
+    /// (`view/scan.rs`).
+    pub(crate) pending_scan_jump: Option<scan::PendingScanJump>,
+    /// The last command was refused because the document is read-only (`view/scan.rs`).
+    refused_edit: bool,
+    /// The jump that waited for the scan runs now: it was recorded already.
+    replaying_scan_jump: bool,
+    /// The caret and the history of a file that was opened while it is scanned, to restore when
+    /// the scan is done (`view/scan.rs`).
+    pub(crate) pending_scan_restore: Option<scan::ScanRestore>,
     /// The settings of the file and the temporary changes (`view/settings.rs`).
     pub(crate) prefs: ViewPrefs,
     /// The size of the selection counted last (`status_info.rs`).
@@ -261,6 +279,7 @@ impl EditorView {
             color_states: Default::default(),
             color_version: layout_version,
             line_color_cache: Default::default(),
+            a11y_text: Default::default(),
             cursor: Cursor::default(),
             keymap: KeyMap::default(),
             focus_handle: cx.focus_handle(),
@@ -281,6 +300,10 @@ impl EditorView {
             click_phase: 1,
             autoscroll: Default::default(),
             notice: None,
+            pending_scan_jump: None,
+            refused_edit: false,
+            replaying_scan_jump: false,
+            pending_scan_restore: None,
             prefs: ViewPrefs::new(Default::default()),
             selection_count: Default::default(),
             print: Default::default(),
@@ -359,7 +382,10 @@ impl EditorView {
             let overwrite = shared.overwrite();
             // View mode, or a file that cannot be written (`CEditDoc::IsEditable`).
             let uneditable = crate::file_ops::prefs::prefs(cx).uneditable_if_unwritable;
-            let view_mode = shared.view_mode() || shared.locked_by_unwritable(uneditable);
+            // A document that shows only the scanned start of its file is read-only too.
+            let view_mode = shared.view_mode()
+                || shared.locked_by_unwritable(uneditable)
+                || shared.is_partial();
             let (model, path) = shared.parts_mut();
             let mut adapter = RowLayout(layout);
             let quote = cx
@@ -407,7 +433,14 @@ impl EditorView {
         if self.isearch_intercept(reg.sakura, args, cx) {
             return true;
         }
-        self.record_call(reg.sakura, args);
+        // While the file is scanned, a jump to a place it has not reached waits.
+        if self.defer_for_scan(reg, args, cx) {
+            return true;
+        }
+        // A jump that waited for the scan was recorded when it was asked for.
+        if !std::mem::take(&mut self.replaying_scan_jump) {
+            self.record_call(reg.sakura, args);
+        }
         self.completion_before_command(reg.sakura);
         // `MoveCursorLayout(row, ..)` names a row of the whole text, and `MoveCursor` with a box
         // needs the row of its target: a document that is still being laid out in the background
@@ -421,6 +454,7 @@ impl EditorView {
         self.notice = result
             .err()
             .map(|e: CommandError| format!("{}: {e}", reg.id));
+        self.say_why_refused(cx);
         cx.notify();
         ok
     }
@@ -504,6 +538,7 @@ impl EditorView {
         if let Err(e) = result {
             self.notice = Some(format!("{}: {e}", reg.id));
         }
+        self.say_why_refused(cx);
         cx.notify();
         ok
     }
@@ -525,6 +560,7 @@ impl EditorView {
             self.marked = None;
             self.notice = None;
         }
+        self.refused_edit = changes.refused_in_view_mode;
         self.completion_after_command(changes, cx);
         // While a macro runs, a command that moved nothing leaves the view where it is:
         // `SetViewTop` scrolls away from the caret, and the calls after it must not scroll back
@@ -549,12 +585,16 @@ impl EditorView {
         let _ = self.layout.resync(doc);
         let _ = self.layout.layout_for(doc, LAYOUT_BUDGET);
         let _ = self.cursor.clamp_if_outside(doc);
+        // The text of the line may have grown under a caret that stood right of its end.
+        self.cursor.set_free_col(None);
         self.layout_version = version;
         self.drop_composition(cx);
         // the candidates were made for the old text
         self.support.completion = None;
         self.clamp_scroll();
         cx.notify();
+        self.run_pending_scan_jump(cx);
+        self.apply_scan_restore(cx);
     }
 
     /// Lays out some more of a large document each frame, until it is all done.
@@ -588,11 +628,18 @@ impl EditorView {
     }
 
     /// The display column of the caret on its row. In a box selection the caret can be to the right
-    /// of the end of the text (see `matsu_core::cursor::Cursor::box_caret_col`).
+    /// of the end of the text (see `matsu_core::cursor::Cursor::box_caret_col`), and so can the caret of
+    /// the free cursor mode (`Cursor::free_col`).
     pub(crate) fn caret_column(&self, cx: &App) -> u32 {
         let column = self.caret_row(cx).column;
+        // The free cursor mode: the caret to the right of the end of the line.
+        let free = self
+            .cursor
+            .free_col()
+            .filter(|_| matsu_commands::edit_options::get().free_cursor);
         self.cursor
             .box_caret_col()
+            .or(free)
             .map_or(column, |c| u32::try_from(c).unwrap_or(u32::MAX).max(column))
     }
 
@@ -642,6 +689,7 @@ impl EditorView {
                 .as_ref()
                 .map(|a| a.message().to_owned())
                 .or_else(|| self.notice.clone())
+                .or_else(|| shared.scan_text())
                 .or_else(crate::settings::startup_notice),
         }
     }
@@ -814,7 +862,10 @@ impl Render for EditorView {
                 .children(self.input_dialog.clone())
                 .into_any_element();
         }
+        let a11y_text = self.a11y_text.clone();
         let mut editor = crate::a11y::editor(div().id("editor"))
+            // The text runs, the caret and the selection, written when a screen reader is connected.
+            .a11y_synthetic_children(move |builder| a11y_text::write(&a11y_text, builder))
             .size_full()
             .overflow_hidden()
             .key_context("Editor")

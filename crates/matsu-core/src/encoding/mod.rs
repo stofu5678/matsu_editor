@@ -114,6 +114,7 @@ mod utf8;
 use std::fmt;
 
 pub use char_code::{CharCodeOptions, char_code, sakura_utf16_len, try_char_code, unicode_code};
+pub use cp932::decode_cp932_strict;
 pub use detect::{Certainty, DETECT_SAMPLE_LEN, DetectOptions, Detection, detect};
 pub use mime::{base64_value, decode_base64_digits, mime_header_decode_jis};
 
@@ -178,6 +179,21 @@ pub trait Codec: Send + Sync + std::fmt::Debug {
 
     /// The length in bytes of the character that starts at `bytes[i]` (1 for an invalid byte).
     fn char_len(&self, bytes: &[u8], i: usize) -> usize;
+
+    /// The first character boundary at or after `target`, found from `from` (a character
+    /// boundary at or before `target`). The block scan of a huge file uses it to cut blocks.
+    /// The default walks the characters with `char_len`; an encoding that can tell a boundary
+    /// from the bytes around `target` alone (UTF-8) answers faster. Where the text is invalid the
+    /// answer may be one byte off from the walk.
+    fn boundary_at_or_after(&self, bytes: &[u8], from: usize, target: usize) -> usize {
+        let mut at = from;
+        while at < target {
+            at += self
+                .char_len(bytes, at)
+                .clamp(1, bytes.len().saturating_sub(at).max(1));
+        }
+        at
+    }
 
     /// Encodes `text` and appends the bytes to `out`. Stand-ins become their byte again.
     /// Characters this encoding cannot represent are written as Sakura writes them and reported in

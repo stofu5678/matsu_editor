@@ -162,6 +162,12 @@ pub(crate) fn follow<R>(
         .ok()
 }
 
+/// Whether a file is being read into the document, or scanned behind it (a huge file, ADR-0020:
+/// the text can be read but not edited, and the moves to places not scanned yet wait).
+fn loading(cx: &mut App, document: &gpui::Entity<crate::document::SharedDocument>) -> bool {
+    is_pending_document(cx, document.entity_id()) || document.read(cx).is_scanning()
+}
+
 impl EditorView {
     /// What is open or running in this window now.
     fn activity(&self, cx: &mut Context<Self>) -> u32 {
@@ -181,7 +187,7 @@ impl EditorView {
             (self.print.preview.is_some(), PRINT_PREVIEW),
             (crate::history::dialog::is_open(cx), FAVORITE_DIALOG),
             (self.grep.is_running(), GREP_RUNNING),
-            (is_pending_document(cx, self.document.entity_id()), LOADING),
+            (loading(cx, &self.document), LOADING),
             (self.is_printing(), PRINTING),
             (self.support.ctrl_code.is_some(), CTRL_CODE_DIALOG),
         ];
@@ -227,18 +233,20 @@ impl EditorView {
         let me = cx.entity_id();
         let mut tabs = vec![(
             self.document.entity_id(),
-            is_pending_document(cx, self.document.entity_id()),
+            loading(cx, &self.document),
             self.grep.is_running(),
         )];
         for (_, view) in editors(cx) {
             if view.entity_id() == me {
                 continue;
             }
-            let view = view.read(cx);
-            let document = view.document().entity_id();
+            let (shared, grep) = {
+                let view = view.read(cx);
+                (view.document().clone(), view.is_grep_running())
+            };
+            let document = shared.entity_id();
             if document != tabs[0].0 {
-                let grep = view.is_grep_running();
-                tabs.push((document, is_pending_document(cx, document), grep));
+                tabs.push((document, loading(cx, &shared), grep));
             }
         }
         tabs

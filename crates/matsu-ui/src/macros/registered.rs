@@ -246,7 +246,11 @@ impl EditorView {
         else {
             return false;
         };
-        if self.macros.busy() || self.macros.is_suspended() || window.modifiers().shift {
+        if self.macros.busy()
+            || self.plugin_in_call(cx)
+            || self.macros.is_suspended()
+            || window.modifiers().shift
+        {
             return false;
         }
         self.macros.registered.save_path = save_path.map(Path::to_owned);

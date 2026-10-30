@@ -17,7 +17,10 @@ use gpui::{App, Context, Entity};
 use crate::settings::UserSettings;
 use crate::view::EditorView;
 
+mod edit;
 pub(crate) mod list;
+mod list_ops;
+mod transfer;
 
 /// What the view keeps of the document type besides the settings of the type (`ViewPrefs`). The
 /// type itself, and whether the user chose it, belong to the document
@@ -178,6 +181,10 @@ pub(crate) fn refresh_open_views(cx: &mut App, index: usize) {
 #[cfg(test)]
 mod keep_tests;
 #[cfg(test)]
+mod list_tests;
+#[cfg(test)]
 mod shared_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod transfer_tests;

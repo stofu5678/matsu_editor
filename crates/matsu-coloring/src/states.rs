@@ -65,6 +65,12 @@ use crate::scan::{ColorState, next_state};
 /// to it.
 pub const LOCAL_WINDOW: usize = 200;
 
+/// A line of a document that is read by ranges ([`Document::is_ranged`]) with this many bytes or
+/// more is not read to make the states, and has no colors: it keeps the state it starts in
+/// (ADR-0020, 9.10). A very long line is cut into lines of about 1 MiB, and reading a window of
+/// them for each screen would take seconds.
+pub const SKIP_LINE_BYTES: usize = 64 * 1024;
+
 /// The edit of a document, in lines: lines `first..=old_last` of the old text were replaced by
 /// lines `first..=new_last` of the new text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -275,6 +281,13 @@ fn scan_line(
     line: usize,
     state: &ColorState,
 ) -> Option<ColorState> {
+    if doc.is_ranged() {
+        match doc.line_raw_len(line) {
+            Ok(None) | Err(_) => return None,
+            Ok(Some(len)) if len >= SKIP_LINE_BYTES => return Some(state.clone()),
+            Ok(Some(_)) => {}
+        }
+    }
     let l = doc.line(line).ok().flatten()?;
     Some(line_end_state(rules, &l.text, l.eol, state))
 }

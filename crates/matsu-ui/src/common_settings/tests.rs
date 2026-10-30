@@ -270,7 +270,7 @@ fn the_pages_are_in_sakuras_order() {
 /// The pages that keep their own state (the kind chosen, the row selected) in controls with no key
 /// of their own: the id of such a control starts with the page's prefix. The prefixes of the pages
 /// that are not built yet are here too, so that each page can be built without changing this list.
-const KEYLESS_PREFIXES: [&str; 7] = [
+const KEYLESS_PREFIXES: [&str; 8] = [
     "toolbar_",
     "keybind_",
     "custmenu_",
@@ -278,6 +278,7 @@ const KEYLESS_PREFIXES: [&str; 7] = [
     "macro_",
     "mainmenu_",
     "helper_",
+    "plugin_",
 ];
 
 #[test]
@@ -397,12 +398,17 @@ fn a_second_function_brings_the_open_dialog_to_its_page(cx: &mut TestAppContext)
 }
 
 #[gpui::test]
-fn a_page_that_is_not_there_yet_says_so(cx: &mut TestAppContext) {
+fn every_page_is_there(cx: &mut TestAppContext) {
     let (_ini, handle) = setup(cx, "");
     run(cx, handle, "F_OPTION");
-    with_dialog(cx, |d, _, dcx| d.select_page(Page::Plugin, dcx));
-    assert!(with_dialog(cx, |d, _, _| d.page_controls()).is_empty());
-    // It still draws, and OK from there writes the other pages as they were.
+    for page in Page::ALL {
+        with_dialog(cx, |d, _, dcx| d.select_page(page, dcx));
+        assert!(
+            !with_dialog(cx, |d, _, _| d.page_controls()).is_empty(),
+            "{}",
+            page.title()
+        );
+    }
     cx.run_until_parked();
     ok(cx);
 }
@@ -666,20 +672,55 @@ fn a_number_in_the_file_that_is_too_large_is_put_into_range_by_ok(cx: &mut TestA
 
 #[gpui::test]
 fn what_is_not_available_is_shown_but_never_written(cx: &mut TestAppContext) {
-    let (ini, handle) = setup(cx, "[Common]\r\nbIsFreeCursorMode=1\r\nnCaretType=1\r\n");
+    let (ini, handle) = setup(cx, "[Common]\r\nNoCaretMoveByActivation=1\r\n");
     run(cx, handle, "F_OPTION_GENERAL");
     // The value of the file is shown, and a click does nothing.
-    assert!(with_dialog(cx, |d, _, _| d.values().bool("free_caret")));
-    check(cx, "free_caret", false);
-    assert!(with_dialog(cx, |d, _, _| d.values().bool("free_caret")));
-    choose(cx, "caret_type", 0);
-    assert_eq!(with_dialog(cx, |d, _, _| d.values().int("caret_type")), 1);
-    assert!(!with_dialog(cx, |d, w, dcx| d.use_access_key('f', w, dcx)));
+    assert!(with_dialog(cx, |d, _, _| d
+        .values()
+        .bool("no_move_activate_by_mouse")));
+    check(cx, "no_move_activate_by_mouse", false);
+    assert!(with_dialog(cx, |d, _, _| d
+        .values()
+        .bool("no_move_activate_by_mouse")));
+    assert!(!with_dialog(cx, |d, w, dcx| d.use_access_key('o', w, dcx)));
     ok(cx);
-    assert_eq!(ini.get("bIsFreeCursorMode").as_deref(), Some("1"));
-    assert_eq!(ini.get("nCaretType").as_deref(), Some("1"));
+    assert_eq!(ini.get("NoCaretMoveByActivation").as_deref(), Some("1"));
     assert_eq!(ini.get("bTaskTrayUse"), None);
     assert_eq!(ini.get("bVistaStyleFileDialog"), None);
+}
+
+#[gpui::test]
+fn the_free_cursor_and_the_caret_shape_are_read_from_the_dialog(cx: &mut TestAppContext) {
+    // The options of the commands are not set here: they are shared by every test of the process,
+    // and the free cursor changes how the caret moves. `general_options` is what OK applies.
+    let (_ini, handle) = setup(cx, "");
+    run(cx, handle, "F_OPTION_GENERAL");
+    let read = |cx: &mut TestAppContext| {
+        with_dialog(cx, |d, _, _| {
+            super::pages::general::general_options(EditOptions::DEFAULT, d.values())
+        })
+    };
+    let options = read(cx);
+    assert!(!options.free_cursor && !options.dos_caret);
+    check(cx, "free_caret", true);
+    choose(cx, "caret_type", 1);
+    let options = read(cx);
+    assert!(options.free_cursor && options.dos_caret);
+    choose(cx, "caret_type", 0);
+    let options = read(cx);
+    assert!(options.free_cursor && !options.dos_caret);
+    cancel(cx);
+}
+
+#[gpui::test]
+fn the_free_cursor_and_the_caret_shape_are_kept_in_the_file(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, "");
+    run(cx, handle, "F_OPTION_GENERAL");
+    // Sakura's keys (`ShareData_IO_Common`): the free cursor is `bIsFreeCursorMode`, the shape
+    // `nCaretType`. Written with the other settings, as they stand.
+    ok(cx);
+    assert_eq!(ini.get("bIsFreeCursorMode").as_deref(), Some("0"));
+    assert_eq!(ini.get("nCaretType").as_deref(), Some("0"));
 }
 
 #[gpui::test]
@@ -789,12 +830,21 @@ fn the_dialog_starts_from_the_tab_mode_the_windows_have(cx: &mut TestAppContext)
 
 #[gpui::test]
 fn the_options_of_the_tabs_are_written_and_taken(cx: &mut TestAppContext) {
-    let (ini, handle) = setup(cx, "[Common]\r\nbDispTabWnd=1\r\n");
-    assert_eq!(
-        cx.update(|app| crate::tabs::settings::options(app)),
-        TabOptions::default()
+    let (ini, handle) = setup(
+        cx,
+        "[Common]\r\nbDispTabWnd=1\r\nnTabMaxWidth=250\r\nnTabMinWidth=70\r\nnTabMinWidthOnMulti=110\r\n",
     );
+    let widths = TabOptions {
+        max_width: 250,
+        min_width: 70,
+        min_width_multi: 110,
+        ..TabOptions::default()
+    };
+    assert_eq!(cx.update(|app| crate::tabs::settings::options(app)), widths);
     run(cx, handle, "F_OPTION_TAB");
+    check(cx, "tab_icon", true);
+    check(cx, "tab_multi_line", true);
+    choose(cx, "tab_position", 1);
     check(cx, "tab_retain_empty", false);
     check(cx, "tab_close_one_win", true);
     check(cx, "tab_same_width", true);
@@ -809,10 +859,20 @@ fn the_options_of_the_tabs_are_written_and_taken(cx: &mut TestAppContext) {
             same_width: true,
             disp_close: DispTabClose::Auto,
             change_by_wheel: true,
-            ..TabOptions::default()
+            disp_icon: true,
+            multi_line: true,
+            position: crate::tabs::settings::TabPosition::Bottom,
+            ..widths
         }
     );
     for (key, value) in [
+        ("bDispTabIcon", "1"),
+        ("bTabMultiLine", "1"),
+        ("eTabPosition", "1"),
+        // Not in the dialog: kept as they were.
+        ("nTabMaxWidth", "250"),
+        ("nTabMinWidth", "70"),
+        ("nTabMinWidthOnMulti", "110"),
         ("bTab_RetainEmptyWin", "0"),
         ("bTab_CloseOneWin", "1"),
         ("bSameTabWidth", "1"),
@@ -821,8 +881,6 @@ fn the_options_of_the_tabs_are_written_and_taken(cx: &mut TestAppContext) {
     ] {
         assert_eq!(ini.get(key).as_deref(), Some(value), "{key}");
     }
-    // Not available yet: not written.
-    assert_eq!(ini.get("bDispTabIcon"), None);
 }
 
 fn active_editor(
@@ -1235,7 +1293,7 @@ fn the_access_keys_choose_radio_buttons_and_fill_boxes(cx: &mut TestAppContext) 
 #[gpui::test]
 fn alt_x_is_cancel_and_alt_o_is_ok_where_no_label_has_the_letter(cx: &mut TestAppContext) {
     let (ini, handle) = setup(cx, "");
-    // The page 「プラグイン」 is not there yet and has no labels.
+    // The page 「プラグイン」 has no label with x or o.
     run(cx, handle, "F_OPTION");
     with_dialog(cx, |d, _, dcx| d.select_page(Page::Plugin, dcx));
     with_dialog(cx, |d, w, dcx| d.use_access_key('x', w, dcx));

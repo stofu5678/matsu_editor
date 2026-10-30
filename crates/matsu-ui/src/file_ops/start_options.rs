@@ -37,7 +37,7 @@ use gpui::{
     AnyWindowHandle, App, AsyncWindowContext, Bounds, Context, Entity, Global, Pixels, Size,
     WeakEntity, Window, point, px, size,
 };
-use matsu_core::buffer::{Eol, Pos, col_from_utf16, col_to_utf16};
+use matsu_core::buffer::{Eol, Pos};
 use matsu_core::encoding::{AUTODETECT_CODE, Encoding};
 
 use crate::command_line::{CommandLine, GrepArgs};
@@ -252,6 +252,24 @@ impl LaunchOptions {
                 view_top: None,
                 ..self.file.clone()
             };
+            let scan = view
+                .read(cx)
+                .document()
+                .read(cx)
+                .scan_id()
+                .filter(|_| view.read(cx).document().read(cx).is_scanning());
+            if let Some(scan) = scan {
+                // The line may be past what is scanned (ADR-0020): go there when the scan is done.
+                let view = view.downgrade();
+                cx.spawn(async move |cx| {
+                    if wait_for_scan(&view, scan, cx).await {
+                        view.update(cx, |view, cx| view.go_by_launch(&caret, true, cx))
+                            .ok();
+                    }
+                })
+                .detach();
+                return;
+            }
             view.update(cx, |view, cx| view.go_by_launch(&caret, true, cx));
         }
     }
@@ -401,23 +419,114 @@ pub(crate) fn after_load(
     path: &Path,
     loaded: bool,
 ) {
-    let Ok(Some(after)) = cx.update(|_, app| app.default_global::<Expected>().0.remove(path))
+    cx.update(|window, app| apply_after_load(view, path, loaded, window, app))
+        .ok();
+}
+
+/// [`after_load`] where the window is in hand.
+fn apply_after_load(
+    view: &WeakEntity<EditorView>,
+    path: &Path,
+    loaded: bool,
+    window: &mut Window,
+    app: &mut App,
+) {
+    let Some(after) = app.default_global::<Expected>().0.remove(path) else {
+        return;
+    };
+    let Some(view) = view.upgrade() else {
+        return;
+    };
+    if loaded {
+        // `-TYPE=` was applied when the file was read (see `expected_type`).
+        view.update(app, |view, cx| view.go_by_launch(&after.file, false, cx));
+    }
+    if let Some(m) = &after.macro_ {
+        run_macro_in(m, &view, window, app);
+    }
+}
+
+/// The macro of オープン後 and then the options of the launch (`-X=` `-Y=` `-M=`...), for a file
+/// that is scanned in the background (ADR-0020): they wait for the end of the scan, because a
+/// place in the file may be one the scan has not reached, and the macro may move there. Nothing
+/// waits for them; the next file can be opened meanwhile.
+pub(crate) fn after_load_when_scanned(
+    view: &Entity<EditorView>,
+    path: &Path,
+    hold: Option<crate::macros::wait::FlowGuard>,
+    cx: &mut App,
+) {
+    // The task holds the view weakly: a tab that is closed meanwhile ends the scan with its
+    // document, and the options are dropped.
+    let (view, path) = (view.downgrade(), path.to_owned());
+    let Some(scan) = view
+        .upgrade()
+        .and_then(|view| view.read(cx).document().read(cx).scan_id())
     else {
         return;
     };
-    cx.update(|window, app| {
-        let Some(view) = view.upgrade() else {
-            return;
-        };
-        if loaded {
-            // `-TYPE=` was applied when the file was read (see `expected_type`).
-            view.update(app, |view, cx| view.go_by_launch(&after.file, false, cx));
-        }
-        if let Some(m) = &after.macro_ {
-            run_macro_in(m, &view, window, app);
-        }
+    cx.spawn(async move |cx| {
+        let finished = wait_for_scan(&view, scan, cx).await;
+        cx.update(|app| {
+            // Only for the document that was opened: it was closed or replaced meanwhile, or the
+            // scan failed, and the options were not for what is there.
+            let tab = finished
+                .then(|| view.upgrade())
+                .flatten()
+                .and_then(|entity| {
+                    // The tab may have moved to another window meanwhile.
+                    crate::file_ops::windows::find_tab_of(app, &view)
+                        .map(|(handle, _)| (handle, entity))
+                });
+            let Some((handle, entity)) = tab else {
+                app.default_global::<Expected>().0.remove(&path);
+                return;
+            };
+            crate::macros::run_auto_in(
+                handle,
+                &entity,
+                crate::macros::Auto::Opened,
+                app,
+                move |app| {
+                    if let Some((handle, _)) = crate::file_ops::windows::find_tab_of(app, &view) {
+                        handle
+                            .update(app, |_, window, app| {
+                                apply_after_load(&view, &path, true, window, app)
+                            })
+                            .ok();
+                    }
+                    // A macro that opened the file goes on when the macros of the opening are over.
+                    drop(hold);
+                },
+            );
+        });
     })
-    .ok();
+    .detach();
+}
+
+/// Waits until the scan of number `scan` of the document of `view` is over. Whether it ended with
+/// the complete document (not failed, and the view and its document not gone meanwhile).
+async fn wait_for_scan(view: &WeakEntity<EditorView>, scan: u64, cx: &mut gpui::AsyncApp) -> bool {
+    loop {
+        let state = view.read_with(cx, |view, app| {
+            let shared = view.document().read(app);
+            if shared.scan_finished(scan) {
+                Some(true)
+            } else if shared.scan_id() != Some(scan) || !shared.is_scanning() {
+                Some(false)
+            } else {
+                None
+            }
+        });
+        match state {
+            Ok(Some(done)) => return done,
+            Ok(None) => {}
+            Err(_) => return false,
+        }
+        cx.background_executor()
+            .timer(std::time::Duration::from_millis(50))
+            .await;
+    }
 }
 
 /// `-M=`: runs the macro in the window `handle` (`F_EXECEXTMACRO`).
@@ -478,16 +587,12 @@ impl EditorView {
         let target = if line >= doc.line_count() {
             doc.end_pos().unwrap_or_default()
         } else {
-            let text_of = |i: usize| doc.line(i).ok().flatten().map(|l| l.text);
-            let text = text_of(line).unwrap_or_default();
             let units = match options.caret_x {
                 Some(x) => x,
-                None if keep_column => {
-                    col_to_utf16(&text_of(caret.line).unwrap_or_default(), caret.col)
-                }
+                None if keep_column => doc.utf16_col(caret.line, caret.col),
                 None => 0,
             };
-            Pos::new(line, col_from_utf16(&text, units))
+            Pos::new(line, doc.col_from_utf16_col(line, units))
         };
         self.go_to(target, cx);
     }

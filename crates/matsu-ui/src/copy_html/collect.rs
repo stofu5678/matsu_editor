@@ -111,12 +111,29 @@ impl<'a> Colors<'a> {
     fn line(&mut self, line: usize) -> Option<&LineColors> {
         if self.current.as_ref().map(|c| c.line) != Some(line) {
             let source = self.source;
-            let layout = source.layout.line_layout(source.doc, line).ok()??;
             let rules = source.rules;
             let state = match self.next.take() {
                 Some((at, state)) if at == line => state,
                 _ => source.states.state_at(source.doc, rules, line).0,
             };
+            // A very long line of a file read by ranges has no colors, and keeps the state it
+            // starts in (ADR-0020, 9.10), as on the screen.
+            if source.doc.is_ranged()
+                && source
+                    .doc
+                    .line_raw_len(line)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|n| n >= matsu_coloring::SKIP_LINE_BYTES)
+            {
+                self.next = Some((line + 1, state));
+                self.current = Some(LineColors {
+                    line,
+                    runs: Vec::new(),
+                });
+                return self.current.as_ref();
+            }
+            let layout = source.layout.line_layout(source.doc, line).ok()??;
             let runs = if rules.colors_nothing() {
                 Vec::new()
             } else {

@@ -339,16 +339,29 @@ impl EditorView {
                 .collect::<String>(),
             None if caret_key_word(cx) => {
                 let caret = self.cursor.caret();
-                let line = self
-                    .document
-                    .read(cx)
-                    .doc()
-                    .line(caret.line)
+                // a very long line is not decoded as a whole: the part around the caret is
+                let doc = self.document.read(cx).doc();
+                let (line, base) = if doc.is_long_line(caret.line) {
+                    doc.line_slice(
+                        caret.line,
+                        caret.col.saturating_sub(512),
+                        caret.col.saturating_add(512),
+                    )
                     .ok()
                     .flatten()
-                    .map(|l| l.text)
-                    .unwrap_or_default();
-                let (from, to) = crate::word::word_range(&line, caret.col);
+                    .map(|s| (s.text, s.start_col))
+                    .unwrap_or_default()
+                } else {
+                    (
+                        doc.line(caret.line)
+                            .ok()
+                            .flatten()
+                            .map(|l| l.text)
+                            .unwrap_or_default(),
+                        0,
+                    )
+                };
+                let (from, to) = crate::word::word_range(&line, caret.col.saturating_sub(base));
                 match line.get(from..to) {
                     Some(word) if !word.is_empty() => word.to_owned(),
                     _ => return false,

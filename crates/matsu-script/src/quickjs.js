@@ -1,19 +1,22 @@
 // The boot of the QuickJS engine. It is a function expression, called once with
-// (raw, names, info, write):
+// (raw, names, info, write, plugin):
 //
 // - raw: one Rust function per function of the macro API; it takes the array of arguments and
 //   answers [true, result] or [false, code, message];
 // - names: the names of those functions;
 // - info: the `initialize` params without `script`;
-// - write(fd, text): writes to the standard output (1) or error (2) and flushes at once.
+// - write(fd, text): writes to the standard output (1) or error (2) and flushes at once;
+// - plugin: null for a macro; for a plugin host, { id, dir, raw, names } with one Rust function per
+//   name of the `Plugin` object (the editor answers them), and the id and folder of the plugin.
 //
 // It puts `Editor`, `EditorError` and `console` in the global scope, as boot.cjs does for Node.js,
 // and answers an object for Rust:
 //   describe(value): the text for the standard error for an uncaught error or thrown value;
 //   track(promise, reason, handled): called when a promise is rejected unhandled (handled false)
 //     or when a handler is added later (true);
-//   unhandled(): [reason] of the first promise that is still rejected and unhandled, or [].
-(function (raw, names, info, write) {
+//   unhandled(): [reason] of the first promise that is still rejected and unhandled, or [];
+//   begin(jack, args): for a plugin host, before each handler: sets Plugin.jack and Plugin.args.
+(function (raw, names, info, write, plugin) {
   'use strict';
 
   const BOOT_FILE = 'matsu-script:boot';
@@ -90,8 +93,35 @@
   globalThis.Editor = Editor;
   globalThis.EditorError = EditorError;
 
+  // The `Plugin` object of a plugin (Sakura's `CPluginIfObj`): the editor answers the calls.
+  const Plugin = {};
+  if (plugin !== null) {
+    for (const name of plugin.names) {
+      const call = plugin.raw[name];
+      Plugin[name] = function (...args) {
+        while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+        const answer = call(args);
+        if (answer[0]) return answer[1];
+        const error = new EditorError(answer[1], answer[2]);
+        if (typeof Error.captureStackTrace === 'function') {
+          Error.captureStackTrace(error, Plugin[name]);
+        }
+        throw error;
+      };
+    }
+    Plugin.id = plugin.id;
+    Plugin.dir = plugin.dir;
+    Plugin.jack = '';
+    Plugin.args = null;
+    globalThis.Plugin = Plugin;
+  }
+
   const rejected = new Map();
   return {
+    begin(jack, args) {
+      Plugin.jack = jack;
+      Plugin.args = args;
+    },
     describe(value) {
       return value instanceof Error ? stackOf(value) : 'Uncaught ' + show(value);
     },

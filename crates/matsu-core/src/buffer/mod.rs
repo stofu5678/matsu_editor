@@ -16,6 +16,7 @@
 //! * **Columns.** The tree only knows raw bytes of the storages. A column is the decoded UTF-8
 //!   length inside one line, so it is converted by decoding that line only.
 
+mod block;
 mod codec;
 mod document;
 mod error;
@@ -26,11 +27,18 @@ mod tree;
 #[cfg(test)]
 mod tests;
 
+pub use block::{
+    BlockIndex, BlockScanner, DEFAULT_INDEX_BLOCK_SIZE, DEFAULT_LONG_LINE, ScanError, ScanFailure,
+    ScanJob, ScanOptions, ScanProgress, ScanState, scan_blocks,
+};
 pub(crate) use codec::find_eol;
 pub use codec::{Codec, EncodingCodec, Eol, INVALID_BYTE_BASE, Unmappable};
 #[cfg(test)]
 pub(crate) use document::with_chunk_len;
-pub use document::{CHUNK_LEN, Chunk, Chunks, Document, Edit, Line, Lines};
+pub use document::{
+    CHUNK_LEN, Chunk, Chunks, Document, Edit, Line, LineSlice, Lines, largest_decode,
+    reset_largest_decode,
+};
 pub use error::{BufferError, Result};
 pub use position::{Pos, col_from_utf16, col_to_utf16, utf16_len};
 pub use storage::{MemorySource, Source};

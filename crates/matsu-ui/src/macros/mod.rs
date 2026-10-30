@@ -38,10 +38,11 @@
 mod host;
 mod menu_call;
 mod output;
+pub(crate) mod plugin_call;
 mod registered;
 mod statements;
 mod ui_calls;
-mod wait;
+pub(crate) mod wait;
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -191,6 +192,9 @@ pub(crate) struct MacroState {
     queue: VecDeque<Item>,
     /// The macro files that are being played, outermost first (for the cycle check).
     active: Vec<PathBuf>,
+    /// The depth of the open undo block when each of those files began (the reference count
+    /// `CMacroBeforeAfter::ExecKeyMacroBefore` remembers); the file puts it back when it ends.
+    undo_depths: Vec<Option<usize>>,
     /// `drain_key_macro` is on the stack: a macro file named by a call joins the queue and the
     /// loop that is running goes on with it, so playback never recurses.
     draining: bool,
@@ -199,6 +203,8 @@ pub(crate) struct MacroState {
     /// A macro is running: the commands it runs are not recorded.
     suspended: bool,
     running: Option<Running>,
+    /// A plugin is in a call on this window (`plugin_call`): the calls of plugins go one at a time.
+    plugin_running: bool,
     /// The file that holds the code of a script given as text (`F_EXECEXTMACRO` with a type); it is
     /// removed when the script ends.
     temp_script: Option<TempScript>,
@@ -277,7 +283,10 @@ impl MacroState {
     }
 
     fn busy(&self) -> bool {
-        self.running.is_some() || !self.queue.is_empty() || self.waiting.is_some()
+        self.running.is_some()
+            || self.plugin_running
+            || !self.queue.is_empty()
+            || self.waiting.is_some()
     }
 }
 
@@ -293,6 +302,11 @@ fn function_name(code: u16) -> String {
 }
 
 impl EditorView {
+    /// A call of a plugin runs on the document of this view (also one shown in another pane).
+    pub(crate) fn plugin_in_call(&self, cx: &gpui::App) -> bool {
+        self.macros.plugin_running || self.document.read(cx).plugin_busy()
+    }
+
     pub fn is_recording_key_macro(&self) -> bool {
         self.macros.is_recording()
     }
@@ -351,14 +365,15 @@ impl EditorView {
         let Some(marked) = self.marked.clone() else {
             return;
         };
+        // the marked text only: a very long line is not decoded as a whole
         let text = self
             .document
             .read(cx)
             .doc()
-            .line(marked.line)
+            .line_slice(marked.line, marked.range.start, marked.range.end)
             .ok()
             .flatten()
-            .and_then(|line| line.text.get(marked.range.clone()).map(str::to_owned));
+            .map(|slice| slice.text);
         if let Some(text) = text {
             self.record_typed_text(&text);
         }
@@ -400,6 +415,28 @@ impl EditorView {
         });
         self.macros.current = Some(CurrentMacro::Recorded(recorded));
         failure
+    }
+
+    /// A macro file begins: returns the depth of the undo block, to put back when the file ends
+    /// (the reference count `CMacroBeforeAfter::ExecKeyMacroBefore` remembers). The command that
+    /// runs the file has left the block already (`F_EXECEXTMACRO` stores it first, "再帰処理対策"
+    /// in `CViewCommander::HandleCommand`). `None`: a composition of the user's is open and its
+    /// block is not the macro's.
+    fn enter_undo_block(&mut self, cx: &mut Context<Self>) -> Option<usize> {
+        (!self.composing).then(|| self.document.read(cx).model().history().depth())
+    }
+
+    /// A macro file ends: puts the undo block back to the depth it had when the file began. The
+    /// blocks that it entered with `AddRefUndoBuffer()` and did not leave are left, and the ones
+    /// that it left too often are entered again (Sakura: `CMacroBeforeAfter::ExecKeyMacroAfter`
+    /// calls `SetRefCount` with the count of `ExecKeyMacroBefore`, or stores the block when that
+    /// was 0). The outer macro goes on in its own block.
+    fn leave_undo_block(&mut self, depth: Option<usize>, cx: &mut Context<Self>) {
+        let Some(depth) = depth else { return };
+        let cursor = &self.cursor;
+        self.document.update(cx, |shared, _| {
+            shared.parts_mut().0.restore_block_depth(depth, cursor);
+        });
     }
 
     /// Leaves the undo blocks that a macro entered with `AddRefUndoBuffer()` and did not leave
@@ -545,7 +582,7 @@ impl EditorView {
         if let Some(message) = self.stop_key_macro_recording(cx) {
             self.macro_failed(message, window, cx);
         }
-        if self.macros.busy() {
+        if self.macros.busy() || self.plugin_in_call(cx) {
             return Err(self.macro_error("マクロを実行中です".into(), window, cx));
         }
         let result = match self.macros.current_macro(cx) {
@@ -595,8 +632,9 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<(), CommandError> {
-        // A key macro that is playing may name a macro file: its calls go on in the middle.
-        if self.macros.running.is_some() {
+        // A key macro that is playing may name a macro file: its calls go on in the middle. A call
+        // of a plugin has the document and the undo block until it ends (`plugin_call`).
+        if self.macros.running.is_some() || self.plugin_in_call(cx) {
             return Err(self.macro_error("マクロを実行中です".into(), window, cx));
         }
         if self.macros.recorder.is_recording() && !self.macros.suspended {
@@ -621,7 +659,7 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<(), CommandError> {
-        if self.macros.running.is_some() {
+        if self.macros.running.is_some() || self.plugin_in_call(cx) {
             return Err(self.macro_error("マクロを実行中です".into(), window, cx));
         }
         if self.macros.recorder.is_recording() && !self.macros.suspended {
@@ -663,7 +701,7 @@ impl EditorView {
     }
 
     /// Runs a macro file by its extension: `.mac` through the key macro player, the others
-    /// (`.mjs`, `.js`, `.cjs`, `.ts`, `.py`, `.rb`, `.php`, `.ps1`, `.pl`, `.el`, `.lua`, `.mruby`, `.upy`) through the host.
+    /// (`.mjs`, `.js`, `.cjs`, `.ts`, `.py`, `.rb`, `.php`, `.ps1`, `.pl`, `.el`, `.applescript`, `.lua`, `.mruby`, `.upy`) through the host.
     /// The `Err` says what to show.
     fn run_macro_file(
         &mut self,
@@ -679,7 +717,7 @@ impl EditorView {
             }
             FileKind::Script(_) => self.start_script(path, window, cx),
             FileKind::Unknown => Err(format!(
-                "{}: マクロの拡張子は .mac、.mjs、.js、.cjs、.ts、.py、.rb、.php、.ps1、.pl、.el、.lua、.mruby、.upy のどれかにしてください",
+                "{}: マクロの拡張子は .mac、.mjs、.js、.cjs、.ts、.py、.rb、.php、.ps1、.pl、.el、.applescript、.lua、.mruby、.upy のどれかにしてください",
                 path.display()
             )),
         }
@@ -713,6 +751,8 @@ impl EditorView {
                 ));
             }
             self.macros.active.push(id);
+            let depth = self.enter_undo_block(cx);
+            self.macros.undo_depths.push(depth);
             items.extend(steps.into_iter().map(Item::Call));
             items.push(Item::Leave);
         } else {
@@ -737,6 +777,7 @@ impl EditorView {
     fn clear_key_macro(&mut self) {
         self.macros.queue.clear();
         self.macros.active.clear();
+        self.macros.undo_depths.clear();
     }
 
     /// Runs the calls of the key macro one after the other, as the keys would. It stops at the
@@ -748,6 +789,9 @@ impl EditorView {
                 None => break,
                 Some(Item::Leave) => {
                     self.macros.active.pop();
+                    if let Some(depth) = self.macros.undo_depths.pop() {
+                        self.leave_undo_block(depth, cx);
+                    }
                     continue;
                 }
                 Some(Item::Call(step)) => step,

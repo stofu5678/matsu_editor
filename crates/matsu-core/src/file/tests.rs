@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Instant;
 
 use super::*;
-use crate::buffer::Pos;
+use crate::buffer::{BufferError, Pos};
 use crate::encoding::Certainty;
 
 // ---- helpers ----
@@ -1567,4 +1567,296 @@ fn saving_with_tiny_chunks_keeps_invalid_bytes() {
             assert_eq!(tiny, normal, "{encoding:?} with chunks of {len} bytes");
         }
     }
+}
+
+// ---- opening by ranges (ADR-0020) ----
+
+fn huge_options(from: u64) -> OpenOptions {
+    OpenOptions {
+        huge_file_len: Some(from),
+        huge_scan: ScanOptions {
+            block_size: 16,
+            window_blocks: 2,
+            ..ScanOptions::default()
+        },
+        ..OpenOptions::default()
+    }
+}
+
+fn all_lines(doc: &Document) -> Vec<String> {
+    doc.lines(0..doc.line_count())
+        .map(|l| l.unwrap().text)
+        .collect()
+}
+
+/// Waits until the scan of `file` is done and returns the complete document.
+fn finish_scan(file: &mut TextFile) -> Document {
+    file.take_scan()
+        .expect("the scan is running")
+        .finish()
+        .unwrap()
+}
+
+#[test]
+fn a_file_over_the_threshold_opens_by_ranges_and_reads_like_a_whole_one() {
+    let dir = TempDir::new();
+    let text = "first line\r\nsecond あいう\r\nthird\r\n".repeat(30);
+    let path = dir.write("big.txt", text.as_bytes());
+    let whole = open_file(&path, &OpenOptions::default()).unwrap();
+    let mut options = huge_options(100);
+    options.huge_scan.step_delay = Some(std::time::Duration::from_millis(20));
+    let mut ranged = open_file(&path, &options).unwrap();
+    assert_eq!(ranged.encoding, whole.encoding);
+    assert_eq!(ranged.new_line, whole.new_line);
+    assert!(ranged.document.is_read_only(), "the scan is still running");
+    assert!(ranged.document.line_count() < whole.document.line_count());
+    assert_eq!(ranged.document.line(0).unwrap().unwrap().text, "first line");
+    let done = finish_scan(&mut ranged);
+    assert!(!done.is_read_only());
+    assert_eq!(all_lines(&done), all_lines(&whole.document));
+}
+
+#[test]
+fn a_file_under_the_threshold_is_read_whole() {
+    let dir = TempDir::new();
+    let path = dir.write("small.txt", b"a\nb\n");
+    let mut file = open_file(&path, &huge_options(1000)).unwrap();
+    assert!(file.take_scan().is_none());
+    assert!(!file.document.is_read_only());
+    assert_eq!(file.document.line_count(), 2);
+}
+
+#[test]
+fn a_small_file_scanned_at_once_comes_back_complete() {
+    let dir = TempDir::new();
+    let path = dir.write("quick.txt", b"a\nb\nc");
+    let mut options = huge_options(1);
+    options.huge_scan = ScanOptions::default();
+    let mut file = open_file(&path, &options).unwrap();
+    // The scan of 5 bytes is done when the open returns, or soon after; either way the text is
+    // there.
+    if let Some(job) = file.take_scan() {
+        file.document = job.finish().unwrap();
+    }
+    assert!(!file.document.is_read_only());
+    assert_eq!(all_lines(&file.document), ["a", "b", "c"]);
+}
+
+#[test]
+fn the_bom_is_not_part_of_the_text_of_a_file_opened_by_ranges() {
+    let dir = TempDir::new();
+    let mut bytes = b"\xEF\xBB\xBF".to_vec();
+    bytes.extend_from_slice("héllo\nwörld\n".repeat(20).as_bytes());
+    let path = dir.write("bom.txt", &bytes);
+    let mut options = huge_options(10);
+    options.huge_scan.step_delay = Some(std::time::Duration::from_millis(10));
+    let mut file = open_file(&path, &options).unwrap();
+    assert!(file.bom && file.encoding == Encoding::Utf8);
+    assert_eq!(file.document.line(0).unwrap().unwrap().text, "héllo");
+    let done = finish_scan(&mut file);
+    assert_eq!(done.line_count(), 40);
+    assert_eq!(done.line(1).unwrap().unwrap().text, "wörld");
+    // UTF-16 with a BOM.
+    let mut utf16 = vec![0xFF, 0xFE];
+    for unit in "ab\r\ncd\r\n".repeat(40).encode_utf16() {
+        utf16.extend_from_slice(&unit.to_le_bytes());
+    }
+    let path = dir.write("bom16.txt", &utf16);
+    let file = open_file(&path, &huge_options(10)).unwrap();
+    assert_eq!(file.encoding, Encoding::Utf16Le);
+    assert_eq!(file.new_line, Eol::CrLf);
+}
+
+#[test]
+fn iso_2022_jp_over_the_threshold_is_read_whole() {
+    let dir = TempDir::new();
+    let path = dir.write("jis.txt", b"\x1b$B$\"$$\x1b(B\nabc\n");
+    let mut options = huge_options(1);
+    options.encoding = Some(Encoding::Jis);
+    let mut file = open_file(&path, &options).unwrap();
+    assert!(file.take_scan().is_none());
+    assert!(!file.document.is_read_only());
+    assert_eq!(file.document.line(0).unwrap().unwrap().text, "あい");
+    let mut options = huge_options(1);
+    options.encoding = Some(Encoding::Utf7);
+    let mut file = open_file(&path, &options).unwrap();
+    assert!(file.take_scan().is_none());
+}
+
+#[test]
+fn an_empty_file_is_never_opened_by_ranges() {
+    let dir = TempDir::new();
+    let path = dir.write("empty.txt", b"");
+    let mut file = open_file(&path, &huge_options(0)).unwrap();
+    assert!(file.take_scan().is_none());
+    assert_eq!(file.document.line_count(), 0);
+}
+
+#[test]
+fn a_file_opened_by_ranges_saves_like_a_whole_one() {
+    let dir = TempDir::new();
+    let text = "alpha\r\nbeta あ\r\ngamma\r\n".repeat(20);
+    let path = dir.write("save.txt", text.as_bytes());
+    let mut options = huge_options(10);
+    options.huge_scan.step_delay = Some(std::time::Duration::from_millis(5));
+    let mut file = open_file(&path, &options).unwrap();
+    file.document = finish_scan(&mut file);
+    file.document.insert(Pos::new(1, 0), "X").unwrap();
+    let out = dir.path("out.txt");
+    let save = SaveOptions::keep(&file);
+    file.save_as(&out, &save, &mut no_progress).unwrap();
+    let expected = text.replacen("beta", "Xbeta", 1);
+    assert_eq!(fs::read(&out).unwrap(), expected.as_bytes());
+}
+
+#[test]
+fn a_document_that_shows_only_the_scanned_start_is_never_saved() {
+    let dir = TempDir::new();
+    let text = "alpha\r\nbeta\r\n".repeat(200);
+    let path = dir.write("partial.txt", text.as_bytes());
+    let mut options = huge_options(10);
+    options.huge_scan.step_delay = Some(std::time::Duration::from_millis(50));
+    let mut file = open_file(&path, &options).unwrap();
+    assert!(file.document.is_read_only());
+    let save = SaveOptions::keep(&file);
+    let out = dir.path("out.txt");
+    let error = file.save_as(&out, &save, &mut no_progress).unwrap_err();
+    assert!(
+        matches!(error, FileError::Buffer(BufferError::ReadOnly)),
+        "{error}"
+    );
+    assert!(file.check_save(&save, &mut no_progress).is_err());
+    assert!(!out.exists());
+    drop(file.take_scan());
+}
+
+/// `MATSU_OPEN_FILE=<path> cargo test --release -p matsu-core --lib measure_open_by_ranges --
+/// --ignored --nocapture`: the time of `open_file` for a big file read whole and by ranges (the
+/// first lines the view draws, the scan to the end). `MATSU_OPEN_WHOLE=1` also reads it whole.
+#[test]
+#[ignore = "measures the file named by MATSU_OPEN_FILE"]
+fn measure_open_by_ranges() {
+    let Ok(path) = std::env::var("MATSU_OPEN_FILE") else {
+        return;
+    };
+    let path = PathBuf::from(path);
+    let status = |key: &str| {
+        fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|s| s.lines().find(|l| l.starts_with(key)).map(str::to_owned))
+            .unwrap_or_default()
+    };
+    if std::env::var("MATSU_OPEN_WHOLE").is_ok() {
+        let t = Instant::now();
+        let whole = open_file(&path, &OpenOptions::default()).unwrap();
+        println!(
+            "whole read: open_file {:?}, {}",
+            t.elapsed(),
+            status("VmHWM")
+        );
+        drop(whole);
+    }
+    let options = OpenOptions {
+        huge_file_len: Some(1),
+        ..OpenOptions::default()
+    };
+    let t = Instant::now();
+    let mut file = open_file(&path, &options).unwrap();
+    println!("by ranges: open_file {:?}", t.elapsed());
+    let t = Instant::now();
+    let lines: Vec<_> = file
+        .document
+        .lines(0..60)
+        .map(|l| l.unwrap().text.len())
+        .collect();
+    println!(
+        "the first {} lines (a screen): {:?}",
+        lines.len(),
+        t.elapsed()
+    );
+    let job = file.take_scan();
+    let t = Instant::now();
+    if let Some(job) = job {
+        let doc = job.finish().unwrap();
+        println!(
+            "scan to the end: {:?}, {} lines, {}",
+            t.elapsed(),
+            doc.line_count(),
+            status("VmHWM")
+        );
+        let t = Instant::now();
+        let n = doc.line_count();
+        let _ = doc.line(n / 2).unwrap().map(|l| l.text.len());
+        println!("the middle line: {:?}", t.elapsed());
+    }
+}
+
+#[test]
+fn a_cancel_while_opening_by_ranges_is_honored() {
+    let dir = TempDir::new();
+    let path = dir.write("cancel.txt", "line\n".repeat(100).as_bytes());
+    let error =
+        open_file_with(&path, &huge_options(10), &mut |_, _| ControlFlow::Break(())).unwrap_err();
+    assert!(matches!(error, FileError::Cancelled), "{error}");
+}
+
+#[test]
+fn a_document_that_can_be_edited_never_comes_with_a_running_scan() {
+    // The scan of a small file ends about when the open looks at it: whichever way it falls, a
+    // complete document is not kept with a job that would put the same text over an edit.
+    let dir = TempDir::new();
+    let path = dir.write("race.txt", "line\n".repeat(40).as_bytes());
+    let mut options = huge_options(1);
+    options.huge_scan.block_size = 8;
+    options.huge_scan.window_blocks = 1;
+    for _ in 0..300 {
+        let mut file = open_file(&path, &options).unwrap();
+        let scan = file.take_scan();
+        assert!(
+            file.document.is_read_only() || scan.is_none(),
+            "a document that can be edited came with a scan"
+        );
+    }
+}
+
+#[test]
+fn a_crlf_at_the_edge_of_the_probe_for_the_first_line_ending_is_seen_whole() {
+    let dir = TempDir::new();
+    // The first line is 1 MiB - 1 bytes: its CR is the last byte of the probe.
+    let mut bytes = vec![b'a'; 1024 * 1024 - 1];
+    bytes.extend_from_slice(b"\r\nnext\r\n");
+    let path = dir.write("edge.txt", &bytes);
+    let mut options = huge_options(1);
+    options.huge_scan = ScanOptions::default();
+    let mut file = open_file(&path, &options).unwrap();
+    assert_eq!(file.new_line, Eol::CrLf);
+    drop(file.take_scan());
+}
+
+#[test]
+fn a_huge_file_that_has_to_be_read_whole_can_be_asked_about_first() {
+    let dir = TempDir::new();
+    let path = dir.write("jis.txt", b"\x1b$B$\"$$\x1b(B\nabc\n");
+    let mut options = huge_options(1);
+    options.encoding = Some(Encoding::Jis);
+    options.ask_before_whole_read = true;
+    let error = open_file(&path, &options).unwrap_err();
+    assert!(
+        matches!(
+            error,
+            FileError::WholeReadNeeded {
+                encoding: Encoding::Jis,
+                ..
+            }
+        ),
+        "{error}"
+    );
+    // Under the size, or for a file that can be read by ranges, there is nothing to ask.
+    let mut small = options.clone();
+    small.huge_file_len = Some(1000);
+    assert!(open_file(&path, &small).is_ok());
+    let utf8 = dir.write("utf8.txt", b"abc\n");
+    let mut options = huge_options(1);
+    options.ask_before_whole_read = true;
+    assert!(open_file(&utf8, &options).is_ok());
 }

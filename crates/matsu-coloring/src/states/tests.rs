@@ -432,3 +432,47 @@ fn invalidating_after_a_line_keeps_the_lines_above() {
     states.reset();
     assert_eq!(states.known_lines(), 0);
 }
+
+/// A document over a file read by ranges, as the editor opens a huge file.
+fn ranged_doc(text: &str) -> Document {
+    use std::ops::ControlFlow;
+    use std::sync::Arc;
+
+    use matsu_core::buffer::{EncodingCodec, MemorySource, ScanOptions, scan_blocks};
+    use matsu_core::encoding::Encoding;
+
+    let source = Arc::new(MemorySource::new(text.as_bytes().to_vec()));
+    let codec = Arc::new(EncodingCodec(Encoding::Utf8));
+    let index = scan_blocks(source, codec, ScanOptions::default(), |_| {
+        ControlFlow::Continue(())
+    })
+    .unwrap();
+    Document::from_block_index(index).unwrap()
+}
+
+#[test]
+fn a_long_line_of_a_ranged_document_keeps_the_state_it_starts_in() {
+    let rules = c_rules();
+    // The long line ends the comment, but it is not read: the comment goes on after it.
+    let long = format!("{}*/ end", "x".repeat(SKIP_LINE_BYTES));
+    let text = format!("a\n/* start\n{long}\nafter\n");
+    let ranged = ranged_doc(&text);
+    assert!(ranged.is_ranged());
+    let mut states = ColorStates::new();
+    assert!(states.advance(&ranged, &rules, FOREVER));
+    assert_eq!(states.state_at(&ranged, &rules, 3).0, ColorState::Block(0));
+    // The same text in a document that is read whole: the line is read, and ends the comment.
+    let whole = doc(&text);
+    assert!(!whole.is_ranged());
+    let mut states = ColorStates::new();
+    assert!(states.advance(&whole, &rules, FOREVER));
+    assert_eq!(states.state_at(&whole, &rules, 3).0, ColorState::Normal);
+}
+
+#[test]
+fn short_lines_of_a_ranged_document_give_the_same_states() {
+    let rules = c_rules();
+    let text = "a\n/* b\nc\nd */ e\nf\n";
+    let (ranged, whole) = (ranged_doc(text), doc(text));
+    assert_eq!(all_states(&ranged, &rules), all_states(&whole, &rules));
+}

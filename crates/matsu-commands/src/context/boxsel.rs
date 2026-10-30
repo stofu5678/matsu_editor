@@ -56,7 +56,7 @@ impl CommandContext<'_> {
     /// The display column of the caret: for a box selection the column of its corner, which can
     /// be past the end of the text; otherwise that of the caret position.
     pub fn box_caret_col(&self) -> Result<usize> {
-        let at = self.caret_display_col()?;
+        let at = self.caret_col_with_free()?;
         Ok(self.cursor.box_caret_col().map_or(at, |c| c.max(at)))
     }
 

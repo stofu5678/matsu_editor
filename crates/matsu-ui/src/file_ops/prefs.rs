@@ -41,6 +41,21 @@ pub(crate) struct FilePrefs {
     /// `m_bAutoMIMEdecode` (`bAutoMIMEdecode`): MIME encoded words in an ISO-2022-JP file are
     /// decoded when it is read.
     pub auto_mime_decode: bool,
+    /// `nHugeFileSizeMB` (not Sakura's, ADR-0020 chapter 7): a file of this many MB or more is
+    /// opened by ranges, with its line endings found in the background.
+    pub huge_file_size_mb: i32,
+    /// Sizes and pace of the scan of such a file. Only the tests change them.
+    pub huge_scan: matsu_core::buffer::ScanOptions,
+}
+
+/// The default of [`FilePrefs::huge_file_size_mb`].
+pub(crate) const HUGE_FILE_SIZE_MB_DEFAULT: i32 = 256;
+
+impl FilePrefs {
+    /// The size in bytes from which a file is opened by ranges.
+    pub(crate) fn huge_file_len(&self) -> u64 {
+        u64::try_from(self.huge_file_size_mb.max(1)).unwrap_or(1) * 1024 * 1024
+    }
 }
 
 impl Default for FilePrefs {
@@ -60,6 +75,8 @@ impl Default for FilePrefs {
             no_filter_save_new: true,
             no_filter_save_file: true,
             auto_mime_decode: false,
+            huge_file_size_mb: HUGE_FILE_SIZE_MB_DEFAULT,
+            huge_scan: matsu_core::buffer::ScanOptions::default(),
         }
     }
 }

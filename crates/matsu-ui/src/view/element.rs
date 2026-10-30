@@ -21,11 +21,12 @@ use gpui::{
 };
 use matsu_coloring::ColorState;
 use matsu_core::buffer::Eol;
-use matsu_layout::RowInfo;
+use matsu_layout::{LayoutConfig, RowInfo};
 
+use super::caret_shape::{CaretShape, caret_shape};
 use super::colors::LineColorRequest;
 use super::syntax::{self, Label, Style as TextStyle};
-use super::{EditorView, PaintInfo, bracket_marks, diff_mark, lines, ruler};
+use super::{EditorView, PaintInfo, a11y_text, bracket_marks, diff_mark, lines, ruler};
 use crate::geometry::{Metrics, SCROLLBAR_WIDTH, Scrollbar};
 use crate::hit::selected_columns;
 use crate::search::highlight::{highlight_columns, slot_of};
@@ -259,9 +260,8 @@ pub(super) struct Prepaint {
     ruler: Option<RulerPaint>,
     lines: LinesPaint,
     brackets: Vec<BracketPaint>,
-    /// The index in `rows`, the column and the width of the caret: `None` for the bar of insert
-    /// mode, the columns of the char under the caret for the block of overwrite mode.
-    caret: Option<(usize, u32, Option<u32>)>,
+    /// The index in `rows`, the column and the shape of the caret (`caret_shape`).
+    caret: Option<(usize, u32, CaretShape)>,
     colors: Colors,
     show_line_numbers: bool,
     /// The bookmark color is shown (see `Marks::bookmark`).
@@ -402,7 +402,7 @@ impl Element for EditorElement {
         let top_margin = settings.top_margin() as f32;
         let body_height = (f32::from(bounds.size.height) - top_margin).max(0.0);
         let count = (body_height / line_height).ceil() as usize + 1;
-        let rows: Vec<RowInfo> = layout.rows(doc, first_row, count).unwrap_or_default();
+        let mut rows: Vec<RowInfo> = layout.rows(doc, first_row, count).unwrap_or_default();
 
         let digits = doc.line_count().max(1).to_string().len().max(3);
         // The text starts `nLineNumberRightSpace` pixels after the line numbers
@@ -521,6 +521,7 @@ impl Element for EditorElement {
                         upto,
                         want_next,
                         next_known,
+                        raw_len: super::colors::raw_len_of(doc, row.line),
                     });
                     carried = colored.next.map(|next| (row.line + 1, next));
                     line_colors = Some((row.line, colored.runs));
@@ -641,10 +642,13 @@ impl Element for EditorElement {
             });
         }
 
-        // In a box selection the caret can be right of the end of the text.
+        // In a box selection, and in the free cursor mode, the caret can be right of the end of
+        // the text.
+        let options = matsu_commands::edit_options::get();
         let caret_column = editor
             .cursor
             .box_caret_col()
+            .or(editor.cursor.free_col().filter(|_| options.free_cursor))
             .map_or(0, |c| u32::try_from(c).unwrap_or(u32::MAX));
         // While the selected text is dragged, the caret shows where it would drop.
         let caret_at = editor.drop_caret.unwrap_or(editor.cursor.caret());
@@ -653,12 +657,15 @@ impl Element for EditorElement {
                 .checked_sub(first_row)
                 .filter(|i| *i < painted.len())
                 .map(|i| {
-                    let block = editor
-                        .document
-                        .read(cx)
-                        .overwrite()
-                        .then(|| overwrite_caret_cells(doc, layout, caret_at));
-                    (i, caret_column.max(at.column), block)
+                    let overwrite = editor.document.read(cx).overwrite();
+                    let shape = caret_shape(
+                        options.dos_caret,
+                        overwrite,
+                        overwrite_caret_cells(doc, layout, caret_at),
+                        cell,
+                        matsu_platform::caret_width::os_caret_width(),
+                    );
+                    (i, caret_column.max(at.column), shape)
                 })
         });
 
@@ -784,6 +791,40 @@ impl Element for EditorElement {
                 });
             }
         }
+
+        // What the screen readers get (`a11y_text.rs`): the rows move, nothing is copied. The
+        // strings are made only when a screen reader asks.
+        let scale = window.scale_factor();
+        // Not the row of the overscan below the screen: its text is not seen, and a caret there is
+        // out of the view. A row cut by the edge stays.
+        rows.truncate(((body_height - y_offset) / line_height).ceil().max(0.0) as usize);
+        let at = |pos| {
+            layout
+                .pos_to_row(doc, pos)
+                .ok()
+                .map(|r| a11y_text::Spot { row: r.row, pos })
+        };
+        let focus = at(editor.cursor.caret());
+        let anchor = editor
+            .cursor
+            .anchor()
+            .filter(|_| !editor.cursor.is_box())
+            .and_then(at);
+        *editor.a11y_text.borrow_mut() = focus.map(|focus| a11y_text::Snapshot {
+            rows,
+            anchor: anchor.unwrap_or(focus),
+            focus,
+            columns: LayoutConfig {
+                tab_width: layout.config().effective_tab_width(),
+                width: layout.config().width,
+                ..LayoutConfig::default()
+            },
+            left: f32::from(bounds.origin.x) + gutter_width - scroll_x,
+            top: f32::from(bounds.origin.y) + top_margin + y_offset,
+            cell,
+            line_height,
+            scale,
+        });
 
         Prepaint {
             rows: painted,
@@ -1106,21 +1147,23 @@ impl Element for EditorElement {
                         rgb(color),
                     ));
                 }
-                if let Some((i, col, block)) = p.caret
+                if let Some((i, col, shape)) = p.caret
                     && focus_handle.is_focused(window)
                 {
                     let y = body_top + px(p.y_offset) + lh * i as f32;
-                    // Sakura: a 2px bar in insert mode, a block as wide as the char in overwrite
-                    // mode (`CCaret::ShowEditCaret`). The block is see-through to show the char.
-                    let (width, color) = match block {
-                        None => (px(2.), rgb(p.colors.caret)),
-                        Some(cells) => (
+                    // Sakura: a bar in insert mode and a block as wide as the char in overwrite
+                    // mode, or the MS-DOS style (`CCaret::ShowEditCaret`, see `caret_shape`). The
+                    // block is see-through to show the char; it sits at the bottom of the row.
+                    let (width, height, color) = match shape {
+                        CaretShape::Bar { width } => (px(width), lh, rgb(p.colors.caret)),
+                        CaretShape::Block { cells, half } => (
                             px(cells as f32 * p.cell),
+                            if half { lh / 2. } else { lh },
                             gpui::rgba((p.colors.caret << 8) | CARET_BLOCK_ALPHA),
                         ),
                     };
                     window.paint_quad(fill(
-                        Bounds::new(point(x_of(col), y), size(width, lh)),
+                        Bounds::new(point(x_of(col), y + lh - height), size(width, height)),
                         color,
                     ));
                 }
@@ -1275,10 +1318,10 @@ fn overwrite_caret_cells(
     caret: matsu_core::buffer::Pos,
 ) -> u32 {
     let Some(c) = doc
-        .line(caret.line)
+        .rest_of_line(caret.line, caret.col, 8)
         .ok()
         .flatten()
-        .and_then(|l| l.text.get(caret.col..)?.chars().next())
+        .and_then(|(rest, _)| rest.chars().next())
     else {
         return 1;
     };

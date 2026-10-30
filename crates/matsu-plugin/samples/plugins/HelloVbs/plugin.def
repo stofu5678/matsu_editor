@@ -1,0 +1,13 @@
+﻿; Sample plugin that MATSU Editor cannot run: its handler is a VBScript file (ADR-0025, ADR-0026).
+; The settings page lists it with the state "VBScript は使えません".
+[Plugin]
+Id=io.github.stofu5678.matsu-editor.sample.hello-vbs
+Name=Hello (VBScript)
+Description=A plugin written in VBScript, as many Sakura plugins are.
+Author=MATSU Editor
+Version=1.0.0.0
+Type=wsh
+
+[Command]
+C[1]=hello.vbs
+C[1].Label=Insert a greeting

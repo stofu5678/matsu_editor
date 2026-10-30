@@ -155,6 +155,8 @@ impl CommonSettingsDialog {
             })
             .collect();
         let controls = all_controls();
+        // The page プラグイン looks for the plugin folders while its values are loaded.
+        super::pages::plugin::refresh_dirs(cx);
         let values = Values::load(&controls, profile);
         Self::build(
             page.index(),
@@ -306,6 +308,11 @@ impl CommonSettingsDialog {
 
     // ---- state, for the window and for the tests ----
 
+    /// The window that the dialog was opened from.
+    pub(crate) fn opener(&self) -> Option<AnyWindowHandle> {
+        self.opener
+    }
+
     #[cfg(test)]
     pub(crate) fn page(&self) -> Page {
         Page::ALL.get(self.page).copied().unwrap_or(Page::General)
@@ -325,6 +332,12 @@ impl CommonSettingsDialog {
     /// The values the controls hold now, for a custom widget to read.
     pub(crate) fn values(&self) -> &Values {
         &self.values
+    }
+
+    /// Changes several values at once (an import of a page). The controls show them afterwards.
+    pub(crate) fn edit_values(&mut self, change: impl FnOnce(&mut Values), cx: &mut Context<Self>) {
+        change(&mut self.values);
+        cx.notify();
     }
 
     /// The controls of the page that is shown, in the order they are drawn.

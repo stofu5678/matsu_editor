@@ -96,7 +96,21 @@
 - この仕様はマクロ（1 回走って終わるもの）だけを扱う
 - マクロからエディタへの同期の要求だけを使い、エディタからマクロへの要求はしない
 - 理由: 応答を待っている間にエディタがイベントを処理すると、編集の途中に割り込んでしまう（Codex の指摘）
-- 常駐してイベントを受けるプラグインは、別の形で後で決める
+- 常駐してイベントを受けるプラグインは、別の形で決めた（ADR-0026。下の「プラグインの形」）
+
+#### プラグインの形（ADR-0026、2026-10-26 に同梱の QuickJS で実装）
+
+マクロの形に、エディタからプラグインへの呼び出し `plugin/invoke` を 1 種類だけ足す。「応答を待っている間にエディタがイベントを処理しない」という上の決めは変わらない: プラグインが走っている間、エディタはその呼び出しの要求にだけ答え、同じプラグインに次の呼び出しはしない（1 つのホストは 1 度に 1 つの呼び出し）。
+
+1. 起動: `matsu-script --engine quickjs`。`initialize` の `params.kind` が `"plugin"`、`params.plugin` が `{"id": プラグインの ID, "dir": フォルダー}`。`params.script` はない
+2. 呼び出し（エディタ → プラグイン）: `{"jsonrpc":"2.0","id":N,"method":"plugin/invoke","params":{"jack":"Command","name":ハンドラのパス,"source":ハンドラの中身,"args":ジャックの引数}}`。ファイルはエディタが読んで中身を送る（マクロの `params.script` と同じ理由）
+3. プラグインはハンドラを走らせる。その間の `Editor.*` と `Plugin.*` は、マクロと同じ形の要求としてエディタに送る（`Plugin.*` は `GetPluginDir` `GetDef` `GetOption` `SetOption` `GetString` `GetCommandNo`。エディタが定義ファイルとオプションのファイルから答える）。ハンドラの中では `Plugin.jack` と `Plugin.args` が見える
+4. 応答（プラグイン → エディタ）: `{"jsonrpc":"2.0","id":N,"result":{"ok":true}}`、ハンドラが例外を投げたときは `"error":{"code":-32000,"message":行番号つきのエラー}`。RS で始める（ほかの出力と区別するため）
+5. 終わり: `{"jsonrpc":"2.0","method":"plugin/shutdown"}` か、標準入力を閉じる。常駐しない（`UseCache=0`）プラグインは、1 回の呼び出しごとにプロセスを起動して、この `plugin/shutdown` で終わらせる
+6. ハンドラは、プロセスの中の**ハンドラのファイルごとの別のランタイム**で動かす。テキストは関数 `(function () { …テキスト… }).call(globalThis)` の本体として評価する（1 行目はそのまま。エラーの行番号は変わらない）。最上位の `let` `const` `class` `var` と関数はその呼び出しのものなので、同じファイルをもう一度呼べる。次の呼び出しに残したいものは `globalThis` に置く（同じファイルの次の呼び出しにだけ見える。別のファイルからは見えない）。既定は sloppy モード（サクラの JScript のプラグインは宣言していない名前に代入する）。テキストの先頭が `"use strict"` なら、関数本体の指示として効く
+7. ハンドラのパスは、プラグインのフォルダーの中のファイルに限る（`..`・絶対パス・外を指すリンクは断る。同意の SHA-256 がフォルダーの中のファイルだけだから）
+8. 時間の制限と、失敗の数え方は `matsu_plugin::plugin_host`（`LIMITS` の表と `MAX_FAILURES`）
+
 
 ### 5. エディタの側の作り
 
@@ -276,6 +290,17 @@ Emacs の利用者を考えて調べた。6 つとも、次がすべて通った
 - エラー: エディタの `error` は `editor-error` を `signal` する（データは番号とメッセージ）。`(condition-case err (...) (editor-error (cadr err)))` で番号を調べる
 - 出力: `princ`・`print` は標準出力、`message` は標準エラー
 - 本物の Emacs をローカルで動かせなかったので、動作の確認は CI（Ubuntu 24.04 の Emacs 29.3）による
+
+### AppleScript（`.applescript`。macOS のみ。2026-10-25 に実装。ADR-0025）
+
+- 起動: `osascript <一時フォルダーのプログラム>`。エディタが、前置き（`boot/boot.applescript`）、利用者のスクリプトを入れた `script UserMacro ... end script`、後置き（`on run`）を 1 つのプログラムにして、非公開の一時フォルダーに書く（`applescript.rs`）。利用者のスクリプトは、その script オブジェクトの本体になる（`use` の行は書けない。`on run` を自分で書いてもよい）
+- 中継（ADR-0025 の「実装のときに確かめる」の項目）: AppleScript は標準入出力を直接は扱えないので、AppleScriptObjC（`use framework "Foundation"`）で、`NSFileHandle`（標準入力から `availableData` を読んで行にためる。標準出力へはすぐ書く）と `NSJSONSerialization`（JSON の読み書き）を使う。`osascript` 自身が中継になるので、別の中継プログラムは要らない。ほかの言語と同じ JSON-RPC の行（RS で始まる 1 行 1 要求）
+- JSON: 書き出しは UTF-8 のまま（`\uXXXX` にしない。macOS の標準出力は UTF-8 で、受け取る側も UTF-8 を読める）。整数の値の実数（`4 / 2`）は整数として送られる（`NSNumber`）
+- 関数: 名前ごとのハンドラーは作れない（`copy`・`delete`・`print` などが AppleScript の語のため）。`editorCall("InsText", {"x"})` の形で、サクラの名前と引数の並びで呼ぶ。`editorPrint(テキスト)` で出力パネルへ 1 行書く（`log` は標準エラー）。`editorInfo("editor.name")` が `initialize` の内容（キーパス）。`tell` の中では `my editorCall(...)`
+- エラー: エディタの `error` は AppleScript のエラー（番号がエディタの番号、文字は `EditorError 番号: メッセージ`）。`try ... on error errorText number errorNumber` で受ける。捕まえなかったエラーは `osascript` が `ファイル:開始:終了: execution error: ...`（`開始-終了` の形も読む） と出すので、エディタが文字の範囲を `名前:行` に直す（UTF-16 の文字数で数える。前置きの中の範囲は行なしで `名前` だけ）。構文エラーも同じ
+- 戻り値: `osascript` は `run` が返した値を標準出力に出すので、後置きは長い印の文字列（`applescript::END_MARK`）を返し、エディタがその行を捨てる
+- 文字コード: プログラムのファイルは UTF-8。日本語・絵文字の文字列は往復のテストで確かめる（macOS の CI で実行）
+- macOS 以外では、マクロは始まらず「AppleScript のマクロは macOS でだけ動かせます」と出る
 
 ### Codex の指摘（1 回目）
 

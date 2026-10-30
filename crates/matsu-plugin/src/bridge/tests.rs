@@ -654,6 +654,7 @@ fn run_macro(language: Language, code: &str, f: &mut Fixture) -> Option<crate::s
         Language::PowerShell => "macro.ps1",
         Language::Perl => "macro.pl",
         Language::EmacsLisp => "macro.el",
+        Language::AppleScript => "macro.applescript",
         Language::Bundled(_) => unreachable!("the bundled engines are tested in matsu-script"),
     };
     let script = dir.path().join(name);
@@ -781,7 +782,11 @@ try { Editor::lower_case_name(); } catch (BadMethodCallException $e) { echo "no 
                     "no method"
                 ]
             ),
-            Language::Bundled(_) | Language::PowerShell | Language::Perl | Language::EmacsLisp => {
+            Language::Bundled(_)
+            | Language::PowerShell
+            | Language::Perl
+            | Language::EmacsLisp
+            | Language::AppleScript => {
                 unreachable!()
             }
         }
@@ -887,6 +892,7 @@ fn run_macro_with_env(
         Language::PowerShell => "macro.ps1",
         Language::Perl => "macro.pl",
         Language::EmacsLisp => "macro.el",
+        Language::AppleScript => "macro.applescript",
         Language::Bundled(_) => unreachable!("the bundled engines are tested in matsu-script"),
     };
     let script = dir.path().join(name);

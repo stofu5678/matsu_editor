@@ -984,7 +984,9 @@ fn a_type_that_is_not_there_has_no_sheet() {
     assert_eq!(t.tab_space, 4);
 }
 
+mod colors;
 mod lists;
+mod moved;
 mod transfer;
 
 // ---- 支援 ----
@@ -995,6 +997,51 @@ fn usable(cx: &mut TestAppContext, id: &str) -> bool {
         let control = d.page_controls().into_iter().find(|c| c.id == id).unwrap();
         d.is_usable(&control)
     })
+}
+
+#[gpui::test]
+fn the_rule_file_of_the_outline_can_be_chosen_and_is_written(cx: &mut TestAppContext) {
+    // `IDC_RADIO_OUTLINERULEFILE` and `IDC_EDIT_OUTLINERULEFILE` (`CPropTypesScreen`)
+    let (ini, a) = setup(
+        cx,
+        "[Types(0)]\r\nnDefaultOutline=12\r\nszOutlineRuleFilename=rules.txt\r\n",
+    );
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    assert_eq!(value(cx, OUTLINE_MODE), Value::Int(1));
+    assert_eq!(
+        value(cx, OUTLINE_RULE_FILE),
+        Value::Text("rules.txt".to_owned())
+    );
+    // the file and its button can be used when the rule file is chosen, the standard rule not
+    assert!(usable(cx, OUTLINE_RULE_FILE));
+    assert!(usable(cx, OUTLINE_RULE_BROWSE));
+    assert!(!usable(cx, OUTLINE));
+    with_dialog(cx, |d, _, dcx| d.select_index(0, dcx));
+    type_in(cx, OUTLINE_RULE_FILE, "outline/memo.rul");
+    ok(cx);
+    assert_eq!(
+        ini.get("Types(0)", "szOutlineRuleFilename").as_deref(),
+        Some("outline/memo.rul")
+    );
+    assert_eq!(
+        ini.get("Types(0)", "nDefaultOutline").as_deref(),
+        Some("12")
+    );
+}
+
+#[gpui::test]
+fn the_rule_file_is_kept_while_the_standard_rule_is_chosen(cx: &mut TestAppContext) {
+    let (ini, a) = setup(cx, "[Types(0)]\r\nszOutlineRuleFilename=keep.rul\r\n");
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    assert_eq!(value(cx, OUTLINE_MODE), Value::Int(0));
+    assert!(usable(cx, OUTLINE));
+    assert!(!usable(cx, OUTLINE_RULE_FILE));
+    assert!(!usable(cx, OUTLINE_RULE_BROWSE));
+    ok(cx);
+    assert_eq!(
+        ini.get("Types(0)", "szOutlineRuleFilename").as_deref(),
+        Some("keep.rul")
+    );
 }
 
 #[gpui::test]

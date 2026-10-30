@@ -26,6 +26,11 @@ use crate::file_ops::lock::{FileLockState, LockFailure};
 use crate::file_watch::state::{self, DiskState, WatchMode};
 use crate::settings::NewDocumentDefaults;
 
+mod scan;
+
+pub(crate) use scan::ScanTick;
+use scan::ScanWatch;
+
 /// `m_nNonameSequences`: how many numbers were given to untitled windows.
 #[cfg(not(test))]
 static UNTITLED_SEQUENCE: AtomicU32 = AtomicU32::new(0);
@@ -77,6 +82,12 @@ pub struct SharedDocument {
     model: DocumentModel,
     path: Option<PathBuf>,
     version: u64,
+    /// Counts the documents that this one has been replaced by (`replace_with`): a call that began on
+    /// a document can tell that it is a different one now.
+    generation: u64,
+    /// A call of a plugin is running on this document (every pane that shows it shares the undo
+    /// history, so one call at a time).
+    plugin_busy: bool,
     /// Typing overwrites instead of inserting. Sakura keeps the mode per document
     /// (`CDocEditor::m_bInsMode`) and starts in insert mode.
     overwrite: bool,
@@ -111,6 +122,12 @@ pub struct SharedDocument {
     /// Set for a restored document that has a file: the file was not looked at yet (「確認まだ」). The save checks it
     /// against this before it overwrites the file.
     restored_check: Option<RestoredCheck>,
+    /// The scan behind a file opened by ranges, until it is done (`document/scan.rs`).
+    scan: Option<ScanWatch>,
+    /// The number of the scan that ended with the complete document (`document/scan.rs`).
+    scan_done: Option<u64>,
+    /// The file is read by ranges (ADR-0020): it stays open behind the document.
+    ranged: bool,
 }
 
 impl EventEmitter<DocumentEvent> for SharedDocument {}
@@ -132,6 +149,8 @@ impl SharedDocument {
             model,
             path,
             version: 0,
+            generation: 0,
+            plugin_busy: false,
             overwrite: false,
             view_mode: false,
             type_locked: false,
@@ -143,6 +162,9 @@ impl SharedDocument {
             restored: false,
             restored_len: 0,
             restored_check: None,
+            scan: None,
+            scan_done: None,
+            ranged: false,
         }
     }
 
@@ -150,14 +172,19 @@ impl SharedDocument {
     /// model, and the encoding, BOM and line ending stay for the status bar and for saving.
     pub fn from_text_file(mut file: TextFile) -> Self {
         let doc = std::mem::take(&mut file.document);
-        let mut model = DocumentModel::new(doc);
+        // Not `DocumentModel::new`, which reads the first line to guess the line ending: that
+        // line can be as big as a file opened by ranges.
+        let model = DocumentModel::with_new_line(doc, file.new_line);
         sync_ext_eol(&model);
-        model.set_new_line(file.new_line);
         let disk = DiskState::of_path(file.path.as_deref());
-        Self {
+        let scan = file.take_scan();
+        let ranged = file.is_ranged();
+        let mut shared = Self {
             model,
             path: file.path.clone(),
             version: 0,
+            generation: 0,
+            plugin_busy: false,
             overwrite: false,
             view_mode: false,
             type_locked: false,
@@ -169,7 +196,14 @@ impl SharedDocument {
             restored: false,
             restored_len: 0,
             restored_check: None,
+            scan: None,
+            scan_done: None,
+            ranged,
+        };
+        if let Some(job) = scan {
+            shared.attach_scan(job);
         }
+        shared
     }
 
     /// A document brought back from a copy of unsaved text (ADR-0022). It is modified, its text is the base of its
@@ -221,12 +255,14 @@ impl SharedDocument {
     /// document for the one it saw, and a view cannot skip the re-layout for a reused number.
     pub fn replace_with(&mut self, new: SharedDocument, cx: &mut Context<Self>) -> u64 {
         let version = self.version;
+        let generation = self.generation + 1;
         // The number belongs to the window, not to the file (`EditNode::m_nId` stays when the
         // file is closed or another is opened): the new document keeps it, and an untitled one
         // that has none gets it now (`CDocFileOperation::FileClose`, `GetNoNameNumber`).
         let number = self.untitled_number;
         *self = new;
         self.version = version;
+        self.generation = generation;
         self.untitled_number = number.or(self.untitled_number);
         if self.path.is_none() {
             self.number_untitled();
@@ -384,6 +420,9 @@ impl SharedDocument {
     /// [`take_lock_failure`](Self::take_lock_failure).
     pub(crate) fn lock_file(&mut self, mode: i32) {
         let path = self.path.clone().filter(|_| !self.view_mode);
+        // A file read by ranges is open behind the document, and on Windows a lock that denies
+        // reading cannot be taken while it is: the file is locked against writing only.
+        let mode = if self.ranged && mode == 2 { 1 } else { mode };
         self.lock.lock(path.as_deref(), mode);
     }
 
@@ -562,6 +601,20 @@ impl SharedDocument {
     /// Tells the views that the document has type `index`; each applies the settings of the type.
     pub fn announce_type(&mut self, index: usize, cx: &mut Context<Self>) {
         cx.emit(DocumentEvent::TypeChanged { index });
+    }
+
+    /// How many times the document was replaced by another one in place (opening a file in the
+    /// window, reloading it). Not changed by an edit.
+    pub fn plugin_busy(&self) -> bool {
+        self.plugin_busy
+    }
+
+    pub fn set_plugin_busy(&mut self, busy: bool) {
+        self.plugin_busy = busy;
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
 
     /// Counts the changes of the text. A view compares it with the version its layout matches.

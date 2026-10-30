@@ -54,6 +54,12 @@ pub struct EditOptions {
     /// `m_bOverWriteBoxDelete` (`bOverWriteBoxDelete`): typing over a box in overwrite mode deletes
     /// the box first. Off by default.
     pub overwrite_box_delete: bool,
+    /// `m_bIsFreeCursorMode` (`bIsFreeCursorMode`): the caret may stand to the right of the end of
+    /// a line. Off by default.
+    pub free_cursor: bool,
+    /// `GetCaretType() == 1` (`nCaretType`, the low 4 bits): the MS-DOS style caret, a block (half
+    /// as high in insert mode) instead of the thin bar of the Windows style. Off by default.
+    pub dos_caret: bool,
 }
 
 impl EditOptions {
@@ -73,6 +79,8 @@ impl EditOptions {
         not_overwrite_crlf: true,
         overwrite_fix_mode: false,
         overwrite_box_delete: false,
+        free_cursor: false,
+        dos_caret: false,
     };
 }
 
@@ -84,25 +92,37 @@ impl Default for EditOptions {
 
 static OPTIONS: RwLock<EditOptions> = RwLock::new(EditOptions::DEFAULT);
 
-#[cfg(test)]
 thread_local! {
-    /// The options a test of this crate sets for its own thread: the tests run in parallel and
-    /// share the process-wide value otherwise.
+    /// The options a test sets for its own thread ([`with_options`]): the tests run in parallel
+    /// and share the process-wide value otherwise.
     static TEST_OPTIONS: std::cell::Cell<Option<EditOptions>> = const { std::cell::Cell::new(None) };
 }
 
-/// Runs `f` with `options` as the options of this thread (tests only).
-#[cfg(test)]
-pub(crate) fn with_options<R>(options: EditOptions, f: impl FnOnce() -> R) -> R {
-    let old = TEST_OPTIONS.with(|c| c.replace(Some(options)));
-    let result = f();
-    TEST_OPTIONS.with(|c| c.set(old));
-    result
+/// Runs `f` with `options` as the options of this thread, whatever [`set`] says. For tests, in
+/// this crate and in the ones above it: they run in parallel, and the process-wide value is one
+/// for all of them. The program itself never calls it.
+pub fn with_options<R>(options: EditOptions, f: impl FnOnce() -> R) -> R {
+    let _guard = options_for_this_thread(options);
+    f()
+}
+
+/// Puts the options of this thread back when it is dropped ([`options_for_this_thread`]).
+#[must_use = "the options are back as soon as the guard is dropped"]
+pub struct ThreadOptions(Option<EditOptions>);
+
+impl Drop for ThreadOptions {
+    fn drop(&mut self) {
+        TEST_OPTIONS.with(|c| c.set(self.0));
+    }
+}
+
+/// Like [`with_options`], until the returned guard is dropped.
+pub fn options_for_this_thread(options: EditOptions) -> ThreadOptions {
+    ThreadOptions(TEST_OPTIONS.with(|c| c.replace(Some(options))))
 }
 
 /// The options now.
 pub fn get() -> EditOptions {
-    #[cfg(test)]
     if let Some(options) = TEST_OPTIONS.with(std::cell::Cell::get) {
         return options;
     }

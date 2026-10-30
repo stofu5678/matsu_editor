@@ -44,8 +44,30 @@ impl DocumentModel {
         }
     }
 
+    /// A model over `doc` with the line ending for new line breaks given. Unlike
+    /// [`new`](Self::new) it does not read the document: a file read by ranges can start with a
+    /// line of any length.
+    pub fn with_new_line(doc: Document, new_line: Eol) -> Self {
+        Self {
+            doc,
+            history: History::new(),
+            new_line,
+            bookmarks: Bookmarks::new(),
+            diff_marks: DiffMarks::new(),
+            funclist_marks: Bookmarks::new(),
+        }
+    }
+
     pub fn empty() -> Self {
         Self::new(Document::empty())
+    }
+
+    /// Puts `doc` in place of the document while a file is scanned (ADR-0020, chapter 2): `doc`
+    /// shows more of the same file than the document did, and nothing was edited meanwhile (the
+    /// document is read-only until the scan is done), so the history, the bookmarks and the marks
+    /// stay as they are.
+    pub fn replace_scanned_document(&mut self, doc: Document) {
+        self.doc = doc;
     }
 
     pub fn doc(&self) -> &Document {
@@ -128,6 +150,12 @@ impl DocumentModel {
     /// Leaves every open block; see [`History::close_all`].
     pub fn close_blocks(&mut self, cursor: &Cursor) {
         self.history.close_all(&self.doc, cursor);
+    }
+
+    /// Puts the depth of the open undo block back to `depth` (see
+    /// [`History::restore_depth`](crate::undo::History::restore_depth)).
+    pub fn restore_block_depth(&mut self, depth: usize, cursor: &Cursor) {
+        self.history.restore_depth(depth, &self.doc, cursor);
     }
 
     /// Replaces the text between two positions (in either order, clamped) with `text`.

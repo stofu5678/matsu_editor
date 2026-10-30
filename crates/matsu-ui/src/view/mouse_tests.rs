@@ -608,3 +608,161 @@ fn the_side_buttons_run_their_functions(cx: &mut TestAppContext) {
     cx.simulate_mouse_up(p, forward, ctrl());
     assert_eq!(f.caret(cx), Pos::new(0, 0));
 }
+
+// ---- the free cursor ----
+
+#[gpui::test]
+fn in_the_free_cursor_mode_a_click_right_of_the_text_puts_the_caret_there(cx: &mut TestAppContext) {
+    // `CCaret::MoveCursorProperly`: the column of the click, when the mode is on.
+    // This thread only: the other tests run at the same time with the options of the process.
+    let _free = edit_options::options_for_this_thread(EditOptions {
+        free_cursor: true,
+        ..EditOptions::default()
+    });
+    let (f, cx) = setup(cx, "ab\ncdef");
+    down_at(&f, cx, 0, 6, 1, Modifiers::default());
+    up_at(&f, cx, 0, 6, Modifiers::default());
+    f.view.read_with(cx, |v, app| {
+        assert_eq!(v.cursor.caret(), Pos::new(0, 2));
+        assert_eq!(v.cursor.free_col(), Some(6));
+        assert_eq!(v.caret_column(app), 6);
+    });
+    // typing there fills the gap with spaces
+    cx.simulate_input("x");
+    assert_eq!(f.lines(cx), ["ab    x", "cdef"]);
+    // a click on the text leaves the gap
+    down_at(&f, cx, 1, 1, 1, Modifiers::default());
+    up_at(&f, cx, 1, 1, Modifiers::default());
+    f.view.read_with(cx, |v, _| {
+        assert_eq!(v.cursor.caret(), Pos::new(1, 1));
+        assert_eq!(v.cursor.free_col(), None);
+    });
+}
+
+#[gpui::test]
+fn without_the_free_cursor_mode_a_click_right_of_the_text_goes_to_its_end(cx: &mut TestAppContext) {
+    let _o = options();
+    let (f, cx) = setup(cx, "ab\ncdef");
+    down_at(&f, cx, 0, 6, 1, Modifiers::default());
+    up_at(&f, cx, 0, 6, Modifiers::default());
+    f.view.read_with(cx, |v, _| {
+        assert_eq!(v.cursor.caret(), Pos::new(0, 2));
+        assert_eq!(v.cursor.free_col(), None);
+    });
+}
+
+#[gpui::test]
+fn an_ime_composition_in_the_gap_follows_spaces_in_one_undo_step(cx: &mut TestAppContext) {
+    use gpui::EntityInputHandler as _;
+    // This thread only: the other tests run at the same time with the options of the process.
+    let _free = edit_options::options_for_this_thread(EditOptions {
+        free_cursor: true,
+        ..EditOptions::default()
+    });
+    let (f, cx) = setup(cx, "ab\ncd");
+    down_at(&f, cx, 0, 5, 1, Modifiers::default());
+    up_at(&f, cx, 0, 5, Modifiers::default());
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_and_mark_text_in_range(None, "に", Some(1..1), window, cx);
+        v.replace_text_in_range(None, "日", window, cx);
+    });
+    assert_eq!(f.lines(cx), ["ab   日", "cd"]);
+    cx.simulate_keystrokes("ctrl-z");
+    assert_eq!(f.lines(cx), ["ab", "cd"]);
+}
+
+#[gpui::test]
+fn cancelling_a_composition_in_the_gap_takes_the_spaces_with_it(cx: &mut TestAppContext) {
+    use gpui::EntityInputHandler as _;
+    // This thread only: the other tests run at the same time with the options of the process.
+    let _free = edit_options::options_for_this_thread(EditOptions {
+        free_cursor: true,
+        ..EditOptions::default()
+    });
+    let (f, cx) = setup(cx, "ab\ncd");
+    down_at(&f, cx, 0, 5, 1, Modifiers::default());
+    up_at(&f, cx, 0, 5, Modifiers::default());
+    // One call: the test window ends a composition between two calls.
+    f.view.update_in(cx, |v, window, cx| {
+        let first_line = |v: &EditorView, cx: &gpui::App| {
+            v.document.read(cx).doc().line(0).unwrap().unwrap().text
+        };
+        v.replace_and_mark_text_in_range(None, "に", Some(1..1), window, cx);
+        v.replace_and_mark_text_in_range(None, "にほ", Some(2..2), window, cx);
+        assert_eq!(first_line(v, cx), "ab   にほ");
+        v.replace_and_mark_text_in_range(None, "", None, window, cx);
+        assert_eq!(first_line(v, cx), "ab");
+    });
+    assert_eq!(f.lines(cx), ["ab", "cd"]);
+}
+
+#[gpui::test]
+fn the_backends_cancel_a_composition_in_the_gap_with_an_empty_commit(cx: &mut TestAppContext) {
+    // Windows ends a composition with `replace_text_in_range(None, "")`; X11 and Wayland with the
+    // marked range and an empty text.
+    use gpui::EntityInputHandler as _;
+    // This thread only: the other tests run at the same time with the options of the process.
+    let _free = edit_options::options_for_this_thread(EditOptions {
+        free_cursor: true,
+        ..EditOptions::default()
+    });
+    let (f, cx) = setup(cx, "ab\ncd");
+    down_at(&f, cx, 0, 5, 1, Modifiers::default());
+    up_at(&f, cx, 0, 5, Modifiers::default());
+    for with_range in [false, true] {
+        f.view.update_in(cx, |v, window, cx| {
+            let first_line = |v: &EditorView, cx: &gpui::App| {
+                v.document.read(cx).doc().line(0).unwrap().unwrap().text
+            };
+            v.replace_and_mark_text_in_range(None, "に", Some(1..1), window, cx);
+            assert_eq!(first_line(v, cx), "ab   に");
+            let range = if with_range {
+                v.marked_text_range(window, cx)
+            } else {
+                None
+            };
+            v.replace_text_in_range(range, "", window, cx);
+            assert_eq!(first_line(v, cx), "ab");
+        });
+        assert_eq!(f.lines(cx), ["ab", "cd"]);
+        // the caret is back at the end of the text; the click put it in the gap again
+        down_at(&f, cx, 0, 5, 1, Modifiers::default());
+        up_at(&f, cx, 0, 5, Modifiers::default());
+    }
+}
+
+#[gpui::test]
+fn an_empty_commit_in_the_gap_changes_nothing(cx: &mut TestAppContext) {
+    use gpui::EntityInputHandler as _;
+    // This thread only: the other tests run at the same time with the options of the process.
+    let _free = edit_options::options_for_this_thread(EditOptions {
+        free_cursor: true,
+        ..EditOptions::default()
+    });
+    let (f, cx) = setup(cx, "ab\ncd");
+    down_at(&f, cx, 0, 5, 1, Modifiers::default());
+    up_at(&f, cx, 0, 5, Modifiers::default());
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_text_in_range(None, "", window, cx);
+    });
+    assert_eq!(f.lines(cx), ["ab", "cd"]);
+    assert!(!f.document.read_with(cx, |d, _| d.model().is_modified()));
+}
+
+#[gpui::test]
+fn cancelling_with_the_marked_range_takes_the_gap_spaces_too(cx: &mut TestAppContext) {
+    use gpui::EntityInputHandler as _;
+    let _free = edit_options::options_for_this_thread(EditOptions {
+        free_cursor: true,
+        ..EditOptions::default()
+    });
+    let (f, cx) = setup(cx, "ab\ncd");
+    down_at(&f, cx, 0, 5, 1, Modifiers::default());
+    up_at(&f, cx, 0, 5, Modifiers::default());
+    f.view.update_in(cx, |v, window, cx| {
+        v.replace_and_mark_text_in_range(None, "に", Some(1..1), window, cx);
+        let range = v.marked_text_range(window, cx);
+        v.replace_and_mark_text_in_range(range, "", None, window, cx);
+    });
+    assert_eq!(f.lines(cx), ["ab", "cd"]);
+}

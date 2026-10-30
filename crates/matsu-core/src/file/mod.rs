@@ -60,9 +60,11 @@ pub use save::{
 };
 pub use sync::sync_file;
 
-use crate::buffer::{Document, EncodingCodec, Eol};
-use crate::encoding::{DetectOptions, Detection, Encoding, detect, mime_header_decode_jis};
-use source::FileBytes;
+use crate::buffer::{Document, EncodingCodec, Eol, ScanError, ScanJob, ScanOptions, Source};
+use crate::encoding::{
+    DETECT_SAMPLE_LEN, DetectOptions, Detection, Encoding, detect, mime_header_decode_jis,
+};
+use source::{FileBytes, OffsetSource};
 
 /// The size of one read while loading, and the unit of progress and cancellation.
 const READ_CHUNK: usize = 1024 * 1024;
@@ -96,6 +98,18 @@ pub struct OpenOptions {
     /// Treat NEL (U+0085), LS (U+2028) and PS (U+2029) as line endings (`m_bEnableExtEol`, 「改行コード
     /// NEL,PS,LSを有効にする」). Off by default, as in Sakura: they are then ordinary characters.
     pub ext_eol: bool,
+    /// Open a file of this many bytes or more by ranges (ADR-0020): the file is not read whole;
+    /// a background scan finds its line endings ([`TextFile::take_scan`]) and the document is
+    /// read-only until it is done. `None` (the default) reads every file whole. Encodings that
+    /// depend on earlier bytes (ISO-2022-JP, UTF-7) are always read whole.
+    pub huge_file_len: Option<u64>,
+    /// The sizes and the pace of the scan of a file opened by ranges.
+    /// [`ext_eol`](Self::ext_eol) overrides the one in it.
+    pub huge_scan: ScanOptions,
+    /// When a file over [`huge_file_len`](Self::huge_file_len) is in an encoding that has to be
+    /// read whole, fail with [`FileError::WholeReadNeeded`] instead of reading it (so that the
+    /// caller can ask first, ADR-0020 9.9). Off by default: the file is read whole.
+    pub ask_before_whole_read: bool,
 }
 
 impl Default for OpenOptions {
@@ -107,6 +121,9 @@ impl Default for OpenOptions {
             max_len: None,
             mime_decode: false,
             ext_eol: false,
+            huge_file_len: None,
+            huge_scan: ScanOptions::default(),
+            ask_before_whole_read: false,
         }
     }
 }
@@ -132,6 +149,10 @@ pub struct TextFile {
     source_encoding: Encoding,
     /// What the encoding detection said (`None` when the encoding was given).
     pub detection: Option<Detection>,
+    /// The scan of a file opened by ranges, while it runs ([`TextFile::take_scan`]).
+    scan: Option<ScanJob>,
+    /// The document reads its file by ranges (ADR-0020), whether or not the scan still runs.
+    ranged: bool,
 }
 
 impl TextFile {
@@ -146,6 +167,8 @@ impl TextFile {
             eol_on_save: None,
             source_encoding: Encoding::Utf8,
             detection: None,
+            scan: None,
+            ranged: false,
         }
     }
 
@@ -167,7 +190,23 @@ impl TextFile {
             eol_on_save: None,
             source_encoding: Encoding::Utf8,
             detection: None,
+            scan: None,
+            ranged: false,
         }
+    }
+
+    /// The background scan of a file opened by ranges, if it is still running when the file is
+    /// opened. The document of the file is read-only until the scan is done: the owner keeps the
+    /// job, shows its progress, and replaces the document with [`ScanJob::snapshot`] now and then
+    /// and with [`ScanJob::finish`] at the end.
+    pub fn take_scan(&mut self) -> Option<ScanJob> {
+        self.scan.take()
+    }
+
+    /// Whether the document reads the file by ranges (ADR-0020): the file stays open behind the
+    /// document, and is not read whole.
+    pub fn is_ranged(&self) -> bool {
+        self.ranged
     }
 
     /// The encoding of the bytes the document was read from.
@@ -202,6 +241,16 @@ pub fn open_file_with(
     let len = meta.len();
     if len > max {
         return Err(FileError::TooLarge { len, max });
+    }
+    if let Some(from) = options.huge_file_len
+        && len >= from
+        && len > 0
+    {
+        drop(file);
+        if let Some(opened) = open_ranged(path, options, progress)? {
+            return Ok(opened);
+        }
+        file = File::open(path)?;
     }
     let mut bytes = read_all(&mut file, len, max, progress)?;
     drop(file);
@@ -254,8 +303,108 @@ pub fn open_file_with(
         eol_on_save: None,
         source_encoding: encoding,
         detection,
+        scan: None,
+        ranged: false,
     })
 }
+
+/// How long [`open_ranged`] waits for the scan to cover the first block: the first screen is
+/// shown from it.
+const FIRST_BLOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+fn scan_to_file_error(error: ScanError) -> FileError {
+    match error {
+        ScanError::Cancelled => FileError::Cancelled,
+        ScanError::Io(e) => FileError::Io(e),
+        ScanError::Buffer(e) => FileError::from(e),
+        ScanError::Stateful => FileError::Io(std::io::Error::other(error.to_string())),
+    }
+}
+
+/// Opens `path` by ranges (ADR-0020, chapter 7): the file is read only at its start (for the
+/// encoding and the first line ending), a [`ScanJob`] finds the line endings in the background,
+/// and the document shows what is scanned and is read-only until it is done. `None` when the
+/// file has to be read whole: an encoding that depends on earlier bytes, or nothing after the BOM.
+fn open_ranged(
+    path: &Path,
+    options: &OpenOptions,
+    progress: Progress<'_>,
+) -> Result<Option<TextFile>> {
+    let ranged = RangedFile::open(path)?;
+    let len = ranged.len();
+    let head = ranged
+        .read(0, len.min(DETECT_SAMPLE_LEN as u64))?
+        .into_owned();
+    let (encoding, bom, detection) = match options.encoding {
+        Some(encoding) => (encoding, encoding.bom_len(&head) > 0, None),
+        None => {
+            let d = detect(&head, &options.detect);
+            (d.encoding, d.bom, Some(d))
+        }
+    };
+    if !encoding.codec().is_stateless() {
+        if options.ask_before_whole_read {
+            return Err(FileError::WholeReadNeeded { len, encoding });
+        }
+        return Ok(None);
+    }
+    let bom_len = if bom { encoding.bom().len() } else { 0 };
+    let source = Arc::new(OffsetSource::new(ranged, bom_len as u64));
+    if source.len() == 0 {
+        return Ok(None);
+    }
+    // The first line ending, as the whole read finds it. A first line longer than the probe has
+    // none here and takes the default.
+    // A few bytes more, so that a CR LF at the edge is seen whole.
+    let probe = source.read(0, source.len().min(PROBE_LEN + 16))?;
+    let first_eol =
+        crate::buffer::find_eol(encoding.codec(), &probe, 0, options.ext_eol).map(|(_, eol)| eol);
+    drop(probe);
+    // The cancel of the caller is honored here, before a thread is started.
+    if progress(len, len).is_break() {
+        return Err(FileError::Cancelled);
+    }
+    let scan_options = ScanOptions {
+        ext_eol: options.ext_eol,
+        ..options.huge_scan
+    };
+    let job = ScanJob::spawn(source, Arc::new(EncodingCodec(encoding)), scan_options)
+        .map_err(scan_to_file_error)?;
+    let waited = std::time::Instant::now();
+    while job.progress().scanned == 0 && !job.is_finished() && waited.elapsed() < FIRST_BLOCK_WAIT {
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    // A scan that is done already (a small file) gives the complete document at once.
+    let (document, scan) = if job.is_finished() {
+        (job.finish().map_err(scan_to_file_error)?, None)
+    } else {
+        let document = job.snapshot().map_err(scan_to_file_error)?;
+        // The scan may have ended since `is_finished` was asked: a complete document can be
+        // edited, so the job must not be kept to put the same text over an edit later.
+        let scan = document.is_read_only().then_some(job);
+        (document, scan)
+    };
+    let fallback = if encoding == options.detect.default_encoding {
+        options.default_eol
+    } else {
+        Eol::platform_default()
+    };
+    Ok(Some(TextFile {
+        document,
+        path: Some(path.to_path_buf()),
+        encoding,
+        bom,
+        new_line: first_eol.unwrap_or(fallback),
+        eol_on_save: None,
+        source_encoding: encoding,
+        detection,
+        scan,
+        ranged: true,
+    }))
+}
+
+/// How much of the start is looked at for the first line ending.
+const PROBE_LEN: u64 = 1024 * 1024;
 
 /// Reads `len` bytes in chunks. A file that grows while it is read is refused when it passes `max`.
 fn read_all(file: &mut File, len: u64, max: u64, progress: Progress<'_>) -> Result<Vec<u8>> {

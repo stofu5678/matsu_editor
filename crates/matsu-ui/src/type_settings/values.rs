@@ -74,12 +74,12 @@ fn tab_width_in_range(tab: i32, wrap_column: i32) -> i32 {
 }
 
 /// A `COLORREF` as the dialog holds it.
-fn color_value(color: u32) -> i32 {
+pub(in crate::type_settings) fn color_value(color: u32) -> i32 {
     i32::from_ne_bytes(color.to_ne_bytes())
 }
 
 /// The `COLORREF` of a value of the dialog.
-fn color_of(value: i32) -> u32 {
+pub(in crate::type_settings) fn color_of(value: i32) -> u32 {
     u32::from_ne_bytes(value.to_ne_bytes()) & 0x00ff_ffff
 }
 
@@ -483,6 +483,8 @@ pub(super) fn store(v: &Values, original: &TypeSettings) -> TypeSettings {
     } else {
         v.int(OUTLINE)
     };
+    // the name is kept whichever rule is chosen (`GetData`: 「ルールを使っていなくてもファイル名を保持」)
+    t.outline_rule_filename = fit(v.text(OUTLINE_RULE_FILE), PATH_BUFFER);
 
     // カラー
     for (item, name) in ColorSet::all_names().enumerate() {
@@ -589,6 +591,7 @@ pub(super) fn merge(base: &TypeSettings, old: &TypeSettings, new: &TypeSettings)
         kinsoku_hide,
         kinsoku_kuto_enabled,
         default_outline,
+        outline_rule_filename,
         use_type_font,
         font,
         string_type,

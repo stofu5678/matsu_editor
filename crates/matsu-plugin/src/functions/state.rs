@@ -6,7 +6,6 @@ use serde_json::Value;
 
 use super::{EditorFunc, layout::layout_point, unavailable};
 use crate::api::{Args, Ty, req};
-use crate::bridge::NOT_IMPLEMENTED;
 use crate::host::Editor;
 use crate::protocol::RpcError;
 
@@ -125,8 +124,9 @@ fn is_text_selecting_lock(ed: &mut Editor, _: &Args) -> Result {
 /// F_GETLINEATTRIBUTE: an attribute of a logical line (0 is the line of the caret; the lines
 /// count from 1). The types: 0 modified since the last save, 1 the modification sequence number
 /// (the number of the undo block that last touched the line), 2 bookmark, 3 diff mark, 4 function
-/// list mark. The diff mark and the function list mark do not exist in this editor yet; they
-/// answer "not implemented" instead of a made-up 0. A type outside 0 to 4, a negative line, and a
+/// list mark (`F_GETLINEATTRIBUTE` in `sakura_core/macro/CMacro.cpp`: type 3 is the `EDiffMark`
+/// number, 0 none, 1 added, 2 changed, 3 deleted, 4 deleted after the end; type 4 is 1 when the
+/// last outline analysis found an item on the line). A type outside 0 to 4, a negative line, and a
 /// line past the end of the text are errors (Sakura: the function fails).
 fn get_line_attribute(ed: &mut Editor, args: &Args) -> Result {
     let (number, kind) = (args.int(0), args.int(1));
@@ -153,17 +153,8 @@ fn get_line_attribute(ed: &mut Editor, args: &Args) -> Result {
             .unwrap_or(i64::MAX)
             .into()),
         2 => Ok(i64::from(ed.cx.is_bookmarked(line)).into()),
-        3 | 4 => Err(RpcError::new(
-            NOT_IMPLEMENTED,
-            format!(
-                "GetLineAttribute type {kind} ({}) is not supported yet: this editor does not have it",
-                if kind == 3 {
-                    "diff mark"
-                } else {
-                    "function list mark"
-                }
-            ),
-        )),
+        3 => Ok(ed.cx.diff_mark_number(line).into()),
+        4 => Ok(i64::from(ed.cx.has_funclist_mark(line)).into()),
         _ => Err(RpcError::invalid_params(
             "GetLineAttribute: the type must be 0 to 4",
         )),
@@ -417,10 +408,29 @@ mod tests {
         assert!(f.call("GetLineAttribute", json!([4, 2])).is_err());
         assert!(f.call("GetLineAttribute", json!([-1, 2])).is_err());
         assert!(f.call("GetLineAttribute", json!([1, 5])).is_err());
-        for kind in [3, 4] {
-            let e = f.call("GetLineAttribute", json!([1, kind])).unwrap_err();
-            assert_eq!(e.code, crate::bridge::NOT_IMPLEMENTED, "{kind}");
+    }
+
+    #[test]
+    fn line_attribute_gives_the_diff_mark_and_the_outline_mark() {
+        use matsu_core::diff::DiffMark;
+        let mut f = Fixture::new("あ\r\nい\r\nう\r\nえ");
+        for line in 1..=4 {
+            assert_eq!(f.ok("GetLineAttribute", json!([line, 3])), json!(0));
+            assert_eq!(f.ok("GetLineAttribute", json!([line, 4])), json!(0));
         }
+        let marks = f.model.diff_marks_mut();
+        marks.set_range(DiffMark::Append, 0, 0, 4);
+        marks.set_range(DiffMark::Change, 1, 1, 4);
+        marks.set_range(DiffMark::Delete, 2, 2, 4);
+        marks.set_range(DiffMark::DeleteEx, 3, 3, 4);
+        for (line, want) in [(1, 1), (2, 2), (3, 3), (4, 4)] {
+            assert_eq!(f.ok("GetLineAttribute", json!([line, 3])), json!(want));
+        }
+        f.caret_at((2, 0));
+        assert_eq!(f.ok("GetLineAttribute", json!([0, 3])), json!(3));
+        f.model.funclist_marks_mut().set(1, true);
+        assert_eq!(f.ok("GetLineAttribute", json!([2, 4])), json!(1));
+        assert_eq!(f.ok("GetLineAttribute", json!([1, 4])), json!(0));
     }
 
     #[test]

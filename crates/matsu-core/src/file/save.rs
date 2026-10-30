@@ -202,7 +202,17 @@ impl TextFile {
         options: &SaveOptions,
         progress: Progress<'_>,
     ) -> Result<UnmappableReport> {
+        self.ensure_complete()?;
         check(&self.document, self.source_encoding(), options, progress)
+    }
+
+    /// A document that shows only the scanned start of a file ([`Document::is_read_only`]) is
+    /// never written: the file would lose the rest.
+    fn ensure_complete(&self) -> Result<()> {
+        if self.document.is_read_only() {
+            return Err(FileError::Buffer(crate::buffer::BufferError::ReadOnly));
+        }
+        Ok(())
     }
 
     /// Saves to the path of the file. Fails with [`FileError::NoPath`] for a new document.
@@ -221,6 +231,7 @@ impl TextFile {
         progress: Progress<'_>,
     ) -> Result<SaveReport> {
         let path = path.into();
+        self.ensure_complete()?;
         let report = write_file(
             &self.document,
             self.source_encoding(),

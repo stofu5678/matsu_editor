@@ -11,6 +11,7 @@ publish.workspace = true
 [dependencies]
 matsu-core = { path = "../matsu-core" }
 matsu-config = { path = "../matsu-config" }
+matsu-regex = { path = "../matsu-regex" }
 
 [lints]
 workspace = true

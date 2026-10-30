@@ -22,6 +22,7 @@ mod boxsel;
 mod clipboard;
 mod convert;
 mod diff;
+mod free_cursor;
 mod funclist;
 mod indent;
 mod lines;
@@ -116,6 +117,9 @@ pub struct Changes {
     pub selection_changed: bool,
     /// The command could not do what was asked in this state (Sakura: `ErrorBeep()`).
     pub beep: bool,
+    /// A command was refused because view mode is on (it beeped too). `matsu-ui` tells why when
+    /// the document is read-only for another reason than the user's choice.
+    pub refused_in_view_mode: bool,
     /// `F_SET_QUOTESTRING` set this quote string. `matsu-ui` keeps it for the commands after (it is
     /// shared by all windows in Sakura) and hands it to the next context ([`CommandContext::
     /// with_quote_string`]).
@@ -256,7 +260,8 @@ impl<'a> CommandContext<'a> {
     /// Ends the context and returns what changed.
     pub fn finish(mut self) -> Changes {
         self.changes.caret_moved = self.cursor.caret() != self.start.caret()
-            || self.cursor.box_caret_col() != self.start.box_caret_col();
+            || self.cursor.box_caret_col() != self.start.box_caret_col()
+            || self.cursor.free_col() != self.start.free_col();
         self.changes.selection_changed = self.cursor.anchor() != self.start.anchor()
             || self.cursor.mode() != self.start.mode()
             || self.cursor.box_anchor_col() != self.start.box_anchor_col();
@@ -352,6 +357,25 @@ impl<'a> CommandContext<'a> {
         self.model.bookmarks().contains(line)
     }
 
+    /// The DIFF mark of line `line` as the macro function `GetLineAttribute` type 3 gives it
+    /// (`m_cDiffmarked`, `EDiffMark` in `sakura_core/docplus/CDiffManager.h`): 0 none, 1 added,
+    /// 2 changed, 3 deleted, 4 deleted after the end of the file.
+    pub fn diff_mark_number(&self, line: usize) -> i64 {
+        use matsu_core::diff::DiffMark;
+        match self.model.diff_marks().get(line) {
+            None => 0,
+            Some(DiffMark::Append) => 1,
+            Some(DiffMark::Change) => 2,
+            Some(DiffMark::Delete) => 3,
+            Some(DiffMark::DeleteEx) => 4,
+        }
+    }
+
+    /// Whether line `line` has the outline mark (`GetFuncListMark`; set by the last outline analysis).
+    pub fn has_funclist_mark(&self, line: usize) -> bool {
+        self.model.funclist_marks().contains(line)
+    }
+
     /// Whether line `line` differs from the saved version (Sakura: `CModifyVisitor::IsLineModified`).
     pub fn is_line_modified(&self, line: usize) -> bool {
         self.model.is_line_modified(line)
@@ -436,6 +460,7 @@ impl<'a> CommandContext<'a> {
     pub(crate) fn refuse_in_view_mode(&mut self) -> Result<()> {
         if self.view_mode {
             self.beep();
+            self.changes.refused_in_view_mode = true;
             return Err(CommandError::Refused("editing in view mode"));
         }
         Ok(())
@@ -456,18 +481,17 @@ impl<'a> CommandContext<'a> {
     fn joined_by(&self, a: Pos, b: Pos, text: &str) -> Result<Joined> {
         // The CR that ends the line before `a` and the LF that ends the line of `b`, if `a` is at
         // the start of a line and `b` at the end of the text of one.
-        let cr_before = if a.col == 0 && a.line > 0 {
-            self.doc()
-                .line(a.line - 1)?
-                .filter(|l| l.eol == Some(Eol::Cr))
-                .map(|l| Pos::new(a.line - 1, l.text.len()))
-        } else {
-            None
-        };
-        let lf_after = self
-            .doc()
-            .line(b.line)?
-            .is_some_and(|l| l.eol == Some(Eol::Lf) && l.text.len() == b.col);
+        // (Only the line endings and the lengths are asked for: a very long line is not decoded
+        // for every edit.)
+        let cr_before =
+            if a.col == 0 && a.line > 0 && self.doc().line_eol(a.line - 1)? == Some(Eol::Cr) {
+                let len = self.doc().line_len(a.line - 1)?.unwrap_or(0);
+                Some(Pos::new(a.line - 1, len))
+            } else {
+                None
+            };
+        let lf_after = self.doc().line_eol(b.line)? == Some(Eol::Lf)
+            && self.doc().line_len(b.line)? == Some(b.col);
         // They are joined by the new text if it starts with an LF or ends with a CR, and by each
         // other if nothing is put between them.
         Ok(Joined {
@@ -493,6 +517,10 @@ impl<'a> CommandContext<'a> {
             }
         }
         self.refuse_edit_in_box()?;
+        if self.selection().is_none() {
+            // Text typed to the right of the end of a line follows spaces (free cursor mode).
+            self.pad_free_caret()?;
+        }
         let (from, to) = self.selection().unwrap_or((self.caret(), self.caret()));
         let edit = self.replace(from, to, text)?;
         self.cursor.move_to(edit.end, false);
@@ -539,13 +567,28 @@ impl<'a> CommandContext<'a> {
         if chars == 0 {
             return Ok(at);
         }
-        let Some(line) = self.doc().line(at.line)? else {
-            return Ok(at);
+        // The text from the caret on, as far as `chars` chars need it (a very long line is not
+        // decoded as a whole).
+        let (rest, eol) = if self.doc().is_long_line(at.line) {
+            let Some(slice) = self.doc().line_slice(
+                at.line,
+                at.col,
+                at.col.saturating_add(chars.saturating_mul(4)),
+            )?
+            else {
+                return Ok(at);
+            };
+            (slice.text, self.doc().line_eol(at.line)?)
+        } else {
+            let Some(line) = self.doc().line(at.line)? else {
+                return Ok(at);
+            };
+            (line.text.get(at.col..).unwrap_or("").to_owned(), line.eol)
         };
-        let rest = line.text.get(at.col..).unwrap_or("");
+        let rest = rest.as_str();
         if rest.is_empty() {
             // `bEol`: the caret is at the end of the text. `Command_DELETE` joins the next line.
-            let deletes_eol = line.eol.is_some() && !crate::edit_options::get().not_overwrite_crlf;
+            let deletes_eol = eol.is_some() && !crate::edit_options::get().not_overwrite_crlf;
             return Ok(if deletes_eol {
                 Pos::new(at.line + 1, 0)
             } else {
@@ -565,14 +608,23 @@ impl<'a> CommandContext<'a> {
         col: usize,
         limit: usize,
     ) -> Result<(OverwriteRest, bool)> {
-        let Some(l) = self.doc().line(line)? else {
-            return Ok((VecDeque::new(), false));
+        let (text, eol) = if self.doc().is_long_line(line) {
+            // only the part that the chars come from
+            let Some(slice) =
+                self.doc()
+                    .line_slice(line, col, col.saturating_add(limit.saturating_mul(4)))?
+            else {
+                return Ok((VecDeque::new(), false));
+            };
+            (slice.text, self.doc().line_eol(line)?.is_some())
+        } else {
+            let Some(l) = self.doc().line(line)? else {
+                return Ok((VecDeque::new(), false));
+            };
+            (l.text.get(col..).unwrap_or("").to_owned(), l.eol.is_some())
         };
         let mut at = col;
-        let chars = l
-            .text
-            .get(col..)
-            .unwrap_or("")
+        let chars = text
             .chars()
             .take(limit)
             .map(|c| {
@@ -580,7 +632,7 @@ impl<'a> CommandContext<'a> {
                 (c, Some(Pos::new(line, at)))
             })
             .collect();
-        Ok((chars, l.eol.is_some()))
+        Ok((chars, eol))
     }
 
     /// What typing `text` at `at` in overwrite mode replaces, char by char as Sakura does
@@ -665,6 +717,9 @@ impl<'a> CommandContext<'a> {
             return self.insert_text(text);
         }
         self.refuse_edit_in_box()?;
+        if self.selection().is_none() {
+            self.pad_free_caret()?;
+        }
         if self.overwrite && self.selection().is_none() {
             let at = self.caret();
             let plan = self.overwrite_replacement(at, text)?;

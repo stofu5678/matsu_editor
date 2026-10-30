@@ -144,6 +144,29 @@ pub(crate) fn raw_decode(lead: u8, trail: u8) -> Option<char> {
     tables().decode[table_index(lead, trail)]
 }
 
+/// Converts text with `MultiByteToWideChar(932, ...)`, without the round-trip check of the
+/// document codec: the duplicate codes (NEC row 13, NEC-selected IBM extensions) convert too.
+/// None if a byte cannot be converted. For text that Sakura reads with `CP_SJIS` outside of
+/// documents (a key macro file, `CTextInputStream::ReadLineW`).
+pub fn decode_cp932_strict(bytes: &[u8]) -> Option<String> {
+    let mut out = String::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b < 0x80 {
+            out.push(char::from(b));
+            i += 1;
+        } else if is_hankata(b) {
+            out.push(hankata_char(b));
+            i += 1;
+        } else {
+            out.push(raw_decode(b, *bytes.get(i + 1)?)?);
+            i += 2;
+        }
+    }
+    Some(out)
+}
+
 /// `MyMultiByteToWideChar_JP` with the round-trip check: None if the code does not write back to
 /// itself.
 pub(crate) fn roundtrip_decode(lead: u8, trail: u8) -> Option<char> {

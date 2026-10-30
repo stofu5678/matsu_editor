@@ -1,0 +1,9 @@
+﻿[Plugin]
+Name=ハロー (JavaScript)
+Description=ファイルを開いたときにあいさつを書きます。コマンドが 1 つあります。
+
+[Command]
+C[1].Label=あいさつを挿入
+
+[Option]
+O[1].Label=あいさつ

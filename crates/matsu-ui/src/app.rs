@@ -4,7 +4,7 @@
 
 use gpui::{
     App, AppContext as _, Context, Decorations, Entity, Focusable, InteractiveElement as _,
-    IntoElement, Menu, MenuItem, ParentElement, Render, Styled, Window, actions, div,
+    IntoElement, Menu, MenuItem, MouseButton, ParentElement, Render, Styled, Window, actions, div,
     prelude::FluentBuilder, rgb,
 };
 use gpui_component::{GlobalState, TitleBar};
@@ -198,9 +198,13 @@ pub(crate) fn run(
         cx.on_action(|_: &Exit, cx| cx.quit());
         // The files that are open go into the history, with the caret they have now.
         cx.on_app_quit(|cx| {
+            // The processes of the plugins end first: none is left running behind the editor.
+            crate::macros::plugin_call::shutdown_all(cx);
             crate::history::view::record_all(cx);
             crate::saved_state::window::flush(cx);
-            std::future::ready(())
+            // The copies of the unsaved documents have their latest content when the process ends, however
+            // it was asked to end (ADR-0022).
+            crate::unsaved::settle_at_quit(cx)
         })
         .detach();
         cx.on_window_closed(|cx, _| {
@@ -667,7 +671,15 @@ impl Render for Workspace {
             (true, Some(status)) => Some(self.render_status_bar(status, &ui_font, window, cx)),
             _ => None,
         };
+        // `m_eTabPosition`: under the toolbar, or above the function keys and the status bar.
+        let tab_at_bottom = crate::tabs::settings::options(cx).position
+            == crate::tabs::settings::TabPosition::Bottom;
         let tab_bar = self.render_tab_bar(window, cx);
+        let (tab_bar_top, tab_bar_bottom) = if tab_at_bottom {
+            (None, tab_bar)
+        } else {
+            (tab_bar, None)
+        };
         // The minimap draws the pane that is active.
         let minimap_shown = crate::minimap::current(cx).shown && preview.is_none();
         self.minimap.update(cx, |minimap, cx| {
@@ -713,6 +725,17 @@ impl Render for Workspace {
             .bg(rgb(0xffffff))
             .text_color(rgb(0x1e1e1e))
             .font_family(ui_font)
+            // A dragged tab that is dropped outside the window leaves it (`OnTabLButtonUp`); a
+            // drop inside is the business of the elements under the pointer.
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|this, event: &gpui::MouseUpEvent, window, cx| {
+                    this.finish_tab_drag(event.position, window, cx);
+                }),
+            )
+            .on_mouse_up(MouseButton::Left, |_, _, cx| {
+                crate::tabs::bar::end_tab_drag(cx);
+            })
             // The whole frame takes dropped files (`DragAcceptFiles( GetHwnd(), TRUE )`).
             .on_drag_move(cx.listener(Self::note_file_drag))
             .child(crate::file_ops::drop_zone::drop_zone(cx))
@@ -731,7 +754,7 @@ impl Render for Workspace {
             // Sakura's order under the menu: the toolbar, the function keys (at the top), the tabs.
             .children(toolbar)
             .children(funckeys_top)
-            .children(tab_bar)
+            .children(tab_bar_top)
             .child(
                 div()
                     .flex_1()
@@ -742,6 +765,7 @@ impl Render for Workspace {
                     .children(minimap)
                     .children(outline),
             )
+            .children(tab_bar_bottom)
             .children(macro_panel)
             .children(funckeys_bottom)
             .children(status_bar)

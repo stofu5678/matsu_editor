@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use gpui::{App, Context, Window};
 use matsu_config::history::FileEntry;
 use matsu_config::history::marks::{decode_marks, encode_marks};
-use matsu_core::buffer::{Pos, col_from_utf16, col_to_utf16};
+use matsu_core::buffer::Pos;
 use matsu_core::encoding::Encoding;
 
 use super::HistoryOptions;
@@ -58,15 +58,16 @@ impl EditorView {
         if self.is_grep_window() {
             return None;
         }
+        // The place and the bookmarks are not restored yet (the scan of the file is running, or
+        // failed): what the history has stays, the start of the file would replace it.
+        if let Some(waiting) = &self.pending_scan_restore {
+            return waiting.remembered();
+        }
         let shared = self.document().read(cx);
         let path = path_text(shared.path()?);
         let doc = shared.doc();
         let caret = self.cursor().caret();
-        let x = doc
-            .line(caret.line)
-            .ok()
-            .flatten()
-            .map_or(caret.col, |line| col_to_utf16(&line.text, caret.col));
+        let x = doc.utf16_col(caret.line, caret.col);
         let mut entry = FileEntry::new(path);
         entry.encoding_code = shared.file().encoding.sakura_code();
         entry.caret_x = x as i32;
@@ -104,8 +105,7 @@ impl EditorView {
                 let end = doc.end_pos().unwrap_or_default();
                 self.go_to(end, cx);
             } else {
-                let text = doc.line(line).ok().flatten().map(|l| l.text);
-                let col = text.map_or(0, |t| col_from_utf16(&t, entry.caret_x as usize));
+                let col = doc.col_from_utf16_col(line, entry.caret_x as usize);
                 // The view first, then the caret, which scrolls only if it is not in sight.
                 self.scroll_top_to(entry.view_top.max(0) as isize, cx);
                 self.scroll_x = entry.view_left.max(0) as f32 * self.metrics.cell_width;

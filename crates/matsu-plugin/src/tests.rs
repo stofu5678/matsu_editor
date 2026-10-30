@@ -39,9 +39,20 @@ fn emacs_has_json(interpreter: &std::ffi::OsStr) -> bool {
 
 /// Whether the interpreter starts. Prints why not if it does not.
 fn available(language: Language) -> bool {
+    // osascript is part of macOS only: no other OS has it, and none is expected to.
+    if language == Language::AppleScript && !cfg!(target_os = "macos") {
+        eprintln!("SKIP: AppleScript runs only on macOS");
+        return false;
+    }
     let interpreter = language.default_interpreter();
+    // osascript has no --version: it is asked to run a one-line script.
+    let probe: &[&str] = if language == Language::AppleScript {
+        &["-e", "return 1"]
+    } else {
+        &["--version"]
+    };
     let output = Command::new(&interpreter)
-        .arg("--version")
+        .args(probe)
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()
@@ -86,6 +97,7 @@ fn config_for(
         Language::PowerShell => "macro.ps1",
         Language::Perl => "macro.pl",
         Language::EmacsLisp => "macro.el",
+        Language::AppleScript => "macro.applescript",
         Language::Bundled(_) => unreachable!("the bundled engines are tested in matsu-script"),
     };
     let script = dir.path().join(name);
@@ -157,6 +169,7 @@ const TS: Language = Language::TypeScript;
 const PS: Language = Language::PowerShell;
 const PL: Language = Language::Perl;
 const EL: Language = Language::EmacsLisp;
+const AS: Language = Language::AppleScript;
 const PY: Language = Language::Python;
 const RB: Language = Language::Ruby;
 const PHP: Language = Language::Php;
@@ -290,7 +303,11 @@ fn a_syntax_error_shows_the_line_number() {
             Language::Python => ("macro.py", "line 3"),
             Language::Ruby => ("macro.rb", ":3"),
             Language::Php => ("macro.php", "line 3"),
-            Language::Bundled(_) | Language::PowerShell | Language::Perl | Language::EmacsLisp => {
+            Language::Bundled(_)
+            | Language::PowerShell
+            | Language::Perl
+            | Language::EmacsLisp
+            | Language::AppleScript => {
                 unreachable!()
             }
         };
@@ -320,7 +337,11 @@ fn a_runtime_error_shows_the_line_number_of_the_users_file() {
             Language::Ruby => "macro.rb:3",
             // "macro.php:3" or "macro.php on line 3" (Xdebug words it the second way).
             Language::Php => "macro.php",
-            Language::Bundled(_) | Language::PowerShell | Language::Perl | Language::EmacsLisp => {
+            Language::Bundled(_)
+            | Language::PowerShell
+            | Language::Perl
+            | Language::EmacsLisp
+            | Language::AppleScript => {
                 unreachable!()
             }
         };
@@ -392,7 +413,11 @@ echo "not reached\n";
             Language::Ruby | Language::Php => {
                 assert_eq!(lines[0], "caught EditorError -32602 true");
             }
-            Language::Bundled(_) | Language::PowerShell | Language::Perl | Language::EmacsLisp => {
+            Language::Bundled(_)
+            | Language::PowerShell
+            | Language::Perl
+            | Language::EmacsLisp
+            | Language::AppleScript => {
                 unreachable!()
             }
         }
@@ -474,6 +499,7 @@ fn a_macro_that_exits_at_once_ends_cleanly() {
         (PS, "# nothing"),
         (PL, "# nothing"),
         (EL, ";; nothing"),
+        (AS, "-- nothing"),
         (JS, ""),
         (PY, ""),
         (RB, ""),
@@ -481,6 +507,7 @@ fn a_macro_that_exits_at_once_ends_cleanly() {
         (PS, ""),
         (PL, ""),
         (EL, ""),
+        (AS, ""),
     ] {
         let mut requests = 0;
         let Some((report, _)) = run_with(language, code, "", PATIENT, |doc, m| {
@@ -589,7 +616,11 @@ fn the_macro_sees_the_initialize_message() {
             Language::JavaScript | Language::TypeScript => "1 1 MATSU Editor /work/テスト.txt true",
             Language::Python => "1 1 MATSU Editor /work/テスト.txt True",
             Language::Ruby | Language::Php => "1 1 MATSU Editor /work/テスト.txt true",
-            Language::Bundled(_) | Language::PowerShell | Language::Perl | Language::EmacsLisp => {
+            Language::Bundled(_)
+            | Language::PowerShell
+            | Language::Perl
+            | Language::EmacsLisp
+            | Language::AppleScript => {
                 unreachable!()
             }
         };
@@ -704,7 +735,16 @@ fn a_missing_interpreter_is_a_clear_error() {
         .err()
         .unwrap();
     for extension in [
-        ".mjs", ".js", ".ts", ".py", ".rb", ".php", ".ps1", ".pl", ".el",
+        ".mjs",
+        ".js",
+        ".ts",
+        ".py",
+        ".rb",
+        ".php",
+        ".ps1",
+        ".pl",
+        ".el",
+        ".applescript",
     ] {
         assert!(err.to_string().contains(extension), "{err}");
     }
@@ -720,6 +760,7 @@ fn the_sample_macros_run() {
         (PS, "sample.ps1"),
         (PL, "sample.pl"),
         (EL, "sample.el"),
+        (AS, "sample.applescript"),
         (PY, "sample.py"),
         (RB, "sample.rb"),
         (PHP, "sample.php"),
@@ -813,6 +854,7 @@ fn the_boot_folder_is_gone_when_finished_is_reported() {
         (PS, ""),
         (PL, ""),
         (EL, ""),
+        (AS, ""),
         (JS, "console.log(1)"),
         (PY, "print(1)"),
         (RB, "puts 1"),
@@ -820,6 +862,7 @@ fn the_boot_folder_is_gone_when_finished_is_reported() {
         (PS, "Write-Output 1"),
         (PL, "print 1;"),
         (EL, "(princ 1)"),
+        (AS, "editorPrint(\"1\")"),
     ] {
         if !available(language) {
             continue;
@@ -1675,6 +1718,173 @@ fn an_infinite_emacs_lisp_macro_is_stopped_by_the_timeout() {
     let Some((report, _)) = run_with(
         EL,
         "(while t)\n",
+        "",
+        Duration::from_millis(1500),
+        |doc, message| api::handle_message(doc, message),
+    ) else {
+        return;
+    };
+    assert_eq!(report.finished.reason, EndReason::TimedOut);
+}
+
+// ---- AppleScript (ADR-0025): macOS only; osascript runs one program that holds the macro ----
+
+#[test]
+fn applescript_files_are_applescript() {
+    assert_eq!(
+        Language::of_file(std::path::Path::new("a.applescript")),
+        Some(Language::AppleScript)
+    );
+    assert_eq!(AS.default_interpreter(), "osascript");
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn applescript_macros_do_not_start_on_other_systems_and_say_why() {
+    let dir = tempfile::tempdir().unwrap();
+    let script = dir.path().join("a.applescript");
+    std::fs::write(&script, "return 1\n").unwrap();
+    let config = MacroConfig::for_script(&script, None).unwrap();
+    let err = session::run_blocking(config, |_| None).err().unwrap();
+    assert!(
+        matches!(err, crate::session::StartError::NotSupportedHere { .. }),
+        "{err}"
+    );
+    assert!(err.to_string().contains("macOS"), "{err}");
+}
+
+#[test]
+fn an_applescript_macro_round_trips_japanese_and_emoji() {
+    // The script file is UTF-8, the strings go through JSON both ways, and the output is UTF-8.
+    let code = "set t to \"あいう😀 \\\"q\\\" end\"\n\
+        editorCall(\"InsText\", {t})\n\
+        editorPrint(editorCall(\"GetLineStr\", {1}))\n\
+        editorPrint((length of t) as text)\n";
+    let Some((report, doc)) = run(AS, code, "") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(doc.text(), "あいう😀 \"q\" end");
+    // The line that osascript prints for the result of the program is not output of the macro.
+    assert_eq!(stdout(&report), ["あいう😀 \"q\" end", "12"]);
+}
+
+#[test]
+fn applescript_sends_whole_reals_as_integers() {
+    let code = "editorCall(\"InsText\", {\"abc\"})\n\
+        editorCall(\"MoveCursor\", {4 / 4, 4 / 2, 0})\n\
+        editorPrint((editorCall(\"GetLineCount\", {0})) as text)\n";
+    let Some((report, _)) = run(AS, code, "") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(stdout(&report), ["1"]);
+}
+
+#[test]
+fn an_error_answer_is_an_applescript_error_with_the_code() {
+    let code = "try\n\
+        \teditorCall(\"GetLineCount\", {5})\n\
+        on error errText number errNum\n\
+        \teditorPrint(\"caught \" & errNum & \" \" & (errText starts with \"EditorError -32602: \"))\n\
+        end try\n\
+        try\n\
+        \teditorCall(\"1PageUp\", {})\n\
+        on error errText number errNum\n\
+        \teditorPrint(\"code \" & errNum)\n\
+        end try\n";
+    let Some((report, _)) = run(AS, code, "a") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(stdout(&report), ["caught -32602 true", "code -32601"]);
+}
+
+#[test]
+fn an_applescript_error_shows_the_line_of_the_users_script() {
+    let code = "set a to 1\nset b to 2\nerror \"boom\" number 7\n";
+    let Some((report, _)) = run(AS, code, "") else {
+        return;
+    };
+    assert_ne!(report.finished.exit_code, Some(0));
+    let stderr = report.lines(Stream::Stderr).join("\n");
+    assert!(
+        stderr.contains("macro.applescript:3: execution error: boom"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn an_applescript_syntax_error_shows_its_line() {
+    let code = "set a to 1\nset b to to 2\n";
+    let Some((report, _)) = run(AS, code, "") else {
+        return;
+    };
+    assert_ne!(report.finished.exit_code, Some(0));
+    let stderr = report.lines(Stream::Stderr).join("\n");
+    assert!(stderr.contains("macro.applescript:2:"), "{stderr}");
+}
+
+#[test]
+fn an_applescript_macro_sees_the_initialize_message() {
+    let code = "editorPrint(editorInfo(\"editor.name\") & \" \" & (editorInfo(\"protocolVersion\") as text) & \" \" & editorInfo(\"document.path\"))\n";
+    let Some((report, _)) = run(AS, code, "") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(stdout(&report), ["MATSU Editor 1 /work/テスト.txt"]);
+}
+
+#[test]
+fn an_applescript_macro_may_end_with_a_value_and_a_handler_of_its_own() {
+    let code = "on twice(n)\n\treturn n * 2\nend twice\neditorPrint((twice(21)) as text)\n42\n";
+    let Some((report, _)) = run(AS, code, "") else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(stdout(&report), ["42"]);
+}
+
+#[test]
+fn a_long_answer_is_read_in_pieces_in_applescript() {
+    let text = "あ".repeat(100_000);
+    let code = "editorPrint((length of (editorCall(\"GetLineStr\", {1}))) as text)\n";
+    let Some((report, _)) = run(AS, code, &text) else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(stdout(&report), ["100000"]);
+}
+
+#[test]
+fn a_character_split_between_two_reads_is_decoded_whole_in_applescript() {
+    // The editor's own answers are ASCII, but the line may hold UTF-8 as it is. 100,000 characters
+    // of three bytes are 300 KB: the reads of the pipe (64 KB at most) end in the middle of a
+    // character, and every piece must wait for the rest of its line before it is decoded.
+    let id = std::cell::Cell::new(0_u64);
+    let code = "set t to editorCall(\"GetLineStr\", {1})\n\
+        editorPrint((length of t) as text)\n\
+        editorPrint(text 1 thru 3 of t)\n";
+    let Some((report, _)) = run_with(AS, code, "", PATIENT, |_, message| {
+        let request: serde_json::Value = serde_json::from_str(message).ok()?;
+        id.set(request["id"].as_u64()?);
+        let text = "あい😀".repeat(25_000);
+        Some(format!(
+            "{{\"jsonrpc\":\"2.0\",\"id\":{},\"result\":\"{text}\"}}",
+            id.get()
+        ))
+    }) else {
+        return;
+    };
+    assert_clean_exit(&report);
+    assert_eq!(stdout(&report), ["75000", "あい😀"]);
+}
+
+#[test]
+fn an_infinite_applescript_macro_is_stopped_by_the_timeout() {
+    let Some((report, _)) = run_with(
+        AS,
+        "repeat\nend repeat\n",
         "",
         Duration::from_millis(1500),
         |doc, message| api::handle_message(doc, message),

@@ -71,6 +71,264 @@ fn a_path_is_one_word_for_cmd() {
     assert_eq!(q("C:\\a\tb.sql"), Err(BuildError::Unquotable('\t')));
 }
 
+// ---- what goes into the command line (the security review of ADR-0023, step 6) ----
+
+fn built(shell: Shell, template: &str, file: &str) -> Result<String, BuildError> {
+    build(shell, &connection(template), Some(file))
+}
+
+#[test]
+fn a_template_that_quotes_the_file_itself_gets_plain_names_only() {
+    // The name is part of an argument that the client or another shell reads itself (`psql -c '\i $F'`
+    // runs a backquote), and no escaping is known to be right for that: only a plain name goes in, as it is.
+    for template in [
+        "psql -f '$F'",
+        "psql -f \"$F\"",
+        "psql -c '\\i $F'",
+        "psql -c \"\\i $F\"",
+        "sqlite3 db \".read $F\"",
+    ] {
+        assert_eq!(
+            built(Shell::Posix, template, "/w/a.sql").unwrap(),
+            template.replace("$F", "/w/a.sql")
+        );
+        for name in [
+            "/w/a b.sql",
+            "/w/a;touch pwned;b.sql",
+            "/w/it's.sql",
+            "/w/$(id).sql",
+            "/w/`id`.sql",
+            "/w/a\"b.sql",
+            "/w/a\\b.sql",
+        ] {
+            assert!(
+                built(Shell::Posix, template, name).is_err(),
+                "{template} {name}"
+            );
+        }
+    }
+    // a quote of the other kind inside, or an escaped quote, does not change where the name is
+    assert_eq!(
+        built(Shell::Posix, "psql \"a'b\" $F", "/w/a b.sql").unwrap(),
+        "psql \"a'b\" '/w/a b.sql'"
+    );
+    assert_eq!(
+        built(Shell::Posix, "psql \\\" $F", "/w/a b.sql").unwrap(),
+        "psql \\\" '/w/a b.sql'"
+    );
+    // a name that touches a quote of the template is spliced into the argument of the client
+    assert!(built(Shell::Posix, "psql -c \"\\i '\"$F\"'\"", "/tmp/x'`id`'.sql").is_err());
+    assert!(built(Shell::Posix, "psql -c \"\\i '\"$F\"'\"", "/tmp/x.sql").is_ok());
+    assert!(
+        built(
+            Shell::Cmd,
+            "psql -c \"\\i '\"$F\"'\"",
+            "C:\\w\\x'`whoami`'.sql"
+        )
+        .is_err()
+    );
+    // outside quotes it is one word, whatever the name is
+    assert_eq!(
+        built(Shell::Posix, "psql -f $F", "/w/it's a;b.sql").unwrap(),
+        "psql -f '/w/it'\\''s a;b.sql'"
+    );
+    // an escape right before the name would take its first character
+    assert_eq!(
+        built(Shell::Posix, "psql \\$F", "/w/a.sql"),
+        Err(BuildError::EscapeBeforeFile)
+    );
+}
+
+#[test]
+fn the_same_for_cmd() {
+    assert_eq!(
+        built(Shell::Cmd, "sqlcmd -i \"$F\"", "C:\\w\\a.sql").unwrap(),
+        "sqlcmd -i \"C:\\w\\a.sql\""
+    );
+    // a space or an ampersand in a quoted `$F` is not let in; unquoted, the name is one word
+    assert!(built(Shell::Cmd, "sqlcmd -i \"$F\"", "C:\\w\\a b&c.sql").is_err());
+    assert_eq!(
+        built(Shell::Cmd, "sqlcmd -i $F", "C:\\w\\a b&c.sql").unwrap(),
+        "sqlcmd -i \"C:\\w\\a b&c.sql\""
+    );
+    // a caret-escaped quote opens nothing
+    assert_eq!(
+        built(Shell::Cmd, "sqlcmd ^\" $F", "C:\\w\\a b.sql").unwrap(),
+        "sqlcmd ^\" \"C:\\w\\a b.sql\""
+    );
+    assert_eq!(
+        built(Shell::Cmd, "sqlcmd ^$F", "C:\\w\\a.sql"),
+        Err(BuildError::EscapeBeforeFile)
+    );
+    // `%` and `!` expand between quotes too
+    assert_eq!(
+        built(Shell::Cmd, "sqlcmd -i $F", "C:\\100%.sql"),
+        Err(BuildError::Unquotable('%'))
+    );
+    assert_eq!(
+        built(Shell::Cmd, "sqlcmd -i $F", "C:\\report!TEMP!.sql"),
+        Err(BuildError::Unquotable('!'))
+    );
+}
+
+#[test]
+fn only_a_known_client_gets_a_name_that_is_not_plain() {
+    // another program (PowerShell, a script of the user's, a shell, `eval`, ...) may read the name as
+    // code, so it gets letters, digits and `. _ - / + , : = @ ~` only
+    for program in [
+        "powershell -File $F",
+        "pwsh.exe -File $F",
+        "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -c $F",
+        "./run-sql.sh $F",
+        "eval \"psql -f $F\"",
+        "%COMSPEC% /c \"sqlcmd -i $F\"",
+        "p\\wsh -NoProfile -Command \"Write-Output '$F'\"",
+        "env mysql --defaults-file=x < $F",
+    ] {
+        assert!(
+            built(Shell::Cmd, program, "C:\\w\\a.sql").is_ok(),
+            "{program}"
+        );
+        for name in [
+            "C:\\w\\a b.sql",
+            "C:\\w\\a;b.sql",
+            "C:\\w\\$x.sql",
+            "C:\\w\\it's.sql",
+            "C:\\w\\(a).sql",
+        ] {
+            assert!(
+                built(Shell::Cmd, program, name).is_err(),
+                "{program} {name}"
+            );
+        }
+    }
+    // a client, with its arguments, takes any name as one word
+    for client in [
+        "sqlcmd -i $F",
+        "psql -f $F",
+        "\"C:\\Program Files\\Microsoft SQL Server\\sqlcmd.exe\" -i $F",
+    ] {
+        assert!(
+            built(Shell::Cmd, client, "C:\\w\\a;b(1) c.sql").is_ok(),
+            "{client}"
+        );
+    }
+    // but not a template of more than one command, or with a substitution
+    for compound in [
+        "psql -f $F ; sh",
+        "psql -f $F && echo x",
+        "psql -f $F | sh",
+        "psql -f $F < $F",
+        "psql -f \"$(realpath $F)\"",
+        "psql -f `realpath $F`",
+    ] {
+        assert!(
+            built(Shell::Posix, compound, "/w/a b.sql").is_err(),
+            "{compound}"
+        );
+        assert!(
+            built(Shell::Posix, compound, "/w/a.sql").is_ok(),
+            "{compound}"
+        );
+    }
+}
+
+#[test]
+fn the_payloads_that_were_tried_are_refused() {
+    for (template, name) in [
+        ("sh -c $F", "/tmp/a;id;#.sql"),
+        (
+            "env pwsh -Command Write-Output $F",
+            "/tmp/a;Write-Output INJECTED;#.sql",
+        ),
+        ("echo x ; bash -c $F", "/tmp/a;id;.sql"),
+        ("eval \"psql -f $F\"", "/tmp/x; printf INJECTED; #.sql"),
+        (
+            "p\\wsh -NoProfile -Command \"Write-Output '$F'\"",
+            "/tmp/x'; Write-Output INJECTED; #.sql",
+        ),
+        ("psql -f \"$(realpath $F)\"", "/tmp/a;id;.sql"),
+        ("psql -c '\\i $F'", "/tmp/`id`.sql"),
+    ] {
+        assert!(
+            built(Shell::Posix, template, name).is_err(),
+            "{template} {name}"
+        );
+    }
+    assert!(
+        built(
+            Shell::Cmd,
+            "echo Running & cmd /c \"sqlcmd -i $F\"",
+            "C:\\w\\a & echo INJECTED & rem .sql"
+        )
+        .is_err()
+    );
+}
+
+/// The real `sh` reads the lines that are made (macOS and Linux): whatever the name is, it comes out
+/// as one argument and nothing else runs.
+#[cfg(unix)]
+#[test]
+fn the_real_sh_gets_the_name_as_one_argument_and_runs_nothing_else() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    // a client that writes each argument in angle brackets
+    let client = dir.path().join("psql");
+    std::fs::write(
+        &client,
+        "#!/bin/sh\nfor a in \"$@\"; do printf '<%s>' \"$a\"; done\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&client, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let client = client.to_str().unwrap();
+    let run = |line: &str| {
+        let output = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(line)
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    };
+    let names = [
+        "plain.sql",
+        "with space.sql",
+        "semi;touch pwned.sql",
+        "amp&touch pwned.sql",
+        "pipe|touch pwned.sql",
+        "quote'touch pwned'.sql",
+        "dq\"touch pwned\".sql",
+        "dollar$(touch pwned).sql",
+        "back`touch pwned`.sql",
+        "star*.sql",
+        "-dash.sql",
+        "hash#.sql",
+        "tilde~.sql",
+        "日本語 ファイル.sql",
+        "back\\slash.sql",
+        "percent%s.sql",
+    ];
+    for name in names {
+        let file = dir.path().join(name);
+        let file = file.to_str().unwrap();
+        // unquoted in the template: one argument, any name
+        let line = built(Shell::Posix, &format!("{client} -f $F"), file).unwrap();
+        assert_eq!(run(&line), format!("<-f><{file}>"), "{name}: {line}");
+        // quoted in the template: a plain name as it is, any other refused, and nothing ran either way
+        for template in [format!("{client} -f '$F'"), format!("{client} -f \"$F\"")] {
+            match built(Shell::Posix, &template, file) {
+                Ok(line) => assert_eq!(run(&line), format!("<-f><{file}>"), "{name}: {line}"),
+                Err(_) => assert!(
+                    name.chars()
+                        .any(|c| !c.is_alphanumeric() && !"._-".contains(c))
+                ),
+            }
+        }
+        assert!(!dir.path().join("pwned").exists(), "{name}");
+    }
+}
+
 #[test]
 fn the_template_gets_the_quoted_file() {
     let c = connection("psql -d db -f $F -v x=$$1");
@@ -278,14 +536,65 @@ fn the_file_goes_to_the_client_and_the_output_to_the_panel(cx: &mut TestAppConte
 }
 
 #[gpui::test]
-fn a_hostile_file_name_stays_one_word(cx: &mut TestAppContext) {
-    // quotes, `$F` (which would expand twice), `&` and `$(...)`: legal in a name on every OS
+fn a_run_leaves_no_trace_in_the_history_of_commands(cx: &mut TestAppContext) {
+    // the commands the user ran by hand are kept in `matsu.ini` (`[Cmd]`); the command of a connection is
+    // in `databases.ini` and nowhere else, so what it holds does not get copied into another file
+    let (dir, _file, w) = setup(cx, Some(ECHO), "a.sql", "select 1;\n");
+    let ini = dir.path().join("matsu.ini");
+    cx.update(|app| {
+        crate::exec::install(app, crate::exec::ExecPrefs::load(None, Some(ini.clone())))
+    });
+    w.run(cx);
+    w.wait_for_end(cx);
+    assert!(
+        cx.update(|app| crate::exec::history(app))
+            .commands
+            .items()
+            .is_empty()
+    );
+    assert!(!ini.exists(), "nothing was written to the settings file");
+}
+
+#[gpui::test]
+fn a_hostile_file_name_is_refused_for_a_program_that_is_not_a_client(cx: &mut TestAppContext) {
+    // `echo` is not a database client, so it might read the name as code: only plain names go to it
     let name = "it's $F & echo INJECTED $(echo INJECTED).sql";
-    let (dir, file, w) = setup(cx, Some(ECHO), name, "select 1;\n");
+    let (_dir, _file, w) = setup(cx, Some(ECHO), name, "select 1;\n");
+    w.run(cx);
+    let message = w.prompt(cx).expect("the refusal");
+    assert!(message.contains("安全に渡せない文字"), "{message}");
+    w.answer(cx, "OK");
+    assert_eq!(w.output(cx), "");
+}
+
+/// A client that writes each argument in angle brackets, named like a real one (`psql`).
+#[cfg(unix)]
+#[gpui::test]
+fn a_hostile_file_name_stays_one_word_for_a_client(cx: &mut TestAppContext) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let bin = tempfile::tempdir().unwrap();
+    let client = bin.path().join("psql");
+    std::fs::write(
+        &client,
+        "#!/bin/sh\nfor a in \"$@\"; do printf '<%s>\\n' \"$a\"; done\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&client, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let ini = format!(
+        "[Database]\nDefault=t\n\n[Connection.t]\nKind=postgresql\nCommand={} -f $F\n",
+        client.display()
+    );
+    // quotes, `$F` (which would expand twice), `&` and `$(...)`
+    let name = "it's $F & echo INJECTED $(echo INJECTED).sql";
+    let (dir, file, w) = setup(cx, Some(&ini), name, "select 1;\n");
     w.run(cx);
     w.wait_for_end(cx);
     let output = w.output(cx);
-    assert!(output.contains(name), "{output}");
+    assert!(
+        output.contains(&format!("<{}>", file.display())),
+        "{output}"
+    );
     assert!(
         output.lines().all(|line| line.trim() != "INJECTED"),
         "{output}"

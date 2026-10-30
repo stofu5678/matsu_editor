@@ -3,8 +3,8 @@
 //! Sakura: `CViewCommander::HandleCommand` (`sakura_core/cmd/CViewCommander.cpp`) runs
 //! `Sub_BoxSelectLock` (begins a box if there is none) and then `Command_HalfPageUp` with `bSelect` set
 //! (`sakura_core/cmd/CViewCommander_Cursor.cpp`); the rules are in `view/paging.rs`. The macro
-//! arguments (the number of rows and the lock option) are not supported, as for the other page
-//! commands.
+//! argument for the number of rows is read (`HalfPageUp_BoxSel(n)`); the lock option is not
+//! supported.
 
 use gpui::{Context, Window};
 use matsu_commands::command::{Arg, Result};
@@ -22,11 +22,11 @@ impl UiCommand for HalfPageUpBox {
     fn run(
         &self,
         view: &mut EditorView,
-        _: &[Arg],
+        args: &[Arg],
         _: &mut Window,
         cx: &mut Context<EditorView>,
     ) -> Result {
-        view.half_page_by_box(-1, cx)
+        view.half_page_by_box(-1, EditorView::rows_arg(args), cx)
     }
 }
 

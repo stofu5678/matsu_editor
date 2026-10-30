@@ -320,6 +320,28 @@ impl History {
         }
     }
 
+    /// Puts the depth of the open block back to `depth`, as it was before a macro ran (Sakura:
+    /// `CMacroBeforeAfter::ExecKeyMacroAfter`, `sakura_core/macro/CMacroManagerBase.cpp`).
+    /// With 0 the block is left however deep it is, which stores it if it has an edit. With more
+    /// the reference count is set to it (`COpeBlk::SetRefCount`): a block that the macro entered
+    /// too often stays open at that depth without being stored, and one that the macro left too
+    /// often (or all of) is made again, empty, at that depth.
+    pub fn restore_depth(&mut self, depth: usize, doc: &Document, cursor: &Cursor) {
+        if depth == 0 {
+            self.close_all(doc, cursor);
+            return;
+        }
+        match &mut self.open {
+            Some(open) => open.depth = depth,
+            None => {
+                self.begin(doc, cursor);
+                if let Some(open) = &mut self.open {
+                    open.depth = depth;
+                }
+            }
+        }
+    }
+
     /// Undoes one block: puts back the document and the cursor from before it. Returns `false`
     /// when there is nothing to undo.
     pub fn undo(&mut self, doc: &mut Document, cursor: &mut Cursor) -> bool {
