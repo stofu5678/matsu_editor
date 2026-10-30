@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.1](https://github.com/stofu5678/matsu_editor/compare/v0.5.0...v0.5.1) (2026-10-30)
+
+
+### Bug Fixes
+
+* **platform:** give the Windows confirmation boxes the title of the application ([#269](https://github.com/stofu5678/matsu_editor/issues/269)) ([2b3eb87](https://github.com/stofu5678/matsu_editor/commit/2b3eb873ab239764d985528e30b2caeddca25f52))
+* **ui:** show the OK boxes on Windows and let Esc and the close button cancel them ([#287](https://github.com/stofu5678/matsu_editor/issues/287)) ([5106873](https://github.com/stofu5678/matsu_editor/commit/51068737d5f787a0dbfc65464f8725dacfdc08bb))
+
 ## [0.5.0](https://github.com/stofu5678/matsu_editor/compare/v0.4.0...v0.5.0) (2026-10-29)
 
 
