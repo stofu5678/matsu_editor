@@ -100,6 +100,10 @@ pub(super) fn store(data: &[i32], profile: &mut Profile) -> Result<bool, Profile
         return Ok(false);
     }
     // Menus and items that did not change keep the file's text (a plug-in command reads as a separator).
-    menus.write_to_profile(profile, None, Some(&current))?;
+    // Menus are compared with the file as it is, so that a menu that got MATSU's own items on reading (the
+    // right-click menu) is written with them, and the MATSU version is written with it.
+    let previous = CustomMenus::read_raw(profile, &code_of_name);
+    menus.write_to_profile(profile, None, Some(&previous))?;
+    CustomMenus::write_matsu_version(profile)?;
     Ok(true)
 }

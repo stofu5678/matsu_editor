@@ -960,3 +960,40 @@ fn the_alt_keys_of_the_labels_work(cx: &mut TestAppContext) {
     // The new row is the last; a function of the default menu is still found.
     assert!(index_of(cx, F_OPTION) < rows);
 }
+
+const OLD_MENU_FILE: &str = "[MainMenu]\r\nnMainMenuVer=2\r\nnMainMenuNum=3\r\nbKeyParentheses=1\r\n\
+     MM[000]=0,0,34052,F,\r\nMM[001]=1,1,30603,L,\r\nMM[002]=1,1,31112,O,\r\n";
+
+fn functions_of(profile: &Profile) -> Vec<u16> {
+    State::decode(&data::load(profile))
+        .rows
+        .iter()
+        .map(|r| r.row.function)
+        .collect()
+}
+
+#[test]
+fn an_old_menu_shows_the_matsu_items_and_ok_with_no_change_writes_nothing() {
+    let mut p = profile(OLD_MENU_FILE);
+    assert_eq!(functions_of(&p), [34052, 30603, 32700, 32701, 31112]);
+    let before = p.to_bytes();
+    assert!(!data::store(&data::load(&p), &mut p).unwrap());
+    assert_eq!(p.to_bytes(), before, "the file keeps its bytes");
+    assert_eq!(p.get("MainMenu", "nMatsuMainMenuVer"), None);
+}
+
+#[test]
+fn a_changed_old_menu_is_written_with_the_matsu_items_and_the_matsu_version() {
+    let mut p = profile(OLD_MENU_FILE);
+    let mut state = State::decode(&data::load(&p));
+    state.key_parentheses = false;
+    assert!(data::store(&state.encode(), &mut p).unwrap());
+    assert_eq!(p.get("MainMenu", "nMatsuMainMenuVer"), Some("1"));
+    assert_eq!(p.get("MainMenu", "nMainMenuNum"), Some("5"));
+    assert_eq!(p.get("MainMenu", "MM[002]"), Some("1,1,32700,,"));
+    // The user takes 32700 out and saves: it does not come back.
+    let mut state = State::decode(&data::load(&p));
+    state.rows.retain(|r| r.row.function != 32700);
+    assert!(data::store(&state.encode(), &mut p).unwrap());
+    assert_eq!(functions_of(&p), [34052, 30603, 32701, 31112]);
+}
