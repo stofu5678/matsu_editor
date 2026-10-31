@@ -43,10 +43,30 @@ fn is_clickable(item: &OwnedMenuItem) -> bool {
     }
 }
 
+/// Where the selection of a popup menu goes on the Down key (gpui-component's `select_down`): the
+/// first press selects the first item, the others the next clickable item, round the end.
+pub(super) fn after_down(items: &[OwnedMenuItem], at: Option<usize>) -> usize {
+    match at {
+        None => 0,
+        Some(ix) => (ix + 1..items.len())
+            .find(|&i| is_clickable(&items[i]))
+            .unwrap_or(0),
+    }
+}
+
+/// Where the selection goes on the Up key (`select_up`): the previous clickable item, round the
+/// start to the last one.
+pub(super) fn after_up(items: &[OwnedMenuItem], at: Option<usize>) -> usize {
+    let ix = at.unwrap_or(0);
+    (0..ix)
+        .rev()
+        .find(|&i| is_clickable(&items[i]))
+        .or_else(|| (0..items.len()).rev().find(|&i| is_clickable(&items[i])))
+        .unwrap_or(0)
+}
+
 /// How many times the Down key has to be pressed in a popup menu whose selection is at `from`
-/// (`None`: nothing selected) to reach `target`. This follows gpui-component's `select_down`: the
-/// first press selects the first item, the others the next clickable item, round the end. 0 if
-/// `target` cannot be reached.
+/// (`None`: nothing selected) to reach `target`; 0 if `target` cannot be reached.
 pub(super) fn presses_to_reach(
     items: &[OwnedMenuItem],
     from: Option<usize>,
@@ -54,12 +74,7 @@ pub(super) fn presses_to_reach(
 ) -> usize {
     let mut at = from;
     for presses in 1..=items.len() + 1 {
-        let next = match at {
-            None => 0,
-            Some(ix) => (ix + 1..items.len())
-                .find(|&i| is_clickable(&items[i]))
-                .unwrap_or(0),
-        };
+        let next = after_down(items, at);
         at = Some(next);
         if next == target {
             return presses;
@@ -170,6 +185,10 @@ mod tests {
         assert_eq!(presses_to_reach(&items, Some(3), 0), 1);
         assert_eq!(presses_to_reach(&items, Some(3), 2), 2);
         assert_eq!(presses_to_reach(&items, Some(0), 1), 0);
+        assert_eq!(after_down(&items, None), 0);
+        assert_eq!(after_up(&items, None), 3);
+        assert_eq!(after_up(&items, Some(2)), 0);
+        assert_eq!(after_up(&items, Some(3)), 2);
     }
 
     #[test]

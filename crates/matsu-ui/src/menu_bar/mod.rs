@@ -38,7 +38,9 @@ mod access;
 mod keys;
 
 use crate::app::Workspace;
-use crate::menu_bar::access::{AltTap, item_key, key_of, next_match, presses_to_reach};
+use crate::menu_bar::access::{
+    AltTap, after_down, after_up, item_key, key_of, next_match, presses_to_reach,
+};
 use crate::tabs::content::MenuKind;
 use gpui::{
     Action, App, AppContext as _, Bounds, ClickEvent, Context, DismissEvent, Entity, FocusHandle,
@@ -47,7 +49,7 @@ use gpui::{
     Styled, Subscription, WeakEntity, Window, anchored, deferred, div, prelude::FluentBuilder, px,
 };
 use gpui_base::ElementExt as _;
-use gpui_base::actions::{Cancel, SelectDown, SelectLeft, SelectRight};
+use gpui_base::actions::{Cancel, SelectDown, SelectLeft, SelectRight, SelectUp};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::menu::PopupMenu;
 use gpui_component::{GlobalState, InteractiveElementExt as _, Selectable, Sizable, h_flex};
@@ -337,9 +339,12 @@ pub(crate) struct BarMenu {
     popup_window_height: Pixels,
     /// Where the button was at the last paint, to size the popup below it.
     bounds: Bounds<Pixels>,
-    /// The item that the access keys selected last in the open popup (the popup does not tell
-    /// which item is selected, so the keys move the selection from here).
+    /// The item selected in the open popup. The popup does not tell, so this follows the Up and
+    /// Down actions that reach it (`track_down`, `track_up`); pointing at an item with the mouse
+    /// is not seen, and the access keys move the selection from a stale place after it.
     key_pos: Option<usize>,
+    /// The items the open popup was built with, with their marks (the gray ones).
+    popup_items: Vec<OwnedMenuItem>,
     _subscription: Option<Subscription>,
 }
 
@@ -355,6 +360,7 @@ impl BarMenu {
             popup_window_height: Pixels::ZERO,
             bounds: Bounds::default(),
             key_pos: None,
+            popup_items: Vec::new(),
             _subscription: None,
         })
     }
@@ -375,6 +381,7 @@ impl BarMenu {
                 let action_context = self.menu_bar.read(cx).action_context.clone();
                 let mut items = self.menu.items.clone();
                 MenuBar::mark_items(&self.menu_bar, &mut items, window, cx);
+                self.popup_items = items.clone();
                 let max_height = popup_max_height(
                     window.viewport_size().height,
                     self.bounds.bottom() + px(POPUP_OFFSET),
@@ -461,8 +468,7 @@ impl BarMenu {
         if !popup.read(cx).focus_handle(cx).is_focused(window) {
             return;
         }
-        let mut items = self.menu.items.clone();
-        MenuBar::mark_items(&self.menu_bar, &mut items, window, cx);
+        let items = self.popup_items.clone();
         let matches: Vec<usize> = (0..items.len())
             .filter(|&i| item_key(&items[i]) == Some(key))
             .collect();
@@ -496,6 +502,27 @@ impl BarMenu {
         }
     }
 
+    /// Whether the keys go to the menu itself, not to a submenu.
+    fn top_popup_has_focus(&self, window: &Window, cx: &App) -> bool {
+        self.popup_menu
+            .as_ref()
+            .is_some_and(|popup| popup.read(cx).focus_handle(cx).is_focused(window))
+    }
+
+    /// The Down key reaches the popup (before it handles it): note where the selection goes.
+    fn track_down(&mut self, _: &SelectDown, window: &mut Window, cx: &mut Context<Self>) {
+        if self.top_popup_has_focus(window, cx) {
+            self.key_pos = Some(after_down(&self.popup_items, self.key_pos));
+        }
+    }
+
+    /// The Up key reaches the popup: note where the selection goes.
+    fn track_up(&mut self, _: &SelectUp, window: &mut Window, cx: &mut Context<Self>) {
+        if self.top_popup_has_focus(window, cx) {
+            self.key_pos = Some(after_up(&self.popup_items, self.key_pos));
+        }
+    }
+
     /// Moves the selection of the popup to item `target` with the Down key, from where the access
     /// keys left it.
     fn select_item(
@@ -505,10 +532,10 @@ impl BarMenu {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // Each press passes `track_down`, which moves `key_pos` as the popup moves.
         for _ in 0..presses_to_reach(items, self.key_pos, target) {
             window.dispatch_action(Box::new(SelectDown), cx);
         }
-        self.key_pos = Some(target);
     }
 
     fn handle_hover(&mut self, hovered: &bool, window: &mut Window, cx: &mut Context<Self>) {
@@ -566,6 +593,8 @@ impl Render for BarMenu {
             )
             .on_hover(cx.listener(Self::handle_hover))
             .on_key_down(cx.listener(Self::on_key_down))
+            .capture_action(cx.listener(Self::track_down))
+            .capture_action(cx.listener(Self::track_up))
             .when(is_open, |this| {
                 this.child(deferred(
                     anchored()
