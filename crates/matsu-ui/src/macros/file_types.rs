@@ -19,11 +19,11 @@ fn patterns(extensions: &[&str]) -> Vec<String> {
     extensions.iter().map(|ext| format!("*.{ext}")).collect()
 }
 
-/// An entry that shows its patterns after its name.
+/// An entry with a plain name: the dialog shows the patterns after it (`FileFilter::label`).
 fn entry(name: &str, extensions: &[&str]) -> FileFilter {
     let patterns = patterns(extensions);
     FileFilter {
-        name: format!("{name} ({})", patterns.join(";")),
+        name: name.to_owned(),
         patterns,
     }
 }
@@ -72,14 +72,14 @@ mod tests {
     fn the_run_dialog_lists_every_macro_then_the_key_macro_and_each_language_then_every_file() {
         let list = runnable();
         assert_eq!(list[0].name, "すべての対応マクロ");
-        assert_eq!(list[1].name, "キーマクロ (*.mac)");
+        assert_eq!(list[1].name, "キーマクロ");
         let last = list.last().unwrap();
         assert_eq!(last.name, "すべてのファイル");
         assert!(last.matches_all());
         let per_language = &list[2..list.len() - 1];
         assert_eq!(per_language.len(), Language::file_types().len());
         for (filter, (language, _)) in per_language.iter().zip(Language::file_types()) {
-            assert!(filter.name.starts_with(language.display_name()));
+            assert_eq!(filter.name, language.display_name());
         }
     }
 
@@ -136,9 +136,31 @@ mod tests {
     fn the_key_macro_dialogs_list_mac_and_every_file() {
         let list = key_macro();
         assert_eq!(list.len(), 2);
-        assert_eq!(list[0].name, "キーマクロ (*.mac)");
+        assert_eq!(list[0].name, "キーマクロ");
         assert_eq!(list[0].patterns, ["*.mac"]);
         assert_eq!(list[1].name, "すべてのファイル");
         assert!(list[1].matches_all());
+    }
+
+    #[test]
+    fn the_label_of_a_macro_filter_has_its_patterns_once() {
+        assert_eq!(key_macro()[0].label(), "キーマクロ (*.mac)");
+        for filter in runnable() {
+            // a name may hold parentheses of its own ("Node.js (TypeScript)"), but never the patterns
+            let patterns = filter.patterns.join(";");
+            assert!(!filter.name.contains(&patterns), "{}", filter.name);
+            assert_eq!(
+                filter.label(),
+                format!("{} ({patterns})", filter.name),
+                "{}",
+                filter.name
+            );
+            assert_eq!(
+                filter.label().matches(&patterns).count(),
+                1,
+                "{}",
+                filter.label()
+            );
+        }
     }
 }

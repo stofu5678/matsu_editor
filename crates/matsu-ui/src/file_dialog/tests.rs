@@ -553,11 +553,7 @@ fn the_dialogs_of_the_key_macro_list_mac_and_every_file(cx: &mut TestAppContext)
         let request = only(asked());
         assert_eq!(request.kind, kind, "{function}");
         let names: Vec<&str> = request.filters.iter().map(|f| f.name.as_str()).collect();
-        assert_eq!(
-            names,
-            ["キーマクロ (*.mac)", "すべてのファイル"],
-            "{function}"
-        );
+        assert_eq!(names, ["キーマクロ", "すべてのファイル"], "{function}");
         assert_eq!(request.filters[0].patterns, ["*.mac"], "{function}");
         assert_eq!(request.default_extension, None, "{function}");
     }
