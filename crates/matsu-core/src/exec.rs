@@ -287,7 +287,12 @@ impl OutputDecoder {
             let cut = utf8_cut(&self.waiting);
             let utf8_part = &self.waiting[..self.waiting.len() - cut];
             let keep = if std::str::from_utf8(utf8_part).is_ok() {
-                cut
+                // a CR at the end waits for its LF, so that a line break is not split in two
+                if cut == 0 {
+                    usize::from(self.waiting.last() == Some(&b'\r'))
+                } else {
+                    cut
+                }
             } else {
                 held_len(Encoding::ShiftJis, &self.waiting)
             };

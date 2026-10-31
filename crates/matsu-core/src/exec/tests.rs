@@ -346,3 +346,14 @@ fn the_auto_bit_picks_the_auto_decoder_unless_an_encoding_is_set() {
     let sjis = ExecFlags(ExecFlags::GET_STDOUT);
     assert_eq!(sjis.output_decoder().push(&cp932), "あ");
 }
+
+#[test]
+fn auto_does_not_split_a_crlf_at_the_limit_of_a_long_line() {
+    let mut d = OutputDecoder::auto();
+    let mut bytes = vec![b'a'; AUTO_LINE_LIMIT - 1];
+    bytes.push(b'\r');
+    let first = d.push(&bytes);
+    assert_eq!(first.len(), AUTO_LINE_LIMIT - 1);
+    assert_eq!(d.push(b"\nb"), "\r\n");
+    assert_eq!(d.finish(), "b");
+}
