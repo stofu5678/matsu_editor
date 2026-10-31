@@ -523,3 +523,38 @@ fn the_save_dialog_with_fields_has_them_after_the_fields(cx: &mut TestAppContext
         .collect();
     assert_eq!(kinds, ["combo", "check", "combo", "recent", "recent"]);
 }
+
+#[gpui::test]
+fn the_dialog_that_runs_a_macro_lists_the_file_types_of_every_language(cx: &mut TestAppContext) {
+    let dir = TempDir::new().unwrap();
+    let (f, cx) = setup(cx, settings(2, dir.path()));
+    f.run(cx, "F_EXECEXTMACRO", &[]);
+    let request = only(asked());
+    assert_eq!(request.kind, Kind::OpenFile { multiple: false });
+    assert_eq!(request.filters, crate::macros::file_types::runnable());
+    assert_eq!(request.filters.first().unwrap().name, "すべての対応マクロ");
+    assert_eq!(request.filters.last().unwrap().name, "すべてのファイル");
+    assert_eq!(request.default_extension, None);
+}
+
+#[gpui::test]
+fn the_dialogs_of_the_key_macro_list_mac_and_every_file(cx: &mut TestAppContext) {
+    let dir = TempDir::new().unwrap();
+    let (f, cx) = setup(cx, settings(2, dir.path()));
+    for (function, kind) in [
+        ("F_LOADKEYMACRO", Kind::OpenFile { multiple: false }),
+        ("F_SAVEKEYMACRO", Kind::SaveFile),
+    ] {
+        f.run(cx, function, &[]);
+        let request = only(asked());
+        assert_eq!(request.kind, kind, "{function}");
+        let names: Vec<&str> = request.filters.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["キーマクロ (*.mac)", "すべてのファイル"],
+            "{function}"
+        );
+        assert_eq!(request.filters[0].patterns, ["*.mac"], "{function}");
+        assert_eq!(request.default_extension, None, "{function}");
+    }
+}

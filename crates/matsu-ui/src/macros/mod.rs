@@ -35,6 +35,7 @@
 //! * A script is aborted from the panel's button or by [`EditorView::cancel_macro`]; Sakura
 //!   has no way to stop a macro.
 
+pub(crate) mod file_types;
 mod host;
 mod menu_call;
 mod output;
@@ -515,6 +516,7 @@ impl EditorView {
         // Sakura starts in the macro folder (`Command_SAVEKEYMACRO`).
         let ask = Ask::save()
             .start(file_dialog::macro_folder(cx))
+            .file_types(file_types::key_macro())
             .name(Some("RecKey.mac".to_owned()))
             .titled("キーマクロの保存", "保存");
         let answer = file_dialog::ask(window, cx, ask);
@@ -570,6 +572,7 @@ impl EditorView {
         // Sakura starts in the macro folder (`Command_LOADKEYMACRO`).
         let ask = Ask::open(false)
             .start(file_dialog::macro_folder(cx))
+            .file_types(file_types::key_macro())
             .titled("キーマクロの読み込み", "読み込み");
         let answer = file_dialog::ask(window, cx, ask);
         let tracked = track(cx);
@@ -622,6 +625,7 @@ impl EditorView {
         // Sakura starts in the macro folder (`Command_EXECEXTMACRO`).
         let ask = Ask::open(false)
             .start(file_dialog::macro_folder(cx))
+            .file_types(file_types::runnable())
             .titled("マクロの実行", "実行");
         let answer = file_dialog::ask(window, cx, ask);
         let tracked = track(cx);
