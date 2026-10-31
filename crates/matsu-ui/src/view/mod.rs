@@ -863,13 +863,12 @@ impl Render for EditorView {
                 .into_any_element();
         }
         let a11y_text = self.a11y_text.clone();
-        let mut editor = crate::a11y::editor(div().id("editor"))
+        let mut editor = crate::a11y::focusable_editor(div().id("editor"), &self.focus_handle)
             // The text runs, the caret and the selection, written when a screen reader is connected.
             .a11y_synthetic_children(move |builder| a11y_text::write(&a11y_text, builder))
             .size_full()
             .overflow_hidden()
             .key_context("Editor")
-            .track_focus(&self.focus_handle)
             .cursor(CursorStyle::IBeam)
             .font_family(self.font_family.clone())
             // `lfWeight` and `lfItalic` of the font (`ViewSettings`)
