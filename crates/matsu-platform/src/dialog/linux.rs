@@ -32,7 +32,7 @@ impl Owner {
 }
 
 /// A filter as the portal takes it: `(name, [(0, glob)])` (`(sa(us))`; 0 is a glob, 1 a MIME type).
-/// `*.*` means every file for Windows, but a glob of the portal needs a dot in the name for it, so
+/// The name shown is the label, with the patterns. `*.*` means every file for Windows, but a glob of the portal needs a dot in the name for it, so
 /// it is sent as `*`.
 fn filter_tuple(filter: &FileFilter) -> (String, Vec<(u32, String)>) {
     let globs = filter
@@ -49,7 +49,7 @@ fn filter_tuple(filter: &FileFilter) -> (String, Vec<(u32, String)>) {
             )
         })
         .collect();
-    (filter.name.clone(), globs)
+    (filter.label(), globs)
 }
 
 /// `current_folder` is a byte string that ends with NUL (`ay`).
@@ -228,7 +228,7 @@ fn chosen_filter<'a>(
         .and_then(|value| <(String, Vec<(u32, String)>)>::try_from(value.try_clone().ok()?).ok())
         .map(|(name, _)| name);
     match name {
-        Some(name) => request.filters.iter().find(|f| f.name == name),
+        Some(name) => request.filters.iter().find(|f| f.label() == name),
         None => request.filters.get(request.selected_filter),
     }
 }

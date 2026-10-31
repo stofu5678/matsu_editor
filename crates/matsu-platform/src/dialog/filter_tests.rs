@@ -63,3 +63,10 @@ fn a_file_that_is_there_under_the_longer_name_is_not_taken() {
     );
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn the_label_shows_the_name_and_the_patterns() {
+    assert_eq!(filter(&["*.c", "*.h"]).label(), "x (*.c;*.h)");
+    assert_eq!(filter(&["*.*"]).label(), "x (*.*)");
+    assert_eq!(filter(&[]).label(), "x");
+}
