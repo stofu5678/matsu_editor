@@ -95,6 +95,15 @@ impl Ask {
         self
     }
 
+    /// The list of file types of an open dialog (or of a save dialog without a default
+    /// extension). The first entry is shown first.
+    pub(crate) fn file_types(self, filters: Vec<matsu_platform::dialog::FileFilter>) -> Self {
+        self.save_types(save_types::SaveTypes {
+            filters,
+            default_extension: None,
+        })
+    }
+
     /// The folder the dialog starts in. `None`: where the OS wants.
     pub(crate) fn start(mut self, start: Option<PathBuf>) -> Self {
         self.start = start;
