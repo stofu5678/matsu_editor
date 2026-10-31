@@ -265,7 +265,7 @@ impl OutputDecoder {
 
     /// A decoder that reads every line as UTF-8 when it is valid UTF-8 and as Shift_JIS (CP932)
     /// when it is not, because the output can mix both (a UTF-8 client and the CP932 messages of
-    /// `cmd`). A line waits for its LF (or for [`AUTO_LINE_LIMIT`] bytes, or the end) so that the
+    /// `cmd`). A line waits for its LF (or for 64 KiB, or the end) so that the
     /// whole line is judged at once.
     pub fn auto() -> Self {
         Self {
