@@ -111,6 +111,7 @@ fn config_for(
     std::fs::write(&script, code).unwrap();
     let mut config = MacroConfig::for_script(&script, Some("/work/テスト.txt".into())).unwrap();
     config.timeout = timeout;
+    LAST_LANGUAGE.with(|last| last.set(Some(language)));
     // The boot folder goes next to the script, so that a test can see whether it was removed.
     config.temp_dir = Some(dir.path().to_path_buf());
     config
@@ -155,11 +156,22 @@ fn stdout(report: &Report) -> Vec<&str> {
     report.lines(Stream::Stdout)
 }
 
+thread_local! {
+    /// The language of the macro this test thread configured last, for the failure messages.
+    static LAST_LANGUAGE: std::cell::Cell<Option<Language>> = const { std::cell::Cell::new(None) };
+}
+
 fn assert_clean_exit(report: &Report) {
+    // `status` names the signal when the child was killed by one (`signal: 9 (SIGKILL)`); the
+    // supervisor only ever kills with a reason other than `Exited`, so a signal here came from
+    // elsewhere.
     assert_eq!(
         (report.finished.reason, report.finished.exit_code),
         (EndReason::Exited, Some(0)),
-        "stderr: {:?}",
+        "language: {:?}, status: {:?}, stdout: {:?}, stderr: {:?}",
+        LAST_LANGUAGE.with(std::cell::Cell::get),
+        report.finished.status,
+        report.lines(Stream::Stdout),
         report.lines(Stream::Stderr)
     );
 }
