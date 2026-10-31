@@ -844,3 +844,42 @@ fn a_silent_plugin_is_stopped_when_its_document_is_replaced(cx: &mut TestAppCont
     assert_eq!(text_of(&view, cx), "新");
     set_test_interpreter(None);
 }
+
+#[gpui::test]
+fn a_plugin_does_not_start_while_a_macro_runs_in_another_pane(cx: &mut TestAppContext) {
+    let Some(host) = script_host() else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    set_test_interpreter(Some(host));
+    let place = Place::new();
+    let dirs = place.dirs();
+    let (first, cx) = setup(cx, "元");
+    let shared = first.read_with(cx, |v, _| v.document().clone());
+    let (second, cx2) = cx.add_window_view(move |window, cx| {
+        let view = EditorView::new(shared, cx);
+        window.focus(&view.focus_handle, cx);
+        view
+    });
+    enable_sample(cx2, &place, true, true);
+    // A macro of the first pane waits for a dialog.
+    first.update(cx2, |v, _| v.macros.waiting = Some(1));
+    let prepared = cx2
+        .update(|_, app| prepare_command(app, &dirs, "HelloJs", 1))
+        .unwrap();
+    let id = prepared.id.clone();
+    let editor = second.clone();
+    cx2.update(|_, app| run(editor, prepared, app));
+    let output = second.read_with(cx2, |v, _| v.macro_output_text());
+    assert!(
+        output.contains("ほかのプラグインかマクロが動いている間"),
+        "{output}"
+    );
+    assert_eq!(text_of(&second, cx2), "元");
+    assert!(!second.read_with(cx2, |v, cx| v.document.read(cx).plugin_busy()));
+    // The macro ends: the mark of the macro is gone with it, so the plugin may start.
+    first.update(cx2, |v, cx| v.cancel_macro(cx));
+    assert!(!second.read_with(cx2, |v, cx| v.plugin_in_call(cx)));
+    cx2.update(|_, app| shutdown(app, &id));
+    set_test_interpreter(None);
+}

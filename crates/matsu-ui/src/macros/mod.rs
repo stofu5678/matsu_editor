@@ -302,9 +302,28 @@ fn function_name(code: u16) -> String {
 }
 
 impl EditorView {
-    /// A call of a plugin runs on the document of this view (also one shown in another pane).
+    /// The document of this view is in use: a call of a plugin runs on it (also from another
+    /// pane), or a macro runs in another pane of it (a key macro, a script, or a wait for a
+    /// dialog). All panes of a document share the undo history, whose blocks a macro closes when it
+    /// ends, so one at a time. The state of a macro is asked of the panes, not kept as a mark on
+    /// the document, so a pane that is closed or a macro that ended leaves nothing behind.
     pub(crate) fn plugin_in_call(&self, cx: &gpui::App) -> bool {
-        self.macros.plugin_running || self.document.read(cx).plugin_busy()
+        self.macros.plugin_running
+            || self.document.read(cx).plugin_busy()
+            || self.macro_in_other_pane(cx)
+    }
+
+    /// A macro runs in another pane that shows the document of this view.
+    pub(crate) fn macro_in_other_pane(&self, cx: &gpui::App) -> bool {
+        self.document
+            .read(cx)
+            .views()
+            .filter(|other| other.entity_id() != self.entity_id)
+            .any(|other| {
+                let other = other.read(cx);
+                // A guard: `document` is replaced in place, so a view keeps its document.
+                other.document == self.document && other.macros.busy()
+            })
     }
 
     pub fn is_recording_key_macro(&self) -> bool {

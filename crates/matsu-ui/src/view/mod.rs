@@ -256,6 +256,8 @@ pub struct EditorView {
     pub(crate) split_host: Option<gpui::WeakEntity<crate::app::Workspace>>,
     font_family: SharedString,
     font_size: f32,
+    /// This view's own id, to tell it from the other views of its document.
+    pub(crate) entity_id: gpui::EntityId,
     _subscription: Subscription,
 }
 
@@ -272,7 +274,10 @@ impl EditorView {
         // The typing mode changes only notify the document (no `Changed` event, no new layout):
         // repaint for the caret and the status bar.
         cx.observe(&document, |_, _, cx| cx.notify()).detach();
+        let weak = cx.weak_entity();
+        document.update(cx, |shared, _| shared.add_view(weak));
         Self {
+            entity_id: cx.entity_id(),
             document,
             layout,
             layout_version,

@@ -1209,3 +1209,162 @@ fn a_macro_waits_for_the_warning_of_a_lock_that_failed(cx: &mut TestAppContext) 
 }
 mod registered_tests;
 mod statements_tests;
+
+// ---- a document shown in two panes: one macro or plugin call at a time ----
+
+impl Fixture {
+    /// A second pane that shows the document of the first.
+    fn second_pane<'a>(
+        &self,
+        cx: &'a mut VisualTestContext,
+    ) -> (Entity<EditorView>, &'a mut VisualTestContext) {
+        let shared = self.document.clone();
+        let (view, cx2) = cx.add_window_view(move |window, cx| {
+            let view = EditorView::new(shared, cx);
+            window.focus(&view.focus_handle, cx);
+            view
+        });
+        cx2.executor().allow_parking();
+        (view, cx2)
+    }
+}
+
+/// The macro of a pane waits for a dialog (the wait is on; no session runs).
+fn start_wait(view: &Entity<EditorView>, cx: &mut VisualTestContext) {
+    view.update(cx, |v, _| v.macros.waiting = Some(1));
+}
+
+fn run_in(view: &Entity<EditorView>, cx: &mut VisualTestContext, path: &Path) {
+    view.update_in(cx, |v, window, cx| {
+        v.run_function(F_EXECEXTMACRO, &[text_arg(path)], window, cx)
+    });
+}
+
+fn output_of(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> String {
+    view.read_with(cx, |v, _| v.macro_output_text())
+}
+
+fn in_use(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> bool {
+    view.read_with(cx, |v, cx| v.plugin_in_call(cx))
+}
+
+#[gpui::test]
+fn a_macro_does_not_start_while_a_macro_runs_in_another_pane(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write(dir.path(), "a.mac", "Char(65);\n");
+    let (f, cx) = setup(cx, "");
+    let (second, cx) = f.second_pane(cx);
+    start_wait(&f.view, cx);
+    assert!(in_use(&second, cx));
+    run_in(&second, cx, &path);
+    assert!(output_of(&second, cx).contains("実行中です"));
+    assert_eq!(f.lines(cx), [] as [String; 0]);
+    // The macro of the first pane ends: the other pane is free, and the macro runs.
+    f.view.update(cx, |v, cx| v.cancel_macro(cx));
+    assert!(!in_use(&second, cx));
+    run_in(&second, cx, &path);
+    cx.run_until_parked();
+    assert_eq!(f.lines(cx), ["A"]);
+}
+
+#[gpui::test]
+fn a_macro_does_not_start_over_the_script_of_another_pane(cx: &mut TestAppContext) {
+    if !available(Language::JavaScript) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let script = write(dir.path(), "wait.cjs", "setInterval(() => {}, 1000);\n");
+    let key_macro = write(dir.path(), "a.mac", "Char(65);\n");
+    let (f, cx) = setup(cx, "");
+    let (second, cx) = f.second_pane(cx);
+    f.run(cx, F_EXECEXTMACRO, &[text_arg(&script)]);
+    assert!(f.running(cx));
+    assert!(in_use(&second, cx));
+    run_in(&second, cx, &key_macro);
+    assert!(output_of(&second, cx).contains("実行中です"));
+    run_in(&second, cx, &script);
+    assert!(output_of(&second, cx).contains("実行中です"));
+    assert_eq!(f.lines(cx), [] as [String; 0]);
+    f.view.update(cx, |v, cx| v.cancel_macro(cx));
+    f.wait_until_done(cx);
+    assert!(!in_use(&second, cx));
+    run_in(&second, cx, &key_macro);
+    cx.run_until_parked();
+    assert_eq!(f.lines(cx), ["A"]);
+}
+
+#[gpui::test]
+fn a_macro_does_not_start_while_a_plugin_runs_in_another_pane(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write(dir.path(), "a.mac", "Char(65);\n");
+    let (f, cx) = setup(cx, "");
+    let (second, cx) = f.second_pane(cx);
+    // The mark a plugin call puts on the document.
+    f.document.update(cx, |d, _| d.set_plugin_busy(true));
+    run_in(&second, cx, &path);
+    assert!(output_of(&second, cx).contains("実行中です"));
+    run_in(&f.view, cx, &path);
+    assert!(output_of(&f.view, cx).contains("実行中です"));
+    assert_eq!(f.lines(cx), [] as [String; 0]);
+    f.document.update(cx, |d, _| d.set_plugin_busy(false));
+    run_in(&second, cx, &path);
+    cx.run_until_parked();
+    assert_eq!(f.lines(cx), ["A"]);
+}
+
+#[gpui::test]
+fn a_registered_macro_does_not_start_while_a_macro_runs_in_another_pane(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "");
+    let (second, cx) = f.second_pane(cx);
+    start_wait(&f.view, cx);
+    let started = second.update_in(cx, |v, window, cx| {
+        v.run_registered_macro(0, false, window, cx)
+    });
+    assert!(!started);
+    assert_eq!(f.lines(cx), [] as [String; 0]);
+}
+
+#[gpui::test]
+fn a_macro_that_failed_leaves_the_other_pane_free(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write(dir.path(), "stop.mac", "Char(65);\nChar();\n");
+    let (f, cx) = setup(cx, "");
+    let (second, cx) = f.second_pane(cx);
+    run_in(&f.view, cx, &path);
+    cx.run_until_parked();
+    assert!(f.output(cx).contains("2 番目"));
+    assert!(!in_use(&second, cx));
+}
+
+#[gpui::test]
+fn closing_the_pane_of_a_macro_frees_the_other_pane(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, "");
+    let (second, cx2) = f.second_pane(cx);
+    start_wait(&second, cx2);
+    assert!(in_use(&f.view, cx2));
+    drop(second);
+    cx2.update(|window, _| window.remove_window());
+    cx2.run_until_parked();
+    assert!(!in_use(&f.view, cx2));
+}
+
+#[gpui::test]
+fn replacing_the_document_does_not_leave_the_other_pane_busy(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write(dir.path(), "a.mac", "Char(65);\n");
+    let (f, cx) = setup(cx, "");
+    let (second, cx) = f.second_pane(cx);
+    start_wait(&f.view, cx);
+    // The second pane loads another file into the shared document: the macro is still the first
+    // pane's, so the second pane waits for it, and is free when it ends.
+    let doc = Document::from_utf8("新".as_bytes().to_vec()).unwrap();
+    second.update(cx, |v, cx| {
+        v.load_document(SharedDocument::new(DocumentModel::new(doc), None), None, cx)
+    });
+    assert!(in_use(&second, cx));
+    f.view.update(cx, |v, cx| v.cancel_macro(cx));
+    assert!(!in_use(&second, cx));
+    run_in(&second, cx, &path);
+    cx.run_until_parked();
+    assert_eq!(f.lines(cx), ["A新"]);
+}
