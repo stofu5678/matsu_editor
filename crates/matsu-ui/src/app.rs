@@ -736,6 +736,13 @@ impl Render for Workspace {
             .on_mouse_up(MouseButton::Left, |_, _, cx| {
                 crate::tabs::bar::end_tab_drag(cx);
             })
+            // The access keys of the menu bar (Windows and Linux; macOS has a native menu).
+            .when(!cfg!(target_os = "macos"), |this| {
+                this.capture_key_down(cx.listener(Self::menu_key_capture))
+                    .on_key_down(cx.listener(Self::menu_key))
+                    .on_modifiers_changed(cx.listener(Self::menu_modifiers))
+                    .capture_any_mouse_down(cx.listener(Self::menu_mouse_down))
+            })
             // The whole frame takes dropped files (`DragAcceptFiles( GetHwnd(), TRUE )`).
             .on_drag_move(cx.listener(Self::note_file_drag))
             .child(crate::file_ops::drop_zone::drop_zone(cx))

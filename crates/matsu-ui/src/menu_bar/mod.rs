@@ -12,6 +12,9 @@
 // * The popup is as tall as the window allows, from its top down to the bottom of the window
 //   (`popup_max_height`). gpui-component limits a menu of more than 20 items to half of the
 //   window, 450 px at most, which cut Sakura's long menus off (the scroll bar shows on hover only).
+// * Access keys (Alt+letter, a letter in an open menu, a tap of Alt) as in Windows, which
+//   gpui-component's menu bar does not have: the keys, the marked state of the bar and the fields
+//   `armed`, `alt` and `key_pos` are new, and so is the `access` module.
 // * The names, the `init` function (the key bindings are the ones `gpui_component::init` binds
 //   for the context "AppMenuBar") and the test were adapted to that.
 //
@@ -27,17 +30,24 @@
 //! (`GlobalState::app_menus`), keyboard navigation, switching between open menus by hovering, and
 //! the focus that goes back to where it was. The difference is the height of a long menu, see
 //! [`popup_max_height`].
+//!
+//! It also has the access keys of a Win32 menu bar (Sakura's menus are Win32 menus): see the `keys` module
+//! for Alt+letter and the tap of Alt, and `BarMenu::on_key_down` for the letters in an open menu.
+
+mod access;
+mod keys;
 
 use crate::app::Workspace;
+use crate::menu_bar::access::{AltTap, item_key, key_of, next_match, presses_to_reach};
 use crate::tabs::content::MenuKind;
 use gpui::{
     Action, App, AppContext as _, Bounds, ClickEvent, Context, DismissEvent, Entity, FocusHandle,
-    Focusable, InteractiveElement as _, IntoElement, MouseButton, OwnedMenu, OwnedMenuItem,
-    ParentElement, Pixels, Render, Role, SharedString, StatefulInteractiveElement, Styled,
-    Subscription, WeakEntity, Window, anchored, deferred, div, prelude::FluentBuilder, px,
+    Focusable, InteractiveElement as _, IntoElement, KeyDownEvent, MouseButton, OwnedMenu,
+    OwnedMenuItem, ParentElement, Pixels, Render, Role, SharedString, StatefulInteractiveElement,
+    Styled, Subscription, WeakEntity, Window, anchored, deferred, div, prelude::FluentBuilder, px,
 };
 use gpui_base::ElementExt as _;
-use gpui_base::actions::{Cancel, SelectLeft, SelectRight};
+use gpui_base::actions::{Cancel, SelectDown, SelectLeft, SelectRight};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::menu::PopupMenu;
 use gpui_component::{GlobalState, InteractiveElementExt as _, Selectable, Sizable, h_flex};
@@ -71,6 +81,10 @@ pub struct MenuBar {
     workspace: Option<WeakEntity<Workspace>>,
     /// Whose menus the bar shows: those of the kind of the active tab (ADR-0024).
     kind: MenuKind,
+    /// The menu that is marked for the arrow keys after a tap of Alt, with no menu open.
+    armed: Option<usize>,
+    /// Whether Alt is down and nothing else happened yet (a lone Alt marks the bar).
+    alt: AltTap,
 }
 
 impl MenuBar {
@@ -82,6 +96,8 @@ impl MenuBar {
                 action_context: None,
                 workspace: None,
                 kind: MenuKind::Editor,
+                armed: None,
+                alt: AltTap::default(),
                 menus: Vec::new(),
             };
             this.reload(cx);
@@ -147,6 +163,7 @@ impl MenuBar {
             .collect();
         self.selected_index = None;
         self.action_context = None;
+        self.armed = None;
         cx.notify();
     }
 
@@ -193,6 +210,9 @@ impl MenuBar {
             self.action_context = None;
         }
         self.selected_index = ix;
+        if ix.is_some() {
+            self.armed = None;
+        }
         cx.notify();
     }
 
@@ -317,6 +337,9 @@ pub(crate) struct BarMenu {
     popup_window_height: Pixels,
     /// Where the button was at the last paint, to size the popup below it.
     bounds: Bounds<Pixels>,
+    /// The item that the access keys selected last in the open popup (the popup does not tell
+    /// which item is selected, so the keys move the selection from here).
+    key_pos: Option<usize>,
     _subscription: Option<Subscription>,
 }
 
@@ -331,6 +354,7 @@ impl BarMenu {
             popup_menu: None,
             popup_window_height: Pixels::ZERO,
             bounds: Bounds::default(),
+            key_pos: None,
             _subscription: None,
         })
     }
@@ -367,6 +391,7 @@ impl BarMenu {
                 self._subscription =
                     Some(cx.subscribe_in(&popup_menu, window, Self::handle_dismiss));
                 self.popup_menu = Some(popup_menu.clone());
+                self.key_pos = None;
                 self.popup_window_height = window.viewport_size().height;
                 popup_menu
             }
@@ -413,6 +438,79 @@ impl BarMenu {
         });
     }
 
+    /// A letter in the open menu (`CMenuDrawer::OnMenuChar`): the item with that access key runs
+    /// (a submenu opens), or, if several have it, the selection goes to the next of them. Case does
+    /// not matter. Only the menu itself is handled; once a submenu has the focus, its letters are
+    /// left alone.
+    fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let keystroke = &event.keystroke;
+        let m = keystroke.modifiers;
+        if !self.is_open(cx)
+            || event.prefer_character_input
+            || keystroke.is_ime_in_progress()
+            || m.control
+            || m.alt
+            || m.platform
+            || m.function
+        {
+            return;
+        }
+        let (Some(key), Some(popup)) = (key_of(&keystroke.key), self.popup_menu.clone()) else {
+            return;
+        };
+        if !popup.read(cx).focus_handle(cx).is_focused(window) {
+            return;
+        }
+        let mut items = self.menu.items.clone();
+        MenuBar::mark_items(&self.menu_bar, &mut items, window, cx);
+        let matches: Vec<usize> = (0..items.len())
+            .filter(|&i| item_key(&items[i]) == Some(key))
+            .collect();
+        let Some(&first) = matches.first() else {
+            return;
+        };
+        cx.stop_propagation();
+        if matches.len() > 1 {
+            let next = next_match(&matches, self.key_pos).unwrap_or(first);
+            self.select_item(&items, next, window, cx);
+            return;
+        }
+        match &items[first] {
+            OwnedMenuItem::Action {
+                disabled: false,
+                action,
+                ..
+            } => {
+                let action = Action::boxed_clone(action.as_ref());
+                // The menu closes and the focus goes back, then the item runs where it was.
+                self.menu_bar.update(cx, |bar, cx| {
+                    bar.set_selected_index(None, window, cx);
+                });
+                window.dispatch_action(action, cx);
+            }
+            OwnedMenuItem::Submenu(_) => {
+                self.select_item(&items, first, window, cx);
+                window.dispatch_action(Box::new(SelectRight), cx);
+            }
+            _ => {}
+        }
+    }
+
+    /// Moves the selection of the popup to item `target` with the Down key, from where the access
+    /// keys left it.
+    fn select_item(
+        &mut self,
+        items: &[OwnedMenuItem],
+        target: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        for _ in 0..presses_to_reach(items, self.key_pos, target) {
+            window.dispatch_action(Box::new(SelectDown), cx);
+        }
+        self.key_pos = Some(target);
+    }
+
     fn handle_hover(&mut self, hovered: &bool, window: &mut Window, cx: &mut Context<Self>) {
         if !*hovered {
             return;
@@ -429,6 +527,7 @@ impl BarMenu {
 impl Render for BarMenu {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let is_open = self.is_open(cx);
+        let marked = is_open || self.menu_bar.read(cx).armed == Some(self.ix);
         if !is_open && self.popup_menu.is_some() {
             // Built again when it opens, with the focus and the window size of that moment.
             self.popup_menu = None;
@@ -453,7 +552,7 @@ impl Render for BarMenu {
                     .ghost()
                     .label(self.name.clone())
                     .accessibility_label(crate::a11y::without_key_hint(&self.name))
-                    .open(is_open)
+                    .open(marked)
                     .on_mouse_down(
                         MouseButton::Left,
                         window.listener_for(&cx.entity(), move |this, _, window, cx| {
@@ -466,6 +565,7 @@ impl Render for BarMenu {
                     .on_click(cx.listener(Self::handle_trigger_click)),
             )
             .on_hover(cx.listener(Self::handle_hover))
+            .on_key_down(cx.listener(Self::on_key_down))
             .when(is_open, |this| {
                 this.child(deferred(
                     anchored()
@@ -605,3 +705,6 @@ mod tests {
         });
     }
 }
+
+#[cfg(test)]
+mod key_tests;
