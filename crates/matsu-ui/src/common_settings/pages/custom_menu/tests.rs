@@ -842,20 +842,26 @@ fn an_old_right_click_menu_shows_the_copies_and_ok_with_no_change_writes_nothing
 }
 
 #[test]
-fn a_changed_old_menu_is_written_with_the_copies_and_the_matsu_version_and_they_can_be_removed() {
+fn another_menu_changed_leaves_an_untouched_old_right_click_menu_and_the_version_alone() {
     let mut p = profile(OLD_CUSTOM_FILE);
-    // Only menu 2 is changed; menu 0 still gets the copies written, with the version.
     let mut menus = data::menus_of(&data::load(&p)).menus().to_vec();
     menus[2].name = "Two".to_owned();
     assert!(data::store(&data::encode(&menus), &mut p).unwrap());
-    assert_eq!(p.get("CustMenu", "nMatsuCustomMenuVer"), Some("1"));
-    assert_eq!(p.get("CustMenu", "nCMIN[00]"), Some("5"));
+    // The file's right-click menu stays as it was, so the text of its items cannot be lost by a shift, and
+    // the copies are added again on the next reading.
+    assert_eq!(p.get("CustMenu", "nCMIN[00]"), Some("3"));
+    assert_eq!(p.get("CustMenu", "nMatsuCustomMenuVer"), None);
+    assert_eq!(p.get("CustMenu", "szCMN[02]"), Some("Two"));
     assert_eq!(right_click(&p), [30602, 30603, 32700, 32701, 30604]);
-    // The user removes the copies and saves: they stay out.
+}
+
+#[test]
+fn a_right_click_menu_the_user_changed_is_written_with_the_version_and_removed_copies_stay_out() {
+    let mut p = profile(OLD_CUSTOM_FILE);
     let mut menus = data::menus_of(&data::load(&p)).menus().to_vec();
-    menus[0]
-        .items
-        .retain(|i| i.function != 32700 && i.function != 32701);
+    menus[0].items.retain(|i| i.function != 32700);
     assert!(data::store(&data::encode(&menus), &mut p).unwrap());
-    assert_eq!(right_click(&p), [30602, 30603, 30604]);
+    assert_eq!(p.get("CustMenu", "nMatsuCustomMenuVer"), Some("1"));
+    assert_eq!(p.get("CustMenu", "nCMIN[00]"), Some("4"));
+    assert_eq!(right_click(&p), [30602, 30603, 32701, 30604]);
 }

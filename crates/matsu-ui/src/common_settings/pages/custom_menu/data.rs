@@ -7,7 +7,7 @@
 use matsu_commands::macro_names;
 use matsu_config::settings::CustomMenus;
 use matsu_config::settings::custom_menu::{
-    CustomMenu, CustomMenuItem, MAX_CUSTOM_MENU, MAX_CUSTOM_MENU_ITEMS,
+    CustomMenu, CustomMenuItem, INDEX_FOR_RBUTTONUP, MAX_CUSTOM_MENU, MAX_CUSTOM_MENU_ITEMS,
 };
 use matsu_config::{Profile, ProfileError};
 
@@ -100,10 +100,19 @@ pub(super) fn store(data: &[i32], profile: &mut Profile) -> Result<bool, Profile
         return Ok(false);
     }
     // Menus and items that did not change keep the file's text (a plug-in command reads as a separator).
-    // Menus are compared with the file as it is, so that a menu that got MATSU's own items on reading (the
-    // right-click menu) is written with them, and the MATSU version is written with it.
-    let previous = CustomMenus::read_raw(profile, &code_of_name);
-    menus.write_to_profile(profile, None, Some(&previous))?;
-    CustomMenus::write_matsu_version(profile)?;
+    //
+    // The right-click menu may have got MATSU's own items on reading. If the user did not touch it, it is left
+    // as the file has it, and so is the MATSU version, so that the items are added again on the next reading:
+    // writing it would shift its items, and the text of a command that reading cannot name would be lost. If
+    // the user did touch it, it is written whole, with the items and the current MATSU version.
+    let raw = CustomMenus::read_raw(profile, &code_of_name);
+    let rbutton = INDEX_FOR_RBUTTONUP;
+    let left_alone = menus.menus()[rbutton] == current.menus()[rbutton];
+    let migrated = current.menus()[rbutton] != raw.menus()[rbutton];
+    let previous = if left_alone { &current } else { &raw };
+    menus.write_to_profile(profile, None, Some(previous))?;
+    if !(left_alone && migrated) {
+        CustomMenus::write_matsu_version(profile)?;
+    }
     Ok(true)
 }
