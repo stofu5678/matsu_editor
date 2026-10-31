@@ -35,7 +35,7 @@ pub(super) fn next_match(matches: &[usize], current: Option<usize>) -> Option<us
 
 /// Whether the popup menu lets the selection stop on this item (gpui-component skips separators and
 /// gray items).
-fn is_clickable(item: &OwnedMenuItem) -> bool {
+pub(super) fn is_clickable(item: &OwnedMenuItem) -> bool {
     match item {
         OwnedMenuItem::Action { disabled, .. } => !disabled,
         OwnedMenuItem::Submenu(_) => true,
@@ -96,26 +96,19 @@ pub(super) enum AltTap {
 impl AltTap {
     /// The modifiers changed. Returns true when this is the release of a tap.
     pub(super) fn changed(&mut self, modifiers: Modifiers) -> bool {
-        let alt_only = modifiers.alt
-            && !modifiers.control
-            && !modifiers.shift
-            && !modifiers.platform
-            && !modifiers.function;
-        let none = !modifiers.alt
-            && !modifiers.control
-            && !modifiers.shift
-            && !modifiers.platform
-            && !modifiers.function;
-        let before = std::mem::take(self);
-        if alt_only {
-            *self = match before {
-                Self::Idle => Self::Held { clean: true },
-                held => held,
+        let others =
+            modifiers.control || modifiers.shift || modifiers.platform || modifiers.function;
+        if modifiers.alt {
+            // Alt with another modifier is not a lone Alt, and stays so until Alt is released.
+            *self = match (*self, others) {
+                (_, true) => Self::Held { clean: false },
+                (Self::Idle, false) => Self::Held { clean: true },
+                (held, false) => held,
             };
-            false
-        } else {
-            none && before == Self::Held { clean: true }
+            return false;
         }
+        let before = std::mem::take(self);
+        !others && before == (Self::Held { clean: true })
     }
 
     /// A key or a mouse button went down: this is not a lone Alt any more.
@@ -207,6 +200,15 @@ mod tests {
             shift: true,
             ..Modifiers::default()
         }));
+        assert!(!tap.changed(Modifiers::default()));
+        // Shift let go first: the Alt that is left is still not a lone one.
+        assert!(!tap.changed(alt()));
+        assert!(!tap.changed(Modifiers {
+            alt: true,
+            shift: true,
+            ..Modifiers::default()
+        }));
+        assert!(!tap.changed(alt()));
         assert!(!tap.changed(Modifiers::default()));
         // A release without a press is nothing.
         assert!(!tap.changed(Modifiers::default()));

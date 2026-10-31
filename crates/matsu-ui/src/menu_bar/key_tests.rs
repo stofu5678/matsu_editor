@@ -134,7 +134,7 @@ mod window_keys {
         // The focus is back in the text.
         cx.simulate_input("y");
         assert_eq!(text(&shared, cx), "yabc");
-        // Upper case works too. やり直し(R) is gray after a new edit: a gray item does nothing and
+        // Upper case works too. R is shared by the gray やり直し and another item: nothing runs and
         // the menu stays.
         cx.simulate_keystrokes("alt-e shift-r");
         assert_eq!(open_menu_name(&bar, cx).as_deref(), Some("編集(E)"));

@@ -39,7 +39,7 @@ mod keys;
 
 use crate::app::Workspace;
 use crate::menu_bar::access::{
-    AltTap, after_down, after_up, item_key, key_of, next_match, presses_to_reach,
+    AltTap, after_down, after_up, is_clickable, item_key, key_of, next_match, presses_to_reach,
 };
 use crate::tabs::content::MenuKind;
 use gpui::{
@@ -468,19 +468,32 @@ impl BarMenu {
         if !popup.read(cx).focus_handle(cx).is_focused(window) {
             return;
         }
-        let items = self.popup_items.clone();
-        let matches: Vec<usize> = (0..items.len())
+        // The marks of this moment (the popup may have been built before an edit); the popup's
+        // own items say which ones the selection can stop on.
+        let mut items = self.menu.items.clone();
+        MenuBar::mark_items(&self.menu_bar, &mut items, window, cx);
+        let with_key: Vec<usize> = (0..items.len())
             .filter(|&i| item_key(&items[i]) == Some(key))
             .collect();
-        let Some(&first) = matches.first() else {
-            return;
-        };
-        cx.stop_propagation();
-        if matches.len() > 1 {
-            let next = next_match(&matches, self.key_pos).unwrap_or(first);
-            self.select_item(&items, next, window, cx);
+        if with_key.is_empty() {
             return;
         }
+        cx.stop_propagation();
+        // Several items with the key: the selection goes round them. A gray item cannot be
+        // selected, so the round passes over it.
+        if with_key.len() > 1 {
+            let reachable: Vec<usize> = with_key
+                .into_iter()
+                .filter(|&i| {
+                    is_clickable(&items[i]) && self.popup_items.get(i).is_some_and(is_clickable)
+                })
+                .collect();
+            if let Some(next) = next_match(&reachable, self.key_pos) {
+                self.select_item(next, window, cx);
+            }
+            return;
+        }
+        let first = with_key[0];
         match &items[first] {
             OwnedMenuItem::Action {
                 disabled: false,
@@ -495,7 +508,7 @@ impl BarMenu {
                 window.dispatch_action(action, cx);
             }
             OwnedMenuItem::Submenu(_) => {
-                self.select_item(&items, first, window, cx);
+                self.select_item(first, window, cx);
                 window.dispatch_action(Box::new(SelectRight), cx);
             }
             _ => {}
@@ -525,15 +538,9 @@ impl BarMenu {
 
     /// Moves the selection of the popup to item `target` with the Down key, from where the access
     /// keys left it.
-    fn select_item(
-        &mut self,
-        items: &[OwnedMenuItem],
-        target: usize,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn select_item(&mut self, target: usize, window: &mut Window, cx: &mut Context<Self>) {
         // Each press passes `track_down`, which moves `key_pos` as the popup moves.
-        for _ in 0..presses_to_reach(items, self.key_pos, target) {
+        for _ in 0..presses_to_reach(&self.popup_items, self.key_pos, target) {
             window.dispatch_action(Box::new(SelectDown), cx);
         }
     }
