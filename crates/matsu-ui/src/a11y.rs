@@ -10,8 +10,9 @@
 //! assistive technology, so a test window builds no tree and `debug_a11y_tree_json` stays `None`.
 
 use gpui::{
-    A11ySubtreeBuilder, App, Bounds, Div, Element, ElementId, GlobalElementId, InspectorElementId,
-    IntoElement, LayoutId, Pixels, Role, Stateful, StatefulInteractiveElement, Window,
+    A11ySubtreeBuilder, App, Bounds, Div, Element, ElementId, FocusHandle, GlobalElementId,
+    InspectorElementId, InteractiveElement, IntoElement, LayoutId, Pixels, Role, Stateful,
+    StatefulInteractiveElement, Window,
 };
 
 use crate::common_settings::model::parse_label;
@@ -25,6 +26,16 @@ pub(crate) fn editor(element: Stateful<Div>) -> Stateful<Div> {
     element
         .role(Role::MultilineTextInput)
         .aria_label(EDITOR_NAME)
+}
+
+/// The text view as the keyboard focus of the window for a screen reader. GPUI reports an element
+/// as the focus of the accessibility tree only when one element has all three: the focus handle
+/// the window really focuses (`track_focus`), an id, and a role (gpui `elements/div.rs`
+/// `Interactivity::prepaint` and `window/a11y.rs` `A11y::set_focus`; with no role the focus falls
+/// back to the whole window, with only a log line). Setting them in one place keeps the three
+/// together.
+pub(crate) fn focusable_editor(element: Stateful<Div>, focus: &FocusHandle) -> Stateful<Div> {
+    editor(element).track_focus(focus)
 }
 
 /// The region of a preview (ADR-0024): a document named by its header. The rendered text is
@@ -382,7 +393,6 @@ pub(crate) fn node_of<E: gpui::Element>(element: &E) -> Option<gpui::accesskit::
 
 #[cfg(test)]
 mod tests {
-    use gpui::InteractiveElement as _;
 
     use super::*;
 
@@ -432,6 +442,37 @@ mod tests {
             assert!(json.contains("MultilineTextInput"), "{json}");
             assert!(json.contains(EDITOR_NAME), "{json}");
         }
+    }
+
+    /// A text view that keeps its own focus handle, as `EditorView` does.
+    struct Focused(FocusHandle);
+
+    impl gpui::Render for Focused {
+        fn render(
+            &mut self,
+            _: &mut gpui::Window,
+            _: &mut gpui::Context<Self>,
+        ) -> impl gpui::IntoElement {
+            focusable_editor(gpui::div().id("editor"), &self.0)
+        }
+    }
+
+    #[gpui::test]
+    fn the_focused_text_view_has_the_focus_handle_an_id_and_a_role(cx: &mut gpui::TestAppContext) {
+        let handle = cx.update(|cx| cx.focus_handle());
+        let node = node_of(&focusable_editor(gpui::div().id("editor"), &handle)).unwrap();
+        assert_eq!(node.role(), Role::MultilineTextInput);
+        assert_eq!(node.label(), Some(EDITOR_NAME));
+
+        let (_, cx) = cx.add_window_view({
+            let handle = handle.clone();
+            move |_, _| Focused(handle)
+        });
+        cx.update(|window, cx| window.focus(&handle, cx));
+        cx.run_until_parked();
+        // The handle of the node is the one the window focuses: the node would be the focus of
+        // the accessibility tree.
+        assert!(cx.update(|window, _| handle.is_focused(window)));
     }
 
     #[test]
