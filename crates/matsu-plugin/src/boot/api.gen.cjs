@@ -1179,6 +1179,18 @@ module.exports = function install(call) {
       return call('ExecSQLPLUS', args);
     },
     /**
+     * ExecDatabaseChoice() -> null
+     *
+     * MATSU Editor's own F_PLSQL_COMPILE_ON_DATABASE_CHOICE (not in Sakura). Runs the command
+     * that a key, the menu and a key macro run.
+     */
+    ExecDatabaseChoice() {
+      // A trailing undefined is a missing argument, not a null.
+      const args = Array.prototype.slice.call(arguments);
+      while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+      return call('ExecDatabaseChoice', args);
+    },
+    /**
      * Browse() -> null
      *
      * Sakura's F_BROWSE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the

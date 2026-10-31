@@ -1194,6 +1194,18 @@ final class Editor
     }
 
     /**
+     * ExecDatabaseChoice() -> null
+     *
+     * MATSU Editor's own F_PLSQL_COMPILE_ON_DATABASE_CHOICE (not in Sakura). Runs the command
+     * that a key, the menu and a key macro run.
+     */
+    public static function ExecDatabaseChoice()
+    {
+        // func_get_args() holds only the arguments that were given.
+        return (self::$call)('ExecDatabaseChoice', func_get_args());
+    }
+
+    /**
      * Browse() -> null
      *
      * Sakura's F_BROWSE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the

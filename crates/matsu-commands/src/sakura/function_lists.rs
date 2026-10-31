@@ -79,6 +79,7 @@ pub static FUNCTION_LISTS: [&[u16]; 15] = [
         30162, // F_OPEN_HfromtoC
         30170, // F_ACTIVATE_SQLPLUS
         30171, // F_PLSQL_COMPILE_ON_SQLPLUS
+        32703, // F_PLSQL_COMPILE_ON_DATABASE_CHOICE (MATSU-only)
         30180, // F_BROWSE
         30185, // F_VIEWMODE
         30190, // F_PROPERTY_FILE

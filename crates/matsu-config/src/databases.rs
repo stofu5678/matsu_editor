@@ -2,7 +2,11 @@
 //!
 //! Sakura has two database functions, both for Oracle (`F_PLSQL_COMPILE_ON_SQLPLUS`, `F_ACTIVATE_SQLPLUS`;
 //! `sakura_core/cmd/CViewCommander_File.cpp`). MATSU runs the command line client of the database instead
-//! (ADR-0023, the user's decision of 2026-10-24), and a connection says which command line that is:
+//! (ADR-0023, the user's decision of 2026-10-24), and a connection says which command line that is.
+//! MATSU words the two functions as database functions, not as SQL*Plus ones: 「データベースで実行」
+//! runs the document on the `Default=` connection (F10), and 「接続を選んでデータベースで実行...」
+//! (`F_PLSQL_COMPILE_ON_DATABASE_CHOICE`) lists the connections of this file and runs on the chosen
+//! one without changing the file:
 //!
 //! ```text
 //! [Database]

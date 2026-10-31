@@ -30,9 +30,9 @@ fn key(name: &str) -> &'static KeyBinding {
         .unwrap_or_else(|| panic!("no key {name}"))
 }
 
-/// Functions that only MATSU Editor has (`xtask/src/matsu_extras.rs`): `F_COPY_LF`, `F_COPY_CR` and `F_PREVIEW_TAB`,
+/// Functions that only MATSU Editor has (`xtask/src/matsu_extras.rs`): `F_COPY_LF`, `F_COPY_CR`, `F_PREVIEW_TAB` and `F_PLSQL_COMPILE_ON_DATABASE_CHOICE`,
 /// also in the main menu. The counts in the comments above are Sakura's.
-const MATSU_ONLY: usize = 3;
+const MATSU_ONLY: usize = 4;
 
 #[test]
 fn counts_match_sakura() {
@@ -235,6 +235,48 @@ fn matsu_only_functions_do_not_use_sakuras_codes() {
     }
     assert_eq!(function("F_COPY_LF").label, Some("LF改行でコピー"));
     assert_eq!(function("F_COPY_CR").label, Some("CR改行でコピー"));
+}
+
+#[test]
+fn the_database_functions_are_worded_as_database_functions_and_keep_sakuras_names() {
+    // ADR-0018 type F: the labels say "database", not SQL*Plus. The names, codes and macro names
+    // stay Sakura's, so keys, macros and the menus saved by code keep working.
+    let run = function("F_PLSQL_COMPILE_ON_SQLPLUS");
+    let show = function("F_ACTIVATE_SQLPLUS");
+    assert_eq!((run.code, run.label), (30171, Some("データベースで実行")));
+    assert_eq!(
+        (show.code, show.label),
+        (30170, Some("データベースの出力を表示"))
+    );
+    for f in FUNCTIONS {
+        assert!(
+            !f.label.is_some_and(|l| l.contains("SQL*Plus")),
+            "{} still says SQL*Plus",
+            f.name
+        );
+    }
+    for item in MAIN_MENU {
+        assert!(!item.label.is_some_and(|l| l.contains("SQL*Plus")));
+    }
+}
+
+#[test]
+fn the_choice_command_follows_the_two_database_items_in_the_tools_menu() {
+    let position = |code| MAIN_MENU.iter().position(|i| i.code == code).unwrap();
+    let show = position(30170);
+    let run = position(30171);
+    let choice = function("F_PLSQL_COMPILE_ON_DATABASE_CHOICE");
+    assert_eq!(run, show + 1);
+    assert_eq!(MAIN_MENU[run + 1].code, choice.code);
+    assert_eq!(MAIN_MENU[run + 1].level, MAIN_MENU[run].level);
+    assert!((32700..=32767).contains(&choice.code));
+    assert_eq!(choice.label, Some("接続を選んでデータベースで実行..."));
+    // the macro that calls it, recorded by a key macro
+    let row = crate::sakura::macro_functions::MACRO_COMMANDS
+        .iter()
+        .find(|m| m.name == "ExecDatabaseChoice")
+        .unwrap();
+    assert_eq!((row.function, row.key_macro), (choice.name, true));
 }
 
 #[test]

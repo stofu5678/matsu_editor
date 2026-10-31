@@ -739,6 +739,13 @@ out. A command that this editor does not have yet answers the error -32001 (not
 implemented)."
   (apply #'editor-call "ExecSQLPLUS" args))
 
+(defun editor-exec-database-choice (&rest args)
+  "ExecDatabaseChoice() -> null
+
+MATSU Editor's own F_PLSQL_COMPILE_ON_DATABASE_CHOICE (not in Sakura). Runs the
+command that a key, the menu and a key macro run."
+  (apply #'editor-call "ExecDatabaseChoice" args))
+
 (defun editor-browse (&rest args)
   "Browse() -> null
 

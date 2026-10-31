@@ -95,6 +95,7 @@ pub static MACRO_COMMANDS: &[MacroFunction] = &[
     MacroFunction { name: "OpenHfromtoC", function: "F_OPEN_HfromtoC", code: 30162, args: &[], result: None, key_macro: false },
     MacroFunction { name: "ActivateSQLPLUS", function: "F_ACTIVATE_SQLPLUS", code: 30170, args: &[], result: None, key_macro: false },
     MacroFunction { name: "ExecSQLPLUS", function: "F_PLSQL_COMPILE_ON_SQLPLUS", code: 30171, args: &[], result: None, key_macro: false },
+    MacroFunction { name: "ExecDatabaseChoice", function: "F_PLSQL_COMPILE_ON_DATABASE_CHOICE", code: 32703, args: &[], result: None, key_macro: true },
     MacroFunction { name: "Browse", function: "F_BROWSE", code: 30180, args: &[], result: None, key_macro: false },
     MacroFunction { name: "ViewMode", function: "F_VIEWMODE", code: 30185, args: &[], result: None, key_macro: false },
     MacroFunction { name: "ReadOnly", function: "F_VIEWMODE", code: 30185, args: &[], result: None, key_macro: false },

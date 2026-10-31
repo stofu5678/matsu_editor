@@ -240,6 +240,8 @@ pub struct EditorView {
     pub(crate) save_as_dialog: Option<Entity<crate::file_ops::save_as_dialog::SaveAsDialog>>,
     /// The text input dialog (`InputBox`), while it is open.
     pub(crate) input_dialog: Option<Entity<crate::input_dialog::InputDialog>>,
+    /// The list that chooses a connection of `databases.ini` (ADR-0023).
+    pub(crate) connection_dialog: Option<Entity<crate::database::pick::ConnectionDialog>>,
     /// The completion list, the command list and the version dialog (`crate::support`).
     pub(crate) support: crate::support::Support,
     /// The window list (popup or dialog) over the view, while one is open.
@@ -319,6 +321,7 @@ impl EditorView {
             macros: MacroState::default(),
             save_as_dialog: None,
             input_dialog: None,
+            connection_dialog: None,
             support: Default::default(),
             window_list: None,
             tab_list: None,
@@ -865,6 +868,7 @@ impl Render for EditorView {
                 .child(preview.clone())
                 .children(self.print.setup_dialog.clone())
                 .children(self.input_dialog.clone())
+                .children(self.connection_dialog.clone())
                 .into_any_element();
         }
         let a11y_text = self.a11y_text.clone();
@@ -956,6 +960,7 @@ impl Render for EditorView {
             .children(self.save_as_dialog.clone())
             .children(self.print.setup_dialog.clone())
             .children(self.input_dialog.clone())
+            .children(self.connection_dialog.clone())
             .into_any_element()
     }
 }

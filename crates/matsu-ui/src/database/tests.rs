@@ -916,3 +916,192 @@ fn a_document_without_a_file_gets_no_jump(cx: &mut TestAppContext) {
     assert!(w.output(cx).contains("ERROR: boom"));
     assert!(w.places(cx).is_empty());
 }
+
+// ---- choosing the connection ----
+
+const CHOICE: &str = "F_PLSQL_COMPILE_ON_DATABASE_CHOICE";
+
+/// Two connections; `a` is the default.
+const TWO: &str = "[Database]\nDefault=a\n\n[Connection.a]\nKind=other\nCommand=echo from-a [$F]\n\n[Connection.b]\nKind=sqlite\nCommand=echo from-b [$F]\n";
+
+impl Win {
+    fn choose(&self, cx: &mut TestAppContext) {
+        self.call(cx, CHOICE);
+    }
+
+    /// The name of the row that is chosen in the open dialog.
+    fn chosen(&self, cx: &mut TestAppContext) -> Option<String> {
+        self.view.read_with(cx, |view, app| {
+            view.connection_dialog
+                .as_ref()
+                .map(|d| d.read(app).chosen_name().to_owned())
+        })
+    }
+
+    fn keys(&self, cx: &mut TestAppContext, keys: &str) {
+        let c = self.cx(cx);
+        c.simulate_keystrokes(keys);
+        c.run_until_parked();
+    }
+}
+
+#[test]
+fn the_dialog_lists_the_usable_connections_and_notes_the_others() {
+    use matsu_config::databases::Databases;
+    let ini = "[Database]\nDefault=b\n\n[Connection.a]\nKind=oracle\nCommand=sqlplus -S /@x @$F\n\n[Connection.b]\nKind=postgresql\nCommand=psql -f $F\n\n[Connection.c]\nKind=cobol\nCommand=x\n\n[Connection.d]\nKind=mysql\n";
+    let databases =
+        Databases::from_profile(&matsu_config::profile::Profile::from_bytes(ini.as_bytes()));
+    let request = super::run::pick_request(&databases);
+    let names: Vec<_> = request.choices.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(names, ["a", "b"]);
+    assert_eq!(request.choices[0].kind, "oracle");
+    assert_eq!(request.choices[1].command, "psql -f $F");
+    // the default starts chosen
+    assert_eq!(request.initial, Some(1));
+    let note = request.note.expect("the unusable ones");
+    assert!(note.contains("cobol"), "{note}");
+    assert!(note.contains("Command="), "{note}");
+}
+
+#[test]
+fn a_default_that_is_not_there_chooses_the_first_and_is_no_note() {
+    use matsu_config::databases::Databases;
+    let ini = "[Database]\nDefault=gone\n\n[Connection.a]\nCommand=x\n";
+    let databases =
+        Databases::from_profile(&matsu_config::profile::Profile::from_bytes(ini.as_bytes()));
+    let request = super::run::pick_request(&databases);
+    assert_eq!(request.initial, None);
+    assert_eq!(request.note, None);
+}
+
+#[gpui::test]
+fn the_default_message_points_at_the_choosing_command(cx: &mut TestAppContext) {
+    let ini = "[Database]\n\n[Connection.t]\nCommand=echo x\n";
+    let (_dir, _file, w) = setup(cx, Some(ini), "a.sql", "x\n");
+    w.run(cx);
+    let message = w.prompt(cx).expect("no default");
+    let label = FUNCTIONS
+        .iter()
+        .find(|f| f.name == CHOICE)
+        .and_then(|f| f.label)
+        .unwrap();
+    assert!(message.contains(label), "{message}");
+    w.answer(cx, "OK");
+}
+
+#[gpui::test]
+fn choosing_without_the_file_offers_the_example(cx: &mut TestAppContext) {
+    let (dir, _file, w) = setup(cx, None, "a.sql", "x\n");
+    w.choose(cx);
+    let message = w.prompt(cx).expect("the offer");
+    assert!(message.contains("databases.ini"), "{message}");
+    w.answer(cx, "作らない");
+    assert!(!dir.path().join("settings").join("databases.ini").exists());
+    assert_eq!(w.chosen(cx), None);
+}
+
+#[gpui::test]
+fn choosing_with_no_connection_says_so(cx: &mut TestAppContext) {
+    let (_dir, _file, w) = setup(cx, Some("[Database]\nDefault=t\n"), "a.sql", "x\n");
+    w.choose(cx);
+    let message = w.prompt(cx).expect("nothing to choose");
+    assert!(message.contains("[Connection.名前]"), "{message}");
+    w.answer(cx, "OK");
+    assert_eq!(w.chosen(cx), None);
+    assert_eq!(w.output(cx), "");
+}
+
+#[gpui::test]
+fn with_one_connection_the_list_has_one_row_and_enter_runs_it(cx: &mut TestAppContext) {
+    let (_dir, file, w) = setup(cx, Some(ECHO), "a.sql", "select 1;\n");
+    w.choose(cx);
+    // the list is shown even for one connection
+    assert_eq!(w.chosen(cx).as_deref(), Some("t"));
+    assert_eq!(w.output(cx), "");
+    w.keys(cx, "enter");
+    assert_eq!(w.chosen(cx), None, "the dialog is closed");
+    w.wait_for_end(cx);
+    let output = w.output(cx);
+    assert!(output.contains(&file.display().to_string()), "{output}");
+}
+
+#[gpui::test]
+fn with_two_connections_the_chosen_one_runs_and_the_file_is_not_changed(cx: &mut TestAppContext) {
+    let (dir, _file, w) = setup(cx, Some(TWO), "a.sql", "select 1;\n");
+    let databases = dir.path().join("settings").join("databases.ini");
+    w.choose(cx);
+    // the default starts chosen; Down moves to the next, Up back, and the ends hold
+    assert_eq!(w.chosen(cx).as_deref(), Some("a"));
+    w.keys(cx, "down");
+    assert_eq!(w.chosen(cx).as_deref(), Some("b"));
+    w.keys(cx, "down");
+    assert_eq!(w.chosen(cx).as_deref(), Some("b"));
+    w.keys(cx, "up");
+    assert_eq!(w.chosen(cx).as_deref(), Some("a"));
+    w.keys(cx, "end");
+    assert_eq!(w.chosen(cx).as_deref(), Some("b"));
+    w.keys(cx, "enter");
+    w.wait_for_end(cx);
+    let output = w.output(cx);
+    assert!(output.contains("from-b"), "{output}");
+    assert!(!output.contains("from-a"), "{output}");
+    // databases.ini is only read: the default is still a
+    assert_eq!(std::fs::read_to_string(&databases).unwrap(), TWO);
+    // and F10 still runs the default
+    w.run(cx);
+    wait_until(cx, "the second run", |cx| w.output(cx).contains("from-a"));
+}
+
+#[gpui::test]
+fn escape_runs_nothing(cx: &mut TestAppContext) {
+    let (_dir, _file, w) = setup(cx, Some(TWO), "a.sql", "x\n");
+    w.choose(cx);
+    w.keys(cx, "escape");
+    assert_eq!(w.chosen(cx), None);
+    assert_eq!(w.output(cx), "");
+    assert!(!w.running(cx));
+    // it can be opened once more; Tab Tab reaches Cancel
+    w.choose(cx);
+    assert_eq!(w.chosen(cx).as_deref(), Some("a"));
+    w.keys(cx, "tab tab enter");
+    assert_eq!(w.chosen(cx), None);
+    assert_eq!(w.output(cx), "");
+}
+
+#[gpui::test]
+fn a_connection_with_a_mistake_is_not_in_the_list(cx: &mut TestAppContext) {
+    let ini = format!("{TWO}\n[Connection.bad]\nKind=cobol\nCommand=echo bad\n");
+    let (_dir, _file, w) = setup(cx, Some(&ini), "a.sql", "x\n");
+    w.choose(cx);
+    w.keys(cx, "end");
+    assert_eq!(w.chosen(cx).as_deref(), Some("b"), "bad is not a row");
+    w.keys(cx, "escape");
+}
+
+#[gpui::test]
+fn a_chosen_connection_goes_through_the_same_checks_as_the_default(cx: &mut TestAppContext) {
+    let ini = format!("{TWO}\n[Connection.pw]\nKind=mysql\nCommand=echo mysql -u me -psecret db\n");
+    let (_dir, _file, w) = setup(cx, Some(&ini), "a.sql", "x\n");
+    w.choose(cx);
+    w.keys(cx, "end enter");
+    let message = w.prompt(cx).expect("the refusal");
+    assert!(message.contains("パスワード"), "{message}");
+    assert!(!message.contains("secret"), "{message}");
+    w.answer(cx, "OK");
+    assert_eq!(w.output(cx), "");
+}
+
+#[gpui::test]
+fn a_changed_document_asks_before_the_chosen_connection_runs(cx: &mut TestAppContext) {
+    let (_dir, _file, w) = setup(cx, Some(TWO), "a.sql", "x\n");
+    w.type_text(cx, "y");
+    w.choose(cx);
+    w.keys(cx, "enter");
+    let message = w.prompt(cx).expect("the question");
+    assert!(
+        message.contains("データベースで実行する前に保存"),
+        "{message}"
+    );
+    w.answer(cx, "いいえ");
+    assert_eq!(w.output(cx), "");
+}

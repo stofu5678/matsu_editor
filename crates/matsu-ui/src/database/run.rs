@@ -23,6 +23,7 @@ use matsu_core::exec::ExecFlags;
 use matsu_core::sql_error::ErrorStyle;
 
 use super::command::{self, Shell};
+use super::pick::{Choice, PickRequest};
 use crate::exec::flow::{Request, run_command};
 use crate::file_ops::ask::{Answer, ask, confirm, tell};
 use crate::file_ops::save::{SaveRequest, save};
@@ -73,8 +74,9 @@ fn describe(problem: &Problem) -> String {
     }
 }
 
-/// Finds the connection to use. Tells the user what to do when there is none, and returns `None`.
-async fn connection(cx: &mut AsyncWindowContext) -> Option<Connection> {
+/// Reads `databases.ini`, with the text of its place. Tells the user what is wrong (or offers the
+/// example file) and returns `None` when it cannot be read.
+async fn load(cx: &mut AsyncWindowContext) -> Option<(Databases, String)> {
     let path = cx.update(|_, app| super::file_path(app)).ok().flatten();
     let Some(path) = path else {
         tell(
@@ -87,44 +89,93 @@ async fn connection(cx: &mut AsyncWindowContext) -> Option<Connection> {
         return None;
     };
     let shown = path.display().to_string();
-    let databases = match Databases::load(&path) {
-        Ok(databases) => databases,
+    match Databases::load(&path) {
+        Ok(databases) => Some((databases, shown)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             offer_example(cx, &path).await;
-            return None;
+            None
         }
         Err(error) => {
             let message = format!("接続の設定ファイルを読めません。\n\n{shown}\n\n{error}");
             tell(cx, PromptLevel::Warning, &message, None).await;
-            return None;
+            None
         }
-    };
+    }
+}
+
+/// The label of the command that chooses a connection (`F_PLSQL_COMPILE_ON_DATABASE_CHOICE`).
+const CHOICE_LABEL: &str = "接続を選んでデータベースで実行...";
+
+/// The message that says there is no default connection and what to do about it.
+pub(crate) fn no_default_message(shown: &str) -> String {
+    format!(
+        "使うデータベースの接続が決まっていません。\n\n{shown}\nの [Database] の Default= に、[Connection.名前] の名前を書いてください。\n\n接続を選んで実行するだけなら、ツールメニューの「{CHOICE_LABEL}」を使えます。"
+    )
+}
+
+/// Finds the connection to use. Tells the user what to do when there is none, and returns `None`.
+async fn connection(cx: &mut AsyncWindowContext) -> Option<Connection> {
+    let (databases, shown) = load(cx).await?;
     let Some(default) = databases.default.clone() else {
-        let message = format!(
-            "使うデータベースの接続が決まっていません。\n\n{shown}\nの [Database] の Default= に、[Connection.名前] の名前を書いてください。"
-        );
-        tell(cx, PromptLevel::Info, &message, None).await;
+        tell(cx, PromptLevel::Info, &no_default_message(&shown), None).await;
         return None;
     };
     match databases.get(&default) {
         Some(connection) => Some(connection.clone()),
         None => {
             // the problem of the default, else the plain "not in the file"
-            let reason = databases
-                .problems
-                .iter()
-                .find(|p| match p {
-                    Problem::BadName(n) | Problem::NoCommand(n) => *n == default,
-                    Problem::UnknownKind { connection, .. }
-                    | Problem::UnknownEncoding { connection, .. } => *connection == default,
-                    Problem::NoSuchDefault(_) => true,
-                })
-                .map(describe)
+            let reason = problem_of(&databases, &default)
                 .unwrap_or_else(|| describe(&Problem::NoSuchDefault(default.clone())));
             let message = format!("接続を使えません。\n\n{shown}\n\n{reason}");
             tell(cx, PromptLevel::Warning, &message, None).await;
             None
         }
+    }
+}
+
+/// What is wrong with the connection `name`, if the file says.
+fn problem_of(databases: &Databases, name: &str) -> Option<String> {
+    databases
+        .problems
+        .iter()
+        .find(|p| match p {
+            Problem::BadName(n) | Problem::NoCommand(n) => n == name,
+            Problem::UnknownKind { connection, .. }
+            | Problem::UnknownEncoding { connection, .. } => connection == name,
+            Problem::NoSuchDefault(_) => true,
+        })
+        .map(describe)
+}
+
+/// What the dialog shows for `databases`: its usable connections, the one that starts chosen (the
+/// default), and a note on the ones that cannot be used.
+pub(crate) fn pick_request(databases: &Databases) -> PickRequest {
+    let choices: Vec<Choice> = databases
+        .connections
+        .iter()
+        .map(|c| Choice {
+            name: c.name.clone(),
+            kind: c.kind.ini_name().to_owned(),
+            command: c.command.clone(),
+        })
+        .collect();
+    let initial = databases
+        .default
+        .as_ref()
+        .and_then(|d| choices.iter().position(|c| &c.name == d));
+    // `NoSuchDefault` is about the default, not about a connection that could be chosen
+    let skipped: Vec<String> = databases
+        .problems
+        .iter()
+        .filter(|p| !matches!(p, Problem::NoSuchDefault(_)))
+        .map(describe)
+        .collect();
+    let note =
+        (!skipped.is_empty()).then(|| format!("使えない接続があります。{}", skipped.join(" ")));
+    PickRequest {
+        choices,
+        initial,
+        note,
     }
 }
 
@@ -151,11 +202,50 @@ async fn offer_example(cx: &mut AsyncWindowContext, path: &std::path::Path) {
     }
 }
 
-/// `Command_PLSQL_COMPILE_ON_SQLPLUS`.
+/// `Command_PLSQL_COMPILE_ON_SQLPLUS`: runs the document on the default connection.
 pub(crate) async fn run_document(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) {
     let Some(connection) = connection(cx).await else {
         return;
     };
+    run_on(view, cx, connection).await;
+}
+
+/// `F_PLSQL_COMPILE_ON_DATABASE_CHOICE`: chooses a connection from the list and runs the document
+/// on it, as `run_document` does. `databases.ini` is only read; the default stays as it is.
+pub(crate) async fn run_chosen(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) {
+    let Some((databases, shown)) = load(cx).await else {
+        return;
+    };
+    let request = pick_request(&databases);
+    if request.choices.is_empty() {
+        let mut message =
+            format!("選べる接続がありません。\n\n{shown}\nに [Connection.名前] を書いてください。");
+        if let Some(note) = &request.note {
+            message = format!("{message}\n\n{note}");
+        }
+        tell(cx, PromptLevel::Info, &message, None).await;
+        return;
+    }
+    let answer = view.update_in(cx, |view, window, cx| {
+        view.open_connection_dialog(request, window, cx)
+    });
+    let Ok(answer) = answer else {
+        return;
+    };
+    let Some(name) = answer.await else {
+        return;
+    };
+    if let Some(connection) = databases.get(&name) {
+        run_on(view, cx, connection.clone()).await;
+    }
+}
+
+/// The run of the document on `connection`.
+async fn run_on(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    connection: Connection,
+) {
     if let Some(word) = databases::password_in_command(connection.kind, &connection.command) {
         let message = format!(
             "接続 {} のコマンドにパスワードが書かれているようです（{word}）。\n\nパスワードはコマンドに書かず、クライアントの仕組み（~/.pgpass、mysql_config_editor、Oracle Wallet、gcloud auth、Windows の統合認証など）に任せてください。実行しません。",
