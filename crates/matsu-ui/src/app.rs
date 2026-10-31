@@ -574,6 +574,8 @@ impl Workspace {
                     .active()
                     .clone()
                     .update(cx, |view, _| view.forget_held_buttons());
+                // An Alt let go in another program (Alt+Tab) is not a lone Alt tap here.
+                this.menu_bar.update(cx, |bar, cx| bar.mouse_down(cx));
             }
             if window.is_window_active() {
                 defer_refresh_menu_states(cx, true);
