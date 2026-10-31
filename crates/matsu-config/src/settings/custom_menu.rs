@@ -45,6 +45,12 @@ use crate::value::{parse_bool, parse_long};
 
 /// The section of the file.
 pub const SECTION: &str = "CustMenu";
+/// The key of the version of the items that only MATSU adds to a saved right-click menu. Sakura has no such
+/// key and ignores it.
+pub const MATSU_VERSION_KEY: &str = "nMatsuCustomMenuVer";
+/// The current version of MATSU's own items. A saved menu with a smaller version (or with none) gets the items
+/// of the versions after it once.
+pub const MATSU_CURRENT_VERSION: i32 = 1;
 /// `MAX_CUSTOM_MENU` (`sakura_core/env/CommonSetting.h`).
 pub const MAX_CUSTOM_MENU: usize = 25;
 /// `MAX_CUSTOM_MENU_NAME_LEN`, in UTF-16 units.
@@ -122,6 +128,34 @@ mod defaults {
         (32701, 'M'), // F_COPY_CR
     ];
     const AFTER_COPY_CRLF: u16 = 30603; // F_COPY_CRLF
+
+    /// Version 1 of MATSU's own items in a saved right-click menu: each of `MATSU_COPIES` that the menu lacks
+    /// goes right after 「CRLF改行でコピー」 (or after the copy before it), with its access key unless another
+    /// item has it. Nothing is added when the place is not in the menu or the menu is full.
+    pub(super) fn add_matsu_copies(items: &mut Vec<super::CustomMenuItem>) {
+        let mut after = AFTER_COPY_CRLF;
+        for (function, key) in MATSU_COPIES {
+            if items.iter().any(|item| item.function == function) {
+                after = function;
+                continue;
+            }
+            let Some(at) = items.iter().position(|item| item.function == after) else {
+                continue;
+            };
+            if items.len() >= super::MAX_CUSTOM_MENU_ITEMS {
+                continue;
+            }
+            let taken = items.iter().any(|item| item.key == Some(key));
+            items.insert(
+                at + 1,
+                super::CustomMenuItem {
+                    function,
+                    key: (!taken).then_some(key),
+                },
+            );
+            after = function;
+        }
+    }
 
     /// Sakura's right-click menu with `MATSU_COPIES` right after 「CRLF改行でコピー」. N and M are free in it.
     pub(super) fn right_click_with_matsu_copies() -> Vec<(u16, char)> {
@@ -279,7 +313,20 @@ impl CustomMenus {
     /// An entry that is missing keeps its default. A function that is not a number or a known name is 0 (a
     /// separator), as `F_DEFAULT` is in Sakura. The number of items is cut to 0..=48. A key that is not ASCII
     /// is ignored.
+    ///
+    /// A saved right-click menu whose MATSU version ([`MATSU_VERSION_KEY`]) is older than the current one
+    /// (or has none) gets MATSU's own items that it lacks, once ([`CustomMenus::read_raw`] does not).
     pub fn from_profile(profile: &Profile, by_name: &dyn Fn(&str) -> Option<u16>) -> Self {
+        let mut all = Self::read_raw(profile, by_name);
+        let version = profile.get_i32(SECTION, MATSU_VERSION_KEY).unwrap_or(0);
+        if version < MATSU_CURRENT_VERSION {
+            defaults::add_matsu_copies(&mut all.menus[INDEX_FOR_RBUTTONUP].items);
+        }
+        all
+    }
+
+    /// The menus as the file holds them, without the items that MATSU added after the file was saved.
+    pub fn read_raw(profile: &Profile, by_name: &dyn Fn(&str) -> Option<u16>) -> Self {
         let mut all = Self::default();
         // A file that has the right-click menu (`nCMIN[00]`) was written by Sakura or by MATSU before the
         // copies were added to the default: items it does not list are Sakura's own, not shifted by the two
@@ -413,6 +460,13 @@ impl CustomMenus {
             }
         }
         Ok(())
+    }
+
+    /// Writes the current MATSU version ([`MATSU_VERSION_KEY`]): the menus written to the file are the ones the
+    /// user saw with MATSU's own items, so they are not added again. Call it after
+    /// [`CustomMenus::write_to_profile`] writes the menus of the file's settings (not for a `.mnu` file).
+    pub fn write_matsu_version(profile: &mut Profile) -> Result<(), ProfileError> {
+        profile.set_i32(SECTION, MATSU_VERSION_KEY, MATSU_CURRENT_VERSION)
     }
 
     /// `CImpExpCustMenu::Export`: the contents of a `.mnu` file, a profile with the version in `[Info]`.
@@ -550,7 +604,7 @@ mod tests {
     #[test]
     fn a_file_with_the_right_click_menu_keeps_sakuras_items_where_it_lists_none() {
         // 30 items counted, one listed: the rest are Sakura's own defaults, not shifted by the two new ones.
-        let menus = read("[CustMenu]\nnCMIN[00]=30\nnCMIF[00][00]=30102\n");
+        let menus = read("[CustMenu]\nnMatsuCustomMenuVer=1\nnCMIN[00]=30\nnCMIF[00][00]=30102\n");
         let sakura: Vec<_> = defaults::RIGHT_CLICK.iter().map(|&(f, _)| f).collect();
         let got: Vec<_> = menus
             .get(0)
@@ -805,5 +859,66 @@ mod tests {
         assert!(!menus.import_profile(&wrong, &names));
         assert!(!menus.import_profile(&Profile::from_bytes(b"[CustMenu]\nszCMN[01]=X\n"), &names));
         assert_eq!(menus, before);
+    }
+
+    fn right_click_functions(menus: &CustomMenus) -> Vec<u16> {
+        menus
+            .get(0)
+            .unwrap()
+            .items
+            .iter()
+            .map(|i| i.function)
+            .collect()
+    }
+
+    /// The right-click menu as Sakura and MATSU 0.5.2 or before saved it: all the items of Sakura's, no MATSU
+    /// version.
+    fn old_right_click_file() -> String {
+        let mut text = String::from("[CustMenu]\nnCMIN[00]=30\n");
+        for (j, (function, key)) in defaults::RIGHT_CLICK.iter().enumerate() {
+            text += &format!("nCMIF[00][{j:02}]={function}\nnCMIK[00][{j:02}]={key}\n");
+        }
+        text
+    }
+
+    #[test]
+    fn a_right_click_menu_saved_before_the_copies_gets_them_once_after_the_crlf_copy() {
+        let menus = read(&old_right_click_file());
+        let mut expected: Vec<_> = defaults::RIGHT_CLICK.iter().map(|&(f, _)| f).collect();
+        let at = expected.iter().position(|&f| f == 30603).unwrap() + 1;
+        expected.splice(at..at, [32700, 32701]);
+        assert_eq!(right_click_functions(&menus), expected);
+        let items = &menus.get(0).unwrap().items;
+        assert_eq!(items[at].key, Some('N'));
+        assert_eq!(items[at + 1].key, Some('M'));
+    }
+
+    #[test]
+    fn a_right_click_menu_saved_with_the_matsu_version_is_not_given_the_copies_back() {
+        let text = format!("{}nMatsuCustomMenuVer=1\n", old_right_click_file());
+        let sakura: Vec<_> = defaults::RIGHT_CLICK.iter().map(|&(f, _)| f).collect();
+        assert_eq!(right_click_functions(&read(&text)), sakura);
+    }
+
+    #[test]
+    fn the_copies_a_right_click_menu_already_has_are_not_doubled() {
+        let text = "[CustMenu]\nnCMIN[00]=3\nnCMIF[00][00]=32701\nnCMIF[00][01]=30603\nnCMIF[00][02]=30604\n";
+        let once = read(text);
+        // 32701 is there; 32700 follows 30603 (the item it follows is there).
+        assert_eq!(right_click_functions(&once), [32701, 30603, 32700, 30604]);
+        // Reading what was written gives the same menus.
+        let mut file = Profile::from_bytes(text.as_bytes());
+        let before = CustomMenus::read_raw(&file, &names);
+        once.write_to_profile(&mut file, None, Some(&before))
+            .unwrap();
+        CustomMenus::write_matsu_version(&mut file).unwrap();
+        assert_eq!(CustomMenus::from_profile(&file, &names), once);
+        assert_eq!(file.get(SECTION, MATSU_VERSION_KEY), Some("1"));
+    }
+
+    #[test]
+    fn a_right_click_menu_without_the_place_of_the_copies_is_left_alone() {
+        let menus = read("[CustMenu]\nnCMIN[00]=1\nnCMIF[00][00]=30604\n");
+        assert_eq!(right_click_functions(&menus), [30604]);
     }
 }
