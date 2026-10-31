@@ -10,7 +10,7 @@ use std::future::Future;
 
 use gpui::{
     AppContext as _, ClickEvent, Context, FocusHandle, Focusable, InteractiveElement as _,
-    IntoElement, KeyDownEvent, ParentElement, Render, SharedString,
+    IntoElement, KeyDownEvent, ParentElement, Render, ScrollHandle, SharedString,
     StatefulInteractiveElement as _, Styled, WeakEntity, Window, div, px, rgb, rgba,
 };
 
@@ -40,6 +40,8 @@ pub(crate) struct ConnectionDialog {
     view: WeakEntity<EditorView>,
     request: PickRequest,
     chosen: usize,
+    /// Keeps the chosen row in view when the list is longer than its box.
+    scroll: ScrollHandle,
     /// Sends the chosen name once; dropping it unanswered (the window closed) is a cancel.
     answer: Option<async_channel::Sender<Option<String>>>,
     /// The panel: Tab stays inside it (`keep_tab_inside`).
@@ -60,10 +62,13 @@ impl ConnectionDialog {
             .initial
             .filter(|&i| i < request.choices.len())
             .unwrap_or(0);
+        let scroll = ScrollHandle::new();
+        scroll.scroll_to_item(chosen);
         Self {
             view,
             request,
             chosen,
+            scroll,
             answer: Some(answer),
             focus: cx.focus_handle(),
             list_focus: cx.focus_handle().tab_stop(true),
@@ -106,6 +111,7 @@ impl ConnectionDialog {
 
     fn choose(&mut self, index: usize, cx: &mut Context<Self>) {
         self.chosen = index.min(self.request.choices.len().saturating_sub(1));
+        self.scroll.scroll_to_item(self.chosen);
         cx.notify();
     }
 
@@ -194,6 +200,7 @@ impl Render for ConnectionDialog {
             .track_focus(&self.list_focus)
             .h(px(220.))
             .overflow_y_scroll()
+            .track_scroll(&self.scroll)
             .border_1()
             .border_color(rgb(ring(self.list_focus.is_focused(window))))
             .bg(rgb(0xffffff))

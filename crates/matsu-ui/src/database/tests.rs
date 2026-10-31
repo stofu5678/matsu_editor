@@ -1105,3 +1105,33 @@ fn a_changed_document_asks_before_the_chosen_connection_runs(cx: &mut TestAppCon
     w.answer(cx, "いいえ");
     assert_eq!(w.output(cx), "");
 }
+
+#[test]
+fn the_list_never_shows_a_password() {
+    use matsu_config::databases::Databases;
+    let ini = "[Connection.pw]\nKind=mysql\nCommand=mysql -u me -psecret db\n\n[Connection.ok]\nKind=mysql\nCommand=mysql db\n";
+    let databases =
+        Databases::from_profile(&matsu_config::profile::Profile::from_bytes(ini.as_bytes()));
+    let request = super::run::pick_request(&databases);
+    assert_eq!(request.choices.len(), 2);
+    for choice in &request.choices {
+        assert!(!choice.command.contains("secret"), "{}", choice.command);
+    }
+    assert_eq!(request.choices[1].command, "mysql db");
+}
+
+#[gpui::test]
+fn the_default_far_down_a_long_list_starts_chosen_and_keys_reach_the_end(cx: &mut TestAppContext) {
+    let mut ini = String::from("[Database]\nDefault=c15\n");
+    for i in 0..20 {
+        ini.push_str(&format!("\n[Connection.c{i}]\nCommand=echo c{i} [$F]\n"));
+    }
+    let (_dir, _file, w) = setup(cx, Some(&ini), "a.sql", "x\n");
+    w.choose(cx);
+    assert_eq!(w.chosen(cx).as_deref(), Some("c15"));
+    w.keys(cx, "end");
+    assert_eq!(w.chosen(cx).as_deref(), Some("c19"));
+    w.keys(cx, "home");
+    assert_eq!(w.chosen(cx).as_deref(), Some("c0"));
+    w.keys(cx, "escape");
+}

@@ -156,7 +156,13 @@ pub(crate) fn pick_request(databases: &Databases) -> PickRequest {
         .map(|c| Choice {
             name: c.name.clone(),
             kind: c.kind.ini_name().to_owned(),
-            command: c.command.clone(),
+            // a password is never shown, not even in the list (the run refuses it, `run_on`)
+            command: match databases::password_in_command(c.kind, &c.command) {
+                Some(word) => {
+                    format!("（パスワードが書かれているようです: {word}。実行できません）")
+                }
+                None => c.command.clone(),
+            },
         })
         .collect();
     let initial = databases
