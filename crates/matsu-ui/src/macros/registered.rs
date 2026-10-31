@@ -179,7 +179,7 @@ impl EditorView {
             return failed(self, "", window, cx);
         };
         // A key macro that is playing may name a macro: its calls go on in the middle.
-        if self.macros.running.is_some() {
+        if self.macros.running.is_some() || self.plugin_in_call(cx) {
             return failed(self, "マクロを実行中です", window, cx);
         }
         // While a key macro is recorded, the call is recorded as one call of the file, as for

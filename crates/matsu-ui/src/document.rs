@@ -88,6 +88,9 @@ pub struct SharedDocument {
     /// A call of a plugin is running on this document (every pane that shows it shares the undo
     /// history, so one call at a time).
     plugin_busy: bool,
+    /// The views that show this document, to ask them whether a macro runs in one of them (the
+    /// state of a macro is the view's; a view that is gone no longer counts).
+    views: Vec<gpui::WeakEntity<crate::view::EditorView>>,
     /// Typing overwrites instead of inserting. Sakura keeps the mode per document
     /// (`CDocEditor::m_bInsMode`) and starts in insert mode.
     overwrite: bool,
@@ -151,6 +154,7 @@ impl SharedDocument {
             version: 0,
             generation: 0,
             plugin_busy: false,
+            views: Vec::new(),
             overwrite: false,
             view_mode: false,
             type_locked: false,
@@ -185,6 +189,7 @@ impl SharedDocument {
             version: 0,
             generation: 0,
             plugin_busy: false,
+            views: Vec::new(),
             overwrite: false,
             view_mode: false,
             type_locked: false,
@@ -260,7 +265,10 @@ impl SharedDocument {
         // file is closed or another is opened): the new document keeps it, and an untitled one
         // that has none gets it now (`CDocFileOperation::FileClose`, `GetNoNameNumber`).
         let number = self.untitled_number;
+        // The panes keep showing this document.
+        let views = std::mem::take(&mut self.views);
         *self = new;
+        self.views = views;
         self.version = version;
         self.generation = generation;
         self.untitled_number = number.or(self.untitled_number);
@@ -611,6 +619,17 @@ impl SharedDocument {
 
     pub fn set_plugin_busy(&mut self, busy: bool) {
         self.plugin_busy = busy;
+    }
+
+    /// Records a view that shows this document (`EditorView::new`).
+    pub(crate) fn add_view(&mut self, view: gpui::WeakEntity<crate::view::EditorView>) {
+        self.views.retain(|v| v.upgrade().is_some());
+        self.views.push(view);
+    }
+
+    /// The views that show this document and are still there.
+    pub(crate) fn views(&self) -> impl Iterator<Item = gpui::Entity<crate::view::EditorView>> + '_ {
+        self.views.iter().filter_map(|v| v.upgrade())
     }
 
     pub fn generation(&self) -> u64 {
