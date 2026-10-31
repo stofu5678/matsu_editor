@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/stofu5678/matsu_editor/compare/v0.5.2...v0.6.0) (2026-10-31)
+
+
+### Features
+
+* **macros:** list the file types of every macro language in the open dialogs ([#293](https://github.com/stofu5678/matsu_editor/issues/293)) ([9ef6859](https://github.com/stofu5678/matsu_editor/commit/9ef68596d75412dbae9d3e6a62341a9a9d35c184))
+
 ## [0.5.2](https://github.com/stofu5678/matsu_editor/compare/v0.5.1...v0.5.2) (2026-10-31)
 
 
