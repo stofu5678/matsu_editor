@@ -69,6 +69,17 @@ impl FileFilter {
             .collect()
     }
 
+    /// What a list of file types shows: the name and the patterns (`C/C++ (*.c;*.h)`), so that
+    /// the extensions are seen whatever the OS shows (Windows and the portal show the name as it
+    /// is). A filter without patterns shows its name alone.
+    pub fn label(&self) -> String {
+        if self.patterns.is_empty() {
+            self.name.clone()
+        } else {
+            format!("{} ({})", self.name, self.patterns.join(";"))
+        }
+    }
+
     /// Whether the filter shows every file (`*.*` or `*`).
     pub fn matches_all(&self) -> bool {
         self.patterns.iter().any(|p| p == "*.*" || p == "*")

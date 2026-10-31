@@ -228,17 +228,21 @@ fn set_filter_options(cx: &mut VisualTestContext, new: bool, file: bool) {
 }
 
 #[gpui::test]
-fn the_save_dialog_of_a_new_document_has_sakuras_three_file_types(cx: &mut TestAppContext) {
+fn the_save_dialog_of_a_new_document_lists_every_document_type_with_extensions(
+    cx: &mut TestAppContext,
+) {
     let dir = TempDir::new().unwrap();
     let (f, cx) = setup(cx, settings(2, dir.path()));
     cx.simulate_input("abc");
     f.run(cx, "F_FILESAVE", &[]);
     let request = only(asked());
     let names: Vec<_> = request.filters.iter().map(|f| f.name.as_str()).collect();
-    assert_eq!(
-        names,
-        ["ユーザー指定", "テキストファイル", "すべてのファイル"]
-    );
+    // ユーザー指定 and テキストファイル first, すべてのファイル last, the types between them
+    assert_eq!(&names[..2], ["ユーザー指定", "テキストファイル"]);
+    assert_eq!(names.last(), Some(&"すべてのファイル"));
+    assert!(names.contains(&"CSS"), "{names:?}");
+    assert!(!names.contains(&"基本"), "{names:?}");
+    assert_eq!(patterns(&request, "CSS"), ["*.css"]);
     // the options are on by default: ;*.* after *.txt
     assert_eq!(patterns(&request, "ユーザー指定"), ["*.txt", "*.*"]);
     assert_eq!(patterns(&request, "テキストファイル"), ["*.txt"]);
