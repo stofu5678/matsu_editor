@@ -990,7 +990,7 @@ fn a_changed_old_menu_is_written_with_the_matsu_items_and_the_matsu_version() {
     assert!(data::store(&state.encode(), &mut p).unwrap());
     assert_eq!(p.get("MainMenu", "nMatsuMainMenuVer"), Some("1"));
     assert_eq!(p.get("MainMenu", "nMainMenuNum"), Some("5"));
-    assert_eq!(p.get("MainMenu", "MM[002]"), Some("1,1,32700,,"));
+    assert_eq!(p.get("MainMenu", "MM[002]"), Some("1,1,32700,N,"));
     // The user takes 32700 out and saves: it does not come back.
     let mut state = State::decode(&data::load(&p));
     state.rows.retain(|r| r.row.function != 32700);

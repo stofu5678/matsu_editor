@@ -364,7 +364,8 @@ fn a_menu_saved_before_the_matsu_items_gets_them_once_in_their_places() {
         functions(&menu),
         [34052, 30603, 32700, 32701, 30604, 31370, 32702, 31371]
     );
-    assert_eq!(menu.rows[2], MenuRow::leaf(1, 32700), "no access key");
+    assert_eq!(menu.rows[2], leaf(1, 32700, 'N'), "the default menu's key");
+    assert_eq!(menu.rows[6], leaf(1, 32702, 'G'));
     // Sakura's own version is not touched: version 2 adds none of Sakura's items.
     assert!(!functions(&menu).contains(&31337));
 }
@@ -411,4 +412,27 @@ fn the_matsu_version_is_written_with_a_saved_menu_and_not_in_an_exported_file() 
     assert_eq!(file.get("MainMenu", "nMatsuMainMenuVer"), Some("1"));
     let exported = menu.export_profile(&|_| None).unwrap();
     assert_eq!(exported.get("MainMenu", "nMatsuMainMenuVer"), None);
+}
+
+#[test]
+fn a_matsu_item_gets_its_key_unless_a_sibling_in_the_same_submenu_has_it() {
+    // N is taken by a sibling (in any case) in the submenu of 30603; M is taken only in another submenu.
+    let text = "[MainMenu]\nnMainMenuVer=2\nnMainMenuNum=6\n\
+         MM[000]=0,0,34052,F,\n\
+         MM[001]=1,1,30603,L,\n\
+         MM[002]=1,1,30604,n,\n\
+         MM[003]=0,0,34053,G,\n\
+         MM[004]=1,1,30601,M,\n\
+         MM[005]=1,1,31370,U,\n";
+    let menu = read(text);
+    let key_of = |function| {
+        menu.rows
+            .iter()
+            .find(|r| r.function == function)
+            .unwrap()
+            .key
+    };
+    assert_eq!(key_of(32700), None, "N clashes");
+    assert_eq!(key_of(32701), Some('M'), "M is free in this submenu");
+    assert_eq!(key_of(32702), Some('G'), "G is only a menu of the bar");
 }

@@ -259,6 +259,8 @@ struct Addition {
     function: u16,
     after: u16,
     separator_before: bool,
+    /// The access key of the new row, used only when no sibling has it. Sakura's additions have none.
+    key: Option<char>,
 }
 
 impl Addition {
@@ -268,6 +270,14 @@ impl Addition {
             function,
             after,
             separator_before,
+            key: None,
+        }
+    }
+
+    const fn with_key(self, key: char) -> Self {
+        Self {
+            key: Some(key),
+            ..self
         }
     }
 }
@@ -299,11 +309,12 @@ const ADDITIONS: [Addition; 21] = [
 
 /// The items that only MATSU has, which the menus saved before them lack (version 1: the copies with LF and
 /// with CR, and the preview in another tab; see `crates/matsu-commands/src/sakura/main_menu.rs`). Like
-/// Sakura's, they are added with no access key.
+/// Sakura's, they are added after the item they follow, with the access key of the default menu unless a
+/// sibling in the same submenu already has it.
 const MATSU_ADDITIONS: [Addition; 3] = [
-    Addition::new(1, 32700, 30603, false), // F_COPY_LF after F_COPY_CRLF
-    Addition::new(1, 32701, 32700, false), // F_COPY_CR after F_COPY_LF
-    Addition::new(1, 32702, 31370, false), // the preview in another tab after F_WIN_OUTPUT
+    Addition::new(1, 32700, 30603, false).with_key('N'), // F_COPY_LF after F_COPY_CRLF
+    Addition::new(1, 32701, 32700, false).with_key('M'), // F_COPY_CR after F_COPY_LF
+    Addition::new(1, 32702, 31370, false).with_key('G'), // the preview in another tab after F_WIN_OUTPUT
 ];
 
 impl MainMenu {
@@ -396,9 +407,30 @@ impl MainMenu {
             if add.separator_before {
                 added.push(MenuRow::separator(level));
             }
-            added.push(MenuRow::leaf(level, add.function));
+            let mut row = MenuRow::leaf(level, add.function);
+            row.key = add.key.filter(|&key| !self.sibling_has_key(at, key));
+            added.push(row);
             self.rows.splice(at + 1..at + 1, added);
         }
+    }
+
+    /// Whether a row in the same submenu as the row at `at` (same level, under the same parent) has `key`,
+    /// ignoring case as the menu does.
+    fn sibling_has_key(&self, at: usize, key: char) -> bool {
+        let level = self.rows[at].level;
+        let start = self.rows[..at]
+            .iter()
+            .rposition(|r| r.level < level)
+            .map_or(0, |parent| parent + 1);
+        let end = self.rows[at..]
+            .iter()
+            .position(|r| r.level < level)
+            .map_or(self.rows.len(), |i| at + i);
+        self.rows[start..end].iter().any(|r| {
+            r.level == level
+                && r.key
+                    .is_some_and(|k| k.to_lowercase().eq(key.to_lowercase()))
+        })
     }
 
     /// `IO_MainMenu` in writing mode: `nMainMenuNum`, `bKeyParentheses` and a line for each row, over what
