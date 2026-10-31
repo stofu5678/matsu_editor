@@ -39,7 +39,8 @@ mod keys;
 
 use crate::app::Workspace;
 use crate::menu_bar::access::{
-    AltTap, after_down, after_up, is_clickable, item_key, key_of, next_match, presses_to_reach,
+    AltTap, after_down, after_up, as_in_popup, is_clickable, item_key, key_of, next_match,
+    presses_to_reach,
 };
 use crate::tabs::content::MenuKind;
 use gpui::{
@@ -381,6 +382,7 @@ impl BarMenu {
                 let action_context = self.menu_bar.read(cx).action_context.clone();
                 let mut items = self.menu.items.clone();
                 MenuBar::mark_items(&self.menu_bar, &mut items, window, cx);
+                let items = as_in_popup(items);
                 self.popup_items = items.clone();
                 let max_height = popup_max_height(
                     window.viewport_size().height,
@@ -472,6 +474,7 @@ impl BarMenu {
         // own items say which ones the selection can stop on.
         let mut items = self.menu.items.clone();
         MenuBar::mark_items(&self.menu_bar, &mut items, window, cx);
+        let items = as_in_popup(items);
         let with_key: Vec<usize> = (0..items.len())
             .filter(|&i| item_key(&items[i]) == Some(key))
             .collect();

@@ -17,6 +17,24 @@ pub(super) fn item_key(item: &OwnedMenuItem) -> Option<char> {
     }
 }
 
+/// The items as the popup menu holds them, so that an index here is an index there: it drops what
+/// `fill` does not add (system menus) and what `PopupMenu::separator` refuses (a separator first or
+/// right after another).
+pub(super) fn as_in_popup(items: Vec<OwnedMenuItem>) -> Vec<OwnedMenuItem> {
+    let mut out: Vec<OwnedMenuItem> = Vec::with_capacity(items.len());
+    for item in items {
+        match item {
+            OwnedMenuItem::SystemMenu(_) => {}
+            OwnedMenuItem::Separator
+                if out
+                    .last()
+                    .is_none_or(|last| matches!(last, OwnedMenuItem::Separator)) => {}
+            item => out.push(item),
+        }
+    }
+    out
+}
+
 /// The character of a key that can be an access key (a letter or a digit), upper-cased.
 pub(super) fn key_of(name: &str) -> Option<char> {
     let mut chars = name.chars();
@@ -162,6 +180,24 @@ mod tests {
             ])
             .owned()
             .items
+    }
+
+    #[test]
+    fn the_items_are_listed_as_the_popup_holds_them() {
+        let items = Menu::new("m")
+            .items([
+                MenuItem::separator(),
+                MenuItem::action("a(A)", Nothing),
+                MenuItem::separator(),
+                MenuItem::separator(),
+                MenuItem::action("b(B)", Nothing),
+            ])
+            .owned()
+            .items;
+        let listed = as_in_popup(items);
+        assert_eq!(listed.len(), 3);
+        assert_eq!(item_key(&listed[0]), Some('A'));
+        assert_eq!(item_key(&listed[2]), Some('B'));
     }
 
     #[test]
