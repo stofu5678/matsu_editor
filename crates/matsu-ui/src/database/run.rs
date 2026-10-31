@@ -33,9 +33,10 @@ use crate::view::EditorView;
 const NO_TITLE: &str = "(無題)";
 
 /// The option bits for `connection`: the output is taken (into the output panel), in the encoding of
-/// the connection, and the text is sent to the input when the template has no file.
+/// the connection (`auto`: line by line, UTF-8 or Shift_JIS), and the text is sent to the input when the template has no file.
 pub(crate) fn flags(connection: &Connection) -> ExecFlags {
     let out = match connection.encoding {
+        Encoding::Auto => ExecFlags::OUT_AUTO,
         Encoding::Utf8 => ExecFlags::OUT_UTF8,
         Encoding::Utf16 => ExecFlags::OUT_UNICODE,
         Encoding::ShiftJis => 0,
@@ -44,7 +45,7 @@ pub(crate) fn flags(connection: &Connection) -> ExecFlags {
     if !connection.uses_file() {
         bits |= ExecFlags::SEND_STDIN
             | match connection.input_encoding() {
-                Encoding::Utf8 => ExecFlags::IN_UTF8,
+                Encoding::Auto | Encoding::Utf8 => ExecFlags::IN_UTF8,
                 Encoding::Utf16 => ExecFlags::IN_UNICODE,
                 Encoding::ShiftJis => 0,
             };

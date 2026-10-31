@@ -261,3 +261,88 @@ fn an_empty_selection_or_document_feeds_nothing() {
     let at = Pos::new(0, 1);
     assert!(fed(&d, Some((at, at)), Encoding::Utf8, false).is_empty());
 }
+
+fn auto_all(pieces: &[&[u8]]) -> String {
+    let mut d = OutputDecoder::auto();
+    let mut text = String::new();
+    for piece in pieces {
+        text.push_str(&d.push(piece));
+    }
+    text.push_str(&d.finish());
+    text
+}
+
+#[test]
+fn auto_reads_a_utf8_line_as_utf8() {
+    assert_eq!(auto_all(&["あいう\n".as_bytes()]), "あいう\n");
+}
+
+#[test]
+fn auto_reads_a_cp932_line_as_shift_jis() {
+    // "あい" in CP932, the line of cmd
+    assert_eq!(
+        auto_all(&[&[0x82, 0xA0, 0x82, 0xA2, b'\r', b'\n']]),
+        "あい\r\n"
+    );
+}
+
+#[test]
+fn auto_judges_every_line_by_itself() {
+    let mut bytes = "utf8 あ\n".as_bytes().to_vec();
+    bytes.extend([0x82, 0xA0, b'\n']);
+    bytes.extend("日本\n".as_bytes());
+    bytes.extend([0x82, 0xA2]); // the last line has no end
+    assert_eq!(auto_all(&[&bytes]), "utf8 あ\nあ\n日本\nい");
+}
+
+#[test]
+fn auto_joins_a_line_that_is_cut_between_pieces() {
+    // the cut is inside a UTF-8 character, and inside a Shift_JIS one
+    let utf8 = "あ\n".as_bytes();
+    assert_eq!(auto_all(&[&utf8[..1], &utf8[1..2], &utf8[2..]]), "あ\n");
+    assert_eq!(auto_all(&[&[0x82], &[0xA0, b'\n']]), "あ\n");
+    // one byte at a time, mixed
+    let mut bytes = "あ\n".as_bytes().to_vec();
+    bytes.extend([0x82, 0xA0, b'\n']);
+    let singles: Vec<&[u8]> = bytes.chunks(1).collect();
+    assert_eq!(auto_all(&singles), "あ\nあ\n");
+}
+
+#[test]
+fn auto_waits_for_the_end_of_a_line_but_not_forever() {
+    let mut d = OutputDecoder::auto();
+    assert_eq!(d.push(b"abc"), "");
+    assert_eq!(d.push(b"d\nef"), "abcd\n");
+    assert_eq!(d.finish(), "ef");
+    // a very long line without an end is given out in parts, not in the middle of a character
+    let mut d = OutputDecoder::auto();
+    let mut line = "a".repeat(AUTO_LINE_LIMIT - 1);
+    line.push('あ');
+    let bytes = line.as_bytes();
+    let first = d.push(&bytes[..AUTO_LINE_LIMIT]);
+    assert_eq!(first.len(), AUTO_LINE_LIMIT - 1);
+    assert_eq!(
+        first + &d.push(&bytes[AUTO_LINE_LIMIT..]) + &d.finish(),
+        line
+    );
+}
+
+#[test]
+fn auto_takes_off_the_bom_once() {
+    assert_eq!(auto_all(&[b"\xEF\xBB\xBFab\n"]), "ab\n");
+}
+
+#[test]
+fn the_auto_bit_picks_the_auto_decoder_unless_an_encoding_is_set() {
+    let cp932 = [0x82, 0xA0];
+    let auto = ExecFlags(ExecFlags::GET_STDOUT | ExecFlags::OUT_AUTO);
+    assert!(auto.output_auto());
+    assert_eq!(auto.output_decoder().push(&cp932), "");
+    assert_eq!(auto.output_decoder().finish(), "");
+    // an explicit encoding keeps its own decoder
+    let utf8 = ExecFlags(auto.0 | ExecFlags::OUT_UTF8);
+    assert!(!utf8.output_auto());
+    assert_eq!(utf8.output_decoder().push("あ".as_bytes()), "あ");
+    let sjis = ExecFlags(ExecFlags::GET_STDOUT);
+    assert_eq!(sjis.output_decoder().push(&cp932), "あ");
+}

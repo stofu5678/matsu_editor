@@ -80,6 +80,10 @@ impl ExecFlags {
     pub const IN_UTF8: i32 = 0x100;
     /// カレントディレクトリを指定.
     pub const CUR_DIR: i32 = 0x200;
+    /// MATSU only (Sakura has no such bit): each line of the output is read as UTF-8 when it is
+    /// valid and as Shift_JIS when it is not. The dialog never sets it; it is used by the database
+    /// functions. [`ExecFlags::output_encoding`] says Shift_JIS for it, the fallback.
+    pub const OUT_AUTO: i32 = 0x400;
 
     /// The value the shared data starts with: only 標準出力を得る (`m_nExecFlgOpt = 1`,
     /// `CShareData::InitShareData`).
@@ -142,6 +146,21 @@ impl ExecFlags {
     /// Whether the folder that comes with the command is used (0x200).
     pub fn uses_cur_dir(self) -> bool {
         self.has(Self::CUR_DIR)
+    }
+
+    /// Whether the output is read line by line as UTF-8 or else Shift_JIS ([`Self::OUT_AUTO`]);
+    /// the bits of the encodings win over it.
+    pub fn output_auto(self) -> bool {
+        self.has(Self::OUT_AUTO) && !self.has(Self::OUT_UNICODE | Self::OUT_UTF8)
+    }
+
+    /// The decoder of the output for these flags.
+    pub fn output_decoder(self) -> OutputDecoder {
+        if self.output_auto() {
+            OutputDecoder::auto()
+        } else {
+            OutputDecoder::new(self.output_encoding())
+        }
     }
 
     /// What the dialog shows first (`CDlgExec::SetData`): a document that cannot be edited does
@@ -227,7 +246,12 @@ pub struct OutputDecoder {
     waiting: Vec<u8>,
     /// Nothing has been given out yet: a BOM at the start is not text.
     at_start: bool,
+    /// Read by lines, each as UTF-8 when valid and else as Shift_JIS ([`OutputDecoder::auto`]).
+    auto: bool,
 }
+
+/// The most that a line without its end waits in the automatic decoder before it is given out.
+const AUTO_LINE_LIMIT: usize = 64 * 1024;
 
 impl OutputDecoder {
     pub fn new(encoding: Encoding) -> Self {
@@ -235,11 +259,50 @@ impl OutputDecoder {
             encoding,
             waiting: Vec::new(),
             at_start: true,
+            auto: false,
         }
+    }
+
+    /// A decoder that reads every line as UTF-8 when it is valid UTF-8 and as Shift_JIS (CP932)
+    /// when it is not, because the output can mix both (a UTF-8 client and the CP932 messages of
+    /// `cmd`). A line waits for its LF (or for [`AUTO_LINE_LIMIT`] bytes, or the end) so that the
+    /// whole line is judged at once.
+    pub fn auto() -> Self {
+        Self {
+            auto: true,
+            ..Self::new(Encoding::Utf8)
+        }
+    }
+
+    fn push_auto(&mut self, bytes: &[u8]) -> String {
+        self.waiting.extend_from_slice(bytes);
+        let mut text = String::new();
+        while let Some(at) = self.waiting.iter().position(|&b| b == b'\n') {
+            let line: Vec<u8> = self.waiting.drain(..=at).collect();
+            text.push_str(&decode_auto_line(&line));
+        }
+        if self.waiting.len() >= AUTO_LINE_LIMIT {
+            // the bytes of a cut character wait; the cut is judged as UTF-8, or as Shift_JIS when
+            // what has come is not UTF-8 up to that cut
+            let cut = utf8_cut(&self.waiting);
+            let utf8_part = &self.waiting[..self.waiting.len() - cut];
+            let keep = if std::str::from_utf8(utf8_part).is_ok() {
+                cut
+            } else {
+                held_len(Encoding::ShiftJis, &self.waiting)
+            };
+            let ready = self.waiting.len() - keep;
+            let line: Vec<u8> = self.waiting.drain(..ready).collect();
+            text.push_str(&decode_auto_line(&line));
+        }
+        self.without_bom(text)
     }
 
     /// The text of the bytes read so far; what may continue in the next piece waits.
     pub fn push(&mut self, bytes: &[u8]) -> String {
+        if self.auto {
+            return self.push_auto(bytes);
+        }
         self.waiting.extend_from_slice(bytes);
         let keep = held_len(self.encoding, &self.waiting);
         let ready = self.waiting.len() - keep;
@@ -265,6 +328,11 @@ impl OutputDecoder {
     /// The end of the output: what waited (`最後の文字の出力`). A last odd byte of UTF-16 gets a
     /// zero high byte.
     pub fn finish(&mut self) -> String {
+        if self.auto {
+            let rest = std::mem::take(&mut self.waiting);
+            let text = decode_auto_line(&rest);
+            return self.without_bom(text);
+        }
         let mut rest = std::mem::take(&mut self.waiting);
         if rest.len() % 2 == 1 {
             match self.encoding {
@@ -284,6 +352,16 @@ impl OutputDecoder {
         }
         text
     }
+}
+
+/// A line (or a part of one) of the automatic decoder: UTF-8 when valid, else Shift_JIS.
+fn decode_auto_line(bytes: &[u8]) -> String {
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        return text.to_owned();
+    }
+    let mut text = String::new();
+    Encoding::ShiftJis.codec().decode(bytes, &mut text);
+    text
 }
 
 /// How many bytes at the end of `bytes` wait for the next piece.

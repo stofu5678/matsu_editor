@@ -19,7 +19,10 @@
 //!   written bare) and `$$` is a dollar sign. A template without `$F` gets the text on its standard
 //!   input: the selection, or else the whole document.
 //! * `Encoding` is the encoding of the output of the client (and of the input unless `InputEncoding`
-//!   is given): `utf-8` (the default), `shift_jis` or `utf-16`.
+//!   is given): `utf-8`, `shift_jis` or `utf-16`. Without it (`auto`, the default) every line of the
+//!   output is read as UTF-8 when it is valid UTF-8 and as Shift_JIS (CP932) when it is not, so the
+//!   Japanese messages of `cmd` (CP932) and the output of a UTF-8 client can be mixed. The input is
+//!   sent in UTF-8 then.
 //! * `Folder` is the folder to run in; the folder of the document when it is empty.
 //! * A password is never written here and never accepted: [`password_in_command`] finds the usual ways
 //!   to put one on a command line, and the connection is not run then. The clients keep the secrets
@@ -97,7 +100,9 @@ impl Kind {
 /// The encoding of what the client writes (and reads).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Encoding {
+    /// The output is read line by line, as UTF-8 when valid and else as Shift_JIS; the input is UTF-8.
     #[default]
+    Auto,
     Utf8,
     ShiftJis,
     Utf16,
@@ -106,6 +111,7 @@ pub enum Encoding {
 impl Encoding {
     pub fn ini_name(self) -> &'static str {
         match self {
+            Encoding::Auto => "auto",
             Encoding::Utf8 => "utf-8",
             Encoding::ShiftJis => "shift_jis",
             Encoding::Utf16 => "utf-16",
@@ -114,6 +120,7 @@ impl Encoding {
 
     pub fn from_ini_name(name: &str) -> Option<Encoding> {
         match name.trim().to_ascii_lowercase().as_str() {
+            "auto" => Some(Encoding::Auto),
             "utf-8" | "utf8" => Some(Encoding::Utf8),
             "shift_jis" | "shift-jis" | "sjis" | "windows-31j" | "cp932" => {
                 Some(Encoding::ShiftJis)
@@ -147,8 +154,12 @@ impl Connection {
             .any(|p| matches!(p, Part::File))
     }
 
+    /// The encoding of the input: `InputEncoding`, else the output's, else UTF-8 for `auto`.
     pub fn input_encoding(&self) -> Encoding {
-        self.input_encoding.unwrap_or(self.encoding)
+        match self.input_encoding.unwrap_or(self.encoding) {
+            Encoding::Auto => Encoding::Utf8,
+            e => e,
+        }
     }
 }
 
@@ -276,7 +287,12 @@ impl Databases {
             let section = format!("{CONNECTION_PREFIX}{}", c.name);
             profile.set(&section, "Kind", c.kind.ini_name())?;
             profile.set(&section, "Command", &c.command)?;
-            profile.set(&section, "Encoding", c.encoding.ini_name())?;
+            match c.encoding {
+                Encoding::Auto => {
+                    profile.remove(&section, "Encoding");
+                }
+                e => profile.set(&section, "Encoding", e.ini_name())?,
+            }
             match c.input_encoding {
                 Some(e) => profile.set(&section, "InputEncoding", e.ini_name())?,
                 None => {
@@ -764,7 +780,7 @@ pub fn examples() -> Vec<Connection> {
         kind,
         command: command.to_owned(),
         folder: None,
-        encoding: Encoding::Utf8,
+        encoding: Encoding::Auto,
         input_encoding: None,
     };
     vec![

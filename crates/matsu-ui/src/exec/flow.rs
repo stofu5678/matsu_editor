@@ -31,7 +31,7 @@ use matsu_commands::convert::datetime::{
 use matsu_core::buffer::{Document, Pos};
 use matsu_core::encoding::Eol;
 use matsu_core::exec::{
-    ExecFlags, OutputDecoder, exit_code_text, feed_text, header_text, limit_command, stopped_text,
+    ExecFlags, exit_code_text, feed_text, header_text, limit_command, stopped_text,
 };
 use matsu_platform::exec::{Event, Exit, Spec, Stopper, start, stdin_channel};
 use matsu_plugin::Value;
@@ -336,7 +336,7 @@ pub(crate) async fn run_command(
         );
     }
 
-    let mut decoder = OutputDecoder::new(flags.output_encoding());
+    let mut decoder = flags.output_decoder();
     let mut exit: Option<Exit> = None;
     while keep_going && exit.is_none() {
         let mut batch = String::new();
