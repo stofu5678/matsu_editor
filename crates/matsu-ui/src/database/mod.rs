@@ -1,5 +1,5 @@
-//! The database functions (ADR-0023): `F_PLSQL_COMPILE_ON_SQLPLUS` (SQL*Plusで実行, F10) and
-//! `F_ACTIVATE_SQLPLUS` (SQL*Plusをアクティブ表示).
+//! The database functions (ADR-0023): `F_PLSQL_COMPILE_ON_SQLPLUS` (データベースで実行, F10) and
+//! `F_ACTIVATE_SQLPLUS` (データベースの出力を表示).
 //!
 //! Sakura finds a running Windows SQL*Plus window and pastes `@file` into it
 //! (`Command_PLSQL_COMPILE_ON_SQLPLUS`, `sakura_core/cmd/CViewCommander_File.cpp`). This program
@@ -18,6 +18,7 @@ use std::path::PathBuf;
 use gpui::{App, Global};
 
 pub(crate) mod command;
+pub(crate) mod pick;
 pub(crate) mod run;
 #[cfg(test)]
 mod tests;

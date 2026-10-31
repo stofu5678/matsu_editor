@@ -1,4 +1,4 @@
-//! `F_ACTIVATE_SQLPLUS` (SQL*Plusをアクティブ表示, Shift+F11, the macro `ActivateSQLPLUS`): shows the
+//! `F_ACTIVATE_SQLPLUS` (データベースの出力を表示, Shift+F11, the macro `ActivateSQLPLUS`): shows the
 //! output panel, where the database functions put their output (ADR-0023, type B of ADR-0018).
 //!
 //! Sakura: `Command_ACTIVATE_SQLPLUS` (`sakura_core/cmd/CViewCommander_File.cpp`) brings the
