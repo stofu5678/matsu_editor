@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.2](https://github.com/stofu5678/matsu_editor/compare/v0.5.1...v0.5.2) (2026-10-31)
+
+
+### Bug Fixes
+
+* **database:** read client output as UTF-8 or Shift_JIS line by line by default ([#289](https://github.com/stofu5678/matsu_editor/issues/289)) ([d7b98b6](https://github.com/stofu5678/matsu_editor/commit/d7b98b6c9eb35b7f1c28ba3768574d28efed4597))
+* **macros:** keep macros and plugins apart across the panes of a document ([#291](https://github.com/stofu5678/matsu_editor/issues/291)) ([cbbd430](https://github.com/stofu5678/matsu_editor/commit/cbbd430ad2a4d43f73f86ef9ab41318e14a2969e))
+
 ## [0.5.1](https://github.com/stofu5678/matsu_editor/compare/v0.5.0...v0.5.1) (2026-10-30)
 
 
