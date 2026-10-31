@@ -30,8 +30,29 @@ fn reads_connections_and_the_default() {
     assert_eq!(work.folder.as_deref(), Some("C:\\sql"));
     let other = d.get("other one").unwrap();
     assert_eq!(other.kind, Kind::Other);
-    assert_eq!(other.encoding, Encoding::Utf8);
+    assert_eq!(other.encoding, Encoding::Auto);
+    assert_eq!(other.input_encoding(), Encoding::Utf8);
     assert_eq!(other.folder, None);
+}
+
+#[test]
+fn encoding_is_auto_without_it_and_an_explicit_one_stays() {
+    let d = read(
+        "[Connection.a]\nCommand=x\n\n[Connection.b]\nCommand=x\nEncoding=auto\n\n[Connection.c]\nCommand=x\nEncoding=utf-8\n\n[Connection.d]\nCommand=x\nEncoding=cp932\nInputEncoding=utf-8\n",
+    );
+    assert!(d.problems.is_empty(), "{:?}", d.problems);
+    assert_eq!(d.get("a").unwrap().encoding, Encoding::Auto);
+    assert_eq!(d.get("b").unwrap().encoding, Encoding::Auto);
+    assert_eq!(d.get("c").unwrap().encoding, Encoding::Utf8);
+    assert_eq!(d.get("d").unwrap().encoding, Encoding::ShiftJis);
+    assert_eq!(d.get("d").unwrap().input_encoding(), Encoding::Utf8);
+    // `auto` is not written back as a line; the others are
+    let mut profile = Profile::from_bytes(b"");
+    d.write_to(&mut profile).unwrap();
+    let text = String::from_utf8(profile.to_bytes()).unwrap();
+    assert!(!text.contains("Encoding=auto"), "{text}");
+    // c, d and the InputEncoding of d
+    assert_eq!(text.matches("Encoding=").count(), 3, "{text}");
 }
 
 #[test]

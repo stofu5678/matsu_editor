@@ -32,7 +32,7 @@ fn connection(command: &str) -> Connection {
         kind: Kind::Other,
         command: command.into(),
         folder: None,
-        encoding: Encoding::Utf8,
+        encoding: Encoding::Auto,
         input_encoding: None,
     }
 }
@@ -368,7 +368,10 @@ fn every_dollar_is_doubled_for_the_expansion_of_the_exec_flow() {
 #[test]
 fn the_option_bits_follow_the_connection() {
     let mut c = connection("tool $F");
-    // the output is taken, in UTF-8 by default; nothing is sent to the input
+    // the output is taken, line by line as UTF-8 or Shift_JIS by default; nothing is sent to the input
+    assert_eq!(flags(&c).0, 0x01 | 0x400);
+    // an explicit encoding is kept as it is
+    c.encoding = Encoding::Utf8;
     assert_eq!(flags(&c).0, 0x01 | 0x80);
     c.encoding = Encoding::ShiftJis;
     assert_eq!(flags(&c).0, 0x01);
@@ -377,7 +380,7 @@ fn the_option_bits_follow_the_connection() {
     assert_eq!(flags(&c).0, 0x01 | 0x08 | 0x200);
     // without the file the text goes to the input, in the encoding of the output unless told
     let mut c = connection("sqlite3 db");
-    assert_eq!(flags(&c).0, 0x01 | 0x80 | 0x04 | 0x100);
+    assert_eq!(flags(&c).0, 0x01 | 0x400 | 0x04 | 0x100);
     c.encoding = Encoding::ShiftJis;
     c.input_encoding = Some(Encoding::Utf16);
     assert_eq!(flags(&c).0, 0x01 | 0x04 | 0x10);
