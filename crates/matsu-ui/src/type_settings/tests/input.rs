@@ -5,7 +5,8 @@ use gpui::TestAppContext;
 
 use super::*;
 
-/// The text of the document of the view, line endings included.
+/// The text of the document of the view, every line ending written as LF (a new document gets
+/// the line ending of the OS, CRLF on Windows).
 fn text_of(cx: &mut TestAppContext, view: &Entity<EditorView>) -> String {
     view.read_with(cx, |view, app| {
         let doc = view.document().read(app).doc();
@@ -15,7 +16,7 @@ fn text_of(cx: &mut TestAppContext, view: &Entity<EditorView>) -> String {
                 format!(
                     "{}{}",
                     line.text,
-                    line.eol.map_or("", matsu_core::model::eol_text)
+                    if line.eol.is_some() { "\n" } else { "" }
                 )
             })
             .collect()
