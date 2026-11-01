@@ -6,7 +6,7 @@ use matsu_coloring::{ColorKind, ColorRules, ColorStates};
 use matsu_config::settings::color::ColorEntry;
 use matsu_core::buffer::{Document, Pos};
 use matsu_core::cursor::Cursor;
-use matsu_core::search::{PlainMatcher, PlainOptions};
+use matsu_core::search::{Matcher, PlainMatcher, PlainOptions};
 use matsu_layout::{DocumentLayout, LayoutConfig, Wrap};
 
 use super::builder::{Attr, Html, Row};
@@ -83,6 +83,15 @@ impl Fixture {
                 ..PlainOptions::default()
             },
         );
+        self.html_with(&matcher, whole_word.then_some(&matcher), colors)
+    }
+
+    fn html_with(
+        &self,
+        matcher: &dyn Matcher,
+        words: Option<&PlainMatcher>,
+        colors: &[ColorEntry],
+    ) -> Option<String> {
         color_html(&Source {
             doc: &self.doc,
             layout: &self.layout,
@@ -92,9 +101,9 @@ impl Fixture {
             line_num_is_crlf: true,
             line_numbers: false,
             found: Some(Found {
-                matcher: &matcher,
+                matcher,
                 colors: FoundColors::new(colors.iter().copied()),
-                words: whole_word.then_some(&matcher),
+                words,
             }),
         })
     }
@@ -483,9 +492,18 @@ fn a_match_over_the_line_ending_colors_it_too() {
     let mut f = Fixture::new("ab\r\ncd\r\n", "a.txt");
     f.select((0, 0), (2, 0));
     let found = found_entry(0x0000ff, 0x00ffff, false);
-    let html = f.html_found("b\r\nc", false, &[found]).unwrap();
-    assert!(
-        html.contains(&format!("{}b\r\nc</span>", span(found))),
-        "{html}"
+    // a regular expression sees the line ending, but never the next line
+    let regex =
+        matsu_regex::RegexMatcher::new(r"b\r\n", matsu_regex::RegexSearchOptions::default())
+            .unwrap();
+    let html = f.html_with(&regex, None, &[found]).unwrap();
+    let text = f.open(ColorKind::Text);
+    assert_eq!(
+        html,
+        format!(
+            "{}{text}a</span>{}b\r\n</span>{text}cd\r\n</span></pre>",
+            f.pre(),
+            span(found)
+        )
     );
 }
