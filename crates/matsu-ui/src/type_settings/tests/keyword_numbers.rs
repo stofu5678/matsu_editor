@@ -115,8 +115,8 @@ fn a_dialog_that_is_open_is_closed_when_the_sets_were_renumbered(cx: &mut TestAp
     let _ini = color_page(cx, &with_three_sets());
     let _dialog = with_dialog(cx, |d, _, dcx| d.keyword_select(dcx)).expect("opens");
     let handle = cx.update(|app| child::open_window(app)).unwrap();
+    assert!(cx.update(|app| app.windows().contains(&handle)));
     delete_a();
-    crate::common_settings::forget_keyword_renumbering();
     with_dialog(cx, |d, _, dcx| d.after_keyword_edit(dcx));
     cx.run_until_parked();
     assert!(
