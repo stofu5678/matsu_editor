@@ -88,7 +88,7 @@ impl EditorView {
         }
         if let Some(ins_space) = env.requests.ins_space {
             // `ChangeInsertSpace`: a flag of this view; the Tab key reads it (`run_with`).
-            self.prefs.settings.ins_space = ins_space;
+            self.share_indent(None, Some(ins_space), cx);
         }
         if let Some(columns) = env.requests.wrap_columns {
             self.set_wrap_columns(columns, cx);
@@ -247,13 +247,12 @@ impl EditorView {
         .detach();
     }
 
-    /// Sets the tab width of this view only (`F_CHGTABWIDTH`: a temporary setting), and lays the
+    /// Sets the tab width of this document (`F_CHGTABWIDTH`: a temporary setting), and lays the
     /// text out again.
     pub fn set_tab_width(&mut self, width: u32, cx: &mut Context<Self>) {
         if self.prefs.settings.tab_width != width {
-            self.prefs.settings.tab_width = width;
-            self.relayout_in(cx);
-            cx.notify();
+            // The tab width is the document's (`CLayoutMgr`): every pane takes it.
+            self.share_indent(Some(width), None, cx);
         }
     }
 

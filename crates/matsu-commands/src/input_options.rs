@@ -42,6 +42,15 @@ pub struct InputOptions {
     /// `m_bRTrimPrevLine` (`bRTrimPrevLine`): Enter deletes the blanks at the end of the line it
     /// leaves. Off by default.
     pub rtrim_prev_line: bool,
+    /// `m_bIndentCppStringIgnore` (`bIndentCppStringIgnore`): the C/C++ smart indent does not count
+    /// the brackets in strings and char literals. On by default.
+    pub cpp_string_ignore: bool,
+    /// `m_bIndentCppCommentIgnore` (`bIndentCppCommentIgnore`): the same for comments. On by
+    /// default.
+    pub cpp_comment_ignore: bool,
+    /// `m_bIndentCppUndoSep` (`bIndentCppUndoSep`): the C/C++ smart indent is an undo step apart
+    /// from the typed char. Off by default.
+    pub cpp_undo_sep: bool,
 }
 
 impl Default for InputOptions {
@@ -52,6 +61,9 @@ impl Default for InputOptions {
             smart_indent: SmartIndent::None,
             indent_chars: String::new(),
             rtrim_prev_line: false,
+            cpp_string_ignore: true,
+            cpp_comment_ignore: true,
+            cpp_undo_sep: false,
         }
     }
 }

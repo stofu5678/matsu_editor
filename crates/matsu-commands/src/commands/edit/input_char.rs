@@ -676,6 +676,118 @@ mod tests {
         e.run("undo").assert_marked("{\n\t|");
     }
 
+    // `m_bIndentCppStringIgnore`, `m_bIndentCppCommentIgnore`, `m_bIndentCppUndoSep`
+    // (`SmartIndent_CPP`, `sakura_core/types/CType_Cpp.cpp`).
+
+    #[test]
+    fn smart_indent_cpp_ignores_or_counts_the_brackets_in_strings() {
+        let before = "void f() {\n\tif (x) {\n\t\ts = \"}\";\n\t\t|";
+        // on: the `}` in the string is not a bracket, the inner `{` is the opener
+        with(
+            &cpp(),
+            '}',
+            before,
+            "void f() {\n\tif (x) {\n\t\ts = \"}\";\n\t}|",
+        );
+        // off: it closes the inner `{`, and the typed `}` goes to the level of the outer one
+        let off = InputOptions {
+            cpp_string_ignore: false,
+            ..cpp()
+        };
+        with(
+            &off,
+            '}',
+            before,
+            "void f() {\n\tif (x) {\n\t\ts = \"}\";\n}|",
+        );
+        // the comments are still ignored when only the strings are not
+        let comment = "void f() {\n\tif (x) {\n\t\t// }\n\t\t|";
+        with(&off, '}', comment, "void f() {\n\tif (x) {\n\t\t// }\n\t}|");
+        // a bracket between quotes never counts, whatever the options say
+        let literal = "void f() {\n\tif (x) {\n\t\tc = '}';\n\t\t|";
+        with(
+            &off,
+            '}',
+            literal,
+            "void f() {\n\tif (x) {\n\t\tc = '}';\n\t}|",
+        );
+    }
+
+    #[test]
+    fn smart_indent_cpp_ignores_or_counts_the_brackets_in_comments() {
+        let before = "void f() {\n\tif (x) {\n\t\t// }\n\t\t|";
+        with(
+            &cpp(),
+            '}',
+            before,
+            "void f() {\n\tif (x) {\n\t\t// }\n\t}|",
+        );
+        let off = InputOptions {
+            cpp_comment_ignore: false,
+            ..cpp()
+        };
+        with(&off, '}', before, "void f() {\n\tif (x) {\n\t\t// }\n}|");
+        let block = "void f() {\n\tif (x) {\n\t\t/* } */\n\t\t|";
+        with(
+            &cpp(),
+            '}',
+            block,
+            "void f() {\n\tif (x) {\n\t\t/* } */\n\t}|",
+        );
+        with(&off, '}', block, "void f() {\n\tif (x) {\n\t\t/* } */\n}|");
+        // strings are still ignored when only the comments are not
+        let string = "void f() {\n\tif (x) {\n\t\ts = \"}\";\n\t\t|";
+        with(
+            &off,
+            '}',
+            string,
+            "void f() {\n\tif (x) {\n\t\ts = \"}\";\n\t}|",
+        );
+    }
+
+    #[test]
+    fn smart_indent_cpp_with_both_ignores_off_counts_everything() {
+        let off = InputOptions {
+            cpp_string_ignore: false,
+            cpp_comment_ignore: false,
+            ..cpp()
+        };
+        // the `(` in the string cancels the `)`, so the `(` of `foo(` is an open bracket
+        let before = "foo(\"(\");|";
+        with(&off, '\r', before, "foo(\"(\");\n\t|");
+        with(&cpp(), '\r', before, "foo(\"(\");\n|");
+    }
+
+    #[test]
+    fn smart_indent_cpp_undo_sep_makes_the_indentation_a_step_of_its_own() {
+        let sep = InputOptions {
+            cpp_undo_sep: true,
+            ..cpp()
+        };
+        // off (the default): the line break and the indentation are one step
+        let mut e = Editor::new("\tif (x) {|")
+            .with_new_line(Eol::Lf)
+            .with_input_options(cpp());
+        e.run_with(ID, &[Arg::Char('\r')])
+            .assert_marked("\tif (x) {\n\t\t|");
+        e.run("undo").assert_marked("\tif (x) {|");
+        // on: the first undo takes the indentation only
+        let mut e = Editor::new("\tif (x) {|")
+            .with_new_line(Eol::Lf)
+            .with_input_options(sep.clone());
+        e.run_with(ID, &[Arg::Char('\r')])
+            .assert_marked("\tif (x) {\n\t\t|");
+        e.run("undo").assert_marked("\tif (x) {\n\t|");
+        e.run("undo").assert_marked("\tif (x) {|");
+        // nothing changes, so nothing is split
+        let mut e = Editor::new("foo();|")
+            .with_new_line(Eol::Lf)
+            .with_input_options(sep);
+        e.run_with(ID, &[Arg::Char('\r')])
+            .assert_marked("foo();\n|");
+        e.run("undo").assert_marked("foo();|");
+    }
+
     #[test]
     fn ctrl_code_runs_the_smart_indent_too() {
         // `F_CTRL_CODE` is `Command_WCHAR( c, false )`

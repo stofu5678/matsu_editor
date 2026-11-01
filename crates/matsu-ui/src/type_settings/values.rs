@@ -426,26 +426,10 @@ pub(super) fn load(
     s(&mut v, EXT_HTML_HELP, &t.ext_html_help);
     b(&mut v, HTML_HELP_SINGLE, t.html_help_is_single);
     b(&mut v, CHK_ENTER_AT_END, t.warn_mixed_eol);
-    b(
-        &mut v,
-        INDENT_CPP_STRING,
-        raw_bool(profile, index, "bIndentCppStringIgnore", true),
-    );
-    b(
-        &mut v,
-        INDENT_CPP_COMMENT,
-        raw_bool(profile, index, "bIndentCppCommentIgnore", true),
-    );
-    b(
-        &mut v,
-        INDENT_CPP_UNDO,
-        raw_bool(profile, index, "bIndentCppUndoSep", false),
-    );
-    b(
-        &mut v,
-        DETECT_INDENT,
-        raw_bool(profile, index, "bDetectIndentationStyleOnFileLoad", true),
-    );
+    b(&mut v, INDENT_CPP_STRING, t.indent_cpp_string_ignore);
+    b(&mut v, INDENT_CPP_COMMENT, t.indent_cpp_comment_ignore);
+    b(&mut v, INDENT_CPP_UNDO, t.indent_cpp_undo_sep);
+    b(&mut v, DETECT_INDENT, t.detect_indentation_on_load);
 
     // 正規表現キーワード
     b(&mut v, USE_REGEX, t.use_regex_keyword);
@@ -586,6 +570,11 @@ pub(super) fn store(v: &Values, original: &TypeSettings) -> TypeSettings {
     t.ext_help = fit(v.text(EXT_HELP), PATH_BUFFER);
     t.ext_html_help = fit(v.text(EXT_HTML_HELP), PATH_BUFFER);
     t.html_help_is_single = v.bool(HTML_HELP_SINGLE);
+    t.warn_mixed_eol = v.bool(CHK_ENTER_AT_END);
+    t.indent_cpp_string_ignore = v.bool(INDENT_CPP_STRING);
+    t.indent_cpp_comment_ignore = v.bool(INDENT_CPP_COMMENT);
+    t.indent_cpp_undo_sep = v.bool(INDENT_CPP_UNDO);
+    t.detect_indentation_on_load = v.bool(DETECT_INDENT);
 
     // 正規表現キーワード (`CPropTypesRegex::GetData`)
     t.use_regex_keyword = v.bool(USE_REGEX);
@@ -672,6 +661,11 @@ pub(super) fn merge(base: &TypeSettings, old: &TypeSettings, new: &TypeSettings)
         ext_help,
         ext_html_help,
         html_help_is_single,
+        warn_mixed_eol,
+        indent_cpp_string_ignore,
+        indent_cpp_comment_ignore,
+        indent_cpp_undo_sep,
+        detect_indentation_on_load,
         use_key_word_help,
         use_key_help_all_search,
         use_key_help_key_disp,
