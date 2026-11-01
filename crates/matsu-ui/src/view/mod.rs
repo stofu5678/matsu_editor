@@ -43,7 +43,7 @@ use gpui::{
     KeyDownEvent, MouseButton, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Window, actions, div, px,
 };
-use matsu_commands::command::{Arg, CommandError, Registration};
+use matsu_commands::command::{Arg, Registration};
 use matsu_commands::context::{Changes, CommandContext};
 use matsu_commands::keymap::{Key, KeyMap, Lookup};
 use matsu_commands::registry::Registry;
@@ -210,6 +210,9 @@ pub struct EditorView {
     /// The auto scroll of the middle button (`view/autoscroll.rs`).
     pub(crate) autoscroll: autoscroll::AutoScroll,
     pub(crate) notice: Option<String>,
+    /// Message boxes that commands asked for (`Changes::message_box`), shown by the next paint,
+    /// which has the window.
+    pending_message_boxes: Vec<String>,
     /// A jump to a place the scan of the file has not reached, held back until it is done
     /// (`view/scan.rs`).
     pub(crate) pending_scan_jump: Option<scan::PendingScanJump>,
@@ -307,6 +310,7 @@ impl EditorView {
             click_phase: 1,
             autoscroll: Default::default(),
             notice: None,
+            pending_message_boxes: Vec::new(),
             pending_scan_jump: None,
             refused_edit: false,
             replaying_scan_jump: false,
@@ -457,11 +461,13 @@ impl EditorView {
         {
             let _ = self.layout.layout_all(self.document.read(cx).doc());
         }
+        // Cleared before the command, which may leave a notice of its own (`Changes::status_message`).
+        self.notice = None;
         let result = self.run_with(cx, |command_cx| reg.run(command_cx, args));
         let ok = result.is_ok();
-        self.notice = result
-            .err()
-            .map(|e: CommandError| format!("{}: {e}", reg.id));
+        if let Err(e) = result {
+            self.notice = Some(format!("{}: {e}", reg.id));
+        }
         self.say_why_refused(cx);
         cx.notify();
         ok
@@ -551,6 +557,27 @@ impl EditorView {
         ok
     }
 
+    /// Shows the message boxes that commands asked for: the caption, the text and an OK button.
+    /// A box does not make a macro wait, as for `StatusMsg`.
+    fn show_pending_message_boxes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.pending_message_boxes.is_empty() {
+            return;
+        }
+        let texts = std::mem::take(&mut self.pending_message_boxes);
+        // not while painting: a box opened there would be asked for in the middle of the frame
+        cx.defer_in(window, move |_, window, cx| {
+            for text in &texts {
+                crate::boxes::tell(
+                    window,
+                    gpui::PromptLevel::Info,
+                    crate::boxes::CAPTION,
+                    Some(text),
+                    cx,
+                );
+            }
+        });
+    }
+
     /// Types one character the way the keyboard does (Enter is `'\r'`).
     pub(crate) fn type_char(&mut self, c: char, cx: &mut Context<Self>) {
         self.run_command("input_char", &[Arg::Char(c)], cx);
@@ -569,6 +596,13 @@ impl EditorView {
             self.notice = None;
         }
         self.refused_edit = changes.refused_in_view_mode;
+        // After the clearing above: what the command says is for this very state of the text.
+        if let Some(text) = &changes.status_message {
+            self.notice = Some(text.clone());
+        }
+        if let Some(text) = changes.message_box.clone() {
+            self.pending_message_boxes.push(text);
+        }
         self.completion_after_command(changes, cx);
         // While a macro runs, a command that moved nothing leaves the view where it is:
         // `SetViewTop` scrolls away from the caret, and the calls after it must not scroll back
@@ -852,6 +886,7 @@ impl Render for EditorView {
         if self.support.key_help.tip.is_some() && !self.focus_handle.is_focused(window) {
             self.support.key_help.tip = None;
         }
+        self.show_pending_message_boxes(window, cx);
         self.follow_window_width(cx);
         self.advance_layout(window, cx);
         self.advance_colors(window, cx);

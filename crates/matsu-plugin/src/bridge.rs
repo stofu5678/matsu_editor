@@ -290,6 +290,11 @@ impl MacroDocument for ContextDocument<'_, '_> {
         self.keep(result);
     }
 
+    fn move_cursor_box(&mut self, pos: (usize, usize)) {
+        let result = self.cx.move_caret_selecting_box(Pos::new(pos.0, pos.1));
+        self.keep(result);
+    }
+
     fn move_vertical(&mut self, delta: isize) {
         let result = self.cx.move_vertical(delta, false);
         self.keep(result);

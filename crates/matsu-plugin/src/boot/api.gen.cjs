@@ -132,8 +132,9 @@ module.exports = function install(call) {
      * MoveCursor(line: int, column: int, option: int) -> null
      *
      * Moves the cursor to a line and a column, both counted from 1. The column counts UTF-16
-     * code units. Option: 0 does not select, 1 selects from the old position. (2, the box
-     * selection, is not supported.) Past the end of the text it goes to the end of the text.
+     * code units. Option: 0 does not select, 1 selects from the old position, 2 selects a box
+     * with the old and the new position as corners (2 wins over 1). Past the end of the text it
+     * goes to the end of the text.
      */
     MoveCursor(line, column, option) {
       // A trailing undefined is a missing argument, not a null.

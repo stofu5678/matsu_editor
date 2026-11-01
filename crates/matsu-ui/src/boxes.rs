@@ -86,6 +86,9 @@ pub(crate) fn prompt_async(
     async move { answer.await.map_err(|_| Closed) }
 }
 
+/// The caption of a message box (Sakura shows its own name).
+pub(crate) const CAPTION: &str = "MATSU Editor";
+
 /// Tells the user something in a box with an OK button, and does not wait for the OK.
 pub(crate) fn tell(
     window: &mut Window,
