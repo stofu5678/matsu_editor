@@ -100,8 +100,8 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         let vertical = self.metrics.visible_rows() < self.layout.row_count() + 2;
-        let columns = (self.metrics.view_width / self.metrics.cell_width).floor();
-        let horizontal = columns < self.widest_cols as f32;
+        // `m_nViewColNum < GetRightEdgeForScrollBar()`.
+        let horizontal = self.view_columns() < self.h_right_edge();
         if !vertical && !horizontal {
             self.autoscroll = AutoScroll::Off;
             return;

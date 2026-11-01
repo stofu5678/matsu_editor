@@ -30,10 +30,8 @@ impl UiCommand for SetViewLeft {
         cx: &mut Context<EditorView>,
     ) -> Result {
         let column = position("SetViewLeft", args)?;
-        let cell = view.metrics.cell_width;
-        let widest = (view.widest_cols as f32 + 1.0) * cell;
-        let max_x = (widest - view.metrics.view_width).max(0.0);
-        view.scroll_x = (column as f32 * cell).min(max_x);
+        // `ScrollAtH` keeps the column inside the range of the horizontal scroll bar.
+        view.scroll_to_col(column as f32);
         cx.notify();
         Ok(())
     }

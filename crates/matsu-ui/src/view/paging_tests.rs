@@ -45,6 +45,9 @@ fn setup(cx: &mut TestAppContext) -> (Entity<EditorView>, &mut VisualTestContext
         .map(|i| format!("line {i}"))
         .collect::<Vec<_>>()
         .join("\n");
+    // A wide last line, so that there are columns to scroll over (a text that fits in the view
+    // does not scroll sideways, as in Sakura).
+    let text = format!("{text}{}", "x".repeat(500));
     let doc = Document::from_utf8(text.into_bytes()).unwrap();
     let document = cx.new(|_| SharedDocument::new(DocumentModel::new(doc), None));
     let (view, vcx) = cx.add_window_view(move |window, cx| {

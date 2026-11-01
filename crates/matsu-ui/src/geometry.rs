@@ -4,6 +4,17 @@
 /// The width of the vertical scroll bar.
 pub const SCROLLBAR_WIDTH: f32 = 14.0;
 
+/// The height of the horizontal scroll bar, and the side of its arrow buttons. The corner where
+/// the two bars meet is a square of this size (where Sakura has the size box).
+pub const HSCROLLBAR_HEIGHT: f32 = SCROLLBAR_WIDTH;
+
+/// How many columns an arrow of the horizontal scroll bar moves (`CEditView::OnHScroll`:
+/// `GetLayoutXDefault(CKetaXInt(4))`).
+pub const HSCROLL_LINE_COLUMNS: f32 = 4.0;
+
+/// The width of an arrow button of the horizontal scroll bar.
+pub const HSCROLL_ARROW: f32 = HSCROLLBAR_HEIGHT;
+
 /// What the last paint measured. Before the first paint [`Metrics::default`] stands in, so that
 /// keys and the mouse work (and tests run) without a window that has been drawn.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -135,6 +146,81 @@ impl Scrollbar {
     }
 }
 
+/// The horizontal scroll bar: two arrow buttons around a track, and a thumb on the track. It is
+/// worked out in columns, as Sakura's `SetScrollInfo` call is (`CEditView::AdjustScrollBars`):
+/// the range is `0..range`, the thumb is `page` of them wide, and its position is the left
+/// column of the view.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HScrollbar {
+    /// The right edge of what can be scrolled to, in columns (`GetRightEdgeForScrollBar`).
+    pub range: u32,
+    /// The columns in view (`m_nViewColNum`), at most `range`.
+    pub page: u32,
+    /// The left column of the view (`GetViewLeftCol`), at most the last position.
+    pub pos: f32,
+    /// The room for the thumb: the bar without its two arrow buttons.
+    pub track_width: f32,
+    /// The thumb, from the start of the track.
+    pub thumb_left: f32,
+    pub thumb_width: f32,
+}
+
+impl HScrollbar {
+    /// The smallest thumb, as the vertical bar has.
+    const MIN_THUMB: f32 = 24.0;
+
+    /// `bar_width` is the width of the whole bar.
+    pub fn new(range: u32, page: u32, left_col: f32, bar_width: f32) -> Self {
+        // `setScrollInfoIfNeeded`: the page and the position are kept inside the range.
+        let range = range.max(1);
+        let page = page.min(range);
+        let track = (bar_width - 2.0 * HSCROLL_ARROW).max(0.0);
+        let travel_cols = (range - page) as f32;
+        let thumb_width = (track * (page as f32 / range as f32))
+            .max(Self::MIN_THUMB)
+            .min(track);
+        let pos = left_col.clamp(0.0, travel_cols);
+        let ratio = if travel_cols > 0.0 {
+            pos / travel_cols
+        } else {
+            0.0
+        };
+        Self {
+            range,
+            page,
+            pos,
+            track_width: track,
+            thumb_left: (track - thumb_width) * ratio,
+            thumb_width,
+        }
+    }
+
+    /// There is something to scroll to (`m_nViewColNum < GetRightEdgeForScrollBar()`); if not, the
+    /// bar is drawn without a thumb.
+    pub fn enabled(&self) -> bool {
+        self.page < self.range
+    }
+
+    /// The left column for a thumb dragged by `dx` pixels from where it was at `start_col`
+    /// (`SB_THUMBTRACK`: a whole column).
+    pub fn col_for_drag(&self, start_col: f32, dx: f32) -> f32 {
+        let travel = self.track_width - self.thumb_width;
+        if travel <= 0.0 || !self.enabled() {
+            return start_col;
+        }
+        (start_col + (self.range - self.page) as f32 * (dx / travel))
+            .round()
+            .clamp(0.0, (self.range - self.page) as f32)
+    }
+}
+
+/// The farthest the view can scroll right, as a left column (`CEditView::ScrollAtH`): the right
+/// edge and the room for the hanging punctuation, less the columns in view. The bar itself stops
+/// `overhang` columns short of this.
+pub fn max_left_col(range: u32, overhang: u32, page: u32) -> f32 {
+    (range + overhang).saturating_sub(page) as f32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,5 +290,45 @@ mod tests {
         let fit = Scrollbar::new(&m, 3, 0.0);
         assert_eq!(fit.thumb_height, 100.0);
         assert_eq!(fit.scroll_for_drag(&m, 3, 0.0, 50.0), 0.0);
+    }
+
+    #[test]
+    fn the_horizontal_thumb_follows_the_columns() {
+        // 100 columns, 40 in view, a bar of 300 pixels: 272 for the track.
+        let at_left = HScrollbar::new(100, 40, 0.0, 300.0);
+        assert!(at_left.enabled());
+        assert_eq!(at_left.track_width, 272.0);
+        assert!((at_left.thumb_width - 108.8).abs() < 1e-3);
+        assert_eq!(at_left.thumb_left, 0.0);
+        let at_right = HScrollbar::new(100, 40, 60.0, 300.0);
+        assert!((at_right.thumb_left + at_right.thumb_width - 272.0).abs() < 1e-3);
+        // A position past the last one stops at the end of the track.
+        assert_eq!(HScrollbar::new(100, 40, 90.0, 300.0), at_right);
+    }
+
+    #[test]
+    fn the_horizontal_bar_is_off_when_everything_is_in_view() {
+        assert!(!HScrollbar::new(40, 40, 0.0, 300.0).enabled());
+        assert!(!HScrollbar::new(30, 40, 0.0, 300.0).enabled());
+        assert!(HScrollbar::new(41, 40, 0.0, 300.0).enabled());
+    }
+
+    #[test]
+    fn dragging_the_horizontal_thumb_moves_whole_columns() {
+        let bar = HScrollbar::new(100, 40, 0.0, 300.0);
+        let travel = bar.track_width - bar.thumb_width;
+        assert_eq!(bar.col_for_drag(0.0, 0.0), 0.0);
+        assert_eq!(bar.col_for_drag(0.0, travel), 60.0);
+        assert_eq!(bar.col_for_drag(0.0, travel * 5.0), 60.0);
+        assert_eq!(bar.col_for_drag(10.0, -travel), 0.0);
+        let half = bar.col_for_drag(0.0, travel / 2.0);
+        assert_eq!(half, 30.0);
+    }
+
+    #[test]
+    fn the_view_can_scroll_the_overhang_past_the_bar() {
+        // ScrollAtH: right edge + overhang - columns in view.
+        assert_eq!(max_left_col(100, 3, 40), 63.0);
+        assert_eq!(max_left_col(30, 3, 40), 0.0);
     }
 }

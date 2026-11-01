@@ -67,8 +67,10 @@ impl EditorView {
     }
 
     fn on_scrollbar(&self, p: Point<Pixels>) -> bool {
-        self.paint
-            .is_none_or(|paint| f32::from(p.x) >= paint.scrollbar_left)
+        self.paint.is_none_or(|paint| {
+            f32::from(p.x) >= paint.scrollbar_left
+                || paint.hbar.is_some_and(|bar| f32::from(p.y) >= bar.top)
+        })
     }
 
     pub(crate) fn on_right_mouse_down(

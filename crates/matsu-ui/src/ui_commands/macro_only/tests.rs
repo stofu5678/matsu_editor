@@ -298,8 +298,7 @@ fn set_view_top_refuses_what_is_not_a_number_of_0_or_more(cx: &mut TestAppContex
 
 #[gpui::test]
 fn set_view_left_scrolls_by_columns(cx: &mut TestAppContext) {
-    let (f, cx) = setup(cx, &lines_of(10));
-    f.view.update(cx, |v, _| v.widest_cols = 500);
+    let (f, cx) = setup(cx, &format!("{}{}", lines_of(10), "x".repeat(500)));
     let cell = f.view.read_with(cx, |v, _| v.metrics().cell_width);
     assert!(f.run(cx, "F_SETVIEWLEFT", &[Arg::Int(11)]));
     assert_eq!(f.view.read_with(cx, |v, _| v.scroll_x), 10.0 * cell);

@@ -426,6 +426,43 @@ impl DocumentLayout {
         Ok(())
     }
 
+    /// The widest end column among the rows of the lines `first..`, going on for about `budget`,
+    /// and the line where it stopped (the line count when it is done). It is the text width that
+    /// Sakura keeps in `CLayoutMgr::m_nTextWidth` (`CalculateTextWidth`), found here on request
+    /// because the index does not lay a line out unless it can have more than one row. A very
+    /// long line is left out: it is shown as rows of fixed size, whose width is the width of the
+    /// rows that are read for painting.
+    pub fn widest_columns(
+        &self,
+        doc: &Document,
+        first: usize,
+        budget: Duration,
+    ) -> Result<(u32, usize)> {
+        let start = Instant::now();
+        let total = doc.line_count();
+        let mut widest = 0;
+        let mut rows = Vec::new();
+        let mut line = first;
+        while line < total {
+            let step_end = (line + STEP_LINES).min(total);
+            for i in line..step_end {
+                if self.long_rows(doc, i)?.is_some() {
+                    continue;
+                }
+                let Some(text) = doc.line(i)? else {
+                    return Ok((widest, total));
+                };
+                layout_line(&text.text, text.eol.is_some(), &self.cfg, &mut rows);
+                widest = rows.iter().map(|r| r.end_column).fold(widest, u32::max);
+            }
+            line = step_end;
+            if start.elapsed() >= budget {
+                break;
+            }
+        }
+        Ok((widest, line))
+    }
+
     /// Lays out everything that is left.
     pub fn layout_all(&mut self, doc: &Document) -> Result<()> {
         self.layout_chunk(doc, usize::MAX).map(|_| ())

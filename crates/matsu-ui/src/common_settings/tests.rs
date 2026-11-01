@@ -532,6 +532,42 @@ fn ok_changes_every_open_window_at_once(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn ok_gives_every_window_the_horizontal_scroll_bar_or_takes_it_away(cx: &mut TestAppContext) {
+    let (ini, first) = setup(cx, INI);
+    let second = open_window(cx);
+    let bars = |cx: &mut TestAppContext| -> Vec<bool> {
+        cx.run_until_parked();
+        cx.update(editors)
+            .into_iter()
+            .map(|(_, view)| view.read_with(cx, |v, _| v.paint.is_some_and(|p| p.hbar.is_some())))
+            .collect()
+    };
+    // Sakura's default: on.
+    assert!(cx.update(|app| crate::view::hscroll::shown(app)));
+    assert_eq!(bars(cx), [true, true]);
+    run(cx, first, "F_OPTION_WINDOW");
+    check(cx, "scroll_bar_horz", false);
+    ok(cx);
+    assert_eq!(ini.get("bScrollBarHorz").as_deref(), Some("0"));
+    assert_eq!(bars(cx), [false, false], "both windows");
+    // The dialog started from the other window shows the setting as it is now.
+    run(cx, second, "F_OPTION_WINDOW");
+    check(cx, "scroll_bar_horz", true);
+    ok(cx);
+    assert_eq!(ini.get("bScrollBarHorz").as_deref(), Some("1"));
+    assert_eq!(bars(cx), [true, true]);
+    // A window opened later has the bar too.
+    open_window(cx);
+    assert_eq!(bars(cx), [true, true, true]);
+}
+
+#[gpui::test]
+fn the_setting_of_the_file_is_taken_at_startup(cx: &mut TestAppContext) {
+    let (_ini, _handle) = setup(cx, "[Common]\r\nbScrollBarHorz=0\r\n");
+    assert!(!cx.update(|app| crate::view::hscroll::shown(app)));
+}
+
+#[gpui::test]
 fn the_panes_of_every_tab_take_the_status_bar(cx: &mut TestAppContext) {
     let (_ini, handle) = setup(cx, "[Common]\r\nbDispTabWnd=1\r\n");
     run(cx, handle, "F_FILENEW");
