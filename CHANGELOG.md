@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.6.0](https://github.com/stofu5678/matsu_editor/compare/v0.5.2...v0.6.0) (2026-11-01)
+
+
+### Features
+
+* **database:** name the commands after the database and choose a connection to run ([#297](https://github.com/stofu5678/matsu_editor/issues/297)) ([5295020](https://github.com/stofu5678/matsu_editor/commit/5295020960e50892dbf7f3e905d35c9a463a5ecb))
+* **file-dialog:** list every document type in the save dialog ([#294](https://github.com/stofu5678/matsu_editor/issues/294)) ([813da82](https://github.com/stofu5678/matsu_editor/commit/813da82c21237ec9898b16646582c4ee7aacd3c1))
+* **macros:** list the file types of every macro language in the open dialogs ([#293](https://github.com/stofu5678/matsu_editor/issues/293)) ([9ef6859](https://github.com/stofu5678/matsu_editor/commit/9ef68596d75412dbae9d3e6a62341a9a9d35c184))
+* **menu:** open the menus with their access keys on Windows and Linux ([#303](https://github.com/stofu5678/matsu_editor/issues/303)) ([2077c47](https://github.com/stofu5678/matsu_editor/commit/2077c472f66456b74c670a9385111ba946098e30))
+
+
+### Bug Fixes
+
+* **settings:** add MATSU's own menu items to menus saved before them ([#295](https://github.com/stofu5678/matsu_editor/issues/295)) ([f2fd99b](https://github.com/stofu5678/matsu_editor/commit/f2fd99bcb327c3cafdd1c7a19f142443d9cb15d4))
+* **settings:** keep the menu commands MATSU cannot name when the menus are saved ([#305](https://github.com/stofu5678/matsu_editor/issues/305)) ([61adef6](https://github.com/stofu5678/matsu_editor/commit/61adef621f2217f709643a95bb82a7b0d7ba966b))
+
 ## [0.5.2](https://github.com/stofu5678/matsu_editor/compare/v0.5.1...v0.5.2) (2026-10-31)
 
 
