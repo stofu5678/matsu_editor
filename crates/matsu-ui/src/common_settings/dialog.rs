@@ -274,10 +274,12 @@ impl CommonSettingsDialog {
             loop {
                 cx.background_executor().timer(REFRESH).await;
                 let alive = this
-                    .update_in(cx, |_, window, cx| {
+                    .update_in(cx, |this, window, cx| {
                         if editors(cx).is_empty() {
                             window.remove_window();
                         }
+                        // The keyword sets may have been renumbered in the common settings.
+                        this.follow_keyword_renumbering(cx);
                     })
                     .is_ok();
                 if !alive {
@@ -338,6 +340,21 @@ impl CommonSettingsDialog {
     pub(crate) fn edit_values(&mut self, change: impl FnOnce(&mut Values), cx: &mut Context<Self>) {
         change(&mut self.values);
         cx.notify();
+    }
+
+    /// Is this the sheet of a document type?
+    pub(crate) fn is_type_sheet(&self) -> bool {
+        matches!(self.target, Target::Type(_))
+    }
+
+    /// Changes the type the sheet started from (what OK compares the values with).
+    pub(crate) fn change_type_original(
+        &mut self,
+        change: impl FnOnce(&mut matsu_config::settings::TypeSettings),
+    ) {
+        if let Target::Type(target) = &mut self.target {
+            change(&mut target.original);
+        }
     }
 
     /// The controls of the page that is shown, in the order they are drawn.
@@ -719,6 +736,7 @@ impl CommonSettingsDialog {
 
     /// OK: the values are written and every window takes them; the window closes.
     pub(crate) fn ok(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.follow_keyword_renumbering(cx);
         self.commit_inputs(cx);
         // The dialog 位置と大きさの設定 closes with the sheet; what it holds goes in first.
         if matches!(self.target, Target::Common) {

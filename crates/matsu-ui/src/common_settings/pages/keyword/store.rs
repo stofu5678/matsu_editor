@@ -93,10 +93,11 @@ fn store(rows: &[Row], profile: &mut Profile) -> Result<bool, ProfileError> {
         return Ok(false);
     }
     // The types as the file has them now, with the numbers of the old sets, and the numbers they must have.
-    let renumber = renumber(&entries, old.len());
+    let renumber: crate::common_settings::KeywordRenumbering =
+        std::rc::Rc::new(renumber(&entries, old.len()));
     let wanted: Vec<_> = DocumentTypes::from_profile(profile)
         .iter()
-        .map(|t| t.keyword_set_idx.map(&renumber))
+        .map(|t| t.keyword_set_idx.map(|n| renumber(n)))
         .collect();
     let mut changed = store_sets(profile, &drafts_of(&entries))?;
     // Read the types again from the file as it is now: a type that comes out with other numbers than it must
@@ -115,5 +116,7 @@ fn store(rows: &[Row], profile: &mut Profile) -> Result<bool, ProfileError> {
             changed = true;
         }
     }
+    // A sheet of the type settings that is open holds numbers too: it takes this when this dialog is closed.
+    crate::common_settings::publish_keyword_renumbering(renumber);
     Ok(changed)
 }

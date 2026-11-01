@@ -941,3 +941,22 @@ fn deleting_every_set_does_not_hide_a_change_of_the_file(cx: &mut TestAppContext
     cx.simulate_prompt_answer("OK");
     cx.run_until_parked();
 }
+
+#[test]
+fn what_the_write_did_to_the_numbers_is_given_to_a_sheet_of_the_type_settings_once() {
+    crate::common_settings::forget_keyword_renumbering();
+    let mut p = profile("[Other]\r\nx=1\r\n");
+    let mut entries = from_rows(&store::SETS.load(&p));
+    // Nothing changed: nothing to give.
+    assert!(!store::SETS.store(&rows_of(&entries), &mut p).unwrap());
+    assert!(crate::common_settings::take_keyword_renumbering().is_none());
+    // Set 0 is deleted and set 1 renamed with other words: its place is still known.
+    entry::remove_set(&mut entries, 0);
+    entries[0].name = "renamed".to_owned();
+    entries[0].words = vec!["other".to_owned()];
+    assert!(store::SETS.store(&rows_of(&entries), &mut p).unwrap());
+    let moved = crate::common_settings::take_keyword_renumbering().expect("given");
+    assert_eq!((moved(0), moved(1), moved(2), moved(-1)), (-1, 0, 1, -1));
+    // Only the first to ask gets it.
+    assert!(crate::common_settings::take_keyword_renumbering().is_none());
+}

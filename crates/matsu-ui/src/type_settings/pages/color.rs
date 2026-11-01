@@ -10,13 +10,15 @@
 //! show those of the chosen item, and a change of a control writes it back to the item
 //! ([`sync`]). OK puts the items into the type.
 //!
-//! Not available yet: the choice of the keyword sets (`CDlgKeywordSelect`, the sets are in the
-//! common settings 強調キーワード, which MATSU Editor does not have yet), 文字色統一 and 背景色統一
-//! (`CDlgSameColor`). The import and export of the colors are in `color_file`.
+//! The dialogs of the page: 文字色統一 and 背景色統一 (`CDlgSameColor`, in `same_color`) and the choice of
+//! the keyword sets 2 to 10 (`CDlgKeywordSelect`, in `keyword_select`). The import and export of the colors
+//! are in `color_file`.
 
 use matsu_config::settings::ColorSet;
 
 use super::super::ids::*;
+use super::keyword_select::first_set;
+use super::same_color::Which;
 use crate::common_settings::model::{Control, Item, Values};
 
 /// `STR_STRINGESC_*`: how a quote inside a string is written (the list in `CPropTypesColor.cpp`).
@@ -175,13 +177,6 @@ pub(in crate::type_settings) fn sync(values: &mut Values, changed: &'static str)
     }
 }
 
-fn no_action(
-    _: &mut crate::common_settings::CommonSettingsDialog,
-    _: &mut gpui::Window,
-    _: &mut gpui::Context<crate::common_settings::CommonSettingsDialog>,
-) {
-}
-
 pub(in crate::type_settings) fn items() -> Vec<Item> {
     vec![Item::Columns(vec![
         vec![Item::Group(
@@ -210,20 +205,22 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                         .when(has_text_color)
                         .on_change(sync)
                         .into(),
-                    Control::button(SAME_TEXT_COLOR, "文字色統一(&<)...", no_action)
-                        .unavailable()
-                        .when(has_text_color)
-                        .into(),
+                    Control::button(SAME_TEXT_COLOR, "文字色統一(&<)...", |d, _, cx| {
+                        d.same_color(Which::Text, cx);
+                    })
+                    .when(has_text_color)
+                    .into(),
                 ]),
                 Item::Row(vec![
                     Control::color(COLOR_BACK, "背景色(K)", "", 0)
                         .when(has_back_color)
                         .on_change(sync)
                         .into(),
-                    Control::button(SAME_BACK_COLOR, "背景色統一(&>)...", no_action)
-                        .unavailable()
-                        .when(has_back_color)
-                        .into(),
+                    Control::button(SAME_BACK_COLOR, "背景色統一(&>)...", |d, _, cx| {
+                        d.same_color(Which::Back, cx);
+                    })
+                    .when(has_back_color)
+                    .into(),
                 ]),
                 Item::Row(vec![
                     Control::button(COLORS_IMPORT, "インポート(&I)...", |d, window, cx| {
@@ -243,16 +240,16 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
             Item::Group(
                 "強調キーワード",
                 vec![
-                    Control::text(KEYWORD1_NAME, "強調キーワード&1", "", "")
-                        .unavailable()
-                        .into(),
+                    Item::Custom(first_set),
                     Item::Row(vec![
-                        Control::button(KEYWORD_SELECT, "&2～10...", no_action)
-                            .unavailable()
-                            .into(),
-                        Control::button(KEYWORD_EDIT, "共通設定(&C)...", no_action)
-                            .unavailable()
-                            .into(),
+                        Control::button(KEYWORD_SELECT, "&2～10...", |d, _, cx| {
+                            d.keyword_select(cx);
+                        })
+                        .into(),
+                        Control::button(KEYWORD_EDIT, "共通設定(&C)...", |d, _, cx| {
+                            d.keyword_edit(cx);
+                        })
+                        .into(),
                     ]),
                 ],
             ),
