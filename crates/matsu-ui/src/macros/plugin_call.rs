@@ -634,6 +634,11 @@ impl EditorView {
         self.macros.event_serving != self.macros.event_next
     }
 
+    /// A macro runs on this window (or waits for a dialog).
+    pub(crate) fn macro_suspended(&self) -> bool {
+        self.macros.is_suspended()
+    }
+
     /// The window began with a file: `EditorStart` is due after it is read.
     pub(crate) fn mark_editor_start_due(&mut self) {
         self.macros.editor_start_due = true;

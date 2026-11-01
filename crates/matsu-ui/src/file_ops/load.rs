@@ -198,6 +198,19 @@ pub(crate) async fn load_here(
     encoding: Option<Encoding>,
     restore: Option<Pos>,
 ) -> bool {
+    let opened = load_here_inner(view, cx, path, encoding, restore).await;
+    // A window that began with a file calls EditorStart whatever came of the read (declined, failed).
+    crate::plugin_events::start_editor_if_due(view, cx).await;
+    opened
+}
+
+async fn load_here_inner(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    path: &Path,
+    encoding: Option<Encoding>,
+    restore: Option<Pos>,
+) -> bool {
     // The version of the document when the read starts. The window stays usable while a big file
     // is read; if the document changed meanwhile (typing, or another load), the result is
     // dropped instead of replacing what the user did.
@@ -315,11 +328,17 @@ pub(crate) async fn load_here(
                 super::lock::relock_quietly(view, cx);
             }
             // the options of a launch (`-X=` `-Y=` `-TYPE=` `-M=`...)
+            // A macro that opened this file is waiting for the load to end: it is not waited for here.
+            let caller_macro = view
+                .read_with(cx, |view, _| view.macro_suspended())
+                .unwrap_or(false);
             super::start_options::after_load(view, cx, path, replaced);
             if open_event {
                 // ... and then the plugins of DocumentOpen, after the macro of `-M=` that
                 // `CNormalProcess` runs before them (`FileLoad`).
-                crate::macros::wait_for_the_macro(view, cx).await;
+                if !caller_macro {
+                    crate::macros::wait_for_the_macro(view, cx).await;
+                }
                 fire_and_wait(view, cx, Jack::DocumentOpen).await;
             }
             replaced
