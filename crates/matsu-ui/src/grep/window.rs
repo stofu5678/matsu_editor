@@ -22,6 +22,7 @@ use gpui::{
     Styled, Window, div, px, rgb,
 };
 use gpui_component::button::Button;
+use gpui_component::checkbox::Checkbox;
 use matsu_commands::clipboard::{ClipKind, Clipboard};
 use matsu_commands::command::CommandError;
 use matsu_core::buffer::{Eol, Pos};
@@ -43,6 +44,11 @@ const BOX_TITLE: &str = "MATSU Editor";
 /// How many pieces of the result wait for the window at most (the engine sends 32 KB at most in
 /// one).
 const QUEUE_LEN: usize = 64;
+
+/// How much of the result is held back at most while the real-time display is off. The result
+/// is written when this much has come, so that the memory and the time of one write stay bounded
+/// (Sakura writes every piece and only stops drawing).
+const HELD_LIMIT: usize = 1 << 20;
 
 /// The progress is sent at most this often.
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(50);
@@ -96,6 +102,14 @@ pub struct GrepWindow {
     progress: Option<(String, usize)>,
     /// The line where the result of the search that runs (or ran last) begins.
     start_line: usize,
+    /// The result is shown while the search runs (`SetDrawSwitch` in `CGrepAgent::DoGrep`, from
+    /// `m_bGrepRealTimeView`; the check box of the cancel dialog changes it while the search
+    /// runs).
+    real_time: bool,
+    /// The result that is not written yet because `real_time` is off, up to [`HELD_LIMIT`].
+    /// Sakura writes it as it comes and only stops drawing; the text is the same when the search
+    /// ends.
+    held: String,
     /// The dialog, while it is open.
     pub(crate) panel: Option<Entity<GrepPanel>>,
 }
@@ -122,7 +136,7 @@ impl GrepWindow {
 }
 
 /// What the search tells the window.
-enum Event {
+pub(super) enum Event {
     /// A piece of the result.
     Text(String),
     /// The file being searched and the hits so far.
@@ -464,6 +478,8 @@ impl EditorView {
         self.grep.key = Some(info.key.clone());
         self.grep.running = Some(cancel.clone());
         self.grep.progress = None;
+        self.grep.real_time = crate::search::prefs::prefs(cx).grep_real_time;
+        self.grep.held.clear();
         cx.notify();
 
         // Bounded: a search that finds faster than the window writes waits for it, so that the
@@ -498,10 +514,18 @@ impl EditorView {
     }
 
     /// Takes what the search sends. Returns whether it has ended.
-    fn grep_event(&mut self, event: Event, cx: &mut Context<Self>) -> bool {
+    pub(super) fn grep_event(&mut self, event: Event, cx: &mut Context<Self>) -> bool {
         match event {
             Event::Text(text) => {
-                self.grep_append(&text, cx);
+                if self.grep.real_time {
+                    self.grep_append(&text, cx);
+                } else {
+                    self.grep.held.push_str(&text);
+                    // Bounded: a large result is written in blocks, not kept whole.
+                    if self.grep.held.len() >= HELD_LIMIT {
+                        self.write_held_result(cx);
+                    }
+                }
                 false
             }
             Event::Progress(file, hits) => {
@@ -510,6 +534,8 @@ impl EditorView {
                 false
             }
             Event::Done(result) => {
+                // Whatever the search ended with (also a stop or an error), what it found is shown.
+                self.write_held_result(cx);
                 self.grep.running = None;
                 self.grep.progress = None;
                 match result {
@@ -522,6 +548,30 @@ impl EditorView {
                 true
             }
         }
+    }
+
+    /// Writes the result that was held back.
+    fn write_held_result(&mut self, cx: &mut Context<Self>) {
+        let held = std::mem::take(&mut self.grep.held);
+        if !held.is_empty() {
+            self.grep_append(&held, cx);
+        }
+    }
+
+    /// Whether the result is shown while the search runs.
+    #[cfg(test)]
+    pub(crate) fn grep_real_time(&self) -> bool {
+        self.grep.real_time
+    }
+
+    /// The check box 「リアルタイム表示」 of the bar that stops the search (`ApplyRealTimeView`):
+    /// turned on, the result so far is written at once.
+    pub(crate) fn set_grep_real_time(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.grep.real_time = on;
+        if on {
+            self.write_held_result(cx);
+        }
+        cx.notify();
     }
 
     /// `AddTail`: adds the text at the end of the document. The caret stays where it was.
@@ -586,6 +636,14 @@ impl EditorView {
                 .rounded_md()
                 .shadow_md()
                 .child(format!("Grep 中  {hits} 個  {file}"))
+                .child(
+                    Checkbox::new("grep-real-time")
+                        .label("リアルタイム表示")
+                        .checked(self.grep.real_time)
+                        .on_click(cx.listener(|view, checked: &bool, _, cx| {
+                            view.set_grep_real_time(*checked, cx);
+                        })),
+                )
                 .child(
                     Button::new("grep-stop")
                         .labelled("中断")

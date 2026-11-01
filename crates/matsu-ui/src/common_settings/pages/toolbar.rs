@@ -13,8 +13,10 @@
 //!
 //! The kind 外部マクロ lists the 50 registered macros (the page マクロ) with their names.
 //!
-//! Not built: the plugin commands (the kind プラグイン has none), `bToolBarIsFlat` (the buttons are
-//! always flat).
+//! `bToolBarIsFlat` (フラットなボタン) is the form of the buttons ([`ToolbarFlat`]): flat ones have no
+//! frame until the pointer is over them, the others are drawn raised.
+//!
+//! Not built: the plugin commands (the kind プラグイン has none).
 
 use gpui::{
     AnyElement, Context, InteractiveElement as _, IntoElement as _, ParentElement as _,
@@ -32,7 +34,7 @@ use super::super::Env;
 use super::super::dialog::CommonSettingsDialog;
 use super::super::func_lookup::{KINDS, codes_of_kind};
 use super::super::model::{Control, Item, Value, Values};
-use crate::bars::toolbar::ToolbarButtons;
+use crate::bars::toolbar::{ToolbarButtons, ToolbarFlat};
 use crate::bars::{self, icons};
 
 const SECTION: &str = "Toolbar";
@@ -280,7 +282,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                 true,
             )
             .in_section(SECTION)
-            .unavailable()
             .into(),
         ]),
         Item::Custom(draw),
@@ -525,6 +526,10 @@ fn draw(dialog: &CommonSettingsDialog, cx: &mut Context<CommonSettingsDialog>) -
 /// What OK does to the windows: every window's toolbar takes the list. At startup the toolbar
 /// took the file as it is (`crate::bars::install`).
 pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: Option<&Values>) {
+    let flat = ToolbarFlat(after.bool("toolbar_flat"));
+    if crate::bars::toolbar::is_flat(env.cx) != flat.0 {
+        env.cx.set_global(flat);
+    }
     if before.is_none() {
         return;
     }

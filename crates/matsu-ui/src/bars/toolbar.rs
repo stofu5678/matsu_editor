@@ -100,6 +100,29 @@ pub(crate) fn install(cx: &mut App, user: &crate::settings::UserSettings) {
     );
 }
 
+/// `m_bToolBarIsFlat` (`bToolBarIsFlat`, `[Toolbar]`): the buttons have no frame until the pointer
+/// is over them (`TBSTYLE_FLAT`). Without it Sakura draws every button raised. On by default:
+/// Sakura starts with it off only where Windows draws with visual styles, and there the OS draws
+/// the plain buttons flat as well, so the flat form is the nearest to what a fresh Sakura shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ToolbarFlat(pub bool);
+
+impl Default for ToolbarFlat {
+    fn default() -> Self {
+        Self(true)
+    }
+}
+
+impl Global for ToolbarFlat {}
+
+/// Whether the buttons are flat now.
+pub(crate) fn is_flat(cx: &App) -> bool {
+    cx.try_global::<ToolbarFlat>()
+        .copied()
+        .unwrap_or_default()
+        .0
+}
+
 /// The buttons now.
 fn buttons(cx: &App) -> ToolbarButtons {
     cx.try_global::<ToolbarButtons>()
@@ -256,6 +279,15 @@ pub(super) fn tooltip_text(code: u16, cx: &App) -> String {
     text
 }
 
+/// A button of a toolbar that is not flat: it is drawn raised all the time, with the frame of a
+/// push button.
+fn raised<E: Styled>(button: E) -> E {
+    button
+        .bg(rgb(0xe8e8e8))
+        .border_1()
+        .border_color(rgb(0xadadad))
+}
+
 impl Workspace {
     /// The toolbar at 100 %, if it is shown (the tests; the window uses the scale of its screen).
     #[cfg(test)]
@@ -321,6 +353,7 @@ impl Workspace {
             .icon
             .and_then(|index| icons::icon(index, icons::pixel_factor(scale_factor)));
         let name = crate::func_name::FuncNames::new().name(cx, code);
+        let flat = is_flat(cx);
         let main = super::semantics::tool_button(
             div().id(("tool-button", row * 1000 + column)),
             &name,
@@ -333,6 +366,7 @@ impl Workspace {
         .w(px(24.))
         .h(px(22.))
         .rounded_sm()
+        .when(!flat, raised)
         .when(pressed, |this| {
             this.bg(rgb(0xc4d8f0))
                 .border_1()
@@ -378,6 +412,7 @@ impl Workspace {
         .h(px(22.))
         .rounded_sm()
         .text_size(px(7.))
+        .when(!flat, raised)
         .child("▼")
         .when(enabled, |this| {
             this.cursor_pointer()

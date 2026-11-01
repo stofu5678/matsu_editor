@@ -21,9 +21,11 @@ pub(super) fn commit(
     after: &Values,
     opener: Option<AnyWindowHandle>,
 ) {
+    // A window that moved while the sheet was open keeps its new place in the file.
+    let stored = super::pages::window::keep_current_geometry(cx, before, after);
     let mut written: Option<Profile> = None;
     crate::history::write_settings(cx, |profile| {
-        let changed = after.store(controls, profile)?;
+        let changed = stored.store(controls, profile)?;
         written = Some(profile.clone());
         Ok(changed)
     });
@@ -34,7 +36,7 @@ pub(super) fn commit(
             .and_then(|user| user.profile().cloned())
             .unwrap_or_default();
         // The values are valid, so this only fails for a key or value the file cannot hold.
-        let _ = after.store(controls, &mut profile);
+        let _ = stored.store(controls, &mut profile);
         profile
     });
     let path = user.as_ref().and_then(crate::settings::history_file);

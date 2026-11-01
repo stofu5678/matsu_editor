@@ -741,21 +741,25 @@ fn the_modes_of_the_tags_file_search_reach_the_tag_jumps(cx: &mut TestAppContext
 fn the_search_page_leaves_what_is_not_available_alone(cx: &mut TestAppContext) {
     let (ini, handle) = setup(
         cx,
-        "[Common]\r\nszRegexpLib=onig.dll\r\nbGrepRealTime=1\r\nbGTJW_RETURN=0\r\n",
+        "[Common]\r\nszRegexpLib=onig.dll\r\nm_bInheritKeyOtherView=0\r\n",
     );
     run(cx, handle, "F_OPTION_GREP");
     type_in(cx, "regexp_lib", "other.dll");
-    check(cx, "grep_real_time", false);
-    check(cx, "gtjw_return", true);
-    check(cx, "inherit_key_other_view", false);
+    check(cx, "inherit_key_other_view", true);
+    // The options of Grep are live.
+    check(cx, "grep_real_time", true);
+    check(cx, "gtjw_return", false);
     ok(cx);
     assert_eq!(
         value(&ini, "Common", "szRegexpLib").as_deref(),
         Some("onig.dll")
     );
+    assert_eq!(
+        value(&ini, "Common", "m_bInheritKeyOtherView").as_deref(),
+        Some("0")
+    );
     assert_eq!(value(&ini, "Common", "bGrepRealTime").as_deref(), Some("1"));
     assert_eq!(value(&ini, "Common", "bGTJW_RETURN").as_deref(), Some("0"));
-    assert_eq!(value(&ini, "Common", "m_bInheritKeyOtherView"), None);
 }
 
 // ---- ファイル名表示 and ステータスバー ----

@@ -48,13 +48,28 @@ pub(crate) enum SaveMode {
 }
 
 impl SaveMode {
-    fn from_code(code: i32, default: Self) -> Self {
+    /// The number the settings file holds.
+    pub(crate) fn code(self) -> i32 {
+        match self {
+            Self::Default => 0,
+            Self::Save => 1,
+            Self::Set => 2,
+        }
+    }
+
+    fn from_code_or(code: i32, default: Self) -> Self {
         match code {
             0 => Self::Default,
             1 => Self::Save,
             2 => Self::Set,
             _ => default,
         }
+    }
+
+    /// The mode a number of the dialog stands for; a number that is none of the three is
+    /// 指定しない (`CDlgWinSize::SetData`).
+    pub(crate) fn from_code(code: i32) -> Self {
+        Self::from_code_or(code, Self::Default)
     }
 }
 
@@ -91,13 +106,34 @@ impl WindowState {
         let d = Self::default();
         let int = |key: &str, default: i32| profile.get_i32("Common", key).unwrap_or(default);
         Self {
-            size_mode: SaveMode::from_code(int(KEY_SIZE_MODE, 1), d.size_mode),
+            size_mode: SaveMode::from_code_or(int(KEY_SIZE_MODE, 1), d.size_mode),
             size_type: int(KEY_SIZE_TYPE, d.size_type),
             width: int(KEY_SIZE_CX, d.width),
             height: int(KEY_SIZE_CY, d.height),
-            pos_mode: SaveMode::from_code(int(KEY_POS_MODE, 0), d.pos_mode),
+            pos_mode: SaveMode::from_code_or(int(KEY_POS_MODE, 0), d.pos_mode),
             x: int(KEY_POS_X, d.x),
             y: int(KEY_POS_Y, d.y),
+        }
+    }
+
+    /// The keys of `[Common]` as the common settings dialog starts from them: what the windows
+    /// have now, which the file may not have yet (it is written a moment after a window moves).
+    pub(crate) fn put_into(&self, profile: &mut Profile) {
+        for (key, value) in [
+            (KEY_SIZE_MODE, self.size_mode.code()),
+            (KEY_SIZE_TYPE, self.size_type),
+            (KEY_SIZE_CX, self.width),
+            (KEY_SIZE_CY, self.height),
+            (KEY_POS_MODE, self.pos_mode.code()),
+            (KEY_POS_X, self.x),
+            (KEY_POS_Y, self.y),
+        ] {
+            let text = value.to_string();
+            // A file that already has the value stays as it is, byte for byte; a key that cannot
+            // be written to the copy is left as the file has it.
+            if profile.get("Common", key) != Some(text.as_str()) {
+                let _ = profile.set("Common", key, &text);
+            }
         }
     }
 

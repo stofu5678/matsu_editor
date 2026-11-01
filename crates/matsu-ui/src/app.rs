@@ -570,6 +570,9 @@ impl Workspace {
         // OK on the toolbar page changes the buttons of every window at once.
         cx.observe_global::<crate::bars::toolbar::ToolbarButtons>(|_, cx| cx.notify())
             .detach();
+        // So does the flat form of the buttons.
+        cx.observe_global::<crate::bars::toolbar::ToolbarFlat>(|_, cx| cx.notify())
+            .detach();
         // macOS: the native menu shows the marks of the active window.
         cx.observe_window_activation(window, |this, window, cx| {
             // The title has a format for the active window and another for the others.
@@ -585,6 +588,8 @@ impl Workspace {
                 this.menu_bar.update(cx, |bar, cx| bar.mouse_down(cx));
             }
             if window.is_window_active() {
+                // The click that made the window active may be the next press.
+                crate::view::mouse::window_activated(cx, window.window_handle().window_id());
                 defer_refresh_menu_states(cx, true);
                 // Another program may have changed the file while the window was in the background.
                 crate::file_watch::spawn_check(this.panes().active().clone(), window, cx);
