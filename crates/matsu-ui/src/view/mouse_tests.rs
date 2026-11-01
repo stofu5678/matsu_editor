@@ -766,3 +766,85 @@ fn cancelling_with_the_marked_range_takes_the_gap_spaces_too(cx: &mut TestAppCon
     });
     assert_eq!(f.lines(cx), ["ab", "cd"]);
 }
+
+// ---- the click that activates the window ----
+
+/// The window became active, as the observer of the application notes it.
+fn activate(cx: &mut VisualTestContext) {
+    cx.update(|window, app| {
+        super::mouse::window_activated(app, window.window_handle().window_id())
+    });
+}
+
+fn no_caret_move_by_activation(cx: &mut VisualTestContext, on: bool) {
+    cx.update(|_, app| app.set_global(crate::common_settings::NoCaretMoveByActivation(on)));
+}
+
+#[gpui::test]
+fn the_click_that_activates_the_window_does_not_move_the_caret_when_asked(cx: &mut TestAppContext) {
+    let _o = options();
+    let (f, cx) = setup(cx, "foo bar\nbaz");
+    no_caret_move_by_activation(cx, true);
+    activate(cx);
+    // `WM_MOUSEACTIVATE` eats the click (`MA_ACTIVATEANDEAT`): no caret, no selection.
+    down_at(&f, cx, 1, 2, 1, Modifiers::default());
+    up_at(&f, cx, 1, 2, Modifiers::default());
+    assert_eq!(f.caret(cx), Pos::new(0, 0));
+    assert_eq!(selection(&f, cx), None);
+    // The next click is an ordinary one.
+    down_at(&f, cx, 1, 2, 1, Modifiers::default());
+    up_at(&f, cx, 1, 2, Modifiers::default());
+    assert_eq!(f.caret(cx), Pos::new(1, 2));
+}
+
+#[gpui::test]
+fn the_click_that_activates_the_window_moves_the_caret_when_not_asked(cx: &mut TestAppContext) {
+    let _o = options();
+    let (f, cx) = setup(cx, "foo bar\nbaz");
+    no_caret_move_by_activation(cx, false);
+    activate(cx);
+    down_at(&f, cx, 1, 2, 1, Modifiers::default());
+    up_at(&f, cx, 1, 2, Modifiers::default());
+    assert_eq!(f.caret(cx), Pos::new(1, 2));
+}
+
+#[gpui::test]
+fn a_click_in_a_window_that_was_already_active_moves_the_caret(cx: &mut TestAppContext) {
+    let _o = options();
+    let (f, cx) = setup(cx, "foo bar\nbaz");
+    no_caret_move_by_activation(cx, true);
+    // No activation came before: the window was active already.
+    down_at(&f, cx, 1, 2, 1, Modifiers::default());
+    up_at(&f, cx, 1, 2, Modifiers::default());
+    assert_eq!(f.caret(cx), Pos::new(1, 2));
+}
+
+#[gpui::test]
+fn a_click_long_after_the_activation_is_an_ordinary_click(cx: &mut TestAppContext) {
+    let _o = options();
+    let (f, cx) = setup(cx, "foo bar\nbaz");
+    no_caret_move_by_activation(cx, true);
+    activate(cx);
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    down_at(&f, cx, 1, 2, 1, Modifiers::default());
+    up_at(&f, cx, 1, 2, Modifiers::default());
+    assert_eq!(f.caret(cx), Pos::new(1, 2));
+}
+
+#[gpui::test]
+fn the_platform_can_say_which_click_was_the_first(cx: &mut TestAppContext) {
+    // macOS and Wayland say it with `first_mouse` and need no timing.
+    let _o = options();
+    let (f, cx) = setup(cx, "foo bar\nbaz");
+    no_caret_move_by_activation(cx, true);
+    let at = point_of(&f, cx, 1, 2);
+    cx.simulate_event(MouseDownEvent {
+        button: MouseButton::Left,
+        position: at,
+        modifiers: Modifiers::default(),
+        click_count: 1,
+        first_mouse: true,
+    });
+    up(cx, at, Modifiers::default());
+    assert_eq!(f.caret(cx), Pos::new(0, 0));
+}

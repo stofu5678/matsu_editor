@@ -124,6 +124,8 @@ pub(crate) fn run(
     sender: async_channel::Sender<OpenRequest>,
     requests: async_channel::Receiver<OpenRequest>,
 ) {
+    // The key bindings and the menus name the commands of the plugins that are enabled.
+    crate::plugin_commands::refresh_for(&user);
     let keymap = user.key_map(matsu_commands::keymap::Platform::current());
     // The search and replace strings of the last runs (`[Keys]`), saved to the same file.
     let search_history = {
@@ -393,6 +395,7 @@ fn editor_menus(
     let custom = CustomMenuList(&custom_menus);
     let macro_list = crate::macros::MacroList(crate::macros::registered_table(cx));
     let rest = ChainedLists(&custom, &macro_list);
+    let rest = ChainedLists(&rest, &crate::plugin_commands::PluginList);
     let lists = ChainedLists(&recent, &rest);
     // The menu of the user (`[MainMenu]`), Sakura's default without one.
     let main_menu = cx
@@ -578,6 +581,9 @@ impl Workspace {
         // OK on the toolbar page changes the buttons of every window at once.
         cx.observe_global::<crate::bars::toolbar::ToolbarButtons>(|_, cx| cx.notify())
             .detach();
+        // So does the flat form of the buttons.
+        cx.observe_global::<crate::bars::toolbar::ToolbarFlat>(|_, cx| cx.notify())
+            .detach();
         // macOS: the native menu shows the marks of the active window.
         cx.observe_window_activation(window, |this, window, cx| {
             // The title has a format for the active window and another for the others.
@@ -593,6 +599,8 @@ impl Workspace {
                 this.menu_bar.update(cx, |bar, cx| bar.mouse_down(cx));
             }
             if window.is_window_active() {
+                // The click that made the window active may be the next press.
+                crate::view::mouse::window_activated(cx, window.window_handle().window_id());
                 defer_refresh_menu_states(cx, true);
                 // Another program may have changed the file while the window was in the background.
                 crate::file_watch::spawn_check(this.panes().active().clone(), window, cx);

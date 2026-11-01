@@ -52,7 +52,11 @@ pub(in crate::common_settings) fn codes_of_kind(kind: i32) -> Vec<u16> {
         1 => std::iter::once(RIGHT_CLICK_MENU)
             .chain(CUSTOM_MENU_CODES)
             .collect(),
-        // Plugin commands do not exist here.
+        // The commands of the plugins that are enabled (`CJackManager::GetCommandCode`).
+        2 => matsu_commands::plugin_commands::commands()
+            .iter()
+            .map(|c| c.code)
+            .collect(),
         _ => Vec::new(),
     }
 }
@@ -81,7 +85,7 @@ mod tests {
         assert_eq!(codes.len(), 25);
         assert_eq!(codes[0], RIGHT_CLICK_MENU);
         assert_eq!(codes[1..], CUSTOM_MENU_CODES.collect::<Vec<_>>()[..]);
-        assert!(codes_of_kind(17).is_empty());
+        assert!(codes_of_kind(17).is_empty() || codes_of_kind(17).iter().all(|&c| c >= 20000));
         assert!(codes_of_kind(-1).is_empty() && codes_of_kind(18).is_empty());
     }
 

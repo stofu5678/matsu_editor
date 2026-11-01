@@ -13,8 +13,10 @@
 //!
 //! The kind 外部マクロ lists the 50 registered macros (the page マクロ) with their names.
 //!
-//! Not built: the plugin commands (the kind プラグイン has none), `bToolBarIsFlat` (the buttons are
-//! always flat).
+//! `bToolBarIsFlat` (フラットなボタン) is the form of the buttons ([`ToolbarFlat`]): flat ones have no
+//! frame until the pointer is over them, the others are drawn raised.
+//!
+//! Not built: the plugin commands (the kind プラグイン has none).
 
 use gpui::{
     AnyElement, Context, InteractiveElement as _, IntoElement as _, ParentElement as _,
@@ -32,7 +34,7 @@ use super::super::Env;
 use super::super::dialog::CommonSettingsDialog;
 use super::super::func_lookup::{KINDS, codes_of_kind};
 use super::super::model::{Control, Item, Value, Values};
-use crate::bars::toolbar::ToolbarButtons;
+use crate::bars::toolbar::{ToolbarButtons, ToolbarFlat};
 use crate::bars::{self, icons};
 
 const SECTION: &str = "Toolbar";
@@ -50,7 +52,13 @@ const ITEM_UNKNOWN: &str = "────不　明────";
 pub(super) fn functions_of_kind(kind: i32) -> Vec<(i32, u16)> {
     codes_of_kind(kind)
         .into_iter()
-        .filter_map(|code| Some((bars::icon_of_function(code)? as i32 + 1, code)))
+        .filter_map(|code| {
+            // A plugin command is a button of its own number, its function code.
+            if matsu_commands::plugin_commands::is_plugin_code(code) {
+                return Some((i32::from(code), code));
+            }
+            Some((bars::icon_of_function(code)? as i32 + 1, code))
+        })
         .collect()
 }
 
@@ -63,6 +71,11 @@ pub(super) fn row_of(number: i32, macros: &RegisteredMacros) -> (String, Option<
     match number {
         0 => (ITEM_SEPARATOR.to_owned(), None),
         WRAP => (ITEM_WRAP.to_owned(), None),
+        n if u16::try_from(n).is_ok_and(matsu_commands::plugin_commands::is_plugin_code) => {
+            let code = u16::try_from(n).unwrap_or_default();
+            let name = crate::func_name::funccode_to_name(code, &CustomMenus::default(), macros);
+            (name, bars::toolbar::plugin_icon())
+        }
         n => {
             let known = usize::try_from(n - 1)
                 .ok()
@@ -182,6 +195,15 @@ fn load(profile: &Profile) -> Vec<i32> {
     ToolbarButtons::from_profile(profile).0
 }
 
+/// What `nTBB` holds for a button: the number, or `<plugin ID>/<number>` for a plugin command
+/// (`GetPlugCmdInfoByFuncCode`).
+fn button_text(number: i32) -> String {
+    u16::try_from(number)
+        .ok()
+        .and_then(matsu_commands::plugin_commands::name_of)
+        .unwrap_or_else(|| number.to_string())
+}
+
 /// `ShareData_IO_Toolbar` writing: the number of buttons and each `nTBB[NNN]`; entries left over
 /// from a longer list are removed. Nothing is written when the list is the one the file already
 /// gives (or Sakura's default for a file with no list).
@@ -199,7 +221,7 @@ fn store(list: &[i32], profile: &mut Profile) -> Result<bool, ProfileError> {
     };
     put(profile, "nToolBarButtonNum", list.len().to_string())?;
     for (i, number) in list.iter().enumerate() {
-        put(profile, &format!("nTBB[{i:03}]"), number.to_string())?;
+        put(profile, &format!("nTBB[{i:03}]"), button_text(*number))?;
     }
     for i in list.len()..MAX_BUTTONS {
         if !profile.remove(SECTION, &format!("nTBB[{i:03}]")) {
@@ -260,7 +282,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                 true,
             )
             .in_section(SECTION)
-            .unavailable()
             .into(),
         ]),
         Item::Custom(draw),
@@ -505,6 +526,10 @@ fn draw(dialog: &CommonSettingsDialog, cx: &mut Context<CommonSettingsDialog>) -
 /// What OK does to the windows: every window's toolbar takes the list. At startup the toolbar
 /// took the file as it is (`crate::bars::install`).
 pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: Option<&Values>) {
+    let flat = ToolbarFlat(after.bool("toolbar_flat"));
+    if crate::bars::toolbar::is_flat(env.cx) != flat.0 {
+        env.cx.set_global(flat);
+    }
     if before.is_none() {
         return;
     }

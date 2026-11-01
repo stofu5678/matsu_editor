@@ -6,7 +6,8 @@
 //! ([`CloseConfirm`]), and the scrolling ([`ScrollOptions`]): the rows a held up or down key
 //! moves, and the keys and buttons that turn the wheel into a page or a sideways scroll
 //! (`crate::view::paging`), the free cursor (`matsu_commands::context`'s `free_cursor`) and the
-//! shape of the caret (`crate::view::caret_shape`). Not available yet: the mouse activation, the
+//! shape of the caret (`crate::view::caret_shape`), and the click that activates the window, which
+//! does not move the caret when asked ([`no_caret_move_by_activation`]). Not available yet: the
 //! task tray (MATSU Editor is one process, ADR-0016), "少し滑らかにする" (it only
 //! redraws between the steps, which GPUI cannot do inside a command; the result of the move is
 //! the same) and the screen cache (GPUI draws the window itself; there is no device context to
@@ -82,6 +83,20 @@ pub(crate) fn scroll_options(cx: &App) -> ScrollOptions {
         .unwrap_or_default()
 }
 
+/// `m_bNoCaretMoveByActivation` (`NoCaretMoveByActivation`; off by default): the click that
+/// activates a background window only activates it (`CEditView::DispatchEvent`,
+/// `WM_MOUSEACTIVATE`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct NoCaretMoveByActivation(pub bool);
+
+impl Global for NoCaretMoveByActivation {}
+
+/// Whether the click that activates the window leaves the caret where it is.
+pub(crate) fn no_caret_move_by_activation(cx: &App) -> bool {
+    cx.try_global::<NoCaretMoveByActivation>()
+        .is_some_and(|flag| flag.0)
+}
+
 /// `MOUSEFUNCTION_CENTER`, `MOUSEFUNCTION_LEFTSIDE`, `MOUSEFUNCTION_RIGHTSIDE` and the virtual
 /// keys of `WHEEL_COMBINATIONS` (`CEditView::IsSpecialScrollMode`).
 pub(crate) const WHEEL_MIDDLE_BUTTON: i32 = 2;
@@ -127,7 +142,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         "NoCaretMoveByActivation",
                         false,
                     )
-                    .unavailable()
                     .into(),
                 ],
             ),
@@ -318,6 +332,9 @@ pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: O
         page_by_wheel: after.int("wheel_page_scroll"),
         hscroll_by_wheel: after.int("wheel_hscroll"),
     });
+    env.cx.set_global(NoCaretMoveByActivation(
+        after.bool("no_move_activate_by_mouse"),
+    ));
     env.cx.set_global(CloseConfirm {
         close_all: after.bool("close_all_confirm"),
         exit: after.bool("exit_confirm"),

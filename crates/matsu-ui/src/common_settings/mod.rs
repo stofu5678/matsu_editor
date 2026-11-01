@@ -45,12 +45,12 @@ use gpui::{
 use gpui_component::Root;
 use matsu_config::Profile;
 
-pub(crate) use dialog::{CommonSettingsDialog, SheetPage};
+pub(crate) use dialog::{CommonSettingsDialog, SheetPage, parse_signed_number};
 #[cfg(test)]
-pub(crate) use pages::general::{CloseConfirm, ScrollOptions};
+pub(crate) use pages::general::{CloseConfirm, NoCaretMoveByActivation, ScrollOptions};
 pub(crate) use pages::general::{
     WHEEL_CONTROL_KEY, WHEEL_MIDDLE_BUTTON, WHEEL_SHIFT_KEY, WHEEL_SIDE_BUTTON_1,
-    WHEEL_SIDE_BUTTON_2, close_confirm, scroll_options,
+    WHEEL_SIDE_BUTTON_2, close_confirm, no_caret_move_by_activation, scroll_options,
 };
 pub(crate) use pages::window::splitter_sync;
 
@@ -207,6 +207,9 @@ pub(crate) fn install(cx: &mut App, user: &crate::settings::UserSettings) {
     cx.set_global(user.clone());
     let profile = user.profile().cloned().unwrap_or_default();
     pages::plugin::refresh_dirs(cx);
+    // The menus, the keys and the toolbar name the commands of the plugins: they have to be known
+    // before those pages are read.
+    crate::plugin_commands::refresh_for(user);
     let values = Values::load(&all_controls(), &profile);
     let mut env = Env { cx, opener: None };
     for page in Page::ALL {
@@ -263,6 +266,7 @@ fn start_profile(cx: &mut App, opener: Option<AnyWindowHandle>) -> Profile {
     let tabs = crate::tabs::settings::current(cx);
     crate::bars::put_into(&mut profile, crate::bars::current(cx));
     crate::minimap::put_into(&mut profile, crate::minimap::current(cx));
+    crate::saved_state::window::state(cx).put_into(&mut profile);
     let mut put = |key: &str, on: bool| {
         // A key that cannot be written to the copy is left as the file has it.
         let _ = profile.set(model::SECTION, key, if on { "1" } else { "0" });
@@ -323,6 +327,12 @@ pub(crate) fn open(
             CommonSettingsDialog::new(page, opener, &profile, window, cx)
         });
         *made.borrow_mut() = Some(dialog.clone());
+        // The close button of the window is キャンセル: the dialog 位置と大きさの設定 that it
+        // opened goes with it.
+        window.on_window_should_close(cx, |_, cx| {
+            crate::win_size_dialog::discard_open(cx);
+            true
+        });
         cx.new(|cx| Root::new(dialog, window, cx))
     });
     let handle = opened.ok()?;
@@ -363,5 +373,7 @@ mod tests_more_pages;
 mod tests_names;
 #[cfg(test)]
 mod tests_polish;
+#[cfg(test)]
+mod tests_small;
 #[cfg(test)]
 mod tests_table;

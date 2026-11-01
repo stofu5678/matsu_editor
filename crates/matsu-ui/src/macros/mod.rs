@@ -76,6 +76,27 @@ pub(crate) const F_WCHAR: u16 = 30200;
 /// `F_EXECEXTMACRO`.
 pub(crate) const F_EXECEXTMACRO: u16 = 31254;
 
+/// How many seconds a script runs before the window asks whether to stop it
+/// (`m_nMacroCancelTimer`, `nMacroCancelTimer` of `[Macro]`; 10 by default; 0 never asks).
+/// Sakura starts the timer for a macro of the Windows Script Host (`CWSHClient::Execute`) and then
+/// shows the cancel dialog (`IDD_MACRORUNNING`); here the script runs in the macro host and the
+/// panel has the button 中止 from the start, so the question is a box with the same two answers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct CancelWait(pub u32);
+
+impl Default for CancelWait {
+    fn default() -> Self {
+        Self(10)
+    }
+}
+
+impl Global for CancelWait {}
+
+/// The wait now, in seconds.
+pub(crate) fn cancel_wait(cx: &App) -> u32 {
+    cx.try_global::<CancelWait>().copied().unwrap_or_default().0
+}
+
 /// The key macro that `F_EXECKEYMACRO` plays.
 #[derive(Clone, Debug)]
 pub(crate) enum CurrentMacro {
@@ -212,6 +233,11 @@ pub(crate) struct MacroState {
     /// Counts the scripts that were started, so that the answer of a dialog that was open when
     /// its macro ended is not sent to the next one.
     serial: u64,
+    /// The wait before the question about stopping the script, and the question while it is open.
+    /// When the script ends this is dropped: the answer of the box is dropped with it, which
+    /// closes the box on Windows (GPUI cancels a box whose answer nobody waits for). macOS keeps
+    /// its sheet until it is answered, and the answer is ignored then (the serial differs).
+    stop_question: Option<gpui::Task<()>>,
     /// The wait for a call that finishes later (`wait.rs`): the number of the wait that is on,
     /// if any. A key macro does not go on, and a script gets no answer, until it ends.
     waiting: Option<u64>,
@@ -351,6 +377,15 @@ impl EditorView {
         }
         if let Some(code) = function_code(name) {
             self.record_code(code, args);
+        }
+    }
+
+    /// The key macro that the last recording left, as text (for the tests).
+    #[cfg(test)]
+    pub(crate) fn recorded_key_macro_text(&self) -> Option<String> {
+        match &self.macros.current {
+            Some(CurrentMacro::Recorded(recorded)) => Some(recorded.to_text()),
+            _ => None,
         }
     }
 
@@ -903,6 +938,7 @@ impl EditorView {
             timeout_text,
         });
         self.macros.suspended = true;
+        self.ask_to_stop_after_wait(window, cx);
         // The host's threads send events; each one is handled here, on the UI thread, in order.
         // The script belongs to the tab it started in, not to the window: the events go to the
         // window that shows the tab now.
@@ -925,6 +961,49 @@ impl EditorView {
         .detach();
         cx.notify();
         Ok(())
+    }
+
+    /// After the wait of 「キャンセル確認待ち時間」 asks whether to stop the script that just
+    /// started, if it still runs (`AbortMacroProc`). The answer is ignored when the script has
+    /// ended meanwhile.
+    fn ask_to_stop_after_wait(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let seconds = cancel_wait(cx);
+        if seconds == 0 {
+            return;
+        }
+        let serial = self.macros.serial;
+        // The script belongs to the tab, not to the window it started in: the question goes to
+        // the window that shows the tab when the wait is over.
+        let fallback = window.window_handle();
+        self.macros.stop_question = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_secs(u64::from(seconds)))
+                .await;
+            let answer = follow(&this, fallback, cx, |view, window, cx| {
+                let name = view.macros.running.as_ref()?.name.clone();
+                (view.macros.serial == serial).then(|| {
+                    crate::boxes::prompt(
+                        window,
+                        gpui::PromptLevel::Info,
+                        "マクロ実行中・・・",
+                        Some(&name),
+                        &["キャンセル", "続ける"],
+                        cx,
+                    )
+                })
+            })
+            .flatten();
+            if let Some(answer) = answer
+                && let Ok(0) = answer.await
+            {
+                this.update(cx, |view, cx| {
+                    if view.macros.serial == serial && view.macros.running.is_some() {
+                        view.cancel_macro(cx);
+                    }
+                })
+                .ok();
+            }
+        }));
     }
 
     fn on_host_event(&mut self, event: HostEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -957,6 +1036,8 @@ impl EditorView {
             HostEvent::Finished(finished) => {
                 let running = self.macros.running.take();
                 self.macros.temp_script = None;
+                // A question about stopping that is still open goes away with the script.
+                self.macros.stop_question = None;
                 // A call of the script that was waiting gets no answer: the script is gone.
                 self.macros.waiting = None;
                 let (name, timeout_text) =

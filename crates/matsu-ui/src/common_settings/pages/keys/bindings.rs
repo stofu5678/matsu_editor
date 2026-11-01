@@ -5,7 +5,7 @@
 //! combinations). [`Bindings`] is the same data with the operations of the page
 //! (`CPropKeybind::DispatchEvent`).
 
-use matsu_commands::keymap::user::{format_entries, parse_entries};
+use matsu_commands::keymap::user::{format_entries, function_text, parse_entries};
 use matsu_commands::keymap::{Key, KeyMap, KeyMapOptions, MouseAction, Platform, UserRow};
 use matsu_config::{Profile, ProfileError};
 
@@ -97,7 +97,9 @@ fn merge(name: &str, old: &str, row: &UserRow) -> String {
         if before.functions[cell] == row.functions[cell] {
             text.push_str(token);
         } else {
-            text.push_str(&row.functions[cell].to_string());
+            // A plugin command is written by its name, as Sakura does.
+            let code = row.functions[cell];
+            text.push_str(&function_text(code).unwrap_or_else(|| code.to_string()));
         }
     }
     text.push(',');

@@ -12,6 +12,14 @@ pub(crate) struct SearchPrefs {
     /// `m_bGrepExitConfirm` (`bGrepExitConfirm`): a Grep window asks about saving when it is
     /// closed. Off by default.
     pub grep_exit_confirm: bool,
+    /// `m_bGrepRealTimeView` (`bGrepRealTime`): the Grep window shows the result while the search
+    /// runs. Off by default; off, the result is written when the search ends.
+    pub grep_real_time: bool,
+    /// `m_bGTJW_RETURN` (`bGTJW_RETURN`): Enter in a Grep result is a tag jump. On by default.
+    pub grep_enter_jumps: bool,
+    /// `m_bGTJW_LDBLCLK` (`bGTJW_LDBLCLK`): a double click in a Grep result is a tag jump. On by
+    /// default.
+    pub grep_double_click_jumps: bool,
 }
 
 impl Default for SearchPrefs {
@@ -19,6 +27,9 @@ impl Default for SearchPrefs {
         Self {
             caret_text_for_search: true,
             grep_exit_confirm: false,
+            grep_real_time: false,
+            grep_enter_jumps: true,
+            grep_double_click_jumps: true,
         }
     }
 }

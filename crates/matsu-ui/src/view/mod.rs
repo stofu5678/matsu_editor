@@ -25,7 +25,7 @@ mod held_buttons;
 mod input;
 mod lines;
 pub(crate) mod minimap;
-mod mouse;
+pub(crate) mod mouse;
 pub(crate) mod paging;
 pub(crate) mod pane;
 mod ruler;
@@ -508,6 +508,9 @@ impl EditorView {
         } else if let Some(index) = matsu_config::settings::macros::index_of_function(code) {
             // A registered macro (`F_USERMACRO_0 + n`) is not in Sakura's table of functions.
             self.run_registered_macro(index, true, window, cx)
+        } else if matsu_commands::plugin_commands::is_plugin_code(code) {
+            // A command of a plugin (`F_PLUGCOMMAND_FIRST` and on) is not in the table either.
+            self.run_plugin_command(code, cx)
         } else if let Some(ok) = self.run_function_statement(code, args, window, cx) {
             ok
         } else {
@@ -832,6 +835,12 @@ impl EditorView {
                     cx.stop_propagation();
                     return;
                 }
+                // A command of a plugin runs as from a menu (`run_function`).
+                if matsu_commands::plugin_commands::is_plugin_code(code) {
+                    self.run_plugin_command(code, cx);
+                    cx.stop_propagation();
+                    return;
+                }
                 // A registered macro (`F_USERMACRO_0 + n`) is not in Sakura's table of functions;
                 // it runs as from a menu (`run_function`).
                 if let Some(index) = matsu_config::settings::macros::index_of_function(code) {
@@ -858,6 +867,16 @@ impl EditorView {
             Lookup::Unbound => {
                 // Enter has no binding in Sakura's table; the window types it (`F_WCHAR` with '\r').
                 let plain = !chord.mods.ctrl && !chord.mods.alt && !chord.mods.meta;
+                // In the result of a Grep the line break is a tag jump instead (Ctrl: and the window
+                // the jump started from closes), unless the setting is off.
+                if chord.key == Key::Enter
+                    && !chord.mods.alt
+                    && !chord.mods.meta
+                    && self.grep_enter_jump(chord.mods.ctrl, window, cx)
+                {
+                    cx.stop_propagation();
+                    return;
+                }
                 let typed = match chord.key {
                     Key::Enter if plain => Some('\r'),
                     _ => None,

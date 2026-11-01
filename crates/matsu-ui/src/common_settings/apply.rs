@@ -4,7 +4,7 @@ use gpui::{AnyWindowHandle, App};
 use matsu_config::Profile;
 
 use super::model::{Control, Values};
-use super::{Env, Page};
+use super::{Env, Page, pages};
 use crate::settings::UserSettings;
 
 /// Writes the values of the live controls to `[Common]` under the lock of the settings file (so
@@ -21,9 +21,11 @@ pub(super) fn commit(
     after: &Values,
     opener: Option<AnyWindowHandle>,
 ) {
+    // A window that moved while the sheet was open keeps its new place in the file.
+    let stored = super::pages::window::keep_current_geometry(cx, before, after);
     let mut written: Option<Profile> = None;
     crate::history::write_settings(cx, |profile| {
-        let changed = after.store(controls, profile)?;
+        let changed = stored.store(controls, profile)?;
         written = Some(profile.clone());
         Ok(changed)
     });
@@ -34,7 +36,7 @@ pub(super) fn commit(
             .and_then(|user| user.profile().cloned())
             .unwrap_or_default();
         // The values are valid, so this only fails for a key or value the file cannot hold.
-        let _ = after.store(controls, &mut profile);
+        let _ = stored.store(controls, &mut profile);
         profile
     });
     let path = user.as_ref().and_then(crate::settings::history_file);
@@ -44,6 +46,14 @@ pub(super) fn commit(
     for page in Page::ALL {
         if page.items().is_some() {
             page.apply(&mut env, after, Some(before));
+        }
+    }
+    // What the user enabled may have changed the commands of the plugins, which the keys name.
+    if crate::plugin_commands::refresh(env.cx) {
+        pages::keys::rebuild_key_map(&mut env);
+        // A toolbar button that names a command reads as an undefined one while its plugin is off.
+        if let Some(user) = env.cx.try_global::<UserSettings>().cloned() {
+            crate::bars::toolbar::install(env.cx, &user);
         }
     }
     // The menus read the settings (the history, the custom menus): make them again from the new ones.

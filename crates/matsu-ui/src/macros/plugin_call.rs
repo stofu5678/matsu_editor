@@ -20,6 +20,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::{App, Context, Entity, Global};
+use matsu_commands::plugin_commands::{self, CommandInfo};
 use matsu_commands::registry::Registry;
 use matsu_config::Profile;
 use matsu_config::plugins::consent::{Consent, ConsentFile};
@@ -106,6 +107,9 @@ pub(crate) struct DefApi {
     options: PluginOptions,
     option_file: PathBuf,
     command_no: usize,
+    /// The slot of the plugin in the plugin table, which `Plugin.AddCommand` needs for the code of the
+    /// command it adds (`None`: the plugin is not in the table, as in a test of the object alone).
+    slot: Option<usize>,
 }
 
 impl DefApi {
@@ -120,7 +124,84 @@ impl DefApi {
             main,
             def,
             command_no,
+            slot: None,
         }
+    }
+
+    pub(crate) fn in_slot(mut self, slot: usize) -> Self {
+        self.slot = Some(slot);
+        self
+    }
+
+    /// `F_PL_ADDCOMMAND` (`CPlugin::AddCommand` with `doRegister`): the plugin gets one more command,
+    /// the next number after the ones it has. Its handler is a file of the folder of the plugin, so that
+    /// what the user agreed to (the files of the folder) covers it.
+    fn add_command(&mut self, params: &[Value]) -> Result<Value, RpcError> {
+        let name = "Plugin.AddCommand";
+        let handler = text_at(params, 0, name)?;
+        let label = params
+            .get(1)
+            .and_then(Value::as_str)
+            .map_or_else(|| handler.clone(), str::to_owned);
+        let label = if label.is_empty() {
+            handler.clone()
+        } else {
+            label
+        };
+        let icon = params
+            .get(2)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        let path = Path::new(&handler);
+        let inside = !handler.is_empty()
+            && path.is_relative()
+            && path
+                .components()
+                .all(|part| matches!(part, std::path::Component::Normal(_)));
+        if !inside {
+            return Err(RpcError::invalid_params(format!(
+                "{name}: the handler must be a file inside the folder of the plugin: {handler}"
+            )));
+        }
+        let Some(slot) = self.slot else {
+            return Err(RpcError::new(
+                plugin_host_error(),
+                format!("{name}: the plugin is not registered"),
+            ));
+        };
+        let plug = plugin_commands::commands()
+            .iter()
+            .filter(|c| c.slot == slot)
+            .map(|c| c.plug)
+            .max()
+            .unwrap_or(0)
+            + 1;
+        let Some(code) = plugin_commands::function_code(slot, plug) else {
+            return Err(RpcError::new(
+                plugin_host_error(),
+                format!(
+                    "{name}: a plugin can have {} commands",
+                    plugin_commands::MAX_PLUG_CMD - 1
+                ),
+            ));
+        };
+        plugin_commands::add_command(CommandInfo {
+            code,
+            slot,
+            plug,
+            plugin_id: self.def.id.clone(),
+            plugin_name: if self.def.name.is_empty() {
+                self.def.id.clone()
+            } else {
+                self.def.name.clone()
+            },
+            label,
+            handler,
+            icon,
+            added: true,
+        });
+        Ok(Value::Null)
     }
 }
 
@@ -185,6 +266,7 @@ impl PluginApi for DefApi {
                     .map_err(|e| RpcError::new(plugin_host_error(), format!("{name}: {e}")))?;
                 Ok(Value::Null)
             }
+            "Plugin.AddCommand" => self.add_command(params),
             // `F_PL_GETCOMMANDNO`
             "Plugin.GetCommandNo" => Ok(json!(self.command_no)),
             // `F_PL_GETSTRING`: 0 is the language; `S[n]` of `plugin.def` for 1 to 99.
@@ -235,6 +317,38 @@ pub(crate) fn prepare_command(
     folder: &str,
     command: usize,
 ) -> Result<Prepared, String> {
+    prepare(cx, dirs, folder, command, None)
+}
+
+/// As [`prepare_command`], for the plugin command with the function code `code` (a menu, a key or a
+/// toolbar button): the plugin and the handler are the ones the command was registered with, also
+/// when the plugin added it while it ran (`Plugin.AddCommand`).
+pub(crate) fn prepare_function(
+    cx: &mut App,
+    dirs: &SearchDirs,
+    code: u16,
+) -> Result<Prepared, String> {
+    let info = plugin_commands::info(code)
+        .ok_or("このプラグインコマンドは、今は使えません（プラグインが有効でないか、読み込まれていません）")?;
+    let profile =
+        crate::doc_types::with_user(cx, |user| user.profile().cloned()).unwrap_or_default();
+    let settings = PluginSettings::from_profile(&profile);
+    let folder = settings
+        .table
+        .get(info.slot)
+        .filter(|rec| rec.is_used() && rec.id == info.plugin_id)
+        .map(|rec| rec.name.clone())
+        .ok_or("このプラグインはもう登録されていません")?;
+    prepare(cx, dirs, &folder, info.plug, Some(info.handler))
+}
+
+fn prepare(
+    cx: &mut App,
+    dirs: &SearchDirs,
+    folder: &str,
+    command: usize,
+    handler: Option<String>,
+) -> Result<Prepared, String> {
     let profile =
         crate::doc_types::with_user(cx, |user| user.profile().cloned()).unwrap_or_default();
     let settings = PluginSettings::from_profile(&profile);
@@ -244,11 +358,11 @@ pub(crate) fn prepare_command(
                 .into(),
         );
     }
-    if settings.find_folder(folder).is_none() {
+    let Some(slot) = settings.find_folder(folder) else {
         return Err(
             "このプラグインはまだ保存されていません。OK で保存してから試してください".into(),
         );
-    }
+    };
     let def = dirs
         .load_def(folder, DEFAULT_LANGUAGE)
         .ok_or("plugin.def を読めません")?;
@@ -269,14 +383,17 @@ pub(crate) fn prepare_command(
             );
         }
     }
-    let item = command
-        .checked_sub(1)
-        .and_then(|index| def.commands.get(index))
-        .ok_or("このプラグインにコマンドがありません")?;
-    if Language::of_file(Path::new(&item.handler)) != Some(Language::Bundled(Engine::QuickJs)) {
+    let handler = match handler {
+        Some(handler) => handler,
+        None => command
+            .checked_sub(1)
+            .and_then(|index| def.commands.get(index))
+            .map(|item| item.handler.clone())
+            .ok_or("このプラグインにコマンドがありません")?,
+    };
+    if Language::of_file(Path::new(&handler)) != Some(Language::Bundled(Engine::QuickJs)) {
         return Err(format!(
-            "{} は動かせません。今は .js のプラグインだけです",
-            item.handler
+            "{handler} は動かせません。今は .js のプラグインだけです"
         ));
     }
     let runtime = cx.default_global::<Runtime>();
@@ -324,9 +441,9 @@ pub(crate) fn prepare_command(
         id: def.id.clone(),
         host,
         jack: "Command",
-        handler: item.handler.clone(),
+        handler,
         args: json!({"command": command}),
-        api: DefApi::new(dirs, folder, def, command),
+        api: DefApi::new(dirs, folder, def, command).in_slot(slot),
     })
 }
 
@@ -447,6 +564,7 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
         mut api,
     } = prepared;
     let limit = limit_of(jack);
+    let commands_before = plugin_commands::commands().len();
     // One plugin at a time on a window: the calls would share the undo block of the document, and
     // a macro that runs has the window already.
     let busy = editor.update(cx, |view, cx| {
@@ -592,6 +710,11 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                         // The pane is gone: the document is let go all the same.
                         release_document(&document, depth, generation, cx);
                     }
+                    // A command the plugin added (`Plugin.AddCommand`) is in the menus, the keys and the
+                    // toolbar from now on.
+                    if plugin_commands::commands().len() != commands_before {
+                        cx.update(crate::plugin_commands::commands_changed);
+                    }
                     break;
                 }
             };
@@ -607,4 +730,4 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
