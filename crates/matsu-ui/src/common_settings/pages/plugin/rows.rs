@@ -35,6 +35,7 @@ static LIST: TableSpec = TableSpec {
         hidden(),
         hidden(),
         hidden(),
+        hidden(),
     ],
     max_rows: MAX_PLUGIN,
     // The buttons of the page are its own.
@@ -86,6 +87,9 @@ pub(super) const MANIFEST: usize = 12;
 /// Why the plugin cannot be enabled: [`NOT_FOUND_NOTE`], or the words of [`unsupported_text`]; empty
 /// when it can.
 pub(super) const NOTE: usize = 13;
+
+/// How many options `plugin.def` defines (`m_options.size()`).
+pub(super) const OPTIONS: usize = 14;
 
 pub(super) const NOT_FOUND_NOTE: &str = "notfound";
 
@@ -186,7 +190,7 @@ pub(super) fn row_of(
     dirs: Option<&SearchDirs>,
     consent: &ConsentFile,
 ) -> Row {
-    let mut row = vec![String::new(); NOTE + 1];
+    let mut row = vec![String::new(); OPTIONS + 1];
     row[CONSENT] = "off".to_owned();
     row[NUMBER] = index.to_string();
     row[COMMANDS] = rec.cmd_num.to_string();
@@ -211,6 +215,7 @@ pub(super) fn row_of(
             row[AUTHOR] = def.author.clone();
             row[VERSION] = def.version.clone();
             row[URL] = def.url.clone();
+            row[OPTIONS] = def.options.len().to_string();
         }
         None => row[NAME] = "-".to_owned(),
     }

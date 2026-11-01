@@ -66,6 +66,7 @@ pub mod open;
 mod outline;
 mod panes;
 pub(crate) mod plugin_commands;
+mod plugin_options;
 pub(crate) mod preview;
 pub mod print;
 pub mod print_setting;

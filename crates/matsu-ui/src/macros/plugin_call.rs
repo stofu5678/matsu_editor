@@ -105,6 +105,7 @@ pub(crate) struct DefApi {
     main: Profile,
     def: PluginDef,
     options: PluginOptions,
+    option_file: PathBuf,
     command_no: usize,
     /// The slot of the plugin in the plugin table, which `Plugin.AddCommand` needs for the code of the
     /// command it adds (`None`: the plugin is not in the table, as in a test of the object alone).
@@ -118,6 +119,7 @@ impl DefApi {
             Profile::load(&dir.join(matsu_config::plugins::DEF_FILE_NAME)).unwrap_or_default();
         Self {
             options: PluginOptions::load(&dirs.option_file(folder)),
+            option_file: dirs.option_file(folder),
             dir,
             main,
             def,
@@ -226,6 +228,8 @@ impl PluginApi for DefApi {
             // `F_PL_GETOPTION`: the value in the options file; if there is none, the default of
             // the option in `plugin.def`.
             "Plugin.GetOption" => {
+                // Read at each call, as Sakura does: the option dialog may have written it.
+                self.options = PluginOptions::load(&self.option_file);
                 let (section, key) = (text_at(params, 0, name)?, text_at(params, 1, name)?);
                 let value = self
                     .options
@@ -242,6 +246,7 @@ impl PluginApi for DefApi {
             }
             // `F_PL_SETOPTION`: writes the options file at once.
             "Plugin.SetOption" => {
+                self.options = PluginOptions::load(&self.option_file);
                 let section = text_at(params, 0, name)?;
                 let key = text_at(params, 1, name)?;
                 let value = match params.get(2) {

@@ -4,11 +4,13 @@
 //! `sakura_core/cmd/CViewCommander_Edit_advanced.cpp`; bound to Shift+Space in
 //! `sakura_core/func/CKeyBind.cpp`.
 //!
-//! * No selection: types a space, like `F_INDENT_SPACE` (the message of Sakura is not done).
+//! * No selection: types a space, like `F_INDENT_SPACE`, and the status bar says
+//!   `STR_ERR_UNINDENT1` (`Changes::status_message`).
 //! * A selection: a row that starts a line and starts with a space loses that one space. The
 //!   rows are selected as `F_INDENT_TAB` does.
 //!
-//! Not done yet: rectangular selection (Sakura only beeps for it).
+//! * A box selection that covers something: Sakura only beeps (`ErrorBeep`, "box unindent is
+//!   put on hold" in the source), and so does this.
 
 use crate::command::{Arg, Command, Result};
 use crate::context::CommandContext;
