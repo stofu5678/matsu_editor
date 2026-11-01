@@ -340,6 +340,16 @@ impl CommonSettingsDialog {
         cx.notify();
     }
 
+    /// Changes the type the sheet started from (what OK compares the values with).
+    pub(crate) fn change_type_original(
+        &mut self,
+        change: impl FnOnce(&mut matsu_config::settings::TypeSettings),
+    ) {
+        if let Target::Type(target) = &mut self.target {
+            change(&mut target.original);
+        }
+    }
+
     /// The controls of the page that is shown, in the order they are drawn.
     pub(crate) fn page_controls(&self) -> Vec<Control> {
         self.pages[self.page]

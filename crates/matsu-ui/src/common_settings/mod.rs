@@ -200,6 +200,38 @@ pub(crate) fn all_controls() -> Vec<Control> {
         .collect()
 }
 
+/// How the numbers of the keyword sets changed when OK wrote them (an old number to the new one; `-1` for a
+/// set that is gone), as `CPropCommon::ApplyData` changes the numbers of the types.
+pub(crate) type KeywordRenumbering = std::rc::Rc<dyn Fn(i32) -> i32>;
+
+thread_local! {
+    /// What the last OK of the keyword page did to the numbers, until a sheet that holds numbers takes it.
+    static KEYWORD_RENUMBERING: std::cell::RefCell<Option<KeywordRenumbering>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The keyword page wrote the sets: remembers how their numbers changed (after an earlier change that was not
+/// taken, the two are one).
+pub(crate) fn publish_keyword_renumbering(now: KeywordRenumbering) {
+    KEYWORD_RENUMBERING.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        *slot = Some(match slot.take() {
+            Some(first) => std::rc::Rc::new(move |n| now(first(n))),
+            None => now,
+        });
+    });
+}
+
+/// Takes what [`publish_keyword_renumbering`] remembered: only the first to ask gets it.
+pub(crate) fn take_keyword_renumbering() -> Option<KeywordRenumbering> {
+    KEYWORD_RENUMBERING.with(|slot| slot.borrow_mut().take())
+}
+
+/// Forgets it (a sheet starts to watch the keyword page).
+pub(crate) fn forget_keyword_renumbering() {
+    KEYWORD_RENUMBERING.with(|slot| *slot.borrow_mut() = None);
+}
+
 /// Takes the settings of the file into the windows' globals when the application starts. Call it
 /// after the tab settings and the history are installed.
 pub(crate) fn install(cx: &mut App, user: &crate::settings::UserSettings) {

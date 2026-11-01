@@ -77,6 +77,13 @@ pub(in crate::type_settings) fn open_window(cx: &App) -> Option<AnyWindowHandle>
     cx.try_global::<OpenChild>().map(|open| open.0)
 }
 
+/// Closes the dialog that is open, if any (its numbers of keyword sets are old once the sets changed).
+pub(super) fn close_open(cx: &mut App) {
+    if let Some(open) = cx.try_global::<OpenChild>().map(|open| open.0) {
+        open.update(cx, |_, window, _| window.remove_window()).ok();
+    }
+}
+
 /// Closes the dialog when the sheet it belongs to is gone.
 pub(super) fn close_with_sheet<V: 'static>(
     sheet: gpui::WeakEntity<CommonSettingsDialog>,
