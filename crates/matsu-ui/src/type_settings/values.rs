@@ -31,6 +31,8 @@ use crate::common_settings::model::{Control, Kind, Value, Values};
 const TYPE_NAME_BUFFER: usize = 64;
 /// `MAX_TYPES_EXTS`.
 const TYPE_EXTS_BUFFER: usize = 64;
+/// `m_szKinsokuHead[200]` and the other two lists of kinsoku characters.
+const KINSOKU_BUFFER: usize = 200;
 /// `_MAX_PATH`: the buffer of the word file (`szHokanFile`).
 const PATH_BUFFER: usize = 260;
 /// `MAX_VERTLINES * 15`: the buffer of the text of the vertical lines.
@@ -96,6 +98,20 @@ fn fit(text: &str, size: usize) -> String {
         out.push(c);
     }
     out
+}
+
+/// The string a tab is drawn with, from the text of the box (`CPropTypesScreen::GetData`): the
+/// default `"^       "`, with the first characters of the text over it, up to 8 and up to a
+/// character a tab cannot show (the end of the text, `\r`, `\n` or a tab: `IsTabAvailableCode`).
+pub(super) fn tab_view_string(text: &str) -> String {
+    let mut out: Vec<char> = "^       ".chars().collect();
+    for (slot, c) in out.iter_mut().zip(text.chars()) {
+        if matches!(c, '\0' | '\r' | '\n' | '\t') {
+            break;
+        }
+        *slot = c;
+    }
+    out.into_iter().collect()
 }
 
 /// `value` if the list has it, else the first of the list (the selection `SetData` makes when
@@ -478,6 +494,17 @@ pub(super) fn store(v: &Values, original: &TypeSettings) -> TypeSettings {
     t.kinsoku_ret = v.bool(KINSOKU_RET);
     t.kinsoku_hide = v.bool(KINSOKU_HIDE);
     t.kinsoku_kuto_enabled = v.bool(KINSOKU_KUTO);
+    t.kinsoku_head_enabled = v.bool(KINSOKU_HEAD);
+    t.kinsoku_tail_enabled = v.bool(KINSOKU_TAIL);
+    t.kinsoku_head = fit(v.text(KINSOKU_HEAD_CHARS), KINSOKU_BUFFER);
+    t.kinsoku_tail = fit(v.text(KINSOKU_TAIL_CHARS), KINSOKU_BUFFER);
+    t.kinsoku_kuto = fit(v.text(KINSOKU_KUTO_CHARS), KINSOKU_BUFFER);
+    t.tab_arrow = v.int(TAB_ARROW);
+    // A string the file has, and the user did not change, stays as it is.
+    if v.text(TAB_VIEW_STRING) != original.tab_view_string {
+        t.tab_view_string = tab_view_string(v.text(TAB_VIEW_STRING));
+    }
+    t.indent_layout = v.int(INDENT_LAYOUT);
     t.default_outline = if v.int(OUTLINE_MODE) == OUTLINE_FILE {
         outline_type::FILE
     } else {
@@ -590,6 +617,14 @@ pub(super) fn merge(base: &TypeSettings, old: &TypeSettings, new: &TypeSettings)
         kinsoku_ret,
         kinsoku_hide,
         kinsoku_kuto_enabled,
+        kinsoku_head_enabled,
+        kinsoku_tail_enabled,
+        kinsoku_head,
+        kinsoku_tail,
+        kinsoku_kuto,
+        tab_arrow,
+        tab_view_string,
+        indent_layout,
         default_outline,
         outline_rule_filename,
         use_type_font,
