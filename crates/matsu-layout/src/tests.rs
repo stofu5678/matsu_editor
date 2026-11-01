@@ -321,6 +321,40 @@ fn kinsoku_lists_can_be_replaced() {
     assert_eq!(split("あいうえかお", false, &on), ["あいうえ", "かお"]);
 }
 
+#[test]
+fn the_tail_list_and_kuto_list_can_be_replaced() {
+    let tail = LayoutConfig {
+        kinsoku: Kinsoku {
+            tail: true,
+            tail_chars: "う".into(),
+            ..Kinsoku::default()
+        },
+        ..config(6)
+    };
+    // う would end the row, so it goes to the next one with え.
+    assert_eq!(split("あいうえお", false, &tail), ["あい", "うえお"]);
+    // With the rule off, the list does nothing.
+    let off = LayoutConfig {
+        kinsoku: Kinsoku {
+            tail_chars: "う".into(),
+            ..Kinsoku::default()
+        },
+        ..config(6)
+    };
+    assert_eq!(split("あいうえお", false, &off), ["あいう", "えお"]);
+    // The hanging punctuation is the list, and only with the rule on.
+    let kuto = |on| LayoutConfig {
+        kinsoku: Kinsoku {
+            kuto: on,
+            kuto_chars: "ー".into(),
+            ..Kinsoku::default()
+        },
+        ..config(8)
+    };
+    assert_eq!(split("あいうえー", false, &kuto(true)), ["あいうえー"]);
+    assert_eq!(split("あいうえー", false, &kuto(false)), ["あいうえ", "ー"]);
+}
+
 // ---- indent of wrapped rows ----
 
 #[test]
@@ -698,6 +732,18 @@ fn a_one_megabyte_line_wraps_fast() {
     assert_eq!(rows.last().unwrap().range.end, text.len());
     for pair in rows.windows(2) {
         assert_eq!(pair[0].range.end, pair[1].range.start);
+    }
+    // The indent of wrapped rows keeps it linear: each row looks only at the row before it.
+    for indent in [WrapIndent::AfterLastTab, WrapIndent::leading_white_space()] {
+        let indented = LayoutConfig {
+            indent,
+            ..cfg.clone()
+        };
+        layout_line(&format!("\t {text}"), false, &indented, &mut rows);
+        assert!(rows.len() > 10_000);
+        let indent = rows[1].start_column;
+        assert!(indent > 0);
+        assert!(rows[1..].iter().all(|r| r.start_column == indent));
     }
     // One long word, and a line without any break opportunity.
     layout_line(&"a".repeat(1_000_000), false, &cfg, &mut rows);
