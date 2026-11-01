@@ -27,7 +27,7 @@ const OUTPUT_GRACE: Duration = Duration::from_millis(1000);
 /// A language that runs on an interpreter the user installs (ADR-0025). To add one (the same
 /// steps for PowerShell, Perl, Emacs Lisp and AppleScript):
 ///
-/// 1. a variant here, with its extension in [`Language::of_file`], its name in
+/// 1. a variant here, with its extension in [`Language::FILE_EXTENSIONS`] (the file types of the dialogs follow), its name in
 ///    [`Language::display_name`], the usual interpreter in [`Language::default_interpreter`],
 ///    a way to ask for the real path in [`Language::real_interpreter_path`] and the start
 ///    arguments in [`start`]; the compiler points at the other `match`es;
@@ -111,28 +111,61 @@ pub const SCRIPT_HOST: &str = if cfg!(windows) {
 };
 
 impl Language {
+    /// The extensions of the macro files, with the language that runs each: the one place that
+    /// maps them. [`Language::of_file`] reads it, and so do the file types of the dialogs
+    /// ([`Language::file_types`]). The order is that of the dialogs; the extensions of one
+    /// language are next to each other.
+    pub const FILE_EXTENSIONS: [(&'static str, Self); 14] = [
+        ("mjs", Self::JavaScript),
+        ("cjs", Self::JavaScript),
+        ("ts", Self::TypeScript),
+        ("py", Self::Python),
+        ("rb", Self::Ruby),
+        ("php", Self::Php),
+        ("ps1", Self::PowerShell),
+        ("pl", Self::Perl),
+        ("el", Self::EmacsLisp),
+        ("applescript", Self::AppleScript),
+        ("lua", Self::Bundled(Engine::Lua)),
+        ("js", Self::Bundled(Engine::QuickJs)),
+        ("mruby", Self::Bundled(Engine::Mruby)),
+        ("upy", Self::Bundled(Engine::MicroPython)),
+    ];
+
     /// The language of a macro file, by its extension.
     pub fn of_file(path: &Path) -> Option<Self> {
         let extension = path.extension()?.to_str()?;
-        match extension.to_ascii_lowercase().as_str() {
-            "mjs" | "cjs" => Some(Self::JavaScript),
-            // Node.js strips types only from a file named `.ts` in lower case (`B.TS` is parsed as
-            // JavaScript, even on a file system that ignores case), so no other spelling is a
-            // TypeScript macro.
-            "ts" if extension == "ts" => Some(Self::TypeScript),
-            "py" => Some(Self::Python),
-            "rb" => Some(Self::Ruby),
-            "php" => Some(Self::Php),
-            "ps1" => Some(Self::PowerShell),
-            "pl" => Some(Self::Perl),
-            "el" => Some(Self::EmacsLisp),
-            "applescript" => Some(Self::AppleScript),
-            "lua" => Some(Self::Bundled(Engine::Lua)),
-            "js" => Some(Self::Bundled(Engine::QuickJs)),
-            "mruby" => Some(Self::Bundled(Engine::Mruby)),
-            "upy" => Some(Self::Bundled(Engine::MicroPython)),
-            _ => None,
+        let lower = extension.to_ascii_lowercase();
+        Self::FILE_EXTENSIONS
+            .iter()
+            .find(|(known, language)| {
+                // Node.js strips types only from a file named `.ts` in lower case (`B.TS` is parsed
+                // as JavaScript, even on a file system that ignores case), so no other spelling is
+                // a TypeScript macro.
+                *known == lower && (*language != Self::TypeScript || extension == "ts")
+            })
+            .map(|(_, language)| *language)
+    }
+
+    /// Whether this OS can run the language. AppleScript runs only on macOS.
+    pub fn runs_here(self) -> bool {
+        self != Self::AppleScript || cfg!(target_os = "macos")
+    }
+
+    /// The languages that this OS can run, each with its extensions (no dot), in the order of
+    /// [`Language::FILE_EXTENSIONS`].
+    pub fn file_types() -> Vec<(Self, Vec<&'static str>)> {
+        let mut types: Vec<(Self, Vec<&'static str>)> = Vec::new();
+        for (extension, language) in Self::FILE_EXTENSIONS {
+            if !language.runs_here() {
+                continue;
+            }
+            match types.iter_mut().find(|(known, _)| *known == language) {
+                Some((_, extensions)) => extensions.push(extension),
+                None => types.push((language, vec![extension])),
+            }
         }
+        types
     }
 
     pub fn display_name(self) -> &'static str {
@@ -942,5 +975,31 @@ mod tests {
         );
         assert_eq!(Language::of_file(Path::new("a.txt")), None);
         assert_eq!(Language::of_file(Path::new("noext")), None);
+    }
+
+    #[test]
+    fn the_table_of_extensions_has_each_extension_once_in_lower_case() {
+        let mut seen = std::collections::HashSet::new();
+        for (extension, _) in Language::FILE_EXTENSIONS {
+            assert_eq!(extension, extension.to_ascii_lowercase());
+            assert!(seen.insert(extension), "{extension} twice");
+        }
+    }
+
+    #[test]
+    fn file_types_group_the_extensions_by_language_and_leave_out_what_this_os_cannot_run() {
+        let types = Language::file_types();
+        let java_script = types.iter().find(|(l, _)| *l == Language::JavaScript);
+        assert_eq!(java_script.unwrap().1, ["mjs", "cjs"]);
+        let python = types.iter().find(|(l, _)| *l == Language::Python);
+        assert_eq!(python.unwrap().1, ["py"]);
+        let has_apple_script = types.iter().any(|(l, _)| *l == Language::AppleScript);
+        assert_eq!(has_apple_script, cfg!(target_os = "macos"));
+        let listed: usize = types.iter().map(|(_, extensions)| extensions.len()).sum();
+        let runnable = Language::FILE_EXTENSIONS
+            .iter()
+            .filter(|(_, language)| language.runs_here())
+            .count();
+        assert_eq!(listed, runnable);
     }
 }

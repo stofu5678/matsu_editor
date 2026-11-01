@@ -134,7 +134,7 @@ fn run(owner: Owner, request: &Request) -> Result<Option<Chosen>, Error> {
         let names: Vec<HSTRING> = request
             .filters
             .iter()
-            .map(|filter| HSTRING::from(filter.name.as_str()))
+            .map(|filter| HSTRING::from(filter.label()))
             .collect();
         let specs: Vec<HSTRING> = request
             .filters
