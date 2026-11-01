@@ -71,9 +71,13 @@ impl LineStyler for DocStyler {
         }
     }
 
+    fn body(&self) -> TextStyle {
+        style_of(self.rules.entry(matsu_coloring::ColorKind::Text))
+    }
+
     fn style_line(&self, line: usize, text: &str, has_eol: bool, out: &mut Vec<StyleRun>) {
         out.clear();
-        // The text color of the type colors all that no strategy does; nothing to say then.
+        // The text entry of the type colors all that no strategy does (`body`); nothing to say.
         if self.rules.colors_nothing() {
             return;
         }
@@ -90,7 +94,15 @@ impl LineStyler for DocStyler {
             return;
         }
         let state = self.state_at(line);
-        let eol = has_eol.then_some(Eol::Lf);
+        // The ending the line has, as the screen scans it (a keyword can match `\r`).
+        let eol = has_eol.then(|| {
+            self.doc
+                .line(line)
+                .ok()
+                .flatten()
+                .and_then(|l| l.eol)
+                .unwrap_or(Eol::Lf)
+        });
         for run in line_runs(&self.rules, text, eol, &state, text.len()) {
             // The runs go through the line ending, which is not printed.
             let end = run.end.min(text.len());

@@ -97,4 +97,7 @@ fn the_plain_style_is_the_text_color_without_bold_or_underline() {
     let plain = s.plain();
     assert_eq!(plain.color, 0x00ff00);
     assert!(!plain.bold && !plain.underline);
+    // The body keeps the full entry, for text that no strategy colors.
+    let body = s.body();
+    assert!(body.bold && body.underline);
 }

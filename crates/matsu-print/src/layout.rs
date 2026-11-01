@@ -323,6 +323,7 @@ impl Layout {
         let styler = styler.filter(|_| s.color_print);
         // What is drawn in the text color of the type: all but the body.
         let plain = styler.map(LineStyler::plain);
+        let body = styler.map(LineStyler::body);
         let mut page = Page {
             index,
             ..Page::default()
@@ -396,7 +397,7 @@ impl Layout {
                         row_text,
                         row.start_column,
                         Styling {
-                            plain,
+                            plain: body,
                             runs: &cache.styles,
                             row_start: row.range.start,
                         },
@@ -739,7 +740,10 @@ fn place_runs(
             });
         }
     };
-    let mut next_run = 0;
+    // The first run that may reach the row: a long line that wraps is placed row by row.
+    let mut next_run = styling
+        .runs
+        .partition_point(|r| r.range.end <= styling.row_start);
     for (i, ch) in text.char_indices() {
         if ch == '\t' {
             flush(&mut run, i, out);

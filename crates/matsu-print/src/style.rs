@@ -23,8 +23,15 @@ pub trait LineStyler {
     /// last line was reset to, `Print_DrawLine`).
     fn plain(&self) -> TextStyle;
 
+    /// The style of body text that no run covers: the full style of the text entry of the type,
+    /// bold and underline included (`Print_DrawBlock` uses `COLORIDX_TEXT` for it). Defaults to
+    /// [`plain`](Self::plain).
+    fn body(&self) -> TextStyle {
+        self.plain()
+    }
+
     /// Replaces `out` with the runs of line `line` (from 0), whose text without its line ending is
-    /// `text`. Runs are sorted and do not overlap; what they leave out is [`plain`](Self::plain).
+    /// `text`. Runs are sorted and do not overlap; what they leave out is [`body`](Self::body).
     fn style_line(&self, line: usize, text: &str, has_eol: bool, out: &mut Vec<StyleRun>);
 }
 
