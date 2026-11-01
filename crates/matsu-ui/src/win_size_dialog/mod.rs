@@ -416,6 +416,30 @@ pub(crate) fn current(cx: &App) -> Option<(Entity<WinSizeDialog>, AnyWindowHandl
     Some((open.dialog.upgrade()?, open.window))
 }
 
+/// Closes the dialog that is open and returns what it holds, without telling whoever opened it
+/// (the sheet that did is closing and takes the values itself).
+pub(crate) fn take_open(cx: &mut App) -> Option<WinSize> {
+    let open = cx.try_global::<OpenDialog>()?;
+    let (window, dialog) = (open.window, open.dialog.upgrade()?);
+    if !cx.windows().contains(&window) {
+        return None;
+    }
+    let values = dialog.update(cx, |dialog, cx| {
+        dialog.on_done = None;
+        dialog.values(cx)
+    });
+    window
+        .update(cx, |_, window, _| window.remove_window())
+        .ok();
+    Some(values)
+}
+
+/// Closes the dialog that is open and drops what it holds (the sheet that opened it was
+/// cancelled).
+pub(crate) fn discard_open(cx: &mut App) {
+    take_open(cx);
+}
+
 /// Shows the dialog starting at `start`; `on_done` gets the values when the dialog is closed
 /// (however it is closed). One that is open comes to the front instead (and `on_done` is dropped).
 pub(crate) fn open(cx: &mut App, start: WinSize, on_done: Done) -> Option<Entity<WinSizeDialog>> {

@@ -134,6 +134,27 @@ pub(in crate::common_settings) fn keep_current_geometry(
     stored
 }
 
+/// OK of the sheet while the dialog 位置と大きさの設定 is open: the dialog closes with the sheet
+/// and what it holds is taken, as if 閉じる had been pressed first.
+pub(in crate::common_settings) fn absorb_win_size_dialog(
+    dialog: &mut CommonSettingsDialog,
+    cx: &mut gpui::Context<CommonSettingsDialog>,
+) {
+    if let Some(now) = win_size_dialog::take_open(cx) {
+        for (id, value) in [
+            ("win_size_mode", now.size_mode),
+            ("win_size_type", now.size_type),
+            ("win_size_cx", now.width),
+            ("win_size_cy", now.height),
+            ("win_pos_mode", now.pos_mode),
+            ("win_pos_x", now.x),
+            ("win_pos_y", now.y),
+        ] {
+            dialog.set_int(id, value, cx);
+        }
+    }
+}
+
 fn funckey_bar_is_shown(values: &Values) -> bool {
     values.bool("disp_funckey_wnd")
 }

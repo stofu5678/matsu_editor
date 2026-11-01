@@ -362,3 +362,27 @@ fn the_wait_before_the_cancel_question_is_live_and_kept(cx: &mut TestAppContext)
     );
     assert_eq!(cx.update(|app| crate::macros::cancel_wait(app)), 3);
 }
+
+#[gpui::test]
+fn ok_of_the_sheet_takes_the_dialog_that_is_still_open(cx: &mut TestAppContext) {
+    let (ini, _handle) = open_window_page(cx, "[Common]\r\nnWinSizeCX=640\r\nnWinSizeCY=480\r\n");
+    press(cx, "win_size");
+    with_win_size(cx, |d, window, dcx| {
+        d.set_size_mode(MODE_SET, dcx);
+        d.set_text(Field::Width, "1000", window, dcx);
+    });
+    ok(cx);
+    assert!(!win_size_is_open(cx), "the dialog closes with the sheet");
+    assert_eq!(ini.get("nWinSizeCX").as_deref(), Some("1000"));
+    assert_eq!(ini.get("bSaveWindowSize").as_deref(), Some("2"));
+}
+
+#[gpui::test]
+fn cancel_of_the_sheet_closes_the_dialog_too(cx: &mut TestAppContext) {
+    let (ini, _handle) = open_window_page(cx, "[Common]\r\nnWinSizeCX=640\r\n");
+    let bytes = ini.bytes();
+    press(cx, "win_size");
+    super::tests::cancel(cx);
+    assert!(!win_size_is_open(cx));
+    assert_eq!(ini.bytes(), bytes);
+}
