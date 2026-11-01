@@ -288,16 +288,13 @@ fn run_auto(
 /// Waits until the macro that this window runs has ended (the button 中止 of the panel stops one
 /// that does not).
 /// Waits until the event calls of plugins on this window are over (`EditorStart` may still run when a file is
-/// read): an automatic macro does not start while a plugin has the window, so it would be skipped. At most
-/// a few seconds: a plugin has its time limit.
+/// read): an automatic macro does not start while a plugin has the window, so it would be skipped.
 async fn wait_for_the_events(view: &gpui::WeakEntity<EditorView>, cx: &mut AsyncWindowContext) {
-    for _ in 0..600 {
-        if !view
-            .read_with(cx, |view, _| view.event_batches_pending())
-            .unwrap_or(false)
-        {
-            return;
-        }
+    // Every call has its time limit, so the batches end; a window that goes away ends the wait too.
+    while view
+        .read_with(cx, |view, _| view.event_batches_pending())
+        .unwrap_or(false)
+    {
         cx.background_executor()
             .timer(std::time::Duration::from_millis(20))
             .await;
@@ -368,10 +365,7 @@ pub(crate) fn run_auto_in(
     if view.read(cx).event_batches_pending() {
         let view = view.clone();
         cx.spawn(async move |cx| {
-            for _ in 0..600 {
-                if !view.read_with(cx, |view, _| view.event_batches_pending()) {
-                    break;
-                }
+            while view.read_with(cx, |view, _| view.event_batches_pending()) {
                 cx.background_executor()
                     .timer(std::time::Duration::from_millis(20))
                     .await;

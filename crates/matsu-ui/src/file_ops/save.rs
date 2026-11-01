@@ -369,9 +369,21 @@ pub(crate) async fn save(
     // The plugins of DocumentBeforeSave (`DoSaveFlow`), after the macro. Under a name the document that
     // was is closed first (`!bOverwriteMode`). A plugin that fails or is slow does not stop the save.
     let named = from_dialog || request.path.is_some();
+    // The window can be used while the plugins run: if its document is replaced meanwhile (the file was
+    // closed), this save is not for the new document.
+    let generation = view
+        .read_with(cx, |view, app| view.document().read(app).generation())
+        .ok();
     fire_and_wait(view, cx, Jack::DocumentBeforeSave).await;
     if named {
         fire_and_wait(view, cx, Jack::DocumentClose).await;
+    }
+    if view
+        .read_with(cx, |view, app| view.document().read(app).generation())
+        .ok()
+        != generation
+    {
+        return SaveOutcome::Cancelled;
     }
     let changed = view
         .read_with(cx, |view, app| view.document().read(app).version())
