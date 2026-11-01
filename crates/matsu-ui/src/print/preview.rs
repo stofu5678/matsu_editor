@@ -16,9 +16,9 @@ use gpui::{
 use gpui_component::button::Button;
 use gpui_component::{Disableable as _, Sizable as _, h_flex};
 use matsu_platform::print::PrintJob;
-use matsu_platform::print::draw::{cell_positions, font_spec, on_grid};
+use matsu_platform::print::draw::{DrawOp, cell_positions, font_spec, on_grid, underline_of};
 use matsu_print::{
-    Layout, Orientation, Paper, PlacedText, PrintError, PrintSetting, find_paper_info,
+    Layout, Orientation, Paper, PlacedText, PrintError, PrintSetting, Rgb, find_paper_info,
     line_number_cells,
 };
 
@@ -463,12 +463,21 @@ impl Element for PageView {
                 rgb(0x808080),
                 BorderStyle::Solid,
             ));
-            let Some(page) = layout.page(preview.page, &*preview.job.source, &preview.job.header)
-            else {
+            let Some(page) = preview.job.page(layout, preview.page) else {
                 return;
             };
             for text in &page.texts {
                 paint_text(text, layout, scale, &at, window);
+                // The underline of color printing, in the color of the text.
+                if let Some(DrawOp::Underline { from, to, color }) = underline_of(text, layout) {
+                    window.paint_quad(fill(
+                        Bounds::from_corners(
+                            at(from.0, from.1),
+                            at(to.0, to.1) + point(px(0.), px(1.)),
+                        ),
+                        rgb(color),
+                    ));
+                }
             }
             for rule in &page.rules {
                 let (from, to) = (at(rule.from.0, rule.from.1), at(rule.to.0, rule.to.1));
@@ -484,12 +493,17 @@ impl Element for PageView {
 /// A font for printing, without ligatures, so that each character keeps its own glyph. A vertical
 /// font (`@Name`) is drawn upright and a Windows-only name is the family of DirectWrite, as
 /// everywhere else (`font_family_for`).
-fn print_font(face: &str) -> Font {
+fn print_font(face: &str, bold: bool) -> Font {
     use crate::settings::view_settings::{font_family_for, upright_face};
     let family = font_family_for(face, matsu_config::location::Os::current())
         .unwrap_or_else(|| upright_face(face).to_owned());
     Font {
         features: FontFeatures::disable_ligatures(),
+        weight: if bold {
+            gpui::FontWeight::BOLD
+        } else {
+            gpui::FontWeight::NORMAL
+        },
         ..font(family)
     }
 }
@@ -507,10 +521,15 @@ fn paint_text(
 ) {
     let spec = font_spec(layout.setting(), text.font);
     let font_size = px(spec.height as f32 * scale);
+    // Color printing: the color and the bold of the style (the underline is a line, see above).
+    let color = text
+        .style
+        .map_or_else(black, |s| rgb(s.color as Rgb).into());
+    let bold = text.style.is_some_and(|s| s.bold);
     let runs = [TextRun {
         len: text.text.len(),
-        font: print_font(spec.face),
-        color: black(),
+        font: print_font(spec.face, bold),
+        color,
         background_color: None,
         underline: None,
         strikethrough: None,
@@ -545,7 +564,7 @@ fn paint_text(
                     .ok();
             } else {
                 window
-                    .paint_glyph(origin, run.font_id, glyph.id, font_size, black())
+                    .paint_glyph(origin, run.font_id, glyph.id, font_size, color)
                     .ok();
             }
         }
@@ -571,6 +590,7 @@ mod tests {
             options: TypeOptions::default(),
             header: HeaderContext::default(),
             title: "t".into(),
+            styler: None,
         }
     }
 

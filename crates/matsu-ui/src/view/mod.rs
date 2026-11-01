@@ -755,13 +755,25 @@ impl EditorView {
     /// `ExpandParameter` of a title or caption `format` for this document: the title of the
     /// window and the caption of the tab (`file_names::title`).
     pub(crate) fn expand_format(&self, format: &str, cx: &App) -> String {
-        matsu_print::expand_parameter(format, &self.header_context(cx), None)
+        matsu_print::expand_parameter(format, &self.header_context_for(Some(format), cx), None)
     }
 
     /// What `ExpandParameter` reads from this window: the file, the marks, the caret and the
     /// number of an untitled document. The title, the caption of the tab and the headers of the
     /// print take it.
     pub(crate) fn header_context(&self, cx: &App) -> matsu_print::HeaderContext {
+        self.header_context_for(None, cx)
+    }
+
+    /// [`Self::header_context`] for the expansion of `format`: the selection (`$C`) and the column
+    /// of the caret (`$x`) read the text of the document, so they are made only when `format`
+    /// has them (`None`: all of them, for the headers of the print).
+    pub(crate) fn header_context_for(
+        &self,
+        format: Option<&str>,
+        cx: &App,
+    ) -> matsu_print::HeaderContext {
+        let wants = |code: &str| format.is_none_or(|f| f.contains(code));
         let shared = self.document.read(cx);
         let path = shared.path().map(|p| p.to_string_lossy().into_owned());
         // The key of a Grep window; its title is the key, and the tab shows `【Grep】key`.
@@ -776,7 +788,61 @@ impl EditorView {
             caret: (self.cursor.caret().line, self.cursor.caret().col),
             untitled_number: shared.untitled_number(),
         };
-        crate::file_names::title::context(&subject, &crate::file_names::current(cx))
+        let mut ctx = crate::file_names::title::context(&subject, &crate::file_names::current(cx));
+        // `$x` counts UTF-16 units from the start of the line (`GetCaretLogicPos().x + 1`), not
+        // the bytes of UTF-8 that a position holds.
+        if wants("$x") {
+            let caret = self.cursor.caret();
+            if let Ok(Some(line)) = shared.doc().line(caret.line) {
+                let upto = line.text.get(..caret.col).unwrap_or(&line.text);
+                ctx.caret_x = upto.encode_utf16().count() + 1;
+            }
+        }
+        if wants("$C") {
+            ctx.selected_text = self.search_seed(cx).unwrap_or_default();
+        }
+        if wants("$B") && self.prefs.settings.type_index > 0 {
+            let index = self.prefs.settings.type_index;
+            ctx.type_name = crate::doc_types::with_user(cx, |user| {
+                user.document_types()
+                    .get(index)
+                    .map(|t| t.type_name.clone())
+            });
+        }
+        if wants("$d") || wants("$t") {
+            let options = matsu_commands::format_options::get();
+            let now = matsu_commands::convert::datetime::Clock::now(
+                &matsu_commands::convert::datetime::SystemClock,
+            );
+            ctx.date = matsu_commands::convert::datetime::format_date(&now, options.date_picture());
+            ctx.time = matsu_commands::convert::datetime::format_time(&now, options.time_picture());
+        }
+        // `$D` and `$T`: the time stamp the file had when it was read or written last
+        // (`GetFileSysTime`); none for a document without a file.
+        if let Some(stamp) = shared.disk().stamp.filter(|_| shared.path().is_some()) {
+            let options = matsu_commands::format_options::get();
+            let time = local_time_of(stamp);
+            ctx.file_date = Some(matsu_commands::convert::datetime::format_date(
+                &time,
+                options.date_picture(),
+            ));
+            ctx.file_time = Some(matsu_commands::convert::datetime::format_time(
+                &time,
+                options.time_picture(),
+            ));
+        }
+        ctx.exe_path = std::env::current_exe()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        ctx.ini_path = crate::unsaved::keeper::settings_path(cx)
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        // `$M`: the macro that runs now (`CSMacroMgr::GetCurrentIdx`).
+        ctx.macro_path = self.macros.running_path();
+        ctx.profile = matsu_config::location::Environment::from_process()
+            .profile_name
+            .unwrap_or_default();
+        ctx
     }
 
     // ---- keys ----
@@ -1033,3 +1099,18 @@ mod ruler_tests;
 mod status_info_tests;
 #[cfg(test)]
 mod tests;
+
+/// A time stamp as a wall clock time of the computer, for `$D` and `$T`.
+fn local_time_of(stamp: std::time::SystemTime) -> matsu_commands::convert::datetime::LocalTime {
+    use chrono::{Datelike, Timelike};
+    let t = chrono::DateTime::<chrono::Local>::from(stamp);
+    matsu_commands::convert::datetime::LocalTime {
+        year: t.year(),
+        month: t.month(),
+        day: t.day(),
+        weekday: t.weekday().num_days_from_sunday(),
+        hour: t.hour(),
+        minute: t.minute(),
+        second: t.second(),
+    }
+}

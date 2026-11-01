@@ -12,11 +12,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use krilla::Document;
+use krilla::color::rgb;
 use krilla::geom::{PathBuilder, Point};
 use krilla::page::PageSettings;
-use krilla::paint::Stroke;
+use krilla::paint::{Fill, Stroke};
 use krilla::text::{Font, TextDirection};
-use matsu_print::Paper;
+use matsu_print::{Paper, Rgb, TextStyle};
 
 use super::draw::{DrawOp, font_spec, page_ops, points};
 use super::{Error, PrintJob};
@@ -35,7 +36,7 @@ pub fn render(job: &PrintJob, paper: Paper) -> Result<(Vec<u8>, usize), Error> {
     let settings = PageSettings::from_wh(points(paper.width), points(paper.height))
         .ok_or("用紙の大きさが不正です")?;
     let mut document = Document::new();
-    for page in layout.pages(0..pages, &*job.source, &job.header) {
+    for page in job.pages(&layout, 0..pages) {
         let mut pdf_page = document.start_page_with(settings.clone());
         let mut surface = pdf_page.surface();
         let mut buf = [0u8; 4];
@@ -49,25 +50,40 @@ pub fn render(job: &PrintJob, paper: Paper) -> Result<(Vec<u8>, usize), Error> {
                     x,
                     baseline,
                     font,
+                    style,
                 } => {
                     let spec = font_spec(setting, *font);
-                    surface.draw_text(
-                        Point::from_xy(points(*x), points(*baseline)),
-                        fonts.get(spec.face)?,
-                        points(spec.height),
-                        ch.encode_utf8(&mut buf),
-                        false,
-                        TextDirection::Auto,
-                    );
+                    set_text_color(&mut surface, *style);
+                    let font = fonts.get(spec.face)?;
+                    let text = ch.encode_utf8(&mut buf);
+                    // krilla has no bold: the glyph is drawn again a little to the right, which
+                    // thickens its vertical strokes (a pen-width of the line numbers' rules).
+                    let shifts: &[i32] = if style.is_some_and(|s| s.bold) {
+                        &[0, spec.height / 40 + 1]
+                    } else {
+                        &[0]
+                    };
+                    for shift in shifts {
+                        surface.draw_text(
+                            Point::from_xy(points(*x + shift), points(*baseline)),
+                            font.clone(),
+                            points(spec.height),
+                            text,
+                            false,
+                            TextDirection::Auto,
+                        );
+                    }
                 }
                 DrawOp::Text {
                     text,
                     x,
                     baseline,
                     font,
+                    style,
                     ..
                 } => {
                     let spec = font_spec(setting, *font);
+                    set_text_color(&mut surface, *style);
                     surface.draw_text(
                         Point::from_xy(points(*x), points(*baseline)),
                         fonts.get(spec.face)?,
@@ -77,7 +93,23 @@ pub fn render(job: &PrintJob, paper: Paper) -> Result<(Vec<u8>, usize), Error> {
                         TextDirection::Auto,
                     );
                 }
-                DrawOp::Line { .. } => {}
+                DrawOp::Line { .. } | DrawOp::Underline { .. } => {}
+            }
+        }
+        // The underlines of the colors, in the color of their text.
+        for op in &ops {
+            if let DrawOp::Underline { from, to, color } = op {
+                surface.set_stroke(Some(Stroke {
+                    paint: paint_of(*color),
+                    width: 0.5,
+                    ..Stroke::default()
+                }));
+                let mut path = PathBuilder::new();
+                path.move_to(points(from.0), points(from.1));
+                path.line_to(points(to.0), points(to.1));
+                if let Some(path) = path.finish() {
+                    surface.draw_path(&path);
+                }
             }
         }
         // The rules between the line numbers and the text, 0.5 pt wide as on the Mac.
@@ -102,6 +134,18 @@ pub fn render(job: &PrintJob, paper: Paper) -> Result<(Vec<u8>, usize), Error> {
         .finish()
         .map_err(|err| Error(format!("PDF を作れません: {err:?}")))?;
     Ok((pdf, pages))
+}
+
+fn paint_of(color: Rgb) -> krilla::paint::Paint {
+    rgb::Color::new((color >> 16) as u8, (color >> 8) as u8, color as u8).into()
+}
+
+/// The fill color of the text that follows: the color of its style, or black.
+fn set_text_color(surface: &mut krilla::surface::Surface<'_>, style: Option<TextStyle>) {
+    surface.set_fill(Some(Fill {
+        paint: paint_of(style.map_or(0, |s| s.color)),
+        ..Fill::default()
+    }));
 }
 
 /// The fonts of the families used, each loaded once.
@@ -190,6 +234,7 @@ mod tests {
             options: TypeOptions::default(),
             header: HeaderContext::default(),
             title: "test".into(),
+            styler: None,
         }
     }
 
@@ -220,5 +265,48 @@ mod tests {
         let layout = job.layout(Paper::A4).unwrap();
         assert_eq!(pages, layout.page_count());
         assert!(pdf.ends_with(b"%%EOF\n") || pdf.ends_with(b"%%EOF"));
+    }
+
+    struct Red;
+
+    impl matsu_print::LineStyler for Red {
+        fn plain(&self) -> TextStyle {
+            TextStyle {
+                color: 0,
+                bold: false,
+                underline: false,
+            }
+        }
+
+        fn style_line(&self, _: usize, text: &str, _: bool, out: &mut Vec<matsu_print::StyleRun>) {
+            out.clear();
+            out.push(matsu_print::StyleRun {
+                range: 0..text.len(),
+                style: TextStyle {
+                    color: 0xff0000,
+                    bold: false,
+                    underline: true,
+                },
+            });
+        }
+    }
+
+    /// A color print writes a PDF that differs from the black one (the color and the underline are
+    /// in the page's drawing commands).
+    #[test]
+    fn a_color_print_writes_the_colors() {
+        let lines = vec!["red text".to_string(), String::new()];
+        let mut black = job(lines.clone());
+        black.setting.color_print = true;
+        let mut colored = black.clone();
+        colored.styler = Some(Arc::new(Red));
+        // Without a styler a color print is black.
+        let Ok((plain, _)) = render(&black, Paper::A4) else {
+            eprintln!("skipped: no print font");
+            return;
+        };
+        let (pdf, _) = render(&colored, Paper::A4).unwrap();
+        assert!(pdf.starts_with(b"%PDF-"));
+        assert_ne!(pdf, plain);
     }
 }

@@ -258,6 +258,13 @@ impl MacroState {
         self.recorder.is_recording()
     }
 
+    /// The file of the macro that runs now (`$M` of `ExpandParameter`).
+    pub(crate) fn running_path(&self) -> Option<String> {
+        self.running
+            .as_ref()
+            .map(|running| running.path.to_string_lossy().into_owned())
+    }
+
     /// `CSMacroMgr::IsSaveOk`: the macro that `F_EXECKEYMACRO` plays can be saved, which only a key
     /// macro can (a recording or a key macro file; a script cannot).
     pub(crate) fn can_save_key_macro(&self, cx: &App) -> bool {

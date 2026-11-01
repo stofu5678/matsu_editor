@@ -30,6 +30,19 @@ pub enum HAlign {
     Right,
 }
 
+/// A color as `0xRRGGBB`.
+pub type Rgb = u32;
+
+/// How color printing draws a piece of text (`Print_DrawBlock`): the text color of the color
+/// entry, and its bold and underline. The background of the entry is not printed (Sakura has
+/// that line commented out).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TextStyle {
+    pub color: Rgb,
+    pub bold: bool,
+    pub underline: bool,
+}
+
 /// Text at a place on the paper. All lengths are in 0.1 mm, from the top left corner of the
 /// paper; Sakura also takes the printer's unprintable margin off (`m_nPreview_PaperOffsetLeft`
 /// and `m_nPreview_PaperOffsetTop`), which is for the code that talks to the printer.
@@ -49,6 +62,9 @@ pub struct PlacedText {
     pub text: String,
     pub font: FontKind,
     pub align: HAlign,
+    /// The color, bold and underline when the setting prints in color ([`crate::LineStyler`]
+    /// gave them); `None` is plain black text.
+    pub style: Option<TextStyle>,
 }
 
 impl PlacedText {

@@ -22,7 +22,8 @@ use std::fmt;
 use std::sync::Arc;
 
 use matsu_print::{
-    HeaderContext, Layout, LineSource, Paper, PrintError, PrintSetting, TypeOptions,
+    HeaderContext, Layout, LineSource, LineStyler, Page, Paper, PrintError, PrintSetting,
+    TypeOptions,
 };
 
 /// What printing needs, taken from the editor when the user prints. It owns everything, so that
@@ -37,6 +38,9 @@ pub struct PrintJob {
     pub header: HeaderContext,
     /// The name of the print job in the print queue.
     pub title: String,
+    /// The colors of the text for a setting that prints in color (`color_print`): the coloring of
+    /// the window, over the same snapshot as `source`. Without one the print is black.
+    pub styler: Option<Arc<dyn LineStyler + Send + Sync>>,
 }
 
 impl fmt::Debug for PrintJob {
@@ -52,6 +56,31 @@ impl PrintJob {
     /// Lays the document out on `paper`.
     pub fn layout(&self, paper: Paper) -> Result<Layout, PrintError> {
         Layout::new(&*self.source, &self.setting, paper, &self.options)
+    }
+
+    /// The pages `range` of `layout`, in color when the setting says so and the job has a styler.
+    pub fn pages<'a>(
+        &'a self,
+        layout: &'a Layout,
+        range: std::ops::Range<usize>,
+    ) -> Box<dyn Iterator<Item = Page> + 'a> {
+        match &self.styler {
+            Some(styler) => Box::new(layout.pages_styled(
+                range,
+                &*self.source,
+                &self.header,
+                &**styler as &dyn LineStyler,
+            )),
+            None => Box::new(layout.pages(range, &*self.source, &self.header)),
+        }
+    }
+
+    /// The page `index` of `layout` (see [`PrintJob::pages`]).
+    pub fn page(&self, layout: &Layout, index: usize) -> Option<Page> {
+        match &self.styler {
+            Some(styler) => layout.page_styled(index, &*self.source, &self.header, &**styler),
+            None => layout.page(index, &*self.source, &self.header),
+        }
     }
 
     /// The paper of the setting, or Sakura's A4 portrait when it has none
@@ -136,6 +165,7 @@ mod tests {
             options: TypeOptions::default(),
             header: HeaderContext::default(),
             title: "t".into(),
+            styler: None,
         };
         assert_eq!(job.setting_paper(), Paper::A4);
         assert_eq!(job.layout(job.setting_paper()).unwrap().page_count(), 1);

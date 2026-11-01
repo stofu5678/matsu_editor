@@ -7,8 +7,8 @@
 //   sakura_core/view/CTextMetrics.cpp (GenerateDxArray, CalcTextWidth2)
 //   sakura_core/charset/charcode.cpp (WCODE::GetFontNo)
 // Modified: rewritten in Rust. The pages are given as text and its position instead of being
-// drawn on a device context; the wrapping is done by `matsu-layout`; color printing and the
-// printer's unprintable margin are left to the caller.
+// drawn on a device context; the wrapping is done by `matsu-layout`; the colors come from a
+// `LineStyler` and the printer's unprintable margin is left to the caller.
 //
 // Copyright (C) 2018-2022, Sakura Editor Organization
 //
@@ -40,9 +40,10 @@ use matsu_layout::{
 
 use crate::Paper;
 use crate::header::{HeaderContext, PageInfo, expand_parameter};
-use crate::page::{FontKind, HAlign, Page, PlacedText, Rule};
+use crate::page::{FontKind, HAlign, Page, PlacedText, Rule, TextStyle};
 use crate::setting::{POS_CENTER, POS_LEFT, PrintSetting};
 use crate::source::LineSource;
+use crate::style::{LineStyler, StyleRun, style_at};
 
 /// The most digits of a line number Sakura makes room for (`LINENUMWIDTH_MAX`).
 const LINENUMWIDTH_MAX: u32 = 11;
@@ -293,7 +294,20 @@ impl Layout {
         source: &S,
         ctx: &HeaderContext,
     ) -> Option<Page> {
-        self.page_cached(index, source, ctx, &mut LineCache::default())
+        self.page_cached(index, source, ctx, None, &mut LineCache::default())
+    }
+
+    /// [`Layout::page`] with colors: when the setting prints in color (`color_print`), each piece
+    /// of text has the style `styler` gives its bytes (see [`LineStyler`]). Without
+    /// `color_print` it is the same as `page`, and `styler` is not asked.
+    pub fn page_styled<S: LineSource + ?Sized>(
+        &self,
+        index: usize,
+        source: &S,
+        ctx: &HeaderContext,
+        styler: &dyn LineStyler,
+    ) -> Option<Page> {
+        self.page_cached(index, source, ctx, Some(styler), &mut LineCache::default())
     }
 
     fn page_cached<S: LineSource + ?Sized>(
@@ -301,10 +315,14 @@ impl Layout {
         index: usize,
         source: &S,
         ctx: &HeaderContext,
+        styler: Option<&dyn LineStyler>,
         cache: &mut LineCache,
     ) -> Option<Page> {
         let start = *self.starts.get(index)?;
         let s = &self.setting;
+        let styler = styler.filter(|_| s.color_print);
+        // What is drawn in the text color of the type: all but the body.
+        let plain = styler.map(LineStyler::plain);
         let mut page = Page {
             index,
             ..Page::default()
@@ -320,7 +338,14 @@ impl Layout {
         let rect_left = s.print_margin_lx + 5;
         let rect_right = self.paper.width - (s.print_margin_rx + 5);
         if s.header_height() > 0 {
-            self.place_header_footer(true, (rect_left, rect_right), &info, ctx, &mut page.texts);
+            self.place_header_footer(
+                true,
+                (rect_left, rect_right),
+                &info,
+                ctx,
+                plain,
+                &mut page.texts,
+            );
         }
 
         // DrawPageText: `top` is the top of the first row, below the header and the blank line
@@ -337,7 +362,7 @@ impl Layout {
         let mut line = start.line;
         let mut skip = start.row;
         while at < per_page && line < self.line_count {
-            cache.load(line, source, &self.config);
+            cache.load(line, source, &self.config, styler);
             let text = &cache.text;
             for (n, row) in cache.rows.iter().enumerate().skip(skip) {
                 let column = at / self.rows;
@@ -357,17 +382,24 @@ impl Layout {
                     } else {
                         None
                     };
-                    self.place_line_number(number, base_x, baseline, &mut page.texts);
+                    self.place_line_number(number, base_x, baseline, plain, &mut page.texts);
                 }
                 let row_text = row.text(text);
                 if !row_text.is_empty() {
                     place_runs(
+                        &Grid {
+                            x: base_x,
+                            baseline,
+                            cell: s.print_font_width,
+                            config: &self.config,
+                        },
                         row_text,
                         row.start_column,
-                        base_x,
-                        baseline,
-                        s.print_font_width,
-                        &self.config,
+                        Styling {
+                            plain,
+                            runs: &cache.styles,
+                            row_start: row.range.start,
+                        },
                         &mut page.texts,
                     );
                 }
@@ -400,7 +432,14 @@ impl Layout {
         }
 
         if s.footer_height() > 0 {
-            self.place_header_footer(false, (rect_left, rect_right), &info, ctx, &mut page.texts);
+            self.place_header_footer(
+                false,
+                (rect_left, rect_right),
+                &info,
+                ctx,
+                plain,
+                &mut page.texts,
+            );
         }
         Some(page)
     }
@@ -412,9 +451,30 @@ impl Layout {
         source: &'a S,
         ctx: &'a HeaderContext,
     ) -> impl Iterator<Item = Page> + 'a {
+        self.pages_with(range, source, ctx, None)
+    }
+
+    /// [`Layout::pages`] with colors (see [`Layout::page_styled`]).
+    pub fn pages_styled<'a, S: LineSource + ?Sized>(
+        &'a self,
+        range: Range<usize>,
+        source: &'a S,
+        ctx: &'a HeaderContext,
+        styler: &'a dyn LineStyler,
+    ) -> impl Iterator<Item = Page> + 'a {
+        self.pages_with(range, source, ctx, Some(styler))
+    }
+
+    fn pages_with<'a, S: LineSource + ?Sized>(
+        &'a self,
+        range: Range<usize>,
+        source: &'a S,
+        ctx: &'a HeaderContext,
+        styler: Option<&'a dyn LineStyler>,
+    ) -> impl Iterator<Item = Page> + 'a {
         let end = range.end.min(self.page_count());
         let mut cache = LineCache::default();
-        (range.start..end).filter_map(move |i| self.page_cached(i, source, ctx, &mut cache))
+        (range.start..end).filter_map(move |i| self.page_cached(i, source, ctx, styler, &mut cache))
     }
 
     /// The line number and what follows it (`DrawPageText`). The text ends where the text of the
@@ -426,6 +486,7 @@ impl Layout {
         number: Option<usize>,
         base_x: i32,
         baseline: i32,
+        plain: Option<TextStyle>,
         out: &mut Vec<PlacedText>,
     ) {
         let term = match self.options.line_term {
@@ -442,7 +503,18 @@ impl Layout {
         let x = base_x - units as i32 * cell;
         let drawn = label.trim_end_matches(' ');
         if !drawn.is_empty() {
-            place_runs(drawn, 0, x, baseline, cell, &self.config, out);
+            place_runs(
+                &Grid {
+                    x,
+                    baseline,
+                    cell,
+                    config: &self.config,
+                },
+                drawn,
+                0,
+                Styling::plain(plain),
+                out,
+            );
         }
     }
 
@@ -454,6 +526,7 @@ impl Layout {
         rect: (i32, i32),
         info: &PageInfo<'_>,
         ctx: &HeaderContext,
+        plain: Option<TextStyle>,
         out: &mut Vec<PlacedText>,
     ) {
         let s = &self.setting;
@@ -496,6 +569,7 @@ impl Layout {
                         FontKind::Footer
                     },
                     align,
+                    style: plain,
                 });
             } else {
                 let width = header_text_width(&text, fw, self.options.width);
@@ -504,7 +578,18 @@ impl Layout {
                     POS_CENTER => (rect.1 + rect.0 - width) / 2,
                     _ => rect.1 - width,
                 };
-                place_runs(&text, 0, x, baseline, fw, &self.config, out);
+                place_runs(
+                    &Grid {
+                        x,
+                        baseline,
+                        cell: fw,
+                        config: &self.config,
+                    },
+                    &text,
+                    0,
+                    Styling::plain(plain),
+                    out,
+                );
             }
         }
     }
@@ -517,13 +602,25 @@ struct LineCache {
     line: Option<usize>,
     text: String,
     rows: Vec<Row>,
+    /// The styles of the bytes of the line, when printing in color.
+    styles: Vec<StyleRun>,
 }
 
 impl LineCache {
-    fn load<S: LineSource + ?Sized>(&mut self, line: usize, source: &S, config: &LayoutConfig) {
+    fn load<S: LineSource + ?Sized>(
+        &mut self,
+        line: usize,
+        source: &S,
+        config: &LayoutConfig,
+        styler: Option<&dyn LineStyler>,
+    ) {
         if self.line != Some(line) {
             let has_eol = source.read_line(line, &mut self.text);
             rows_of(&self.text, has_eol, config, &mut self.rows);
+            self.styles.clear();
+            if let Some(styler) = styler {
+                styler.style_line(line, &self.text, has_eol, &mut self.styles);
+            }
             self.line = Some(line);
         }
     }
@@ -584,44 +681,79 @@ fn scan<S: LineSource + ?Sized>(
     (total, starts)
 }
 
-/// Puts a row on the grid from `x`, starting at the column `start_column`. A tab moves to the
-/// next tab stop and prints nothing (`Print_DrawBlock`: "TAB is not printed when there is no
-/// color"), so the text is split at it; it is also split where the font changes (`Print_DrawLine`).
-fn place_runs(
-    text: &str,
-    start_column: u32,
+/// Where a piece of text goes on the grid: the left edge of the cells, the baseline, the width
+/// of a cell and the settings of the wrapping.
+struct Grid<'a> {
     x: i32,
     baseline: i32,
     cell: i32,
-    config: &LayoutConfig,
+    config: &'a LayoutConfig,
+}
+
+/// The styles of the text of a row.
+struct Styling<'a> {
+    /// The style of what no run covers; `None` when the print is not in color.
+    plain: Option<TextStyle>,
+    /// The runs of the line the row is of, in bytes of the line.
+    runs: &'a [StyleRun],
+    /// Where the text of the row begins in the line.
+    row_start: usize,
+}
+
+impl Styling<'_> {
+    /// Text that is not a row of the document (line numbers, header, footer).
+    fn plain(plain: Option<TextStyle>) -> Styling<'static> {
+        Styling {
+            plain,
+            runs: &[],
+            row_start: 0,
+        }
+    }
+}
+
+/// Puts a row on the grid, starting at the column `start_column`. A tab moves to the
+/// next tab stop and prints nothing (`Print_DrawBlock`: "TAB is not printed when there is no
+/// color"), so the text is split at it; it is also split where the font changes (`Print_DrawLine`)
+/// and where the color, bold or underline changes. (Sakura prints a tab in a color with an
+/// underline, as an underlined tab; here it prints nothing.)
+fn place_runs(
+    grid: &Grid<'_>,
+    text: &str,
+    start_column: u32,
+    styling: Styling<'_>,
     out: &mut Vec<PlacedText>,
 ) {
     let mut column = start_column;
-    // The start of the run in `text`, its column and its font.
-    let mut run: Option<(usize, u32, FontKind)> = None;
-    let flush =
-        |run: &mut Option<(usize, u32, FontKind)>, end: usize, out: &mut Vec<PlacedText>| {
-            if let Some((start, at, font)) = run.take() {
-                out.push(PlacedText {
-                    x: x + at as i32 * cell,
-                    baseline,
-                    text: text[start..end].to_string(),
-                    font,
-                    align: HAlign::Left,
-                });
-            }
-        };
+    // The start of the run in `text`, its column, font and style.
+    type Run = (usize, u32, FontKind, Option<TextStyle>);
+    let mut run: Option<Run> = None;
+    let flush = |run: &mut Option<Run>, end: usize, out: &mut Vec<PlacedText>| {
+        if let Some((start, at, font, style)) = run.take() {
+            out.push(PlacedText {
+                x: grid.x + at as i32 * grid.cell,
+                baseline: grid.baseline,
+                text: text[start..end].to_string(),
+                font,
+                align: HAlign::Left,
+                style,
+            });
+        }
+    };
+    let mut next_run = 0;
     for (i, ch) in text.char_indices() {
         if ch == '\t' {
             flush(&mut run, i, out);
         } else {
             let font = font_of(ch);
-            if run.is_some_and(|(_, _, f)| f != font) {
+            let style = styling.plain.map(|plain| {
+                style_at(styling.runs, &mut next_run, styling.row_start + i).unwrap_or(plain)
+            });
+            if run.is_some_and(|(_, _, f, s)| f != font || s != style) {
                 flush(&mut run, i, out);
             }
-            run.get_or_insert((i, column, font));
+            run.get_or_insert((i, column, font, style));
         }
-        column += config.columns_of(ch, column);
+        column += grid.config.columns_of(ch, column);
     }
     flush(&mut run, text.len(), out);
 }

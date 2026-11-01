@@ -7,17 +7,19 @@
 // need it (ADR-0013).
 #![allow(unsafe_code)]
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::Path;
 
-use matsu_print::{FontKind, HAlign, Layout, Page, Paper};
+use matsu_print::{FontKind, HAlign, Layout, Page, Paper, PrintSetting};
 use raw_window_handle::RawWindowHandle;
 use windows_sys::Win32::Foundation::{GlobalFree, HWND};
 use windows_sys::Win32::Graphics::Gdi::{
     CLIP_DEFAULT_PRECIS, CreateDCW, CreateFontW, CreatePen, DEFAULT_CHARSET, DEFAULT_QUALITY,
-    DeleteDC, DeleteObject, ExtTextOutW, FF_DONTCARE, FW_NORMAL, GetDeviceCaps, HDC, HFONT,
-    LOGPIXELSX, LOGPIXELSY, LineTo, MoveToEx, OUT_DEFAULT_PRECIS, PHYSICALHEIGHT, PHYSICALOFFSETX,
-    PHYSICALOFFSETY, PHYSICALWIDTH, PS_SOLID, SelectObject, SetBkMode, SetTextAlign, TA_BASELINE,
-    TA_CENTER, TA_LEFT, TA_RIGHT, TRANSPARENT,
+    DeleteDC, DeleteObject, ExtTextOutW, FF_DONTCARE, FW_BOLD, FW_NORMAL, GetDeviceCaps, HDC,
+    HFONT, LOGPIXELSX, LOGPIXELSY, LineTo, MoveToEx, OUT_DEFAULT_PRECIS, PHYSICALHEIGHT,
+    PHYSICALOFFSETX, PHYSICALOFFSETY, PHYSICALWIDTH, PS_SOLID, SelectObject, SetBkMode,
+    SetTextAlign, SetTextColor, TA_BASELINE, TA_CENTER, TA_LEFT, TA_RIGHT, TRANSPARENT,
 };
 use windows_sys::Win32::Storage::Xps::{AbortDoc, DOCINFOW, EndDoc, EndPage, StartDocW, StartPage};
 use windows_sys::Win32::UI::Controls::Dialogs::{
@@ -150,88 +152,81 @@ impl Device {
 /// for half-width and full-width characters and, when the setting has them, the header's and the
 /// footer's. Sakura gives the font height as the cell height of the GDI font; this gives it as
 /// the size of the characters (em), as the preview and the Mac do.
+///
+/// Color printing also needs the bold and underlined variants of the print fonts
+/// (`m_hFontHan_b`, `_u` and `_bu`); they are made when a text asks for one.
 struct Fonts {
-    han: HFONT,
-    zen: HFONT,
-    header: Option<HFONT>,
-    footer: Option<HFONT>,
+    setting: PrintSetting,
+    dpi_y: i32,
+    /// The kind, bold and underline of each font made so far.
+    made: RefCell<HashMap<(u8, bool, bool), HFONT>>,
 }
 
 impl Fonts {
     fn new(layout: &Layout, device: &Device) -> Result<Self, String> {
         // `Fonts` is dropped on an error, which deletes what was made so far.
-        let mut fonts = Self {
-            han: std::ptr::null_mut(),
-            zen: std::ptr::null_mut(),
-            header: None,
-            footer: None,
+        let fonts = Self {
+            setting: layout.setting().clone(),
+            dpi_y: device.dpi_y,
+            made: RefCell::new(HashMap::new()),
         };
-        let setting = layout.setting();
-        let create = |kind| {
-            let spec = font_spec(setting, kind);
-            let wide_face = wide(spec.face);
-            let font = unsafe {
-                CreateFontW(
-                    -pixels(spec.height, device.dpi_y),
-                    // The width follows the height; the cells come from ExtTextOutW's advances.
-                    0,
-                    0,
-                    0,
-                    FW_NORMAL as i32,
-                    0,
-                    0,
-                    0,
-                    DEFAULT_CHARSET as u32,
-                    OUT_DEFAULT_PRECIS as u32,
-                    CLIP_DEFAULT_PRECIS as u32,
-                    DEFAULT_QUALITY as u32,
-                    FF_DONTCARE as u32,
-                    wide_face.as_ptr(),
-                )
-            };
-            if font.is_null() {
-                Err(format!("印刷のフォント {} を作れません", spec.face))
-            } else {
-                Ok(font)
-            }
-        };
-        fonts.han = create(FontKind::Han)?;
-        fonts.zen = create(FontKind::Zen)?;
-        if setting
-            .header_font
-            .as_ref()
-            .is_some_and(|f| !f.face.is_empty())
-        {
-            fonts.header = Some(create(FontKind::Header)?);
-        }
-        if setting
-            .footer_font
-            .as_ref()
-            .is_some_and(|f| !f.face.is_empty())
-        {
-            fonts.footer = Some(create(FontKind::Footer)?);
-        }
+        // The plain fonts first, so that a font that cannot be made fails before printing.
+        fonts.of(FontKind::Han, false, false)?;
+        fonts.of(FontKind::Zen, false, false)?;
+        fonts.of(FontKind::Header, false, false)?;
+        fonts.of(FontKind::Footer, false, false)?;
         Ok(fonts)
     }
 
-    fn of(&self, kind: FontKind) -> HFONT {
-        match kind {
-            FontKind::Han => self.han,
-            FontKind::Zen => self.zen,
-            FontKind::Header => self.header.unwrap_or(self.han),
-            FontKind::Footer => self.footer.unwrap_or(self.han),
+    /// The font for `kind` with the bold and the underline. A header or a footer without a font
+    /// of its own has the half-width print font.
+    fn of(&self, kind: FontKind, bold: bool, underline: bool) -> Result<HFONT, String> {
+        let kind = match kind {
+            FontKind::Header if !has_own(&self.setting.header_font) => FontKind::Han,
+            FontKind::Footer if !has_own(&self.setting.footer_font) => FontKind::Han,
+            _ => kind,
+        };
+        let key = (kind as u8, bold, underline);
+        if let Some(font) = self.made.borrow().get(&key) {
+            return Ok(*font);
         }
+        let spec = font_spec(&self.setting, kind);
+        let wide_face = wide(spec.face);
+        let font = unsafe {
+            CreateFontW(
+                -pixels(spec.height, self.dpi_y),
+                // The width follows the height; the cells come from ExtTextOutW's advances.
+                0,
+                0,
+                0,
+                if bold { FW_BOLD } else { FW_NORMAL } as i32,
+                0,
+                u32::from(underline),
+                0,
+                DEFAULT_CHARSET as u32,
+                OUT_DEFAULT_PRECIS as u32,
+                CLIP_DEFAULT_PRECIS as u32,
+                DEFAULT_QUALITY as u32,
+                FF_DONTCARE as u32,
+                wide_face.as_ptr(),
+            )
+        };
+        if font.is_null() {
+            return Err(format!("印刷のフォント {} を作れません", spec.face));
+        }
+        self.made.borrow_mut().insert(key, font);
+        Ok(font)
     }
+}
+
+fn has_own(font: &Option<matsu_print::HeaderFooterFont>) -> bool {
+    font.as_ref().is_some_and(|f| !f.face.is_empty())
 }
 
 impl Drop for Fonts {
     fn drop(&mut self) {
-        for font in [Some(self.han), Some(self.zen), self.header, self.footer]
-            .into_iter()
-            .flatten()
-            .filter(|font| !font.is_null())
-        {
-            unsafe { DeleteObject(font) };
+        for font in self.made.get_mut().values().filter(|font| !font.is_null()) {
+            unsafe { DeleteObject(*font) };
         }
     }
 }
@@ -258,7 +253,7 @@ fn print_dc(hdc: HDC, job: &PrintJob, output: Option<&Path>) -> Result<usize, St
     if unsafe { StartDocW(hdc, &info) } <= 0 {
         return Err("印刷を始められません".into());
     }
-    for page in layout.pages(0..pages, &*job.source, &job.header) {
+    for page in job.pages(&layout, 0..pages) {
         let printed = if unsafe { StartPage(hdc) } <= 0 {
             Err("ページを始められません")
         } else if !draw_page(hdc, &page, &layout, &fonts, &device) {
@@ -284,9 +279,12 @@ fn print_dc(hdc: HDC, job: &PrintJob, output: Option<&Path>) -> Result<usize, St
 fn draw_page(hdc: HDC, page: &Page, layout: &Layout, fonts: &Fonts, device: &Device) -> bool {
     // StartPage resets the attributes of the DC on some drivers, so they are set on every page.
     // The text is placed by its baseline, which the layout gives.
+    let Ok(han) = fonts.of(FontKind::Han, false, false) else {
+        return false;
+    };
     let old_font = unsafe {
         SetBkMode(hdc, TRANSPARENT as i32);
-        SelectObject(hdc, fonts.han)
+        SelectObject(hdc, han)
     };
     let cell = layout.setting().print_font_width;
     let rule = layout.width_rule();
@@ -321,9 +319,24 @@ fn draw_page(hdc: HDC, page: &Page, layout: &Layout, fonts: &Fonts, device: &Dev
             HAlign::Center => TA_CENTER,
             HAlign::Right => TA_RIGHT,
         };
+        // The color, bold and underline of color printing (`Print_DrawBlock`). The color is a
+        // COLORREF: 0x00BBGGRR.
+        let style = text.style;
+        let Ok(font) = fonts.of(
+            text.font,
+            style.is_some_and(|s| s.bold),
+            style.is_some_and(|s| s.underline),
+        ) else {
+            drawn = false;
+            continue;
+        };
+        let color = style.map_or(0, |s| {
+            ((s.color & 0xff) << 16) | (s.color & 0xff00) | ((s.color >> 16) & 0xff)
+        });
         drawn &= unsafe {
             SetTextAlign(hdc, TA_BASELINE | align);
-            SelectObject(hdc, fonts.of(text.font));
+            SetTextColor(hdc, color);
+            SelectObject(hdc, font);
             ExtTextOutW(
                 hdc,
                 device.x(text.x),

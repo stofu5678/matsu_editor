@@ -4,7 +4,7 @@
 //! is; the Windows and macOS drawers draw a [`PlacedText`] at a time (they shape runs of text),
 //! and use [`font_spec`] and [`cell_positions`] from here.
 
-use matsu_print::{FontKind, HAlign, Layout, Page, PlacedText, PrintSetting, Rule};
+use matsu_print::{FontKind, HAlign, Layout, Page, PlacedText, PrintSetting, Rule, TextStyle};
 
 /// One thing to draw. Lengths are in 0.1 mm from the top left corner of the paper.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -15,6 +15,8 @@ pub enum DrawOp {
         x: i32,
         baseline: i32,
         font: FontKind,
+        /// The color, bold and underline of color printing; `None` is plain black.
+        style: Option<TextStyle>,
     },
     /// A header or a footer in a font of its own. It is not on the grid, so the drawer places it
     /// as a whole, by `align`.
@@ -24,9 +26,17 @@ pub enum DrawOp {
         baseline: i32,
         font: FontKind,
         align: HAlign,
+        style: Option<TextStyle>,
     },
     /// A straight line.
     Line { from: (i32, i32), to: (i32, i32) },
+    /// The underline of text on the grid (a style with `underline`), in the color of the text.
+    /// The drawers that cannot ask the font for an underline draw this.
+    Underline {
+        from: (i32, i32),
+        to: (i32, i32),
+        color: matsu_print::Rgb,
+    },
 }
 
 /// The face and the height (the size of the characters, 0.1 mm) of a kind of text.
@@ -73,6 +83,27 @@ pub fn cell_positions<'a>(
     text.positions(layout.setting().print_font_width, layout.width_rule())
 }
 
+/// The underline of a piece of text on the grid, from the left edge of its first cell to the
+/// right edge of its last, a little below the baseline; `None` if the text has no underline.
+pub fn underline_of(text: &PlacedText, layout: &Layout) -> Option<DrawOp> {
+    let style = text.style.filter(|s| s.underline)?;
+    if !on_grid(text.font) {
+        return None;
+    }
+    let setting = layout.setting();
+    let cell = setting.print_font_width;
+    let rule = layout.width_rule();
+    let end = cell_positions(text, layout)
+        .last()
+        .map(|(_, ch, x)| x + rule.columns(ch) as i32 * cell)?;
+    let y = text.baseline + font_spec(setting, text.font).height / 10;
+    Some(DrawOp::Underline {
+        from: (text.x, y),
+        to: (end, y),
+        color: style.color,
+    })
+}
+
 /// The operations of a page, in the order Sakura draws: the texts, then the lines.
 pub fn page_ops(layout: &Layout, page: &Page) -> Vec<DrawOp> {
     let mut ops = Vec::new();
@@ -83,7 +114,9 @@ pub fn page_ops(layout: &Layout, page: &Page) -> Vec<DrawOp> {
                 x,
                 baseline: text.baseline,
                 font: text.font,
+                style: text.style,
             }));
+            ops.extend(underline_of(text, layout));
         } else {
             ops.push(DrawOp::Text {
                 text: text.text.clone(),
@@ -91,6 +124,7 @@ pub fn page_ops(layout: &Layout, page: &Page) -> Vec<DrawOp> {
                 baseline: text.baseline,
                 font: text.font,
                 align: text.align,
+                style: text.style,
             });
         }
     }
@@ -241,5 +275,78 @@ mod tests {
     fn a_point_is_a_72th_part_of_an_inch() {
         assert!((points(254) - 72.0).abs() < 1e-4);
         assert!((points(2100) - 595.28).abs() < 0.01); // A4 is 595.28 pt wide
+    }
+
+    struct Red;
+
+    impl matsu_print::LineStyler for Red {
+        fn plain(&self) -> TextStyle {
+            TextStyle {
+                color: 0,
+                bold: false,
+                underline: false,
+            }
+        }
+
+        fn style_line(&self, _: usize, text: &str, _: bool, out: &mut Vec<matsu_print::StyleRun>) {
+            out.clear();
+            if let Some(i) = text.find('r') {
+                out.push(matsu_print::StyleRun {
+                    range: i..i + 1,
+                    style: TextStyle {
+                        color: 0xff0000,
+                        bold: true,
+                        underline: true,
+                    },
+                });
+            }
+        }
+    }
+
+    #[test]
+    fn colors_reach_the_operations_and_an_underline_is_a_line() {
+        let setting = PrintSetting {
+            color_print: true,
+            ..PrintSetting::default()
+        };
+        let lines = ["arb", ""];
+        let layout = layout_of(&lines, &setting);
+        let page = layout
+            .page_styled(0, &lines, &HeaderContext::default(), &Red)
+            .unwrap();
+        let ops = page_ops(&layout, &page);
+        let red: Vec<_> = ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::Char { ch, style, .. } if style.is_some_and(|s| s.color == 0xff0000) => {
+                    Some(*ch)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(red, ['r']);
+        let underlines: Vec<_> = ops
+            .iter()
+            .filter(|op| {
+                matches!(
+                    op,
+                    DrawOp::Underline {
+                        color: 0xff0000,
+                        ..
+                    }
+                )
+            })
+            .collect();
+        assert_eq!(underlines.len(), 1);
+        // Without color_print the same styler adds nothing.
+        let plain = PrintSetting::default();
+        let layout = layout_of(&lines, &plain);
+        let page = layout
+            .page_styled(0, &lines, &HeaderContext::default(), &Red)
+            .unwrap();
+        assert!(page_ops(&layout, &page).iter().all(|op| !matches!(
+            op,
+            DrawOp::Underline { .. } | DrawOp::Char { style: Some(_), .. }
+        )));
     }
 }

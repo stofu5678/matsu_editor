@@ -229,3 +229,55 @@ fn the_preview_closes_after_printing_and_stays_after_a_cancel(cx: &mut TestAppCo
     let notice = view.read_with(cx, |v, _| v.notice.clone());
     assert_eq!(notice.as_deref(), Some("印刷しました"));
 }
+
+/// The variables that were empty (#138) come from the window, as `ExpandParameter` reads them.
+#[gpui::test]
+fn the_header_has_the_selection_the_caret_the_clock_and_the_paths(cx: &mut TestAppContext) {
+    use matsu_core::buffer::Pos;
+    use matsu_print::expand_parameter;
+    let (view, cx) = setup(cx, "あいう abc\r\nsecond line\r\n", None);
+    // `$C` is the first line of the selection (`GetCurrentTextForSearch`).
+    view.update(cx, |v, cx| {
+        v.run_with(cx, |c| c.select_range(Pos::new(0, 3), Pos::new(1, 3)))
+            .ok();
+    });
+    let job = view.read_with(cx, |v, cx| v.print_job(cx));
+    assert_eq!(job.header.selected_text, "いう abc");
+    // Without a selection it is the word at the caret.
+    view.update(cx, |v, cx| {
+        v.run_with(cx, |c| c.move_caret(Pos::new(1, 8), false)).ok();
+    });
+    let job = view.read_with(cx, |v, cx| v.print_job(cx));
+    assert_eq!(job.header.selected_text, "line");
+    // `$x` counts UTF-16 units from 1, not the bytes of UTF-8: after "あいう " it is 5, not 11.
+    view.update(cx, |v, cx| {
+        v.run_with(cx, |c| c.move_caret(Pos::new(0, 10), false))
+            .ok();
+    });
+    let job = view.read_with(cx, |v, cx| v.print_job(cx));
+    assert_eq!(job.header.caret_x, 5);
+    assert_eq!(job.header.caret_y, 1);
+    // The clock, in the format of the common settings.
+    assert!(!job.header.date.is_empty() && !job.header.time.is_empty());
+    // A document that was never saved has no time stamp.
+    assert_eq!(
+        expand_parameter("$D $T", &job.header, None),
+        "(保存されていません) (保存されていません)"
+    );
+    // The program; no macro is running.
+    assert!(!job.header.exe_path.is_empty());
+    assert_eq!(job.header.macro_path, None);
+}
+
+#[gpui::test]
+fn the_title_expands_only_what_it_asks_for(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "word", None);
+    view.update(cx, |v, cx| {
+        v.run_with(cx, |c| {
+            c.move_caret(matsu_core::buffer::Pos::new(0, 1), false)
+        })
+        .ok();
+    });
+    let title = view.read_with(cx, |v, cx| v.expand_format("[$C][$x]", cx));
+    assert_eq!(title, "[word][2]");
+}
