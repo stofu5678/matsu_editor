@@ -88,37 +88,67 @@ pub(crate) fn has_plugs(cx: &mut App, jacks: &[Jack]) -> bool {
     })
 }
 
-/// Waits until this window may start an event call. `false`: it may not, because a command of a plugin or
-/// a macro has the window (the event is not given), or the window is gone.
-async fn wait_for_turn(view: &WeakEntity<EditorView>, cx: &mut AsyncApp) -> bool {
-    let mut waited = Duration::ZERO;
-    loop {
-        match view.read_with(cx, |view, app| view.event_turn(app)) {
-            Err(_) | Ok(Turn::Taken) => return false,
-            Ok(Turn::Free) => return true,
-            // Another event: it ends within its limit, and then this one is next.
-            Ok(Turn::AfterEvent) if waited < TURN_LIMIT => {}
-            Ok(Turn::AfterEvent) => return false,
+/// What the attempt to start one call came to.
+enum Step {
+    /// The call runs.
+    Started,
+    /// It does not run, and will not: a command of a plugin or a macro has the window (the event is not
+    /// given), the window is gone, or the call was refused.
+    Skipped,
+    /// Not now: another event runs on the window, or the host of the plugin is busy with another window.
+    Wait,
+}
+
+/// Starts `call` if the window and the host of its plugin are free. Looking and starting are one step, so
+/// that nothing else begins between them.
+fn try_start(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncApp,
+    call: Prepared,
+) -> (Step, Option<Prepared>) {
+    cx.update(|app| {
+        let Some(entity) = view.upgrade() else {
+            return (Step::Skipped, None);
+        };
+        match entity.read(app).event_turn(app) {
+            Turn::Taken => return (Step::Skipped, None),
+            Turn::AfterEvent => return (Step::Wait, Some(call)),
+            Turn::Free => {}
         }
-        cx.background_executor().timer(TICK).await;
-        waited += TICK;
-    }
+        // One host serves all the windows: a call of the same plugin on another window goes first.
+        if call.host_busy() {
+            return (Step::Wait, Some(call));
+        }
+        if plugin_call::run(entity, call, app) {
+            (Step::Started, None)
+        } else {
+            (Step::Skipped, None)
+        }
+    })
 }
 
 /// Runs every call of `jack` on `view`, one after the other, and waits for each.
 async fn run_all(view: &WeakEntity<EditorView>, cx: &mut AsyncApp, jack: Jack) {
-    if !wait_for_turn(view, cx).await {
-        return;
-    }
     let calls = cx.update(|app| collect(app, jack));
     for call in calls {
-        let Some(entity) = view.upgrade() else {
-            return;
-        };
-        if !wait_for_turn(view, cx).await {
-            return;
+        let mut pending = Some(call);
+        let mut started = false;
+        let mut waited = Duration::ZERO;
+        while let Some(call) = pending.take() {
+            let (step, back) = try_start(view, cx, call);
+            match step {
+                Step::Started => started = true,
+                Step::Skipped => break,
+                // Another event or window has the turn; it ends within its limit.
+                Step::Wait if waited < TURN_LIMIT => {
+                    pending = back;
+                    cx.background_executor().timer(TICK).await;
+                    waited += TICK;
+                }
+                Step::Wait => break,
+            }
         }
-        if !cx.update(|app| plugin_call::run(entity, call, app)) {
+        if !started {
             continue;
         }
         // The call is on its way; the window is free to paint meanwhile.

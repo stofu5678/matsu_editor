@@ -505,6 +505,10 @@ pub(crate) async fn exit_all(cx: &mut AsyncWindowContext, kind: ExitKind) {
             for views in &windows {
                 crate::plugin_events::window_closing(views, cx).await;
             }
+            // The plugins took time: a document that changed meanwhile is asked about again.
+            if snapshot(cx) != checked {
+                continue;
+            }
             cx.update(|_, app| app.quit()).ok();
             return;
         }

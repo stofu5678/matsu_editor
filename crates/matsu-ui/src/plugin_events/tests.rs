@@ -11,6 +11,7 @@ use matsu_commands::command::Arg;
 use matsu_commands::sakura::FUNCTIONS;
 use matsu_config::Profile;
 use matsu_config::plugins::consent::{ConsentFile, fingerprint};
+use matsu_config::plugins::def::Jack;
 use matsu_config::plugins::{DEFAULT_LANGUAGE, PluginRec, PluginSettings, PluginState, SearchDirs};
 
 use crate::document::SharedDocument;
@@ -428,5 +429,27 @@ fn typing_calls_no_plugin(cx: &mut TestAppContext) {
         std::thread::sleep(Duration::from_millis(5));
     }
     assert!(jacks(&view, cx).is_empty(), "{:?}", jacks(&view, cx));
+    finish(cx);
+}
+
+#[gpui::test]
+fn two_windows_that_fire_at_once_both_get_the_event_though_the_host_is_shared(
+    cx: &mut TestAppContext,
+) {
+    let Some((place, _files)) = begin(cx, &[]) else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    let (first, cx) = setup(cx);
+    place.enable(cx);
+    let shared = cx.new(|_| SharedDocument::empty());
+    let second = cx.new(|cx| EditorView::new(shared, cx));
+    // One host serves the plugin for both: the second call waits for the first and is not dropped.
+    cx.update(|_, app| {
+        super::fire(app, &first, Jack::DocumentOpen);
+        super::fire(app, &second, Jack::DocumentOpen);
+    });
+    assert_eq!(wait_for_jacks(&first, cx, 1), ["DocumentOpen"]);
+    assert_eq!(wait_for_jacks(&second, cx, 1), ["DocumentOpen"]);
     finish(cx);
 }

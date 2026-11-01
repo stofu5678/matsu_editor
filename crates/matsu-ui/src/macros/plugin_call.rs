@@ -321,6 +321,13 @@ pub(crate) struct Prepared {
     event: bool,
 }
 
+impl Prepared {
+    /// The host of the plugin has a call going (on another window): `run` would be refused.
+    pub(crate) fn host_busy(&self) -> bool {
+        self.host.borrow().current_jack().is_some()
+    }
+}
+
 /// What a call is for: a command the user chose, or a plug of an event jack.
 enum Target {
     Command {
