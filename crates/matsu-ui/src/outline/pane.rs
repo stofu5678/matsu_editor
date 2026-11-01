@@ -915,14 +915,21 @@ impl OutlinePane {
         let fallback =
             crate::doc_types::with_user(cx, |user| user.profile().cloned()).unwrap_or_default();
         let meta = crate::file_dialog::Meta::new(cx);
+        let dock_set = cx
+            .try_global::<super::dock::OutlineDock>()
+            .map(|dock| dock.dock_set);
         cx.notify();
         cx.spawn(async move |this, cx| {
             let model = cx
                 .background_executor()
                 .spawn(async move {
-                    let profile = settings_file
+                    let mut profile = settings_file
                         .and_then(|path| matsu_config::Profile::load(&path).ok())
                         .unwrap_or(fallback);
+                    // the choice of this session (it is not in a file that cannot be written)
+                    if let Some(set) = dock_set {
+                        let _ = profile.set_i32("Common", "nOutlineDockSet", set);
+                    }
                     let inputs = Inputs {
                         profile,
                         type_index,
@@ -977,6 +984,9 @@ impl OutlinePane {
         let type_index = self.file_tree_type_index(cx);
         let base_dir = self.file_tree_base_dir(cx);
         let meta = crate::file_dialog::Meta::new(cx);
+        let dock_set = cx
+            .try_global::<super::dock::OutlineDock>()
+            .map(|dock| dock.dock_set);
         let pane = cx.weak_entity();
         // The lookup (the settings file, the project file above the document) runs in the
         // background, as the tree's does: a slow folder does not stop the window.
@@ -984,9 +994,13 @@ impl OutlinePane {
             let (setting, inputs) = cx
                 .background_executor()
                 .spawn(async move {
-                    let profile = settings_file
+                    let mut profile = settings_file
                         .and_then(|path| matsu_config::Profile::load(&path).ok())
                         .unwrap_or(fallback);
+                    // the choice of this session (it is not in a file that cannot be written)
+                    if let Some(set) = dock_set {
+                        let _ = profile.set_i32("Common", "nOutlineDockSet", set);
+                    }
                     let inputs = Inputs {
                         profile,
                         type_index,
