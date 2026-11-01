@@ -525,11 +525,6 @@ pub(crate) async fn exit_all(cx: &mut AsyncWindowContext, kind: ExitKind) {
             checked.push((view.entity_id(), version));
         }
         if snapshot(cx) == checked {
-            cx.update(|_, app| {
-                // Every question is answered: what the user threw away leaves no copy.
-                crate::unsaved::apply_all_closes(app);
-            })
-            .ok();
             // The windows go: the plugins of DocumentClose for each tab and of EditorEnd for each window
             // (`MYWM_CLOSE` of each editor).
             let windows = cx
@@ -546,14 +541,23 @@ pub(crate) async fn exit_all(cx: &mut AsyncWindowContext, kind: ExitKind) {
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
+            let mut edited = false;
             for views in &windows {
-                crate::plugin_events::window_closing(views, cx).await;
+                edited |= crate::plugin_events::window_closing(views, cx).await;
             }
-            // The plugins took time: a document that changed meanwhile is asked about again.
-            if snapshot(cx) != checked {
+            // The plugins took time: a window that opened, or a document that the user changed meanwhile,
+            // is asked about again. What the plugins wrote does not count.
+            let now: Vec<_> = snapshot(cx).into_iter().map(|(id, _)| id).collect();
+            let before: Vec<_> = checked.iter().map(|(id, _)| *id).collect();
+            if edited || now != before {
                 continue;
             }
-            cx.update(|_, app| app.quit()).ok();
+            cx.update(|_, app| {
+                // Every question is answered: what the user threw away leaves no copy.
+                crate::unsaved::apply_all_closes(app);
+                app.quit();
+            })
+            .ok();
             return;
         }
     }

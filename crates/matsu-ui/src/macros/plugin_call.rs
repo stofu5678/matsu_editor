@@ -612,6 +612,11 @@ impl EditorView {
         changed
     }
 
+    /// Event calls of plugins are running or wait for their turn on this window.
+    pub(crate) fn event_batches_pending(&self) -> bool {
+        self.macros.event_serving != self.macros.event_next
+    }
+
     /// A place in the line of the batches of event calls of this window.
     pub(crate) fn take_event_ticket(&mut self) -> u64 {
         let ticket = self.macros.event_next;

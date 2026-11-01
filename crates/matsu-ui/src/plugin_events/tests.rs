@@ -637,3 +637,49 @@ fn text_the_user_typed_while_a_close_waits_stops_the_close(cx: &mut TestAppConte
     assert!(!closed);
     assert!(notice.unwrap_or_default().contains("閉じるのをやめた"));
 }
+
+/// `window_closing` on a window whose `DocumentClose` handler is `script`; `during` runs while it waits.
+fn closing_window(
+    cx: &mut TestAppContext,
+    script: &str,
+    during: impl FnOnce(&mut VisualTestContext),
+) -> Option<bool> {
+    let Some((place, _files)) = begin(cx, &[("DocumentClose", script)]) else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return None;
+    };
+    let (view, cx) = setup(cx);
+    place.enable(cx);
+    let result = std::rc::Rc::new(std::cell::Cell::new(None));
+    let weak = view.downgrade();
+    let slot = result.clone();
+    cx.update(|window, app| {
+        window
+            .spawn(app, async move |cx| {
+                let edited = super::window_closing(&[weak], cx).await;
+                slot.set(Some(edited));
+            })
+            .detach();
+    });
+    spin(cx, "the handler did not start", |cx| running(&view, cx));
+    during(cx);
+    spin(cx, "the closing did not end", |_| result.get().is_some());
+    finish(cx);
+    result.get()
+}
+
+#[gpui::test]
+fn the_exit_is_not_restarted_by_what_a_close_handler_wrote(cx: &mut TestAppContext) {
+    let Some(edited) = closing_window(cx, &format!("Editor.AddTail('x'); {BUSY}"), |_| {}) else {
+        return;
+    };
+    assert!(!edited);
+}
+
+#[gpui::test]
+fn the_exit_is_restarted_by_what_the_user_typed_while_close_handlers_ran(cx: &mut TestAppContext) {
+    let Some(edited) = closing_window(cx, BUSY, |cx| cx.simulate_input("z")) else {
+        return;
+    };
+    assert!(edited);
+}

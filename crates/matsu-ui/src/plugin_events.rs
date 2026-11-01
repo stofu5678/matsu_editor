@@ -264,14 +264,29 @@ pub(crate) async fn fire_and_wait(
 }
 
 /// `DocumentClose` for each of `views`, and `EditorEnd` on the first of them: a window is about to go
-/// (`MYWM_CLOSE` in `CEditWnd::DispatchEvent`). Returns when they are over.
-pub(crate) async fn window_closing(views: &[WeakEntity<EditorView>], cx: &mut AsyncWindowContext) {
+/// (`MYWM_CLOSE` in `CEditWnd::DispatchEvent`). Returns when they are over, and whether the user changed
+/// the text of a tab meanwhile (what the plugins wrote does not count: Sakura closes after the events
+/// whatever they did).
+pub(crate) async fn window_closing(
+    views: &[WeakEntity<EditorView>],
+    cx: &mut AsyncWindowContext,
+) -> bool {
+    for view in views {
+        view.update(cx, |view, cx| view.begin_edit_watch(cx)).ok();
+    }
     for view in views {
         fire_and_wait(view, cx, Jack::DocumentClose).await;
     }
     if let Some(first) = views.first() {
         fire_and_wait(first, cx, Jack::EditorEnd).await;
     }
+    let mut changed = false;
+    for view in views {
+        changed |= view
+            .update(cx, |view, cx| view.end_edit_watch(cx))
+            .unwrap_or(false);
+    }
+    changed
 }
 
 #[cfg(test)]

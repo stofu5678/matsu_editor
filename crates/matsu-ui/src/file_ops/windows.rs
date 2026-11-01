@@ -271,19 +271,18 @@ fn install(window: &mut Window, cx: &mut App, workspace: &Entity<Workspace>) {
                     window
                         .spawn(cx, async move |cx| {
                             let weak: Vec<_> = views.iter().map(Entity::downgrade).collect();
-                            crate::plugin_events::window_closing(&weak, cx).await;
+                            let edited = crate::plugin_events::window_closing(&weak, cx).await;
                             asking.set(false);
-                            // The window stayed usable meanwhile: a tab that was edited (or moved
+                            // The window stayed usable meanwhile: a tab that the user edited (or moved
                             // here) is asked about by the next close, not thrown away.
                             let same = workspace
-                                .read_with(cx, |ws, app| {
+                                .read_with(cx, |ws, _| {
                                     let tabs = ws.tab_editors();
                                     tabs.len() == views.len()
                                         && tabs.iter().zip(&views).all(|(a, b)| a == b)
-                                        && !tabs.iter().any(|v| needs_question(v, app))
                                 })
                                 .unwrap_or(false);
-                            if same {
+                            if same && !edited {
                                 cx.update(|window, _| window.remove_window()).ok();
                             }
                         })
@@ -373,17 +372,24 @@ async fn close_after_questions(
             continue;
         }
         if unchanged {
-            cx.update(|_, app| {
-                for view in &views {
-                    crate::unsaved::apply_close(view, app);
-                }
-            })
-            .ok();
             let weak: Vec<_> = views.iter().map(Entity::downgrade).collect();
-            crate::plugin_events::window_closing(&weak, cx).await;
-            // The plugins took time: what changed meanwhile is asked about, not thrown away.
-            if all_asked(cx) {
-                cx.update(|window, _| window.remove_window()).ok();
+            let edited = crate::plugin_events::window_closing(&weak, cx).await;
+            // The plugins took time: what the user changed meanwhile is asked about, not thrown away. The
+            // copies of what the user threw away go only when the window really goes.
+            let same_tabs = workspace
+                .read_with(cx, |ws, _| {
+                    let tabs = ws.tab_editors();
+                    tabs.len() == views.len() && tabs.iter().zip(&views).all(|(a, b)| a == b)
+                })
+                .unwrap_or(false);
+            if !edited && same_tabs {
+                cx.update(|window, app| {
+                    for view in &views {
+                        crate::unsaved::apply_close(view, app);
+                    }
+                    window.remove_window();
+                })
+                .ok();
                 return;
             }
             continue;
