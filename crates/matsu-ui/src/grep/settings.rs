@@ -271,6 +271,7 @@ impl GrepSettings {
             replace: None,
             mime_decode: false,
             window: None,
+            window_gone: false,
         }
     }
 

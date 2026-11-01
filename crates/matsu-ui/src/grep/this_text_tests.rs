@@ -59,6 +59,7 @@ fn info(key: &str, window: WindowSource) -> GrepInfo {
         replace: None,
         mime_decode: false,
         window: Some(window),
+        window_gone: false,
     }
 }
 
@@ -167,6 +168,21 @@ fn the_search_of_a_window_stops_when_asked() {
     let mut sink = Text(String::new());
     let outcome = run(&i, &AtomicBool::new(true), &mut sink).unwrap();
     assert!(outcome.stopped);
+}
+
+#[test]
+fn a_window_that_is_gone_ends_the_heading_with_the_error() {
+    // `CGrepAgent.cpp`: after the condition (and the replacement) "HWND handle error.\n", then
+    // `return 0`: no target, no folders, no count
+    let mut i = info("hit", source("a hit\n", "/proj", "x", "x"));
+    i.window = None;
+    i.window_gone = true;
+    assert_eq!(search(&i), "\r\n□検索条件  \"hit\"\r\nHWND handle error.\n");
+    i.key.clear();
+    assert_eq!(
+        search(&i),
+        "\r\n□検索条件  「ファイル検索」\r\nHWND handle error.\n"
+    );
 }
 
 #[test]
@@ -416,7 +432,8 @@ fn another_window_is_searched_by_its_number(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn a_window_that_is_gone_is_told_in_a_box(cx: &mut TestAppContext) {
+fn a_window_that_is_gone_is_told_in_the_result(cx: &mut TestAppContext) {
+    // `GetHwndTitle` is -1: "HWND handle error." in the result, no box, no search
     let (f, cx) = setup(cx, "x\n", None);
     let args = vec![
         Arg::Text("x".to_owned()),
@@ -425,10 +442,13 @@ fn a_window_that_is_gone_is_told_in_a_box(cx: &mut TestAppContext) {
         Arg::Int(5),
     ];
     f.run(cx, "F_GREP", &args);
-    assert!(cx.has_pending_prompt());
-    cx.simulate_prompt_answer("OK");
-    cx.run_until_parked();
-    assert!(others(cx, &f.view).is_empty());
+    assert!(!cx.has_pending_prompt());
+    let result = others(cx, &f.view);
+    assert_eq!(result.len(), 1);
+    assert_eq!(
+        text_of(&result[0], cx),
+        "\r\n□検索条件  \"x\"\r\nHWND handle error.\n"
+    );
     assert_eq!(text_of(&f.view, cx), "x\n");
 }
 

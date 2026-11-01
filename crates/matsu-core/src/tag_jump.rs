@@ -395,6 +395,11 @@ fn grep_format(
     let mut at_column = 0;
     let mut mode;
     if starts_with(line, "■\"") {
+        // `■":HWND:[id]name"`: the heading of a window without a file (the only line of the
+        // result of a search of the names).
+        if let Some(tag) = hwnd_tag_text(&line[2..]) {
+            return Some((tag, 0, 0));
+        }
         // `■"C:\folder\file.ext"` (the per-file form): a full path, with the position that
         // follows it (there is none on this line in Sakura's output, but a hand-written one may).
         if let Some((begin, len)) = file_path_in(&line[2..], fs)
@@ -1011,6 +1016,17 @@ mod tests {
             &[],
         );
         assert_eq!(w.jump(3), window(0x2a, Some(5), Some(6)));
+    }
+
+    #[test]
+    fn the_heading_of_a_window_names_the_window() {
+        // the per-file form without folders: `■":HWND:[id]name"  [enc]` is the line of a hit
+        // and, for a search of the names, the whole result
+        let w = world(&[r#"■":HWND:[2a](無題)1"  [UTF-8]"#], &[]);
+        assert_eq!(w.jump(0), window(0x2a, None, None));
+        let w = world(&[r#"■":HWND:[2a](無題)1""#, "・(   5,6    ): str"], &[]);
+        assert_eq!(w.jump(0), window(0x2a, None, None));
+        assert_eq!(w.jump(1), window(0x2a, Some(5), Some(6)));
     }
 
     #[test]

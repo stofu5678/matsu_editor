@@ -50,9 +50,10 @@
 //! a document with no file are searched.
 //!
 //! Differences from Sakura: `GetLongFileName` is not applied to the folders; the output to the
-//! standard output (`-GOPT=S`) is not here; a window that is gone is told in a box and nothing
-//! is written (Sakura writes "HWND handle error." into the result); a Grep 置換 of the text of a
-//! window is refused (Sakura only searches, and then says that it replaced).
+//! standard output (`-GOPT=S`) is not here; a Grep 置換 of the text of a window is refused
+//! (Sakura only searches, and then says that it replaced). A window that is gone is told in the
+//! result, as Sakura does (`GetHwndTitle` is -1 in `DoGrep`: "HWND handle error." follows the
+//! conditions of the heading and nothing else is written).
 
 use std::borrow::Cow;
 use std::io::Read;
@@ -123,6 +124,9 @@ pub struct GrepInfo {
     /// The text of the window to search instead of the files (`:HWND:` in `cmGrepFile`). The
     /// window, which only the UI can find, puts it here when the search starts.
     pub window: Option<WindowSource>,
+    /// The file box names a window that is not there (`GetHwndTitle` returned -1): the result
+    /// says so and nothing is searched.
+    pub window_gone: bool,
 }
 
 /// The text of a window that a search of 「この編集中のテキスト」 reads (`CFileLoadOrWnd`).
@@ -187,8 +191,6 @@ pub enum GrepError {
     /// (`CDlgGrepReplace::SetData` greys the check box out) and the search of a window never
     /// replaces.
     WindowReplace,
-    /// The window to search is gone (`HWND handle error.`).
-    WindowGone,
 }
 
 impl GrepError {
@@ -203,7 +205,6 @@ impl GrepError {
             GrepError::FolderMissing => "検索対象フォルダーが正しくありません。".to_owned(),
             GrepError::NoPattern => "置換条件を指定してください。".to_owned(),
             GrepError::Replacement(e) => crate::search::state::regex_error_message(e),
-            GrepError::WindowGone => "検索する編集中のウィンドウがありません。".to_owned(),
             GrepError::WindowReplace => {
                 "編集中のテキストを対象にしたGrep置換はできません。".to_owned()
             }
@@ -298,7 +299,7 @@ fn prepare(info: &GrepInfo) -> Result<Prepared, GrepError> {
     let keys = GrepKeys::parse(&info.file, info.except_file_regex).map_err(GrepError::Keys)?;
     let regexes = compile_excluded(&keys)?;
     // The folder box is not used for a window (`m_szFolder` is cleared by the dialog).
-    let folders = if info.window.is_some() {
+    let folders = if info.window.is_some() || info.window_gone {
         Vec::new()
     } else {
         split_folders(&info.folder)
@@ -370,8 +371,16 @@ pub fn run(
             paste: r.paste,
         }),
         window: info.window.as_ref().map(|w| w.title.as_str()),
+        window_gone: info.window_gone,
     };
     runner.sink.write(&format::header(&conditions, &keys));
+    if info.window_gone {
+        // `DoGrep`: after "HWND handle error." Sakura returns; there is no count.
+        return Ok(Outcome {
+            hits: 0,
+            stopped: false,
+        });
+    }
 
     let mut stopped = false;
     if let Some(window) = &info.window {

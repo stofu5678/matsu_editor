@@ -295,11 +295,9 @@ impl EditorView {
         if let Some(id) = parse_window_token(&info.file) {
             match id.and_then(|id| self.window_source(id, cx)) {
                 Some(source) => info.window = Some(source),
-                None => {
-                    // `HWND handle error.`
-                    self.grep_error_box(&GrepError::WindowGone, window, cx);
-                    return false;
-                }
+                // The window is gone: the search writes "HWND handle error." to the result, as
+                // `DoGrep` does.
+                None => info.window_gone = true,
             }
         }
         if let Err(error) = engine::check(&info) {

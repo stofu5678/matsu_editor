@@ -308,6 +308,8 @@ pub struct HeaderConditions<'a> {
     /// The title of the window being searched (`Window:[name]`), for a search of the text of a
     /// window (`:HWND:`); the file patterns are not shown then.
     pub window: Option<&'a str>,
+    /// The window to search is gone: the heading ends with "HWND handle error.".
+    pub window_gone: bool,
 }
 
 /// What the heading of a Grep 置換 says about the replacement.
@@ -385,6 +387,12 @@ pub fn header(c: &HeaderConditions<'_>, keys: &GrepKeys) -> String {
             out.push('"');
         }
         out.push_str(EOL);
+    }
+    if c.window_gone {
+        // `CGrepAgent::DoGrep`: `cmemMessage.AppendString(L"HWND handle error.\n")` after the
+        // condition (and the replacement), and `return 0`. The line break is a lone LF.
+        out.push_str("HWND handle error.\n");
+        return out;
     }
     out.push_str("検索対象       ");
     match c.window {
@@ -743,6 +751,7 @@ mod tests {
             regex_version: "Onigmo",
             replace: None,
             window: None,
+            window_gone: false,
         }
     }
 
