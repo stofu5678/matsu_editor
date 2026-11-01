@@ -453,3 +453,187 @@ fn two_windows_that_fire_at_once_both_get_the_event_though_the_host_is_shared(
     assert_eq!(wait_for_jacks(&second, cx, 1), ["DocumentOpen"]);
     finish(cx);
 }
+
+const BUSY: &str = "var t = Date.now(); while (Date.now() - t < 700) {}";
+
+/// Lets the window and the plugin process run until `done` says yes.
+fn spin(
+    cx: &mut VisualTestContext,
+    what: &str,
+    mut done: impl FnMut(&mut VisualTestContext) -> bool,
+) {
+    for _ in 0..1000 {
+        cx.executor().advance_clock(Duration::from_millis(20));
+        cx.run_until_parked();
+        if done(cx) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("{what}");
+}
+
+fn running(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> bool {
+    view.read_with(cx, |v, _| v.plugin_call_running())
+}
+
+/// Two windows share the host; the first holds it with a slow handler, the second waits for it.
+/// `change` happens while the second waits.
+fn second_waits(cx: &mut TestAppContext, change: impl FnOnce(&Place, &mut VisualTestContext)) {
+    let Some((place, _files)) = begin(
+        cx,
+        &[(
+            "EditorStart",
+            &format!("console.log('[EditorStart]'); {BUSY}"),
+        )],
+    ) else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    let (first, cx) = setup(cx);
+    place.enable(cx);
+    let shared = cx.new(|_| SharedDocument::empty());
+    let second = cx.new(|cx| EditorView::new(shared, cx));
+    cx.update(|_, app| {
+        super::fire(app, &first, Jack::EditorStart);
+        super::fire(app, &second, Jack::DocumentOpen);
+    });
+    spin(cx, "the first handler did not start", |cx| {
+        running(&first, cx)
+    });
+    change(&place, cx);
+    // The first ends; the second would begin now.
+    spin(cx, "the first handler did not end", |cx| {
+        !running(&first, cx)
+    });
+    for _ in 0..60 {
+        cx.executor().advance_clock(Duration::from_millis(20));
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(jacks(&first, cx), ["EditorStart"]);
+    assert!(jacks(&second, cx).is_empty(), "{:?}", jacks(&second, cx));
+    finish(cx);
+}
+
+#[gpui::test]
+fn a_call_that_waited_does_not_run_when_the_plugin_was_switched_off_meanwhile(
+    cx: &mut TestAppContext,
+) {
+    second_waits(cx, |place, cx| {
+        let mut profile = Profile::load(&place.settings()).unwrap();
+        let mut settings = PluginSettings::from_profile(&profile);
+        settings.enabled = false;
+        settings.store(&mut profile).unwrap();
+        profile.save(&place.settings()).unwrap();
+        let user = UserSettings::from_profile(profile, Some(place.settings()));
+        cx.update(|_, app| app.set_global(user));
+    });
+}
+
+#[gpui::test]
+fn a_call_that_waited_does_not_run_when_a_file_of_the_plugin_changed_meanwhile(
+    cx: &mut TestAppContext,
+) {
+    second_waits(cx, |place, _| {
+        let handler = place
+            .dirs()
+            .plugin_dir("Events")
+            .unwrap()
+            .join("DocumentOpen.js");
+        fs::write(handler, "console.log('[DocumentOpen]'); // changed").unwrap();
+    });
+}
+
+#[gpui::test]
+fn a_handler_that_prints_shows_the_panel_and_a_failure_keeps_what_was_printed(
+    cx: &mut TestAppContext,
+) {
+    let Some((place, files)) = begin(
+        cx,
+        &[(
+            "DocumentClose",
+            "console.log('[DocumentClose]'); throw new Error('boom');",
+        )],
+    ) else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    let (view, cx) = setup(cx);
+    place.enable(cx);
+    view.update(cx, |v, _| v.close_output_panel_for_test());
+    let path = files.write("in.txt", b"hello");
+    run(
+        &view,
+        cx,
+        "F_FILEOPEN",
+        &[Arg::Text(path.display().to_string())],
+    );
+    wait_for_jacks(&view, cx, 1);
+    assert!(view.read_with(cx, |v, _| v.output_panel_is_open_for_test()));
+    view.update(cx, |v, _| v.close_output_panel_for_test());
+    run(&view, cx, "F_FILE_REOPEN", &[]);
+    spin(cx, "no failure", |cx| {
+        view.read_with(cx, |v, _| v.macro_output_text())
+            .contains("boom")
+    });
+    let text = view.read_with(cx, |v, _| v.macro_output_text());
+    // The earlier output stays beside the failure, and the panel is shown.
+    assert!(text.matches("[DocumentOpen]").count() >= 1, "{text}");
+    assert!(text.contains("[DocumentClose]"), "{text}");
+    assert!(view.read_with(cx, |v, _| v.output_panel_is_open_for_test()));
+    finish(cx);
+}
+
+/// A file is open, and the handler of `DocumentClose` is `script`; closes the file.
+fn close_with(
+    cx: &mut TestAppContext,
+    script: &str,
+    during: impl FnOnce(&mut VisualTestContext),
+) -> Option<(bool, Option<String>)> {
+    let Some((place, files)) = begin(cx, &[("DocumentClose", script)]) else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return None;
+    };
+    let (view, cx) = setup(cx);
+    place.enable(cx);
+    let path = files.write("in.txt", b"hello");
+    run(
+        &view,
+        cx,
+        "F_FILEOPEN",
+        &[Arg::Text(path.display().to_string())],
+    );
+    spin(cx, "not open", |cx| {
+        view.read_with(cx, |v, app| v.document().read(app).path().is_some())
+    });
+    run(&view, cx, "F_FILECLOSE", &[]);
+    spin(cx, "the handler did not start", |cx| running(&view, cx));
+    during(cx);
+    spin(cx, "the handler did not end", |cx| !running(&view, cx));
+    for _ in 0..30 {
+        cx.executor().advance_clock(Duration::from_millis(20));
+        cx.run_until_parked();
+    }
+    let closed = view.read_with(cx, |v, app| v.document().read(app).path().is_none());
+    let notice = view.read_with(cx, |v, _| v.notice.clone());
+    finish(cx);
+    Some((closed, notice))
+}
+
+#[gpui::test]
+fn what_only_the_plugin_wrote_while_a_close_waits_does_not_stop_the_close(cx: &mut TestAppContext) {
+    let Some((closed, _)) = close_with(cx, &format!("Editor.AddTail('x'); {BUSY}"), |_| {}) else {
+        return;
+    };
+    assert!(closed);
+}
+
+#[gpui::test]
+fn text_the_user_typed_while_a_close_waits_stops_the_close(cx: &mut TestAppContext) {
+    let Some((closed, notice)) = close_with(cx, BUSY, |cx| cx.simulate_input("z")) else {
+        return;
+    };
+    assert!(!closed);
+    assert!(notice.unwrap_or_default().contains("閉じるのをやめた"));
+}

@@ -319,9 +319,20 @@ pub(crate) struct Prepared {
     /// An event jack (ADR-0026, PR 6): it runs quietly when it goes well, and the caller may wait for
     /// it ([`EditorView::plugin_event_running`]).
     event: bool,
+    /// The folder of the plugin and, for an event, the plug: what [`Prepared::refresh`] prepares again.
+    folder: String,
+    plug: Option<(Jack, String)>,
 }
 
 impl Prepared {
+    /// An event call that waited for its turn is checked again right before it begins: the plugin may
+    /// have been switched off, taken away or changed meanwhile, and the agreement of the user is of the
+    /// files as they are at the moment the handler runs (ADR-0026). `None`: it must not run.
+    pub(crate) fn refresh(self, cx: &mut App, dirs: &SearchDirs) -> Option<Prepared> {
+        let (jack, handler) = self.plug?;
+        prepare(cx, dirs, &self.folder, Target::Event { jack, handler }).ok()
+    }
+
     /// The host of the plugin has a call going (on another window): `run` would be refused.
     pub(crate) fn host_busy(&self) -> bool {
         self.host.borrow().current_jack().is_some()
@@ -462,6 +473,7 @@ fn prepare(
             );
         }
     }
+    let mut event_plug = None;
     let (jack, handler, command, event) = match target {
         Target::Command { command, handler } => {
             let handler = match handler {
@@ -474,7 +486,10 @@ fn prepare(
             };
             ("Command", handler, command, false)
         }
-        Target::Event { jack, handler } => (jack.name(), handler, 0, true),
+        Target::Event { jack, handler } => {
+            event_plug = Some((jack, handler.clone()));
+            (jack.name(), handler, 0, true)
+        }
     };
     if Language::of_file(Path::new(&handler)) != Some(Language::Bundled(Engine::QuickJs)) {
         return Err(format!(
@@ -534,6 +549,8 @@ fn prepare(
         },
         api: DefApi::new(dirs, folder, def, command).in_slot(slot),
         event,
+        folder: folder.to_owned(),
+        plug: event_plug,
     })
 }
 
@@ -575,6 +592,24 @@ impl EditorView {
         } else {
             Turn::Taken
         }
+    }
+
+    /// A flow that waits for event calls (a close, a save) begins to watch the text.
+    pub(crate) fn begin_edit_watch(&mut self, cx: &gpui::App) {
+        self.macros.watching = true;
+        self.macros.watch_seen = self.document.read(cx).version();
+        self.macros.watch_user = false;
+    }
+
+    /// The flow is over; whether the user changed the text meanwhile. What a plugin did is not counted:
+    /// every request of a plugin leaves the version it made, and a change that is not one of them was
+    /// made by the user (typing, the IME, a command of a menu or a button).
+    pub(crate) fn end_edit_watch(&mut self, cx: &gpui::App) -> bool {
+        let changed =
+            self.macros.watch_user || self.document.read(cx).version() != self.macros.watch_seen;
+        self.macros.watching = false;
+        self.macros.watch_user = false;
+        changed
     }
 
     /// A place in the line of the batches of event calls of this window.
@@ -619,6 +654,9 @@ impl EditorView {
     ) -> Option<String> {
         // An IME composition that the user started ends first, as for a key.
         self.interrupt_composition(cx);
+        if self.macros.watching && self.document.read(cx).version() != self.macros.watch_seen {
+            self.macros.watch_user = true;
+        }
         let mut env = self.host_env(text, cx);
         // What a plugin does is not recorded in a key macro (`FA_NONRECORD`).
         let suspended = std::mem::replace(&mut self.macros.suspended, true);
@@ -629,6 +667,9 @@ impl EditorView {
         });
         self.macros.suspended = suspended;
         self.finish_host_env(env, cx);
+        if self.macros.watching {
+            self.macros.watch_seen = self.document.read(cx).version();
+        }
         reply
     }
 }
@@ -702,6 +743,7 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
         args,
         mut api,
         event,
+        ..
     } = prepared;
     let limit = limit_of(jack);
     let commands_before = plugin_commands::commands().len();
@@ -732,7 +774,11 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
         if !(event && matches!(error, plugin_host::BeginError::Stopped)) {
             let message = format!("プラグイン {label}: {error}");
             editor.update(cx, |view, cx| {
-                view.macros.output.begin();
+                if event {
+                    view.macros.output.show();
+                } else {
+                    view.macros.output.begin();
+                }
                 view.macros.output.push(Kind::Note, message.clone());
                 view.notice = Some(message);
                 cx.notify();
@@ -806,6 +852,10 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                             Stream::Stderr => Kind::Err,
                         };
                         view.macros.output.push(kind, text);
+                        // An event says nothing unless the handler printed: then the panel is shown.
+                        if event {
+                            view.macros.output.show();
+                        }
                         cx.notify();
                     })
                     .is_ok(),
@@ -849,7 +899,8 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                             return;
                         }
                         if event {
-                            view.macros.output.begin();
+                            // What was printed before stays; the panel is shown for the failure.
+                            view.macros.output.show();
                             view.macros.output.push(
                                 Kind::Note,
                                 format!("プラグイン {label} の {jack} ({handler})"),

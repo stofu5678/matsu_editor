@@ -119,6 +119,14 @@ fn try_start(
         if call.host_busy() {
             return (Step::Wait, Some(call));
         }
+        // The call may have waited: the switch, the agreement and the files are looked at again now, and
+        // the handler is read from the disk in the same step (`run`), so nothing changes in between.
+        let Some(dirs) = crate::plugin_commands::search_dirs(app) else {
+            return (Step::Skipped, None);
+        };
+        let Some(call) = call.refresh(app, &dirs) else {
+            return (Step::Skipped, None);
+        };
         if plugin_call::run(entity, call, app) {
             (Step::Started, None)
         } else {

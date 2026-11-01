@@ -177,17 +177,23 @@ pub(super) async fn close_event_keeps_the_text(
     view: &WeakEntity<EditorView>,
     cx: &mut AsyncWindowContext,
 ) -> bool {
-    let version = |view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext| {
-        view.read_with(cx, |view, app| view.document().read(app).version())
-            .ok()
-    };
-    let before = version(view, cx);
+    view.update(cx, |view, cx| view.begin_edit_watch(cx)).ok();
     fire_and_wait(view, cx, Jack::DocumentClose).await;
-    if version(view, cx) == before {
+    if !user_changed_text(view, cx) {
         return true;
     }
     close_given_up(view, cx);
     false
+}
+
+/// Ends the watch of the text: whether the user changed it while the plugins ran. What a plugin wrote is
+/// not counted; Sakura closes after the events whatever they did (`MYWM_CLOSE`).
+pub(super) fn user_changed_text(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+) -> bool {
+    view.update(cx, |view, cx| view.end_edit_watch(cx))
+        .unwrap_or(false)
 }
 
 /// Tells that the close was given up because the text changed while the plugins ran.
@@ -202,12 +208,8 @@ fn close_given_up(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) {
 /// [`close_tab_or_window`] after the plugins of `DocumentClose`, and of `EditorEnd` when the window goes
 /// (`MYWM_CLOSE`, `CEditWnd::DispatchEvent`). The question was asked already.
 async fn close_with_events(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) -> bool {
-    let before = view
-        .read_with(cx, |view, app| view.document().read(app).version())
-        .ok();
-    if !close_event_keeps_the_text(view, cx).await {
-        return false;
-    }
+    view.update(cx, |view, cx| view.begin_edit_watch(cx)).ok();
+    fire_and_wait(view, cx, Jack::DocumentClose).await;
     let ends = match view.upgrade() {
         Some(entity) => cx
             .update(|_, app| closes_window(&entity, app))
@@ -216,13 +218,10 @@ async fn close_with_events(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowCo
     };
     if ends {
         fire_and_wait(view, cx, Jack::EditorEnd).await;
-        let after = view
-            .read_with(cx, |view, app| view.document().read(app).version())
-            .ok();
-        if after != before {
-            close_given_up(view, cx);
-            return false;
-        }
+    }
+    if user_changed_text(view, cx) {
+        close_given_up(view, cx);
+        return false;
     }
     close_tab_or_window(view, cx)
 }

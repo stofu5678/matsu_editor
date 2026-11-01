@@ -234,6 +234,12 @@ pub(crate) struct MacroState {
     /// tickets (`plugin_events`): `event_next` is the next ticket, `event_serving` the one that runs.
     event_next: u64,
     event_serving: u64,
+    /// A flow that waits for event calls watches the text (`plugin_call`): `watch_seen` is the version
+    /// the last request of a plugin left, and `watch_user` says that the text changed in between, which
+    /// only the user can do.
+    watching: bool,
+    watch_seen: u64,
+    watch_user: bool,
     /// The file that holds the code of a script given as text (`F_EXECEXTMACRO` with a type); it is
     /// removed when the script ends.
     temp_script: Option<TempScript>,
@@ -367,6 +373,16 @@ impl EditorView {
     /// A key macro or a script is running.
     pub fn is_macro_running(&self) -> bool {
         self.macros.busy()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn close_output_panel_for_test(&mut self) {
+        self.macros.output.close();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn output_panel_is_open_for_test(&self) -> bool {
+        self.macros.output.is_open()
     }
 
     /// What the output panel shows, one line each.

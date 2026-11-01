@@ -401,9 +401,7 @@ pub(crate) async fn save(
                 cx.notify();
             })
             .ok();
-            let written = view
-                .read_with(cx, |view, app| view.document().read(app).version())
-                .ok();
+            view.update(cx, |view, cx| view.begin_edit_watch(cx)).ok();
             fire_and_wait(view, cx, Jack::DocumentAfterSave).await;
             if named {
                 // `FileSaveAs` runs the macro of オープン後 after a save under a name, and then the
@@ -411,12 +409,10 @@ pub(crate) async fn save(
                 crate::macros::run_opened(view, cx).await;
                 fire_and_wait(view, cx, Jack::DocumentOpen).await;
             }
-            // Text that came while the plugins ran (typed, or written by a plugin) is not in the file:
-            // a caller that closes after the save must not take the document for saved.
-            let now = view
-                .read_with(cx, |view, app| view.document().read(app).version())
-                .ok();
-            if now != written {
+            // Text the user typed while the plugins ran is not in the file: a caller that closes after the
+            // save must not take the document for saved. What a plugin wrote does not count (the file is
+            // written, as in Sakura).
+            if super::close::user_changed_text(view, cx) {
                 return SaveOutcome::Cancelled;
             }
             SaveOutcome::Saved
