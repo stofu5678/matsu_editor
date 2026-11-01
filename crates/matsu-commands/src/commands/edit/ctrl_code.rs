@@ -8,7 +8,7 @@
 //!
 //! Argument: the code, as `Arg::Int` (or one `Arg::Char`).
 
-use super::input_char::indent_before_insertion;
+use super::input_char::type_char_as;
 use crate::command::{Arg, Command, CommandError, Result};
 use crate::context::CommandContext;
 use crate::register_command;
@@ -27,16 +27,7 @@ impl Command for CtrlCode {
             _ => None,
         }
         .ok_or_else(|| CommandError::BadArgs("ctrl_code takes one code".to_owned()))?;
-        if c == '\r' || c == '\n' {
-            if cx.cursor().is_box() {
-                cx.delete_selection()?;
-            }
-            let text = format!("{c}{}", indent_before_insertion(cx)?);
-            cx.insert_text(&text)?;
-        } else {
-            cx.type_text(c.encode_utf8(&mut [0; 4]))?;
-        }
-        Ok(())
+        type_char_as(cx, c, false)
     }
 }
 
