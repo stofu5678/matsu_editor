@@ -106,6 +106,34 @@ fn open_win_size(
     );
 }
 
+/// `values` for what OK writes: when the dialog 位置と大きさの設定 changed nothing, the size and
+/// position that the windows have now (a window that was moved or resized while the sheet was
+/// open, and the file written meanwhile), not the snapshot the sheet started with. A change made
+/// in the dialog is kept as it is.
+pub(in crate::common_settings) fn keep_current_geometry(
+    cx: &App,
+    before: &Values,
+    after: &Values,
+) -> Values {
+    let mut stored = after.clone();
+    if win_size_of(before) != win_size_of(after) {
+        return stored;
+    }
+    let now = crate::saved_state::window::state(cx);
+    for (id, value) in [
+        ("win_size_mode", now.size_mode.code()),
+        ("win_size_type", now.size_type),
+        ("win_size_cx", now.width),
+        ("win_size_cy", now.height),
+        ("win_pos_mode", now.pos_mode.code()),
+        ("win_pos_x", now.x),
+        ("win_pos_y", now.y),
+    ] {
+        stored.set(id, super::super::model::Value::Int(value));
+    }
+    stored
+}
+
 fn funckey_bar_is_shown(values: &Values) -> bool {
     values.bool("disp_funckey_wnd")
 }

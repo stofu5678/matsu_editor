@@ -958,27 +958,27 @@ impl EditorView {
             return;
         }
         let serial = self.macros.serial;
-        cx.spawn_in(window, async move |this, cx| {
+        // The script belongs to the tab, not to the window it started in: the question goes to
+        // the window that shows the tab when the wait is over.
+        let fallback = window.window_handle();
+        cx.spawn(async move |this, cx| {
             cx.background_executor()
                 .timer(std::time::Duration::from_secs(u64::from(seconds)))
                 .await;
-            let answer = this
-                .update_in(cx, |view, window, cx| {
-                    let running = view.macros.serial == serial && view.macros.running.is_some();
-                    let name = view.macros.running.as_ref()?.name.clone();
-                    running.then(|| {
-                        crate::boxes::prompt(
-                            window,
-                            gpui::PromptLevel::Info,
-                            "マクロ実行中・・・",
-                            Some(&name),
-                            &["キャンセル", "続ける"],
-                            cx,
-                        )
-                    })
+            let answer = follow(&this, fallback, cx, |view, window, cx| {
+                let name = view.macros.running.as_ref()?.name.clone();
+                (view.macros.serial == serial).then(|| {
+                    crate::boxes::prompt(
+                        window,
+                        gpui::PromptLevel::Info,
+                        "マクロ実行中・・・",
+                        Some(&name),
+                        &["キャンセル", "続ける"],
+                        cx,
+                    )
                 })
-                .ok()
-                .flatten();
+            })
+            .flatten();
             if let Some(answer) = answer
                 && let Ok(0) = answer.await
             {

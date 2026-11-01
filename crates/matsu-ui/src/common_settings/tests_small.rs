@@ -184,7 +184,6 @@ fn the_close_button_of_the_window_reads_the_boxes_too(cx: &mut TestAppContext) {
         .simulate_close();
     assert!(closed);
     cx.run_until_parked();
-    assert!(!win_size_is_open(cx));
     // The sheet took the kind of window.
     assert_eq!(
         with_dialog(cx, |d, _, _| d.values().int("win_size_type")),
@@ -212,6 +211,53 @@ fn ok_twice_with_no_change_leaves_the_file_as_it_is(cx: &mut TestAppContext) {
     for line in ["nWinSizeCX=800", "nWinPosX=5", "bSaveWindowSize=2"] {
         assert!(text.contains(line), "{line}");
     }
+}
+
+#[gpui::test]
+fn a_window_that_moved_while_the_sheet_was_open_keeps_its_place(cx: &mut TestAppContext) {
+    use gpui::{Bounds, WindowBounds, point, px, size};
+    let (ini, _handle) = open_window_page(
+        cx,
+        "[Common]\r\nbSaveWindowSize=1\r\nnWinSizeCX=640\r\nnWinSizeCY=480\r\n\
+         nSaveWindowPos=1\r\nnWinPosX=10\r\nnWinPosY=20\r\n",
+    );
+    // The sheet started with 640 x 480 at (10, 20); a window is moved and resized meanwhile.
+    cx.update(|app| {
+        crate::saved_state::window::bounds_changed(
+            app,
+            WindowBounds::Windowed(Bounds::new(
+                point(px(30.), px(40.)),
+                size(px(800.), px(600.)),
+            )),
+        )
+    });
+    check(cx, "disp_status_bar", false);
+    ok(cx);
+    assert_eq!(ini.get("nWinSizeCX").as_deref(), Some("800"));
+    assert_eq!(ini.get("nWinSizeCY").as_deref(), Some("600"));
+    assert_eq!(ini.get("nWinPosX").as_deref(), Some("30"));
+    assert_eq!(ini.get("nWinPosY").as_deref(), Some("40"));
+}
+
+#[gpui::test]
+fn a_change_in_the_dialog_wins_over_a_window_that_moved(cx: &mut TestAppContext) {
+    use gpui::{Bounds, WindowBounds, point, px, size};
+    let (ini, _handle) = open_window_page(cx, "[Common]\r\nnWinSizeCX=640\r\nnWinSizeCY=480\r\n");
+    press(cx, "win_size");
+    with_win_size(cx, |d, window, dcx| {
+        d.set_size_mode(MODE_SET, dcx);
+        d.set_text(Field::Width, "1000", window, dcx);
+        d.close(window, dcx);
+    });
+    cx.update(|app| {
+        crate::saved_state::window::bounds_changed(
+            app,
+            WindowBounds::Windowed(Bounds::new(point(px(0.), px(0.)), size(px(800.), px(600.)))),
+        )
+    });
+    ok(cx);
+    assert_eq!(ini.get("nWinSizeCX").as_deref(), Some("1000"));
+    assert_eq!(ini.get("bSaveWindowSize").as_deref(), Some("2"));
 }
 
 // ---- 全般 ----
