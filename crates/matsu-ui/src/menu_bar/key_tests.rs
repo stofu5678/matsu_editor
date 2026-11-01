@@ -390,6 +390,24 @@ fn a_submenu_key_opens_the_submenu(cx: &mut TestAppContext) {
     assert_eq!(ran(&probe, cx), ["inner"]);
 }
 
+/// In a window too narrow for the submenu at the right of the menu, the popup opens it to the
+/// left, where the Left key goes in.
+#[gpui::test]
+fn a_submenu_key_opens_a_submenu_that_is_placed_to_the_left(cx: &mut TestAppContext) {
+    let (probe, cx) = probe_with(
+        cx,
+        Menu::new("メニュー(M)").items([
+            MenuItem::action("一つ目(A)", First),
+            MenuItem::submenu(Menu::new("枝(S)").items([MenuItem::action("中(I)", Inner)])),
+        ]),
+    );
+    cx.simulate_resize(gpui::size(px(260.), px(400.)));
+    cx.run_until_parked();
+    cx.simulate_keystrokes("s");
+    cx.simulate_keystrokes("enter");
+    assert_eq!(ran(&probe, cx), ["inner"]);
+}
+
 #[gpui::test]
 fn after_the_mouse_pointed_at_an_item_a_submenu_key_opens_that_submenu(cx: &mut TestAppContext) {
     let (probe, cx) = probe_with(

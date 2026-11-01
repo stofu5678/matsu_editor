@@ -351,8 +351,9 @@ pub(crate) struct BarMenu {
     pos_stale: bool,
     /// An access key that waits for the popup to be built again and drawn.
     pending_key: Option<char>,
-    /// The Right key waits for the next draw, to open the submenu that the keys selected.
-    pending_right: bool,
+    /// Opening the submenu that the keys selected: 1, the Right key waits for the next draw; 2,
+    /// it was sent and the next draw checks that the focus went into the submenu.
+    pending_right: u8,
     /// The popup for `pending_key` has been through one render.
     pending_drawn: bool,
     /// The items the open popup was built with, with their marks (the gray ones).
@@ -375,7 +376,7 @@ impl BarMenu {
             pos_stale: false,
             pending_key: None,
             pending_drawn: false,
-            pending_right: false,
+            pending_right: 0,
             popup_items: Vec::new(),
             _subscription: None,
         })
@@ -545,7 +546,7 @@ impl BarMenu {
                 self.select_item(first, window, cx);
                 // The Right key opens the submenu once the popup has drawn the selection (the
                 // popup places its submenu while it draws): see `watch_mouse`.
-                self.pending_right = true;
+                self.pending_right = 1;
                 cx.notify();
             }
             _ => {}
@@ -576,11 +577,26 @@ impl BarMenu {
             |_, _, _| (),
             move |_, (), window, cx| {
                 let this = this.clone();
-                // Every draw: a Right key that waited for the popup to draw its selection.
-                if this.update(cx, |menu, _| std::mem::take(&mut menu.pending_right)) {
+                // Every draw: the Right key that waited for the popup to draw its selection. A
+                // popup near the right edge of the window opens its submenus to the left, where
+                // the Left key goes in and the Right key does not: if the focus did not move, try
+                // the other one.
+                let step = this.update(cx, |menu, _| menu.pending_right);
+                if step == 1 {
+                    this.update(cx, |menu, _| menu.pending_right = 2);
                     window.defer(cx, |window, cx| {
                         window.dispatch_action(Box::new(SelectRight), cx);
                     });
+                } else if step == 2 {
+                    let stayed = this.update(cx, |menu, cx| {
+                        menu.pending_right = 0;
+                        menu.top_popup_has_focus(window, cx)
+                    });
+                    if stayed {
+                        window.defer(cx, |window, cx| {
+                            window.dispatch_action(Box::new(SelectLeft), cx);
+                        });
+                    }
                 }
                 window.on_mouse_event(move |_: &MouseMoveEvent, phase, _, cx| {
                     if phase == gpui::DispatchPhase::Capture {
