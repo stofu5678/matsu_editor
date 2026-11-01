@@ -10,7 +10,9 @@ use super::ask::{Answer, ask, charset_change_message, document_title, save_befor
 use super::load::{choose_files, load_here, open_paths};
 use super::save::{SaveRequest, save};
 use crate::document::SharedDocument;
+use crate::plugin_events::fire_and_wait;
 use crate::view::EditorView;
+use matsu_config::plugins::def::Jack;
 
 /// Nothing is closed while Grep searches (`CGrepAgent::OnBeforeClose`): the window says so
 /// ("Grepの処理中です。") and this returns `true`.
@@ -154,6 +156,36 @@ pub(crate) fn close_tab_or_window(
     .is_ok()
 }
 
+/// Whether closing the tab of `view` closes its window too: it is the only tab, and the window is not
+/// the one that stays empty (`m_bTab_RetainEmptyWin`).
+fn closes_window(view: &Entity<EditorView>, app: &mut App) -> bool {
+    let host = view.read(app).split_host.as_ref().and_then(|h| h.upgrade());
+    if let Some(workspace) = host
+        && workspace.read(app).tab_count() > 1
+    {
+        return false;
+    }
+    !(crate::tabs::settings::current(app).bound()
+        && crate::tabs::settings::options(app).retain_empty
+        && super::windows::workspaces(app).len() == 1)
+}
+
+/// [`close_tab_or_window`] after the plugins of `DocumentClose`, and of `EditorEnd` when the window goes
+/// (`MYWM_CLOSE`, `CEditWnd::DispatchEvent`). The question was asked already.
+async fn close_with_events(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) -> bool {
+    fire_and_wait(view, cx, Jack::DocumentClose).await;
+    let ends = match view.upgrade() {
+        Some(entity) => cx
+            .update(|_, app| closes_window(&entity, app))
+            .unwrap_or(false),
+        None => false,
+    };
+    if ends {
+        fire_and_wait(view, cx, Jack::EditorEnd).await;
+    }
+    close_tab_or_window(view, cx)
+}
+
 /// Closes the tab of `view` in `window`, which shows it, or the window if it has no other tab.
 fn close_in(view: &Entity<EditorView>, window: &mut Window, app: &mut App) {
     let host = view.read(app).split_host.as_ref().and_then(|h| h.upgrade());
@@ -266,7 +298,7 @@ pub(crate) async fn confirm_and_close_window(
     if !confirm_discard_ending(view, cx, &|app| closing_ends_the_editor(app, view)).await {
         return false;
     }
-    close_tab_or_window(view, cx)
+    close_with_events(view, cx).await
 }
 
 /// `F_FILESAVECLOSE`: saves and closes the window. An unmodified document is only closed
@@ -293,7 +325,7 @@ pub(crate) async fn save_and_close_window(
         crate::unsaved::mark_close(view, this, cx);
     })
     .ok();
-    close_tab_or_window(view, cx)
+    close_with_events(view, cx).await
 }
 
 /// `F_FILECLOSE`: closes the file and leaves an untitled document in the window.
@@ -301,6 +333,7 @@ pub(crate) async fn close_file(view: &WeakEntity<EditorView>, cx: &mut AsyncWind
     if !confirm_discard(view, cx).await {
         return false;
     }
+    fire_and_wait(view, cx, Jack::DocumentClose).await;
     let closed = view
         .update(cx, |view, cx| {
             let mut untitled = SharedDocument::empty();
@@ -324,6 +357,8 @@ pub(crate) async fn close_and_open(
     if !confirm_discard(view, cx).await {
         return false;
     }
+    // `FileCloseOpen`: the plugins of DocumentClose come before the dialog.
+    fire_and_wait(view, cx, Jack::DocumentClose).await;
     let Some(mut paths) = choose_files(view, cx, None).await else {
         return false;
     };
@@ -449,9 +484,28 @@ pub(crate) async fn exit_all(cx: &mut AsyncWindowContext, kind: ExitKind) {
             cx.update(|_, app| {
                 // Every question is answered: what the user threw away leaves no copy.
                 crate::unsaved::apply_all_closes(app);
-                app.quit();
             })
             .ok();
+            // The windows go: the plugins of DocumentClose for each tab and of EditorEnd for each window
+            // (`MYWM_CLOSE` of each editor).
+            let windows = cx
+                .update(|_, app| {
+                    super::windows::workspaces(app)
+                        .into_iter()
+                        .map(|(_, ws)| {
+                            ws.read(app)
+                                .tab_editors()
+                                .iter()
+                                .map(Entity::downgrade)
+                                .collect::<Vec<_>>()
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            for views in &windows {
+                crate::plugin_events::window_closing(views, cx).await;
+            }
+            cx.update(|_, app| app.quit()).ok();
             return;
         }
     }

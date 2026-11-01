@@ -24,6 +24,7 @@ use matsu_commands::plugin_commands::{self, CommandInfo};
 use matsu_commands::registry::Registry;
 use matsu_config::Profile;
 use matsu_config::plugins::consent::{Consent, ConsentFile};
+use matsu_config::plugins::def::Jack;
 use matsu_config::plugins::options::PluginOptions;
 use matsu_config::plugins::{DEFAULT_LANGUAGE, PluginDef, PluginSettings, SearchDirs};
 use matsu_plugin::bridge;
@@ -170,6 +171,14 @@ impl DefApi {
                 format!("{name}: the plugin is not registered"),
             ));
         };
+        // A plugin that adds its command when a window starts (EditorStart) is called for each window,
+        // and Sakura's editors each have their own table: here the same command is added once.
+        if plugin_commands::commands()
+            .iter()
+            .any(|c| c.added && c.slot == slot && c.handler == handler && c.label == label)
+        {
+            return Ok(Value::Null);
+        }
         let plug = plugin_commands::commands()
             .iter()
             .filter(|c| c.slot == slot)
@@ -307,6 +316,24 @@ pub(crate) struct Prepared {
     handler: String,
     args: Value,
     api: DefApi,
+    /// An event jack (ADR-0026, PR 6): it runs quietly when it goes well, and the caller may wait for
+    /// it ([`EditorView::plugin_event_running`]).
+    event: bool,
+}
+
+/// What a call is for: a command the user chose, or a plug of an event jack.
+enum Target {
+    Command {
+        /// Counts from 1.
+        command: usize,
+        /// The handler it was registered with (a command added while a plugin ran); `None`: the one in
+        /// `plugin.def`.
+        handler: Option<String>,
+    },
+    Event {
+        jack: Jack,
+        handler: String,
+    },
 }
 
 /// Why the first command of the plugin in `folder` cannot run, or what it needs to run. `command`
@@ -317,7 +344,15 @@ pub(crate) fn prepare_command(
     folder: &str,
     command: usize,
 ) -> Result<Prepared, String> {
-    prepare(cx, dirs, folder, command, None)
+    prepare(
+        cx,
+        dirs,
+        folder,
+        Target::Command {
+            command,
+            handler: None,
+        },
+    )
 }
 
 /// As [`prepare_command`], for the plugin command with the function code `code` (a menu, a key or a
@@ -339,15 +374,52 @@ pub(crate) fn prepare_function(
         .filter(|rec| rec.is_used() && rec.id == info.plugin_id)
         .map(|rec| rec.name.clone())
         .ok_or("このプラグインはもう登録されていません")?;
-    prepare(cx, dirs, &folder, info.plug, Some(info.handler))
+    prepare(
+        cx,
+        dirs,
+        &folder,
+        Target::Command {
+            command: info.plug,
+            handler: Some(info.handler),
+        },
+    )
+}
+
+/// The calls of the plugin in `folder` for the event jack `jack`, one for each of its plugs, in the order
+/// of `plugin.def`. A plugin that cannot run (off, not agreed to, stopped, a language that is not served)
+/// gives nothing, without a word: an event is not something the user asked for.
+pub(crate) fn prepare_event(
+    cx: &mut App,
+    dirs: &SearchDirs,
+    folder: &str,
+    jack: Jack,
+) -> Vec<Prepared> {
+    let Some(def) = dirs.load_def(folder, DEFAULT_LANGUAGE) else {
+        return Vec::new();
+    };
+    def.plugs
+        .iter()
+        .filter(|plug| plug.jack == jack)
+        .filter_map(|plug| {
+            prepare(
+                cx,
+                dirs,
+                folder,
+                Target::Event {
+                    jack,
+                    handler: plug.handler.clone(),
+                },
+            )
+            .ok()
+        })
+        .collect()
 }
 
 fn prepare(
     cx: &mut App,
     dirs: &SearchDirs,
     folder: &str,
-    command: usize,
-    handler: Option<String>,
+    target: Target,
 ) -> Result<Prepared, String> {
     let profile =
         crate::doc_types::with_user(cx, |user| user.profile().cloned()).unwrap_or_default();
@@ -383,13 +455,19 @@ fn prepare(
             );
         }
     }
-    let handler = match handler {
-        Some(handler) => handler,
-        None => command
-            .checked_sub(1)
-            .and_then(|index| def.commands.get(index))
-            .map(|item| item.handler.clone())
-            .ok_or("このプラグインにコマンドがありません")?,
+    let (jack, handler, command, event) = match target {
+        Target::Command { command, handler } => {
+            let handler = match handler {
+                Some(handler) => handler,
+                None => command
+                    .checked_sub(1)
+                    .and_then(|index| def.commands.get(index))
+                    .map(|item| item.handler.clone())
+                    .ok_or("このプラグインにコマンドがありません")?,
+            };
+            ("Command", handler, command, false)
+        }
+        Target::Event { jack, handler } => (jack.name(), handler, 0, true),
     };
     if Language::of_file(Path::new(&handler)) != Some(Language::Bundled(Engine::QuickJs)) {
         return Err(format!(
@@ -440,10 +518,15 @@ fn prepare(
         label,
         id: def.id.clone(),
         host,
-        jack: "Command",
+        jack,
         handler,
-        args: json!({"command": command}),
+        args: if event {
+            json!({})
+        } else {
+            json!({"command": command})
+        },
         api: DefApi::new(dirs, folder, def, command).in_slot(slot),
+        event,
     })
 }
 
@@ -464,7 +547,34 @@ pub(crate) fn set_test_interpreter(path: Option<PathBuf>) {
 /// How many events of a plugin the window takes before it lets go for a moment.
 const EVENTS_IN_A_ROW: usize = 32;
 
+/// Whether an event call (`plugin_events`) may start on a window now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Turn {
+    /// Nothing runs.
+    Free,
+    /// Another event call runs: wait for it.
+    AfterEvent,
+    /// A command of a plugin or a macro has the window: the event is not given.
+    Taken,
+}
+
 impl EditorView {
+    /// See [`Turn`].
+    pub(crate) fn event_turn(&self, cx: &gpui::App) -> Turn {
+        if !(self.macros.busy() || self.plugin_in_call(cx)) {
+            Turn::Free
+        } else if self.macros.plugin_running && self.macros.plugin_event {
+            Turn::AfterEvent
+        } else {
+            Turn::Taken
+        }
+    }
+
+    /// A call of a plugin runs on this window.
+    pub(crate) fn plugin_call_running(&self) -> bool {
+        self.macros.plugin_running
+    }
+
     /// Opens the undo block that holds a whole call of a plugin; [`EditorView::leave_undo_block`]
     /// with the depth from before closes it.
     fn open_undo_block(&mut self, cx: &mut Context<Self>) {
@@ -552,8 +662,13 @@ fn describe(outcome: &Outcome, limit: Duration) -> String {
 }
 
 /// Runs the call on the view and follows it to its end. The output of the plugin and the end go
-/// to the output panel; everything the plugin changes in the document is one undo step.
-pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) {
+/// to the output panel; everything the plugin changes in the document is one undo step. Returns
+/// whether the call began.
+///
+/// An event call (a plug of a jack such as `DocumentBeforeSave`) says nothing when it goes well: it
+/// happens at each save and each open, and the panel and the status bar are for what the user did. A
+/// failure is told as for a command.
+pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) -> bool {
     let Prepared {
         label,
         id,
@@ -562,6 +677,7 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
         handler,
         args,
         mut api,
+        event,
     } = prepared;
     let limit = limit_of(jack);
     let commands_before = plugin_commands::commands().len();
@@ -573,34 +689,44 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
         view.plugin_in_call(cx) || view.macros.busy()
     });
     if busy {
-        let message =
-            format!("プラグイン {label}: ほかのプラグインかマクロが動いている間は動かせません");
-        editor.update(cx, |view, cx| {
-            view.macros.output.begin();
-            view.macros.output.push(Kind::Note, message.clone());
-            view.notice = Some(message);
-            cx.notify();
-        });
-        return;
+        // An event is dropped when another call has the window (a plugin that makes its own events
+        // is not given them: ADR-0026, chapter 2).
+        if !event {
+            let message =
+                format!("プラグイン {label}: ほかのプラグインかマクロが動いている間は動かせません");
+            editor.update(cx, |view, cx| {
+                view.macros.output.begin();
+                view.macros.output.push(Kind::Note, message.clone());
+                view.notice = Some(message);
+                cx.notify();
+            });
+        }
+        return false;
     }
     if let Err(error) = host.borrow_mut().begin(jack, &handler, args, limit) {
-        let message = format!("プラグイン {label}: {error}");
-        editor.update(cx, |view, cx| {
-            view.macros.output.begin();
-            view.macros.output.push(Kind::Note, message.clone());
-            view.notice = Some(message);
-            cx.notify();
-        });
-        return;
+        // A plugin that three failures stopped has said so already.
+        if !(event && matches!(error, plugin_host::BeginError::Stopped)) {
+            let message = format!("プラグイン {label}: {error}");
+            editor.update(cx, |view, cx| {
+                view.macros.output.begin();
+                view.macros.output.push(Kind::Note, message.clone());
+                view.notice = Some(message);
+                cx.notify();
+            });
+        }
+        return false;
     }
     let depth = editor.update(cx, |view, cx| {
-        view.macros.output.begin();
-        view.macros.output.push(
-            Kind::Note,
-            format!("プラグイン {label} の {jack} ({handler}) を開始します"),
-        );
-        cx.notify();
+        if !event {
+            view.macros.output.begin();
+            view.macros.output.push(
+                Kind::Note,
+                format!("プラグイン {label} の {jack} ({handler}) を開始します"),
+            );
+            cx.notify();
+        }
         view.macros.plugin_running = true;
+        view.macros.plugin_event = event;
         view.document
             .update(cx, |shared, _| shared.set_plugin_busy(true));
         let depth = view.enter_undo_block(cx);
@@ -687,10 +813,23 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                     set_stopped(&id, stopped);
                     let ended = weak.update(cx, |view, cx| {
                         view.macros.plugin_running = false;
+                        view.macros.plugin_event = false;
                         // Only the document the call began on: a replaced one is not ours to free.
                         if view.document.read(cx).generation() == generation {
                             view.document.update(cx, |shared, _| shared.set_plugin_busy(false));
                             view.leave_undo_block(depth, cx);
+                        }
+                        // An event that went well leaves no trace.
+                        if event && outcome == Outcome::Ok && !stopped {
+                            cx.notify();
+                            return;
+                        }
+                        if event {
+                            view.macros.output.begin();
+                            view.macros.output.push(
+                                Kind::Note,
+                                format!("プラグイン {label} の {jack} ({handler})"),
+                            );
                         }
                         if let Outcome::Failed(text) | Outcome::Died(text) = &outcome {
                             view.macros.output.push(Kind::Err, text.clone());
@@ -703,7 +842,11 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                                 "失敗が続いたので、このプラグインを止めました。もう一度「有効にする」を押すと戻ります",
                             );
                         }
-                        view.notice = Some(format!("プラグイン {label}: {message}"));
+                        view.notice = Some(if event {
+                            format!("プラグイン {label}: {jack}: {message}")
+                        } else {
+                            format!("プラグイン {label}: {message}")
+                        });
                         cx.notify();
                     });
                     if ended.is_err() {
@@ -727,6 +870,7 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
         }
     })
     .detach();
+    true
 }
 
 #[cfg(test)]

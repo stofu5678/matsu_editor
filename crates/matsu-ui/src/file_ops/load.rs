@@ -17,7 +17,9 @@ use crate::document::SharedDocument;
 use crate::file_dialog::{self, Ask};
 use crate::history::view::{code_change_message, encoding_of, remembered};
 use crate::open::{HugeOpen, open_text_file_with};
+use crate::plugin_events::fire_and_wait;
 use crate::view::EditorView;
+use matsu_config::plugins::def::Jack;
 
 /// Files at least this big show their progress in the status bar. Smaller ones are read before
 /// the user could see anything.
@@ -303,6 +305,8 @@ pub(crate) async fn load_here(
                 }
                 // The file is open: the macro of オープン後 (`FileLoad`).
                 crate::macros::run_opened(view, cx).await;
+                // ... and then the plugins of DocumentOpen (`FileLoad`).
+                fire_and_wait(view, cx, Jack::DocumentOpen).await;
             } else if unlocked {
                 super::lock::relock_quietly(view, cx);
             }
@@ -521,6 +525,23 @@ pub(crate) async fn reopen(
         return false;
     };
     let encoding = encoding.unwrap_or(current);
+    // The question comes first, then the plugins of DocumentClose (`ReloadCurrentFile` begins with
+    // them, also for a document without a file).
+    if let (Some(path), true, false) = (&path, modified, no_confirm) {
+        let title = document_title(Some(path), None);
+        if path.is_file()
+            && !confirm(
+                cx,
+                &reload_message(&title),
+                None,
+                ["再読み込みする", "キャンセル"],
+            )
+            .await
+        {
+            return false;
+        }
+    }
+    fire_and_wait(view, cx, Jack::DocumentClose).await;
     let Some(path) = path.filter(|p| p.is_file()) else {
         // Sakura only sets the encoding when there is no file (`ReloadCurrentFile`).
         view.update(cx, |view, cx| {
@@ -533,18 +554,5 @@ pub(crate) async fn reopen(
         .ok();
         return true;
     };
-    if !no_confirm && modified {
-        let title = document_title(Some(&path), None);
-        if !confirm(
-            cx,
-            &reload_message(&title),
-            None,
-            ["再読み込みする", "キャンセル"],
-        )
-        .await
-        {
-            return false;
-        }
-    }
     load_here(view, cx, &path, Some(encoding), Some(caret)).await
 }

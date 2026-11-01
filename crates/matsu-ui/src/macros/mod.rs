@@ -227,6 +227,9 @@ pub(crate) struct MacroState {
     running: Option<Running>,
     /// A plugin is in a call on this window (`plugin_call`): the calls of plugins go one at a time.
     plugin_running: bool,
+    /// The call of the plugin is an event jack (`DocumentOpen`...), not a command: another event may
+    /// wait for it; a command's own events are not given (ADR-0026, chapter 2).
+    plugin_event: bool,
     /// The file that holds the code of a script given as text (`F_EXECEXTMACRO` with a type); it is
     /// removed when the script ends.
     temp_script: Option<TempScript>,

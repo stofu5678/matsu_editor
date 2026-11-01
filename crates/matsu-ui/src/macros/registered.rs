@@ -27,6 +27,7 @@ use std::path::{Path, PathBuf};
 use gpui::{App, AsyncWindowContext, Context, Window};
 use matsu_commands::command::Arg;
 use matsu_commands::key_macro::{KeyMacro, Step};
+use matsu_config::plugins::def::Jack;
 use matsu_config::settings::macros::RegisteredMacros;
 
 use super::{FileKind, file_kind};
@@ -333,6 +334,17 @@ pub(crate) fn run_auto_in(
     cx: &mut App,
     then: impl FnOnce(&mut App) + 'static,
 ) {
+    let view_for_plugins = view.clone();
+    // The plugins of DocumentOpen follow the macro of オープン後 (`CNormalProcess`, `FileLoad`), and
+    // `then` follows them.
+    let then = move |cx: &mut App| {
+        if when == Auto::Opened && crate::plugin_events::has_plugs(cx, &[Jack::DocumentOpen]) {
+            let view = view_for_plugins;
+            crate::plugin_events::fire_then(cx, &view, Jack::DocumentOpen, then);
+        } else {
+            then(cx);
+        }
+    };
     let running = handle
         .update(cx, |_, window, cx| {
             view.update(cx, |view, cx| view.run_auto_macro(when, None, window, cx))

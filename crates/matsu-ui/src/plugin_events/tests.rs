@@ -1,0 +1,432 @@
+//! Tests of the event jacks on a window, with the real `matsu-script` (skipped when that program is not
+//! built next to the tests). A plugin with one handler for each jack writes its name when it runs, so the
+//! output panel shows which jacks ran and in which order.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use gpui::{AppContext as _, Entity, TestAppContext, VisualTestContext};
+use matsu_commands::command::Arg;
+use matsu_commands::sakura::FUNCTIONS;
+use matsu_config::Profile;
+use matsu_config::plugins::consent::{ConsentFile, fingerprint};
+use matsu_config::plugins::{DEFAULT_LANGUAGE, PluginRec, PluginSettings, PluginState, SearchDirs};
+
+use crate::document::SharedDocument;
+use crate::macros::plugin_call::tests::script_host;
+use crate::macros::plugin_call::{set_test_interpreter, shutdown};
+use crate::settings::UserSettings;
+use crate::view::EditorView;
+
+const ID: &str = "test.events";
+
+/// A folder with the settings file and a plugin `Events` that has the six jacks. Each handler writes
+/// `[<jack>]`; `script` can replace a handler.
+struct Place {
+    dir: tempfile::TempDir,
+}
+
+impl Place {
+    fn new(scripts: &[(&str, &str)]) -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        let plugin = dir.path().join("plugins").join("Events");
+        fs::create_dir_all(&plugin).unwrap();
+        let jacks = [
+            "EditorStart",
+            "EditorEnd",
+            "DocumentOpen",
+            "DocumentClose",
+            "DocumentBeforeSave",
+            "DocumentAfterSave",
+        ];
+        let mut def = format!(
+            "[Plugin]\nId={ID}\nName=Events\nType=wsh\n\n[Plug]\n{}\n\n[Wsh]\nUseCache=1\n",
+            jacks
+                .iter()
+                .map(|jack| format!("{jack}={jack}.js"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+        def.push('\n');
+        fs::write(plugin.join("plugin.def"), def).unwrap();
+        for jack in jacks {
+            let script = scripts.iter().find(|(name, _)| *name == jack).map_or_else(
+                || format!("console.log('[{jack}]');"),
+                |(_, s)| (*s).to_owned(),
+            );
+            fs::write(plugin.join(format!("{jack}.js")), script).unwrap();
+        }
+        Self { dir }
+    }
+
+    fn settings(&self) -> PathBuf {
+        self.dir.path().join("matsu.ini")
+    }
+
+    fn dirs(&self) -> SearchDirs {
+        SearchDirs::new(&self.settings(), None)
+    }
+
+    /// The user turned plugins on and agreed to this one.
+    fn enable(&self, cx: &mut VisualTestContext) {
+        let dirs = self.dirs();
+        let def = dirs.load_def("Events", DEFAULT_LANGUAGE).unwrap();
+        assert_eq!(def.plugs.len(), 6);
+        let mut settings = PluginSettings {
+            enabled: true,
+            ..PluginSettings::default()
+        };
+        settings.table[0] = PluginRec {
+            id: def.id.clone(),
+            name: "Events".into(),
+            cmd_num: 0,
+            state: PluginState::Stopped,
+        };
+        let mut profile = Profile::new();
+        settings.store(&mut profile).unwrap();
+        profile.save(&self.settings()).unwrap();
+        let files = fingerprint(&dirs.plugin_dir("Events").unwrap()).unwrap();
+        let mut consent = ConsentFile::default();
+        consent
+            .enable(&def.id, "Events", &files, "2026-11-02")
+            .unwrap();
+        consent.save(&dirs.consent_file()).unwrap();
+        let user = UserSettings::from_profile(profile, Some(self.settings()));
+        cx.update(|_, app| app.set_global(user));
+    }
+}
+
+struct Files(PathBuf);
+
+impl Files {
+    fn new() -> Self {
+        let dir = tempfile::tempdir().unwrap().keep();
+        Self(dir)
+    }
+
+    fn write(&self, name: &str, bytes: &[u8]) -> PathBuf {
+        let path = self.0.join(name);
+        fs::write(&path, bytes).unwrap();
+        path
+    }
+
+    fn path(&self, name: &str) -> PathBuf {
+        self.0.join(name)
+    }
+}
+
+impl Drop for Files {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn setup(cx: &mut TestAppContext) -> (Entity<EditorView>, &mut VisualTestContext) {
+    cx.update(gpui_component::init);
+    let shared = cx.new(|_| SharedDocument::empty());
+    let (view, vcx) = cx.add_window_view(move |window, cx| {
+        let view = EditorView::new(shared, cx);
+        window.focus(&view.focus_handle, cx);
+        view
+    });
+    vcx.executor().allow_parking();
+    (view, vcx)
+}
+
+fn run(view: &Entity<EditorView>, cx: &mut VisualTestContext, function: &str, args: &[Arg]) {
+    let code = FUNCTIONS.iter().find(|f| f.name == function).unwrap().code;
+    view.update_in(cx, |view, window, cx| {
+        view.run_function(code, args, window, cx)
+    });
+    cx.run_until_parked();
+}
+
+/// The jacks that have run, in order, from the lines `[<jack>]` in the output panel.
+fn jacks(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> Vec<String> {
+    let output = view.read_with(cx, |v, _| v.macro_output_text());
+    output
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            line.strip_prefix('[')?.strip_suffix(']').map(str::to_owned)
+        })
+        .collect()
+}
+
+/// Lets the window and the plugin process run until `count` jacks have run.
+fn wait_for_jacks(
+    view: &Entity<EditorView>,
+    cx: &mut VisualTestContext,
+    count: usize,
+) -> Vec<String> {
+    for _ in 0..1000 {
+        cx.executor().advance_clock(Duration::from_millis(20));
+        cx.run_until_parked();
+        let ran = jacks(view, cx);
+        if ran.len() >= count {
+            // A little more time: nothing else may follow.
+            for _ in 0..10 {
+                cx.executor().advance_clock(Duration::from_millis(20));
+                cx.run_until_parked();
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            return jacks(view, cx);
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!(
+        "{count} jacks did not run: {:?}\n{}",
+        jacks(view, cx),
+        view.read_with(cx, |v, _| v.macro_output_text())
+    );
+}
+
+fn text_of(path: &Path) -> String {
+    fs::read_to_string(path).unwrap()
+}
+
+fn begin(cx: &mut TestAppContext, scripts: &[(&str, &str)]) -> Option<(Place, Files)> {
+    let host = script_host()?;
+    set_test_interpreter(Some(host));
+    let _ = cx;
+    Some((Place::new(scripts), Files::new()))
+}
+
+fn finish(cx: &mut VisualTestContext) {
+    set_test_interpreter(None);
+    cx.update(|_, app| shutdown(app, ID));
+}
+
+#[gpui::test]
+fn a_save_under_a_name_calls_the_jacks_in_the_order_of_sakura(cx: &mut TestAppContext) {
+    let Some((place, files)) = begin(cx, &[]) else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    let (view, cx) = setup(cx);
+    place.enable(cx);
+    cx.simulate_input("a");
+    let target = files.path("named.txt");
+    run(
+        &view,
+        cx,
+        "F_FILESAVEAS",
+        &[Arg::Text(target.display().to_string())],
+    );
+    // `DoSaveFlow`: BeforeSave, then Close of the document that was, the write, AfterSave; `FileSaveAs`:
+    // then Open of the new name.
+    let ran = wait_for_jacks(&view, cx, 4);
+    assert_eq!(
+        ran,
+        [
+            "DocumentBeforeSave",
+            "DocumentClose",
+            "DocumentAfterSave",
+            "DocumentOpen"
+        ]
+    );
+    assert_eq!(text_of(&target), "a");
+
+    // A plain save over the same file: only the two jacks around the write.
+    cx.simulate_input("b");
+    run(&view, cx, "F_FILESAVE", &[]);
+    let ran = wait_for_jacks(&view, cx, 6);
+    assert_eq!(&ran[4..], ["DocumentBeforeSave", "DocumentAfterSave"]);
+    assert_eq!(ran.len(), 6, "{ran:?}");
+    assert_eq!(text_of(&target), "ab");
+    finish(cx);
+}
+
+#[gpui::test]
+fn the_plugin_of_a_before_save_jack_can_edit_what_is_written(cx: &mut TestAppContext) {
+    let Some((place, files)) = begin(
+        cx,
+        &[(
+            "DocumentBeforeSave",
+            "console.log('[DocumentBeforeSave]'); Editor.AddTail('!');",
+        )],
+    ) else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    let (view, cx) = setup(cx);
+    place.enable(cx);
+    cx.simulate_input("a");
+    let target = files.path("edited.txt");
+    run(
+        &view,
+        cx,
+        "F_FILESAVEAS",
+        &[Arg::Text(target.display().to_string())],
+    );
+    wait_for_jacks(&view, cx, 4);
+    assert_eq!(text_of(&target), "a!");
+    finish(cx);
+}
+
+#[gpui::test]
+fn a_before_save_jack_that_fails_does_not_stop_the_save(cx: &mut TestAppContext) {
+    let Some((place, files)) = begin(
+        cx,
+        &[("DocumentBeforeSave", "throw new Error('壊れています');")],
+    ) else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    let (view, cx) = setup(cx);
+    place.enable(cx);
+    cx.simulate_input("data");
+    let target = files.path("kept.txt");
+    run(
+        &view,
+        cx,
+        "F_FILESAVEAS",
+        &[Arg::Text(target.display().to_string())],
+    );
+    // The jacks after the failing one still run, and the file is written.
+    let ran = wait_for_jacks(&view, cx, 3);
+    assert_eq!(
+        ran,
+        ["DocumentClose", "DocumentAfterSave", "DocumentOpen"],
+        "the failing jack writes no name"
+    );
+    assert_eq!(text_of(&target), "data");
+    let output = view.read_with(cx, |v, _| v.macro_output_text());
+    assert!(output.contains("壊れています"), "{output}");
+    assert!(output.contains("DocumentBeforeSave"), "{output}");
+    // The document is saved: the title has no mark of changes.
+    assert!(!view.read_with(cx, |v, app| v.document().read(app).model().is_modified()));
+    finish(cx);
+}
+
+#[gpui::test]
+fn a_file_that_is_read_calls_open_and_a_reload_calls_close_then_open(cx: &mut TestAppContext) {
+    let Some((place, files)) = begin(cx, &[]) else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    let (view, cx) = setup(cx);
+    place.enable(cx);
+    let path = files.write("in.txt", b"hello");
+    run(
+        &view,
+        cx,
+        "F_FILEOPEN",
+        &[Arg::Text(path.display().to_string())],
+    );
+    assert_eq!(wait_for_jacks(&view, cx, 1), ["DocumentOpen"]);
+    run(&view, cx, "F_FILE_REOPEN", &[]);
+    assert_eq!(
+        wait_for_jacks(&view, cx, 3),
+        ["DocumentOpen", "DocumentClose", "DocumentOpen"]
+    );
+    // Closing the file leaves an untitled document: Close, and no Open (`FileClose`).
+    run(&view, cx, "F_FILECLOSE", &[]);
+    assert_eq!(
+        wait_for_jacks(&view, cx, 4),
+        [
+            "DocumentOpen",
+            "DocumentClose",
+            "DocumentOpen",
+            "DocumentClose"
+        ]
+    );
+    finish(cx);
+}
+
+#[gpui::test]
+fn a_window_that_closes_calls_close_and_then_editor_end(cx: &mut TestAppContext) {
+    let Some((place, _files)) = begin(cx, &[]) else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    let (view, cx) = setup(cx);
+    place.enable(cx);
+    let weak = view.downgrade();
+    cx.update(|window, app| {
+        window
+            .spawn(app, async move |cx| {
+                super::window_closing(&[weak], cx).await;
+            })
+            .detach();
+    });
+    assert_eq!(wait_for_jacks(&view, cx, 2), ["DocumentClose", "EditorEnd"]);
+    finish(cx);
+}
+
+#[gpui::test]
+fn a_new_window_calls_editor_start(cx: &mut TestAppContext) {
+    let Some((place, _files)) = begin(cx, &[]) else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    cx.update(gpui_component::init);
+    let user = {
+        let (_, vcx) = setup(cx);
+        place.enable(vcx);
+        vcx.update(|_, app| app.global::<UserSettings>().clone())
+    };
+    cx.update(|app| app.set_global(user));
+    let handle = cx
+        .update(|app| {
+            crate::file_ops::windows::open_editor_window(app, SharedDocument::empty(), None)
+        })
+        .unwrap();
+    let view = cx.update(|app| {
+        crate::file_ops::windows::editors(app)
+            .into_iter()
+            .find(|(h, _)| *h == handle)
+            .map(|(_, view)| view)
+            .unwrap()
+    });
+    let mut vcx = VisualTestContext::from_window(handle, cx);
+    assert_eq!(wait_for_jacks(&view, &mut vcx, 1), ["EditorStart"]);
+    finish(&mut vcx);
+}
+
+#[gpui::test]
+fn plugins_that_are_off_or_not_agreed_to_get_no_event(cx: &mut TestAppContext) {
+    let Some((place, files)) = begin(cx, &[]) else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    let (view, cx) = setup(cx);
+    place.enable(cx);
+    // The agreement is gone: nothing runs.
+    let _ = fs::remove_file(place.dirs().consent_file());
+    let path = files.write("in.txt", b"hello");
+    run(
+        &view,
+        cx,
+        "F_FILEOPEN",
+        &[Arg::Text(path.display().to_string())],
+    );
+    for _ in 0..50 {
+        cx.executor().advance_clock(Duration::from_millis(20));
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(jacks(&view, cx).is_empty());
+    finish(cx);
+}
+
+#[gpui::test]
+fn typing_calls_no_plugin(cx: &mut TestAppContext) {
+    let Some((place, _files)) = begin(cx, &[]) else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    let (view, cx) = setup(cx);
+    place.enable(cx);
+    cx.simulate_input("abc");
+    cx.simulate_keystrokes("enter");
+    cx.simulate_input("def");
+    for _ in 0..50 {
+        cx.executor().advance_clock(Duration::from_millis(20));
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(jacks(&view, cx).is_empty(), "{:?}", jacks(&view, cx));
+    finish(cx);
+}

@@ -14,6 +14,7 @@ use gpui::{
     WindowBounds, WindowOptions, px, size,
 };
 use gpui_component::Root;
+use matsu_config::plugins::def::Jack;
 use matsu_core::encoding::Encoding;
 
 use crate::app::Workspace;
@@ -176,6 +177,13 @@ fn open_window_with(
         window.defer(cx, move |window, cx| {
             restore.update(cx, |workspace, cx| workspace.restore_outline(window, cx));
         });
+        // The plugins of EditorStart, once the window is there (`CNormalProcess`). A plugin that adds
+        // commands (`Plugin.AddCommand`) makes the saved keys and buttons of them work from here.
+        let started = workspace.clone();
+        window.defer(cx, move |_, cx| {
+            let editor = started.read(cx).editor().clone();
+            crate::plugin_events::fire(cx, &editor, Jack::EditorStart);
+        });
         // The windows keep their size and position when the settings say so (`OnSize`, `OnMove`).
         workspace.update(cx, |_, workspace_cx| {
             workspace_cx
@@ -261,6 +269,21 @@ fn install(window: &mut Window, cx: &mut App, workspace: &Entity<Workspace>) {
             for view in &views {
                 view.update(cx, |view, cx| view.record_history(cx));
             }
+            // The plugins of DocumentClose and EditorEnd run first, and then the window goes.
+            if crate::plugin_events::has_plugs(cx, &[Jack::DocumentClose, Jack::EditorEnd]) {
+                if !asking.replace(true) {
+                    let asking = asking.clone();
+                    window
+                        .spawn(cx, async move |cx| {
+                            let weak: Vec<_> = views.iter().map(Entity::downgrade).collect();
+                            crate::plugin_events::window_closing(&weak, cx).await;
+                            asking.set(false);
+                            cx.update(|window, _| window.remove_window()).ok();
+                        })
+                        .detach();
+                }
+                return false;
+            }
             return true;
         }
         if !asking.replace(true) {
@@ -340,13 +363,15 @@ async fn close_after_questions(
             continue;
         }
         if unchanged {
-            cx.update(|window, app| {
+            cx.update(|_, app| {
                 for view in &views {
                     crate::unsaved::apply_close(view, app);
                 }
-                window.remove_window();
             })
             .ok();
+            let weak: Vec<_> = views.iter().map(Entity::downgrade).collect();
+            crate::plugin_events::window_closing(&weak, cx).await;
+            cx.update(|window, _| window.remove_window()).ok();
             return;
         }
     }

@@ -206,7 +206,9 @@ impl EditorView {
                 return;
             };
             match crate::macros::plugin_call::prepare_function(cx, &dirs, code) {
-                Ok(prepared) => crate::macros::plugin_call::run(editor, prepared, cx),
+                Ok(prepared) => {
+                    crate::macros::plugin_call::run(editor, prepared, cx);
+                }
                 Err(message) => {
                     editor.update(cx, |view, cx| {
                         view.notice = Some(message);

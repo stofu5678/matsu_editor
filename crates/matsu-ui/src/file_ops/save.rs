@@ -35,7 +35,9 @@ use super::ask::{
 use super::save_as_dialog::{SaveChoice, ask_options};
 use crate::file_dialog::save_fields::SaveFields;
 use crate::file_dialog::{self, Ask};
+use crate::plugin_events::fire_and_wait;
 use crate::view::EditorView;
+use matsu_config::plugins::def::Jack;
 
 /// What to save and how. The default is a plain save (`F_FILESAVE`).
 #[derive(Clone, Debug)]
@@ -364,6 +366,13 @@ pub(crate) async fn save(
         .read_with(cx, |view, app| view.document().read(app).version())
         .ok();
     crate::macros::run_before_save(view, cx, &path).await;
+    // The plugins of DocumentBeforeSave (`DoSaveFlow`), after the macro. Under a name the document that
+    // was is closed first (`!bOverwriteMode`). A plugin that fails or is slow does not stop the save.
+    let named = from_dialog || request.path.is_some();
+    fire_and_wait(view, cx, Jack::DocumentBeforeSave).await;
+    if named {
+        fire_and_wait(view, cx, Jack::DocumentClose).await;
+    }
     let changed = view
         .read_with(cx, |view, app| view.document().read(app).version())
         .ok()
@@ -392,9 +401,12 @@ pub(crate) async fn save(
                 cx.notify();
             })
             .ok();
-            if from_dialog || request.path.is_some() {
-                // `FileSaveAs` runs the macro of オープン後 after a save under a name.
+            fire_and_wait(view, cx, Jack::DocumentAfterSave).await;
+            if named {
+                // `FileSaveAs` runs the macro of オープン後 after a save under a name, and then the
+                // plugins of DocumentOpen.
                 crate::macros::run_opened(view, cx).await;
+                fire_and_wait(view, cx, Jack::DocumentOpen).await;
             }
             SaveOutcome::Saved
         }
