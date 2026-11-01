@@ -38,8 +38,6 @@ use matsu_core::diff::DiffMark;
 /// The caret of overwrite mode: the caret color with some transparency.
 const CARET_BLOCK_ALPHA: u32 = 0x70;
 
-/// The mark for a tab: Sakura draws an arrow (`CFigure_Tab.cpp`, the default `TAB_ARROW`).
-const TAB_MARK: &str = "→";
 /// The mark for an ideographic space: a box (`CFigure_ZenSpace.cpp`).
 const FULL_WIDTH_SPACE_MARK: &str = "□";
 /// The mark for a line break, by kind. Sakura draws an arrow bent to the lower left for CRLF, an
@@ -555,9 +553,13 @@ impl Element for EditorElement {
             let mut text = Vec::new();
             let mut selected_text = Vec::new();
             for item in &styling.items {
+                let tab_text;
                 let label = match &item.label {
                     Label::Text(text) => text.as_str(),
-                    Label::Tab => TAB_MARK,
+                    Label::Tab(cols) => {
+                        tab_text = settings.tab_mark.text(*cols);
+                        tab_text.as_str()
+                    }
                     Label::FullWidthSpace => FULL_WIDTH_SPACE_MARK,
                 };
                 if let Some(selected_style) = &item.selected {

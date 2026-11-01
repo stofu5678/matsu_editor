@@ -214,12 +214,9 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                         ]),
                         Control::number(TAB_SPACE, "TAB幅(&T)", "", 4, tab_min, tab_max).into(),
                         Item::Row(vec![
-                            Control::choice(TAB_ARROW, "T&AB表示", "", 0, TAB_ARROWS)
-                                .unavailable()
-                                .into(),
+                            Control::choice(TAB_ARROW, "T&AB表示", "", 0, TAB_ARROWS).into(),
                             Control::text(TAB_VIEW_STRING, "", "", "^       ")
                                 .named("TAB表示の文字列")
-                                .unavailable()
                                 .when(tab_is_a_string)
                                 .into(),
                         ]),
@@ -262,7 +259,6 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                             0,
                             INDENT_LAYOUTS,
                         )
-                        .unavailable()
                         .into(),
                         Control::check(RTRIM_PREV_LINE, "改行時に末尾の空白を削除(&E)", "", false)
                             .unavailable()
@@ -336,25 +332,18 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                             Control::check(KINSOKU_KUTO, "句読点ぶら下げ(&\\)", "", false).into(),
                             Control::text(KINSOKU_KUTO_CHARS, "", "", "、。，．､｡,.")
                                 .named("句読点ぶら下げの文字")
-                                .unavailable()
                                 .into(),
                         ]),
                         Item::Row(vec![
-                            Control::check(KINSOKU_HEAD, "行頭禁則(&[)", "", false)
-                                .unavailable()
-                                .into(),
+                            Control::check(KINSOKU_HEAD, "行頭禁則(&[)", "", false).into(),
                             Control::text(KINSOKU_HEAD_CHARS, "", "", "")
                                 .named("行頭禁則の文字")
-                                .unavailable()
                                 .into(),
                         ]),
                         Item::Row(vec![
-                            Control::check(KINSOKU_TAIL, "行末禁則(&])", "", false)
-                                .unavailable()
-                                .into(),
+                            Control::check(KINSOKU_TAIL, "行末禁則(&])", "", false).into(),
                             Control::text(KINSOKU_TAIL_CHARS, "", "", "")
                                 .named("行末禁則の文字")
-                                .unavailable()
                                 .into(),
                         ]),
                     ],
