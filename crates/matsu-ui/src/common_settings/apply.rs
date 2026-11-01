@@ -49,6 +49,10 @@ pub(super) fn commit(
     // What the user enabled may have changed the commands of the plugins, which the keys name.
     if crate::plugin_commands::refresh(env.cx) {
         pages::keys::rebuild_key_map(&mut env);
+        // A toolbar button that names a command reads as an undefined one while its plugin is off.
+        if let Some(user) = env.cx.try_global::<UserSettings>().cloned() {
+            crate::bars::toolbar::install(env.cx, &user);
+        }
     }
     // The menus read the settings (the history, the custom menus): make them again from the new ones.
     crate::app::refresh_menus(env.cx);

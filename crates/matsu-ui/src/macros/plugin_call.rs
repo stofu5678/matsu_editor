@@ -559,6 +559,7 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
         mut api,
     } = prepared;
     let limit = limit_of(jack);
+    let commands_before = plugin_commands::commands().len();
     // One plugin at a time on a window: the calls would share the undo block of the document, and
     // a macro that runs has the window already.
     let busy = editor.update(cx, |view, cx| {
@@ -703,6 +704,10 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                     if ended.is_err() {
                         // The pane is gone: the document is let go all the same.
                         release_document(&document, depth, generation, cx);
+                    }
+                    // A command the plugin added (`Plugin.AddCommand`) is in the menus from now on.
+                    if plugin_commands::commands().len() != commands_before {
+                        cx.update(crate::app::refresh_menus);
                     }
                     break;
                 }
