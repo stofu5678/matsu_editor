@@ -10,8 +10,8 @@
 use gpui::{
     AnyWindowHandle, App, AppContext as _, Bounds, ClickEvent, Context, Entity, FocusHandle,
     Focusable, InteractiveElement, IntoElement, KeyDownEvent, ParentElement, PathPromptOptions,
-    Render, SharedString, StatefulInteractiveElement, Styled, Subscription, Window, WindowBounds,
-    WindowOptions, div, prelude::FluentBuilder as _, px, rgb, size,
+    Render, ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Subscription, Window,
+    WindowBounds, WindowOptions, div, prelude::FluentBuilder as _, px, rgb, size,
 };
 use gpui_component::checkbox::Checkbox;
 use gpui_component::input::{Input, InputEvent, InputState};
@@ -40,6 +40,8 @@ pub(crate) struct OptionDialog {
     input: Entity<InputState>,
     /// Why OK did not close the window.
     message: Option<String>,
+    /// The scroll position of the list: the selected row is kept in view.
+    scroll: ScrollHandle,
     focused_once: bool,
     focus: FocusHandle,
     _subscription: Subscription,
@@ -65,6 +67,7 @@ impl OptionDialog {
             selected: None,
             input,
             message: None,
+            scroll: ScrollHandle::new(),
             focused_once: false,
             focus: cx.focus_handle().tab_stop(true),
             _subscription: subscription,
@@ -95,6 +98,14 @@ impl OptionDialog {
         );
     }
 
+    /// Whether the selected row is inside the list, for the tests.
+    #[cfg(test)]
+    pub(crate) fn selected_row_in_view(&self) -> Option<bool> {
+        let bounds = self.scroll.bounds();
+        let row = self.scroll.bounds_for_item(self.selected?)?;
+        Some(row.top() >= bounds.top() && row.bottom() <= bounds.bottom())
+    }
+
     #[cfg(test)]
     pub(crate) fn selected(&self) -> Option<usize> {
         self.selected
@@ -106,6 +117,7 @@ impl OptionDialog {
             return;
         };
         self.selected = Some(index);
+        self.scroll.scroll_to_item(index);
         if matches!(
             entry.def.kind,
             OptionType::Str | OptionType::Dir | OptionType::Int
@@ -464,6 +476,7 @@ impl Render for OptionDialog {
             .child(
                 v_flex()
                     .id("plugin-option-rows")
+                    .track_scroll(&self.scroll)
                     .flex_1()
                     .overflow_y_scroll()
                     .children(rows),

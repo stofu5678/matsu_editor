@@ -367,3 +367,29 @@ fn a_row_is_a_list_item_named_by_its_label_and_value_and_tells_if_it_is_selected
     assert_eq!(node.label(), Some("旗、\u{2611}"));
     assert_eq!(node.is_selected(), Some(false));
 }
+
+#[gpui::test]
+fn the_keyboard_keeps_the_selected_row_in_view(cx: &mut TestAppContext) {
+    let place = Place::new();
+    cx.update(gpui_component::init);
+    let mut def = place.def();
+    let first = def.options.clone();
+    for n in 0..40 {
+        let mut option = first[n % first.len()].clone();
+        option.index = 100 + n;
+        option.key = format!("K{n}");
+        def.options.push(option);
+    }
+    let form = Form::load(&def, &place.file());
+    let (dialog, vcx) = cx.add_window_view(move |window, cx| OptionDialog::new(form, window, cx));
+    for _ in 0..30 {
+        dialog.update_in(vcx, |d, window, dcx| d.key("down", window, dcx));
+        vcx.run_until_parked();
+        vcx.update(|window, _| window.refresh());
+        vcx.run_until_parked();
+    }
+    dialog.read_with(vcx, |d, _| {
+        assert_eq!(d.selected(), Some(29));
+        assert_eq!(d.selected_row_in_view(), Some(true));
+    });
+}
