@@ -168,7 +168,7 @@ fn fill(index: usize, open: &mut Vec<u16>, cx: &Context<'_>) -> Vec<Entry> {
             });
         } else if is_special(code) {
             // `InitMenu_Special`: the items of the list, or "(なし)" when it is empty.
-            let items = cx.lists.items(code);
+            let items = cx.lists.entries(code);
             if items.is_empty() {
                 out.push(Entry::Item(Item {
                     label: "(なし)".to_owned(),
@@ -177,7 +177,7 @@ fn fill(index: usize, open: &mut Vec<u16>, cx: &Context<'_>) -> Vec<Entry> {
                     enabled: false,
                 }));
             } else {
-                out.extend(items.into_iter().map(Entry::Item));
+                out.extend(items);
             }
         } else {
             out.push(Entry::Item(cx.item(code, row.key)));

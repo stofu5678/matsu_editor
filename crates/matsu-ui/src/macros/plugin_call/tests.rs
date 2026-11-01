@@ -23,7 +23,7 @@ const SAMPLES: &str = concat!(
     "/../matsu-plugin/samples/plugins"
 );
 
-fn copy_dir(from: &Path, to: &Path) {
+pub(crate) fn copy_dir(from: &Path, to: &Path) {
     fs::create_dir_all(to).unwrap();
     for entry in fs::read_dir(from).unwrap().flatten() {
         let target = to.join(entry.file_name());
@@ -168,7 +168,7 @@ fn bad_calls_of_the_plugin_object_are_errors_not_panics() {
     assert!(ask(&mut api, "Plugin.Unknown", &[]).is_err());
 }
 
-fn setup<'a>(
+pub(crate) fn setup<'a>(
     cx: &'a mut TestAppContext,
     text: &str,
 ) -> (Entity<EditorView>, &'a mut VisualTestContext) {
@@ -183,7 +183,7 @@ fn setup<'a>(
     (view, vcx)
 }
 
-fn text_of(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> String {
+pub(crate) fn text_of(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> String {
     view.read_with(cx, |view, cx| {
         let doc = view.document().read(cx).doc();
         (0..doc.line_count())
@@ -236,7 +236,7 @@ fn a_request_of_a_plugin_runs_on_the_document_and_the_plugin_calls_on_the_defini
 }
 
 /// The program that serves the plugins, if the workspace build made it.
-fn script_host() -> Option<PathBuf> {
+pub(crate) fn script_host() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let name = if cfg!(windows) {
         "matsu-script.exe"
@@ -279,7 +279,11 @@ fn enable_sample(cx: &mut VisualTestContext, place: &Place, enabled: bool, agree
     cx.update(|_, app| app.set_global(user));
 }
 
-fn wait_for(view: &Entity<EditorView>, cx: &mut VisualTestContext, needle: &str) -> String {
+pub(crate) fn wait_for(
+    view: &Entity<EditorView>,
+    cx: &mut VisualTestContext,
+    needle: &str,
+) -> String {
     for _ in 0..600 {
         cx.executor().advance_clock(Duration::from_millis(20));
         cx.run_until_parked();

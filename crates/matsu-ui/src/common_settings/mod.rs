@@ -207,6 +207,9 @@ pub(crate) fn install(cx: &mut App, user: &crate::settings::UserSettings) {
     cx.set_global(user.clone());
     let profile = user.profile().cloned().unwrap_or_default();
     pages::plugin::refresh_dirs(cx);
+    // The menus, the keys and the toolbar name the commands of the plugins: they have to be known
+    // before those pages are read.
+    crate::plugin_commands::refresh_for(user);
     let values = Values::load(&all_controls(), &profile);
     let mut env = Env { cx, opener: None };
     for page in Page::ALL {

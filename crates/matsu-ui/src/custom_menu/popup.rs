@@ -109,6 +109,7 @@ impl EditorView {
         let macros = crate::macros::registered_table(cx);
         let macro_list = crate::macros::MacroList(macros.clone());
         let rest = ChainedLists(&custom, &macro_list);
+        let rest = ChainedLists(&rest, &crate::plugin_commands::PluginList);
         let lists = ChainedLists(&recent, &rest);
         let entries = if empty {
             Vec::new()

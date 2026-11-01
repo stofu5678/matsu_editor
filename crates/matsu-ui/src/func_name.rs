@@ -8,7 +8,8 @@
 //! * any other function is the label of the string table (`LS( funccode )`), and a code with none is
 //!   `-- 不明 --` (`F_DISABLE`'s string).
 //!
-//! Plugin commands do not exist here.
+//! * a plugin command that is loaded is named by its label (`CJackManager::GetCommandName`); one that is not is
+//!   `-- 不明 --`.
 
 use std::cell::OnceCell;
 
@@ -45,6 +46,10 @@ fn resolve<'a>(
         return menus()
             .name(index)
             .unwrap_or_else(|| UNKNOWN_NAME.to_owned());
+    }
+    // A plugin command is named by its label (`CJackManager::GetCommandName`).
+    if let Some(label) = matsu_commands::plugin_commands::label(code) {
+        return label;
     }
     // `&&` in the string table is a literal `&`.
     FUNCTIONS
@@ -101,6 +106,27 @@ mod tests {
         // F_FILE_SAVE, then a code that nothing has
         assert_eq!(funccode_to_name(30103, &menus, &macros), "上書き保存");
         assert_eq!(funccode_to_name(64999, &menus, &macros), UNKNOWN_NAME);
+    }
+
+    #[test]
+    fn a_plugin_command_is_named_by_its_label_while_it_is_loaded() {
+        use matsu_commands::plugin_commands::{self as pc, CommandInfo};
+        let (menus, macros) = (CustomMenus::default(), RegisteredMacros::default());
+        let code = pc::function_code(39, 49).unwrap();
+        assert_eq!(funccode_to_name(code, &menus, &macros), UNKNOWN_NAME);
+        pc::add_command(CommandInfo {
+            code,
+            slot: 39,
+            plug: 49,
+            plugin_id: "func.name".to_owned(),
+            plugin_name: "Name".to_owned(),
+            label: "Do it".to_owned(),
+            handler: "do.js".to_owned(),
+            icon: String::new(),
+            added: false,
+        });
+        assert_eq!(funccode_to_name(code, &menus, &macros), "Do it");
+        pc::set_commands(Vec::new());
     }
 
     #[test]

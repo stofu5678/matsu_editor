@@ -124,6 +124,8 @@ pub(crate) fn run(
     sender: async_channel::Sender<OpenRequest>,
     requests: async_channel::Receiver<OpenRequest>,
 ) {
+    // The key bindings and the menus name the commands of the plugins that are enabled.
+    crate::plugin_commands::refresh_for(&user);
     let keymap = user.key_map(matsu_commands::keymap::Platform::current());
     // The search and replace strings of the last runs (`[Keys]`), saved to the same file.
     let search_history = {
@@ -393,6 +395,7 @@ fn editor_menus(
     let custom = CustomMenuList(&custom_menus);
     let macro_list = crate::macros::MacroList(crate::macros::registered_table(cx));
     let rest = ChainedLists(&custom, &macro_list);
+    let rest = ChainedLists(&rest, &crate::plugin_commands::PluginList);
     let lists = ChainedLists(&recent, &rest);
     // The menu of the user (`[MainMenu]`), Sakura's default without one.
     let main_menu = cx
