@@ -577,6 +577,23 @@ impl EditorView {
         }
     }
 
+    /// A place in the line of the batches of event calls of this window.
+    pub(crate) fn take_event_ticket(&mut self) -> u64 {
+        let ticket = self.macros.event_next;
+        self.macros.event_next += 1;
+        ticket
+    }
+
+    /// The ticket whose batch runs now.
+    pub(crate) fn event_serving(&self) -> u64 {
+        self.macros.event_serving
+    }
+
+    /// The batch that ran is over: the next ticket is served.
+    pub(crate) fn finish_event_ticket(&mut self) {
+        self.macros.event_serving += 1;
+    }
+
     /// A call of a plugin runs on this window.
     pub(crate) fn plugin_call_running(&self) -> bool {
         self.macros.plugin_running

@@ -170,10 +170,36 @@ fn closes_window(view: &Entity<EditorView>, app: &mut App) -> bool {
         && super::windows::workspaces(app).len() == 1)
 }
 
+/// The plugins of `DocumentClose` for the document that is about to go. The window can be edited while
+/// they run: text entered meanwhile is not thrown away, so the close is given up (`false`) and the user
+/// closes again, and is asked again.
+pub(super) async fn close_event_keeps_the_text(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+) -> bool {
+    let version = |view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext| {
+        view.read_with(cx, |view, app| view.document().read(app).version())
+            .ok()
+    };
+    let before = version(view, cx);
+    fire_and_wait(view, cx, Jack::DocumentClose).await;
+    if version(view, cx) == before {
+        return true;
+    }
+    view.update(cx, |view, cx| {
+        view.notice = Some("プラグインを待つ間に文書が変わったので、閉じるのをやめた".to_owned());
+        cx.notify();
+    })
+    .ok();
+    false
+}
+
 /// [`close_tab_or_window`] after the plugins of `DocumentClose`, and of `EditorEnd` when the window goes
 /// (`MYWM_CLOSE`, `CEditWnd::DispatchEvent`). The question was asked already.
 async fn close_with_events(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) -> bool {
-    fire_and_wait(view, cx, Jack::DocumentClose).await;
+    if !close_event_keeps_the_text(view, cx).await {
+        return false;
+    }
     let ends = match view.upgrade() {
         Some(entity) => cx
             .update(|_, app| closes_window(&entity, app))
@@ -333,7 +359,9 @@ pub(crate) async fn close_file(view: &WeakEntity<EditorView>, cx: &mut AsyncWind
     if !confirm_discard(view, cx).await {
         return false;
     }
-    fire_and_wait(view, cx, Jack::DocumentClose).await;
+    if !close_event_keeps_the_text(view, cx).await {
+        return false;
+    }
     let closed = view
         .update(cx, |view, cx| {
             let mut untitled = SharedDocument::empty();
@@ -358,7 +386,9 @@ pub(crate) async fn close_and_open(
         return false;
     }
     // `FileCloseOpen`: the plugins of DocumentClose come before the dialog.
-    fire_and_wait(view, cx, Jack::DocumentClose).await;
+    if !close_event_keeps_the_text(view, cx).await {
+        return false;
+    }
     let Some(mut paths) = choose_files(view, cx, None).await else {
         return false;
     };

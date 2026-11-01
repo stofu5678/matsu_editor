@@ -127,8 +127,27 @@ fn try_start(
     })
 }
 
-/// Runs every call of `jack` on `view`, one after the other, and waits for each.
-async fn run_all(view: &WeakEntity<EditorView>, cx: &mut AsyncApp, calls: Vec<Prepared>) {
+/// Runs the calls of one event on `view` when the events before it on this window are over, so that a batch
+/// is never cut in two by another (`EditorStart` ends before the first `DocumentOpen` begins).
+async fn run_all(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncApp,
+    calls: Vec<Prepared>,
+    ticket: u64,
+) {
+    loop {
+        match view.read_with(cx, |view, _| view.event_serving()) {
+            Ok(serving) if serving == ticket => break,
+            Ok(_) => cx.background_executor().timer(TICK).await,
+            Err(_) => return,
+        }
+    }
+    run_calls(view, cx, calls).await;
+    view.update(cx, |view, _| view.finish_event_ticket()).ok();
+}
+
+/// Runs every call of one event on `view`, one after the other, and waits for each.
+async fn run_calls(view: &WeakEntity<EditorView>, cx: &mut AsyncApp, calls: Vec<Prepared>) {
     for call in calls {
         let mut pending = Some(call);
         let mut started = false;
@@ -191,8 +210,9 @@ pub(crate) fn fire(cx: &mut App, view: &Entity<EditorView>, jack: Jack) -> Rc<Ce
     let done = Rc::new(Cell::new(false));
     let weak = view.downgrade();
     let flag = done.clone();
+    let ticket = view.update(cx, |view, _| view.take_event_ticket());
     cx.spawn(async move |cx| {
-        run_all(&weak, cx, calls).await;
+        run_all(&weak, cx, calls, ticket).await;
         flag.set(true);
     })
     .detach();

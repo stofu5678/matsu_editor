@@ -541,7 +541,10 @@ pub(crate) async fn reopen(
             return false;
         }
     }
-    fire_and_wait(view, cx, Jack::DocumentClose).await;
+    // Text entered while the plugins ran would be lost by the read: the reload is given up.
+    if !super::close::close_event_keeps_the_text(view, cx).await {
+        return false;
+    }
     let Some(path) = path.filter(|p| p.is_file()) else {
         // Sakura only sets the encoding when there is no file (`ReloadCurrentFile`).
         view.update(cx, |view, cx| {

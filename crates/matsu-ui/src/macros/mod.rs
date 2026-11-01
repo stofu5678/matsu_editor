@@ -230,6 +230,10 @@ pub(crate) struct MacroState {
     /// The call of the plugin is an event jack (`DocumentOpen`...), not a command: another event may
     /// wait for it; a command's own events are not given (ADR-0026, chapter 2).
     plugin_event: bool,
+    /// The batches of event calls of this window take a ticket each and run in the order of the
+    /// tickets (`plugin_events`): `event_next` is the next ticket, `event_serving` the one that runs.
+    event_next: u64,
+    event_serving: u64,
     /// The file that holds the code of a script given as text (`F_EXECEXTMACRO` with a type); it is
     /// removed when the script ends.
     temp_script: Option<TempScript>,
