@@ -105,11 +105,17 @@ fn try_start(
     view: &WeakEntity<EditorView>,
     cx: &mut AsyncApp,
     call: Prepared,
+    generation: u64,
 ) -> (Step, Option<Prepared>) {
     cx.update(|app| {
         let Some(entity) = view.upgrade() else {
             return (Step::Skipped, None);
         };
+        // The event is for the document the window had when it was fired (ADR-0026, chapter 2): a file that
+        // was opened into the window meanwhile is not given to the handlers of the old one.
+        if entity.read(app).document().read(app).generation() != generation {
+            return (Step::Skipped, None);
+        }
         match entity.read(app).event_turn(app) {
             Turn::Taken => return (Step::Skipped, None),
             Turn::AfterEvent => return (Step::Wait, Some(call)),
@@ -142,6 +148,7 @@ async fn run_all(
     cx: &mut AsyncApp,
     calls: Vec<Prepared>,
     ticket: u64,
+    generation: u64,
 ) {
     loop {
         match view.read_with(cx, |view, _| view.event_serving()) {
@@ -150,18 +157,23 @@ async fn run_all(
             Err(_) => return,
         }
     }
-    run_calls(view, cx, calls).await;
+    run_calls(view, cx, calls, generation).await;
     view.update(cx, |view, _| view.finish_event_ticket()).ok();
 }
 
 /// Runs every call of one event on `view`, one after the other, and waits for each.
-async fn run_calls(view: &WeakEntity<EditorView>, cx: &mut AsyncApp, calls: Vec<Prepared>) {
+async fn run_calls(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncApp,
+    calls: Vec<Prepared>,
+    generation: u64,
+) {
     for call in calls {
         let mut pending = Some(call);
         let mut started = false;
         let mut waited = Duration::ZERO;
         while let Some(call) = pending.take() {
-            let (step, back) = try_start(view, cx, call);
+            let (step, back) = try_start(view, cx, call, generation);
             match step {
                 Step::Started => started = true,
                 Step::Skipped => break,
@@ -219,8 +231,9 @@ pub(crate) fn fire(cx: &mut App, view: &Entity<EditorView>, jack: Jack) -> Rc<Ce
     let weak = view.downgrade();
     let flag = done.clone();
     let ticket = view.update(cx, |view, _| view.take_event_ticket());
+    let generation = view.read(cx).document().read(cx).generation();
     cx.spawn(async move |cx| {
-        run_all(&weak, cx, calls, ticket).await;
+        run_all(&weak, cx, calls, ticket, generation).await;
         flag.set(true);
     })
     .detach();
