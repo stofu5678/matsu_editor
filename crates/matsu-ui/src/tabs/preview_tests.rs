@@ -585,3 +585,62 @@ fn closing_the_tabs_on_the_right_works_from_a_preview(cx: &mut TestAppContext) {
     cx.run_until_parked();
     ws.read_with(cx, |ws, _| assert_eq!(ws.tab_count(), 2));
 }
+
+/// A tap of Alt on the window of `handle`: the menu bar is marked.
+#[cfg(not(target_os = "macos"))]
+fn tap_alt(cx: &mut TestAppContext, handle: AnyWindowHandle) {
+    let alt = gpui::Modifiers {
+        alt: true,
+        ..gpui::Modifiers::default()
+    };
+    let vcx = super::tests::visual(cx, handle);
+    vcx.simulate_modifiers_change(alt);
+    vcx.simulate_modifiers_change(gpui::Modifiers::default());
+}
+
+#[cfg(not(target_os = "macos"))]
+fn marked_bar(cx: &mut TestAppContext, ws: &Entity<Workspace>) -> Option<usize> {
+    let bar = ws.read_with(cx, |ws, _| ws.menu_bar.clone());
+    bar.read_with(cx, |bar, _| bar.armed())
+}
+
+/// The preview binds Esc to "back to the source" (`crate::preview::bind_keys`), and GPUI runs the
+/// bindings before the key listeners: the marked bar has to see the key first.
+#[cfg(not(target_os = "macos"))]
+#[gpui::test]
+fn esc_with_the_bar_marked_lets_the_bar_go_and_stays_on_the_preview(cx: &mut TestAppContext) {
+    let handle = window(cx, true);
+    menus(cx);
+    cx.update(crate::preview::bind_keys);
+    open(cx, handle);
+    let ws = workspace(cx, handle);
+    tap_alt(cx, handle);
+    assert_eq!(marked_bar(cx, &ws), Some(0));
+    super::tests::visual(cx, handle).simulate_keystrokes("escape");
+    assert_eq!(marked_bar(cx, &ws), None);
+    ws.read_with(cx, |ws, _| {
+        assert_eq!(ws.active_tab(), 1, "still on the preview");
+    });
+    // Without the mark Esc goes back to the source, as before.
+    super::tests::visual(cx, handle).simulate_keystrokes("escape");
+    ws.read_with(cx, |ws, _| assert_eq!(ws.active_tab(), 0));
+}
+
+/// A key that the bar does not use lets it go and then runs as usual.
+#[cfg(not(target_os = "macos"))]
+#[gpui::test]
+fn a_bound_key_with_the_bar_marked_lets_the_bar_go_and_runs(cx: &mut TestAppContext) {
+    let handle = window(cx, true);
+    menus(cx);
+    cx.update(crate::preview::bind_keys);
+    open(cx, handle);
+    let ws = workspace(cx, handle);
+    tap_alt(cx, handle);
+    assert_eq!(marked_bar(cx, &ws), Some(0));
+    // Ctrl+W of a preview closes it (`secondary` is Ctrl on Windows and Linux).
+    super::tests::visual(cx, handle).simulate_keystrokes("ctrl-w");
+    assert_eq!(marked_bar(cx, &ws), None);
+    ws.read_with(cx, |ws, _| {
+        assert_eq!(ws.tab_count(), 1, "the preview closed");
+    });
+}

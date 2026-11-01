@@ -14,7 +14,9 @@
 use super::MenuBar;
 use super::access::key_of;
 use crate::app::{MenuKeyMap, Workspace};
-use gpui::{Context, KeyDownEvent, Modifiers, ModifiersChangedEvent, MouseDownEvent, Window};
+use gpui::{
+    Context, KeyDownEvent, Keystroke, Modifiers, ModifiersChangedEvent, MouseDownEvent, Window,
+};
 use matsu_commands::keymap::Lookup;
 
 impl MenuBar {
@@ -40,7 +42,7 @@ impl MenuBar {
     }
 
     /// Whether the bar is marked for the arrow keys (after a tap of Alt).
-    #[cfg(test)]
+    #[cfg(all(test, not(target_os = "macos")))]
     pub(crate) fn armed(&self) -> Option<usize> {
         self.armed
     }
@@ -76,27 +78,29 @@ impl MenuBar {
         }
     }
 
-    /// A key went down, before the view under the focus sees it. While the bar is marked the arrow
-    /// keys and the letters are for the bar. Returns whether the key was taken.
-    pub(crate) fn capture_key(
+    /// A keystroke arrived, before the key bindings and the views see it (see
+    /// [`Workspace::watch_menu_keys`]). While the bar is marked the arrow keys and the letters are
+    /// for the bar, and Esc only lets it go; any other key lets the bar go and then runs as usual.
+    /// Returns whether the key was taken.
+    pub(crate) fn armed_key(
         &mut self,
-        event: &KeyDownEvent,
+        keystroke: &Keystroke,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        // A lone modifier key (GPUI makes a keystroke of it when it is let go) is not input.
+        if matches!(
+            keystroke.key.as_str(),
+            "alt" | "shift" | "control" | "platform" | "function"
+        ) {
+            return false;
+        }
         self.alt.other_input();
         let Some(armed) = self.armed else {
             return false;
         };
-        let keystroke = &event.keystroke;
         let m = keystroke.modifiers;
-        if event.prefer_character_input
-            || keystroke.is_ime_in_progress()
-            || m.control
-            || m.alt
-            || m.platform
-            || m.function
-        {
+        if keystroke.is_ime_in_progress() || m.control || m.alt || m.platform || m.function {
             self.armed = None;
             cx.notify();
             return false;
@@ -151,19 +155,28 @@ impl Workspace {
         editor.marked.is_none() && (editor.focus_handle.contains_focused(window, cx) || in_outline)
     }
 
-    /// Before the view under the focus: the keys of a marked bar.
-    pub(crate) fn menu_key_capture(
-        &mut self,
-        event: &KeyDownEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self
-            .menu_bar
-            .update(cx, |bar, cx| bar.capture_key(event, window, cx))
-        {
-            cx.stop_propagation();
-        }
+    /// Watches the keystrokes of the window from before the key bindings: the keys of a marked
+    /// bar must not run their bindings (Esc of a preview goes back to the source, F5 refreshes it)
+    /// and leave the bar marked.
+    ///
+    /// An interceptor that stops the propagation keeps the bindings from running, but GPUI still
+    /// calls the first key listener of the focus path; nothing here depends on that listener.
+    pub(crate) fn watch_menu_keys(window: &Window, cx: &mut Context<Self>) {
+        let handle = window.window_handle();
+        let this = cx.weak_entity();
+        cx.intercept_keystrokes(move |event, window, cx| {
+            if window.window_handle() != handle {
+                return;
+            }
+            let Some(workspace) = this.upgrade() else {
+                return;
+            };
+            let bar = workspace.read(cx).menu_bar.clone();
+            if bar.update(cx, |bar, cx| bar.armed_key(&event.keystroke, window, cx)) {
+                cx.stop_propagation();
+            }
+        })
+        .detach();
     }
 
     /// After the view under the focus has not taken the key: Alt+letter opens a menu.
