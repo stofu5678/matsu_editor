@@ -353,3 +353,17 @@ fn the_keyboard_selects_toggles_and_chooses(cx: &mut TestAppContext) {
         assert_eq!(d.selected(), Some(3));
     });
 }
+
+#[test]
+fn a_row_is_a_list_item_named_by_its_label_and_value_and_tells_if_it_is_selected() {
+    use gpui::accesskit::Role;
+    let row = super::dialog::row_element(1, "レベル", "3", true);
+    let node = crate::a11y::node_of(&row).expect("the row is in the accessibility tree");
+    assert_eq!(node.role(), Role::ListBoxOption);
+    assert_eq!(node.label(), Some("レベル、3"));
+    assert_eq!(node.is_selected(), Some(true));
+    let other = super::dialog::row_element(0, "旗", BOOL_TRUE, false);
+    let node = crate::a11y::node_of(&other).unwrap();
+    assert_eq!(node.label(), Some("旗、\u{2611}"));
+    assert_eq!(node.is_selected(), Some(false));
+}

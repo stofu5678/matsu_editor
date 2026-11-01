@@ -288,8 +288,9 @@ impl OptionDialog {
             return div().h(px(ROW_HEIGHT)).into_any_element();
         };
         let entry = &self.form.entries[index];
-        let button = |id: &'static str, text: &'static str| {
-            crate::a11y::button(div().id(id), text)
+        // The glyph is what is drawn; the name is what a screen reader says.
+        let button = |id: &'static str, text: &'static str, name: &'static str| {
+            crate::a11y::button(div().id(id), name)
                 .w(px(26.))
                 .h(px(ROW_HEIGHT))
                 .flex()
@@ -356,9 +357,11 @@ impl OptionDialog {
                         .flex_1()
                         .child(Input::new(&self.input).aria_label(entry.def.label.clone())),
                 )
-                .child(button("plugin-option-browse", "…").on_click(
-                    cx.listener(|this, _: &ClickEvent, window, cx| this.browse(window, cx)),
-                ))
+                .child(
+                    button("plugin-option-browse", "…", "フォルダーの選択").on_click(
+                        cx.listener(|this, _: &ClickEvent, window, cx| this.browse(window, cx)),
+                    ),
+                )
                 .into_any_element(),
             OptionType::Int => h_flex()
                 .gap_1()
@@ -367,10 +370,10 @@ impl OptionDialog {
                         .w(px(150.))
                         .child(Input::new(&self.input).aria_label(entry.def.label.clone())),
                 )
-                .child(button("plugin-option-up", "▲").on_click(
+                .child(button("plugin-option-up", "▲", "増やす").on_click(
                     cx.listener(|this, _: &ClickEvent, window, cx| this.spin(1, window, cx)),
                 ))
-                .child(button("plugin-option-down", "▼").on_click(
+                .child(button("plugin-option-down", "▼", "減らす").on_click(
                     cx.listener(|this, _: &ClickEvent, window, cx| this.spin(-1, window, cx)),
                 ))
                 .into_any_element(),
@@ -411,8 +414,7 @@ impl Render for OptionDialog {
         let rows = self.form.entries.iter().enumerate().map(|(i, entry)| {
             let selected = self.selected == Some(i);
             let shown = entry.shown();
-            h_flex()
-                .id(("plugin-option-row", i))
+            row_element(i, &entry.def.label, &shown, selected)
                 .h(px(ROW_HEIGHT))
                 .items_center()
                 .cursor_pointer()
@@ -447,7 +449,7 @@ impl Render for OptionDialog {
             .child(div().w(gpui::relative(0.55)).px_1().child("値"));
         let list = v_flex()
             .id("plugin-option-list")
-            .role(gpui::Role::List)
+            .role(gpui::Role::ListBox)
             .aria_label("オプション")
             .flex_1()
             .min_h(px(0.))
@@ -513,6 +515,25 @@ impl Render for OptionDialog {
                     )),
             )
     }
+}
+
+/// The name of a row for a screen reader: the label, then the value that is shown.
+fn row_name(label: &str, shown: &str) -> String {
+    format!("{label}、{shown}")
+}
+
+/// A row of the list with its role, name (label and value) and selected state.
+pub(super) fn row_element(
+    index: usize,
+    label: &str,
+    shown: &str,
+    selected: bool,
+) -> gpui::Stateful<gpui::Div> {
+    crate::a11y::list_row(
+        h_flex().id(("plugin-option-row", index)),
+        &row_name(label, shown),
+        selected,
+    )
 }
 
 /// The dialog that is open, if any.
