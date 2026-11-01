@@ -282,6 +282,8 @@ pub struct ViewSettings {
     /// The indent options of the type that Enter and the typed chars read (`bAutoIndent`,
     /// `bAutoIndent_ZENSPACE`, `nSmartIndent`, `szIndentChars`, `bRTrimPrevLine`).
     pub input: matsu_commands::input_options::InputOptions,
+    /// `m_bDetectIndentationStyleOnFileLoad`: detect the indentation style when a file is loaded.
+    pub detect_indentation: bool,
     pub word_wrap: bool,
     /// The rules of the line breaking (行頭禁則, 行末禁則, 句読点ぶら下げ, 改行ぶら下げ and
     /// their characters).
@@ -572,7 +574,11 @@ impl ViewSettings {
                 ),
                 indent_chars: t.indent_chars.clone(),
                 rtrim_prev_line: t.rtrim_prev_line,
+                cpp_string_ignore: t.indent_cpp_string_ignore,
+                cpp_comment_ignore: t.indent_cpp_comment_ignore,
+                cpp_undo_sep: t.indent_cpp_undo_sep,
             },
+            detect_indentation: t.detect_indentation_on_load,
             word_wrap: t.word_wrap,
             kinsoku: Kinsoku {
                 head: t.kinsoku_head_enabled,

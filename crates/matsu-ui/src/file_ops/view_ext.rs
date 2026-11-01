@@ -94,10 +94,11 @@ impl EditorView {
                 self.document
                     .update(cx, |shared, cx| shared.announce_type(index, cx));
             }
-            None => {
-                self.relayout_in(cx);
-            }
+            None => self.forget_indent_temporaries(cx),
         }
+        // `CDocEditor::OnAfterLoad`; the layout follows if the tab width changed.
+        self.detect_indentation_style(cx);
+        self.relayout_in(cx);
         self.ensure_caret_visible(cx);
         cx.notify();
     }

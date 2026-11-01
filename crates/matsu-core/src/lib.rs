@@ -10,6 +10,7 @@ pub mod diff;
 pub mod encoding;
 pub mod exec;
 pub mod file;
+pub mod indent_style;
 pub mod jump_history;
 pub mod model;
 pub mod modified;

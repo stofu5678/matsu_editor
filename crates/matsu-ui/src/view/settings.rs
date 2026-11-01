@@ -240,6 +240,34 @@ impl EditorView {
 
     // ---- temporary settings (Sakura's "一時設定") ----
 
+    /// The tab width and the use of spaces are the type's again: what the indentation style of
+    /// the former file set (or `F_CHGTABWIDTH`) is for that document only. The layout is not
+    /// touched.
+    pub(crate) fn forget_indent_temporaries(&mut self, cx: &App) {
+        let t = self.type_settings(cx);
+        self.prefs.settings.tab_width = u32::try_from(t.tab_space).unwrap_or(4).max(1);
+        self.prefs.settings.ins_space = t.ins_space;
+    }
+
+    /// `CDocEditor::OnAfterLoad`: detects the indentation style of the file just loaded (the
+    /// first 256 lines, `m_bDetectIndentationStyleOnFileLoad`) and takes it for this document only
+    /// (`m_bTabSpaceCurTemp`, `m_bInsSpace` of the document's copy of the type). The settings of
+    /// the type, and the settings file, are not touched. The caller lays the text out again.
+    pub(crate) fn detect_indentation_style(&mut self, cx: &App) {
+        if !self.prefs.settings.detect_indentation {
+            return;
+        }
+        let shared = self.document.read(cx);
+        let style = matsu_core::indent_style::detect(shared.path(), shared.doc());
+        let changes = style.changes();
+        if let Some(ins_space) = changes.ins_space {
+            self.prefs.settings.ins_space = ins_space;
+        }
+        if let Some(width) = changes.tab_width {
+            self.prefs.settings.tab_width = width;
+        }
+    }
+
     /// `Command_TEXTWRAPMETHOD` (`F_TMPWRAPNOWRAP`, `F_TMPWRAPSETTING`, `F_TMPWRAPWINDOW`): wraps
     /// by `method` for this view only. Nothing happens when the view already wraps that way.
     pub fn set_wrap_method(&mut self, method: WrapMethod, cx: &mut Context<Self>) {
