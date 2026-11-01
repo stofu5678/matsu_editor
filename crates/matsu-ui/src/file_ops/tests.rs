@@ -1483,3 +1483,5 @@ fn uudecode_does_nothing_for_text_that_is_not_uu(cx: &mut TestAppContext) {
 mod save_fields;
 
 mod indent_style;
+
+mod indent_panes;

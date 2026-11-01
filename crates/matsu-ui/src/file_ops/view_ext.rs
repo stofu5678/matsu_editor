@@ -88,19 +88,13 @@ impl EditorView {
             (index != self.prefs.settings.type_index)
                 .then(|| (index, user.view_settings_of_type(index)))
         });
-        match wanted {
-            Some((index, settings)) => {
-                self.apply_settings(settings, cx);
-                self.document
-                    .update(cx, |shared, cx| shared.announce_type(index, cx));
-            }
-            None => self.forget_indent_temporaries(cx),
+        if let Some((index, settings)) = wanted {
+            self.apply_settings(settings, cx);
+            self.document
+                .update(cx, |shared, cx| shared.announce_type(index, cx));
         }
-        // `CDocEditor::OnAfterLoad`; the layout follows if the tab width changed. A file that is
-        // still scanned has not all of its first lines: the end of the scan detects.
-        if !self.document.read(cx).is_scanning() {
-            self.detect_indentation_style(cx);
-        }
+        // `CDocEditor::OnAfterLoad`; the layouts follow if the tab width changed.
+        self.apply_loaded_indentation(true, cx);
         self.relayout_in(cx);
         self.ensure_caret_visible(cx);
         cx.notify();

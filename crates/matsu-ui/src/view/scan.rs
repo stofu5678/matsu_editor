@@ -80,8 +80,7 @@ impl EditorView {
     fn scan_ended(&mut self, tick: ScanTick, cx: &mut Context<Self>) {
         if tick == ScanTick::Finished {
             // The first lines are all there now (`CDocEditor::OnAfterLoad`).
-            self.detect_indentation_style(cx);
-            self.relayout_in(cx);
+            self.apply_loaded_indentation(false, cx);
         }
         self.notice = if tick == ScanTick::Finished {
             let lines = self.document.read(cx).doc().line_count();
