@@ -111,6 +111,9 @@ pub(crate) fn refresh_for(user: &UserSettings) -> bool {
                 && commands
                     .iter()
                     .any(|c| c.slot == old.slot && c.plugin_id == old.plugin_id)
+                // A code that the definition has taken (the files now declare the command) is the
+                // definition's: two commands never share a code.
+                && !commands.iter().any(|c| c.code == old.code)
         })
         .collect();
     commands.extend(added);

@@ -214,6 +214,40 @@ fn plugin_add_command_registers_a_command_with_the_next_number(cx: &mut TestAppC
 }
 
 #[gpui::test]
+fn a_command_added_at_run_time_gives_way_to_one_the_definition_now_declares(
+    cx: &mut TestAppContext,
+) {
+    let place = Place::new();
+    install(cx, &place, &Setup::ON);
+    let dirs = place.dirs();
+    let def = dirs.load_def("HelloCommands", DEFAULT_LANGUAGE).unwrap();
+    let mut api = DefApi::new(&dirs, "HelloCommands", def, 2).in_slot(SLOT);
+    api.call(
+        "Plugin.AddCommand",
+        &[json!("added.js"), json!("Dynamic"), json!("")],
+    )
+    .unwrap();
+    assert_eq!(pc::label(20203).as_deref(), Some("Dynamic"));
+    // The plugin is updated: its definition now declares command 3, and the user enables it again.
+    let def_file = dirs.def_file("HelloCommands").unwrap();
+    let mut text = fs::read_to_string(&def_file).unwrap();
+    text = text.replace(
+        "C[2].Label=Add a command\n",
+        "C[2].Label=Add a command\nC[3]=insert.js\nC[3].Label=Declared\n",
+    );
+    fs::write(&def_file, text).unwrap();
+    install(cx, &place, &Setup::ON);
+    let third: Vec<_> = pc::commands()
+        .into_iter()
+        .filter(|c| c.code == 20203)
+        .collect();
+    assert_eq!(third.len(), 1, "{third:?}");
+    assert_eq!(third[0].label, "Declared");
+    assert!(!third[0].added);
+    assert_eq!(codes(), vec![20201, 20202, 20203]);
+}
+
+#[gpui::test]
 fn a_plugin_can_have_49_commands_and_no_more(cx: &mut TestAppContext) {
     let place = Place::new();
     install(cx, &place, &Setup::ON);
