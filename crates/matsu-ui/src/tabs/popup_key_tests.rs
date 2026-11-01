@@ -123,9 +123,12 @@ fn the_same_letter_goes_through_the_items_that_share_it(cx: &mut TestAppContext)
 fn the_letters_go_on_from_where_the_arrow_keys_left_the_selection(cx: &mut TestAppContext) {
     let handle = opened(cx);
     open_menu(cx, handle);
-    // Down, Down, Down: the third row (全体の最後 is the second item, 行頭 the third).
-    keys(cx, handle, "down down down");
-    // The next A after 行頭 goes round to the first one.
+    // The first A selects the first item (and the letters know where the selection is).
+    keys(cx, handle, "a");
+    // Down, Down: 全体の最後, then 行頭.
+    keys(cx, handle, "down down");
+    // The next A after 行頭 goes round to the first one (not on to 全体の最後, which it would
+    // if the arrows had not been followed).
     keys(cx, handle, "a enter");
     assert!(selected(cx, handle));
 }
@@ -150,6 +153,18 @@ fn a_move_of_the_mouse_is_seen_even_when_the_pointer_comes_back(cx: &mut TestApp
     keys(cx, handle, "b");
     assert!(!is_open(cx, handle));
     assert_eq!(caret(cx, handle), Pos::new(0, 0));
+}
+
+#[gpui::test]
+fn the_first_letter_starts_from_nothing_selected(cx: &mut TestAppContext) {
+    let handle = opened(cx);
+    open_menu(cx, handle);
+    // The pointer can be over an item when the popup opens, and the popup selects it as it draws:
+    // the arrows are not followed until a letter has made the position known again.
+    keys(cx, handle, "down down");
+    keys(cx, handle, "b");
+    assert!(!is_open(cx, handle));
+    assert_eq!(caret(cx, handle), Pos::new(0, 0), "行頭 ran");
 }
 
 #[gpui::test]

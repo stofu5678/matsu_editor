@@ -186,7 +186,9 @@ pub(crate) fn register(popup: &Entity<PopupMenu>, keys: KeyList, rebuild: Rebuil
         keys,
         rebuild,
         pos: None,
-        moves,
+        // Not in step on purpose: the pointer may already be over an item that the popup selects
+        // when it draws, without a move, so the first letter builds the popup again.
+        moves: moves.wrapping_sub(1),
     });
     // The closure that fills the popup again can hold what the popup's owner waits on (the answer
     // of a macro's menu), so it must go with the popup, whichever way the popup is closed.
@@ -257,6 +259,9 @@ pub(crate) fn key(keystroke: &Keystroke, window: &mut Window, cx: &mut App) -> b
     // Only the plain arrows are bound to the popup's Up and Down.
     match keystroke.key.as_str() {
         "down" | "up" if m.shift => return false,
+        // Where the selection is not known (the mouse moved), the arrows are not followed: the
+        // next letter starts again.
+        "down" | "up" if entry.moves != now => return false,
         "down" => {
             entry.pos = Some(after_down(&entry.keys.items, entry.pos));
             return false;
