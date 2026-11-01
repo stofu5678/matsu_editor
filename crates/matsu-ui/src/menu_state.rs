@@ -365,6 +365,7 @@ impl FuncStates {
             | "F_COPYTAG"
             | "F_COPYFNAME"
             | "F_PLSQL_COMPILE_ON_SQLPLUS"
+            | "F_PLSQL_COMPILE_ON_DATABASE_CHOICE"
             | "F_BROWSE"
             | "F_OPEN_FOLDER_IN_EXPLORER"
             | "F_OPEN_POWERSHELL"

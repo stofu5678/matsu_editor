@@ -417,6 +417,10 @@ $global:MatsuApiNames = @(
     # that a key, the menu and a key macro run. The last arguments may be left out. A command
     # that this editor does not have yet answers the error -32001 (not implemented).
     'ExecSQLPLUS'
+    # ExecDatabaseChoice() -> null
+    # MATSU Editor's own F_PLSQL_COMPILE_ON_DATABASE_CHOICE (not in Sakura). Runs the command
+    # that a key, the menu and a key macro run.
+    'ExecDatabaseChoice'
     # Browse() -> null
     # Sakura's F_BROWSE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the
     # menu and a key macro run. The last arguments may be left out. A command that this editor

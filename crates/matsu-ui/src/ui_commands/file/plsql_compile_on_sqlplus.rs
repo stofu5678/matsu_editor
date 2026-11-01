@@ -1,4 +1,4 @@
-//! `F_PLSQL_COMPILE_ON_SQLPLUS` (SQL*Plusで実行, F10, the macro `ExecSQLPLUS`): runs the document on
+//! `F_PLSQL_COMPILE_ON_SQLPLUS` (データベースで実行, F10, the macro `ExecSQLPLUS`): runs the document on
 //! the default connection of `databases.ini` (ADR-0023).
 //!
 //! Sakura: `Command_PLSQL_COMPILE_ON_SQLPLUS` (`sakura_core/cmd/CViewCommander_File.cpp`) pastes

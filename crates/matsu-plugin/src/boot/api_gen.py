@@ -563,6 +563,11 @@ def install(call):
             implemented)."""
             return call("ExecSQLPLUS", _pack())
 
+        def ExecDatabaseChoice(self) -> None:
+            """MATSU Editor's own F_PLSQL_COMPILE_ON_DATABASE_CHOICE (not in Sakura). Runs the
+            command that a key, the menu and a key macro run."""
+            return call("ExecDatabaseChoice", _pack())
+
         def Browse(self) -> None:
             """Sakura's F_BROWSE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a
             key, the menu and a key macro run. The last arguments may be left out. A command

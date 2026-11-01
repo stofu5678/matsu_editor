@@ -36,6 +36,7 @@ pub mod open_folder_in_explorer;
 pub mod open_header_source;
 pub mod open_powershell;
 pub mod open_powershell_as_admin;
+pub mod plsql_compile_on_database_choice;
 pub mod plsql_compile_on_sqlplus;
 pub mod print;
 pub mod print_pagesetup;

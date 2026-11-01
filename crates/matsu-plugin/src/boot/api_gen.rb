@@ -807,6 +807,14 @@ module MatsuEditorApi
       @call.call('ExecSQLPLUS', _pack())
     end
 
+    # ExecDatabaseChoice() -> null
+    #
+    # MATSU Editor's own F_PLSQL_COMPILE_ON_DATABASE_CHOICE (not in Sakura). Runs the command
+    # that a key, the menu and a key macro run.
+    def ExecDatabaseChoice
+      @call.call('ExecDatabaseChoice', _pack())
+    end
+
     # Browse() -> null
     #
     # Sakura's F_BROWSE (sakura_core/macro/CSMacroMgr.cpp). Runs the command that a key, the

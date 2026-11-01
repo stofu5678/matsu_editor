@@ -154,6 +154,7 @@ fn the_functions_of_the_file_path_need_a_file() {
         "F_BROWSE",
         "F_OPEN_FOLDER_IN_EXPLORER",
         "F_PLSQL_COMPILE_ON_SQLPLUS",
+        "F_PLSQL_COMPILE_ON_DATABASE_CHOICE",
         "F_OPEN_COMMAND_PROMPT",
         "F_OPEN_COMMAND_PROMPT_AS_ADMIN",
         "F_OPEN_POWERSHELL",
