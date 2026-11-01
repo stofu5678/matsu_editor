@@ -131,6 +131,21 @@ fn the_letters_go_on_from_where_the_arrow_keys_left_the_selection(cx: &mut TestA
 }
 
 #[gpui::test]
+fn a_shifted_arrow_does_not_move_the_selection_the_letters_go_by(cx: &mut TestAppContext) {
+    let handle = opened(cx);
+    open_menu(cx, handle);
+    // The popup binds only the plain arrows.
+    keys(cx, handle, "shift-down");
+    keys(cx, handle, "b");
+    assert!(!is_open(cx, handle));
+    assert_eq!(
+        caret(cx, handle),
+        Pos::new(0, 0),
+        "行頭 ran, not 全体の最後"
+    );
+}
+
+#[gpui::test]
 fn a_letter_that_no_item_has_does_nothing(cx: &mut TestAppContext) {
     let handle = opened(cx);
     open_menu(cx, handle);

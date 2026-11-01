@@ -211,7 +211,9 @@ pub(crate) fn key(keystroke: &Keystroke, window: &mut Window, cx: &mut App) -> b
         return false;
     };
     let entry = &mut cx.global_mut::<Registry>().0[at];
+    // Only the plain arrows are bound to the popup's Up and Down.
     match keystroke.key.as_str() {
+        "down" | "up" if m.shift => return false,
         "down" => {
             entry.pos = Some(after_down(&entry.keys.items, entry.pos));
             return false;
