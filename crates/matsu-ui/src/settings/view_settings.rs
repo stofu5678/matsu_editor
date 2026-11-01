@@ -29,6 +29,7 @@ use matsu_config::settings::{DocumentTypes, ViewFont};
 use matsu_layout::{
     CharSet, Kinsoku, LayoutConfig, MAX_LINE_COLUMNS, MIN_LINE_COLUMNS, Wrap, WrapIndent,
 };
+use matsu_print::LineTerm;
 
 /// A color as `0xRRGGBB`, which is what GPUI's `rgb()` takes.
 pub type Rgb = u32;
@@ -249,6 +250,9 @@ pub struct Colors {
     pub note_line_entry: ColorEntry,
     pub vert_line_entry: ColorEntry,
     pub bracket_entry: ColorEntry,
+    /// The entry `RAP`, the vertical line at the wrap column (折り返し桁縦線): drawn only while
+    /// its `disp` is on.
+    pub wrap_entry: ColorEntry,
     /// The background of the row with the caret (`CBK`), if it is shown.
     pub caret_line_back: Option<Rgb>,
     /// The background of the rows with an odd number (`EBK`), if it is shown.
@@ -316,6 +320,8 @@ pub struct ViewSettings {
     /// `nVertLineIdx` of the type: the columns of the vertical lines; a negative column starts
     /// a repeating line (see `crate::view::lines::vertical_columns`).
     pub vert_lines: Vec<i32>,
+    /// `nLineTermType` and `cLineTermChar` of the type: what follows the line numbers (行番号区切り).
+    pub line_term: LineTerm,
     /// What the outline of the type is made of.
     pub outline: OutlineSettings,
 }
@@ -639,6 +645,7 @@ impl ViewSettings {
                 note_line_entry: entry("NOT"),
                 vert_line_entry: entry(names::VERT_LINE),
                 bracket_entry: entry(names::BRACKET_PAIR),
+                wrap_entry: entry(names::WRAP),
                 caret_line_back: shown_back("CBK"),
                 even_line_back: shown_back("EBK"),
                 page_view_back: shown_back("PGV"),
@@ -658,6 +665,11 @@ impl ViewSettings {
                 .copied()
                 .take_while(|&column| column != 0)
                 .collect(),
+            line_term: match t.line_term_type {
+                1 => LineTerm::Line,
+                2 => LineTerm::Char(t.line_term_char),
+                _ => LineTerm::None,
+            },
             outline: OutlineSettings {
                 kind: t.default_outline,
                 line_num_is_crlf: t.line_num_is_crlf,
@@ -1072,6 +1084,34 @@ mod tests {
         assert_eq!(s.note_line_offset, 3);
         let ver = s.colors.vert_line_entry;
         assert!(ver.disp && ver.bold && ver.underline);
+    }
+
+    #[test]
+    fn the_wrap_column_line_is_off_by_default_and_follows_its_color() {
+        // `RAP` is not shown in Sakura's defaults
+        assert!(!ViewSettings::default().colors.wrap_entry.disp);
+        let s = settings(
+            "[Types(0)]\r\nC[RAP]=1,0,ff00ff,fffbf0,0\r\n",
+            None,
+            Os::Windows,
+        );
+        assert!(s.colors.wrap_entry.disp);
+        assert_eq!(rgb_of(s.colors.wrap_entry.text), 0xff00ff);
+    }
+
+    #[test]
+    fn the_line_number_separator_follows_the_type() {
+        // Sakura's default is the vertical line
+        assert_eq!(ViewSettings::default().line_term, LineTerm::Line);
+        let term = |ini: &str| settings(ini, None, Os::Windows).line_term;
+        // `nInts`: ..., `bLineNumIsCRLF`, `nLineTermType`, `bWordWrap`, ...
+        let ints = |kind: u8| format!("[Types(0)]\r\nnInts=0,80,0,4,0,0,0,1,{kind},0,0,0\r\n");
+        assert_eq!(term(&ints(0)), LineTerm::None);
+        assert_eq!(term(&ints(1)), LineTerm::Line);
+        assert_eq!(
+            term(&format!("{}cLineTermChar=|\r\n", ints(2))),
+            LineTerm::Char('|')
+        );
     }
 
     #[test]

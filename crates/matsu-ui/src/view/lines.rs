@@ -1,7 +1,8 @@
 // Ported from Sakura Editor and modified for MATSU Editor (Rust rewrite, changed from the C++ original).
 //
 // Original files:
-//   sakura_core/view/CTextDrawer.cpp (DispVerticalLines, DispNoteLine)
+//   sakura_core/view/CTextDrawer.cpp (DispVerticalLines, DispNoteLine, DispWrapLine,
+//   DispLineNumber)
 //   sakura_core/view/CEditView.cpp (CaretUnderLineON, IsDrawCursorVLinePos)
 //
 // Original copyright notices of those files:
@@ -38,8 +39,9 @@
 // 3. This notice may not be removed or altered from any source distribution.
 
 //! The lines Sakura draws over the text area, as arithmetic on pixels so that it is tested
-//! without a window: the vertical lines at given columns (`VER`, 指定桁縦線), the note lines
-//! (`NOT`, ノート線), the vertical line of the caret column (`CVL`) and the underline of the caret
+//! without a window: the vertical lines at given columns (`VER`, 指定桁縦線), the vertical line
+//! at the wrap column (`RAP`, 折り返し桁縦線), the line that follows the line numbers (行番号区切り),
+//! the note lines (`NOT`, ノート線), the vertical line of the caret column (`CVL`) and the underline of the caret
 //! line (`UND`).
 //!
 //! Every position is in pixels from the top left of the text area (right of the line numbers,
@@ -162,6 +164,41 @@ pub fn cursor_vline_bold_x(x: f32, view_width: f32) -> Option<f32> {
 /// (`areaTop + row * lineHeight + fontHeight`, where the font is one pixel shorter than the row).
 pub fn underline_y(line_height: f32) -> f32 {
     (line_height.round() - 1.0).max(0.0)
+}
+
+/// The x of the vertical line at the wrap column (`RAP`), from the left of the text area, if it is
+/// on the text area (`DispWrapLine`: `areaLeft < x && x < areaRight`, the x being the left edge of
+/// the column after the last one of a row). The line is one pixel wide in the color of the text
+/// of the entry, drawn as it is.
+pub fn wrap_line_x(max_columns: u32, cell: f32, scroll_x: f32, view_width: f32) -> Option<f32> {
+    let x = (max_columns as f32 * cell - scroll_x).round();
+    (x > 0.0 && x < view_width).then_some(x)
+}
+
+/// The x of the vertical line that follows the line numbers (行番号区切り 縦線,
+/// `DispLineNumber`: `rc.left = nLineNumAreaWidth - 2`, one pixel wide), from the left of the
+/// window; `number_area_width` is the width of the line number area without the space before the
+/// text.
+pub fn term_line_x(number_area_width: f32) -> f32 {
+    number_area_width - 2.0
+}
+
+/// The x of the character that follows the line numbers (行番号区切り 任意): the column after
+/// the `digits` columns of the numbers, which start 2 pixels from the left of the window.
+pub fn term_char_x(digits: usize, cell: f32) -> f32 {
+    2.0 + digits as f32 * cell
+}
+
+/// Where the note line starts in the line number area of a row (`DispLineNumber` calls
+/// `DispNoteLine` from `bDispLineNumTrans ? 0 : rcLineNum.right`): at the left edge when the
+/// area has the background of the text (or there is no number), else after the numbers, in
+/// the space before the text. It goes on to the text area.
+pub fn gutter_note_from(opaque_numbers: bool, number_area_width: f32) -> f32 {
+    if opaque_numbers {
+        number_area_width
+    } else {
+        0.0
+    }
 }
 
 /// `R2_NOTXORPEN` with `pen` over `dest`: the color of a line drawn with a color equal to the
@@ -296,6 +333,39 @@ mod tests {
     fn the_underline_is_on_the_last_pixel_of_the_row() {
         assert_eq!(underline_y(18.0), 17.0);
         assert_eq!(underline_y(18.4), 17.0);
+    }
+
+    #[test]
+    fn the_wrap_line_is_at_the_left_edge_of_the_column_after_the_last() {
+        // 80 columns of 8 pixels
+        assert_eq!(wrap_line_x(80, 8.0, 0.0, 800.0), Some(640.0));
+        assert_eq!(wrap_line_x(80, 8.0, 16.0, 800.0), Some(624.0));
+    }
+
+    #[test]
+    fn the_wrap_line_is_only_drawn_inside_the_text_area() {
+        assert_eq!(wrap_line_x(80, 8.0, 0.0, 640.0), None);
+        assert_eq!(wrap_line_x(80, 8.0, 0.0, 600.0), None);
+        // scrolled to its own edge: not on the left edge
+        assert_eq!(wrap_line_x(80, 8.0, 640.0, 800.0), None);
+        assert_eq!(wrap_line_x(80, 8.0, 700.0, 800.0), None);
+        // the unwrapped width is far away
+        assert_eq!(wrap_line_x(10_240, 8.0, 0.0, 800.0), None);
+    }
+
+    #[test]
+    fn the_line_number_separator_is_in_the_last_two_pixels_of_the_number_area() {
+        // 3 digits and one column, 8 pixels each, and 4 pixels for the margins
+        let width = 8.0 * 4.0 + 4.0;
+        assert_eq!(term_line_x(width), 34.0);
+        // the character is in the column right of the 3 digits, which start at 2
+        assert_eq!(term_char_x(3, 8.0), 26.0);
+    }
+
+    #[test]
+    fn the_gutter_note_line_starts_after_the_numbers_if_they_have_a_background() {
+        assert_eq!(gutter_note_from(false, 36.0), 0.0);
+        assert_eq!(gutter_note_from(true, 36.0), 36.0);
     }
 
     #[test]
