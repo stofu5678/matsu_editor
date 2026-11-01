@@ -14,6 +14,7 @@
 //! * [`sakura`]: Sakura's function codes, default key bindings, default main menu and macro
 //!   function tables.
 //! * [`macro_names`]: Sakura's macro names and their function codes.
+//! * [`plugin_commands`]: the function codes and names of the plugins' commands.
 //! * [`key_macro`]: recording, saving, loading and playing key macros (Sakura's `.mac` files).
 //!
 //! The README of this crate explains how to add a command and how to write its test.
@@ -29,6 +30,7 @@ pub mod key_macro;
 pub mod keymap;
 pub mod layout;
 pub mod macro_names;
+pub mod plugin_commands;
 pub mod registry;
 pub mod sakura;
 pub mod text;

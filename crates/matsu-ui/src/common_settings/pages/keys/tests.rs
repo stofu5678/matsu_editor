@@ -707,3 +707,39 @@ fn the_dialogs_list_the_key_files_and_remember_the_folder(cx: &mut TestAppContex
     assert_eq!(request.start.as_deref(), Some(other.path()));
     cancel(cx);
 }
+
+#[test]
+fn a_plugin_command_assigned_in_the_page_is_written_by_its_name() {
+    use matsu_commands::plugin_commands as pc;
+    pc::set_slots(vec!["keys.test".to_owned()]);
+    pc::add_command(pc::CommandInfo {
+        code: 20001,
+        slot: 0,
+        plug: 1,
+        plugin_id: "keys.test".to_owned(),
+        plugin_name: "Keys test".to_owned(),
+        label: "Do it".to_owned(),
+        handler: "do.js".to_owned(),
+        icon: String::new(),
+        added: false,
+    });
+    // A binding in the file by name is read as the command, and kept as the name when nothing changes.
+    let text = "[KeyBind]\r\nKeyBind[000]=0041,0,0,keys.test/01,0,0,0,0,0,A\r\n";
+    let mut p = profile(text);
+    let mut t = table(&p);
+    let a = index_of(&t, Key::Letter('A'));
+    assert_eq!(t.function(a, super::bindings::CTRL), 20001);
+    assert!(!store(&t.to_numbers(), &mut p).unwrap());
+    // The user assigns the command to Shift+Ctrl+A too: the changed cell is written by name.
+    let both = super::bindings::CTRL | super::bindings::SHIFT;
+    assert!(t.set_function(a, both, 20001));
+    assert!(store(&t.to_numbers(), &mut p).unwrap());
+    let row = p
+        .entries("KeyBind")
+        .map(|(_, v)| v.to_owned())
+        .find(|v| v.starts_with("0041,"))
+        .unwrap();
+    assert_eq!(row, "0041,0,0,keys.test/01,keys.test/01,0,0,0,0,A");
+    pc::set_commands(Vec::new());
+    pc::set_slots(Vec::new());
+}

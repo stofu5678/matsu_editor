@@ -65,6 +65,7 @@ pub(crate) mod native_menu_icons;
 pub mod open;
 mod outline;
 mod panes;
+pub(crate) mod plugin_commands;
 pub(crate) mod preview;
 pub mod print;
 pub mod print_setting;

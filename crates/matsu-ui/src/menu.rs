@@ -116,6 +116,8 @@ impl Available for Registered {
         // A registered macro (`F_USERMACRO_0 + n`) can always be called; Sakura does not gray out
         // a slot that has no file (`IsFuncEnable`), the call says that it failed.
         matsu_config::settings::macros::index_of_function(code).is_some()
+            // A plugin command that is loaded (`F_PLUGCOMMAND_FIRST` to `F_PLUGCOMMAND_LAST`).
+            || matsu_commands::plugin_commands::info(code).is_some()
             || matsu_commands::registry::Registry::global()
                 .get_by_code(code)
                 .is_some()
@@ -161,11 +163,13 @@ fn function_label(code: u16) -> Option<&'static str> {
 /// The name of a row as the menu shows it (`LayoutMainMenu`, `InitMenu`, `InitMenu_Function`): a node
 /// with its own name (or `F_NODE`) shows it, any other row the label of its function.
 fn name_of(row: &MenuRow, parentheses: bool) -> String {
-    let label = if row.kind == RowKind::Node && (row.function == F_NODE || !row.name.is_empty()) {
-        row.name.as_str()
-    } else {
-        function_label(row.function).unwrap_or("-- undefined name --")
-    };
+    if row.kind == RowKind::Node && (row.function == F_NODE || !row.name.is_empty()) {
+        return menu_label_with(&row.name, row.key, parentheses);
+    }
+    if let Some(label) = matsu_commands::plugin_commands::label(row.function) {
+        return menu_label_with(&label, row.key, parentheses);
+    }
+    let label = function_label(row.function).unwrap_or("-- undefined name --");
     menu_label_with(label, row.key, parentheses)
 }
 
@@ -174,6 +178,12 @@ fn name_of(row: &MenuRow, parentheses: bool) -> String {
 /// items shows a disabled "(なし)".
 pub trait Lists {
     fn items(&self, code: u16) -> Vec<Item>;
+
+    /// The entries the list adds to the menu: its items, unless the list has submenus
+    /// (`F_PLUGIN_LIST` has one for each plugin).
+    fn entries(&self, code: u16) -> Vec<Entry> {
+        self.items(code).into_iter().map(Entry::Item).collect()
+    }
 }
 
 /// No list is filled in.
@@ -230,9 +240,9 @@ impl Build<'_> {
 
     /// The entries of a list that Sakura fills in at run time: its items, or a disabled "(なし)".
     fn special(&self, code: u16) -> Vec<Entry> {
-        let items = self.lists.items(code);
-        if !items.is_empty() {
-            return items.into_iter().map(Entry::Item).collect();
+        let entries = self.lists.entries(code);
+        if !entries.is_empty() {
+            return entries;
         }
         vec![Entry::Item(Item {
             label: "(なし)".to_owned(),

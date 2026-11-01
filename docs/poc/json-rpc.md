@@ -104,7 +104,7 @@
 
 1. 起動: `matsu-script --engine quickjs`。`initialize` の `params.kind` が `"plugin"`、`params.plugin` が `{"id": プラグインの ID, "dir": フォルダー}`。`params.script` はない
 2. 呼び出し（エディタ → プラグイン）: `{"jsonrpc":"2.0","id":N,"method":"plugin/invoke","params":{"jack":"Command","name":ハンドラのパス,"source":ハンドラの中身,"args":ジャックの引数}}`。ファイルはエディタが読んで中身を送る（マクロの `params.script` と同じ理由）
-3. プラグインはハンドラを走らせる。その間の `Editor.*` と `Plugin.*` は、マクロと同じ形の要求としてエディタに送る（`Plugin.*` は `GetPluginDir` `GetDef` `GetOption` `SetOption` `GetString` `GetCommandNo`。エディタが定義ファイルとオプションのファイルから答える）。ハンドラの中では `Plugin.jack` と `Plugin.args` が見える
+3. プラグインはハンドラを走らせる。その間の `Editor.*` と `Plugin.*` は、マクロと同じ形の要求としてエディタに送る（`Plugin.*` は `GetPluginDir` `GetDef` `GetOption` `SetOption` `GetString` `GetCommandNo` `AddCommand`。エディタが定義ファイルとオプションのファイルから答える）。ハンドラの中では `Plugin.jack` と `Plugin.args` が見える
 4. 応答（プラグイン → エディタ）: `{"jsonrpc":"2.0","id":N,"result":{"ok":true}}`、ハンドラが例外を投げたときは `"error":{"code":-32000,"message":行番号つきのエラー}`。RS で始める（ほかの出力と区別するため）
 5. 終わり: `{"jsonrpc":"2.0","method":"plugin/shutdown"}` か、標準入力を閉じる。常駐しない（`UseCache=0`）プラグインは、1 回の呼び出しごとにプロセスを起動して、この `plugin/shutdown` で終わらせる
 6. ハンドラは、プロセスの中の**ハンドラのファイルごとの別のランタイム**で動かす。テキストは関数 `(function () { …テキスト… }).call(globalThis)` の本体として評価する（1 行目はそのまま。エラーの行番号は変わらない）。最上位の `let` `const` `class` `var` と関数はその呼び出しのものなので、同じファイルをもう一度呼べる。次の呼び出しに残したいものは `globalThis` に置く（同じファイルの次の呼び出しにだけ見える。別のファイルからは見えない）。既定は sloppy モード（サクラの JScript のプラグインは宣言していない名前に代入する）。テキストの先頭が `"use strict"` なら、関数本体の指示として効く

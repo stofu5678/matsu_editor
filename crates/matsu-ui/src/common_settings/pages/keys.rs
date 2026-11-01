@@ -204,6 +204,11 @@ pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: O
     if after.numbers(ROWS) == before.numbers(ROWS) {
         return;
     }
+    rebuild_key_map(env);
+}
+
+/// Makes the key map of every window from the settings now.
+pub(in crate::common_settings) fn rebuild_key_map(env: &mut Env) {
     // The settings the dialog has just written are the application's now.
     let Some(user) = env.cx.try_global::<UserSettings>().cloned() else {
         return;

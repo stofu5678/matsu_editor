@@ -58,7 +58,8 @@ impl Default for ToolbarButtons {
 impl ToolbarButtons {
     /// `ShareData_IO_Toolbar` reading: `nToolBarButtonNum` entries `nTBB[000]`...; an entry the file
     /// does not have keeps the default list's value at that place (0 past its end). A value with a
-    /// `/` is a plugin command, which MATSU Editor has none of: it is an undefined button.
+    /// `/` is a plugin command (`<plugin ID>/<number>`): the button of its function code, or an
+    /// undefined button when the plugin is not enabled.
     pub(crate) fn from_profile(profile: &Profile) -> Self {
         const SECTION: &str = "Toolbar";
         let default = Self::default().0;
@@ -67,7 +68,11 @@ impl ToolbarButtons {
             .map_or(default.len(), |n| n.clamp(0, MAX_BUTTONS as i32) as usize);
         let numbers = (0..count)
             .map(|i| match profile.get(SECTION, &format!("nTBB[{i:03}]")) {
-                Some(text) if text.contains('/') => -1,
+                // A plugin command (`GetPlugCmdInfoByName`): the button number is its function code. One
+                // that is not loaded is an undefined button (`-1`).
+                Some(text) if text.contains('/') => {
+                    matsu_commands::plugin_commands::by_name(text).map_or(-1, i32::from)
+                }
                 // `_wtoi`: the number at the start, else 0.
                 Some(text) => leading_int(text),
                 None => default.get(i).copied().unwrap_or(0),
@@ -150,6 +155,17 @@ pub(super) enum Item {
     SearchBox,
 }
 
+/// The picture of a plugin command: the place of `F_PLUGCOMMAND` in the table of the buttons
+/// (`TOOLBAR_ICON_PLUGCOMMAND_DEFAULT` is the number of the button, one more than the picture).
+pub(crate) fn plugin_icon() -> Option<usize> {
+    FUNCTIONS_OF_BUTTONS
+        .iter()
+        .position(|&c| c == F_PLUGCOMMAND)
+}
+
+/// `F_PLUGCOMMAND`.
+const F_PLUGCOMMAND: u16 = 3;
+
 /// `CMenuDrawer::getButton`: what a number stands for. A number outside the table is an undefined
 /// button (gray, no picture).
 fn item_of(number: i32) -> Item {
@@ -161,6 +177,17 @@ fn item_of(number: i32) -> Item {
         code: 0,
         icon: None,
     });
+    // A plugin command: the number of its button is its function code, with the picture Sakura gives
+    // to a plugin command (`TOOLBAR_ICON_PLUGCOMMAND_DEFAULT`).
+    if let Ok(code) = u16::try_from(number)
+        && matsu_commands::plugin_commands::is_plugin_code(code)
+    {
+        return Item::Button(Button {
+            number: code,
+            code,
+            icon: plugin_icon(),
+        });
+    }
     let Some(index) = usize::try_from(number - 1)
         .ok()
         .filter(|&i| i < FUNCTIONS_OF_BUTTONS.len())

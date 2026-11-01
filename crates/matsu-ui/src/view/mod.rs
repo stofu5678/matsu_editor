@@ -500,6 +500,9 @@ impl EditorView {
         } else if let Some(index) = matsu_config::settings::macros::index_of_function(code) {
             // A registered macro (`F_USERMACRO_0 + n`) is not in Sakura's table of functions.
             self.run_registered_macro(index, true, window, cx)
+        } else if matsu_commands::plugin_commands::is_plugin_code(code) {
+            // A command of a plugin (`F_PLUGCOMMAND_FIRST` and on) is not in the table either.
+            self.run_plugin_command(code, cx)
         } else if let Some(ok) = self.run_function_statement(code, args, window, cx) {
             ok
         } else {
@@ -793,6 +796,12 @@ impl EditorView {
                 // A function that needs the window is not a core command.
                 if let Some(reg) = UiRegistry::global().get_by_code(code) {
                     self.run_ui_registration(reg, &[], window, cx);
+                    cx.stop_propagation();
+                    return;
+                }
+                // A command of a plugin runs as from a menu (`run_function`).
+                if matsu_commands::plugin_commands::is_plugin_code(code) {
+                    self.run_plugin_command(code, cx);
                     cx.stop_propagation();
                     return;
                 }

@@ -11,8 +11,8 @@
 use std::fmt;
 
 use super::key::Key;
-use crate::macro_names;
 use crate::sakura::{FUNCTIONS, FunctionKind};
+use crate::{macro_names, plugin_commands};
 
 /// One row of the key table: a key and the function codes of its 8 modifier combinations
 /// (index: Shift 1, Ctrl 2, Alt 4; 0 means none).
@@ -71,6 +71,10 @@ pub fn parse_function(token: &str) -> Option<u16> {
     let token = token.trim();
     if token.starts_with(|c: char| c.is_ascii_digit()) {
         return token.parse().ok();
+    }
+    // `GetPlugCmdInfoByName`: `<plugin ID>/<number>`, for a command that is loaded.
+    if token.contains('/') {
+        return plugin_commands::by_name(token);
     }
     if let Some(row) = macro_names::by_name(token) {
         return Some(row.code);
@@ -132,6 +136,12 @@ pub fn parse_entries<'a>(
     (rows, warnings)
 }
 
+/// The text a plugin command is written as, `<plugin ID>/<number>`, whatever the way of writing
+/// (`ShareData_IO_KeyBind` writes it also without `bOutCmdName`): `None` for any other function.
+pub fn function_text(code: u16) -> Option<String> {
+    plugin_commands::name_of(code)
+}
+
 /// Writes rows as `KeyBind[NNN]` entries with numeric function codes, like `sakura.ini`.
 pub fn format_entries(rows: &[UserRow]) -> Vec<(String, String)> {
     format_entries_with(rows, &|_| None)
@@ -157,7 +167,7 @@ fn format_entries_with(
         .map(|(i, row)| {
             let mut value = format!("{:04x}", row.key.code());
             for f in row.functions {
-                match name_of(f) {
+                match name_of(f).or_else(|| function_text(f)) {
                     Some(name) => value.push_str(&format!(",{name}")),
                     None => value.push_str(&format!(",{f}")),
                 }
@@ -184,6 +194,7 @@ mod tests {
         assert_eq!(parse_function("f_filesave"), Some(30103));
         assert_eq!(parse_function("word_cut"), Some(30232));
         assert_eq!(parse_function("Plugin/Command"), None);
+        assert_eq!(parse_function("Plugin/1"), None);
         assert_eq!(parse_function("NoSuchThing"), None);
     }
 
@@ -268,6 +279,43 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].functions, [0; 8]);
         assert!(warnings[0].to_string().starts_with("KeyBind[000]"));
+    }
+
+    #[test]
+    fn a_plugin_command_is_read_while_it_is_loaded_and_written_by_its_name() {
+        use crate::plugin_commands::{self as pc, CommandInfo};
+        let mut ids = vec![String::new(); pc::MAX_PLUGIN];
+        ids[1] = "vendor.plug".to_owned();
+        pc::set_slots(ids);
+        let code = pc::function_code(1, 2).unwrap();
+        let entry = [("KeyBind[000]", "0041,0,0,vendor.plug/02,0,0,0,0,0,A")];
+        // The plugin is registered, but its command is not loaded: the cell is empty, with a warning.
+        let (rows, warnings) = parse_entries(entry);
+        assert_eq!(rows[0].functions[2], 0);
+        assert_eq!(
+            warnings[0].problem,
+            Problem::UnknownFunction("vendor.plug/02".into())
+        );
+        pc::add_command(CommandInfo {
+            code,
+            slot: 1,
+            plug: 2,
+            plugin_id: "vendor.plug".to_owned(),
+            plugin_name: "Plug".to_owned(),
+            label: "Second".to_owned(),
+            handler: "second.js".to_owned(),
+            icon: String::new(),
+            added: false,
+        });
+        let (rows, warnings) = parse_entries(entry);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(rows[0].functions[2], code);
+        // Sakura writes the name of a plugin command whichever way the file is written.
+        for written in [format_entries(&rows), format_entries_named(&rows)] {
+            assert_eq!(written[0].1, "0041,0,0,vendor.plug/02,0,0,0,0,0,A");
+        }
+        pc::set_commands(Vec::new());
+        pc::set_slots(Vec::new());
     }
 
     #[test]
