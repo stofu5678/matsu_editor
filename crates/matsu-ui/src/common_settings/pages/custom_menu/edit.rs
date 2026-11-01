@@ -62,13 +62,7 @@ impl Edit {
             return;
         }
         let at = self.sel.unwrap_or(0).min(self.items.len());
-        self.items.insert(
-            at,
-            CustomMenuItem {
-                function: code,
-                key: None,
-            },
-        );
+        self.items.insert(at, CustomMenuItem::command(code, None));
         self.sel = Some(at);
         self.func_sel = self.next_function(func);
     }
@@ -82,10 +76,7 @@ impl Edit {
         if self.is_full() {
             return;
         }
-        self.items.push(CustomMenuItem {
-            function: code,
-            key: None,
-        });
+        self.items.push(CustomMenuItem::command(code, None));
         self.sel = Some(self.items.len() - 1);
         self.func_sel = self.next_function(func);
     }

@@ -64,6 +64,10 @@ static PAGE_KINDS: [(&str, i32); 19] = {
 };
 /// The special function list of `sakura_core/func/Funccode.cpp` (`F_WINDOW_LIST` to `F_PLUGIN_LIST`).
 const SPECIAL_CODES: [u16; 6] = [29001, 29002, 29003, 29004, 29005, 29006];
+/// What an item shows for a command that is not known: Sakura shows a separator for it (the function is
+/// `F_0`), which would hide the item, so the item says what it is, with the text the file has. (MATSU's own
+/// wording.)
+const UNKNOWN_LABEL: &str = "（不明）";
 /// `STR_PROPCOMCUSTMENU_SEP`.
 const SEPARATOR_TEXT: &str = "─────────────";
 
@@ -89,7 +93,9 @@ fn row_text(
     menus: &CustomMenus,
     macros: &RegisteredMacros,
 ) -> String {
-    let name = if item.is_separator() {
+    let name = if let Some(text) = item.text.as_deref().filter(|_| item.is_unknown()) {
+        format!("{UNKNOWN_LABEL}{text}")
+    } else if item.is_separator() {
         SEPARATOR_TEXT.to_owned()
     } else {
         function_name(item.function, menus, macros)

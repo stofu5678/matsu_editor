@@ -50,7 +50,7 @@
 //! a negative level is 0; a line that is missing is a blank row, where Sakura reuses the text of the line
 //! before it; `nMainMenuNum` of 0 or less leaves the default.
 
-use super::custom_menu::parse_function;
+use super::custom_menu::{parse_function, unreadable_text};
 use crate::profile::{Profile, ProfileError};
 use crate::value::parse_long;
 
@@ -131,6 +131,11 @@ pub struct MenuRow {
     pub key: Option<char>,
     /// The name as the file holds it, where `&&` is a literal `&` (`m_sName`). Only a node uses it.
     pub name: String,
+    /// The function text of a function row that reading could not turn into a command (a plug-in command, a
+    /// macro name that is not known): the row has [`F_NODE`] as its function (`F_DEFAULT`), and this is what
+    /// the file had. Sakura loses it on its next save; here it stays with the row, so that writing gives the
+    /// same text wherever the row has moved ([`MenuRow::is_unknown`]).
+    pub text: Option<String>,
 }
 
 impl MenuRow {
@@ -142,7 +147,13 @@ impl MenuRow {
             function: F_NODE,
             key: None,
             name: String::new(),
+            text: None,
         }
+    }
+
+    /// Whether the row is a function row whose text reading could not turn into a command.
+    pub fn is_unknown(&self) -> bool {
+        self.kind == RowKind::Leaf && self.function == F_NODE && self.text.is_some()
     }
 
     /// A function row with no access key.
@@ -205,6 +216,9 @@ fn parse_row(line: &str, by_name: &dyn Fn(&str) -> Option<u16>) -> MenuRow {
     let Some(rest) = rest else { return row };
     let (function, rest) = split_comma(rest);
     row.function = parse_function(function, by_name);
+    if row.kind == RowKind::Leaf {
+        row.text = unreadable_text(function, by_name);
+    }
     let Some(rest) = rest else { return row };
     // The access key: a `,` is "no key" unless another `,` follows (then it is the key `,`).
     let after_key = match rest.chars().next() {
@@ -229,10 +243,13 @@ fn parse_row(line: &str, by_name: &dyn Fn(&str) -> Option<u16>) -> MenuRow {
 
 /// The line of a row: `level,type,function,key,name` (the name only for a node that has its own).
 fn row_text(row: &MenuRow, name_of: Option<&dyn Fn(u16) -> Option<String>>) -> String {
-    let function = name_of
-        .filter(|_| row.function > F_SEPARATOR)
-        .and_then(|name_of| name_of(row.function))
-        .unwrap_or_else(|| row.function.to_string());
+    let function = match &row.text {
+        Some(text) if row.is_unknown() => text.clone(),
+        _ => name_of
+            .filter(|_| row.function > F_SEPARATOR)
+            .and_then(|name_of| name_of(row.function))
+            .unwrap_or_else(|| row.function.to_string()),
+    };
     let name = if row.function == F_NODE {
         row.name.as_str()
     } else {
@@ -561,6 +578,8 @@ impl MainMenu {
                 tops += 1;
             }
             let (kind, name) = match row.function {
+                // A row of a command that is not known stays a function row with its text.
+                F_NODE if row.is_unknown() => (RowKind::Leaf, String::new()),
                 F_NODE => (RowKind::Node, cut_name(&supplement_ampersand(&row.name))),
                 F_SEPARATOR => (RowKind::Separator, String::new()),
                 _ if row.kind == RowKind::Node => (RowKind::Node, String::new()),
@@ -577,6 +596,7 @@ impl MainMenu {
                 function: row.function,
                 key: row.key,
                 name,
+                text: row.text.clone().filter(|_| kind == RowKind::Leaf),
             });
         }
         if !full && !option {

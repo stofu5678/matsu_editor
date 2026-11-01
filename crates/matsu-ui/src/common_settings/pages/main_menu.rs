@@ -66,6 +66,9 @@ static PAGE_KINDS: [(&str, i32); 19] = {
 };
 /// The special function list of `sakura_core/func/Funccode.cpp` (`F_WINDOW_LIST` to `F_PLUGIN_LIST`).
 const SPECIAL_CODES: [u16; 6] = [29001, 29002, 29003, 29004, 29005, 29006];
+/// What a row shows for a command that is not known: Sakura shows nothing useful for it (the function is
+/// `F_DEFAULT`), so the row says what it is, with the text the file has. (MATSU's own wording.)
+const UNKNOWN_LABEL: &str = "（不明）";
 /// `STR_PROPCOMMAINMENU_SEP`.
 const SEPARATOR_TEXT: &str = "――――――――――";
 
@@ -92,6 +95,9 @@ fn row_name(row: &PageRow, name_of: &dyn Fn(u16) -> String) -> String {
     let row = &row.row;
     match row.kind {
         RowKind::Separator => SEPARATOR_TEXT.to_owned(),
+        RowKind::Leaf if row.is_unknown() => {
+            format!("{UNKNOWN_LABEL}{}", row.text.as_deref().unwrap_or_default())
+        }
         RowKind::Node if row.function == F_NODE => row.name.clone(),
         _ => name_of(row.function),
     }

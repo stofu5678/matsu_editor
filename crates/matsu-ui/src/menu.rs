@@ -143,6 +143,7 @@ pub fn default_main_menu() -> &'static MainMenu {
                 function: item.code,
                 key: item.access_key,
                 name: String::new(),
+                text: None,
             })
             .collect(),
         key_parentheses: KEY_PARENTHESES,
@@ -548,6 +549,7 @@ mod tests {
             function,
             key,
             name: name.to_owned(),
+            text: None,
         }
     }
 

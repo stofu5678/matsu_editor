@@ -209,6 +209,7 @@ impl Tree {
                 function: F_NODE,
                 key: None,
                 name: NEW_NODE_NAME.to_owned(),
+                text: None,
             },
         );
     }
@@ -387,6 +388,7 @@ impl Tree {
             }
             let row = &self.rows[i].row;
             let kind = match row.function {
+                F_NODE if row.is_unknown() => RowKind::Leaf,
                 F_NODE => RowKind::Node,
                 F_SEPARATOR => RowKind::Separator,
                 f if is_special(f) => RowKind::Special,
