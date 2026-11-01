@@ -251,9 +251,6 @@ pub(crate) async fn load_here(
             {
                 shared.keep_view_mode(true);
             }
-            // The event calls of the window (`EditorStart`) end before its document is replaced: a handler
-            // that began on the empty document would be refused when the file takes its place.
-            crate::macros::wait_for_the_events(view, cx).await;
             let replaced = view.update(cx, |view, cx| {
                 if Some(view.document().read(cx).version()) != started {
                     view.notice = Some(format!(
@@ -283,6 +280,10 @@ pub(crate) async fn load_here(
                 true
             });
             let replaced = replaced.unwrap_or(false);
+            // The plugins of EditorStart see the file that the window began with (`CNormalProcess`: the
+            // load comes first, then EditorStart, the macro of オープン後, the macro of `-M=`, then
+            // DocumentOpen).
+            crate::plugin_events::start_editor_if_due(view, cx).await;
             if replaced {
                 // `CDocLocker::OnAfterLoad` locked the new document.
                 super::lock::report_failure(view, cx).await;
@@ -318,6 +319,7 @@ pub(crate) async fn load_here(
             replaced
         }
         Err(error) => {
+            crate::plugin_events::start_editor_if_due(view, cx).await;
             // a request for view mode is for this read only
             cx.update(|_, app| super::view_mode_request::take(app, path))
                 .ok();

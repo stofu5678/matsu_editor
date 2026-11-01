@@ -634,6 +634,19 @@ impl EditorView {
         self.macros.event_serving != self.macros.event_next
     }
 
+    /// The window began with a file: `EditorStart` is due after it is read.
+    pub(crate) fn mark_editor_start_due(&mut self) {
+        self.macros.editor_start_due = true;
+    }
+
+    pub(crate) fn editor_start_due(&self) -> bool {
+        self.macros.editor_start_due
+    }
+
+    pub(crate) fn take_editor_start_due(&mut self) -> bool {
+        std::mem::take(&mut self.macros.editor_start_due)
+    }
+
     /// A place in the line of the batches of event calls of this window.
     pub(crate) fn take_event_ticket(&mut self) -> u64 {
         let ticket = self.macros.event_next;

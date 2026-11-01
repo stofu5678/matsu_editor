@@ -36,9 +36,6 @@ use matsu_config::plugins::{DEFAULT_LANGUAGE, PluginSettings, PluginState};
 use crate::macros::plugin_call::{self, Prepared, Turn};
 use crate::view::EditorView;
 
-/// How long an event waits for the event before it, at most.
-const TURN_LIMIT: Duration = Duration::from_secs(12);
-
 /// How long the window waits before it says that it waits for a plugin.
 const WAIT_NOTICE_AFTER: Duration = Duration::from_millis(300);
 
@@ -171,19 +168,18 @@ async fn run_calls(
     for call in calls {
         let mut pending = Some(call);
         let mut started = false;
-        let mut waited = Duration::ZERO;
         while let Some(call) = pending.take() {
             let (step, back) = try_start(view, cx, call, generation);
             match step {
                 Step::Started => started = true,
                 Step::Skipped => break,
-                // Another event or window has the turn; it ends within its limit.
-                Step::Wait if waited < TURN_LIMIT => {
+                // Another event or window has the turn. Every call has its time limit, so the line moves;
+                // the call stays in it until the host is free (only a document that is gone, or a plugin
+                // that may not run any more, ends it: `Skipped`).
+                Step::Wait => {
                     pending = back;
                     cx.background_executor().timer(TICK).await;
-                    waited += TICK;
                 }
-                Step::Wait => break,
             }
         }
         if !started {
@@ -273,6 +269,20 @@ pub(crate) async fn fire_and_wait(
     drop(entity);
     while !done.get() {
         cx.background_executor().timer(TICK).await;
+    }
+}
+
+/// `EditorStart` of a window whose first file was loaded into it first (Sakura loads, and then calls the
+/// plugins: `CNormalProcess`). Does nothing if it was called already or is not due.
+pub(crate) async fn start_editor_if_due(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+) {
+    let due = view
+        .update(cx, |view, _| view.take_editor_start_due())
+        .unwrap_or(false);
+    if due {
+        fire_and_wait(view, cx, Jack::EditorStart).await;
     }
 }
 

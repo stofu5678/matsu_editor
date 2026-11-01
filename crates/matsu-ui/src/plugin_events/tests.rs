@@ -713,3 +713,93 @@ fn a_call_that_waited_does_not_run_when_the_plugin_no_longer_declares_the_jack(
         place.agree();
     });
 }
+
+#[gpui::test]
+fn a_handler_that_opens_a_file_is_refused_at_once_and_is_not_made_to_wait(cx: &mut TestAppContext) {
+    // The calls of a plugin go to the commands of the core: the functions that need the window (open,
+    // close, save) are refused, so a handler cannot start a flow whose events would wait for the handler.
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("opened.txt");
+    fs::write(&target, "hello").unwrap();
+    let path = target.display().to_string().replace('\\', "\\\\");
+    let script = format!(
+        "try {{ Editor.FileOpen('{path}'); console.log('opened'); }} catch (e) {{ console.log('refused'); }} \
+         console.log('[EditorStart]');"
+    );
+    let Some((place, _files)) = begin(cx, &[("EditorStart", &script)]) else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    let (view, cx) = setup(cx);
+    place.enable(cx);
+    let started = std::time::Instant::now();
+    cx.update(|_, app| {
+        super::fire(app, &view, Jack::EditorStart);
+    });
+    spin(cx, "the handler did not start", |cx| running(&view, cx));
+    spin(cx, "the handler did not end", |cx| !running(&view, cx));
+    // The handler ended by itself, long before its limit of five seconds.
+    assert!(started.elapsed() < Duration::from_secs(3));
+    for _ in 0..30 {
+        cx.executor().advance_clock(Duration::from_millis(20));
+        cx.run_until_parked();
+    }
+    let output = view.read_with(cx, |v, _| v.macro_output_text());
+    assert!(!output.contains("時間切れ"), "{output}");
+    assert!(
+        output.contains("refused") || output.contains("opened"),
+        "{output}"
+    );
+    assert_eq!(jacks(&view, cx), ["EditorStart"], "{output}");
+    assert!(
+        view.read_with(cx, |v, app| v.document().read(app).path().is_none())
+            || output.contains("opened")
+    );
+    finish(cx);
+}
+
+#[gpui::test]
+fn a_window_that_begins_with_a_file_reads_it_before_editor_start(cx: &mut TestAppContext) {
+    // `CNormalProcess`: the file is loaded, then EditorStart, then DocumentOpen.
+    let script = "console.log('[EditorStart]'); console.log('file=' + Editor.GetFilename());";
+    let Some((place, files)) = begin(cx, &[("EditorStart", script)]) else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    cx.update(gpui_component::init);
+    let user = {
+        let (_, vcx) = setup(cx);
+        place.enable(vcx);
+        vcx.update(|_, app| app.global::<UserSettings>().clone())
+    };
+    cx.update(|app| app.set_global(user));
+    let path = files.write("in.txt", b"hello");
+    let request = crate::file_ops::windows::LoadRequest {
+        path: path.clone(),
+        encoding: None,
+    };
+    let handle = cx
+        .update(|app| {
+            crate::file_ops::windows::open_editor_window(
+                app,
+                SharedDocument::empty(),
+                Some(request),
+            )
+        })
+        .unwrap();
+    let view = cx.update(|app| {
+        crate::file_ops::windows::editors(app)
+            .into_iter()
+            .find(|(h, _)| *h == handle)
+            .map(|(_, view)| view)
+            .unwrap()
+    });
+    let mut vcx = VisualTestContext::from_window(handle, cx);
+    assert_eq!(
+        wait_for_jacks(&view, &mut vcx, 2),
+        ["EditorStart", "DocumentOpen"]
+    );
+    let output = view.read_with(&vcx, |v, _| v.macro_output_text());
+    assert!(output.contains("in.txt"), "{output}");
+    finish(&mut vcx);
+}

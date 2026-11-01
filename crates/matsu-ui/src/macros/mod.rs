@@ -239,6 +239,8 @@ pub(crate) struct MacroState {
     /// the last request of a plugin left, and `watch_user` says that the text changed in between, which
     /// only the user can do.
     watching: u32,
+    /// `EditorStart` waits for the file that the window began with (`plugin_events::start_editor_if_due`).
+    editor_start_due: bool,
     watch_seen: u64,
     watch_user: bool,
     /// The file that holds the code of a script given as text (`F_EXECEXTMACRO` with a type); it is
