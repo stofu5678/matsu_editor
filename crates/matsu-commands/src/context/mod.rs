@@ -130,6 +130,11 @@ pub struct Changes {
     /// Whether typing overwrites after the command (Sakura: not `IsInsMode`). `matsu-ui` keeps the
     /// mode in the document and writes this back after every command.
     pub overwrite: bool,
+    /// A line for the status bar that the command wants shown (Sakura: `SendStatusMessage`).
+    pub status_message: Option<String>,
+    /// A message box that the command wants shown, with an OK button (Sakura: `InfoMessage` and
+    /// `TopOkMessage`). Sakura shows it also while a macro runs.
+    pub message_box: Option<String>,
 }
 
 impl Changes {

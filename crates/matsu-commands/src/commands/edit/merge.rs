@@ -13,8 +13,9 @@
 //!   otherwise at the end.
 //! * Nothing selected, or no line in the range: nothing happens.
 //!
-//! Not done: the message box with the number of removed lines (`STR_ERR_DLGEDITVWCMDNW7` and
-//! `STR_ERR_DLGEDITVWCMDNW8`).
+//! * When the lines were looked at, a message box says how many lines were removed
+//!   (`STR_ERR_DLGEDITVWCMDNW7`) or that there was nothing to merge (`STR_ERR_DLGEDITVWCMDNW8`);
+//!   `Changes::message_box`. Sakura shows it also while a macro runs.
 
 use crate::command::{Arg, Command, Result};
 use crate::context::CommandContext;
