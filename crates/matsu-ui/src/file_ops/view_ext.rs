@@ -96,8 +96,11 @@ impl EditorView {
             }
             None => self.forget_indent_temporaries(cx),
         }
-        // `CDocEditor::OnAfterLoad`; the layout follows if the tab width changed.
-        self.detect_indentation_style(cx);
+        // `CDocEditor::OnAfterLoad`; the layout follows if the tab width changed. A file that is
+        // still scanned has not all of its first lines: the end of the scan detects.
+        if !self.document.read(cx).is_scanning() {
+            self.detect_indentation_style(cx);
+        }
         self.relayout_in(cx);
         self.ensure_caret_visible(cx);
         cx.notify();

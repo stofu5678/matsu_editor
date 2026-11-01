@@ -78,6 +78,11 @@ impl EditorView {
 
     /// The scan is done: the document can be edited now.
     fn scan_ended(&mut self, tick: ScanTick, cx: &mut Context<Self>) {
+        if tick == ScanTick::Finished {
+            // The first lines are all there now (`CDocEditor::OnAfterLoad`).
+            self.detect_indentation_style(cx);
+            self.relayout_in(cx);
+        }
         self.notice = if tick == ScanTick::Finished {
             let lines = self.document.read(cx).doc().line_count();
             Some(format!("改行位置を調べ終えました ({lines} 行)"))
