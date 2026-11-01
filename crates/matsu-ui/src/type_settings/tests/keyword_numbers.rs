@@ -96,6 +96,21 @@ fn a_choice_made_before_the_deletion_is_saved_after_it(cx: &mut TestAppContext) 
 }
 
 #[gpui::test]
+fn the_sets_of_a_sheet_follow_a_renumbering_made_by_any_common_settings_window(
+    cx: &mut TestAppContext,
+) {
+    // The common settings were not opened from the sheet's button (a menu command, say): OK looks for
+    // the renumbering first, so the choice of B is not saved as C.
+    let ini = color_page(cx, &with_three_sets());
+    with_dialog(cx, |d, _, dcx| d.pick_first_set(1, dcx));
+    std::fs::write(&ini.path, with_bom(WITHOUT_A)).unwrap();
+    delete_a();
+    ok(cx);
+    let ints = ints(&ini, 0);
+    assert_eq!((ints[4], ints[5]), (0, 0), "B, B");
+}
+
+#[gpui::test]
 fn a_dialog_that_is_open_is_closed_when_the_sets_were_renumbered(cx: &mut TestAppContext) {
     let _ini = color_page(cx, &with_three_sets());
     let _dialog = with_dialog(cx, |d, _, dcx| d.keyword_select(dcx)).expect("opens");

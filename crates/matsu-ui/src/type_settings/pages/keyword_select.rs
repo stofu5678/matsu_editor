@@ -344,7 +344,6 @@ impl CommonSettingsDialog {
     pub(in crate::type_settings) fn keyword_edit(&mut self, cx: &mut Context<Self>) {
         // A dialog that is open holds numbers of the sets as they are now.
         child::close_open(cx);
-        crate::common_settings::forget_keyword_renumbering();
         crate::common_settings::open(cx, Some(Page::Keyword), self.opener());
         // When that sheet is closed, the names are read again, and the sets this sheet holds follow what
         // its OK did to the numbers of the sets.
@@ -361,17 +360,27 @@ impl CommonSettingsDialog {
         .detach();
     }
 
-    /// The common settings were closed: take the names, and renumber the sets of the sheet, those not
-    /// saved yet too, and the type the sheet started from (what OK compares with), as the keyword page
-    /// renumbered the types of the file. A set that is gone becomes none. Only the first to ask gets the
-    /// renumbering, so a second watcher of the same closing does nothing.
+    /// The common settings were closed: take the names, and follow the renumbering (if any).
     pub(in crate::type_settings) fn after_keyword_edit(&mut self, cx: &mut Context<Self>) {
-        // A dialog opened meanwhile has the old numbers.
-        child::close_open(cx);
         self.refresh_keyword_names(cx);
+        self.follow_keyword_renumbering(cx);
+    }
+
+    /// The keyword page of the common settings wrote the sets (from this sheet's button, from a command,
+    /// from any window): renumbers the sets of this sheet, those not saved yet too, and the type the sheet
+    /// started from (what OK compares with), as the keyword page renumbered the types of the file. A set
+    /// that is gone becomes none. Only the first to ask gets the renumbering. The sheet looks for it now
+    /// and then, and OK looks first.
+    pub(crate) fn follow_keyword_renumbering(&mut self, cx: &mut Context<Self>) {
+        if !self.is_type_sheet() {
+            return;
+        }
         let Some(map) = crate::common_settings::take_keyword_renumbering() else {
             return;
         };
+        // A dialog that is open has the old numbers.
+        child::close_open(cx);
+        self.refresh_keyword_names(cx);
         let by = map.clone();
         self.edit_values(
             |values| {

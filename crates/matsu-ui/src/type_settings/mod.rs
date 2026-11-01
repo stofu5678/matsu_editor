@@ -223,6 +223,8 @@ pub(crate) fn open(
         }
     }
     let page = page.unwrap_or_else(|| last_page(cx));
+    // A renumbering of the keyword sets from before this sheet is not for its numbers.
+    crate::common_settings::forget_keyword_renumbering();
     let profile = current_profile(cx);
     let sheet = sheet(&profile, index)?;
     let id = sheet.target.original.id;
