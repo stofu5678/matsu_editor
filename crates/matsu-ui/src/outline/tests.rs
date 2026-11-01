@@ -17,19 +17,19 @@ use crate::settings::UserSettings;
 use crate::tabs::settings::TabSettings;
 use crate::view::EditorView;
 
-const CPP: &str = "namespace ns {\nclass Foo {\n  void bar();\n};\n}\nvoid ns::Foo::bar() {\n}\nint main() {\n  return 0;\n}\n";
+pub(super) const CPP: &str = "namespace ns {\nclass Foo {\n  void bar();\n};\n}\nvoid ns::Foo::bar() {\n}\nint main() {\n  return 0;\n}\n";
 
-fn code_of(name: &str) -> u16 {
+pub(super) fn code_of(name: &str) -> u16 {
     FUNCTIONS.iter().find(|f| f.name == name).unwrap().code
 }
 
 /// A window with the document `text` in a file called `path` (so that the type is chosen by it).
-fn window(cx: &mut TestAppContext, text: &str, path: &str) -> AnyWindowHandle {
+pub(super) fn window(cx: &mut TestAppContext, text: &str, path: &str) -> AnyWindowHandle {
     window_with(cx, text, path, UserSettings::none())
 }
 
 /// Like [`window`], with the settings of the user.
-fn window_with(
+pub(super) fn window_with(
     cx: &mut TestAppContext,
     text: &str,
     path: &str,
@@ -53,15 +53,20 @@ fn window_with(
     handle
 }
 
-fn workspace(cx: &mut TestAppContext, handle: AnyWindowHandle) -> Entity<Workspace> {
+pub(super) fn workspace(cx: &mut TestAppContext, handle: AnyWindowHandle) -> Entity<Workspace> {
     cx.update(|app| workspace_of(app, handle)).unwrap()
 }
 
-fn active_view(cx: &mut TestAppContext, handle: AnyWindowHandle) -> Entity<EditorView> {
+pub(super) fn active_view(cx: &mut TestAppContext, handle: AnyWindowHandle) -> Entity<EditorView> {
     workspace(cx, handle).read_with(cx, |ws, _| ws.editor().clone())
 }
 
-fn run_with(cx: &mut TestAppContext, handle: AnyWindowHandle, function: &str, args: &[Arg]) {
+pub(super) fn run_with(
+    cx: &mut TestAppContext,
+    handle: AnyWindowHandle,
+    function: &str,
+    args: &[Arg],
+) {
     let code = code_of(function);
     let view = active_view(cx, handle);
     handle
@@ -72,21 +77,24 @@ fn run_with(cx: &mut TestAppContext, handle: AnyWindowHandle, function: &str, ar
     cx.run_until_parked();
 }
 
-fn run(cx: &mut TestAppContext, handle: AnyWindowHandle, function: &str) {
+pub(super) fn run(cx: &mut TestAppContext, handle: AnyWindowHandle, function: &str) {
     run_with(cx, handle, function, &[]);
 }
 
-fn pane(cx: &mut TestAppContext, handle: AnyWindowHandle) -> Option<Entity<OutlinePane>> {
+pub(super) fn pane(
+    cx: &mut TestAppContext,
+    handle: AnyWindowHandle,
+) -> Option<Entity<OutlinePane>> {
     workspace(cx, handle).read_with(cx, |ws, _| ws.outline.clone())
 }
 
-fn rows(cx: &mut TestAppContext, handle: AnyWindowHandle) -> Vec<Row> {
+pub(super) fn rows(cx: &mut TestAppContext, handle: AnyWindowHandle) -> Vec<Row> {
     pane(cx, handle)
         .expect("the pane is open")
         .read_with(cx, |p, _| p.rows().to_vec())
 }
 
-fn labels(cx: &mut TestAppContext, handle: AnyWindowHandle) -> Vec<String> {
+pub(super) fn labels(cx: &mut TestAppContext, handle: AnyWindowHandle) -> Vec<String> {
     rows(cx, handle).into_iter().map(|r| r.label).collect()
 }
 

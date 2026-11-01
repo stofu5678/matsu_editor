@@ -72,6 +72,17 @@ pub(crate) fn open_editor_window(
             editor.update(cx, |view, cx| view.apply_user_settings(user, cx));
         }
         if let Some(load) = load {
+            // the type of the file is not the document's until it is read
+            if let Some(user) = &user {
+                let name = load
+                    .path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned());
+                let index = user.type_index_for(name.as_deref());
+                workspace.update(cx, |workspace, _| {
+                    workspace.outline_restore_type = Some(index)
+                });
+            }
             begin_pending(
                 cx,
                 window.window_handle(),
@@ -160,6 +171,11 @@ fn open_window_with(
     let handle = cx.open_window(options, move |window, cx| {
         let workspace = build(window, cx);
         install(window, cx, &workspace);
+        // the outline pane that was open when the program ended opens again (`bOutlineDockDisp`)
+        let restore = workspace.clone();
+        window.defer(cx, move |window, cx| {
+            restore.update(cx, |workspace, cx| workspace.restore_outline(window, cx));
+        });
         // The windows keep their size and position when the settings say so (`OnSize`, `OnMove`).
         workspace.update(cx, |_, workspace_cx| {
             workspace_cx

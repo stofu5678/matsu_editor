@@ -419,3 +419,36 @@ fn without_a_settings_file_the_list_changes_for_the_session(cx: &mut TestAppCont
     assert_eq!(labels(&list, cx).len(), 37);
     assert_eq!(view.read_with(cx, |v, app| v.type_labels(app).0.len()), 37);
 }
+
+#[gpui::test]
+fn the_outline_settings_of_a_type_follow_it_when_the_types_move(cx: &mut TestAppContext) {
+    use crate::outline::dock::{DockSide, OutlineDock};
+    let mut text = own_types(20);
+    text.push_str("");
+    // type 18 has its own place and sort in the file
+    let text = text.replace(
+        "[Types(18)]\r\n",
+        "[Types(18)]\r\neOutlineDockSide=4\r\nnOutlineSortType=3\r\n",
+    );
+    let (ini, handle) = setup(cx, &text);
+    cx.update(|cx| {
+        let user = cx.global::<UserSettings>().clone();
+        crate::saved_state::install(cx, &user);
+    });
+    let cx = &mut VisualTestContext::from_window(handle, cx);
+    let view = view_of(cx);
+    let list = open_list(&view, cx);
+    select(&list, cx, 18);
+    list.update_in(cx, |l, window, lcx| l.move_selected(true, window, lcx));
+    cx.run_until_parked();
+    assert_eq!(
+        ini.get("Types(17)", "eOutlineDockSide").as_deref(),
+        Some("4")
+    );
+    let dock = cx.update(|_, cx| cx.global::<OutlineDock>().clone());
+    assert_eq!(dock.type_outline(17).place.side, DockSide::Bottom);
+    assert_eq!(dock.type_outline(17).sort_type, 3);
+    // and the type that took number 18 has nothing of it
+    assert_eq!(dock.type_outline(18).place.side, DockSide::Right);
+    assert_eq!(dock.type_outline(18).sort_type, 0);
+}

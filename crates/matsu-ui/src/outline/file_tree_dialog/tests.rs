@@ -388,6 +388,12 @@ fn the_settings_of_the_type_are_the_ones_edited_when_the_dock_follows_the_type(
                 [Types(0)]\r\nnFileTreeItemCount=1\r\nFileTree(0).eItemType=2\r\n\
                 FileTree(0).szLabelName=OfType\r\nFileTree(0).nDepth=0\r\n";
     let (ini, handle) = setup(cx, text, None);
+    // the program reads the choice at its start (`saved_state::install`)
+    cx.update(|cx| {
+        cx.set_global(crate::outline::dock::OutlineDock::from_profile(
+            &matsu_config::Profile::from_bytes(text.as_bytes()),
+        ))
+    });
     show_tree(cx, handle);
     assert_eq!(pane_labels(cx, handle), ["OfType"]);
     open_dialog(cx, handle);
