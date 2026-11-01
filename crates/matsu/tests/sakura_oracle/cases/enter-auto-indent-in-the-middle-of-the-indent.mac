@@ -1,0 +1,11 @@
+// input: ascii.spaces.lf
+// code: 0
+Down();
+Down();
+GoLineTop(1);
+Right();
+Right();
+Char(13);
+InsText('X');
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

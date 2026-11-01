@@ -388,6 +388,7 @@ impl EditorView {
         let save_path = self.macros.save_path().map(std::path::Path::to_owned);
         // `bInsSpace` of the view, which `ChangeInsertSpace` and the type settings change.
         let ins_space = self.prefs.settings.ins_space;
+        let input = self.prefs.settings.input.clone();
         let layout = &mut self.layout;
         let cursor = &mut self.cursor;
         let (result, changes) = document.update(cx, |shared, cx| {
@@ -408,6 +409,7 @@ impl EditorView {
                 .with_clipboard(&mut clipboard)
                 .with_overwrite(overwrite)
                 .with_ins_space(ins_space)
+                .with_input_options(input)
                 .with_save_path(save_path.as_deref())
                 .with_view_mode(view_mode);
             if let Some(quote) = quote {
