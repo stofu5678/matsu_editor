@@ -357,6 +357,8 @@ pub(crate) fn run_auto_in(
     then: impl FnOnce(&mut App) + 'static,
 ) {
     let view_for_plugins = view.clone();
+    // The document this start is for: events and macros are not run against one that replaced it.
+    let generation = view.read(cx).document().read(cx).generation();
     // The plugins of DocumentOpen follow the macro of オープン後 (`CNormalProcess`, `FileLoad`), and
     // `then` follows them.
     let then = move |cx: &mut App| {
@@ -372,7 +374,7 @@ pub(crate) fn run_auto_in(
                         .await;
                 }
                 cx.update(|cx| {
-                    crate::plugin_events::fire(cx, &view, Jack::DocumentOpen);
+                    crate::plugin_events::fire_for(cx, &view, Jack::DocumentOpen, generation);
                 });
             })
             .detach();
@@ -387,7 +389,11 @@ pub(crate) fn run_auto_in(
                     .timer(std::time::Duration::from_millis(20))
                     .await;
             }
-            cx.update(|cx| run_auto_now(handle, &view, when, cx, then));
+            cx.update(|cx| {
+                if view.read(cx).document().read(cx).generation() == generation {
+                    run_auto_now(handle, &view, when, cx, then);
+                }
+            });
         })
         .detach();
         return;
