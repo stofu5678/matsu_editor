@@ -50,6 +50,7 @@ use matsu_core::model::{DocumentModel, eol_text};
 use crate::clipboard::{ClipData, ClipKind, MemoryClipboard};
 use crate::command::{Arg, CommandError};
 use crate::context::{Changes, CommandContext};
+use crate::input_options::InputOptions;
 use crate::layout::PlainLayout;
 use crate::registry::Registry;
 
@@ -163,6 +164,7 @@ pub struct Editor {
     changes: Changes,
     overwrite: bool,
     ins_space: bool,
+    input: InputOptions,
     view_mode: bool,
     /// The quote string that `F_SET_QUOTESTRING` set (the window keeps it between commands).
     quote: Option<String>,
@@ -204,6 +206,7 @@ impl Editor {
             changes: Changes::default(),
             overwrite: false,
             ins_space: false,
+            input: InputOptions::default(),
             view_mode: false,
             quote: None,
         }
@@ -238,6 +241,13 @@ impl Editor {
     #[must_use]
     pub fn with_ins_space(mut self, ins_space: bool) -> Self {
         self.ins_space = ins_space;
+        self
+    }
+
+    /// Sets the indent options of the type (auto indent, smart indent, ...).
+    #[must_use]
+    pub fn with_input_options(mut self, input: InputOptions) -> Self {
+        self.input = input;
         self
     }
 
@@ -291,6 +301,7 @@ impl Editor {
         .with_clipboard(&mut self.clipboard)
         .with_overwrite(self.overwrite)
         .with_ins_space(self.ins_space)
+        .with_input_options(self.input.clone())
         .with_view_mode(self.view_mode);
         if let Some(quote) = &self.quote {
             cx = cx.with_quote_string(quote.as_str());
@@ -316,6 +327,7 @@ impl Editor {
         .with_clipboard(&mut self.clipboard)
         .with_overwrite(self.overwrite)
         .with_ins_space(self.ins_space)
+        .with_input_options(self.input.clone())
         .with_view_mode(self.view_mode);
         let result = f(&mut cx);
         self.changes = cx.finish();
