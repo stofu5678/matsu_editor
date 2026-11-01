@@ -218,6 +218,21 @@ async fn run_calls(
 /// Starts the calls of `jack` on `view`. The returned flag is set when they are over (also when the window
 /// went away meanwhile).
 pub(crate) fn fire(cx: &mut App, view: &Entity<EditorView>, jack: Jack) -> Rc<Cell<bool>> {
+    let generation = view.read(cx).document().read(cx).generation();
+    fire_for(cx, view, jack, generation)
+}
+
+/// [`fire`] for the document with the generation `generation`: a flow that began with a document passes
+/// it, so that the event is not given to the one that replaced it while the flow waited.
+pub(crate) fn fire_for(
+    cx: &mut App,
+    view: &Entity<EditorView>,
+    jack: Jack,
+    generation: u64,
+) -> Rc<Cell<bool>> {
+    if view.read(cx).document().read(cx).generation() != generation {
+        return Rc::new(Cell::new(true));
+    }
     // Nothing to call (plugins off, or none declares the jack): over at once, with no task and no wait.
     let calls = collect(cx, jack);
     if calls.is_empty() {
@@ -227,7 +242,6 @@ pub(crate) fn fire(cx: &mut App, view: &Entity<EditorView>, jack: Jack) -> Rc<Ce
     let weak = view.downgrade();
     let flag = done.clone();
     let ticket = view.update(cx, |view, _| view.take_event_ticket());
-    let generation = view.read(cx).document().read(cx).generation();
     cx.spawn(async move |cx| {
         run_all(&weak, cx, calls, ticket, generation).await;
         flag.set(true);
@@ -243,10 +257,23 @@ pub(crate) async fn fire_and_wait(
     cx: &mut AsyncWindowContext,
     jack: Jack,
 ) {
-    let Some(entity) = view.upgrade() else {
+    let generation = view
+        .read_with(cx, |view, app| view.document().read(app).generation())
+        .ok();
+    fire_and_wait_for(view, cx, jack, generation).await;
+}
+
+/// [`fire_and_wait`] for the document of the flow (`generation`; `None`: the window is gone).
+pub(crate) async fn fire_and_wait_for(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    jack: Jack,
+    generation: Option<u64>,
+) {
+    let (Some(entity), Some(generation)) = (view.upgrade(), generation) else {
         return;
     };
-    let Ok(done) = cx.update(|_, app| fire(app, &entity, jack)) else {
+    let Ok(done) = cx.update(|_, app| fire_for(app, &entity, jack, generation)) else {
         return;
     };
     drop(entity);

@@ -35,7 +35,7 @@ use super::ask::{
 use super::save_as_dialog::{SaveChoice, ask_options};
 use crate::file_dialog::save_fields::SaveFields;
 use crate::file_dialog::{self, Ask};
-use crate::plugin_events::fire_and_wait;
+use crate::plugin_events::{fire_and_wait, fire_and_wait_for};
 use crate::view::EditorView;
 use matsu_config::plugins::def::Jack;
 
@@ -421,12 +421,15 @@ pub(crate) async fn save(
             })
             .ok();
             view.update(cx, |view, cx| view.begin_edit_watch(cx)).ok();
-            fire_and_wait(view, cx, Jack::DocumentAfterSave).await;
+            fire_and_wait_for(view, cx, Jack::DocumentAfterSave, generation).await;
             if named {
                 // `FileSaveAs` runs the macro of オープン後 after a save under a name, and then the
                 // plugins of DocumentOpen.
+                if !same_document(view, cx) {
+                    return SaveOutcome::Cancelled;
+                }
                 crate::macros::run_opened(view, cx).await;
-                fire_and_wait(view, cx, Jack::DocumentOpen).await;
+                fire_and_wait_for(view, cx, Jack::DocumentOpen, generation).await;
             }
             // Text the user typed while the plugins ran is not in the file: a caller that closes after the
             // save must not take the document for saved. What a plugin wrote does not count (the file is

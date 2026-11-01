@@ -17,7 +17,7 @@ use crate::document::SharedDocument;
 use crate::file_dialog::{self, Ask};
 use crate::history::view::{code_change_message, encoding_of, remembered};
 use crate::open::{HugeOpen, open_text_file_with};
-use crate::plugin_events::fire_and_wait;
+use crate::plugin_events::fire_and_wait_for;
 use crate::view::EditorView;
 use matsu_config::plugins::def::Jack;
 
@@ -354,7 +354,7 @@ async fn load_here_inner(
                 if !caller_macro {
                     crate::macros::wait_for_the_macro(view, cx).await;
                 }
-                fire_and_wait(view, cx, Jack::DocumentOpen).await;
+                fire_and_wait_for(view, cx, Jack::DocumentOpen, loaded).await;
             }
             replaced
         }
