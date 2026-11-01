@@ -300,6 +300,11 @@ impl CommonSettingsDialog {
 
     /// The first set was chosen in its list.
     pub(in crate::type_settings) fn pick_first_set(&mut self, set: i32, cx: &mut Context<Self>) {
+        // The list the user chose from has the numbers from before a renumbering that is waiting.
+        let set = match self.follow_keyword_renumbering(cx) {
+            Some(map) => map(set),
+            None => set,
+        };
         self.refresh_keyword_names(cx);
         self.edit_values(
             |values| {
@@ -316,6 +321,7 @@ impl CommonSettingsDialog {
         &mut self,
         cx: &mut Context<Self>,
     ) -> Option<gpui::Entity<KeywordSelectDialog>> {
+        self.follow_keyword_renumbering(cx);
         self.refresh_keyword_names(cx);
         let sets = sets_of(self.values());
         let names = names_of(self.values());
@@ -371,13 +377,14 @@ impl CommonSettingsDialog {
     /// started from (what OK compares with), as the keyword page renumbered the types of the file. A set
     /// that is gone becomes none. Only the first to ask gets the renumbering. The sheet looks for it now
     /// and then, and OK looks first.
-    pub(crate) fn follow_keyword_renumbering(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn follow_keyword_renumbering(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Option<crate::common_settings::KeywordRenumbering> {
         if !self.is_type_sheet() {
-            return;
+            return None;
         }
-        let Some(map) = crate::common_settings::take_keyword_renumbering() else {
-            return;
-        };
+        let map = crate::common_settings::take_keyword_renumbering()?;
         // A dialog that is open has the old numbers.
         child::close_open(cx);
         self.refresh_keyword_names(cx);
@@ -389,10 +396,12 @@ impl CommonSettingsDialog {
             },
             cx,
         );
+        let by = map.clone();
         self.change_type_original(|original| {
             for set in &mut original.keyword_set_idx {
-                *set = map(*set);
+                *set = by(*set);
             }
         });
+        Some(map)
     }
 }
