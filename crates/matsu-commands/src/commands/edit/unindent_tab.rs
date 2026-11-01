@@ -4,8 +4,8 @@
 //! `sakura_core/cmd/CViewCommander_Edit_advanced.cpp`; bound to Shift+Tab in
 //! `sakura_core/func/CKeyBind.cpp`.
 //!
-//! * No selection: types a tab, like `F_INDENT_TAB` (Sakura calls `Command_INDENT`, then shows
-//!   the message `STR_ERR_UNINDENT1`; the message is not done here).
+//! * No selection: types a tab, like `F_INDENT_TAB` (Sakura calls `Command_INDENT`, then sends
+//!   `STR_ERR_UNINDENT1` to the status bar: `Changes::status_message`).
 //! * A selection, also inside one row: a row that starts a line loses the tab at its start, or
 //!   else the spaces at its start, up to the tab width. The rows are selected as `F_INDENT_TAB`
 //!   does.

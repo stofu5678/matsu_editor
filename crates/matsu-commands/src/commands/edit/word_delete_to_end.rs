@@ -8,7 +8,8 @@
 //! next* word, so the blanks after the word are deleted with it. At the end of a line the word
 //! move is one char right, so the line ending is deleted.
 //!
-//! Not done: Sakura beeps when a rectangular selection is active.
+//! A box selection that covers something: Sakura beeps at once ("not done for boxes") and so
+//! does this; nothing changes.
 
 use crate::command::{Arg, Command, Result};
 use crate::context::CommandContext;

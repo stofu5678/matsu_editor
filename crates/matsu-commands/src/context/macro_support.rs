@@ -63,6 +63,16 @@ impl CommandContext<'_> {
         self.move_macro_caret(row_start, pos, col, option)
     }
 
+    /// `MoveCursor` with the box option for a caller that has a position of the text, not the
+    /// numbers of a macro: starts a box at the caret if none is going on and moves its caret to
+    /// `pos` (clamped), at the display column of `pos`.
+    pub fn move_caret_selecting_box(&mut self, pos: Pos) -> Result<()> {
+        let pos = self.doc().clamp_pos(pos)?;
+        let row_start = self.layout.row_start(self.doc(), pos)?;
+        let col = self.layout.display_col(self.doc(), pos)?;
+        self.move_macro_caret(row_start, pos, col, move_option::BOX)
+    }
+
     /// `Command_MOVECURSORLAYOUT`: moves the caret to a row and a display column of the layout,
     /// both counted from 0. A row past the last one is the end of the text. The column is
     /// counted in cells of the layout (a tab and a full-width character take more than one). In

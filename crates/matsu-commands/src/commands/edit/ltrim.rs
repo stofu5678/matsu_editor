@@ -14,7 +14,9 @@
 //! Difference: when there is nothing to remove Sakura still replaces the text; this command
 //! makes no edit then (the selection and the caret move in the same way).
 //!
-//! Not done yet: rectangular selection.
+//! A box selection is converted row by row (`CEditView::ConvSelectedArea`, its box branch):
+//! each row of the box loses the white space at the start of its part in the box, the box is
+//! dropped and the caret goes to its top left corner (`CommandContext::convert_box`).
 
 use crate::command::{Arg, Command, Result};
 use crate::context::CommandContext;
