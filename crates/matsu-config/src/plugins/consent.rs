@@ -21,7 +21,7 @@
 //! Sakura has nothing like this: it enables a plugin as soon as it is added.
 
 use std::collections::BTreeMap;
-use std::io;
+use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest as _, Sha256};
@@ -112,7 +112,16 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<FileHash>, bytes: &mut u64) -> io
 fn hash_file(path: &Path) -> io::Result<String> {
     let mut file = std::fs::File::open(path)?;
     let mut hasher = Sha256::new();
-    io::copy(&mut file, &mut hasher)?;
+    // sha2 0.11 no longer implements `io::Write` by default, so feed it by hand.
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        match file.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => hasher.update(&buf[..n]),
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
     Ok(hex(&hasher.finalize()))
 }
 
