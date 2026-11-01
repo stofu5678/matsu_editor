@@ -313,6 +313,23 @@ impl EditorView {
         self.take_indent(tab_width, ins_space, cx);
     }
 
+    /// Gives the tab width and the use of spaces of this view to the other views of the document.
+    pub(crate) fn copy_indent_to_other_panes(&mut self, cx: &mut Context<Self>) {
+        let (width, ins_space) = (self.prefs.settings.tab_width, self.prefs.settings.ins_space);
+        let me = self.entity_id;
+        let others: Vec<_> = self
+            .document
+            .read(cx)
+            .views()
+            .filter(|v| v.entity_id() != me)
+            .collect();
+        for view in others {
+            view.update(cx, |view, cx| {
+                view.take_indent(Some(width), Some(ins_space), cx)
+            });
+        }
+    }
+
     fn take_indent(
         &mut self,
         tab_width: Option<u32>,

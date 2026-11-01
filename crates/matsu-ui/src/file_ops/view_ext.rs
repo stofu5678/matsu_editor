@@ -94,16 +94,15 @@ impl EditorView {
             self.document
                 .update(cx, |shared, cx| shared.announce_type(index, cx));
         }
-        // `CDocEditor::OnAfterLoad`; the layouts follow if the tab width changed. The other panes
-        // take the new type when this update ends, which resets their tab width: the indentation
-        // follows then.
+        // `CDocEditor::OnAfterLoad`; the layouts follow if the tab width changed. This view has
+        // the values before a macro goes on. The other panes take the new type when this update
+        // ends, which resets their tab width: they get this view's values then.
+        self.apply_loaded_indentation(true, cx);
         if type_changed {
             let this = cx.entity();
             cx.defer(move |cx| {
-                this.update(cx, |view, cx| view.apply_loaded_indentation(true, cx));
+                this.update(cx, |view, cx| view.copy_indent_to_other_panes(cx));
             });
-        } else {
-            self.apply_loaded_indentation(true, cx);
         }
         self.relayout_in(cx);
         self.ensure_caret_visible(cx);
