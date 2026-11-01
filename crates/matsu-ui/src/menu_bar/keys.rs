@@ -144,7 +144,11 @@ impl Workspace {
             return true;
         }
         let editor = self.editor().read(cx);
-        editor.marked.is_none() && editor.focus_handle.contains_focused(window, cx)
+        // The docked outline pane is part of the window, not a dialog.
+        let in_outline = self.outline.as_ref().is_some_and(|pane| {
+            gpui::Focusable::focus_handle(pane.read(cx), cx).contains_focused(window, cx)
+        });
+        editor.marked.is_none() && (editor.focus_handle.contains_focused(window, cx) || in_outline)
     }
 
     /// Before the view under the focus: the keys of a marked bar.
