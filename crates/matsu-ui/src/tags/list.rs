@@ -18,8 +18,10 @@
 //! Here the dialog is a modal panel over the view (as the command list is), and the search runs on
 //! a background thread so that a large tags file does not stop the window.
 //!
-//! Not done: the history drop-down of the keyword (the newest keyword is filled in), the size and
-//! position that the dialog remembers, the help button.
+//! The keyword has the history that `CRecentTagjumpKeyword` keeps ([`crate::search::history`]): the
+//! newest is filled in and a list under the box shows the others.
+//!
+//! Not done: the size and position that the dialog remembers, the help button.
 
 use crate::dialog_focus::KeepTabInside as _;
 use std::path::PathBuf;
@@ -31,7 +33,8 @@ use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AppContext as _, ClickEvent, Context, Entity, FocusHandle, Focusable, InteractiveElement,
     IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, ParentElement, Render, ScrollHandle,
-    StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window, div, px, relative, rgb,
+    SharedString, StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window, div, px,
+    relative, rgb,
 };
 use gpui_component::button::Button;
 use gpui_component::checkbox::Checkbox;
@@ -86,6 +89,9 @@ pub(crate) struct TagList {
     result: Option<async_channel::Sender<Choice>>,
     focus: FocusHandle,
     scroll: ScrollHandle,
+    /// The history list of the keyword while it is open, with the entry that Enter takes.
+    history_open: Option<usize>,
+    history_scroll: ScrollHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -140,6 +146,8 @@ impl TagList {
             result: Some(result),
             focus: cx.focus_handle(),
             scroll: ScrollHandle::new(),
+            history_open: None,
+            history_scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
         };
         if form == Form::Keyword {
@@ -294,10 +302,12 @@ impl TagList {
             remember_prefs(cx, move |p: &mut TagJumpPrefs| {
                 p.ignore_case = ignore_case;
                 p.partial = partial;
-                if let Some(keyword) = keyword {
-                    p.remember_keyword(&keyword);
-                }
             });
+            // `CRecentTagjumpKeyword::AppendItem`: kept in the settings file with the other
+            // histories.
+            if let Some(keyword) = keyword {
+                crate::search::history::remember_tag_keyword(cx, &keyword);
+            }
         }
         self.finish(chosen, window, cx);
     }
@@ -321,7 +331,82 @@ impl TagList {
         .ok();
     }
 
+    /// Opens the history list of the keyword (`CDlgTagJumpList` fills the combo box from
+    /// `CRecentTagjumpKeyword`), or closes it. With no history there is nothing to open.
+    fn toggle_history(&mut self, cx: &mut Context<Self>) {
+        if self.history_open.take().is_none() {
+            let keywords = crate::search::history::tag_keywords(cx);
+            let current = self.keyword.read(cx).value();
+            if !keywords.is_empty() {
+                let at = keywords
+                    .iter()
+                    .position(|k| k == current.as_str())
+                    .unwrap_or(0);
+                self.history_open = Some(at);
+                self.history_scroll.scroll_to_item(at);
+            }
+        }
+        cx.notify();
+    }
+
+    /// Puts a keyword of the history in the box and searches for it.
+    fn pick_keyword(&mut self, keyword: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.history_open = None;
+        self.keyword.update(cx, |state, cx| {
+            state.set_value(keyword, window, cx);
+            state.focus(window, cx);
+        });
+        self.search(true, SHORT_DELAY, cx);
+        cx.notify();
+    }
+
+    /// The keys of the history list: F4 and Alt+Down open or close it; with it open Up, Down,
+    /// Enter and Escape work in it. Returns whether the key was used.
+    fn history_key(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let key = event.keystroke.key.as_str();
+        let m = &event.keystroke.modifiers;
+        let plain = !m.alt && !m.control && !m.platform && !m.shift;
+        if key == "f4" || (key == "down" && m.alt) {
+            self.toggle_history(cx);
+            return true;
+        }
+        let Some(at) = self.history_open else {
+            return false;
+        };
+        let keywords = crate::search::history::tag_keywords(cx);
+        match key {
+            "down" | "up" if plain && !keywords.is_empty() => {
+                let at = if key == "down" {
+                    (at + 1).min(keywords.len() - 1)
+                } else {
+                    at.saturating_sub(1)
+                };
+                self.history_open = Some(at);
+                self.history_scroll.scroll_to_item(at);
+                cx.notify();
+            }
+            "enter" if plain && at < keywords.len() => {
+                self.pick_keyword(keywords[at].clone(), window, cx);
+            }
+            "escape" => {
+                self.history_open = None;
+                cx.notify();
+            }
+            _ => return false,
+        }
+        true
+    }
+
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.form == Form::Keyword && self.history_key(event, window, cx) {
+            cx.stop_propagation();
+            return;
+        }
         let key = event.keystroke.key.as_str();
         let plain = {
             let m = &event.keystroke.modifiers;
@@ -494,6 +579,33 @@ impl Render for TagList {
         };
         let ignore_case = self.ignore_case;
         let partial = self.partial;
+        let history_list = self.history_open.map(|open| {
+            let entries = crate::search::history::tag_keywords(cx)
+                .into_iter()
+                .enumerate()
+                .map(|(i, text)| {
+                    let picked = text.clone();
+                    div()
+                        .id(("tag-keyword-history", i))
+                        .px_2()
+                        .truncate()
+                        .when(i == open, |d| d.bg(rgb(0xcce4f7)))
+                        .hover(|d| d.bg(rgb(0xe5f1fb)))
+                        .child(SharedString::from(text))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.pick_keyword(picked.clone(), window, cx);
+                        }))
+                });
+            div()
+                .id("tag-keyword-history")
+                .max_h(px(120.))
+                .overflow_y_scroll()
+                .track_scroll(&self.history_scroll)
+                .border_1()
+                .border_color(rgb(0xb0b0b0))
+                .bg(rgb(0xffffff))
+                .children(entries)
+        });
         let title = if direct {
             "ダイレクトタグジャンプ一覧"
         } else {
@@ -546,7 +658,24 @@ impl Render for TagList {
                                 .gap_1()
                                 .flex_1()
                                 .child(keyword_label)
-                                .child(Input::new(&self.keyword))
+                                .child(
+                                    h_flex()
+                                        .gap_1()
+                                        .child(div().flex_1().child(
+                                            Input::new(&self.keyword).aria_label("キーワード"),
+                                        ))
+                                        .child(
+                                            Button::new("tag-keyword-history-toggle")
+                                                .label("▼")
+                                                .accessibility_label("キーワードの履歴")
+                                                .on_click(cx.listener(|this, _, window, cx| {
+                                                    this.keyword
+                                                        .update(cx, |s, cx| s.focus(window, cx));
+                                                    this.toggle_history(cx);
+                                                })),
+                                        ),
+                                )
+                                .children(history_list)
                                 .child(
                                     h_flex()
                                         .gap_3()

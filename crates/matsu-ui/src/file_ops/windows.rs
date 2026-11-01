@@ -421,6 +421,17 @@ pub(crate) fn find_tab_of(
     })
 }
 
+/// The window that has the document with the entity id `id` open (the number a Grep of the text
+/// of a window writes after `:HWND:`).
+pub(crate) fn find_document_by_id(
+    cx: &mut App,
+    id: u64,
+) -> Option<(AnyWindowHandle, Entity<EditorView>)> {
+    editors(cx)
+        .into_iter()
+        .find(|(_, view)| view.read(cx).document().entity_id().as_u64() == id)
+}
+
 /// The window that has `path` open.
 pub(crate) fn find_open(
     cx: &mut App,

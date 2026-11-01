@@ -338,6 +338,20 @@ impl LaunchOptions {
             return;
         };
         if grep.dialog {
+            // `-GREPDLG`: the key, the file and the folder of the command line go into the
+            // histories before the dialog opens (`CNormalProcess::InitializeProcess`).
+            if !grep.args.key.is_empty() {
+                crate::search::history::remember_search(cx, &grep.args.key);
+            }
+            crate::search::history::remember_grep_boxes(
+                cx,
+                &crate::search::history::GrepBoxes {
+                    file: &grep.args.file,
+                    folder: &grep.args.folder,
+                    exclude_file: "",
+                    exclude_folder: "",
+                },
+            );
             let remembered = crate::grep::window::remembered(cx);
             let settings = grep_dialog_settings(&grep.args, &self.cwd, remembered);
             handle
@@ -624,6 +638,7 @@ pub(crate) fn grep_info(args: &GrepArgs, cwd: &Path, clipboard: Option<String>) 
         file_only: args.file_only,
         except_file_regex: args.except_file_regex,
         mime_decode: false,
+        window: None,
         replace: args.replace.as_ref().map(|text| ReplaceInfo {
             text: if args.paste {
                 clipboard.clone().unwrap_or_default()

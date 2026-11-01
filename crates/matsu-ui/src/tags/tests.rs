@@ -271,7 +271,10 @@ fn the_keyword_dialog_follows_what_is_typed(cx: &mut TestAppContext) {
     assert_eq!(windows(cx), 2);
     assert_eq!(newest(cx).caret(cx), Pos::new(4, 0));
     // the keyword is remembered for the next time
-    assert_eq!(cx.update(|app| prefs(app).recent), ["foob"]);
+    assert_eq!(
+        cx.update(|app| crate::search::history::tag_keywords(app)),
+        ["foob"]
+    );
 }
 
 #[gpui::test]

@@ -185,7 +185,13 @@ pub(crate) fn write_settings(
 
 /// Adds a file (and its folder) at the front of the history.
 pub(crate) fn add_file(cx: &mut App, entry: FileEntry) {
-    update(cx, |h| h.add_file(entry));
+    // `%MYDOC%` and the like in the list of the excluded paths (`ExpandMetaToFolder`).
+    let meta = crate::file_names::Folders::new(cx);
+    let expand = move |text: &str| {
+        let expanded = matsu_config::dialog_dir::expand_meta(text, &meta);
+        expanded.complete.then_some(expanded.text)
+    };
+    update(cx, |h| h.add_file_expanding(entry, &expand));
 }
 
 #[cfg(test)]

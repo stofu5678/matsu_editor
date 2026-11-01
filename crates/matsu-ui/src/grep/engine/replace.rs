@@ -83,7 +83,7 @@ impl Runner<'_> {
         let Some(mut file) = self.open(paths.full)? else {
             return Ok(());
         };
-        let code_name = self.code_name(&file);
+        let code_name = self.code_name(file.encoding);
         let Some(matcher) = self.matcher.clone() else {
             return Ok(());
         };

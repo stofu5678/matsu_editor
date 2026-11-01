@@ -28,6 +28,10 @@ pub mod window;
 #[cfg(test)]
 mod engine_tests;
 #[cfg(test)]
+mod history_tests;
+#[cfg(test)]
 mod replace_tests;
+#[cfg(test)]
+mod this_text_tests;
 #[cfg(test)]
 mod window_tests;

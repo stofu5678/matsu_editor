@@ -228,6 +228,31 @@ fn excluded_paths_are_not_added_unless_they_are_there() {
     assert_eq!(h.files.len(), 1);
 }
 
+#[test]
+fn the_variables_of_the_excluded_paths_are_expanded_by_the_caller() {
+    // `CMRUFile::Add` expands each text with `ExpandMetaToFolder` before it looks for it in the path
+    let expand = |text: &str| Some(text.replace("%MYDOC%", "C:\\Users\\a\\Documents"));
+    let mut h = History::new(5, 5, true);
+    h.except = vec!["%MYDOC%\\private".to_owned()];
+    h.add_file_expanding(
+        FileEntry::new("c:\\users\\A\\documents\\private\\x.txt"),
+        &expand,
+    );
+    assert!(h.files.is_empty() && h.folders.is_empty());
+    h.add_file_expanding(FileEntry::new("C:\\Users\\a\\Documents\\y.txt"), &expand);
+    assert_eq!(h.files.len(), 1);
+    // without the expansion the text is taken as it is, and matches nothing
+    let mut h = History::new(5, 5, true);
+    h.except = vec!["%MYDOC%\\private".to_owned()];
+    h.add_file(FileEntry::new("C:\\Users\\a\\Documents\\private\\x.txt"));
+    assert_eq!(h.files.len(), 1);
+    // a text that cannot be expanded keeps nothing out
+    let mut h = History::new(5, 5, true);
+    h.except = vec!["%NOWHERE%".to_owned()];
+    h.add_file_expanding(FileEntry::new("C:\\x.txt"), &|_| None);
+    assert_eq!(h.files.len(), 1);
+}
+
 fn temp_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "matsu-config-history-{name}-{}",

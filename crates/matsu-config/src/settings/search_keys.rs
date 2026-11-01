@@ -2,7 +2,10 @@
 //
 // Original files:
 //   sakura_core/recent/CRecentImp.cpp (AppendItem), sakura_core/recent/CRecentSearch.cpp,
-//   sakura_core/env/CSearchKeywordManager.cpp, sakura_core/env/CShareData_IO.cpp (ShareData_IO_Keys),
+//   sakura_core/recent/CRecentGrepFile.cpp, CRecentGrepFolder.cpp, CRecentExcludeFile.cpp,
+//   CRecentExcludeFolder.cpp, CRecentTagjumpKeyword.cpp,
+//   sakura_core/env/CSearchKeywordManager.cpp,
+//   sakura_core/env/CShareData_IO.cpp (ShareData_IO_Keys, ShareData_IO_Grep, ShareData_IO_Other),
 //   sakura_core/env/CDataProfile.h (IOProfileDataSet), sakura_core/config/maxdata.h
 //
 // Original copyright notices of those files:
@@ -30,19 +33,25 @@
 //    misrepresented as being the original software.
 // 3. This notice may not be removed or altered from any source distribution.
 
-//! The history of the search and replace strings: the section `[Keys]` (`SEARCHKEY`, `REPLACEKEY`).
+//! The histories of the combo boxes of the search dialogs: the section `[Keys]` (`SEARCHKEY`,
+//! `REPLACEKEY`), the section `[Grep]` (`GREPFILE`, `GREPFOLDER`, `GREPEXCLUDEFILE`,
+//! `GREPEXCLUDEFOLDER`) and the keywords of the tag jump dialog, `TagJumpKeyword` of `[Other]`.
 //!
 //! Sakura keeps the strings of the find, replace and Grep dialogs in the shared data
-//! (`m_sSearchKeywords.m_aSearchKeys`, `m_aReplaceKeys`), newest first, and writes them to `[Keys]`
-//! as `_SEARCHKEY_Counts=N` and `SEARCHKEY[00]=...` (`ShareData_IO_Keys`, `IOProfileDataSet`).
-//! [`KeyList`] is such a list, [`SearchKeys`] is the pair of them and reads and writes the section.
+//! (`m_sSearchKeywords`, `m_sTagJump`), newest first, and writes them as `_SEARCHKEY_Counts=N` and
+//! `SEARCHKEY[00]=...` (`ShareData_IO_Keys`, `ShareData_IO_Grep`, `IOProfileDataSet`).
+//! [`KeyList`] is such a list, [`SearchKeys`] holds all of them and reads and writes the sections.
 //! Everything else in the file is left as it is.
 
 use crate::profile::{Profile, ProfileError};
 use crate::value::parse_long;
 
-/// The section of the file.
+/// The section of the search and replace strings.
 pub const SECTION: &str = "Keys";
+/// The section of the Grep boxes (`ShareData_IO_Grep`).
+pub const GREP_SECTION: &str = "Grep";
+/// The section that has the tag jump keywords (`ShareData_IO_Other`).
+pub const OTHER_SECTION: &str = "Other";
 /// `MAX_SEARCHKEY` (`sakura_core/config/maxdata.h`).
 pub const MAX_SEARCH_KEYS: usize = 30;
 /// `MAX_REPLACEKEY`.
@@ -50,19 +59,39 @@ pub const MAX_REPLACE_KEYS: usize = 30;
 /// `_MAX_PATH`: a string must be shorter than this many UTF-16 units to be kept
 /// (`ValidateReceiveType`, and the `size() < _MAX_PATH` checks of the callers).
 pub const MAX_KEY_UNITS: usize = 260;
+/// `MAX_GREPFILE`, `MAX_GREPFOLDER`, `MAX_EXCLUDEFILE`, `MAX_EXCLUDEFOLDER`.
+pub const MAX_GREP_ITEMS: usize = 30;
+/// `MAX_GREP_PATH` and `MAX_EXCLUDE_PATH`: the strings of the Grep boxes are kept when shorter than
+/// this (`CGrepFileString`, `CGrepFolderString`, `CExcludeFileString`, `CExcludeFolderString`).
+pub const MAX_GREP_UNITS: usize = 512;
+/// `MAX_TAGJUMP_KEYWORD`.
+pub const MAX_TAG_KEYWORDS: usize = 30;
 
 /// A history: newest first, at most `max` strings, none twice (`CRecentImp`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KeyList {
     items: Vec<String>,
     max: usize,
+    /// A string must be shorter than this many UTF-16 units to be kept.
+    max_units: usize,
+    /// Whether two strings that differ in case are the same one (`_wcsicmp` in `CompareItem` of
+    /// the Grep boxes; the others use `wcscmp`).
+    ignore_case: bool,
 }
 
 impl KeyList {
+    /// A list of case sensitive strings of fewer than [`MAX_KEY_UNITS`] units.
     pub fn new(max: usize) -> Self {
+        Self::with(max, MAX_KEY_UNITS, false)
+    }
+
+    /// A list with its own length limit and its way of telling strings apart.
+    pub fn with(max: usize, max_units: usize, ignore_case: bool) -> Self {
         Self {
             items: Vec::new(),
             max,
+            max_units,
+            ignore_case,
         }
     }
 
@@ -84,20 +113,31 @@ impl KeyList {
         self.items.is_empty()
     }
 
-    /// Whether `text` can be kept: shorter than `_MAX_PATH` UTF-16 units.
-    pub fn accepts(text: &str) -> bool {
-        text.encode_utf16().count() < MAX_KEY_UNITS
+    /// Whether `text` can be kept: shorter than the limit in UTF-16 units
+    /// (`ValidateReceiveType`).
+    pub fn accepts(&self, text: &str) -> bool {
+        text.encode_utf16().count() < self.max_units
+    }
+
+    /// `CompareItem`.
+    fn same(&self, a: &str, b: &str) -> bool {
+        if self.ignore_case {
+            a == b || a.to_lowercase() == b.to_lowercase()
+        } else {
+            a == b
+        }
     }
 
     /// `CRecentImp::AppendItem`: puts `text` first. A string that is already there moves to the
-    /// front; when the list is full the oldest one goes. Returns whether the list changed (a
-    /// string that was already first leaves it as it was), or `false` for a string that is too long.
+    /// front (with the case of the new one: `CopyItem`); when the list is full the oldest one goes.
+    /// Returns whether the list changed (a string that was already first leaves it as it was), or
+    /// `false` for a string that is too long.
     pub fn add(&mut self, text: &str) -> bool {
-        if !Self::accepts(text) {
+        if !self.accepts(text) {
             return false;
         }
-        if let Some(i) = self.items.iter().position(|s| s == text) {
-            if i == 0 {
+        if let Some(i) = self.items.iter().position(|s| self.same(s, text)) {
+            if i == 0 && self.items[0] == text {
                 return false;
             }
             self.items.remove(i);
@@ -109,23 +149,72 @@ impl KeyList {
     }
 }
 
-/// The search strings and the replace strings.
+/// The search strings and the replace strings, and the strings of the other combo boxes that
+/// Sakura keeps in the same shared data.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SearchKeys {
     pub search: KeyList,
     pub replace: KeyList,
+    /// `m_aGrepFiles`: ファイル of the Grep dialog.
+    pub grep_file: KeyList,
+    /// `m_aGrepFolders`: フォルダー.
+    pub grep_folder: KeyList,
+    /// `m_aExcludeFiles`: 除外ファイル.
+    pub exclude_file: KeyList,
+    /// `m_aExcludeFolders`: 除外フォルダー.
+    pub exclude_folder: KeyList,
+    /// `m_aTagJumpKeywords`: the keyword of the tag jump dialog.
+    pub tag_keyword: KeyList,
 }
 
 impl Default for SearchKeys {
     fn default() -> Self {
+        // The Grep boxes compare without regard to case (`_wcsicmp`), the others do not.
+        let grep = || KeyList::with(MAX_GREP_ITEMS, MAX_GREP_UNITS, true);
         Self {
             search: KeyList::new(MAX_SEARCH_KEYS),
             replace: KeyList::new(MAX_REPLACE_KEYS),
+            grep_file: grep(),
+            grep_folder: grep(),
+            exclude_file: grep(),
+            exclude_folder: grep(),
+            tag_keyword: KeyList::new(MAX_TAG_KEYWORDS),
         }
     }
 }
 
+/// The lists that are not the search and replace strings, with the place of each in the file:
+/// the section and the name. [`SearchKeys::other`] and [`SearchKeys::other_mut`] give the list.
+const OTHER_LISTS: [(&str, &str); 5] = [
+    (GREP_SECTION, "GREPFILE"),
+    (GREP_SECTION, "GREPFOLDER"),
+    (GREP_SECTION, "GREPEXCLUDEFILE"),
+    (GREP_SECTION, "GREPEXCLUDEFOLDER"),
+    (OTHER_SECTION, "TagJumpKeyword"),
+];
+
 impl SearchKeys {
+    /// The list `i` of [`OTHER_LISTS`].
+    fn other(&self, i: usize) -> &KeyList {
+        match i {
+            0 => &self.grep_file,
+            1 => &self.grep_folder,
+            2 => &self.exclude_file,
+            3 => &self.exclude_folder,
+            _ => &self.tag_keyword,
+        }
+    }
+
+    fn other_mut(&mut self, i: usize) -> &mut KeyList {
+        match i {
+            0 => &mut self.grep_file,
+            1 => &mut self.grep_folder,
+            2 => &mut self.exclude_file,
+            3 => &mut self.exclude_folder,
+            _ => &mut self.tag_keyword,
+        }
+    }
+
     /// `AddToSearchKeyArr`. An empty string is not kept: Sakura's dialogs never add one except
     /// Grep, which adds it so that its own field starts empty (`CDlgGrep::GetData`); a blank line
     /// in the drop-down is of no use. Returns whether the list changed.
@@ -139,50 +228,94 @@ impl SearchKeys {
         self.replace.add(text)
     }
 
+    /// `AddToGrepFileArr`. An empty string is not kept, for the reason of
+    /// [`add_search`](Self::add_search): Sakura adds the empty 除外ファイル of most searches, and
+    /// the drop-down would show a blank line on top.
+    pub fn add_grep_file(&mut self, text: &str) -> bool {
+        !text.is_empty() && self.grep_file.add(text)
+    }
+
+    /// `AddToGrepFolderArr`.
+    pub fn add_grep_folder(&mut self, text: &str) -> bool {
+        !text.is_empty() && self.grep_folder.add(text)
+    }
+
+    /// `AddToExcludeFileArr`.
+    pub fn add_exclude_file(&mut self, text: &str) -> bool {
+        !text.is_empty() && self.exclude_file.add(text)
+    }
+
+    /// `AddToExcludeFolderArr`.
+    pub fn add_exclude_folder(&mut self, text: &str) -> bool {
+        !text.is_empty() && self.exclude_folder.add(text)
+    }
+
+    /// `CRecentTagjumpKeyword::AppendItem` (`CDlgTagJumpList::GetData`).
+    pub fn add_tag_keyword(&mut self, text: &str) -> bool {
+        !text.is_empty() && self.tag_keyword.add(text)
+    }
+
     /// Takes in the strings of `other` (the file, as another window or process saved it): they go
     /// on top of ours, in their order, and the strings only we have stay below them. Over the
     /// limit the oldest (the bottom) goes. A string we have that `other` also has takes
     /// `other`'s place, as it was used more recently there.
     pub fn merge_from(&mut self, other: &SearchKeys) {
-        for text in other.search.items().iter().rev() {
-            self.search.add(text);
+        fn merge(list: &mut KeyList, from: &KeyList) {
+            for text in from.items().iter().rev() {
+                list.add(text);
+            }
         }
-        for text in other.replace.items().iter().rev() {
-            self.replace.add(text);
-        }
+        merge(&mut self.search, &other.search);
+        merge(&mut self.replace, &other.replace);
+        merge(&mut self.grep_file, &other.grep_file);
+        merge(&mut self.grep_folder, &other.grep_folder);
+        merge(&mut self.exclude_file, &other.exclude_file);
+        merge(&mut self.exclude_folder, &other.exclude_folder);
+        merge(&mut self.tag_keyword, &other.tag_keyword);
     }
 
-    /// Reads `[Keys]`. A missing section or entry means no strings.
+    /// Reads `[Keys]`, `[Grep]` and the keywords of `[Other]`. A missing section or entry means no
+    /// strings.
     pub fn from_profile(profile: &Profile) -> Self {
         let mut keys = Self::default();
-        keys.search.items = read_set(profile, "SEARCHKEY", MAX_SEARCH_KEYS)
+        keys.search.items = read_set(profile, SECTION, "SEARCHKEY", MAX_SEARCH_KEYS)
             .into_iter()
             .filter(|s| !s.is_empty())
             .collect();
-        keys.replace.items = read_set(profile, "REPLACEKEY", MAX_REPLACE_KEYS);
+        keys.replace.items = read_set(profile, SECTION, "REPLACEKEY", MAX_REPLACE_KEYS);
+        for (i, (section, name)) in OTHER_LISTS.into_iter().enumerate() {
+            let list = keys.other_mut(i);
+            // Sakura's Grep leaves "" in these lists; a blank line is not shown.
+            let items = read_set(profile, section, name, list.max);
+            list.items = items.into_iter().filter(|s| !s.is_empty()).collect();
+        }
         keys
     }
 
-    /// Writes `[Keys]` (the count and the strings), leaving the rest of the file alone. A string
+    /// Writes the lists (the count and the strings), leaving the rest of the file alone. A string
     /// the file format cannot hold (a line break) is skipped.
     pub fn write_to(&self, profile: &mut Profile) -> Result<(), ProfileError> {
-        write_set(profile, "SEARCHKEY", self.search.items())?;
-        write_set(profile, "REPLACEKEY", self.replace.items())
+        write_set(profile, SECTION, "SEARCHKEY", self.search.items())?;
+        write_set(profile, SECTION, "REPLACEKEY", self.replace.items())?;
+        for (i, (section, name)) in OTHER_LISTS.into_iter().enumerate() {
+            write_set(profile, section, name, self.other(i).items())?;
+        }
+        Ok(())
     }
 }
 
 /// `IOProfileDataSet`, reading: `_<name>_Counts` is the number of strings (limited to `max`); if
 /// it is missing all `max` places are read and the empty ones at the end are dropped.
-fn read_set(profile: &Profile, name: &str, max: usize) -> Vec<String> {
+fn read_set(profile: &Profile, section: &str, name: &str, max: usize) -> Vec<String> {
     let count_key = format!("_{name}_Counts");
-    let (count, missing) = match profile.get(SECTION, &count_key).and_then(parse_long) {
+    let (count, missing) = match profile.get(section, &count_key).and_then(parse_long) {
         Some(n) => (usize::try_from(n.max(0)).unwrap_or(0).min(max), false),
         None => (max, true),
     };
     let mut items: Vec<String> = (0..count)
         .map(|i| {
             profile
-                .get(SECTION, &format!("{name}[{i:02}]"))
+                .get(section, &format!("{name}[{i:02}]"))
                 .unwrap_or_default()
                 .to_owned()
         })
@@ -196,12 +329,17 @@ fn read_set(profile: &Profile, name: &str, max: usize) -> Vec<String> {
 }
 
 /// `IOProfileDataSet`, writing.
-fn write_set(profile: &mut Profile, name: &str, items: &[String]) -> Result<(), ProfileError> {
+fn write_set(
+    profile: &mut Profile,
+    section: &str,
+    name: &str,
+    items: &[String],
+) -> Result<(), ProfileError> {
     let items: Vec<&String> = items.iter().filter(|s| !s.contains(['\r', '\n'])).collect();
     let count = i32::try_from(items.len()).unwrap_or(i32::MAX);
-    profile.set_i32(SECTION, &format!("_{name}_Counts"), count)?;
+    profile.set_i32(section, &format!("_{name}_Counts"), count)?;
     for (i, item) in items.iter().enumerate() {
-        profile.set(SECTION, &format!("{name}[{i:02}]"), item)?;
+        profile.set(section, &format!("{name}[{i:02}]"), item)?;
     }
     Ok(())
 }
@@ -365,8 +503,10 @@ mod tests {
         keys.add_search("new");
         keys.write_to(&mut profile).unwrap();
         let out = String::from_utf8(profile.to_bytes()).unwrap();
-        assert!(out.starts_with("[Other]\r\nk=  v\r\n\r\n[Keys]\r\n"));
-        assert!(out.ends_with("\r\n[Last]\r\nz=1\r\n"));
+        // the keywords of the tag jump are written to [Other], after what was there
+        assert!(out.starts_with("[Other]\r\nk=  v\r\n"));
+        assert!(out.contains("\r\n[Keys]\r\n"));
+        assert!(out.contains("\r\n[Last]\r\nz=1\r\n"));
         assert_eq!(profile.get("Keys", "SEARCHKEY[00]"), Some("new"));
         assert_eq!(profile.get("Keys", "SEARCHKEY[01]"), Some("old"));
     }
@@ -380,5 +520,126 @@ mod tests {
         keys.write_to(&mut profile).unwrap();
         assert_eq!(profile.get("Keys", "_SEARCHKEY_Counts"), Some("1"));
         assert_eq!(profile.get("Keys", "SEARCHKEY[00]"), Some("ok"));
+    }
+
+    // ---- the Grep boxes and the tag jump keywords ----
+
+    #[test]
+    fn the_grep_boxes_ignore_case_and_the_search_strings_do_not() {
+        let mut keys = SearchKeys::default();
+        keys.add_grep_file("*.TXT");
+        keys.add_grep_file("*.rs");
+        // the same string in another case moves to the front and takes the new case
+        assert!(keys.add_grep_file("*.txt"));
+        assert_eq!(keys.grep_file.items(), ["*.txt", "*.rs"]);
+        // only the case differs from the first: the list still changes
+        assert!(keys.add_grep_file("*.TXT"));
+        assert_eq!(keys.grep_file.items(), ["*.TXT", "*.rs"]);
+        assert!(!keys.add_grep_file("*.TXT"));
+        keys.add_search("Abc");
+        keys.add_search("abc");
+        assert_eq!(keys.search.items(), ["abc", "Abc"]);
+        keys.add_tag_keyword("Main");
+        keys.add_tag_keyword("main");
+        assert_eq!(keys.tag_keyword.items(), ["main", "Main"]);
+    }
+
+    #[test]
+    fn the_limits_of_the_grep_boxes_and_the_keywords() {
+        let mut keys = SearchKeys::default();
+        for i in 0..40 {
+            keys.add_grep_folder(&format!("C:\\dir{i}"));
+            keys.add_exclude_file(&format!("x{i}"));
+            keys.add_exclude_folder(&format!("y{i}"));
+            keys.add_tag_keyword(&format!("k{i}"));
+        }
+        assert_eq!(keys.grep_folder.len(), 30);
+        assert_eq!(keys.exclude_file.len(), 30);
+        assert_eq!(keys.exclude_folder.len(), 30);
+        assert_eq!(keys.tag_keyword.len(), 30);
+        assert_eq!(keys.tag_keyword.newest(), Some("k39"));
+        assert_eq!(keys.tag_keyword.items()[29], "k10");
+        // MAX_GREP_PATH is 512, the keyword is _MAX_PATH
+        assert!(keys.add_grep_file(&"a".repeat(511)));
+        assert!(!keys.add_grep_file(&"a".repeat(512)));
+        assert!(keys.add_tag_keyword(&"a".repeat(259)));
+        assert!(!keys.add_tag_keyword(&"a".repeat(260)));
+    }
+
+    #[test]
+    fn an_empty_string_is_not_kept_in_the_grep_boxes() {
+        let mut keys = SearchKeys::default();
+        assert!(!keys.add_grep_file("") && !keys.add_grep_folder(""));
+        assert!(!keys.add_exclude_file("") && !keys.add_exclude_folder(""));
+        assert!(!keys.add_tag_keyword(""));
+    }
+
+    #[test]
+    fn the_grep_lists_have_sakuras_sections_and_keys() {
+        let mut keys = SearchKeys::default();
+        keys.add_grep_file("*.c");
+        keys.add_grep_file("*.h");
+        keys.add_grep_folder("C:\\src");
+        keys.add_exclude_file("*.obj");
+        keys.add_exclude_folder("Debug");
+        keys.add_tag_keyword("main");
+        let mut profile = Profile::new();
+        keys.write_to(&mut profile).unwrap();
+        assert_eq!(profile.get("Grep", "_GREPFILE_Counts"), Some("2"));
+        assert_eq!(profile.get("Grep", "GREPFILE[00]"), Some("*.h"));
+        assert_eq!(profile.get("Grep", "GREPFILE[01]"), Some("*.c"));
+        assert_eq!(profile.get("Grep", "GREPFOLDER[00]"), Some("C:\\src"));
+        assert_eq!(profile.get("Grep", "GREPEXCLUDEFILE[00]"), Some("*.obj"));
+        assert_eq!(profile.get("Grep", "_GREPEXCLUDEFOLDER_Counts"), Some("1"));
+        assert_eq!(profile.get("Grep", "GREPEXCLUDEFOLDER[00]"), Some("Debug"));
+        assert_eq!(profile.get("Other", "_TagJumpKeyword_Counts"), Some("1"));
+        assert_eq!(profile.get("Other", "TagJumpKeyword[00]"), Some("main"));
+        let back = Profile::from_bytes(&profile.to_bytes());
+        assert_eq!(SearchKeys::from_profile(&back), keys);
+    }
+
+    #[test]
+    fn a_sakura_file_with_grep_histories_is_read() {
+        let text = "[Grep]\r\n_GREPFILE_Counts=2\r\nGREPFILE[00]=*.cpp;*.h\r\nGREPFILE[01]=*.*\r\n\
+            GREPFOLDER[00]=C:\\work\r\nGREPFOLDER[01]=\r\n_GREPEXCLUDEFILE_Counts=2\r\n\
+            GREPEXCLUDEFILE[00]=\r\nGREPEXCLUDEFILE[01]=*.obj\r\n\
+            [Other]\r\nnExecFlgOpt=1\r\n_TagJumpKeyword_Counts=1\r\nTagJumpKeyword[00]=WinMain\r\n\
+            m_bTagJumpICase=1\r\n";
+        let keys = SearchKeys::from_profile(&Profile::from_bytes(text.as_bytes()));
+        assert_eq!(keys.grep_file.items(), ["*.cpp;*.h", "*.*"]);
+        // no count: the places are read and the empty ones at the end are dropped
+        assert_eq!(keys.grep_folder.items(), ["C:\\work"]);
+        // a blank line is not shown
+        assert_eq!(keys.exclude_file.items(), ["*.obj"]);
+        assert!(keys.exclude_folder.is_empty());
+        assert_eq!(keys.tag_keyword.items(), ["WinMain"]);
+    }
+
+    #[test]
+    fn the_grep_lists_leave_the_rest_of_the_file_alone() {
+        let text = "[Other]\r\nm_bTagJumpICase=1\r\n\r\n[Grep]\r\nGREPFILE[00]=old\r\n\r\n[Last]\r\nz=1\r\n";
+        let mut profile = Profile::from_bytes(text.as_bytes());
+        let mut keys = SearchKeys::from_profile(&profile);
+        keys.add_grep_file("new");
+        keys.add_tag_keyword("kw");
+        keys.write_to(&mut profile).unwrap();
+        assert_eq!(profile.get("Other", "m_bTagJumpICase"), Some("1"));
+        assert_eq!(profile.get("Grep", "GREPFILE[00]"), Some("new"));
+        assert_eq!(profile.get("Grep", "GREPFILE[01]"), Some("old"));
+        assert_eq!(profile.get("Last", "z"), Some("1"));
+    }
+
+    #[test]
+    fn merging_takes_in_the_grep_lists_too() {
+        let mut ours = SearchKeys::default();
+        ours.add_grep_folder("A");
+        ours.add_tag_keyword("local");
+        let mut theirs = SearchKeys::default();
+        theirs.add_grep_folder("a");
+        theirs.add_grep_folder("B");
+        theirs.add_tag_keyword("remote");
+        ours.merge_from(&theirs);
+        assert_eq!(ours.grep_folder.items(), ["B", "a"]);
+        assert_eq!(ours.tag_keyword.items(), ["remote", "local"]);
     }
 }

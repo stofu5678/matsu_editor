@@ -78,6 +78,9 @@ pub struct GrepSettings {
     pub paste: bool,
     /// バックアップ作成 (`m_bGrepBackup`, on by default).
     pub backup: bool,
+    /// 編集中のテキストから検索 (`m_bFromThisText`): the boxes of the files and the folders are
+    /// not used and the text of the window is searched. Off whenever the dialog opens.
+    pub from_this_text: bool,
 }
 
 impl Default for GrepSettings {
@@ -105,6 +108,7 @@ impl Default for GrepSettings {
             paste: false,
             // CShareData.cpp: sSearch.m_bGrepBackup = true
             backup: true,
+            from_this_text: false,
         }
     }
 }
@@ -141,6 +145,38 @@ impl GrepSettings {
     /// `GrepInfo`. The folders are made absolute and written back to the box.
     pub fn check(&mut self) -> Result<GrepInfo, DialogError> {
         self.check_boxes(None)
+    }
+
+    /// The OK button while 編集中のテキストから検索 is on (`CDlgGrep::GetData`): the file box
+    /// becomes `:HWND:` and the number of the document, the folder box is emptied, and only the
+    /// condition is checked. The excluded files and folders are cleared by the dialog when it
+    /// turns the option on. `document` is the id of the document in the window of the dialog.
+    pub fn check_from_this_text(&self, document: u64) -> Result<GrepInfo, DialogError> {
+        if !self.key.is_empty() && self.options.regex {
+            // `CheckRegexpSyntax`
+            if let Err(e) = build_matcher(&self.key, &self.options) {
+                return Err(DialogError {
+                    message: regex_error_message(&e),
+                    regex: true,
+                });
+            }
+        }
+        let mut info = self.info();
+        info.file = super::window::window_token(document);
+        info.folder.clear();
+        Ok(info)
+    }
+
+    /// The settings as the macro `Grep` should record them for a search of the document
+    /// `document`: the file box is its name, and no folder or exclusion is passed.
+    pub fn for_window(&self, document: u64) -> GrepSettings {
+        GrepSettings {
+            file: super::window::window_token(document),
+            folder: String::new(),
+            exclude_file: String::new(),
+            exclude_folder: String::new(),
+            ..self.clone()
+        }
     }
 
     /// The OK button of Grep 置換 (`CDlgGrepReplace::GetData`): the condition must not be empty,
@@ -234,6 +270,7 @@ impl GrepSettings {
             except_file_regex: self.except_file_regex,
             replace: None,
             mime_decode: false,
+            window: None,
         }
     }
 
@@ -408,6 +445,8 @@ impl GrepSettings {
             paste: false,
             // not an argument of `Grep`; `from_replace_macro_args` sets it from the flags
             backup: true,
+            // the file box of the macro says `:HWND:` itself
+            from_this_text: false,
         })
     }
 }

@@ -84,6 +84,7 @@ impl JumpContext {
                 };
                 Some(Place::File(TagTarget {
                     path,
+                    window: None,
                     line: Some(spot.line),
                     column: spot.column,
                 }))
@@ -98,6 +99,7 @@ impl JumpContext {
                 Some(match &self.file {
                     Some(path) => Place::File(TagTarget {
                         path: path.clone(),
+                        window: None,
                         line: Some(line),
                         column,
                     }),

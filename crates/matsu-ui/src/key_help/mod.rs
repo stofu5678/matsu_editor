@@ -464,6 +464,7 @@ impl EditorView {
         };
         let target = TagTarget {
             path: dict_path(&dict.path, ini_dir(cx).as_deref()),
+            window: None,
             line: Some(found.line),
             column: None,
         };
