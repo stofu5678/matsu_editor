@@ -7,15 +7,19 @@
 //! formats (`szWinCaptionActive`, `szWinCaptionInactive`): the title of a window is the format
 //! expanded by `ExpandParameter` ([`crate::file_names::title`]), the height of the ruler and the
 //! gaps under it and after the line numbers (`nRulerHeight`, `nRulerBottomSpace`,
-//! `nLineNumberRightSpace`, read with the rest of the view settings). Not available yet: the
-//! horizontal scroll bar (the view has none), the dark mode, the size and position of the window,
-//! the function keys and the language.
+//! `nLineNumberRightSpace`, read with the rest of the view settings). The button 位置と大きさの設定
+//! opens [`crate::win_size_dialog`], which edits the seven keys of the size and position of a new
+//! window ([`crate::saved_state::window`]); the page keeps them in controls that are not drawn.
+//! Not available yet: the horizontal scroll bar (the view has none), the dark mode, the function
+//! keys and the language.
 
 use gpui::{App, Global};
 
 use super::super::Env;
+use super::super::dialog::CommonSettingsDialog;
 use super::super::model::{Control, Item, Values};
 use crate::file_names::title::{CAPTION_ACTIVE, CAPTION_INACTIVE, TitleFormats};
+use crate::win_size_dialog::{self, WinSize};
 
 /// `IDC_SPIN_nRulerHeight_MIN` and `_MAX` (`sakura_core/_main/global.h`).
 const RULER_HEIGHT: (i32, i32) = (2, 32);
@@ -42,6 +46,64 @@ impl Global for SplitterSync {}
 /// The synchronized scrolling now.
 pub(crate) fn splitter_sync(cx: &App) -> SplitterSync {
     cx.try_global::<SplitterSync>().copied().unwrap_or_default()
+}
+
+/// The controls that hold the size and the position of a new window while the page is open:
+/// the id, the key of `[Common]` and Sakura's default (`CShareData::InitShareData`; a width or
+/// an X that was never stored is `CW_USEDEFAULT`).
+const WIN_SIZE_KEYS: [(&str, &str, i32); 7] = [
+    ("win_size_mode", "bSaveWindowSize", 1),
+    ("win_size_type", "nWinSizeType", 0),
+    ("win_size_cx", "nWinSizeCX", i32::MIN),
+    ("win_size_cy", "nWinSizeCY", 0),
+    ("win_pos_mode", "nSaveWindowPos", 0),
+    ("win_pos_x", "nWinPosX", i32::MIN),
+    ("win_pos_y", "nWinPosY", 0),
+];
+
+/// The values of the seven controls, as the dialog 位置と大きさの設定 gets them.
+fn win_size_of(values: &Values) -> WinSize {
+    WinSize {
+        size_mode: values.int("win_size_mode"),
+        size_type: values.int("win_size_type"),
+        width: values.int("win_size_cx"),
+        height: values.int("win_size_cy"),
+        pos_mode: values.int("win_pos_mode"),
+        x: values.int("win_pos_x"),
+        y: values.int("win_pos_y"),
+    }
+}
+
+/// `IDC_BUTTON_WINSIZE` (`CPropWin::DispatchEvent`): the dialog starts with the values of the
+/// page and gives them back when it is closed. The page takes them as they are; the file is
+/// written when OK is pressed.
+fn open_win_size(
+    dialog: &mut CommonSettingsDialog,
+    _: &mut gpui::Window,
+    cx: &mut gpui::Context<CommonSettingsDialog>,
+) {
+    let start = win_size_of(dialog.values());
+    let this = cx.entity().downgrade();
+    win_size_dialog::open(
+        cx,
+        start,
+        Box::new(move |app: &mut App, now: WinSize| {
+            this.update(app, |dialog, cx| {
+                for (id, value) in [
+                    ("win_size_mode", now.size_mode),
+                    ("win_size_type", now.size_type),
+                    ("win_size_cx", now.width),
+                    ("win_size_cy", now.height),
+                    ("win_pos_mode", now.pos_mode),
+                    ("win_pos_x", now.x),
+                    ("win_pos_y", now.y),
+                ] {
+                    dialog.set_int(id, value, cx);
+                }
+            })
+            .ok();
+        }),
+    );
 }
 
 fn funckey_bar_is_shown(values: &Values) -> bool {
@@ -89,9 +151,7 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                 vec![
                     Control::check("menu_icon", "アイコン付きメニュー(&I)", "bMenuIcon", true)
                         .into(),
-                    Control::button("win_size", "位置と大きさの設定(&W)...", |_, _, _| {})
-                        .unavailable()
-                        .into(),
+                    Control::button("win_size", "位置と大きさの設定(&W)...", open_win_size).into(),
                 ],
             ])],
         ),
@@ -184,6 +244,14 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                 ),
             ],
         ]),
+        // The size and the position of a new window, which the button 位置と大きさの設定 edits. A
+        // choice with no entries holds a number the dialog does not clamp.
+        Item::Hidden(
+            WIN_SIZE_KEYS
+                .into_iter()
+                .map(|(id, key, default)| Control::choice(id, "", key, default, &[]))
+                .collect(),
+        ),
         Item::Group(
             "タイトルバー",
             vec![
@@ -239,6 +307,22 @@ pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: O
                 funckey_group_num: after.int("funckey_group_num").clamp(1, 12) as usize,
             },
         );
+    }
+    // The windows that open from now on take the new size and position; those that are open keep
+    // what they have. Nothing is touched when nothing here changed, so what a window moved to
+    // while the dialog was open is not overwritten.
+    if before.is_some_and(|b| win_size_of(b) != win_size_of(after)) {
+        use crate::saved_state::window::SaveMode;
+        let new = win_size_of(after);
+        let mut state = crate::saved_state::window::state(env.cx);
+        state.size_mode = SaveMode::from_code(new.size_mode);
+        state.size_type = new.size_type;
+        state.width = new.width;
+        state.height = new.height;
+        state.pos_mode = SaveMode::from_code(new.pos_mode);
+        state.x = new.x;
+        state.y = new.y;
+        env.cx.set_global(state);
     }
     let shown = after.bool("disp_status_bar");
     if before.is_some_and(|b| b.bool("disp_status_bar") != shown) {

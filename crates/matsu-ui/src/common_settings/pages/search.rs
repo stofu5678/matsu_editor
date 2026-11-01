@@ -2,10 +2,12 @@
 //! (`sakura_core/prop/CPropComGrep.cpp`).
 //!
 //! Live: the word at the caret as the first search string, the question about saving when a Grep
-//! window is closed, and the two modes of the tags file search (`crate::tags::TagJumpPrefs`). Not
-//! available yet: taking the search condition of another view, the choice of the regular
-//! expression library (MATSU Editor has its own, `matsu-regex`), the display of the result while
-//! Grep runs, and the tag jump by the Enter key and the double click in the result of Grep.
+//! window is closed, the display of the result while Grep runs (`bGrepRealTime`), the tag jump by
+//! the Enter key and the double click in the result of Grep (`bGTJW_RETURN`, `bGTJW_LDBLCLK`), and
+//! the two modes of the tags file search (`crate::tags::TagJumpPrefs`). Not available: taking the
+//! search condition of another view (the search always takes it, so the box would change
+//! nothing) and the choice of the regular expression library (MATSU Editor has its own,
+//! `matsu-regex`).
 
 use super::super::Env;
 use super::super::model::{Control, Item, Values};
@@ -71,7 +73,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                     "bGrepRealTime",
                     false,
                 )
-                .unavailable()
                 .into(),
             ],
         ),
@@ -84,7 +85,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                     "bGTJW_RETURN",
                     true,
                 )
-                .unavailable()
                 .into(),
                 Control::check(
                     "gtjw_ldblclk",
@@ -92,7 +92,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                     "bGTJW_LDBLCLK",
                     true,
                 )
-                .unavailable()
                 .into(),
             ],
         ),
@@ -126,6 +125,9 @@ pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, _before: 
     env.cx.set_global(SearchPrefs {
         caret_text_for_search: after.bool("caret_text_for_search"),
         grep_exit_confirm: after.bool("grep_exit_confirm"),
+        grep_real_time: after.bool("grep_real_time"),
+        grep_enter_jumps: after.bool("gtjw_return"),
+        grep_double_click_jumps: after.bool("gtjw_ldblclk"),
     });
     let mode = |id: &str| u8::try_from(after.int(id)).unwrap_or(0);
     let (direct, keyword) = (mode("tag_jump_mode"), mode("tag_jump_mode_keyword"));

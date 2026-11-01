@@ -306,3 +306,130 @@ fn jump_and_close_asks_about_a_modified_document(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert_eq!(windows(cx), 2, "cancelled: the window stays");
 }
+
+// ---- Enter and the double click in the result of a Grep ----
+
+/// Makes the window a Grep window, as a finished search leaves it.
+fn make_grep_window(w: &Win, cx: &mut TestAppContext) {
+    w.view.update(cx, |view, cx| {
+        view.pretend_grep_running(cx);
+        view.stop_pretending_grep(cx);
+    });
+}
+
+fn set_grep_jumps(cx: &mut TestAppContext, enter: bool, double_click: bool) {
+    cx.update(|app| {
+        app.set_global(crate::search::prefs::SearchPrefs {
+            grep_enter_jumps: enter,
+            grep_double_click_jumps: double_click,
+            ..Default::default()
+        })
+    });
+}
+
+#[gpui::test]
+fn enter_in_the_result_of_a_grep_is_a_tag_jump(cx: &mut TestAppContext) {
+    let (_dir, out) = project(|t| format!("{t}(2,3): two\n"));
+    let w = with_file(cx, &out);
+    make_grep_window(&w, cx);
+    set_grep_jumps(cx, true, true);
+    w.cx(cx).simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert_eq!(windows(cx), 2);
+    assert_eq!(newest(cx).caret(cx), Pos::new(1, 2));
+    // no line break was typed in the result
+    let lines = w
+        .view
+        .read_with(cx, |v, app| v.document().read(app).doc().line_count());
+    assert_eq!(lines, 1, "no line break was typed");
+}
+
+#[gpui::test]
+fn enter_types_a_line_break_when_the_option_is_off(cx: &mut TestAppContext) {
+    let (_dir, out) = project(|t| format!("{t}(2,3): two\n"));
+    let w = with_file(cx, &out);
+    make_grep_window(&w, cx);
+    set_grep_jumps(cx, false, true);
+    w.cx(cx).simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert_eq!(windows(cx), 1);
+    let lines = w
+        .view
+        .read_with(cx, |v, app| v.document().read(app).doc().line_count());
+    assert_eq!(lines, 2);
+}
+
+#[gpui::test]
+fn enter_in_a_window_that_is_not_a_grep_result_types_a_line_break(cx: &mut TestAppContext) {
+    let (_dir, out) = project(|t| format!("{t}(2,3): two\n"));
+    let w = with_file(cx, &out);
+    set_grep_jumps(cx, true, true);
+    w.cx(cx).simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert_eq!(windows(cx), 1);
+}
+
+#[gpui::test]
+fn a_double_click_in_the_result_of_a_grep_is_a_tag_jump(cx: &mut TestAppContext) {
+    let (_dir, out) = project(|t| format!("{t}(2,3): two\n"));
+    let w = with_file(cx, &out);
+    make_grep_window(&w, cx);
+    set_grep_jumps(cx, true, true);
+    double_click_on_row(&w, cx, 0);
+    assert_eq!(windows(cx), 2);
+    assert_eq!(newest(cx).caret(cx), Pos::new(1, 2));
+}
+
+#[gpui::test]
+fn a_double_click_selects_a_word_when_the_option_is_off(cx: &mut TestAppContext) {
+    let (_dir, out) = project(|t| format!("{t}(2,3): two\n"));
+    let w = with_file(cx, &out);
+    make_grep_window(&w, cx);
+    set_grep_jumps(cx, true, false);
+    double_click_on_row(&w, cx, 0);
+    assert_eq!(windows(cx), 1);
+    assert!(w.view.read_with(cx, |v, _| v.cursor().has_selection()));
+}
+
+#[gpui::test]
+fn a_double_click_on_a_line_that_names_nothing_selects_a_word(cx: &mut TestAppContext) {
+    // `OnLBUTTONDBLCLK`: when the jump fails the ordinary double click goes on.
+    let (_dir, out) = project(|_| "nothing here\n".to_owned());
+    let w = with_file(cx, &out);
+    make_grep_window(&w, cx);
+    set_grep_jumps(cx, true, true);
+    double_click_on_row(&w, cx, 0);
+    assert_eq!(windows(cx), 1);
+    assert!(w.view.read_with(cx, |v, _| v.cursor().has_selection()));
+}
+
+/// A double click on the first cells of a row of the window.
+fn double_click_on_row(w: &Win, cx: &mut TestAppContext, row: usize) {
+    use gpui::{Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, point, px};
+    let vcx = w.cx(cx);
+    vcx.run_until_parked();
+    let at = w.view.read_with(vcx, |v, _| {
+        let paint = v.paint.expect("the window was painted");
+        let m = v.metrics;
+        point(
+            px(paint.origin_x + 1.1 * m.cell_width),
+            px(paint.origin_y + (row as f32 + 0.5) * m.line_height - v.scroll_y),
+        )
+    });
+    for count in 1..=2 {
+        vcx.simulate_event(MouseDownEvent {
+            button: MouseButton::Left,
+            position: at,
+            modifiers: Modifiers::default(),
+            click_count: count,
+            first_mouse: false,
+        });
+        vcx.simulate_event(MouseUpEvent {
+            button: MouseButton::Left,
+            position: at,
+            modifiers: Modifiers::default(),
+            click_count: count,
+        });
+    }
+    cx.run_until_parked();
+}

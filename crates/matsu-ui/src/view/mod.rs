@@ -25,7 +25,7 @@ mod held_buttons;
 mod input;
 mod lines;
 pub(crate) mod minimap;
-mod mouse;
+pub(crate) mod mouse;
 pub(crate) mod paging;
 pub(crate) mod pane;
 mod ruler;
@@ -822,6 +822,16 @@ impl EditorView {
             Lookup::Unbound => {
                 // Enter has no binding in Sakura's table; the window types it (`F_WCHAR` with '\r').
                 let plain = !chord.mods.ctrl && !chord.mods.alt && !chord.mods.meta;
+                // In the result of a Grep the line break is a tag jump instead (Ctrl: and the window
+                // the jump started from closes), unless the setting is off.
+                if chord.key == Key::Enter
+                    && !chord.mods.alt
+                    && !chord.mods.meta
+                    && self.grep_enter_jump(chord.mods.ctrl, window, cx)
+                {
+                    cx.stop_propagation();
+                    return;
+                }
                 let typed = match chord.key {
                     Key::Enter if plain => Some('\r'),
                     _ => None,

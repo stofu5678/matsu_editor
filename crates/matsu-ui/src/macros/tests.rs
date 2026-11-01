@@ -1368,3 +1368,84 @@ fn replacing_the_document_does_not_leave_the_other_pane_busy(cx: &mut TestAppCon
     cx.run_until_parked();
     assert_eq!(f.lines(cx), ["A新"]);
 }
+
+// ---- the wait before the question about stopping a script ----
+
+fn start_waiting_script(
+    cx: &mut TestAppContext,
+    wait: u32,
+) -> Option<(Fixture, &mut VisualTestContext, tempfile::TempDir)> {
+    if !available(Language::JavaScript) {
+        return None;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = write(dir.path(), "wait.cjs", "setInterval(() => {}, 1000);\n");
+    let (f, cx) = setup(cx, "");
+    cx.update(|_, app| app.set_global(super::CancelWait(wait)));
+    f.run(cx, F_EXECEXTMACRO, &[text_arg(&path)]);
+    assert!(f.running(cx));
+    Some((f, cx, dir))
+}
+
+#[gpui::test]
+fn the_window_asks_whether_to_stop_a_script_after_the_wait(cx: &mut TestAppContext) {
+    let Some((f, cx, _dir)) = start_waiting_script(cx, 3) else {
+        return;
+    };
+    // `AbortMacroProc` waits `nMacroCancelTimer` seconds before it shows the dialog.
+    cx.executor().advance_clock(Duration::from_secs(2));
+    cx.run_until_parked();
+    assert!(!cx.has_pending_prompt(), "not yet");
+    cx.executor().advance_clock(Duration::from_secs(2));
+    cx.run_until_parked();
+    assert!(cx.has_pending_prompt());
+    let (message, _) = cx.pending_prompt().unwrap();
+    assert!(message.contains("マクロ実行中"), "{message}");
+    cx.simulate_prompt_answer("キャンセル");
+    f.wait_until_done(cx);
+    assert!(f.output(cx).contains("中断しました"), "{}", f.output(cx));
+}
+
+#[gpui::test]
+fn answering_continue_leaves_the_script_running(cx: &mut TestAppContext) {
+    let Some((f, cx, _dir)) = start_waiting_script(cx, 1) else {
+        return;
+    };
+    cx.executor().advance_clock(Duration::from_secs(2));
+    cx.run_until_parked();
+    assert!(cx.has_pending_prompt());
+    cx.simulate_prompt_answer("続ける");
+    cx.run_until_parked();
+    assert!(f.running(cx));
+    f.view.update(cx, |v, cx| v.cancel_macro(cx));
+    f.wait_until_done(cx);
+}
+
+#[gpui::test]
+fn a_wait_of_zero_never_asks(cx: &mut TestAppContext) {
+    // `0 < nCancelTimer` starts the thread of the dialog.
+    let Some((f, cx, _dir)) = start_waiting_script(cx, 0) else {
+        return;
+    };
+    cx.executor().advance_clock(Duration::from_secs(3600));
+    cx.run_until_parked();
+    assert!(!cx.has_pending_prompt());
+    f.view.update(cx, |v, cx| v.cancel_macro(cx));
+    f.wait_until_done(cx);
+}
+
+#[gpui::test]
+fn a_script_that_ended_is_not_asked_about(cx: &mut TestAppContext) {
+    if !available(Language::JavaScript) {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = write(dir.path(), "edit.cjs", JS_EDIT);
+    let (f, cx) = setup(cx, "world");
+    cx.update(|_, app| app.set_global(super::CancelWait(1)));
+    f.run(cx, F_EXECEXTMACRO, &[text_arg(&path)]);
+    f.wait_until_done(cx);
+    cx.executor().advance_clock(Duration::from_secs(5));
+    cx.run_until_parked();
+    assert!(!cx.has_pending_prompt());
+}

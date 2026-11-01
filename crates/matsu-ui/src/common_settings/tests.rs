@@ -672,20 +672,16 @@ fn a_number_in_the_file_that_is_too_large_is_put_into_range_by_ok(cx: &mut TestA
 
 #[gpui::test]
 fn what_is_not_available_is_shown_but_never_written(cx: &mut TestAppContext) {
-    let (ini, handle) = setup(cx, "[Common]\r\nNoCaretMoveByActivation=1\r\n");
+    let (ini, handle) = setup(cx, "[Common]\r\nbTaskTrayUse=0\r\n");
     run(cx, handle, "F_OPTION_GENERAL");
     // The value of the file is shown, and a click does nothing.
-    assert!(with_dialog(cx, |d, _, _| d
-        .values()
-        .bool("no_move_activate_by_mouse")));
-    check(cx, "no_move_activate_by_mouse", false);
-    assert!(with_dialog(cx, |d, _, _| d
-        .values()
-        .bool("no_move_activate_by_mouse")));
-    assert!(!with_dialog(cx, |d, w, dcx| d.use_access_key('o', w, dcx)));
+    assert!(!with_dialog(cx, |d, _, _| d.values().bool("use_tray_icon")));
+    check(cx, "use_tray_icon", true);
+    assert!(!with_dialog(cx, |d, _, _| d.values().bool("use_tray_icon")));
+    assert!(!with_dialog(cx, |d, w, dcx| d.use_access_key('t', w, dcx)));
     ok(cx);
-    assert_eq!(ini.get("NoCaretMoveByActivation").as_deref(), Some("1"));
-    assert_eq!(ini.get("bTaskTrayUse"), None);
+    assert_eq!(ini.get("bTaskTrayUse").as_deref(), Some("0"));
+    assert_eq!(ini.get("bTaskTrayStay"), None);
     assert_eq!(ini.get("bVistaStyleFileDialog"), None);
 }
 

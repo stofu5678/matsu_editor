@@ -95,6 +95,48 @@ impl EditorView {
 }
 
 impl EditorView {
+    /// Enter in the result of a Grep when 「エンターキーでタグジャンプ」 is on
+    /// (`CEditView::TranslateCommand_grep`: the line break of `F_WCHAR` becomes `F_TAGJUMP`, and
+    /// Ctrl closes the window the jump started from). Returns whether the key was taken.
+    pub(crate) fn grep_enter_jump(
+        &mut self,
+        close: bool,
+        window: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.is_grep_window() || !crate::search::prefs::prefs(cx).grep_enter_jumps {
+            return false;
+        }
+        super::start(window, cx, async move |view, cx| {
+            tag_jump(&view, cx, close).await;
+        });
+        true
+    }
+
+    /// A double click in the result of a Grep when 「ダブルクリックでタグジャンプ」 is on
+    /// (`CEditView::OnLBUTTONDBLCLK`). Sakura jumps by the line, then by the tags file, and does
+    /// the ordinary double click when both fail. The tags file is searched in the background here,
+    /// so the double click can only fall back when the line itself names no place: returns whether
+    /// the line did and the jump started.
+    pub(crate) fn grep_double_click_jump(
+        &mut self,
+        window: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.is_grep_window() || !crate::search::prefs::prefs(cx).grep_double_click_jumps {
+            return false;
+        }
+        let Some(target) = target_of(self, cx) else {
+            return false;
+        };
+        super::start(window, cx, async move |view, cx| {
+            jump_to_target(&view, cx, &target, false).await;
+        });
+        true
+    }
+}
+
+impl EditorView {
     /// A click on a line of the output panel that names a place of an SQL file (ADR-0023): the
     /// same jump as a tag jump (`F_TAGJUMPBACK` comes back), or a move of the caret in this
     /// window when the SQL has no file.

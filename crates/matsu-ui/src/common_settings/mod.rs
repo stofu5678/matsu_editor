@@ -45,12 +45,12 @@ use gpui::{
 use gpui_component::Root;
 use matsu_config::Profile;
 
-pub(crate) use dialog::{CommonSettingsDialog, SheetPage};
+pub(crate) use dialog::{CommonSettingsDialog, SheetPage, parse_signed_number};
 #[cfg(test)]
-pub(crate) use pages::general::{CloseConfirm, ScrollOptions};
+pub(crate) use pages::general::{CloseConfirm, NoCaretMoveByActivation, ScrollOptions};
 pub(crate) use pages::general::{
     WHEEL_CONTROL_KEY, WHEEL_MIDDLE_BUTTON, WHEEL_SHIFT_KEY, WHEEL_SIDE_BUTTON_1,
-    WHEEL_SIDE_BUTTON_2, close_confirm, scroll_options,
+    WHEEL_SIDE_BUTTON_2, close_confirm, no_caret_move_by_activation, scroll_options,
 };
 pub(crate) use pages::window::splitter_sync;
 
@@ -263,6 +263,7 @@ fn start_profile(cx: &mut App, opener: Option<AnyWindowHandle>) -> Profile {
     let tabs = crate::tabs::settings::current(cx);
     crate::bars::put_into(&mut profile, crate::bars::current(cx));
     crate::minimap::put_into(&mut profile, crate::minimap::current(cx));
+    crate::saved_state::window::state(cx).put_into(&mut profile);
     let mut put = |key: &str, on: bool| {
         // A key that cannot be written to the copy is left as the file has it.
         let _ = profile.set(model::SECTION, key, if on { "1" } else { "0" });
@@ -363,5 +364,7 @@ mod tests_more_pages;
 mod tests_names;
 #[cfg(test)]
 mod tests_polish;
+#[cfg(test)]
+mod tests_small;
 #[cfg(test)]
 mod tests_table;

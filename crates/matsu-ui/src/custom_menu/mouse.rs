@@ -77,6 +77,9 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.activating_click(event, window, cx) {
+            return;
+        }
         window.focus(&self.focus_handle, cx);
         self.autoscroll_button_pressed(MouseButton::Right);
         self.hide_key_help(cx);

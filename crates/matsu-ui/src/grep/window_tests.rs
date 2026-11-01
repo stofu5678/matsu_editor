@@ -932,3 +932,92 @@ fn a_dialog_taller_than_the_window_scrolls_inside_the_window(cx: &mut TestAppCon
         gpui::px(0.)
     );
 }
+
+// ---- the display of the result while the search runs ----
+
+fn feed(f: &Fixture, cx: &mut VisualTestContext, event: super::window::Event) {
+    f.view.update(cx, |view, cx| {
+        view.grep_event(event, cx);
+    });
+}
+
+fn done() -> super::window::Event {
+    super::window::Event::Done(Ok(super::engine::Outcome {
+        hits: 2,
+        stopped: false,
+    }))
+}
+
+#[gpui::test]
+fn the_result_is_written_when_the_search_ends_if_real_time_is_off(cx: &mut TestAppContext) {
+    // `SetDrawSwitch(m_bGrepRealTimeView)` in `CGrepAgent::DoGrep`: off by default.
+    let (f, cx) = setup(cx);
+    f.view.update(cx, |view, cx| view.pretend_grep_running(cx));
+    feed(&f, cx, super::window::Event::Text("one\r\n".into()));
+    feed(&f, cx, super::window::Event::Text("two\r\n".into()));
+    assert_eq!(text_of(&f.view, cx), "", "nothing is shown while it runs");
+    feed(&f, cx, done());
+    assert_eq!(text_of(&f.view, cx), "one\r\ntwo\r\n");
+    assert!(!f.modified(cx), "the text counts as not changed");
+}
+
+#[gpui::test]
+fn the_result_is_written_at_once_if_real_time_is_on(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    f.view.update(cx, |view, cx| view.pretend_grep_running(cx));
+    f.view
+        .update(cx, |view, cx| view.set_grep_real_time(true, cx));
+    feed(&f, cx, super::window::Event::Text("one\r\n".into()));
+    assert_eq!(text_of(&f.view, cx), "one\r\n");
+    feed(&f, cx, done());
+    assert_eq!(text_of(&f.view, cx), "one\r\n");
+}
+
+#[gpui::test]
+fn turning_real_time_on_during_the_search_shows_what_was_held(cx: &mut TestAppContext) {
+    // The check box of the bar that stops the search (`ApplyRealTimeView`).
+    let (f, cx) = setup(cx);
+    f.view.update(cx, |view, cx| view.pretend_grep_running(cx));
+    feed(&f, cx, super::window::Event::Text("one\r\n".into()));
+    assert_eq!(text_of(&f.view, cx), "");
+    f.view
+        .update(cx, |view, cx| view.set_grep_real_time(true, cx));
+    assert_eq!(text_of(&f.view, cx), "one\r\n");
+    feed(&f, cx, super::window::Event::Text("two\r\n".into()));
+    assert_eq!(text_of(&f.view, cx), "one\r\ntwo\r\n");
+}
+
+#[gpui::test]
+fn a_search_that_is_stopped_still_shows_what_it_found(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    f.view.update(cx, |view, cx| view.pretend_grep_running(cx));
+    feed(&f, cx, super::window::Event::Text("one\r\n".into()));
+    feed(
+        &f,
+        cx,
+        super::window::Event::Done(Ok(super::engine::Outcome {
+            hits: 1,
+            stopped: true,
+        })),
+    );
+    assert_eq!(text_of(&f.view, cx), "one\r\n");
+}
+
+#[gpui::test]
+fn a_real_search_follows_the_setting_of_the_common_settings(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    let p = Project::new();
+    cx.update(|_, app| {
+        app.set_global(crate::search::prefs::SearchPrefs {
+            grep_real_time: true,
+            ..Default::default()
+        })
+    });
+    f.view.update_in(cx, |view, window, cx| {
+        view.start_grep(p.settings("hit").info(), false, window, cx);
+    });
+    // The search takes the setting when it begins.
+    assert!(f.view.read_with(cx, |v, _| v.grep_real_time()));
+    settle(cx);
+    assert!(text_of(&f.view, cx).contains("hit"));
+}

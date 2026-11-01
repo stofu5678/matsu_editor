@@ -16,9 +16,11 @@
 //! Not available here (shown greyed out, never written):
 //!
 //! * `Pythonフォルダー`: the macro host finds its Python itself (ADR-0007).
-//! * `キャンセル確認待ち時間`: Sakura waits that many seconds and then asks whether to stop a
-//!   Windows Script Host macro (`CWSH`). A macro here has the button 中止 in its panel from the
-//!   start, so there is no wait to set.
+//!
+//! `キャンセル確認待ち時間` (`nMacroCancelTimer`) is live: Sakura waits that many seconds and then
+//! shows the cancel dialog for a Windows Script Host macro (`CWSH`, `AbortMacroProc`); a script
+//! here is asked about the same way ([`crate::macros::CancelWait`]). The panel has the button 中止
+//! from the start as well.
 //!
 //! The file box is an edit box, not a drop-down list of the files of the macro folder.
 
@@ -83,7 +85,6 @@ pub(in crate::common_settings) fn items() -> Option<Vec<Item>> {
                 9999,
             )
             .in_section("Macro")
-            .unavailable()
             .into(),
             Item::Label("秒"),
         ]),
@@ -104,8 +105,11 @@ pub(in crate::common_settings) fn items() -> Option<Vec<Item>> {
 }
 
 /// What OK does to the windows. The settings are the new ones when this runs, and a macro is
-/// found in them each time it runs, so there is nothing to tell the windows.
-pub(in crate::common_settings) fn apply(_env: &mut Env, _after: &Values, _before: Option<&Values>) {
+/// found in them each time it runs; the wait before the question about stopping a script is kept
+/// for the windows.
+pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, _before: Option<&Values>) {
+    let seconds = u32::try_from(after.int("macro_cancel_timer")).unwrap_or(0);
+    env.cx.set_global(crate::macros::CancelWait(seconds));
 }
 
 #[cfg(test)]

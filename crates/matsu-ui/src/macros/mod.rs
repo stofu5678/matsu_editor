@@ -76,6 +76,27 @@ pub(crate) const F_WCHAR: u16 = 30200;
 /// `F_EXECEXTMACRO`.
 pub(crate) const F_EXECEXTMACRO: u16 = 31254;
 
+/// How many seconds a script runs before the window asks whether to stop it
+/// (`m_nMacroCancelTimer`, `nMacroCancelTimer` of `[Macro]`; 10 by default; 0 never asks).
+/// Sakura starts the timer for a macro of the Windows Script Host (`CWSHClient::Execute`) and then
+/// shows the cancel dialog (`IDD_MACRORUNNING`); here the script runs in the macro host and the
+/// panel has the button 中止 from the start, so the question is a box with the same two answers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct CancelWait(pub u32);
+
+impl Default for CancelWait {
+    fn default() -> Self {
+        Self(10)
+    }
+}
+
+impl Global for CancelWait {}
+
+/// The wait now, in seconds.
+pub(crate) fn cancel_wait(cx: &App) -> u32 {
+    cx.try_global::<CancelWait>().copied().unwrap_or_default().0
+}
+
 /// The key macro that `F_EXECKEYMACRO` plays.
 #[derive(Clone, Debug)]
 pub(crate) enum CurrentMacro {
@@ -903,6 +924,7 @@ impl EditorView {
             timeout_text,
         });
         self.macros.suspended = true;
+        self.ask_to_stop_after_wait(window, cx);
         // The host's threads send events; each one is handled here, on the UI thread, in order.
         // The script belongs to the tab it started in, not to the window: the events go to the
         // window that shows the tab now.
@@ -925,6 +947,50 @@ impl EditorView {
         .detach();
         cx.notify();
         Ok(())
+    }
+
+    /// After the wait of 「キャンセル確認待ち時間」 asks whether to stop the script that just
+    /// started, if it still runs (`AbortMacroProc`). The answer is ignored when the script has
+    /// ended meanwhile.
+    fn ask_to_stop_after_wait(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let seconds = cancel_wait(cx);
+        if seconds == 0 {
+            return;
+        }
+        let serial = self.macros.serial;
+        cx.spawn_in(window, async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_secs(u64::from(seconds)))
+                .await;
+            let answer = this
+                .update_in(cx, |view, window, cx| {
+                    let running = view.macros.serial == serial && view.macros.running.is_some();
+                    let name = view.macros.running.as_ref()?.name.clone();
+                    running.then(|| {
+                        crate::boxes::prompt(
+                            window,
+                            gpui::PromptLevel::Info,
+                            "マクロ実行中・・・",
+                            Some(&name),
+                            &["キャンセル", "続ける"],
+                            cx,
+                        )
+                    })
+                })
+                .ok()
+                .flatten();
+            if let Some(answer) = answer
+                && let Ok(0) = answer.await
+            {
+                this.update(cx, |view, cx| {
+                    if view.macros.serial == serial && view.macros.running.is_some() {
+                        view.cancel_macro(cx);
+                    }
+                })
+                .ok();
+            }
+        })
+        .detach();
     }
 
     fn on_host_event(&mut self, event: HostEvent, window: &mut Window, cx: &mut Context<Self>) {

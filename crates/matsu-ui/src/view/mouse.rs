@@ -13,7 +13,9 @@
 //! * a press in the line number column selects the row, and the drag selects rows;
 //! * a press in the selection waits for the pointer to move, and then drags the text to move it,
 //!   or with Ctrl to copy it (`bUseOLE_DragDrop`, `bUseOLE_DropSource`);
-//! * the side buttons run the functions of their rows.
+//! * the side buttons run the functions of their rows;
+//! * the click that activates the window only activates it when 「マウスクリックでのアクティブ化では
+//!   カーソルを移動しない」 is on ([`EditorView::activating_click`]).
 //!
 //! The selections themselves are made by `matsu_commands::context` (`mouse.rs`, `mouse_drop.rs`),
 //! where they are tested without a window; this file turns the events into calls.
@@ -34,6 +36,34 @@ use crate::hit::position_at;
 const F_SELECTWORD: u16 = 30400;
 /// `F_SELECTLINE`, the default of the triple click.
 const F_SELECTLINE: u16 = 30403;
+
+/// How long after the window became active a press still counts as the click that activated it.
+/// GPUI on Windows does not say which click activated the window (`MouseDownEvent::first_mouse`
+/// is only set on macOS and Wayland); the activation and the press come one right after the other.
+const ACTIVATING_CLICK_WINDOW: std::time::Duration = std::time::Duration::from_millis(150);
+
+/// When each window became active last, and whether a press has used it.
+#[derive(Default)]
+struct Activations(std::collections::HashMap<gpui::WindowId, Option<std::time::Instant>>);
+
+impl gpui::Global for Activations {}
+
+/// The window became active (`WM_ACTIVATE`): the next press is the click that activated it, if it
+/// comes at once.
+pub(crate) fn window_activated(cx: &mut gpui::App, window: gpui::WindowId) {
+    cx.default_global::<Activations>()
+        .0
+        .insert(window, Some(std::time::Instant::now()));
+}
+
+/// Whether a press now is the click that activated its window. It is so once for each activation.
+fn take_activation(cx: &mut gpui::App, window: gpui::WindowId) -> bool {
+    cx.default_global::<Activations>()
+        .0
+        .get_mut(&window)
+        .and_then(Option::take)
+        .is_some_and(|at| at.elapsed() <= ACTIVATING_CLICK_WINDOW)
+}
 
 /// How far the pointer has to move (in pixels, in each direction) from a press in the selection
 /// before the text is dragged. Windows' `DragDetect` uses `SM_CXDRAG` (4 by default).
@@ -141,12 +171,29 @@ impl EditorView {
         }
     }
 
+    /// A press of a button when the setting 「マウスクリックでのアクティブ化ではカーソルを移動しない」
+    /// is on and the window was not active: the press only activates the window, as
+    /// `WM_MOUSEACTIVATE` of `CEditView::DispatchEvent` eats it (`MA_ACTIVATEANDEAT`).
+    /// Returns whether the press is eaten. The press is a mark of this activation either way.
+    pub(crate) fn activating_click(
+        &self,
+        event: &MouseDownEvent,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let used = take_activation(cx, window.window_handle().window_id());
+        (event.first_mouse || used) && crate::common_settings::no_caret_move_by_activation(cx)
+    }
+
     pub(crate) fn on_mouse_down(
         &mut self,
         event: &MouseDownEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.activating_click(event, window, cx) {
+            return;
+        }
         window.focus(&self.focus_handle, cx);
         self.autoscroll_button_pressed(MouseButton::Left);
         self.hide_key_help(cx);
@@ -257,6 +304,13 @@ impl EditorView {
         if self.cursor.caret() != pos || self.cursor.has_selection() {
             self.run_with(cx, |command_cx| command_cx.move_caret(pos, false))
                 .ok();
+        }
+        // In the result of a Grep the double click jumps to the place the line names
+        // (`OnLBUTTONDBLCLK`, after the URL).
+        if !after_quad && self.grep_double_click_jump(window, cx) {
+            self.drag = Drag::None;
+            self.click_phase = 2;
+            return;
         }
         if code != 0 {
             self.run_function(code, &[], window, cx);
