@@ -69,6 +69,18 @@ impl Place {
         SearchDirs::new(&self.settings(), None)
     }
 
+    /// The user agrees to the files as they are now.
+    fn agree(&self) {
+        let dirs = self.dirs();
+        let def = dirs.load_def("Events", DEFAULT_LANGUAGE).unwrap();
+        let files = fingerprint(&dirs.plugin_dir("Events").unwrap()).unwrap();
+        let mut consent = ConsentFile::default();
+        consent
+            .enable(&def.id, "Events", &files, "2026-11-02")
+            .unwrap();
+        consent.save(&dirs.consent_file()).unwrap();
+    }
+
     /// The user turned plugins on and agreed to this one.
     fn enable(&self, cx: &mut VisualTestContext) {
         let dirs = self.dirs();
@@ -87,12 +99,7 @@ impl Place {
         let mut profile = Profile::new();
         settings.store(&mut profile).unwrap();
         profile.save(&self.settings()).unwrap();
-        let files = fingerprint(&dirs.plugin_dir("Events").unwrap()).unwrap();
-        let mut consent = ConsentFile::default();
-        consent
-            .enable(&def.id, "Events", &files, "2026-11-02")
-            .unwrap();
-        consent.save(&dirs.consent_file()).unwrap();
+        self.agree();
         let user = UserSettings::from_profile(profile, Some(self.settings()));
         cx.update(|_, app| app.set_global(user));
     }
@@ -682,4 +689,27 @@ fn the_exit_is_restarted_by_what_the_user_typed_while_close_handlers_ran(cx: &mu
         return;
     };
     assert!(edited);
+}
+
+#[gpui::test]
+fn a_call_that_waited_does_not_run_when_the_plugin_no_longer_declares_the_jack(
+    cx: &mut TestAppContext,
+) {
+    second_waits(cx, |place, _| {
+        // The plugin is changed so that it does not use DocumentOpen, and the user agrees again; the
+        // handler file stays in the folder.
+        let def = place
+            .dirs()
+            .plugin_dir("Events")
+            .unwrap()
+            .join("plugin.def");
+        let text = fs::read_to_string(&def).unwrap();
+        let text: String = text
+            .lines()
+            .filter(|line| !line.starts_with("DocumentOpen="))
+            .map(|line| format!("{line}\n"))
+            .collect();
+        fs::write(&def, text).unwrap();
+        place.agree();
+    });
 }

@@ -330,7 +330,9 @@ impl Prepared {
     /// files as they are at the moment the handler runs (ADR-0026). `None`: it must not run.
     pub(crate) fn refresh(self, cx: &mut App, dirs: &SearchDirs) -> Option<Prepared> {
         let (jack, handler) = self.plug?;
-        prepare(cx, dirs, &self.folder, Target::Event { jack, handler }).ok()
+        let fresh = prepare(cx, dirs, &self.folder, Target::Event { jack, handler }).ok()?;
+        // The same plugin as the one the call was made for (the folder may hold another one now).
+        (fresh.id == self.id).then_some(fresh)
     }
 
     /// The host of the plugin has a call going (on another window): `run` would be refused.
@@ -487,6 +489,15 @@ fn prepare(
             ("Command", handler, command, false)
         }
         Target::Event { jack, handler } => {
+            // The plug must be in the definition as it is now: a plugin that was changed and agreed to
+            // again does not keep the automatic runs it no longer declares.
+            if !def
+                .plugs
+                .iter()
+                .any(|plug| plug.jack == jack && plug.handler == handler)
+            {
+                return Err("このプラグインは、このジャックを使わなくなりました".into());
+            }
             event_plug = Some((jack, handler.clone()));
             (jack.name(), handler, 0, true)
         }
