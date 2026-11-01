@@ -165,8 +165,10 @@ impl Workspace {
                 .child(text.size_full())
                 .child(
                     // over the text, at the right: a bar at its left edge sizes it
+                    // (it hides what it covers from the mouse: a click is the pane's)
                     div()
                         .absolute()
+                        .occlude()
                         .top(px(0.))
                         .right(px(0.))
                         .w(px(size + BAR))

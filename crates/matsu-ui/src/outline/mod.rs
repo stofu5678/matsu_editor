@@ -225,7 +225,10 @@ impl Workspace {
             return;
         }
         let active = self.panes().active().clone();
-        let index = active.read(cx).view_settings().type_index;
+        let index = self
+            .outline_restore_type
+            .take()
+            .unwrap_or_else(|| active.read(cx).view_settings().type_index);
         let place = dock::current(cx).place(index);
         if !(place.disp && place.side.is_docked()) {
             return;

@@ -501,6 +501,9 @@ pub struct Workspace {
     pub(crate) outline: Option<Entity<crate::outline::pane::OutlinePane>>,
     /// Where the pane and the text are as of the last paint, and the drag of the bar between them.
     pub(crate) outline_layout: crate::outline::layout::OutlineLayout,
+    /// The type of the file a new window is loading, until the outline is restored: the document
+    /// has the basic type until its file is read (`crate::outline::Workspace::restore_outline`).
+    pub(crate) outline_restore_type: Option<usize>,
     pub(crate) menu_bar: Entity<MenuBar>,
     /// The search box of the toolbar (`F_SEARCH_BOX`), shown where the toolbar has it.
     pub(crate) search_box: Entity<crate::bars::search_box::SearchBox>,
@@ -533,6 +536,7 @@ impl Workspace {
             tabs: crate::tabs::Tabs::new(),
             outline: None,
             outline_layout: Default::default(),
+            outline_restore_type: None,
             menu_bar: MenuBar::new(cx),
             search_box: crate::bars::search_box::SearchBox::new(cx.weak_entity(), window, cx),
             minimap: cx.new(crate::minimap::panel::MiniMap::new),

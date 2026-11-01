@@ -135,7 +135,7 @@ impl OutlinePane {
         .detach();
     }
 
-    fn unify(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn unify(&mut self, cx: &mut Context<Self>) {
         let mut place = self.place(cx);
         place.disp = true;
         let count = crate::doc_types::with_user(cx, |user| user.document_types().len());
@@ -154,6 +154,17 @@ impl OutlinePane {
                 Ok(changed)
             },
         );
+        // "（現在開いている他画面の状態も統一します。）": the other windows take it too, also
+        // the ones that are not in sync
+        let host = self.host.entity_id();
+        for (_, workspace) in crate::file_ops::windows::listed_workspaces(cx) {
+            if workspace.entity_id() != host
+                && let Some(pane) = workspace.read(cx).outline.clone()
+                && pane.entity_id() != cx.entity_id()
+            {
+                pane.read(cx).shown_place.set(None);
+            }
+        }
         self.shown_place.set(None);
         self.relayout(cx);
     }

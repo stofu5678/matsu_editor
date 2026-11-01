@@ -589,3 +589,84 @@ fn the_bookmark_items_of_the_menu_clear_the_bookmarks(cx: &mut TestAppContext) {
     assert!(marks(cx).is_empty());
     assert!(super::tests::rows(cx, handle).is_empty());
 }
+
+#[gpui::test]
+fn a_click_on_the_floating_pane_does_not_reach_the_text_under_it(cx: &mut TestAppContext) {
+    let handle = open(
+        cx,
+        "[Common]\r\neOutlineDockSide=0\r\nxyOutlineDock=0,0,300,0\r\n",
+    );
+    run(cx, handle, "F_OUTLINE");
+    let r = rects(cx, handle);
+    // the text has its caret at the start, and the click is on the pane over the text
+    let before = active_view(cx, handle).read_with(cx, |v, _| v.cursor().caret());
+    let vcx = visual(cx, handle);
+    let at = point(r.pane.center().x, r.pane.top() + px(8.));
+    vcx.simulate_mouse_down(at, MouseButton::Left, Modifiers::default());
+    vcx.simulate_mouse_up(at, MouseButton::Left, Modifiers::default());
+    cx.run_until_parked();
+    let after = active_view(cx, handle).read_with(cx, |v, _| v.cursor().caret());
+    assert_eq!(before, after);
+    // and the focus is not taken by the text
+    let view = active_view(cx, handle);
+    let focused = handle
+        .update(cx, |_, window, app| {
+            view.read(app).focus_handle.is_focused(window)
+        })
+        .unwrap();
+    assert!(!focused);
+}
+
+#[gpui::test]
+fn unifying_reaches_the_windows_that_are_not_in_sync(cx: &mut TestAppContext) {
+    let first = window(cx, CPP, "a.cpp");
+    let second = window(cx, CPP, "b.cpp");
+    run(cx, first, "F_OUTLINE");
+    run(cx, second, "F_OUTLINE");
+    pane_command(cx, second, MenuCommand::Sync);
+    pane_command(cx, first, MenuCommand::Side(DockSide::Left));
+    // the second window does not follow, it is not in sync
+    assert_eq!(current_place(cx, second).side, DockSide::Right);
+    let p = pane(cx, first).unwrap();
+    p.update(cx, |p, cx| p.unify(cx));
+    cx.run_until_parked();
+    assert_eq!(current_place(cx, second).side, DockSide::Left);
+}
+
+#[gpui::test]
+fn a_window_that_loads_a_file_restores_the_pane_of_the_type_of_that_file(cx: &mut TestAppContext) {
+    use crate::document::SharedDocument;
+    use crate::file_ops::windows::{LoadRequest, open_editor_window};
+
+    let ini = TempIni::new("[Common]\r\n");
+    let file = ini.0.with_file_name("a.cpp");
+    std::fs::write(&file, "int main() {}\n").unwrap();
+    let user = UserSettings::load_from(std::slice::from_ref(&ini.0));
+    let type_index = user.type_index_for(Some("a.cpp"));
+    // only the type of the file has the pane open (nOutlineDockSet=1)
+    let text = format!(
+        "[Common]\r\nnOutlineDockSet=1\r\n[Types({type_index})]\r\nbOutlineDockDisp=1\r\neOutlineDockSide=3\r\n"
+    );
+    cx.update(|cx| {
+        cx.set_global(OutlineDock::from_profile(&Profile::from_bytes(
+            text.as_bytes(),
+        )));
+        cx.set_global(user);
+    });
+    cx.update(gpui_component::init);
+    let handle = cx
+        .update(|cx| {
+            open_editor_window(
+                cx,
+                SharedDocument::empty(),
+                Some(LoadRequest {
+                    path: file.clone(),
+                    encoding: None,
+                }),
+            )
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert!(pane(cx, handle).is_some(), "the pane of the type is open");
+    let _ = std::fs::remove_file(&file);
+}
