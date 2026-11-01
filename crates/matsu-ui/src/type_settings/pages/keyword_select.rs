@@ -121,9 +121,23 @@ pub(in crate::type_settings) fn first_set(
         .into_any_element()
 }
 
+/// How often the sheet looks whether the common settings are closed.
+const WATCH: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// The sets type `index` has in the settings file now.
+fn file_sets(cx: &App, index: usize) -> Option<[i32; SLOTS]> {
+    let profile = crate::type_settings::current_profile(cx);
+    DocumentTypes::from_profile(&profile)
+        .get(index)
+        .map(|t| t.keyword_set_idx)
+}
+
 /// The dialog window.
 pub(in crate::type_settings) struct KeywordSelectDialog {
     sets: [i32; SLOTS],
+    /// The sets when the dialog opened: only the slots the user changed here are taken at OK, so that a
+    /// choice made on the sheet meanwhile stays.
+    initial: [i32; SLOTS],
     names: Vec<String>,
     sheet: WeakEntity<CommonSettingsDialog>,
     focus: FocusHandle,
@@ -152,11 +166,18 @@ impl KeywordSelectDialog {
 
     /// `IDOK`.
     pub(in crate::type_settings) fn ok(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let sets = normalize(self.sets, self.names.len());
+        let (chosen, initial, count) = (self.sets, self.initial, self.names.len());
         self.sheet
             .update(cx, |sheet, cx| {
                 sheet.edit_values(
                     |values| {
+                        let mut sets = sets_of(values);
+                        for slot in 0..SLOTS {
+                            if chosen[slot] != initial[slot] {
+                                sets[slot] = chosen[slot];
+                            }
+                        }
+                        let sets = normalize(sets, count);
                         values.set(KEYWORD_SETS, Value::Numbers(sets.to_vec()));
                         rearrange(values);
                     },
@@ -297,6 +318,7 @@ impl CommonSettingsDialog {
                 child::close_with_sheet(watched, window, cx);
                 KeywordSelectDialog {
                     sets,
+                    initial: sets,
                     names,
                     sheet,
                     focus: cx.focus_handle(),
@@ -308,6 +330,42 @@ impl CommonSettingsDialog {
 
     /// 「共通設定...」: the keyword sets are edited on the page 強調キーワード of the common settings.
     pub(in crate::type_settings) fn keyword_edit(&mut self, cx: &mut Context<Self>) {
+        let index = usize::try_from(self.values().int(TYPE_INDEX)).unwrap_or(0);
+        let before = file_sets(cx, index);
         crate::common_settings::open(cx, Some(Page::Keyword), self.opener());
+        // When that sheet is closed, the names are read again, and the sets of this sheet follow the
+        // renumbering it did to the type (`keyword/store.rs`) if the user had not chosen others.
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(WATCH).await;
+                if cx.update(|app| crate::common_settings::current_dialog(app).is_none()) {
+                    break;
+                }
+            }
+            this.update(cx, |dialog, cx| {
+                dialog.after_keyword_edit(index, before, cx)
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// The common settings were closed: take the names, and the renumbered sets of the type.
+    fn after_keyword_edit(
+        &mut self,
+        index: usize,
+        before: Option<[i32; SLOTS]>,
+        cx: &mut Context<Self>,
+    ) {
+        self.refresh_keyword_names(cx);
+        let now = file_sets(cx, index);
+        if let (Some(before), Some(now)) = (before, now)
+            && sets_of(self.values()) == before
+        {
+            self.edit_values(
+                |values| values.set(KEYWORD_SETS, Value::Numbers(now.to_vec())),
+                cx,
+            );
+        }
     }
 }

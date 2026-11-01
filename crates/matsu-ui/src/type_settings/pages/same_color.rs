@@ -161,14 +161,21 @@ impl SameColor {
             .collect()
     }
 
-    /// `IDOK`: puts 統一色 into the items that have a checked color. Returns whether an item changed.
+    /// `IDOK`: puts 統一色 into the items that have a checked color (as the sheet has them now). Returns
+    /// whether an item changed.
     pub(in crate::type_settings) fn apply(&self, values: &mut Values) -> bool {
         let mut changed = false;
         for (item, entry) in self.entries.iter().enumerate() {
-            if !entry.has || entry.color == self.color {
+            if !entry.has {
                 continue;
             }
-            if self.colors.iter().any(|(c, on)| *on && *c == entry.color) {
+            // The sheet stays usable while the dialog is open: the color the item has now counts, not
+            // the one it had when the dialog opened.
+            let now = color_of(values.int(item_key(item, self.which.field())));
+            if now == self.color {
+                continue;
+            }
+            if self.colors.iter().any(|(c, on)| *on && *c == now) {
                 values.set(
                     item_key(item, self.which.field()),
                     Value::Int(color_value(self.color)),

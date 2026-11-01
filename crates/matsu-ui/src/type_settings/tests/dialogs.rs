@@ -186,7 +186,7 @@ fn a_color_dialog_without_a_check_leaves_the_file_as_it_is(cx: &mut TestAppConte
 }
 
 #[gpui::test]
-fn キャンセル_in_a_color_dialog_changes_nothing(cx: &mut TestAppContext) {
+fn cancel_in_a_color_dialog_changes_nothing(cx: &mut TestAppContext) {
     let _ini = color_page(cx, "");
     let before = sheet_values(cx);
     let dialog = with_dialog(cx, |d, _, dcx| d.same_color(Which::Text, dcx)).expect("opens");
@@ -398,4 +398,19 @@ fn the_name_of_the_first_keyword_color_is_kw1() {
     // `rearrange` finds the colors of the slots after 強調キーワード1.
     assert_eq!(item_name(32), "KW1");
     assert_eq!(item_name(41), "KWA");
+}
+
+#[gpui::test]
+fn a_choice_made_on_the_sheet_while_a_dialog_is_open_stays(cx: &mut TestAppContext) {
+    let _ini = color_page(cx, &with_three_sets());
+    let dialog = with_dialog(cx, |d, _, dcx| d.keyword_select(dcx)).expect("opens");
+    // The sheet stays usable: the first set is chosen there while the dialog is open.
+    with_dialog(cx, |d, _, dcx| d.pick_first_set(3, dcx));
+    in_child(cx, &dialog, |d, window, dcx| {
+        d.choose(5, 1, dcx);
+        d.ok(window, dcx);
+    });
+    let sets = keyword_select::sets_of(&sheet_values(cx));
+    assert_eq!(sets, [3, 1, 2, 1, -1, -1, -1, -1, -1, -1]);
+    cancel(cx);
 }
