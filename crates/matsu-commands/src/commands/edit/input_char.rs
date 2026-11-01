@@ -147,8 +147,12 @@ fn rtrim_prev_line(cx: &mut CommandContext<'_>) -> Result {
     // `WCODE::IsBlank`: a space, a tab or an ideographic space.
     let kept = text.trim_end_matches([' ', '\t', '\u{3000}']).len();
     if kept < text.len() {
+        // The rows after the caret's stay as they are; a bare CR before a line of blanks and
+        // the LF behind it join into one CRLF and the document has a line less.
+        let lines_after = cx.doc().line_count() - caret.line;
         cx.replace(Pos::new(prev, kept), Pos::new(prev, text.len()), "")?;
-        cx.move_caret(caret, false)?;
+        let line = cx.doc().line_count().saturating_sub(lines_after);
+        cx.move_caret(Pos::new(line, caret.col), false)?;
     }
     Ok(())
 }
@@ -520,6 +524,8 @@ mod tests {
         // nothing to delete, and the first line
         with(&rtrim, '\r', "ab|cd", "ab\n|cd");
         with(&rtrim, '\r', "|ab", "\n|ab");
+        // a bare CR and the LF of the emptied line join; the caret stays before the text
+        with(&rtrim, '\n', "a\r  |b\nnext", "a\r\n  |b\nnext");
         // other chars are not line breaks
         with(&rtrim, 'x', "ab |cd", "ab x|cd");
         // off by default
