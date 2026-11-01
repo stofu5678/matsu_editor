@@ -114,6 +114,10 @@ impl OutlinePane {
         dock::update(cx, |d| d.dock_set = set, dock::write_common);
         self.shown_place.set(None);
         self.relayout(cx);
+        // the file tree takes its items from `[Common]` or from the type, by this key
+        if self.outline_type == OutlineKind::FileTree {
+            self.reload(cx);
+        }
     }
 
     /// 継承情報を統一: the place of this pane goes to `[Common]` and to every type, after the
@@ -224,7 +228,8 @@ impl OutlinePane {
                     .is_some_and(|s| s.view == ViewType::Tree),
             bookmarks: self.outline_type == OutlineKind::Bookmark,
             copy_enabled: self.copy_enabled(),
-            has_selection: self.selected.is_some(),
+            // a result that the text has left behind has old line numbers
+            has_selection: self.selected.is_some() && !self.stale,
             side: place.side,
             sync: dock.sync,
             dock_set: dock.dock_set,
@@ -350,6 +355,10 @@ impl OutlinePane {
     /// ブックマーク削除: the bookmark of the line of the selected item goes, and the list is made
     /// again.
     fn delete_selected_bookmark(&mut self, cx: &mut Context<Self>) {
+        if self.stale {
+            self.reload(cx);
+            return;
+        }
         let line = self
             .selected_row()
             .and_then(|row| self.rows.get(row)?.item)

@@ -195,7 +195,11 @@ impl Workspace {
                 let host = cx.weak_entity();
                 let pane = cx.new(|cx| OutlinePane::new(host, &view, cx));
                 // `ChangeLayout`: an open pane is kept for the next start (`bOutlineDockDisp`)
-                pane.update(cx, |pane, cx| pane.set_disp(true, cx));
+                // (a pane restored for a file that is still being read is not written down: the
+                // document has the basic type until then)
+                if !self.outline_restoring {
+                    pane.update(cx, |pane, cx| pane.set_disp(true, cx));
+                }
                 self.outline = Some(pane.clone());
                 pane
             }
@@ -233,7 +237,9 @@ impl Workspace {
         if !(place.disp && place.side.is_docked()) {
             return;
         }
+        self.outline_restoring = true;
         self.outline_command(Requested::Default, Show::Normal, window, cx);
+        self.outline_restoring = false;
         active.update(cx, |view, cx| window.focus(&view.focus_handle, cx));
     }
 
