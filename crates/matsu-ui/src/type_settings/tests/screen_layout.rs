@@ -135,6 +135,11 @@ fn the_string_of_a_tab_is_typed_over_the_default() {
     assert_eq!(tab_view_string("123456789"), "12345678");
     // The characters a tab cannot show end the text (`IsTabAvailableCode`).
     assert_eq!(tab_view_string("a\tb"), "a       ");
+    // The buffer is 8 UTF-16 units: a character outside the BMP takes 2.
+    let emoji = tab_view_string("\u{1F600}");
+    assert_eq!(emoji.encode_utf16().count(), 8);
+    assert!(emoji.starts_with('\u{1F600}'));
+    assert_eq!(tab_view_string("abcdefg\u{1F600}"), "abcdefg ");
 }
 
 #[test]

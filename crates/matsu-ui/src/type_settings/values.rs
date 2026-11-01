@@ -104,14 +104,18 @@ fn fit(text: &str, size: usize) -> String {
 /// default `"^       "`, with the first characters of the text over it, up to 8 and up to a
 /// character a tab cannot show (the end of the text, `\r`, `\n` or a tab: `IsTabAvailableCode`).
 pub(super) fn tab_view_string(text: &str) -> String {
-    let mut out: Vec<char> = "^       ".chars().collect();
-    for (slot, c) in out.iter_mut().zip(text.chars()) {
-        if matches!(c, '\0' | '\r' | '\n' | '\t') {
+    // The buffer is 8 UTF-16 units (`szTab[8+1]`); a character takes 1 or 2 of them, and one that
+    // does not fit whole is left out.
+    let mut units: Vec<u16> = "^       ".encode_utf16().collect();
+    let mut at = 0;
+    for c in text.chars() {
+        if matches!(c, '\0' | '\r' | '\n' | '\t') || at + c.len_utf16() > units.len() {
             break;
         }
-        *slot = c;
+        c.encode_utf16(&mut units[at..]);
+        at += c.len_utf16();
     }
-    out.into_iter().collect()
+    String::from_utf16_lossy(&units)
 }
 
 /// `value` if the list has it, else the first of the list (the selection `SetData` makes when
