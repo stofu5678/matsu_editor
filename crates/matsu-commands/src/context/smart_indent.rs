@@ -38,28 +38,36 @@ fn starts_with_label_keyword(rest: &[char]) -> bool {
         || starts("protected:")
 }
 
+/// What the scan of a line is in (`nMode` of `SmartIndent_CPP`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Scan {
+    Code,
+    String,
+    CharLiteral,
+    BlockComment,
+}
+
 /// The ranges of a line that are inside a string, a char literal or a comment (`SCommentBlock`):
 /// both ends are included.
 fn comment_blocks(line: &[char]) -> Vec<(usize, usize)> {
     let len = line.len();
     let mut blocks = Vec::new();
-    // 0: code, 1: "...", 2: '...', 3: /* ... */
-    let mut mode = 0;
+    let mut mode = Scan::Code;
     let mut begin: isize = -1;
     let mut n = 0;
     while n < len {
         let c = line[n];
         let next = line.get(n + 1).copied();
         match mode {
-            0 => {
+            Scan::Code => {
                 if c == '"' {
-                    mode = 1;
+                    mode = Scan::String;
                     begin = n as isize;
                 } else if c == '\'' {
-                    mode = 2;
+                    mode = Scan::CharLiteral;
                     begin = n as isize;
                 } else if c == '/' && next == Some('*') {
-                    mode = 3;
+                    mode = Scan::BlockComment;
                     begin = n as isize;
                     n += 1;
                 } else if c == '/' && next == Some('/') {
@@ -67,21 +75,21 @@ fn comment_blocks(line: &[char]) -> Vec<(usize, usize)> {
                     n = len - 1;
                 }
             }
-            1 | 2 => {
-                let quote = if mode == 1 { '"' } else { '\'' };
+            Scan::String | Scan::CharLiteral => {
+                let quote = if mode == Scan::String { '"' } else { '\'' };
                 if c == '\\' {
                     n += 1;
                 } else if c == quote {
                     blocks.push((begin as usize, n));
                     begin = -1;
-                    mode = 0;
+                    mode = Scan::Code;
                 }
             }
-            _ => {
+            Scan::BlockComment => {
                 if c == '*' && next == Some('/') {
                     blocks.push((begin as usize, n + 1));
                     begin = -1;
-                    mode = 0;
+                    mode = Scan::Code;
                     n += 1;
                 }
             }
