@@ -186,17 +186,25 @@ pub(super) async fn close_event_keeps_the_text(
     if version(view, cx) == before {
         return true;
     }
+    close_given_up(view, cx);
+    false
+}
+
+/// Tells that the close was given up because the text changed while the plugins ran.
+fn close_given_up(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) {
     view.update(cx, |view, cx| {
         view.notice = Some("プラグインを待つ間に文書が変わったので、閉じるのをやめた".to_owned());
         cx.notify();
     })
     .ok();
-    false
 }
 
 /// [`close_tab_or_window`] after the plugins of `DocumentClose`, and of `EditorEnd` when the window goes
 /// (`MYWM_CLOSE`, `CEditWnd::DispatchEvent`). The question was asked already.
 async fn close_with_events(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) -> bool {
+    let before = view
+        .read_with(cx, |view, app| view.document().read(app).version())
+        .ok();
     if !close_event_keeps_the_text(view, cx).await {
         return false;
     }
@@ -208,6 +216,13 @@ async fn close_with_events(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowCo
     };
     if ends {
         fire_and_wait(view, cx, Jack::EditorEnd).await;
+        let after = view
+            .read_with(cx, |view, app| view.document().read(app).version())
+            .ok();
+        if after != before {
+            close_given_up(view, cx);
+            return false;
+        }
     }
     close_tab_or_window(view, cx)
 }
