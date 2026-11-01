@@ -289,7 +289,10 @@ fn run_auto(
 /// that does not).
 /// Waits until the event calls of plugins on this window are over (`EditorStart` may still run when a file is
 /// read): an automatic macro does not start while a plugin has the window, so it would be skipped.
-async fn wait_for_the_events(view: &gpui::WeakEntity<EditorView>, cx: &mut AsyncWindowContext) {
+pub(crate) async fn wait_for_the_events(
+    view: &gpui::WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+) {
     // Every call has its time limit, so the batches end; a window that goes away ends the wait too.
     while view
         .read_with(cx, |view, _| view.event_batches_pending())

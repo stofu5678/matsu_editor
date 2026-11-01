@@ -607,9 +607,13 @@ impl EditorView {
 
     /// A flow that waits for event calls (a close, a save) begins to watch the text.
     pub(crate) fn begin_edit_watch(&mut self, cx: &gpui::App) {
-        self.macros.watching = true;
-        self.macros.watch_seen = self.document.read(cx).version();
-        self.macros.watch_user = false;
+        // Flows that overlap (a save that waits, and a close the user asked for meanwhile) share the watch:
+        // it starts with the first and ends with the last.
+        if self.macros.watching == 0 {
+            self.macros.watch_seen = self.document.read(cx).version();
+            self.macros.watch_user = false;
+        }
+        self.macros.watching += 1;
     }
 
     /// The flow is over; whether the user changed the text meanwhile. What a plugin did is not counted:
@@ -618,8 +622,10 @@ impl EditorView {
     pub(crate) fn end_edit_watch(&mut self, cx: &gpui::App) -> bool {
         let changed =
             self.macros.watch_user || self.document.read(cx).version() != self.macros.watch_seen;
-        self.macros.watching = false;
-        self.macros.watch_user = false;
+        self.macros.watching = self.macros.watching.saturating_sub(1);
+        if self.macros.watching == 0 {
+            self.macros.watch_user = false;
+        }
         changed
     }
 
@@ -670,7 +676,7 @@ impl EditorView {
     ) -> Option<String> {
         // An IME composition that the user started ends first, as for a key.
         self.interrupt_composition(cx);
-        if self.macros.watching && self.document.read(cx).version() != self.macros.watch_seen {
+        if self.macros.watching > 0 && self.document.read(cx).version() != self.macros.watch_seen {
             self.macros.watch_user = true;
         }
         let mut env = self.host_env(text, cx);
@@ -683,7 +689,7 @@ impl EditorView {
         });
         self.macros.suspended = suspended;
         self.finish_host_env(env, cx);
-        if self.macros.watching {
+        if self.macros.watching > 0 {
             self.macros.watch_seen = self.document.read(cx).version();
         }
         reply

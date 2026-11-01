@@ -68,6 +68,7 @@ pub(crate) use output::{JumpContext, Kind, Output, Place};
 pub(crate) use registered::table as registered_table;
 pub(crate) use registered::{
     Auto, MacroList, run_auto_in, run_before_save, run_opened, run_opened_in_new, title_of,
+    wait_for_the_events,
 };
 pub(crate) use wait::{FlowGuard, follow, keep_box, track};
 
@@ -237,7 +238,7 @@ pub(crate) struct MacroState {
     /// A flow that waits for event calls watches the text (`plugin_call`): `watch_seen` is the version
     /// the last request of a plugin left, and `watch_user` says that the text changed in between, which
     /// only the user can do.
-    watching: bool,
+    watching: u32,
     watch_seen: u64,
     watch_user: bool,
     /// The file that holds the code of a script given as text (`F_EXECEXTMACRO` with a type); it is

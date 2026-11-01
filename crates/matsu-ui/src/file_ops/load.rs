@@ -251,6 +251,9 @@ pub(crate) async fn load_here(
             {
                 shared.keep_view_mode(true);
             }
+            // The event calls of the window (`EditorStart`) end before its document is replaced: a handler
+            // that began on the empty document would be refused when the file takes its place.
+            crate::macros::wait_for_the_events(view, cx).await;
             let replaced = view.update(cx, |view, cx| {
                 if Some(view.document().read(cx).version()) != started {
                     view.notice = Some(format!(
