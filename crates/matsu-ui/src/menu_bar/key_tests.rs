@@ -1,7 +1,7 @@
 //! The access keys of the menu bar, in a whole window and in a bar of its own.
 
 use super::*;
-use gpui::{Menu, MenuItem, TestAppContext, actions};
+use gpui::{Menu, MenuItem, Modifiers, TestAppContext, actions, point};
 
 /// The keys of the whole window: macOS has a native menu and none of this.
 #[cfg(not(target_os = "macos"))]
@@ -246,7 +246,7 @@ mod window_keys {
 
 // ---- a bar of its own, with items that share an access key ----
 
-actions!(access_key_tests, [First, Second, Third]);
+actions!(access_key_tests, [First, Second, Third, Inner]);
 
 struct Probe {
     menu_bar: Entity<MenuBar>,
@@ -264,7 +264,8 @@ impl Render for Probe {
                     .track_focus(&self.focus)
                     .on_action(cx.listener(|this, _: &First, _, _| this.ran.push("first")))
                     .on_action(cx.listener(|this, _: &Second, _, _| this.ran.push("second")))
-                    .on_action(cx.listener(|this, _: &Third, _, _| this.ran.push("third"))),
+                    .on_action(cx.listener(|this, _: &Third, _, _| this.ran.push("third")))
+                    .on_action(cx.listener(|this, _: &Inner, _, _| this.ran.push("inner"))),
             )
             .child(div().h(px(30.)).child(self.menu_bar.clone()))
     }
@@ -272,14 +273,24 @@ impl Render for Probe {
 
 /// A window whose bar has one open menu: A, a separator, B and another A.
 fn probe(cx: &mut TestAppContext) -> (Entity<Probe>, &mut gpui::VisualTestContext) {
-    cx.update(|cx| {
-        gpui_component::init(cx);
-        let menu = Menu::new("メニュー(M)").items([
+    probe_with(
+        cx,
+        Menu::new("メニュー(M)").items([
             MenuItem::action("一つ目(A)", First),
             MenuItem::separator(),
             MenuItem::action("二つ目(B)", Second),
             MenuItem::action("三つ目(a)", Third),
-        ]);
+        ]),
+    )
+}
+
+/// A window whose bar has `menu`, open.
+fn probe_with(
+    cx: &mut TestAppContext,
+    menu: Menu,
+) -> (Entity<Probe>, &mut gpui::VisualTestContext) {
+    cx.update(|cx| {
+        gpui_component::init(cx);
         GlobalState::global_mut(cx).set_app_menus(vec![menu.owned()]);
     });
     let (probe, cx) = cx.add_window_view(|window, cx| {
@@ -340,4 +351,58 @@ fn the_keys_move_on_from_where_the_arrows_left_the_selection(cx: &mut TestAppCon
     // Down selects the first item, which has the key already: the next one is the other A.
     cx.simulate_keystrokes("down a enter");
     assert_eq!(ran(&probe, cx), ["third"]);
+}
+
+/// Points the mouse at the first item of the open menu.
+fn hover_first_item(cx: &mut gpui::VisualTestContext) {
+    let popup = cx
+        .debug_bounds(POPUP_SELECTOR)
+        .expect("the open menu is painted");
+    let at = point(popup.left() + px(30.), popup.top() + px(16.));
+    cx.simulate_mouse_move(at, None, Modifiers::default());
+    cx.simulate_mouse_move(at + point(px(1.), px(0.)), None, Modifiers::default());
+    cx.run_until_parked();
+}
+
+#[gpui::test]
+fn after_the_mouse_pointed_at_an_item_the_keys_do_not_run_a_wrong_one(cx: &mut TestAppContext) {
+    let (probe, cx) = probe(cx);
+    hover_first_item(cx);
+    // The mouse selected the first A; the keys start again from a known place, and the selected
+    // item is one with the key, not B.
+    cx.simulate_keystrokes("a");
+    cx.simulate_keystrokes("enter");
+    let ran = ran(&probe, cx);
+    assert!(ran == ["first"] || ran == ["third"], "{ran:?}");
+}
+
+#[gpui::test]
+fn a_submenu_key_opens_the_submenu(cx: &mut TestAppContext) {
+    let (probe, cx) = probe_with(
+        cx,
+        Menu::new("メニュー(M)").items([
+            MenuItem::action("一つ目(A)", First),
+            MenuItem::submenu(Menu::new("枝(S)").items([MenuItem::action("中(I)", Inner)])),
+        ]),
+    );
+    cx.simulate_keystrokes("s");
+    cx.simulate_keystrokes("enter");
+    assert_eq!(ran(&probe, cx), ["inner"]);
+}
+
+#[gpui::test]
+fn after_the_mouse_pointed_at_an_item_a_submenu_key_opens_that_submenu(cx: &mut TestAppContext) {
+    let (probe, cx) = probe_with(
+        cx,
+        Menu::new("メニュー(M)").items([
+            MenuItem::action("一つ目(A)", First),
+            MenuItem::submenu(Menu::new("枝(S)").items([MenuItem::action("中(I)", Inner)])),
+            MenuItem::action("二つ目(B)", Second),
+        ]),
+    );
+    hover_first_item(cx);
+    cx.simulate_keystrokes("s");
+    // The focus is in the submenu now: Enter runs its first item.
+    cx.simulate_keystrokes("enter");
+    assert_eq!(ran(&probe, cx), ["inner"]);
 }

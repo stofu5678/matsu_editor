@@ -45,9 +45,10 @@ use crate::menu_bar::access::{
 use crate::tabs::content::MenuKind;
 use gpui::{
     Action, App, AppContext as _, Bounds, ClickEvent, Context, DismissEvent, Entity, FocusHandle,
-    Focusable, InteractiveElement as _, IntoElement, KeyDownEvent, MouseButton, OwnedMenu,
-    OwnedMenuItem, ParentElement, Pixels, Render, Role, SharedString, StatefulInteractiveElement,
-    Styled, Subscription, WeakEntity, Window, anchored, deferred, div, prelude::FluentBuilder, px,
+    Focusable, InteractiveElement as _, IntoElement, KeyDownEvent, MouseButton, MouseMoveEvent,
+    OwnedMenu, OwnedMenuItem, ParentElement, Pixels, Render, Role, SharedString,
+    StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window, anchored, deferred, div,
+    prelude::FluentBuilder, px,
 };
 use gpui_base::ElementExt as _;
 use gpui_base::actions::{Cancel, SelectDown, SelectLeft, SelectRight, SelectUp};
@@ -341,9 +342,19 @@ pub(crate) struct BarMenu {
     /// Where the button was at the last paint, to size the popup below it.
     bounds: Bounds<Pixels>,
     /// The item selected in the open popup. The popup does not tell, so this follows the Up and
-    /// Down actions that reach it (`track_down`, `track_up`); pointing at an item with the mouse
-    /// is not seen, and the access keys move the selection from a stale place after it.
+    /// Down actions that reach it (`track_down`, `track_up`). Pointing at an item with the mouse
+    /// is not seen, so a mouse move sets `pos_stale` and the popup is built again before the
+    /// access keys move the selection.
     key_pos: Option<usize>,
+    /// The mouse moved over the open menu, which may have changed its selection: `key_pos` is not
+    /// to be trusted until the popup is built again (its selection is `None` then).
+    pos_stale: bool,
+    /// An access key that waits for the popup to be built again and drawn.
+    pending_key: Option<char>,
+    /// The Right key waits for the next draw, to open the submenu that the keys selected.
+    pending_right: bool,
+    /// The popup for `pending_key` has been through one render.
+    pending_drawn: bool,
     /// The items the open popup was built with, with their marks (the gray ones).
     popup_items: Vec<OwnedMenuItem>,
     _subscription: Option<Subscription>,
@@ -361,6 +372,10 @@ impl BarMenu {
             popup_window_height: Pixels::ZERO,
             bounds: Bounds::default(),
             key_pos: None,
+            pos_stale: false,
+            pending_key: None,
+            pending_drawn: false,
+            pending_right: false,
             popup_items: Vec::new(),
             _subscription: None,
         })
@@ -401,6 +416,7 @@ impl BarMenu {
                     Some(cx.subscribe_in(&popup_menu, window, Self::handle_dismiss));
                 self.popup_menu = Some(popup_menu.clone());
                 self.key_pos = None;
+                self.pos_stale = false;
                 self.popup_window_height = window.viewport_size().height;
                 popup_menu
             }
@@ -464,11 +480,21 @@ impl BarMenu {
         {
             return;
         }
-        let (Some(key), Some(popup)) = (key_of(&keystroke.key), self.popup_menu.clone()) else {
+        let Some(key) = key_of(&keystroke.key) else {
             return;
         };
+        if self.access_key(key, window, cx) {
+            cx.stop_propagation();
+        }
+    }
+
+    /// The letter `key` in the open menu. Returns whether an item has it (the key is taken).
+    fn access_key(&mut self, key: char, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some(popup) = self.popup_menu.clone() else {
+            return false;
+        };
         if !popup.read(cx).focus_handle(cx).is_focused(window) {
-            return;
+            return false;
         }
         // The marks of this moment (the popup may have been built before an edit); the popup's
         // own items say which ones the selection can stop on.
@@ -479,9 +505,8 @@ impl BarMenu {
             .filter(|&i| item_key(&items[i]) == Some(key))
             .collect();
         if with_key.is_empty() {
-            return;
+            return false;
         }
-        cx.stop_propagation();
         // Several items with the key: the selection goes round them. A gray item cannot be
         // selected, so the round passes over it.
         if with_key.len() > 1 {
@@ -491,10 +516,13 @@ impl BarMenu {
                     is_clickable(&items[i]) && self.popup_items.get(i).is_some_and(is_clickable)
                 })
                 .collect();
+            if !reachable.is_empty() && self.restart_popup(key, cx) {
+                return true;
+            }
             if let Some(next) = next_match(&reachable, self.key_pos) {
                 self.select_item(next, window, cx);
             }
-            return;
+            return true;
         }
         let first = with_key[0];
         match &items[first] {
@@ -511,11 +539,62 @@ impl BarMenu {
                 window.dispatch_action(action, cx);
             }
             OwnedMenuItem::Submenu(_) => {
+                if self.restart_popup(key, cx) {
+                    return true;
+                }
                 self.select_item(first, window, cx);
-                window.dispatch_action(Box::new(SelectRight), cx);
+                // The Right key opens the submenu once the popup has drawn the selection (the
+                // popup places its submenu while it draws): see `watch_mouse`.
+                self.pending_right = true;
+                cx.notify();
             }
             _ => {}
         }
+        true
+    }
+
+    /// If the mouse may have moved the selection of the popup, builds the popup again (its selection
+    /// is `None` then, which is known) and takes `key` once it is drawn. Returns whether it did.
+    fn restart_popup(&mut self, key: char, cx: &mut Context<Self>) -> bool {
+        if !self.pos_stale {
+            return false;
+        }
+        self.popup_menu = None;
+        self._subscription = None;
+        self.pending_key = Some(key);
+        self.pending_drawn = false;
+        cx.notify();
+        true
+    }
+
+    /// An element that sees every mouse move of the window (the popup may select the item under
+    /// the pointer, and a listener on the popup's own element would not hear it, as the popup
+    /// occludes what is under it) and every draw.
+    fn watch_mouse(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let this = cx.entity();
+        gpui::canvas(
+            |_, _, _| (),
+            move |_, (), window, cx| {
+                let this = this.clone();
+                // Every draw: a Right key that waited for the popup to draw its selection.
+                if this.update(cx, |menu, _| std::mem::take(&mut menu.pending_right)) {
+                    window.defer(cx, |window, cx| {
+                        window.dispatch_action(Box::new(SelectRight), cx);
+                    });
+                }
+                window.on_mouse_event(move |_: &MouseMoveEvent, phase, _, cx| {
+                    if phase == gpui::DispatchPhase::Capture {
+                        this.update(cx, |menu, _| {
+                            if menu.popup_menu.is_some() {
+                                menu.pos_stale = true;
+                            }
+                        });
+                    }
+                });
+            },
+        )
+        .absolute()
+        .size_0()
     }
 
     /// Whether the keys go to the menu itself, not to a submenu.
@@ -577,6 +656,28 @@ impl Render for BarMenu {
         }
         let this = cx.entity();
 
+        // The popup is built before the tree. A key that waited for a new popup follows the
+        // second render after it was built: by then the popup has been drawn, and the actions
+        // that move its selection find it under the focus.
+        let popup = is_open.then(|| self.build_popup_menu(window, cx));
+        if let Some(key) = self.pending_key {
+            if self.pending_drawn {
+                self.pending_key = None;
+                self.pending_drawn = false;
+                let this = cx.entity();
+                window.defer(cx, move |window, cx| {
+                    this.update(cx, |menu, cx| {
+                        menu.access_key(key, window, cx);
+                    });
+                });
+            } else {
+                self.pending_drawn = true;
+                // Draws the menu once more (a notify inside a render does not).
+                let this = cx.entity();
+                window.defer(cx, move |_, cx| this.update(cx, |_, cx| cx.notify()));
+            }
+        }
+
         div()
             .id(self.ix)
             .relative()
@@ -602,10 +703,11 @@ impl Render for BarMenu {
                     .on_click(cx.listener(Self::handle_trigger_click)),
             )
             .on_hover(cx.listener(Self::handle_hover))
+            .child(self.watch_mouse(cx))
             .on_key_down(cx.listener(Self::on_key_down))
             .capture_action(cx.listener(Self::track_down))
             .capture_action(cx.listener(Self::track_up))
-            .when(is_open, |this| {
+            .when_some(popup, |this, popup| {
                 this.child(deferred(
                     anchored()
                         .anchor(gpui::Anchor::TopLeft)
@@ -616,7 +718,7 @@ impl Render for BarMenu {
                                 .occlude()
                                 .top_1()
                                 .debug_selector(|| POPUP_SELECTOR.into())
-                                .child(self.build_popup_menu(window, cx)),
+                                .child(popup),
                         ),
                 ))
             })
