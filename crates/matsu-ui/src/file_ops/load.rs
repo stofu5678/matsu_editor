@@ -294,6 +294,10 @@ async fn load_here_inner(
             });
             let replaced = replaced.unwrap_or(false);
             let mut open_event = false;
+            // The document this read made: the flow below does not go on for another one.
+            let loaded = view
+                .read_with(cx, |view, app| view.document().read(app).generation())
+                .ok();
             // The plugins of EditorStart see the file that the window began with (`CNormalProcess`: the
             // load comes first, then EditorStart, the macro of オープン後, the macro of `-M=`, then
             // DocumentOpen).
@@ -322,8 +326,14 @@ async fn load_here_inner(
                     return true;
                 }
                 // The file is open: the macro of オープン後 (`FileLoad`).
-                crate::macros::run_opened(view, cx).await;
-                open_event = true;
+                let same = view
+                    .read_with(cx, |view, app| view.document().read(app).generation())
+                    .ok()
+                    == loaded;
+                if same {
+                    crate::macros::run_opened(view, cx).await;
+                    open_event = true;
+                }
             } else if unlocked {
                 super::lock::relock_quietly(view, cx);
             }
@@ -333,7 +343,12 @@ async fn load_here_inner(
                 .read_with(cx, |view, _| view.macro_suspended())
                 .unwrap_or(false);
             super::start_options::after_load(view, cx, path, replaced);
-            if open_event {
+            if open_event
+                && view
+                    .read_with(cx, |view, app| view.document().read(app).generation())
+                    .ok()
+                    == loaded
+            {
                 // ... and then the plugins of DocumentOpen, after the macro of `-M=` that
                 // `CNormalProcess` runs before them (`FileLoad`).
                 if !caller_macro {

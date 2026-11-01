@@ -360,11 +360,22 @@ pub(crate) fn run_auto_in(
     // The plugins of DocumentOpen follow the macro of オープン後 (`CNormalProcess`, `FileLoad`), and
     // `then` follows them.
     let then = move |cx: &mut App| {
+        // `then` applies the options of the launch and starts the macro of `-M=`: DocumentOpen comes after
+        // them (`CNormalProcess`).
+        then(cx);
         if when == Auto::Opened && crate::plugin_events::has_plugs(cx, &[Jack::DocumentOpen]) {
             let view = view_for_plugins;
-            crate::plugin_events::fire_then(cx, &view, Jack::DocumentOpen, then);
-        } else {
-            then(cx);
+            cx.spawn(async move |cx| {
+                while view.read_with(cx, |view, _| view.macro_suspended()) {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_millis(50))
+                        .await;
+                }
+                cx.update(|cx| {
+                    crate::plugin_events::fire(cx, &view, Jack::DocumentOpen);
+                });
+            })
+            .detach();
         }
     };
     // Event calls of plugins (`EditorStart`) have the window first: the macro waits for them.
