@@ -52,7 +52,6 @@
 | 1 | タイプ別設定「画面」の入力側（自動インデント、全角空白も、スマートインデント、インデント対象文字、改行時に末尾の空白を削除、SPACE の挿入）と `F_WCHAR` の残り | 設定、コマンド |
 | 1 | タイプ別設定「画面」の表示側（句読点ぶら下げ、行頭禁則・行末禁則、折り返し行のインデント、TAB の表示） | 設定、表示と編集 |
 | 1 | 色統一と強調キーワードの選択（タイプ別設定「色」の灰色） | 設定、ダイアログ |
-| 1 | アウトラインのドッキング位置・幅・並べ替え・右クリックのメニュー・位置の保存 | 表示と編集、設定 |
 | 1 | 矩形選択でのコマンドの残りと、マクロの `MoveCursor` の矩形 | コマンド、マクロ |
 | 1 | 共通設定の小さな灰色（位置と大きさのダイアログ、ツールバーのフラットなボタン、Grep のリアルタイム表示、Grep の結果のタグジャンプ、マクロのキャンセル確認の待ち時間、クリックでのアクティブ化）と起動時の挿入・上書き | 設定、ダイアログ、そのほか |
 | 2 | 描画の細部（縦線、行番号の区切り、ノート線、ブックマークのしるし、タブ幅、ミニマップの選択範囲、複数語の検索色、検索色の HTML コピー） | 表示と編集 |
@@ -131,7 +130,7 @@
 | タイプ別設定「色」の灰色: 文字色統一、背景色統一、強調キーワードの選択（2〜10）、共通設定への移動 | `CPropTypesColor.cpp`、`CDlgSameColor.cpp`、`CDlgKeywordSelect.cpp`、`CImpExpManager.cpp` | 灰色（色のインポート・エクスポートは入った: `type_settings/pages/color_file.rs`） | C | M | 色統一・キーワード選択のダイアログ |
 | タイプ別設定「支援」の灰色: 補完の種類、保存時の改行混在の警告、C/C++ のスマートインデント、読み込み時のインデントスタイル検出 | `CPropTypesSupport.cpp` | 灰色 | C | M | 補完プラグイン |
 | 17 の組み込みタイプの個別の既定値 | `sakura_core/types/CType_*.cpp` | 17 個とも用意した（`builtin_types.rs`）。値がサクラの `CType_*.cpp` と全部合っているかは未確認 | A/C | S | なし |
-| 設定ファイルに保存しない状態（残り）: アウトラインのドッキング位置・並べ替え・窓の位置（`eOutlineDockSide` など）、各ダイアログの位置（`rc*Dialog`）、Grep ダイアログの値（`bGrep*` の 10 個ほど、`nGrepCharSet`）、`nDiffFlgOpt`、`nTagsOpt`、`m_bTagJumpAnyWhere`。検索の条件（`bSearch*` 7 個）と、ウィンドウの位置と大きさ（`bSaveWindowSize` `nWinSizeType` `nWinSizeCX` `nWinSizeCY` `nSaveWindowPos` `nWinPosX` `nWinPosY`）は保存する（`saved_state/`）。「位置と大きさの設定」ダイアログ（`CDlgWinSize`、ボタンは灰色）がないので、保存の方式（継承・直接指定）は設定ファイルを直接書き換えて選ぶ | `CShareData_IO.cpp`、`CEditWnd.cpp` | 残りは実行中だけ覚える。ファイルの値は壊さず残す | C | M | 既存のキーを使うので、形式の判断は要らない。新しいキーなら要る |
+| 設定ファイルに保存しない状態（残り）: アウトラインの窓の位置（`xOutlineWindowPos` など。ドッキング位置・幅・並べ替えは保存する。`outline/dock.rs`）、各ダイアログの位置（`rc*Dialog`）、Grep ダイアログの値（`bGrep*` の 10 個ほど、`nGrepCharSet`）、`nDiffFlgOpt`、`nTagsOpt`、`m_bTagJumpAnyWhere`。検索の条件（`bSearch*` 7 個）と、ウィンドウの位置と大きさ（`bSaveWindowSize` `nWinSizeType` `nWinSizeCX` `nWinSizeCY` `nSaveWindowPos` `nWinPosX` `nWinPosY`）は保存する（`saved_state/`）。「位置と大きさの設定」ダイアログ（`CDlgWinSize`、ボタンは灰色）がないので、保存の方式（継承・直接指定）は設定ファイルを直接書き換えて選ぶ | `CShareData_IO.cpp`、`CEditWnd.cpp` | 残りは実行中だけ覚える。ファイルの値は壊さず残す | C | M | 既存のキーを使うので、形式の判断は要らない。新しいキーなら要る |
 | `sakura.exe.ini`（`MultiUser`、`bIniReadOnly`） | `CShareData.cpp`、`CProfile` | `location.rs` が一部を読む。`bIniReadOnly` は未確認 | ユーザーの判断が要る: 設定ファイルの置き場所 | M | プロファイル |
 
 ### ダイアログとプロパティシート
@@ -195,7 +194,7 @@
 | TSV / CSV モード | `TSV_MODE_*` | なし | C | M | レイアウト |
 | 背景画像 | `CTypeSupport`、`CBackground` | なし。設定の部品は灰色 | C | M | 描画 |
 | 縦線の位置、行番号の区切り、折り返し桁の縦線（RAP）、行番号とテキストの隙間のノート線 | `CTextDrawer.cpp` | 未対応が混じる（#118）。ミニマップの選択範囲（`DispTextSelected`）も出さない（#205） | C | S | なし |
-| アウトラインのドッキング位置（左・上・下、フローティング）、幅の変更、窓位置の記憶、並べ替え、右クリックメニュー | `CDlgFuncList.cpp` | 右だけ | C | M | 設定の保存 |
+| アウトラインの残り: フローティングは別の窓にせず、本文の上に重ねて出す（型 B）。フローティングの窓の位置と大きさの記憶（`bRememberOutlineWindowPos`、`xOutlineWindowPos` など）、タイトルバーのドラッグでのドッキング、種類ごとの表示のオン・オフを、タブを替えたときに合わせること、すべて展開（ファイルツリーは 1 段ずつ） | `CDlgFuncList.cpp`（`GetDropRect`、`ChangeLayout`、`DoMenu`） | 位置（左・右・上・下・フローティング）、幅と高さ、同期、共通・種類別の継承、並べ替え、右クリックのメニューは入った。位置と大きさと並べ替えは `[Common]` と `Types(N)` のサクラのキーに保存し、次の起動で戻す。開いていたかどうか（`bOutlineDockDisp`）も戻す | C | S | なし |
 | ブックマークのしるし（縦線）、タブ幅の特別な扱い | `CTextDrawer.cpp:526`、`CFigure_Tab.cpp:57` | 出さない（#205） | C | S | なし |
 | 検索の強調色（`CColor_Found`）を HTML コピーに入れる、複数語の検索色（`FN2`〜`FN5`） | `CColor_Found.cpp` | 入れていない（#106、#170） | C | S | なし |
 | キーワードヘルプ（辞書の一覧の取り込み・書き出し）、正規表現キーワードのコンパイル検査と確認、インポート・エクスポート | `CPropTypesRegex.cpp`、`CPropTypesKeyHelp.cpp` | キーワードヘルプの機能は #156 で入った。インポート・エクスポートは #140 の宿題 | C | S〜M | なし |

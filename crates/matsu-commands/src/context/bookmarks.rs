@@ -73,6 +73,16 @@ impl CommandContext<'_> {
         self.changes.bookmarks_changed = true;
     }
 
+    /// Sets or clears the bookmark of one line: the outline's 「ブックマーク削除」 clears the line of
+    /// the selected item (`CBookmarkSetter::SetBookmark( false )`, `CDlgFuncList::DoMenu`). A line
+    /// the document does not have is ignored.
+    pub fn set_bookmark_line(&mut self, line: usize, on: bool) {
+        if line < self.doc().line_count() {
+            self.model.bookmarks_mut().set(line, on);
+            self.changes.bookmarks_changed = true;
+        }
+    }
+
     /// Bookmarks the given lines (`F_BOOKMARK_PATTERN`); those already marked stay marked, and
     /// lines that do not exist are ignored.
     pub fn add_bookmarks(&mut self, lines: impl IntoIterator<Item = usize>) {

@@ -160,6 +160,11 @@ fn open_window_with(
     let handle = cx.open_window(options, move |window, cx| {
         let workspace = build(window, cx);
         install(window, cx, &workspace);
+        // the outline pane that was open when the program ended opens again (`bOutlineDockDisp`)
+        let restore = workspace.clone();
+        window.defer(cx, move |window, cx| {
+            restore.update(cx, |workspace, cx| workspace.restore_outline(window, cx));
+        });
         // The windows keep their size and position when the settings say so (`OnSize`, `OnMove`).
         workspace.update(cx, |_, workspace_cx| {
             workspace_cx

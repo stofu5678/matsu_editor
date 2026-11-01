@@ -35,12 +35,13 @@
 //! and 次 / 前の関数リストマーク (`F_FUNCLIST_NEXT`, `F_FUNCLIST_PREV`).
 //!
 //! * The analyzers are the crate `matsu-outline` (no window; it reads the document line by line).
-//! * [`pane`] is the dialog of Sakura (`CDlgFuncList`) as a pane docked at the right of the
-//!   window, one per window. It follows the active tab. Sakura's dialog can float or dock at any
-//!   side; the floating form and the other sides are left out (the settings that choose them,
-//!   `m_eOutlineDockSide` and friends, belong to the common settings dialog, which comes
-//!   separately). The check boxes 自動的に閉じる and フォーカスを移す only matter for the floating
-//!   form (a docked dialog gives the focus back to the text), so they are not here either;
+//! * [`pane`] is the dialog of Sakura (`CDlgFuncList`) as a pane of the window, one per window. It
+//!   follows the active tab. Sakura's dialog docks at any side or floats: [`dock`] keeps the side,
+//!   the size and the sort under Sakura's keys (`eOutlineDockSide` and the others), [`layout`]
+//!   puts the pane at its side with the bar that sizes it, and [`menu`] is the right-click menu
+//!   that changes them. The floating form is drawn over the text, in the window (see
+//!   [`layout`]). The check boxes 自動的に閉じる and フォーカスを移す only matter for the floating
+//!   dialog of Sakura (a docked dialog gives the focus back to the text), so they are not here;
 //!   空行を無視する is, for the bookmark list.
 //! * [`file_tree`] is Sakura's file tree (`F_FILETREE`, ファイルツリー), which the same dialog shows
 //!   in place of an analysis: the pane builds it from the settings instead of the document.
@@ -51,10 +52,19 @@
 //! Sakura: `sakura_core/cmd/CViewCommander_Outline.cpp`, `sakura_core/outline/CDlgFuncList.cpp`,
 //! `sakura_core/cmd/CViewCommander_Bookmark.cpp`.
 
+pub(crate) mod dock;
+#[cfg(test)]
+mod dock_tests;
 pub(crate) mod file_tree;
 pub(crate) mod file_tree_dialog;
 #[cfg(test)]
 mod file_tree_tests;
+pub(crate) mod layout;
+#[cfg(test)]
+mod layout_tests;
+pub(crate) mod menu;
+#[cfg(test)]
+mod menu_tests;
 pub(crate) mod pane;
 #[cfg(test)]
 mod tests;
@@ -184,6 +194,8 @@ impl Workspace {
             None => {
                 let host = cx.weak_entity();
                 let pane = cx.new(|cx| OutlinePane::new(host, &view, cx));
+                // `ChangeLayout`: an open pane is kept for the next start (`bOutlineDockDisp`)
+                pane.update(cx, |pane, cx| pane.set_disp(true, cx));
                 self.outline = Some(pane.clone());
                 pane
             }
@@ -197,11 +209,29 @@ impl Workspace {
 
     /// Closes the pane and gives the focus back to the text.
     pub(crate) fn close_outline(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.outline.take().is_some() {
+        if let Some(pane) = self.outline.take() {
+            // only a pane the user closes is forgotten: a window that closes keeps it
+            pane.update(cx, |pane, cx| pane.set_disp(false, cx));
             let active = self.panes().active().clone();
             active.update(cx, |view, cx| window.focus(&view.focus_handle, cx));
             cx.notify();
         }
+    }
+
+    /// A new window opens the pane when the settings say it was open and docked (`ChangeLayout`
+    /// with `OUTLINE_LAYOUT_FILECHANGED` does not open a floating one). The text keeps the focus.
+    pub(crate) fn restore_outline(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.outline.is_some() || self.content.preview().is_some() {
+            return;
+        }
+        let active = self.panes().active().clone();
+        let index = active.read(cx).view_settings().type_index;
+        let place = dock::current(cx).place(index);
+        if !(place.disp && place.side.is_docked()) {
+            return;
+        }
+        self.outline_command(Requested::Default, Show::Normal, window, cx);
+        active.update(cx, |view, cx| window.focus(&view.focus_handle, cx));
     }
 
     /// The pane follows the pane of the text the user works in: another tab is analyzed

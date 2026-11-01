@@ -31,8 +31,8 @@
 //    misrepresented as being the original software.
 // 3. This notice may not be removed or altered from any source distribution.
 
-//! The outline pane: Sakura's アウトライン解析 dialog (`IDD_FUNCLIST`) as a pane docked at the right
-//! of the window.
+//! The outline pane: Sakura's アウトライン解析 dialog (`IDD_FUNCLIST`) as a pane of the window,
+//! docked at any side or floating over the text ([`super::dock`], [`super::layout`]).
 //!
 //! The analysis runs in the background on a clone of the document; the pane then shows the list
 //! (C, Perl, Visual Basic, the bookmarks) or the tree (the others). A click on an item moves the
@@ -49,8 +49,9 @@ use std::path::{Path, PathBuf};
 use crate::a11y::AriaDisabled as _;
 use gpui::{
     App, ClickEvent, ClipboardItem, Context, Entity, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, KeyDownEvent, ParentElement, Render, ScrollStrategy, StatefulInteractiveElement,
-    Styled, Subscription, UniformListScrollHandle, WeakEntity, Window, div, px, rgb, uniform_list,
+    IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, ParentElement, Render, ScrollStrategy,
+    StatefulInteractiveElement, Styled, Subscription, UniformListScrollHandle, WeakEntity, Window,
+    div, px, rgb, uniform_list,
 };
 use matsu_commands::keymap::Resolved;
 use matsu_core::buffer::Pos;
@@ -62,6 +63,9 @@ use matsu_outline::{
     Analysis, ListColumn, ListSort, OutlineKind, Request, SortType, TreeNode, ViewType, analyze,
 };
 
+mod dock_ops;
+
+use super::dock::DockPlace;
 use super::file_tree::model::FileTreeModel;
 use super::file_tree::source::{Inputs, load_dialog_setting, load_setting};
 use super::{OutlineOptions, Requested, Show};
@@ -71,9 +75,6 @@ use crate::view::EditorView;
 
 /// What the pane says about a file that is read by ranges (ADR-0020, 9.11).
 pub(crate) const HUGE_FILE_MESSAGE: &str = "巨大なファイルなので、アウトライン解析は使えません";
-
-/// The fixed part of the width of the docked pane when the window is narrow.
-const MIN_WIDTH: f32 = 160.0;
 
 const TEXT: u32 = 0x1e1e1e;
 const SELECTED_BG: u32 = 0x2f6fd0;
@@ -136,6 +137,12 @@ pub(crate) struct OutlinePane {
     last_caret: Option<Pos>,
     focus: FocusHandle,
     scroll: UniformListScrollHandle,
+    /// The place this pane has drawn last. While the windows are not in sync
+    /// (`bOutlineDockSync` is off) it stays, whatever the other windows do; the settings are
+    /// taken again when the type changes (`ChangeLayout` for a changed file).
+    shown_place: std::cell::Cell<Option<DockPlace>>,
+    /// The right-click menu, while it is open.
+    menu: Option<dock_ops::OpenMenu>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -167,6 +174,8 @@ impl OutlinePane {
             last_caret: None,
             focus: cx.focus_handle(),
             scroll: UniformListScrollHandle::new(),
+            shown_place: std::cell::Cell::new(None),
+            menu: None,
             _subscriptions: Vec::new(),
         };
         pane.listen(view, cx);
@@ -206,6 +215,12 @@ impl OutlinePane {
 
     pub(crate) fn view_id(&self) -> gpui::EntityId {
         self.view_id
+    }
+
+    /// The sort of the list and of the tree.
+    #[cfg(test)]
+    pub(crate) fn sorts(&self) -> (ListSort, SortType) {
+        (self.list_sort, self.sort_type)
     }
 
     #[cfg(test)]
@@ -261,6 +276,7 @@ impl OutlinePane {
         } else {
             // the result belongs to the other document: nothing of it stays to be clicked or
             // copied while the new one is made
+            self.shown_place.set(None);
             self.shown = None;
             self.rows.clear();
             self.selected = None;
@@ -269,6 +285,11 @@ impl OutlinePane {
     }
 
     fn type_changed(&mut self, cx: &mut Context<Self>) {
+        self.shown_place.set(None);
+        // the sort belongs to the type (`nOutlineSortCol` and the others of `Types(N)`)
+        if self.sync_sort(cx) {
+            self.resort(cx);
+        }
         // the file tree may be set for each type (`nOutlineDockSet`)
         if self.requested == Requested::FileTree {
             self.analyze(Requested::FileTree, cx);
@@ -295,6 +316,7 @@ impl OutlinePane {
         };
         self.requested = requested;
         self.outline_type = super::resolve_kind(requested, &view, cx);
+        self.sync_sort(cx);
         self.generation += 1;
         let generation = self.generation;
         self.analyzed_path = self.document.read(cx).path().map(Path::to_path_buf);
@@ -720,11 +742,9 @@ impl OutlinePane {
             return;
         }
         self.sort_type = sort_type;
-        if let Some(shown) = &mut self.shown {
-            sort_tree(&mut shown.tree, sort_type);
-        }
-        self.rebuild_rows();
-        cx.notify();
+        self.resort(cx);
+        // `OnCbnSelEndOk` keeps the choice in the type
+        self.keep_sort(cx);
     }
 
     /// `LVN_COLUMNCLICK`.
@@ -732,6 +752,8 @@ impl OutlinePane {
         self.list_sort = self.list_sort.click(column);
         self.rebuild_rows();
         cx.notify();
+        // `LVN_COLUMNCLICK` keeps the column and the direction in the type
+        self.keep_sort(cx);
     }
 
     fn set_ignore_blank(&mut self, on: bool, cx: &mut Context<Self>) {
@@ -1136,8 +1158,8 @@ impl Focusable for OutlinePane {
 }
 
 impl Render for OutlinePane {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let width = (window.viewport_size().width / 3.0).max(px(MIN_WIDTH));
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let side = self.place(cx).side;
         let button = |id: &'static str, text: &'static str| {
             crate::a11y::button(div().id(id), text)
                 .px_2()
@@ -1368,26 +1390,41 @@ impl Render for OutlinePane {
             .and_then(|s| s.error.as_ref())
             .map(|m| m.replace('\n', " "));
 
-        crate::a11y::group(div().id("outline-pane"), pane_name)
+        // The window gives the pane its place and size (`crate::outline::layout`); the line is on
+        // the side that faces the text.
+        let pane = crate::a11y::group(div().id("outline-pane"), pane_name)
             .key_context("Outline")
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key_down))
-            .w(width)
-            .h_full()
-            .flex_none()
+            // `OnContextMenu`: the menu opens over the title, the list and the tree
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|this, event: &MouseDownEvent, window, cx| {
+                    this.open_menu(event.position, window, cx);
+                    cx.stop_propagation();
+                }),
+            )
+            .size_full()
             .flex()
             .flex_col()
             .bg(rgb(0xf6f6f6))
             .text_color(rgb(TEXT))
             .text_size(px(13.))
-            .border_l_1()
-            .border_color(rgb(0xb0b0b0))
-            .child(header)
+            .border_color(rgb(0xb0b0b0));
+        let pane = match side {
+            super::dock::DockSide::Left => pane.border_r_1(),
+            super::dock::DockSide::Top => pane.border_b_1(),
+            super::dock::DockSide::Right => pane.border_l_1(),
+            super::dock::DockSide::Bottom => pane.border_t_1(),
+            super::dock::DockSide::Float | super::dock::DockSide::Undockable => pane.border_1(),
+        };
+        pane.child(header)
             .children(sort_row)
             .children(column_row)
             .children(message.map(|m| div().px_2().text_color(rgb(STALE_TEXT)).child(m)))
             .child(body)
             .child(footer)
+            .children(self.render_menu())
     }
 }
 
