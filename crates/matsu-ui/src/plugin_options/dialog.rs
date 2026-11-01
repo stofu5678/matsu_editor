@@ -428,7 +428,7 @@ impl Render for OptionDialog {
         let rows = self.form.entries.iter().enumerate().map(|(i, entry)| {
             let selected = self.selected == Some(i);
             let shown = entry.shown();
-            row_element(i, &entry.def.label, &shown, selected)
+            row_element(i, &entry.def.label, &entry.spoken(), selected)
                 .h(px(ROW_HEIGHT))
                 .items_center()
                 .cursor_pointer()

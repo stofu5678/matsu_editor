@@ -48,6 +48,19 @@ pub(crate) struct Entry {
 }
 
 impl Entry {
+    /// The value as a screen reader should say it: a bool is words, not the symbol that is drawn.
+    pub(crate) fn spoken(&self) -> String {
+        match self.def.kind {
+            OptionType::Bool => (if is_on(&self.value) {
+                "オン"
+            } else {
+                "オフ"
+            })
+            .to_owned(),
+            _ => self.shown(),
+        }
+    }
+
     /// The text of the column 値.
     pub(crate) fn shown(&self) -> String {
         match self.def.kind {
