@@ -8,7 +8,7 @@
 //! It works as `F_LTRIM` (see there: white space, the selected part, the caret), from the other
 //! side: a selection that ends in the middle of a line trims the white space where it ends.
 //!
-//! Not done yet: rectangular selection.
+//! A box selection is converted row by row, as `F_LTRIM` does it.
 
 use crate::command::{Arg, Command, Result};
 use crate::context::CommandContext;
