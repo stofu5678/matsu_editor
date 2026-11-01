@@ -1087,16 +1087,24 @@ mod tests {
     }
 
     #[test]
-    fn the_wrap_column_line_is_off_by_default_and_follows_its_color() {
-        // `RAP` is not shown in Sakura's defaults
-        assert!(!ViewSettings::default().colors.wrap_entry.disp);
-        let s = settings(
-            "[Types(0)]\r\nC[RAP]=1,0,ff00ff,fffbf0,0\r\n",
+    fn the_wrap_column_line_is_shown_by_default_and_follows_its_color() {
+        // `RAP` is shown in Sakura's defaults, in magenta
+        let default = ViewSettings::default().colors.wrap_entry;
+        assert!(default.disp);
+        assert_eq!(rgb_of(default.text), 0xff00ff);
+        let off = settings(
+            "[Types(0)]\r\nC[RAP]=0,0,808080,fffbf0,0\r\n",
             None,
             Os::Windows,
         );
-        assert!(s.colors.wrap_entry.disp);
-        assert_eq!(rgb_of(s.colors.wrap_entry.text), 0xff00ff);
+        assert!(!off.colors.wrap_entry.disp);
+        let grey = settings(
+            "[Types(0)]\r\nC[RAP]=1,0,808080,fffbf0,0\r\n",
+            None,
+            Os::Windows,
+        );
+        assert!(grey.colors.wrap_entry.disp);
+        assert_eq!(rgb_of(grey.colors.wrap_entry.text), 0x808080);
     }
 
     #[test]
