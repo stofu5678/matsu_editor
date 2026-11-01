@@ -694,6 +694,11 @@ mod tests {
         run(&mut doc, "MoveCursor", json!([1, 2, 0])).unwrap();
         run(&mut doc, "MoveCursor", json!([3, 2, 3])).unwrap();
         assert_eq!(run(&mut doc, "IsTextSelected", json!([])), Ok(json!(0)));
+        // typing over a box of the plain model drops the box and keeps its text
+        run(&mut doc, "MoveCursor", json!([1, 2, 0])).unwrap();
+        run(&mut doc, "MoveCursor", json!([3, 3, 2])).unwrap();
+        run(&mut doc, "InsText", json!(["X"])).unwrap();
+        assert_eq!(doc.text(), "abcd\nef\nghXij");
     }
 
     #[test]

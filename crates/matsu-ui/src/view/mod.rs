@@ -43,7 +43,7 @@ use gpui::{
     KeyDownEvent, MouseButton, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Window, actions, div, px,
 };
-use matsu_commands::command::{Arg, CommandError, Registration};
+use matsu_commands::command::{Arg, Registration};
 use matsu_commands::context::{Changes, CommandContext};
 use matsu_commands::keymap::{Key, KeyMap, Lookup};
 use matsu_commands::registry::Registry;
@@ -457,11 +457,13 @@ impl EditorView {
         {
             let _ = self.layout.layout_all(self.document.read(cx).doc());
         }
+        // Cleared before the command, which may leave a notice of its own (`Changes::status_message`).
+        self.notice = None;
         let result = self.run_with(cx, |command_cx| reg.run(command_cx, args));
         let ok = result.is_ok();
-        self.notice = result
-            .err()
-            .map(|e: CommandError| format!("{}: {e}", reg.id));
+        if let Err(e) = result {
+            self.notice = Some(format!("{}: {e}", reg.id));
+        }
         self.say_why_refused(cx);
         cx.notify();
         ok

@@ -76,8 +76,9 @@ impl TextModel {
     }
 
     fn delete_selection(&mut self) {
-        self.boxed = false;
+        // a box has no stream selection, so its text stays
         let selection = self.selection();
+        self.boxed = false;
         self.anchor = None;
         if let Some((from, to)) = selection {
             let tail = self.lines[to.0][to.1..].to_string();
