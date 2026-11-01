@@ -553,10 +553,9 @@ impl Workspace {
         workspace
             .menu_bar
             .update(cx, |bar, _| bar.set_workspace(this));
-        // The keys of a marked menu bar come before the key bindings (Windows and Linux).
-        if !cfg!(target_os = "macos") {
-            Self::watch_menu_keys(window, cx);
-        }
+        // The keys of a marked menu bar (Windows and Linux) and the letters of an open popup menu
+        // come before the key bindings.
+        Self::watch_menu_keys(window, cx);
         // The menus are made again when the history changes: the bar loads them.
         cx.observe_global::<MenuGeneration>(|this: &mut Self, cx| {
             this.menu_bar.update(cx, |bar, cx| bar.reload(cx));
@@ -770,6 +769,8 @@ impl Render for Workspace {
             // The whole frame takes dropped files (`DragAcceptFiles( GetHwnd(), TRUE )`).
             .on_drag_move(cx.listener(Self::note_file_drag))
             .child(crate::file_ops::drop_zone::drop_zone(cx))
+            // Counts the mouse moves for the letters of the popup menus.
+            .child(crate::menu_bar::popup_keys::watch_mouse())
             .when(client_decorated, |this| {
                 this.child(TitleBar::new().child(div().text_sm().child("MATSU Editor")))
             })
