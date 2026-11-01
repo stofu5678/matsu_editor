@@ -210,6 +210,9 @@ pub struct EditorView {
     /// The auto scroll of the middle button (`view/autoscroll.rs`).
     pub(crate) autoscroll: autoscroll::AutoScroll,
     pub(crate) notice: Option<String>,
+    /// Message boxes that commands asked for (`Changes::message_box`), shown by the next paint,
+    /// which has the window.
+    pending_message_boxes: Vec<String>,
     /// A jump to a place the scan of the file has not reached, held back until it is done
     /// (`view/scan.rs`).
     pub(crate) pending_scan_jump: Option<scan::PendingScanJump>,
@@ -307,6 +310,7 @@ impl EditorView {
             click_phase: 1,
             autoscroll: Default::default(),
             notice: None,
+            pending_message_boxes: Vec::new(),
             pending_scan_jump: None,
             refused_edit: false,
             replaying_scan_jump: false,
@@ -553,22 +557,25 @@ impl EditorView {
         ok
     }
 
-    /// Shows the message box that a command asked for (`Changes::message_box`): the caption, the
-    /// text and an OK button. The box does not make a macro wait, as for `StatusMsg`.
-    fn show_message_box(&mut self, text: String, cx: &mut Context<Self>) {
-        let handle = cx.window_handle();
-        cx.spawn(async move |_, cx| {
-            let _ = handle.update(cx, |_, window, cx| {
+    /// Shows the message boxes that commands asked for: the caption, the text and an OK button.
+    /// A box does not make a macro wait, as for `StatusMsg`.
+    fn show_pending_message_boxes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.pending_message_boxes.is_empty() {
+            return;
+        }
+        let texts = std::mem::take(&mut self.pending_message_boxes);
+        // not while painting: a box opened there would be asked for in the middle of the frame
+        cx.defer_in(window, move |_, window, cx| {
+            for text in &texts {
                 crate::boxes::tell(
                     window,
                     gpui::PromptLevel::Info,
                     crate::boxes::CAPTION,
-                    Some(&text),
+                    Some(text),
                     cx,
                 );
-            });
-        })
-        .detach();
+            }
+        });
     }
 
     /// Types one character the way the keyboard does (Enter is `'\r'`).
@@ -594,7 +601,7 @@ impl EditorView {
             self.notice = Some(text.clone());
         }
         if let Some(text) = changes.message_box.clone() {
-            self.show_message_box(text, cx);
+            self.pending_message_boxes.push(text);
         }
         self.completion_after_command(changes, cx);
         // While a macro runs, a command that moved nothing leaves the view where it is:
@@ -879,6 +886,7 @@ impl Render for EditorView {
         if self.support.key_help.tip.is_some() && !self.focus_handle.is_focused(window) {
             self.support.key_help.tip = None;
         }
+        self.show_pending_message_boxes(window, cx);
         self.follow_window_width(cx);
         self.advance_layout(window, cx);
         self.advance_colors(window, cx);
