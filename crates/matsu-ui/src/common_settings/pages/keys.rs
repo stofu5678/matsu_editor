@@ -23,13 +23,10 @@ mod bindings;
 mod draw;
 mod transfer;
 
-use matsu_commands::keymap::Platform;
-
 use super::super::Env;
 use super::super::dialog::CommonSettingsDialog;
 use super::super::func_lookup::{KINDS, codes_of_kind};
 use super::super::model::{Control, Item, Value, Values};
-use crate::settings::UserSettings;
 use bindings::{ALT, Assigned, Bindings, CTRL, SHIFT};
 
 /// `STR_PROPCOMKEYBIND_UNASSIGN`: what the function of a key is when it has none.
@@ -210,20 +207,7 @@ pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: O
 /// Makes the key map of every window from the settings now.
 pub(in crate::common_settings) fn rebuild_key_map(env: &mut Env) {
     // The settings the dialog has just written are the application's now.
-    let Some(user) = env.cx.try_global::<UserSettings>().cloned() else {
-        return;
-    };
-    let map = user.key_map(Platform::current());
-    crate::app::set_key_map(env.cx, map.clone());
-    for (_, workspace) in crate::file_ops::windows::workspaces(env.cx) {
-        for view in workspace.read(env.cx).all_views() {
-            let map = map.clone();
-            view.update(env.cx, |view, cx| {
-                view.keymap = map;
-                cx.notify();
-            });
-        }
-    }
+    crate::plugin_commands::rebuild_key_maps(env.cx);
 }
 
 #[cfg(test)]

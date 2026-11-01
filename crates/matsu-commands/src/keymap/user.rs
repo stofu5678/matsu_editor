@@ -69,6 +69,8 @@ fn strip_f_prefix(name: &str) -> &str {
 /// a function constant without `F_` and our own IDs are read too, after the macro names.
 pub fn parse_function(token: &str) -> Option<u16> {
     let token = token.trim();
+    // A name that starts with a digit is a number, as in `GetFunctionStrToFunctionCode`; a plugin ID cannot
+    // start with a digit (`InstallPlugin` refuses it), so no plugin command is lost.
     if token.starts_with(|c: char| c.is_ascii_digit()) {
         return token.parse().ok();
     }

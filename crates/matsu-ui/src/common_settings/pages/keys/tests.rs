@@ -11,6 +11,7 @@ use crate::common_settings::tests::{
 };
 use crate::common_settings::{self, Page};
 use crate::file_ops::windows::editors;
+use crate::settings::UserSettings;
 
 const FILE_SAVE: u16 = 30103;
 

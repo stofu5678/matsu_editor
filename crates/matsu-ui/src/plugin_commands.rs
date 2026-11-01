@@ -121,6 +121,38 @@ pub(crate) fn refresh_for(user: &UserSettings) -> bool {
     plugin_commands::commands() != before
 }
 
+/// Makes the key map of the application and of every window from the settings now.
+pub(crate) fn rebuild_key_maps(cx: &mut App) {
+    let Some(user) = cx.try_global::<UserSettings>().cloned() else {
+        return;
+    };
+    let map = user.key_map(matsu_commands::keymap::Platform::current());
+    crate::app::set_key_map(cx, map.clone());
+    for (_, workspace) in crate::file_ops::windows::workspaces(cx) {
+        for view in workspace.read(cx).all_views() {
+            let map = map.clone();
+            view.update(cx, |view, cx| {
+                view.keymap = map;
+                cx.notify();
+            });
+        }
+    }
+}
+
+/// The commands changed while the application runs (`Plugin.AddCommand`): the menus, the key maps and the
+/// toolbar are made again from the saved settings, so that a binding or a button saved for a command that
+/// was not there yet works from now on.
+pub(crate) fn commands_changed(cx: &mut App) {
+    rebuild_key_maps(cx);
+    if let Some(user) = cx.try_global::<UserSettings>().cloned() {
+        crate::bars::toolbar::install(cx, &user);
+    }
+    // The menus of the window system exist once the application runs (a test has none).
+    if cx.has_global::<gpui_component::GlobalState>() {
+        crate::app::refresh_menus(cx);
+    }
+}
+
 /// `F_PLUGIN_LIST` (`CEditWnd::InitMenu_Special`): a submenu for each plugin that has commands, with its
 /// commands in it.
 pub(crate) struct PluginList;

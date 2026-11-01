@@ -248,6 +248,51 @@ fn a_command_added_at_run_time_gives_way_to_one_the_definition_now_declares(
 }
 
 #[gpui::test]
+fn a_binding_and_a_button_saved_for_an_added_command_work_once_it_is_added(
+    cx: &mut TestAppContext,
+) {
+    let place = Place::new();
+    let extra = format!(
+        "[KeyBind]\r\nKeyBind[000]=0041,0,0,{ID}/03,0,0,0,0,0,A\r\n\
+         [Toolbar]\r\nnToolBarButtonNum=1\r\nnTBB[000]={ID}/03\r\n"
+    );
+    let user = install(
+        cx,
+        &place,
+        &Setup {
+            extra: &extra,
+            ..Setup::ON
+        },
+    );
+    // At startup command 3 is not there: the key is unbound and the button is an undefined one.
+    cx.update(|app| {
+        crate::app::set_key_map(app, user.key_map(Platform::current()));
+        crate::bars::toolbar::install(app, &user);
+    });
+    let bound = |cx: &mut TestAppContext| {
+        cx.update(|app| crate::app::with_key_map(app, |map| !map.shortcuts_for(20203).is_empty()))
+    };
+    let buttons = |cx: &mut TestAppContext| {
+        cx.update(|app| {
+            app.global::<crate::bars::toolbar::ToolbarButtons>()
+                .0
+                .clone()
+        })
+    };
+    assert!(!bound(cx));
+    assert_eq!(buttons(cx), vec![-1]);
+
+    // The plugin adds the command while it runs: the key and the button work from now on.
+    let dirs = place.dirs();
+    let def = dirs.load_def("HelloCommands", DEFAULT_LANGUAGE).unwrap();
+    let mut api = DefApi::new(&dirs, "HelloCommands", def, 2).in_slot(SLOT);
+    api.call("Plugin.AddCommand", &[json!("added.js")]).unwrap();
+    cx.update(commands_changed);
+    assert!(bound(cx));
+    assert_eq!(buttons(cx), vec![20203]);
+}
+
+#[gpui::test]
 fn a_plugin_can_have_49_commands_and_no_more(cx: &mut TestAppContext) {
     let place = Place::new();
     install(cx, &place, &Setup::ON);

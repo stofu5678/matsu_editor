@@ -705,9 +705,10 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                         // The pane is gone: the document is let go all the same.
                         release_document(&document, depth, generation, cx);
                     }
-                    // A command the plugin added (`Plugin.AddCommand`) is in the menus from now on.
+                    // A command the plugin added (`Plugin.AddCommand`) is in the menus, the keys and the
+                    // toolbar from now on.
                     if plugin_commands::commands().len() != commands_before {
-                        cx.update(crate::app::refresh_menus);
+                        cx.update(crate::plugin_commands::commands_changed);
                     }
                     break;
                 }
