@@ -153,6 +153,29 @@ fn a_move_of_the_mouse_is_seen_even_when_the_pointer_comes_back(cx: &mut TestApp
 }
 
 #[gpui::test]
+fn a_closed_popup_is_forgotten(cx: &mut TestAppContext) {
+    let handle = opened(cx);
+    open_menu(cx, handle);
+    assert_eq!(
+        cx.update(|app| crate::menu_bar::popup_keys::registered(app)),
+        1
+    );
+    // The window closes the popup itself when it is resized (no dismiss event): what the popup's
+    // refill closure holds, such as a macro's answer, must not outlive it.
+    let view = active_view(cx, handle);
+    handle
+        .update(cx, |_, window, app| {
+            view.update(app, |view, cx| view.close_custom_menu(window, cx))
+        })
+        .unwrap();
+    visual(cx, handle).run_until_parked();
+    assert_eq!(
+        cx.update(|app| crate::menu_bar::popup_keys::registered(app)),
+        0
+    );
+}
+
+#[gpui::test]
 fn a_shifted_arrow_does_not_move_the_selection_the_letters_go_by(cx: &mut TestAppContext) {
     let handle = opened(cx);
     open_menu(cx, handle);

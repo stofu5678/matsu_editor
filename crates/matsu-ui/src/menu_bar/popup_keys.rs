@@ -188,6 +188,21 @@ pub(crate) fn register(popup: &Entity<PopupMenu>, keys: KeyList, rebuild: Rebuil
         pos: None,
         moves,
     });
+    // The closure that fills the popup again can hold what the popup's owner waits on (the answer
+    // of a macro's menu), so it must go with the popup, whichever way the popup is closed.
+    let id = popup.entity_id();
+    cx.observe_release(popup, move |_, cx| {
+        cx.default_global::<Registry>()
+            .entries
+            .retain(|e| e.popup.entity_id() != id);
+    })
+    .detach();
+}
+
+/// How many popups are registered.
+#[cfg(test)]
+pub(crate) fn registered(cx: &App) -> usize {
+    cx.try_global::<Registry>().map_or(0, |r| r.entries.len())
 }
 
 /// An element that counts the mouse moves of the window, to be a child of the window's root (it
