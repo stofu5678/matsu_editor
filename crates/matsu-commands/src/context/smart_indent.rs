@@ -88,7 +88,9 @@ fn comment_blocks(line: &[char]) -> Vec<(usize, usize)> {
         }
         n += 1;
     }
-    if begin > 0 {
+    // Sakura tests `0 < nBegin`, which drops a literal that starts at column 0; `-1` is the
+    // "none" value, so column 0 is taken here (type A of ADR-0018).
+    if begin >= 0 {
         // a string or a comment that does not end
         blocks.push((begin as usize, len));
     }
@@ -212,8 +214,11 @@ impl CommandContext<'_> {
                 k = other.len() as isize - 1;
             }
             let blocks = comment_blocks(&other);
-            if row == y && original != '\r' && in_block(&blocks, caret_chars) {
-                // the char that was typed is inside a comment or a string
+            if row == y && original != '\r' && in_block(&blocks, caret_chars.saturating_sub(1)) {
+                // The char that was typed is inside a comment or a string. Sakura tests the place
+                // behind it (`GetCaretLogicPos().x`), which is outside the comment at the end of a
+                // document without a final line ending, and inside a string that starts right behind
+                // the char; the char itself is meant (type A of ADR-0018).
                 return Ok(());
             }
             while k >= 0 {

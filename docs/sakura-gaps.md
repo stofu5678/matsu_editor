@@ -99,7 +99,7 @@
 |---|---|---|---|---|---|
 | 矩形選択での `F_LTRIM` `F_RTRIM` `F_INDENT_SPACE` `F_UNINDENT_SPACE` | `CViewCommander_Edit.cpp` | 矩形では断る（サクラは断るものと動くものがある。コマンドごとの対応表がない） | C | M | なし |
 | `F_WordDeleteToStart` `F_WordDeleteToEnd` の矩形 | `CViewCommander_Edit.cpp` | サクラはビープ。MATSU は動かすかどうか未確認 | C | S | なし |
-| `F_WCHAR` のスマートインデント（C/C++）の細部 | `CType_Cpp.cpp` の `SmartIndent_CPP` | 入った（`context/smart_indent.rs`）。残りは、前の行から続く `/* */` の中にいるかの判定（`GetColorTypePrev`。いまは行頭から数える）、支援ページの 3 つの設定（文字列・コメントを無視、元に戻すを分ける。既定値で動く）、プラグインのスマートインデント、拡張改行（`m_bEnableExtEol`）。桁 0 で打った `{` `}` が自分自身を数える動きはサクラのまま | C | S | 支援ページの灰色、ADR-0026 |
+| `F_WCHAR` のスマートインデント（C/C++）の細部 | `CType_Cpp.cpp` の `SmartIndent_CPP` | 入った（`context/smart_indent.rs`）。残りは、前の行から続く `/* */` の中にいるかの判定（`GetColorTypePrev`。いまは行頭から数える）、支援ページの 3 つの設定（文字列・コメントを無視、元に戻すを分ける。既定値で動く）、プラグインのスマートインデント、拡張改行（`m_bEnableExtEol`）。桁 0 で打った `{` `}` が自分自身を数える動きはサクラのまま。コメントと文字列の中の判定は、サクラの 2 つの数え違い（桁 0 で始まる閉じていない文字列、打った文字の次の位置を調べる）を型 A で直した | C | S | 支援ページの灰色、ADR-0026 |
 | 単語削除などで、サクラがメッセージボックスを出す箇所（`STR_ERR_DLGEDITVWCMDNW7` など） | `CViewCommander_Edit.cpp` | メッセージは出さない | C | S | なし |
 
 ### マクロ

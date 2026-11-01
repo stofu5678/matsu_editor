@@ -565,6 +565,11 @@ mod tests {
         // inside a string or a comment
         with(&cpp(), '(', "\"a|\"", "\"a(|\"");
         with(&cpp(), '(', "foo(); // a|\nx", "foo(); // a(|\nx");
+        // ... also on the last line, and in a literal that starts at column 0
+        with(&cpp(), '(', "{\n\t// a|", "{\n\t// a(|");
+        with(&cpp(), '(', "{\n\"abc|", "{\n\"abc(|");
+        // a string right behind the char does not hold it
+        with(&cpp(), '(', "{\n\t\t|\"a\"", "{\n\t(|\"a\"");
         // a bracket in a char literal does not count
         let literal = "void f() {\n\tchar c = '{';\n\t|";
         with(&cpp(), '}', literal, "void f() {\n\tchar c = '{';\n}|");
