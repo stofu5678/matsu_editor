@@ -143,13 +143,45 @@ fn run_with(
     if !available(language) {
         return None;
     }
-    let dir = tempfile::tempdir().unwrap();
-    let config = config_for(&dir, language, code, timeout);
-    let mut doc = TextModel::new(text, Some("/work/テスト.txt".into()));
-    let report = session::run_blocking(config, |message| handler(&mut doc, message)).unwrap();
-    // Every run in these tests must leave no boot folder, whatever the macro did.
-    assert_eq!(boot_folders(dir.path()), Vec::<String>::new());
-    Some((report, doc))
+    let mut retries = 0;
+    loop {
+        let dir = tempfile::tempdir().unwrap();
+        let config = config_for(&dir, language, code, timeout);
+        let mut doc = TextModel::new(text, Some("/work/テスト.txt".into()));
+        let report = session::run_blocking(config, |message| handler(&mut doc, message)).unwrap();
+        // Every run in these tests must leave no boot folder, whatever the macro did.
+        assert_eq!(boot_folders(dir.path()), Vec::<String>::new());
+        if retries < MAX_POWERSHELL_RETRIES
+            && should_retry_powershell(language, &report, POWERSHELL_CRASH_RETRY)
+        {
+            retries += 1;
+            eprintln!(
+                "RETRY: pwsh crashed with SIGSEGV and printed nothing; running the test again ({retries}/{MAX_POWERSHELL_RETRIES})"
+            );
+            continue;
+        }
+        return Some((report, doc));
+    }
+}
+
+/// How many times a PowerShell test is run again after pwsh crashed.
+const MAX_POWERSHELL_RETRIES: u32 = 2;
+
+/// Whether the retry is on here. The crash was seen only on the Linux ARM64 CI runners (the
+/// pwsh build there dies with SIGSEGV now and then, whichever test runs). On the other OSes a
+/// SIGSEGV of pwsh would be news, so it is not hidden.
+const POWERSHELL_CRASH_RETRY: bool = cfg!(all(target_os = "linux", target_arch = "aarch64"));
+
+/// Whether a run should be repeated: PowerShell only, ended by SIGSEGV (signal 11) with no
+/// output at all. A wrong output, another signal, a timeout or another language is a real
+/// failure and is never retried.
+fn should_retry_powershell(language: Language, report: &Report, enabled: bool) -> bool {
+    enabled
+        && language == Language::PowerShell
+        && report.finished.reason == EndReason::Exited
+        && report.finished.exit_code.is_none()
+        && report.finished.status.contains("signal: 11")
+        && report.output.is_empty()
 }
 
 fn stdout(report: &Report) -> Vec<&str> {
@@ -1904,4 +1936,48 @@ fn an_infinite_applescript_macro_is_stopped_by_the_timeout() {
         return;
     };
     assert_eq!(report.finished.reason, EndReason::TimedOut);
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use super::*;
+    use crate::session::Finished;
+
+    fn report(reason: EndReason, code: Option<i32>, status: &str, out: &[&str]) -> Report {
+        Report {
+            output: out
+                .iter()
+                .map(|t| (Stream::Stdout, (*t).to_string()))
+                .collect(),
+            finished: Finished {
+                reason,
+                exit_code: code,
+                status: status.into(),
+            },
+        }
+    }
+
+    const SEGV: &str = "signal: 11 (SIGSEGV) (core dumped)";
+
+    #[test]
+    fn only_a_silent_sigsegv_of_powershell_is_retried() {
+        let crash = report(EndReason::Exited, None, SEGV, &[]);
+        assert!(should_retry_powershell(PS, &crash, true));
+        // Not on the platforms where the retry is off.
+        assert!(!should_retry_powershell(PS, &crash, false));
+        // Other languages.
+        for language in [JS, TS, PY, RB, PHP, PL, EL] {
+            assert!(!should_retry_powershell(language, &crash, true));
+        }
+        // Output was printed.
+        let noisy = report(EndReason::Exited, None, SEGV, &["x"]);
+        assert!(!should_retry_powershell(PS, &noisy, true));
+        // Another signal, a normal exit, a timeout.
+        let kill = report(EndReason::Exited, None, "signal: 9 (SIGKILL)", &[]);
+        assert!(!should_retry_powershell(PS, &kill, true));
+        let ok = report(EndReason::Exited, Some(0), "exit status: 0", &[]);
+        assert!(!should_retry_powershell(PS, &ok, true));
+        let late = report(EndReason::TimedOut, None, SEGV, &[]);
+        assert!(!should_retry_powershell(PS, &late, true));
+    }
 }
