@@ -144,7 +144,7 @@ fn a_missing_line_is_a_blank_row_and_the_count_is_limited() {
 fn a_menu_without_a_version_gets_the_items_of_newer_versions() {
     // F_FILENEW (30101) is in the menu; F_FILENEW_NEWWINDOW (30110) comes after it. The separator and
     // the function list marks come together, and a function the menu already has is not added again.
-    let text = "[MainMenu]\nnMainMenuNum=4\n\
+    let text = "[MainMenu]\nnMatsuMainMenuVer=1\nnMainMenuNum=4\n\
          MM[000]=0,0,34052,F,\n\
          MM[001]=1,1,30101,N,\n\
          MM[002]=1,1,30372,,\n\
@@ -343,4 +343,96 @@ fn ok_keeps_the_limits() {
 fn ampersands() {
     assert_eq!(supplement_ampersand("A & B && C"), "A && B && C");
     assert_eq!(remove_ampersand("A && B & C"), "A & B & C");
+}
+
+/// A menu saved by MATSU 0.5.2 or before: Sakura's version 2, no MATSU version, and none of MATSU's items.
+const OLD_MATSU_MENU: &str = "[MainMenu]\nnMainMenuVer=2\nnMainMenuNum=5\n\
+     MM[000]=0,0,34052,F,\n\
+     MM[001]=1,1,30603,L,\n\
+     MM[002]=1,1,30604,P,\n\
+     MM[003]=1,1,31370,U,\n\
+     MM[004]=1,1,31371,,\n";
+
+fn functions(menu: &MainMenu) -> Vec<u16> {
+    menu.rows.iter().map(|r| r.function).collect()
+}
+
+#[test]
+fn a_menu_saved_before_the_matsu_items_gets_them_once_in_their_places() {
+    let menu = read(OLD_MATSU_MENU);
+    assert_eq!(
+        functions(&menu),
+        [34052, 30603, 32700, 32701, 30604, 31370, 32702, 31371]
+    );
+    assert_eq!(menu.rows[2], leaf(1, 32700, 'N'), "the default menu's key");
+    assert_eq!(menu.rows[6], leaf(1, 32702, 'G'));
+    // Sakura's own version is not touched: version 2 adds none of Sakura's items.
+    assert!(!functions(&menu).contains(&31337));
+}
+
+#[test]
+fn a_menu_saved_with_the_matsu_version_is_not_given_the_items_back() {
+    // The user took the items out and saved: the current MATSU version is written then.
+    let text = OLD_MATSU_MENU.replace("nMainMenuVer=2", "nMainMenuVer=2\nnMatsuMainMenuVer=1");
+    assert_eq!(functions(&read(&text)), [34052, 30603, 30604, 31370, 31371]);
+}
+
+#[test]
+fn the_matsu_items_the_menu_already_has_are_not_doubled() {
+    // 32700 is in the menu in another place: it stays, 32701 follows it, 32702 is there already.
+    let text = "[MainMenu]\nnMainMenuVer=2\nnMainMenuNum=5\n\
+         MM[000]=0,0,34052,F,\n\
+         MM[001]=1,1,32700,,\n\
+         MM[002]=1,1,30603,L,\n\
+         MM[003]=1,1,31370,U,\n\
+         MM[004]=1,1,32702,,\n";
+    let once = read(text);
+    assert_eq!(functions(&once), [34052, 32700, 32701, 30603, 31370, 32702]);
+    // Reading what was written gives the same menu: the migration is idempotent.
+    let mut file = profile(text);
+    once.write_to_profile(&mut file, None, None, Some(CURRENT_VERSION))
+        .unwrap();
+    assert_eq!(MainMenu::from_profile(&file, &names, &default_menu()), once);
+}
+
+#[test]
+fn a_matsu_item_whose_place_is_not_in_the_menu_is_left_out() {
+    let text = "[MainMenu]\nnMainMenuVer=2\nnMainMenuNum=2\n\
+         MM[000]=0,0,34052,F,\n\
+         MM[001]=1,1,30604,P,\n";
+    assert_eq!(functions(&read(text)), [34052, 30604]);
+}
+
+#[test]
+fn the_matsu_version_is_written_with_a_saved_menu_and_not_in_an_exported_file() {
+    let mut file = profile("");
+    let menu = read(OLD_MATSU_MENU);
+    menu.write_to_profile(&mut file, None, None, Some(CURRENT_VERSION))
+        .unwrap();
+    assert_eq!(file.get("MainMenu", "nMatsuMainMenuVer"), Some("1"));
+    let exported = menu.export_profile(&|_| None).unwrap();
+    assert_eq!(exported.get("MainMenu", "nMatsuMainMenuVer"), None);
+}
+
+#[test]
+fn a_matsu_item_gets_its_key_unless_a_sibling_in_the_same_submenu_has_it() {
+    // N is taken by a sibling (in any case) in the submenu of 30603; M is taken only in another submenu.
+    let text = "[MainMenu]\nnMainMenuVer=2\nnMainMenuNum=6\n\
+         MM[000]=0,0,34052,F,\n\
+         MM[001]=1,1,30603,L,\n\
+         MM[002]=1,1,30604,n,\n\
+         MM[003]=0,0,34053,G,\n\
+         MM[004]=1,1,30601,M,\n\
+         MM[005]=1,1,31370,U,\n";
+    let menu = read(text);
+    let key_of = |function| {
+        menu.rows
+            .iter()
+            .find(|r| r.function == function)
+            .unwrap()
+            .key
+    };
+    assert_eq!(key_of(32700), None, "N clashes");
+    assert_eq!(key_of(32701), Some('M'), "M is free in this submenu");
+    assert_eq!(key_of(32702), Some('G'), "G is only a menu of the bar");
 }

@@ -67,6 +67,11 @@ pub const MNU_VERSION: &str = "SakuraEditorMainMenu Ver1";
 const INFO_SECTION: &str = "Info";
 /// `nCurrentVer` of `ShareData_IO_MainMenu`.
 pub const CURRENT_VERSION: i32 = 2;
+/// The key of the version of the items that only MATSU adds. Sakura has no such key and ignores it.
+pub const MATSU_VERSION_KEY: &str = "nMatsuMainMenuVer";
+/// The current version of MATSU's own items. A saved menu with a smaller version (or with none) gets the
+/// items of the versions after it once.
+pub const MATSU_CURRENT_VERSION: i32 = 1;
 
 /// `F_NODE`: a node whose name is the name of the row.
 pub const F_NODE: u16 = 0;
@@ -254,6 +259,8 @@ struct Addition {
     function: u16,
     after: u16,
     separator_before: bool,
+    /// The access key of the new row, used only when no sibling has it. Sakura's additions have none.
+    key: Option<char>,
 }
 
 impl Addition {
@@ -263,6 +270,14 @@ impl Addition {
             function,
             after,
             separator_before,
+            key: None,
+        }
+    }
+
+    const fn with_key(self, key: char) -> Self {
+        Self {
+            key: Some(key),
+            ..self
         }
     }
 }
@@ -292,6 +307,16 @@ const ADDITIONS: [Addition; 21] = [
     Addition::new(2, 31337, 31370, false), // F_DLGWINLIST after F_WIN_OUTPUT
 ];
 
+/// The items that only MATSU has, which the menus saved before them lack (version 1: the copies with LF and
+/// with CR, and the preview in another tab; see `crates/matsu-commands/src/sakura/main_menu.rs`). Like
+/// Sakura's, they are added after the item they follow, with the access key of the default menu unless a
+/// sibling in the same submenu already has it.
+const MATSU_ADDITIONS: [Addition; 3] = [
+    Addition::new(1, 32700, 30603, false).with_key('N'), // F_COPY_LF after F_COPY_CRLF
+    Addition::new(1, 32701, 32700, false).with_key('M'), // F_COPY_CR after F_COPY_LF
+    Addition::new(1, 32702, 31370, false).with_key('G'), // the preview in another tab after F_WIN_OUTPUT
+];
+
 impl MainMenu {
     /// What the file gives over `default` (Sakura's menu): the section as `IO_MainMenu` reads it, and the
     /// items that newer versions added, as `ShareData_IO_MainMenu` puts them in. Without a menu in the file the
@@ -312,7 +337,21 @@ impl MainMenu {
             }
         });
         if version < CURRENT_VERSION {
-            menu.add_newer_items(version);
+            menu.add_newer_items(&ADDITIONS, version);
+        }
+        // MATSU's own version follows the same rule with its own key: a file that has the menu but no MATSU
+        // version is version 0; a file with no menu has the default, which has the items.
+        let matsu_version = profile
+            .get_i32(SECTION, MATSU_VERSION_KEY)
+            .unwrap_or_else(|| {
+                if profile.get_i32(SECTION, "nMainMenuNum").is_some() {
+                    0
+                } else {
+                    MATSU_CURRENT_VERSION
+                }
+            });
+        if matsu_version < MATSU_CURRENT_VERSION {
+            menu.add_newer_items(&MATSU_ADDITIONS, matsu_version);
         }
         menu
     }
@@ -347,9 +386,9 @@ impl MainMenu {
 
     /// `ShareData_IO_MainMenu`: puts the items that versions after `version` added into the menu, each after
     /// the item it follows (the first row of that function deeper than the menu bar), unless the menu already
-    /// has the function anywhere.
-    fn add_newer_items(&mut self, version: i32) {
-        for add in ADDITIONS.iter().filter(|a| a.version > version) {
+    /// has the function anywhere. `additions` is Sakura's table or MATSU's.
+    fn add_newer_items(&mut self, additions: &[Addition], version: i32) {
+        for add in additions.iter().filter(|a| a.version > version) {
             let extra = usize::from(add.separator_before);
             if self.rows.iter().any(|r| r.function == add.function)
                 || self.rows.len() + extra >= MAX_MAINMENU
@@ -368,14 +407,35 @@ impl MainMenu {
             if add.separator_before {
                 added.push(MenuRow::separator(level));
             }
-            added.push(MenuRow::leaf(level, add.function));
+            let mut row = MenuRow::leaf(level, add.function);
+            row.key = add.key.filter(|&key| !self.sibling_has_key(at, key));
+            added.push(row);
             self.rows.splice(at + 1..at + 1, added);
         }
     }
 
+    /// Whether a row in the same submenu as the row at `at` (same level, under the same parent) has `key`,
+    /// ignoring case as the menu does.
+    fn sibling_has_key(&self, at: usize, key: char) -> bool {
+        let level = self.rows[at].level;
+        let start = self.rows[..at]
+            .iter()
+            .rposition(|r| r.level < level)
+            .map_or(0, |parent| parent + 1);
+        let end = self.rows[at..]
+            .iter()
+            .position(|r| r.level < level)
+            .map_or(self.rows.len(), |i| at + i);
+        self.rows[start..end].iter().any(|r| {
+            r.level == level
+                && r.key
+                    .is_some_and(|k| k.to_lowercase().eq(key.to_lowercase()))
+        })
+    }
+
     /// `IO_MainMenu` in writing mode: `nMainMenuNum`, `bKeyParentheses` and a line for each row, over what
     /// `profile` has; lines past the last row are removed, and the rest of the file stays. With `version`,
-    /// `nMainMenuVer` is written too. A function is written as its code, or as the name `name_of` gives for it
+    /// `nMainMenuVer` is written too, and so is MATSU's own version ([`MATSU_VERSION_KEY`]). A function is written as its code, or as the name `name_of` gives for it
     /// (`bOutCmdName`, which the exported files use).
     ///
     /// `previous` is what [`MainMenu::read_raw`] gave before: a row equal to the row it has at its place keeps
@@ -390,6 +450,7 @@ impl MainMenu {
     ) -> Result<(), ProfileError> {
         if let Some(version) = version {
             profile.set_i32(SECTION, "nMainMenuVer", version)?;
+            profile.set_i32(SECTION, MATSU_VERSION_KEY, MATSU_CURRENT_VERSION)?;
         }
         profile.set_i32(SECTION, "nMainMenuNum", self.rows.len() as i32)?;
         profile.set_i32(SECTION, "bKeyParentheses", i32::from(self.key_parentheses))?;
