@@ -190,7 +190,7 @@ enum Term {
     /// A vertical line at the right edge of the line number area, in the color of the number.
     Line,
     /// A character after the number.
-    Char(ShapedLine),
+    Char(Box<ShapedLine>),
 }
 
 struct RowPaint {
@@ -656,12 +656,12 @@ impl Element for EditorElement {
             let term = if has_number_area {
                 match settings.line_term {
                     LineTerm::Line => Some(Term::Line),
-                    LineTerm::Char(c) if c != '\0' => Some(Term::Char(shape_number(
+                    LineTerm::Char(c) if c != '\0' => Some(Term::Char(Box::new(shape_number(
                         window,
                         &c.to_string(),
                         style.text,
                         style.bold,
-                    ))),
+                    )))),
                     _ => None,
                 }
             } else {
