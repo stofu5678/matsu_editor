@@ -60,10 +60,25 @@ impl EditorView {
         PrintJob {
             source: std::sync::Arc::new(DocLines(shared.doc().clone())),
             setting: self.current_print_setting(cx),
-            options: TypeOptions::default(),
+            options: self.print_type_options(),
             // `$R`, `$N` and the rest as the title of the window has them.
             header: self.header_context(cx),
             title,
+        }
+    }
+
+    /// What the print layout takes from the type of the document: the printing makes its layout
+    /// from a copy of the type (`CPrintPreview::OnChangePrintSetting`, `ref = ...GetDocumentAttribute()`),
+    /// so the tab width, the indent of wrapped rows and the kinsoku characters are the type's.
+    pub(crate) fn print_type_options(&self) -> TypeOptions {
+        let settings = &self.prefs.settings;
+        TypeOptions {
+            tab_width: settings.tab_width,
+            indent: settings.wrap_indent.clone(),
+            kinsoku_head: settings.kinsoku.head_chars.clone(),
+            kinsoku_tail: settings.kinsoku.tail_chars.clone(),
+            kinsoku_kuto: settings.kinsoku.kuto_chars.clone(),
+            ..TypeOptions::default()
         }
     }
 

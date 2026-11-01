@@ -215,6 +215,8 @@ impl EditorView {
         config.wrap = self.wanted_wrap();
         config.tab_width = self.prefs.settings.tab_width;
         config.word_wrap = self.prefs.settings.word_wrap;
+        config.kinsoku = self.prefs.settings.kinsoku.clone();
+        config.indent = self.prefs.settings.wrap_indent.clone();
         if config == *self.layout.config() {
             return false;
         }
