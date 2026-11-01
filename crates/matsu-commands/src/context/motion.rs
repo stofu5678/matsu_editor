@@ -13,7 +13,7 @@ use crate::command::Result;
 /// included because the type setting `m_bAutoIndent_ZENSPACE` is on by default
 /// (`sakura_core/types/CType.cpp`, `InitTypeConfigDefault`); it is a setting in Sakura, which
 /// this crate does not read yet.
-pub(crate) fn is_indent_char(c: char) -> bool {
+fn is_indent_char(c: char) -> bool {
     matches!(c, ' ' | '\t' | '\u{3000}')
 }
 

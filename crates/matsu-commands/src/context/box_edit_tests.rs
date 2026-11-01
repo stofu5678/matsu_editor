@@ -1099,3 +1099,17 @@ fn delete_in_the_gap_of_the_last_wrapped_row_pads_and_joins() {
     assert_eq!(text, "abcdef  x");
     assert_eq!(cursor.caret(), Pos::new(0, 8));
 }
+
+#[test]
+fn typing_in_a_box_runs_no_smart_indent() {
+    // `Command_WCHAR` hands the char to `Command_INDENT` and returns: the `}` stays behind the
+    // indentation instead of moving to the level of its `{`.
+    use crate::input_options::{InputOptions, SmartIndent};
+    let options = InputOptions {
+        smart_indent: SmartIndent::Cpp,
+        ..Default::default()
+    };
+    let mut e = boxed("{\n    ab\n    cd", (1, 4), (2, 5)).with_input_options(options);
+    typed(&mut e, '}');
+    assert_eq!(text_of(&e), "{\n    }ab\n    }cd");
+}

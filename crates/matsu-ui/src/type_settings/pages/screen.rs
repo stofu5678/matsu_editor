@@ -2,11 +2,12 @@
 //! (`sakura_core/typeprop/CPropTypesScreen.cpp`).
 //!
 //! Live: the name and the extensions, the wrap method and column, the TAB width, the English word
-//! wrap, the hanging of line ends and punctuation, and the rule of the outline (the standard rule
-//! or a rule file). Not available yet: the space between characters and lines, how a TAB is
-//! drawn, TSV mode, the indent (auto indent, smart indent, the wrapped line indent, the trailing
-//! spaces), the font of the type, the line breaking rules for the head and the tail of a line and
-//! the characters that hang.
+//! wrap, the hanging of line ends and punctuation, the rule of the outline (the standard rule
+//! or a rule file), the Tab key that inserts spaces, and the indent of what is typed (auto indent
+//! with the ideographic space, smart indent, the other indent chars, the trailing spaces of the
+//! line a line break leaves). Not available yet: the space between characters and lines, how a TAB
+//! is drawn, TSV mode, the wrapped line indent, the line breaking rules for the head and the tail
+//! of a line and the characters that hang.
 
 use matsu_config::settings::type_rules::outline_type;
 
@@ -223,9 +224,7 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                                 .when(tab_is_a_string)
                                 .into(),
                         ]),
-                        Control::check(INS_SPACE, "S&PACEの挿入", "", false)
-                            .unavailable()
-                            .into(),
+                        Control::check(INS_SPACE, "S&PACEの挿入", "", false).into(),
                         Control::choice(TSV_MODE, "", "", 0, TSV_MODES)
                             .named("TSVモード")
                             .unavailable()
@@ -236,12 +235,8 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                     "インデント",
                     vec![
                         Item::Row(vec![
-                            Control::check(AUTO_INDENT, "自動インデント(&U)", "", true)
-                                .unavailable()
-                                .into(),
-                            Control::check(AUTO_INDENT_ZENSPACE, "全角空白も(&Z)", "", true)
-                                .unavailable()
-                                .into(),
+                            Control::check(AUTO_INDENT, "自動インデント(&U)", "", true).into(),
+                            Control::check(AUTO_INDENT_ZENSPACE, "全角空白も(&Z)", "", true).into(),
                         ]),
                         Control::choice(
                             SMART_INDENT,
@@ -250,10 +245,8 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                             0,
                             SMART_INDENTS,
                         )
-                        .unavailable()
                         .into(),
                         Control::text(INDENT_CHARS, "その他のインデント対象文字(&I)", "", "")
-                            .unavailable()
                             .into(),
                         Control::choice(
                             INDENT_LAYOUT,
@@ -265,7 +258,6 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                         .unavailable()
                         .into(),
                         Control::check(RTRIM_PREV_LINE, "改行時に末尾の空白を削除(&E)", "", false)
-                            .unavailable()
                             .into(),
                     ],
                 ),

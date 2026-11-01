@@ -33,6 +33,8 @@ const TYPE_NAME_BUFFER: usize = 64;
 const TYPE_EXTS_BUFFER: usize = 64;
 /// `_MAX_PATH`: the buffer of the word file (`szHokanFile`).
 const PATH_BUFFER: usize = 260;
+/// `sizeof(szIndentChars)`: the buffer of the other indent chars.
+const INDENT_CHARS_BUFFER: usize = 64;
 /// `MAX_VERTLINES * 15`: the buffer of the text of the vertical lines.
 const VERT_LINES_TEXT: usize = MAX_VERT_LINES * 15;
 
@@ -485,6 +487,13 @@ pub(super) fn store(v: &Values, original: &TypeSettings) -> TypeSettings {
     };
     // the name is kept whichever rule is chosen (`GetData`: 「ルールを使っていなくてもファイル名を保持」)
     t.outline_rule_filename = fit(v.text(OUTLINE_RULE_FILE), PATH_BUFFER);
+    // the indent of what is typed (`CPropTypesScreen::GetData`)
+    t.ins_space = v.bool(INS_SPACE);
+    t.auto_indent = v.bool(AUTO_INDENT);
+    t.auto_indent_zenspace = v.bool(AUTO_INDENT_ZENSPACE);
+    t.smart_indent = v.int(SMART_INDENT);
+    t.indent_chars = fit(v.text(INDENT_CHARS), INDENT_CHARS_BUFFER);
+    t.rtrim_prev_line = v.bool(RTRIM_PREV_LINE);
 
     // カラー
     for (item, name) in ColorSet::all_names().enumerate() {
@@ -592,6 +601,12 @@ pub(super) fn merge(base: &TypeSettings, old: &TypeSettings, new: &TypeSettings)
         kinsoku_kuto_enabled,
         default_outline,
         outline_rule_filename,
+        ins_space,
+        auto_indent,
+        auto_indent_zenspace,
+        smart_indent,
+        indent_chars,
+        rtrim_prev_line,
         use_type_font,
         font,
         string_type,

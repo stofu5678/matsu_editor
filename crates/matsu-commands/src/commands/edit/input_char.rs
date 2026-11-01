@@ -22,14 +22,22 @@
 //!   the next char too (see `CommandContext::type_text`). With a box selected, `m_bOverWriteBoxDelete`
 //!   deletes the box before typing.
 //!
-//! Not done yet: the other indent chars and smart indent of the type settings, trimming the
-//! previous line (`m_bRTrimPrevLine`), and the extended line endings (`m_bEnableExtEol`).
+//! * The type settings of the "画面" page: `m_bAutoIndent` (off: nothing is copied),
+//!   `m_bAutoIndent_ZENSPACE` (whether an ideographic space is indentation), `m_szIndentChars`
+//!   (chars that are indentation besides the blanks), `m_eSmartIndent` (C/C++ only, see
+//!   `CommandContext::smart_indent_cpp`) and `m_bRTrimPrevLine` (the blanks at the end of the line
+//!   that the line break leaves are deleted). The smart indent also reacts to `: { } ( )`. With a
+//!   box selected the char goes no further than `Command_INDENT` (no smart indent).
+//!
+//! Not done yet: the extended line endings (`m_bEnableExtEol`) and the smart indent of plug-ins.
 //!
 //! Argument: one char, as `Arg::Char`, or a code point as `Arg::Int`.
 
 use crate::command::{Arg, Command, CommandError, Result};
-use crate::context::{CommandContext, is_indent_char};
+use crate::context::CommandContext;
+use crate::input_options::SmartIndent;
 use crate::register_command;
+use matsu_core::buffer::Pos;
 use matsu_core::model::eol_text;
 
 #[derive(Default)]
@@ -47,21 +55,57 @@ impl Command for InputChar {
 
 /// Types `c` as `Command_WCHAR` does (`F_IME_CHAR` uses it too, see [`super::ime_char`]).
 pub(super) fn type_char(cx: &mut CommandContext<'_>, c: char) -> Result {
-    if c == '\r' || c == '\n' {
+    type_char_as(cx, c, true)
+}
+
+/// `Command_WCHAR( c, bConvertEOL )`: with `convert_eol` off (`F_CTRL_CODE`) a CR or LF is
+/// inserted as it is, not as the line ending of the document.
+pub(super) fn type_char_as(cx: &mut CommandContext<'_>, c: char, convert_eol: bool) -> Result {
+    let is_break = c == '\r' || c == '\n';
+    if is_break {
         // `Command_WCHAR` deletes the selection first, a box as a box.
         if cx.cursor().is_box() {
             cx.delete_selection()?;
         }
         // One edit replaces the selection: deleting it first could join the CR and the LF
         // around it into a CRLF and move the place to insert.
-        let text = format!(
-            "{}{}",
-            eol_text(cx.new_line()),
-            indent_before_insertion(cx)?
-        );
+        let line_break = if convert_eol {
+            eol_text(cx.new_line()).to_owned()
+        } else {
+            c.to_string()
+        };
+        let text = format!("{line_break}{}", indent_before_insertion(cx)?);
         cx.insert_text(&text)?;
     } else {
+        // A box selection takes the char as `Command_INDENT` does and goes no further.
+        let boxed = cx.cursor().is_box() && cx.cursor().has_selection();
         cx.type_text(c.encode_utf8(&mut [0; 4]))?;
+        if boxed {
+            return Ok(());
+        }
+    }
+    if cx.input_options().smart_indent == SmartIndent::Cpp {
+        cx.smart_indent_cpp(c)?;
+    }
+    if is_break && cx.input_options().rtrim_prev_line {
+        rtrim_prev_line(cx)?;
+    }
+    Ok(())
+}
+
+/// `CEditView::RTrimPrevLine` (`sakura_core/view/CEditView_Command_New.cpp`): deletes the blanks at
+/// the end of the line before the caret's. The caret stays where it was.
+fn rtrim_prev_line(cx: &mut CommandContext<'_>) -> Result {
+    let caret = cx.caret();
+    let Some(prev) = caret.line.checked_sub(1) else {
+        return Ok(());
+    };
+    let text = cx.doc().line(prev)?.map(|l| l.text).unwrap_or_default();
+    // `WCODE::IsBlank`: a space, a tab or an ideographic space.
+    let kept = text.trim_end_matches([' ', '\t', '\u{3000}']).len();
+    if kept < text.len() {
+        cx.replace(Pos::new(prev, kept), Pos::new(prev, text.len()), "")?;
+        cx.move_caret(caret, false)?;
     }
     Ok(())
 }
@@ -83,11 +127,26 @@ fn char_arg(args: &[Arg]) -> Result<char> {
 /// The indentation of the line, up to where the text is inserted: the caret, or the start of the
 /// selection (Sakura copies the indent chars that are before that place, so Enter in the middle
 /// of the indentation does not copy all of it).
+///
+/// A char is indentation if the type says so: a space or a tab, an ideographic space with
+/// `m_bAutoIndent_ZENSPACE`, or a char of `m_szIndentChars`; with `m_bAutoIndent` off there is
+/// none (`Command_WCHAR`).
 pub(super) fn indent_before_insertion(cx: &CommandContext<'_>) -> Result<String> {
+    let options = cx.input_options();
+    if !options.auto_indent {
+        return Ok(String::new());
+    }
     let at = cx.selection().map_or(cx.caret(), |(start, _)| start);
     let line = cx.doc().line(at.line)?.map(|l| l.text).unwrap_or_default();
     let before = line.get(..at.col).unwrap_or(&line);
-    Ok(before.chars().take_while(|&c| is_indent_char(c)).collect())
+    Ok(before
+        .chars()
+        .take_while(|&c| {
+            // `wcsstr( m_szIndentChars, ch )`, but never for NUL
+            let listed = c != '\0' && options.indent_chars.contains(c);
+            listed || matches!(c, ' ' | '\t') || (options.auto_indent_zenspace && c == '\u{3000}')
+        })
+        .collect())
 }
 
 #[cfg(test)]
@@ -343,6 +402,226 @@ mod tests {
         assert!(e.changes().text_changed());
         assert!(e.changes().caret_moved);
         assert!(!e.changes().beep);
+    }
+
+    // ---- the indent options of the type ----
+
+    use crate::input_options::{InputOptions, SmartIndent};
+
+    /// Types `c` over `before` with `options`; the line ending is LF.
+    fn with(options: &InputOptions, c: char, before: &str, after: &str) {
+        let mut e = Editor::new(before)
+            .with_new_line(Eol::Lf)
+            .with_input_options(options.clone());
+        e.run_with(ID, &[Arg::Char(c)]).assert_marked(after);
+    }
+
+    fn cpp() -> InputOptions {
+        InputOptions {
+            smart_indent: SmartIndent::Cpp,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn auto_indent_off_copies_nothing() {
+        let off = InputOptions {
+            auto_indent: false,
+            ..Default::default()
+        };
+        with(&off, '\r', "  \tab|cd", "  \tab\n|cd");
+        with(&off, '\r', "ab|", "ab\n|");
+        with(&InputOptions::default(), '\r', "  ab|", "  ab\n  |");
+    }
+
+    #[test]
+    fn the_ideographic_space_is_indentation_with_the_option() {
+        let no_zen = InputOptions {
+            auto_indent_zenspace: false,
+            ..Default::default()
+        };
+        with(&no_zen, '\r', "\u{3000}a|b", "\u{3000}a\n|b");
+        with(&no_zen, '\r', " \u{3000}a|b", " \u{3000}a\n |b");
+        let defaults = InputOptions::default();
+        with(&defaults, '\r', " \u{3000}a|b", " \u{3000}a\n \u{3000}|b");
+    }
+
+    #[test]
+    fn the_other_indent_chars_are_indentation() {
+        let quote = InputOptions {
+            indent_chars: ">".to_owned(),
+            ..Default::default()
+        };
+        with(&quote, '\r', "> > text|", "> > text\n> > |");
+        with(&InputOptions::default(), '\r', "> > text|", "> > text\n|");
+        let several = InputOptions {
+            indent_chars: "*-".to_owned(),
+            ..Default::default()
+        };
+        with(&several, '\r', "-* a|", "-* a\n-* |");
+        // a char that is not listed ends the indentation
+        with(&several, '\r', "-x* a|", "-x* a\n-|");
+        // only the chars before the caret count
+        with(&quote, '\r', ">|> x", ">\n>|> x");
+    }
+
+    #[test]
+    fn rtrim_prev_line_deletes_the_blanks_the_line_break_leaves() {
+        let rtrim = InputOptions {
+            rtrim_prev_line: true,
+            ..Default::default()
+        };
+        with(&rtrim, '\r', "ab \t\u{3000}|cd", "ab\n|cd");
+        // an indented line that holds nothing else is emptied: the new line has the indentation
+        with(&rtrim, '\r', "x\n  |y", "x\n\n  |y");
+        // nothing to delete, and the first line
+        with(&rtrim, '\r', "ab|cd", "ab\n|cd");
+        with(&rtrim, '\r', "|ab", "\n|ab");
+        // other chars are not line breaks
+        with(&rtrim, 'x', "ab |cd", "ab x|cd");
+        // off by default
+        with(&InputOptions::default(), '\r', "ab |cd", "ab \n|cd");
+        // one undo step
+        let mut e = Editor::new("ab  |cd")
+            .with_new_line(Eol::Lf)
+            .with_input_options(rtrim);
+        e.run_with(ID, &[Arg::Char('\r')]).assert_marked("ab\n|cd");
+        e.run("undo").assert_marked("ab  |cd");
+    }
+
+    #[test]
+    fn smart_indent_none_adds_no_level() {
+        with(&InputOptions::default(), '\r', "if (x) {|", "if (x) {\n|");
+        with(&InputOptions::default(), '}', "{\n\t|", "{\n\t}|");
+    }
+
+    #[test]
+    fn smart_indent_cpp_indents_after_an_opening_bracket() {
+        with(&cpp(), '\r', "if (x) {|", "if (x) {\n\t|");
+        with(&cpp(), '\r', "\tif (x) {|", "\tif (x) {\n\t\t|");
+        with(&cpp(), '\r', "f(|", "f(\n\t|");
+        // no bracket open: the indentation that auto indent copied stays
+        with(&cpp(), '\r', "\tfoo();|", "\tfoo();\n\t|");
+        with(&cpp(), '\r', "foo();|", "foo();\n|");
+        // the bracket was closed
+        with(&cpp(), '\r', "{ foo(); }|", "{ foo(); }\n|");
+        // the nearest open bracket decides
+        let nested = "void f() {\n\tif (x) {\n\t\ty();|";
+        with(
+            &cpp(),
+            '\r',
+            nested,
+            "void f() {\n\tif (x) {\n\t\ty();\n\t\t|",
+        );
+        with(
+            &cpp(),
+            '\r',
+            "void f() {\n\tg(a,|",
+            "void f() {\n\tg(a,\n\t\t|",
+        );
+    }
+
+    #[test]
+    fn smart_indent_cpp_puts_a_closing_bracket_behind_a_line_break_with_its_opener() {
+        with(&cpp(), '\r', "\tvoid f() {|}", "\tvoid f() {\n\t|}");
+        with(&cpp(), '\r', "void f() {|}", "void f() {\n|}");
+        // blanks behind the caret go with the replaced indentation
+        with(&cpp(), '\r', "if (x) {| }", "if (x) {\n|}");
+    }
+
+    #[test]
+    fn smart_indent_cpp_aligns_a_typed_closing_bracket() {
+        with(
+            &cpp(),
+            '}',
+            "if (x) {\n\tfoo();\n\t|",
+            "if (x) {\n\tfoo();\n}|",
+        );
+        with(&cpp(), ')', "f(a,\n\t\t|", "f(a,\n)|");
+        // the brackets in between count
+        let deep = "void f() {\n\tif (x) {\n\t\ty;\n\t\t|";
+        with(&cpp(), '}', deep, "void f() {\n\tif (x) {\n\t\ty;\n\t}|");
+        let closed = "void f() {\n\tif (x) {\n\t\ty;\n\t}\n\t|";
+        with(
+            &cpp(),
+            '}',
+            closed,
+            "void f() {\n\tif (x) {\n\t\ty;\n\t}\n}|",
+        );
+        // no opener: the indentation goes
+        with(&cpp(), '}', "\t\t|", "}|");
+        // text before the bracket: left alone
+        with(&cpp(), '}', "if (x) {\n\tfoo(); |", "if (x) {\n\tfoo(); }|");
+    }
+
+    #[test]
+    fn smart_indent_cpp_moves_a_typed_opening_bracket_to_the_level() {
+        let before = "void f() {\n\tif (x)\n\t\t|";
+        with(&cpp(), '{', before, "void f() {\n\tif (x)\n\t{|");
+        // a bracket that follows text stays where it is
+        with(&cpp(), '{', "if (x) |", "if (x) {|");
+        // a preprocessor line
+        with(&cpp(), '(', "#define X|", "#define X(|");
+        // inside a string or a comment
+        with(&cpp(), '(', "\"a|\"", "\"a(|\"");
+        with(&cpp(), '(', "foo(); // a|\nx", "foo(); // a(|\nx");
+        // a bracket in a char literal does not count
+        let literal = "void f() {\n\tchar c = '{';\n\t|";
+        with(&cpp(), '}', literal, "void f() {\n\tchar c = '{';\n}|");
+    }
+
+    #[test]
+    fn smart_indent_cpp_aligns_labels() {
+        with(&cpp(), ':', "class A {\n\t\tpublic|", "class A {\npublic:|");
+        let case = "switch (x) {\n\t\tcase 1|";
+        with(&cpp(), ':', case, "switch (x) {\ncase 1:|");
+        let default = "switch (x) {\n\t\tdefault|";
+        with(&cpp(), ':', default, "switch (x) {\ndefault:|");
+        // not a label
+        with(&cpp(), ':', "\ta|", "\ta:|");
+        with(&cpp(), ':', "\t|", "\t:|");
+    }
+
+    #[test]
+    fn smart_indent_cpp_uses_spaces_when_the_tab_key_does() {
+        let soft = |before: &str, after: &str| {
+            let mut e = Editor::new(before)
+                .with_new_line(Eol::Lf)
+                .with_tab_width(4)
+                .with_ins_space(true)
+                .with_input_options(cpp());
+            e.run_with(ID, &[Arg::Char('\r')]).assert_marked(after);
+        };
+        soft("if (x) {|", "if (x) {\n    |");
+        // up to the next tab stop, counting a tab as the tab stop does
+        soft("  if (x) {|", "  if (x) {\n    |");
+        soft("\tif (x) {|", "\tif (x) {\n\t    |");
+        soft(" \tif (x) {|", " \tif (x) {\n \t    |");
+    }
+
+    #[test]
+    fn smart_indent_cpp_is_one_undo_step_with_the_typed_char() {
+        let mut e = Editor::new("if (x) {|")
+            .with_new_line(Eol::Lf)
+            .with_input_options(cpp());
+        e.run_with(ID, &[Arg::Char('\r')])
+            .assert_marked("if (x) {\n\t|");
+        e.run("undo").assert_marked("if (x) {|");
+        let mut e = Editor::new("{\n\t|")
+            .with_new_line(Eol::Lf)
+            .with_input_options(cpp());
+        e.run_with(ID, &[Arg::Char('}')]).assert_marked("{\n}|");
+        e.run("undo").assert_marked("{\n\t|");
+    }
+
+    #[test]
+    fn ctrl_code_runs_the_smart_indent_too() {
+        // `F_CTRL_CODE` is `Command_WCHAR( c, false )`
+        let mut e = Editor::new("{\n\t|")
+            .with_new_line(Eol::Lf)
+            .with_input_options(cpp());
+        e.run_with("ctrl_code", &[Arg::Int(i64::from(b'}'))])
+            .assert_marked("{\n}|");
     }
 
     #[test]

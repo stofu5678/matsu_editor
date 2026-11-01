@@ -35,6 +35,7 @@ mod motion;
 mod mouse;
 mod mouse_drop;
 mod paragraph;
+mod smart_indent;
 mod view_mode;
 mod word;
 
@@ -47,6 +48,7 @@ use matsu_core::model::DocumentModel;
 
 use crate::clipboard::Clipboard;
 use crate::command::{CommandError, Result};
+use crate::input_options::InputOptions;
 use crate::layout::Layout;
 
 pub use bookmarks::BookmarkJump;
@@ -56,7 +58,6 @@ pub use diff::DiffJump;
 pub use funclist::FuncListJump;
 pub use modes::{eol_of_macro_value, macro_value_of_eol};
 pub use modified_lines::ModifiedLineJump;
-pub(crate) use motion::is_indent_char;
 pub use mouse::DragSelection;
 
 /// One edit of the text, in the coordinates of the document before the edit for `old_end` and
@@ -158,6 +159,8 @@ pub struct CommandContext<'a> {
     overwrite: bool,
     /// The Tab key inserts spaces (the type's `bInsSpace`). See [`with_ins_space`](Self::with_ins_space).
     ins_space: bool,
+    /// The indent options of the type. See [`with_input_options`](Self::with_input_options).
+    input: InputOptions,
     /// View mode: every edit is refused. See [`with_view_mode`](Self::with_view_mode).
     view_mode: bool,
     /// The quote string of `F_COPYLINESASPASSAGE`. See [`with_quote_string`](Self::with_quote_string).
@@ -199,6 +202,7 @@ impl<'a> CommandContext<'a> {
             changes: Changes::default(),
             overwrite: false,
             ins_space: false,
+            input: InputOptions::default(),
             view_mode: false,
             quote: QUOTE.to_owned(),
         }
@@ -227,6 +231,19 @@ impl<'a> CommandContext<'a> {
     pub fn with_ins_space(mut self, ins_space: bool) -> Self {
         self.ins_space = ins_space;
         self
+    }
+
+    /// Sets the indent options of the type that Enter and the typed chars read (the defaults are
+    /// Sakura's, see [`InputOptions`]).
+    #[must_use]
+    pub fn with_input_options(mut self, input: InputOptions) -> Self {
+        self.input = input;
+        self
+    }
+
+    /// The indent options of the type.
+    pub fn input_options(&self) -> &InputOptions {
+        &self.input
     }
 
     /// Sets view mode before the command runs (the default is off). While it is on, the text
