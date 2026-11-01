@@ -271,17 +271,28 @@ pub(crate) async fn window_closing(
     views: &[WeakEntity<EditorView>],
     cx: &mut AsyncWindowContext,
 ) -> bool {
-    for view in views {
+    windows_closing(&[views.to_vec()], cx).await
+}
+
+/// [`window_closing`] for several windows that go together (quitting): every tab is watched from before the
+/// first handler runs until after the last one, so that an edit in a window that was done already is seen.
+pub(crate) async fn windows_closing(
+    windows: &[Vec<WeakEntity<EditorView>>],
+    cx: &mut AsyncWindowContext,
+) -> bool {
+    for view in windows.iter().flatten() {
         view.update(cx, |view, cx| view.begin_edit_watch(cx)).ok();
     }
-    for view in views {
-        fire_and_wait(view, cx, Jack::DocumentClose).await;
-    }
-    if let Some(first) = views.first() {
-        fire_and_wait(first, cx, Jack::EditorEnd).await;
+    for views in windows {
+        for view in views {
+            fire_and_wait(view, cx, Jack::DocumentClose).await;
+        }
+        if let Some(first) = views.first() {
+            fire_and_wait(first, cx, Jack::EditorEnd).await;
+        }
     }
     let mut changed = false;
-    for view in views {
+    for view in windows.iter().flatten() {
         changed |= view
             .update(cx, |view, cx| view.end_edit_watch(cx))
             .unwrap_or(false);

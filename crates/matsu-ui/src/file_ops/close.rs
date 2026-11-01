@@ -541,10 +541,7 @@ pub(crate) async fn exit_all(cx: &mut AsyncWindowContext, kind: ExitKind) {
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
-            let mut edited = false;
-            for views in &windows {
-                edited |= crate::plugin_events::window_closing(views, cx).await;
-            }
+            let edited = crate::plugin_events::windows_closing(&windows, cx).await;
             // The plugins took time: a window that opened, or a document that the user changed meanwhile,
             // is asked about again. What the plugins wrote does not count.
             let now: Vec<_> = snapshot(cx).into_iter().map(|(id, _)| id).collect();
