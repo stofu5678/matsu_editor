@@ -181,15 +181,12 @@ fn open_window_with(
         });
         // The plugins of EditorStart, once the window is there (`CNormalProcess`). A plugin that adds
         // commands (`Plugin.AddCommand`) makes the saved keys and buttons of them work from here.
-        let started = workspace.clone();
-        window.defer(cx, move |_, cx| {
-            let editor = started.read(cx).editor().clone();
-            // A window that began with a file calls it after the file is read.
-            if editor.read(cx).editor_start_due() {
-                return;
-            }
+        // The place in the line is taken now, before a macro of the launch can start: it waits for EditorStart.
+        let editor = workspace.read(cx).editor().clone();
+        // A window that began with a file calls it after the file is read.
+        if !editor.read(cx).editor_start_due() {
             crate::plugin_events::fire(cx, &editor, Jack::EditorStart);
-        });
+        }
         // The windows keep their size and position when the settings say so (`OnSize`, `OnMove`).
         workspace.update(cx, |_, workspace_cx| {
             workspace_cx

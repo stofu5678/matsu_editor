@@ -426,6 +426,7 @@ pub(crate) async fn save(
                 // `FileSaveAs` runs the macro of オープン後 after a save under a name, and then the
                 // plugins of DocumentOpen.
                 if !same_document(view, cx) {
+                    super::close::user_changed_text(view, cx);
                     return SaveOutcome::Cancelled;
                 }
                 crate::macros::run_opened(view, cx).await;
