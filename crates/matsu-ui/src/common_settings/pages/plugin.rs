@@ -16,8 +16,9 @@
 //! states for what MATSU cannot run (「VBScript は使えません」, 「DLL プラグインは使えません」) follow
 //! ADR-0026, chapter 1.
 //!
-//! Not built here (they come in later PRs of ADR-0026): ZIPプラグインを導入, 設定 (the options of a
-//! plugin), ReadMe.
+//! 設定 opens the dialog of the options of the plugin ([`crate::plugin_options`]).
+//!
+//! Not built here (they come in later PRs of ADR-0026): ZIPプラグインを導入, ReadMe.
 
 mod confirm;
 mod list;
@@ -79,6 +80,9 @@ pub(in crate::common_settings) fn items() -> Option<Vec<Item>> {
                 .into(),
             Control::button(list::REMOVE, "削除(&R)", list::remove)
                 .when(list::can_remove)
+                .into(),
+            Control::button(list::OPTION, "設定(&P)", list::open_options)
+                .when(list::can_open_options)
                 .into(),
             Control::button(list::URL, "配布元(&D)", list::open_url)
                 .when(list::can_open_url)
