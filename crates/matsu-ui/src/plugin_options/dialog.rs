@@ -40,6 +40,7 @@ pub(crate) struct OptionDialog {
     input: Entity<InputState>,
     /// Why OK did not close the window.
     message: Option<String>,
+    focused_once: bool,
     focus: FocusHandle,
     _subscription: Subscription,
 }
@@ -64,6 +65,7 @@ impl OptionDialog {
             selected: None,
             input,
             message: None,
+            focused_once: false,
             focus: cx.focus_handle(),
             _subscription: subscription,
         }
@@ -392,9 +394,9 @@ impl Focusable for OptionDialog {
 
 impl Render for OptionDialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if !self.focus.is_focused(window)
-            && !self.input.read(cx).focus_handle(cx).is_focused(window)
-        {
+        // The dialog takes the focus once, when it opens; after that the user moves it (Tab).
+        if !self.focused_once {
+            self.focused_once = true;
             window.focus(&self.focus, cx);
         }
         let ui_font = gpui_component::Theme::global(cx).font_family.clone();
