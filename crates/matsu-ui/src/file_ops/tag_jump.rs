@@ -27,6 +27,14 @@ use super::windows;
 use crate::document::SharedDocument;
 use crate::view::EditorView;
 
+/// The code of a function of Sakura.
+fn function_code(name: &str) -> u16 {
+    matsu_commands::sakura::FUNCTIONS
+        .iter()
+        .find(|f| f.name == name)
+        .map_or(0, |f| f.code)
+}
+
 /// `MAX_TAGJUMPNUM`.
 const MAX_ENTRIES: usize = 100;
 
@@ -91,6 +99,51 @@ impl EditorView {
         };
         let col = column.map_or(0, |column| doc.col_from_utf16_col(index, column - 1));
         self.go_to(Pos::new(index, col), cx);
+    }
+}
+
+impl EditorView {
+    /// Enter in the result of a Grep when 「エンターキーでタグジャンプ」 is on
+    /// (`CEditView::TranslateCommand_grep`: the line break of `F_WCHAR` becomes `F_TAGJUMP`, and
+    /// Ctrl closes the window the jump started from). Returns whether the key was taken.
+    pub(crate) fn grep_enter_jump(
+        &mut self,
+        close: bool,
+        window: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.is_grep_window() || !crate::search::prefs::prefs(cx).grep_enter_jumps {
+            return false;
+        }
+        // Through the command (`F_TAGJUMP`, `F_TAGJUMP_CLOSE`), so that a key macro that is
+        // being recorded keeps the jump.
+        let name = if close {
+            "F_TAGJUMP_CLOSE"
+        } else {
+            "F_TAGJUMP"
+        };
+        self.run_function(function_code(name), &[], window, cx);
+        true
+    }
+
+    /// A double click in the result of a Grep when 「ダブルクリックでタグジャンプ」 is on
+    /// (`CEditView::OnLBUTTONDBLCLK`). Sakura jumps by the line, then by the tags file, and does
+    /// the ordinary double click when both fail. The tags file is searched in the background here,
+    /// so the double click can only fall back when the line itself names no place: returns whether
+    /// the line did and the jump started.
+    pub(crate) fn grep_double_click_jump(
+        &mut self,
+        window: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.is_grep_window() || !crate::search::prefs::prefs(cx).grep_double_click_jumps {
+            return false;
+        }
+        if target_of(self, cx).is_none() {
+            return false;
+        }
+        self.run_function(function_code("F_TAGJUMP"), &[], window, cx);
+        true
     }
 }
 

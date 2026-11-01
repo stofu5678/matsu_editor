@@ -58,7 +58,8 @@ impl Default for ToolbarButtons {
 impl ToolbarButtons {
     /// `ShareData_IO_Toolbar` reading: `nToolBarButtonNum` entries `nTBB[000]`...; an entry the file
     /// does not have keeps the default list's value at that place (0 past its end). A value with a
-    /// `/` is a plugin command, which MATSU Editor has none of: it is an undefined button.
+    /// `/` is a plugin command (`<plugin ID>/<number>`): the button of its function code, or an
+    /// undefined button when the plugin is not enabled.
     pub(crate) fn from_profile(profile: &Profile) -> Self {
         const SECTION: &str = "Toolbar";
         let default = Self::default().0;
@@ -67,7 +68,11 @@ impl ToolbarButtons {
             .map_or(default.len(), |n| n.clamp(0, MAX_BUTTONS as i32) as usize);
         let numbers = (0..count)
             .map(|i| match profile.get(SECTION, &format!("nTBB[{i:03}]")) {
-                Some(text) if text.contains('/') => -1,
+                // A plugin command (`GetPlugCmdInfoByName`): the button number is its function code. One
+                // that is not loaded is an undefined button (`-1`).
+                Some(text) if text.contains('/') => {
+                    matsu_commands::plugin_commands::by_name(text).map_or(-1, i32::from)
+                }
                 // `_wtoi`: the number at the start, else 0.
                 Some(text) => leading_int(text),
                 None => default.get(i).copied().unwrap_or(0),
@@ -93,6 +98,29 @@ pub(crate) fn install(cx: &mut App, user: &crate::settings::UserSettings) {
         user.profile()
             .map_or_else(ToolbarButtons::default, ToolbarButtons::from_profile),
     );
+}
+
+/// `m_bToolBarIsFlat` (`bToolBarIsFlat`, `[Toolbar]`): the buttons have no frame until the pointer
+/// is over them (`TBSTYLE_FLAT`). Without it Sakura draws every button raised. On by default:
+/// Sakura starts with it off only where Windows draws with visual styles, and there the OS draws
+/// the plain buttons flat as well, so the flat form is the nearest to what a fresh Sakura shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ToolbarFlat(pub bool);
+
+impl Default for ToolbarFlat {
+    fn default() -> Self {
+        Self(true)
+    }
+}
+
+impl Global for ToolbarFlat {}
+
+/// Whether the buttons are flat now.
+pub(crate) fn is_flat(cx: &App) -> bool {
+    cx.try_global::<ToolbarFlat>()
+        .copied()
+        .unwrap_or_default()
+        .0
 }
 
 /// The buttons now.
@@ -150,6 +178,17 @@ pub(super) enum Item {
     SearchBox,
 }
 
+/// The picture of a plugin command: the place of `F_PLUGCOMMAND` in the table of the buttons
+/// (`TOOLBAR_ICON_PLUGCOMMAND_DEFAULT` is the number of the button, one more than the picture).
+pub(crate) fn plugin_icon() -> Option<usize> {
+    FUNCTIONS_OF_BUTTONS
+        .iter()
+        .position(|&c| c == F_PLUGCOMMAND)
+}
+
+/// `F_PLUGCOMMAND`.
+const F_PLUGCOMMAND: u16 = 3;
+
 /// `CMenuDrawer::getButton`: what a number stands for. A number outside the table is an undefined
 /// button (gray, no picture).
 fn item_of(number: i32) -> Item {
@@ -161,6 +200,17 @@ fn item_of(number: i32) -> Item {
         code: 0,
         icon: None,
     });
+    // A plugin command: the number of its button is its function code, with the picture Sakura gives
+    // to a plugin command (`TOOLBAR_ICON_PLUGCOMMAND_DEFAULT`).
+    if let Ok(code) = u16::try_from(number)
+        && matsu_commands::plugin_commands::is_plugin_code(code)
+    {
+        return Item::Button(Button {
+            number: code,
+            code,
+            icon: plugin_icon(),
+        });
+    }
     let Some(index) = usize::try_from(number - 1)
         .ok()
         .filter(|&i| i < FUNCTIONS_OF_BUTTONS.len())
@@ -229,6 +279,15 @@ pub(super) fn tooltip_text(code: u16, cx: &App) -> String {
     text
 }
 
+/// A button of a toolbar that is not flat: it is drawn raised all the time, with the frame of a
+/// push button.
+fn raised<E: Styled>(button: E) -> E {
+    button
+        .bg(rgb(0xe8e8e8))
+        .border_1()
+        .border_color(rgb(0xadadad))
+}
+
 impl Workspace {
     /// The toolbar at 100 %, if it is shown (the tests; the window uses the scale of its screen).
     #[cfg(test)]
@@ -294,6 +353,7 @@ impl Workspace {
             .icon
             .and_then(|index| icons::icon(index, icons::pixel_factor(scale_factor)));
         let name = crate::func_name::FuncNames::new().name(cx, code);
+        let flat = is_flat(cx);
         let main = super::semantics::tool_button(
             div().id(("tool-button", row * 1000 + column)),
             &name,
@@ -306,6 +366,7 @@ impl Workspace {
         .w(px(24.))
         .h(px(22.))
         .rounded_sm()
+        .when(!flat, raised)
         .when(pressed, |this| {
             this.bg(rgb(0xc4d8f0))
                 .border_1()
@@ -351,6 +412,7 @@ impl Workspace {
         .h(px(22.))
         .rounded_sm()
         .text_size(px(7.))
+        .when(!flat, raised)
         .child("▼")
         .when(enabled, |this| {
             this.cursor_pointer()

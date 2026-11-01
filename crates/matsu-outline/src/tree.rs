@@ -378,6 +378,29 @@ pub enum ListColumn {
     Remark,
 }
 
+impl ListColumn {
+    /// The column for `nOutlineSortCol` (`FL_COL_ROW` 0, `FL_COL_COL` 1, `FL_COL_NAME` 2,
+    /// `FL_COL_REMARK` 3); a number outside them is the first column.
+    pub fn from_index(i: i32) -> Self {
+        match i {
+            1 => Self::Col,
+            2 => Self::Name,
+            3 => Self::Remark,
+            _ => Self::Row,
+        }
+    }
+
+    /// The number kept in `nOutlineSortCol`.
+    pub fn index(self) -> i32 {
+        match self {
+            Self::Row => 0,
+            Self::Col => 1,
+            Self::Name => 2,
+            Self::Remark => 3,
+        }
+    }
+}
+
 /// The sort of the list: a column, and the direction (`m_nSortCol`, `m_bSortDesc`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ListSort {

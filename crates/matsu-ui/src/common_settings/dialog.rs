@@ -738,6 +738,10 @@ impl CommonSettingsDialog {
     pub(crate) fn ok(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.follow_keyword_renumbering(cx);
         self.commit_inputs(cx);
+        // The dialog 位置と大きさの設定 closes with the sheet; what it holds goes in first.
+        if matches!(self.target, Target::Common) {
+            super::pages::window::absorb_win_size_dialog(self, cx);
+        }
         match &self.target {
             Target::Common => {
                 if let Some(message) = super::pages::tab::blocked(cx, &self.values, &self.original)
@@ -760,7 +764,10 @@ impl CommonSettingsDialog {
     }
 
     /// キャンセル: nothing is changed.
-    pub(crate) fn cancel(&mut self, window: &mut Window, _cx: &mut Context<Self>) {
+    pub(crate) fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if matches!(self.target, Target::Common) {
+            crate::win_size_dialog::discard_open(cx);
+        }
         window.remove_window();
     }
 

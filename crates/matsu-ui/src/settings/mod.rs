@@ -280,9 +280,9 @@ impl UserSettings {
     /// The custom menus and the right-click menu (`[CustMenu]`): Sakura's defaults under what the file sets.
     pub fn custom_menus(&self) -> matsu_config::settings::CustomMenus {
         match &self.profile {
-            Some(profile) => matsu_config::settings::CustomMenus::from_profile(profile, &|name| {
-                matsu_commands::macro_names::by_name(name).map(|f| f.code)
-            }),
+            Some(profile) => {
+                matsu_config::settings::CustomMenus::from_profile(profile, &function_code_of_name)
+            }
             None => matsu_config::settings::CustomMenus::default(),
         }
     }
@@ -293,7 +293,7 @@ impl UserSettings {
         match &self.profile {
             Some(profile) => matsu_config::settings::MainMenu::from_profile(
                 profile,
-                &|name| matsu_commands::macro_names::by_name(name).map(|f| f.code),
+                &function_code_of_name,
                 crate::menu::default_main_menu(),
             ),
             None => crate::menu::default_main_menu().clone(),
@@ -313,6 +313,15 @@ impl UserSettings {
             None => Vec::new(),
         }
     }
+}
+
+/// `GetFunctionStrToFunctionCode`: the function a name in a menu stands for: a plugin command that is
+/// loaded when the name has a `/` (`GetPlugCmdInfoByName`), else a macro name.
+pub fn function_code_of_name(name: &str) -> Option<u16> {
+    if name.contains('/') {
+        return matsu_commands::plugin_commands::by_name(name);
+    }
+    matsu_commands::macro_names::by_name(name).map(|f| f.code)
 }
 
 /// The settings file the history is written to: the file that was read, or else the place where

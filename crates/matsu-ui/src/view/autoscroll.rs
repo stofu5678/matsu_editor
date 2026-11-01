@@ -188,6 +188,9 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.activating_click(event, window, cx) {
+            return;
+        }
         // The pane that is pressed gets the focus, as for the left button; the scroll ends when the
         // view loses it.
         window.focus(&self.focus_handle, cx);

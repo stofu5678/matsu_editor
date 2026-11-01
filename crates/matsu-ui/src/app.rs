@@ -5,7 +5,7 @@
 use gpui::{
     App, AppContext as _, Context, Decorations, Entity, Focusable, InteractiveElement as _,
     IntoElement, Menu, MenuItem, MouseButton, ParentElement, Render, Styled, Window, actions, div,
-    prelude::FluentBuilder, rgb,
+    prelude::FluentBuilder, px, rgb,
 };
 use gpui_component::{GlobalState, TitleBar};
 use gpui_platform::application;
@@ -124,6 +124,8 @@ pub(crate) fn run(
     sender: async_channel::Sender<OpenRequest>,
     requests: async_channel::Receiver<OpenRequest>,
 ) {
+    // The key bindings and the menus name the commands of the plugins that are enabled.
+    crate::plugin_commands::refresh_for(&user);
     let keymap = user.key_map(matsu_commands::keymap::Platform::current());
     // The search and replace strings of the last runs (`[Keys]`), saved to the same file.
     let search_history = {
@@ -393,6 +395,7 @@ fn editor_menus(
     let custom = CustomMenuList(&custom_menus);
     let macro_list = crate::macros::MacroList(crate::macros::registered_table(cx));
     let rest = ChainedLists(&custom, &macro_list);
+    let rest = ChainedLists(&rest, &crate::plugin_commands::PluginList);
     let lists = ChainedLists(&recent, &rest);
     // The menu of the user (`[MainMenu]`), Sakura's default without one.
     let main_menu = cx
@@ -496,8 +499,16 @@ pub(crate) fn gpui_items(entries: Vec<Entry>, style: DisplayStyle) -> Vec<MenuIt
 pub struct Workspace {
     pub(crate) content: crate::tabs::content::TabContent,
     pub(crate) tabs: crate::tabs::Tabs,
-    /// The outline pane docked at the right of the window, while it is open (`crate::outline`).
+    /// The outline pane, while it is open (`crate::outline`). The settings say at which side of
+    /// the window it is docked, or that it floats over the text.
     pub(crate) outline: Option<Entity<crate::outline::pane::OutlinePane>>,
+    /// Where the pane and the text are as of the last paint, and the drag of the bar between them.
+    pub(crate) outline_layout: crate::outline::layout::OutlineLayout,
+    /// The type of the file a new window is loading, until the outline is restored: the document
+    /// has the basic type until its file is read (`crate::outline::Workspace::restore_outline`).
+    pub(crate) outline_restore_type: Option<usize>,
+    /// The outline is being opened again for a new window: that is not the user's choice.
+    pub(crate) outline_restoring: bool,
     pub(crate) menu_bar: Entity<MenuBar>,
     /// The search box of the toolbar (`F_SEARCH_BOX`), shown where the toolbar has it.
     pub(crate) search_box: Entity<crate::bars::search_box::SearchBox>,
@@ -529,6 +540,9 @@ impl Workspace {
             content: crate::tabs::content::TabContent::Editor(panes),
             tabs: crate::tabs::Tabs::new(),
             outline: None,
+            outline_layout: Default::default(),
+            outline_restore_type: None,
+            outline_restoring: false,
             menu_bar: MenuBar::new(cx),
             search_box: crate::bars::search_box::SearchBox::new(cx.weak_entity(), window, cx),
             minimap: cx.new(crate::minimap::panel::MiniMap::new),
@@ -567,6 +581,9 @@ impl Workspace {
         // OK on the toolbar page changes the buttons of every window at once.
         cx.observe_global::<crate::bars::toolbar::ToolbarButtons>(|_, cx| cx.notify())
             .detach();
+        // So does the flat form of the buttons.
+        cx.observe_global::<crate::bars::toolbar::ToolbarFlat>(|_, cx| cx.notify())
+            .detach();
         // macOS: the native menu shows the marks of the active window.
         cx.observe_window_activation(window, |this, window, cx| {
             // The title has a format for the active window and another for the others.
@@ -582,6 +599,8 @@ impl Workspace {
                 this.menu_bar.update(cx, |bar, cx| bar.mouse_down(cx));
             }
             if window.is_window_active() {
+                // The click that made the window active may be the next press.
+                crate::view::mouse::window_activated(cx, window.window_handle().window_id());
                 defer_refresh_menu_states(cx, true);
                 // Another program may have changed the file while the window was in the background.
                 crate::file_watch::spawn_check(this.panes().active().clone(), window, cx);
@@ -767,15 +786,14 @@ impl Render for Workspace {
             .children(toolbar)
             .children(funckeys_top)
             .children(tab_bar_top)
+            // The text, the minimap and the outline (`CEditWnd::OnSize`).
             .child(
                 div()
                     .flex_1()
                     .flex()
+                    .min_h(px(0.))
                     .overflow_hidden()
-                    .child(div().flex_1().h_full().overflow_hidden().child(body))
-                    // Left of the outline, which is docked at the right (`CEditWnd::OnSize`).
-                    .children(minimap)
-                    .children(outline),
+                    .child(self.render_text_area(body, minimap, outline, window, cx)),
             )
             .children(tab_bar_bottom)
             .children(macro_panel)

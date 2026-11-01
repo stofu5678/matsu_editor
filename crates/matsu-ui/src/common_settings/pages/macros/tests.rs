@@ -149,15 +149,15 @@ fn the_page_has_the_controls_of_sakura_and_only_the_list_state_is_keyless() {
     ] {
         assert!(ids.contains(&id), "{id}");
     }
-    // The Python folder and the wait before the stop dialog are shown, not used.
-    for id in ["macro_python_dir", "macro_python_ref", "macro_cancel_timer"] {
+    // The Python folder is shown, not used.
+    for id in ["macro_python_dir", "macro_python_ref"] {
         assert!(!list.iter().find(|c| c.id == id).unwrap().live, "{id}");
     }
     assert!(list.iter().any(|c| matches!(c.kind, Kind::Table { .. })));
     // Every other control of the page is live.
     assert!(
         list.iter()
-            .filter(|c| !c.id.starts_with("macro_python") && c.id != "macro_cancel_timer")
+            .filter(|c| !c.id.starts_with("macro_python"))
             .all(|c| c.live)
     );
     // The keys are Sakura's.
@@ -279,7 +279,7 @@ fn ok_writes_the_macros_and_keeps_the_rest_of_the_file(cx: &mut TestAppContext) 
     type_in(cx, FILE, "c.js");
     check(cx, ON_OPENED, true);
     press_set(cx);
-    // The cancel timer and the Python folder cannot be changed.
+    // The Python folder cannot be changed; the wait before the question about stopping can.
     type_in(cx, "macro_cancel_timer", "99");
     type_in(cx, "macro_python_dir", "other");
     ok(cx);
@@ -288,7 +288,7 @@ fn ok_writes_the_macros_and_keeps_the_rest_of_the_file(cx: &mut TestAppContext) 
     assert_eq!(file.get("Macro", "File[003]"), Some("c.js"));
     assert_eq!(file.get("Macro", "nMacroOnOpened"), Some("3"));
     assert_eq!(file.get("Macro", "nMacroOnSave"), Some("1"));
-    assert_eq!(file.get("Macro", "nMacroCancelTimer"), Some("7"));
+    assert_eq!(file.get("Macro", "nMacroCancelTimer"), Some("99"));
     assert_eq!(file.get("Macro", "nMacroPythonDirectory"), Some("py\\"));
     assert_eq!(file.get("Folders", "szMACROFOLDER"), Some("C:\\m\\"));
     assert_eq!(file.get("Other", "x"), Some("1"));

@@ -324,6 +324,7 @@ pub const PLUGIN_CALLS: &[&str] = &[
     "Plugin.SetOption",
     "Plugin.GetString",
     "Plugin.GetCommandNo",
+    "Plugin.AddCommand",
 ];
 
 /// One function of the macro API (or a call of the `Plugin` object, which has no entry) as a Rust

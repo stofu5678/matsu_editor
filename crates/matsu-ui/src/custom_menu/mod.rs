@@ -19,7 +19,7 @@ pub(crate) use popup::CustomMenuState;
 use gpui::{Context, Window};
 use matsu_commands::command::Result;
 
-use crate::menu::{Item, Lists};
+use crate::menu::{Entry, Item, Lists};
 use crate::view::EditorView;
 
 /// What the UI commands of the group do: show custom menu `index`.
@@ -41,6 +41,15 @@ impl Lists for ChainedLists<'_> {
         let first = self.0.items(code);
         if first.is_empty() {
             self.1.items(code)
+        } else {
+            first
+        }
+    }
+
+    fn entries(&self, code: u16) -> Vec<Entry> {
+        let first = self.0.entries(code);
+        if first.is_empty() {
+            self.1.entries(code)
         } else {
             first
         }
