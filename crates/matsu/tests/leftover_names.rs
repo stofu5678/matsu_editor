@@ -17,8 +17,12 @@ const ALLOWED: &[(&str, &str)] = &[
         "history: written by release-please for the releases that were made under the old name",
     ),
     (
-        "docs/adr/",
-        "history: the decisions are kept as they were written (ADR-0021: the texts of ADR-0001..0021 stay)",
+        "docs/adr/0021-rename-to-matsu.md",
+        "history: the decision to rename names the old product, its files and its folders",
+    ),
+    (
+        "docs/adr/0025-script-languages.md",
+        "says which old names ADR-0007 was first written with",
     ),
     (
         "docs/poc/",

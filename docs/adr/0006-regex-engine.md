@@ -1,7 +1,7 @@
 # ADR-0006: 正規表現エンジン
 
 - 状態: 決定
-- 日付: 2026-10-08（2026-10-11 に、fork する時期を変えた）
+- 日付: 2026-10-08（2026-10-11 に、fork する時期を変えた）。2026-11-01 に、本文の名前を今の名前に直した（[ADR-0021](0021-rename-to-matsu.md)）
 
 ## 背景
 
@@ -14,7 +14,7 @@
 - Rust から使う部品（`-sys` クレートと安全なラッパー）は自作する
 - Onigmo は trait の裏に隠し、検索や UI のコードから直接呼ばない。PCRE2 などに切り替える余地を残す
 - 照合は 1 行ずつ、その行の改行コードを付けて行う（サクラと同じ。2026-10-21 にユーザーが判断）。パターンは改行にマッチできる（`\r\n`、`[\r\n]+`、`\s`、`\W`、否定の文字クラスなど）が、マッチが次の行へ続くことはない。行をまたぐ検索は将来の拡張として扱う
-  - 根拠: `sakura_core/agent/CSearchAgent.cpp` の `SearchWord`（`GetDocLineStrWithEOL` で改行付きの行を渡す。検索の開始位置は行の文字列の長さ（改行を除く）まで。改行の中から始まるマッチは改行の先頭から始まったことにする）、`sakura_core/cmd/CViewCommander_Search.cpp` の `Command_REPLACE` と `Command_REPLACE_ALL`（改行を含むマッチの置換、置換後は挿入した文字列の末尾から検索を続ける）、ヘルプ `HLP000089.html` の「改行の検索」「改行をまたいだ検索はできません」。実物のサクラ（v2.4.2）との比較は `crates/ume/tests/sakura_oracle/`
+  - 根拠: `sakura_core/agent/CSearchAgent.cpp` の `SearchWord`（`GetDocLineStrWithEOL` で改行付きの行を渡す。検索の開始位置は行の文字列の長さ（改行を除く）まで。改行の中から始まるマッチは改行の先頭から始まったことにする）、`sakura_core/cmd/CViewCommander_Search.cpp` の `Command_REPLACE` と `Command_REPLACE_ALL`（改行を含むマッチの置換、置換後は挿入した文字列の末尾から検索を続ける）、ヘルプ `HLP000089.html` の「改行の検索」「改行をまたいだ検索はできません」。実物のサクラ（v2.4.2）との比較は `crates/matsu/tests/sakura_oracle/`
   - マッチは改行の一部だけを覆うことがある（CR LF の `\r` だけなど）。置換はマッチした文字列だけを置き換え、覆われなかった改行の部分は残す（`Command_REPLACE` の「\rを置換するとその後ろの\nが消えてしまう問題の対応」）
   - 行の末尾に改行がない最後の行では、検索を行の末尾から始めない（`CBregexp::Match` は `nStart >= len` でマッチしない）。一括置換（`g`）だけは、改行の後ろの位置にも空マッチする
 - 置換文字列の書き方（`$1` など）とオプションの意味は、bregonig の仕様に合わせて自前で実装する
