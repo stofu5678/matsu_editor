@@ -66,7 +66,7 @@ impl OptionDialog {
             input,
             message: None,
             focused_once: false,
-            focus: cx.focus_handle(),
+            focus: cx.focus_handle().tab_stop(true),
             _subscription: subscription,
         }
     }
@@ -440,6 +440,8 @@ impl Render for OptionDialog {
                         .child(shown),
                 )
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    // The list has the keys again after the focus was in an editor.
+                    window.focus(&this.focus, cx);
                     this.select(i, window, cx);
                 }))
         });
