@@ -169,8 +169,12 @@ pub(super) fn draw(
                                 .child(text.clone())
                         }),
                 )
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                     select(this, index, cx);
+                    // `NM_DBLCLK`: a double click does what 設定 does.
+                    if event.click_count() >= 2 && can_open_options(this.values()) {
+                        open_options(this, window, cx);
+                    }
                 }))
                 .into_any_element()
         })
