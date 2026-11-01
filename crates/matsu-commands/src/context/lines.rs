@@ -219,13 +219,23 @@ impl CommandContext<'_> {
             return Ok(());
         };
         let caret_at_start = self.caret().line == first;
+        let lines_before = self.doc().line_count();
         let mut merged: Vec<String> = Vec::new();
         for line in self.lines_with_eol(first, end)? {
             if merged.last() != Some(&line) {
                 merged.push(line);
             }
         }
-        self.replace_whole_lines(first, end, &merged, caret_at_start)
+        self.replace_whole_lines(first, end, &merged, caret_at_start)?;
+        // `STR_ERR_DLGEDITVWCMDNW7` and `STR_ERR_DLGEDITVWCMDNW8`: the number of lines is the
+        // difference of the line counts of the document (`j` in `Command_MERGE`).
+        let merged_lines = lines_before.saturating_sub(self.doc().line_count());
+        self.changes.message_box = Some(if merged_lines > 0 {
+            format!("{merged_lines}行をマージしました。")
+        } else {
+            "マージ可能な行がみつかりませんでした。".to_owned()
+        });
+        Ok(())
     }
 
     /// `F_LTRIM` and `F_RTRIM`: removes the white space at the start (`left`) or the end of each

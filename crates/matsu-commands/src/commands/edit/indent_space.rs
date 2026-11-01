@@ -4,7 +4,10 @@
 //! `sakura_core/cmd/CViewCommander_Edit_advanced.cpp`; bound to Space with Shift in
 //! `sakura_core/func/CKeyBind.cpp`. It works as `F_INDENT_TAB` (see there) with a space.
 //!
-//! Not done yet: rectangular selection.
+//! A box selection gets a space before the box in each row that has text there, as the tab does
+//! (see `F_INDENT_TAB`). A box of width 0 is first grown to the right edge, without an indent (the
+//! next press indents; `Command_INDENT`, 2001.12.03 hor). With a box that is one column wide, a
+//! row whose full-width char fits the box exactly is left alone (`alignFullWidthChar`).
 
 use crate::command::{Arg, Command, Result};
 use crate::context::CommandContext;
