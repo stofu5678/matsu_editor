@@ -166,7 +166,13 @@ impl KeywordSelectDialog {
 
     /// `IDOK`.
     pub(in crate::type_settings) fn ok(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (chosen, initial, count) = (self.sets, self.initial, self.names.len());
+        let (chosen, initial) = (self.sets, self.initial);
+        // The sets the file has now, not the ones the dialog opened with (the sets may have been edited
+        // in the common settings meanwhile).
+        let count = crate::type_settings::keyword_names(&DocumentTypes::from_profile(
+            &crate::type_settings::current_profile(cx),
+        ))
+        .len();
         self.sheet
             .update(cx, |sheet, cx| {
                 sheet.edit_values(
@@ -359,11 +365,19 @@ impl CommonSettingsDialog {
     ) {
         self.refresh_keyword_names(cx);
         let now = file_sets(cx, index);
-        if let (Some(before), Some(now)) = (before, now)
-            && sets_of(self.values()) == before
-        {
+        if let (Some(before), Some(now)) = (before, now) {
+            // Each slot the user has not changed follows the renumbering; a slot the user changed keeps
+            // the choice (its number is the one the sets had when it was chosen).
             self.edit_values(
-                |values| values.set(KEYWORD_SETS, Value::Numbers(now.to_vec())),
+                |values| {
+                    let mut sets = sets_of(values);
+                    for slot in 0..SLOTS {
+                        if sets[slot] == before[slot] {
+                            sets[slot] = now[slot];
+                        }
+                    }
+                    values.set(KEYWORD_SETS, Value::Numbers(sets.to_vec()));
+                },
                 cx,
             );
         }
