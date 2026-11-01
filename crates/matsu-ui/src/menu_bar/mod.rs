@@ -36,6 +36,7 @@
 
 mod access;
 mod keys;
+pub(crate) mod popup_keys;
 
 use crate::app::Workspace;
 use crate::menu_bar::access::{

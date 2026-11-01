@@ -172,7 +172,12 @@ impl Workspace {
                 return;
             };
             let bar = workspace.read(cx).menu_bar.clone();
-            if bar.update(cx, |bar, cx| bar.armed_key(&event.keystroke, window, cx)) {
+            // macOS has a native menu bar and no marked bar.
+            if (!cfg!(target_os = "macos")
+                && bar.update(cx, |bar, cx| bar.armed_key(&event.keystroke, window, cx)))
+                // The letters of a popup that is open (the right-click menu and the like).
+                || super::popup_keys::key(&event.keystroke, window, cx)
+            {
                 cx.stop_propagation();
             }
         })

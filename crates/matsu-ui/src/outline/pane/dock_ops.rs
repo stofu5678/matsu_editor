@@ -4,6 +4,8 @@
 //! follows the settings), `OnLButtonUp` (the size is kept when the bar is let go), `OnNotify`
 //! (`LVN_COLUMNCLICK`) and `OnCbnSelEndOk` (the sort is kept in the type).
 
+use std::rc::Rc;
+
 use gpui::{
     AnyElement, App, Context, DismissEvent, Entity, Focusable as _, InteractiveElement as _,
     IntoElement as _, ParentElement as _, Pixels, Point, PromptLevel, Subscription, Window,
@@ -15,6 +17,7 @@ use matsu_outline::{
 };
 
 use super::OutlinePane;
+use crate::menu_bar::popup_keys::{self, KeyList, Rebuild};
 use crate::outline::dock::{self, DockPlace, DockSide, OutlineDock};
 use crate::outline::menu::{self, MenuCommand, MenuEntry, MenuState};
 
@@ -260,10 +263,16 @@ impl OutlinePane {
         let entries = menu::entries(self.menu_state(cx));
         let pane = cx.weak_entity();
         let focus = self.focus.clone();
-        let popup = PopupMenu::build(window, cx, |popup, window, cx| {
+        let keys = key_list(&entries);
+        let fill_again: Rebuild = Rc::new(move |popup, window, cx| {
             let popup = popup.action_context(focus.clone());
             fill(popup, &entries, &pane, &focus, window, cx).scrollable(true)
         });
+        let build = fill_again.clone();
+        let popup = PopupMenu::build(window, cx, move |popup, window, cx| {
+            build(popup, window, cx)
+        });
+        popup_keys::register(&popup, keys, fill_again, window, cx);
         let dismiss = cx.subscribe_in(&popup, window, |this, _, _: &DismissEvent, window, cx| {
             this.close_menu(window, cx)
         });
@@ -428,4 +437,19 @@ fn fill(
         };
     }
     popup
+}
+
+/// The rows of `entries` as the letters see them (the labels end in the access key, `コピー(C)`).
+fn key_list(entries: &[MenuEntry]) -> KeyList {
+    let mut keys = KeyList::new();
+    for entry in entries {
+        match entry {
+            MenuEntry::Item {
+                label, disabled, ..
+            } => keys.item(crate::a11y::key_hint(label), !disabled),
+            MenuEntry::Separator => keys.separator(),
+            MenuEntry::Submenu { label, .. } => keys.submenu(crate::a11y::key_hint(label)),
+        }
+    }
+    keys
 }

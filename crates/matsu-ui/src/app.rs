@@ -553,10 +553,9 @@ impl Workspace {
         workspace
             .menu_bar
             .update(cx, |bar, _| bar.set_workspace(this));
-        // The keys of a marked menu bar come before the key bindings (Windows and Linux).
-        if !cfg!(target_os = "macos") {
-            Self::watch_menu_keys(window, cx);
-        }
+        // The keys of a marked menu bar (Windows and Linux) and the letters of an open popup menu
+        // come before the key bindings.
+        Self::watch_menu_keys(window, cx);
         // The menus are made again when the history changes: the bar loads them.
         cx.observe_global::<MenuGeneration>(|this: &mut Self, cx| {
             this.menu_bar.update(cx, |bar, cx| bar.reload(cx));
