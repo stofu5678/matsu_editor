@@ -305,7 +305,8 @@ fn split_text(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Label {
     Text(String),
-    Tab,
+    /// A tab, with the columns it takes (how it is drawn is a setting: `TabMark`).
+    Tab(u32),
     FullWidthSpace,
 }
 
@@ -373,7 +374,7 @@ pub(super) fn style_row(colors: &Colors, rules: &ColorRules, input: &RowInput<'_
             PieceKind::Text => (Label::Text(piece.text), Style::of(&around, colors)),
             PieceKind::Tab | PieceKind::FullWidthSpace => {
                 let (entry, label) = if piece.kind == PieceKind::Tab {
-                    (colors.tab_entry, Label::Tab)
+                    (colors.tab_entry, Label::Tab(piece.cols))
                 } else {
                     (colors.full_width_space_entry, Label::FullWidthSpace)
                 };
@@ -749,7 +750,7 @@ mod tests {
             .map(|item| {
                 let label = match &item.label {
                     Label::Text(t) => t.clone(),
-                    Label::Tab => "<tab>".to_owned(),
+                    Label::Tab(_) => "<tab>".to_owned(),
                     Label::FullWidthSpace => "<zen>".to_owned(),
                 };
                 (label, item.style.text)
