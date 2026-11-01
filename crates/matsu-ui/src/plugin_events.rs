@@ -236,23 +236,6 @@ pub(crate) fn fire(cx: &mut App, view: &Entity<EditorView>, jack: Jack) -> Rc<Ce
     done
 }
 
-/// Starts the calls of `jack` on `view`, and runs `then` when they are over.
-pub(crate) fn fire_then(
-    cx: &mut App,
-    view: &Entity<EditorView>,
-    jack: Jack,
-    then: impl FnOnce(&mut App) + 'static,
-) {
-    let done = fire(cx, view, jack);
-    cx.spawn(async move |cx| {
-        while !done.get() {
-            cx.background_executor().timer(TICK).await;
-        }
-        cx.update(then);
-    })
-    .detach();
-}
-
 /// The calls of `jack` on `view`, from a flow of the window that has to go on after them (a save, a
 /// close). Returns when they are over.
 pub(crate) async fn fire_and_wait(
