@@ -97,6 +97,17 @@ pub(in crate::type_settings) fn normalize(sets: [i32; SLOTS], count: usize) -> [
     })
 }
 
+/// What a screen reader says for the list of `slot` (0 for 強調キーワード1): the slot and the set that is
+/// chosen, or 「なし」 when no set is.
+pub(in crate::type_settings) fn chooser_name(slot: usize, chosen: i32, names: &[String]) -> String {
+    let set = usize::try_from(chosen)
+        .ok()
+        .and_then(|at| names.get(at))
+        .filter(|name| !name.is_empty())
+        .map_or("なし", String::as_str);
+    format!("強調キーワード{}: {set}", slot + 1)
+}
+
 /// The first keyword set: the list `IDC_COMBO_SET`.
 pub(in crate::type_settings) fn first_set(
     dialog: &CommonSettingsDialog,
@@ -105,14 +116,16 @@ pub(in crate::type_settings) fn first_set(
     let values = dialog.values();
     let chosen = sets_of(values)[0];
     let weak = cx.entity().downgrade();
+    let names = names_of(values);
     h_flex()
         .gap_2()
         .items_center()
         .child("強調キーワード1")
         .child(child::set_dropdown(
             "keyword-set-1",
+            chooser_name(0, chosen, &names),
             chosen,
-            names_of(values),
+            names,
             move |set, _, cx: &mut App| {
                 weak.update(cx, |dialog, cx| dialog.pick_first_set(set, cx))
                     .ok();
@@ -123,14 +136,6 @@ pub(in crate::type_settings) fn first_set(
 
 /// How often the sheet looks whether the common settings are closed.
 const WATCH: std::time::Duration = std::time::Duration::from_millis(500);
-
-/// The sets type `index` has in the settings file now.
-fn file_sets(cx: &App, index: usize) -> Option<[i32; SLOTS]> {
-    let profile = crate::type_settings::current_profile(cx);
-    DocumentTypes::from_profile(&profile)
-        .get(index)
-        .map(|t| t.keyword_set_idx)
-}
 
 /// The dialog window.
 pub(in crate::type_settings) struct KeywordSelectDialog {
@@ -233,6 +238,7 @@ impl Render for KeywordSelectDialog {
                     )
                     .child(child::set_dropdown(
                         ("keyword-select", slot),
+                        chooser_name(slot, shown, &self.names),
                         shown,
                         self.names.clone(),
                         move |set, _, cx: &mut App| {
@@ -334,13 +340,18 @@ impl CommonSettingsDialog {
         )
     }
 
+    /// The sets of the settings file now, to tell later what the common settings did to them.
+    pub(in crate::type_settings) fn keyword_snapshot(&self, cx: &App) -> Vec<SetKey> {
+        let profile = crate::type_settings::current_profile(cx);
+        set_keys(&DocumentTypes::from_profile(&profile))
+    }
+
     /// 「共通設定...」: the keyword sets are edited on the page 強調キーワード of the common settings.
     pub(in crate::type_settings) fn keyword_edit(&mut self, cx: &mut Context<Self>) {
-        let index = usize::try_from(self.values().int(TYPE_INDEX)).unwrap_or(0);
-        let before = file_sets(cx, index);
+        let before = self.keyword_snapshot(cx);
         crate::common_settings::open(cx, Some(Page::Keyword), self.opener());
-        // When that sheet is closed, the names are read again, and the sets of this sheet follow the
-        // renumbering it did to the type (`keyword/store.rs`) if the user had not chosen others.
+        // When that sheet is closed, the names are read again, and the sets this sheet holds follow what
+        // the common settings did to the numbers of the sets.
         cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor().timer(WATCH).await;
@@ -348,38 +359,73 @@ impl CommonSettingsDialog {
                     break;
                 }
             }
-            this.update(cx, |dialog, cx| {
-                dialog.after_keyword_edit(index, before, cx)
-            })
-            .ok();
+            this.update(cx, |dialog, cx| dialog.after_keyword_edit(&before, cx))
+                .ok();
         })
         .detach();
     }
 
-    /// The common settings were closed: take the names, and the renumbered sets of the type.
-    fn after_keyword_edit(
+    /// The common settings were closed: take the names, and renumber the sets of the sheet (those
+    /// not saved yet too) by what happened to each set: a set that is gone becomes none.
+    pub(in crate::type_settings) fn after_keyword_edit(
         &mut self,
-        index: usize,
-        before: Option<[i32; SLOTS]>,
+        before: &[SetKey],
         cx: &mut Context<Self>,
     ) {
         self.refresh_keyword_names(cx);
-        let now = file_sets(cx, index);
-        if let (Some(before), Some(now)) = (before, now) {
-            // Each slot the user has not changed follows the renumbering; a slot the user changed keeps
-            // the choice (its number is the one the sets had when it was chosen).
-            self.edit_values(
-                |values| {
-                    let mut sets = sets_of(values);
-                    for slot in 0..SLOTS {
-                        if sets[slot] == before[slot] {
-                            sets[slot] = now[slot];
-                        }
-                    }
-                    values.set(KEYWORD_SETS, Value::Numbers(sets.to_vec()));
-                },
-                cx,
-            );
+        let after = self.keyword_snapshot(cx);
+        let map = renumbering(before, &after);
+        self.edit_values(
+            |values| {
+                let mut sets = sets_of(values);
+                for set in &mut sets {
+                    *set = match usize::try_from(*set) {
+                        Ok(old) => map.get(old).copied().unwrap_or(-1),
+                        Err(_) => -1,
+                    };
+                }
+                values.set(KEYWORD_SETS, Value::Numbers(sets.to_vec()));
+            },
+            cx,
+        );
+    }
+}
+
+/// What tells a keyword set from the others: the name, the case rule and the words.
+pub(in crate::type_settings) type SetKey = (String, bool, Vec<String>);
+
+/// The keys of the sets of the file, in their order.
+fn set_keys(types: &DocumentTypes) -> Vec<SetKey> {
+    types
+        .keywords()
+        .iter()
+        .map(|set| (set.name.clone(), set.case_sensitive, set.words().to_vec()))
+        .collect()
+}
+
+/// The new number of each set that was there `before` (the old number is the place in the list): `-1`
+/// for a set that is gone. The common settings keep no table of this (`keyword/store.rs` renumbers
+/// the types by its own), so the sets are matched here: first a set that has not changed at all, then
+/// one with the same name (it was edited), then one with the same words (it was renamed). Equal sets are
+/// matched in their order.
+pub(in crate::type_settings) fn renumbering(before: &[SetKey], after: &[SetKey]) -> Vec<i32> {
+    let mut map = vec![-1_i32; before.len()];
+    let mut taken = vec![false; after.len()];
+    let rules: [fn(&SetKey, &SetKey) -> bool; 3] = [
+        |a, b| a == b,
+        |a, b| a.0 == b.0,
+        |a, b| a.1 == b.1 && a.2 == b.2,
+    ];
+    for same in rules {
+        for (old, key) in before.iter().enumerate() {
+            if map[old] != -1 {
+                continue;
+            }
+            if let Some(new) = (0..after.len()).find(|&n| !taken[n] && same(key, &after[n])) {
+                taken[new] = true;
+                map[old] = i32::try_from(new).unwrap_or(-1);
+            }
         }
     }
+    map
 }

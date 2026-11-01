@@ -10,7 +10,7 @@ use super::*;
 use crate::common_settings::model::Values;
 
 /// The settings file with four keyword sets, A to D.
-fn keyword_sets() -> String {
+pub(super) fn keyword_sets() -> String {
     let mut text = String::from("[KeyWords]\r\nnKeyWordSetNum=4\r\n");
     for (i, name) in ["A", "B", "C", "D"].iter().enumerate() {
         text.push_str(&format!(
@@ -26,7 +26,7 @@ fn item_name(item: usize) -> &'static str {
 }
 
 /// Does something in the dialog that is open (its window and view), as a click does.
-fn in_child<V: 'static, R>(
+pub(super) fn in_child<V: 'static, R>(
     cx: &mut TestAppContext,
     view: &Entity<V>,
     f: impl FnOnce(&mut V, &mut Window, &mut Context<V>) -> R,
@@ -44,14 +44,14 @@ fn in_child<V: 'static, R>(
 }
 
 /// The sheet of type 0, at the color page.
-fn color_page(cx: &mut TestAppContext, text: &str) -> Ini {
+pub(super) fn color_page(cx: &mut TestAppContext, text: &str) -> Ini {
     let (ini, a) = setup(cx, text);
     run(cx, a, "F_OPTION_TYPE", &[]);
     with_dialog(cx, |d, _, dcx| d.select_index(1, dcx));
     ini
 }
 
-fn sheet_values(cx: &mut TestAppContext) -> Values {
+pub(super) fn sheet_values(cx: &mut TestAppContext) -> Values {
     with_dialog(cx, |d, _, _| d.values().clone())
 }
 
@@ -219,7 +219,7 @@ fn the_buttons_follow_the_item(cx: &mut TestAppContext) {
 // ---- 強調キーワード ----
 
 /// A settings file with the four sets and the sets 1 to 3 on the slots 1 to 3 of the basic type.
-fn with_three_sets() -> String {
+pub(super) fn with_three_sets() -> String {
     format!(
         "{}[Types(0)]\r\nnInts=0,10240,0,4,0,1,0,0,0,0,0,0\r\nnKeywordSelect3=2\r\n",
         keyword_sets()

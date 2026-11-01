@@ -650,7 +650,6 @@ pub(super) fn merge(base: &TypeSettings, old: &TypeSettings, new: &TypeSettings)
         string_line_only,
         string_end_line,
         vert_line_idx,
-        keyword_set_idx,
         default_eoltype,
         default_codetype,
         default_bom,
@@ -670,6 +669,13 @@ pub(super) fn merge(base: &TypeSettings, old: &TypeSettings, new: &TypeSettings)
         regex_keywords,
         key_help,
     );
+    // The keyword sets: each of the ten slots on its own, so that another process's change to one slot
+    // stays when the user changed another.
+    for i in 0..new.keyword_set_idx.len() {
+        if new.keyword_set_idx[i] != old.keyword_set_idx[i] {
+            out.keyword_set_idx[i] = new.keyword_set_idx[i];
+        }
+    }
     for i in 0..new.block_comments.len() {
         if new.block_comments[i] != old.block_comments[i] {
             out.block_comments[i] = new.block_comments[i].clone();

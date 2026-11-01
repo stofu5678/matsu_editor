@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use gpui::{
     AnyElement, AnyWindowHandle, App, AppContext as _, Bounds, Context, ElementId, Entity,
-    FocusHandle, Global, IntoElement as _, Render, SharedString, Window, WindowBounds,
+    FocusHandle, Global, IntoElement as _, Render, SharedString, Styled as _, Window, WindowBounds,
     WindowOptions, px, size,
 };
 use gpui_component::Root;
@@ -15,6 +15,9 @@ use gpui_component::button::Button;
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 
 use crate::common_settings::CommonSettingsDialog;
+
+/// The least width of a drop-down list of keyword sets.
+const CHOOSER_WIDTH: f32 = 180.;
 
 /// How often the dialog looks whether the sheet it belongs to is still there.
 const REFRESH: Duration = Duration::from_millis(500);
@@ -112,6 +115,7 @@ pub(super) fn focus_once(
 /// `pick` gets the number of the set that was chosen.
 pub(super) fn set_dropdown(
     id: impl Into<ElementId>,
+    name: String,
     chosen: i32,
     names: Vec<String>,
     pick: impl Fn(i32, &mut Window, &mut App) + 'static,
@@ -129,6 +133,11 @@ pub(super) fn set_dropdown(
     let pick: Pick = Rc::new(pick);
     Button::new(id)
         .label(label)
+        // A screen reader reads the slot and the set (the label alone may be blank).
+        .accessibility_label(name)
+        // A blank label must not shrink the list to a small square: it keeps the width of the other
+        // drop-down lists of the settings.
+        .min_w(px(CHOOSER_WIDTH))
         .dropdown_menu(move |menu, _, _| {
             let blank = {
                 let pick = pick.clone();
