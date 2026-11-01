@@ -258,8 +258,10 @@ impl Render for WinSizeDialog {
                 .into_iter()
                 .zip([MODE_DEFAULT, MODE_SAVE, MODE_SET])
                 .map(|(label, mode)| {
+                    let (shown, name) = radio_texts(label);
                     Radio::new((group, mode as usize))
-                        .label(label)
+                        .label(shown)
+                        .accessibility_label(name)
                         .checked(current == mode)
                         .on_click(cx.listener(move |this, _: &bool, _, cx| {
                             if group == "win-pos" {
@@ -394,6 +396,15 @@ impl Render for WinSizeDialog {
                 ),
             )
     }
+}
+
+/// What a radio button shows and what a screen reader says for a label with an access key mark,
+/// as the other controls of the settings do (`(&D)` is drawn `(D)` and spoken without the key).
+fn radio_texts(label: &str) -> (String, String) {
+    (
+        crate::common_settings::model::parse_label(label).0,
+        crate::a11y::plain_name(label),
+    )
 }
 
 /// The dialog that is open, if any.

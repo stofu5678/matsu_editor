@@ -386,3 +386,19 @@ fn cancel_of_the_sheet_closes_the_dialog_too(cx: &mut TestAppContext) {
     assert!(!win_size_is_open(cx));
     assert_eq!(ini.bytes(), bytes);
 }
+
+#[gpui::test]
+fn the_close_button_of_the_sheet_closes_the_dialog_too(cx: &mut TestAppContext) {
+    let (ini, _handle) = open_window_page(cx, "[Common]\r\nnWinSizeCX=640\r\n");
+    let bytes = ini.bytes();
+    press(cx, "win_size");
+    assert!(win_size_is_open(cx));
+    let sheet = cx.update(|app| super::dialog_window(app)).unwrap();
+    let closed = gpui::VisualTestContext::from_window(sheet, cx)
+        .into_mut()
+        .simulate_close();
+    assert!(closed);
+    cx.run_until_parked();
+    assert!(!win_size_is_open(cx));
+    assert_eq!(ini.bytes(), bytes);
+}

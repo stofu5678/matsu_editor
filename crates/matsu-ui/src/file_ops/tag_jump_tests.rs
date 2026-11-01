@@ -433,3 +433,37 @@ fn double_click_on_row(w: &Win, cx: &mut TestAppContext, row: usize) {
     }
     cx.run_until_parked();
 }
+
+#[gpui::test]
+fn the_jump_by_enter_is_recorded_in_a_key_macro(cx: &mut TestAppContext) {
+    let (_dir, out) = project(|t| format!("{t}(2,3): two\n"));
+    let w = with_file(cx, &out);
+    make_grep_window(&w, cx);
+    set_grep_jumps(cx, true, true);
+    w.run(cx, "F_RECKEYMACRO");
+    w.cx(cx).simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert_eq!(windows(cx), 2);
+    w.run(cx, "F_RECKEYMACRO");
+    let text = w
+        .view
+        .read_with(cx, |v, _| v.recorded_key_macro_text())
+        .expect("a macro was recorded");
+    assert!(text.contains("TagJump"), "{text}");
+}
+
+#[gpui::test]
+fn the_jump_by_double_click_is_recorded_in_a_key_macro(cx: &mut TestAppContext) {
+    let (_dir, out) = project(|t| format!("{t}(2,3): two\n"));
+    let w = with_file(cx, &out);
+    make_grep_window(&w, cx);
+    set_grep_jumps(cx, true, true);
+    w.run(cx, "F_RECKEYMACRO");
+    double_click_on_row(&w, cx, 0);
+    w.run(cx, "F_RECKEYMACRO");
+    let text = w
+        .view
+        .read_with(cx, |v, _| v.recorded_key_macro_text())
+        .expect("a macro was recorded");
+    assert!(text.contains("TagJump"), "{text}");
+}

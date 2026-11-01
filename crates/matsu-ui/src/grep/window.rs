@@ -45,6 +45,11 @@ const BOX_TITLE: &str = "MATSU Editor";
 /// one).
 const QUEUE_LEN: usize = 64;
 
+/// How much of the result is held back at most while the real-time display is off. The result
+/// is written when this much has come, so that the memory and the time of one write stay bounded
+/// (Sakura writes every piece and only stops drawing).
+const HELD_LIMIT: usize = 1 << 20;
+
 /// The progress is sent at most this often.
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(50);
 
@@ -101,8 +106,9 @@ pub struct GrepWindow {
     /// `m_bGrepRealTimeView`; the check box of the cancel dialog changes it while the search
     /// runs).
     real_time: bool,
-    /// The result that is not written yet because `real_time` is off. Sakura writes it as it
-    /// comes and only stops drawing; the text is the same when the search ends.
+    /// The result that is not written yet because `real_time` is off, up to [`HELD_LIMIT`].
+    /// Sakura writes it as it comes and only stops drawing; the text is the same when the search
+    /// ends.
     held: String,
     /// The dialog, while it is open.
     pub(crate) panel: Option<Entity<GrepPanel>>,
@@ -515,6 +521,10 @@ impl EditorView {
                     self.grep_append(&text, cx);
                 } else {
                     self.grep.held.push_str(&text);
+                    // Bounded: a large result is written in blocks, not kept whole.
+                    if self.grep.held.len() >= HELD_LIMIT {
+                        self.write_held_result(cx);
+                    }
                 }
                 false
             }

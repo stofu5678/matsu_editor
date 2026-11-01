@@ -1449,3 +1449,21 @@ fn a_script_that_ended_is_not_asked_about(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert!(!cx.has_pending_prompt());
 }
+
+#[gpui::test]
+fn the_question_goes_away_when_the_script_ends(cx: &mut TestAppContext) {
+    let Some((f, cx, _dir)) = start_waiting_script(cx, 1) else {
+        return;
+    };
+    cx.executor().advance_clock(Duration::from_secs(2));
+    cx.run_until_parked();
+    assert!(cx.has_pending_prompt());
+    // The script ends while the question is open: the answer of the box is dropped with the
+    // task, which closes the box where GPUI cancels a box that nobody waits for (Windows).
+    f.view.update(cx, |v, cx| v.cancel_macro(cx));
+    f.wait_until_done(cx);
+    assert!(
+        f.view
+            .read_with(cx, |v, _| v.macros.stop_question.is_none())
+    );
+}

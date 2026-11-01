@@ -233,6 +233,11 @@ pub(crate) struct MacroState {
     /// Counts the scripts that were started, so that the answer of a dialog that was open when
     /// its macro ended is not sent to the next one.
     serial: u64,
+    /// The wait before the question about stopping the script, and the question while it is open.
+    /// When the script ends this is dropped: the answer of the box is dropped with it, which
+    /// closes the box on Windows (GPUI cancels a box whose answer nobody waits for). macOS keeps
+    /// its sheet until it is answered, and the answer is ignored then (the serial differs).
+    stop_question: Option<gpui::Task<()>>,
     /// The wait for a call that finishes later (`wait.rs`): the number of the wait that is on,
     /// if any. A key macro does not go on, and a script gets no answer, until it ends.
     waiting: Option<u64>,
@@ -372,6 +377,15 @@ impl EditorView {
         }
         if let Some(code) = function_code(name) {
             self.record_code(code, args);
+        }
+    }
+
+    /// The key macro that the last recording left, as text (for the tests).
+    #[cfg(test)]
+    pub(crate) fn recorded_key_macro_text(&self) -> Option<String> {
+        match &self.macros.current {
+            Some(CurrentMacro::Recorded(recorded)) => Some(recorded.to_text()),
+            _ => None,
         }
     }
 
@@ -961,7 +975,7 @@ impl EditorView {
         // The script belongs to the tab, not to the window it started in: the question goes to
         // the window that shows the tab when the wait is over.
         let fallback = window.window_handle();
-        cx.spawn(async move |this, cx| {
+        self.macros.stop_question = Some(cx.spawn(async move |this, cx| {
             cx.background_executor()
                 .timer(std::time::Duration::from_secs(u64::from(seconds)))
                 .await;
@@ -989,8 +1003,7 @@ impl EditorView {
                 })
                 .ok();
             }
-        })
-        .detach();
+        }));
     }
 
     fn on_host_event(&mut self, event: HostEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -1023,6 +1036,8 @@ impl EditorView {
             HostEvent::Finished(finished) => {
                 let running = self.macros.running.take();
                 self.macros.temp_script = None;
+                // A question about stopping that is still open goes away with the script.
+                self.macros.stop_question = None;
                 // A call of the script that was waiting gets no answer: the script is gone.
                 self.macros.waiting = None;
                 let (name, timeout_text) =

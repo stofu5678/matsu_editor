@@ -324,6 +324,12 @@ pub(crate) fn open(
             CommonSettingsDialog::new(page, opener, &profile, window, cx)
         });
         *made.borrow_mut() = Some(dialog.clone());
+        // The close button of the window is キャンセル: the dialog 位置と大きさの設定 that it
+        // opened goes with it.
+        window.on_window_should_close(cx, |_, cx| {
+            crate::win_size_dialog::discard_open(cx);
+            true
+        });
         cx.new(|cx| Root::new(dialog, window, cx))
     });
     let handle = opened.ok()?;

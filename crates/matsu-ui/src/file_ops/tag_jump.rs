@@ -27,6 +27,14 @@ use super::windows;
 use crate::document::SharedDocument;
 use crate::view::EditorView;
 
+/// The code of a function of Sakura.
+fn function_code(name: &str) -> u16 {
+    matsu_commands::sakura::FUNCTIONS
+        .iter()
+        .find(|f| f.name == name)
+        .map_or(0, |f| f.code)
+}
+
 /// `MAX_TAGJUMPNUM`.
 const MAX_ENTRIES: usize = 100;
 
@@ -107,9 +115,14 @@ impl EditorView {
         if !self.is_grep_window() || !crate::search::prefs::prefs(cx).grep_enter_jumps {
             return false;
         }
-        super::start(window, cx, async move |view, cx| {
-            tag_jump(&view, cx, close).await;
-        });
+        // Through the command (`F_TAGJUMP`, `F_TAGJUMP_CLOSE`), so that a key macro that is
+        // being recorded keeps the jump.
+        let name = if close {
+            "F_TAGJUMP_CLOSE"
+        } else {
+            "F_TAGJUMP"
+        };
+        self.run_function(function_code(name), &[], window, cx);
         true
     }
 
@@ -126,12 +139,10 @@ impl EditorView {
         if !self.is_grep_window() || !crate::search::prefs::prefs(cx).grep_double_click_jumps {
             return false;
         }
-        let Some(target) = target_of(self, cx) else {
+        if target_of(self, cx).is_none() {
             return false;
-        };
-        super::start(window, cx, async move |view, cx| {
-            jump_to_target(&view, cx, &target, false).await;
-        });
+        }
+        self.run_function(function_code("F_TAGJUMP"), &[], window, cx);
         true
     }
 }

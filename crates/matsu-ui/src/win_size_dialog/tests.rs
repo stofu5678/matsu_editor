@@ -131,3 +131,15 @@ fn enter_and_escape_close_the_dialog_like_the_button(cx: &mut TestAppContext) {
         assert_eq!(got.borrow().as_slice(), [START], "{key}");
     }
 }
+
+#[test]
+fn the_radio_buttons_show_and_speak_their_labels_like_the_other_settings() {
+    assert_eq!(
+        super::radio_texts("指定しない(&D)"),
+        ("指定しない(D)".to_owned(), "指定しない".to_owned())
+    );
+    assert_eq!(
+        super::radio_texts("直接指定(&S)"),
+        ("直接指定(S)".to_owned(), "直接指定".to_owned())
+    );
+}

@@ -1021,3 +1021,26 @@ fn a_real_search_follows_the_setting_of_the_common_settings(cx: &mut TestAppCont
     settle(cx);
     assert!(text_of(&f.view, cx).contains("hit"));
 }
+
+#[gpui::test]
+fn a_large_result_is_written_in_blocks_while_it_is_held(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    f.view.update(cx, |view, cx| view.pretend_grep_running(cx));
+    let line = format!("{}\r\n", "x".repeat(1022));
+    // 1 MiB of lines, in pieces of 32 KB as the engine sends them.
+    let piece = line.repeat(32);
+    for _ in 0..31 {
+        feed(&f, cx, super::window::Event::Text(piece.clone()));
+    }
+    assert_eq!(text_of(&f.view, cx), "", "less than the limit is held");
+    feed(&f, cx, super::window::Event::Text(piece.clone()));
+    assert_eq!(
+        text_of(&f.view, cx).len(),
+        piece.len() * 32,
+        "the block is written when the limit is reached"
+    );
+    feed(&f, cx, super::window::Event::Text("tail\r\n".into()));
+    assert!(!text_of(&f.view, cx).ends_with("tail\r\n"));
+    feed(&f, cx, done());
+    assert!(text_of(&f.view, cx).ends_with("tail\r\n"));
+}
