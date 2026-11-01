@@ -539,6 +539,10 @@ impl Workspace {
         workspace
             .menu_bar
             .update(cx, |bar, _| bar.set_workspace(this));
+        // The keys of a marked menu bar come before the key bindings (Windows and Linux).
+        if !cfg!(target_os = "macos") {
+            Self::watch_menu_keys(window, cx);
+        }
         // The menus are made again when the history changes: the bar loads them.
         cx.observe_global::<MenuGeneration>(|this: &mut Self, cx| {
             this.menu_bar.update(cx, |bar, cx| bar.reload(cx));
@@ -574,6 +578,8 @@ impl Workspace {
                     .active()
                     .clone()
                     .update(cx, |view, _| view.forget_held_buttons());
+                // An Alt let go in another program (Alt+Tab) is not a lone Alt tap here.
+                this.menu_bar.update(cx, |bar, cx| bar.mouse_down(cx));
             }
             if window.is_window_active() {
                 defer_refresh_menu_states(cx, true);
@@ -735,6 +741,12 @@ impl Render for Workspace {
             )
             .on_mouse_up(MouseButton::Left, |_, _, cx| {
                 crate::tabs::bar::end_tab_drag(cx);
+            })
+            // The access keys of the menu bar (Windows and Linux; macOS has a native menu).
+            .when(!cfg!(target_os = "macos"), |this| {
+                this.on_key_down(cx.listener(Self::menu_key))
+                    .on_modifiers_changed(cx.listener(Self::menu_modifiers))
+                    .capture_any_mouse_down(cx.listener(Self::menu_mouse_down))
             })
             // The whole frame takes dropped files (`DragAcceptFiles( GetHwnd(), TRUE )`).
             .on_drag_move(cx.listener(Self::note_file_drag))

@@ -177,18 +177,34 @@ impl Labelled for gpui_component::checkbox::Checkbox {
 /// The name of a menu as drawn, without the access key that Sakura writes after it: `ファイル(F)`
 /// is `ファイル`, and `開く(O)...` is `開く...`. Anything else stays.
 pub(crate) fn without_key_hint(label: &str) -> String {
+    match split_key_hint(label) {
+        Some((stem, _, dots)) => format!("{stem}{dots}"),
+        None => label.to_owned(),
+    }
+}
+
+/// The access key that a label shows after its text, upper-cased: `O` for `開く(O)...`. A label
+/// without the `(K)` mark has none that can be read from it. The shortcut after the name of a menu
+/// item (`元に戻す(U)    Ctrl+Z`) is not part of it.
+pub(crate) fn key_hint(label: &str) -> Option<char> {
+    let name = label.rsplit_once("    ").map_or(label, |(name, _)| name);
+    split_key_hint(name).map(|(_, key, _)| key.to_ascii_uppercase())
+}
+
+/// A label cut into the text before the `(K)` mark, the key, and the `...` after the mark.
+fn split_key_hint(label: &str) -> Option<(&str, char, &str)> {
     let (stem, dots) = match label.strip_suffix("...") {
         Some(stem) => (stem, "..."),
         None => (label, ""),
     };
-    if let Some(open) = stem.rfind('(')
-        && let Some(key) = stem[open + 1..].strip_suffix(')')
-        && key.chars().count() == 1
-        && key.chars().all(|c| c.is_ascii_alphanumeric())
-    {
-        return format!("{}{dots}", &stem[..open]);
-    }
-    label.to_owned()
+    let open = stem.rfind('(')?;
+    let key = stem[open + 1..].strip_suffix(')')?;
+    let mut chars = key.chars();
+    let (Some(c), None) = (chars.next(), chars.next()) else {
+        return None;
+    };
+    c.is_ascii_alphanumeric()
+        .then_some((&stem[..open], c, dots))
 }
 
 /// An element that reports its node as disabled (AccessKit's `disabled`) while `disabled` is
@@ -405,6 +421,18 @@ mod tests {
         assert_eq!(plain_name("(&A)と(&B)"), "と");
         assert_eq!(plain_name("plain"), "plain");
         assert_eq!(plain_name(""), "");
+    }
+
+    #[test]
+    fn the_access_key_is_read_from_the_hint_after_the_name() {
+        assert_eq!(key_hint("ファイル(F)"), Some('F'));
+        assert_eq!(key_hint("開く(o)..."), Some('O'));
+        assert_eq!(key_hint("(なし)"), None);
+        assert_eq!(key_hint("元に戻す(U)    Ctrl+Z"), Some('U'));
+        assert_eq!(key_hint("plain"), None);
+        assert_eq!(key_hint(""), None);
+        assert_eq!(without_key_hint("開く(O)..."), "開く...");
+        assert_eq!(without_key_hint("(なし)"), "(なし)");
     }
 
     #[test]
