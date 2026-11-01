@@ -114,9 +114,23 @@ impl OutlinePane {
         dock::update(cx, |d| d.dock_set = set, dock::write_common);
         self.shown_place.set(None);
         self.relayout(cx);
-        // the file tree takes its items from `[Common]` or from the type, by this key
+        // The file tree takes its items from `[Common]` or from the type, by this key: the file
+        // trees of every window read them again.
         if self.outline_type == OutlineKind::FileTree {
             self.reload(cx);
+        }
+        let own = cx.entity_id();
+        for (_, workspace) in crate::file_ops::windows::listed_workspaces(cx) {
+            if workspace.entity_id() != self.host.entity_id()
+                && let Some(pane) = workspace.read(cx).outline.clone()
+                && pane.entity_id() != own
+            {
+                pane.update(cx, |pane, cx| {
+                    if pane.outline_type == OutlineKind::FileTree {
+                        pane.reload(cx);
+                    }
+                });
+            }
         }
     }
 

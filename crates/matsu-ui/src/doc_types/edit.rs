@@ -64,6 +64,8 @@ pub(crate) fn edit_types<R>(
         && let Some(profile) = written
     {
         let path = user.as_ref().and_then(crate::settings::history_file);
+        // The outline keeps its place and sort for each type number: the numbers changed.
+        cx.set_global(crate::outline::dock::OutlineDock::from_profile(&profile));
         cx.set_global(UserSettings::from_profile(profile, path));
         follow_the_list(cx, &before, except);
     }
