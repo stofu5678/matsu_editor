@@ -155,6 +155,16 @@ fn is_unused_slot(profile: &Profile, index: usize) -> bool {
     no_exts && placeholder
 }
 
+/// The names of the keyword sets the file has (`CKeyWordSetMgr::GetTypeName`), for the lists on the
+/// color page.
+pub(crate) fn keyword_names(types: &DocumentTypes) -> Vec<String> {
+    types
+        .keywords()
+        .iter()
+        .map(|set| set.name.clone())
+        .collect()
+}
+
 /// The sheet for type `index` read from `profile`; `None` when there is no such type.
 pub(crate) fn sheet(profile: &Profile, index: usize) -> Option<TypeSheet> {
     let types = DocumentTypes::from_profile(profile);
@@ -165,13 +175,7 @@ pub(crate) fn sheet(profile: &Profile, index: usize) -> Option<TypeSheet> {
         .filter_map(|page| page.items.as_deref())
         .flat_map(model::controls)
         .collect();
-    // The name of the first keyword set, which the page shows (the choice is not available yet).
-    let keyword1 = types
-        .keywords()
-        .get(original.keyword_set_idx[0])
-        .map(|set| set.name.clone())
-        .unwrap_or_default();
-    let values = values::load(&controls, &original, profile, index, &keyword1);
+    let values = values::load(&controls, &original, profile, index, &keyword_names(&types));
     Some(TypeSheet {
         pages,
         controls,

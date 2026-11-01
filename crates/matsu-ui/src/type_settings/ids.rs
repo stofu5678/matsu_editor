@@ -52,7 +52,10 @@ pub(super) const SAME_TEXT_COLOR: &str = "same_text_color";
 pub(super) const SAME_BACK_COLOR: &str = "same_back_color";
 pub(super) const COLORS_IMPORT: &str = "colors_import";
 pub(super) const COLORS_EXPORT: &str = "colors_export";
-pub(super) const KEYWORD1_NAME: &str = "keyword1_name";
+/// Not controls: the ten keyword sets of the type (`m_nSet`, [`Value::Numbers`](crate::common_settings::model::Value))
+/// and the names of the sets the file has now (one text per row), for the drop-down lists.
+pub(super) const KEYWORD_SETS: &str = "keyword_sets";
+pub(super) const KEYWORD_NAMES: &str = "keyword_names";
 pub(super) const KEYWORD_SELECT: &str = "keyword_select";
 pub(super) const KEYWORD_EDIT: &str = "keyword_edit";
 pub(super) const BLOCK1_FROM: &str = "block1_from";

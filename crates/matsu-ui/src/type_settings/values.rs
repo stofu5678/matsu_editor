@@ -225,7 +225,7 @@ pub(super) fn load(
     t: &TypeSettings,
     profile: &Profile,
     index: usize,
-    keyword1: &str,
+    keyword_names: &[String],
 ) -> Values {
     let mut v = Values::default();
     let b = |v: &mut Values, id: &'static str, on: bool| v.set(id, Value::Bool(on));
@@ -293,7 +293,8 @@ pub(super) fn load(
         n(&mut v, item_key(item, Field::Text), color_value(entry.text));
         n(&mut v, item_key(item, Field::Back), color_value(entry.back));
     }
-    s(&mut v, KEYWORD1_NAME, keyword1);
+    v.set(KEYWORD_SETS, Value::Numbers(t.keyword_set_idx.to_vec()));
+    v.set(KEYWORD_NAMES, names_value(keyword_names));
     n(&mut v, COLOR_SEL, 0);
     super::pages::color::sync(&mut v, COLOR_SEL);
     s(&mut v, BLOCK1_FROM, &t.block_comments[0].from);
@@ -461,6 +462,11 @@ pub(super) fn load(
     v
 }
 
+/// The names of the keyword sets as the dialog holds them.
+pub(super) fn names_value(names: &[String]) -> Value {
+    Value::Rows(names.iter().map(|name| vec![name.clone()]).collect())
+}
+
 /// The type the values make over `original` (`GetData` of the pages). The numbers have been
 /// clamped into their ranges by the dialog (`Values::clamp_numbers`).
 pub(super) fn store(v: &Values, original: &TypeSettings) -> TypeSettings {
@@ -517,6 +523,13 @@ pub(super) fn store(v: &Values, original: &TypeSettings) -> TypeSettings {
     t.string_line_only = v.bool(STRING_LINE_ONLY);
     t.string_end_line = v.bool(STRING_END_LINE);
     t.vert_line_idx = parse_vert_lines(v.text(VERT_LINES));
+    // `GetData`: `m_nKeyWordSetIdx` is `m_nSet`, the first from its combo box and the rest from
+    // `CDlgKeywordSelect`.
+    for (slot, set) in v.numbers(KEYWORD_SETS).iter().enumerate() {
+        if let Some(target) = t.keyword_set_idx.get_mut(slot) {
+            *target = *set;
+        }
+    }
 
     // ウィンドウ
     t.default_eoltype = v.int(DEFAULT_EOL);
@@ -598,6 +611,7 @@ pub(super) fn merge(base: &TypeSettings, old: &TypeSettings, new: &TypeSettings)
         string_line_only,
         string_end_line,
         vert_line_idx,
+        keyword_set_idx,
         default_eoltype,
         default_codetype,
         default_bom,

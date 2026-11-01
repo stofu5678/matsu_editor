@@ -1,12 +1,15 @@
 //! The pages of the type settings, in Sakura's order (`TypePropSheetInfoList`,
 //! `sakura_core/typeprop/CPropTypes.cpp`), one module each.
 
+pub(super) mod child;
 pub(super) mod color;
 mod color_file;
 pub(super) mod keyhelp;
 mod keyhelp_io;
+pub(super) mod keyword_select;
 pub(super) mod regex;
 mod regex_file;
+pub(super) mod same_color;
 pub(super) mod screen;
 pub(super) mod support;
 pub(super) mod window;

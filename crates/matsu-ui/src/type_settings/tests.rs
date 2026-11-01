@@ -263,7 +263,8 @@ fn the_pages_have_every_control_that_sakura_has() {
     let count = |page: usize| controls(list[page].items.as_ref().unwrap()).len();
     // (the font of the type, which the button and the label use, is one of them)
     assert_eq!(count(0), 34);
-    assert_eq!(count(1), 30);
+    // (the list of the first keyword set is drawn by the page, not a control)
+    assert_eq!(count(1), 29);
     assert_eq!(count(2), 25);
     // 支援: the word file with its button and the plugin list, the three check boxes of the
     // input completion, the two help files with their buttons and the viewer box, the warning on
@@ -325,7 +326,7 @@ fn nothing_changes_when_the_values_are_not_touched() {
     let types = DocumentTypes::from_profile(&profile);
     for (index, t) in types.iter().enumerate() {
         let sheet = sheet(&profile, index).unwrap();
-        let values = load(&sheet.controls, t, &profile, index, "");
+        let values = load(&sheet.controls, t, &profile, index, &[]);
         assert_eq!(&store(&values, t), t, "{} ({index})", t.type_name);
     }
 }
@@ -803,9 +804,8 @@ fn the_controls_an_item_does_not_have_are_greyed_out(cx: &mut TestAppContext) {
     // 表示範囲 has no text color.
     choose(cx, COLOR_SEL, 56);
     assert!(!usable(cx, COLOR_TEXT) && usable(cx, COLOR_BACK));
-    // What MATSU Editor does not do yet is greyed out.
-    assert!(!usable(cx, SAME_TEXT_COLOR));
-    assert!(!usable(cx, KEYWORD_SELECT));
+    // The dialogs of the page can be used.
+    assert!(usable(cx, KEYWORD_SELECT) && usable(cx, KEYWORD_EDIT));
     cancel(cx);
 }
 
@@ -1226,3 +1226,5 @@ fn a_type_page_taller_than_the_window_has_a_scroll_bar(cx: &mut TestAppContext) 
     assert!(overflow > gpui::px(0.), "the page overflows the window");
     cancel(cx);
 }
+
+mod dialogs;
