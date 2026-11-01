@@ -128,8 +128,7 @@ fn try_start(
 }
 
 /// Runs every call of `jack` on `view`, one after the other, and waits for each.
-async fn run_all(view: &WeakEntity<EditorView>, cx: &mut AsyncApp, jack: Jack) {
-    let calls = cx.update(|app| collect(app, jack));
+async fn run_all(view: &WeakEntity<EditorView>, cx: &mut AsyncApp, calls: Vec<Prepared>) {
     for call in calls {
         let mut pending = Some(call);
         let mut started = false;
@@ -184,11 +183,16 @@ async fn run_all(view: &WeakEntity<EditorView>, cx: &mut AsyncApp, jack: Jack) {
 /// Starts the calls of `jack` on `view`. The returned flag is set when they are over (also when the window
 /// went away meanwhile).
 pub(crate) fn fire(cx: &mut App, view: &Entity<EditorView>, jack: Jack) -> Rc<Cell<bool>> {
+    // Nothing to call (plugins off, or none declares the jack): over at once, with no task and no wait.
+    let calls = collect(cx, jack);
+    if calls.is_empty() {
+        return Rc::new(Cell::new(true));
+    }
     let done = Rc::new(Cell::new(false));
     let weak = view.downgrade();
     let flag = done.clone();
     cx.spawn(async move |cx| {
-        run_all(&weak, cx, jack).await;
+        run_all(&weak, cx, calls).await;
         flag.set(true);
     })
     .detach();
