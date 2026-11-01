@@ -227,7 +227,9 @@ fn ok_writes_the_options_and_closes_the_window(cx: &mut TestAppContext) {
         d.select(2, window, dcx);
         d.choose("0", dcx);
         d.select(3, window, dcx);
-        d.set_directory("E:\\Tools", window, dcx);
+        d.set_directory(3, "E:\\Tools", window, dcx);
+        // A folder for a row that is not a folder option is ignored.
+        d.set_directory(4, "E:\\Bad", window, dcx);
         d.select(4, window, dcx);
         d.typed("abc", dcx);
         assert_eq!(d.selected(), Some(4));

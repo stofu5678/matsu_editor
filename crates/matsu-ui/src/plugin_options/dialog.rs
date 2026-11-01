@@ -13,6 +13,7 @@ use gpui::{
     Render, ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Subscription, Window,
     WindowBounds, WindowOptions, div, prelude::FluentBuilder as _, px, rgb, size,
 };
+use gpui_component::button::Button;
 use gpui_component::checkbox::Checkbox;
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::{Root, h_flex, v_flex};
@@ -178,11 +179,28 @@ impl OptionDialog {
     }
 
     /// A folder was chosen (`SelectDirectory`): it goes in the box with the separator at its end.
-    pub(crate) fn set_directory(&mut self, dir: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(index) = self.selected else {
+    pub(crate) fn set_directory(
+        &mut self,
+        index: usize,
+        dir: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self
+            .form
+            .entries
+            .get(index)
+            .is_none_or(|e| e.def.kind != OptionType::Dir)
+        {
             return;
-        };
+        }
         let text = model::with_trailing_separator(dir);
+        if self.selected != Some(index) {
+            // The user moved on while the picker was open: only the value changes.
+            self.form.set(index, &text);
+            cx.notify();
+            return;
+        }
         self.form.set(index, &text);
         self.input
             .update(cx, |state, cx| state.set_value(text, window, cx));
@@ -191,7 +209,11 @@ impl OptionDialog {
 
     /// 「…」 (`IDC_BUTTON_PLUGIN_OPTION_DIR`): asks for a folder.
     fn browse(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(entry) = self.selected.and_then(|i| self.form.entries.get(i)) else {
+        let Some((index, entry)) = self
+            .selected
+            .and_then(|i| self.form.entries.get(i).map(|e| (i, e)))
+            .filter(|(_, e)| e.def.kind == OptionType::Dir)
+        else {
             return;
         };
         // `STR_DLGPLUGINOPT_SELECT`
@@ -207,7 +229,7 @@ impl OptionDialog {
                 && let Some(path) = paths.into_iter().next()
             {
                 this.update_in(cx, |this, window, cx| {
-                    this.set_directory(&path.display().to_string(), window, cx);
+                    this.set_directory(index, &path.display().to_string(), window, cx);
                 })
                 .ok();
             }
@@ -254,7 +276,10 @@ impl OptionDialog {
             "left" | "right" if self.focus.is_focused(window) => {
                 self.step_choice(if event.keystroke.key == "left" { -1 } else { 1 }, cx)
             }
-            "space" if self.focus.is_focused(window) => self.toggle(cx),
+            "space" if self.focus.is_focused(window) => {
+                self.toggle(cx);
+                self.browse(window, cx);
+            }
             _ => return,
         }
         cx.stop_propagation();
@@ -372,9 +397,11 @@ impl OptionDialog {
                         .child(Input::new(&self.input).aria_label(entry.def.label.clone())),
                 )
                 .child(
-                    button("plugin-option-browse", "…", "フォルダーの選択").on_click(
-                        cx.listener(|this, _: &ClickEvent, window, cx| this.browse(window, cx)),
-                    ),
+                    // A real button: it takes the focus with Tab and works with the keyboard.
+                    Button::new("plugin-option-browse")
+                        .label("…")
+                        .accessibility_label("フォルダーの選択")
+                        .on_click(cx.listener(|this, _, window, cx| this.browse(window, cx))),
                 )
                 .into_any_element(),
             OptionType::Int => h_flex()
