@@ -997,3 +997,112 @@ fn a_changed_old_menu_is_written_with_the_matsu_items_and_the_matsu_version() {
     assert!(data::store(&state.encode(), &mut p).unwrap());
     assert_eq!(functions_of(&p), [34052, 30603, 32701, 31112]);
 }
+
+/// An old menu (no MATSU items yet) with a plug-in command and a macro name that MATSU does not know, both
+/// after the item the MATSU items follow, so that reading shifts them.
+const UNKNOWN_MENU_FILE: &str = "[MainMenu]\r\nnMainMenuVer=2\r\nnMainMenuNum=5\r\nbKeyParentheses=1\r\n\
+     MM[000]=0,0,34052,F,\r\nMM[001]=1,1,30603,L,\r\nMM[002]=1,1,Plugin/Cmd,P,\r\n\
+     MM[003]=1,1,NoSuchMacro,Q,\r\nMM[004]=1,1,31112,O,\r\n";
+
+fn unknown_texts(state: &State) -> Vec<Option<&str>> {
+    state.rows.iter().map(|r| r.row.text.as_deref()).collect()
+}
+
+#[test]
+fn a_command_that_is_not_known_keeps_its_text_when_the_rows_before_it_shift() {
+    let mut p = profile(UNKNOWN_MENU_FILE);
+    let mut state = State::decode(&data::load(&p));
+    // The MATSU items were put in before the unknown commands.
+    assert_eq!(
+        unknown_texts(&state),
+        [
+            None,
+            None,
+            None,
+            None,
+            Some("Plugin/Cmd"),
+            Some("NoSuchMacro"),
+            None
+        ]
+    );
+    assert!(state.rows[4].row.is_unknown());
+    state.key_parentheses = false;
+    assert!(data::store(&state.encode(), &mut p).unwrap());
+    assert_eq!(p.get("MainMenu", "MM[004]"), Some("1,1,Plugin/Cmd,P,"));
+    assert_eq!(p.get("MainMenu", "MM[005]"), Some("1,1,NoSuchMacro,Q,"));
+    assert_eq!(p.get("MainMenu", "MM[002]"), Some("1,1,32700,N,"));
+    // It is still there when read again.
+    let again = State::decode(&data::load(&p));
+    assert_eq!(unknown_texts(&again), unknown_texts(&state));
+}
+
+#[test]
+fn ok_with_no_change_keeps_the_bytes_of_a_menu_with_commands_that_are_not_known() {
+    let mut p = profile(UNKNOWN_MENU_FILE);
+    let before = p.to_bytes();
+    assert!(!data::store(&data::load(&p), &mut p).unwrap());
+    assert_eq!(p.to_bytes(), before);
+}
+
+#[test]
+fn a_command_that_is_not_known_goes_with_the_row_when_rows_move_or_are_added() {
+    let mut p = profile(UNKNOWN_MENU_FILE);
+    let mut state = State::decode(&data::load(&p));
+    // The two unknown rows change places, and a row is put in front of them.
+    state.rows.swap(4, 5);
+    state.rows.insert(
+        1,
+        PageRow {
+            row: MenuRow::leaf(1, 30102),
+            duplicate: false,
+            collapsed: false,
+        },
+    );
+    assert!(data::store(&state.encode(), &mut p).unwrap());
+    assert_eq!(p.get("MainMenu", "MM[005]"), Some("1,1,NoSuchMacro,Q,"));
+    assert_eq!(p.get("MainMenu", "MM[006]"), Some("1,1,Plugin/Cmd,P,"));
+}
+
+#[test]
+fn a_command_that_is_not_known_is_gone_when_deleted_and_new_when_changed() {
+    let mut p = profile(UNKNOWN_MENU_FILE);
+    let mut state = State::decode(&data::load(&p));
+    // The plug-in command is deleted; the macro name becomes another command.
+    state
+        .rows
+        .retain(|r| r.row.text.as_deref() != Some("Plugin/Cmd"));
+    let at = state.rows.iter().position(|r| r.row.is_unknown()).unwrap();
+    state.rows[at].row = MenuRow {
+        key: Some('Q'),
+        ..MenuRow::leaf(1, 30102)
+    };
+    assert!(data::store(&state.encode(), &mut p).unwrap());
+    let all: String = (0..6)
+        .filter_map(|i| p.get("MainMenu", &format!("MM[{i:03}]")))
+        .collect();
+    assert!(
+        !all.contains("Plugin/Cmd") && !all.contains("NoSuchMacro"),
+        "{all}"
+    );
+    assert_eq!(p.get("MainMenu", "MM[004]"), Some("1,1,30102,Q,"));
+    assert_eq!(p.get("MainMenu", "nMainMenuNum"), Some("6"));
+    assert_eq!(p.get("MainMenu", "MM[006]"), None);
+}
+
+#[test]
+fn a_command_that_is_not_known_shows_what_it_is_and_the_export_keeps_its_text() {
+    let p = profile(UNKNOWN_MENU_FILE);
+    let state = State::decode(&data::load(&p));
+    let shown = row_text(&state.rows[4], &table_names);
+    assert_eq!(shown, "（不明）Plugin/Cmd(P)");
+    // The export names the functions it can, and writes the rest as the file had it.
+    let menu = state.menu();
+    let exported = menu.export_profile(&data::name_of_code).unwrap();
+    assert_eq!(
+        exported.get("MainMenu", "MM[004]"),
+        Some("1,1,Plugin/Cmd,P,")
+    );
+    let mut imported = MainMenu::default();
+    assert!(imported.import_profile(&exported, &data::code_of_name));
+    assert_eq!(imported, menu);
+}

@@ -1,8 +1,10 @@
 //! The 25 menus as one list of numbers (the value of the [`Kind::Numbers`](super::super::super::model::Kind)
 //! control that holds them), and how that list is read from and written to `[CustMenu]`.
 //!
-//! A menu is `popup, name length, the UTF-16 units of the name, item count`, then `function, key` for each
-//! item (the key is the character's code, 0 for none).
+//! A menu is `popup, name length, the UTF-16 units of the name, item count`, then `function, key, text length`
+//! and the UTF-16 units of the text for each item (the key is the character's code, 0 for none; the text is
+//! what the file had for a function that is not known, which goes with the item so that OK writes it back,
+//! [`CustomMenuItem::text`]; its length is -1 for none).
 
 use matsu_commands::macro_names;
 use matsu_config::settings::CustomMenus;
@@ -10,6 +12,8 @@ use matsu_config::settings::custom_menu::{
     CustomMenu, CustomMenuItem, INDEX_FOR_RBUTTONUP, MAX_CUSTOM_MENU, MAX_CUSTOM_MENU_ITEMS,
 };
 use matsu_config::{Profile, ProfileError};
+
+use super::super::menu_text::{push_text, read_text};
 
 /// `GetFunctionStrToFunctionCode`: the code of a macro name.
 pub(super) fn code_of_name(name: &str) -> Option<u16> {
@@ -35,6 +39,7 @@ pub(super) fn encode(menus: &[CustomMenu]) -> Vec<i32> {
         for item in &menu.items {
             out.push(i32::from(item.function));
             out.push(item.key.map_or(0, |c| c as i32));
+            push_text(&mut out, item.text.as_deref());
         }
     }
     out
@@ -64,6 +69,7 @@ pub(super) fn decode(data: &[i32]) -> Vec<CustomMenu> {
                 Some(CustomMenuItem {
                     function,
                     key: key.filter(|&c| c != '\0'),
+                    text: read_text(&mut next),
                 })
             })
             .collect();

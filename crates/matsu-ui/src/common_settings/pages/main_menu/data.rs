@@ -1,15 +1,18 @@
 //! The menu as one list of numbers (the value of the [`Kind::Numbers`](super::super::super::model::Kind)
 //! control that holds it), and how that list is read from and written to `[MainMenu]`.
 //!
-//! The list is `key in parentheses`, then for each row `level, type, function, key, flags, name length`
-//! and the UTF-16 units of the name (the key is the character's code, 0 for none; the flags say that the
-//! row is marked as a duplicate key and that its node is collapsed).
+//! The list is `key in parentheses`, then for each row `level, type, function, key, flags, name length`,
+//! the UTF-16 units of the name, `text length` and the UTF-16 units of the text (the key is the character's
+//! code, 0 for none; the flags say that the row is marked as a duplicate key and that its node is collapsed;
+//! the text is what the file had for a function that is not known, which goes with the row so that OK
+//! writes it back, [`MenuRow::text`]).
 
 use matsu_commands::macro_names;
 use matsu_config::settings::main_menu::CURRENT_VERSION;
 use matsu_config::settings::{MainMenu, MenuRow, RowKind};
 use matsu_config::{Profile, ProfileError};
 
+use super::super::menu_text::{push_text, read_text};
 use super::tree::PageRow;
 
 const FLAG_DUPLICATE: i32 = 1;
@@ -80,6 +83,7 @@ impl State {
             );
             out.push(units.len() as i32);
             out.extend(units.into_iter().map(i32::from));
+            push_text(&mut out, row.text.as_deref());
         }
         out
     }
@@ -102,6 +106,7 @@ impl State {
             let units: Vec<u16> = (0..fields[5].max(0))
                 .map_while(|_| next().and_then(|u| u16::try_from(u).ok()))
                 .collect();
+            let text = read_text(&mut next);
             rows.push(PageRow {
                 row: MenuRow {
                     level: usize::try_from(fields[0]).unwrap_or(0),
@@ -112,6 +117,7 @@ impl State {
                         .and_then(char::from_u32)
                         .filter(|&c| c != '\0'),
                     name: String::from_utf16_lossy(&units),
+                    text,
                 },
                 duplicate: fields[4] & FLAG_DUPLICATE != 0,
                 collapsed: fields[4] & FLAG_COLLAPSED != 0,

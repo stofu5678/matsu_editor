@@ -66,23 +66,54 @@ pub const MNU_VERSION: &str = "SakuraEditorMenu_Ver2";
 const MNU_INFO_SECTION: &str = "Info";
 
 /// One row of a custom menu.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CustomMenuItem {
     /// The Sakura function code. `0` (`F_0`) is a separator; so is a name that no function has
     /// (`F_DEFAULT`, which is also 0).
     pub function: u16,
     /// The access key (`m_nCustMenuItemKeyArr`); `None` for `'\0'`.
     pub key: Option<char>,
+    /// The text of `nCMIF` that reading could not turn into a command (a plug-in command, a macro name that is
+    /// not known), where `function` is 0 ([`unreadable_text`]). Sakura loses it on its next save; here it stays
+    /// with the item, so that writing gives the same text wherever the item has moved. It counts only while
+    /// `function` is 0: an item made into another command is written as that command.
+    pub text: Option<String>,
 }
 
 impl CustomMenuItem {
     pub const SEPARATOR: Self = Self {
         function: 0,
         key: None,
+        text: None,
     };
 
+    /// A command of the function table, with no access key.
+    pub fn command(function: u16, key: Option<char>) -> Self {
+        Self {
+            function,
+            key,
+            text: None,
+        }
+    }
+
+    /// A separator: function 0 and no text that is kept. (An item that keeps a text is [`Self::is_unknown`].)
     pub fn is_separator(&self) -> bool {
-        self.function == 0
+        self.function == 0 && self.text.is_none()
+    }
+
+    /// An item whose text reading could not turn into a command, which is kept as it was.
+    pub fn is_unknown(&self) -> bool {
+        self.function == 0 && self.text.is_some()
+    }
+
+    /// The text `nCMIF` has for the item: the kept text, else the code or the name `name_of` gives.
+    fn function_text(&self, name_of: Option<&dyn Fn(u16) -> Option<String>>) -> String {
+        match &self.text {
+            Some(text) if self.function == 0 => text.clone(),
+            _ => name_of
+                .and_then(|name_of| name_of(self.function))
+                .unwrap_or_else(|| self.function.to_string()),
+        }
     }
 }
 
@@ -109,9 +140,8 @@ impl CustomMenu {
         Self {
             items: rows
                 .iter()
-                .map(|&(function, key)| CustomMenuItem {
-                    function,
-                    key: (key != '\0').then_some(key),
+                .map(|&(function, key)| {
+                    CustomMenuItem::command(function, (key != '\0').then_some(key))
                 })
                 .collect(),
             ..Self::empty()
@@ -148,10 +178,7 @@ mod defaults {
             let taken = items.iter().any(|item| item.key == Some(key));
             items.insert(
                 at + 1,
-                super::CustomMenuItem {
-                    function,
-                    key: (!taken).then_some(key),
-                },
+                super::CustomMenuItem::command(function, (!taken).then_some(key)),
             );
             after = function;
         }
@@ -294,6 +321,20 @@ pub(super) fn parse_function(value: &str, by_name: &dyn Fn(&str) -> Option<u16>)
     }
 }
 
+/// The text of a function that [`parse_function`] gave 0 for although it is not the number 0 (a plug-in
+/// command, a macro name that `by_name` does not know): the text itself, which the menu keeps. `None` for a
+/// text that is read as the code it names (a number is, even `0`) and for an empty one.
+pub(super) fn unreadable_text(
+    value: &str,
+    by_name: &dyn Fn(&str) -> Option<u16>,
+) -> Option<String> {
+    let bytes = value.as_bytes();
+    let is_digit = |i: usize| bytes.get(i).is_some_and(u8::is_ascii_digit);
+    let is_number = !value.contains('/') && is_digit(0) && (bytes.len() == 1 || is_digit(1));
+    (!value.is_empty() && !is_number && parse_function(value, by_name) == 0)
+        .then(|| value.to_owned())
+}
+
 /// Cuts `name` to `MAX_CUSTOM_MENU_NAME_LEN` UTF-16 units (the size of the buffer).
 fn cut_name(name: &str) -> String {
     let mut units = 0;
@@ -365,6 +406,7 @@ impl CustomMenus {
             for (j, item) in menu.items.iter_mut().enumerate() {
                 if let Some(value) = profile.get(SECTION, &format!("nCMIF[{i:02}][{j:02}]")) {
                     item.function = parse_function(value, by_name);
+                    item.text = unreadable_text(value, by_name);
                 }
                 if let Some(key) = profile
                     .get(SECTION, &format!("nCMIK[{i:02}][{j:02}]"))
@@ -438,10 +480,7 @@ impl CustomMenus {
                 // An unchanged item keeps what the file has, except the parts it does not have when the
                 // count is being added (see `materialize`).
                 if changed || (materialize && profile.get(SECTION, &function_key).is_none()) {
-                    let function = name_of
-                        .and_then(|name_of| name_of(item.function))
-                        .unwrap_or_else(|| item.function.to_string());
-                    profile.set(SECTION, &function_key, &function)?;
+                    profile.set(SECTION, &function_key, &item.function_text(name_of))?;
                 }
                 if changed
                     || (materialize
@@ -548,13 +587,7 @@ mod tests {
         assert_eq!((counts[0], counts[1], counts[24]), (30 + 2, 7, 27));
         assert!(counts[2..24].iter().all(|&n| n == 0));
         let right = menus.get(0).unwrap();
-        assert_eq!(
-            right.items[0],
-            CustomMenuItem {
-                function: 30210,
-                key: Some('U')
-            }
-        );
+        assert_eq!(right.items[0], CustomMenuItem::command(30210, Some('U')));
         assert!(right.items[2].is_separator());
         assert!(
             (0..MAX_CUSTOM_MENU).all(|i| menus.get(i).unwrap().popup),
@@ -566,9 +599,8 @@ mod tests {
     /// The one difference of MATSU's default menus from Sakura's: LF and CR copies after the CRLF copy.
     #[test]
     fn the_default_right_click_menu_is_sakuras_with_the_two_copies() {
-        let item = |(function, key): (u16, char)| CustomMenuItem {
-            function,
-            key: (key != '\0').then_some(key),
+        let item = |(function, key): (u16, char)| {
+            CustomMenuItem::command(function, (key != '\0').then_some(key))
         };
         let mut expected: Vec<_> = defaults::RIGHT_CLICK.iter().copied().map(item).collect();
         let crlf = expected.iter().position(|i| i.function == 30603).unwrap();
@@ -577,20 +609,8 @@ mod tests {
             30608,
             "Sakura: ADDCRLF follows"
         );
-        expected.insert(
-            crlf + 1,
-            CustomMenuItem {
-                function: 32700,
-                key: Some('N'),
-            },
-        );
-        expected.insert(
-            crlf + 2,
-            CustomMenuItem {
-                function: 32701,
-                key: Some('M'),
-            },
-        );
+        expected.insert(crlf + 1, CustomMenuItem::command(32700, Some('N')));
+        expected.insert(crlf + 2, CustomMenuItem::command(32701, Some('M')));
         assert_eq!(CustomMenus::default().get(0).unwrap().items, expected);
         // Sakura's menu has no other N or M.
         let keys: Vec<_> = defaults::RIGHT_CLICK.iter().map(|&(_, k)| k).collect();
@@ -703,14 +723,8 @@ mod tests {
         assert_eq!(
             menu.items,
             vec![
-                CustomMenuItem {
-                    function: 30102,
-                    key: Some('O')
-                },
-                CustomMenuItem {
-                    function: 30210,
-                    key: None
-                },
+                CustomMenuItem::command(30102, Some('O')),
+                CustomMenuItem::command(30210, None),
                 CustomMenuItem::SEPARATOR,
             ]
         );
@@ -794,10 +808,7 @@ mod tests {
         menus[2] = CustomMenu {
             name: "あ名前".to_owned(),
             items: vec![
-                CustomMenuItem {
-                    function: 30210,
-                    key: Some('U'),
-                },
+                CustomMenuItem::command(30210, Some('U')),
                 CustomMenuItem::SEPARATOR,
             ],
             popup: false,

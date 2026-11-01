@@ -15,7 +15,7 @@ fn profile(text: &str) -> Profile {
 }
 
 fn item(function: u16, key: Option<char>) -> CustomMenuItem {
-    CustomMenuItem { function, key }
+    CustomMenuItem::command(function, key)
 }
 
 fn edit(items: &[CustomMenuItem], sel: Option<usize>, func_sel: Option<usize>) -> Edit {
@@ -207,10 +207,7 @@ fn a_registered_macro_has_its_name_not_unknown() {
     assert_eq!(function_name(31602, &menus, &macros), "名前");
     assert_eq!(function_name(31603, &menus, &macros), "d.mac");
     assert_eq!(function_name(31600, &menus, &macros), "マクロ 0 (未登録)");
-    let item = CustomMenuItem {
-        function: 31602,
-        key: Some('M'),
-    };
+    let item = CustomMenuItem::command(31602, Some('M'));
     assert_eq!(row_text(&item, &menus, &macros), "名前(M)");
 }
 
@@ -789,9 +786,9 @@ fn items_the_page_cannot_read_stay_in_the_file_when_another_menu_changes(cx: &mu
         "[CustMenu]\r\nnCMIN[05]=2\r\nnCMIF[05][00]=Plugin/Cmd\r\nnCMIK[05][00]=P\r\n\
          nCMIF[05][01]=30210\r\nnCMIN[07]=1\r\nnCMIF[07][00]=NoSuchMacro\r\n",
     );
-    // Both read as separators, which is what the page shows.
+    // Both read as items of an unknown command, which the page shows with their text.
     choose_menu(cx, 5);
-    assert!(items_now(cx)[0].is_separator());
+    assert!(items_now(cx)[0].is_unknown());
     // Menu 5 changes in its second row only; menu 2 gets an item.
     select_row(cx, 1);
     press(cx, "custmenu_delete");
@@ -864,4 +861,113 @@ fn a_right_click_menu_the_user_changed_is_written_with_the_version_and_removed_c
     assert_eq!(p.get("CustMenu", "nMatsuCustomMenuVer"), Some("1"));
     assert_eq!(p.get("CustMenu", "nCMIN[00]"), Some("4"));
     assert_eq!(right_click(&p), [30602, 30603, 32701, 30604]);
+}
+
+/// An old right-click menu (without MATSU's copies) with a plug-in command and an unknown macro name after
+/// 「CRLF改行でコピー」, so that reading shifts them by the two copies.
+const UNKNOWN_CUSTOM_FILE: &str = "[CustMenu]\r\nnCMIN[00]=4\r\nnCMIF[00][00]=30602\r\n\
+     nCMIF[00][01]=30603\r\nnCMIF[00][02]=Plugin/Cmd\r\nnCMIK[00][02]=P\r\nnCMIF[00][03]=NoSuchMacro\r\n\
+     nCMIN[02]=1\r\nnCMIF[02][00]=30102\r\n";
+
+fn texts(menu: &CustomMenu) -> Vec<Option<&str>> {
+    menu.items.iter().map(|i| i.text.as_deref()).collect()
+}
+
+#[test]
+fn renaming_an_old_right_click_menu_keeps_the_text_the_copies_shifted() {
+    let mut p = profile(UNKNOWN_CUSTOM_FILE);
+    let mut menus = data::menus_of(&data::load(&p)).menus().to_vec();
+    assert_eq!(
+        texts(&menus[0]),
+        [
+            None,
+            None,
+            None,
+            None,
+            Some("Plugin/Cmd"),
+            Some("NoSuchMacro")
+        ]
+    );
+    assert_eq!(menus[0].items[4].key, Some('P'));
+    menus[0].name = "Mine".to_owned();
+    assert!(data::store(&data::encode(&menus), &mut p).unwrap());
+    assert_eq!(p.get("CustMenu", "nCMIN[00]"), Some("6"));
+    assert_eq!(p.get("CustMenu", "nCMIF[00][02]"), Some("32700"));
+    assert_eq!(p.get("CustMenu", "nCMIF[00][03]"), Some("32701"));
+    assert_eq!(p.get("CustMenu", "nCMIF[00][04]"), Some("Plugin/Cmd"));
+    assert_eq!(p.get("CustMenu", "nCMIK[00][04]"), Some("P"));
+    assert_eq!(p.get("CustMenu", "nCMIF[00][05]"), Some("NoSuchMacro"));
+    assert_eq!(p.get("CustMenu", "nMatsuCustomMenuVer"), Some("1"));
+}
+
+#[test]
+fn an_untouched_right_click_menu_with_unknown_commands_keeps_its_bytes() {
+    let mut p = profile(UNKNOWN_CUSTOM_FILE);
+    let before = p.to_bytes();
+    assert!(!data::store(&data::load(&p), &mut p).unwrap());
+    assert_eq!(p.to_bytes(), before);
+    // Another menu changes: the right-click menu is left alone and the copies are added again.
+    let mut menus = data::menus_of(&data::load(&p)).menus().to_vec();
+    menus[2].name = "Two".to_owned();
+    assert!(data::store(&data::encode(&menus), &mut p).unwrap());
+    assert_eq!(p.get("CustMenu", "nCMIN[00]"), Some("4"));
+    assert_eq!(p.get("CustMenu", "nCMIF[00][02]"), Some("Plugin/Cmd"));
+    assert_eq!(p.get("CustMenu", "nMatsuCustomMenuVer"), None);
+}
+
+#[test]
+fn an_unknown_command_goes_with_its_item_when_items_move_are_added_or_removed() {
+    let mut p = profile(UNKNOWN_CUSTOM_FILE);
+    let mut menus = data::menus_of(&data::load(&p)).menus().to_vec();
+    // Moved up past one item, one item put in front, one removed.
+    menus[0].items.swap(4, 3);
+    menus[0].items.insert(0, item(30210, None));
+    menus[0].items.retain(|i| i.function != 30602);
+    assert!(data::store(&data::encode(&menus), &mut p).unwrap());
+    let written = data::menus_of(&data::load(&p));
+    assert_eq!(
+        texts(&written.menus()[0]),
+        [
+            None,
+            None,
+            None,
+            Some("Plugin/Cmd"),
+            None,
+            Some("NoSuchMacro")
+        ]
+    );
+    assert_eq!(p.get("CustMenu", "nCMIF[00][03]"), Some("Plugin/Cmd"));
+    assert_eq!(p.get("CustMenu", "nCMIK[00][03]"), Some("P"));
+}
+
+#[test]
+fn an_unknown_command_is_gone_when_deleted_and_new_when_changed() {
+    let mut p = profile(UNKNOWN_CUSTOM_FILE);
+    let mut menus = data::menus_of(&data::load(&p)).menus().to_vec();
+    menus[0].items[4] = item(30102, Some('P'));
+    menus[0].items.remove(5);
+    assert!(data::store(&data::encode(&menus), &mut p).unwrap());
+    assert_eq!(p.get("CustMenu", "nCMIN[00]"), Some("5"));
+    assert_eq!(p.get("CustMenu", "nCMIF[00][04]"), Some("30102"));
+    assert_eq!(p.get("CustMenu", "nCMIF[00][05]"), None);
+    let all = p.to_bytes();
+    let all = String::from_utf8_lossy(&all);
+    assert!(!all.contains("Plugin/Cmd") && !all.contains("NoSuchMacro"));
+}
+
+#[test]
+fn an_unknown_command_shows_what_it_is_and_the_mnu_file_keeps_its_text() {
+    let p = profile(UNKNOWN_CUSTOM_FILE);
+    let menus = data::menus_of(&data::load(&p));
+    let macros = RegisteredMacros::default();
+    let shown = row_text(&menus.menus()[0].items[4], &menus, &macros);
+    assert_eq!(shown, "（不明）Plugin/Cmd(P)");
+    let exported = menus.export_profile(&data::name_of_code).unwrap();
+    assert_eq!(
+        exported.get("CustMenu", "nCMIF[00][04]"),
+        Some("Plugin/Cmd")
+    );
+    let mut imported = CustomMenus::default();
+    assert!(imported.import_profile(&exported, &data::code_of_name));
+    assert_eq!(imported, menus);
 }
