@@ -305,3 +305,51 @@ fn opening_twice_brings_the_first_window_to_the_front(cx: &mut TestAppContext) {
     // A folder with no `plugin.def` cannot be opened.
     assert!(!cx.update(|app| super::open(app, &place.dirs(), "Gone")));
 }
+
+#[test]
+fn save_keeps_what_a_plugin_wrote_after_the_dialog_was_opened() {
+    let place = Place::new();
+    let mut form = place.form();
+    // A plugin calls `Plugin.SetOption` while the window is open.
+    let mut options = PluginOptions::load(&place.file());
+    options.set("Free", "Late", "new").unwrap();
+    options.save().unwrap();
+    form.set(1, "5");
+    form.save().unwrap();
+    let file = place.written();
+    assert_eq!(file.get("Free", "Late"), Some("new"));
+    assert_eq!(file.get("Main", "Level"), Some("5"));
+}
+
+#[gpui::test]
+fn the_keyboard_selects_toggles_and_chooses(cx: &mut TestAppContext) {
+    let place = Place::new();
+    let (dialog, vcx) = open_dialog(cx, &place);
+    dialog.update_in(vcx, |d, window, dcx| {
+        d.key("down", window, dcx);
+        assert_eq!(d.selected(), Some(0));
+        // The check box is on at first (the default 1); space turns it off and on again.
+        d.key("space", window, dcx);
+        assert_eq!(d.form().entries[0].value, "0");
+        d.key("space", window, dcx);
+        assert_eq!(d.form().entries[0].value, "1");
+        d.key("down", window, dcx);
+        d.key("down", window, dcx);
+        assert_eq!(d.selected(), Some(2));
+        // The choice is 固定 (1): left is 自動, right is x, and the ends stop.
+        d.key("left", window, dcx);
+        assert_eq!(d.form().entries[2].value, "0");
+        d.key("left", window, dcx);
+        assert_eq!(d.form().entries[2].value, "0");
+        d.key("right", window, dcx);
+        d.key("right", window, dcx);
+        d.key("right", window, dcx);
+        assert_eq!(d.form().entries[2].value, "x");
+        for _ in 0..9 {
+            d.key("down", window, dcx);
+        }
+        assert_eq!(d.selected(), Some(4));
+        d.key("up", window, dcx);
+        assert_eq!(d.selected(), Some(3));
+    });
+}

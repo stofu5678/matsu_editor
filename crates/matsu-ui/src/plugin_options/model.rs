@@ -3,7 +3,7 @@
 //! (`CDlgPluginOption::SetData`, `GetData`, `SetFromEdit`, `sakura_core/dlg/CDlgPluginOption.cpp`).
 
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use matsu_config::plugins::PluginDef;
 use matsu_config::plugins::def::{OptionDef, OptionType};
@@ -76,7 +76,7 @@ pub(crate) struct Form {
     /// The name of the plugin (`m_sName`), for the title.
     pub(crate) name: String,
     pub(crate) entries: Vec<Entry>,
-    options: PluginOptions,
+    option_file: PathBuf,
 }
 
 impl Form {
@@ -95,7 +95,7 @@ impl Form {
         Form {
             name: def.name.clone(),
             entries,
-            options,
+            option_file: option_file.to_owned(),
         }
     }
 
@@ -115,7 +115,9 @@ impl Form {
     /// Writes the values to the options file (`GetData`): all of them, also the ones that were not
     /// changed, as Sakura does. The lines of the file that are not options stay.
     pub(crate) fn save(&self) -> io::Result<()> {
-        let mut options = self.options.clone();
+        // The file is read again: a plugin may have written to it (`Plugin.SetOption`) while the
+        // window was open, and what is not an option of the dialog must stay as it is now.
+        let mut options = PluginOptions::load(&self.option_file);
         for entry in &self.entries {
             options
                 .set_option(&entry.def, &entry.value)

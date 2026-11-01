@@ -79,6 +79,20 @@ impl OptionDialog {
         self.input.read(cx).value().to_string()
     }
 
+    /// The keys of the dialog, for the tests.
+    #[cfg(test)]
+    pub(crate) fn key(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.on_key_down(
+            &KeyDownEvent {
+                keystroke: gpui::Keystroke::parse(key).unwrap(),
+                is_held: false,
+                prefer_character_input: false,
+            },
+            window,
+            cx,
+        );
+    }
+
     #[cfg(test)]
     pub(crate) fn selected(&self) -> Option<usize> {
         self.selected
@@ -212,9 +226,60 @@ impl OptionDialog {
         match event.keystroke.key.as_str() {
             "escape" => self.cancel(window),
             "enter" => self.ok(window, cx),
+            // The keys of the list, the check box and the choices, while the focus is not in a
+            // text box (the text box has the arrow keys for itself).
+            "up" | "down" if self.focus.is_focused(window) => {
+                let last = self.form.entries.len().saturating_sub(1);
+                let next = match (self.selected, event.keystroke.key.as_str()) {
+                    (None, _) => 0,
+                    (Some(i), "up") => i.saturating_sub(1),
+                    (Some(i), _) => (i + 1).min(last),
+                };
+                self.select(next, window, cx);
+            }
+            "left" | "right" if self.focus.is_focused(window) => {
+                self.step_choice(if event.keystroke.key == "left" { -1 } else { 1 }, cx)
+            }
+            "space" if self.focus.is_focused(window) => self.toggle(cx),
             _ => return,
         }
         cx.stop_propagation();
+    }
+
+    /// The previous or next item of a selection.
+    fn step_choice(&mut self, step: isize, cx: &mut Context<Self>) {
+        let Some(entry) = self
+            .selected
+            .and_then(|i| self.form.entries.get(i))
+            .filter(|e| e.def.kind == OptionType::Sel)
+        else {
+            return;
+        };
+        let values: Vec<String> = entry.def.selects().into_iter().map(|(_, v)| v).collect();
+        let at = values.iter().position(|v| *v == entry.value);
+        let next = match at {
+            Some(i) => i
+                .saturating_add_signed(step)
+                .min(values.len().saturating_sub(1)),
+            None => 0,
+        };
+        if let Some(value) = values.get(next) {
+            let value = value.clone();
+            self.choose(&value, cx);
+        }
+    }
+
+    /// The check box, from the keyboard.
+    fn toggle(&mut self, cx: &mut Context<Self>) {
+        let Some(entry) = self
+            .selected
+            .and_then(|i| self.form.entries.get(i))
+            .filter(|e| e.def.kind == OptionType::Bool)
+        else {
+            return;
+        };
+        let on = entry.value != "1";
+        self.set_bool(on, cx);
     }
 
     /// The part under the list that edits the selected row.
