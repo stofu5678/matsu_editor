@@ -525,3 +525,335 @@ mod tests {
         assert_eq!(added_type_name(17), "設定17");
     }
 }
+
+/// Expectations copied from Sakura's `InitTypeConfigImp` of each type, written with the raw numbers
+/// of Sakura's enums (not this crate's constants), so that a slip in the constants shows up too.
+#[cfg(test)]
+mod sakura_table {
+    use super::*;
+
+    /// One row: what `CType_*.cpp` sets over `_DefaultConfig`. A field left at `NONE`'s value means
+    /// "not set by the type".
+    struct Row {
+        /// `m_szTypeName`.
+        name: &'static str,
+        /// `m_szTypeExts`.
+        exts: &'static str,
+        /// `m_cLineComment.CopyTo(i, delimiter, column)`.
+        line: &'static [(&'static str, i32)],
+        /// `m_cBlockComments[i].SetBlockCommentRule(from, to)`.
+        block: &'static [(&'static str, &'static str)],
+        /// `m_nStringType`: 0 C++, 1 PL/SQL, 2 HTML, 3 C#, 4 Python.
+        string_type: i32,
+        /// `m_bStringLineOnly`.
+        line_only: bool,
+        /// `m_szIndentChars`.
+        indent_chars: &'static str,
+        /// `m_nKeyWordSetIdx[0]` and `[1]` (-1 when not set).
+        keywords: [i32; 2],
+        /// `m_eDefaultOutline`: 1 C_CPP, 2 PLSQL, 3 TEXT, 4 JAVA, 5 COBOL, 6 ASM, 7 PERL, 8 VB, 10 HTML,
+        /// 11 TEX, 13 PYTHON.
+        outline: i32,
+        /// `m_eSmartIndent`: 0 none, 1 C/C++.
+        smart_indent: i32,
+        /// Colors whose `m_bDisp` the type sets to true.
+        disp_on: &'static [&'static str],
+        /// Colors whose `m_bDisp` the type sets to false.
+        disp_off: &'static [&'static str],
+    }
+
+    const NONE: Row = Row {
+        name: "",
+        exts: "",
+        line: &[],
+        block: &[],
+        string_type: 0,
+        line_only: false,
+        indent_chars: "",
+        keywords: [-1, -1],
+        outline: 3,
+        smart_indent: 0,
+        disp_on: &[],
+        disp_off: &[],
+    };
+
+    const QUOTES_OFF: &[&str] = &["SQT", "WQT"];
+
+    /// The rows, in the order of `CShareData::InitTypeConfigs`.
+    fn table() -> Vec<Row> {
+        vec![
+            // CType_Basis.cpp
+            Row {
+                name: "基本",
+                disp_off: QUOTES_OFF,
+                ..NONE
+            },
+            // CType_Text.cpp (the width, the kinsoku and the regular expressions are checked apart)
+            Row {
+                name: "テキスト",
+                exts: "txt,log,1st,err,ps",
+                disp_off: QUOTES_OFF,
+                ..NONE
+            },
+            // CType_Cpp.cpp
+            Row {
+                name: "C/C++",
+                exts: "c,cpp,cxx,cc,cp,c++,h,hpp,hxx,hh,hp,h++,rc,hm",
+                line: &[("//", -1)],
+                block: &[("/*", "*/"), ("#if 0", "#endif")],
+                line_only: true,
+                keywords: [0, -1],
+                outline: 1,
+                smart_indent: 1,
+                disp_on: &["NUM", "BRC"],
+                ..NONE
+            },
+            // CType_Html.cpp
+            Row {
+                name: "HTML",
+                exts: "html,htm,shtml,plg",
+                block: &[("<!--", "-->")],
+                string_type: 2,
+                line_only: true,
+                keywords: [1, -1],
+                outline: 10,
+                disp_on: &["SQT"],
+                ..NONE
+            },
+            // CType_Sql.cpp (Sakura's extensions are "sql,plsql"; see ADR-0023)
+            Row {
+                name: "PL/SQL",
+                exts: "plsql,pls,plb,pck,pkb,pks",
+                line: &[("--", -1)],
+                block: &[("/*", "*/")],
+                string_type: 1,
+                indent_chars: "|★",
+                keywords: [2, -1],
+                outline: 2,
+                ..NONE
+            },
+            // CType_Cobol.cpp
+            Row {
+                name: "COBOL",
+                exts: "cbl,cpy,pco,cob",
+                line: &[("*", 6), ("D", 6)],
+                string_type: 1,
+                indent_chars: "*",
+                keywords: [3, -1],
+                outline: 5,
+                disp_on: &["VER"],
+                ..NONE
+            },
+            // CType_Java.cpp
+            Row {
+                name: "Java",
+                exts: "java,jav",
+                line: &[("//", -1)],
+                block: &[("/*", "*/")],
+                line_only: true,
+                keywords: [4, -1],
+                outline: 4,
+                smart_indent: 1,
+                disp_on: &["NUM", "BRC"],
+                ..NONE
+            },
+            // CType_Asm.cpp
+            Row {
+                name: "アセンブラ",
+                exts: "asm",
+                line: &[(";", -1)],
+                outline: 6,
+                disp_on: &["NUM"],
+                ..NONE
+            },
+            // CType_Awk.cpp
+            Row {
+                name: "AWK",
+                exts: "awk",
+                line: &[("#", -1)],
+                keywords: [6, -1],
+                ..NONE
+            },
+            // CType_Dos.cpp
+            Row {
+                name: "MS-DOSバッチファイル",
+                exts: "bat",
+                line: &[("REM ", -1)],
+                keywords: [7, -1],
+                ..NONE
+            },
+            // CType_Pascal.cpp (it does not set the outline: the default, text)
+            Row {
+                name: "Pascal",
+                exts: "dpr,pas",
+                line: &[("//", -1)],
+                block: &[("{", "}"), ("(*", "*)")],
+                string_type: 1,
+                line_only: true,
+                keywords: [8, -1],
+                disp_on: &["NUM"],
+                ..NONE
+            },
+            // CType_Tex.cpp
+            Row {
+                name: "TeX",
+                exts: "tex,ltx,sty,bib,log,blg,aux,bbl,toc,lof,lot,idx,ind,glo",
+                line: &[("%", -1)],
+                keywords: [9, 10],
+                outline: 11,
+                disp_off: QUOTES_OFF,
+                ..NONE
+            },
+            // CType_Perl.cpp
+            Row {
+                name: "Perl",
+                exts: "cgi,pl,pm",
+                line: &[("#", -1)],
+                line_only: true,
+                keywords: [11, 12],
+                outline: 7,
+                disp_on: &["NUM", "BRC"],
+                ..NONE
+            },
+            // CType_Python.cpp (the second keyword set is ADR-0017's addition, checked apart)
+            Row {
+                name: "Python",
+                exts: "py",
+                line: &[("#", -1)],
+                string_type: 4,
+                line_only: true,
+                keywords: [16, -1],
+                outline: 13,
+                disp_on: &["NUM", "BRC"],
+                ..NONE
+            },
+            // CType_Vb.cpp
+            Row {
+                name: "Visual Basic",
+                exts: "bas,frm,cls,ctl,pag,dob,dsr,vb",
+                line: &[("'", -1)],
+                string_type: 1,
+                line_only: true,
+                keywords: [13, 14],
+                outline: 8,
+                disp_on: &["NUM"],
+                disp_off: &["SQT"],
+                ..NONE
+            },
+            // CType_Rich.cpp
+            Row {
+                name: "リッチテキスト",
+                exts: "rtf",
+                keywords: [15, -1],
+                disp_on: &["NUM"],
+                disp_off: &["SQT", "WQT", "URL"],
+                ..NONE
+            },
+            // CType_Ini.cpp
+            Row {
+                name: "設定ファイル",
+                exts: "ini,inf,cnf,kwd,col",
+                line: &[("//", -1), (";", -1)],
+                disp_off: QUOTES_OFF,
+                ..NONE
+            },
+        ]
+    }
+
+    /// Builds the type Sakura would have: `_DefaultConfig` plus the row.
+    fn expected(index: usize, row: &Row) -> TypeSettings {
+        let mut t = TypeSettings::default();
+        let index = i32::try_from(index).unwrap();
+        t.idx = index;
+        t.id = index;
+        t.type_name = row.name.to_owned();
+        t.type_exts = row.exts.to_owned();
+        for (i, &(delimiter, column)) in row.line.iter().enumerate() {
+            t.line_comments[i] = LineComment::new(delimiter, column);
+        }
+        for (i, &(from, to)) in row.block.iter().enumerate() {
+            t.block_comments[i] = BlockComment::new(from, to);
+        }
+        t.string_type = row.string_type;
+        t.string_line_only = row.line_only;
+        t.indent_chars = row.indent_chars.to_owned();
+        t.keyword_set_idx[0] = row.keywords[0];
+        t.keyword_set_idx[1] = row.keywords[1];
+        t.default_outline = row.outline;
+        t.smart_indent = row.smart_indent;
+        for name in row.disp_on {
+            t.colors.get_mut(name).unwrap().disp = true;
+        }
+        for name in row.disp_off {
+            t.colors.get_mut(name).unwrap().disp = false;
+        }
+        t
+    }
+
+    #[test]
+    fn every_type_is_the_default_plus_what_its_sakura_file_sets() {
+        let actual = builtin_types();
+        let table = table();
+        assert_eq!(actual.len(), table.len());
+        for (i, (got, row)) in actual.iter().zip(&table).enumerate() {
+            let mut want = expected(i, row);
+            match row.name {
+                "テキスト" => {
+                    want.max_line_ketas = 120;
+                    want.kinsoku_head = TEXT_KINSOKU_HEAD.to_owned();
+                    want.kinsoku_tail = TEXT_KINSOKU_TAIL.to_owned();
+                    want.use_regex_keyword = true;
+                    want.regex_keywords = got.regex_keywords.clone();
+                }
+                "COBOL" => want.vert_line_idx[..4].copy_from_slice(&[7, 8, 12, 73]),
+                "Python" => want.keyword_set_idx[1] = got.keyword_set_idx[1],
+                _ => {}
+            }
+            assert_eq!(got, &want, "{}", row.name);
+        }
+    }
+
+    #[test]
+    fn text_has_sakuras_kinsoku_and_path_patterns() {
+        // CType_Text.cpp. `\xa2`, `\xa3` and `\xa5` are written as in the source.
+        let types = builtin_types();
+        let t = &types[1];
+        assert_eq!(t.max_line_ketas, 120);
+        assert_eq!(
+            t.kinsoku_head,
+            "!%),.:;?]}\u{a2}°’”‰′″℃、。々〉》」』】〕゛゜ゝゞ・ヽヾ！％），．：；？］｝｡｣､･ﾞﾟ￠"
+        );
+        assert_eq!(
+            t.kinsoku_tail,
+            "$([\\{\u{a3}\u{a5}‘“〈《「『【〔＄（［｛｢￡￥"
+        );
+        // `_DefaultConfig`: the hanging characters are set for every type.
+        assert_eq!(t.kinsoku_kuto, "、。，．､｡,.");
+        assert!(!t.kinsoku_head_enabled && !t.kinsoku_tail_enabled);
+        assert!(!t.kinsoku_ret && !t.kinsoku_kuto_enabled);
+        assert!(t.use_regex_keyword);
+        let patterns: Vec<&str> = t
+            .regex_keywords
+            .iter()
+            .map(|k| k.pattern.as_str())
+            .collect();
+        assert_eq!(
+            patterns,
+            [
+                r#"/(?<=")(\b[a-zA-Z]:|\B\\\\)[^"\r\n]*/k"#,
+                r#"/(\b[a-zA-Z]:\\|\B\\\\)[\w\-_.\\\/$%~]*/k"#,
+            ]
+        );
+        assert!(t.regex_keywords.iter().all(|k| k.color == "URL"));
+    }
+
+    #[test]
+    fn python_has_the_builtins_as_its_second_set() {
+        // ADR-0017: the only keyword difference from Sakura.
+        let types = builtin_types();
+        assert_eq!(
+            types[13].keyword_set_idx[1],
+            ExtraSet::PythonBuiltins.default_index()
+        );
+    }
+}
