@@ -22,6 +22,7 @@ use gpui::{
 use matsu_coloring::ColorState;
 use matsu_core::buffer::Eol;
 use matsu_layout::{LayoutConfig, RowInfo};
+use matsu_print::LineTerm;
 
 use super::caret_shape::{CaretShape, caret_shape};
 use super::colors::LineColorRequest;
@@ -184,9 +185,25 @@ fn gutter_style(
     }
 }
 
+/// What follows the line number of a row (`CTextDrawer::DispLineNumber`, 行番号区切り).
+enum Term {
+    /// A vertical line at the right edge of the line number area, in the color of the number.
+    Line,
+    /// A character after the number.
+    Char(Box<ShapedLine>),
+}
+
 struct RowPaint {
     selection: Option<(u32, u32)>,
     numbers: Option<ShapedLine>,
+    /// The line number separator of the row, if the type has one and the row has a layout.
+    term: Option<Term>,
+    /// The color of the line number (what the separator line is drawn in).
+    number_color: u32,
+    /// Where the note line starts in the line number area: the left edge when the area has the
+    /// background of the text, else the right edge of the numbers (`DispNoteLine` from
+    /// `DispLineNumber`).
+    note_from: f32,
     /// The line of this row has a bookmark (every row of a wrapped line shows it, as in Sakura:
     /// `CTextDrawer::DispLineNumber` looks at the line of each layout row).
     bookmarked: bool,
@@ -247,6 +264,8 @@ struct LinesPaint {
     caret_column_color: u32,
     /// The index in `rows` of the caret row, and the color of its underline.
     underline: Option<(usize, u32)>,
+    /// The x of the vertical line at the wrap column (`RAP`), and its color.
+    wrap: Option<(f32, u32)>,
 }
 
 pub(super) struct Prepaint {
@@ -262,6 +281,11 @@ pub(super) struct Prepaint {
     caret: Option<(usize, u32, CaretShape)>,
     colors: Colors,
     show_line_numbers: bool,
+    /// The width of the line numbers and what is right of them up to the text: the line number
+    /// area without the space before the text (`CTextArea::GetLineNumberWidth`).
+    number_area_width: f32,
+    /// The digits of the line numbers.
+    digits: usize,
     /// The bookmark color is shown (see `Marks::bookmark`).
     bookmark_colored: bool,
     cell: f32,
@@ -412,6 +436,7 @@ impl Element for EditorElement {
                 4.0
             };
 
+        let number_area_width = gutter_width - settings.line_number_right_space as f32;
         let box_area = crate::hit::BoxArea::of_cursor(layout, doc, &editor.cursor);
         let selection = editor
             .cursor
@@ -627,9 +652,31 @@ impl Element for EditorElement {
                     );
                     (a.row == row.row && b.row == row.row).then_some((a.column, b.column))
                 });
+            let has_number_area = show_line_numbers && !row.is_eof_row;
+            let term = if has_number_area {
+                match settings.line_term {
+                    LineTerm::Line => Some(Term::Line),
+                    LineTerm::Char(c) if c != '\0' => Some(Term::Char(Box::new(shape_number(
+                        window,
+                        &c.to_string(),
+                        style.text,
+                        style.bold,
+                    )))),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            let number_back = style.background.unwrap_or(colors.line_number_background);
             painted.push(RowPaint {
                 selection: selected,
                 numbers,
+                term,
+                number_color: style.text,
+                note_from: lines::gutter_note_from(
+                    has_number_area && number_back != colors.background,
+                    number_area_width,
+                ),
                 bookmarked,
                 gutter_background: style.background,
                 diff: diff.filter(|_| show_line_numbers).map(|m| (m, style.text)),
@@ -703,6 +750,10 @@ impl Element for EditorElement {
             } else {
                 rgb_of(vertical.text)
             };
+        }
+        if colors.wrap_entry.disp {
+            lines_paint.wrap = lines::wrap_line_x(max_columns, cell, scroll_x, view_width)
+                .map(|x| (x, rgb_of(colors.wrap_entry.text)));
         }
         if colors.note_line_entry.disp {
             lines_paint.note = Some((
@@ -838,6 +889,8 @@ impl Element for EditorElement {
             caret,
             colors,
             show_line_numbers,
+            number_area_width,
+            digits,
             bookmark_colored: marks_shown.bookmark,
             cell,
             line_height,
@@ -942,6 +995,40 @@ impl Element for EditorElement {
                         cx,
                     )
                     .ok();
+            }
+            match &row.term {
+                Some(Term::Line) => window.paint_quad(fill(
+                    Bounds::new(
+                        point(
+                            bounds.left() + px(lines::term_line_x(p.number_area_width)),
+                            y,
+                        ),
+                        size(px(1.), lh),
+                    ),
+                    rgb(row.number_color),
+                )),
+                Some(Term::Char(mark)) => {
+                    mark.paint(
+                        point(bounds.left() + px(lines::term_char_x(p.digits, p.cell)), y),
+                        lh,
+                        TextAlign::Left,
+                        None,
+                        window,
+                        cx,
+                    )
+                    .ok();
+                }
+                None => {}
+            }
+            // The note line goes on through the line number area, over the number.
+            if let Some((offset, color)) = p.lines.note {
+                window.paint_quad(fill(
+                    Bounds::from_corners(
+                        point(bounds.left() + px(row.note_from), y + px(offset)),
+                        point(bounds.left() + px(p.gutter_width), y + px(offset + 1.)),
+                    ),
+                    rgb(color),
+                ));
             }
         }
 
@@ -1124,6 +1211,16 @@ impl Element for EditorElement {
                             rgb(p.lines.vertical_color),
                         ));
                     }
+                }
+                // The vertical line at the wrap column (`DispWrapLine`), after those.
+                if let Some((x, color)) = p.lines.wrap {
+                    window.paint_quad(fill(
+                        Bounds::new(
+                            point(origin_x + px(x), body_top),
+                            size(px(1.), text_bounds.size.height),
+                        ),
+                        rgb(color),
+                    ));
                 }
                 // The line of the caret column goes first, so that the underline of the caret
                 // line is over it (`CaretUnderLineON`).

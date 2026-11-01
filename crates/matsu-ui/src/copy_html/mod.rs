@@ -19,7 +19,7 @@ use matsu_commands::clipboard::{ClipData, ClipKind, Clipboard as _};
 use crate::clipboard::GpuiClipboard;
 use crate::view::EditorView;
 
-pub(crate) use collect::{Source, color_html};
+pub(crate) use collect::{Found, Source, color_html};
 
 /// Lays out the lines up to the one after `last_line` (the copy looks at the row that follows the
 /// last row of the selection), so that the row numbers up to there are exact. The rows of a large
@@ -57,6 +57,19 @@ impl EditorView {
                 .color_states
                 .advance(doc, rules, std::time::Duration::from_millis(200))
         {}
+        let search = &self.search;
+        let found_colors = self.prefs.settings.colors.found;
+        let found = search
+            .matcher()
+            .filter(|_| search.mark() && !found_colors.is_empty())
+            .map(|matcher| Found {
+                matcher: &**matcher,
+                colors: found_colors,
+                words: search
+                    .plain()
+                    .filter(|_| search.options().whole_word)
+                    .map(|plain| &**plain),
+            });
         let Some(html) = color_html(&Source {
             doc,
             layout: &self.layout,
@@ -65,6 +78,7 @@ impl EditorView {
             cursor: &self.cursor,
             line_num_is_crlf: self.prefs.settings.outline.line_num_is_crlf,
             line_numbers,
+            found,
         }) else {
             return;
         };

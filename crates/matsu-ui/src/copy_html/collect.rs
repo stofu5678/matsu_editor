@@ -13,8 +13,7 @@
 //
 // This file is derived from the file above and was modified: the C++ code (the layout objects
 // and the color strategies that are asked at every character) was rewritten in Rust on the rows
-// of `matsu-layout` and the runs of `matsu-coloring`; the search colors are not in the copy; and
-// the three differences in the comments marked "Difference" were made on purpose.
+// of `matsu-layout` and the runs of `matsu-coloring`; and the three differences in the comments marked "Difference" were made on purpose.
 //
 // zlib License
 //
@@ -45,11 +44,24 @@ use matsu_coloring::{
 };
 use matsu_core::buffer::{Document, Pos};
 use matsu_core::cursor::Cursor;
+use matsu_core::search::{Matcher, PlainMatcher};
 use matsu_layout::{DocumentLayout, RowInfo};
 
 use super::builder::{Attr, Html, Row};
 use crate::hit::BoxArea;
-use crate::settings::view_settings::rgb_of;
+use crate::search::highlight::{RowMatch, highlight_columns, slot_of};
+use crate::settings::view_settings::{FoundColors, rgb_of};
+
+/// The matches of the search that are colored in the copy as they are on the screen
+/// (`CColor_Found`, asked by `GetColorStrategyHTML`): they take over from the color of the
+/// syntax.
+pub(crate) struct Found<'a> {
+    pub matcher: &'a dyn Matcher,
+    /// The search colors that are shown; they are numbered like the matches.
+    pub colors: FoundColors,
+    /// For a whole-word search, the words of the key: each has the next color.
+    pub words: Option<&'a PlainMatcher>,
+}
 
 /// What the copy reads.
 pub(crate) struct Source<'a> {
@@ -63,11 +75,22 @@ pub(crate) struct Source<'a> {
     /// The numbers of the rows of the layout are written before each row (the "with line number"
     /// function).
     pub line_numbers: bool,
+    /// The search to color, when the matches are marked (`m_bCurSrchKeyMark`) and a search color
+    /// is shown.
+    pub found: Option<Found<'a>>,
 }
 
-/// The style of a character of the color kind `kind`.
-fn attr_of(rules: &ColorRules, kind: ColorKind) -> Attr {
-    let entry = rules.entry(kind);
+/// The style of a character of the color kind `kind`, or of the search color `found` when the
+/// character is in a match.
+fn attr_of(
+    rules: &ColorRules,
+    found: Option<&Found<'_>>,
+    kind: ColorKind,
+    slot: Option<u8>,
+) -> Attr {
+    let entry = slot
+        .and_then(|slot| found?.colors.get(slot))
+        .unwrap_or_else(|| *rules.entry(kind));
     Attr {
         color: Some((rgb_of(entry.text), rgb_of(entry.back))),
         bold: entry.bold,
@@ -155,8 +178,17 @@ fn chars_before(text: &str, at: usize) -> usize {
     text.char_indices().take_while(|(i, _)| *i < at).count()
 }
 
-/// The characters of a row with the line ending that ends it, and the style of each.
-fn row_chars(row: &RowInfo, colors: &LineColors, rules: &ColorRules) -> (Vec<char>, Vec<Attr>) {
+/// The characters of a row with the line ending that ends it, and the style of each. `matches`
+/// are the matches of the search on the row, by column (a line ending is one column, after the
+/// text).
+fn row_chars(
+    layout: &DocumentLayout,
+    row: &RowInfo,
+    colors: &LineColors,
+    rules: &ColorRules,
+    found: Option<&Found<'_>>,
+    matches: &[RowMatch],
+) -> (Vec<char>, Vec<Attr>) {
     let mut text = String::from(row.text());
     if let Some(eol) = row.eol {
         text.push_str(eol.as_str());
@@ -164,18 +196,33 @@ fn row_chars(row: &RowInfo, colors: &LineColors, rules: &ColorRules) -> (Vec<cha
     let mut chars = Vec::with_capacity(text.len());
     let mut attrs = Vec::with_capacity(text.len());
     // The cache of the style of the last kind, which is the same for most characters.
-    let mut cached: Option<(ColorKind, Attr)> = None;
+    let mut cached: Option<(ColorKind, Option<u8>, Attr)> = None;
     let mut byte = row.start.col;
+    let (mut column, mut next_match) = (row.start_column, 0);
+    let body = row.text().len();
     for c in text.chars() {
         let kind = kind_at(&colors.runs, byte);
+        // The line ending is in the column of its mark.
+        let at = if byte - row.start.col < body {
+            column
+        } else {
+            row.end_column
+        };
+        while matches.get(next_match).is_some_and(|m| m.1 <= at) {
+            next_match += 1;
+        }
+        let slot = matches.get(next_match).filter(|m| m.0 <= at).map(|m| m.2);
         let attr = match cached {
-            Some((k, attr)) if k == kind => attr,
+            Some((k, s, attr)) if k == kind && s == slot => attr,
             _ => {
-                let attr = attr_of(rules, kind);
-                cached = Some((kind, attr));
+                let attr = attr_of(rules, found, kind, slot);
+                cached = Some((kind, slot, attr));
                 attr
             }
         };
+        if byte - row.start.col < body {
+            column += layout.config().columns_of(c, column);
+        }
         chars.push(c);
         attrs.push(attr);
         byte += c.len_utf8();
@@ -233,6 +280,17 @@ pub(crate) fn color_html(source: &Source<'_>) -> Option<String> {
     let back = rgb_of(rules.entry(ColorKind::Text).back);
     let mut html = Html::new(back);
     let mut colors = Colors::new(source);
+    let found = source.found.as_ref();
+    // The matches on the rows, by column, found a line at a time like the screen does.
+    let matches: Vec<Vec<RowMatch>> = match found {
+        Some(found) => highlight_columns(layout, doc, &rows, found.matcher, &|text| {
+            slot_of(
+                found.words.and_then(|w| w.word_slot(text)),
+                found.colors.len(),
+            )
+        }),
+        None => Vec::new(),
+    };
     for (index, info) in rows.iter().enumerate().take(last + 1) {
         if info.is_eof_row {
             // the empty row after the last line ending is no row in Sakura
@@ -241,7 +299,8 @@ pub(crate) fn color_html(source: &Source<'_>) -> Option<String> {
         let Some(line) = colors.line(info.line) else {
             break;
         };
-        let (chars, attrs) = row_chars(info, line, rules);
+        let row_matches = matches.get(index).map_or(&[][..], Vec::as_slice);
+        let (chars, attrs) = row_chars(layout, info, line, rules, found, row_matches);
         let len = chars.len();
         let (from_index, to_index) = match &area {
             Some(area) => {

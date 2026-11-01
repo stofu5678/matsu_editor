@@ -3,14 +3,16 @@
 //! are checked in `builder_tests` against Sakura's `AppendHTMLColor`.
 
 use matsu_coloring::{ColorKind, ColorRules, ColorStates};
+use matsu_config::settings::color::ColorEntry;
 use matsu_core::buffer::{Document, Pos};
 use matsu_core::cursor::Cursor;
+use matsu_core::search::{Matcher, PlainMatcher, PlainOptions};
 use matsu_layout::{DocumentLayout, LayoutConfig, Wrap};
 
 use super::builder::{Attr, Html, Row};
-use super::collect::{Source, color_html};
+use super::collect::{Found, Source, color_html};
 use crate::settings::UserSettings;
-use crate::settings::view_settings::rgb_of;
+use crate::settings::view_settings::{FoundColors, rgb_of};
 
 /// What a test sets up: the document, the layout, and the rules of a file called `file`.
 struct Fixture {
@@ -68,6 +70,41 @@ impl Fixture {
             cursor: &self.cursor,
             line_num_is_crlf,
             line_numbers,
+            found: None,
+        })
+    }
+
+    /// The HTML with the matches of `pattern` colored in `colors` (`CColor_Found`).
+    fn html_found(&self, pattern: &str, whole_word: bool, colors: &[ColorEntry]) -> Option<String> {
+        let matcher = PlainMatcher::new(
+            pattern,
+            PlainOptions {
+                whole_word,
+                ..PlainOptions::default()
+            },
+        );
+        self.html_with(&matcher, whole_word.then_some(&matcher), colors)
+    }
+
+    fn html_with(
+        &self,
+        matcher: &dyn Matcher,
+        words: Option<&PlainMatcher>,
+        colors: &[ColorEntry],
+    ) -> Option<String> {
+        color_html(&Source {
+            doc: &self.doc,
+            layout: &self.layout,
+            rules: &self.rules,
+            states: &self.states,
+            cursor: &self.cursor,
+            line_num_is_crlf: true,
+            line_numbers: false,
+            found: Some(Found {
+                matcher,
+                colors: FoundColors::new(colors.iter().copied()),
+                words,
+            }),
         })
     }
 
@@ -375,4 +412,98 @@ fn the_same_style_is_one_piece() {
 fn the_background_of_the_pre_is_written_in_lowercase_hex_with_six_digits() {
     let html = Html::new(0x00abcd).finish();
     assert_eq!(html, "<pre style=\"background-color:#00abcd\"></pre>");
+}
+
+/// A search color for a test.
+fn found_entry(text: u32, back: u32, bold: bool) -> ColorEntry {
+    ColorEntry {
+        disp: true,
+        bold,
+        underline: false,
+        text,
+        back,
+    }
+}
+
+fn span(entry: ColorEntry) -> String {
+    format!(
+        "<span style=\"color:#{:06x};background-color:#{:06x}\">",
+        rgb_of(entry.text),
+        rgb_of(entry.back)
+    )
+}
+
+#[test]
+fn a_match_of_the_search_has_the_search_color_in_the_copy() {
+    let mut f = Fixture::new("one two one\r\n", "a.txt");
+    f.select((0, 0), (1, 0));
+    let text = f.open(ColorKind::Text);
+    let found = found_entry(0x0000ff, 0x00ffff, false);
+    let html = f.html_found("two", false, &[found]).unwrap();
+    assert_eq!(
+        html,
+        format!(
+            "{}{text}one </span>{}two</span>{text} one\r\n</span></pre>",
+            f.pre(),
+            span(found)
+        )
+    );
+}
+
+#[test]
+fn a_match_takes_over_from_the_color_of_the_syntax() {
+    let mut f = Fixture::new("int a; // int\r\n", "a.c");
+    f.select((0, 0), (1, 0));
+    let found = found_entry(0x0000ff, 0x00ffff, true);
+    let html = f.html_found("int", false, &[found]).unwrap();
+    // the keyword and the word in the comment are both in the search color, bold
+    assert_eq!(html.matches("<b>int</b>").count(), 2, "{html}");
+    assert!(!html.contains(&f.open(ColorKind::Keyword(0))), "{html}");
+}
+
+#[test]
+fn the_words_of_a_whole_word_search_have_the_colors_in_turn() {
+    let mut f = Fixture::new("aa bb cc aa\r\n", "a.txt");
+    f.select((0, 0), (0, 11));
+    let first = found_entry(0x000001, 0x000010, false);
+    let second = found_entry(0x000002, 0x000020, false);
+    let html = f.html_found("aa bb", true, &[first, second]).unwrap();
+    assert!(
+        html.contains(&format!("{}bb</span>", span(second))),
+        "{html}"
+    );
+    // the first word of the key has the first color wherever it comes
+    assert_eq!(
+        html.matches(&format!("{}aa</span>", span(first))).count(),
+        2,
+        "{html}"
+    );
+}
+
+#[test]
+fn no_search_color_shown_leaves_the_copy_as_it_is() {
+    let mut f = Fixture::new("one two\r\n", "a.txt");
+    f.select((0, 0), (1, 0));
+    assert_eq!(f.html_found("two", false, &[]), f.html(false, true));
+}
+
+#[test]
+fn a_match_over_the_line_ending_colors_it_too() {
+    let mut f = Fixture::new("ab\r\ncd\r\n", "a.txt");
+    f.select((0, 0), (2, 0));
+    let found = found_entry(0x0000ff, 0x00ffff, false);
+    // a regular expression sees the line ending, but never the next line
+    let regex =
+        matsu_regex::RegexMatcher::new(r"b\r\n", matsu_regex::RegexSearchOptions::default())
+            .unwrap();
+    let html = f.html_with(&regex, None, &[found]).unwrap();
+    let text = f.open(ColorKind::Text);
+    assert_eq!(
+        html,
+        format!(
+            "{}{text}a</span>{}b\r\n</span>{text}cd\r\n</span></pre>",
+            f.pre(),
+            span(found)
+        )
+    );
 }
