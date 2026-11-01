@@ -78,6 +78,20 @@ fn every_pane_of_the_document_gets_the_detected_indentation_on_a_reload(cx: &mut
 }
 
 #[gpui::test]
+fn a_load_that_changes_the_type_still_gives_every_pane_the_detected_indentation(
+    cx: &mut TestAppContext,
+) {
+    let dir = TempDir::new();
+    let path = dir.write("a.txt", TWO_SPACES);
+    let (f, cx) = setup(cx);
+    // The panes are on the untitled document (the basic type); the file has the text type.
+    let second = second_pane(&f, cx);
+    f.open(cx, &path, Some(UTF8));
+    assert_eq!(pane(&f.view, cx), (2, true));
+    assert_eq!(pane(&second, cx), (2, true));
+}
+
+#[gpui::test]
 fn the_tab_width_and_the_spaces_set_by_a_macro_reach_every_pane(cx: &mut TestAppContext) {
     let (f, cx) = setup(cx);
     let second = second_pane(&f, cx);

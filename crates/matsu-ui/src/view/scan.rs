@@ -67,7 +67,16 @@ impl EditorView {
                     }
                     ScanTick::Gone => break,
                     ScanTick::Finished | ScanTick::Failed => {
-                        this.update(cx, |view, cx| view.scan_ended(tick, cx)).ok();
+                        // The pane that began the load may be closed by now: another pane of
+                        // the document finishes it.
+                        if this
+                            .update(cx, |view, cx| view.scan_ended(tick, cx))
+                            .is_err()
+                            && let Ok(Some(view)) =
+                                document.read_with(cx, |shared, _| shared.views().next())
+                        {
+                            view.update(cx, |view, cx| view.scan_ended(tick, cx));
+                        }
                         break;
                     }
                 }
