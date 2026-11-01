@@ -16,8 +16,8 @@
 | [0012](0012-file-size-limit.md) | ファイルの大きさに上限を設けない | 決定（2026-10-15 に改訂） |
 | [0013](0013-module-structure.md) | モジュールの構造 | 決定（細部は Phase 1 の始めに確定する） |
 | [0014](0014-development-process.md) | 開発の進め方とバージョンの付け方 | 決定（ループのルールは Phase 5 の前に書く） |
-| [0015](0015-tabs-and-groups.md) | タブとグループ（UME のウィンドウの中にタブを持つ） | 決定 |
-| [0016](0016-single-instance.md) | UME Editor を 1 つのプロセスで動かす | 決定 |
+| [0015](0015-tabs-and-groups.md) | タブとグループ（MATSU のウィンドウの中にタブを持つ） | 決定 |
+| [0016](0016-single-instance.md) | MATSU Editor を 1 つのプロセスで動かす | 決定 |
 | [0017](0017-extra-document-types.md) | サクラにない言語のタイプを組み込む | 決定 |
 | [0018](0018-decision-policy.md) | 判断の方針（AI が決めてよいことと、人に聞くこと） | 決定 |
 | [0019](0019-auto-merge-trial.md) | 自動マージの試行 | 決定（試行） |
