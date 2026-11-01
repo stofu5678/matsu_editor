@@ -4,7 +4,8 @@
 use matsu_config::Profile;
 
 use super::dock::{
-    DockPlace, DockSide, OutlineDock, Target, TypeOutline, write_common, write_place, write_sort,
+    DockPlace, DockSide, OutlineDock, Target, TypeOutline, write_all, write_common, write_place,
+    write_sort,
 };
 
 fn profile(text: &str) -> Profile {
@@ -185,4 +186,16 @@ fn a_floating_pane_uses_the_width_of_the_right_side() {
     assert_eq!(place.size_of(DockSide::Undockable.size_side()), 222);
     place.set_size(DockSide::Top, 80);
     assert_eq!((place.top, place.left, place.bottom), (80, 0, 0));
+}
+
+#[test]
+fn everything_the_session_holds_can_be_written_to_a_profile_and_read_back() {
+    let mut dock = OutlineDock::from_profile(&profile(SAKURA));
+    dock.sync = true;
+    dock.set_sort(5, 3, true, 2);
+    let mut p = Profile::new();
+    assert!(write_all(&mut p, &dock).unwrap());
+    assert_eq!(OutlineDock::from_profile(&p), dock);
+    // and writing the same again changes nothing
+    assert!(!write_all(&mut p, &dock).unwrap());
 }

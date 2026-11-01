@@ -51,6 +51,12 @@ pub(crate) fn edit_types<R>(
             .as_ref()
             .and_then(|user| user.profile().cloned())
             .unwrap_or_default();
+        // what the outline pane has set in this session is in the global only: the numbers of
+        // the types change with the list, so it goes into the profile first
+        if cx.has_global::<crate::outline::dock::OutlineDock>() {
+            let _ =
+                crate::outline::dock::write_all(&mut profile, &crate::outline::dock::current(cx));
+        }
         match change(&mut profile) {
             Ok(value) => {
                 outcome = Some(Ok(value));

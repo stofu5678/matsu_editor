@@ -113,9 +113,18 @@ impl Workspace {
         };
         let size_side = side.size_side();
         let size = ideal_size(place.size_of(size_side), max_of(size_side.is_vertical()));
-        let measure = canvas(move |bounds, _, _| area.set(bounds), |_, _, _, _| {})
-            .absolute()
-            .size_full();
+        let measure = canvas(
+            move |bounds, window, _| {
+                // a size the last paint did not know (the window changed): draw again with it
+                if area.get() != bounds {
+                    area.set(bounds);
+                    window.refresh();
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .size_full();
         let container = div()
             .id("outline-area")
             .relative()

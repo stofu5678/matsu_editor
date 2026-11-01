@@ -390,6 +390,21 @@ pub(crate) fn write_sort(
     Ok(before != snapshot(profile))
 }
 
+/// Writes everything `dock` holds to `profile`: for a session that has no settings file, whose
+/// profile is the one read at the start.
+pub(crate) fn write_all(
+    profile: &mut Profile,
+    dock: &OutlineDock,
+) -> Result<bool, matsu_config::ProfileError> {
+    let mut changed = write_common(profile, dock)?;
+    changed |= write_place(profile, Target::Common, &dock.common)?;
+    for (&index, t) in &dock.types {
+        changed |= write_place(profile, Target::Type(index), &t.place)?;
+        changed |= write_sort(profile, index, t)?;
+    }
+    Ok(changed)
+}
+
 /// The settings now (the defaults before the application installs them).
 pub(crate) fn current(cx: &App) -> OutlineDock {
     cx.try_global::<OutlineDock>().cloned().unwrap_or_default()
