@@ -42,6 +42,11 @@ const F_SELECTLINE: u16 = 30403;
 /// is only set on macOS and Wayland); the activation and the press come one right after the other.
 const ACTIVATING_CLICK_WINDOW: std::time::Duration = std::time::Duration::from_millis(150);
 
+/// Whether the timing stands in for `first_mouse`. macOS and Wayland say which click activated the
+/// window, and a click after an activation by the keyboard must stay an ordinary click there; X11
+/// says nothing, and the option does nothing there (type B). Windows has no signal either.
+const TIMING_FALLBACK: bool = cfg!(any(windows, test));
+
 /// When each window became active last, and whether a press has used it.
 #[derive(Default)]
 struct Activations(std::collections::HashMap<gpui::WindowId, Option<std::time::Instant>>);
@@ -181,7 +186,7 @@ impl EditorView {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let used = take_activation(cx, window.window_handle().window_id());
+        let used = take_activation(cx, window.window_handle().window_id()) && TIMING_FALLBACK;
         (event.first_mouse || used) && crate::common_settings::no_caret_move_by_activation(cx)
     }
 
