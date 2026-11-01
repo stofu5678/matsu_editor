@@ -373,8 +373,49 @@ fn a_menu_saved_before_the_matsu_items_gets_them_once_in_their_places() {
 #[test]
 fn a_menu_saved_with_the_matsu_version_is_not_given_the_items_back() {
     // The user took the items out and saved: the current MATSU version is written then.
-    let text = OLD_MATSU_MENU.replace("nMainMenuVer=2", "nMainMenuVer=2\nnMatsuMainMenuVer=1");
+    let text = OLD_MATSU_MENU.replace("nMainMenuVer=2", "nMainMenuVer=2\nnMatsuMainMenuVer=2");
     assert_eq!(functions(&read(&text)), [34052, 30603, 30604, 31370, 31371]);
+}
+
+/// A menu with the database items (30171 after 30170), saved with MATSU version 1 or none.
+const MATSU_MENU_WITH_DATABASE: &str = "[MainMenu]\nnMainMenuVer=2\nnMatsuMainMenuVer=1\nnMainMenuNum=5\n\
+     MM[000]=0,0,34056,T,\n\
+     MM[001]=1,1,30170,P,\n\
+     MM[002]=1,1,30171,S,\n\
+     MM[003]=1,1,31430,H,\n\
+     MM[004]=1,1,31270,X,\n";
+
+#[test]
+fn a_menu_of_matsu_version_1_gets_the_chooser_after_the_database_run_once() {
+    let menu = read(MATSU_MENU_WITH_DATABASE);
+    assert_eq!(functions(&menu), [34056, 30170, 30171, 32703, 31430, 31270]);
+    assert_eq!(menu.rows[3], leaf(1, 32703, 'C'));
+    // saved with version 2 (what a save writes now), reading it again adds nothing
+    let mut file = profile("");
+    menu.write_to_profile(&mut file, None, None, Some(CURRENT_VERSION))
+        .unwrap();
+    assert_eq!(file.get("MainMenu", "nMatsuMainMenuVer"), Some("2"));
+    assert_eq!(MainMenu::from_profile(&file, &names, &default_menu()), menu);
+    // a menu with no MATSU version at all gets it too, with version 1's items that have a place
+    let text = MATSU_MENU_WITH_DATABASE.replace("nMatsuMainMenuVer=1\n", "");
+    assert!(functions(&read(&text)).contains(&32703));
+}
+
+#[test]
+fn a_menu_of_matsu_version_2_is_not_given_the_chooser() {
+    let text = MATSU_MENU_WITH_DATABASE.replace("nMatsuMainMenuVer=1", "nMatsuMainMenuVer=2");
+    assert_eq!(functions(&read(&text)), [34056, 30170, 30171, 31430, 31270]);
+}
+
+#[test]
+fn the_chooser_is_left_out_of_a_menu_without_the_database_run_and_not_doubled() {
+    // no 30171: nothing to follow, as for the other additions
+    let text = MATSU_MENU_WITH_DATABASE.replace("MM[002]=1,1,30171,S,", "MM[002]=1,1,30172,S,");
+    assert!(!functions(&read(&text)).contains(&32703));
+    // 32703 is in the menu in another place already: it is not added again
+    let text = MATSU_MENU_WITH_DATABASE.replace("MM[004]=1,1,31270,X,", "MM[004]=1,1,32703,,");
+    let functions = functions(&read(&text));
+    assert_eq!(functions.iter().filter(|&&f| f == 32703).count(), 1);
 }
 
 #[test]
@@ -409,7 +450,7 @@ fn the_matsu_version_is_written_with_a_saved_menu_and_not_in_an_exported_file() 
     let menu = read(OLD_MATSU_MENU);
     menu.write_to_profile(&mut file, None, None, Some(CURRENT_VERSION))
         .unwrap();
-    assert_eq!(file.get("MainMenu", "nMatsuMainMenuVer"), Some("1"));
+    assert_eq!(file.get("MainMenu", "nMatsuMainMenuVer"), Some("2"));
     let exported = menu.export_profile(&|_| None).unwrap();
     assert_eq!(exported.get("MainMenu", "nMatsuMainMenuVer"), None);
 }
