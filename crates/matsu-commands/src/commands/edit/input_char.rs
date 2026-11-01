@@ -1,3 +1,46 @@
+// Ported from Sakura Editor and modified for MATSU Editor (Rust rewrite, changed from the C++ original).
+//
+// Original files:
+//   sakura_core/cmd/CViewCommander_Edit.cpp (CViewCommander::Command_WCHAR)
+//   sakura_core/view/CEditView_Command_New.cpp (CEditView::RTrimPrevLine)
+//   sakura_core/charset/charcode.h (WCODE::IsIndentChar, WCODE::IsBlank)
+//
+// Original copyright notices of those files:
+//   Copyright (C) 1998-2001, Norio Nakatani
+//   Copyright (C) 2000, genta
+//   Copyright (C) 2001, genta, asa-o, hor
+//   Copyright (C) 2002, YAZAKI, hor, genta. aroka, MIK, minfu, KK, かろと
+//   Copyright (C) 2003, MIK, Moca, genta, zenryaku, ryoji, naoh, KEITA, じゅうじ
+//   Copyright (C) 2004, genta, Moca
+//   Copyright (C) 2005, genta, D.S.Koba, ryoji
+//   Copyright (C) 2006, genta, Moca, fon
+//   Copyright (C) 2007, ryoji, maru, kobake
+//   Copyright (C) 2008, ryoji, nasukoji
+//   Copyright (C) 2009, ryoji
+//   Copyright (C) 2010, ryoji
+//   Copyright (C) 2018-2026, Sakura Editor Organization
+//   SPDX-License-Identifier: Zlib
+//
+// zlib License
+//
+// Copyright (C) 2018-2022, Sakura Editor Organization
+//
+// This software is provided 'as-is', without any express or implied
+// warranty.  In no event will the authors be held liable for any damages
+// arising from the use of this software.
+//
+// Permission is granted to anyone to use this software for any purpose,
+// including commercial applications, and to alter it and redistribute it
+// freely, subject to the following restrictions:
+//
+// 1. The origin of this software must not be misrepresented; you must not
+//    claim that you wrote the original software. If you use this software
+//    in a product, an acknowledgment in the product documentation would be
+//    appreciated but is not required.
+// 2. Altered source versions must be plainly marked as such, and must not be
+//    misrepresented as being the original software.
+// 3. This notice may not be removed or altered from any source distribution.
+
 //! `F_WCHAR`: types one char, or a line break when the char is CR or LF (Enter).
 //!
 //! Sakura: `CViewCommander::Command_WCHAR` in `sakura_core/cmd/CViewCommander_Edit.cpp`, called
