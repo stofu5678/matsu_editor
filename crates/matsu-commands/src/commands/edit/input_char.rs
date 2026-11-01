@@ -565,6 +565,14 @@ mod tests {
     }
 
     #[test]
+    fn smart_indent_cpp_reacts_to_cr_only() {
+        // `SmartIndent_CPP` returns unless the char is `WCODE::CR` or one of `:{}()`: an LF
+        // (`F_CTRL_CODE` 10) gets the copied indentation and no extra level.
+        with(&cpp(), '\n', "if (x) {|", "if (x) {\n|");
+        with(&cpp(), '\n', "\tif (x) {|", "\tif (x) {\n\t|");
+    }
+
+    #[test]
     fn smart_indent_cpp_puts_a_closing_bracket_behind_a_line_break_with_its_opener() {
         with(&cpp(), '\r', "\tvoid f() {|}", "\tvoid f() {\n\t|}");
         with(&cpp(), '\r', "void f() {|}", "void f() {\n|}");
