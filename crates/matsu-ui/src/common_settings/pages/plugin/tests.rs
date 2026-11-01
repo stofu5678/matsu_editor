@@ -797,3 +797,70 @@ fn the_test_run_button_needs_a_plugin_that_can_run_and_has_a_command(cx: &mut Te
     assert!(!usable(cx), "the folder is gone");
     cancel(cx);
 }
+
+// ---- the options of a plugin (ADR-0026, PR 5) ----
+
+use super::list::{OPTION, can_open_options, open_options};
+use super::rows::OPTIONS;
+
+#[test]
+fn a_row_says_how_many_options_the_plugin_defines() {
+    let dir = temp();
+    put_sample(dir.path(), "HelloJs");
+    let dirs = dirs_in(dir.path());
+    let mut settings = PluginSettings::default();
+    settings.table[0] = registered("HelloJs", HELLO_JS_ID, 1);
+    let rows = rows_of(&settings, Some(&dirs));
+    assert_eq!(rows[0][OPTIONS], "1");
+    assert_eq!(rows[1][OPTIONS], "");
+}
+
+#[gpui::test]
+fn the_settings_button_needs_an_enabled_plugin_that_has_options(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, INI);
+    put_sample(&dir_of(&ini), "HelloJs");
+    put_sample(&dir_of(&ini), "HelloVbs");
+    run(cx, handle, "F_OPTION_PLUGIN");
+    let usable = |cx: &mut TestAppContext| {
+        with_dialog(cx, |d, _, _| {
+            let control = d
+                .page_controls()
+                .into_iter()
+                .find(|c| c.id == OPTION)
+                .unwrap();
+            d.is_usable(&control) && can_open_options(d.values())
+        })
+    };
+    assert!(!usable(cx), "nothing is selected");
+    with_dialog(cx, |d, _, dcx| select(d, 0, dcx));
+    assert!(!usable(cx), "the plugin is not enabled");
+    with_dialog(cx, |d, _, dcx| {
+        let dirs = super::search_dirs(dcx).unwrap();
+        enable_row(d, 0, &dirs, dcx).unwrap();
+    });
+    assert!(usable(cx));
+    with_dialog(cx, |d, _, dcx| select(d, 1, dcx));
+    assert!(!usable(cx), "VBScript cannot run");
+    cancel(cx);
+}
+
+#[gpui::test]
+fn the_settings_button_opens_the_dialog_of_the_options(cx: &mut TestAppContext) {
+    let (ini, handle) = setup(cx, INI);
+    put_sample(&dir_of(&ini), "HelloJs");
+    run(cx, handle, "F_OPTION_PLUGIN");
+    with_dialog(cx, |d, window, dcx| {
+        select(d, 0, dcx);
+        let dirs = super::search_dirs(dcx).unwrap();
+        enable_row(d, 0, &dirs, dcx).unwrap();
+        open_options(d, window, dcx);
+    });
+    let (options, _) = cx
+        .update(|app| crate::plugin_options::dialog::current(app))
+        .expect("the dialog of the options is open");
+    options.read_with(cx, |d, _| {
+        assert_eq!(d.form().entries.len(), 1);
+        assert_eq!(d.form().entries[0].shown(), "Hello");
+    });
+    cancel(cx);
+}
