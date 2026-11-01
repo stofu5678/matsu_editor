@@ -74,7 +74,7 @@ pub struct CustomMenuItem {
     /// The access key (`m_nCustMenuItemKeyArr`); `None` for `'\0'`.
     pub key: Option<char>,
     /// The text of `nCMIF` that reading could not turn into a command (a plug-in command, a macro name that is
-    /// not known), where `function` is 0 ([`unreadable_text`]). Sakura loses it on its next save; here it stays
+    /// not known), where `function` is 0 (`unreadable_text`). Sakura loses it on its next save; here it stays
     /// with the item, so that writing gives the same text wherever the item has moved. It counts only while
     /// `function` is 0: an item made into another command is written as that command.
     pub text: Option<String>,
