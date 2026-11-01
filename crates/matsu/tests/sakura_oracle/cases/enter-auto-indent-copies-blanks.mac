@@ -1,0 +1,13 @@
+// input: ascii.spaces.lf
+// code: 0
+Down();
+GoLineEnd();
+Char(13);
+InsText('X');
+Down();
+Down();
+GoLineEnd();
+Char(13);
+InsText('Y');
+FileSaveAs('@OUT@', 0, 0);
+ExitAll();

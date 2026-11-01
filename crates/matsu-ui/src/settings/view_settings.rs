@@ -279,6 +279,9 @@ pub struct ViewSettings {
     pub tab_width: u32,
     /// `bInsSpace`: the Tab key inserts spaces (`ChangeInsertSpace` changes it for this view).
     pub ins_space: bool,
+    /// The indent options of the type that Enter and the typed chars read (`bAutoIndent`,
+    /// `bAutoIndent_ZENSPACE`, `nSmartIndent`, `szIndentChars`, `bRTrimPrevLine`).
+    pub input: matsu_commands::input_options::InputOptions,
     pub word_wrap: bool,
     /// The rules of the line breaking (行頭禁則, 行末禁則, 句読点ぶら下げ, 改行ぶら下げ and
     /// their characters).
@@ -561,6 +564,15 @@ impl ViewSettings {
             use_type_font: t.use_type_font,
             tab_width: u32::try_from(t.tab_space).unwrap_or(4).max(1),
             ins_space: t.ins_space,
+            input: matsu_commands::input_options::InputOptions {
+                auto_indent: t.auto_indent,
+                auto_indent_zenspace: t.auto_indent_zenspace,
+                smart_indent: matsu_commands::input_options::SmartIndent::from_setting(
+                    t.smart_indent,
+                ),
+                indent_chars: t.indent_chars.clone(),
+                rtrim_prev_line: t.rtrim_prev_line,
+            },
             word_wrap: t.word_wrap,
             kinsoku: Kinsoku {
                 head: t.kinsoku_head_enabled,
