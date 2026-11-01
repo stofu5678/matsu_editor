@@ -22,9 +22,6 @@ use super::{int_arg, text_arg};
 use crate::ui_command::{UiCommand, register_ui_command};
 use crate::view::EditorView;
 
-/// The caption of the message box (Sakura shows its own name).
-const CAPTION: &str = "MATSU Editor";
-
 #[derive(Default)]
 pub struct StatusMsg;
 
@@ -49,7 +46,7 @@ impl UiCommand for StatusMsg {
                 let answer = crate::boxes::prompt(
                     window,
                     PromptLevel::Info,
-                    CAPTION,
+                    crate::boxes::CAPTION,
                     Some(text),
                     &["OK"],
                     cx,

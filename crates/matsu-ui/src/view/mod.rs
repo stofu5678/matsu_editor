@@ -551,6 +551,24 @@ impl EditorView {
         ok
     }
 
+    /// Shows the message box that a command asked for (`Changes::message_box`): the caption, the
+    /// text and an OK button. The box does not make a macro wait, as for `StatusMsg`.
+    fn show_message_box(&mut self, text: String, cx: &mut Context<Self>) {
+        let handle = cx.window_handle();
+        cx.spawn(async move |_, cx| {
+            let _ = handle.update(cx, |_, window, cx| {
+                crate::boxes::tell(
+                    window,
+                    gpui::PromptLevel::Info,
+                    crate::boxes::CAPTION,
+                    Some(&text),
+                    cx,
+                );
+            });
+        })
+        .detach();
+    }
+
     /// Types one character the way the keyboard does (Enter is `'\r'`).
     pub(crate) fn type_char(&mut self, c: char, cx: &mut Context<Self>) {
         self.run_command("input_char", &[Arg::Char(c)], cx);
@@ -569,6 +587,13 @@ impl EditorView {
             self.notice = None;
         }
         self.refused_edit = changes.refused_in_view_mode;
+        // After the clearing above: what the command says is for this very state of the text.
+        if let Some(text) = &changes.status_message {
+            self.notice = Some(text.clone());
+        }
+        if let Some(text) = changes.message_box.clone() {
+            self.show_message_box(text, cx);
+        }
         self.completion_after_command(changes, cx);
         // While a macro runs, a command that moved nothing leaves the view where it is:
         // `SetViewTop` scrolls away from the caret, and the calls after it must not scroll back

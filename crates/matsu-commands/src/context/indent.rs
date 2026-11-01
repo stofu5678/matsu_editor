@@ -161,14 +161,18 @@ impl CommandContext<'_> {
     /// `F_UNINDENT_TAB` (`unit` is a tab) and `F_UNINDENT_SPACE` (a space).
     ///
     /// * No selection: types `unit`, like indent, also as a soft tab (Sakura calls
-    ///   `Command_INDENT`; it also shows a message, which is not done here).
+    ///   `Command_INDENT`), and the status bar says "★逆インデントは選択時のみ"
+    ///   (`STR_ERR_UNINDENT1`).
     /// * A selection: takes one `unit` off the start of each row that starts a line. For the tab,
     ///   a row that starts with spaces loses up to the tab width of them. Then selects the rows
     ///   as indent does.
     pub(crate) fn unindent_selection(&mut self, unit: char) -> Result<()> {
         self.refuse_box_selection()?;
         let Some((from, to)) = self.selection() else {
-            return self.type_indent_unit(unit);
+            let typed = self.type_indent_unit(unit);
+            // `STR_ERR_UNINDENT1`, sent to the status bar whatever `Command_INDENT` did.
+            self.changes.status_message = Some("★逆インデントは選択時のみ".to_owned());
+            return typed;
         };
         let tab_width = self.layout().tab_width().max(1);
         let (rows, limit) = self.rows_of_selection(from, to)?;

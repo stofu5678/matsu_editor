@@ -606,7 +606,81 @@ fn merge_returns_at_once_with_a_box_selected() {
     e.run("merge");
     assert_eq!(text_of(&e), "a\na\nb");
     assert!(!e.changes().beep);
+    assert_eq!(e.changes().message_box, None);
     e.assert_box((0, 0), (1, 1));
+}
+
+/// One row per command of the table in the pull request: what Sakura does with a box that covers
+/// something. "Beep" means `ErrorBeep()` and nothing else.
+#[test]
+fn the_six_commands_do_what_sakura_does_with_a_box() {
+    // the beeping ones change nothing, not even the box
+    for id in [
+        "word_delete_to_start",
+        "word_delete_to_end",
+        "unindent_space",
+    ] {
+        let mut e = boxed("a b\ncd", (0, 1), (1, 2));
+        e.run(id);
+        assert!(e.changes().beep, "{id}");
+        assert!(!e.changes().text_changed(), "{id}");
+        assert!(e.changes().status_message.is_none(), "{id}");
+        e.assert_box((0, 1), (1, 2));
+    }
+    // the trims convert the box and drop it
+    let mut e = boxed("a  b\n c d", (0, 1), (1, 3));
+    e.run("ltrim");
+    assert_eq!(text_of(&e), "ab\n c d");
+    assert!(!e.cursor().is_box());
+    assert_eq!(e.cursor().caret(), Pos::new(0, 1));
+    assert!(!e.changes().beep);
+    // the space indent goes before the box; the box moves right with the text
+    let mut e = boxed("abc\ndef", (0, 1), (1, 2));
+    e.run("indent_space");
+    assert_eq!(text_of(&e), "a bc\nd ef");
+    assert!(!e.changes().beep);
+    e.assert_box((1, 3), (0, 2));
+}
+
+#[test]
+fn unindent_without_a_selection_types_the_unit_and_says_so_in_the_status_bar() {
+    for (id, typed) in [("unindent_space", " "), ("unindent_tab", "\t")] {
+        let mut e = Editor::new("a|b");
+        e.run(id);
+        assert_eq!(text_of(&e), format!("a{typed}b"), "{id}");
+        assert_eq!(
+            e.changes().status_message.as_deref(),
+            Some("★逆インデントは選択時のみ"),
+            "{id}"
+        );
+    }
+    // with a selection there is no message
+    let mut e = Editor::new("[ a\n b|");
+    e.run("unindent_space");
+    assert_eq!(e.changes().status_message, None);
+}
+
+#[test]
+fn merge_tells_how_many_lines_it_removed() {
+    let mut e = Editor::new("[a\na\na\nb\n|");
+    e.run("merge");
+    assert_eq!(
+        e.changes().message_box.as_deref(),
+        Some("2行をマージしました。")
+    );
+    let mut e = Editor::new("[a\nb\n|");
+    e.run("merge");
+    assert_eq!(
+        e.changes().message_box.as_deref(),
+        Some("マージ可能な行がみつかりませんでした。")
+    );
+    // nothing selected, or a selection inside a last line without a line ending: Sakura returns
+    // before the message
+    for text in ["a|\na", "a\n[a|"] {
+        let mut e = Editor::new(text);
+        e.run("merge");
+        assert_eq!(e.changes().message_box, None, "{text:?}");
+    }
 }
 
 // ---- paste as a box ----

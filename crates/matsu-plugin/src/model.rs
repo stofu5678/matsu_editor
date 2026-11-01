@@ -9,6 +9,10 @@ pub struct TextModel {
     lines: Vec<String>,
     cursor: (usize, usize),
     anchor: Option<(usize, usize)>,
+    /// The anchor is the corner of a box selection, not of a stream. A box of the plain model
+    /// counts columns in characters (a tab and a full-width character are one column), and typing
+    /// over it drops it without deleting its text.
+    boxed: bool,
     /// The column (in characters) that vertical moves keep, as the editor keeps its x position.
     goal_column: Option<usize>,
     path: Option<String>,
@@ -20,6 +24,7 @@ impl TextModel {
             lines: split_lines(text),
             cursor: (0, 0),
             anchor: None,
+            boxed: false,
             goal_column: None,
             path,
         }
@@ -34,7 +39,20 @@ impl TextModel {
         self.cursor
     }
 
+    /// The columns (in characters) of the two corners of the box, and the rows.
+    fn box_corners(&self) -> Option<((usize, usize), (usize, usize))> {
+        let anchor = self.anchor.filter(|_| self.boxed)?;
+        let column = |(row, byte): (usize, usize)| self.lines[row][..byte].chars().count();
+        let (left, right) = (column(anchor), column(self.cursor));
+        let (top, bottom) = (anchor.0.min(self.cursor.0), anchor.0.max(self.cursor.0));
+        // a box of no width selects nothing
+        (left != right).then_some(((top, left.min(right)), (bottom, left.max(right))))
+    }
+
     fn selection(&self) -> Option<((usize, usize), (usize, usize))> {
+        if self.boxed {
+            return None;
+        }
         let anchor = self.anchor?;
         match anchor.cmp(&self.cursor) {
             std::cmp::Ordering::Less => Some((anchor, self.cursor)),
@@ -58,6 +76,7 @@ impl TextModel {
     }
 
     fn delete_selection(&mut self) {
+        self.boxed = false;
         let selection = self.selection();
         self.anchor = None;
         if let Some((from, to)) = selection {
@@ -96,10 +115,30 @@ impl MacroDocument for TextModel {
     }
 
     fn has_selection(&self) -> bool {
-        self.selection().is_some()
+        self.selection().is_some() || self.box_corners().is_some()
+    }
+
+    fn selection_kind(&self) -> i64 {
+        if self.box_corners().is_some() {
+            2
+        } else {
+            i64::from(self.selection().is_some())
+        }
     }
 
     fn selected_text(&self) -> String {
+        if let Some(((top, left), (bottom, right))) = self.box_corners() {
+            return self.lines[top..=bottom]
+                .iter()
+                .map(|line| {
+                    line.chars()
+                        .skip(left)
+                        .take(right - left)
+                        .collect::<String>()
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+        }
         self.selection()
             .map(|(from, to)| self.text_in(from, to))
             .unwrap_or_default()
@@ -109,14 +148,26 @@ impl MacroDocument for TextModel {
         self.goal_column = None;
         if !extend {
             self.anchor = None;
+            self.boxed = false;
         } else if self.anchor.is_none() {
             self.anchor = Some(self.cursor);
         }
         self.cursor = pos;
     }
 
+    fn move_cursor_box(&mut self, pos: (usize, usize)) {
+        self.goal_column = None;
+        // A stream selection becomes a box that starts at the caret, as in the editor.
+        if !self.boxed {
+            self.anchor = Some(self.cursor);
+            self.boxed = true;
+        }
+        self.cursor = pos;
+    }
+
     fn move_vertical(&mut self, delta: isize) {
         self.anchor = None;
+        self.boxed = false;
         let row = (self.cursor.0 as isize + delta).clamp(0, self.lines.len() as isize - 1) as usize;
         let column = *self
             .goal_column
@@ -131,6 +182,7 @@ impl MacroDocument for TextModel {
 
     fn select_all(&mut self) {
         self.goal_column = None;
+        self.boxed = false;
         self.anchor = Some((0, 0));
         let last = self.lines.len() - 1;
         self.cursor = (last, self.lines[last].len());

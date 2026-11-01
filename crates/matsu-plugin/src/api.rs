@@ -95,6 +95,10 @@ pub trait MacroDocument {
     /// Moves the cursor. Without `extend` the selection goes away; with it the selection starts
     /// at the old cursor position (or stays, if there is one) and ends at the new one.
     fn move_cursor(&mut self, pos: (usize, usize), extend: bool);
+    /// `MoveCursor` with option 2: starts a box selection at the cursor if there is none, and
+    /// moves the cursor to `pos`, so that the box has the old and the new position as corners.
+    /// The columns of the box are display columns.
+    fn move_cursor_box(&mut self, pos: (usize, usize));
     /// Moves the cursor up (negative) or down by lines, and drops the selection.
     fn move_vertical(&mut self, delta: isize);
     fn select_all(&mut self);
@@ -226,9 +230,9 @@ pub const FUNCS: &[Func] = &[
         ],
         result: Ty::Null,
         doc: "Moves the cursor to a line and a column, both counted from 1. The column counts \
-              UTF-16 code units. Option: 0 does not select, 1 selects from the old position. \
-              (2, the box selection, is not supported.) Past the end of the text it goes to \
-              the end of the text.",
+              UTF-16 code units. Option: 0 does not select, 1 selects from the old position, \
+              2 selects a box with the old and the new position as corners (2 wins over 1). \
+              Past the end of the text it goes to the end of the text.",
         run: move_cursor,
     },
     Func {
@@ -357,11 +361,6 @@ fn is_text_selected(doc: &mut dyn MacroDocument, _: &Args) -> Result<Value, RpcE
 /// is a logical position, a count of UTF-16 code units on Windows.
 fn move_cursor(doc: &mut dyn MacroDocument, args: &Args) -> Result<Value, RpcError> {
     let (line, column, option) = (args.int(0), args.int(1), args.int(2));
-    if option & 0x02 != 0 {
-        return Err(RpcError::invalid_params(
-            "MoveCursor: the box selection (option 2) is not supported yet",
-        ));
-    }
     if line < 1 || column < 1 {
         return Ok(Value::Null);
     }
@@ -373,7 +372,12 @@ fn move_cursor(doc: &mut dyn MacroDocument, args: &Args) -> Result<Value, RpcErr
         let units = usize::try_from(column - 1).unwrap_or(usize::MAX);
         (row, byte_offset_for_utf16(&doc.line_text(row), units))
     };
-    doc.move_cursor(pos, option & 0x01 != 0);
+    if option & 0x02 != 0 {
+        // CMacro.cpp (F_MOVECURSOR) hands the box bit to Command_MOVECURSOR, which selects a box.
+        doc.move_cursor_box(pos);
+    } else {
+        doc.move_cursor(pos, option & 0x01 != 0);
+    }
     Ok(Value::Null)
 }
 
@@ -663,8 +667,33 @@ mod tests {
             Ok(json!("a😀b\nxyz"))
         );
         assert_eq!(run(&mut doc, "IsTextSelected", json!([])), Ok(json!(1)));
-        // The box selection is not supported.
-        assert!(run(&mut doc, "MoveCursor", json!([1, 1, 2])).is_err());
+    }
+
+    #[test]
+    fn move_cursor_option_2_selects_a_box() {
+        let mut doc = model("abcd\nef\nghij");
+        run(&mut doc, "MoveCursor", json!([1, 2, 0])).unwrap();
+        // from (line 1, column 2) to (line 3, column 4): the box is columns 1..3 of three rows
+        run(&mut doc, "MoveCursor", json!([3, 4, 2])).unwrap();
+        assert_eq!(run(&mut doc, "IsTextSelected", json!([])), Ok(json!(2)));
+        assert_eq!(doc.cursor(), (2, 3));
+        assert_eq!(
+            run(&mut doc, "GetSelectedString", json!([0])),
+            Ok(json!("bc\nf\nhi"))
+        );
+        // another box move keeps the first corner
+        run(&mut doc, "MoveCursor", json!([2, 3, 2])).unwrap();
+        assert_eq!(
+            run(&mut doc, "GetSelectedString", json!([0])),
+            Ok(json!("b\nf"))
+        );
+        // a move without the box bit drops the box
+        run(&mut doc, "MoveCursor", json!([1, 1, 0])).unwrap();
+        assert_eq!(run(&mut doc, "IsTextSelected", json!([])), Ok(json!(0)));
+        // a box of no width selects nothing; 2 wins over 1
+        run(&mut doc, "MoveCursor", json!([1, 2, 0])).unwrap();
+        run(&mut doc, "MoveCursor", json!([3, 2, 3])).unwrap();
+        assert_eq!(run(&mut doc, "IsTextSelected", json!([])), Ok(json!(0)));
     }
 
     #[test]
