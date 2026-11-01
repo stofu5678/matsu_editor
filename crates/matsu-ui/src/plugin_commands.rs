@@ -143,7 +143,11 @@ pub(crate) fn rebuild_key_maps(cx: &mut App) {
 /// toolbar are made again from the saved settings, so that a binding or a button saved for a command that
 /// was not there yet works from now on.
 pub(crate) fn commands_changed(cx: &mut App) {
-    rebuild_key_maps(cx);
+    // The application's key map exists once it runs. Making it here, where there is none (a test),
+    // would also start the refresh of the menus, which needs the window system.
+    if cx.has_global::<crate::app::MenuKeyMap>() {
+        rebuild_key_maps(cx);
+    }
     if let Some(user) = cx.try_global::<UserSettings>().cloned() {
         crate::bars::toolbar::install(cx, &user);
     }
