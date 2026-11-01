@@ -154,7 +154,7 @@ impl EditorView {
             let build = fill_again.clone();
             let popup =
                 PopupMenu::build(window, cx, move |menu, window, cx| build(menu, window, cx));
-            popup_keys::register(&popup, keys, fill_again, window, cx);
+            popup_keys::register(&popup, keys, fill_again, cx);
             // An item sends its number before the menu is dismissed, and the first answer wins.
             let closed = sender;
             let dismiss = cx.subscribe_in(

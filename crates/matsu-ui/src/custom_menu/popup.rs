@@ -231,7 +231,7 @@ impl EditorView {
         let build = fill_again.clone();
         let popup = PopupMenu::build(window, cx, move |menu, window, cx| build(menu, window, cx));
         // The letters of the access keys run the items (`WM_MENUCHAR`).
-        popup_keys::register(&popup, keys, fill_again, window, cx);
+        popup_keys::register(&popup, keys, fill_again, cx);
         let dismiss = cx.subscribe_in(&popup, window, |this, _, _: &DismissEvent, window, cx| {
             this.close_custom_menu(window, cx)
         });

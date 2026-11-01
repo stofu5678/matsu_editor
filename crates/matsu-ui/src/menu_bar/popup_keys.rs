@@ -22,8 +22,7 @@
 use std::rc::Rc;
 
 use gpui::{
-    App, Context, Entity, Focusable as _, Global, Keystroke, OwnedMenuItem, Pixels, Point,
-    WeakEntity, Window,
+    App, Context, Entity, Focusable as _, Global, Keystroke, OwnedMenuItem, WeakEntity, Window,
 };
 use gpui_base::actions::{Confirm, SelectDown, SelectLeft, SelectRight};
 use gpui_component::menu::PopupMenu;
@@ -161,39 +160,66 @@ struct Entry {
     rebuild: Rebuild,
     /// The selection of the popup, as far as it is known.
     pos: Option<usize>,
-    /// Where the mouse was when `pos` was last right.
-    mouse: Point<Pixels>,
+    /// The count of mouse moves (`Registry::moves`) when `pos` was last right.
+    moves: u64,
 }
 
 /// The popups that are open (or were; the dead ones are dropped when another one registers).
 #[derive(Default)]
-struct Registry(Vec<Entry>);
+struct Registry {
+    entries: Vec<Entry>,
+    /// How many mouse moves the window has seen. A move can change the selection (the popup selects
+    /// what the pointer is on) and the pointer can come back to where it was, so the position of the
+    /// pointer cannot tell.
+    moves: u64,
+}
 
 impl Global for Registry {}
 
 /// Makes the letters work in `popup`, which was filled by `rebuild` with the rows `keys`.
-pub(crate) fn register(
-    popup: &Entity<PopupMenu>,
-    keys: KeyList,
-    rebuild: Rebuild,
-    window: &Window,
-    cx: &mut App,
-) {
-    let mouse = window.mouse_position();
+pub(crate) fn register(popup: &Entity<PopupMenu>, keys: KeyList, rebuild: Rebuild, cx: &mut App) {
     let registry = cx.default_global::<Registry>();
-    registry.0.retain(|e| e.popup.upgrade().is_some());
-    registry.0.push(Entry {
+    registry.entries.retain(|e| e.popup.upgrade().is_some());
+    let moves = registry.moves;
+    registry.entries.push(Entry {
         popup: popup.downgrade(),
         keys,
         rebuild,
         pos: None,
-        mouse,
+        moves,
     });
+}
+
+/// An element that counts the mouse moves of the window, to be a child of the window's root (it
+/// is drawn every frame and listens before the popups, which occlude what is under them).
+pub(crate) fn watch_mouse() -> impl gpui::IntoElement {
+    use gpui::Styled as _;
+    gpui::canvas(
+        |_, _, _| (),
+        |_, (), window, _| {
+            window.on_mouse_event(|_: &gpui::MouseMoveEvent, phase, _, cx| {
+                if phase == gpui::DispatchPhase::Capture {
+                    cx.default_global::<Registry>().moves += 1;
+                }
+            });
+        },
+    )
+    .absolute()
+    .size_0()
+}
+
+/// How many mouse moves the window has seen.
+#[cfg(test)]
+pub(crate) fn moves(cx: &App) -> u64 {
+    cx.try_global::<Registry>().map_or(0, |r| r.moves)
 }
 
 /// A keystroke arrived before the key bindings see it. Returns whether the popup took it.
 pub(crate) fn key(keystroke: &Keystroke, window: &mut Window, cx: &mut App) -> bool {
-    if cx.try_global::<Registry>().is_none_or(|r| r.0.is_empty()) || keystroke.is_ime_in_progress()
+    if cx
+        .try_global::<Registry>()
+        .is_none_or(|r| r.entries.is_empty())
+        || keystroke.is_ime_in_progress()
     {
         return false;
     }
@@ -202,7 +228,7 @@ pub(crate) fn key(keystroke: &Keystroke, window: &mut Window, cx: &mut App) -> b
         return false;
     }
     // The popup that has the focus itself (not one of its submenus: those keep their letters).
-    let focused = cx.global::<Registry>().0.iter().position(|e| {
+    let focused = cx.global::<Registry>().entries.iter().position(|e| {
         e.popup
             .upgrade()
             .is_some_and(|p| p.read(cx).focus_handle(cx).is_focused(window))
@@ -210,7 +236,9 @@ pub(crate) fn key(keystroke: &Keystroke, window: &mut Window, cx: &mut App) -> b
     let Some(at) = focused else {
         return false;
     };
-    let entry = &mut cx.global_mut::<Registry>().0[at];
+    let registry = cx.global_mut::<Registry>();
+    let now = registry.moves;
+    let entry = &mut registry.entries[at];
     // Only the plain arrows are bound to the popup's Up and Down.
     match keystroke.key.as_str() {
         "down" | "up" if m.shift => return false,
@@ -236,13 +264,13 @@ pub(crate) fn key(keystroke: &Keystroke, window: &mut Window, cx: &mut App) -> b
         entry.keys.clone(),
         entry.rebuild.clone(),
         entry.pos,
-        entry.mouse,
+        entry.moves,
     ) else {
         return false;
     };
     // The mouse may have selected something: start again from nothing selected.
     let mut plan = plan;
-    if window.mouse_position() != seen {
+    if now != seen {
         popup.update(cx, |menu, cx| {
             menu.rebuild(window, cx, |menu, window, cx| rebuild(menu, window, cx));
         });
@@ -267,16 +295,12 @@ pub(crate) fn key(keystroke: &Keystroke, window: &mut Window, cx: &mut App) -> b
             }
         }
     }
-    let mouse = window.mouse_position();
     let id = popup.downgrade();
-    if let Some(e) = cx
-        .global_mut::<Registry>()
-        .0
-        .iter_mut()
-        .find(|e| e.popup == id)
-    {
+    let registry = cx.global_mut::<Registry>();
+    let moves = registry.moves;
+    if let Some(e) = registry.entries.iter_mut().find(|e| e.popup == id) {
         e.pos = pos;
-        e.mouse = mouse;
+        e.moves = moves;
     }
     true
 }

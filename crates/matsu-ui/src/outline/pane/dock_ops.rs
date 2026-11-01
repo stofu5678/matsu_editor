@@ -272,7 +272,7 @@ impl OutlinePane {
         let popup = PopupMenu::build(window, cx, move |popup, window, cx| {
             build(popup, window, cx)
         });
-        popup_keys::register(&popup, keys, fill_again, window, cx);
+        popup_keys::register(&popup, keys, fill_again, cx);
         let dismiss = cx.subscribe_in(&popup, window, |this, _, _: &DismissEvent, window, cx| {
             this.close_menu(window, cx)
         });

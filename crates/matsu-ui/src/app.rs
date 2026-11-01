@@ -769,6 +769,8 @@ impl Render for Workspace {
             // The whole frame takes dropped files (`DragAcceptFiles( GetHwnd(), TRUE )`).
             .on_drag_move(cx.listener(Self::note_file_drag))
             .child(crate::file_ops::drop_zone::drop_zone(cx))
+            // Counts the mouse moves for the letters of the popup menus.
+            .child(crate::menu_bar::popup_keys::watch_mouse())
             .when(client_decorated, |this| {
                 this.child(TitleBar::new().child(div().text_sm().child("MATSU Editor")))
             })

@@ -131,6 +131,28 @@ fn the_letters_go_on_from_where_the_arrow_keys_left_the_selection(cx: &mut TestA
 }
 
 #[gpui::test]
+fn a_move_of_the_mouse_is_seen_even_when_the_pointer_comes_back(cx: &mut TestAppContext) {
+    let handle = opened(cx);
+    open_menu(cx, handle);
+    keys(cx, handle, "down");
+    let before = cx.update(|app| crate::menu_bar::popup_keys::moves(app));
+    let vcx = visual(cx, handle);
+    let home = vcx.update(|window, _| window.mouse_position());
+    // To an item of the popup and back to the very same point: the position says nothing, the
+    // count of moves does.
+    let away = point(home.x + px(40.), home.y + px(20.));
+    vcx.simulate_mouse_move(away, None, Modifiers::default());
+    vcx.simulate_mouse_move(home, None, Modifiers::default());
+    vcx.run_until_parked();
+    let after = cx.update(|app| crate::menu_bar::popup_keys::moves(app));
+    assert!(after >= before + 2, "{before} -> {after}");
+    // The letters start again from nothing selected: B is 行頭, whatever the pointer selected.
+    keys(cx, handle, "b");
+    assert!(!is_open(cx, handle));
+    assert_eq!(caret(cx, handle), Pos::new(0, 0));
+}
+
+#[gpui::test]
 fn a_shifted_arrow_does_not_move_the_selection_the_letters_go_by(cx: &mut TestAppContext) {
     let handle = opened(cx);
     open_menu(cx, handle);
