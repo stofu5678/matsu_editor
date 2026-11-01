@@ -68,7 +68,7 @@ pub(crate) use output::{JumpContext, Kind, Output, Place};
 pub(crate) use registered::table as registered_table;
 pub(crate) use registered::{
     Auto, MacroList, run_auto_in, run_before_save, run_opened, run_opened_in_new, title_of,
-    wait_for_the_events,
+    wait_for_the_macro,
 };
 pub(crate) use wait::{FlowGuard, follow, keep_box, track};
 

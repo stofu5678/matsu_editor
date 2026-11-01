@@ -280,6 +280,7 @@ pub(crate) async fn load_here(
                 true
             });
             let replaced = replaced.unwrap_or(false);
+            let mut open_event = false;
             // The plugins of EditorStart see the file that the window began with (`CNormalProcess`: the
             // load comes first, then EditorStart, the macro of オープン後, the macro of `-M=`, then
             // DocumentOpen).
@@ -309,13 +310,18 @@ pub(crate) async fn load_here(
                 }
                 // The file is open: the macro of オープン後 (`FileLoad`).
                 crate::macros::run_opened(view, cx).await;
-                // ... and then the plugins of DocumentOpen (`FileLoad`).
-                fire_and_wait(view, cx, Jack::DocumentOpen).await;
+                open_event = true;
             } else if unlocked {
                 super::lock::relock_quietly(view, cx);
             }
             // the options of a launch (`-X=` `-Y=` `-TYPE=` `-M=`...)
             super::start_options::after_load(view, cx, path, replaced);
+            if open_event {
+                // ... and then the plugins of DocumentOpen, after the macro of `-M=` that
+                // `CNormalProcess` runs before them (`FileLoad`).
+                crate::macros::wait_for_the_macro(view, cx).await;
+                fire_and_wait(view, cx, Jack::DocumentOpen).await;
+            }
             replaced
         }
         Err(error) => {

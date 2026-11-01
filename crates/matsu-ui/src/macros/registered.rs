@@ -304,7 +304,10 @@ pub(crate) async fn wait_for_the_events(
     }
 }
 
-async fn wait_for_the_macro(view: &gpui::WeakEntity<EditorView>, cx: &mut AsyncWindowContext) {
+pub(crate) async fn wait_for_the_macro(
+    view: &gpui::WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+) {
     while view
         .read_with(cx, |view, _| view.macros.is_suspended())
         .unwrap_or(false)
