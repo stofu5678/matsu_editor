@@ -24,9 +24,11 @@ use matsu_coloring::ColorRules;
 use matsu_config::Profile;
 use matsu_config::location::Os;
 use matsu_config::settings::color::{ColorEntry, ColorRef, names};
-use matsu_config::settings::types::wrap_method;
+use matsu_config::settings::types::{tab_arrow, wrap_method};
 use matsu_config::settings::{DocumentTypes, ViewFont};
-use matsu_layout::{LayoutConfig, MAX_LINE_COLUMNS, MIN_LINE_COLUMNS, Wrap};
+use matsu_layout::{
+    CharSet, Kinsoku, LayoutConfig, MAX_LINE_COLUMNS, MIN_LINE_COLUMNS, Wrap, WrapIndent,
+};
 
 /// A color as `0xRRGGBB`, which is what GPUI's `rgb()` takes.
 pub type Rgb = u32;
@@ -35,6 +37,51 @@ pub type Rgb = u32;
 pub fn rgb_of(color: ColorRef) -> Rgb {
     let (r, g, b) = (color & 0xff, (color >> 8) & 0xff, (color >> 16) & 0xff);
     (r << 16) | (g << 8) | b
+}
+
+/// How a tab is drawn (`m_bTabArrow` and `m_szTabViewString`, `CFigure_Tab::DrawImp` in
+/// `sakura_core/view/figures/CFigure_Tab.cpp`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TabMark {
+    /// 文字指定: the characters of the string, from the left edge of the tab (`TABARROW_STRING`).
+    Chars(String),
+    /// 短い矢印: an arrow one cell wide at the left edge (`TABARROW_SHORT`).
+    ShortArrow,
+    /// 長い矢印: an arrow as wide as the tab (`TABARROW_LONG`).
+    LongArrow,
+}
+
+impl TabMark {
+    /// The mark of the settings `bTabArrow` and `szTabViewString`.
+    pub fn from_setting(arrow: i32, view_string: &str) -> Self {
+        match arrow {
+            tab_arrow::SHORT_ARROW => Self::ShortArrow,
+            tab_arrow::LONG_ARROW => Self::LongArrow,
+            _ => Self::Chars(view_string.to_owned()),
+        }
+    }
+
+    /// What is drawn for a tab `cols` columns wide. The string is cut at the width of the tab and
+    /// filled up with spaces (`szForeViewString.append(...)`). An arrow is a line with a head
+    /// (`_DrawTabArrow`); it is drawn here with characters.
+    pub fn text(&self, cols: u32) -> String {
+        let cols = cols as usize;
+        match self {
+            Self::Chars(string) => {
+                let mut text: String = string.chars().take(cols).collect();
+                let have = text.chars().count();
+                text.extend(std::iter::repeat_n(' ', cols.saturating_sub(have)));
+                text
+            }
+            Self::ShortArrow => "\u{2192}".to_owned(),
+            Self::LongArrow => {
+                let mut text: String =
+                    std::iter::repeat_n('\u{2500}', cols.saturating_sub(1)).collect();
+                text.push('\u{2192}');
+                text
+            }
+        }
+    }
 }
 
 /// How the text is wrapped (`m_nTextWrapMethod`, `WRAP_NO_TEXT_WRAP` and so on).
@@ -236,6 +283,13 @@ pub struct ViewSettings {
     /// `bAutoIndent_ZENSPACE`, `nSmartIndent`, `szIndentChars`, `bRTrimPrevLine`).
     pub input: matsu_commands::input_options::InputOptions,
     pub word_wrap: bool,
+    /// The rules of the line breaking (行頭禁則, 行末禁則, 句読点ぶら下げ, 改行ぶら下げ and
+    /// their characters).
+    pub kinsoku: Kinsoku,
+    /// Where wrapped rows start (折り返し行インデント, `nIndentLayout`).
+    pub wrap_indent: WrapIndent,
+    /// How a tab is drawn.
+    pub tab_mark: TabMark,
     pub wrap_method: WrapMethod,
     /// The wrap column of [`WrapMethod::SettingWidth`] (`nMaxLineKetas`).
     pub wrap_columns: u32,
@@ -520,6 +574,24 @@ impl ViewSettings {
                 rtrim_prev_line: t.rtrim_prev_line,
             },
             word_wrap: t.word_wrap,
+            kinsoku: Kinsoku {
+                head: t.kinsoku_head_enabled,
+                tail: t.kinsoku_tail_enabled,
+                kuto: t.kinsoku_kuto_enabled,
+                hang_eol: t.kinsoku_ret,
+                head_chars: CharSet::new(&t.kinsoku_head),
+                tail_chars: CharSet::new(&t.kinsoku_tail),
+                kuto_chars: CharSet::new(&t.kinsoku_kuto),
+            },
+            wrap_indent: match t.indent_layout {
+                1 => WrapIndent::AfterLastTab,
+                2 => WrapIndent::LeadingWhiteSpace {
+                    full_width_space: t.auto_indent_zenspace,
+                    extra: CharSet::new(&t.indent_chars),
+                },
+                _ => WrapIndent::None,
+            },
+            tab_mark: TabMark::from_setting(t.tab_arrow, &t.tab_view_string),
             wrap_method: WrapMethod::from_setting(t.text_wrap_method),
             wrap_columns: max_columns,
             wrap_overhang: overhang,
@@ -639,6 +711,8 @@ impl ViewSettings {
             wrap: self.wrap(window_columns),
             tab_width: self.tab_width,
             word_wrap: self.word_wrap,
+            kinsoku: self.kinsoku.clone(),
+            indent: self.wrap_indent.clone(),
             ..LayoutConfig::default()
         }
     }

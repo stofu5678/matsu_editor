@@ -1,13 +1,11 @@
 //! 「スクリーン」: `IDD_PROP_SCREEN` (`sakura_core/sakura_rc.rc`), `CPropTypesScreen`
 //! (`sakura_core/typeprop/CPropTypesScreen.cpp`).
 //!
-//! Live: the name and the extensions, the wrap method and column, the TAB width, the English word
-//! wrap, the hanging of line ends and punctuation, the rule of the outline (the standard rule
-//! or a rule file), the Tab key that inserts spaces, and the indent of what is typed (auto indent
-//! with the ideographic space, smart indent, the other indent chars, the trailing spaces of the
-//! line a line break leaves). Not available yet: the space between characters and lines, how a TAB
-//! is drawn, TSV mode, the wrapped line indent, the line breaking rules for the head and the tail
-//! of a line and the characters that hang.
+//! Live: everything but the space between characters and lines and TSV mode, which are not
+//! available yet: the layout (the wrap, the TAB width and mark, the hanging and the line breaking
+//! rules, the wrapped line indent), the outline rule, the font of the type, and the indent of what
+//! is typed (the Tab key that inserts spaces, auto indent with the ideographic space, smart indent,
+//! the other indent chars, the trailing spaces of the line a line break leaves).
 
 use matsu_config::settings::type_rules::outline_type;
 
@@ -215,12 +213,9 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                         ]),
                         Control::number(TAB_SPACE, "TAB幅(&T)", "", 4, tab_min, tab_max).into(),
                         Item::Row(vec![
-                            Control::choice(TAB_ARROW, "T&AB表示", "", 0, TAB_ARROWS)
-                                .unavailable()
-                                .into(),
+                            Control::choice(TAB_ARROW, "T&AB表示", "", 0, TAB_ARROWS).into(),
                             Control::text(TAB_VIEW_STRING, "", "", "^       ")
                                 .named("TAB表示の文字列")
-                                .unavailable()
                                 .when(tab_is_a_string)
                                 .into(),
                         ]),
@@ -255,7 +250,6 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                             0,
                             INDENT_LAYOUTS,
                         )
-                        .unavailable()
                         .into(),
                         Control::check(RTRIM_PREV_LINE, "改行時に末尾の空白を削除(&E)", "", false)
                             .into(),
@@ -328,25 +322,18 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                             Control::check(KINSOKU_KUTO, "句読点ぶら下げ(&\\)", "", false).into(),
                             Control::text(KINSOKU_KUTO_CHARS, "", "", "、。，．､｡,.")
                                 .named("句読点ぶら下げの文字")
-                                .unavailable()
                                 .into(),
                         ]),
                         Item::Row(vec![
-                            Control::check(KINSOKU_HEAD, "行頭禁則(&[)", "", false)
-                                .unavailable()
-                                .into(),
+                            Control::check(KINSOKU_HEAD, "行頭禁則(&[)", "", false).into(),
                             Control::text(KINSOKU_HEAD_CHARS, "", "", "")
                                 .named("行頭禁則の文字")
-                                .unavailable()
                                 .into(),
                         ]),
                         Item::Row(vec![
-                            Control::check(KINSOKU_TAIL, "行末禁則(&])", "", false)
-                                .unavailable()
-                                .into(),
+                            Control::check(KINSOKU_TAIL, "行末禁則(&])", "", false).into(),
                             Control::text(KINSOKU_TAIL_CHARS, "", "", "")
                                 .named("行末禁則の文字")
-                                .unavailable()
                                 .into(),
                         ]),
                     ],
