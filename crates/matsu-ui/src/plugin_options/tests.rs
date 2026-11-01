@@ -401,3 +401,28 @@ fn the_keyboard_keeps_the_selected_row_in_view(cx: &mut TestAppContext) {
         assert_eq!(d.selected_row_in_view(), Some(true));
     });
 }
+
+#[test]
+fn a_running_plugin_sees_and_keeps_what_the_dialog_wrote_meanwhile() {
+    let place = Place::new();
+    let dirs = place.dirs();
+    // The call began before the dialog wrote.
+    let mut api = crate::macros::plugin_call::DefApi::new(&dirs, "Opt", place.def(), 1);
+    let mut form = place.form();
+    form.set(1, "77");
+    form.save().unwrap();
+    assert_eq!(
+        api.call("Plugin.GetOption", &[json!("Main"), json!("Level")])
+            .unwrap(),
+        json!("77")
+    );
+    // Its own write does not bring back the old values of the other options.
+    let mut form = place.form();
+    form.set(2, "0");
+    form.save().unwrap();
+    api.call("Plugin.SetOption", &[json!("Free"), json!("K"), json!("v")])
+        .unwrap();
+    let file = place.written();
+    assert_eq!(file.get("Other", "Mode"), Some("0"));
+    assert_eq!(file.get("Free", "K"), Some("v"));
+}
