@@ -15,9 +15,15 @@ use matsu_config::{Profile, ProfileError};
 
 use super::super::menu_text::{push_text, read_text};
 
-/// `GetFunctionStrToFunctionCode`: the code of a macro name.
+/// `GetFunctionStrToFunctionCode`: the code of a macro name, or of a plugin command that is loaded.
 pub(super) fn code_of_name(name: &str) -> Option<u16> {
-    macro_names::by_name(name).map(|f| f.code)
+    crate::settings::function_code_of_name(name)
+}
+
+/// What the settings file writes besides the numbers: the name of a plugin command
+/// (`GetPlugCmdInfoByFuncCode`).
+fn plugin_name_of_code(code: u16) -> Option<String> {
+    matsu_commands::plugin_commands::name_of(code)
 }
 
 /// `GetFuncInfoByID`: the macro name a `.mnu` file writes for a function.
@@ -25,7 +31,9 @@ pub(super) fn name_of_code(code: u16) -> Option<String> {
     if code == 0 {
         return None;
     }
-    macro_names::by_code(code).map(|f| f.name.to_owned())
+    macro_names::by_code(code)
+        .map(|f| f.name.to_owned())
+        .or_else(|| plugin_name_of_code(code))
 }
 
 pub(super) fn encode(menus: &[CustomMenu]) -> Vec<i32> {
@@ -116,7 +124,7 @@ pub(super) fn store(data: &[i32], profile: &mut Profile) -> Result<bool, Profile
     let left_alone = menus.menus()[rbutton] == current.menus()[rbutton];
     let migrated = current.menus()[rbutton] != raw.menus()[rbutton];
     let previous = if left_alone { &current } else { &raw };
-    menus.write_to_profile(profile, None, Some(previous))?;
+    menus.write_to_profile(profile, Some(&plugin_name_of_code), Some(previous))?;
     if !(left_alone && migrated) {
         CustomMenus::write_matsu_version(profile)?;
     }

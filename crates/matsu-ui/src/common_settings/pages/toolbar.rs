@@ -52,7 +52,13 @@ const ITEM_UNKNOWN: &str = "────不　明────";
 pub(super) fn functions_of_kind(kind: i32) -> Vec<(i32, u16)> {
     codes_of_kind(kind)
         .into_iter()
-        .filter_map(|code| Some((bars::icon_of_function(code)? as i32 + 1, code)))
+        .filter_map(|code| {
+            // A plugin command is a button of its own number, its function code.
+            if matsu_commands::plugin_commands::is_plugin_code(code) {
+                return Some((i32::from(code), code));
+            }
+            Some((bars::icon_of_function(code)? as i32 + 1, code))
+        })
         .collect()
 }
 
@@ -65,6 +71,11 @@ pub(super) fn row_of(number: i32, macros: &RegisteredMacros) -> (String, Option<
     match number {
         0 => (ITEM_SEPARATOR.to_owned(), None),
         WRAP => (ITEM_WRAP.to_owned(), None),
+        n if u16::try_from(n).is_ok_and(matsu_commands::plugin_commands::is_plugin_code) => {
+            let code = u16::try_from(n).unwrap_or_default();
+            let name = crate::func_name::funccode_to_name(code, &CustomMenus::default(), macros);
+            (name, bars::toolbar::plugin_icon())
+        }
         n => {
             let known = usize::try_from(n - 1)
                 .ok()
@@ -184,6 +195,15 @@ fn load(profile: &Profile) -> Vec<i32> {
     ToolbarButtons::from_profile(profile).0
 }
 
+/// What `nTBB` holds for a button: the number, or `<plugin ID>/<number>` for a plugin command
+/// (`GetPlugCmdInfoByFuncCode`).
+fn button_text(number: i32) -> String {
+    u16::try_from(number)
+        .ok()
+        .and_then(matsu_commands::plugin_commands::name_of)
+        .unwrap_or_else(|| number.to_string())
+}
+
 /// `ShareData_IO_Toolbar` writing: the number of buttons and each `nTBB[NNN]`; entries left over
 /// from a longer list are removed. Nothing is written when the list is the one the file already
 /// gives (or Sakura's default for a file with no list).
@@ -201,7 +221,7 @@ fn store(list: &[i32], profile: &mut Profile) -> Result<bool, ProfileError> {
     };
     put(profile, "nToolBarButtonNum", list.len().to_string())?;
     for (i, number) in list.iter().enumerate() {
-        put(profile, &format!("nTBB[{i:03}]"), number.to_string())?;
+        put(profile, &format!("nTBB[{i:03}]"), button_text(*number))?;
     }
     for i in list.len()..MAX_BUTTONS {
         if !profile.remove(SECTION, &format!("nTBB[{i:03}]")) {

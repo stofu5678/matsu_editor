@@ -1,0 +1,21 @@
+﻿; Sample plugin for the commands of plugins (ADR-0026, the jack Command). Its handlers run on the QuickJS of
+; matsu-script. Put the folder HelloCommands in the folder "plugins" next to matsu.ini, add and enable it in
+; 共通設定 > プラグイン, then find its commands in the kind プラグイン of the key assignments, the menus and the toolbar.
+[Plugin]
+Id=io.github.stofu5678.matsu-editor.sample.commands
+Name=Commands (JavaScript)
+Description=Two commands, and one of them adds a third while it runs (Plugin.AddCommand).
+Author=MATSU Editor
+Version=1.0.0.0
+Url=https://github.com/stofu5678/matsu_editor
+Type=wsh
+
+[Command]
+C[1]=insert.js
+C[1].Label=Insert the number of this command
+C[2]=add.js
+C[2].Label=Add a command
+
+; The host stays between two calls (resident), which is what the memory of a plugin is measured with.
+[Wsh]
+UseCache=1

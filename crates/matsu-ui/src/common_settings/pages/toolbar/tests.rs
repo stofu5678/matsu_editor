@@ -276,3 +276,38 @@ fn cancel_changes_nothing(cx: &mut TestAppContext) {
     assert_eq!(ini.bytes(), bytes);
     assert!(cx.update(|app| app.try_global::<ToolbarButtons>().is_none()));
 }
+
+fn plugin_command(code: u16, plug: usize) -> matsu_commands::plugin_commands::CommandInfo {
+    matsu_commands::plugin_commands::CommandInfo {
+        code,
+        slot: 0,
+        plug,
+        plugin_id: "toolbar.test".to_owned(),
+        plugin_name: "Toolbar test".to_owned(),
+        label: "Do it".to_owned(),
+        handler: "do.js".to_owned(),
+        icon: String::new(),
+        added: false,
+    }
+}
+
+#[test]
+fn a_plugin_button_is_listed_by_its_kind_and_written_by_the_name_of_its_command() {
+    use matsu_commands::plugin_commands as pc;
+    pc::set_slots(vec!["toolbar.test".to_owned()]);
+    pc::add_command(plugin_command(20001, 1));
+    assert!(functions_of_kind(17).contains(&(20001, 20001)));
+    let (name, icon) = row_of(20001, &RegisteredMacros::default());
+    assert_eq!(name, "Do it");
+    assert_eq!(icon, crate::bars::toolbar::plugin_icon());
+    assert!(icon.is_some());
+
+    let mut p = profile("[Toolbar]\r\nnToolBarButtonNum=1\r\nnTBB[000]=3\r\n");
+    assert!(store(&[20001], &mut p).unwrap());
+    assert_eq!(p.get("Toolbar", "nTBB[000]"), Some("toolbar.test/01"));
+    assert_eq!(load(&p), vec![20001]);
+    // The plugin is gone: the name stays unresolved and the button is an undefined one.
+    pc::set_commands(Vec::new());
+    assert_eq!(load(&p), vec![-1]);
+    pc::set_slots(Vec::new());
+}

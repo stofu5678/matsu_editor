@@ -4,7 +4,7 @@ use gpui::{AnyWindowHandle, App};
 use matsu_config::Profile;
 
 use super::model::{Control, Values};
-use super::{Env, Page};
+use super::{Env, Page, pages};
 use crate::settings::UserSettings;
 
 /// Writes the values of the live controls to `[Common]` under the lock of the settings file (so
@@ -46,6 +46,14 @@ pub(super) fn commit(
     for page in Page::ALL {
         if page.items().is_some() {
             page.apply(&mut env, after, Some(before));
+        }
+    }
+    // What the user enabled may have changed the commands of the plugins, which the keys name.
+    if crate::plugin_commands::refresh(env.cx) {
+        pages::keys::rebuild_key_map(&mut env);
+        // A toolbar button that names a command reads as an undefined one while its plugin is off.
+        if let Some(user) = env.cx.try_global::<UserSettings>().cloned() {
+            crate::bars::toolbar::install(env.cx, &user);
         }
     }
     // The menus read the settings (the history, the custom menus): make them again from the new ones.
