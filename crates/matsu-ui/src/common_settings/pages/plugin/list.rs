@@ -23,6 +23,7 @@ pub(super) const RUN_TEST: &str = "plugin_run_test";
 pub(super) const ENABLE_ONE: &str = "plugin_enable_one";
 pub(super) const DISABLE_ONE: &str = "plugin_disable_one";
 pub(super) const URL: &str = "plugin_url";
+pub(super) const OPTION: &str = "plugin_option";
 pub(super) const LIST: &str = "plugin_list";
 pub(super) const SELECTED: &str = "plugin_selected";
 
@@ -70,6 +71,42 @@ pub(super) fn can_run_test(values: &Values) -> bool {
     selected_row(values).is_some_and(|row| {
         rows::can_enable(row) && row[rows::COMMANDS].parse::<usize>().is_ok_and(|n| n > 0)
     })
+}
+
+/// 設定 can be used on a plugin that the user enabled and that has options (`IDC_PLUGIN_OPTION`:
+/// the plugin is loaded and `m_options.size() > 0`).
+pub(super) fn can_open_options(values: &Values) -> bool {
+    selected_row(values).is_some_and(|row| {
+        rows::can_enable(row)
+            && row[rows::CONSENT] == "on"
+            && row
+                .get(rows::OPTIONS)
+                .and_then(|n| n.parse::<usize>().ok())
+                .is_some_and(|n| n > 0)
+    })
+}
+
+/// 設定 (`IDC_PLUGIN_OPTION`): the dialog of the options of the plugin.
+pub(super) fn open_options(
+    dialog: &mut CommonSettingsDialog,
+    window: &mut Window,
+    cx: &mut Context<CommonSettingsDialog>,
+) {
+    let Some(row) = selected_row(dialog.values()).filter(|_| can_open_options(dialog.values()))
+    else {
+        return;
+    };
+    let folder = row[rows::FOLDER].clone();
+    let opened =
+        super::search_dirs(cx).is_some_and(|dirs| crate::plugin_options::open(cx, &dirs, &folder));
+    if !opened {
+        // `STR_PROPCOMPLG_ERR1`
+        notice(
+            window,
+            cx,
+            "プラグインはこのウィンドウで読み込まれていないか、フォルダーが異なるため\n設定を変更できません",
+        );
+    }
 }
 
 /// 配布元 can be used on a plugin that has a web address. Only `http` and `https` are opened: a
@@ -132,8 +169,12 @@ pub(super) fn draw(
                                 .child(text.clone())
                         }),
                 )
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                     select(this, index, cx);
+                    // `NM_DBLCLK`: a double click does what 設定 does.
+                    if event.click_count() >= 2 && can_open_options(this.values()) {
+                        open_options(this, window, cx);
+                    }
                 }))
                 .into_any_element()
         })
