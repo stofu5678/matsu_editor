@@ -16,26 +16,35 @@ here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=lib.sh
 . "$here/lib.sh"
 
-LOCK_DIR="$STATE_DIR/loop.lock"   # held by the one loop for its lifetime (mkdir is atomic)
+# One lock serializes the controller loop and the cleanup of `down`: an flock, which the kernel releases when its
+# holder dies, so a crash leaves no stale lock to take over. macOS has no flock(1); perl takes the lock and keeps it
+# on fd 9 of the command it runs. Long-lived children close fd 9 (9>&-), so that a VM left by a dead loop does not
+# keep the lock.
+LOCK_FILE="$STATE_DIR/lifecycle.lock"
+PID_FILE="$STATE_DIR/loop.pid"   # the loop's pid, for status messages only (the lock is what counts)
 STOP_FILE="$STATE_DIR/stop"
 NOW_FILE="$STATE_DIR/stop-now"
 CURRENT_VM="$STATE_DIR/current-vm"          # the VM and the runner of the loop, for the cleanup after a crash
 CURRENT_RUNNER="$STATE_DIR/current-runner"
 STALE_RUNNERS="$STATE_DIR/stale-runners"    # registrations that could not be deleted yet
 
+# Runs "$0 <args>" holding the lock, or exits 75 at once when another process holds it.
+locked() {
+  /usr/bin/perl -MFcntl=:flock -MPOSIX=dup2 -e '
+    my $file = shift @ARGV;
+    open(my $fh, ">>", $file) or exit 70;
+    flock($fh, LOCK_EX | LOCK_NB) or exit 75;
+    dup2(fileno($fh), 9) or exit 71;
+    exec @ARGV or exit 127;
+  ' "$LOCK_FILE" "$0" "$@"
+}
+
 loop_pid() {
   local pid
-  pid=$(cat "$LOCK_DIR/pid" 2> /dev/null) || return 1
+  pid=$(cat "$PID_FILE" 2> /dev/null) || return 1
   case "$pid" in '' | *[!0-9]*) return 1 ;; esac
   kill -0 "$pid" 2> /dev/null || return 1
   printf '%s\n' "$pid"
-}
-
-# Takes the loop's lock, or fails when the lock exists. mkdir is atomic. A lock that a dead loop left behind is not
-# taken over here (two processes taking over at once could both win); `down` clears it after cleaning up.
-take_lock() {
-  mkdir "$LOCK_DIR" 2> /dev/null || return 1
-  echo $$ > "$LOCK_DIR/pid"
 }
 
 # Deletes a runner registration (GitHub deletes a just-in-time runner itself after its job; this is for a VM that
@@ -144,14 +153,14 @@ run_one() {
     return 1
   fi
   nohup "$TART" run --no-graphics --no-audio --no-clipboard "--net-softnet-block=$rules" "$name" \
-    > "$STATE_DIR/vm.log" 2>&1 < /dev/null &
+    > "$STATE_DIR/vm.log" 2>&1 < /dev/null 9>&- &
   log "$name: started (runner $runner_id)"
   if ! wait_agent "$name" 240; then
     log "$name: the guest agent did not answer"
     cleanup_current
     return 1
   fi
-  if ! printf '%s' "$jit" | put_file "$name" /Users/admin/matsu/jit-config; then
+  if vpn_active || ! printf '%s' "$jit" | put_file "$name" /Users/admin/matsu/jit-config; then
     jit=
     log "$name: could not hand over the runner configuration"
     cleanup_current
@@ -161,6 +170,10 @@ run_one() {
   # Tell CI to send jobs here only once GitHub sees the runner online.
   status=
   for i in $(seq 1 24); do
+    if vpn_active; then
+      status=vpn
+      break
+    fi
     status=$(runner_status "$runner_id")
     [ "$status" = online ] && break
     sleep 5
@@ -232,11 +245,11 @@ heartbeat() {
 
 loop() {
   local failures
-  take_lock || exit 0
-  trap 'cleanup_current; rm -rf "$LOCK_DIR"; log "loop ended"' EXIT
+  echo $$ > "$PID_FILE"
+  trap 'cleanup_current; rm -f "$PID_FILE"; log "loop ended"' EXIT
   trap 'exit 1' INT TERM HUP
   # Keep the Mac awake while the runner is up (the VM would stop with it).
-  caffeinate -i -s -w $$ &
+  caffeinate -i -s -w $$ 9>&- &
   log "loop started"
   reconcile
   announced=
@@ -253,6 +266,7 @@ loop() {
 }
 
 cmd_up() {
+  local pid
   require_tools
   mkdir -p "$STATE_DIR"
   chmod 700 "$STATE_DIR"
@@ -263,16 +277,13 @@ cmd_up() {
     echo "already up (loop $pid)"
     return 0
   fi
-  if [ -d "$LOCK_DIR" ]; then
-    die "an earlier loop did not end cleanly; run 'mac-runner down' first (it cleans up), then 'up'"
-  fi
-  rm -f "$STOP_FILE" "$NOW_FILE"
-  nohup "$0" __loop > /dev/null 2>&1 < /dev/null &
+  rm -f "$STOP_FILE" "$NOW_FILE" "$PID_FILE"
+  nohup "$0" __start > /dev/null 2>&1 < /dev/null &
   sleep 3
   if pid=$(loop_pid); then
     echo "up (loop $pid): the first VM starts now; CI sends jobs here once its runner is online (log: $LOG)"
   else
-    echo "the loop did not start; see $LOG" >&2
+    echo "the loop did not start: another loop, or a 'down' that is cleaning up, holds the lock (log: $LOG)" >&2
     return 1
   fi
 }
@@ -288,7 +299,7 @@ route_to_github() {
 }
 
 cmd_down() {
-  local pid
+  local pid status
   require_tools
   mkdir -p "$STATE_DIR"
   # First send new jobs back to GitHub's runner, then stop.
@@ -297,20 +308,16 @@ cmd_down() {
   [ "${1:-}" = --now ] && touch "$NOW_FILE"
   if pid=$(loop_pid); then
     echo "waiting for the loop ($pid) to stop$([ "${1:-}" = --now ] || echo ' after the running job')..."
-    while kill -0 "$pid" 2> /dev/null; do sleep 5; done
-  elif [ -d "$LOCK_DIR" ]; then
-    # A lock without a live loop: either a loop is just starting (its pid is not written yet), or one died without
-    # cleaning up (killed, a crash). Look again, then clean up what it left: its VM has no watchdog now.
-    sleep 3
-    if pid=$(loop_pid); then
-      echo "waiting for the loop ($pid) to stop..."
-      while kill -0 "$pid" 2> /dev/null; do sleep 5; done
-    else
-      echo "cleaning up after a loop that did not end cleanly"
-      reconcile
-      rm -rf "$LOCK_DIR"
-    fi
   fi
+  # Clean up under the lock: it is free once no loop runs (a dead loop releases it too), and it keeps a new loop
+  # and another `down` out while the cleanup runs. What a loop that died left behind goes here.
+  while :; do
+    locked __cleanup
+    status=$?
+    [ $status -eq 75 ] || break
+    sleep 5
+  done
+  [ $status -eq 0 ] || echo "the cleanup did not finish (exit $status); see $LOG" >&2
   # Once more, now that no loop can announce itself any longer. This one must hold.
   if ! route_to_github; then
     echo "could not set MAC_RUNNER to github; set it on GitHub (README.md) or CI may wait for this Mac" >&2
@@ -342,10 +349,19 @@ case "${1:-}" in
   up) cmd_up ;;
   down) cmd_down "${2:-}" ;;
   status) cmd_status ;;
+  __start)
+    # Takes the lock, then runs the loop holding it (fd 9).
+    require_tools
+    locked __loop
+    ;;
   __loop)
     require_tools
-    mkdir -p "$STATE_DIR"
     loop
+    ;;
+  __cleanup)
+    require_tools
+    reconcile
+    rm -f "$PID_FILE"
     ;;
   *)
     sed -n '2,7p' "$0"

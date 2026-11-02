@@ -113,13 +113,14 @@ guest() { # vm seconds command...
 }
 
 # Waits until the guest agent answers, up to $2 seconds (default 180). A VM that is still not running 30 seconds
-# after the start (tart run failed) ends the wait early.
+# after the start (tart run failed) ends the wait early, and so does a VPN.
 wait_agent() {
   local limit=${2:-180} start elapsed
   start=$(date +%s)
   while :; do
     elapsed=$(($(date +%s) - start))
     [ "$elapsed" -lt "$limit" ] || return 1
+    vpn_active && return 1
     guest "$1" 20 true > /dev/null 2>&1 && return 0
     if [ "$elapsed" -ge 30 ] && ! vm_running "$1"; then
       return 1
