@@ -177,12 +177,13 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // No analysis begins while a plug of a plugin makes one (a plug that asks for the outline
-        // would start itself again: `bIsProcessing` of `Command_FUNCLIST`).
-        if crate::plugin_outline::is_running() {
+        let view = self.panes().active().clone();
+        // No analysis begins in this window while a plug of a plugin makes one (a plug that asks for
+        // the outline would start itself again: `bIsProcessing` of `Command_FUNCLIST`). Another window
+        // is not held back.
+        if crate::plugin_outline::is_running_in(view.entity_id()) {
             return;
         }
-        let view = self.panes().active().clone();
         let kind = resolve_kind(requested, &view, cx);
         if let Some(pane) = self.outline.clone()
             && show != Show::Reload

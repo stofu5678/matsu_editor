@@ -125,7 +125,7 @@ async fn run_plug(
         pane.read_with(cx, |pane, _| pane.generation != generation)
             .unwrap_or(true)
     };
-    let collected = Rc::new(RefCell::new(Collected::new()));
+    let collected = Rc::new(RefCell::new(Collected::new().in_view(view.entity_id())));
     // The window has one call at a time, and so has the host of a plugin (another window may be using
     // it): an event of a plugin, a command or a macro that runs goes first. The calls have their time
     // limits, so the line moves.

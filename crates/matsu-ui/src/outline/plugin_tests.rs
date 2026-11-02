@@ -509,3 +509,23 @@ fn an_item_of_another_file_opens_it_at_its_line_and_column(cx: &mut TestAppConte
     assert_eq!((caret.line, caret.col), (1, "あい😀".len()));
     finish(cx);
 }
+
+#[gpui::test]
+fn an_analysis_in_one_window_does_not_hold_back_the_outline_of_another(cx: &mut TestAppContext) {
+    use super::tests::{CPP, window};
+    let a = window(cx, CPP, "a.cpp");
+    let b = window(cx, CPP, "b.cpp");
+    // a plug is going in the window `a`
+    let busy = crate::plugin_outline::Collected::new().in_view(active_view(cx, a).entity_id());
+    // the outline command of the window `a` is held back, as Sakura does while a plug runs
+    run(cx, a, "F_OUTLINE");
+    assert!(pane(cx, a).is_none());
+    // the built-in outline of the window `b` is not
+    run(cx, b, "F_OUTLINE");
+    assert!(pane(cx, b).is_some());
+    assert!(!rows(cx, b).is_empty());
+    drop(busy);
+    // when the plug is over the window `a` has its outline again
+    run(cx, a, "F_OUTLINE");
+    assert!(pane(cx, a).is_some());
+}

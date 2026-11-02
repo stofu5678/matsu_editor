@@ -258,11 +258,14 @@ fn a_failed_call_gives_an_empty_list_and_the_reason() {
 
 #[test]
 fn a_call_in_progress_is_known_until_its_result_is_dropped() {
-    assert!(!is_running());
-    let c = Collected::new();
-    assert!(is_running());
+    let (a, b) = (gpui::EntityId::from(1_u64), gpui::EntityId::from(2_u64));
+    assert!(!is_running_in(a));
+    let c = Collected::new().in_view(a);
+    assert!(is_running_in(a));
+    // another window is not held back
+    assert!(!is_running_in(b));
     drop(c);
-    assert!(!is_running());
+    assert!(!is_running_in(a));
 }
 
 #[test]

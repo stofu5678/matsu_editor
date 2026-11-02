@@ -22,7 +22,7 @@
 //! The pane starts the call ([`crate::outline::pane`]); this module knows which plugs there are, builds
 //! the choices of the type settings, and collects what the `Outline` object is given.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::sync::Mutex;
 
 use gpui::App;
@@ -120,9 +120,10 @@ thread_local! {
     /// outline plug. The UI thread keeps it up to date ([`refresh_for`]).
     static CHOICES: RefCell<Vec<(String, i32)>> = const { RefCell::new(Vec::new()) };
 
-    /// How many `Outline` calls are going: Sakura does not analyze again while a plug runs
-    /// (`bIsProcessing`, "アウトラインプラグイン内でのEditor.Outline呼び出しによる再入を禁止する").
-    static RUNNING: Cell<usize> = const { Cell::new(0) };
+    /// The windows (their editors) in which an `Outline` call is going: Sakura does not analyze again
+    /// while a plug runs (`bIsProcessing`, "アウトラインプラグイン内でのEditor.Outline呼び出しによる再入を禁止する").
+    /// Sakura has a process for each window; here only the window of the call is held back.
+    static RUNNING: RefCell<Vec<gpui::EntityId>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Makes the choices of the type settings from the settings now. Call it when the plugins or what the
@@ -178,9 +179,9 @@ pub(crate) fn with_extra(
     list
 }
 
-/// Whether an `Outline` call is going.
-pub(crate) fn is_running() -> bool {
-    RUNNING.with(|count| count.get() > 0)
+/// Whether an `Outline` call is going in the window of the editor `view`.
+pub(crate) fn is_running_in(view: gpui::EntityId) -> bool {
+    RUNNING.with(|running| running.borrow().contains(&view))
 }
 
 /// How the call ended, when it did.
@@ -203,19 +204,29 @@ pub(crate) struct Collected {
     pub(crate) label: String,
     /// `None` while the call is going.
     pub(crate) ending: Option<Ending>,
+    /// The editor the call is going in ([`Collected::in_view`]).
+    view: Option<gpui::EntityId>,
 }
 
 impl Collected {
-    /// An empty result for a call that is about to begin. It counts as a call going until it is dropped.
+    /// An empty result for a call that is about to begin.
     pub(crate) fn new() -> Self {
-        RUNNING.with(|count| count.set(count.get() + 1));
         Self {
             items: FuncInfoArr::new(),
             title: None,
             list_type: list_type::PLUGIN,
             label: String::new(),
             ending: None,
+            view: None,
         }
+    }
+
+    /// The call goes in the editor `view`: it counts as going there ([`is_running_in`]) until the result
+    /// is dropped.
+    pub(crate) fn in_view(mut self, view: gpui::EntityId) -> Self {
+        RUNNING.with(|running| running.borrow_mut().push(view));
+        self.view = Some(view);
+        self
     }
 
     /// What the plug gave, as an analysis, when it went well; else an empty list with the reason.
@@ -317,7 +328,14 @@ impl Collected {
 
 impl Drop for Collected {
     fn drop(&mut self) {
-        RUNNING.with(|count| count.set(count.get().saturating_sub(1)));
+        if let Some(view) = self.view {
+            RUNNING.with(|running| {
+                let mut running = running.borrow_mut();
+                if let Some(at) = running.iter().position(|id| *id == view) {
+                    running.remove(at);
+                }
+            });
+        }
     }
 }
 
