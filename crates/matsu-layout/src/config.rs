@@ -1,8 +1,9 @@
 // Derived from Sakura Editor (zlib License):
 //   sakura_core/doc/layout/CLayoutMgr.h (GetActualTsvSpace, GetLayoutXOfChar),
+//   sakura_core/mem/CMemoryIterator.h (scanNext),
 //   sakura_core/doc/CEditDoc.cpp (OnChangeSetting: the width when lines are not wrapped),
 //   sakura_core/config/app_constants.h (MAXLINEKETAS, MINLINEKETAS)
-// Modified: rewritten in Rust, measured in columns instead of pixels, without TSV/CSV mode.
+// Modified: rewritten in Rust, measured in columns instead of pixels.
 //
 // Copyright (C) 2018-2022, Sakura Editor Organization
 //
@@ -25,6 +26,7 @@
 // 3. This notice may not be removed or altered from any source distribution.
 
 use crate::kinsoku::{CharSet, Kinsoku};
+use crate::tsv::{TsvMode, TsvStops};
 use crate::width::WidthRule;
 
 /// The most columns Sakura lets a line have (`MAXLINEKETAS`, `config/app_constants.h`). It is
@@ -86,6 +88,9 @@ pub struct LayoutConfig {
     pub kinsoku: Kinsoku,
     pub width: WidthRule,
     pub indent: WrapIndent,
+    /// The TSV or CSV mode and where its fields end (`m_nTsvMode`). Not the same as the tab
+    /// width: in these modes the delimiter goes to the end of the field.
+    pub tsv: TsvStops,
 }
 
 impl Default for LayoutConfig {
@@ -99,6 +104,7 @@ impl Default for LayoutConfig {
             kinsoku: Kinsoku::default(),
             width: WidthRule::default(),
             indent: WrapIndent::None,
+            tsv: TsvStops::none(),
         }
     }
 }
@@ -123,12 +129,21 @@ impl LayoutConfig {
     /// (`GetActualTsvSpace`, `TSV_MODE_NONE`: `tab - x % tab`, 1 to the tab width), and the other
     /// characters have their own width ([`WidthRule::columns`]). Control characters take 1, like
     /// the proxy character Sakura measures for them (`CCharWidthCache::QueryPixelWidth`).
+    ///
+    /// In TSV mode a tab, and in CSV mode a comma, goes to the end of its field
+    /// ([`TsvStops::delimiter_columns`]). A tab in CSV mode takes 1 column: Sakura gives it
+    /// `m_nCharLayoutXPerKeta - 1` pixels, one pixel short of the column it is drawn in (a
+    /// slip, so the columns that follow it are not lined up with the pixels; type A of
+    /// ADR-0018).
     pub fn columns_of(&self, c: char, x: u32) -> u32 {
-        if c == '\t' {
-            let tab = self.effective_tab_width();
-            tab - x % tab
-        } else {
-            self.width.columns(c)
+        match (self.tsv.mode(), c) {
+            (TsvMode::Tsv, '\t') | (TsvMode::Csv, ',') => self.tsv.delimiter_columns(x),
+            (TsvMode::Csv, '\t') => 1,
+            (_, '\t') => {
+                let tab = self.effective_tab_width();
+                tab - x % tab
+            }
+            _ => self.width.columns(c),
         }
     }
 }
@@ -146,6 +161,34 @@ mod tests {
         assert_eq!(cfg.columns_of('\t', 3), 1);
         assert_eq!(cfg.columns_of('\t', 4), 4);
         assert_eq!(cfg.columns_of('\t', 6), 2);
+    }
+
+    #[test]
+    fn the_tsv_modes_send_the_delimiter_to_the_end_of_its_field() {
+        use crate::width::WidthRule;
+        let lines = ["ab\tc,d", "e\tfgh,i"];
+        let stops = |mode| TsvStops::from_lines(mode, &WidthRule::default(), lines);
+        let tsv = LayoutConfig {
+            tsv: stops(TsvMode::Tsv),
+            ..LayoutConfig::default()
+        };
+        // field 0 is 2 wide (ab), so its stop is 4
+        assert_eq!(tsv.columns_of('\t', 2), 2);
+        assert_eq!(tsv.columns_of('\t', 1), 3);
+        // the comma is an ordinary character
+        assert_eq!(tsv.columns_of(',', 6), 1);
+        let csv = LayoutConfig {
+            tsv: stops(TsvMode::Csv),
+            ..LayoutConfig::default()
+        };
+        // the widest first field is "e\tfgh", 5 columns, so the first stop is 7
+        assert_eq!(csv.tsv.ends()[0], 7);
+        assert_eq!(csv.columns_of(',', 4), 3);
+        assert_eq!(csv.columns_of('\t', 4), 1);
+        assert_eq!(csv.columns_of('x', 4), 1);
+        // the mode None is unchanged
+        assert_eq!(LayoutConfig::default().columns_of('\t', 2), 2);
+        assert_eq!(LayoutConfig::default().columns_of(',', 2), 1);
     }
 
     #[test]

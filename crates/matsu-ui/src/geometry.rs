@@ -34,6 +34,18 @@ impl Metrics {
     }
 }
 
+/// The width of a column: the half-width of the font and the spacing of the type
+/// (`CTextMetrics::Update`: `m_nDxBasis = m_nCharWidth + nColmSpace`).
+pub fn column_width(half_width: f32, column_space: u32) -> f32 {
+    half_width + column_space as f32
+}
+
+/// The height of a row: the height of the font's line and the spacing of the type, which can be
+/// negative (`CTextMetrics::Update`: `m_nDyBasis = max(1, sz.cy + nLineSpace)`).
+pub fn row_height(font_height: f32, line_space: i32) -> f32 {
+    (font_height + line_space as f32).max(1.0)
+}
+
 /// The largest vertical scroll offset: the last row ends at the bottom of the view, plus one blank
 /// row (the PoC's rule, so that the last row is never hidden under the edge of the window).
 pub fn max_scroll_y(m: &Metrics, total_rows: usize) -> f32 {
@@ -146,6 +158,39 @@ mod tests {
             view_width: 200.0,
             view_height: 100.0, // 5 rows
         }
+    }
+
+    #[test]
+    fn the_spacing_widens_columns_and_rows() {
+        assert_eq!(column_width(8.0, 0), 8.0);
+        assert_eq!(column_width(8.0, 3), 11.0);
+        assert_eq!(row_height(20.0, 1), 21.0);
+        assert_eq!(row_height(20.0, -5), 15.0);
+        // the row is never less than one pixel high
+        assert_eq!(row_height(20.0, -128), 1.0);
+    }
+
+    #[test]
+    fn hit_testing_follows_the_spacing() {
+        let spaced = Metrics {
+            cell_width: column_width(8.0, 2),
+            line_height: row_height(20.0, 4),
+            ..m()
+        };
+        // columns are 10 pixels wide, so column 3 is 30 to 40 whatever the glyph
+        assert_eq!(column_at(&spaced, 29.9).0, 2);
+        assert_eq!(column_at(&spaced, 30.0).0, 3);
+        assert_eq!(column_at(&spaced, 39.9).0, 3);
+        assert_eq!(column_at(&spaced, 40.0).0, 4);
+        // rows are 24 pixels high
+        assert_eq!(row_at(&spaced, 0.0, 23.9, 10), 0);
+        assert_eq!(row_at(&spaced, 0.0, 24.0, 10), 1);
+        let tight = Metrics {
+            line_height: row_height(20.0, -4),
+            ..m()
+        };
+        assert_eq!(row_at(&tight, 0.0, 15.9, 10), 0);
+        assert_eq!(row_at(&tight, 0.0, 16.0, 10), 1);
     }
 
     #[test]

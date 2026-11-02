@@ -24,6 +24,8 @@
 //!   indent of wrapped rows (折り返し行のインデント).
 //! - [`offset_to_position`] and [`position_to_offset`] convert like `LogicToLayout` and
 //!   `LayoutToLogicEx` (`sakura_core/doc/layout/CLayoutMgr.cpp`), for the caret and the mouse.
+//! - [`TsvStops`] and [`TsvMode`] line up the fields of a table in the TSV and CSV modes
+//!   (`CTsvModeInfo`, `sakura_core/doc/layout/CTsvModeInfo.cpp`).
 //! - [`DocumentLayout`] lays out a whole `matsu_core::buffer::Document`: the rows of every line, the
 //!   mapping between rows and lines, the EOF row, positions on the screen, updates after edits,
 //!   and a first layout in chunks.
@@ -55,8 +57,9 @@
 //!
 //! # Not done here
 //!
-//! The scroll position, TSV/CSV mode (`TSV_MODE_*`), the character spacing (`m_nSpacing`) and the
-//! colouring. A line ending is the flag `has_eol`; the text of a line never holds it.
+//! The scroll position and the colouring. The character spacing (`m_nSpacing`) is the width of a
+//! column, which the caller draws ([`LayoutConfig`] counts columns), so it is not done here.
+//! A line ending is the flag `has_eol`; the text of a line never holds it.
 //!
 //! [ADR-0013]: https://github.com/stofu5678/matsu_editor/blob/main/docs/adr/0013-module-structure.md
 
@@ -64,6 +67,7 @@ mod config;
 pub mod document;
 mod kinsoku;
 mod map;
+mod tsv;
 mod width;
 mod wrap;
 
@@ -73,6 +77,7 @@ pub use document::{
 };
 pub use kinsoku::{CharSet, DEFAULT_HEAD, DEFAULT_KUTO, DEFAULT_TAIL, Kinsoku};
 pub use map::{Located, Position, offset_to_position, position_to_offset};
+pub use tsv::{TsvMode, TsvStops};
 pub use width::{INVALID_BYTE_BASE, WidthRule};
 pub use wrap::{Row, layout_line};
 

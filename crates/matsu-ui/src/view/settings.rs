@@ -5,7 +5,7 @@
 //! written to the file (see the module documentation of [`crate::settings`]).
 
 use gpui::{App, Context};
-use matsu_layout::Wrap;
+use matsu_layout::{TsvStops, Wrap};
 
 use super::EditorView;
 use crate::layout_adapter::LAYOUT_BUDGET;
@@ -217,6 +217,14 @@ impl EditorView {
         config.word_wrap = self.prefs.settings.word_wrap;
         config.kinsoku = self.prefs.settings.kinsoku.clone();
         config.indent = self.prefs.settings.wrap_indent.clone();
+        // The stops of the TSV and CSV modes are worked out when the mode changes or a document
+        // is loaded (the layout of a loaded document starts without a mode), not after each edit
+        // (`CLayoutMgr::SetLayoutInfo`, `CLoadAgent::OnLoad`).
+        let tsv_mode = self.prefs.settings.tsv_mode;
+        if config.tsv.mode() != tsv_mode {
+            let doc = self.document.read(cx).doc();
+            config.tsv = TsvStops::scan(doc, tsv_mode, &config.width).unwrap_or_default();
+        }
         if config == *self.layout.config() {
             return false;
         }
@@ -342,8 +350,10 @@ impl EditorView {
     fn resize_font(&mut self, px: f32, cx: &mut Context<Self>) {
         let old = self.font_size;
         self.font_size = px;
-        // The line height is the font size times 1.5, rounded (see `Render for EditorView`).
-        let line_height = |size: f32| (size * 1.5).round();
+        // The line height is the font size times 1.5, rounded (see `Render for EditorView`), and
+        // the line spacing of the type.
+        let line_space = self.prefs.settings.line_space;
+        let line_height = |size: f32| crate::geometry::row_height((size * 1.5).round(), line_space);
         self.scroll_y *= line_height(self.font_size) / line_height(old);
         self.scroll_x *= self.font_size / old;
         // The metrics follow at the next paint, which brings the caret into view if it left.

@@ -194,7 +194,6 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                                 0,
                                 COLUMN_SPACE_MAX,
                             )
-                            .unavailable()
                             .into(),
                             Item::Label("ドット"),
                         ]),
@@ -207,7 +206,6 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                                 -LINE_SPACE_MAX,
                                 LINE_SPACE_MAX,
                             )
-                            .unavailable()
                             .into(),
                             Item::Label("ドット"),
                         ]),
@@ -222,7 +220,6 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                         Control::check(INS_SPACE, "S&PACEの挿入", "", false).into(),
                         Control::choice(TSV_MODE, "", "", 0, TSV_MODES)
                             .named("TSVモード")
-                            .unavailable()
                             .into(),
                     ],
                 ),

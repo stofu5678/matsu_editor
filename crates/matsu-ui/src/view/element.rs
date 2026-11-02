@@ -28,7 +28,7 @@ use super::caret_shape::{CaretShape, caret_shape};
 use super::colors::LineColorRequest;
 use super::syntax::{self, Label, Style as TextStyle};
 use super::{EditorView, PaintInfo, a11y_text, bracket_marks, diff_mark, lines, ruler};
-use crate::geometry::{Metrics, SCROLLBAR_WIDTH, Scrollbar};
+use crate::geometry::{Metrics, SCROLLBAR_WIDTH, Scrollbar, column_width, row_height};
 use crate::hit::selected_columns;
 use crate::search::highlight::{highlight_columns, slot_of};
 use crate::settings::view_settings::rgb_of;
@@ -195,7 +195,8 @@ enum Term {
 
 struct RowPaint {
     selection: Option<(u32, u32)>,
-    numbers: Option<ShapedLine>,
+    /// The line number pieces and how far right of the left edge of the numbers each goes.
+    numbers: Vec<(f32, ShapedLine)>,
     /// The line number separator of the row, if the type has one and the row has a layout.
     term: Option<Term>,
     /// The color of the line number (what the separator line is drawn in).
@@ -303,6 +304,36 @@ impl IntoElement for EditorElement {
     }
 }
 
+/// Puts the shaped `label` (at `col`, in `style`) in `out`: as one piece, or, when `width_of` is
+/// given (the columns have spacing), as a piece for each character, `width_of` columns apart. A
+/// font cannot space its glyphs, and Sakura draws each character of a row at its own place
+/// (`CTextDrawer::DispText` with the dx array).
+fn place(
+    window: &mut Window,
+    out: &mut Vec<Placed>,
+    (col, label, style): (u32, &str, &TextStyle),
+    width_of: Option<impl Fn(char) -> u32>,
+    shape: &dyn Fn(&mut Window, &str, &TextStyle) -> ShapedLine,
+) {
+    let Some(width_of) = width_of else {
+        out.push(Placed {
+            col,
+            line: shape(window, label, style),
+        });
+        return;
+    };
+    let mut col = col;
+    for c in label.chars() {
+        if !c.is_whitespace() {
+            out.push(Placed {
+                col,
+                line: shape(window, c.encode_utf8(&mut [0; 4]), style),
+            });
+        }
+        col += width_of(c);
+    }
+}
+
 fn run(font: &gpui::Font, len: usize, color: u32) -> TextRun {
     TextRun {
         len,
@@ -376,9 +407,11 @@ impl Element for EditorElement {
         let layout = &editor.layout;
         let style = window.text_style();
         let font_size = style.font_size.to_pixels(window.rem_size());
-        let line_height = f32::from(window.line_height());
         let font = style.font();
         let settings = &editor.prefs.settings;
+        // The row is the height of the font's line and the line spacing of the type, which can be
+        // negative (`CTextMetrics::Update`).
+        let line_height = row_height(f32::from(window.line_height()), settings.line_space);
         let colors = settings.colors;
         let rules = &settings.coloring;
         let marks_shown = settings.marks;
@@ -415,9 +448,13 @@ impl Element for EditorElement {
                 .shape_line(text, font_size, &runs, None)
         };
 
-        // One column is the advance of a half-width character.
-        let cell = f32::from(shape(window, "0000000000", colors.text).width()) / 10.0;
-        let cell = if cell > 0.0 { cell } else { 8.0 };
+        // One column is the advance of a half-width character and the character spacing of the
+        // type (`m_nDxBasis`). The text is placed one character at a time when there is spacing.
+        let half = f32::from(shape(window, "0000000000", colors.text).width()) / 10.0;
+        let half = if half > 0.0 { half } else { 8.0 };
+        let cell = column_width(half, settings.column_space);
+        let spaced = settings.column_space > 0;
+        let widths = layout.config().width;
 
         let first_row = (editor.scroll_y / line_height).floor().max(0.0) as usize;
         let y_offset = -(editor.scroll_y - line_height * first_row as f32);
@@ -490,15 +527,27 @@ impl Element for EditorElement {
                 diff,
                 show_line_numbers,
             );
-            let numbers =
-                (show_line_numbers && row.row_in_line == 0 && !row.is_eof_row).then(|| {
-                    shape_number(
-                        window,
-                        &format!("{:>width$}", row.line + 1, width = digits),
-                        style.text,
-                        style.bold,
-                    )
-                });
+            // The digits are drawn a column apart (`DispLineNumber` uses the dx array of the font
+            // with the spacing), so with spacing each digit has its own piece.
+            let numbers = if show_line_numbers && row.row_in_line == 0 && !row.is_eof_row {
+                let text = format!("{:>width$}", row.line + 1, width = digits);
+                if spaced {
+                    text.chars()
+                        .enumerate()
+                        .filter(|(_, c)| *c != ' ')
+                        .map(|(i, c)| {
+                            (
+                                i as f32 * cell,
+                                shape_number(window, &c.to_string(), style.text, style.bold),
+                            )
+                        })
+                        .collect()
+                } else {
+                    vec![(0.0, shape_number(window, &text, style.text, style.bold))]
+                }
+            } else {
+                Vec::new()
+            };
             let selected = match &box_area {
                 Some(area) => area.columns_on(row.row),
                 None => {
@@ -587,16 +636,28 @@ impl Element for EditorElement {
                     }
                     Label::FullWidthSpace => FULL_WIDTH_SPACE_MARK,
                 };
+                // The width of each character of the label in columns: the characters of text
+                // have their own, the marks of a tab and of a space are a column each.
+                let width_of = |c: char| match item.label {
+                    Label::Text(_) => widths.columns(c),
+                    _ => 1,
+                };
                 if let Some(selected_style) = &item.selected {
-                    selected_text.push(Placed {
-                        col: item.col,
-                        line: shape_styled(window, label, selected_style),
-                    });
+                    place(
+                        window,
+                        &mut selected_text,
+                        (item.col, label, selected_style),
+                        spaced.then_some(width_of),
+                        &shape_styled,
+                    );
                 }
-                text.push(Placed {
-                    col: item.col,
-                    line: shape_styled(window, label, &item.style),
-                });
+                place(
+                    window,
+                    &mut text,
+                    (item.col, label, &item.style),
+                    spaced.then_some(width_of),
+                    &shape_styled,
+                );
             }
             let mut marks = Vec::new();
             let mut backs = styling.backs;
@@ -605,10 +666,13 @@ impl Element for EditorElement {
             if row.is_eof_row {
                 if marks_shown.eof {
                     backs.push((0, eof_width, eof_style.back.unwrap_or_default()));
-                    marks.push(Placed {
-                        col: 0,
-                        line: shape_styled(window, EOF_MARK, &eof_style),
-                    });
+                    place(
+                        window,
+                        &mut marks,
+                        (0, EOF_MARK, &eof_style),
+                        spaced.then_some(|_: char| 1),
+                        &shape_styled,
+                    );
                 }
             } else if let Some(eol) = row.eol {
                 if marks_shown.eol {
@@ -624,10 +688,13 @@ impl Element for EditorElement {
                     if let (Some(_), Some(back)) = (eol_found, mark.style.back) {
                         backs.push((row.end_column, row.end_column + 1, back));
                     }
-                    marks.push(Placed {
-                        col: row.end_column,
-                        line: shape_styled(window, eol_mark(eol), &mark.style),
-                    });
+                    place(
+                        window,
+                        &mut marks,
+                        (row.end_column, eol_mark(eol), &mark.style),
+                        spaced.then_some(|_: char| 1),
+                        &shape_styled,
+                    );
                 }
             } else if !row.wrapped && row.line == last_line && marks_shown.eof {
                 backs.push((
@@ -635,10 +702,13 @@ impl Element for EditorElement {
                     row.end_column + eof_width,
                     eof_style.back.unwrap_or_default(),
                 ));
-                marks.push(Placed {
-                    col: row.end_column,
-                    line: shape_styled(window, EOF_MARK, &eof_style),
-                });
+                place(
+                    window,
+                    &mut marks,
+                    (row.end_column, EOF_MARK, &eof_style),
+                    spaced.then_some(|_: char| 1),
+                    &shape_styled,
+                );
             }
             let marked_cols = marked
                 .as_ref()
@@ -870,6 +940,7 @@ impl Element for EditorElement {
             columns: LayoutConfig {
                 tab_width: layout.config().effective_tab_width(),
                 width: layout.config().width,
+                tsv: layout.config().tsv.clone(),
                 ..LayoutConfig::default()
             },
             left: f32::from(bounds.origin.x) + gutter_width - scroll_x,
@@ -984,10 +1055,10 @@ impl Element for EditorElement {
                     ));
                 }
             }
-            if let Some(numbers) = &row.numbers {
-                numbers
+            for (dx, number) in &row.numbers {
+                number
                     .paint(
-                        point(bounds.left() + px(2.), y),
+                        point(bounds.left() + px(2. + dx), y),
                         lh,
                         TextAlign::Left,
                         None,

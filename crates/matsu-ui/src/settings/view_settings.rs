@@ -24,10 +24,10 @@ use matsu_coloring::ColorRules;
 use matsu_config::Profile;
 use matsu_config::location::Os;
 use matsu_config::settings::color::{ColorEntry, ColorRef, names};
-use matsu_config::settings::types::{tab_arrow, wrap_method};
+use matsu_config::settings::types::{LINE_SPACE_MAX, tab_arrow, wrap_method};
 use matsu_config::settings::{DocumentTypes, ViewFont};
 use matsu_layout::{
-    CharSet, Kinsoku, LayoutConfig, MAX_LINE_COLUMNS, MIN_LINE_COLUMNS, Wrap, WrapIndent,
+    CharSet, Kinsoku, LayoutConfig, MAX_LINE_COLUMNS, MIN_LINE_COLUMNS, TsvMode, Wrap, WrapIndent,
 };
 use matsu_print::LineTerm;
 
@@ -281,6 +281,13 @@ pub struct ViewSettings {
     /// The type has a font of its own (`m_bUseTypeFont`).
     pub use_type_font: bool,
     pub tab_width: u32,
+    /// `nColumnSpace`: pixels added to the width of every column (0 to 64, `COLUMNSPACE_MAX`).
+    pub column_space: u32,
+    /// `nLineSpace`: pixels added to the height of every row, or taken from it when negative
+    /// (-128 to 128, `LINESPACE_MAX`).
+    pub line_space: i32,
+    /// `nTsvMode`: the TSV or CSV mode.
+    pub tsv_mode: TsvMode,
     /// `bInsSpace`: the Tab key inserts spaces (`ChangeInsertSpace` changes it for this view).
     pub ins_space: bool,
     /// The indent options of the type that Enter and the typed chars read (`bAutoIndent`,
@@ -341,6 +348,9 @@ pub struct OutlineSettings {
 }
 
 /// `m_nRulerHeight` of a new `CommonSetting` (`sakura_core/env/CShareData.cpp`).
+/// `COLUMNSPACE_MAX` (`sakura_core/config/app_constants.h`).
+pub const COLUMN_SPACE_MAX: i32 = 64;
+
 const DEFAULT_RULER_HEIGHT: u32 = 13;
 
 /// `m_nVertLineOffset` of a new `CommonSetting`.
@@ -569,6 +579,9 @@ impl ViewSettings {
             font_truetype: crate::font_dialog::model::is_truetype(font.log_font.out_precision),
             use_type_font: t.use_type_font,
             tab_width: u32::try_from(t.tab_space).unwrap_or(4).max(1),
+            column_space: u32::try_from(t.column_space.clamp(0, COLUMN_SPACE_MAX)).unwrap_or(0),
+            line_space: t.line_space.clamp(-LINE_SPACE_MAX, LINE_SPACE_MAX),
+            tsv_mode: TsvMode::from_setting(t.tsv_mode),
             ins_space: t.ins_space,
             input: matsu_commands::input_options::InputOptions {
                 auto_indent: t.auto_indent,
@@ -725,6 +738,8 @@ impl ViewSettings {
             word_wrap: self.word_wrap,
             kinsoku: self.kinsoku.clone(),
             indent: self.wrap_indent.clone(),
+            // The stops of the TSV and CSV modes need the document (`TsvStops::scan`); the view
+            // adds them when it lays the document out.
             ..LayoutConfig::default()
         }
     }
