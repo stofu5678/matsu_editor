@@ -550,7 +550,17 @@ impl Element for EditorElement {
         let count = (body_height / line_height).ceil() as usize + 1;
         let mut rows: Vec<RowInfo> = layout.rows(doc, first_row, count).unwrap_or_default();
 
-        let digits = doc.line_count().max(1).to_string().len().max(3);
+        // `DetectWidthOfLineNumberArea_calculate`: the digits of the last number, at least
+        // `nLineNumWidth`, and a blank before them. The last number counts the lines of the text,
+        // or the rows of the wrapped view (the empty row after the last line ending is no line).
+        let numbers_by_line = settings.outline.line_num_is_crlf;
+        let eof_row = usize::from(layout.has_eof_row());
+        let last_number = if numbers_by_line {
+            doc.line_count().saturating_sub(eof_row)
+        } else {
+            layout.row_count().saturating_sub(eof_row)
+        };
+        let digits = lines::line_number_columns(last_number, settings.line_num_width);
         // The text starts `nLineNumberRightSpace` pixels after the line numbers
         // (`CTextArea::DetectWidthOfLineNumberArea`: `nViewAlignLeftNew += GetLeftYohaku()`).
         let gutter_width = settings.line_number_right_space as f32
@@ -616,8 +626,11 @@ impl Element for EditorElement {
             );
             // The digits are drawn a column apart (`DispLineNumber` uses the dx array of the font
             // with the spacing), so with spacing each digit has its own piece.
-            let numbers = if show_line_numbers && row.row_in_line == 0 && !row.is_eof_row {
-                let text = format!("{:>width$}", row.line + 1, width = digits);
+            let number = (show_line_numbers && !row.is_eof_row)
+                .then(|| lines::line_number(numbers_by_line, row.row, row.line, row.row_in_line))
+                .flatten();
+            let numbers = if let Some(number) = number {
+                let text = format!("{number:>digits$}");
                 if spaced {
                     text.chars()
                         .enumerate()

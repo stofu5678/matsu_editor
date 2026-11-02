@@ -370,7 +370,7 @@ fn write_by_id(
 
 /// Writes what the user changed into type `number` of `profile`, over the type as `profile` has it
 /// now (another window or process may have changed it since the sheet opened), except that the
-/// new-file keys (`eDefaultCodetype`, `eDefaultEoltype`, `bDefaultBom`) the user did not change
+/// new-file keys (`eDefaultCodetype`, `eDefaultEoltype`, `bDefaultBom`, `bPriorCesu8`) the user did not change
 /// and the file does not set stay unset, so that the line ending still follows the OS. A type of
 /// MATSU Editor's own (ADR-0017) is written with all its keys.
 fn write_type(
@@ -405,6 +405,11 @@ fn write_type(
             merged.default_bom == base.default_bom
                 && merged.default_codetype == base.default_codetype,
             raw("bDefaultBom"),
+        ),
+        (
+            "bPriorCesu8",
+            merged.prior_cesu8 == base.prior_cesu8,
+            raw("bPriorCesu8"),
         ),
     ];
     merged.write(profile, number)?;

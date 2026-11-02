@@ -37,6 +37,7 @@ mod dialog_focus;
 mod dialog_tab_tests;
 mod diff;
 mod doc_types;
+mod doc_window;
 pub mod document;
 mod exec;
 mod file_dialog;

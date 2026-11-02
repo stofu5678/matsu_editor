@@ -279,7 +279,12 @@ fn a_moved_type_keeps_its_own_keys() {
     assert_eq!(p.get("Types(19)", "eDefaultEoltype"), Some("2"));
     assert_eq!(p.get("Types(18)", "somethingElse"), None);
     // B did not set the new-file keys, so it still does not.
-    for key in ["eDefaultCodetype", "eDefaultEoltype", "bDefaultBom"] {
+    for key in [
+        "eDefaultCodetype",
+        "eDefaultEoltype",
+        "bDefaultBom",
+        "bPriorCesu8",
+    ] {
         assert_eq!(p.get("Types(18)", key), None, "{key}");
     }
     assert_eq!(
