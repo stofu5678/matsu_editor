@@ -179,7 +179,7 @@ impl SharedDocument {
     /// The stops of `mode` for the text of this document, for the layout of every pane. They are
     /// worked out when a pane first asks, and kept until the document is replaced (a file is
     /// loaded: a new `SharedDocument` has none) or its text is complete
-    /// ([`forget_tsv_stops`](Self::forget_tsv_stops)), not after each edit: Sakura works them out
+    /// (`forget_tsv_stops`), not after each edit: Sakura works them out
     /// when the file is loaded or the mode changes (`CLoadAgent::OnLoad`,
     /// `CLayoutMgr::SetLayoutInfo`).
     pub fn tsv_stops(
@@ -187,10 +187,13 @@ impl SharedDocument {
         mode: matsu_layout::TsvMode,
         width: &matsu_layout::WidthRule,
     ) -> matsu_layout::TsvStops {
+        let mut kept = self.tsv_stops.borrow_mut();
+        // Leaving the mode ends the stops: the next time the mode is set they are worked out
+        // from the text as it is then (`SetLayoutInfo` does it when the mode changes).
         if mode == matsu_layout::TsvMode::None {
+            kept.take();
             return matsu_layout::TsvStops::none();
         }
-        let mut kept = self.tsv_stops.borrow_mut();
         if let Some(stops) = kept.as_ref().filter(|s| s.mode() == mode) {
             return stops.clone();
         }
@@ -200,7 +203,7 @@ impl SharedDocument {
     }
 
     /// The text is not what the stops were worked out from (the scan of a file read by ranges
-    /// ended): the next [`tsv_stops`](Self::tsv_stops) works them out again.
+    /// ended): the next [`SharedDocument::tsv_stops`] works them out again.
     pub(crate) fn forget_tsv_stops(&self) {
         self.tsv_stops.borrow_mut().take();
     }

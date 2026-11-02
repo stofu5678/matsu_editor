@@ -418,6 +418,10 @@ fn the_tsv_mode_of_the_type_lines_up_the_fields(cx: &mut TestAppContext) {
     view.update(cx, |v, cx| v.apply_user_settings(&off, cx));
     assert!(stops(&view, cx).is_empty());
     assert_eq!(column(&view, cx, matsu_core::buffer::Pos::new(0, 2)), 4);
+
+    // the mode is set again: the stops are worked out from the text as it is now
+    view.update(cx, |v, cx| v.apply_user_settings(&tsv, cx));
+    assert_eq!(stops(&view, cx), [7, 11]);
 }
 
 #[gpui::test]

@@ -68,10 +68,45 @@ impl EditorElement {
     }
 }
 
-/// A shaped piece and the column where it goes.
+/// A shaped piece and the column where it goes. A character of spaced text has its underline
+/// apart from the glyph, over all its columns, so that the underline has no gaps; a space has
+/// no glyph.
 struct Placed {
     col: u32,
-    line: ShapedLine,
+    line: Option<ShapedLine>,
+    /// The columns the underline covers and its color.
+    underline: Option<(u32, u32)>,
+}
+
+/// Paints a piece of text: its glyphs at its column, then its underline.
+fn paint_placed(
+    window: &mut Window,
+    cx: &mut App,
+    placed: &Placed,
+    x_of: &dyn Fn(u32) -> Pixels,
+    y: Pixels,
+    lh: Pixels,
+) {
+    if let Some(line) = &placed.line {
+        line.paint(
+            point(x_of(placed.col), y),
+            lh,
+            TextAlign::Left,
+            None,
+            window,
+            cx,
+        )
+        .ok();
+    }
+    if let Some((cols, color)) = placed.underline {
+        window.paint_quad(fill(
+            Bounds::from_corners(
+                point(x_of(placed.col), y + lh - px(3.)),
+                point(x_of(placed.col + cols), y + lh - px(2.)),
+            ),
+            rgb(color),
+        ));
+    }
 }
 
 /// How the line number area of a row shows a bookmark.
@@ -325,19 +360,27 @@ fn place(
     let Some(width_of) = width_of else {
         out.push(Placed {
             col,
-            line: shape(window, label, style),
+            line: Some(shape(window, label, style)),
+            underline: None,
         });
         return;
     };
+    // Each character is shaped alone, so its underline would stop at the glyph: the underline is
+    // a line across the columns of the character instead.
+    let glyph_style = TextStyle {
+        underline: false,
+        ..*style
+    };
     let mut col = col;
     for c in label.chars() {
-        if !c.is_whitespace() {
-            out.push(Placed {
-                col,
-                line: shape(window, c.encode_utf8(&mut [0; 4]), style),
-            });
-        }
-        col += width_of(c);
+        let cols = width_of(c);
+        out.push(Placed {
+            col,
+            line: (!c.is_whitespace())
+                .then(|| shape(window, c.encode_utf8(&mut [0; 4]), &glyph_style)),
+            underline: style.underline.then_some((cols, style.text)),
+        });
+        col += cols;
     }
 }
 
@@ -639,7 +682,6 @@ impl Element for EditorElement {
             );
             let mut text = Vec::new();
             let mut selected_text = Vec::new();
-            let mut spaced_underlines = Vec::new();
             for item in &styling.items {
                 let tab_text;
                 let label = match &item.label {
@@ -656,21 +698,11 @@ impl Element for EditorElement {
                     Label::Text(_) => widths.columns(c),
                     _ => 1,
                 };
-                // Each character of spaced text is shaped alone, so its underline would stop at
-                // the glyph: the underline is one line across the columns of the piece instead.
-                let glyph_style = |style: &TextStyle| TextStyle {
-                    underline: style.underline && !spaced,
-                    ..*style
-                };
-                if spaced && item.style.underline {
-                    let cols = label.chars().map(width_of).sum::<u32>();
-                    spaced_underlines.push((item.col, item.col + cols, item.style.text));
-                }
                 if let Some(selected_style) = &item.selected {
                     place(
                         window,
                         &mut selected_text,
-                        (item.col, label, &glyph_style(selected_style)),
+                        (item.col, label, selected_style),
                         spaced.then_some(width_of),
                         &shape_styled,
                     );
@@ -678,7 +710,7 @@ impl Element for EditorElement {
                 place(
                     window,
                     &mut text,
-                    (item.col, label, &glyph_style(&item.style)),
+                    (item.col, label, &item.style),
                     spaced.then_some(width_of),
                     &shape_styled,
                 );
@@ -777,11 +809,7 @@ impl Element for EditorElement {
                 row_background: (row_back != colors.background).then_some(row_back),
                 backs,
                 selected_backs: styling.selected_backs,
-                underlines: {
-                    let mut underlines = styling.underlines;
-                    underlines.extend(spaced_underlines);
-                    underlines
-                },
+                underlines: styling.underlines,
                 text,
                 selected_text,
                 marks,
@@ -1233,17 +1261,7 @@ impl Element for EditorElement {
                         ));
                     }
                     for placed in &row.marks {
-                        placed
-                            .line
-                            .paint(
-                                point(x_of(placed.col), y),
-                                lh,
-                                TextAlign::Left,
-                                None,
-                                window,
-                                cx,
-                            )
-                            .ok();
+                        paint_placed(window, cx, placed, &x_of, y, lh);
                     }
                     // Selected text has its own color when the selection says so: the pieces in
                     // that color are painted inside the selection, the others outside it.
@@ -1277,17 +1295,7 @@ impl Element for EditorElement {
                         let mask = mask.intersect(&text_bounds);
                         window.with_content_mask(Some(ContentMask { bounds: mask }), |window| {
                             for placed in pieces {
-                                placed
-                                    .line
-                                    .paint(
-                                        point(x_of(placed.col), y),
-                                        lh,
-                                        TextAlign::Left,
-                                        None,
-                                        window,
-                                        cx,
-                                    )
-                                    .ok();
+                                paint_placed(window, cx, placed, &x_of, y, lh);
                             }
                         });
                     }
