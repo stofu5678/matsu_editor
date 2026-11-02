@@ -608,9 +608,10 @@ fn the_dialog_searches_the_text_of_the_window(cx: &mut TestAppContext) {
         "{text}"
     );
     // the file and the folder were not used, so they are not kept
-    assert!(
-        cx.update(|_, app| crate::search::history::grep_files(app))
-            .is_empty()
+    // (only the `*.*` that the opening of the dialog put there)
+    assert_eq!(
+        cx.update(|_, app| crate::search::history::grep_files(app)),
+        ["*.*"]
     );
     assert!(
         cx.update(|_, app| crate::search::history::grep_folders(app))

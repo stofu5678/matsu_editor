@@ -85,10 +85,17 @@ struct GrepMemory(GrepSettings);
 impl Global for GrepMemory {}
 
 /// The values the dialog starts with.
+/// Before anything was remembered the boxes of the files and the exclusions are empty, so that
+/// the dialog fills them from the histories (`CDlgGrep::DoModal`).
 pub(crate) fn remembered(cx: &App) -> GrepSettings {
     cx.try_global::<GrepMemory>()
         .map(|memory| memory.0.clone())
-        .unwrap_or_default()
+        .unwrap_or_else(|| GrepSettings {
+            file: String::new(),
+            exclude_file: String::new(),
+            exclude_folder: String::new(),
+            ..GrepSettings::default()
+        })
 }
 
 pub(crate) fn remember(cx: &mut App, settings: GrepSettings) {

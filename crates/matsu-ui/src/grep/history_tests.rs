@@ -34,6 +34,29 @@ fn setup(cx: &mut TestAppContext) -> (Fixture, &mut VisualTestContext) {
     (Fixture { view }, vcx)
 }
 
+fn setup_at(
+    cx: &mut TestAppContext,
+    path: std::path::PathBuf,
+) -> (Fixture, &mut VisualTestContext) {
+    cx.update(gpui_component::init);
+    let doc = Document::from_utf8(Vec::new()).unwrap();
+    let shared = cx.new(|_| SharedDocument::new(DocumentModel::new(doc), Some(path)));
+    let (view, vcx) = cx.add_window_view(move |window, cx| {
+        let view = EditorView::new(shared, cx);
+        window.focus(&view.focus_handle, cx);
+        view
+    });
+    vcx.executor().allow_parking();
+    (Fixture { view }, vcx)
+}
+
+fn boxes(cx: &mut VisualTestContext, panel: &Entity<GrepPanel>) -> [String; 4] {
+    panel.read_with(cx, |p, app| {
+        [&p.file, &p.folder, &p.exclude_file, &p.exclude_folder]
+            .map(|state| state.read(app).value().to_string())
+    })
+}
+
 fn settle(cx: &mut VisualTestContext) {
     for _ in 0..50 {
         cx.run_until_parked();
@@ -100,12 +123,19 @@ fn ok_keeps_the_boxes_in_the_histories(cx: &mut TestAppContext) {
     panel.update_in(cx, |p, window, cx| p.ok(window, cx));
     settle(cx);
     let [files, folders, exclude_files, exclude_folders, keys] = lists(cx);
-    assert_eq!(files, ["*.txt;*.md"]);
+    // opening the dialog put the defaults in the histories (`*.*` and the exclusions)
+    assert_eq!(files, ["*.txt;*.md", "*.*"]);
     // the folder is kept as the dialog wrote it back (absolute)
     assert_eq!(folders.len(), 1);
     assert!(folders[0].ends_with(root.rsplit(['/', '\\']).next().unwrap()));
-    assert_eq!(exclude_files, ["*.bak"]);
-    assert_eq!(exclude_folders, [".git"]);
+    assert_eq!(
+        exclude_files,
+        ["*.bak", super::settings::DEFAULT_EXCLUDE_FILE]
+    );
+    assert_eq!(
+        exclude_folders,
+        [".git", super::settings::DEFAULT_EXCLUDE_FOLDER]
+    );
     assert_eq!(keys, ["key"]);
 }
 
@@ -119,7 +149,9 @@ fn a_box_left_empty_leaves_no_blank_line(cx: &mut TestAppContext) {
     panel.update_in(cx, |p, window, cx| p.ok(window, cx));
     settle(cx);
     let [_, _, exclude_files, exclude_folders, _] = lists(cx);
-    assert!(exclude_files.is_empty() && exclude_folders.is_empty());
+    // only the defaults that the opening put there
+    assert_eq!(exclude_files, [super::settings::DEFAULT_EXCLUDE_FILE]);
+    assert_eq!(exclude_folders, [super::settings::DEFAULT_EXCLUDE_FOLDER]);
 }
 
 #[gpui::test]
@@ -136,7 +168,12 @@ fn a_search_that_the_dialog_refuses_keeps_nothing(cx: &mut TestAppContext) {
     settle(cx);
     assert!(cx.has_pending_prompt());
     cx.simulate_prompt_answer("OK");
-    assert!(lists(cx).iter().all(Vec::is_empty));
+    // only what the opening put there
+    let [files, folders, exclude_files, exclude_folders, keys] = lists(cx);
+    assert_eq!(files, ["*.*"]);
+    assert!(folders.is_empty() && keys.is_empty());
+    assert_eq!(exclude_files, [super::settings::DEFAULT_EXCLUDE_FILE]);
+    assert_eq!(exclude_folders, [super::settings::DEFAULT_EXCLUDE_FOLDER]);
 }
 
 #[gpui::test]
@@ -280,7 +317,10 @@ fn the_replace_dialog_keeps_the_replacement(cx: &mut TestAppContext) {
     });
     settle(cx);
     assert_eq!(cx.update(|_, app| history::replace_keys(app)), ["pin"]);
-    assert_eq!(cx.update(|_, app| history::grep_files(app)), ["*.txt"]);
+    assert_eq!(
+        cx.update(|_, app| history::grep_files(app)),
+        ["*.txt", "*.*"]
+    );
 }
 
 #[gpui::test]
@@ -336,4 +376,122 @@ fn the_dialog_has_a_list_for_each_of_its_boxes(cx: &mut TestAppContext) {
         });
         assert_eq!(got, expect, "the list of the {pick} box");
     }
+}
+
+// ---- the boxes start from the histories (`CDlgGrep::DoModal`, `OnInitDialog`) ----
+
+fn remember_all(cx: &mut VisualTestContext, file: &str, folder: &str, xf: &str, xd: &str) {
+    cx.update(|_, app| {
+        history::remember_grep_boxes(
+            app,
+            &GrepBoxes {
+                file,
+                folder,
+                exclude_file: xf,
+                exclude_folder: xd,
+            },
+        );
+    });
+}
+
+#[gpui::test]
+fn the_newest_of_each_history_fills_the_empty_boxes(cx: &mut TestAppContext) {
+    // what a run before left in the settings file, read at the start
+    let (f, cx) = setup(cx);
+    remember_all(cx, "*.cpp", "C:\\old", "*.bak", "obj");
+    remember_all(cx, "*.txt", "C:\\work", "*.tmp", ".git");
+    let panel = f.open(cx, "F_GREP_DIALOG");
+    assert_eq!(boxes(cx, &panel), ["*.txt", "C:\\work", "*.tmp", ".git"]);
+}
+
+#[gpui::test]
+fn without_histories_the_files_and_exclusions_start_with_the_defaults(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    let panel = f.open(cx, "F_GREP_DIALOG");
+    assert_eq!(
+        boxes(cx, &panel),
+        [
+            "*.*",
+            "",
+            super::settings::DEFAULT_EXCLUDE_FILE,
+            super::settings::DEFAULT_EXCLUDE_FOLDER
+        ]
+    );
+    // and the defaults are in the histories, to be chosen later
+    assert_eq!(
+        cx.update(|_, app| history::exclude_files(app)),
+        [super::settings::DEFAULT_EXCLUDE_FILE]
+    );
+    assert_eq!(
+        cx.update(|_, app| history::exclude_folders(app)),
+        [super::settings::DEFAULT_EXCLUDE_FOLDER]
+    );
+}
+
+#[gpui::test]
+fn a_box_the_user_emptied_is_filled_again_at_the_next_opening(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx);
+    remember_all(cx, "*.rs", "C:\\src", "", "");
+    let panel = f.open(cx, "F_GREP_DIALOG");
+    fill(cx, &panel, ["", "", "", "", ""]);
+    panel.update_in(cx, |p, window, cx| p.cancel(window, cx));
+    let panel = f.open(cx, "F_GREP_DIALOG");
+    let [file, folder, _, _] = boxes(cx, &panel);
+    assert_eq!((file.as_str(), folder.as_str()), ("*.rs", "C:\\src"));
+}
+
+#[gpui::test]
+fn the_folder_of_the_file_in_the_window_is_taken_when_the_folder_is_empty(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("memo.txt");
+    let (f, cx) = setup_at(cx, file);
+    let panel = f.open(cx, "F_GREP_DIALOG");
+    let [_, folder, _, _] = boxes(cx, &panel);
+    assert_eq!(folder, dir.path().to_string_lossy());
+}
+
+#[gpui::test]
+fn the_folder_history_wins_over_the_file_unless_the_option_is_on(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("memo.txt");
+    let (f, cx) = setup_at(cx, file);
+    remember_all(cx, "*.*", "C:\\history", "", "");
+    let panel = f.open(cx, "F_GREP_DIALOG");
+    assert_eq!(boxes(cx, &panel)[1], "C:\\history");
+    panel.update_in(cx, |p, window, cx| p.cancel(window, cx));
+    // フォルダーの初期値をカレントフォルダーにする
+    cx.update(|_, app| {
+        let mut settings = super::window::remembered(app);
+        settings.default_folder = true;
+        super::window::remember(app, settings);
+    });
+    let panel = f.open(cx, "F_GREP_DIALOG");
+    assert_eq!(boxes(cx, &panel)[1], dir.path().to_string_lossy());
+}
+
+#[gpui::test]
+fn values_that_are_given_come_before_the_histories(cx: &mut TestAppContext) {
+    // `-GREPDLG` passes its own file and folder
+    let (f, cx) = setup(cx);
+    remember_all(cx, "*.txt", "C:\\work", "*.tmp", ".git");
+    let given = super::settings::GrepSettings {
+        file: "*.md".to_owned(),
+        folder: "C:\\given".to_owned(),
+        ..super::settings::GrepSettings::default()
+    };
+    f.view.update_in(cx, |view, window, cx| {
+        view.open_grep_panel_with(given, window, cx)
+    });
+    settle(cx);
+    let panel = f.view.read_with(cx, |v, _| v.grep.panel.clone()).unwrap();
+    let [file, folder, exclude_file, exclude_folder] = boxes(cx, &panel);
+    assert_eq!((file.as_str(), folder.as_str()), ("*.md", "C:\\given"));
+    // the exclusions were not passed: the defaults of the settings are values too
+    assert_eq!(
+        (exclude_file.as_str(), exclude_folder.as_str()),
+        (
+            super::settings::DEFAULT_EXCLUDE_FILE,
+            super::settings::DEFAULT_EXCLUDE_FOLDER
+        )
+    );
 }

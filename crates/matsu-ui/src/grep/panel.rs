@@ -39,7 +39,10 @@ use matsu_core::encoding::Encoding;
 
 use super::format::{LineType, OutputStyle};
 use super::keys::split_folders;
-use super::settings::{DialogError, GrepSettings, browse_start, quote_folder};
+use super::settings::{
+    DEFAULT_EXCLUDE_FILE, DEFAULT_EXCLUDE_FOLDER, DialogError, GrepSettings, browse_start,
+    quote_folder,
+};
 use super::window::{THIS_DOCUMENT, clipboard_replacement, remember, remembered};
 use crate::file_dialog::{self, Ask};
 use crate::search::history::{self, GrepBoxes};
@@ -142,6 +145,61 @@ impl Field {
             Field::ExcludeFolder => history::exclude_folders(cx),
             Field::Replacement => history::replace_keys(cx),
         }
+    }
+}
+
+/// Fills the boxes that are empty from the histories, as `CDlgGrep::DoModal` does when the dialog
+/// opens: the file and the folder take the newest string of their history, and so do the excluded
+/// files and folders, which take the default patterns when the history is empty and put them in
+/// it, to be chosen later. A value that was given (the command line, the last search) comes
+/// first. The file box takes `*.*` that way too (Sakura starts with it in the history).
+fn fill_from_histories(settings: &mut GrepSettings, cx: &mut App) {
+    fn newest(list: Vec<String>) -> Option<String> {
+        list.into_iter().next()
+    }
+    let mut keep = GrepBoxes {
+        file: "",
+        folder: "",
+        exclude_file: "",
+        exclude_folder: "",
+    };
+    if settings.file.is_empty() {
+        match newest(history::grep_files(cx)) {
+            Some(file) => settings.file = file,
+            None => {
+                settings.file = "*.*".to_owned();
+                keep.file = "*.*";
+            }
+        }
+    }
+    if settings.folder.is_empty()
+        && let Some(folder) = newest(history::grep_folders(cx))
+    {
+        settings.folder = folder;
+    }
+    if settings.exclude_file.is_empty() {
+        match newest(history::exclude_files(cx)) {
+            Some(exclude) => settings.exclude_file = exclude,
+            None => {
+                settings.exclude_file = DEFAULT_EXCLUDE_FILE.to_owned();
+                keep.exclude_file = DEFAULT_EXCLUDE_FILE;
+            }
+        }
+    }
+    if settings.exclude_folder.is_empty() {
+        match newest(history::exclude_folders(cx)) {
+            Some(exclude) => settings.exclude_folder = exclude,
+            None => {
+                settings.exclude_folder = DEFAULT_EXCLUDE_FOLDER.to_owned();
+                keep.exclude_folder = DEFAULT_EXCLUDE_FOLDER;
+            }
+        }
+    }
+    if [keep.file, keep.exclude_file, keep.exclude_folder]
+        .iter()
+        .any(|text| !text.is_empty())
+    {
+        history::remember_grep_boxes(cx, &keep);
     }
 }
 
@@ -1109,6 +1167,9 @@ impl EditorView {
                 }
             }
         }
+        // The histories first, then the folder of the file in the window (`OnInitDialog` takes it
+        // when the folder is still empty or 初期値をカレントフォルダーにする is on).
+        fill_from_histories(&mut settings, cx);
         let path = self.document.read(cx).path().map(Path::to_path_buf);
         settings.offer_folder(path.as_deref());
         self.show_grep_panel(settings, replace, window, cx);
@@ -1118,10 +1179,11 @@ impl EditorView {
     /// line, `CNormalProcess::InitializeProcess`).
     pub(crate) fn open_grep_panel_with(
         &mut self,
-        settings: GrepSettings,
+        mut settings: GrepSettings,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        fill_from_histories(&mut settings, cx);
         self.show_grep_panel(settings, false, window, cx);
     }
 
