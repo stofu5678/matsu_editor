@@ -51,6 +51,7 @@
 //! [`Document::is_long_line`]) is skipped: the layout does not decode such a line either.
 
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use matsu_core::buffer::{Document, Result};
 
@@ -121,72 +122,19 @@ impl TsvStops {
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
-        let Some(delimiter) = mode.delimiter() else {
-            return Self::none();
-        };
-        // The widest field of each field number.
-        let mut widest: Vec<u32> = Vec::new();
+        let mut scan = TsvScan::new(mode, *width);
         for line in lines {
-            let mut field = 0;
-            let mut field_width = 0u32;
-            for c in line.as_ref().chars() {
-                if is_line_delimiter(c) {
-                    break;
-                }
-                if c == delimiter {
-                    note(&mut widest, field, field_width);
-                    field += 1;
-                    field_width = 0;
-                    continue;
-                }
-                // A tab that is not the delimiter (CSV) counts 1.
-                field_width =
-                    field_width.saturating_add(if c == '\t' { 1 } else { width.columns(c) });
-            }
-            note(&mut widest, field, field_width);
+            scan.add_line(line.as_ref());
         }
-        // "m_tabLength[ui] += m_tabLength[ui-1] + 2"
-        let mut end = 0u32;
-        let mut gap = 2;
-        let ends: Vec<u32> = widest
-            .into_iter()
-            .map(|w| {
-                let before = end;
-                end = end.saturating_add(w).saturating_add(2);
-                gap = gap.max(end - before);
-                end
-            })
-            .collect();
-        Self {
-            mode,
-            ends: ends.into(),
-            widest: gap,
-        }
+        scan.finish()
     }
 
-    /// Reads `doc` a line at a time and works out the stops. A very long line is left out.
+    /// Reads `doc` a line at a time and works out the stops, all at once. A very long line is
+    /// left out. A large document is better scanned with a [`TsvScan`] a piece at a time.
     pub fn scan(doc: &Document, mode: TsvMode, width: &WidthRule) -> Result<Self> {
-        if mode == TsvMode::None {
-            return Ok(Self::none());
-        }
-        let mut failure = None;
-        let lines = (0..doc.line_count()).filter_map(|i| {
-            if failure.is_some() || doc.is_long_line(i) {
-                return None;
-            }
-            match doc.line(i) {
-                Ok(line) => line.map(|l| l.text),
-                Err(e) => {
-                    failure = Some(e);
-                    None
-                }
-            }
-        });
-        let stops = Self::from_lines(mode, width, lines);
-        match failure {
-            Some(e) => Err(e),
-            None => Ok(stops),
-        }
+        let mut scan = TsvScan::new(mode, *width);
+        scan.advance(doc, Duration::MAX)?;
+        Ok(scan.finish())
     }
 
     /// The most columns a delimiter can take. 2 when there are no stops.
@@ -211,6 +159,115 @@ impl TsvStops {
         match self.ends.get(next) {
             Some(end) => end - x,
             None => 2,
+        }
+    }
+}
+
+/// The scan of a document for [`TsvStops`], done a piece at a time like
+/// [`DocumentLayout::widest_columns`](crate::DocumentLayout::widest_columns): each call to
+/// [`advance`](Self::advance) reads lines for about a budget and remembers where it stopped.
+#[derive(Clone, Debug)]
+pub struct TsvScan {
+    mode: TsvMode,
+    width: WidthRule,
+    /// The next line to read.
+    next: usize,
+    /// The widest field of each field number so far.
+    widest: Vec<u32>,
+}
+
+impl TsvScan {
+    pub fn new(mode: TsvMode, width: WidthRule) -> Self {
+        Self {
+            mode,
+            width,
+            next: 0,
+            widest: Vec::new(),
+        }
+    }
+
+    pub fn mode(&self) -> TsvMode {
+        self.mode
+    }
+
+    /// The next line to read.
+    pub fn next_line(&self) -> usize {
+        self.next
+    }
+
+    /// Whether every line of `doc` has been read.
+    pub fn is_done(&self, doc: &Document) -> bool {
+        self.mode == TsvMode::None || self.next >= doc.line_count()
+    }
+
+    /// Reads lines for about `budget` (at least one, so that it always goes on). Returns whether
+    /// the whole document has been read.
+    pub fn advance(&mut self, doc: &Document, budget: Duration) -> Result<bool> {
+        let start = Instant::now();
+        let total = doc.line_count();
+        let first = self.next;
+        while self.mode != TsvMode::None && self.next < total {
+            if self.next > first && start.elapsed() >= budget {
+                break;
+            }
+            let line = self.next;
+            self.next += 1;
+            if doc.is_long_line(line) {
+                continue;
+            }
+            if let Some(l) = doc.line(line)? {
+                self.add_line(&l.text);
+            }
+        }
+        Ok(self.is_done(doc))
+    }
+
+    /// Takes one line (its text without the line ending).
+    fn add_line(&mut self, line: &str) {
+        let Some(delimiter) = self.mode.delimiter() else {
+            return;
+        };
+        let mut field = 0;
+        let mut field_width = 0u32;
+        for c in line.chars() {
+            if is_line_delimiter(c) {
+                break;
+            }
+            if c == delimiter {
+                note(&mut self.widest, field, field_width);
+                field += 1;
+                field_width = 0;
+                continue;
+            }
+            // A tab that is not the delimiter (CSV) counts 1.
+            field_width =
+                field_width.saturating_add(if c == '\t' { 1 } else { self.width.columns(c) });
+        }
+        note(&mut self.widest, field, field_width);
+    }
+
+    /// The stops of the lines read so far.
+    pub fn finish(&self) -> TsvStops {
+        if self.mode == TsvMode::None {
+            return TsvStops::none();
+        }
+        // "m_tabLength[ui] += m_tabLength[ui-1] + 2"
+        let mut end = 0u32;
+        let mut gap = 2;
+        let ends: Vec<u32> = self
+            .widest
+            .iter()
+            .map(|&w| {
+                let before = end;
+                end = end.saturating_add(w).saturating_add(2);
+                gap = gap.max(end - before);
+                end
+            })
+            .collect();
+        TsvStops {
+            mode: self.mode,
+            ends: ends.into(),
+            widest: gap,
         }
     }
 }
@@ -309,6 +366,30 @@ mod tests {
         assert_eq!(s.mode(), TsvMode::Tsv);
         let none = TsvStops::scan(&doc, TsvMode::None, &WidthRule::default()).unwrap();
         assert_eq!(none, TsvStops::none());
+    }
+
+    #[test]
+    fn a_scan_goes_on_a_piece_at_a_time_and_ends_as_the_whole_scan_does() {
+        let text: String = (0..2000)
+            .map(|i| format!("{}\t{}\r\n", "a".repeat(i % 7 + 1), "b".repeat(i % 13)))
+            .collect();
+        let doc = Document::from_utf8(text.into_bytes()).unwrap();
+        let width = WidthRule::default();
+        let mut scan = TsvScan::new(TsvMode::Tsv, width);
+        // an empty budget still reads a line, and only a few
+        let done = scan.advance(&doc, Duration::ZERO).unwrap();
+        assert!(!done);
+        assert!(scan.next_line() >= 1 && scan.next_line() < 2000);
+        let mut calls = 1;
+        while !scan.advance(&doc, Duration::ZERO).unwrap() {
+            calls += 1;
+            assert!(calls <= 2001);
+        }
+        assert!(calls > 1);
+        assert_eq!(
+            scan.finish(),
+            TsvStops::scan(&doc, TsvMode::Tsv, &width).unwrap()
+        );
     }
 
     #[test]

@@ -47,8 +47,9 @@ pub(crate) fn set_shown(cx: &mut App, on: bool) {
 /// text does not wrap (`layout3Keta`).
 const NO_WRAP_MARGIN: u32 = 3;
 
-/// How long a frame may spend on the width of the text.
-const WIDTH_BUDGET: Duration = Duration::from_millis(3);
+/// How long a frame may spend on counting over the document (the width of the text, the stops
+/// of the TSV and CSV modes).
+pub(super) const WIDTH_BUDGET: Duration = Duration::from_millis(3);
 
 /// `GetRightEdgeForScrollBar`: the right end of what the bar covers, in columns.
 ///

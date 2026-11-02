@@ -211,9 +211,25 @@ impl EditorView {
     /// Whether the stops of the TSV or CSV mode that the document holds are not the layout's
     /// (the mode changed, or another pane loaded a file or completed the document).
     pub(crate) fn tsv_stops_changed(&self, cx: &App) -> bool {
-        let shared = self.document.read(cx);
+        self.document
+            .read(cx)
+            .tsv_stops(self.prefs.settings.tsv_mode)
+            != self.layout.config().tsv
+    }
+
+    /// Goes on with the count of the TSV or CSV stops for about `budget`, and lays the document
+    /// out with them when the count is complete. Returns whether the count is complete. Called
+    /// before each frame, so that a large document does not stop the window (ADR-0020).
+    pub(crate) fn step_tsv_stops(&mut self, budget: std::time::Duration, cx: &App) -> bool {
         let width = self.layout.config().width;
-        shared.tsv_stops(self.prefs.settings.tsv_mode, &width) != self.layout.config().tsv
+        let done =
+            self.document
+                .read(cx)
+                .step_tsv_stops(self.prefs.settings.tsv_mode, &width, budget);
+        if self.tsv_stops_changed(cx) {
+            self.relayout_in(cx);
+        }
+        done
     }
 
     /// Lays the document out again with the settings of the view, if they differ from the
@@ -231,7 +247,7 @@ impl EditorView {
         config.tsv = self
             .document
             .read(cx)
-            .tsv_stops(self.prefs.settings.tsv_mode, &config.width);
+            .tsv_stops(self.prefs.settings.tsv_mode);
         if config == *self.layout.config() {
             return false;
         }

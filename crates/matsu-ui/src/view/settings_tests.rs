@@ -389,6 +389,7 @@ fn the_tsv_mode_of_the_type_lines_up_the_fields(cx: &mut TestAppContext) {
 
     let tsv = user("[Types(0)]\r\nnInts=0,80,0,4,-1,-1,0,1,1,0,0,1\r\n");
     view.update(cx, |v, cx| v.apply_user_settings(&tsv, cx));
+    count_stops(&view, cx);
     // field 0: cccc (4) -> 6; field 1: bb (2) -> 6 + 2 + 2
     assert_eq!(stops(&view, cx), [6, 10]);
     assert_eq!(column(&view, cx, matsu_core::buffer::Pos::new(0, 2)), 6);
@@ -407,20 +408,24 @@ fn the_tsv_mode_of_the_type_lines_up_the_fields(cx: &mut TestAppContext) {
     // so the document works them out from the whole text, for every pane
     view.read_with(cx, |v, cx| v.document.read(cx).forget_tsv_stops());
     view.update(cx, |v, cx| v.document_changed(v.layout_version + 1, cx));
+    count_stops(&view, cx);
     assert_eq!(stops(&view, cx), [7, 11]);
 
     let csv = user("[Types(0)]\r\nnInts=0,80,0,4,-1,-1,0,1,1,0,0,2\r\n");
     view.update(cx, |v, cx| v.apply_user_settings(&csv, cx));
+    count_stops(&view, cx);
     // no comma in the text: one field, the widest line "cccc\txd" is 7 columns with the tab as 1
     assert_eq!(stops(&view, cx), [9]);
 
     let off = user("[Types(0)]\r\nnInts=0,80,0,4,-1,-1,0,1,1,0,0,0\r\n");
     view.update(cx, |v, cx| v.apply_user_settings(&off, cx));
+    count_stops(&view, cx);
     assert!(stops(&view, cx).is_empty());
     assert_eq!(column(&view, cx, matsu_core::buffer::Pos::new(0, 2)), 4);
 
     // the mode is set again: the stops are worked out from the text as it is now
     view.update(cx, |v, cx| v.apply_user_settings(&tsv, cx));
+    count_stops(&view, cx);
     assert_eq!(stops(&view, cx), [7, 11]);
 }
 
@@ -429,6 +434,7 @@ fn a_new_pane_keeps_the_tsv_stops_of_the_pane_it_comes_from(cx: &mut TestAppCont
     let (view, cx) = setup(cx, "a\tbb\ncccc\td\n");
     let tsv = user("[Types(0)]\r\nnInts=0,80,0,4,-1,-1,0,1,1,0,0,1\r\n");
     view.update(cx, |v, cx| v.apply_user_settings(&tsv, cx));
+    count_stops(&view, cx);
     // the text is edited after the stops were worked out: the first pane keeps them
     view.update(cx, |v, cx| {
         v.cursor.move_to(matsu_core::buffer::Pos::new(1, 4), false);
@@ -443,4 +449,53 @@ fn a_new_pane_keeps_the_tsv_stops_of_the_pane_it_comes_from(cx: &mut TestAppCont
     };
     assert_eq!(ends(&view, cx), [6, 10]);
     assert_eq!(ends(&pane, cx), [6, 10]);
+}
+
+/// Counts the stops of the TSV or CSV mode to the end.
+fn count_stops(view: &Entity<EditorView>, cx: &mut VisualTestContext) {
+    view.update(cx, |v, cx| {
+        assert!(v.step_tsv_stops(std::time::Duration::from_secs(60), cx));
+    });
+}
+
+#[gpui::test]
+fn the_stops_are_counted_a_piece_a_frame_and_end_as_a_whole_count_does(cx: &mut TestAppContext) {
+    let text: String = (0..3000)
+        .map(|i| format!("{}\t{}\n", "a".repeat(i % 9 + 1), "b".repeat(i % 5)))
+        .collect();
+    let (view, cx) = setup(cx, &text);
+    let tsv = user("[Types(0)]\r\nnInts=0,80,0,4,-1,-1,0,1,1,0,0,1\r\n");
+    view.update(cx, |v, cx| v.apply_user_settings(&tsv, cx));
+    let stops = |view: &Entity<EditorView>, cx: &mut VisualTestContext| {
+        view.read_with(cx, |v, _| v.layout.config().tsv.ends().to_vec())
+    };
+    // frames with no time read a few lines each (the budget is tested in `matsu_layout::tsv`);
+    // the count ends as the whole one does
+    let mut frames = 0;
+    while !view.update(cx, |v, cx| v.step_tsv_stops(std::time::Duration::ZERO, cx)) {
+        frames += 1;
+        assert!(frames < 3001);
+    }
+    // field 0 is 9 wide (11); field 1 is 4 wide (11 + 4 + 2)
+    assert_eq!(stops(&view, cx), [11, 17]);
+
+    // an edit while the count is going starts it again
+    let mut frames = 0;
+    view.update(cx, |v, cx| {
+        v.apply_user_settings(
+            &user("[Types(0)]\r\nnInts=0,80,0,4,-1,-1,0,1,1,0,0,2\r\n"),
+            cx,
+        )
+    });
+    assert!(!view.update(cx, |v, cx| v.step_tsv_stops(std::time::Duration::ZERO, cx)));
+    view.update(cx, |v, cx| {
+        v.cursor.move_to(matsu_core::buffer::Pos::new(0, 0), false);
+        v.type_char('z', cx);
+    });
+    while !view.update(cx, |v, cx| v.step_tsv_stops(std::time::Duration::ZERO, cx)) {
+        frames += 1;
+        assert!(frames < 3001 + 10);
+    }
+    // the first line is "za\tb"... CSV has no commas: one field, the widest line 'aaaaaaaaa\tbbbb' is 14
+    assert_eq!(stops(&view, cx), [16]);
 }

@@ -77,7 +77,7 @@ pub use document::{
 };
 pub use kinsoku::{CharSet, DEFAULT_HEAD, DEFAULT_KUTO, DEFAULT_TAIL, Kinsoku};
 pub use map::{Located, Position, offset_to_position, position_to_offset};
-pub use tsv::{TsvMode, TsvStops};
+pub use tsv::{TsvMode, TsvScan, TsvStops};
 pub use width::{INVALID_BYTE_BASE, WidthRule};
 pub use wrap::{Row, layout_line};
 
