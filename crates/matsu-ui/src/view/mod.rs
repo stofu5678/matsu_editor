@@ -776,7 +776,23 @@ impl EditorView {
     /// `ExpandParameter` of a title or caption `format` for this document: the title of the
     /// window and the caption of the tab (`file_names::title`).
     pub(crate) fn expand_format(&self, format: &str, cx: &App) -> String {
-        matsu_print::expand_parameter(format, &self.header_context_for(Some(format), cx), None)
+        let context = self.header_context_for(Some(format), cx);
+        // `$p` and `$P` are the page and the number of pages while the print preview is open
+        // (`m_pPrintPreview->GetCurPageNum() + 1`, `GetAllPageNum()`); otherwise they are the
+        // notice that they are for the preview only.
+        match self.print_preview().map(|preview| preview.read(cx)) {
+            Some(preview) => {
+                let (page, _) = preview.state();
+                let setting = preview.job().setting.name.as_str();
+                let info = matsu_print::PageInfo {
+                    number: page + 1,
+                    total: preview.page_count(),
+                    setting_name: setting,
+                };
+                matsu_print::expand_parameter(format, &context, Some(&info))
+            }
+            None => matsu_print::expand_parameter(format, &context, None),
+        }
     }
 
     /// What `ExpandParameter` reads from this window: the file, the marks, the caret and the

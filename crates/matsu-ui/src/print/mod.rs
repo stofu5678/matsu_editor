@@ -47,6 +47,9 @@ pub(crate) struct PrintState {
     /// The preview, which takes the place of the text while it is open.
     pub(crate) preview: Option<Entity<PrintPreview>>,
     subscription: Option<Subscription>,
+    /// The window title and the tab caption show the page (`$p`, `$P`), so the view redraws them
+    /// when the preview changes.
+    observation: Option<Subscription>,
     /// The print dialog of the OS is open.
     printing: bool,
     /// The print setting dialog, while it is open (`crate::print_setting`).
@@ -85,6 +88,7 @@ impl EditorView {
             kinsoku_head: settings.kinsoku.head_chars.clone(),
             kinsoku_tail: settings.kinsoku.tail_chars.clone(),
             kinsoku_kuto: settings.kinsoku.kuto_chars.clone(),
+            tsv_mode: settings.tsv_mode,
             ..TypeOptions::default()
         }
     }
@@ -122,6 +126,7 @@ impl EditorView {
                     PreviewEvent::Close => this.close_print_preview(window, cx),
                 }),
             );
+        self.print.observation = Some(cx.observe(&preview, |_, _, cx| cx.notify()));
         window.focus(&preview.focus_handle(cx), cx);
         self.print.preview = Some(preview.clone());
         cx.notify();
@@ -132,6 +137,7 @@ impl EditorView {
     pub fn close_print_preview(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.print.preview.take().is_some() {
             self.print.subscription = None;
+            self.print.observation = None;
             window.focus(&self.focus_handle, cx);
             cx.notify();
         }

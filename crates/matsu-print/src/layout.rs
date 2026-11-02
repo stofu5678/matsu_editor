@@ -34,8 +34,8 @@ use std::fmt;
 use std::ops::Range;
 
 use matsu_layout::{
-    CharSet, DEFAULT_HEAD, DEFAULT_KUTO, DEFAULT_TAIL, Kinsoku, LayoutConfig, Row, WidthRule, Wrap,
-    WrapIndent, layout_line,
+    CharSet, DEFAULT_HEAD, DEFAULT_KUTO, DEFAULT_TAIL, Kinsoku, LayoutConfig, Row, TsvMode,
+    TsvStops, WidthRule, Wrap, WrapIndent, layout_line,
 };
 
 use crate::Paper;
@@ -89,6 +89,11 @@ pub struct TypeOptions {
     pub line_number_width: u32,
     /// What follows the line numbers.
     pub line_term: LineTerm,
+    /// The TSV or CSV mode of the type (`m_nTsvMode`): the fields line up in columns as on the
+    /// screen. The print takes the widths of the fields from the whole document, as Sakura's
+    /// print layout does (`CTsvModeInfo::CalcTabLength`), and the characters are not spaced
+    /// (`GetCharSpacing()` is 0).
+    pub tsv_mode: TsvMode,
 }
 
 impl Default for TypeOptions {
@@ -103,6 +108,7 @@ impl Default for TypeOptions {
             line_number_is_crlf: true,
             line_number_width: LINENUMWIDTH_MIN,
             line_term: LineTerm::Line,
+            tsv_mode: TsvMode::None,
         }
     }
 }
@@ -190,6 +196,7 @@ impl Layout {
         // The width of the line numbers depends on the rows (when the rows are numbered), and
         // the rows on that width: go on until they agree, as Sakura does by laying out again
         // (OnChangePrintSetting, "2014.07.23").
+        let tsv = tsv_stops(source, options);
         let mut number_cells = if s.print_line_number {
             number_cells_for(options, line_count)
         } else {
@@ -201,7 +208,7 @@ impl Layout {
             if cells <= 0 || rows <= 0 {
                 return Err(PrintError::NoPrintableArea);
             }
-            let config = layout_config(s, options, cells as u32);
+            let config = layout_config(s, options, &tsv, cells as u32);
             let per_page = rows as usize * s.print_dansuu as usize;
             let (row_count, starts) = scan(source, &config, per_page);
             let wanted = if s.print_line_number {
@@ -400,6 +407,7 @@ impl Layout {
                             plain: body,
                             runs: &cache.styles,
                             row_start: row.range.start,
+                            document: true,
                         },
                         &mut page.texts,
                     );
@@ -628,7 +636,12 @@ impl LineCache {
 }
 
 /// The settings of the wrapping (`OnChangePrintSetting`: the copy of the document type).
-fn layout_config(s: &PrintSetting, options: &TypeOptions, cells: u32) -> LayoutConfig {
+fn layout_config(
+    s: &PrintSetting,
+    options: &TypeOptions,
+    tsv: &TsvStops,
+    cells: u32,
+) -> LayoutConfig {
     LayoutConfig {
         wrap: Wrap::Columns(cells),
         tab_width: options.tab_width,
@@ -644,9 +657,23 @@ fn layout_config(s: &PrintSetting, options: &TypeOptions, cells: u32) -> LayoutC
         },
         width: options.width,
         indent: options.indent.clone(),
-        // Sakura copies the TSV mode into the printing layout (`CPrintPreview.cpp`); not done yet.
-        tsv: matsu_layout::TsvStops::none(),
+        // Sakura copies the TSV mode into the printing layout (`CPrintPreview.cpp`).
+        tsv: tsv.clone(),
     }
+}
+
+/// The ends of the fields of the whole document in the mode of the type (`CalcTabLength`, which
+/// the print layout runs when `SetLayoutInfo` gives it the mode), read a line at a time.
+fn tsv_stops<S: LineSource + ?Sized>(source: &S, options: &TypeOptions) -> TsvStops {
+    if options.tsv_mode == TsvMode::None {
+        return TsvStops::none();
+    }
+    let lines = (0..source.line_count()).map(|line| {
+        let mut text = String::new();
+        source.read_line(line, &mut text);
+        text
+    });
+    TsvStops::from_lines(options.tsv_mode, &options.width, lines)
 }
 
 /// The printed rows of a line. An empty last line without a line ending has none (Sakura keeps
@@ -701,6 +728,9 @@ struct Styling<'a> {
     runs: &'a [StyleRun],
     /// Where the text of the row begins in the line.
     row_start: usize,
+    /// The text is a row of the document: a tab in a style with an underline is printed as an
+    /// underlined blank (`Print_DrawBlock`).
+    document: bool,
 }
 
 impl Styling<'_> {
@@ -710,6 +740,7 @@ impl Styling<'_> {
             plain,
             runs: &[],
             row_start: 0,
+            document: false,
         }
     }
 }
@@ -717,8 +748,10 @@ impl Styling<'_> {
 /// Puts a row on the grid, starting at the column `start_column`. A tab moves to the
 /// next tab stop and prints nothing (`Print_DrawBlock`: "TAB is not printed when there is no
 /// color"), so the text is split at it; it is also split where the font changes (`Print_DrawLine`)
-/// and where the color, bold or underline changes. (Sakura prints a tab in a color with an
-/// underline, as an underlined tab; here it prints nothing.)
+/// and where the color, bold or underline changes. In color a tab is printed only where its style
+/// has an underline (`Print_DrawBlock`: "TAB is not printed when there is no underline"); here
+/// that is a piece of text of as many blanks as the tab has columns, in the style of the tab, so
+/// that the drawers draw the underline of the cells it covers.
 fn place_runs(
     grid: &Grid<'_>,
     text: &str,
@@ -749,6 +782,20 @@ fn place_runs(
     for (i, ch) in text.char_indices() {
         if ch == '\t' {
             flush(&mut run, i, out);
+            // The color of a tab is that of the text around it (`nColorIdx` at the tab).
+            let style = styling.plain.map(|plain| {
+                style_at(styling.runs, &mut next_run, styling.row_start + i).unwrap_or(plain)
+            });
+            if let Some(style) = style.filter(|s| styling.document && s.underline) {
+                out.push(PlacedText {
+                    x: grid.x + column as i32 * grid.cell,
+                    baseline: grid.baseline,
+                    text: " ".repeat(grid.config.columns_of(ch, column) as usize),
+                    font: FontKind::Han,
+                    align: HAlign::Left,
+                    style: Some(style),
+                });
+            }
         } else {
             let font = font_of(ch);
             let style = styling.plain.map(|plain| {
@@ -760,6 +807,11 @@ fn place_runs(
             run.get_or_insert((i, column, font, style));
         }
         column += grid.config.columns_of(ch, column);
+        // The comma of the CSV mode takes the columns up to the end of its field: the text after
+        // it begins there, not in the next cell.
+        if grid.config.tsv.mode() == TsvMode::Csv && ch == ',' {
+            flush(&mut run, i + 1, out);
+        }
     }
     flush(&mut run, text.len(), out);
 }
