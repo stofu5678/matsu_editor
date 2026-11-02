@@ -30,7 +30,10 @@
 
 mod ids;
 mod pages;
+mod plugin_choices;
 mod values;
+
+pub(crate) use plugin_choices::plugin_choices;
 
 #[cfg(test)]
 mod tests;

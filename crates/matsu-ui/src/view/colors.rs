@@ -20,8 +20,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::{Context, Window};
-use matsu_coloring::{ColorRules, ColorRun, ColorState, LineEdit, line_end_state, line_runs};
+use matsu_coloring::{
+    ColorRules, ColorRun, ColorState, ColorStates, LineEdit, line_end_state, line_runs,
+};
 use matsu_commands::context::Changes;
+use matsu_commands::input_options::{LineStart, LineStartColors};
 use matsu_layout::LineLayout;
 
 use super::EditorView;
@@ -50,6 +53,24 @@ struct CachedLine {
 impl LineColorCache {
     pub(crate) fn clear(&self) {
         self.0.borrow_mut().take();
+    }
+}
+
+/// The states of the view as the C/C++ smart indent reads them (`CLayout::GetColorTypePrev`): the string or
+/// the block comment 1 that a line starts in.
+pub(super) struct StartStates<'a> {
+    pub states: &'a ColorStates,
+    pub rules: &'a ColorRules,
+}
+
+impl LineStartColors for StartStates<'_> {
+    fn at_line_start(&self, doc: &matsu_core::buffer::Document, line: usize) -> LineStart {
+        match self.states.state_at(doc, self.rules, line).0 {
+            ColorState::Block(0) => LineStart::BlockComment,
+            ColorState::Quote { double: true, .. } => LineStart::DoubleQuote,
+            ColorState::Quote { double: false, .. } => LineStart::SingleQuote,
+            _ => LineStart::Normal,
+        }
     }
 }
 

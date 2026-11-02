@@ -91,6 +91,9 @@ pub(crate) struct CommonSettingsDialog {
     focused: bool,
     /// The scroll position of the page body; the scroll bar draws from it.
     pub(crate) body_scroll: ScrollHandle,
+    /// The choices that plugins add to a list of the sheet, by control id: shown after the choices
+    /// the page lists itself (`crate::type_settings::plugin_choices`).
+    plugin_choices: HashMap<&'static str, Vec<(String, i32)>>,
     /// The scale factor of the window, as of the last paint (pictures in a page are made sharp
     /// for it).
     scale_factor: f32,
@@ -185,7 +188,8 @@ impl CommonSettingsDialog {
             target,
         } = sheet;
         let page = page.min(pages.len().saturating_sub(1));
-        Self::build(
+        let plugin_choices = crate::type_settings::plugin_choices(cx);
+        let mut dialog = Self::build(
             page,
             pages,
             controls,
@@ -194,7 +198,9 @@ impl CommonSettingsDialog {
             opener,
             window,
             cx,
-        )
+        );
+        dialog.plugin_choices = plugin_choices;
+        dialog
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -303,6 +309,7 @@ impl CommonSettingsDialog {
             focus: cx.focus_handle(),
             focused: false,
             body_scroll: ScrollHandle::default(),
+            plugin_choices: HashMap::new(),
             scale_factor: 1.0,
             _subscriptions: subscriptions,
         }
@@ -877,8 +884,19 @@ impl CommonSettingsDialog {
             Kind::Radio { value } => self.set_int(control.id, value, cx),
             Kind::Choice { options } | Kind::List { options } => {
                 let now = self.values.int(control.id);
-                let at = options.iter().position(|(_, v)| *v == now).unwrap_or(0);
-                let next = options[(at + 1) % options.len()].1;
+                let values: Vec<i32> = options
+                    .iter()
+                    .map(|(_, v)| *v)
+                    .chain(
+                        self.plugin_choices
+                            .get(control.id)
+                            .into_iter()
+                            .flatten()
+                            .map(|(_, v)| *v),
+                    )
+                    .collect();
+                let at = values.iter().position(|v| *v == now).unwrap_or(0);
+                let next = values[(at + 1) % values.len()];
                 self.set_int(control.id, next, cx);
             }
             Kind::Number { .. } | Kind::Text => {
@@ -1095,20 +1113,24 @@ impl CommonSettingsDialog {
             }
             Kind::Choice { options } => {
                 let current = self.values.int(id);
-                let choices = options.iter().map(|(text, value)| {
-                    let value = *value;
-                    Button::new(Self::element_id(&Control {
-                        kind: Kind::Radio { value },
-                        ..*control
-                    }))
-                    .label(*text)
-                    .selected(current == value)
-                    // A choice is a radio button of the group (the chosen one is checked).
-                    .role(Role::RadioButton)
-                    .toggled(current == value)
-                    .disabled(!usable)
-                    .on_click(cx.listener(move |this, _, _, cx| this.set_int(id, value, cx)))
-                });
+                let added = self.plugin_choices.get(id).into_iter().flatten();
+                let choices = options
+                    .iter()
+                    .map(|(text, value)| (SharedString::from(*text), *value))
+                    .chain(added.map(|(text, value)| (SharedString::from(text.clone()), *value)))
+                    .map(|(text, value)| {
+                        Button::new(Self::element_id(&Control {
+                            kind: Kind::Radio { value },
+                            ..*control
+                        }))
+                        .label(text)
+                        .selected(current == value)
+                        // A choice is a radio button of the group (the chosen one is checked).
+                        .role(Role::RadioButton)
+                        .toggled(current == value)
+                        .disabled(!usable)
+                        .on_click(cx.listener(move |this, _, _, cx| this.set_int(id, value, cx)))
+                    });
                 v_flex()
                     .gap_1()
                     .when(!label.is_empty(), |this| this.child(label.clone()))

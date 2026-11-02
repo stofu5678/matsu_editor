@@ -15,7 +15,8 @@
 //   track(promise, reason, handled): called when a promise is rejected unhandled (handled false)
 //     or when a handler is added later (true);
 //   unhandled(): [reason] of the first promise that is still rejected and unhandled, or [];
-//   begin(jack, args): for a plugin host, before each handler: sets Plugin.jack and Plugin.args.
+//   begin(jack, args): for a plugin host, before each handler: sets Plugin.jack and Plugin.args,
+//     and for the SmartIndent jack the Indent object (GetChar answers args.char).
 (function (raw, names, info, write, plugin) {
   'use strict';
 
@@ -121,6 +122,14 @@
     begin(jack, args) {
       Plugin.jack = jack;
       Plugin.args = args;
+      // The `Indent` object of the SmartIndent jack (Sakura's `CSmartIndentIfObj`): GetChar answers the
+      // typed char, "\r" for the Enter key as in Sakura.
+      if (jack === 'SmartIndent') {
+        const typed = args && typeof args.char === 'string' ? args.char : '';
+        globalThis.Indent = { GetChar: () => typed };
+      } else {
+        delete globalThis.Indent;
+      }
     },
     describe(value) {
       return value instanceof Error ? stackOf(value) : 'Uncaught ' + show(value);

@@ -45,6 +45,31 @@ fn the_common_section_and_the_kind_are_read() {
 }
 
 #[test]
+fn a_plugin_is_resident_with_use_cache_or_matsu_resident() {
+    assert!(def("[Plugin]\r\n[Wsh]\r\nUseCache=1\r\n").resident);
+    assert!(def("[Plugin]\r\n[Matsu]\r\nResident=1\r\n").resident);
+    assert!(!def("[Plugin]\r\n").resident);
+    assert!(!def("[Plugin]\r\n[Wsh]\r\nUseCache=0\r\n[Matsu]\r\nResident=0\r\n").resident);
+    // `UseCache` itself is still what Sakura reads.
+    let d = def("[Plugin]\r\n[Matsu]\r\nResident=1\r\n");
+    assert!(!d.use_cache);
+}
+
+#[test]
+fn smart_indent_chars_are_the_data_of_the_matsu_section() {
+    assert_eq!(def("[Plugin]\r\n").smart_indent_chars, "");
+    let d = def("[Plugin]\r\n[Matsu]\r\nSmartIndent.Chars=}{;\r\n");
+    assert_eq!(d.smart_indent_chars, "}{;");
+}
+
+#[test]
+fn only_the_smart_indent_jack_needs_a_resident_plugin_so_far() {
+    assert!(Jack::SmartIndent.needs_resident());
+    assert!(!Jack::Command.needs_resident());
+    assert!(!Jack::DocumentOpen.needs_resident());
+}
+
+#[test]
 fn the_kind_ignores_case_and_script_is_the_same_as_wsh() {
     assert_eq!(def("[Plugin]\r\nType=WSH\r\n").kind, PluginKind::Wsh);
     assert_eq!(def("[Plugin]\r\nType=Script\r\n").kind, PluginKind::Script);

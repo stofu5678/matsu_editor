@@ -66,6 +66,18 @@ pub fn function_code(slot: usize, plug: usize) -> Option<u16> {
     u16::try_from(code).ok()
 }
 
+/// `CPlug::GetPluginFunctionCode` for a plug of any jack: the number `plug` counts from 0 (the key
+/// `SmartIndent` is 0, `SmartIndent[1]` is 1), where the commands count from 1. The type settings
+/// store this code to name the plug that serves the type (`nSmartIndent`). `None` for a slot or a
+/// plug number out of range.
+pub fn plug_code(slot: usize, plug: usize) -> Option<u16> {
+    if slot >= MAX_PLUGIN || plug >= MAX_PLUG_CMD {
+        return None;
+    }
+    let code = slot % 20 * 100 + slot / 20 * 50 + plug + usize::from(FIRST);
+    u16::try_from(code).ok()
+}
+
 /// `CPlug::GetPluginId` and `GetPlugId`: the slot and the command number of a function code.
 /// `None` for a code that is not a plugin command. (Sakura stops below `F_PLUGCOMMAND_LAST`, which
 /// leaves the 49th command of the 40th plugin, whose code is `F_PLUGCOMMAND_LAST`, with no plugin:

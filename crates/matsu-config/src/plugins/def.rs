@@ -55,6 +55,12 @@ impl Jack {
         Jack::ComplementGlobal,
     ];
 
+    /// Whether a plugin must be resident to take this jack: the jacks that a key press calls
+    /// cannot wait for a process to start (ADR-0026, chapter 2).
+    pub fn needs_resident(self) -> bool {
+        matches!(self, Jack::SmartIndent)
+    }
+
     /// The name in `[Plug]`.
     pub fn name(self) -> &'static str {
         match self {
@@ -184,6 +190,12 @@ pub struct PluginDef {
     pub kind: PluginKind,
     /// `[Wsh] UseCache` (default 0, `CWSHPlugin.h`).
     pub use_cache: bool,
+    /// The plugin keeps its host between two calls: `UseCache`, or `[Matsu] Resident` (ADR-0026,
+    /// chapter 1). The jacks that a key press calls need it ([`Jack::needs_resident`]).
+    pub resident: bool,
+    /// `[Matsu] SmartIndent.Chars`: the chars, besides the line break, after which the plugin wants
+    /// the `SmartIndent` jack (ADR-0026, chapter 3). Empty: the line break only.
+    pub smart_indent_chars: String,
     /// `[DLL] Name`.
     pub dll_name: String,
     pub plugs: Vec<Plug>,
@@ -222,6 +234,7 @@ impl PluginDef {
             "dll" => PluginKind::Dll,
             other => PluginKind::Other(other.to_owned()),
         };
+        let use_cache = main.get_bool("Wsh", "UseCache").unwrap_or(false);
         // `ReadPluginDefCommon`: the language file replaces the name, description and URL.
         let common = |key: &str| text(main, l10n, "Plugin", key).unwrap_or_default();
         PluginDef {
@@ -232,7 +245,9 @@ impl PluginDef {
             version: get("Plugin", "Version").unwrap_or_default(),
             url: common("Url"),
             kind,
-            use_cache: main.get_bool("Wsh", "UseCache").unwrap_or(false),
+            use_cache,
+            resident: use_cache || main.get_bool("Matsu", "Resident").unwrap_or(false),
+            smart_indent_chars: get("Matsu", "SmartIndent.Chars").unwrap_or_default(),
             dll_name: get("DLL", "Name").unwrap_or_default(),
             plugs: read_plugs(main, l10n),
             commands: read_commands(main, l10n),

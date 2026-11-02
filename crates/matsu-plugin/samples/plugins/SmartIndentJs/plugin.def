@@ -1,0 +1,24 @@
+; Sample plugin for the SmartIndent jack (ADR-0026). Its handler runs on the QuickJS of matsu-script.
+; Put the folder SmartIndentJs in the folder "plugins" next to matsu.ini, add it in
+; Common settings > Plugin, enable it, then choose "Indent 4 spaces after {" as the smart indent in
+; the type settings (Screen page).
+[Plugin]
+Id=io.github.stofu5678.matsu-editor.sample.smart-indent-js
+Name=Smart indent (JavaScript)
+Description=Indents 4 spaces more after a line that ends with an opening brace, and takes them back for a closing brace.
+Author=MATSU Editor
+Version=1.0.0.0
+Url=https://github.com/stofu5678/matsu_editor
+Type=wsh
+
+[Plug]
+SmartIndent=indent.js
+SmartIndent.Label=Indent 4 spaces after {
+
+[Wsh]
+; The jack that a key press calls needs a resident plugin.
+UseCache=1
+
+[Matsu]
+; Besides the Enter key, the chars after which the jack is called.
+SmartIndent.Chars=}

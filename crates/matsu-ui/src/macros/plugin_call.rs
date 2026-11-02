@@ -38,6 +38,8 @@ use matsu_plugin::{Value, json};
 use super::output::Kind;
 use crate::view::EditorView;
 
+mod indent;
+
 thread_local! {
     /// The plugins that three failures in a row stopped, for the list of the settings page (which
     /// has no window to ask). Only the UI thread uses it.
@@ -335,6 +337,12 @@ impl Prepared {
         (fresh.id == self.id).then_some(fresh)
     }
 
+    /// The arguments the handler gets in `Plugin.args` (the `SmartIndent` jack passes the typed char).
+    pub(crate) fn with_args(mut self, args: Value) -> Self {
+        self.args = args;
+        self
+    }
+
     /// The host of the plugin has a call going (on another window): `run` would be refused.
     pub(crate) fn host_busy(&self) -> bool {
         self.host.borrow().current_jack().is_some()
@@ -498,6 +506,13 @@ fn prepare(
             {
                 return Err("このプラグインは、このジャックを使わなくなりました".into());
             }
+            // A jack that a key press calls cannot wait for a process to start (ADR-0026, chapter 2).
+            if jack.needs_resident() && !def.resident {
+                return Err(format!(
+                    "{} は、常駐するプラグインでないと使えません。plugin.def の [Wsh] UseCache=1 か [Matsu] Resident=1 が必要です",
+                    jack.name()
+                ));
+            }
             event_plug = Some((jack, handler.clone()));
             (jack.name(), handler, 0, true)
         }
@@ -508,7 +523,7 @@ fn prepare(
         ));
     }
     let runtime = cx.default_global::<Runtime>();
-    let want_resident = def.use_cache;
+    let want_resident = def.resident;
     let reuse = runtime
         .hosts
         .get(&def.id)
@@ -710,6 +725,7 @@ impl EditorView {
         if self.macros.watching > 0 {
             self.macros.watch_seen = self.document.read(cx).version();
         }
+        self.indent_guard_follow(cx);
         reply
     }
 }
@@ -907,6 +923,12 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                         if view.document.read(cx).generation() != generation {
                             return (replaced_reply(&text), true);
                         }
+                        // A smart indent is for the place where the char was typed: the user went on
+                        // typing or moved the caret, so the plugin is stopped. What the user typed
+                        // is in the text; nothing of the plugin's is added to it.
+                        if view.indent_guard_broken(cx) {
+                            return (replaced_reply(&text), true);
+                        }
                         (view.answer_plugin_request(&text, &mut api, cx), false)
                     });
                     match reply {
@@ -928,6 +950,7 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                     let ended = weak.update(cx, |view, cx| {
                         view.macros.plugin_running = false;
                         view.macros.plugin_event = false;
+                        view.macros.indent_guard = None;
                         // Only the document the call began on: a replaced one is not ours to free.
                         if view.document.read(cx).generation() == generation {
                             view.document.update(cx, |shared, _| shared.set_plugin_busy(false));

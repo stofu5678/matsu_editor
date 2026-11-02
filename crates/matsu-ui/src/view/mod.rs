@@ -405,6 +405,11 @@ impl EditorView {
         // `bInsSpace` of the view, which `ChangeInsertSpace` and the type settings change.
         let ins_space = self.prefs.settings.ins_space;
         let input = self.prefs.settings.input.clone();
+        // The states the lines start in, which the C/C++ smart indent looks at.
+        let start_states = colors::StartStates {
+            states: &self.color_states,
+            rules: &self.prefs.settings.coloring,
+        };
         let layout = &mut self.layout;
         let cursor = &mut self.cursor;
         let (result, changes) = document.update(cx, |shared, cx| {
@@ -426,6 +431,7 @@ impl EditorView {
                 .with_overwrite(overwrite)
                 .with_ins_space(ins_space)
                 .with_input_options(input)
+                .with_line_start_colors(&start_states)
                 .with_save_path(save_path.as_deref())
                 .with_view_mode(view_mode);
             if let Some(quote) = quote {
@@ -625,6 +631,9 @@ impl EditorView {
             self.pending_message_boxes.push(text);
         }
         self.completion_after_command(changes, cx);
+        if let Some(call) = changes.smart_indent_plugin {
+            self.call_smart_indent_plugin(call, cx);
+        }
         // While a macro runs, a command that moved nothing leaves the view where it is:
         // `SetViewTop` scrolls away from the caret, and the calls after it must not scroll back
         // (Sakura scrolls to the caret when the caret moves). Outside a macro every command
