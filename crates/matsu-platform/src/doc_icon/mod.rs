@@ -65,11 +65,11 @@ pub fn set(window: RawWindowHandle, file: Option<&Path>) -> Result<(), Error> {
     os::set(window, file)
 }
 
-#[cfg(test)]
+// Only the OS without a way to change the icon has something to test here.
+#[cfg(all(test, not(windows)))]
 mod tests {
     use super::*;
 
-    #[cfg(not(windows))]
     #[test]
     fn where_the_os_cannot_the_icon_is_refused_with_a_reason() {
         assert!(unsupported().is_some());
