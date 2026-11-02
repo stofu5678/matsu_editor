@@ -125,6 +125,15 @@ impl LayoutConfig {
         if tab >= self.max_columns() { 4 } else { tab }
     }
 
+    /// The most columns one character can take: a tab, a delimiter of the TSV or CSV mode, a
+    /// full-width character or a stand-in for an invalid byte (at least 2).
+    pub fn widest_character(&self) -> u32 {
+        self.effective_tab_width()
+            .max(2)
+            .max(self.width.invalid_byte)
+            .max(self.tsv.widest_delimiter())
+    }
+
     /// The columns `c` takes when it starts at column `x`: a tab goes to the next tab stop
     /// (`GetActualTsvSpace`, `TSV_MODE_NONE`: `tab - x % tab`, 1 to the tab width), and the other
     /// characters have their own width ([`WidthRule::columns`]). Control characters take 1, like

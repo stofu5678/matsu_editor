@@ -96,6 +96,9 @@ pub struct TsvStops {
     /// For field `i`, the column where the delimiter after it ends: the widest field `0..=i`
     /// of any line, with two columns after each. Increasing.
     ends: Arc<[u32]>,
+    /// The most columns a delimiter can take: the first stop, the widest gap between two stops,
+    /// or 2 past the last (see [`delimiter_columns`](Self::delimiter_columns)).
+    widest: u32,
 }
 
 /// The characters that end the line in the loop of `CalcTabLength` (`WCODE::IsLineDelimiter(ch,
@@ -144,16 +147,20 @@ impl TsvStops {
         }
         // "m_tabLength[ui] += m_tabLength[ui-1] + 2"
         let mut end = 0u32;
+        let mut gap = 2;
         let ends: Vec<u32> = widest
             .into_iter()
             .map(|w| {
+                let before = end;
                 end = end.saturating_add(w).saturating_add(2);
+                gap = gap.max(end - before);
                 end
             })
             .collect();
         Self {
             mode,
             ends: ends.into(),
+            widest: gap,
         }
     }
 
@@ -180,6 +187,11 @@ impl TsvStops {
             Some(e) => Err(e),
             None => Ok(stops),
         }
+    }
+
+    /// The most columns a delimiter can take. 2 when there are no stops.
+    pub fn widest_delimiter(&self) -> u32 {
+        self.widest.max(2)
     }
 
     pub fn mode(&self) -> TsvMode {
@@ -278,6 +290,15 @@ mod tests {
         assert_eq!(s.delimiter_columns(5), 3);
         assert_eq!(s.delimiter_columns(8), 2);
         assert_eq!(s.delimiter_columns(100), 2);
+    }
+
+    #[test]
+    fn the_widest_delimiter_is_the_widest_gap() {
+        let s = TsvStops::from_lines(TsvMode::Tsv, &WidthRule::default(), ["abc\tdefghi\tj"]);
+        // stops 5, 13, 16: the gaps are 5, 8 and 3
+        assert_eq!(s.ends(), &[5, 13, 16]);
+        assert_eq!(s.widest_delimiter(), 8);
+        assert_eq!(TsvStops::none().widest_delimiter(), 2);
     }
 
     #[test]

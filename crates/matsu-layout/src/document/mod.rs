@@ -272,7 +272,7 @@ impl std::fmt::Debug for DocumentLayout {
 /// at most `widest` columns, and a byte holds at most one character, so a line of `len` bytes
 /// takes at most `len * widest` columns (plus one for the line ending).
 fn count_rows(cfg: &LayoutConfig, text: &str, has_eol: bool, scratch: &mut Vec<Row>) -> u32 {
-    let widest = u64::from(cfg.effective_tab_width().max(2).max(cfg.width.invalid_byte));
+    let widest = u64::from(cfg.widest_character());
     if text.len() as u64 * widest + u64::from(has_eol) <= u64::from(cfg.max_columns()) {
         return 1;
     }

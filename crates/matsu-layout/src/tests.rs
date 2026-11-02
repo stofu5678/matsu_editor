@@ -868,3 +868,27 @@ fn a_tsv_line_wraps_like_any_other() {
     // a wider text does not fit
     assert_eq!(split("abcdef\tgh", false, &cfg), ["abcdef\tg", "h"]);
 }
+
+#[test]
+fn a_delimiter_wider_than_the_wrap_column_does_not_hide_text_in_the_row_count() {
+    // The first field of the first line is 100 columns wide: the stop is 102, wider than the
+    // wrap column. The short line is more than one row, though it is only 3 bytes long.
+    let long = "x".repeat(100);
+    let text = format!("{long}\tz\na\tb");
+    let doc = matsu_core::buffer::Document::from_utf8(text.into_bytes()).unwrap();
+    let cfg = tsv_config(TsvMode::Tsv, &[&long, "a\tb"], 80);
+    assert!(cfg.widest_character() >= 102);
+    let layout = DocumentLayout::laid_out(&doc, cfg.clone()).unwrap();
+    let rows = layout.rows_in_line(1).unwrap();
+    assert_eq!(rows, 3, "a, the tab on a row of its own, b");
+    let shown: String = layout
+        .rows(&doc, 0, layout.row_count())
+        .unwrap()
+        .iter()
+        .filter(|r| r.line == 1)
+        .map(|r| r.text().to_owned())
+        .collect();
+    assert_eq!(shown, "a\tb");
+    // the same as laying the line out directly
+    assert_eq!(split("a\tb", false, &cfg).len(), 3);
+}
