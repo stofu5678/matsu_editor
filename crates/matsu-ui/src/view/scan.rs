@@ -67,7 +67,16 @@ impl EditorView {
                     }
                     ScanTick::Gone => break,
                     ScanTick::Finished | ScanTick::Failed => {
-                        this.update(cx, |view, cx| view.scan_ended(tick, cx)).ok();
+                        // The pane that began the load may be closed by now: another pane of
+                        // the document finishes it.
+                        if this
+                            .update(cx, |view, cx| view.scan_ended(tick, cx))
+                            .is_err()
+                            && let Ok(Some(view)) =
+                                document.read_with(cx, |shared, _| shared.views().next())
+                        {
+                            view.update(cx, |view, cx| view.scan_ended(tick, cx));
+                        }
                         break;
                     }
                 }
@@ -78,6 +87,10 @@ impl EditorView {
 
     /// The scan is done: the document can be edited now.
     fn scan_ended(&mut self, tick: ScanTick, cx: &mut Context<Self>) {
+        if tick == ScanTick::Finished {
+            // The first lines are all there now (`CDocEditor::OnAfterLoad`).
+            self.apply_loaded_indentation(false, cx);
+        }
         self.notice = if tick == ScanTick::Finished {
             let lines = self.document.read(cx).doc().line_count();
             Some(format!("改行位置を調べ終えました ({lines} 行)"))

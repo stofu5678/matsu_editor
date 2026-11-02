@@ -207,6 +207,14 @@ pub struct TypeSettings {
     pub kinsoku_kuto: String,
     /// `bChkEnterAtEnd`: warn on saving when line endings are mixed.
     pub warn_mixed_eol: bool,
+    /// `bIndentCppStringIgnore`: the C/C++ smart indent skips strings and char literals.
+    pub indent_cpp_string_ignore: bool,
+    /// `bIndentCppCommentIgnore`: the C/C++ smart indent skips comments.
+    pub indent_cpp_comment_ignore: bool,
+    /// `bIndentCppUndoSep`: the C/C++ smart indent is an undo step of its own.
+    pub indent_cpp_undo_sep: bool,
+    /// `bDetectIndentationStyleOnFileLoad`: detect the indentation style when a file is loaded.
+    pub detect_indentation_on_load: bool,
     /// `szHokanFile`: the word file of the input completion (入力補完 単語ファイル).
     pub hokan_file: String,
     /// `nHokanType`: the plugin that adds candidates to the input completion (0: none).
@@ -316,6 +324,11 @@ impl Default for TypeSettings {
             kinsoku_tail: String::new(),
             kinsoku_kuto: DEFAULT_KINSOKU_KUTO.to_owned(),
             warn_mixed_eol: true,
+            // `_DefaultConfig` (`CType.cpp`)
+            indent_cpp_string_ignore: true,
+            indent_cpp_comment_ignore: true,
+            indent_cpp_undo_sep: false,
+            detect_indentation_on_load: true,
             // `_DefaultConfig` (`CType.cpp`)
             hokan_file: String::new(),
             hokan_type: 0,
@@ -512,6 +525,30 @@ impl TypeSettings {
             KINSOKU_SIZE,
         );
         read_bool(profile, s, "bChkEnterAtEnd", &mut self.warn_mixed_eol);
+        read_bool(
+            profile,
+            s,
+            "bIndentCppStringIgnore",
+            &mut self.indent_cpp_string_ignore,
+        );
+        read_bool(
+            profile,
+            s,
+            "bIndentCppCommentIgnore",
+            &mut self.indent_cpp_comment_ignore,
+        );
+        read_bool(
+            profile,
+            s,
+            "bIndentCppUndoSep",
+            &mut self.indent_cpp_undo_sep,
+        );
+        read_bool(
+            profile,
+            s,
+            "bDetectIndentationStyleOnFileLoad",
+            &mut self.detect_indentation_on_load,
+        );
         read_bool(profile, s, "bUseKeyWordHelp", &mut self.use_key_word_help);
         read_bool(
             profile,
@@ -785,6 +822,14 @@ impl TypeSettings {
         profile.set_string(s, "szKinsokuTail", &self.kinsoku_tail)?;
         profile.set_string(s, "szKinsokuKuto", &self.kinsoku_kuto)?;
         profile.set_bool(s, "bChkEnterAtEnd", self.warn_mixed_eol)?;
+        profile.set_bool(s, "bIndentCppStringIgnore", self.indent_cpp_string_ignore)?;
+        profile.set_bool(s, "bIndentCppCommentIgnore", self.indent_cpp_comment_ignore)?;
+        profile.set_bool(s, "bIndentCppUndoSep", self.indent_cpp_undo_sep)?;
+        profile.set_bool(
+            s,
+            "bDetectIndentationStyleOnFileLoad",
+            self.detect_indentation_on_load,
+        )?;
         profile.set_string(s, "szHokanFile", &self.hokan_file)?;
         profile.set_i32(s, "nHokanType", self.hokan_type)?;
         profile.set_bool(s, "bHokanLoHiCase", self.hokan_lo_hi_case)?;

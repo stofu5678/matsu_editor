@@ -112,22 +112,15 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
             "",
             true,
         )
-        .unavailable()
         .into(),
         Item::Group(
             "C/C++インデント詳細設定",
             vec![
                 Item::Row(vec![
-                    Control::check(INDENT_CPP_STRING, "文字列を無視する(&S)", "", true)
-                        .unavailable()
-                        .into(),
-                    Control::check(INDENT_CPP_COMMENT, "コメントを無視する(&C)", "", true)
-                        .unavailable()
-                        .into(),
+                    Control::check(INDENT_CPP_STRING, "文字列を無視する(&S)", "", true).into(),
+                    Control::check(INDENT_CPP_COMMENT, "コメントを無視する(&C)", "", true).into(),
                 ]),
-                Control::check(INDENT_CPP_UNDO, "Undoバッファを分ける(&U)", "", false)
-                    .unavailable()
-                    .into(),
+                Control::check(INDENT_CPP_UNDO, "Undoバッファを分ける(&U)", "", false).into(),
             ],
         ),
         Control::check(
@@ -136,7 +129,6 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
             "",
             true,
         )
-        .unavailable()
         .into(),
     ]
 }

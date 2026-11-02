@@ -39,9 +39,12 @@
 //! (`m_bInsSpace`).
 //!
 //! Not done: the state at the start of a line that earlier lines leave (`GetColorTypePrev`: a
-//! `/* ... */` comment that goes on from the line before); the line is scanned from its start. The
-//! three options of the "支援" page (`m_bIndentCppStringIgnore`, `m_bIndentCppCommentIgnore`,
-//! `m_bIndentCppUndoSep`) are taken as their defaults (on, on, off).
+//! `/* ... */` comment that goes on from the line before); the line is scanned from its start.
+//!
+//! The three options of the "支援" page come with the input options
+//! ([`InputOptions`](crate::input_options::InputOptions)): `m_bIndentCppStringIgnore` and
+//! `m_bIndentCppCommentIgnore` decide what [`comment_blocks`] skips, and `m_bIndentCppUndoSep`
+//! makes the indentation an undo step of its own.
 
 use matsu_core::buffer::Pos;
 
@@ -79,8 +82,9 @@ enum Scan {
 }
 
 /// The ranges of a line that are inside a string, a char literal or a comment (`SCommentBlock`):
-/// both ends are included.
-fn comment_blocks(line: &[char]) -> Vec<(usize, usize)> {
+/// both ends are included. `strings` and `comments` are `m_bIndentCppStringIgnore` and
+/// `m_bIndentCppCommentIgnore`: what is off is not looked for (`SmartIndent_CPP`).
+fn comment_blocks(line: &[char], strings: bool, comments: bool) -> Vec<(usize, usize)> {
     let len = line.len();
     let mut blocks = Vec::new();
     let mut mode = Scan::Code;
@@ -91,17 +95,17 @@ fn comment_blocks(line: &[char]) -> Vec<(usize, usize)> {
         let next = line.get(n + 1).copied();
         match mode {
             Scan::Code => {
-                if c == '"' {
+                if strings && c == '"' {
                     mode = Scan::String;
                     begin = n as isize;
-                } else if c == '\'' {
+                } else if strings && c == '\'' {
                     mode = Scan::CharLiteral;
                     begin = n as isize;
-                } else if c == '/' && next == Some('*') {
+                } else if comments && c == '/' && next == Some('*') {
                     mode = Scan::BlockComment;
                     begin = n as isize;
                     n += 1;
-                } else if c == '/' && next == Some('/') {
+                } else if comments && c == '/' && next == Some('/') {
                     blocks.push((n, len - 1));
                     n = len - 1;
                 }
@@ -180,6 +184,9 @@ impl CommandContext<'_> {
         }
         let original = typed;
         let mut typed = typed;
+        let string_ignore = self.input_options().cpp_string_ignore;
+        let comment_ignore = self.input_options().cpp_comment_ignore;
+        let undo_sep = self.input_options().cpp_undo_sep;
         let caret = self.caret();
         let y = caret.line;
         let line = self.chars_with_eol(y)?;
@@ -252,7 +259,12 @@ impl CommandContext<'_> {
                 }
                 k = other.len() as isize - 1;
             }
-            let blocks = comment_blocks(&other);
+            // With both options off the line is not scanned (`bCommentStringCheck`).
+            let blocks = if string_ignore || comment_ignore {
+                comment_blocks(&other, string_ignore, comment_ignore)
+            } else {
+                Vec::new()
+            };
             if row == y && original != '\r' && in_block(&blocks, caret_chars.saturating_sub(1)) {
                 // The char that was typed is inside a comment or a string. Sakura tests the place
                 // behind it (`GetCaretLogicPos().x`), which is outside the comment at the end of a
@@ -324,6 +336,11 @@ impl CommandContext<'_> {
         let kept_to_caret = after.saturating_sub(source.len());
         let new_col = data.len() + kept_to_caret;
         if !((data.is_empty() && range_to == 0) || data == source) {
+            if undo_sep {
+                // `m_bIndentCppUndoSep`: `SetUndoBuffer()` stores what was typed as a step, and
+                // the indentation is the next one.
+                self.commit_undo_block();
+            }
             self.replace(Pos::new(y, 0), Pos::new(y, source.len()), &data)?;
         }
         self.move_caret(Pos::new(y, new_col), false)

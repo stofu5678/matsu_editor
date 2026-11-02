@@ -105,8 +105,8 @@ impl EditorView {
             }
             // 0 off, 1 on, anything else only reads; Sakura reads `iVal`, the low 16 bits.
             _ => match value as i16 {
-                0 => self.prefs.settings.ins_space = false,
-                1 => self.prefs.settings.ins_space = true,
+                0 => self.share_indent(None, Some(false), cx),
+                1 => self.share_indent(None, Some(true), cx),
                 _ => {}
             },
         }

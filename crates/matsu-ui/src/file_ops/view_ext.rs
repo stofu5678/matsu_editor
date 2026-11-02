@@ -88,16 +88,23 @@ impl EditorView {
             (index != self.prefs.settings.type_index)
                 .then(|| (index, user.view_settings_of_type(index)))
         });
-        match wanted {
-            Some((index, settings)) => {
-                self.apply_settings(settings, cx);
-                self.document
-                    .update(cx, |shared, cx| shared.announce_type(index, cx));
-            }
-            None => {
-                self.relayout_in(cx);
-            }
+        let type_changed = wanted.is_some();
+        if let Some((index, settings)) = wanted {
+            self.apply_settings(settings, cx);
+            self.document
+                .update(cx, |shared, cx| shared.announce_type(index, cx));
         }
+        // `CDocEditor::OnAfterLoad`; the layouts follow if the tab width changed. This view has
+        // the values before a macro goes on. The other panes take the new type when this update
+        // ends, which resets their tab width: they get this view's values then.
+        self.apply_loaded_indentation(true, cx);
+        if type_changed {
+            let this = cx.entity();
+            cx.defer(move |cx| {
+                this.update(cx, |view, cx| view.copy_indent_to_other_panes(cx));
+            });
+        }
+        self.relayout_in(cx);
         self.ensure_caret_visible(cx);
         cx.notify();
     }

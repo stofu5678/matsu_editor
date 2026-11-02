@@ -23,6 +23,9 @@ use matsu_layout::MAX_LINE_COLUMNS;
 pub(crate) struct ViewPrefs {
     /// The values of the file for the document type of this view.
     pub settings: ViewSettings,
+    /// The tab width the type gave (`settings.tab_width` is the one in use now: a temporary width
+    /// from `F_CHGTABWIDTH` or the indentation style of the file differs from it).
+    pub type_tab_width: u32,
     /// The wrap method now (`m_nTextWrapMethodCur`).
     pub wrap_method: WrapMethod,
     /// The wrap column of [`WrapMethod::SettingWidth`] now. It is the type's column, unless
@@ -45,6 +48,8 @@ struct Temporary {
     wrap: Option<(WrapMethod, u32)>,
     /// The font size in pixels, and the zoom.
     font: Option<(f32, f64)>,
+    /// The tab width in use (`m_bTabSpaceCurTemp`).
+    tab_width: Option<u32>,
 }
 
 impl ViewPrefs {
@@ -56,6 +61,7 @@ impl ViewPrefs {
             show_status_bar: settings.show_status_bar,
             select_count: Default::default(),
             reveal_caret: false,
+            type_tab_width: settings.tab_width,
             settings,
         }
     }
@@ -95,7 +101,20 @@ impl EditorView {
             && settings.point_size == old.point_size
             && settings.use_type_font == old.use_type_font)
             .then_some((self.font_size, prefs.zoom));
-        self.apply_settings_keeping(settings, Temporary { wrap, font }, cx);
+        // `CEditDoc::OnChangeSetting`: a temporary tab width goes on unless the tab width of the
+        // type changed. (The use of spaces is the type's again: the type is copied to the document.)
+        let tab_width = (prefs.settings.tab_width != prefs.type_tab_width
+            && settings.tab_width == prefs.type_tab_width)
+            .then_some(prefs.settings.tab_width);
+        self.apply_settings_keeping(
+            settings,
+            Temporary {
+                wrap,
+                font,
+                tab_width,
+            },
+            cx,
+        );
     }
 
     fn apply_settings_keeping(
@@ -116,6 +135,9 @@ impl EditorView {
         if let Some((method, columns)) = keep.wrap {
             self.prefs.wrap_method = method;
             self.prefs.wrap_columns = columns;
+        }
+        if let Some(width) = keep.tab_width {
+            self.prefs.settings.tab_width = width;
         }
         if let Some((size, zoom)) = keep.font {
             self.font_size = size;
@@ -239,6 +261,90 @@ impl EditorView {
     }
 
     // ---- temporary settings (Sakura's "一時設定") ----
+
+    /// `CDocEditor::OnAfterLoad`: the tab width and the use of spaces of the document are the
+    /// type's (`reset`: what the former file or `F_CHGTABWIDTH` set ends), then the indentation
+    /// style of the file just loaded (the first 256 lines, `m_bDetectIndentationStyleOnFileLoad`)
+    /// is taken (`m_bTabSpaceCurTemp`, `m_bInsSpace` of the document's copy of the type). The
+    /// settings of the type, and the settings file, are not touched. Every view of the document
+    /// gets the values: Sakura keeps them in the layout and the document, not per pane.
+    pub(crate) fn apply_loaded_indentation(&mut self, reset: bool, cx: &mut Context<Self>) {
+        let t = self.type_settings(cx);
+        let (mut tab, mut ins) = if reset {
+            (
+                Some(u32::try_from(t.tab_space).unwrap_or(4).max(1)),
+                Some(t.ins_space),
+            )
+        } else {
+            (None, None)
+        };
+        // A file that is still scanned has not all of its first lines: the end of the scan
+        // detects.
+        if self.prefs.settings.detect_indentation && !self.document.read(cx).is_scanning() {
+            let shared = self.document.read(cx);
+            let changes = matsu_core::indent_style::detect(shared.path(), shared.doc()).changes();
+            tab = changes.tab_width.or(tab);
+            ins = changes.ins_space.or(ins);
+        }
+        self.share_indent(tab, ins, cx);
+    }
+
+    /// Gives the tab width and the use of spaces to every view of the document (`None`: as it
+    /// is). The layouts follow.
+    pub(crate) fn share_indent(
+        &mut self,
+        tab_width: Option<u32>,
+        ins_space: Option<bool>,
+        cx: &mut Context<Self>,
+    ) {
+        if tab_width.is_none() && ins_space.is_none() {
+            return;
+        }
+        let me = self.entity_id;
+        let others: Vec<_> = self
+            .document
+            .read(cx)
+            .views()
+            .filter(|v| v.entity_id() != me)
+            .collect();
+        for view in others {
+            view.update(cx, |view, cx| view.take_indent(tab_width, ins_space, cx));
+        }
+        self.take_indent(tab_width, ins_space, cx);
+    }
+
+    /// Gives the tab width and the use of spaces of this view to the other views of the document.
+    pub(crate) fn copy_indent_to_other_panes(&mut self, cx: &mut Context<Self>) {
+        let (width, ins_space) = (self.prefs.settings.tab_width, self.prefs.settings.ins_space);
+        let me = self.entity_id;
+        let others: Vec<_> = self
+            .document
+            .read(cx)
+            .views()
+            .filter(|v| v.entity_id() != me)
+            .collect();
+        for view in others {
+            view.update(cx, |view, cx| {
+                view.take_indent(Some(width), Some(ins_space), cx)
+            });
+        }
+    }
+
+    fn take_indent(
+        &mut self,
+        tab_width: Option<u32>,
+        ins_space: Option<bool>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(width) = tab_width {
+            self.prefs.settings.tab_width = width;
+        }
+        if let Some(ins_space) = ins_space {
+            self.prefs.settings.ins_space = ins_space;
+        }
+        self.relayout_in(cx);
+        cx.notify();
+    }
 
     /// `Command_TEXTWRAPMETHOD` (`F_TMPWRAPNOWRAP`, `F_TMPWRAPSETTING`, `F_TMPWRAPWINDOW`): wraps
     /// by `method` for this view only. Nothing happens when the view already wraps that way.

@@ -1072,9 +1072,7 @@ fn the_support_page_shows_sakuras_defaults_and_what_the_file_says(cx: &mut TestA
 }
 
 #[gpui::test]
-fn the_completion_and_help_file_settings_are_live_and_the_rest_is_greyed_out(
-    cx: &mut TestAppContext,
-) {
+fn the_support_page_is_live_except_the_completion_plugin(cx: &mut TestAppContext) {
     let (_ini, a) = setup(cx, "");
     run(cx, a, "F_OPTION_TYPE", &[]);
     with_dialog(cx, |d, _, dcx| d.select_index(3, dcx));
@@ -1089,19 +1087,16 @@ fn the_completion_and_help_file_settings_are_live_and_the_rest_is_greyed_out(
         EXT_HTML_HELP,
         EXT_HTML_HELP_BROWSE,
         HTML_HELP_SINGLE,
-    ] {
-        assert!(usable(cx, id), "{id}");
-    }
-    for id in [
-        HOKAN_TYPE,
         CHK_ENTER_AT_END,
         INDENT_CPP_STRING,
         INDENT_CPP_COMMENT,
         INDENT_CPP_UNDO,
         DETECT_INDENT,
     ] {
-        assert!(!usable(cx, id), "{id}");
+        assert!(usable(cx, id), "{id}");
     }
+    // The completion plugins need the completion jack of ADR-0026.
+    assert!(!usable(cx, HOKAN_TYPE));
     cancel(cx);
 }
 
@@ -1173,6 +1168,54 @@ fn ok_writes_the_completion_settings_and_keeps_what_the_page_cannot_change(
         })
     });
     assert!(lo_hi && !by_file && by_keyword);
+}
+
+#[gpui::test]
+fn ok_writes_the_mixed_eol_warning_and_the_indent_options(cx: &mut TestAppContext) {
+    // `CPropTypesSupport::GetData`: `bChkEnterAtEnd`, `bIndentCpp*`, `bDetectIndentationStyleOnFileLoad`
+    let (ini, a) = setup(cx, "");
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    with_dialog(cx, |d, _, dcx| d.select_index(3, dcx));
+    check(cx, CHK_ENTER_AT_END, false);
+    check(cx, INDENT_CPP_STRING, false);
+    check(cx, INDENT_CPP_COMMENT, false);
+    check(cx, INDENT_CPP_UNDO, true);
+    check(cx, DETECT_INDENT, false);
+    ok(cx);
+    let get = |key: &str| ini.get("Types(0)", key).unwrap_or_default();
+    assert_eq!(get("bChkEnterAtEnd"), "0");
+    assert_eq!(get("bIndentCppStringIgnore"), "0");
+    assert_eq!(get("bIndentCppCommentIgnore"), "0");
+    assert_eq!(get("bIndentCppUndoSep"), "1");
+    assert_eq!(get("bDetectIndentationStyleOnFileLoad"), "0");
+    // The type of the application, and so the save flow and the typing, read them.
+    let view = view_of(cx, a);
+    let (warn, input) = view.read_with(cx, |v, app| {
+        (
+            v.type_settings(app).warn_mixed_eol,
+            v.view_settings().clone(),
+        )
+    });
+    assert!(!warn);
+    assert!(!input.input.cpp_string_ignore && !input.input.cpp_comment_ignore);
+    assert!(input.input.cpp_undo_sep && !input.detect_indentation);
+}
+
+#[gpui::test]
+fn the_indent_options_show_what_the_file_says(cx: &mut TestAppContext) {
+    let (_ini, a) = setup(
+        cx,
+        "[Types(0)]\r\nbChkEnterAtEnd=0\r\nbIndentCppStringIgnore=0\r\nbIndentCppUndoSep=1\r\n\
+         bDetectIndentationStyleOnFileLoad=0\r\n",
+    );
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    with_dialog(cx, |d, _, dcx| d.select_index(3, dcx));
+    assert_eq!(value(cx, CHK_ENTER_AT_END), Value::Bool(false));
+    assert_eq!(value(cx, INDENT_CPP_STRING), Value::Bool(false));
+    assert_eq!(value(cx, INDENT_CPP_COMMENT), Value::Bool(true));
+    assert_eq!(value(cx, INDENT_CPP_UNDO), Value::Bool(true));
+    assert_eq!(value(cx, DETECT_INDENT), Value::Bool(false));
+    cancel(cx);
 }
 
 #[gpui::test]
