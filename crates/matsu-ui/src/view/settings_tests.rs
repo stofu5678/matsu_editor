@@ -400,6 +400,11 @@ fn the_tsv_mode_of_the_type_lines_up_the_fields(cx: &mut TestAppContext) {
         v.type_char('x', cx);
     });
     assert_eq!(stops(&view, cx), [6, 10]);
+    // they are worked out again when the text of a file read in the background is complete
+    view.update(cx, |v, cx| {
+        v.relayout(true, cx);
+    });
+    assert_eq!(stops(&view, cx), [7, 11]);
 
     let csv = user("[Types(0)]\r\nnInts=0,80,0,4,-1,-1,0,1,1,0,0,2\r\n");
     view.update(cx, |v, cx| v.apply_user_settings(&csv, cx));

@@ -5,7 +5,7 @@
 //! written to the file (see the module documentation of [`crate::settings`]).
 
 use gpui::{App, Context};
-use matsu_layout::{TsvStops, Wrap};
+use matsu_layout::{TsvMode, TsvStops, Wrap};
 
 use super::EditorView;
 use crate::layout_adapter::LAYOUT_BUDGET;
@@ -211,6 +211,12 @@ impl EditorView {
     /// Lays the document out again with the settings of the view, if they differ from the
     /// layout's. Returns whether anything changed. The caller repaints.
     pub(crate) fn relayout_in(&mut self, cx: &App) -> bool {
+        self.relayout(false, cx)
+    }
+
+    /// [`relayout_in`](Self::relayout_in), and also works out the stops of the TSV or CSV mode
+    /// again when `rescan` says so (the text of a file read in the background is complete).
+    pub(crate) fn relayout(&mut self, rescan: bool, cx: &App) -> bool {
         let mut config = self.layout.config().clone();
         config.wrap = self.wanted_wrap();
         config.tab_width = self.prefs.settings.tab_width;
@@ -221,7 +227,7 @@ impl EditorView {
         // is loaded (the layout of a loaded document starts without a mode), not after each edit
         // (`CLayoutMgr::SetLayoutInfo`, `CLoadAgent::OnLoad`).
         let tsv_mode = self.prefs.settings.tsv_mode;
-        if config.tsv.mode() != tsv_mode {
+        if config.tsv.mode() != tsv_mode || (rescan && tsv_mode != TsvMode::None) {
             let doc = self.document.read(cx).doc();
             config.tsv = TsvStops::scan(doc, tsv_mode, &config.width).unwrap_or_default();
         }
