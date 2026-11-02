@@ -605,7 +605,13 @@ impl OutlinePane {
             return;
         };
         let mut opened = false;
-        let Some(index) = item_at(&shown.analysis.items, caret.line + 1, caret.col + 1) else {
+        // The columns of the items are in UTF-16 units (a plugin's `AddFuncInfo`), the caret's in bytes.
+        let caret_col = self
+            .document
+            .read(cx)
+            .doc()
+            .utf16_col(caret.line, caret.col);
+        let Some(index) = item_at(&shown.analysis.items, caret.line + 1, caret_col + 1) else {
             self.selected = None;
             return;
         };
@@ -687,9 +693,21 @@ impl OutlinePane {
         let Some(view) = self.view.upgrade() else {
             return;
         };
-        // An item a plugin put in another file (`AddFuncInfo3`): the file is opened.
+        // An item a plugin put in another file (`AddFuncInfo3`): the same jump as a tag jump
+        // (`TagJumpTimer`), which opens the file if need be and moves to the line and the column.
         if self.is_in_another_file(&file, cx) {
-            self.open_path(PathBuf::from(file), focus_text, window, cx);
+            let target = matsu_core::tag_jump::TagTarget {
+                path: PathBuf::from(file),
+                window: None,
+                line: (line > 0).then_some(line),
+                column: (col > 0).then_some(col),
+            };
+            view.update(cx, |_, cx| {
+                crate::file_ops::start(window, cx, async move |view, cx| {
+                    crate::file_ops::tag_jump::jump_to_target(&view, cx, &target, false).await;
+                });
+            });
+            cx.notify();
             return;
         }
         // MYWM_SETCARETPOS with PM_SETCARETPOS_KEEPSELECT: the caret goes to the place of the

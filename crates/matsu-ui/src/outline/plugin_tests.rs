@@ -434,3 +434,78 @@ fn a_click_on_an_item_moves_the_caret_to_the_column_the_plug_gave(cx: &mut TestA
     assert_eq!((caret.line, caret.col), (1, "あい😀".len()));
     finish(cx);
 }
+
+#[gpui::test]
+fn the_selection_follows_the_caret_by_the_utf16_column_of_the_items(cx: &mut TestAppContext) {
+    let Some(place) = begin(
+        "follow",
+        "Outline.SetListType(300);\n\
+         Outline.AddFuncInfo(1, 1, 'one', 0);\n\
+         Outline.AddFuncInfo(1, 3, 'two', 0);\n\
+         Outline.AddFuncInfo(1, 5, 'three', 0);",
+    ) else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    let handle = window_with(
+        cx,
+        "あい😀うえ\n",
+        "a.zzz",
+        place.user(Place::code(), true, true),
+    );
+    open_outline(cx, handle);
+    let pane = pane(cx, handle).unwrap();
+    // a click on the second item puts the caret at byte 6, where the byte column 7 would be after
+    // the third item (column 5): the selection must stay on the item that was clicked
+    handle
+        .update(cx, |_, window, app| {
+            pane.update(app, |p, cx| p.jump(1, false, window, cx))
+        })
+        .unwrap();
+    cx.run_until_parked();
+    assert_eq!(pane.read_with(cx, |p, _| p.selected_row()), Some(1));
+    finish(cx);
+}
+
+#[gpui::test]
+fn an_item_of_another_file_opens_it_at_its_line_and_column(cx: &mut TestAppContext) {
+    let Some(place) = begin("otherfile", "") else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    let other = place.dir.join("other.txt");
+    fs::write(&other, "x\nあい😀うえ\n").unwrap();
+    fs::write(
+        place.dir.join("plugins").join(FOLDER).join("outline.js"),
+        format!(
+            "Outline.SetListType(300); Outline.AddFuncInfo3(2, 5, 'there', 0, {:?});",
+            other.display().to_string()
+        ),
+    )
+    .unwrap();
+    let handle = window_with(cx, "a\n", "a.zzz", place.user(Place::code(), true, true));
+    open_outline(cx, handle);
+    let pane = pane(cx, handle).unwrap();
+    handle
+        .update(cx, |_, window, app| {
+            pane.update(app, |p, cx| p.jump(0, false, window, cx))
+        })
+        .unwrap();
+    // the file is read in a window of its own; the caret goes to the line and the column (UTF-16)
+    let mut caret = None;
+    for _ in 0..500 {
+        cx.executor().advance_clock(Duration::from_millis(20));
+        cx.run_until_parked();
+        caret = cx.update(|app| {
+            crate::file_ops::windows::find_open(app, &other)
+                .map(|(_, view)| view.read(app).cursor().caret())
+        });
+        if caret.is_some_and(|c| c.line == 1) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let caret = caret.expect("the file was opened");
+    assert_eq!((caret.line, caret.col), (1, "あい😀".len()));
+    finish(cx);
+}
