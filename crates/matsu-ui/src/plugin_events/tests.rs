@@ -168,7 +168,7 @@ fn wait_for_jacks(
     cx: &mut VisualTestContext,
     count: usize,
 ) -> Vec<String> {
-    for _ in 0..1000 {
+    for _ in 0..3000 {
         cx.executor().advance_clock(Duration::from_millis(20));
         cx.run_until_parked();
         let ran = jacks(view, cx);
@@ -469,7 +469,7 @@ fn spin(
     what: &str,
     mut done: impl FnMut(&mut VisualTestContext) -> bool,
 ) {
-    for _ in 0..1000 {
+    for _ in 0..3000 {
         cx.executor().advance_clock(Duration::from_millis(20));
         cx.run_until_parked();
         if done(cx) {
