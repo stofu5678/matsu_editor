@@ -245,6 +245,9 @@ heartbeat() {
 
 loop() {
   local failures
+  # Holding the lock now: a stop request of an earlier `down` is over. A `down` that waits for the lock asks again
+  # on each try.
+  rm -f "$STOP_FILE" "$NOW_FILE"
   echo $$ > "$PID_FILE"
   trap 'cleanup_current; rm -f "$PID_FILE"; log "loop ended"' EXIT
   trap 'exit 1' INT TERM HUP
@@ -277,7 +280,6 @@ cmd_up() {
     echo "already up (loop $pid)"
     return 0
   fi
-  rm -f "$STOP_FILE" "$NOW_FILE" "$PID_FILE"
   nohup "$0" __start > /dev/null 2>&1 < /dev/null &
   sleep 3
   if pid=$(loop_pid); then
@@ -312,15 +314,17 @@ cmd_down() {
   # Clean up under the lock: it is free once no loop runs (a dead loop releases it too), and it keeps a new loop
   # and another `down` out while the cleanup runs. What a loop that died left behind goes here.
   while :; do
+    # Ask again on each try: a loop that started meanwhile has cleared the request.
+    touch "$STOP_FILE"
+    [ "${1:-}" = --now ] && touch "$NOW_FILE"
     locked __cleanup
     status=$?
     [ $status -eq 75 ] || break
     sleep 5
   done
-  [ $status -eq 0 ] || echo "the cleanup did not finish (exit $status); see $LOG" >&2
-  # Once more, now that no loop can announce itself any longer. This one must hold.
-  if ! route_to_github; then
-    echo "could not set MAC_RUNNER to github; set it on GitHub (README.md) or CI may wait for this Mac" >&2
+  if [ $status -ne 0 ]; then
+    echo "the cleanup or the switch back to GitHub's runner did not finish (exit $status); see $LOG" >&2
+    echo "check MAC_RUNNER on GitHub (README.md): CI may wait for this Mac" >&2
     return 1
   fi
   echo "down"
@@ -359,9 +363,11 @@ case "${1:-}" in
     loop
     ;;
   __cleanup)
+    # Under the lock: what a loop left, then MAC_RUNNER=github once more, now that no loop can announce itself.
     require_tools
     reconcile
     rm -f "$PID_FILE"
+    route_to_github || exit 1
     ;;
   *)
     sed -n '2,7p' "$0"
