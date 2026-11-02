@@ -10,7 +10,9 @@ use super::ask::{Answer, ask, charset_change_message, document_title, save_befor
 use super::load::{choose_files, load_here, open_paths};
 use super::save::{SaveRequest, save};
 use crate::document::SharedDocument;
+use crate::plugin_events::fire_and_wait;
 use crate::view::EditorView;
+use matsu_config::plugins::def::Jack;
 
 /// Nothing is closed while Grep searches (`CGrepAgent::OnBeforeClose`): the window says so
 /// ("Grepの処理中です。") and this returns `true`.
@@ -154,6 +156,90 @@ pub(crate) fn close_tab_or_window(
     .is_ok()
 }
 
+/// Whether closing the tab of `view` closes its window too: it is the only tab, and the window is not
+/// the one that stays empty (`m_bTab_RetainEmptyWin`).
+fn closes_window(view: &Entity<EditorView>, app: &mut App) -> bool {
+    let host = view.read(app).split_host.as_ref().and_then(|h| h.upgrade());
+    if let Some(workspace) = host
+        && workspace.read(app).tab_count() > 1
+    {
+        return false;
+    }
+    !(crate::tabs::settings::current(app).bound()
+        && crate::tabs::settings::options(app).retain_empty
+        && super::windows::workspaces(app).len() == 1)
+}
+
+/// The plugins of `DocumentClose` for the document that is about to go. The window can be edited while
+/// they run: text entered meanwhile is not thrown away, so the close is given up (`false`) and the user
+/// closes again, and is asked again.
+pub(super) async fn close_event_keeps_the_text(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+) -> bool {
+    view.update(cx, |view, cx| view.begin_edit_watch(cx)).ok();
+    fire_and_wait(view, cx, Jack::DocumentClose).await;
+    if !user_changed_text(view, cx) {
+        return true;
+    }
+    close_given_up(view, cx);
+    false
+}
+
+/// Ends the watch of the text: whether the user changed it while the plugins ran. What a plugin wrote is
+/// not counted; Sakura closes after the events whatever they did (`MYWM_CLOSE`).
+pub(super) fn user_changed_text(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+) -> bool {
+    view.update(cx, |view, cx| view.end_edit_watch(cx))
+        .unwrap_or(false)
+}
+
+/// Tells that the close was given up because the text changed while the plugins ran.
+fn close_given_up(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) {
+    view.update(cx, |view, cx| {
+        view.notice = Some("プラグインを待つ間に文書が変わったので、閉じるのをやめた".to_owned());
+        cx.notify();
+    })
+    .ok();
+}
+
+/// [`close_tab_or_window`] after the plugins of `DocumentClose`, and of `EditorEnd` when the window goes
+/// (`MYWM_CLOSE`, `CEditWnd::DispatchEvent`). The question was asked already.
+async fn close_with_events(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    by_copy: bool,
+) -> bool {
+    view.update(cx, |view, cx| view.begin_edit_watch(cx)).ok();
+    fire_and_wait(view, cx, Jack::DocumentClose).await;
+    let ends = match view.upgrade() {
+        Some(entity) => cx
+            .update(|_, app| closes_window(&entity, app))
+            .unwrap_or(false),
+        None => false,
+    };
+    if ends {
+        fire_and_wait(view, cx, Jack::EditorEnd).await;
+    }
+    // The question was left out because this close ended the editor and the copy of the document is kept
+    // (`KeepUnsavedNoAsk`). A window that opened while the plugins ran makes it an ordinary close: then the
+    // question is due, and the next close asks it.
+    let not_the_end = by_copy
+        && !cx
+            .update(|_, app| closing_ends_the_editor(app, view))
+            .unwrap_or(false);
+    if user_changed_text(view, cx) || not_the_end {
+        close_given_up(view, cx);
+        if by_copy && let Some(entity) = view.upgrade() {
+            forget_left_out(&[entity], cx);
+        }
+        return false;
+    }
+    close_tab_or_window(view, cx)
+}
+
 /// Closes the tab of `view` in `window`, which shows it, or the window if it has no other tab.
 fn close_in(view: &Entity<EditorView>, window: &mut Window, app: &mut App) {
     let host = view.read(app).split_host.as_ref().and_then(|h| h.upgrade());
@@ -263,10 +349,12 @@ pub(crate) async fn confirm_and_close_window(
     if hot {
         crate::unsaved::settle(cx).await;
     }
-    if !confirm_discard_ending(view, cx, &|app| closing_ends_the_editor(app, view)).await {
+    let (go_on, by_copy) =
+        confirm_discard_ending_by(view, cx, &|app| closing_ends_the_editor(app, view)).await;
+    if !go_on {
         return false;
     }
-    close_tab_or_window(view, cx)
+    close_with_events(view, cx, by_copy).await
 }
 
 /// `F_FILESAVECLOSE`: saves and closes the window. An unmodified document is only closed
@@ -293,12 +381,15 @@ pub(crate) async fn save_and_close_window(
         crate::unsaved::mark_close(view, this, cx);
     })
     .ok();
-    close_tab_or_window(view, cx)
+    close_with_events(view, cx, false).await
 }
 
 /// `F_FILECLOSE`: closes the file and leaves an untitled document in the window.
 pub(crate) async fn close_file(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) -> bool {
     if !confirm_discard(view, cx).await {
+        return false;
+    }
+    if !close_event_keeps_the_text(view, cx).await {
         return false;
     }
     let closed = view
@@ -322,6 +413,10 @@ pub(crate) async fn close_and_open(
     cx: &mut AsyncWindowContext,
 ) -> bool {
     if !confirm_discard(view, cx).await {
+        return false;
+    }
+    // `FileCloseOpen`: the plugins of DocumentClose come before the dialog.
+    if !close_event_keeps_the_text(view, cx).await {
         return false;
     }
     let Some(mut paths) = choose_files(view, cx, None).await else {
@@ -446,6 +541,30 @@ pub(crate) async fn exit_all(cx: &mut AsyncWindowContext, kind: ExitKind) {
             checked.push((view.entity_id(), version));
         }
         if snapshot(cx) == checked {
+            // The windows go: the plugins of DocumentClose for each tab and of EditorEnd for each window
+            // (`MYWM_CLOSE` of each editor).
+            let windows = cx
+                .update(|_, app| {
+                    super::windows::workspaces(app)
+                        .into_iter()
+                        .map(|(_, ws)| {
+                            ws.read(app)
+                                .tab_editors()
+                                .iter()
+                                .map(Entity::downgrade)
+                                .collect::<Vec<_>>()
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let edited = crate::plugin_events::windows_closing(&windows, cx).await;
+            // The plugins took time: a window that opened, or a document that the user changed meanwhile,
+            // is asked about again. What the plugins wrote does not count.
+            let now: Vec<_> = snapshot(cx).into_iter().map(|(id, _)| id).collect();
+            let before: Vec<_> = checked.iter().map(|(id, _)| *id).collect();
+            if edited || now != before {
+                continue;
+            }
             cx.update(|_, app| {
                 // Every question is answered: what the user threw away leaves no copy.
                 crate::unsaved::apply_all_closes(app);
