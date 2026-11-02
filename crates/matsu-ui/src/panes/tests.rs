@@ -112,7 +112,11 @@ fn put_caret(cx: &mut VisualTestContext, pane: &Entity<EditorView>, pos: Pos) {
 }
 
 fn long_text() -> String {
-    (0..200).map(|i| format!("line {i}\n")).collect()
+    // The last line is wide, so that the panes have columns to scroll over.
+    (0..200)
+        .map(|i| format!("line {i}\n"))
+        .chain(std::iter::once("x".repeat(300)))
+        .collect()
 }
 
 #[gpui::test]

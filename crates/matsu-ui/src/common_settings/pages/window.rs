@@ -190,7 +190,6 @@ pub(in crate::common_settings) fn items() -> Vec<Item> {
                         "bScrollBarHorz",
                         true,
                     )
-                    .unavailable()
                     .into(),
                     Control::check("dark_mode", "ダークモード(&D)", "bDarkMode", false)
                         .unavailable()
@@ -372,6 +371,13 @@ pub(in crate::common_settings) fn apply(env: &mut Env, after: &Values, before: O
         state.x = new.x;
         state.y = new.y;
         env.cx.set_global(state);
+    }
+    // The views of every window have the horizontal scroll bar or not (`bScrollBarHorz`;
+    // `CEditWnd::OnChangeSetting` makes the bars again). At startup the views read the file, so
+    // the global is set here from the values too.
+    let bar = after.bool("scroll_bar_horz");
+    if before.is_none_or(|b| b.bool("scroll_bar_horz") != bar) {
+        super::super::windows::set_h_scrollbar(env.cx, bar);
     }
     let shown = after.bool("disp_status_bar");
     if before.is_some_and(|b| b.bool("disp_status_bar") != shown) {

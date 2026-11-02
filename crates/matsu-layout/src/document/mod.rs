@@ -106,6 +106,10 @@ const CACHE_LINES: usize = 512;
 /// until [`DocumentLayout::layout_chunk`] reaches them. It keeps the time of one edit short.
 const EDIT_EXACT_LIMIT: usize = 4096;
 
+/// A line with more bytes than this is left out of [`DocumentLayout::widest_columns`]: laying
+/// it out would take longer than a frame.
+const WIDTH_SKIP_BYTES: usize = 16 * 1024;
+
 /// The lines per step of [`DocumentLayout::layout_for`] between two looks at the clock.
 const STEP_LINES: usize = 512;
 
@@ -424,6 +428,47 @@ impl DocumentLayout {
             line += 1;
         }
         Ok(())
+    }
+
+    /// The widest end column among the rows of the lines `first..`, going on for about `budget`,
+    /// and the line where it stopped (the line count when it is done). It is the text width that
+    /// Sakura keeps in `CLayoutMgr::m_nTextWidth` (`CalculateTextWidth`), found here on request
+    /// because the index does not lay a line out unless it can have more than one row. A line
+    /// of more than 16 KiB (and a very long one) is not laid out: it counts as
+    /// a quarter of its bytes in columns, the least it can have.
+    pub fn widest_columns(
+        &self,
+        doc: &Document,
+        first: usize,
+        budget: Duration,
+    ) -> Result<(u32, usize)> {
+        let start = Instant::now();
+        let total = doc.line_count();
+        let mut widest = 0;
+        let mut rows = Vec::new();
+        let mut line = first;
+        while line < total {
+            // One line takes at most about 16 KiB of laying out, so looking at the clock for each
+            // line keeps the work near the budget.
+            if line > first && start.elapsed() >= budget {
+                break;
+            }
+            // The length in the file, from the index: the decoded length would read the line.
+            let raw = doc.line_raw_len(line)?.unwrap_or(0);
+            if raw > WIDTH_SKIP_BYTES || self.long_rows(doc, line)?.is_some() {
+                // Not laid out, but not narrow: a character takes at most 4 bytes and at least
+                // one column for each 4, so this many columns is a lower bound.
+                widest = widest.max(((raw / 4) as u32).min(self.cfg.max_columns()));
+            } else {
+                let Some(text) = doc.line(line)? else {
+                    return Ok((widest, total));
+                };
+                layout_line(&text.text, text.eol.is_some(), &self.cfg, &mut rows);
+                widest = rows.iter().map(|r| r.end_column).fold(widest, u32::max);
+            }
+            line += 1;
+        }
+        Ok((widest, line))
     }
 
     /// Lays out everything that is left.

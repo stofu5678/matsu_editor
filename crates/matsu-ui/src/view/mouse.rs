@@ -206,6 +206,15 @@ impl EditorView {
             return;
         };
         let rows = self.layout.row_count();
+        // The horizontal scroll bar, and the corner right of it where Sakura has the size box.
+        if let Some(hbar) = paint.hbar
+            && f32::from(event.position.y) >= hbar.top
+        {
+            if f32::from(event.position.x) < paint.scrollbar_left {
+                self.h_scroll_press(f32::from(event.position.x), cx);
+            }
+            return;
+        }
         if f32::from(event.position.x) >= paint.scrollbar_left {
             let bar = Scrollbar::new(&self.metrics, rows, self.scroll_y);
             let y = f32::from(event.position.y) - paint.origin_y;
@@ -567,6 +576,9 @@ impl EditorView {
                 }
             }
             Drag::Drop => self.move_drop_caret(event.position, cx),
+            Drag::HThumb { start_x, start_col } => {
+                self.h_scroll_drag(f32::from(event.position.x), start_x, start_col, cx);
+            }
             Drag::Thumb {
                 start_y,
                 start_scroll,
@@ -696,9 +708,9 @@ impl EditorView {
         let rows = self.layout.row_count();
         self.scroll_past_end = false;
         self.scroll_y = clamp_scroll_y(&self.metrics, rows, self.scroll_y - dy);
-        // The text can scroll right until the widest row of the last paint ends at the edge.
-        let widest = (self.widest_cols as f32 + 1.0) * self.metrics.cell_width;
-        let max_x = (widest - self.metrics.view_width).max(0.0);
+        // `ScrollAtH`: the text can scroll right until the right edge of the scroll range is at
+        // the edge of the view (a position past it stays where it is).
+        let max_x = self.h_max_left_col() * self.metrics.cell_width;
         let wanted = (self.scroll_x - dx).max(0.0);
         self.scroll_x = wanted.min(max_x.max(self.scroll_x));
     }
