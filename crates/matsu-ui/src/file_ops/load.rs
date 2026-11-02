@@ -513,6 +513,10 @@ pub(crate) async fn drop_files(
     if reading || (!accepts && !super::close::confirm_discard(view, cx).await) {
         return;
     }
+    // The document that goes is closed for the plugins first (`FileCloseOpen`); text typed while they ran is kept.
+    if !accepts && !super::close::close_event_keeps_the_text(view, cx).await {
+        return;
+    }
     load_here(view, cx, &path, None, None).await;
 }
 
