@@ -676,17 +676,19 @@ impl CommonSettingsDialog {
                 match question {
                     None => self.put_rows(id, rows, selected, window, cx),
                     Some(question) => {
-                        // The default button is the second one (`MB_DEFBUTTON2`).
+                        // GPUI has no default-button setting: its box makes the first button the
+                        // default (Enter), so いいえ comes first (`MB_DEFBUTTON2`). GPUI has no
+                        // question icon either; the information icon is the nearest.
                         let answer = crate::boxes::prompt(
                             window,
                             PromptLevel::Info,
                             question,
                             None,
-                            &["はい(&Y)", "いいえ(&N)"],
+                            &["いいえ(&N)", "はい(&Y)"],
                             cx,
                         );
                         cx.spawn_in(window, async move |this, cx| {
-                            if let Ok(0) = answer.await {
+                            if let Ok(1) = answer.await {
                                 this.update_in(cx, |this, window, cx| {
                                     this.put_rows(id, rows, selected, window, cx)
                                 })
