@@ -8,7 +8,9 @@
 //! document; a number that is not an encoding: Shift_JIS), and inserts it line by line with
 //! `Command_INSTEXT`, so the line endings of the file are kept as they are and a selection is
 //! replaced. When there was a selection, the inserted text is selected afterwards. The option is
-//! unused. A file that cannot be opened or read is shown to the user and the macro goes on.
+//! unused. A file that cannot be opened or read is shown to the user in a box (`WarningMessage`:
+//! `STR_GREP_ERR_FILEOPEN` with the path when it cannot be opened, `STR_ERR_DLGEDITVWCMDNW12`
+//! when reading it fails) and the macro goes on, after the OK.
 //!
 //! The history of the files that were opened (the "last opened encoding" of code 99) does not
 //! exist here yet, so code 99 is the encoding of the document.
@@ -20,7 +22,7 @@ use matsu_commands::command::{Arg, Result};
 use matsu_commands::context::CommandContext;
 use matsu_core::buffer::Document;
 use matsu_core::encoding::Encoding;
-use matsu_core::file::{OpenOptions, TextFile, open_file};
+use matsu_core::file::{FileError, OpenOptions, TextFile, open_file};
 
 use super::putfile::encoding_of;
 use super::{int_arg, text_arg};
@@ -53,7 +55,7 @@ impl UiCommand for InsFile {
         let file = match open(Path::new(name), encoding) {
             Ok(file) => file,
             Err(message) => {
-                view.macro_failed(message, window, cx);
+                view.warning_box(&message, window, cx);
                 return Ok(());
             }
         };
@@ -105,15 +107,37 @@ fn insert_lines(cx: &mut CommandContext<'_>, doc: &Document) -> Result {
     Ok(())
 }
 
-/// Opens the file in `encoding` (the BOM is dropped). The error is the text to show.
+/// Opens the file in `encoding` (the BOM is dropped). The error is the text of the box.
 fn open(path: &Path, encoding: Encoding) -> std::result::Result<TextFile, String> {
     let options = OpenOptions {
         encoding: Some(encoding),
         ..OpenOptions::default()
     };
-    // `STR_GREP_ERR_FILEOPEN` and `STR_ERR_DLGEDITVWCMDNW12`
-    open_file(path, &options)
-        .map_err(|error| format!("ファイルを開けませんでした。\n{}\n{error}", path.display()))
+    open_file(path, &options).map_err(|error| open_error(path, &error))
+}
+
+/// The text of the box for a file that was not read. Sakura tells a file that cannot be opened
+/// (`STR_GREP_ERR_FILEOPEN`; a file that is too big is one too, `CFileLoad::FileOpen`) from a read
+/// that failed (`STR_ERR_DLGEDITVWCMDNW12`).
+pub(super) fn open_error(path: &Path, error: &FileError) -> String {
+    use std::io::ErrorKind;
+    let not_opened = match error {
+        FileError::TooLarge { .. } | FileError::ReadOnly | FileError::NoPath => true,
+        FileError::Io(e) => matches!(
+            e.kind(),
+            ErrorKind::NotFound
+                | ErrorKind::PermissionDenied
+                | ErrorKind::InvalidInput
+                | ErrorKind::IsADirectory
+                | ErrorKind::NotADirectory
+        ),
+        _ => false,
+    };
+    if not_opened {
+        format!("file open error [{}]", path.display())
+    } else {
+        "ファイルの読み込み中にエラーが発生しました。".to_owned()
+    }
 }
 
 register_ui_command!(InsFile);

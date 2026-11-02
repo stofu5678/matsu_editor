@@ -149,8 +149,16 @@ impl EditorView {
         // The status bar is a setting of the window, not of the type; a type change keeps it.
         self.prefs.show_status_bar = status_bar;
         self.prefs.select_count = select_count;
+        self.remember_indent(cx);
         self.relayout_in(cx);
         cx.notify();
+    }
+
+    /// Tells the document the tab width and the use of spaces of this view, for a view made later.
+    fn remember_indent(&self, cx: &mut Context<Self>) {
+        let (width, ins_space) = (self.prefs.settings.tab_width, self.prefs.settings.ins_space);
+        self.document
+            .update(cx, |shared, _| shared.set_indent(width, ins_space));
     }
 
     /// Reads the settings file for this view: the values for the file it shows, and the user's
@@ -373,6 +381,7 @@ impl EditorView {
         if let Some(ins_space) = ins_space {
             self.prefs.settings.ins_space = ins_space;
         }
+        self.remember_indent(cx);
         self.relayout_in(cx);
         cx.notify();
     }

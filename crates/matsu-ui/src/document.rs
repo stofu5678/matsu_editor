@@ -134,6 +134,11 @@ pub struct SharedDocument {
     /// The stops of the TSV or CSV mode, counted once for all the panes of the document (see
     /// [`tsv_stops`](Self::tsv_stops)).
     tsv: std::cell::RefCell<TsvState>,
+    /// The tab width and the use of spaces the views of this document have now: the type's, or what
+    /// the detection on load and `F_CHGTABWIDTH` / `F_CHGINSSPACE` made of them. Sakura keeps them
+    /// in the document and the layout, so a view made later (the source tab that comes back from
+    /// the preview) takes them from here. `None` until a view says.
+    indent: Option<(u32, bool)>,
 }
 
 /// The count of the stops of the TSV or CSV mode and its last result.
@@ -191,7 +196,18 @@ impl SharedDocument {
             scan_done: None,
             ranged: false,
             tsv: Default::default(),
+            indent: None,
         }
+    }
+
+    /// The tab width and the use of spaces of the document (see the field `indent`).
+    pub(crate) fn indent(&self) -> Option<(u32, bool)> {
+        self.indent
+    }
+
+    /// Records the tab width and the use of spaces the views have now.
+    pub(crate) fn set_indent(&mut self, tab_width: u32, ins_space: bool) {
+        self.indent = Some((tab_width, ins_space));
     }
 
     /// The stops of `mode` for the text of this document, for the layout of every pane: the last
@@ -288,6 +304,7 @@ impl SharedDocument {
             scan_done: None,
             ranged,
             tsv: Default::default(),
+            indent: None,
         };
         if let Some(job) = scan {
             shared.attach_scan(job);

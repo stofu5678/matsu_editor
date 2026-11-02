@@ -10,7 +10,11 @@
 //! file is made, and one that exists stays; with a BOM the BOM alone is written). Without it the
 //! whole document is written, with its line endings as they are, and characters that the
 //! encoding cannot write become `?`. A failure is shown to the user and the macro goes on (the
-//! macro ignores the result).
+//! macro ignores the result). With the selected text, the box of Sakura is shown and the macro
+//! waits for its OK: `STR_SAVEAGENT_OTHER_APP` when the file cannot be opened for writing
+//! (`CError_FileOpen`), `STR_ERR_DLGEDITVWCMDNW11` when the write fails (`CError_FileWrite`).
+//! With the whole document Sakura shows nothing (`WriteFile_From_CDocLineMgr` returns a result
+//! that the command hands back), so only the notice and the panel tell.
 //!
 //! The file is replaced as a whole (`matsu_core::file::write_bytes`, ADR-0005): a failed write
 //! leaves the old file. Sakura truncates it and writes into it.
@@ -69,13 +73,12 @@ impl UiCommand for PutFile {
         // `UseBom`: only the encodings that have a BOM, and then the BOM of the document.
         let bom = encoding.can_have_bom() && document_bom;
         let path = PathBuf::from(name);
-        let written = if option & SELECTION != 0 {
-            put_selection(view, &path, encoding, bom, cx)
-        } else {
-            put_document(view, path.clone(), encoding, bom, cx)
-        };
-        if let Err(message) = written {
-            // Sakura shows a warning and the macro goes on.
+        if option & SELECTION != 0 {
+            if let Err(message) = put_selection(view, &path, encoding, bom, cx) {
+                // Sakura shows a warning and the macro goes on.
+                view.warning_box(&message, window, cx);
+            }
+        } else if let Err(message) = put_document(view, path.clone(), encoding, bom, cx) {
             view.macro_failed(message, window, cx);
         }
         // The file of the document may have been written: its lock was put back.
@@ -89,7 +92,7 @@ impl UiCommand for PutFile {
     }
 }
 
-/// The error of a write, in the words of Sakura's `STR_ERR_DLGEDITVWCMDNW11`.
+/// The error of a write of the whole document, for the notice (Sakura shows none).
 fn write_error(path: &std::path::Path, error: &dyn std::fmt::Display) -> String {
     format!(
         "ファイルの書き込みに失敗しました。\n{}\n{error}",
@@ -158,7 +161,34 @@ fn put_selection(
     let written = write_bytes(path, &bytes, Preserve::default());
     view.document()
         .update(cx, |shared, _| shared.restore_lock(released));
-    written.map_err(|error| write_error(path, &error))
+    written.map_err(|error| selection_error(path, &error))
+}
+
+/// The text of the box for a failed write of the selected text. Sakura tells the file that cannot
+/// be opened (`STR_SAVEAGENT_OTHER_APP`) from a write that failed (`STR_ERR_DLGEDITVWCMDNW11`).
+pub(super) fn selection_error(path: &std::path::Path, error: &FileError) -> String {
+    use std::io::ErrorKind;
+    let not_opened = match error {
+        FileError::ReadOnly | FileError::NoPath => true,
+        FileError::Io(e) => matches!(
+            e.kind(),
+            ErrorKind::NotFound
+                | ErrorKind::PermissionDenied
+                | ErrorKind::InvalidInput
+                | ErrorKind::AlreadyExists
+                | ErrorKind::IsADirectory
+                | ErrorKind::NotADirectory
+        ),
+        _ => false,
+    };
+    if not_opened {
+        format!(
+            "'{}'\nファイルを保存できません。\nパスが存在しないか、他のアプリケーションで使用されている可能性があります。",
+            path.display()
+        )
+    } else {
+        "ファイルの書き込み中にエラーが発生しました。".to_owned()
+    }
 }
 
 register_ui_command!(PutFile);

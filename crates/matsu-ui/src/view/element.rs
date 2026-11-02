@@ -1251,6 +1251,28 @@ impl Element for EditorElement {
             }
         }
 
+        // The rows below the end of the document have no layout in Sakura, and are drawn like the
+        // rows of text: the note line from the left edge, through the line number area, and the
+        // vertical lines.
+        let below = lines::rows_below_the_end(
+            f32::from(text_bounds.size.height),
+            p.y_offset,
+            p.line_height,
+            p.rows.len(),
+        );
+        if let Some((offset, color)) = p.lines.note {
+            for i in p.rows.len()..p.rows.len() + below {
+                let y = body_top + px(p.y_offset) + lh * i as f32;
+                window.paint_quad(fill(
+                    Bounds::from_corners(
+                        point(bounds.left(), y + px(offset)),
+                        point(bounds.left() + px(p.gutter_width), y + px(offset + 1.)),
+                    ),
+                    rgb(color),
+                ));
+            }
+        }
+
         window.with_content_mask(
             Some(ContentMask {
                 bounds: text_bounds,
@@ -1299,24 +1321,7 @@ impl Element for EditorElement {
                     }
                     if p.lines.vertical_dotted {
                         for &x in &p.lines.vertical {
-                            let x = origin_x + px(x);
-                            // One pixel in two, on the same pixel rows in every row of text.
-                            let row_top = f32::from(y - bounds.top());
-                            let row_bottom = row_top + p.line_height;
-                            let mut dot = row_top.ceil();
-                            if dot % 2.0 != 0.0 {
-                                dot += 1.0;
-                            }
-                            while dot < row_bottom {
-                                window.paint_quad(fill(
-                                    Bounds::new(
-                                        point(x, bounds.top() + px(dot)),
-                                        size(px(1.), px(1.)),
-                                    ),
-                                    rgb(p.lines.vertical_color),
-                                ));
-                                dot += 2.0;
-                            }
+                            paint_dots(window, origin_x + px(x), y, bounds.top(), p);
                         }
                     }
                     for &(from, to, color) in &row.underlines {
@@ -1396,6 +1401,24 @@ impl Element for EditorElement {
                                 cx,
                             )
                             .ok();
+                    }
+                }
+                for i in p.rows.len()..p.rows.len() + below {
+                    let y = body_top + px(p.y_offset) + lh * i as f32;
+                    if let Some((offset, color)) = p.lines.note {
+                        let line_y = y + px(offset);
+                        window.paint_quad(fill(
+                            Bounds::from_corners(
+                                point(text_bounds.left(), line_y),
+                                point(text_bounds.right(), line_y + px(1.)),
+                            ),
+                            rgb(color),
+                        ));
+                    }
+                    if p.lines.vertical_dotted {
+                        for &x in &p.lines.vertical {
+                            paint_dots(window, origin_x + px(x), y, bounds.top(), p);
+                        }
                     }
                 }
                 // The vertical lines at given columns, whole (not row by row), over the text as
@@ -1623,6 +1646,17 @@ impl Element for EditorElement {
             let dragging = matches!(editor.drag, super::Drag::HThumb { .. });
             paint_hscrollbar(window, &bar, at, dragging);
         }
+    }
+}
+
+/// The dots of a dotted vertical line at `x` in the row that starts at `y`: one pixel in two, on the
+/// same pixel rows in every row of text (`DispVerticalLines`).
+fn paint_dots(window: &mut Window, x: Pixels, y: Pixels, top: Pixels, p: &Prepaint) {
+    for dot in lines::dotted_ys(f32::from(y - top), p.line_height) {
+        window.paint_quad(fill(
+            Bounds::new(point(x, top + px(dot)), size(px(1.), px(1.))),
+            rgb(p.lines.vertical_color),
+        ));
     }
 }
 
