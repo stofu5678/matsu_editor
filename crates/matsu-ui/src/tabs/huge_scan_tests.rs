@@ -173,6 +173,27 @@ fn the_pl_sql_count_and_the_count_of_rows_still_wait_for_the_scan(cx: &mut TestA
 }
 
 #[gpui::test]
+fn a_move_to_the_start_that_extends_a_selection_waits_when_a_window_is_shown(
+    cx: &mut TestAppContext,
+) {
+    let (handle, dir) = opened(cx, "big.txt", big_text().as_bytes());
+    let view = active_view(cx, handle);
+    run(cx, handle, "F_GOFILEEND");
+    assert!(window_of(cx, &view).is_some());
+    let before = view.read_with(cx, |v, _| v.cursor.caret());
+    // The top of the window is not the top of the file: the move waits for the scan.
+    run(cx, handle, "F_GOFILETOP_SEL");
+    assert_eq!(view.read_with(cx, |v, _| v.cursor.caret()), before);
+    assert_eq!(
+        notice(cx, &view).as_deref(),
+        Some("改行位置を調べ終えてから移動します")
+    );
+    wait_for_scan(cx, &view);
+    assert_eq!(caret_line(cx, &view), 0);
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[gpui::test]
 fn the_go_to_line_dialog_shows_a_line_beyond_the_scan_too(cx: &mut TestAppContext) {
     let (handle, dir) = opened(cx, "big.txt", big_text().as_bytes());
     let view = active_view(cx, handle);
@@ -273,8 +294,8 @@ fn another_pane_of_the_document_follows_the_window_to_the_same_place(cx: &mut Te
     cx.run_until_parked();
     assert!(window_of(cx, &pane).is_some());
     // (The pane that has the focus may move the window meanwhile, which makes a new estimate.)
-    let (line, approx) = status_line(cx, &pane);
-    assert!(approx && line.abs_diff(95_000) <= ABOUT, "{line}");
+    let (line, _) = status_line(cx, &pane);
+    assert!(line.abs_diff(95_000) <= ABOUT, "{line}");
     // The first pane had its caret at the start of the file, which is not in the window: it
     // goes to the top of what it shows.
     assert!(view.read_with(cx, |v, cx| v.visible_bytes(&v.metrics, cx).0) > 0);

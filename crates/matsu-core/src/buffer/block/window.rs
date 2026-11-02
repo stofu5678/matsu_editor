@@ -110,7 +110,7 @@ fn find_stretch(
     }
     let wanted_end = start.saturating_add(size).min(len);
     if wanted_end == len {
-        return Ok(Some((start, len)));
+        return Ok((start <= target.min(len)).then_some((start, len)));
     }
     let upto = (wanted_end + LOOKAHEAD).min(len);
     let bytes = read_all(source, start, upto)?;
@@ -124,7 +124,11 @@ fn find_stretch(
         ext_eol,
         |off, n, _| last = Some(off + n),
     );
-    Ok(last.map(|e| (start, start + e as u64)))
+    // A long line that crosses the target and the end of the window leaves the last line ending
+    // before the target: there is no window around it.
+    Ok(last
+        .map(|e| (start, start + e as u64))
+        .filter(|&(start, end)| (start..=end).contains(&target.min(len))))
 }
 
 impl BlockIndex {

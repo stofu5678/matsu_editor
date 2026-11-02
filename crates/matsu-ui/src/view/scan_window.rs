@@ -77,8 +77,13 @@ impl EditorView {
         let inside = |byte: u64| byte >= new_start && byte <= new_end;
         let m = &self.metrics;
         let row = first_row(self.scroll_y, m);
+        // The start of the row (not of its line): a wrapped line stays on the row it was.
         let line = self.layout.locate_row(row).line;
-        let top_byte = byte_of(Pos::new(line, 0)).unwrap_or(change.from_start);
+        let row_start = self
+            .layout
+            .row(&change.from_doc, row)
+            .map_or(Pos::new(line, 0), |info| info.start);
+        let top_byte = byte_of(row_start).unwrap_or(change.from_start);
         let top = pos_of(top_byte);
         let caret_byte = byte_of(self.cursor.caret());
         let kept = caret_byte.filter(|&b| inside(b));
@@ -299,13 +304,8 @@ impl EditorView {
             "F_GOFILEEND" => Goal::End,
             "F_GOFILETOP" if windowed => Goal::Start,
             "F_JUMP" => {
-                let number = |arg: Option<&Arg>| match arg {
-                    Some(Arg::Int(n)) => Some(*n),
-                    Some(Arg::Text(text)) => text.trim().parse::<i64>().ok(),
-                    _ => None,
-                };
-                let option = args.get(1).map_or(Some(1), |a| number(Some(a)));
-                let Some(n) = number(args.first()).and_then(|n| u64::try_from(n).ok()) else {
+                let (line, option) = super::scan::jump_args(args);
+                let Some(n) = line.and_then(|n| u64::try_from(n).ok()) else {
                     return false;
                 };
                 // Only the plain count of lines (option 1) is the number of a line the scan can

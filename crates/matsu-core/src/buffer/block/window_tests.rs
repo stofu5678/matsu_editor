@@ -261,3 +261,43 @@ fn the_position_of_a_byte_in_a_window_and_back() {
         doc.end_pos().unwrap()
     );
 }
+
+#[test]
+fn no_window_is_made_when_a_long_line_crosses_the_target_and_the_edge_of_the_window() {
+    #[derive(Debug)]
+    struct Bytes(Vec<u8>);
+    impl Source for Bytes {
+        fn len(&self) -> u64 {
+            self.0.len() as u64
+        }
+        fn read(&self, start: u64, end: u64) -> io::Result<Cow<'_, [u8]>> {
+            Ok(Cow::Borrowed(&self.0[start as usize..end as usize]))
+        }
+    }
+    // Short lines, then a line of 200 KiB, then short lines again: a window of 64 KiB around the
+    // middle of the long line would end before the target (at the last short line).
+    let mut bytes = b"ab\n".repeat(40_000);
+    let long_start = bytes.len();
+    bytes.extend(std::iter::repeat_n(b'x', 200 * 1024));
+    bytes.push(b'\n');
+    bytes.extend_from_slice(&b"cd\n".repeat(40_000));
+    let options = ScanOptions {
+        window_blocks: 1,
+        step_delay: Some(Duration::from_secs(600)),
+        ..ScanOptions::default()
+    };
+    let job = ScanJob::spawn(
+        Arc::new(Bytes(bytes)),
+        Arc::new(EncodingCodec(Encoding::Utf8)),
+        options,
+    )
+    .unwrap();
+    let target = (long_start + 100 * 1024) as u64;
+    assert!(job.open_window(target, 64 * 1024).unwrap().is_none());
+    // Short lines before the long line have a window.
+    assert!(
+        job.open_window(long_start as u64 - 1000, 64 * 1024)
+            .unwrap()
+            .is_some()
+    );
+}
