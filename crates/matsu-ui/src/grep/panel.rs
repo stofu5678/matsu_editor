@@ -439,6 +439,7 @@ impl GrepPanel {
         }
         let settings = self.settings.clone();
         remember(cx, settings.clone());
+        super::window::remember_window(cx, document.filter(|_| from_this_text));
         // The strings go into the histories (`CDlgGrep::GetData`; `CDlgGrepReplace::GetData` adds
         // the replacement). Not the boxes of the files and folders when the text of the window is
         // searched: they were not used.

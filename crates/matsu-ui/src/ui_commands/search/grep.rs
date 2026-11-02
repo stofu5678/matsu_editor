@@ -16,7 +16,7 @@ use gpui::{Context, Window};
 use matsu_commands::command::{Arg, CommandError, Result};
 
 use crate::grep::settings::GrepSettings;
-use crate::grep::window::remembered;
+use crate::grep::window::{remembered, remembered_window};
 use crate::ui_command::{UiCommand, register_ui_command};
 use crate::view::EditorView;
 
@@ -37,7 +37,13 @@ impl UiCommand for Grep {
         if args.is_empty() {
             // `HandleCommand(F_GREP)` with nothing: what the dialog left.
             let mut settings = remembered(cx);
-            return match settings.check() {
+            // After a search of the text of a window the file box still says `:HWND:`
+            // (`CDlgGrep::GetData` keeps it in `m_szFile`): the same document is searched.
+            let checked = match remembered_window(cx) {
+                Some(document) => settings.check_from_this_text(document),
+                None => settings.check(),
+            };
+            return match checked {
                 Ok(info) => {
                     view.start_grep(info, false, window, cx);
                     Ok(())

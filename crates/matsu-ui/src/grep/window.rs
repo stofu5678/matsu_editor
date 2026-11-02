@@ -79,8 +79,12 @@ const PROGRESS_INTERVAL: Duration = Duration::from_millis(50);
 /// What the dialog remembers from one Grep to the next, for every window
 /// (`DllShareData::m_Common.m_sSearch` and `m_sSearchKeywords`). It lives as long as the program;
 /// it is not saved in a file yet.
+///
+/// The second value is the document that the last search read when it was a search of the text of
+/// a window: `F_GREP` without arguments repeats it, as Sakura's dialog keeps `:HWND:` in its file
+/// box (`CDlgGrep::GetData`).
 #[derive(Default)]
-struct GrepMemory(GrepSettings);
+struct GrepMemory(GrepSettings, Option<u64>);
 
 impl Global for GrepMemory {}
 
@@ -99,7 +103,19 @@ pub(crate) fn remembered(cx: &App) -> GrepSettings {
 }
 
 pub(crate) fn remember(cx: &mut App, settings: GrepSettings) {
-    cx.set_global(GrepMemory(settings));
+    let window = remembered_window(cx);
+    cx.set_global(GrepMemory(settings, window));
+}
+
+/// The document the last search of the text of a window read, if the last search was one.
+pub(crate) fn remembered_window(cx: &App) -> Option<u64> {
+    cx.try_global::<GrepMemory>().and_then(|memory| memory.1)
+}
+
+/// Notes which document the search that starts now reads (`None`: a search of files).
+pub(crate) fn remember_window(cx: &mut App, window: Option<u64>) {
+    let settings = remembered(cx);
+    cx.set_global(GrepMemory(settings, window));
 }
 
 /// The text of the clipboard for クリップボードの内容で置換 (`MyGetClipboardData` in

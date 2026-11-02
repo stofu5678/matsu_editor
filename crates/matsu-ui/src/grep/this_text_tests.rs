@@ -650,3 +650,30 @@ fn the_check_box_starts_off_each_time(cx: &mut TestAppContext) {
     assert!(!on);
     assert_eq!(file, "*.*");
 }
+
+#[gpui::test]
+fn f_grep_without_arguments_repeats_the_search_of_the_window(cx: &mut TestAppContext) {
+    // Sakura's dialog keeps `:HWND:` in its file box, so the same document is searched again
+    let (f, cx) = setup(cx, "", None);
+    cx.simulate_input("a needle in the unsaved text");
+    f.run(cx, "F_GREP_DIALOG", &[]);
+    let panel = f.view.read_with(cx, |v, _| v.grep.panel.clone().unwrap());
+    panel.update_in(cx, |p, window, cx| {
+        p.key.update(cx, |s, cx| s.set_value("needle", window, cx));
+        p.set_from_this_text(true, window, cx);
+        p.ok(window, cx);
+    });
+    settle(cx);
+    assert_eq!(others(cx, &f.view).len(), 1);
+    // the text changes, then the search is repeated: the unsaved text is read again
+    cx.simulate_input(" and a second needle");
+    f.run(cx, "F_GREP", &[]);
+    let results = others(cx, &f.view);
+    assert_eq!(results.len(), 2, "a window for each result");
+    let texts: Vec<String> = results.iter().map(|v| text_of(v, cx)).collect();
+    assert!(texts.iter().all(|t| t.contains("Window:[")), "{texts:?}");
+    assert!(
+        texts.iter().any(|t| t.contains("a second needle")),
+        "{texts:?}"
+    );
+}
