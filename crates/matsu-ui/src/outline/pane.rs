@@ -57,7 +57,7 @@ use matsu_commands::keymap::Resolved;
 use matsu_core::buffer::Pos;
 use matsu_outline::tree::{
     build_java_tree, build_tree, clip_text_java, clip_text_list, clip_text_tree, clip_text_vb,
-    item_at, list_order, list_remark, prepare_append_texts, sort_tree, vb_remark,
+    item_at_where, list_order, list_remark, prepare_append_texts, sort_tree, vb_remark,
 };
 use matsu_outline::{
     Analysis, ListColumn, ListSort, OutlineKind, Request, SortType, TreeNode, ViewType, analyze,
@@ -459,7 +459,14 @@ impl OutlinePane {
                     .items
                     .items()
                     .iter()
-                    .map(|i| view.layout().first_row_of_line(i.line.saturating_sub(1)) + 1)
+                    .map(|i| {
+                        // the line of an item of another file is that file's
+                        if self.is_in_another_file(&i.file, cx) {
+                            i.line
+                        } else {
+                            view.layout().first_row_of_line(i.line.saturating_sub(1)) + 1
+                        }
+                    })
                     .collect()
             }
             _ => analysis.items.items().iter().map(|i| i.line).collect(),
@@ -614,7 +621,12 @@ impl OutlinePane {
             .read(cx)
             .doc()
             .utf16_col(caret.line, caret.col);
-        let Some(index) = item_at(&shown.analysis.items, caret.line + 1, caret_col + 1) else {
+        // (an item of another file is no place in this document)
+        let Some(index) =
+            item_at_where(&shown.analysis.items, caret.line + 1, caret_col + 1, |i| {
+                !self.is_in_another_file(&i.file, cx)
+            })
+        else {
             self.selected = None;
             return;
         };

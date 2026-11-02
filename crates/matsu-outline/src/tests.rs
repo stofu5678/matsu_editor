@@ -1049,3 +1049,22 @@ fn asm_a_nul_ends_the_line() {
     assert_eq!(asm("a:\0b: c\n"), "1:0:51:a");
     assert_eq!(asm("x PROC\n"), "1:0:50:x");
 }
+
+#[test]
+fn the_item_for_the_caret_passes_over_the_items_of_another_file() {
+    let mut arr = crate::FuncInfoArr::new();
+    arr.push(2, "local", 0, 0);
+    arr.push_item(crate::FuncInfo {
+        line: 3,
+        col: 1,
+        name: "elsewhere".into(),
+        depth: 0,
+        info: 0,
+        file: "b.txt".into(),
+    });
+    assert_eq!(item_at(&arr, 3, 1), Some(1));
+    assert_eq!(
+        crate::tree::item_at_where(&arr, 3, 1, |i| i.file.is_empty()),
+        Some(0)
+    );
+}

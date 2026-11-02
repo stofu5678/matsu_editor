@@ -570,3 +570,36 @@ fn only_the_items_of_the_document_get_a_function_list_mark(cx: &mut TestAppConte
     assert_eq!(marks, [1, 2]);
     finish(cx);
 }
+
+#[gpui::test]
+fn an_item_of_another_file_is_no_place_in_this_document(cx: &mut TestAppContext) {
+    let Some(place) = begin(
+        "noplace",
+        "Outline.SetListType(300);\n\
+         Outline.AddFuncInfo(2, 1, 'local', 0);\n\
+         Outline.AddFuncInfo3(3, 1, 'external', 0, 'other.txt');",
+    ) else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    let this = place.dir.join("a.zzz");
+    let handle = window_with(
+        cx,
+        "a\nb\nc\nd\n",
+        &this.display().to_string(),
+        place.user(Place::code(), true, true),
+    );
+    open_outline(cx, handle);
+    let pane = pane(cx, handle).unwrap();
+    // the caret on line 3 follows the last item of this document, not the one of the other file
+    active_view(cx, handle).update(cx, |view, cx| {
+        view.run_with(cx, |c| {
+            c.move_caret(matsu_core::buffer::Pos::new(2, 0), false)
+        })
+        .unwrap();
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert_eq!(pane.read_with(cx, |p, _| p.selected_row()), Some(0));
+    finish(cx);
+}

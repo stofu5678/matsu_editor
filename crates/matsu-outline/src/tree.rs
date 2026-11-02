@@ -503,10 +503,25 @@ pub fn list_order(arr: &FuncInfoArr, sort: ListSort) -> Vec<usize> {
 /// is not after the caret, among the items that follow one another in the order of the text. The
 /// first item when the caret is before all of them.
 pub fn item_at(arr: &FuncInfoArr, line: usize, col: usize) -> Option<usize> {
+    item_at_where(arr, line, col, |_| true)
+}
+
+/// [`item_at`] over the items for which `in_document` is true. An item of another file (a plugin's
+/// `AddFuncInfo3`) is passed over, as `GetFuncInfoIndex` does (`CDlgFuncList.cpp:4136-4140`); the
+/// index is still the index in the whole list.
+pub fn item_at_where(
+    arr: &FuncInfoArr,
+    line: usize,
+    col: usize,
+    in_document: impl Fn(&crate::FuncInfo) -> bool,
+) -> Option<usize> {
     let mut found: Option<usize> = None;
     // `nFuncLineOld`, `nFuncColOld`: -1 at the start, and not set by the first item
     let mut old = (0usize, 0usize);
     for (i, item) in arr.items().iter().enumerate() {
+        if !in_document(item) {
+            continue;
+        }
         let pos = (item.line, item.col);
         if found.is_none() {
             found = Some(i);
