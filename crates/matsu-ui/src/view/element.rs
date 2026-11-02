@@ -715,14 +715,20 @@ impl Element for EditorElement {
             let mut selected_text = Vec::new();
             for item in &styling.items {
                 let tab_text;
+                let mut label_col = item.col;
                 let label = match &item.label {
                     Label::Text(text) => text.as_str(),
                     Label::Tab(cols) => {
-                        // A tab in a very wide field of the TSV or CSV mode is drawn as far as
-                        // a window can show; the rest is blank. The head of a long arrow is
-                        // placed at the true end of the tab below.
+                        // A tab in a very wide field of the TSV or CSV mode is drawn only where
+                        // the window shows it; the head of a long arrow is placed at the true
+                        // end of the tab below.
                         tab_text = if wide_long_arrow(&settings.tab_mark, *cols) {
-                            "\u{2500}".repeat(MAX_TAB_MARK_COLUMNS as usize - 1)
+                            let first = (editor.scroll_x / cell).floor().max(0.0) as u32;
+                            let shown = (f32::from(bounds.size.width) / cell).ceil() as u32 + 2;
+                            let from = item.col.max(first.saturating_sub(1));
+                            let to = (item.col + *cols - 1).min(first.saturating_add(shown));
+                            label_col = from;
+                            "\u{2500}".repeat(to.saturating_sub(from) as usize)
                         } else {
                             settings.tab_mark.text((*cols).min(MAX_TAB_MARK_COLUMNS))
                         };
@@ -743,7 +749,7 @@ impl Element for EditorElement {
                     place(
                         window,
                         &mut selected_text,
-                        (item.col, label, selected_style),
+                        (label_col, label, selected_style),
                         spaced.then_some(width_of),
                         &shape_styled,
                     );
@@ -751,7 +757,7 @@ impl Element for EditorElement {
                 place(
                     window,
                     &mut text,
-                    (item.col, label, &item.style),
+                    (label_col, label, &item.style),
                     spaced.then_some(width_of),
                     &shape_styled,
                 );
