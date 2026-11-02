@@ -13,7 +13,7 @@
 //! Shapes (ADR-0020, 8.1 and the addendum of 2026-10-29): `s1` is UTF-8 lines of 56 bytes, `t1` is
 //! lines that are only a line ending (the worst case for the number of lines).
 
-use std::fs::{self, File};
+use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
