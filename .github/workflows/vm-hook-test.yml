@@ -1,0 +1,20 @@
+# A test of the self-hosted runner in the VM (ADR-0027): this workflow is not one that the runner admits, so the
+# job-started hook must refuse it and power the VM off before any step runs, the `if: always()` one included.
+# Not to be merged.
+name: VM hook test
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: [self-hosted, matsu-vm]
+    timeout-minutes: 15
+    steps:
+      - run: echo "STEP-RAN-THIS-MUST-NOT-APPEAR"
+      - if: always()
+        run: echo "ALWAYS-RAN-THIS-MUST-NOT-APPEAR"
