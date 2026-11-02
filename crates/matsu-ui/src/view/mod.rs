@@ -175,9 +175,6 @@ pub struct EditorView {
     pub(crate) layout: DocumentLayout,
     /// The version of the document that `layout` matches.
     pub(crate) layout_version: u64,
-    /// The stops of the TSV or CSV mode were worked out from the part of a file that the scan
-    /// had read; they are worked out again when the document is complete.
-    pub(crate) tsv_partial: bool,
     /// The color state at the start of each line, for the syntax coloring (`view/colors.rs`), and
     /// the version of the document it matches.
     pub(crate) color_states: matsu_coloring::ColorStates,
@@ -303,7 +300,6 @@ impl EditorView {
             document,
             layout,
             layout_version,
-            tsv_partial: false,
             color_states: Default::default(),
             color_version: layout_version,
             line_color_cache: Default::default(),
@@ -651,10 +647,10 @@ impl EditorView {
         let doc = self.document.read(cx).doc();
         let _ = self.layout.resync(doc);
         let _ = self.layout.layout_for(doc, LAYOUT_BUDGET);
-        // Sakura works the stops out from the whole file (`CLoadAgent::OnLoad`): the scan of a
-        // large file has ended, in this pane or in another one of the document.
-        if self.tsv_partial && !self.document.read(cx).is_scanning() {
-            self.relayout(true, cx);
+        // The document holds the stops for all its panes: they are worked out again when the
+        // scan of a large file has ended or another pane loaded a file.
+        if self.tsv_stops_changed(cx) {
+            self.relayout_in(cx);
         }
         let _ = self.cursor.clamp_if_outside(doc);
         // The text of the line may have grown under a caret that stood right of its end.

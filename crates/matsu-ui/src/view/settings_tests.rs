@@ -404,13 +404,10 @@ fn the_tsv_mode_of_the_type_lines_up_the_fields(cx: &mut TestAppContext) {
     view.update(cx, |v, cx| v.document_changed(v.layout_version + 1, cx));
     assert_eq!(stops(&view, cx), [6, 10]);
     // they were worked out from the part of a file that the scan had read: the scan has ended,
-    // so they are worked out from the whole text
-    view.update(cx, |v, cx| {
-        v.tsv_partial = true;
-        v.document_changed(v.layout_version + 1, cx);
-    });
+    // so the document works them out from the whole text, for every pane
+    view.read_with(cx, |v, cx| v.document.read(cx).forget_tsv_stops());
+    view.update(cx, |v, cx| v.document_changed(v.layout_version + 1, cx));
     assert_eq!(stops(&view, cx), [7, 11]);
-    assert!(!view.read_with(cx, |v, _| v.tsv_partial));
 
     let csv = user("[Types(0)]\r\nnInts=0,80,0,4,-1,-1,0,1,1,0,0,2\r\n");
     view.update(cx, |v, cx| v.apply_user_settings(&csv, cx));

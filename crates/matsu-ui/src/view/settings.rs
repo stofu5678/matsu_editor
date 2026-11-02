@@ -5,7 +5,7 @@
 //! written to the file (see the module documentation of [`crate::settings`]).
 
 use gpui::{App, Context};
-use matsu_layout::{TsvMode, TsvStops, Wrap};
+use matsu_layout::Wrap;
 
 use super::EditorView;
 use crate::layout_adapter::LAYOUT_BUDGET;
@@ -208,25 +208,17 @@ impl EditorView {
             && self.layout.config().wrap != self.wanted_wrap()
     }
 
+    /// Whether the stops of the TSV or CSV mode that the document holds are not the layout's
+    /// (the mode changed, or another pane loaded a file or completed the document).
+    pub(crate) fn tsv_stops_changed(&self, cx: &App) -> bool {
+        let shared = self.document.read(cx);
+        let width = self.layout.config().width;
+        shared.tsv_stops(self.prefs.settings.tsv_mode, &width) != self.layout.config().tsv
+    }
+
     /// Lays the document out again with the settings of the view, if they differ from the
     /// layout's. Returns whether anything changed. The caller repaints.
     pub(crate) fn relayout_in(&mut self, cx: &App) -> bool {
-        self.relayout(false, cx)
-    }
-
-    /// Takes the stops of the TSV or CSV mode of another pane of the document, so that the panes
-    /// line the fields up the same way (the stops are not worked out again after an edit).
-    pub(crate) fn adopt_tsv_stops(&mut self, stops: TsvStops, partial: bool, cx: &App) {
-        let mut config = self.layout.config().clone();
-        config.tsv = stops;
-        self.tsv_partial = partial;
-        let doc = self.document.read(cx).doc();
-        let _ = self.layout.set_config(doc, config);
-    }
-
-    /// [`relayout_in`](Self::relayout_in), and also works out the stops of the TSV or CSV mode
-    /// again when `rescan` says so (the text of a file read in the background is complete).
-    pub(crate) fn relayout(&mut self, rescan: bool, cx: &App) -> bool {
         let mut config = self.layout.config().clone();
         config.wrap = self.wanted_wrap();
         config.tab_width = self.prefs.settings.tab_width;
@@ -236,12 +228,10 @@ impl EditorView {
         // The stops of the TSV and CSV modes are worked out when the mode changes or a document
         // is loaded (the layout of a loaded document starts without a mode), not after each edit
         // (`CLayoutMgr::SetLayoutInfo`, `CLoadAgent::OnLoad`).
-        let tsv_mode = self.prefs.settings.tsv_mode;
-        if config.tsv.mode() != tsv_mode || (rescan && tsv_mode != TsvMode::None) {
-            let doc = self.document.read(cx).doc();
-            config.tsv = TsvStops::scan(doc, tsv_mode, &config.width).unwrap_or_default();
-            self.tsv_partial = self.document.read(cx).is_scanning();
-        }
+        config.tsv = self
+            .document
+            .read(cx)
+            .tsv_stops(self.prefs.settings.tsv_mode, &config.width);
         if config == *self.layout.config() {
             return false;
         }

@@ -639,6 +639,7 @@ impl Element for EditorElement {
             );
             let mut text = Vec::new();
             let mut selected_text = Vec::new();
+            let mut spaced_underlines = Vec::new();
             for item in &styling.items {
                 let tab_text;
                 let label = match &item.label {
@@ -655,11 +656,21 @@ impl Element for EditorElement {
                     Label::Text(_) => widths.columns(c),
                     _ => 1,
                 };
+                // Each character of spaced text is shaped alone, so its underline would stop at
+                // the glyph: the underline is one line across the columns of the piece instead.
+                let glyph_style = |style: &TextStyle| TextStyle {
+                    underline: style.underline && !spaced,
+                    ..*style
+                };
+                if spaced && item.style.underline {
+                    let cols = label.chars().map(width_of).sum::<u32>();
+                    spaced_underlines.push((item.col, item.col + cols, item.style.text));
+                }
                 if let Some(selected_style) = &item.selected {
                     place(
                         window,
                         &mut selected_text,
-                        (item.col, label, selected_style),
+                        (item.col, label, &glyph_style(selected_style)),
                         spaced.then_some(width_of),
                         &shape_styled,
                     );
@@ -667,7 +678,7 @@ impl Element for EditorElement {
                 place(
                     window,
                     &mut text,
-                    (item.col, label, &item.style),
+                    (item.col, label, &glyph_style(&item.style)),
                     spaced.then_some(width_of),
                     &shape_styled,
                 );
@@ -766,7 +777,11 @@ impl Element for EditorElement {
                 row_background: (row_back != colors.background).then_some(row_back),
                 backs,
                 selected_backs: styling.selected_backs,
-                underlines: styling.underlines,
+                underlines: {
+                    let mut underlines = styling.underlines;
+                    underlines.extend(spaced_underlines);
+                    underlines
+                },
                 text,
                 selected_text,
                 marks,

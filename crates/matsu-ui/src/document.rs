@@ -131,6 +131,9 @@ pub struct SharedDocument {
     scan_done: Option<u64>,
     /// The file is read by ranges (ADR-0020): it stays open behind the document.
     ranged: bool,
+    /// The stops of the TSV or CSV mode, worked out once for all the panes of the document (see
+    /// [`tsv_stops`](Self::tsv_stops)).
+    tsv_stops: std::cell::RefCell<Option<matsu_layout::TsvStops>>,
 }
 
 impl EventEmitter<DocumentEvent> for SharedDocument {}
@@ -169,7 +172,37 @@ impl SharedDocument {
             scan: None,
             scan_done: None,
             ranged: false,
+            tsv_stops: Default::default(),
         }
+    }
+
+    /// The stops of `mode` for the text of this document, for the layout of every pane. They are
+    /// worked out when a pane first asks, and kept until the document is replaced (a file is
+    /// loaded: a new `SharedDocument` has none) or its text is complete
+    /// ([`forget_tsv_stops`](Self::forget_tsv_stops)), not after each edit: Sakura works them out
+    /// when the file is loaded or the mode changes (`CLoadAgent::OnLoad`,
+    /// `CLayoutMgr::SetLayoutInfo`).
+    pub fn tsv_stops(
+        &self,
+        mode: matsu_layout::TsvMode,
+        width: &matsu_layout::WidthRule,
+    ) -> matsu_layout::TsvStops {
+        if mode == matsu_layout::TsvMode::None {
+            return matsu_layout::TsvStops::none();
+        }
+        let mut kept = self.tsv_stops.borrow_mut();
+        if let Some(stops) = kept.as_ref().filter(|s| s.mode() == mode) {
+            return stops.clone();
+        }
+        let stops = matsu_layout::TsvStops::scan(self.model.doc(), mode, width).unwrap_or_default();
+        *kept = Some(stops.clone());
+        stops
+    }
+
+    /// The text is not what the stops were worked out from (the scan of a file read by ranges
+    /// ended): the next [`tsv_stops`](Self::tsv_stops) works them out again.
+    pub(crate) fn forget_tsv_stops(&self) {
+        self.tsv_stops.borrow_mut().take();
     }
 
     /// A document from an opened file ([`crate::open::open_text_file`]): the text goes into the
@@ -204,6 +237,7 @@ impl SharedDocument {
             scan: None,
             scan_done: None,
             ranged,
+            tsv_stops: Default::default(),
         };
         if let Some(job) = scan {
             shared.attach_scan(job);
