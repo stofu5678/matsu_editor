@@ -68,6 +68,10 @@ impl EditorElement {
     }
 }
 
+/// The most columns of a tab that its mark is made for. A tab in a wide field of the TSV or CSV
+/// mode can be as wide as the field.
+const MAX_TAB_MARK_COLUMNS: u32 = 1024;
+
 /// A shaped piece and the column where it goes. A character of spaced text has its underline
 /// apart from the glyph, over all its columns, so that the underline has no gaps; a space has
 /// no glyph.
@@ -374,11 +378,31 @@ fn place(
     let mut col = col;
     for c in label.chars() {
         let cols = width_of(c);
+        let underline = style.underline.then_some((cols, style.text));
+        if c.is_whitespace() {
+            // A space has nothing to paint but its underline, which joins the one before it:
+            // a tab in a wide field has a long run of them.
+            match (underline, out.last_mut()) {
+                (None, _) => {
+                    col += cols;
+                    continue;
+                }
+                (Some(_), Some(last))
+                    if last.line.is_none()
+                        && last.underline.is_some_and(|(n, _)| last.col + n == col) =>
+                {
+                    last.underline = last.underline.map(|(n, color)| (n + cols, color));
+                    col += cols;
+                    continue;
+                }
+                _ => {}
+            }
+        }
         out.push(Placed {
             col,
             line: (!c.is_whitespace())
                 .then(|| shape(window, c.encode_utf8(&mut [0; 4]), &glyph_style)),
-            underline: style.underline.then_some((cols, style.text)),
+            underline,
         });
         col += cols;
     }
@@ -687,7 +711,9 @@ impl Element for EditorElement {
                 let label = match &item.label {
                     Label::Text(text) => text.as_str(),
                     Label::Tab(cols) => {
-                        tab_text = settings.tab_mark.text(*cols);
+                        // A tab in a very wide field of the TSV or CSV mode is drawn as far as
+                        // a window can show; the rest is blank (or the line of a long arrow).
+                        tab_text = settings.tab_mark.text((*cols).min(MAX_TAB_MARK_COLUMNS));
                         tab_text.as_str()
                     }
                     Label::FullWidthSpace => FULL_WIDTH_SPACE_MARK,
