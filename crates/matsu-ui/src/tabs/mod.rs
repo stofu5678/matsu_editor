@@ -41,6 +41,8 @@ mod menu_tests;
 pub(crate) mod order;
 #[cfg(test)]
 mod pending_tests;
+#[cfg(test)]
+mod popup_key_tests;
 mod preview_tab;
 #[cfg(test)]
 mod preview_tests;

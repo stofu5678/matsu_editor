@@ -61,32 +61,44 @@ pub(super) fn is_clickable(item: &OwnedMenuItem) -> bool {
     }
 }
 
+/// An item of a popup menu that the selection may or may not stop on: the menu bar's items and the
+/// items that the other popups list for their access keys ([`super::popup_keys`]).
+pub(super) trait Clickable {
+    fn clickable(&self) -> bool;
+}
+
+impl Clickable for OwnedMenuItem {
+    fn clickable(&self) -> bool {
+        is_clickable(self)
+    }
+}
+
 /// Where the selection of a popup menu goes on the Down key (gpui-component's `select_down`): the
 /// first press selects the first item, the others the next clickable item, round the end.
-pub(super) fn after_down(items: &[OwnedMenuItem], at: Option<usize>) -> usize {
+pub(super) fn after_down<T: Clickable>(items: &[T], at: Option<usize>) -> usize {
     match at {
         None => 0,
         Some(ix) => (ix + 1..items.len())
-            .find(|&i| is_clickable(&items[i]))
+            .find(|&i| items[i].clickable())
             .unwrap_or(0),
     }
 }
 
 /// Where the selection goes on the Up key (`select_up`): the previous clickable item, round the
 /// start to the last one.
-pub(super) fn after_up(items: &[OwnedMenuItem], at: Option<usize>) -> usize {
+pub(super) fn after_up<T: Clickable>(items: &[T], at: Option<usize>) -> usize {
     let ix = at.unwrap_or(0);
     (0..ix)
         .rev()
-        .find(|&i| is_clickable(&items[i]))
-        .or_else(|| (0..items.len()).rev().find(|&i| is_clickable(&items[i])))
+        .find(|&i| items[i].clickable())
+        .or_else(|| (0..items.len()).rev().find(|&i| items[i].clickable()))
         .unwrap_or(0)
 }
 
 /// How many times the Down key has to be pressed in a popup menu whose selection is at `from`
 /// (`None`: nothing selected) to reach `target`; 0 if `target` cannot be reached.
-pub(super) fn presses_to_reach(
-    items: &[OwnedMenuItem],
+pub(super) fn presses_to_reach<T: Clickable>(
+    items: &[T],
     from: Option<usize>,
     target: usize,
 ) -> usize {

@@ -5,6 +5,8 @@
 //! pointer ([`CustomMenuState::mouse_at`]); a key opens it at the pointer too, where the pointer is (Sakura
 //! does the same: `::GetCursorPos` whatever ran the function).
 
+use std::rc::Rc;
+
 use gpui::{
     AnyElement, Context, DismissEvent, Entity, Focusable as _, InteractiveElement as _,
     IntoElement, MenuItem, ParentElement, Pixels, Point, Subscription, Window, anchored, deferred,
@@ -19,6 +21,7 @@ use super::model::{self, CustomMenuList};
 use crate::app::gpui_items;
 use crate::history::menu::RecentLists;
 use crate::menu::Registered;
+use crate::menu_bar::popup_keys::{self, KeyList, Rebuild};
 use crate::menu_bar::{fill, popup_max_height};
 use crate::settings::UserSettings;
 use crate::view::EditorView;
@@ -218,12 +221,17 @@ impl EditorView {
         self.mark_menu_items(&mut items, window, cx);
         let handle = self.focus_handle.clone();
         let max_height = popup_max_height(window.viewport_size().height, at.y);
-        let popup = PopupMenu::build(window, cx, |menu, window, cx| {
+        let keys = KeyList::of_owned(items.clone());
+        let fill_again: Rebuild = Rc::new(move |menu, window, cx| {
             let menu = menu.action_context(handle.clone());
-            fill(menu, items, Some(&handle), window, cx)
+            fill(menu, items.clone(), Some(&handle), window, cx)
                 .scrollable(true)
                 .max_h(max_height)
         });
+        let build = fill_again.clone();
+        let popup = PopupMenu::build(window, cx, move |menu, window, cx| build(menu, window, cx));
+        // The letters of the access keys run the items (`WM_MENUCHAR`).
+        popup_keys::register(&popup, keys, fill_again, cx);
         let dismiss = cx.subscribe_in(&popup, window, |this, _, _: &DismissEvent, window, cx| {
             this.close_custom_menu(window, cx)
         });

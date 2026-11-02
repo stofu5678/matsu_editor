@@ -8,18 +8,42 @@
 //! the work area of the monitor.
 
 use std::future::Future;
+use std::rc::Rc;
 
 use gpui::{Context, DismissEvent, FocusHandle, Focusable as _, Pixels, Point, Window, point, px};
 use gpui_component::menu::{PopupMenu, PopupMenuItem};
 use matsu_plugin::functions::menu::{MenuNode, item_count};
 
 use crate::common_settings::model::parse_label;
+use crate::menu_bar::popup_keys::{self, KeyList, Rebuild};
 use crate::menu_bar::popup_max_height;
 use crate::view::EditorView;
 
 /// The menu text as it is drawn: `&A` is `A` (GPUI's menus have no access keys) and `&&` is `&`.
 fn plain_label(label: &str) -> String {
     parse_label(label).0
+}
+
+/// The rows of `nodes` as the letters see them: the key is the one after `&` in the label.
+fn key_list(nodes: &[MenuNode]) -> KeyList {
+    let mut keys = KeyList::new();
+    for node in nodes {
+        match node {
+            MenuNode::Item {
+                label, disabled, ..
+            } => keys.item(parse_label(label).1, !disabled),
+            MenuNode::Separator => keys.separator(),
+            // Shown as a gray item (see `fill_nodes`).
+            MenuNode::Submenu {
+                label,
+                disabled,
+                children,
+                ..
+            } if *disabled || item_count(children) == 0 => keys.item(parse_label(label).1, false),
+            MenuNode::Submenu { label, .. } => keys.submenu(parse_label(label).1),
+        }
+    }
+    keys
 }
 
 /// Adds `nodes` to `menu`. Choosing an item sends its number on `answer`.
@@ -119,12 +143,18 @@ impl EditorView {
             let at = self.macro_menu_position(at_caret, window, cx);
             let focus = self.focus_handle.clone();
             let max_height = popup_max_height(window.viewport_size().height, at.y);
-            let popup = PopupMenu::build(window, cx, |menu, window, cx| {
+            let keys = key_list(nodes);
+            let (nodes, answer) = (nodes.to_vec(), sender.clone());
+            let fill_again: Rebuild = Rc::new(move |menu, window, cx| {
                 let menu = menu.action_context(focus.clone());
-                fill_nodes(menu, nodes, &sender, &focus, window, cx)
+                fill_nodes(menu, &nodes, &answer, &focus, window, cx)
                     .scrollable(true)
                     .max_h(max_height)
             });
+            let build = fill_again.clone();
+            let popup =
+                PopupMenu::build(window, cx, move |menu, window, cx| build(menu, window, cx));
+            popup_keys::register(&popup, keys, fill_again, cx);
             // An item sends its number before the menu is dismissed, and the first answer wins.
             let closed = sender;
             let dismiss = cx.subscribe_in(
