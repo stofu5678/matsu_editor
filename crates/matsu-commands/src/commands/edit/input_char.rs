@@ -146,7 +146,11 @@ pub(super) fn type_char_as(cx: &mut CommandContext<'_>, c: char, convert_eol: bo
         SmartIndent::Cpp => cx.smart_indent_cpp(c)?,
         // The plugin runs in another process: the window calls it once this command is over.
         SmartIndent::Plugin(code) => {
-            cx.request_smart_indent_plugin(SmartIndentCall { code, typed: c });
+            cx.request_smart_indent_plugin(SmartIndentCall {
+                code,
+                typed: c,
+                line_break: is_break,
+            });
         }
     }
     if is_break && cx.input_options().rtrim_prev_line {
@@ -921,7 +925,8 @@ mod tests {
             e.changes().smart_indent_plugin,
             Some(SmartIndentCall {
                 code: 20_100,
-                typed: 'x'
+                typed: 'x',
+                line_break: false
             })
         );
         // a line break is asked for with the indentation already copied
@@ -934,9 +939,28 @@ mod tests {
             e.changes().smart_indent_plugin,
             Some(SmartIndentCall {
                 code: 20_100,
-                typed: '\r'
+                typed: '\r',
+                line_break: true
             })
         );
+        // NEL, LS and PS are line breaks while the document counts them, and chars when it does not
+        for (ext_eol, line_break) in [(true, true), (false, false)] {
+            let mut e = Editor::new_with_ext_eol("ab|", ext_eol)
+                .with_new_line(Eol::Lf)
+                .with_input_options(InputOptions {
+                    smart_indent: SmartIndent::Plugin(20_100),
+                    ..Default::default()
+                });
+            e.run_with(ID, &[Arg::Char('\u{2028}')]);
+            assert_eq!(
+                e.changes().smart_indent_plugin,
+                Some(SmartIndentCall {
+                    code: 20_100,
+                    typed: '\u{2028}',
+                    line_break
+                })
+            );
+        }
         // the built-in kinds ask for no plugin
         for options in [InputOptions::default(), cpp()] {
             let mut e = Editor::new("ab|").with_input_options(options);

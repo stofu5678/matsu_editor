@@ -53,6 +53,9 @@ pub struct SmartIndentCall {
     pub code: u16,
     /// The char that was typed (`\r` for a line break, as `Command_WCHAR` has it).
     pub typed: char,
+    /// The command took the char for a line break (`WCODE::IsLineDelimiter`: CR and LF, and NEL, LS and
+    /// PS while the document counts them as line endings).
+    pub line_break: bool,
 }
 
 /// What the color strategies say a line starts in: the state that the lines before it leave

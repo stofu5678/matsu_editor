@@ -39,10 +39,11 @@ use matsu_plugin::json;
 use super::{Prepared, Target, prepare, run};
 use crate::view::EditorView;
 
-/// Whether the plugin wants the `SmartIndent` jack after `typed`: a line break always, any other
-/// char only when `[Matsu] SmartIndent.Chars` names it.
-pub(crate) fn wants(def: &PluginDef, typed: char) -> bool {
-    matches!(typed, '\r' | '\n') || def.smart_indent_chars.contains(typed)
+/// Whether the plugin wants the `SmartIndent` jack after `typed`: a line break always (`line_break`
+/// is what the command that typed it took for one), any other char only when
+/// `[Matsu] SmartIndent.Chars` names it.
+pub(crate) fn wants(def: &PluginDef, typed: char, line_break: bool) -> bool {
+    line_break || def.smart_indent_chars.contains(typed)
 }
 
 /// The call for `call`, or `None` when there is nothing to run: the type's plug is not there any
@@ -65,7 +66,7 @@ pub(crate) fn prepare_smart_indent(
         .filter(|rec| rec.is_used() && rec.state != PluginState::Deleted && !rec.name.is_empty())?;
     let def = dirs.load_def(&rec.name, DEFAULT_LANGUAGE)?;
     // The slot may hold another plugin by now than the one the type was set to.
-    if def.id != rec.id || !wants(&def, call.typed) {
+    if def.id != rec.id || !wants(&def, call.typed, call.line_break) {
         return None;
     }
     let handler = def

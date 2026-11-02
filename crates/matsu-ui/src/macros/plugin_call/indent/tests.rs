@@ -505,11 +505,16 @@ fn a_plugin_that_is_not_resident_is_listed_with_the_reason(cx: &mut TestAppConte
 fn only_a_line_break_and_the_declared_chars_are_wanted() {
     let def = |text: &str| matsu_config::plugins::PluginDef::from_bytes(text.as_bytes(), None);
     let plain = def("[Plugin]\n");
-    assert!(super::wants(&plain, '\r') && super::wants(&plain, '\n'));
-    assert!(!super::wants(&plain, '}') && !super::wants(&plain, 'a'));
-    let declared = def("[Plugin]\n[Matsu]\nSmartIndent.Chars=}{;\n");
-    for c in ['}', '{', ';', '\r'] {
-        assert!(super::wants(&declared, c), "{c:?}");
+    // a line break is wanted whatever char the command took for it (NEL, LS and PS too)
+    for c in ['\r', '\n', '\u{85}', '\u{2028}'] {
+        assert!(super::wants(&plain, c, true), "{c:?}");
     }
-    assert!(!super::wants(&declared, ')') && !super::wants(&declared, ' '));
+    assert!(!super::wants(&plain, '}', false) && !super::wants(&plain, 'a', false));
+    // a char that is not a line break, such as NEL while the document does not count it
+    assert!(!super::wants(&plain, '\u{85}', false));
+    let declared = def("[Plugin]\n[Matsu]\nSmartIndent.Chars=}{;\n");
+    for c in ['}', '{', ';'] {
+        assert!(super::wants(&declared, c, false), "{c:?}");
+    }
+    assert!(!super::wants(&declared, ')', false) && !super::wants(&declared, ' ', false));
 }

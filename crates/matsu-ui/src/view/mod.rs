@@ -565,6 +565,8 @@ impl EditorView {
         if reg.sakura != "F_AUTOSCROLL" {
             self.autoscroll_exit();
         }
+        // What the user does is not part of the undo step of a smart indent that runs.
+        self.cut_indent_undo_step(cx);
         self.interrupt_composition(cx);
         // Before the recording, as in `CViewCommander::HandleCommand`: the typed chars of the
         // incremental search are not edits, so a macro does not replay them as such.
