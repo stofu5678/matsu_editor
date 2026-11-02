@@ -42,6 +42,14 @@ pub(super) struct FrameMove {
     caret_lost: bool,
 }
 
+/// Where the top of the view was put in a new document whose layout is not complete yet.
+pub(super) struct FrameTop {
+    pos: Pos,
+    row_offset: f32,
+    /// The scroll that was set: a different one is the user's.
+    set: f32,
+}
+
 /// The first row of the view.
 fn first_row(scroll_y: f32, m: &Metrics) -> usize {
     (scroll_y / m.line_height).floor().max(0.0) as usize
@@ -120,9 +128,34 @@ impl EditorView {
             .map_or(0, |at| at.row);
         self.scroll_past_end = false;
         self.scroll_y = row as f32 * self.metrics.line_height + moved.row_offset;
-        // The layout of the new document is made a part at a time: the caret is shown again
-        // when it is complete, as for a document that was just opened.
+        // The layout of the new document is made a part at a time, and the rows of a wrapped
+        // line are not known before: the top of the view is put again as it goes on.
+        self.frame_top = (!self.layout.is_complete()).then_some(FrameTop {
+            pos: moved.top,
+            row_offset: moved.row_offset,
+            set: self.scroll_y,
+        });
         self.prefs.reveal_caret = false;
+    }
+
+    /// While the layout of a new document is made (a window, or the whole file), keeps the top of
+    /// the view on the line it was moved to; the user's own scroll ends it.
+    pub(super) fn hold_frame_top(&mut self, cx: &App) {
+        let Some(top) = self.frame_top.take() else {
+            return;
+        };
+        if (self.scroll_y - top.set).abs() > 0.5 {
+            return;
+        }
+        let doc = self.document.read(cx).doc();
+        let row = self.layout.pos_to_row(doc, top.pos).map_or(0, |at| at.row);
+        self.scroll_y = row as f32 * self.metrics.line_height + top.row_offset;
+        if !self.layout.is_complete() {
+            self.frame_top = Some(FrameTop {
+                set: self.scroll_y,
+                ..top
+            });
+        }
     }
 
     /// The number of lines for the status bar: in a window, the lines of the file as far as they

@@ -243,6 +243,10 @@ pub struct EditorView {
     frame_seen: u64,
     /// A move of the window on a huge file is asked for and has not run (`view/scan_window.rs`).
     scan_shift_queued: bool,
+    /// The top of the view in a new document whose layout is made (`view/scan_window.rs`).
+    frame_top: Option<scan_window::FrameTop>,
+    /// The thumb that is dragged is the bar of a scan (`view/scan_window.rs`).
+    scan_thumb_drag: bool,
     /// The top of the view for which no window could be cut (a line too long).
     scan_shift_gave_up: Option<u64>,
     /// The settings of the file and the temporary changes (`view/settings.rs`).
@@ -342,6 +346,8 @@ impl EditorView {
             pending_scan_restore: None,
             frame_seen,
             scan_shift_queued: false,
+            frame_top: None,
+            scan_thumb_drag: false,
             scan_shift_gave_up: None,
             prefs: ViewPrefs::new(Default::default()),
             selection_count: Default::default(),
@@ -1025,6 +1031,7 @@ impl Render for EditorView {
             window.request_animation_frame();
         }
         self.advance_layout(window, cx);
+        self.hold_frame_top(cx);
         self.advance_text_width(window, cx);
         self.advance_colors(window, cx);
         self.settle_caret(cx);

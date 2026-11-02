@@ -218,6 +218,7 @@ impl EditorView {
         if f32::from(event.position.x) >= paint.scrollbar_left {
             // The bar of a file that is still scanned covers the whole file (`scan_window.rs`).
             let scan_bar = self.scan_scrollbar(&self.metrics, cx);
+            self.scan_thumb_drag = scan_bar.is_some();
             let bar =
                 scan_bar.unwrap_or_else(|| Scrollbar::new(&self.metrics, rows, self.scroll_y));
             let y = f32::from(event.position.y) - paint.origin_y;
@@ -592,8 +593,13 @@ impl EditorView {
                 start_scroll,
             } => {
                 let dy = f32::from(event.position.y) - start_y;
-                if let Some(bar) = self.scan_scrollbar(&self.metrics, cx) {
-                    self.drag_scan_thumb(&bar, start_scroll + dy, cx);
+                if self.scan_thumb_drag {
+                    // The scan ended while the thumb was held: the drag was in the pixels of
+                    // that bar, which the bar of the document does not use.
+                    match self.scan_scrollbar(&self.metrics, cx) {
+                        Some(bar) => self.drag_scan_thumb(&bar, start_scroll + dy, cx),
+                        None => self.drag = Drag::None,
+                    }
                     return;
                 }
                 let rows = self.layout.row_count();
