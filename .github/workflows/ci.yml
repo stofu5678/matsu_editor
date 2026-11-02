@@ -134,6 +134,10 @@ jobs:
         uses: docker://rhysd/actionlint:1.7.12
         with:
           args: -color
+      # Which jobs the self-hosted runner in the VM on the maintainer's Mac lets run (ADR-0027). Bash and jq only.
+      - name: mac-runner admission
+        if: success() || failure()
+        run: bash tools/mac-runner/tests/admit-test.sh
       # Licenses (no GPL family, see CLAUDE.md), advisories, and sources.
       - name: deny
         if: success() || failure()

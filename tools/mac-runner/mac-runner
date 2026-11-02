@@ -1,0 +1,200 @@
+#!/bin/bash
+# Runs the self-hosted runner of MATSU Editor's macOS CI on this Mac, one disposable VM per job (ADR-0027).
+#
+#   tools/mac-runner/mac-runner up        start: run jobs here, and set MAC_RUNNER to self-hosted
+#   tools/mac-runner/mac-runner down      stop: set MAC_RUNNER to github first, let the running job finish, then stop
+#   tools/mac-runner/mac-runner down --now   stop at once (the running job fails; GitHub's runner takes the next)
+#   tools/mac-runner/mac-runner status    the variables, the loop, the VM and the registered runners
+#
+# Each VM is a clone of matsu-ci-golden (build-golden). The host hands the VM a just-in-time runner configuration for
+# one job through the guest agent (not the network), and deletes the VM when it stops: after the job, on a refusal
+# by the hook in the VM, at the time limits, or on `down`. While the loop runs, it writes MAC_RUNNER_SEEN every five
+# minutes; CI picks GitHub's runner again when that is older than 15 minutes (a closed or sleeping Mac).
+set -uo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=lib.sh
+. "$here/lib.sh"
+
+PID_FILE="$STATE_DIR/loop.pid"
+STOP_FILE="$STATE_DIR/stop"
+NOW_FILE="$STATE_DIR/stop-now"
+
+loop_pid() {
+  [ -f "$PID_FILE" ] || return 1
+  pid=$(cat "$PID_FILE")
+  case "$pid" in '' | *[!0-9]*) return 1 ;; esac
+  kill -0 "$pid" 2> /dev/null || return 1
+  printf '%s\n' "$pid"
+}
+
+heartbeat() {
+  set_variable MAC_RUNNER_SEEN "$(date +%s)" || log "could not write MAC_RUNNER_SEEN"
+}
+
+# Deletes the runner's registration (when the VM ended before or without its job; GitHub deletes a just-in-time
+# runner itself after its job). A 404 is fine.
+unregister() { # runner-id
+  [ -n "$1" ] && api DELETE "/repos/$REPOSITORY/actions/runners/$1" > /dev/null 2>&1 || true
+}
+
+# One VM, from the clone to the deletion. Returns 1 when the host is not healthy enough to run jobs.
+run_one() {
+  free_gb=$(df -g "$HOME" | awk 'NR == 2 {print $4}')
+  if [ "${free_gb:-0}" -lt "$MIN_FREE_GB" ]; then
+    log "only ${free_gb} GB free (need $MIN_FREE_GB); not starting a VM"
+    return 1
+  fi
+  rules=$(job_block_rules) || { log "could not find the public address; not starting a VM"; return 1; }
+
+  name="$VM_PREFIX$(date +%Y%m%d-%H%M%S)"
+  body=$(mktemp "$STATE_DIR/jit.XXXXXX")
+  /usr/bin/jq -n --arg n "$name" --argjson l "$LABELS" '{name: $n, runner_group_id: 1, labels: $l, work_folder: "_work"}' > "$body"
+  answer=$(api POST "/repos/$REPOSITORY/actions/runners/generate-jitconfig" "$body")
+  status=$?
+  rm -f "$body"
+  if [ $status -ne 0 ] || [ -z "$answer" ]; then
+    log "could not get a runner configuration from GitHub (the token, or the network)"
+    return 1
+  fi
+  runner_id=$(printf '%s' "$answer" | /usr/bin/jq -r '.runner.id // empty')
+  jit=$(printf '%s' "$answer" | /usr/bin/jq -r '.encoded_jit_config // empty')
+  answer=
+  [ -n "$jit" ] || { log "no configuration in GitHub's answer"; unregister "$runner_id"; return 1; }
+
+  if ! "$TART" clone "$GOLDEN" "$name" > /dev/null 2>&1; then
+    log "could not clone $GOLDEN"
+    unregister "$runner_id"
+    return 1
+  fi
+  nohup "$TART" run --no-graphics --no-audio --no-clipboard "--net-softnet-block=$rules" "$name" \
+    > "$STATE_DIR/vm.log" 2>&1 < /dev/null &
+  log "$name: started (runner $runner_id)"
+  if ! wait_agent "$name" 240; then
+    log "$name: the guest agent did not answer; deleting the VM"
+    "$TART" stop "$name" > /dev/null 2>&1 || true
+    "$TART" delete "$name" > /dev/null 2>&1 || true
+    unregister "$runner_id"
+    return 1
+  fi
+  printf '%s' "$jit" | put_file "$name" /Users/admin/matsu/jit-config
+  jit=
+  # Only now, with a runner ready for a job, tell CI to send jobs here.
+  if [ ! -e "$STOP_FILE" ]; then
+    heartbeat
+    if [ -z "$announced" ]; then
+      set_variable MAC_RUNNER self-hosted && announced=1 || log "could not set MAC_RUNNER"
+    fi
+  fi
+
+  started=$(date +%s)
+  job_started=
+  last_beat=$started
+  reason=
+  while vm_running "$name"; do
+    now=$(date +%s)
+    if [ $((now - last_beat)) -ge "$HEARTBEAT_SECONDS" ] && [ ! -e "$STOP_FILE" ]; then
+      heartbeat
+      last_beat=$now
+    fi
+    if [ -z "$job_started" ] && "$TART" exec "$name" /bin/test -e /Users/admin/matsu/job-started > /dev/null 2>&1; then
+      job_started=$now
+      log "$name: a job started"
+    fi
+    if [ -e "$NOW_FILE" ]; then
+      reason="stopped by down --now"
+    elif [ -n "$job_started" ] && [ $((now - job_started)) -ge "$JOB_LIMIT_SECONDS" ]; then
+      reason="the job ran for more than $JOB_LIMIT_SECONDS seconds"
+    elif [ -z "$job_started" ] && [ $((now - started)) -ge "$IDLE_LIMIT_SECONDS" ]; then
+      reason="no job in $IDLE_LIMIT_SECONDS seconds; replacing the VM"
+    elif [ -z "$job_started" ] && [ -e "$STOP_FILE" ]; then
+      reason="stopped by down before a job came"
+    fi
+    if [ -n "$reason" ]; then
+      log "$name: $reason"
+      "$TART" stop --timeout 30 "$name" > /dev/null 2>&1 || true
+      break
+    fi
+    sleep 15
+  done
+  wait_stopped "$name" 60 || "$TART" stop "$name" > /dev/null 2>&1 || true
+  "$TART" delete "$name" > /dev/null 2>&1 || log "$name: could not delete the VM"
+  unregister "$runner_id"
+  log "$name: deleted"
+  return 0
+}
+
+loop() {
+  echo $$ > "$PID_FILE"
+  # Keep the Mac awake while the runner is up (the VM would stop with it).
+  caffeinate -i -s -w $$ &
+  trap 'rm -f "$PID_FILE"' EXIT
+  log "loop started"
+  announced=
+  failures=0
+  while [ ! -e "$STOP_FILE" ]; do
+    if run_one; then
+      failures=0
+    else
+      # Not healthy: stop the heartbeat, so that CI goes back to GitHub's runner after 15 minutes, and try again
+      # later.
+      failures=$((failures + 1))
+      sleep $((failures < 10 ? 60 * failures : 600))
+    fi
+  done
+  log "loop stopped"
+}
+
+cmd_up() {
+  require_tools
+  mkdir -p "$STATE_DIR"
+  chmod 700 "$STATE_DIR"
+  vm_exists "$GOLDEN" || die "no $GOLDEN; run build-golden first"
+  [ -n "$(token)" ] || die "no token in the keychain (service $KEYCHAIN_SERVICE); see README.md"
+  if pid=$(loop_pid); then
+    echo "already up (loop $pid)"
+    return 0
+  fi
+  rm -f "$STOP_FILE" "$NOW_FILE"
+  nohup "$0" __loop > /dev/null 2>&1 < /dev/null &
+  sleep 2
+  echo "up: jobs of test (macos-arm64) come to this Mac within a minute or so (log: $LOG)"
+}
+
+cmd_down() {
+  require_tools
+  mkdir -p "$STATE_DIR"
+  # First send new jobs back to GitHub's runner, then stop.
+  set_variable MAC_RUNNER github && echo "MAC_RUNNER=github" || echo "could not set MAC_RUNNER; set it on GitHub (README.md)" >&2
+  touch "$STOP_FILE"
+  [ "${1:-}" = --now ] && touch "$NOW_FILE"
+  if pid=$(loop_pid); then
+    echo "waiting for the loop ($pid) to stop$([ "${1:-}" = --now ] || echo ' after the running job')..."
+    while kill -0 "$pid" 2> /dev/null; do sleep 5; done
+  fi
+  echo "down"
+}
+
+cmd_status() {
+  require_tools
+  vars=$(api GET "/repos/$REPOSITORY/actions/variables" 2> /dev/null)
+  runner=$(printf '%s' "$vars" | /usr/bin/jq -r '.variables[]? | select(.name == "MAC_RUNNER") | .value')
+  seen=$(printf '%s' "$vars" | /usr/bin/jq -r '.variables[]? | select(.name == "MAC_RUNNER_SEEN") | .value')
+  echo "MAC_RUNNER=${runner:-（なし）}"
+  case "$seen" in
+    '' | *[!0-9]*) echo "MAC_RUNNER_SEEN=${seen:-（なし）}" ;;
+    *) echo "MAC_RUNNER_SEEN=$seen ($(($(date +%s) - seen)) seconds ago)" ;;
+  esac
+  if pid=$(loop_pid); then echo "loop: running ($pid)"; else echo "loop: not running"; fi
+  "$TART" list | grep -E "$VM_PREFIX|$GOLDEN" || true
+  api GET "/repos/$REPOSITORY/actions/runners" 2> /dev/null |
+    /usr/bin/jq -r '.runners[]? | "runner \(.id) \(.name) \(.status) busy=\(.busy)"' || true
+  tail -n 5 "$LOG" 2> /dev/null || true
+}
+
+case "${1:-}" in
+  up) cmd_up ;;
+  down) cmd_down "${2:-}" ;;
+  status) cmd_status ;;
+  __loop) require_tools; loop ;;
+  *) sed -n '2,8p' "$0"; exit 2 ;;
+esac
