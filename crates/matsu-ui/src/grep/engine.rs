@@ -740,7 +740,7 @@ impl Runner<'_> {
         let mut file_hits = 0usize;
         let mut index = 0usize;
         loop {
-            if index % CANCEL_CHECK_LINES == 0 {
+            if index.is_multiple_of(CANCEL_CHECK_LINES) {
                 self.check_cancel()?;
             }
             let line = match next() {

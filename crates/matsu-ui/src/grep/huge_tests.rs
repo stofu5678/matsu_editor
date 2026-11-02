@@ -105,8 +105,10 @@ fn utf8_with_crlf_across_the_edge_of_a_chunk() {
 #[test]
 fn utf8_with_a_final_line_ending_has_no_empty_last_line() {
     // The lines that do not match are written: an empty line after the last ending would be one.
-    let mut layout = Layout::default();
-    layout.line_type = LineType::NoHitLine;
+    let layout = Layout {
+        line_type: LineType::NoHitLine,
+        ..Layout::default()
+    };
     same_as_the_whole_read(b"a\nhit\nb\n", "hit", None, layout);
 }
 
