@@ -442,7 +442,10 @@ impl OutlinePane {
                 .items
                 .items()
                 .iter()
-                .filter(|i| i.line > 0)
+                // Only the items of this document: an item a plugin put in another file
+                // (`AddFuncInfo3`) has no line here. Sakura marks the line of every item
+                // (`SetDocLineFuncList`, `CDlgFuncList.cpp:1505-1527`); that is a fault of its own.
+                .filter(|i| i.line > 0 && !self.is_in_another_file(&i.file, cx))
                 .map(|i| i.line - 1)
                 .collect();
             view.update(cx, |view, cx| {

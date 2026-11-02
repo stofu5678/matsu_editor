@@ -529,3 +529,44 @@ fn an_analysis_in_one_window_does_not_hold_back_the_outline_of_another(cx: &mut 
     run(cx, a, "F_OUTLINE");
     assert!(pane(cx, a).is_some());
 }
+
+#[gpui::test]
+fn only_the_items_of_the_document_get_a_function_list_mark(cx: &mut TestAppContext) {
+    let Some(place) = begin("marks", "") else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    // the document is a.zzz in the folder of the place; the second item is in another file
+    let this = place.dir.join("a.zzz");
+    fs::write(
+        place.dir.join("plugins").join(FOLDER).join("outline.js"),
+        format!(
+            "Outline.SetListType(300);\n\
+             Outline.AddFuncInfo(2, 1, 'here', 0);\n\
+             Outline.AddFuncInfo3(4, 1, 'elsewhere', 0, 'other.txt');\n\
+             Outline.AddFuncInfo3(3, 1, 'same file', 0, {:?});",
+            this.display().to_string()
+        ),
+    )
+    .unwrap();
+    let handle = window_with(
+        cx,
+        "a\nb\nc\nd\ne\n",
+        &this.display().to_string(),
+        place.user(Place::code(), true, true),
+    );
+    open_outline(cx, handle);
+    // all the items are in the list
+    assert_eq!(rows(cx, handle).len(), 3);
+    let marks: Vec<usize> = active_view(cx, handle).read_with(cx, |v, app| {
+        v.document()
+            .read(app)
+            .model()
+            .funclist_marks()
+            .iter()
+            .collect()
+    });
+    // lines 2 and 3 (0-based 1 and 2); line 4 belongs to another file
+    assert_eq!(marks, [1, 2]);
+    finish(cx);
+}
