@@ -82,6 +82,9 @@ pub(super) struct ScanWatch {
     /// The window on the file that the document is, if the user moved to a place the scan had not
     /// reached.
     window: Option<ScanWindowInfo>,
+    /// The bookmarks of the file while a window is shown: their lines are the file's, not the
+    /// window's. They come back with the whole file (the marks set in a window are dropped).
+    bookmarks: Option<matsu_core::bookmarks::Bookmarks>,
 }
 
 /// What [`SharedDocument::scan_tick`] found.
@@ -120,6 +123,7 @@ impl SharedDocument {
             last_swap: Instant::now(),
             failure: None,
             window: None,
+            bookmarks: None,
         });
     }
 
@@ -268,10 +272,14 @@ impl SharedDocument {
     ) {
         self.scan_done = Some(id);
         let was_window = self.scan.as_ref().is_some_and(|s| s.window.is_some());
+        let stashed = self.scan.as_mut().and_then(|s| s.bookmarks.take());
         self.scan = None;
         if was_window {
             // The views are in the window: they follow it to the same place of the whole file.
             self.switch_frame(doc, 0);
+            if let Some(marks) = stashed {
+                *self.model.bookmarks_mut() = marks;
+            }
         } else {
             self.model.replace_scanned_document(doc);
         }
@@ -380,7 +388,12 @@ impl SharedDocument {
             exact: window.exact,
         };
         self.switch_frame(window.document, window.start);
+        // The bookmarks count lines of the file: the window's lines are others.
+        let marks = std::mem::take(self.model.bookmarks_mut());
         if let Some(scan) = self.scan.as_mut() {
+            if scan.bookmarks.is_none() {
+                scan.bookmarks = Some(marks);
+            }
             scan.window = Some(info);
         }
         self.forget_tsv_stops();

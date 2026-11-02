@@ -194,6 +194,32 @@ fn a_move_to_the_start_that_extends_a_selection_waits_when_a_window_is_shown(
 }
 
 #[gpui::test]
+fn the_bookmarks_of_the_file_are_not_shown_in_a_window_and_come_back_with_the_whole_file(
+    cx: &mut TestAppContext,
+) {
+    let (handle, dir) = opened(cx, "big.txt", big_text().as_bytes());
+    let view = active_view(cx, handle);
+    let marks = |cx: &mut TestAppContext| -> Vec<usize> {
+        view.read_with(cx, |v, app| {
+            v.document().read(app).model().bookmarks().iter().collect()
+        })
+    };
+    view.update(cx, |v, cx| {
+        v.document().update(cx, |shared, _| {
+            shared.parts_mut().0.bookmarks_mut().set(5, true);
+        });
+    });
+    assert_eq!(marks(cx), [5]);
+    run(cx, handle, "F_GOFILEEND");
+    assert!(window_of(cx, &view).is_some());
+    // Line 5 of the file is not line 5 of the window.
+    assert!(marks(cx).is_empty());
+    wait_for_scan(cx, &view);
+    assert_eq!(marks(cx), [5]);
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[gpui::test]
 fn the_go_to_line_dialog_shows_a_line_beyond_the_scan_too(cx: &mut TestAppContext) {
     let (handle, dir) = opened(cx, "big.txt", big_text().as_bytes());
     let view = active_view(cx, handle);

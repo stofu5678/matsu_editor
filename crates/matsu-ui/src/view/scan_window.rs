@@ -304,9 +304,20 @@ impl EditorView {
             return;
         }
         let (top, bottom) = self.visible_bytes(&self.metrics, cx);
-        if !self.open_scan_window(top / 2 + bottom / 2, cx) {
-            // A line too long to cut a window from: wait for the scan, and do not ask again
-            // for this place.
+        let before = self
+            .document
+            .read(cx)
+            .scan_window()
+            .map(|w| (w.start, w.end));
+        let opened = self.open_scan_window(top / 2 + bottom / 2, cx);
+        let after = self
+            .document
+            .read(cx)
+            .scan_window()
+            .map(|w| (w.start, w.end));
+        if !opened || after == before {
+            // A line too long to cut a window from, or one that keeps the window where it was:
+            // wait for the scan, and do not ask again for this place.
             self.scan_shift_gave_up = Some(top);
         }
         cx.notify();
