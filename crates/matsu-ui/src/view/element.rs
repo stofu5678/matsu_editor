@@ -34,7 +34,7 @@ use crate::geometry::{
 };
 use crate::hit::selected_columns;
 use crate::search::highlight::{highlight_columns, slot_of};
-use crate::settings::view_settings::rgb_of;
+use crate::settings::view_settings::{TabMark, rgb_of};
 use crate::settings::{Colors, DiffColor, Marks};
 use matsu_config::settings::color::ColorEntry;
 use matsu_core::diff::DiffMark;
@@ -71,6 +71,11 @@ impl EditorElement {
 /// The most columns of a tab that its mark is made for. A tab in a wide field of the TSV or CSV
 /// mode can be as wide as the field.
 const MAX_TAB_MARK_COLUMNS: u32 = 1024;
+
+/// A long arrow over a tab wider than [`MAX_TAB_MARK_COLUMNS`]: its head is at the end.
+fn wide_long_arrow(mark: &TabMark, cols: u32) -> bool {
+    cols > MAX_TAB_MARK_COLUMNS && matches!(mark, TabMark::LongArrow)
+}
 
 /// A shaped piece and the column where it goes. A character of spaced text has its underline
 /// apart from the glyph, over all its columns, so that the underline has no gaps; a space has
@@ -712,8 +717,13 @@ impl Element for EditorElement {
                     Label::Text(text) => text.as_str(),
                     Label::Tab(cols) => {
                         // A tab in a very wide field of the TSV or CSV mode is drawn as far as
-                        // a window can show; the rest is blank (or the line of a long arrow).
-                        tab_text = settings.tab_mark.text((*cols).min(MAX_TAB_MARK_COLUMNS));
+                        // a window can show; the rest is blank. The head of a long arrow is
+                        // placed at the true end of the tab below.
+                        tab_text = if wide_long_arrow(&settings.tab_mark, *cols) {
+                            "\u{2500}".repeat(MAX_TAB_MARK_COLUMNS as usize - 1)
+                        } else {
+                            settings.tab_mark.text((*cols).min(MAX_TAB_MARK_COLUMNS))
+                        };
                         tab_text.as_str()
                     }
                     Label::FullWidthSpace => FULL_WIDTH_SPACE_MARK,
@@ -740,6 +750,27 @@ impl Element for EditorElement {
                     spaced.then_some(width_of),
                     &shape_styled,
                 );
+                if let Label::Tab(cols) = item.label
+                    && wide_long_arrow(&settings.tab_mark, cols)
+                {
+                    let head = (item.col + cols - 1, "\u{2192}");
+                    if let Some(selected_style) = &item.selected {
+                        place(
+                            window,
+                            &mut selected_text,
+                            (head.0, head.1, selected_style),
+                            spaced.then_some(|_: char| 1),
+                            &shape_styled,
+                        );
+                    }
+                    place(
+                        window,
+                        &mut text,
+                        (head.0, head.1, &item.style),
+                        spaced.then_some(|_: char| 1),
+                        &shape_styled,
+                    );
+                }
             }
             let mut marks = Vec::new();
             let mut backs = styling.backs;
