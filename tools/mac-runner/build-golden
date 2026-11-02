@@ -1,0 +1,101 @@
+#!/bin/bash
+# Builds the golden VM of the CI runner, matsu-ci-golden (ADR-0027, chapter 1), from Cirrus Labs' vanilla macOS image:
+# the Tart guest agent, then guest/provision.sh (Command Line Tools, rustup and Rust, the runner, the hook). Each job
+# runs in a fresh clone of it, which is deleted afterwards; a clone is never turned back into the golden VM.
+#
+#   tools/mac-runner/build-golden
+#
+# Takes about half an hour (the Command Line Tools are the slowest). The old golden VM is kept until the new one is
+# complete. The disk grows to VM_DISK_GB in two boots: the first moves the backup GPT to the new end of the disk,
+# relocate-recovery.py then moves the recovery partition there, and the second grows the system's container.
+set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=lib.sh
+. "$here/lib.sh"
+require_tools
+mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR"
+
+new="$GOLDEN-new"
+askpass=
+finished=
+# On any failure or interruption, do not leave the half-built VM (the old golden VM stays as it was).
+cleanup() {
+  set +e
+  [ -n "$askpass" ] && rm -f "$askpass"
+  if [ -z "$finished" ]; then
+    "$TART" stop "$new" > /dev/null 2>&1
+    "$TART" delete "$new" > /dev/null 2>&1
+  fi
+}
+trap cleanup EXIT
+trap 'exit 1' INT TERM HUP
+if vm_exists "$new"; then
+  "$TART" stop "$new" > /dev/null 2>&1 || true
+  "$TART" delete "$new"
+fi
+
+echo "== clone $VANILLA_IMAGE"
+"$TART" clone "$VANILLA_IMAGE" "$new"
+"$TART" set "$new" --cpu "$VM_CPU" --memory "$VM_MEMORY_MB" --disk-size "$VM_DISK_GB"
+
+# While it is being built, the VM may reach the host (the SSH that puts the guest agent in), but not the home network,
+# multicast or the public address of the home network. Only these scripts run in it.
+vpn_active && die "a VPN is in use; disconnect it first (README.md)"
+ip=$(public_ip)
+[ -n "$ip" ] || die "could not find the public address of the home network"
+run_log="$STATE_DIR/build-golden-run.log"
+nohup "$TART" run --no-graphics --no-audio --no-clipboard "--net-softnet-block=224.0.0.0/4,$ip/32" "$new" > "$run_log" 2>&1 < /dev/null &
+vm_ip=$("$TART" ip --wait 180 "$new") || die "the VM got no address (see $run_log)"
+
+echo "== guest agent (through SSH, the only time the host uses it)"
+askpass=$(mktemp "$STATE_DIR/askpass.XXXXXX")
+printf '#!/bin/sh\necho admin\n' > "$askpass" # the vanilla image's documented user and password
+chmod 700 "$askpass"
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  if SSH_ASKPASS="$askpass" SSH_ASKPASS_REQUIRE=force ssh -F /dev/null -o StrictHostKeyChecking=no \
+    -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o LogLevel=ERROR "admin@$vm_ip" 'bash -s' \
+    < "$here/guest/install-guest-agent.sh"; then
+    break
+  fi
+  [ "$i" -lt 10 ] || die "could not install the guest agent"
+  sleep 10
+done
+wait_agent "$new" 180 || die "the guest agent does not answer"
+
+echo "== files of the runner"
+"$TART" exec "$new" /bin/mkdir -p /Users/admin/matsu
+for f in admit.sh job-started.sh runner-launch.sh grow-disk.sh io.github.stofu5678.matsu-runner.plist; do
+  put_file "$new" "/Users/admin/matsu/$f" < "$here/guest/$f"
+done
+{
+  printf 'REPOSITORY=%s\nREPOSITORY_ID=%s\n' "$REPOSITORY" "$REPOSITORY_ID"
+  for job in $ALLOWED_JOBS; do
+    printf 'ALLOW=%s\n' "$job"
+  done
+} | put_file "$new" /Users/admin/matsu/settings
+"$TART" exec "$new" /bin/chmod 644 /Users/admin/matsu/io.github.stofu5678.matsu-runner.plist
+
+echo "== provision"
+"$TART" exec -i "$new" /bin/bash -s < "$here/guest/provision.sh"
+
+echo "== shut down"
+"$TART" exec "$new" /usr/bin/sudo /sbin/shutdown -h now > /dev/null 2>&1 || true
+wait_stopped "$new" 180 || { "$TART" stop "$new" > /dev/null 2>&1 || true; }
+
+echo "== grow the disk (move the recovery partition to the end, then grow the system's container)"
+/usr/bin/python3 "$here/relocate-recovery.py" "$HOME/.tart/vms/$new/disk.img"
+nohup "$TART" run --no-graphics --no-audio --no-clipboard "--net-softnet-block=224.0.0.0/4,$ip/32" "$new" \
+  > "$run_log" 2>&1 < /dev/null &
+wait_agent "$new" 240 || die "the VM did not come back after moving the recovery partition"
+"$TART" exec "$new" /bin/bash /Users/admin/matsu/grow-disk.sh
+"$TART" exec "$new" /usr/bin/sudo /sbin/shutdown -h now > /dev/null 2>&1 || true
+wait_stopped "$new" 180 || { "$TART" stop "$new" > /dev/null 2>&1 || true; }
+
+if vm_exists "$GOLDEN"; then
+  "$TART" delete "$GOLDEN"
+fi
+"$TART" rename "$new" "$GOLDEN"
+finished=1
+echo "== $GOLDEN is ready"
+"$TART" get "$GOLDEN"
