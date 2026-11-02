@@ -35,6 +35,8 @@ use crate::window_ops::{tile_windows, with_screen};
 pub(crate) const NO_DIFFERENCE: &str = "異なる箇所は見つかりませんでした。";
 /// `STR_ERR_CEDITVIEW_CMD23`: the carets are on the first difference.
 pub(crate) const FOUND_DIFFERENCE: &str = "異なる箇所が見つかりました。";
+/// A window that still scans its huge file (ADR-0020; no text in Sakura, type F).
+const SCANNING: &str = "まだ改行位置を調べている途中のウィンドウがあるので、比較できません。調べ終わってからやり直してください。";
 
 pub struct ComparePanel {
     editor: WeakEntity<EditorView>,
@@ -264,6 +266,16 @@ impl EditorView {
         };
         let own_caret = self.cursor.caret();
         let other_caret = other.read(cx).cursor().caret();
+        // A huge file reads line by line, so it is compared as it is (no text is held whole). But
+        // while its scan runs the document has only the scanned start: the end of that part would
+        // be taken for the end of the file, and the windows for different (ADR-0020, type C).
+        let scanning = |doc: &matsu_core::buffer::Document| doc.is_ranged() && doc.is_read_only();
+        if scanning(self.document.read(cx).doc())
+            || scanning(other.read(cx).document().read(cx).doc())
+        {
+            self.warning_box(SCANNING, window, cx);
+            return;
+        }
         let found = first_difference(
             self.document.read(cx).doc(),
             own_caret,

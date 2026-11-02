@@ -80,6 +80,7 @@ impl Project {
             except_file_regex: false,
             replace: None,
             mime_decode: false,
+            huge_file_len: None,
             window: None,
             window_gone: false,
         }

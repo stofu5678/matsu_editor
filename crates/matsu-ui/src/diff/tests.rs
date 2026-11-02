@@ -714,3 +714,69 @@ fn the_box_starts_checked_unless_the_setting_says_otherwise(cx: &mut TestAppCont
     diff_with_window(cx, &w, &same);
     assert_eq!(w.take_box(cx), None);
 }
+
+/// The size from which a text is huge, for the tests: 1 MB.
+fn small_huge_limit(cx: &mut TestAppContext) {
+    cx.update(|app| {
+        app.set_global(crate::file_ops::prefs::FilePrefs {
+            huge_file_size_mb: 1,
+            ..Default::default()
+        });
+    });
+}
+
+#[gpui::test]
+fn a_huge_file_is_refused_with_the_reason_and_is_not_read(cx: &mut TestAppContext) {
+    small_huge_limit(cx);
+    let dir = temp_dir("huge-file");
+    let path = dir.join("big.txt");
+    // 1 MB or more: not read (the lines are not even decoded), the window keeps its marks cleared
+    std::fs::write(&path, "line\n".repeat(250_000)).unwrap();
+    let w = window(cx, "line\nother\n", None);
+    assert!(w.run_with(cx, "F_DIFF", &[text_arg(&path)]));
+    let shown = w.take_box(cx).expect("a box with the reason");
+    assert!(
+        shown.starts_with("差分コマンド実行は失敗しました。\n\n"),
+        "{shown}"
+    );
+    assert!(shown.contains("大きすぎる"), "{shown}");
+    assert!(shown.contains("上限は 1 MB"), "{shown}");
+    assert!(w.marks(cx).is_empty());
+    // a file under the limit is compared as before
+    std::fs::write(&path, "line\nchanged\n").unwrap();
+    assert!(w.run_with(cx, "F_DIFF", &[text_arg(&path)]));
+    assert_eq!(w.marks(cx), [(1, DiffMark::Change)]);
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[gpui::test]
+fn a_huge_window_is_refused_on_either_side(cx: &mut TestAppContext) {
+    small_huge_limit(cx);
+    let small = window(cx, "a\nb\n", None);
+    let big = window(cx, &"line of text\n".repeat(100_000), None);
+    // the other window is huge
+    diff_with_window(cx, &small, &big);
+    let shown = small.take_box(cx).expect("a box");
+    assert!(shown.contains("比較する相手のテキスト"), "{shown}");
+    assert!(small.marks(cx).is_empty());
+    // this window is huge
+    diff_with_window(cx, &big, &small);
+    let shown = big.take_box(cx).expect("a box");
+    assert!(shown.contains("このウィンドウのテキスト"), "{shown}");
+    assert!(big.marks(cx).is_empty());
+}
+
+#[test]
+fn the_sizes_and_the_scan_decide_whether_a_text_is_compared() {
+    use super::run::too_big;
+    let mb = 1024 * 1024;
+    assert_eq!(too_big("x", 10 * mb - 1, false, 10 * mb), None);
+    let reason = too_big("x", 10 * mb, false, 10 * mb).unwrap();
+    assert!(
+        reason.contains("10 MB") && reason.contains("上限は 10 MB"),
+        "{reason}"
+    );
+    // a text that is still being scanned is not there yet, however small the part is
+    let reason = too_big("x", 5, true, 10 * mb).unwrap();
+    assert!(reason.contains("調べている途中"), "{reason}");
+}

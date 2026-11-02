@@ -638,6 +638,7 @@ pub(crate) fn grep_info(args: &GrepArgs, cwd: &Path, clipboard: Option<String>) 
         file_only: args.file_only,
         except_file_regex: args.except_file_regex,
         mime_decode: false,
+        huge_file_len: None,
         window: None,
         window_gone: false,
         replace: args.replace.as_ref().map(|text| ReplaceInfo {
