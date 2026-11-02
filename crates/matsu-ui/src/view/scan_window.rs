@@ -35,6 +35,8 @@ const COMFORT: u64 = (WINDOW_BYTES / 8) as u64;
 pub(super) struct FrameMove {
     caret: Pos,
     anchor: Option<Pos>,
+    /// The columns and the lock of a box selection (`anchor` and `caret` are its corners).
+    box_cols: Option<(usize, usize, bool)>,
     /// The first line of the view (its start) and how far the view was scrolled into its row.
     top: Pos,
     row_offset: f32,
@@ -95,15 +97,23 @@ impl EditorView {
         let top = pos_of(top_byte);
         let caret_byte = byte_of(self.cursor.caret());
         let kept = caret_byte.filter(|&b| inside(b));
-        let anchor = (!self.cursor.is_box())
-            .then(|| self.cursor.anchor())
-            .flatten()
+        let box_cols = self.cursor.is_box().then(|| {
+            (
+                self.cursor.box_anchor_col().unwrap_or(0),
+                self.cursor.box_caret_col().unwrap_or(0),
+                self.cursor.selecting_lock(),
+            )
+        });
+        let anchor = self
+            .cursor
+            .anchor()
             .and_then(byte_of)
             .filter(|&b| inside(b))
             .map(pos_of);
         Some(FrameMove {
             caret: kept.map_or(top, pos_of),
             anchor: kept.and(anchor),
+            box_cols,
             top,
             // The offset into the row only means something while the view is on the same line.
             row_offset: self.scroll_y - row as f32 * m.line_height,
@@ -117,7 +127,15 @@ impl EditorView {
         let doc = self.document.read(cx).doc();
         self.cursor.move_to(moved.caret, false);
         if let Some(anchor) = moved.anchor.filter(|a| *a != moved.caret) {
-            self.cursor.select(anchor, moved.caret);
+            match moved.box_cols {
+                // A box selection keeps its corners and its columns (the text is the same).
+                Some((anchor_col, caret_col, lock)) => {
+                    self.cursor.move_to(anchor, false);
+                    self.cursor.begin_box(anchor_col, lock);
+                    self.cursor.move_box_to(moved.caret, caret_col);
+                }
+                None => self.cursor.select(anchor, moved.caret),
+            }
         }
         if moved.caret_lost {
             self.cursor.set_free_col(None);

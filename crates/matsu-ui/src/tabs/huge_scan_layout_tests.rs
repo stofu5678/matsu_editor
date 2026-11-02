@@ -122,6 +122,33 @@ fn a_jump_with_the_selection_lock_waits_and_the_place_left_is_in_the_jump_list(
 }
 
 #[gpui::test]
+fn a_box_selection_in_a_window_is_kept_when_the_scan_is_done(cx: &mut TestAppContext) {
+    let (handle, dir) = opened(cx, "big.txt", big_text().as_bytes());
+    let view = active_view(cx, handle);
+    run(cx, handle, "F_GOFILEEND");
+    assert!(window_of(cx, &view).is_some());
+    view.update(cx, |v, _| {
+        v.cursor.move_to(Pos::new(10, 1), false);
+        v.cursor.begin_box(1, false);
+        v.cursor.move_box_to(Pos::new(12, 3), 3);
+    });
+    let (anchor_line, lines) = view.read_with(cx, |v, cx| {
+        (
+            v.cursor.anchor().unwrap().line,
+            v.document().read(cx).doc().line_count(),
+        )
+    });
+    super::huge_tests::wait_for_scan(cx, &view);
+    let (is_box, corners) = view.read_with(cx, |v, _| (v.cursor.is_box(), v.cursor.box_corners()));
+    assert!(is_box);
+    let ((a, ac), (c, cc)) = corners.expect("the box covers something");
+    // The same lines, now counted from the start of the file: further down than the window's.
+    assert_eq!((c.line - a.line, a.col, c.col, ac, cc), (2, 1, 3, 1, 3));
+    assert!(a.line > anchor_line && a.line < 100_000 + lines);
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[gpui::test]
 fn the_jump_list_waits_for_the_scan_while_a_window_is_shown(cx: &mut TestAppContext) {
     let (handle, dir) = opened(cx, "big.txt", big_text().as_bytes());
     let view = active_view(cx, handle);

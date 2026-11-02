@@ -62,7 +62,12 @@ impl Drop for Cleanup {
 }
 
 fn generate(path: &PathBuf, size: u64, shape: &str) {
-    let mut out = File::create(path).expect("create the test file");
+    // Never over a file that is there: the name is the same on every run.
+    let mut out = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .expect("create the test file (a file of the name is there already: remove it)");
     let mut buf = Vec::with_capacity(MIB as usize + 64);
     let mut written = 0u64;
     let mut line_no = 0u64;
@@ -111,6 +116,12 @@ fn main() {
     let args = parse_args();
     let size = args.size_mb * MIB;
     let path = args.dir.join(format!("matsu-scan-jump-{}.txt", args.shape));
+    // The guard below deletes the file: it must never be given one that was not made here.
+    assert!(
+        !path.exists(),
+        "{} is there already: remove it or use another --dir",
+        path.display()
+    );
     let _cleanup = Cleanup(path.clone());
     let made = Instant::now();
     generate(&path, size, &args.shape);
