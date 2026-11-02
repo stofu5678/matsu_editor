@@ -30,6 +30,7 @@ pub(super) static SETS: TableSpec = TableSpec {
     storage: Storage::Custom { load, store },
     full_message: "",
     prepare: None,
+    confirm: None,
 };
 
 thread_local! {
@@ -56,6 +57,7 @@ pub(super) static STAMP: TableSpec = TableSpec {
     },
     full_message: "",
     prepare: None,
+    confirm: None,
 };
 
 fn load_stamp(profile: &Profile) -> Option<Vec<Row>> {
