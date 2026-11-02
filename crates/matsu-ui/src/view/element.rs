@@ -28,7 +28,10 @@ use super::caret_shape::{CaretShape, caret_shape};
 use super::colors::LineColorRequest;
 use super::syntax::{self, Label, Style as TextStyle};
 use super::{EditorView, PaintInfo, a11y_text, bracket_marks, diff_mark, lines, ruler};
-use crate::geometry::{Metrics, SCROLLBAR_WIDTH, Scrollbar, column_width, row_height};
+use crate::geometry::{
+    HSCROLL_ARROW, HSCROLLBAR_HEIGHT, HScrollbar, Metrics, SCROLLBAR_WIDTH, Scrollbar,
+    column_width, row_height,
+};
 use crate::hit::selected_columns;
 use crate::search::highlight::{highlight_columns, slot_of};
 use crate::settings::view_settings::rgb_of;
@@ -295,6 +298,10 @@ pub(super) struct Prepaint {
     y_offset: f32,
     widest: u32,
     total_rows: usize,
+    /// The height of the horizontal scroll bar at the bottom: 0 when the view has none.
+    hbar_height: f32,
+    /// The right end of the selection in columns, for the range of the horizontal scroll bar.
+    selection_edge: u32,
 }
 
 impl IntoElement for EditorElement {
@@ -459,7 +466,13 @@ impl Element for EditorElement {
         let first_row = (editor.scroll_y / line_height).floor().max(0.0) as usize;
         let y_offset = -(editor.scroll_y - line_height * first_row as f32);
         let top_margin = settings.top_margin() as f32;
-        let body_height = (f32::from(bounds.size.height) - top_margin).max(0.0);
+        // The horizontal scroll bar takes the bottom of the view (`CreateScrollBar`).
+        let hbar_height = if super::hscroll::shown(cx) {
+            HSCROLLBAR_HEIGHT
+        } else {
+            0.0
+        };
+        let body_height = (f32::from(bounds.size.height) - top_margin - hbar_height).max(0.0);
         let count = (body_height / line_height).ceil() as usize + 1;
         let mut rows: Vec<RowInfo> = layout.rows(doc, first_row, count).unwrap_or_default();
 
@@ -801,6 +814,28 @@ impl Element for EditorElement {
             .ok()
             .map(|at| caret_column.max(at.column));
 
+        // The right end of the selection, which the range of the horizontal scroll bar covers when
+        // the text does not wrap (`GetRightEdgeForScrollBar`), and the caret of the free cursor.
+        let selection_edge = editor
+            .cursor
+            .selection()
+            .into_iter()
+            .flat_map(|(from, to)| [from, to])
+            .filter_map(|pos| layout.pos_to_row(doc, pos).ok().map(|at| at.column))
+            .chain(options.free_cursor.then_some(caret_total_column).flatten())
+            // A box selection can end right of the text: its corners have columns of their own.
+            .chain(
+                [
+                    editor.cursor.box_anchor_col(),
+                    editor.cursor.box_caret_col(),
+                ]
+                .into_iter()
+                .flatten()
+                .map(|c| u32::try_from(c).unwrap_or(u32::MAX)),
+            )
+            .max()
+            .unwrap_or(0);
+
         let mut lines_paint = LinesPaint::default();
         let vertical = colors.vert_line_entry;
         if vertical.disp {
@@ -969,6 +1004,8 @@ impl Element for EditorElement {
             y_offset,
             widest,
             total_rows: layout.row_count(),
+            hbar_height,
+            selection_edge,
         }
     }
 
@@ -997,7 +1034,7 @@ impl Element for EditorElement {
             cell_width: p.cell,
             line_height: p.line_height,
             view_width: (f32::from(bounds.size.width) - p.gutter_width - SCROLLBAR_WIDTH).max(1.0),
-            view_height: (f32::from(bounds.size.height) - p.top_margin).max(1.0),
+            view_height: (f32::from(bounds.size.height) - p.top_margin - p.hbar_height).max(1.0),
         };
         let bar = Scrollbar::new(&metrics, p.total_rows, scroll_y);
 
@@ -1008,7 +1045,7 @@ impl Element for EditorElement {
             point(origin_x, body_top),
             size(
                 (bounds.size.width - px(p.gutter_width) - px(SCROLLBAR_WIDTH)).max(px(0.)),
-                (bounds.size.height - px(p.top_margin)).max(px(0.)),
+                (bounds.size.height - px(p.top_margin) - px(p.hbar_height)).max(px(0.)),
             ),
         );
         let x_of = |col: u32| origin_x + px(col as f32 * p.cell - scroll_x);
@@ -1425,7 +1462,7 @@ impl Element for EditorElement {
             point(bounds.right() - px(SCROLLBAR_WIDTH), body_top),
             size(
                 px(SCROLLBAR_WIDTH),
-                (bounds.size.height - px(p.top_margin)).max(px(0.)),
+                (bounds.size.height - px(p.top_margin) - px(p.hbar_height)).max(px(0.)),
             ),
         );
         window.paint_quad(fill(track, rgb(0xf3f3f3)));
@@ -1444,12 +1481,19 @@ impl Element for EditorElement {
             .corner_radii(px(4.)),
         );
 
+        let hbar_paint = (p.hbar_height > 0.0).then(|| super::hscroll::BarPaint {
+            left: f32::from(bounds.left()),
+            top: f32::from(bounds.bottom()) - p.hbar_height,
+            width: (f32::from(bounds.size.width) - SCROLLBAR_WIDTH).max(0.0),
+        });
         let paint_info = PaintInfo {
             origin_x: f32::from(origin_x),
             origin_y: f32::from(body_top),
             scrollbar_left: f32::from(track.left()),
+            hbar: hbar_paint,
         };
         let widest = p.widest;
+        let selection_edge = p.selection_edge;
         let redraw = self.editor.update(cx, |editor, cx| {
             let mut redraw = false;
             let measured_before = editor.metrics;
@@ -1463,6 +1507,13 @@ impl Element for EditorElement {
             }
             editor.paint = Some(paint_info);
             editor.widest_cols = widest;
+            editor.h_selection_edge = selection_edge;
+            if hbar_paint.is_some() {
+                // `AdjustScrollBars`: with everything in view the view is at the left.
+                let before = editor.scroll_x;
+                editor.h_scroll_settle();
+                redraw |= editor.scroll_x != before;
+            }
             // Wrapping at the right edge: the width is known only now.
             if editor.wrap_is_stale() {
                 redraw = true;
@@ -1476,6 +1527,70 @@ impl Element for EditorElement {
         if redraw {
             window.request_animation_frame();
         }
+        let editor = self.editor.read(cx);
+        if let Some((bar, at)) = editor.h_scrollbar() {
+            let dragging = matches!(editor.drag, super::Drag::HThumb { .. });
+            paint_hscrollbar(window, &bar, at, dragging);
+        }
+    }
+}
+
+/// The horizontal scroll bar: the arrow buttons and the track, the thumb when there is something
+/// to scroll to, and the square right of it where the vertical bar ends (Sakura's size box).
+fn paint_hscrollbar(
+    window: &mut Window,
+    bar: &HScrollbar,
+    at: super::hscroll::BarPaint,
+    dragging: bool,
+) {
+    const TRACK: u32 = 0xf3f3f3;
+    let (left, top) = (px(at.left), px(at.top));
+    let height = px(HSCROLLBAR_HEIGHT);
+    window.paint_quad(fill(
+        Bounds::new(
+            point(left, top),
+            size(px(at.width + SCROLLBAR_WIDTH), height),
+        ),
+        rgb(TRACK),
+    ));
+    let glyph = if bar.enabled() { 0x606060 } else { 0xbfbfbf };
+    // A small triangle in each arrow button, made of strips one pixel wide.
+    for (button_left, toward_left) in [(at.left, true), (at.left + at.width - HSCROLL_ARROW, false)]
+    {
+        let center_x = button_left + HSCROLL_ARROW / 2.0;
+        let center_y = at.top + HSCROLLBAR_HEIGHT / 2.0;
+        for j in 0..4 {
+            // The tip is one strip, and each strip toward the base is two pixels taller.
+            let tall = 1.0 + 2.0 * j as f32;
+            let x = if toward_left {
+                center_x - 2.0 + j as f32
+            } else {
+                center_x + 1.0 - j as f32
+            };
+            window.paint_quad(fill(
+                Bounds::new(
+                    point(px(x), px(center_y - tall / 2.0)),
+                    size(px(1.), px(tall)),
+                ),
+                rgb(glyph),
+            ));
+        }
+    }
+    if bar.enabled() {
+        window.paint_quad(
+            fill(
+                Bounds::new(
+                    point(left + px(HSCROLL_ARROW + bar.thumb_left), top + px(3.)),
+                    size(px(bar.thumb_width), px(HSCROLLBAR_HEIGHT - 6.)),
+                ),
+                if dragging {
+                    rgb(0x8c8c8c)
+                } else {
+                    rgb(0xc2c2c2)
+                },
+            )
+            .corner_radii(px(4.)),
+        );
     }
 }
 

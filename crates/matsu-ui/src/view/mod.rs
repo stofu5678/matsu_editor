@@ -22,6 +22,7 @@ mod colors;
 mod diff_mark;
 mod element;
 mod held_buttons;
+pub(crate) mod hscroll;
 mod input;
 mod lines;
 pub(crate) mod minimap;
@@ -150,6 +151,11 @@ pub(crate) enum Drag {
         start_y: f32,
         start_scroll: f32,
     },
+    /// Dragging the thumb of the horizontal scroll bar: where the pointer and the view were.
+    HThumb {
+        start_x: f32,
+        start_col: f32,
+    },
 }
 
 /// Where the last paint put the text, in window coordinates.
@@ -160,6 +166,8 @@ pub(crate) struct PaintInfo {
     pub origin_y: f32,
     /// The left edge of the scroll bar.
     pub scrollbar_left: f32,
+    /// The horizontal scroll bar, if the view has one.
+    pub hbar: Option<hscroll::BarPaint>,
 }
 
 pub struct EditorView {
@@ -198,6 +206,12 @@ pub struct EditorView {
     pub(crate) paint: Option<PaintInfo>,
     /// The widest end column among the rows of the last paint, for the horizontal scroll range.
     pub(crate) widest_cols: u32,
+    /// The widest line of the document, for the range of the horizontal scroll bar when the text
+    /// does not wrap (`view/hscroll.rs`).
+    pub(crate) text_width: hscroll::TextWidth,
+    /// The right end of the selection in columns, as of the last paint: the horizontal scroll
+    /// range covers it when the text does not wrap.
+    pub(crate) h_selection_edge: u32,
     pub(crate) marked: Option<Marked>,
     /// An undo block for the composition is open (it closes when the text is committed).
     pub(crate) composing: bool,
@@ -306,6 +320,8 @@ impl EditorView {
             metrics: Metrics::default(),
             paint: None,
             widest_cols: 0,
+            text_width: Default::default(),
+            h_selection_edge: 0,
             marked: None,
             composing: false,
             composing_over_selection: false,
@@ -985,6 +1001,7 @@ impl Render for EditorView {
         self.show_pending_message_boxes(window, cx);
         self.follow_window_width(cx);
         self.advance_layout(window, cx);
+        self.advance_text_width(window, cx);
         self.advance_colors(window, cx);
         self.settle_caret(cx);
         // macOS: whatever changed the view (a key, the mouse, a function) repaints it; the marks of
@@ -1098,6 +1115,8 @@ impl Render for EditorView {
 
 #[cfg(test)]
 mod colors_tests;
+#[cfg(test)]
+mod hscroll_tests;
 #[cfg(test)]
 mod mouse_tests;
 #[cfg(test)]
