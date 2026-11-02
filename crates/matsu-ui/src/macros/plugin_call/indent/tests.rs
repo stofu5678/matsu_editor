@@ -430,6 +430,68 @@ fn work_of_the_window_that_is_not_the_users_does_not_stop_the_plugin(cx: &mut Te
 }
 
 #[gpui::test]
+fn a_mouse_drop_while_the_plugin_works_is_not_in_its_undo_step(cx: &mut TestAppContext) {
+    let place = Place::new(
+        true,
+        "Editor.InsText('    '); console.log('[inserted]'); \
+         const t = Date.now(); while (Date.now() - t < 400) {}",
+    );
+    let Some((view, cx)) = window(cx, &place, true) else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    cx.simulate_input("ab");
+    view.update(cx, |v, cx| {
+        v.run_with(cx, |c| {
+            c.move_caret(matsu_core::buffer::Pos::new(0, 0), false)
+        })
+        .ok();
+        v.run_with(cx, |c| {
+            c.move_caret(matsu_core::buffer::Pos::new(0, 1), true)
+        })
+        .ok();
+    });
+    // the selection `a` is dragged behind `b` while the plugin works
+    view.update(cx, |v, cx| {
+        v.run_with(cx, |c| {
+            c.move_caret(matsu_core::buffer::Pos::new(0, 2), false)
+        })
+        .ok();
+    });
+    type_char(&view, cx, '\r');
+    wait_until(&view, cx, "the insertion of the plugin", |v, cx| {
+        called(v, cx) == ["inserted"]
+    });
+    view.update(cx, |v, cx| {
+        v.run_with(cx, |c| {
+            c.move_caret(matsu_core::buffer::Pos::new(0, 0), false)
+        })
+        .ok();
+        v.run_with(cx, |c| {
+            c.move_caret(matsu_core::buffer::Pos::new(0, 1), true)
+        })
+        .ok();
+    });
+    view.update(cx, |v, cx| {
+        v.cut_indent_undo_step(cx);
+        v.run_with(cx, |c| {
+            c.mouse_drop_selection(matsu_core::buffer::Pos::new(0, 2), false)
+        })
+        .ok();
+    });
+    wait_until(&view, cx, "the end of the call", |v, cx| {
+        !v.read_with(cx, |v, app| v.plugin_in_call(app))
+    });
+    // one Undo takes the drop only; the indentation stays
+    let before = text(&view, cx);
+    run(&view, cx, "F_UNDO");
+    let after = text(&view, cx);
+    assert_ne!(before, after);
+    assert!(after.ends_with("    "), "{after:?}");
+    finish(cx);
+}
+
+#[gpui::test]
 fn a_plugin_that_is_not_resident_is_not_called(cx: &mut TestAppContext) {
     let place = Place::new(false, LOG);
     let Some((view, cx)) = window(cx, &place, true) else {
