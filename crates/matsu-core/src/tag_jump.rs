@@ -67,8 +67,11 @@
 //! Nothing here opens a window or reads a file except through the `is_file` closure that the
 //! caller gives, so every rule can be tested with a list of names.
 //!
-//! Differences from Sakura: the `:HWND:[...]` tags (Sakura's own windows without a file) are not
-//! understood; Sakura's code units are UTF-16, here the text is read in `char`s (the column that
+//! A line of a Grep of the text of a window that has no file names it by `:HWND:[id]name`
+//! (`IsHWNDTag`, `CGrepAgent.cpp` `GetHwndTitle`): the target then has no path but the `window`
+//! (the id the Grep wrote), for the caller to find the window by.
+//!
+//! Differences from Sakura: Sakura's code units are UTF-16, here the text is read in `char`s (the column that
 //! is returned is counted in UTF-16 code units, as in Sakura, for the caller to convert).
 
 use std::path::{Path, PathBuf};
@@ -84,8 +87,12 @@ const NAME_ENDINGS: &str = " \t(\")'`[]{};#!@&%$";
 /// not say (then the caret is not moved, `Command_TagJumpNoMessage`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TagTarget {
-    /// The file, made absolute with the folder of the document when it was relative.
+    /// The file, made absolute with the folder of the document when it was relative. Empty for a
+    /// window ([`window`](Self::window)).
     pub path: PathBuf,
+    /// The window named by a `:HWND:[id]` tag instead of a file: the id the Grep wrote
+    /// (`TagJumpSub` with a `:HWND:[` prefix).
+    pub window: Option<u64>,
     pub line: Option<usize>,
     /// In UTF-16 code units from the start of the line (Sakura's logical column).
     pub column: Option<usize>,
@@ -105,14 +112,50 @@ pub fn find_target(
 ) -> Option<TagTarget> {
     let current: Vec<char> = line_at(caret_line)?.chars().collect();
     let fs = Fs { base_dir, is_file };
-    let found =
-        grep_format(line_at, caret_line, &current, &fs).or_else(|| free_form(&current, &fs));
+    let found = grep_format(line_at, caret_line, &current, &fs)
+        .or_else(|| hwnd_line(&current))
+        .or_else(|| free_form(&current, &fs));
     let (path, line, column) = found?;
+    let chars: Vec<char> = path.chars().collect();
+    if let Some((id, _)) = hwnd_tag(&chars) {
+        return Some(TagTarget {
+            path: PathBuf::new(),
+            window: Some(id),
+            line: positive(line),
+            column: positive(column),
+        });
+    }
     Some(TagTarget {
         path: fs.resolve(&path),
+        window: None,
         line: positive(line),
         column: positive(column),
     })
+}
+
+/// `IsHWNDTag`: `:HWND:[` and the id in hexadecimal digits, then `]`. Returns the id and the
+/// length of the tag.
+fn hwnd_tag(c: &[char]) -> Option<(u64, usize)> {
+    const PREFIX: &str = ":HWND:[";
+    if !starts_with(c, PREFIX) {
+        return None;
+    }
+    let start = PREFIX.chars().count();
+    let digits = c[start..]
+        .iter()
+        .take_while(|ch| ch.is_ascii_hexdigit())
+        .count();
+    if digits == 0 || digits > 16 || c.get(start + digits) != Some(&']') {
+        return None;
+    }
+    let text: String = c[start..start + digits].iter().collect();
+    let id = u64::from_str_radix(&text, 16).ok()?;
+    Some((id, start + digits + 1))
+}
+
+/// The tag at the start of `c` as text, for [`find_target`] to read again.
+fn hwnd_tag_text(c: &[char]) -> Option<String> {
+    hwnd_tag(c).map(|(_, len)| c[..len].iter().collect())
 }
 
 fn positive(n: i64) -> Option<usize> {
@@ -352,6 +395,11 @@ fn grep_format(
     let mut at_column = 0;
     let mut mode;
     if starts_with(line, "■\"") {
+        // `■":HWND:[id]name"`: the heading of a window without a file (the only line of the
+        // result of a search of the names).
+        if let Some(tag) = hwnd_tag_text(&line[2..]) {
+            return Some((tag, 0, 0));
+        }
         // `■"C:\folder\file.ext"` (the per-file form): a full path, with the position that
         // follows it (there is none on this line in Sakura's output, but a hand-written one may).
         if let Some((begin, len)) = file_path_in(&line[2..], fs)
@@ -365,11 +413,17 @@ fn grep_format(
         mode = Search::Root;
     } else if starts_with(line, "◆\"") {
         file = quoted(&line[2..])?;
+        if let Some(tag) = hwnd_tag_text(&line[2..]) {
+            return Some((tag, 0, 0));
+        }
         mode = Search::SubPath;
     } else if starts_with(line, "・") {
         match line.get(1) {
             Some('"') => {
                 file = quoted(&line[2..])?;
+                if let Some(tag) = hwnd_tag_text(&line[2..]) {
+                    return Some((tag, 0, 0));
+                }
                 mode = Search::SubPath;
             }
             Some('(') => {
@@ -379,8 +433,13 @@ fn grep_format(
             _ => {
                 let open = line_column_pos(line);
                 if 1 < open && line[open] == '(' && open - 1 < MAX_TAG_PATH {
+                    let (l, c) = line_column(&line[open + 1..]);
+                    // `・:HWND:[id](無題)2(123,45): str`
+                    if let Some(tag) = hwnd_tag_text(&line[1..]) {
+                        return Some((tag, l, c));
+                    }
                     file = line[1..open].iter().collect();
-                    (at_line, at_column) = line_column(&line[open + 1..]);
+                    (at_line, at_column) = (l, c);
                     mode = Search::SubPath;
                 } else {
                     return None;
@@ -401,6 +460,9 @@ fn grep_format(
                 continue;
             }
             // The file name of the folder-by-folder form.
+            if let Some(tag) = hwnd_tag_text(&above[2..]) {
+                return Some((tag, at_line, at_column));
+            }
             file = quoted(&above[2..])?;
             mode = Search::SubPath;
         } else if above == ['■'] {
@@ -412,6 +474,9 @@ fn grep_format(
         } else if starts_with(&above, "■\"") {
             if mode == Search::Root {
                 continue;
+            }
+            if let Some(tag) = hwnd_tag_text(&above[2..]) {
+                return Some((tag, at_line, at_column));
             }
             if let Some((begin, len)) = file_path_in(&above[2..], fs)
                 && !is_relative(&above[2..].iter().collect::<String>())
@@ -450,6 +515,19 @@ fn grep_format(
         }
     }
     None
+}
+
+/// A hit of the text of a window that has no file: `:HWND:[id]name(line,col): text`.
+fn hwnd_line(line: &[char]) -> Option<Found> {
+    let tag = hwnd_tag_text(line)?;
+    let open = line_column_pos(line);
+    if open == 0 {
+        // The list of the names (an empty pattern) has no position: the window is the target.
+        // (Sakura needs the position; a list of windows is of no other use.)
+        return Some((tag, 0, 0));
+    }
+    let (l, c) = line_column(&line[open + 1..]);
+    Some((tag, l, c))
 }
 
 /// The free form (compiler messages, `#include`): the first word that names a file.
@@ -509,6 +587,7 @@ mod tests {
     fn target(path: &str, line: Option<usize>, column: Option<usize>) -> Option<TagTarget> {
         Some(TagTarget {
             path: PathBuf::from(path),
+            window: None,
             line,
             column,
         })
@@ -892,5 +971,80 @@ mod tests {
             None
         );
         assert_eq!(quoted(&"\"".chars().collect::<Vec<_>>()), None);
+    }
+
+    // ---- the windows without a file: `:HWND:[id]name` ----
+
+    fn window(id: u64, line: Option<usize>, column: Option<usize>) -> Option<TagTarget> {
+        Some(TagTarget {
+            path: PathBuf::new(),
+            window: Some(id),
+            line,
+            column,
+        })
+    }
+
+    #[test]
+    fn a_hit_of_a_window_without_a_file_names_the_window() {
+        // `:HWND:[01234567](無題)2(123,45): str`
+        let w = world(&[":HWND:[00000000000000ab](無題)2(123,45): str"], &[]);
+        assert_eq!(w.jump(0), window(0xab, Some(123), Some(45)));
+        // with the encoding in front of the colon
+        let w = world(&[":HWND:[1f](無題)(7,2)  [UTF-8]: str"], &[]);
+        assert_eq!(w.jump(0), window(0x1f, Some(7), Some(2)));
+    }
+
+    #[test]
+    fn the_relative_form_names_the_window_too() {
+        let w = world(&["・:HWND:[0000000000000010](Grep)(3,4): str"], &[]);
+        assert_eq!(w.jump(0), window(0x10, Some(3), Some(4)));
+    }
+
+    #[test]
+    fn the_per_file_forms_name_the_window() {
+        // `■":HWND:[id]name"` and `・(line,col)`
+        let w = world(&[r#"■":HWND:[2a](無題)1""#, "・(   12,3    ): str"], &[]);
+        assert_eq!(w.jump(1), window(0x2a, Some(12), Some(3)));
+        // `◆":HWND:[id]name"` below a folder line
+        let w = world(
+            &[
+                r#"◎"/r""#,
+                "■",
+                r#"◆":HWND:[2a](無題)1""#,
+                "・(   5,6    ): str",
+            ],
+            &[],
+        );
+        assert_eq!(w.jump(3), window(0x2a, Some(5), Some(6)));
+    }
+
+    #[test]
+    fn the_heading_of_a_window_names_the_window() {
+        // the per-file form without folders: `■":HWND:[id]name"  [enc]` is the line of a hit
+        // and, for a search of the names, the whole result
+        let w = world(&[r#"■":HWND:[2a](無題)1"  [UTF-8]"#], &[]);
+        assert_eq!(w.jump(0), window(0x2a, None, None));
+        let w = world(&[r#"■":HWND:[2a](無題)1""#, "・(   5,6    ): str"], &[]);
+        assert_eq!(w.jump(0), window(0x2a, None, None));
+        assert_eq!(w.jump(1), window(0x2a, Some(5), Some(6)));
+    }
+
+    #[test]
+    fn a_name_alone_names_the_window_without_a_place() {
+        let w = world(&[":HWND:[2a](無題)1  [UTF-8]"], &[]);
+        assert_eq!(w.jump(0), window(0x2a, None, None));
+    }
+
+    #[test]
+    fn a_broken_tag_is_not_a_window() {
+        for line in [
+            ":HWND:[](無題)(1,2): x",
+            ":HWND:[xyz](無題)(1,2): x",
+            ":HWND:[11111111111111111](無題)(1,2): x",
+            ":HWND:[12 (無題)(1,2): x",
+        ] {
+            let w = world(&[line], &[]);
+            assert_eq!(w.jump(0), None, "{line}");
+        }
     }
 }

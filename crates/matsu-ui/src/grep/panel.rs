@@ -11,18 +11,24 @@
 //! `sakura_core/dlg/CDlgGrepReplace.cpp`): it has the box 置換後 and the check boxes
 //! クリップボードの内容で置換 and バックアップ作成 besides, and its button replaces.
 //!
-//! Left out: 「この編集中のテキストから検索する」 (searching the text of a window), the combo
-//! boxes' history lists, and the list of code pages (the nine encodings of Sakura are offered).
+//! The boxes keep their history, as the combo boxes of Sakura do ([`crate::search::history`]): a
+//! button beside each opens the list of the strings used before. 「編集中のテキストから検索」 (the
+//! check box that searches the text of the window, see [`super::window::window_token`]) is
+//! offered by Grep and greyed out for Grep 置換 (`CDlgGrepReplace::SetData`).
+//!
+//! Left out: the list of code pages (the nine encodings of Sakura are offered).
 
 use crate::dialog_focus::KeepTabInside as _;
 use std::path::Path;
+
+use gpui::prelude::FluentBuilder as _;
 
 use crate::a11y::Labelled as _;
 use crate::input_select::{focus_selecting, input_field};
 use gpui::{
     App, AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
-    KeyDownEvent, ParentElement, Render, ScrollHandle, StatefulInteractiveElement, Styled,
-    Subscription, WeakEntity, Window, div, px, rgb,
+    KeyDownEvent, ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement,
+    Styled, Subscription, WeakEntity, Window, div, px, rgb,
 };
 use gpui_component::button::Button;
 use gpui_component::checkbox::Checkbox;
@@ -33,9 +39,13 @@ use matsu_core::encoding::Encoding;
 
 use super::format::{LineType, OutputStyle};
 use super::keys::split_folders;
-use super::settings::{DialogError, GrepSettings, browse_start, quote_folder};
-use super::window::{clipboard_replacement, remember, remembered};
+use super::settings::{
+    DEFAULT_EXCLUDE_FILE, DEFAULT_EXCLUDE_FOLDER, DialogError, GrepSettings, browse_start,
+    quote_folder,
+};
+use super::window::{THIS_DOCUMENT, clipboard_replacement, remember, remembered};
 use crate::file_dialog::{self, Ask};
+use crate::search::history::{self, GrepBoxes};
 use crate::view::EditorView;
 
 /// The encodings of the combo box, after 自動選択 (`CCodeTypesForCombobox`).
@@ -60,6 +70,146 @@ pub fn next_charset(current: Option<Encoding>) -> Option<Encoding> {
 /// `STR_DLGREPLC_CLIPBOARD`.
 pub(crate) const NO_CLIPBOARD: &str = "クリップボードに有効なデータがありません！";
 
+/// A box of the dialog that has a history list.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Field {
+    /// 条件 (`IDC_COMBO_TEXT`): the search strings.
+    Key,
+    /// ファイル (`IDC_COMBO_FILE`).
+    File,
+    /// フォルダー (`IDC_COMBO_FOLDER`).
+    Folder,
+    /// 除外ファイル (`IDC_COMBO_EXCLUDE_FILE`).
+    ExcludeFile,
+    /// 除外フォルダー (`IDC_COMBO_EXCLUDE_FOLDER`).
+    ExcludeFolder,
+    /// 置換後 (`IDC_COMBO_TEXT2`): the replace strings.
+    Replacement,
+}
+
+impl Field {
+    const ALL: [Field; 6] = [
+        Field::Key,
+        Field::File,
+        Field::Folder,
+        Field::ExcludeFile,
+        Field::ExcludeFolder,
+        Field::Replacement,
+    ];
+
+    /// The name of the box and of its history button for a screen reader, and the element ids.
+    fn names(self) -> (&'static str, &'static str, &'static str, &'static str) {
+        match self {
+            Field::Key => ("条件", "条件の履歴", "grep-key-history", "grep-key-toggle"),
+            Field::File => (
+                "ファイル",
+                "ファイルの履歴",
+                "grep-file-history",
+                "grep-file-toggle",
+            ),
+            Field::Folder => (
+                "フォルダー",
+                "フォルダーの履歴",
+                "grep-folder-history",
+                "grep-folder-toggle",
+            ),
+            Field::ExcludeFile => (
+                "除外ファイル",
+                "除外ファイルの履歴",
+                "grep-exclude-file-history",
+                "grep-exclude-file-toggle",
+            ),
+            Field::ExcludeFolder => (
+                "除外フォルダー",
+                "除外フォルダーの履歴",
+                "grep-exclude-folder-history",
+                "grep-exclude-folder-toggle",
+            ),
+            Field::Replacement => (
+                "置換後",
+                "置換後の履歴",
+                "grep-replacement-history",
+                "grep-replacement-toggle",
+            ),
+        }
+    }
+
+    /// The strings of the list, newest first (`CDlgGrep::OnInitDialog` fills the combo boxes
+    /// from `m_aSearchKeys`, `m_aGrepFiles` and the like).
+    fn entries(self, cx: &App) -> Vec<String> {
+        match self {
+            Field::Key => history::search_keys(cx),
+            Field::File => history::grep_files(cx),
+            Field::Folder => history::grep_folders(cx),
+            Field::ExcludeFile => history::exclude_files(cx),
+            Field::ExcludeFolder => history::exclude_folders(cx),
+            Field::Replacement => history::replace_keys(cx),
+        }
+    }
+}
+
+/// Fills the boxes that are empty from the histories, as `CDlgGrep::DoModal` does when the dialog
+/// opens: the file and the folder take the newest string of their history, and so do the excluded
+/// files and folders, which take the default patterns when the history is empty and put them in
+/// it, to be chosen later. A value that was given (the command line, the last search) comes
+/// first. The file box takes `*.*` that way too (Sakura starts with it in the history).
+fn fill_from_histories(settings: &mut GrepSettings, cx: &mut App) {
+    fn newest(list: Vec<String>) -> Option<String> {
+        list.into_iter().next()
+    }
+    let mut keep = GrepBoxes {
+        file: "",
+        folder: "",
+        exclude_file: "",
+        exclude_folder: "",
+    };
+    if settings.file.is_empty() {
+        match newest(history::grep_files(cx)) {
+            Some(file) => settings.file = file,
+            None => {
+                settings.file = "*.*".to_owned();
+                keep.file = "*.*";
+            }
+        }
+    }
+    if settings.folder.is_empty()
+        && let Some(folder) = newest(history::grep_folders(cx))
+    {
+        settings.folder = folder;
+    }
+    if settings.exclude_file.is_empty() {
+        match newest(history::exclude_files(cx)) {
+            Some(exclude) => settings.exclude_file = exclude,
+            None => {
+                settings.exclude_file = DEFAULT_EXCLUDE_FILE.to_owned();
+                keep.exclude_file = DEFAULT_EXCLUDE_FILE;
+            }
+        }
+    }
+    if settings.exclude_folder.is_empty() {
+        match newest(history::exclude_folders(cx)) {
+            Some(exclude) => settings.exclude_folder = exclude,
+            None => {
+                settings.exclude_folder = DEFAULT_EXCLUDE_FOLDER.to_owned();
+                keep.exclude_folder = DEFAULT_EXCLUDE_FOLDER;
+            }
+        }
+    }
+    if [keep.file, keep.exclude_file, keep.exclude_folder]
+        .iter()
+        .any(|text| !text.is_empty())
+    {
+        history::remember_grep_boxes(cx, &keep);
+    }
+}
+
+/// A history list that is open, with the entry that Enter takes.
+#[derive(Clone, Copy, Debug)]
+struct DropDown {
+    field: Field,
+    highlight: usize,
+}
+
 pub struct GrepPanel {
     editor: WeakEntity<EditorView>,
     /// The panel as a whole: Tab stays inside it.
@@ -77,6 +227,13 @@ pub struct GrepPanel {
     pub(crate) settings: GrepSettings,
     /// The scroll position of the body; the scroll bar draws from it.
     pub(crate) body_scroll: ScrollHandle,
+    /// The history list that is open.
+    dropdown: Option<DropDown>,
+    /// Scrolls the open list to the highlighted entry.
+    list_scroll: ScrollHandle,
+    /// The boxes of the files and folders as they were before 編集中のテキストから検索 was
+    /// turned on, to put back when it is turned off (`SetDataFromThisText`).
+    saved_boxes: Option<[String; 4]>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -111,6 +268,7 @@ impl GrepPanel {
                 window,
                 |this: &mut Self, _, event: &InputEvent, window, cx| {
                     if matches!(event, InputEvent::PressEnter { .. }) {
+                        // an open list took the key already (`combo_key`)
                         this.ok(window, cx);
                     }
                 },
@@ -128,6 +286,9 @@ impl GrepPanel {
             replace_mode,
             settings,
             body_scroll: ScrollHandle::new(),
+            dropdown: None,
+            list_scroll: ScrollHandle::new(),
+            saved_boxes: None,
             _subscriptions: subscriptions,
         };
         panel.show_settings(window, cx);
@@ -153,11 +314,76 @@ impl GrepPanel {
     fn read_boxes(&mut self, cx: &App) {
         let text = |state: &Entity<InputState>| state.read(cx).value().to_string();
         self.settings.key = text(&self.key);
-        self.settings.file = text(&self.file);
-        self.settings.folder = text(&self.folder);
-        self.settings.exclude_file = text(&self.exclude_file);
-        self.settings.exclude_folder = text(&self.exclude_folder);
+        // The boxes of the files and folders show the document while the option is on: what the
+        // user typed is kept in `settings` (`SetDataFromThisText`).
+        if !self.settings.from_this_text {
+            self.settings.file = text(&self.file);
+            self.settings.folder = text(&self.folder);
+            self.settings.exclude_file = text(&self.exclude_file);
+            self.settings.exclude_folder = text(&self.exclude_folder);
+        }
         self.settings.replacement = text(&self.replacement);
+    }
+
+    /// The check box 編集中のテキストから検索 (`SetDataFromThisText`): the boxes of the files and
+    /// folders show 「(現在のドキュメント)」 and the excluded ones are emptied and greyed out; turned
+    /// off, what they held comes back (a file box that was `:HWND:` becomes `*.*`).
+    pub(crate) fn set_from_this_text(
+        &mut self,
+        on: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if on == self.settings.from_this_text {
+            return;
+        }
+        self.dropdown = None;
+        if on {
+            self.read_boxes(cx);
+            self.saved_boxes = Some([
+                self.settings.file.clone(),
+                self.settings.folder.clone(),
+                self.settings.exclude_file.clone(),
+                self.settings.exclude_folder.clone(),
+            ]);
+            self.settings.from_this_text = true;
+            self.set_file_boxes(
+                [THIS_DOCUMENT, THIS_DOCUMENT, "", ""].map(str::to_owned),
+                window,
+                cx,
+            );
+        } else {
+            self.settings.from_this_text = false;
+            let [mut file, folder, exclude_file, exclude_folder] =
+                self.saved_boxes.take().unwrap_or_else(|| {
+                    [
+                        self.settings.file.clone(),
+                        self.settings.folder.clone(),
+                        self.settings.exclude_file.clone(),
+                        self.settings.exclude_folder.clone(),
+                    ]
+                });
+            if file.starts_with(super::window::WINDOW_PREFIX) {
+                file = "*.*".to_owned();
+            }
+            self.settings.file.clone_from(&file);
+            self.set_file_boxes([file, folder, exclude_file, exclude_folder], window, cx);
+        }
+        cx.notify();
+    }
+
+    fn set_file_boxes(&mut self, values: [String; 4], window: &mut Window, cx: &mut Context<Self>) {
+        for (state, value) in [
+            &self.file,
+            &self.folder,
+            &self.exclude_file,
+            &self.exclude_folder,
+        ]
+        .into_iter()
+        .zip(values)
+        {
+            state.update(cx, |state, cx| state.set_value(value, window, cx));
+        }
     }
 
     pub fn focus_key(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -167,7 +393,14 @@ impl GrepPanel {
     /// The OK button (検索, 置換 for Grep 置換): checks the boxes, and starts the search.
     pub(crate) fn ok(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.read_boxes(cx);
-        let checked = if self.replace_mode {
+        self.dropdown = None;
+        let document = self
+            .editor
+            .read_with(cx, |editor, _| editor.document().entity_id().as_u64())
+            .ok();
+        let checked = if let (true, Some(document)) = (self.settings.from_this_text, document) {
+            self.settings.check_from_this_text(document)
+        } else if self.replace_mode {
             // `CDlgGrepReplace::OnBnClicked`: pasting needs something on the clipboard.
             let clipboard = if self.settings.paste {
                 let text = clipboard_replacement(cx);
@@ -199,10 +432,31 @@ impl GrepPanel {
                 return;
             }
         };
-        // `GetData` writes the folders back as they are checked.
-        self.show_settings(window, cx);
+        let from_this_text = self.settings.from_this_text;
+        if !from_this_text {
+            // `GetData` writes the folders back as they are checked.
+            self.show_settings(window, cx);
+        }
         let settings = self.settings.clone();
         remember(cx, settings.clone());
+        super::window::remember_window(cx, document.filter(|_| from_this_text));
+        // The strings go into the histories (`CDlgGrep::GetData`; `CDlgGrepReplace::GetData` adds
+        // the replacement). Not the boxes of the files and folders when the text of the window is
+        // searched: they were not used.
+        if !from_this_text {
+            history::remember_grep_boxes(
+                cx,
+                &GrepBoxes {
+                    file: &settings.file,
+                    folder: &settings.folder,
+                    exclude_file: &settings.exclude_file,
+                    exclude_folder: &settings.exclude_folder,
+                },
+            );
+        }
+        if self.replace_mode {
+            history::remember_replace(cx, &settings.replacement);
+        }
         let replace = self.replace_mode;
         let Some(editor) = self.editor.upgrade() else {
             return;
@@ -211,11 +465,207 @@ impl GrepPanel {
             if !replace {
                 // What is recorded is the Grep, as `HandleCommand(F_GREP)` does after the dialog.
                 // Sakura does not record a Grep 置換 (`GrepReplace` is not a key macro).
-                editor.record_call("F_GREP", &settings.macro_args());
+                let recorded = match document.filter(|_| from_this_text) {
+                    Some(document) => settings.for_window(document).macro_args(),
+                    None => settings.macro_args(),
+                };
+                editor.record_call("F_GREP", &recorded);
             }
             editor.close_grep_panel(window, cx);
             editor.start_grep(info, false, window, cx);
         });
+    }
+
+    fn field_input(&self, field: Field) -> &Entity<InputState> {
+        match field {
+            Field::Key => &self.key,
+            Field::File => &self.file,
+            Field::Folder => &self.folder,
+            Field::ExcludeFile => &self.exclude_file,
+            Field::ExcludeFolder => &self.exclude_folder,
+            Field::Replacement => &self.replacement,
+        }
+    }
+
+    /// Whether a box can be used now: the boxes of the files and folders are not while the text
+    /// of the window is searched, nor 置換後 while the clipboard replaces.
+    fn field_enabled(&self, field: Field) -> bool {
+        match field {
+            Field::Key => true,
+            Field::Replacement => !self.settings.paste,
+            _ => !self.settings.from_this_text,
+        }
+    }
+
+    /// The box that has the focus.
+    fn focused_field(&self, window: &Window, cx: &App) -> Option<Field> {
+        Field::ALL.into_iter().find(|field| {
+            self.field_input(*field)
+                .read(cx)
+                .focus_handle(cx)
+                .is_focused(window)
+        })
+    }
+
+    /// Opens the history list of a box, or closes it. A box with no history has nothing to open.
+    fn toggle_dropdown(&mut self, field: Field, cx: &mut Context<Self>) {
+        if self.dropdown.is_some_and(|d| d.field == field) {
+            self.dropdown = None;
+        } else {
+            let entries = field.entries(cx);
+            let current = self.field_input(field).read(cx).value();
+            self.dropdown = (self.field_enabled(field) && !entries.is_empty()).then(|| DropDown {
+                field,
+                highlight: entries
+                    .iter()
+                    .position(|e| e == current.as_str())
+                    .unwrap_or(0),
+            });
+            if let Some(open) = self.dropdown {
+                self.list_scroll.scroll_to_item(open.highlight);
+            }
+        }
+        cx.notify();
+    }
+
+    /// Puts a string of the list in its box, closes the list and gives the focus back to the box.
+    fn pick(&mut self, field: Field, text: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.dropdown = None;
+        let input = self.field_input(field).clone();
+        input.update(cx, |state, cx| {
+            state.set_value(text, window, cx);
+            state.focus(window, cx);
+        });
+        cx.notify();
+    }
+
+    /// Up and Down in a box whose list is closed go through the list, as in a combo box. From a
+    /// string that is not in the list, both take the first.
+    fn step(&mut self, field: Field, down: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let entries = field.entries(cx);
+        if entries.is_empty() {
+            return;
+        }
+        let current = self.field_input(field).read(cx).value();
+        let next = match (entries.iter().position(|e| e == current.as_str()), down) {
+            (Some(i), true) => (i + 1).min(entries.len() - 1),
+            (Some(i), false) => i.saturating_sub(1),
+            (None, _) => 0,
+        };
+        self.pick(field, entries[next].clone(), window, cx);
+    }
+
+    /// The keys of the combo boxes (as those of the find dialog): Alt+Down and F4 open or close
+    /// the list; with it open Up, Down, Enter and Escape work in it; with it closed Up and Down go
+    /// through the strings. Returns whether the key was used.
+    fn combo_key(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let focused = self.focused_field(window, cx);
+        if self.dropdown.is_some_and(|d| Some(d.field) != focused) {
+            // The focus left the box: the list closes.
+            self.dropdown = None;
+            cx.notify();
+        }
+        let Some(field) = focused else { return false };
+        let key = event.keystroke.key.as_str();
+        let m = &event.keystroke.modifiers;
+        let plain = !m.alt && !m.control && !m.platform && !m.shift;
+        if key == "f4" || (key == "down" && m.alt) {
+            self.toggle_dropdown(field, cx);
+            return true;
+        }
+        let Some(open) = self.dropdown else {
+            return match key {
+                "down" | "up" if plain && self.field_enabled(field) => {
+                    self.step(field, key == "down", window, cx);
+                    true
+                }
+                _ => false,
+            };
+        };
+        let entries = field.entries(cx);
+        match key {
+            "down" | "up" if plain && !entries.is_empty() => {
+                let highlight = if key == "down" {
+                    (open.highlight + 1).min(entries.len() - 1)
+                } else {
+                    open.highlight.saturating_sub(1)
+                };
+                self.dropdown = Some(DropDown { highlight, ..open });
+                self.list_scroll.scroll_to_item(highlight);
+                cx.notify();
+            }
+            "enter" if plain && open.highlight < entries.len() => {
+                self.pick(field, entries[open.highlight].clone(), window, cx);
+            }
+            "escape" => {
+                self.dropdown = None;
+                cx.notify();
+            }
+            _ => return false,
+        }
+        true
+    }
+
+    /// A box with the button that opens its history, and the list under it while it is open.
+    fn combo_box(&self, field: Field, cx: &mut Context<Self>) -> gpui::Div {
+        let (name, toggle_name, id, toggle_id) = field.names();
+        let enabled = self.field_enabled(field);
+        let mut column = v_flex().gap_1().flex_1().child(
+            h_flex()
+                .gap_1()
+                .child(
+                    div().flex_1().child(
+                        Input::new(self.field_input(field))
+                            .aria_label(name)
+                            .disabled(!enabled),
+                    ),
+                )
+                .child(
+                    Button::new(toggle_id)
+                        .label("▼")
+                        .accessibility_label(toggle_name)
+                        .disabled(!enabled)
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            // The button does not take the focus; the keys of the list go to
+                            // the box that has it, so give it to this one.
+                            let input = this.field_input(field).clone();
+                            input.update(cx, |state, cx| state.focus(window, cx));
+                            this.toggle_dropdown(field, cx);
+                        })),
+                ),
+        );
+        if let Some(open) = self.dropdown.filter(|d| d.field == field) {
+            let entries = field.entries(cx).into_iter().enumerate().map(|(i, text)| {
+                let picked = text.clone();
+                div()
+                    .id((id, i))
+                    .px_2()
+                    .truncate()
+                    .when(i == open.highlight, |d| d.bg(rgb(0xcce4f7)))
+                    .hover(|d| d.bg(rgb(0xe5f1fb)))
+                    .child(SharedString::from(text))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.pick(field, picked.clone(), window, cx);
+                    }))
+            });
+            column = column.child(
+                div()
+                    .id(id)
+                    .max_h(px(150.))
+                    .overflow_y_scroll()
+                    .track_scroll(&self.list_scroll)
+                    .border_1()
+                    .border_color(rgb(0xb0b0b0))
+                    .bg(rgb(0xffffff))
+                    .children(entries),
+            );
+        }
+        column
     }
 
     fn show_error(&self, error: DialogError, window: &mut Window, cx: &mut Context<Self>) {
@@ -364,34 +814,53 @@ impl Render for GrepPanel {
         let s = self.settings.clone();
         let regex = s.options.regex;
         let result_only = s.style == OutputStyle::ResultOnly;
+        // The boxes and buttons of the files and folders are not used while the text of the window
+        // is searched (`SetDataFromThisText`).
+        let this_text = s.from_this_text;
         let folder_buttons = h_flex()
             .gap_2()
-            .child(Input::new(&self.folder))
+            .child(self.combo_box(Field::Folder, cx))
             .child(
                 Button::new("grep-browse")
                     .labelled("参照(O)")
+                    .disabled(this_text)
                     .on_click(cx.listener(|this, _, window, cx| this.browse(window, cx))),
             )
             .child(
                 Button::new("grep-up")
                     .labelled("上(U)")
+                    .disabled(this_text)
                     .on_click(cx.listener(|this, _, window, cx| this.folder_up(window, cx))),
             )
             .child(
                 Button::new("grep-current-folder")
                     .labelled("現フォルダー(J)")
+                    .disabled(this_text)
                     .on_click(cx.listener(|this, _, window, cx| this.current_folder(window, cx))),
             );
         let paste = s.paste;
         let mut options = v_flex()
             .gap_1()
-            .child(self.check_box(
-                "grep-sub",
-                "サブフォルダーからも検索する(S)",
-                s.sub_folder,
-                |s, v| s.sub_folder = v,
-                cx,
-            ))
+            // Sakura greys it out for a replacement (`CDlgGrepReplace::SetData`).
+            .child(
+                Checkbox::new("grep-this-text")
+                    .labelled("編集中のテキストから検索(M)")
+                    .checked(this_text)
+                    .disabled(self.replace_mode)
+                    .on_click(cx.listener(|this, value: &bool, window, cx| {
+                        this.set_from_this_text(*value, window, cx);
+                    })),
+            )
+            .child(
+                self.check_box(
+                    "grep-sub",
+                    "サブフォルダーからも検索する(S)",
+                    s.sub_folder,
+                    |s, v| s.sub_folder = v,
+                    cx,
+                )
+                .disabled(this_text),
+            )
             .child(self.check_box(
                 "grep-case",
                 "英大文字と小文字を区別する(C)",
@@ -417,13 +886,16 @@ impl Render for GrepPanel {
                 |s, v| s.options.regex = v,
                 cx,
             ))
-            .child(self.check_box(
-                "grep-except-regex",
-                "除外ファイルを正規表現で指定(X)",
-                s.except_file_regex,
-                |s, v| s.except_file_regex = v,
-                cx,
-            ))
+            .child(
+                self.check_box(
+                    "grep-except-regex",
+                    "除外ファイルを正規表現で指定(X)",
+                    s.except_file_regex,
+                    |s, v| s.except_file_regex = v,
+                    cx,
+                )
+                .disabled(this_text),
+            )
             .child(self.check_box(
                 "grep-default-folder",
                 "フォルダーの初期値をカレントフォルダーにする(F)",
@@ -592,6 +1064,13 @@ impl Render for GrepPanel {
                     .border_color(rgb(0xb0b0b0))
                     .rounded_md()
                     .shadow_md()
+                    // The combo box keys come first: Up, Down and Enter would otherwise reach the
+                    // input.
+                    .capture_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                        if this.combo_key(event, window, cx) {
+                            cx.stop_propagation();
+                        }
+                    }))
                     .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                         if event.keystroke.key == "escape" {
                             this.cancel(window, cx);
@@ -623,22 +1102,22 @@ impl Render for GrepPanel {
                                 } else {
                                     "条件(N)"
                                 },
-                                Input::new(&self.key),
+                                self.combo_box(Field::Key, cx),
                             ))
                             .children(self.replace_mode.then(|| {
                                 // The box is not used while the text of the clipboard replaces
                                 // (`DlgItem_Enable(IDC_COMBO_TEXT2, ...)`).
-                                Self::row(
-                                    "置換後(Z)",
-                                    Input::new(&self.replacement).disabled(paste),
-                                )
+                                Self::row("置換後(Z)", self.combo_box(Field::Replacement, cx))
                             }))
-                            .child(Self::row("ファイル(I)", Input::new(&self.file)))
+                            .child(Self::row("ファイル(I)", self.combo_box(Field::File, cx)))
                             .child(Self::row("フォルダー(D)", folder_buttons))
-                            .child(Self::row("除外ファイル", Input::new(&self.exclude_file)))
+                            .child(Self::row(
+                                "除外ファイル",
+                                self.combo_box(Field::ExcludeFile, cx),
+                            ))
                             .child(Self::row(
                                 "除外フォルダー",
-                                Input::new(&self.exclude_folder),
+                                self.combo_box(Field::ExcludeFolder, cx),
                             ))
                             .child(options)
                             .child(charset)
@@ -673,6 +1152,8 @@ impl EditorView {
     fn open_grep_panel_as(&mut self, replace: bool, window: &mut Window, cx: &mut Context<Self>) {
         let mut settings = remembered(cx);
         settings.paste = false;
+        // The check box starts off (`m_bFromThisText` is FALSE in a new dialog).
+        settings.from_this_text = false;
         match self.dialog_seed(cx) {
             Some(seed) => settings.key = seed,
             // As the find dialog does: the newest search string, if it is news to this window
@@ -687,6 +1168,9 @@ impl EditorView {
                 }
             }
         }
+        // The histories first, then the folder of the file in the window (`OnInitDialog` takes it
+        // when the folder is still empty or 初期値をカレントフォルダーにする is on).
+        fill_from_histories(&mut settings, cx);
         let path = self.document.read(cx).path().map(Path::to_path_buf);
         settings.offer_folder(path.as_deref());
         self.show_grep_panel(settings, replace, window, cx);
@@ -696,10 +1180,11 @@ impl EditorView {
     /// line, `CNormalProcess::InitializeProcess`).
     pub(crate) fn open_grep_panel_with(
         &mut self,
-        settings: GrepSettings,
+        mut settings: GrepSettings,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        fill_from_histories(&mut settings, cx);
         self.show_grep_panel(settings, false, window, cx);
     }
 
@@ -716,6 +1201,8 @@ impl EditorView {
             Some(panel) => {
                 panel.update(cx, |panel, cx| {
                     panel.replace_mode = replace;
+                    panel.dropdown = None;
+                    panel.saved_boxes = None;
                     panel.settings = settings;
                     panel.show_settings(window, cx);
                     panel.focus_key(window, cx);

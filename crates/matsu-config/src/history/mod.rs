@@ -187,7 +187,10 @@ pub struct History {
     pub files: RecentList<FileEntry>,
     pub folders: RecentList<FolderEntry>,
     /// `ExceptMRU`: a path that has any of these in it (any case) is not added, unless it is in
-    /// the history already (`CMRUFile::Add`). `%MYDOC%`-style variables are not expanded.
+    /// the history already (`CMRUFile::Add`). `%MYDOC%`-style variables are expanded by
+    /// [`add_file_expanding`](History::add_file_expanding) and
+    /// [`add_folder_expanding`](History::add_folder_expanding) (`ExpandMetaToFolder`); the
+    /// plain `add_file` and `add_folder` take the text as it is.
     pub except: Vec<String>,
 }
 
@@ -201,12 +204,16 @@ impl History {
         }
     }
 
-    fn excluded(&self, path: &str) -> bool {
+    /// Whether `path` has any of the texts of `ExceptMRU` in it. `expand` turns the text of the
+    /// list into what it stands for (`ExpandMetaToFolder`), or `None` for a text that cannot be
+    /// expanded, which keeps nothing out.
+    fn excluded(&self, path: &str, expand: &dyn Fn(&str) -> Option<String>) -> bool {
         let lower = path.to_lowercase();
         // An empty text would match everything; Sakura's `wcsistr` does match it, but a line left
         // empty in the list is a mistake, not a wish to keep every file out of the history.
         self.except
             .iter()
+            .filter_map(|e| expand(e))
             .filter(|e| !e.is_empty())
             .any(|e| lower.contains(&e.to_lowercase()))
     }
@@ -214,10 +221,16 @@ impl History {
     /// Adds a folder at the front (`CMRUFolder::Add`). An empty path and a path that is excluded
     /// (and not in the list yet) are ignored.
     pub fn add_folder(&mut self, folder: &str) {
+        self.add_folder_expanding(folder, &|e| Some(e.to_owned()));
+    }
+
+    /// [`add_folder`](Self::add_folder), expanding the variables of `ExceptMRU` with `expand`
+    /// (`CMRUFolder::Add` calls `ExpandMetaToFolder` for each).
+    pub fn add_folder_expanding(&mut self, folder: &str, expand: &dyn Fn(&str) -> Option<String>) {
         if folder.is_empty() {
             return;
         }
-        if self.folders.find(folder).is_none() && self.excluded(folder) {
+        if self.folders.find(folder).is_none() && self.excluded(folder, expand) {
             return;
         }
         self.folders.append(FolderEntry::new(folder));
@@ -225,13 +238,23 @@ impl History {
 
     /// Adds a file at the front, and its folder to the folders (`CMRUFile::Add`).
     pub fn add_file(&mut self, entry: FileEntry) {
+        self.add_file_expanding(entry, &|e| Some(e.to_owned()));
+    }
+
+    /// [`add_file`](Self::add_file), expanding the variables of `ExceptMRU` with `expand`
+    /// (`CMRUFile::Add` calls `ExpandMetaToFolder` for each).
+    pub fn add_file_expanding(
+        &mut self,
+        entry: FileEntry,
+        expand: &dyn Fn(&str) -> Option<String>,
+    ) {
         if entry.path.is_empty() {
             return;
         }
-        if self.files.find(&entry.path).is_none() && self.excluded(&entry.path) {
+        if self.files.find(&entry.path).is_none() && self.excluded(&entry.path, expand) {
             return;
         }
-        self.add_folder(&folder_of(&entry.path));
+        self.add_folder_expanding(&folder_of(&entry.path), expand);
         self.files.append(entry);
     }
 

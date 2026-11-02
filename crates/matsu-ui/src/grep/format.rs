@@ -305,6 +305,11 @@ pub struct HeaderConditions<'a> {
     pub regex_version: &'a str,
     /// Set for Grep 置換.
     pub replace: Option<ReplaceHeader<'a>>,
+    /// The title of the window being searched (`Window:[name]`), for a search of the text of a
+    /// window (`:HWND:`); the file patterns are not shown then.
+    pub window: Option<&'a str>,
+    /// The window to search is gone: the heading ends with "HWND handle error.".
+    pub window_gone: bool,
 }
 
 /// What the heading of a Grep 置換 says about the replacement.
@@ -383,10 +388,24 @@ pub fn header(c: &HeaderConditions<'_>, keys: &GrepKeys) -> String {
         }
         out.push_str(EOL);
     }
+    if c.window_gone {
+        // `CGrepAgent::DoGrep`: `cmemMessage.AppendString(L"HWND handle error.\n")` after the
+        // condition (and the replacement), and `return 0`. The line break is a lone LF.
+        out.push_str("HWND handle error.\n");
+        return out;
+    }
     out.push_str("検索対象       ");
-    out.push_str(&format_path_list(
-        keys.search_files.iter().map(String::as_str),
-    ));
+    match c.window {
+        // `GetHwndTitle`
+        Some(title) => {
+            out.push_str("Window:[");
+            out.push_str(title);
+            out.push(']');
+        }
+        None => out.push_str(&format_path_list(
+            keys.search_files.iter().map(String::as_str),
+        )),
+    }
     out.push_str(EOL);
     out.push_str("フォルダー       ");
     out.push_str(&format_path_list(c.folders.iter().map(String::as_str)));
@@ -731,6 +750,8 @@ mod tests {
             file_only: false,
             regex_version: "Onigmo",
             replace: None,
+            window: None,
+            window_gone: false,
         }
     }
 

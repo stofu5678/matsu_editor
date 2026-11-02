@@ -43,9 +43,17 @@
 //! Grep 置換 is the same search with [`GrepInfo::replace`] set: the files are rewritten by the
 //! `replace` module, through the save of `matsu_core::file`.
 //!
-//! Differences from Sakura: the option "この編集中のテキストから検索する" (`:HWND:`, searching the text
-//! of a window) is not here; `GetLongFileName` is not applied to the folders; the
-//! output to the standard output (`-GOPT=S`) is not here.
+//! 「この編集中のテキストから検索する」 (`:HWND:`) searches the text of a window instead of the files
+//! ([`GrepInfo::window`]): `GetHwndTitle` and the `hWndTarget` branch of `DoGrep`, and
+//! `CFileLoadOrWnd`, which reads the lines of the window. The window is a snapshot of its
+//! document taken when the search starts, read by lines like a file, so the unsaved changes and
+//! a document with no file are searched.
+//!
+//! Differences from Sakura: `GetLongFileName` is not applied to the folders; the output to the
+//! standard output (`-GOPT=S`) is not here; a Grep 置換 of the text of a window is refused
+//! (Sakura only searches, and then says that it replaced). A window that is gone is told in the
+//! result, as Sakura does (`GetHwndTitle` is -1 in `DoGrep`: "HWND handle error." follows the
+//! conditions of the heading and nothing else is written).
 
 use std::borrow::Cow;
 use std::io::Read;
@@ -54,6 +62,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+use matsu_core::buffer::Document;
 use matsu_core::encoding::{DETECT_SAMPLE_LEN, DetectOptions, Encoding, detect};
 use matsu_core::file::{FileError, OpenOptions, TextFile, open_file_with};
 use matsu_core::model::eol_text;
@@ -112,6 +121,28 @@ pub struct GrepInfo {
     /// common setting to `CFileLoad::FileOpen` in `CGrepAgent::DoGrep`). Not in the dialog: the
     /// window sets it from the common settings when the search starts.
     pub mime_decode: bool,
+    /// The text of the window to search instead of the files (`:HWND:` in `cmGrepFile`). The
+    /// window, which only the UI can find, puts it here when the search starts.
+    pub window: Option<WindowSource>,
+    /// The file box names a window that is not there (`GetHwndTitle` returned -1): the result
+    /// says so and nothing is searched.
+    pub window_gone: bool,
+}
+
+/// The text of a window that a search of 「この編集中のテキスト」 reads (`CFileLoadOrWnd`).
+#[derive(Clone, Debug)]
+pub struct WindowSource {
+    /// The document as it was when the search started (cloning is cheap: it shares the text).
+    pub document: Document,
+    /// The encoding of the document, for the name in front of a hit.
+    pub encoding: Encoding,
+    /// The folder of its file, or empty for a document that has none (`szWindowPath`).
+    pub folder: String,
+    /// The name of its file, or `:HWND:[id]name` when it has none, which is what a tag jump
+    /// from the result finds the window by (`szWindowName`).
+    pub name: String,
+    /// What the heading shows in `Window:[...]`.
+    pub title: String,
 }
 
 /// The parts of a Grep 置換 that a Grep does not have (`cmGrepRep`, `bGrepPaste`, `bGrepBackup`).
@@ -156,6 +187,10 @@ pub enum GrepError {
     NoPattern,
     /// The replacement of a regular expression is wrong (`SetPattern` of the replacement).
     Replacement(ReplacementError),
+    /// A Grep 置換 of the text of a window. The dialog does not offer it
+    /// (`CDlgGrepReplace::SetData` greys the check box out) and the search of a window never
+    /// replaces.
+    WindowReplace,
 }
 
 impl GrepError {
@@ -170,6 +205,9 @@ impl GrepError {
             GrepError::FolderMissing => "検索対象フォルダーが正しくありません。".to_owned(),
             GrepError::NoPattern => "置換条件を指定してください。".to_owned(),
             GrepError::Replacement(e) => crate::search::state::regex_error_message(e),
+            GrepError::WindowReplace => {
+                "編集中のテキストを対象にしたGrep置換はできません。".to_owned()
+            }
         }
     }
 }
@@ -246,6 +284,9 @@ fn prepare(info: &GrepInfo) -> Result<Prepared, GrepError> {
     if info.replace.is_some() && built.is_none() {
         return Err(GrepError::NoPattern);
     }
+    if info.window.is_some() && info.replace.is_some() {
+        return Err(GrepError::WindowReplace);
+    }
     // A regular expression is replaced as bregonig does, with `$1` and the like; a paste, and
     // the other searches, put the text in as it is.
     let replacer = match (&info.replace, built.as_ref().and_then(|b| b.regex.clone())) {
@@ -257,7 +298,12 @@ fn prepare(info: &GrepInfo) -> Result<Prepared, GrepError> {
     };
     let keys = GrepKeys::parse(&info.file, info.except_file_regex).map_err(GrepError::Keys)?;
     let regexes = compile_excluded(&keys)?;
-    let folders = split_folders(&info.folder);
+    // The folder box is not used for a window (`m_szFolder` is cleared by the dialog).
+    let folders = if info.window.is_some() || info.window_gone {
+        Vec::new()
+    } else {
+        split_folders(&info.folder)
+    };
     if !folders.iter().all(|folder| Path::new(folder).is_dir()) {
         return Err(GrepError::FolderMissing);
     }
@@ -324,15 +370,28 @@ pub fn run(
             text: &r.text,
             paste: r.paste,
         }),
+        window: info.window.as_ref().map(|w| w.title.as_str()),
+        window_gone: info.window_gone,
     };
     runner.sink.write(&format::header(&conditions, &keys));
+    if info.window_gone {
+        // `DoGrep`: after "HWND handle error." Sakura returns; there is no count.
+        return Ok(Outcome {
+            hits: 0,
+            stopped: false,
+        });
+    }
 
     let mut stopped = false;
-    for folder in &shown_folders {
-        let mut base_written = false;
-        if runner.tree(folder, folder, &mut base_written).is_err() {
-            stopped = true;
-            break;
+    if let Some(window) = &info.window {
+        stopped = runner.window(window).is_err();
+    } else {
+        for folder in &shown_folders {
+            let mut base_written = false;
+            if runner.tree(folder, folder, &mut base_written).is_err() {
+                stopped = true;
+                break;
+            }
         }
     }
     runner.flush();
@@ -466,7 +525,7 @@ impl Runner<'_> {
     /// `DoGrepFile`.
     fn file(&mut self, paths: &FilePaths<'_>, state: &mut PathInfoState) -> Result<(), Stopped> {
         if self.info.key.is_empty() {
-            self.file_name_only(paths, state);
+            self.file_name_only(paths, state, None);
             return Ok(());
         }
         if self.info.replace.is_some() {
@@ -475,9 +534,64 @@ impl Runner<'_> {
         let Some(file) = self.open(paths.full)? else {
             return Ok(());
         };
-        let code_name = self.code_name(&file);
+        let code_name = self.code_name(file.encoding);
+        self.search_lines(&file.document, paths, &code_name, state)
+    }
+
+    /// The window of a search of 「この編集中のテキスト」 (the `hWndTarget` branch of `DoGrep`): the
+    /// one document, shown as the file it has, or by its `:HWND:` name when it has none.
+    fn window(&mut self, window: &WindowSource) -> Result<(), Stopped> {
+        let full = if window.folder.is_empty() {
+            window.name.clone()
+        } else {
+            join_path(&window.folder, &window.name)
+        };
+        let layout = self.info.layout;
+        // `SGrepFilePath`: the folder is the document's own, but empty below the base folder when
+        // both options are on; the relative path is the name.
+        let folder = if layout.separate_folder && layout.base_folder {
+            ""
+        } else {
+            window.folder.as_str()
+        };
+        let paths = FilePaths {
+            full: &full,
+            base_folder: &window.folder,
+            folder,
+            relative: &window.name,
+        };
+        self.check_cancel()?;
+        self.sink.progress(&full, self.hits);
+        let mut state = PathInfoState {
+            base_folder_written: false,
+            folder_written: false,
+            file_written: false,
+        };
+        let code_name = self.code_name(window.encoding);
+        let result = if self.info.key.is_empty() {
+            let name = if self.info.charset.is_none() {
+                window.encoding.bracket_name()
+            } else {
+                String::new()
+            };
+            self.file_name_only(&paths, &mut state, Some(name));
+            Ok(())
+        } else {
+            self.search_lines(&window.document, &paths, &code_name, &mut state)
+        };
+        self.flush_when_due();
+        result
+    }
+
+    /// The lines of a document, one after another (`DoGrepFile`'s loop over `ReadLine`).
+    fn search_lines(
+        &mut self,
+        doc: &Document,
+        paths: &FilePaths<'_>,
+        code_name: &str,
+        state: &mut PathInfoState,
+    ) -> Result<(), Stopped> {
         let mut file_hits = 0usize;
-        let doc = &file.document;
         for index in 0..doc.line_count() {
             if index % CANCEL_CHECK_LINES == 0 {
                 self.check_cancel()?;
@@ -491,7 +605,7 @@ impl Runner<'_> {
                 }
             };
             let eol = line.eol.map_or("", eol_text);
-            file_hits += self.line(paths, &code_name, state, index as u64 + 1, &line.text, eol)?;
+            file_hits += self.line(paths, code_name, state, index as u64 + 1, &line.text, eol)?;
             self.flush_when_due();
             // ファイル毎最初のみ検索: the file is done at its first hit.
             if self.info.file_only && file_hits >= 1 {
@@ -530,9 +644,9 @@ impl Runner<'_> {
     }
 
     /// The encoding shown in front of a hit, as `  [UTF-8]`; none when the dialog chose one.
-    fn code_name(&self, file: &TextFile) -> String {
+    fn code_name(&self, encoding: Encoding) -> String {
         match self.info.charset {
-            None => file.encoding.bracket_name(),
+            None => encoding.bracket_name(),
             Some(_) => String::new(),
         }
     }
@@ -628,13 +742,20 @@ impl Runner<'_> {
 
     /// A search of the names only (the pattern is empty): each file is a hit, with its encoding
     /// when that is detected (`0 == nKeyLen` in `DoGrepFile`).
-    fn file_name_only(&mut self, paths: &FilePaths<'_>, state: &mut PathInfoState) {
+    fn file_name_only(
+        &mut self,
+        paths: &FilePaths<'_>,
+        state: &mut PathInfoState,
+        known_code_name: Option<String>,
+    ) {
         let layout = self.info.layout;
-        let code_name = if self.info.charset.is_none() {
-            detect_name(Path::new(paths.full))
-        } else {
-            String::new()
-        };
+        let code_name = known_code_name.unwrap_or_else(|| {
+            if self.info.charset.is_none() {
+                detect_name(Path::new(paths.full))
+            } else {
+                String::new()
+            }
+        });
         let shown = shown_path(paths, &layout);
         let out = &mut self.buffer;
         let (full_form, base2, file_form, file_form2): (Form, &str, Form, Form) = match layout.style

@@ -34,9 +34,6 @@ pub(crate) mod make;
 #[cfg(test)]
 mod tests;
 
-/// How many recent keywords are kept (`CRecentTagjumpKeyword`).
-const MAX_RECENT: usize = 30;
-
 /// What the tag jump functions remember (`m_sTagJump`, `m_nTagJumpMode`, `m_nTagJumpModeKeyword`,
 /// `m_nTagsOpt`, `m_szTagsCmdLine`).
 #[derive(Clone, Debug)]
@@ -45,8 +42,6 @@ pub(crate) struct TagJumpPrefs {
     pub ignore_case: bool,
     /// 文字列の途中にマッチ of the keyword dialog.
     pub partial: bool,
-    /// The keywords of the keyword dialog, the newest first.
-    pub recent: Vec<String>,
     /// What the direct tag jump does about the next tags file (`CShareData`: 1, 「ヒットしたら次の
     /// ファイルを検索しない」).
     pub direct_mode: u8,
@@ -63,7 +58,6 @@ impl Default for TagJumpPrefs {
         Self {
             ignore_case: false,
             partial: false,
-            recent: Vec::new(),
             direct_mode: 1,
             keyword_mode: 3,
             make: TagsMakeOptions::default(),
@@ -73,18 +67,6 @@ impl Default for TagJumpPrefs {
 }
 
 impl Global for TagJumpPrefs {}
-
-impl TagJumpPrefs {
-    /// `AppendItem`: the newest first, without a copy of itself.
-    pub(crate) fn remember_keyword(&mut self, keyword: &str) {
-        if keyword.is_empty() {
-            return;
-        }
-        self.recent.retain(|k| k != keyword);
-        self.recent.insert(0, keyword.to_owned());
-        self.recent.truncate(MAX_RECENT);
-    }
-}
 
 pub(crate) fn prefs(cx: &App) -> TagJumpPrefs {
     cx.try_global::<TagJumpPrefs>().cloned().unwrap_or_default()
@@ -117,6 +99,7 @@ fn base_file(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) -> Opti
 fn target_of(item: &TagItem) -> TagTarget {
     TagTarget {
         path: item.path.clone(),
+        window: None,
         line: Some(item.line),
         column: None,
     }
@@ -203,7 +186,7 @@ pub(crate) async fn keyword_tag_jump(
         Some(keyword) => keyword,
         // `Combo_SetCurSel(hwndKey, 0)`
         None => cx
-            .update(|_, app| prefs(app).recent.first().cloned())
+            .update(|_, app| crate::search::history::tag_keywords(app).into_iter().next())
             .ok()
             .flatten()
             .unwrap_or_default(),

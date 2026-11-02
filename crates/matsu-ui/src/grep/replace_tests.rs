@@ -86,6 +86,8 @@ impl Project {
             file_only: false,
             except_file_regex: false,
             mime_decode: false,
+            window: None,
+            window_gone: false,
             replace: Some(ReplaceInfo {
                 text: new.to_owned(),
                 paste: false,

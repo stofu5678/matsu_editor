@@ -1,10 +1,11 @@
 //! The history of the search and replace strings that every window of the application shares
 //! (Sakura's `m_sSearchKeywords.m_aSearchKeys` and `m_aReplaceKeys`, `CSearchKeywordManager`),
-//! and the sequence numbers that tell a window whether the history has news for it
+//! with the strings of the Grep boxes (`m_aGrepFiles` and the like) and the tag jump keywords
+//! (`m_sTagJump.m_aTagJumpKeywords`) that are kept in the same way, and the sequence numbers that tell a window whether the history has news for it
 //! (`m_nSearchKeySequence`, `m_nReplaceKeySequence` in the shared data; `m_nCurSearchKeySequence`
 //! in the view; `sakura_core/view/CEditView_Search.cpp`, `GetCurrentTextForSearchDlg`).
 //!
-//! The lists and the `[Keys]` section of the settings file are [`matsu_config::settings::SearchKeys`].
+//! The lists and the sections of the settings file are [`matsu_config::settings::SearchKeys`].
 //! This module keeps one copy in the application ([`SearchHistory`], a GPUI global) and writes
 //! the file when a string is added. Sakura writes the file when the last window closes; the
 //! history is small and the user may close the application with a signal, so it is written at once,
@@ -16,7 +17,7 @@ use std::path::{Path, PathBuf};
 use gpui::{App, BorrowAppContext as _, Global};
 use matsu_config::Profile;
 use matsu_config::history::update_profile;
-use matsu_config::settings::SearchKeys;
+use matsu_config::settings::{KeyList, SearchKeys};
 
 use crate::view::EditorView;
 
@@ -74,7 +75,7 @@ impl SearchHistory {
     /// file's strings, and a later save writes the ones the file can hold. A list that the merge
     /// changed counts as news for the windows, so its sequence number advances. A file that
     /// cannot be read is not touched.
-    pub(super) fn persist(&mut self, add: impl FnOnce(&mut SearchKeys)) {
+    pub(crate) fn persist(&mut self, add: impl FnOnce(&mut SearchKeys)) {
         let Some(path) = self.store.clone() else {
             return;
         };
@@ -122,6 +123,72 @@ pub fn replace_keys(cx: &App) -> Vec<String> {
     cx.try_global::<SearchHistory>()
         .map(|h| h.keys.replace.items().to_vec())
         .unwrap_or_default()
+}
+
+/// The ファイル strings of the Grep dialog, newest first.
+pub fn grep_files(cx: &App) -> Vec<String> {
+    keys_of(cx, |k| &k.grep_file)
+}
+
+/// The フォルダー strings of the Grep dialog.
+pub fn grep_folders(cx: &App) -> Vec<String> {
+    keys_of(cx, |k| &k.grep_folder)
+}
+
+/// The 除外ファイル strings of the Grep dialog.
+pub fn exclude_files(cx: &App) -> Vec<String> {
+    keys_of(cx, |k| &k.exclude_file)
+}
+
+/// The 除外フォルダー strings of the Grep dialog.
+pub fn exclude_folders(cx: &App) -> Vec<String> {
+    keys_of(cx, |k| &k.exclude_folder)
+}
+
+/// The keywords of the tag jump dialog.
+pub fn tag_keywords(cx: &App) -> Vec<String> {
+    keys_of(cx, |k| &k.tag_keyword)
+}
+
+fn keys_of(cx: &App, list: impl Fn(&SearchKeys) -> &KeyList) -> Vec<String> {
+    cx.try_global::<SearchHistory>()
+        .map(|h| list(&h.keys).items().to_vec())
+        .unwrap_or_default()
+}
+
+/// What the Grep dialog keeps when it starts a search (`CDlgGrep::GetData`): the file, the
+/// folder, and the excluded file and folder.
+pub struct GrepBoxes<'a> {
+    pub file: &'a str,
+    pub folder: &'a str,
+    pub exclude_file: &'a str,
+    pub exclude_folder: &'a str,
+}
+
+/// `AddToGrepFileArr`, `AddToGrepFolderArr`, `AddToExcludeFileArr` and `AddToExcludeFolderArr`.
+pub fn remember_grep_boxes(cx: &mut App, boxes: &GrepBoxes<'_>) {
+    remember_other(cx, |keys| {
+        keys.add_grep_file(boxes.file);
+        keys.add_grep_folder(boxes.folder);
+        keys.add_exclude_file(boxes.exclude_file);
+        keys.add_exclude_folder(boxes.exclude_folder);
+    });
+}
+
+/// `CRecentTagjumpKeyword::AppendItem`: the keyword of the tag jump dialog.
+pub fn remember_tag_keyword(cx: &mut App, keyword: &str) {
+    remember_other(cx, |keys| {
+        keys.add_tag_keyword(keyword);
+    });
+}
+
+/// Applies `add` to the strings here and in the file. These lists have no sequence numbers: no
+/// other dialog waits for their news.
+fn remember_other(cx: &mut App, add: impl Fn(&mut SearchKeys)) {
+    cx.update_default_global(|history: &mut SearchHistory, _| {
+        add(&mut history.keys);
+        history.persist(add);
+    });
 }
 
 /// `AddToSearchKeyArr`. Returns the sequence number to put in the view that searched.

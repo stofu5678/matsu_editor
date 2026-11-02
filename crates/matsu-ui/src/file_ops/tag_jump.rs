@@ -271,6 +271,23 @@ pub(crate) fn say_cannot_jump(view: &WeakEntity<EditorView>, cx: &mut AsyncWindo
 /// window. `false` if the file could not be opened.
 async fn jump_to(target: &TagTarget, cx: &mut AsyncWindowContext) -> bool {
     let (line, column) = (target.line, target.column);
+    // `:HWND:[id]`: a document with no file, named by the Grep of its text. It is gone when no
+    // window has it (`IsSakuraMainWindow`).
+    if let Some(id) = target.window {
+        let found = cx
+            .update(|_, app| windows::find_document_by_id(app, id))
+            .ok()
+            .flatten();
+        let Some((handle, editor)) = found else {
+            return false;
+        };
+        return cx
+            .update(|_, app| {
+                editor.update(app, |view, cx| view.go_to_tag(line, column, cx));
+                crate::tabs::flows::reveal(app, handle, editor.clone());
+            })
+            .is_ok();
+    }
     // A window that is still reading its file would drop the caret when the file arrives: wait,
     // and look again (the window may have closed, or the file may not have come).
     let timer = cx.background_executor().clone();

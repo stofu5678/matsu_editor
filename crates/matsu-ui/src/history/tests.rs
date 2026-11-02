@@ -157,6 +157,22 @@ fn opening_a_file_puts_it_and_its_folder_at_the_front(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn the_variables_of_the_excluded_paths_are_expanded(cx: &mut TestAppContext) {
+    // `%TEMP%` is the temporary folder on every OS (`Folders`), as `%MYDOC%` is the user's documents
+    let dir = TempDir::new();
+    let a = dir.write("a.txt", THREE_LINES);
+    let (f, cx) = setup(cx);
+    let folder = dir.0.file_name().unwrap().to_string_lossy().into_owned();
+    cx.update(|_, app| {
+        super::update(app, |h| {
+            h.except = vec![format!("%TEMP%{}{folder}", std::path::MAIN_SEPARATOR)];
+        });
+    });
+    f.open(cx, &a, None);
+    assert!(history(cx).files.is_empty(), "the folder is excluded");
+}
+
+#[gpui::test]
 fn a_file_that_fails_to_open_is_not_remembered(cx: &mut TestAppContext) {
     let dir = TempDir::new();
     // A folder is not a file.

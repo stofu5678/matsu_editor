@@ -27,7 +27,7 @@ use matsu_commands::clipboard::{ClipKind, Clipboard};
 use matsu_commands::command::CommandError;
 use matsu_core::buffer::{Eol, Pos};
 
-use super::engine::{self, GrepError, GrepInfo, Outcome, Sink};
+use super::engine::{self, GrepError, GrepInfo, Outcome, Sink, WindowSource};
 use super::panel::GrepPanel;
 use super::settings::{DialogError, GrepSettings};
 use crate::clipboard::GpuiClipboard;
@@ -37,6 +37,29 @@ use crate::view::EditorView;
 
 /// The extension whose document type a Grep window takes (`Command_GREP`).
 const GREP_TYPE_EXT: &str = "grepout";
+
+/// The start of the file box when the text of a window is searched (`szTargetPrefix` of
+/// `GetHwndTitle`, and `CDlgGrep::GetData`).
+pub const WINDOW_PREFIX: &str = ":HWND:";
+
+/// `STR_DLGGREP_THISDOC`: what the boxes of the file and the folder show while the check box
+/// 「この編集中のテキストから検索する」 is on.
+pub const THIS_DOCUMENT: &str = "(現在のドキュメント)";
+
+/// The text of the file box that names the document `id` (`auto_sprintf(L":HWND:%016I64x")`). A
+/// document is named by the id of its entity, which stays the same when its tab moves to another
+/// window; Sakura names the window.
+pub fn window_token(id: u64) -> String {
+    format!("{WINDOW_PREFIX}{id:016x}")
+}
+
+/// The document a file box names: `None` if it does not start with `:HWND:`, `Some(None)` if the
+/// number after it cannot be read (`swscanf_s(L"%zx")`).
+pub fn parse_window_token(file: &str) -> Option<Option<u64>> {
+    let rest = file.strip_prefix(WINDOW_PREFIX)?;
+    let digits: String = rest.chars().take_while(char::is_ascii_hexdigit).collect();
+    Some(u64::from_str_radix(&digits, 16).ok())
+}
 
 /// The title of the message boxes of Grep.
 const BOX_TITLE: &str = "MATSU Editor";
@@ -56,20 +79,43 @@ const PROGRESS_INTERVAL: Duration = Duration::from_millis(50);
 /// What the dialog remembers from one Grep to the next, for every window
 /// (`DllShareData::m_Common.m_sSearch` and `m_sSearchKeywords`). It lives as long as the program;
 /// it is not saved in a file yet.
+///
+/// The second value is the document that the last search read when it was a search of the text of
+/// a window: `F_GREP` without arguments repeats it, as Sakura's dialog keeps `:HWND:` in its file
+/// box (`CDlgGrep::GetData`).
 #[derive(Default)]
-struct GrepMemory(GrepSettings);
+struct GrepMemory(GrepSettings, Option<u64>);
 
 impl Global for GrepMemory {}
 
 /// The values the dialog starts with.
+/// Before anything was remembered the boxes of the files and the exclusions are empty, so that
+/// the dialog fills them from the histories (`CDlgGrep::DoModal`).
 pub(crate) fn remembered(cx: &App) -> GrepSettings {
     cx.try_global::<GrepMemory>()
         .map(|memory| memory.0.clone())
-        .unwrap_or_default()
+        .unwrap_or_else(|| GrepSettings {
+            file: String::new(),
+            exclude_file: String::new(),
+            exclude_folder: String::new(),
+            ..GrepSettings::default()
+        })
 }
 
 pub(crate) fn remember(cx: &mut App, settings: GrepSettings) {
-    cx.set_global(GrepMemory(settings));
+    let window = remembered_window(cx);
+    cx.set_global(GrepMemory(settings, window));
+}
+
+/// The document the last search of the text of a window read, if the last search was one.
+pub(crate) fn remembered_window(cx: &App) -> Option<u64> {
+    cx.try_global::<GrepMemory>().and_then(|memory| memory.1)
+}
+
+/// Notes which document the search that starts now reads (`None`: a search of files).
+pub(crate) fn remember_window(cx: &mut App, window: Option<u64>) {
+    let settings = remembered(cx);
+    cx.set_global(GrepMemory(settings, window));
 }
 
 /// The text of the clipboard for クリップボードの内容で置換 (`MyGetClipboardData` in
@@ -261,12 +307,22 @@ impl EditorView {
     /// タイプ変更後 (`Command_GREP` calls `OnChangeType`).
     pub(crate) fn start_grep_in(
         &mut self,
-        info: GrepInfo,
+        mut info: GrepInfo,
         new_window: bool,
         command: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        // 「この編集中のテキストから検索する」: the document is taken now, here, because only the
+        // windows can reach the documents (`GetHwndTitle`).
+        if let Some(id) = parse_window_token(&info.file) {
+            match id.and_then(|id| self.window_source(id, cx)) {
+                Some(source) => info.window = Some(source),
+                // The window is gone: the search writes "HWND handle error." to the result, as
+                // `DoGrep` does.
+                None => info.window_gone = true,
+            }
+        }
         if let Err(error) = engine::check(&info) {
             self.grep_error_box(&error, window, cx);
             return false;
@@ -350,6 +406,63 @@ impl EditorView {
                 false
             }
         }
+    }
+
+    /// The text of the open document `id` as a search reads it (`GetHwndTitle`,
+    /// `CFileLoadOrWnd`): a snapshot with its unsaved changes, and the names the result shows.
+    /// `None` if no window has the document any more.
+    pub(crate) fn window_source(&self, id: u64, cx: &mut Context<Self>) -> Option<WindowSource> {
+        let own = cx.entity_id();
+        let (document, grep) = if self.document.entity_id().as_u64() == id {
+            (self.document.clone(), self.is_grep_window())
+        } else {
+            editors(cx).into_iter().find_map(|(_, view)| {
+                // this view is being updated: it cannot be read, and it was looked at above
+                if view.entity_id() == own {
+                    return None;
+                }
+                let view = view.read(cx);
+                (view.document().entity_id().as_u64() == id)
+                    .then(|| (view.document().clone(), view.is_grep_window()))
+            })?
+        };
+        let names = crate::file_names::current(cx);
+        let shared = document.read(cx);
+        let path = shared.path();
+        // `GetHwndTitle`: a document with a file is shown by its folder and name; one without
+        // (untitled, or the result of a Grep) by `:HWND:[id]` and its title, so that the tag jump
+        // finds the window.
+        let (folder, name, title) = match path {
+            Some(path) => {
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let folder = path
+                    .parent()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                (folder, name.clone(), name)
+            }
+            None => {
+                let title = names.name_of(None, shared.untitled_number(), false);
+                // A Grep result has so many keys that it is only called (Grep), so that the key
+                // does not look like the tag.
+                let tag = if grep { "(Grep)" } else { title.as_str() };
+                (
+                    String::new(),
+                    format!("{WINDOW_PREFIX}[{id:016x}]{tag}"),
+                    title,
+                )
+            }
+        };
+        Some(WindowSource {
+            document: shared.doc().clone(),
+            encoding: shared.file().encoding,
+            folder,
+            name,
+            title,
+        })
     }
 
     /// The box for a mistake in the dialog (`WarningMessage`, `CheckRegexpSyntax`).
