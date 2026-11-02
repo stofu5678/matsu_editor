@@ -1080,3 +1080,13 @@ fn a_wrapped_line_is_as_wide_as_its_widest_row() {
     let (widest, _) = idx.widest_columns(&d, 0, Duration::from_secs(10)).unwrap();
     assert_eq!(widest, 10);
 }
+
+/// It is not laid out; 4 bytes a column is the least it can be.
+#[test]
+fn a_line_too_big_to_lay_out_in_a_frame_counts_as_wide() {
+    let text = format!("ab\n{}\ncd\n", "x".repeat(20 * 1024));
+    let d = doc(&text);
+    let idx = DocumentLayout::laid_out(&d, LayoutConfig::default()).unwrap();
+    let (widest, next) = idx.widest_columns(&d, 0, Duration::from_secs(10)).unwrap();
+    assert_eq!((widest, next), (5 * 1024, d.line_count()));
+}
