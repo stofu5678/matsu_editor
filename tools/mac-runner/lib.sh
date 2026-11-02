@@ -58,14 +58,18 @@ require_tools() {
   export PATH
 }
 
-# True while this Mac uses a VPN: a connected VPN service, or a default route through a tunnel. Softnet lets the VM
-# reach any globally routable address, which can include the services of the network behind a VPN, and with a full
-# tunnel public_ip below would find the VPN's address instead of the home network's (ADR-0027, decision 6).
+# True while this Mac uses a VPN, or when that cannot be told (fails closed). Softnet lets the VM reach any globally
+# routable address, which can include the services of the network behind a VPN, and with a full tunnel public_ip
+# below would find the VPN's address instead of the home network's (ADR-0027, decision 6). A VPN is a connected VPN
+# service of the system, or any IPv4 route through a tunnel interface: the default route of a full tunnel, the
+# 0/1 and 128/1 routes of WireGuard's wg-quick, the routes of a split tunnel. The Mac's own utun interfaces carry
+# no IPv4 routes.
 vpn_active() {
+  local routes
   scutil --nc list 2> /dev/null | grep -q '(Connected)' && return 0
-  case "$(route -n get default 2> /dev/null | awk '/interface:/ {print $2}')" in
-    utun* | ipsec* | ppp* | tun* | tap*) return 0 ;;
-  esac
+  routes=$(netstat -rn -f inet 2> /dev/null) || return 0
+  [ -n "$routes" ] || return 0
+  printf '%s\n' "$routes" | awk '$4 ~ /^(utun|ipsec|ppp|tun|tap|gif|stf)[0-9]/ {found = 1} END {exit !found}' && return 0
   return 1
 }
 

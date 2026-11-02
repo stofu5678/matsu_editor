@@ -17,6 +17,19 @@ mkdir -p "$STATE_DIR"
 chmod 700 "$STATE_DIR"
 
 new="$GOLDEN-new"
+askpass=
+finished=
+# On any failure or interruption, do not leave the half-built VM (the old golden VM stays as it was).
+cleanup() {
+  set +e
+  [ -n "$askpass" ] && rm -f "$askpass"
+  if [ -z "$finished" ]; then
+    "$TART" stop "$new" > /dev/null 2>&1
+    "$TART" delete "$new" > /dev/null 2>&1
+  fi
+}
+trap cleanup EXIT
+trap 'exit 1' INT TERM HUP
 if vm_exists "$new"; then
   "$TART" stop "$new" > /dev/null 2>&1 || true
   "$TART" delete "$new"
@@ -37,9 +50,6 @@ vm_ip=$("$TART" ip --wait 180 "$new") || die "the VM got no address (see $run_lo
 
 echo "== guest agent (through SSH, the only time the host uses it)"
 askpass=$(mktemp "$STATE_DIR/askpass.XXXXXX")
-finished=
-# On any failure, do not leave the half-built VM running (the old golden VM stays as it was).
-trap 'rm -f "$askpass"; if [ -z "$finished" ]; then "$TART" stop "$new" > /dev/null 2>&1; "$TART" delete "$new" > /dev/null 2>&1; fi' EXIT
 printf '#!/bin/sh\necho admin\n' > "$askpass" # the vanilla image's documented user and password
 chmod 700 "$askpass"
 for i in 1 2 3 4 5 6 7 8 9 10; do
