@@ -422,3 +422,24 @@ fn the_tsv_mode_of_the_type_lines_up_the_fields(cx: &mut TestAppContext) {
     assert!(stops(&view, cx).is_empty());
     assert_eq!(column(&view, cx, matsu_core::buffer::Pos::new(0, 2)), 4);
 }
+
+#[gpui::test]
+fn a_new_pane_keeps_the_tsv_stops_of_the_pane_it_comes_from(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "a\tbb\ncccc\td\n");
+    let tsv = user("[Types(0)]\r\nnInts=0,80,0,4,-1,-1,0,1,1,0,0,1\r\n");
+    view.update(cx, |v, cx| v.apply_user_settings(&tsv, cx));
+    // the text is edited after the stops were worked out: the first pane keeps them
+    view.update(cx, |v, cx| {
+        v.cursor.move_to(matsu_core::buffer::Pos::new(1, 4), false);
+        v.type_char('x', cx);
+    });
+    let document = view.read_with(cx, |v, _| v.document.clone());
+    let seed = view.read_with(cx, |v, _| v.pane_seed());
+    let pane =
+        cx.new(|cx| EditorView::new_pane(document, seed, gpui::WeakEntity::new_invalid(), cx));
+    let ends = |view: &Entity<EditorView>, cx: &mut VisualTestContext| {
+        view.read_with(cx, |v, _| v.layout.config().tsv.ends().to_vec())
+    };
+    assert_eq!(ends(&view, cx), [6, 10]);
+    assert_eq!(ends(&pane, cx), [6, 10]);
+}

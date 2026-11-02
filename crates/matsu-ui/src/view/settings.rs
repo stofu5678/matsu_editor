@@ -214,6 +214,16 @@ impl EditorView {
         self.relayout(false, cx)
     }
 
+    /// Takes the stops of the TSV or CSV mode of another pane of the document, so that the panes
+    /// line the fields up the same way (the stops are not worked out again after an edit).
+    pub(crate) fn adopt_tsv_stops(&mut self, stops: TsvStops, partial: bool, cx: &App) {
+        let mut config = self.layout.config().clone();
+        config.tsv = stops;
+        self.tsv_partial = partial;
+        let doc = self.document.read(cx).doc();
+        let _ = self.layout.set_config(doc, config);
+    }
+
     /// [`relayout_in`](Self::relayout_in), and also works out the stops of the TSV or CSV mode
     /// again when `rescan` says so (the text of a file read in the background is complete).
     pub(crate) fn relayout(&mut self, rescan: bool, cx: &App) -> bool {

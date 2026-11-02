@@ -36,6 +36,9 @@ pub(crate) struct PaneSeed {
     font_size: f32,
     metrics: Metrics,
     search: SearchState,
+    /// The stops of the TSV or CSV mode, which every pane of the document keeps as they were
+    /// worked out (and whether they came from a partial scan).
+    tsv: (matsu_layout::TsvStops, bool),
 }
 
 /// What belongs to the window and so goes to the pane the user works in.
@@ -61,6 +64,7 @@ impl EditorView {
         view.metrics = seed.metrics;
         view.search = seed.search;
         view.split_host = Some(host);
+        view.adopt_tsv_stops(seed.tsv.0, seed.tsv.1, cx);
         view.relayout_in(cx);
         view.apply_view_status(seed.status);
         view
@@ -75,6 +79,7 @@ impl EditorView {
             font_size: self.font_size,
             metrics: self.metrics,
             search: self.search.clone(),
+            tsv: (self.layout.config().tsv.clone(), self.tsv_partial),
         }
     }
 
