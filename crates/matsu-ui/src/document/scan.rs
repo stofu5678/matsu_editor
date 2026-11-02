@@ -194,6 +194,7 @@ impl SharedDocument {
         self.scan_done = Some(id);
         self.scan = None;
         self.model.replace_scanned_document(doc);
+        self.forget_tsv_stops();
         self.changed(cx);
     }
 
@@ -209,6 +210,7 @@ impl SharedDocument {
             scan.shown = doc.raw_len() as u64;
             self.model.replace_scanned_document(doc);
         }
+        self.forget_tsv_stops();
         self.changed(cx);
     }
 }

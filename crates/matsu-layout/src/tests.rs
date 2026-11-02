@@ -643,6 +643,7 @@ fn configs() -> Vec<LayoutConfig> {
                         kinsoku: k.clone(),
                         width: WidthRule::default(),
                         indent: indent.clone(),
+                        tsv: TsvStops::none(),
                     });
                 }
             }
@@ -750,4 +751,144 @@ fn a_one_megabyte_line_wraps_fast() {
     assert_eq!(rows.len(), 12_500);
     layout_line(&"あ".repeat(500_000), false, &cfg, &mut rows);
     assert_eq!(rows.len(), 12_500);
+}
+
+// ---- TSV and CSV modes (CTsvModeInfo.cpp, CLayoutMgr.h GetActualTsvSpace) ----
+
+fn tsv_config(mode: TsvMode, lines: &[&str], columns: u32) -> LayoutConfig {
+    LayoutConfig {
+        wrap: Wrap::Columns(columns),
+        tsv: TsvStops::from_lines(mode, &WidthRule::default(), lines.iter().copied()),
+        ..LayoutConfig::default()
+    }
+}
+
+#[test]
+fn a_tsv_line_has_its_fields_in_the_columns_of_the_widest_ones() {
+    let lines = ["name\tage", "Bob\t7", "Alexander\t42"];
+    let cfg = tsv_config(TsvMode::Tsv, &lines, 80);
+    // field 0 is "Alexander", 9 wide: the stop is 11
+    assert_eq!(cfg.tsv.ends(), &[11, 16]);
+    for (line, age_column) in [("name\tage", 11), ("Bob\t7", 11), ("Alexander\t42", 11)] {
+        let rows = lay(line, false, &cfg);
+        assert_eq!(rows.len(), 1);
+        let tab = line.find('\t').unwrap();
+        // the column right after the tab is where the second field starts
+        let at = offset_to_position(line, &rows, &cfg, tab + 1);
+        assert_eq!(at.column, age_column, "{line}");
+    }
+}
+
+#[test]
+fn the_tsv_mode_off_is_the_tab_width_as_before() {
+    let lines = ["name\tage", "Alexander\t42"];
+    let off = tsv_config(TsvMode::None, &lines, 80);
+    let rows = lay("name\tage", false, &off);
+    let at = offset_to_position("name\tage", &rows, &off, 5);
+    assert_eq!(at.column, 8, "the next multiple of 4 after 4 columns");
+    assert_eq!(
+        off,
+        LayoutConfig {
+            wrap: Wrap::Columns(80),
+            ..LayoutConfig::default()
+        }
+    );
+}
+
+#[test]
+fn csv_commas_and_empty_fields_and_a_tab_in_a_field() {
+    let lines = ["a,,ccc", "dddd,e\tf,"];
+    let cfg = tsv_config(TsvMode::Csv, &lines, 80);
+    // field 0 is 4 wide (6), field 1 is "e\tf" = 3 (6 + 3 + 2 = 11), field 2 is ccc (11 + 3 + 2 = 16)
+    assert_eq!(cfg.tsv.ends(), &[6, 11, 16]);
+    let text = "a,,ccc";
+    let rows = lay(text, false, &cfg);
+    let col = |offset| offset_to_position(text, &rows, &cfg, offset).column;
+    assert_eq!(col(1), 1, "before the first comma");
+    assert_eq!(
+        col(2),
+        6,
+        "after it: the second field starts at the first stop"
+    );
+    assert_eq!(
+        col(3),
+        11,
+        "the field is empty, the next comma goes to the next stop"
+    );
+    // a tab in CSV mode takes 1 column
+    let tab = "e\tf";
+    let rows = lay(tab, false, &cfg);
+    assert_eq!(offset_to_position(tab, &rows, &cfg, 2).column, 2);
+}
+
+#[test]
+fn a_delimiter_past_the_last_stop_takes_two_columns() {
+    let cfg = tsv_config(TsvMode::Csv, &["a,b"], 80);
+    assert_eq!(cfg.tsv.ends(), &[3, 6]);
+    // "a,b,c,d": the third and fourth commas are past every stop
+    let text = "a,b,c,d";
+    let rows = lay(text, false, &cfg);
+    let col = |offset| offset_to_position(text, &rows, &cfg, offset).column;
+    assert_eq!(col(2), 3);
+    assert_eq!(col(4), 6);
+    assert_eq!(
+        col(6),
+        9,
+        "the comma at column 7 is past the stops: 2 columns"
+    );
+}
+
+#[test]
+fn tsv_columns_round_trip_through_the_mouse() {
+    let lines = ["ab\tcd\tef", "abcdef\tg"];
+    let cfg = tsv_config(TsvMode::Tsv, &lines, 80);
+    let text = lines[0];
+    let rows = lay(text, false, &cfg);
+    // the click inside a tab snaps to the left edge of it, as with an ordinary tab
+    for column in 0..12 {
+        let located = position_to_offset(text, &rows, &cfg, 0, column);
+        let back = offset_to_position(text, &rows, &cfg, located.offset);
+        assert!(back.column <= column, "column {column}");
+    }
+    let located = position_to_offset(text, &rows, &cfg, 0, 5);
+    assert_eq!(
+        located.offset, 2,
+        "the tab starts at column 2 and ends at the stop 8"
+    );
+    let located = position_to_offset(text, &rows, &cfg, 0, 8);
+    assert_eq!(located.offset, 3);
+}
+
+#[test]
+fn a_tsv_line_wraps_like_any_other() {
+    let lines = ["abcdef\tg"];
+    let cfg = tsv_config(TsvMode::Tsv, &lines, 9);
+    // "abcdef" 6 columns, the tab goes to the stop 8, g at 8 .. 9: one row
+    assert_eq!(split("abcdef\tg", false, &cfg), ["abcdef\tg"]);
+    // a wider text does not fit
+    assert_eq!(split("abcdef\tgh", false, &cfg), ["abcdef\tg", "h"]);
+}
+
+#[test]
+fn a_delimiter_wider_than_the_wrap_column_does_not_hide_text_in_the_row_count() {
+    // The first field of the first line is 100 columns wide: the stop is 102, wider than the
+    // wrap column. The short line is more than one row, though it is only 3 bytes long.
+    let long = "x".repeat(100);
+    let text = format!("{long}\tz\na\tb");
+    let doc = matsu_core::buffer::Document::from_utf8(text.into_bytes()).unwrap();
+    let cfg = tsv_config(TsvMode::Tsv, &[&long, "a\tb"], 80);
+    assert!(cfg.widest_character() >= 102);
+    let layout = DocumentLayout::laid_out(&doc, cfg.clone()).unwrap();
+    let rows = layout.rows_in_line(1).unwrap();
+    assert_eq!(rows, 3, "a, the tab on a row of its own, b");
+    let shown: String = layout
+        .rows(&doc, 0, layout.row_count())
+        .unwrap()
+        .iter()
+        .filter(|r| r.line == 1)
+        .map(|r| r.text().to_owned())
+        .collect();
+    assert_eq!(shown, "a\tb");
+    // the same as laying the line out directly
+    assert_eq!(split("a\tb", false, &cfg).len(), 3);
 }

@@ -230,6 +230,30 @@ impl EditorView {
             && self.layout.config().wrap != self.wanted_wrap()
     }
 
+    /// Whether the stops of the TSV or CSV mode that the document holds are not the layout's
+    /// (the mode changed, or another pane loaded a file or completed the document).
+    pub(crate) fn tsv_stops_changed(&self, cx: &App) -> bool {
+        self.document
+            .read(cx)
+            .tsv_stops(self.prefs.settings.tsv_mode)
+            != self.layout.config().tsv
+    }
+
+    /// Goes on with the count of the TSV or CSV stops for about `budget`, and lays the document
+    /// out with them when the count is complete. Returns whether the count is complete. Called
+    /// before each frame, so that a large document does not stop the window (ADR-0020).
+    pub(crate) fn step_tsv_stops(&mut self, budget: std::time::Duration, cx: &App) -> bool {
+        let width = self.layout.config().width;
+        let done =
+            self.document
+                .read(cx)
+                .step_tsv_stops(self.prefs.settings.tsv_mode, &width, budget);
+        if self.tsv_stops_changed(cx) {
+            self.relayout_in(cx);
+        }
+        done
+    }
+
     /// Lays the document out again with the settings of the view, if they differ from the
     /// layout's. Returns whether anything changed. The caller repaints.
     pub(crate) fn relayout_in(&mut self, cx: &App) -> bool {
@@ -239,6 +263,13 @@ impl EditorView {
         config.word_wrap = self.prefs.settings.word_wrap;
         config.kinsoku = self.prefs.settings.kinsoku.clone();
         config.indent = self.prefs.settings.wrap_indent.clone();
+        // The stops of the TSV and CSV modes are worked out when the mode changes or a document
+        // is loaded (the layout of a loaded document starts without a mode), not after each edit
+        // (`CLayoutMgr::SetLayoutInfo`, `CLoadAgent::OnLoad`).
+        config.tsv = self
+            .document
+            .read(cx)
+            .tsv_stops(self.prefs.settings.tsv_mode);
         if config == *self.layout.config() {
             return false;
         }
@@ -448,8 +479,10 @@ impl EditorView {
     fn resize_font(&mut self, px: f32, cx: &mut Context<Self>) {
         let old = self.font_size;
         self.font_size = px;
-        // The line height is the font size times 1.5, rounded (see `Render for EditorView`).
-        let line_height = |size: f32| (size * 1.5).round();
+        // The line height is the font size times 1.5, rounded (see `Render for EditorView`), and
+        // the line spacing of the type.
+        let line_space = self.prefs.settings.line_space;
+        let line_height = |size: f32| crate::geometry::row_height((size * 1.5).round(), line_space);
         self.scroll_y *= line_height(self.font_size) / line_height(old);
         self.scroll_x *= self.font_size / old;
         // The metrics follow at the next paint, which brings the caret into view if it left.

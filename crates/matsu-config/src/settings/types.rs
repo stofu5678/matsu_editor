@@ -63,6 +63,8 @@ pub const MAX_LINE_KETAS: i32 = 10240;
 pub const MIN_LINE_KETAS: i32 = 10;
 /// `LINENUMWIDTH_MIN`/`LINENUMWIDTH_MAX`.
 pub const LINE_NUM_WIDTH_RANGE: (i32, i32) = (2, 11);
+/// `COLUMNSPACE_MAX` (`sakura_core/config/app_constants.h`): the column space is from 0 to this.
+pub const COLUMN_SPACE_MAX: i32 = 64;
 /// `LINESPACE_MAX`: the line space is from `-LINE_SPACE_MAX` to `LINE_SPACE_MAX`.
 pub const LINE_SPACE_MAX: i32 = 128;
 /// `MAX_TYPES` (`sakura_core/config/maxdata.h`).

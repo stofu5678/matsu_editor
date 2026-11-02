@@ -1274,3 +1274,40 @@ fn a_type_page_taller_than_the_window_has_a_scroll_bar(cx: &mut TestAppContext) 
 
 mod dialogs;
 mod keyword_numbers;
+
+#[gpui::test]
+fn the_spacing_and_the_tsv_mode_are_usable_and_the_windows_of_the_type_take_them(
+    cx: &mut TestAppContext,
+) {
+    let (ini, a) = setup(cx, "");
+    let view = view_of(cx, a);
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    for id in [COLUMN_SPACE, LINE_SPACE, TSV_MODE] {
+        assert!(usable(cx, id), "{id}");
+    }
+    assert_eq!(value(cx, COLUMN_SPACE), Value::Int(0));
+    assert_eq!(value(cx, LINE_SPACE), Value::Int(1));
+    assert_eq!(value(cx, TSV_MODE), Value::Int(0));
+    type_in(cx, COLUMN_SPACE, "3");
+    type_in(cx, LINE_SPACE, "-4");
+    choose(cx, TSV_MODE, 2);
+    ok(cx);
+    // `nInts` has the character spacing as its third value and the mode as its twelfth
+    let numbers = ints(&ini, 0);
+    assert_eq!((numbers[2], numbers[11]), (3, 2));
+    assert_eq!(ini.get("Types(0)", "nLineSpace").as_deref(), Some("-4"));
+    view.read_with(cx, |v, _| {
+        let s = v.view_settings();
+        assert_eq!((s.column_space, s.line_space), (3, -4));
+        assert_eq!(s.tsv_mode, matsu_layout::TsvMode::Csv);
+        assert_eq!(v.layout.config().tsv.mode(), matsu_layout::TsvMode::Csv);
+    });
+
+    // out of range: brought into the ranges of the dialog (`COLUMNSPACE_MAX`, `LINESPACE_MAX`)
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    type_in(cx, COLUMN_SPACE, "999");
+    type_in(cx, LINE_SPACE, "-999");
+    ok(cx);
+    assert_eq!(ints(&ini, 0)[2], 64);
+    assert_eq!(ini.get("Types(0)", "nLineSpace").as_deref(), Some("-128"));
+}

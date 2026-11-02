@@ -644,6 +644,8 @@ fn layout_config(s: &PrintSetting, options: &TypeOptions, cells: u32) -> LayoutC
         },
         width: options.width,
         indent: options.indent.clone(),
+        // Sakura copies the TSV mode into the printing layout (`CPrintPreview.cpp`); not done yet.
+        tsv: matsu_layout::TsvStops::none(),
     }
 }
 

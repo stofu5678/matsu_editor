@@ -7,7 +7,7 @@
 //! characters are not exactly two cells wide cannot push the rest of the row out of its columns.
 //! The text is also cut where the syntax coloring changes color ([`row_segments_cut`]).
 
-use matsu_layout::LayoutConfig;
+use matsu_layout::{LayoutConfig, TsvMode};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SegmentKind {
@@ -49,6 +49,9 @@ pub fn row_segments_cut(
     let mut col = start_col;
     // How wide each character of the last text segment is, so that a long row is cut in one pass.
     let mut run_width = 0;
+    // The last character was a CSV delimiter, which goes to the end of its field and so is
+    // placed alone (`CFigure_Comma`).
+    let mut after_delimiter = false;
     let mut next_cut = 0;
     for (byte, c) in text.char_indices() {
         let cols = cfg.columns_of(c, col);
@@ -57,6 +60,7 @@ pub fn row_segments_cut(
             cut |= cuts[next_cut] == byte;
             next_cut += 1;
         }
+        let delimiter = c == ',' && cfg.tsv.mode() == TsvMode::Csv;
         let kind = match c {
             '\t' => Some(SegmentKind::Tab),
             '\u{3000}' => Some(SegmentKind::FullWidthSpace),
@@ -67,6 +71,8 @@ pub fn row_segments_cut(
             Some(SegmentKind::Text) => match out.last_mut() {
                 Some(last)
                     if !cut
+                        && !delimiter
+                        && !after_delimiter
                         && last.kind == SegmentKind::Text
                         && last.col + last.cols == col
                         && run_width == cols =>
@@ -95,6 +101,7 @@ pub fn row_segments_cut(
             // A control character has no glyph here; it keeps its column.
             None => {}
         }
+        after_delimiter = delimiter;
         col += cols;
     }
     out
@@ -126,6 +133,31 @@ mod tests {
             ]
         );
         assert!(row_segments("", 0, &cfg).is_empty());
+    }
+
+    #[test]
+    fn a_csv_comma_is_a_piece_of_its_own_at_the_end_of_its_field() {
+        use matsu_layout::{TsvMode, TsvStops, WidthRule};
+        let lines = ["ab,,cd"];
+        let cfg = LayoutConfig {
+            tsv: TsvStops::from_lines(TsvMode::Csv, &WidthRule::default(), lines),
+            ..LayoutConfig::default()
+        };
+        // fields: ab (4), empty (6), cd (10); each comma goes to the end of its field
+        assert_eq!(
+            row_segments("ab,,cd", 0, &cfg),
+            [
+                seg(SegmentKind::Text, 0, 0, 2, "ab"),
+                seg(SegmentKind::Text, 2, 2, 2, ","),
+                seg(SegmentKind::Text, 3, 4, 2, ","),
+                seg(SegmentKind::Text, 4, 6, 2, "cd"),
+            ]
+        );
+        // without the mode a comma is an ordinary character
+        assert_eq!(
+            row_segments("ab,,cd", 0, &LayoutConfig::default()),
+            [seg(SegmentKind::Text, 0, 0, 6, "ab,,cd")]
+        );
     }
 
     #[test]

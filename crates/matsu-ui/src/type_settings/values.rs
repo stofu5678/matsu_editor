@@ -483,6 +483,9 @@ pub(super) fn store(v: &Values, original: &TypeSettings) -> TypeSettings {
     t.type_exts = fit(v.text(TYPE_EXTS), TYPE_EXTS_BUFFER);
     t.text_wrap_method = v.int(WRAP_METHOD);
     t.max_line_ketas = v.int(MAX_LINE_KETAS);
+    t.column_space = v.int(COLUMN_SPACE);
+    t.line_space = v.int(LINE_SPACE);
+    t.tsv_mode = v.int(TSV_MODE);
     t.tab_space = tab_width_in_range(v.int(TAB_SPACE), t.max_line_ketas);
     t.use_type_font = v.bool(USE_TYPE_FONT);
     t.font = v.font(TYPE_FONT);
@@ -627,6 +630,9 @@ pub(super) fn merge(base: &TypeSettings, old: &TypeSettings, new: &TypeSettings)
         type_exts,
         text_wrap_method,
         max_line_ketas,
+        column_space,
+        line_space,
+        tsv_mode,
         tab_space,
         word_wrap,
         kinsoku_ret,

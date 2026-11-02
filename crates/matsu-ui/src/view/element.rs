@@ -30,10 +30,11 @@ use super::syntax::{self, Label, Style as TextStyle};
 use super::{EditorView, PaintInfo, a11y_text, bracket_marks, diff_mark, lines, ruler};
 use crate::geometry::{
     HSCROLL_ARROW, HSCROLLBAR_HEIGHT, HScrollbar, Metrics, SCROLLBAR_WIDTH, Scrollbar,
+    column_width, row_height,
 };
 use crate::hit::selected_columns;
 use crate::search::highlight::{highlight_columns, slot_of};
-use crate::settings::view_settings::rgb_of;
+use crate::settings::view_settings::{TabMark, rgb_of};
 use crate::settings::{Colors, DiffColor, Marks};
 use matsu_config::settings::color::ColorEntry;
 use matsu_core::diff::DiffMark;
@@ -67,10 +68,54 @@ impl EditorElement {
     }
 }
 
-/// A shaped piece and the column where it goes.
+/// The most columns of a tab that its mark is made for. A tab in a wide field of the TSV or CSV
+/// mode can be as wide as the field.
+const MAX_TAB_MARK_COLUMNS: u32 = 1024;
+
+/// A long arrow over a tab wider than [`MAX_TAB_MARK_COLUMNS`]: its head is at the end.
+fn wide_long_arrow(mark: &TabMark, cols: u32) -> bool {
+    cols > MAX_TAB_MARK_COLUMNS && matches!(mark, TabMark::LongArrow)
+}
+
+/// A shaped piece and the column where it goes. A character of spaced text has its underline
+/// apart from the glyph, over all its columns, so that the underline has no gaps; a space has
+/// no glyph.
 struct Placed {
     col: u32,
-    line: ShapedLine,
+    line: Option<ShapedLine>,
+    /// The columns the underline covers and its color.
+    underline: Option<(u32, u32)>,
+}
+
+/// Paints a piece of text: its glyphs at its column, then its underline.
+fn paint_placed(
+    window: &mut Window,
+    cx: &mut App,
+    placed: &Placed,
+    x_of: &dyn Fn(u32) -> Pixels,
+    y: Pixels,
+    lh: Pixels,
+) {
+    if let Some(line) = &placed.line {
+        line.paint(
+            point(x_of(placed.col), y),
+            lh,
+            TextAlign::Left,
+            None,
+            window,
+            cx,
+        )
+        .ok();
+    }
+    if let Some((cols, color)) = placed.underline {
+        window.paint_quad(fill(
+            Bounds::from_corners(
+                point(x_of(placed.col), y + lh - px(3.)),
+                point(x_of(placed.col + cols), y + lh - px(2.)),
+            ),
+            rgb(color),
+        ));
+    }
 }
 
 /// How the line number area of a row shows a bookmark.
@@ -197,7 +242,8 @@ enum Term {
 
 struct RowPaint {
     selection: Option<(u32, u32)>,
-    numbers: Option<ShapedLine>,
+    /// The line number pieces and how far right of the left edge of the numbers each goes.
+    numbers: Vec<(f32, ShapedLine)>,
     /// The line number separator of the row, if the type has one and the row has a layout.
     term: Option<Term>,
     /// The color of the line number (what the separator line is drawn in).
@@ -309,6 +355,66 @@ impl IntoElement for EditorElement {
     }
 }
 
+/// Puts the shaped `label` (at `col`, in `style`) in `out`: as one piece, or, when `width_of` is
+/// given (the columns have spacing), as a piece for each character, `width_of` columns apart. A
+/// font cannot space its glyphs, and Sakura draws each character of a row at its own place
+/// (`CTextDrawer::DispText` with the dx array).
+fn place(
+    window: &mut Window,
+    out: &mut Vec<Placed>,
+    (col, label, style): (u32, &str, &TextStyle),
+    width_of: Option<impl Fn(char) -> u32>,
+    shape: &dyn Fn(&mut Window, &str, &TextStyle) -> ShapedLine,
+) {
+    let Some(width_of) = width_of else {
+        out.push(Placed {
+            col,
+            line: Some(shape(window, label, style)),
+            underline: None,
+        });
+        return;
+    };
+    // Each character is shaped alone, so its underline would stop at the glyph: the underline is
+    // a line across the columns of the character instead.
+    let glyph_style = TextStyle {
+        underline: false,
+        ..*style
+    };
+    let mut col = col;
+    for c in label.chars() {
+        let cols = width_of(c);
+        let underline = style.underline.then_some((cols, style.text));
+        if c.is_whitespace() {
+            // A space has nothing to paint but its underline, which joins the one before it:
+            // a tab in a wide field has a long run of them.
+            match (underline, out.last_mut()) {
+                (None, _) => {
+                    col += cols;
+                    continue;
+                }
+                (Some(_), Some(last))
+                    if last.line.is_none()
+                        && last.underline.is_some_and(|(n, color)| {
+                            last.col + n == col && color == style.text
+                        }) =>
+                {
+                    last.underline = last.underline.map(|(n, color)| (n + cols, color));
+                    col += cols;
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        out.push(Placed {
+            col,
+            line: (!c.is_whitespace())
+                .then(|| shape(window, c.encode_utf8(&mut [0; 4]), &glyph_style)),
+            underline,
+        });
+        col += cols;
+    }
+}
+
 fn run(font: &gpui::Font, len: usize, color: u32) -> TextRun {
     TextRun {
         len,
@@ -382,9 +488,11 @@ impl Element for EditorElement {
         let layout = &editor.layout;
         let style = window.text_style();
         let font_size = style.font_size.to_pixels(window.rem_size());
-        let line_height = f32::from(window.line_height());
         let font = style.font();
         let settings = &editor.prefs.settings;
+        // The row is the height of the font's line and the line spacing of the type, which can be
+        // negative (`CTextMetrics::Update`).
+        let line_height = row_height(f32::from(window.line_height()), settings.line_space);
         let colors = settings.colors;
         let rules = &settings.coloring;
         let marks_shown = settings.marks;
@@ -421,9 +529,13 @@ impl Element for EditorElement {
                 .shape_line(text, font_size, &runs, None)
         };
 
-        // One column is the advance of a half-width character.
-        let cell = f32::from(shape(window, "0000000000", colors.text).width()) / 10.0;
-        let cell = if cell > 0.0 { cell } else { 8.0 };
+        // One column is the advance of a half-width character and the character spacing of the
+        // type (`m_nDxBasis`). The text is placed one character at a time when there is spacing.
+        let half = f32::from(shape(window, "0000000000", colors.text).width()) / 10.0;
+        let half = if half > 0.0 { half } else { 8.0 };
+        let cell = column_width(half, settings.column_space);
+        let spaced = settings.column_space > 0;
+        let widths = layout.config().width;
 
         let first_row = (editor.scroll_y / line_height).floor().max(0.0) as usize;
         let y_offset = -(editor.scroll_y - line_height * first_row as f32);
@@ -502,15 +614,27 @@ impl Element for EditorElement {
                 diff,
                 show_line_numbers,
             );
-            let numbers =
-                (show_line_numbers && row.row_in_line == 0 && !row.is_eof_row).then(|| {
-                    shape_number(
-                        window,
-                        &format!("{:>width$}", row.line + 1, width = digits),
-                        style.text,
-                        style.bold,
-                    )
-                });
+            // The digits are drawn a column apart (`DispLineNumber` uses the dx array of the font
+            // with the spacing), so with spacing each digit has its own piece.
+            let numbers = if show_line_numbers && row.row_in_line == 0 && !row.is_eof_row {
+                let text = format!("{:>width$}", row.line + 1, width = digits);
+                if spaced {
+                    text.chars()
+                        .enumerate()
+                        .filter(|(_, c)| *c != ' ')
+                        .map(|(i, c)| {
+                            (
+                                i as f32 * cell,
+                                shape_number(window, &c.to_string(), style.text, style.bold),
+                            )
+                        })
+                        .collect()
+                } else {
+                    vec![(0.0, shape_number(window, &text, style.text, style.bold))]
+                }
+            } else {
+                Vec::new()
+            };
             let selected = match &box_area {
                 Some(area) => area.columns_on(row.row),
                 None => {
@@ -591,24 +715,73 @@ impl Element for EditorElement {
             let mut selected_text = Vec::new();
             for item in &styling.items {
                 let tab_text;
+                let mut label_col = item.col;
                 let label = match &item.label {
                     Label::Text(text) => text.as_str(),
                     Label::Tab(cols) => {
-                        tab_text = settings.tab_mark.text(*cols);
+                        // A tab in a very wide field of the TSV or CSV mode is drawn only where
+                        // the window shows it; the head of a long arrow is placed at the true
+                        // end of the tab below.
+                        tab_text = if wide_long_arrow(&settings.tab_mark, *cols) {
+                            let first = (editor.scroll_x / cell).floor().max(0.0) as u32;
+                            let shown = (f32::from(bounds.size.width) / cell).ceil() as u32 + 2;
+                            let from = item.col.max(first.saturating_sub(1));
+                            let to = (item.col + *cols - 1).min(first.saturating_add(shown));
+                            label_col = from;
+                            "\u{2500}".repeat(to.saturating_sub(from) as usize)
+                        } else {
+                            settings.tab_mark.text((*cols).min(MAX_TAB_MARK_COLUMNS))
+                        };
                         tab_text.as_str()
                     }
                     Label::FullWidthSpace => FULL_WIDTH_SPACE_MARK,
                 };
+                // The width of each character of the label in columns: the characters of text
+                // have their own, and so do those of a custom tab mark; the arrows and the mark of a
+                // space are a column each.
+                let width_of = |c: char| match item.label {
+                    Label::Text(_) => widths.columns(c),
+                    // the arrows are a column each, whatever the width rule says of them
+                    Label::Tab(_) if !matches!(c, '\u{2192}' | '\u{2500}') => widths.columns(c),
+                    _ => 1,
+                };
                 if let Some(selected_style) = &item.selected {
-                    selected_text.push(Placed {
-                        col: item.col,
-                        line: shape_styled(window, label, selected_style),
-                    });
+                    place(
+                        window,
+                        &mut selected_text,
+                        (label_col, label, selected_style),
+                        spaced.then_some(width_of),
+                        &shape_styled,
+                    );
                 }
-                text.push(Placed {
-                    col: item.col,
-                    line: shape_styled(window, label, &item.style),
-                });
+                place(
+                    window,
+                    &mut text,
+                    (label_col, label, &item.style),
+                    spaced.then_some(width_of),
+                    &shape_styled,
+                );
+                if let Label::Tab(cols) = item.label
+                    && wide_long_arrow(&settings.tab_mark, cols)
+                {
+                    let head = (item.col + cols - 1, "\u{2192}");
+                    if let Some(selected_style) = &item.selected {
+                        place(
+                            window,
+                            &mut selected_text,
+                            (head.0, head.1, selected_style),
+                            spaced.then_some(|_: char| 1),
+                            &shape_styled,
+                        );
+                    }
+                    place(
+                        window,
+                        &mut text,
+                        (head.0, head.1, &item.style),
+                        spaced.then_some(|_: char| 1),
+                        &shape_styled,
+                    );
+                }
             }
             let mut marks = Vec::new();
             let mut backs = styling.backs;
@@ -617,10 +790,13 @@ impl Element for EditorElement {
             if row.is_eof_row {
                 if marks_shown.eof {
                     backs.push((0, eof_width, eof_style.back.unwrap_or_default()));
-                    marks.push(Placed {
-                        col: 0,
-                        line: shape_styled(window, EOF_MARK, &eof_style),
-                    });
+                    place(
+                        window,
+                        &mut marks,
+                        (0, EOF_MARK, &eof_style),
+                        spaced.then_some(|_: char| 1),
+                        &shape_styled,
+                    );
                 }
             } else if let Some(eol) = row.eol {
                 if marks_shown.eol {
@@ -636,10 +812,13 @@ impl Element for EditorElement {
                     if let (Some(_), Some(back)) = (eol_found, mark.style.back) {
                         backs.push((row.end_column, row.end_column + 1, back));
                     }
-                    marks.push(Placed {
-                        col: row.end_column,
-                        line: shape_styled(window, eol_mark(eol), &mark.style),
-                    });
+                    place(
+                        window,
+                        &mut marks,
+                        (row.end_column, eol_mark(eol), &mark.style),
+                        spaced.then_some(|_: char| 1),
+                        &shape_styled,
+                    );
                 }
             } else if !row.wrapped && row.line == last_line && marks_shown.eof {
                 backs.push((
@@ -647,10 +826,13 @@ impl Element for EditorElement {
                     row.end_column + eof_width,
                     eof_style.back.unwrap_or_default(),
                 ));
-                marks.push(Placed {
-                    col: row.end_column,
-                    line: shape_styled(window, EOF_MARK, &eof_style),
-                });
+                place(
+                    window,
+                    &mut marks,
+                    (row.end_column, EOF_MARK, &eof_style),
+                    spaced.then_some(|_: char| 1),
+                    &shape_styled,
+                );
             }
             let marked_cols = marked
                 .as_ref()
@@ -904,6 +1086,7 @@ impl Element for EditorElement {
             columns: LayoutConfig {
                 tab_width: layout.config().effective_tab_width(),
                 width: layout.config().width,
+                tsv: layout.config().tsv.clone(),
                 ..LayoutConfig::default()
             },
             left: f32::from(bounds.origin.x) + gutter_width - scroll_x,
@@ -1020,10 +1203,10 @@ impl Element for EditorElement {
                     ));
                 }
             }
-            if let Some(numbers) = &row.numbers {
-                numbers
+            for (dx, number) in &row.numbers {
+                number
                     .paint(
-                        point(bounds.left() + px(2.), y),
+                        point(bounds.left() + px(2. + dx), y),
                         lh,
                         TextAlign::Left,
                         None,
@@ -1146,17 +1329,7 @@ impl Element for EditorElement {
                         ));
                     }
                     for placed in &row.marks {
-                        placed
-                            .line
-                            .paint(
-                                point(x_of(placed.col), y),
-                                lh,
-                                TextAlign::Left,
-                                None,
-                                window,
-                                cx,
-                            )
-                            .ok();
+                        paint_placed(window, cx, placed, &x_of, y, lh);
                     }
                     // Selected text has its own color when the selection says so: the pieces in
                     // that color are painted inside the selection, the others outside it.
@@ -1190,17 +1363,7 @@ impl Element for EditorElement {
                         let mask = mask.intersect(&text_bounds);
                         window.with_content_mask(Some(ContentMask { bounds: mask }), |window| {
                             for placed in pieces {
-                                placed
-                                    .line
-                                    .paint(
-                                        point(x_of(placed.col), y),
-                                        lh,
-                                        TextAlign::Left,
-                                        None,
-                                        window,
-                                        cx,
-                                    )
-                                    .ok();
+                                paint_placed(window, cx, placed, &x_of, y, lh);
                             }
                         });
                     }
@@ -1543,7 +1706,7 @@ fn overwrite_caret_cells(
     }
     // The width of the char itself, not the distance to the next position: at the end of a
     // wrapped row the next position is on the next row.
-    layout.config().columns_of(c, 0).max(1)
+    layout.config().width.columns(c).max(1)
 }
 
 #[cfg(test)]
@@ -1587,6 +1750,21 @@ mod tests {
         assert_eq!(cells("abc", Pos::new(0, 1)), 1);
         assert_eq!(cells("a日c", Pos::new(0, 1)), 2);
         assert_eq!(cells("a😀c", Pos::new(0, 1)), 2);
+    }
+
+    #[test]
+    fn the_block_over_a_csv_comma_is_the_width_of_the_comma() {
+        let doc = Document::from_utf8(b"abc,d\n".to_vec()).unwrap();
+        let config = matsu_layout::LayoutConfig {
+            tsv: matsu_layout::TsvStops::from_lines(
+                matsu_layout::TsvMode::Csv,
+                &matsu_layout::WidthRule::default(),
+                ["abcdefgh,d"],
+            ),
+            ..Default::default()
+        };
+        let layout = DocumentLayout::laid_out(&doc, config).unwrap();
+        assert_eq!(overwrite_caret_cells(&doc, &layout, Pos::new(0, 3)), 1);
     }
 
     #[test]

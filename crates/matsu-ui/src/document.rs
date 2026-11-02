@@ -131,6 +131,27 @@ pub struct SharedDocument {
     scan_done: Option<u64>,
     /// The file is read by ranges (ADR-0020): it stays open behind the document.
     ranged: bool,
+    /// The stops of the TSV or CSV mode, counted once for all the panes of the document (see
+    /// [`tsv_stops`](Self::tsv_stops)).
+    tsv: std::cell::RefCell<TsvState>,
+}
+
+/// The count of the stops of the TSV or CSV mode and its last result.
+#[derive(Default)]
+struct TsvState {
+    /// The count that is going or was done last.
+    job: Option<TsvJob>,
+    /// The result of a complete count.
+    published: Option<matsu_layout::TsvStops>,
+    /// The text is complete now: count again.
+    stale: bool,
+}
+
+struct TsvJob {
+    scan: matsu_layout::TsvScan,
+    /// The version of the document the count started on.
+    version: u64,
+    done: bool,
 }
 
 impl EventEmitter<DocumentEvent> for SharedDocument {}
@@ -169,7 +190,69 @@ impl SharedDocument {
             scan: None,
             scan_done: None,
             ranged: false,
+            tsv: Default::default(),
         }
+    }
+
+    /// The stops of `mode` for the text of this document, for the layout of every pane: the last
+    /// complete count, or none (the tab stops of the tab width) until the first one is complete.
+    /// This does no work; [`step_tsv_stops`](Self::step_tsv_stops) counts a piece at a time.
+    pub fn tsv_stops(&self, mode: matsu_layout::TsvMode) -> matsu_layout::TsvStops {
+        match self.tsv.borrow().published.as_ref() {
+            Some(stops) if stops.mode() == mode => stops.clone(),
+            _ => matsu_layout::TsvStops::none(),
+        }
+    }
+
+    /// Goes on with the count of the stops of `mode` for about `budget`, and starts it again when
+    /// the text changed while it was going (a count that is complete is not made again after an
+    /// edit: Sakura works the stops out when the file is loaded or the mode changes,
+    /// `CLoadAgent::OnLoad` and `CLayoutMgr::SetLayoutInfo`, and ADR-0020 wants the window to
+    /// answer while a large document is gone through). Returns whether the count is complete.
+    pub fn step_tsv_stops(
+        &self,
+        mode: matsu_layout::TsvMode,
+        width: &matsu_layout::WidthRule,
+        budget: std::time::Duration,
+    ) -> bool {
+        let mut state = self.tsv.borrow_mut();
+        // Leaving the mode ends the stops: the next time the mode is set they are counted from
+        // the text as it is then.
+        if mode == matsu_layout::TsvMode::None {
+            *state = TsvState::default();
+            return true;
+        }
+        let restart = state.stale
+            || match &state.job {
+                Some(job) => job.scan.mode() != mode || (!job.done && job.version != self.version),
+                None => state.published.as_ref().is_none_or(|p| p.mode() != mode),
+            };
+        if restart {
+            state.stale = false;
+            state.job = Some(TsvJob {
+                scan: matsu_layout::TsvScan::new(mode, *width),
+                version: self.version,
+                done: false,
+            });
+        }
+        let Some(job) = state.job.as_mut() else {
+            return true;
+        };
+        if job.done {
+            return true;
+        }
+        let done = job.scan.advance(self.model.doc(), budget).unwrap_or(true);
+        if done {
+            job.done = true;
+            state.published = Some(job.scan.finish());
+        }
+        done
+    }
+
+    /// The text is not what the stops were counted from (the scan of a file read by ranges
+    /// ended): they are counted again, and until that is done the last count stays.
+    pub(crate) fn forget_tsv_stops(&self) {
+        self.tsv.borrow_mut().stale = true;
     }
 
     /// A document from an opened file ([`crate::open::open_text_file`]): the text goes into the
@@ -204,6 +287,7 @@ impl SharedDocument {
             scan: None,
             scan_done: None,
             ranged,
+            tsv: Default::default(),
         };
         if let Some(job) = scan {
             shared.attach_scan(job);

@@ -1,6 +1,9 @@
 //! Tests of the settings in the view, in GPUI's headless test window (see `tests.rs`).
 
-use gpui::{AppContext as _, Entity, TestAppContext, VisualTestContext};
+use gpui::{
+    AppContext as _, Entity, Modifiers, MouseButton, MouseDownEvent, TestAppContext,
+    VisualTestContext, point, px,
+};
 use matsu_core::buffer::Document;
 use matsu_core::model::DocumentModel;
 use matsu_layout::Wrap;
@@ -314,4 +317,185 @@ fn the_tab_key_inserts_spaces_when_the_type_says_so(cx: &mut TestAppContext) {
         v.run_command("indent_tab", &[], cx);
     });
     assert_eq!(text(&view, cx), "    \t");
+}
+
+/// The metrics the last paint measured.
+fn measured(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> Metrics {
+    cx.run_until_parked();
+    view.read_with(cx, |v, _| v.metrics)
+}
+
+#[gpui::test]
+fn the_spacing_of_the_type_widens_the_columns_and_the_rows(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "abcdef\nghijkl\n");
+    let before = measured(&view, cx);
+    // nInts: index, wrap column, character spacing 3, tab width; nLineSpace is 5 (the default 1)
+    let settings = user("[Types(0)]\r\nnInts=0,80,3,4,-1,-1,0,1,1,0,0,0\r\nnLineSpace=5\r\n");
+    view.update(cx, |v, cx| v.apply_user_settings(&settings, cx));
+    let after = measured(&view, cx);
+    assert!((after.cell_width - before.cell_width - 3.0).abs() < 0.01);
+    assert!((after.line_height - before.line_height - 4.0).abs() < 0.01);
+
+    // a negative line spacing makes the rows lower than the font's line
+    let tight = user("[Types(0)]\r\nnLineSpace=-6\r\n");
+    view.update(cx, |v, cx| v.apply_user_settings(&tight, cx));
+    let tight = measured(&view, cx);
+    assert!((tight.line_height - before.line_height + 7.0).abs() < 0.01);
+    assert!((tight.cell_width - before.cell_width).abs() < 0.01);
+}
+
+#[gpui::test]
+fn a_click_lands_on_the_column_of_the_spaced_cell(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "abcdef\nghijkl\n");
+    let settings = user("[Types(0)]\r\nnInts=0,80,6,4,-1,-1,0,1,1,0,0,0\r\nnLineSpace=9\r\n");
+    view.update(cx, |v, cx| v.apply_user_settings(&settings, cx));
+    let m = measured(&view, cx);
+    let (origin_x, origin_y) = view.read_with(cx, |v, _| {
+        let paint = v.paint.expect("the window was painted");
+        (paint.origin_x, paint.origin_y)
+    });
+    // 2.4 spaced columns right of the text, in the second row; with the plain cell this would
+    // be column 4 and, with the plain row height, a lower row
+    let at = point(
+        px(origin_x + 2.4 * m.cell_width),
+        px(origin_y + 1.5 * m.line_height),
+    );
+    cx.simulate_event(MouseDownEvent {
+        button: MouseButton::Left,
+        position: at,
+        modifiers: Modifiers::default(),
+        click_count: 1,
+        first_mouse: false,
+    });
+    assert_eq!(
+        view.read_with(cx, |v, _| v.cursor.caret()),
+        matsu_core::buffer::Pos::new(1, 2)
+    );
+}
+
+#[gpui::test]
+fn the_tsv_mode_of_the_type_lines_up_the_fields(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "a\tbb\ncccc\td\n");
+    let stops = |view: &Entity<EditorView>, cx: &mut VisualTestContext| {
+        view.read_with(cx, |v, _| v.layout.config().tsv.ends().to_vec())
+    };
+    let column = |view: &Entity<EditorView>, cx: &mut VisualTestContext, pos| {
+        view.read_with(cx, |v, cx| {
+            v.layout.pos_to_row(v.doc(cx), pos).unwrap().column
+        })
+    };
+    assert!(stops(&view, cx).is_empty());
+    assert_eq!(column(&view, cx, matsu_core::buffer::Pos::new(0, 2)), 4);
+
+    let tsv = user("[Types(0)]\r\nnInts=0,80,0,4,-1,-1,0,1,1,0,0,1\r\n");
+    view.update(cx, |v, cx| v.apply_user_settings(&tsv, cx));
+    count_stops(&view, cx);
+    // field 0: cccc (4) -> 6; field 1: bb (2) -> 6 + 2 + 2
+    assert_eq!(stops(&view, cx), [6, 10]);
+    assert_eq!(column(&view, cx, matsu_core::buffer::Pos::new(0, 2)), 6);
+    assert_eq!(column(&view, cx, matsu_core::buffer::Pos::new(1, 5)), 6);
+
+    // the stops are not worked out again after an edit (Sakura does it when the file is loaded)
+    view.update(cx, |v, cx| {
+        v.cursor.move_to(matsu_core::buffer::Pos::new(1, 4), false);
+        v.type_char('x', cx);
+    });
+    assert_eq!(stops(&view, cx), [6, 10]);
+    // another pane changed the text: the stops stay
+    view.update(cx, |v, cx| v.document_changed(v.layout_version + 1, cx));
+    assert_eq!(stops(&view, cx), [6, 10]);
+    // they were worked out from the part of a file that the scan had read: the scan has ended,
+    // so the document works them out from the whole text, for every pane
+    view.read_with(cx, |v, cx| v.document.read(cx).forget_tsv_stops());
+    view.update(cx, |v, cx| v.document_changed(v.layout_version + 1, cx));
+    count_stops(&view, cx);
+    assert_eq!(stops(&view, cx), [7, 11]);
+
+    let csv = user("[Types(0)]\r\nnInts=0,80,0,4,-1,-1,0,1,1,0,0,2\r\n");
+    view.update(cx, |v, cx| v.apply_user_settings(&csv, cx));
+    count_stops(&view, cx);
+    // no comma in the text: one field, the widest line "cccc\txd" is 7 columns with the tab as 1
+    assert_eq!(stops(&view, cx), [9]);
+
+    let off = user("[Types(0)]\r\nnInts=0,80,0,4,-1,-1,0,1,1,0,0,0\r\n");
+    view.update(cx, |v, cx| v.apply_user_settings(&off, cx));
+    count_stops(&view, cx);
+    assert!(stops(&view, cx).is_empty());
+    assert_eq!(column(&view, cx, matsu_core::buffer::Pos::new(0, 2)), 4);
+
+    // the mode is set again: the stops are worked out from the text as it is now
+    view.update(cx, |v, cx| v.apply_user_settings(&tsv, cx));
+    count_stops(&view, cx);
+    assert_eq!(stops(&view, cx), [7, 11]);
+}
+
+#[gpui::test]
+fn a_new_pane_keeps_the_tsv_stops_of_the_pane_it_comes_from(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, "a\tbb\ncccc\td\n");
+    let tsv = user("[Types(0)]\r\nnInts=0,80,0,4,-1,-1,0,1,1,0,0,1\r\n");
+    view.update(cx, |v, cx| v.apply_user_settings(&tsv, cx));
+    count_stops(&view, cx);
+    // the text is edited after the stops were worked out: the first pane keeps them
+    view.update(cx, |v, cx| {
+        v.cursor.move_to(matsu_core::buffer::Pos::new(1, 4), false);
+        v.type_char('x', cx);
+    });
+    let document = view.read_with(cx, |v, _| v.document.clone());
+    let seed = view.read_with(cx, |v, _| v.pane_seed());
+    let pane =
+        cx.new(|cx| EditorView::new_pane(document, seed, gpui::WeakEntity::new_invalid(), cx));
+    let ends = |view: &Entity<EditorView>, cx: &mut VisualTestContext| {
+        view.read_with(cx, |v, _| v.layout.config().tsv.ends().to_vec())
+    };
+    assert_eq!(ends(&view, cx), [6, 10]);
+    assert_eq!(ends(&pane, cx), [6, 10]);
+}
+
+/// Counts the stops of the TSV or CSV mode to the end.
+fn count_stops(view: &Entity<EditorView>, cx: &mut VisualTestContext) {
+    view.update(cx, |v, cx| {
+        assert!(v.step_tsv_stops(std::time::Duration::from_secs(60), cx));
+    });
+}
+
+#[gpui::test]
+fn the_stops_are_counted_a_piece_a_frame_and_end_as_a_whole_count_does(cx: &mut TestAppContext) {
+    let text: String = (0..3000)
+        .map(|i| format!("{}\t{}\n", "a".repeat(i % 9 + 1), "b".repeat(i % 5)))
+        .collect();
+    let (view, cx) = setup(cx, &text);
+    let tsv = user("[Types(0)]\r\nnInts=0,80,0,4,-1,-1,0,1,1,0,0,1\r\n");
+    view.update(cx, |v, cx| v.apply_user_settings(&tsv, cx));
+    let stops = |view: &Entity<EditorView>, cx: &mut VisualTestContext| {
+        view.read_with(cx, |v, _| v.layout.config().tsv.ends().to_vec())
+    };
+    // frames with no time read a few lines each (the budget is tested in `matsu_layout::tsv`);
+    // the count ends as the whole one does
+    let mut frames = 0;
+    while !view.update(cx, |v, cx| v.step_tsv_stops(std::time::Duration::ZERO, cx)) {
+        frames += 1;
+        assert!(frames < 3001);
+    }
+    // field 0 is 9 wide (11); field 1 is 4 wide (11 + 4 + 2)
+    assert_eq!(stops(&view, cx), [11, 17]);
+
+    // an edit while the count is going starts it again
+    let mut frames = 0;
+    view.update(cx, |v, cx| {
+        v.apply_user_settings(
+            &user("[Types(0)]\r\nnInts=0,80,0,4,-1,-1,0,1,1,0,0,2\r\n"),
+            cx,
+        )
+    });
+    assert!(!view.update(cx, |v, cx| v.step_tsv_stops(std::time::Duration::ZERO, cx)));
+    view.update(cx, |v, cx| {
+        v.cursor.move_to(matsu_core::buffer::Pos::new(0, 0), false);
+        v.type_char('z', cx);
+    });
+    while !view.update(cx, |v, cx| v.step_tsv_stops(std::time::Duration::ZERO, cx)) {
+        frames += 1;
+        assert!(frames < 3001 + 10);
+    }
+    // the first line is "za\tb"... CSV has no commas: one field, the widest line 'aaaaaaaaa\tbbbb' is 14
+    assert_eq!(stops(&view, cx), [16]);
 }

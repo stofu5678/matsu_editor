@@ -647,6 +647,11 @@ impl EditorView {
         let doc = self.document.read(cx).doc();
         let _ = self.layout.resync(doc);
         let _ = self.layout.layout_for(doc, LAYOUT_BUDGET);
+        // The document holds the stops for all its panes: they are worked out again when the
+        // scan of a large file has ended or another pane loaded a file.
+        if self.tsv_stops_changed(cx) {
+            self.relayout_in(cx);
+        }
         let _ = self.cursor.clamp_if_outside(doc);
         // The text of the line may have grown under a caret that stood right of its end.
         self.cursor.set_free_col(None);
@@ -991,6 +996,10 @@ impl Render for EditorView {
         }
         self.show_pending_message_boxes(window, cx);
         self.follow_window_width(cx);
+        // First: a complete count changes the layout, which the next two then go on with.
+        if !self.step_tsv_stops(hscroll::WIDTH_BUDGET, cx) {
+            window.request_animation_frame();
+        }
         self.advance_layout(window, cx);
         self.advance_text_width(window, cx);
         self.advance_colors(window, cx);
