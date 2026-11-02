@@ -194,8 +194,9 @@ fn a_file_below_the_threshold_is_read_whole() {
 }
 
 #[test]
-fn a_file_with_a_state_in_its_encoding_is_read_whole() {
-    // ISO-2022-JP cannot be cut anywhere: the whole read converts it.
+fn a_huge_file_that_cannot_be_read_in_order_is_told_and_not_read_whole() {
+    // ISO-2022-JP cannot be cut anywhere. Reading it whole could use all the memory, so the
+    // result says that the file cannot be read.
     let dir = tempfile::tempdir().unwrap();
     let bytes = encode(Encoding::Jis, "日本語のhit\r\nつぎ\r\n");
     std::fs::write(dir.path().join("jis.txt"), bytes).unwrap();
@@ -203,7 +204,12 @@ fn a_file_with_a_state_in_its_encoding_is_read_whole() {
     info.charset = Some(Encoding::Jis);
     info.huge_file_len = Some(1);
     let (out, outcome, seen) = grep(&info, 4);
-    assert_eq!((outcome.hits, seen.files), (1, 0), "{}", body(&out));
+    assert_eq!((outcome.hits, seen.files), (0, 0), "{}", body(&out));
+    assert!(out.contains("jis.txt"), "{out}");
+    assert!(
+        stream_probe::whole_reads_in(dir.path()).is_empty(),
+        "the file was read whole"
+    );
 }
 
 #[test]

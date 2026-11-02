@@ -304,6 +304,29 @@ pub(super) mod stream_probe {
         static SEEN: Cell<Seen> = const { Cell::new(Seen { files: 0, peak: 0, bytes: 0 }) };
     }
 
+    /// The files that were read whole, by every thread (the search of the app runs on another one).
+    static WHOLE: std::sync::Mutex<Vec<(String, u64)>> = std::sync::Mutex::new(Vec::new());
+
+    pub fn whole_read(path: &str) {
+        let len = std::fs::metadata(path).map_or(0, |m| m.len());
+        WHOLE
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push((path.to_owned(), len));
+    }
+
+    /// The files of `dir` that were read whole, and their sizes.
+    pub fn whole_reads_in(dir: &std::path::Path) -> Vec<(String, u64)> {
+        let dir = dir.to_string_lossy().into_owned();
+        WHOLE
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .filter(|(p, _)| p.starts_with(&dir))
+            .cloned()
+            .collect()
+    }
+
     pub fn chunk() -> usize {
         CHUNK.with(Cell::get)
     }
@@ -613,10 +636,20 @@ impl Runner<'_> {
         if self.info.replace.is_some() {
             return self.replace_file(paths, state);
         }
-        // A huge file is read in order, a chunk at a time (ADR-0020, chapter 5).
+        // A huge file is read in order, a chunk at a time (ADR-0020, chapter 5). One that cannot
+        // be is not read whole instead (that could use all the memory): it is told as a file
+        // that cannot be read.
         if let Some(from) = self.info.huge_file_len
-            && let Some(stream) = self.open_stream(paths.full, from)
+            && std::fs::metadata(paths.full).is_ok_and(|m| m.len() >= from)
         {
+            let stream = match self.open_stream(paths.full, from) {
+                Ok(stream) => stream,
+                Err(reason) => {
+                    self.buffer.push_str(&format::file_open_error(paths.full));
+                    self.buffer.push_str(&format!("  ({reason}){EOL}"));
+                    return Ok(());
+                }
+            };
             let code_name = self.code_name(stream.encoding);
             return self.search_stream(stream.into_reader(), paths, &code_name, state);
         }
@@ -764,24 +797,28 @@ impl Runner<'_> {
         Ok(())
     }
 
-    /// Opens a file of `from` bytes or more to be read in order. `None` when the file is to be
-    /// read whole (it is smaller, its encoding keeps a state, or it cannot be opened, which the
-    /// whole read then tells).
-    fn open_stream(&self, path: &str, from: u64) -> Option<LineStream> {
+    /// Opens a file of `from` bytes or more to be read in order. The error says why it cannot
+    /// be: it cannot be opened, or its encoding keeps a state between characters (ISO-2022-JP,
+    /// UTF-7).
+    fn open_stream(&self, path: &str, from: u64) -> Result<LineStream, String> {
         let options = OpenOptions {
             encoding: self.info.charset,
             ext_eol: matsu_commands::edit_options::get().ext_eol,
             huge_file_len: Some(from),
             ..OpenOptions::default()
         };
-        open_line_stream(path, &options, stream_chunk())
-            .ok()
-            .flatten()
+        match open_line_stream(path, &options, stream_chunk()) {
+            Ok(Some(stream)) => Ok(stream),
+            Ok(None) => Err("このファイルは範囲ごとに読めません".to_owned()),
+            Err(e) => Err(e.to_string()),
+        }
     }
 
     /// Opens a file for the search, in the encoding of the dialog or the detected one. A file that
     /// cannot be opened is told in the result and gives `None`.
     fn open(&mut self, path: &str) -> Result<Option<TextFile>, Stopped> {
+        #[cfg(test)]
+        stream_probe::whole_read(path);
         let mut options = OpenOptions {
             encoding: self.info.charset,
             mime_decode: self.info.mime_decode,

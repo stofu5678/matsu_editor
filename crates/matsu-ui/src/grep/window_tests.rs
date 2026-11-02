@@ -1044,3 +1044,37 @@ fn a_large_result_is_written_in_blocks_while_it_is_held(cx: &mut TestAppContext)
     feed(&f, cx, done());
     assert!(text_of(&f.view, cx).ends_with("tail\r\n"));
 }
+
+#[gpui::test]
+fn a_file_over_the_threshold_is_never_read_whole_in_the_apps_search(cx: &mut TestAppContext) {
+    use super::engine::stream_probe;
+    let (f, cx) = setup(cx);
+    // 1 MB is where a file is huge here; the search of the app runs on a background task.
+    cx.update(|_, app| {
+        app.set_global(crate::file_ops::prefs::FilePrefs {
+            huge_file_size_mb: 1,
+            ..Default::default()
+        });
+    });
+    let p = Project::new();
+    let mut big = "filler line of text\r\n".repeat(60_000);
+    big.push_str("a hit at the end\r\n");
+    assert!(big.len() > 1024 * 1024);
+    std::fs::write(p.dir.path().join("big.txt"), &big).unwrap();
+    f.run(cx, "F_GREP", &p.settings("hit").macro_args());
+    let windows = other_views(cx, &f.view);
+    let text = text_of(&windows[0], cx);
+    assert!(
+        text.contains(&format!("{}(60001,", p.file("big.txt"))),
+        "{text}"
+    );
+    assert!(text.contains("3 個が検索されました。"), "{text}");
+    // the small files are read whole (the probe sees them), the big one is not
+    let whole = stream_probe::whole_reads_in(p.dir.path());
+    assert_eq!(whole.len(), 2, "{whole:?}");
+    assert!(
+        whole
+            .iter()
+            .all(|(path, len)| !path.ends_with("big.txt") && *len < 1024 * 1024)
+    );
+}
