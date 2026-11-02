@@ -43,8 +43,9 @@ impl OutlinePane {
         })
     }
 
-    /// The place of an item whose line and column are counted from 1 in the characters of the line
-    /// (`AddFuncInfo`). The analyzers of MATSU give column 1.
+    /// The place of an item whose line and column are counted from 1, the column in the UTF-16 units of
+    /// the line (`AddFuncInfo`; the same count as `Editor.MoveCursor`). The analyzers of MATSU give
+    /// column 1.
     pub(super) fn item_position(&self, line: usize, col: usize, cx: &gpui::App) -> Pos {
         let row = line.saturating_sub(1);
         let skip = col.saturating_sub(1);
@@ -61,11 +62,7 @@ impl OutlinePane {
             .map(|line| line.text)
             .unwrap_or_default();
         let body = text.trim_end_matches(['\r', '\n']);
-        let byte = body
-            .char_indices()
-            .nth(skip)
-            .map_or(body.len(), |(index, _)| index);
-        Pos::new(row, byte)
+        Pos::new(row, matsu_plugin::api::byte_offset_for_utf16(body, skip))
     }
 
     /// Analyzes the document of the pane with the plug whose number is `code`. `generation` and
