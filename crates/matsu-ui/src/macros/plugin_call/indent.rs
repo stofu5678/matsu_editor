@@ -112,7 +112,9 @@ impl EditorView {
             .indent_guard
             .as_ref()
             .is_some_and(|(version, cursor)| {
-                self.document.read(cx).version() != *version || self.cursor != *cursor
+                self.macros.indent_closed
+                    || self.document.read(cx).version() != *version
+                    || self.cursor != *cursor
             })
     }
 
@@ -134,17 +136,17 @@ impl EditorView {
         }
     }
 
-    /// The user does something while the call of the `SmartIndent` jack runs: what the plugin did so far
-    /// becomes an undo step of its own, so that one Undo takes the plugin's part and the user's input is
-    /// not in it. (The call is stopped on the next turn of its loop, which ends the undo block.)
+    /// The user does something while the call of the `SmartIndent` jack runs: its undo block is closed
+    /// now, so that one Undo takes the plugin's part and what the user does (typing, an IME
+    /// composition) is outside of it. The call is stopped on the next turn of its loop.
     pub(crate) fn cut_indent_undo_step(&mut self, cx: &mut Context<Self>) {
-        if self.macros.indent_guard.is_none() {
+        if self.macros.indent_guard.is_none() || self.macros.indent_closed {
             return;
         }
-        let cursor = &self.cursor;
-        self.document.update(cx, |shared, _| {
-            shared.parts_mut().0.commit_block(cursor);
-        });
+        self.macros.indent_closed = true;
+        if let Some(depth) = self.macros.indent_undo_depth.take() {
+            self.leave_undo_block(Some(depth), cx);
+        }
     }
 }
 
@@ -165,6 +167,7 @@ fn start(cx: &mut App, editor: Entity<EditorView>, call: SmartIndentCall) {
             return false;
         }
         view.macros.indent_guard = Some((view.document.read(cx).version(), view.cursor.clone()));
+        view.macros.indent_closed = false;
         true
     });
     if begun && !run(editor.clone(), prepared, cx) {

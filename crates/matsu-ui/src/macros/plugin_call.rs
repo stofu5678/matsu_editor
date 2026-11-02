@@ -860,6 +860,11 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
         if depth.is_some() {
             view.open_undo_block(cx);
         }
+        // A smart indent is cut off from the user's input when the user does something (`indent`).
+        if view.macros.indent_guard.is_some() {
+            view.macros.indent_undo_depth = depth;
+            view.macros.indent_closed = false;
+        }
         (depth, view.document.read(cx).generation())
     });
     let (depth, generation) = depth;
@@ -961,9 +966,15 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                         view.macros.plugin_event = false;
                         view.macros.indent_guard = None;
                         // Only the document the call began on: a replaced one is not ours to free.
+                        let closed = std::mem::take(&mut view.macros.indent_closed);
+                        view.macros.indent_undo_depth = None;
                         if view.document.read(cx).generation() == generation {
                             view.document.update(cx, |shared, _| shared.set_plugin_busy(false));
-                            view.leave_undo_block(depth, cx);
+                            // The undo block of a smart indent that the user cut off is closed already,
+                            // and what is open now is the user's own.
+                            if !closed {
+                                view.leave_undo_block(depth, cx);
+                            }
                         }
                         // A smart indent that was stopped because the user went on says nothing.
                         if std::mem::take(&mut view.macros.indent_stopped)
