@@ -73,7 +73,7 @@ tools/mac-runner/mac-runner down --now # すぐやめる（動いているジョ
 ```
 
 - `up` は、最初の VM の実行機が GitHub に「online」と出てから、`MAC_RUNNER` を `self-hosted` にする。それまでの CI は GitHub の実行機で動く
-- Mac の側の上限: ジョブは 3 時間、ジョブの来ない VM は 6 時間で作り直す。VM が何も答えなくなっても、9 時間で止めて消す。ディスクの空きが 60 GB より少ないときは VM を作らない
+- Mac の側の上限: ジョブは 3 時間、ジョブの来ない VM は 6 時間で作り直す。VM が何も答えなくなっても、9 時間で止めて消す。ディスクの空きが 120 GB（VM のディスクの 100 GB と、Mac に残す 20 GB）より少ないときは VM を作らない（複製は型と場所を分け合うが、VM の中で書いた分だけ Mac の場所を使い、最大で VM のディスクの大きさになる）。VM が動いている間に Mac の空きが 20 GB を切ったら、VM を止めて消す
 - 旅行などで Mac を使えないとき: `down` しておく。忘れても、Mac が止まって 15 分たつと、CI は GitHub の実行機で動く。ただし、止まる直前に Mac を選んだジョブは待ったままになる（調整役が取り消して流し直す）
 - Mac の外から切り替える: GitHub の画面（Settings → Secrets and variables → Actions → Variables の `MAC_RUNNER`）か、`gh variable set MAC_RUNNER --body github`
 - ssh から使うとき: ssh のセッションでは、ログインのキーチェーンが開かない（Mac の画面にログインしていても、`security` が「User interaction is not allowed」で断る）。そのときの `up`・`down`・`status` は、自分を launchd のジョブとして、Mac の画面にログインしているセッションで動かし直し、その出力と終了コードを ssh の側に写す（トークンはそのセッションの外に出ない）。だれも画面にログインしていないと動かない。ssh の側で Ctrl+C を押しても、止まるのは写すことだけで、コマンド（`down` の止める頼みなど）はそのまま続く

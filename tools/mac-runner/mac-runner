@@ -76,10 +76,12 @@ in_login_session() { # args
     die "this session cannot open the keychain, and nobody is logged in to the Mac's screen (README.md)"
   mkdir -p "$STATE_DIR"
   chmod 700 "$STATE_DIR"
-  # Forget the commands that finished after their waiting was interrupted.
+  # Forget the commands that finished after their waiting was interrupted: those whose caller (the pid in the name)
+  # is gone. A caller that still waits reads its own result and removes it.
   for f in "$STATE_DIR"/command.*.status; do
     [ -e "$f" ] || continue
     base=${f%.status}
+    kill -0 "${base##*.}" 2> /dev/null && continue
     launchctl bootout "$domain/$SESSION_LABEL.${base##*.}" > /dev/null 2>&1
     rm -f "$base.plist" "$base.out" "$f"
   done
@@ -191,7 +193,7 @@ reconcile() {
 run_one() {
   local free_gb rules name body answer runner_id jit started job_started last_beat reason now status i
   retry_stale_runners
-  free_gb=$(df -g "$HOME" | awk 'NR == 2 {print $4}')
+  free_gb=$(host_free_gb)
   if [ "${free_gb:-0}" -lt "$MIN_FREE_GB" ]; then
     log "only ${free_gb} GB free (need $MIN_FREE_GB); not starting a VM"
     return 1
@@ -282,10 +284,13 @@ run_one() {
       job_started=$now
       log "$name: a job started"
     fi
+    free_gb=$(host_free_gb)
     if [ -e "$NOW_FILE" ]; then
       reason="stopped by down --now"
     elif vpn_active; then
       reason="a VPN is in use; stopping the VM (README.md)"
+    elif [ "${free_gb:-0}" -lt "$HOST_RESERVE_GB" ]; then
+      reason="the Mac has only ${free_gb:-?} GB free (keeps $HOST_RESERVE_GB); stopping the VM"
     elif [ $((now - started)) -ge "$MAX_VM_SECONDS" ]; then
       reason="the VM lived for more than $MAX_VM_SECONDS seconds"
     elif [ -n "$job_started" ] && [ $((now - job_started)) -ge "$JOB_LIMIT_SECONDS" ]; then

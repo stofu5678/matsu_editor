@@ -26,7 +26,11 @@ LOG="$STATE_DIR/runner.log"
 # Limits that the host keeps for each VM (ADR-0027, chapter 7).
 JOB_LIMIT_SECONDS=10800      # 3 hours from the start of the job
 IDLE_LIMIT_SECONDS=21600     # a VM that got no job in 6 hours is replaced by a fresh one
-MIN_FREE_GB=60               # free space needed before a clone
+# A clone shares the golden's blocks at first, but whatever the guest writes takes new space on the Mac, up to the
+# whole size of the VM's disk. So a clone needs that much free, and the Mac keeps a reserve besides; a running VM
+# stops when the Mac's free space falls below the reserve (other programs on the Mac use the disk too).
+HOST_RESERVE_GB=20
+MIN_FREE_GB=$((VM_DISK_GB + HOST_RESERVE_GB))
 HEARTBEAT_SECONDS=300        # MAC_RUNNER_SEEN; CI falls back to GitHub's runner after 15 minutes without it
 # The longest a VM may live, whatever the guest says (it may not answer at all): no job for the idle limit, then a
 # job for the job limit.
@@ -71,6 +75,11 @@ vpn_active() {
   [ -n "$routes" ] || return 0
   printf '%s\n' "$routes" | awk '$4 ~ /^(utun|ipsec|ppp|tun|tap|gif|stf)[0-9]/ {found = 1} END {exit !found}' && return 0
   return 1
+}
+
+# The free space of the volume that holds the VMs (~/.tart), in GB. Empty when df fails.
+host_free_gb() {
+  df -g "$HOME" 2> /dev/null | awk 'NR == 2 {print $4}'
 }
 
 # The public IPv4 address of the home network, from Cloudflare (the VM's DNS too). Empty when it cannot be found.
