@@ -563,7 +563,12 @@ pub fn clip_text_tree(arr: &FuncInfoArr, file_path: &str, tag_jump: bool) -> Str
             continue;
         }
         if tag_jump {
-            text.push_str(file_path);
+            // an item a plugin put in another file names it (`m_cmemFileName`)
+            text.push_str(if item.file.is_empty() {
+                file_path
+            } else {
+                &item.file
+            });
             if item.line > 0 {
                 text.push_str(&format!("({},{}): ", item.line, item.col));
             }

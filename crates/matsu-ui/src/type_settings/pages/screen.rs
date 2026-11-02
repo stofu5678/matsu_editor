@@ -158,6 +158,20 @@ fn outline_mode_changed(values: &mut Values, id: &'static str) {
             OUTLINE,
             crate::common_settings::model::Value::Int(OUTLINES[0].1),
         );
+        values.set(
+            OUTLINE_CHOSEN,
+            crate::common_settings::model::Value::Bool(true),
+        );
+    }
+}
+
+/// The user chose a rule of the list (see [`OUTLINE_CHOSEN`]).
+fn outline_chosen(values: &mut Values, id: &'static str) {
+    if id == OUTLINE {
+        values.set(
+            OUTLINE_CHOSEN,
+            crate::common_settings::model::Value::Bool(true),
+        );
     }
 }
 
@@ -272,6 +286,7 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                         .into(),
                         Control::choice(OUTLINE, "", "", OUTLINES[0].1, outline_options())
                             .named("標準ルールの種類")
+                            .on_change(outline_chosen)
                             .when(outline_is_standard)
                             .into(),
                         Control::radio(

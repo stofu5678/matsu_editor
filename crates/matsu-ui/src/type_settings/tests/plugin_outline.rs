@@ -12,6 +12,21 @@ fn sheet_of(user: &UserSettings) -> super::super::TypeSheet {
     sheet(&user.profile().cloned().unwrap(), 0).unwrap()
 }
 
+/// The control `id` of the sheet (the first one: the radio buttons of a group share the id).
+fn control(sheet: &super::super::TypeSheet, id: &str) -> crate::common_settings::model::Control {
+    *sheet.controls.iter().find(|c| c.id == id).unwrap()
+}
+
+/// What the dialog does when the user chooses `number` in the list of outlines.
+fn choose(
+    sheet: &super::super::TypeSheet,
+    values: &mut crate::common_settings::model::Values,
+    number: i32,
+) {
+    values.set(OUTLINE, Value::Int(number));
+    (control(sheet, OUTLINE).changed)(values, OUTLINE);
+}
+
 #[test]
 fn the_outlines_of_the_plugins_that_run_come_after_the_standard_ones_with_the_code_of_the_plug() {
     let place = Place::new("sheet-on", "");
@@ -33,12 +48,12 @@ fn the_outlines_of_the_plugins_that_run_come_after_the_standard_ones_with_the_co
     );
     // another choice is written, and the plugin one can be chosen again
     let mut values = sheet.values.clone();
-    values.set(OUTLINE, Value::Int(outline_type::PYTHON));
+    choose(&sheet, &mut values, outline_type::PYTHON);
     assert_eq!(
         store(&values, &sheet.target.original).default_outline,
         outline_type::PYTHON
     );
-    values.set(OUTLINE, Value::Int(code));
+    choose(&sheet, &mut values, code);
     assert_eq!(store(&values, &sheet.target.original).default_outline, code);
 }
 
@@ -62,7 +77,7 @@ fn the_outline_of_a_plugin_that_is_off_is_shown_as_the_first_choice_and_its_numb
     );
     // a choice the user made is written, the first of the list too
     let mut values = sheet.values.clone();
-    values.set(OUTLINE, Value::Int(outline_type::TEXT));
+    choose(&sheet, &mut values, outline_type::TEXT);
     assert_eq!(
         store(&values, &sheet.target.original).default_outline,
         outline_type::TEXT
@@ -93,7 +108,23 @@ fn a_number_nobody_knows_stays_too_and_a_rule_file_can_still_be_left() {
     );
     let mut values = sheet.values.clone();
     values.set(OUTLINE_MODE, Value::Int(0));
-    values.set(OUTLINE, Value::Int(OUTLINES[0].1));
+    (control(&sheet, OUTLINE_MODE).changed)(&mut values, OUTLINE_MODE);
+    assert_eq!(
+        store(&values, &sheet.target.original).default_outline,
+        OUTLINES[0].1
+    );
+}
+
+#[test]
+fn choosing_the_first_of_the_list_after_another_is_a_choice_and_replaces_the_number_that_stayed() {
+    let place = Place::new("sheet-first", "");
+    let user = place.user(Place::code(), false, true);
+    plugin_outline::refresh_for(&user);
+    let sheet = sheet_of(&user);
+    // another rule and then the first one again: the user chose, whatever the list showed before
+    let mut values = sheet.values.clone();
+    choose(&sheet, &mut values, outline_type::TEXT);
+    choose(&sheet, &mut values, OUTLINES[0].1);
     assert_eq!(
         store(&values, &sheet.target.original).default_outline,
         OUTLINES[0].1

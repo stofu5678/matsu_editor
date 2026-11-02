@@ -675,11 +675,11 @@ impl OutlinePane {
         let Some(item) = self.rows.get(row).and_then(|r| r.item) else {
             return;
         };
-        let Some(line) = self
+        let Some((line, col, file)) = self
             .shown
             .as_ref()
             .and_then(|s| s.analysis.items.get(item))
-            .map(|i| i.line)
+            .map(|i| (i.line, i.col, i.file.clone()))
         else {
             return;
         };
@@ -687,9 +687,15 @@ impl OutlinePane {
         let Some(view) = self.view.upgrade() else {
             return;
         };
-        // MYWM_SETCARETPOS with PM_SETCARETPOS_KEEPSELECT: the caret goes to the start of the
-        // line (the column of every item is 1) and a locked selection is extended
-        let target = Pos::new(line.saturating_sub(1), 0);
+        // An item a plugin put in another file (`AddFuncInfo3`): the file is opened.
+        if self.is_in_another_file(&file, cx) {
+            self.open_path(PathBuf::from(file), focus_text, window, cx);
+            return;
+        }
+        // MYWM_SETCARETPOS with PM_SETCARETPOS_KEEPSELECT: the caret goes to the place of the
+        // item (the column of the analyzers is 1, so the start of the line) and a locked selection
+        // is extended
+        let target = self.item_position(line, col, cx);
         view.update(cx, |view, cx| {
             view.run_with(cx, |c| {
                 let extend = c.extends(false);
@@ -1126,6 +1132,17 @@ impl OutlinePane {
             return;
         };
         self.selected = Some(key);
+        self.open_path(path, focus_text, window, cx);
+    }
+
+    /// Opens `path` the way the open command does (see [`Self::open_file_row`]).
+    fn open_path(
+        &mut self,
+        path: PathBuf,
+        focus_text: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(view) = self.view.upgrade() else {
             return;
         };

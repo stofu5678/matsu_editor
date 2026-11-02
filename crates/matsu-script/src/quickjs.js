@@ -94,37 +94,31 @@
   globalThis.Editor = Editor;
   globalThis.EditorError = EditorError;
 
+  // Puts on `target` one function for each of `names`, which asks the editor through `raw[name]`
+  // ([true, result] or [false, code, message]; a failure is an `EditorError`).
+  function bindCalls(target, raw, names) {
+    for (const name of names) {
+      const call = raw[name];
+      target[name] = function (...args) {
+        while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+        const answer = call(args);
+        if (answer[0]) return answer[1];
+        const error = new EditorError(answer[1], answer[2]);
+        if (typeof Error.captureStackTrace === 'function') {
+          Error.captureStackTrace(error, target[name]);
+        }
+        throw error;
+      };
+    }
+  }
+
   // The `Plugin` object of a plugin (Sakura's `CPluginIfObj`): the editor answers the calls.
   const Plugin = {};
   if (plugin !== null) {
-    for (const name of plugin.names) {
-      const call = plugin.raw[name];
-      Plugin[name] = function (...args) {
-        while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-        const answer = call(args);
-        if (answer[0]) return answer[1];
-        const error = new EditorError(answer[1], answer[2]);
-        if (typeof Error.captureStackTrace === 'function') {
-          Error.captureStackTrace(error, Plugin[name]);
-        }
-        throw error;
-      };
-    }
+    bindCalls(Plugin, plugin.raw, plugin.names);
     // The `Outline` object (Sakura's `COutlineIfObj`); the editor accepts its calls in an `Outline` plug.
     const Outline = {};
-    for (const name of plugin.outlineNames) {
-      const call = plugin.outlineRaw[name];
-      Outline[name] = function (...args) {
-        while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
-        const answer = call(args);
-        if (answer[0]) return answer[1];
-        const error = new EditorError(answer[1], answer[2]);
-        if (typeof Error.captureStackTrace === 'function') {
-          Error.captureStackTrace(error, Outline[name]);
-        }
-        throw error;
-      };
-    }
+    bindCalls(Outline, plugin.outlineRaw, plugin.outlineNames);
     globalThis.Outline = Outline;
     Plugin.id = plugin.id;
     Plugin.dir = plugin.dir;

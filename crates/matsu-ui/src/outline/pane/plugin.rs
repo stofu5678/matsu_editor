@@ -10,6 +10,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::{Context, Entity};
+use matsu_core::buffer::Pos;
 use matsu_outline::{Analysis, FuncInfoArr, OutlineKind};
 use matsu_plugin::plugin_host::limit_of;
 
@@ -21,7 +22,52 @@ use crate::view::EditorView;
 /// How often the pane looks again while it waits.
 const TICK: Duration = Duration::from_millis(10);
 
+/// How often it looks while the host of the plugin is busy with another window (looking prepares the
+/// call again, which reads the files of the plugin).
+const HOST_BUSY_TICK: Duration = Duration::from_millis(50);
+
 impl OutlinePane {
+    /// Whether an item with the file name `file` is in a file other than the document of the pane
+    /// (`CDlgFuncList::OnJump`: an item with a file name jumps to that file). The names are compared
+    /// without regard to case, as Sakura compares them (`wmemicmp`).
+    pub(super) fn is_in_another_file(&self, file: &str, cx: &gpui::App) -> bool {
+        if file.is_empty() {
+            return false;
+        }
+        let this = self.document.read(cx).path();
+        this.is_none_or(|path| {
+            !path
+                .to_string_lossy()
+                .to_lowercase()
+                .eq(&file.to_lowercase())
+        })
+    }
+
+    /// The place of an item whose line and column are counted from 1 in the characters of the line
+    /// (`AddFuncInfo`). The analyzers of MATSU give column 1.
+    pub(super) fn item_position(&self, line: usize, col: usize, cx: &gpui::App) -> Pos {
+        let row = line.saturating_sub(1);
+        let skip = col.saturating_sub(1);
+        if skip == 0 {
+            return Pos::new(row, 0);
+        }
+        let text = self
+            .document
+            .read(cx)
+            .doc()
+            .line(row)
+            .ok()
+            .flatten()
+            .map(|line| line.text)
+            .unwrap_or_default();
+        let body = text.trim_end_matches(['\r', '\n']);
+        let byte = body
+            .char_indices()
+            .nth(skip)
+            .map_or(body.len(), |(index, _)| index);
+        Pos::new(row, byte)
+    }
+
     /// Analyzes the document of the pane with the plug whose number is `code`. `generation` and
     /// `version` are those of the analysis that began (see [`OutlinePane::analyze`]).
     pub(super) fn analyze_plugin(
@@ -84,22 +130,23 @@ async fn run_plug(
         pane.read_with(cx, |pane, _| pane.generation != generation)
             .unwrap_or(true)
     };
-    // The window has one call at a time: an event of a plugin, a command or a macro that runs goes first
-    // (the calls have their time limits, so the line moves).
+    let collected = Rc::new(RefCell::new(Collected::new()));
+    // The window has one call at a time, and so has the host of a plugin (another window may be using
+    // it): an event of a plugin, a command or a macro that runs goes first. The calls have their time
+    // limits, so the line moves.
     loop {
         if given_up(cx) {
             return None;
         }
-        match view.read_with(cx, |view, app| view.event_turn(app)).ok()? {
-            Turn::Free => break,
-            Turn::AfterEvent | Turn::Taken => cx.background_executor().timer(TICK).await,
+        let entity: Entity<EditorView> = view.upgrade()?;
+        match cx.update(|app| begin(app, entity, code, &collected)) {
+            Begin::Started => break,
+            Begin::Refused(reason) => {
+                collected.borrow_mut().ending = Some(Ending::Refused(reason));
+                break;
+            }
+            Begin::Wait(time) => cx.background_executor().timer(time).await,
         }
-    }
-    let entity: Entity<EditorView> = view.upgrade()?;
-    let collected = Rc::new(RefCell::new(Collected::new()));
-    let started = cx.update(|app| begin(app, entity, code, &collected));
-    if let Err(reason) = started {
-        collected.borrow_mut().ending = Some(Ending::Refused(reason));
     }
     // The call has its own time limit ([`limit_of`]); the host kills the process at it.
     while collected.borrow().ending.is_none() {
@@ -112,21 +159,54 @@ async fn run_plug(
     Some(analysis)
 }
 
-/// Starts the call. `Err`: why it did not begin.
+/// What the attempt to start the call came to.
+enum Begin {
+    /// The call runs.
+    Started,
+    /// It will not run; the reason.
+    Refused(String),
+    /// Not now: wait this long and try again.
+    Wait(Duration),
+}
+
+/// Starts the call if the window and the host of the plugin are free.
 fn begin(
     cx: &mut gpui::App,
     view: Entity<EditorView>,
     code: i32,
     collected: &Rc<RefCell<Collected>>,
-) -> Result<(), String> {
-    let plug = plugin_outline::find(cx, code)
-        .ok_or("このアウトラインのプラグインは、今は使えません（無効か、登録されていません）")?;
-    collected.borrow_mut().label.clone_from(&plug.folder);
-    let dirs = crate::plugin_commands::search_dirs(cx).ok_or("設定ファイルの場所が分かりません")?;
-    let prepared =
-        plugin_call::prepare_outline(cx, &dirs, &plug.folder, &plug.handler, collected.clone())?;
-    if !plugin_call::run(view, prepared, cx) && collected.borrow().ending.is_none() {
-        return Err("ほかのプラグインかマクロが動いているため、実行できませんでした".to_owned());
+) -> Begin {
+    if view.read(cx).event_turn(cx) != Turn::Free {
+        return Begin::Wait(TICK);
     }
-    Ok(())
+    let Some(plug) = plugin_outline::find(cx, code) else {
+        return Begin::Refused(
+            "このアウトラインのプラグインは、今は使えません（無効か、登録されていません）"
+                .to_owned(),
+        );
+    };
+    collected.borrow_mut().label.clone_from(&plug.folder);
+    let Some(dirs) = crate::plugin_commands::search_dirs(cx) else {
+        return Begin::Refused("設定ファイルの場所が分かりません".to_owned());
+    };
+    let prepared = match plugin_call::prepare_outline(
+        cx,
+        &dirs,
+        &plug.folder,
+        &plug.handler,
+        collected.clone(),
+    ) {
+        Ok(prepared) => prepared,
+        Err(reason) => return Begin::Refused(reason),
+    };
+    // One host serves all the windows: a call of the same plugin on another window goes first.
+    if prepared.host_busy() {
+        return Begin::Wait(HOST_BUSY_TICK);
+    }
+    if plugin_call::run(view, prepared, cx) || collected.borrow().ending.is_some() {
+        // (a call refused at its start has told why in the result)
+        Begin::Started
+    } else {
+        Begin::Wait(TICK)
+    }
 }

@@ -394,3 +394,32 @@ fn the_outline_object_is_not_there_for_a_command(cx: &mut TestAppContext) {
     set_test_interpreter(None);
     let _ = cx;
 }
+
+#[gpui::test]
+fn a_click_on_an_item_moves_the_caret_to_the_column_the_plug_gave(cx: &mut TestAppContext) {
+    let Some(place) = begin(
+        "column",
+        "Outline.SetListType(300); Outline.AddFuncInfo(2, 3, 'third char', 0);",
+    ) else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    let handle = window_with(
+        cx,
+        "first\nあいうえお\n",
+        "a.zzz",
+        place.user(Place::code(), true, true),
+    );
+    open_outline(cx, handle);
+    let pane = pane(cx, handle).unwrap();
+    handle
+        .update(cx, |_, window, app| {
+            pane.update(app, |p, cx| p.jump(0, false, window, cx))
+        })
+        .unwrap();
+    cx.run_until_parked();
+    // the column counts characters from 1; the caret counts bytes of the line
+    let caret = active_view(cx, handle).read_with(cx, |v, _| v.cursor().caret());
+    assert_eq!((caret.line, caret.col), (1, "あい".len()));
+    finish(cx);
+}
