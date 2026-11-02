@@ -20,8 +20,11 @@
 //! The command that typed the char does not wait for the plugin (it runs in another process):
 //! `input_char` says that the plugin is due ([`Changes::smart_indent_plugin`]) and the window starts
 //! the call once the command is over. A char that comes while the call runs is typed as usual, so no
-//! input is lost; the plugin is stopped at its next request, because the place it was called for has
-//! gone ([`EditorView::indent_guard_broken`]). A plugin that is still busy with an earlier char does
+//! input is lost. The place the plugin was called for (the text, the caret and the selection) is
+//! watched ([`EditorView::indent_guard_broken`]): when the user changes it the plugin is stopped, on
+//! the next turn of the call's loop or at its next request, and says nothing; what the plugin did
+//! until then is an undo step that ends before the user's input
+//! ([`EditorView::cut_indent_undo_step`]). A plugin that is still busy with an earlier char does
 //! not get the next one (the call is dropped, as ADR-0026 says of the calls that are of no use late).
 //!
 //! [`Changes::smart_indent_plugin`]: matsu_commands::context::Changes::smart_indent_plugin
@@ -102,19 +105,46 @@ impl EditorView {
         cx.defer(move |cx| start(cx, editor, call));
     }
 
-    /// The text or the caret is not as the call of the `SmartIndent` jack left it: the user went on.
+    /// The text, the caret or the selection is not as the call of the `SmartIndent` jack left it: the
+    /// user went on.
     pub(crate) fn indent_guard_broken(&self, cx: &App) -> bool {
-        self.macros.indent_guard.is_some_and(|(version, caret)| {
-            self.document.read(cx).version() != version || self.cursor.caret() != caret
-        })
+        self.macros
+            .indent_guard
+            .as_ref()
+            .is_some_and(|(version, cursor)| {
+                self.document.read(cx).version() != *version || self.cursor != *cursor
+            })
+    }
+
+    /// Stops the call of the `SmartIndent` jack, without a word, if the user went on. Returns whether it is
+    /// to be stopped (the caller does it).
+    pub(crate) fn stop_indent_if_moved(&mut self, cx: &App) -> bool {
+        let moved = self.indent_guard_broken(cx);
+        if moved {
+            self.macros.indent_stopped = true;
+        }
+        moved
     }
 
     /// The call of the `SmartIndent` jack has done a request: its place is where that left it.
     pub(crate) fn indent_guard_follow(&mut self, cx: &App) {
         if self.macros.indent_guard.is_some() {
             self.macros.indent_guard =
-                Some((self.document.read(cx).version(), self.cursor.caret()));
+                Some((self.document.read(cx).version(), self.cursor.clone()));
         }
+    }
+
+    /// The user does something while the call of the `SmartIndent` jack runs: what the plugin did so far
+    /// becomes an undo step of its own, so that one Undo takes the plugin's part and the user's input is
+    /// not in it. (The call is stopped on the next turn of its loop, which ends the undo block.)
+    pub(crate) fn cut_indent_undo_step(&mut self, cx: &mut Context<Self>) {
+        if self.macros.indent_guard.is_none() {
+            return;
+        }
+        let cursor = &self.cursor;
+        self.document.update(cx, |shared, _| {
+            shared.parts_mut().0.commit_block(cursor);
+        });
     }
 }
 
@@ -134,7 +164,7 @@ fn start(cx: &mut App, editor: Entity<EditorView>, call: SmartIndentCall) {
         if view.plugin_in_call(cx) || view.macros.busy() {
             return false;
         }
-        view.macros.indent_guard = Some((view.document.read(cx).version(), view.cursor.caret()));
+        view.macros.indent_guard = Some((view.document.read(cx).version(), view.cursor.clone()));
         true
     });
     if begun && !run(editor.clone(), prepared, cx) {

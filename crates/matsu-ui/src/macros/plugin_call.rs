@@ -888,6 +888,15 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                     host.borrow_mut().shutdown();
                     continue;
                 }
+                // A smart indent whose place is gone (the user typed on or moved) is stopped now, so that
+                // the undo block of the call ends and the input after it is not in it.
+                let moved = weak
+                    .update(cx, |view, cx| view.stop_indent_if_moved(cx))
+                    .unwrap_or(false);
+                if moved {
+                    host.borrow_mut().shutdown();
+                    continue;
+                }
                 cx.background_executor()
                     .timer(Duration::from_millis(10))
                     .await;
@@ -926,7 +935,7 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                         // A smart indent is for the place where the char was typed: the user went on
                         // typing or moved the caret, so the plugin is stopped. What the user typed
                         // is in the text; nothing of the plugin's is added to it.
-                        if view.indent_guard_broken(cx) {
+                        if view.stop_indent_if_moved(cx) {
                             return (replaced_reply(&text), true);
                         }
                         (view.answer_plugin_request(&text, &mut api, cx), false)
@@ -955,6 +964,13 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                         if view.document.read(cx).generation() == generation {
                             view.document.update(cx, |shared, _| shared.set_plugin_busy(false));
                             view.leave_undo_block(depth, cx);
+                        }
+                        // A smart indent that was stopped because the user went on says nothing.
+                        if std::mem::take(&mut view.macros.indent_stopped)
+                            && outcome == Outcome::Cancelled
+                        {
+                            cx.notify();
+                            return;
                         }
                         // An event that went well leaves no trace.
                         if event && outcome == Outcome::Ok && !stopped {

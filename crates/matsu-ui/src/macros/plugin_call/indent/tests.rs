@@ -271,17 +271,49 @@ fn a_plugin_that_is_too_slow_inserts_nothing_and_the_input_is_not_lost(cx: &mut 
     wait_until(&view, cx, "the handler to start", |v, cx| {
         called(v, cx) == ["start"]
     });
-    // The user goes on typing while the handler runs; nothing waits for it.
-    cx.simulate_input("uv");
-    assert_eq!(lines(&view, cx), ["x{", "uv"]);
+    // Nothing waits for the handler: the window is not held, and the time limit ends it.
+    assert_eq!(text(&view, cx), "x{\n");
     wait_until(&view, cx, "the time limit", |v, cx| {
         v.read_with(cx, |v, _| v.macro_output_text())
             .contains("時間切れ")
     });
+    assert_eq!(text(&view, cx), "x{\n");
+    // The window is free again: the input goes on, and the next line break starts the plugin again.
+    cx.simulate_input("uv");
     assert_eq!(lines(&view, cx), ["x{", "uv"]);
-    // The window is free again and the plugin is started again by the next line break.
+    type_char(&view, cx, '\r');
+    wait_until(&view, cx, "the handler to start again", |v, cx| {
+        called(v, cx) == ["start", "start"]
+    });
+    finish(cx);
+}
+
+#[gpui::test]
+fn the_input_while_the_plugin_works_is_kept_and_the_plugin_stops(cx: &mut TestAppContext) {
+    let place = Place::new(true, "console.log('[start]'); while (true) {}");
+    let Some((view, cx)) = window(cx, &place, true) else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    cx.simulate_input("x{");
+    type_char(&view, cx, '\r');
+    wait_until(&view, cx, "the handler to start", |v, cx| {
+        called(v, cx) == ["start"]
+    });
+    // The user goes on typing while the handler runs: every char is in the text, and the call ends
+    // with no word, long before the time limit.
+    cx.simulate_input("uv");
+    assert_eq!(lines(&view, cx), ["x{", "uv"]);
+    wait_until(&view, cx, "the end of the call", |v, cx| {
+        !v.read_with(cx, |v, app| v.plugin_in_call(app))
+    });
     cx.simulate_input("w");
     assert_eq!(lines(&view, cx), ["x{", "uvw"]);
+    let output = view.read_with(cx, |v, _| v.macro_output_text());
+    assert!(
+        !output.contains("時間切れ") && !output.contains("中断"),
+        "{output}"
+    );
     finish(cx);
 }
 
@@ -308,6 +340,67 @@ fn a_plugin_is_stopped_when_the_user_typed_on_and_adds_nothing(cx: &mut TestAppC
     }
     assert_eq!(lines(&view, cx), ["x", "u"]);
     assert!(called(&view, cx).is_empty());
+    finish(cx);
+}
+
+#[gpui::test]
+fn a_plugin_is_stopped_when_the_user_selected_the_text_and_replaces_nothing(
+    cx: &mut TestAppContext,
+) {
+    // The caret does not move and the text does not change, but the selection does: an insertion
+    // would replace the selected text.
+    let place = Place::new(
+        true,
+        "console.log('[start]'); const t = Date.now(); while (Date.now() - t < 300) {} \
+         Editor.InsText('PLUGIN'); console.log('[inserted]');",
+    );
+    let Some((view, cx)) = window(cx, &place, true) else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    cx.simulate_input("x");
+    type_char(&view, cx, '\r');
+    wait_until(&view, cx, "the handler to start", |v, cx| {
+        called(v, cx) == ["start"]
+    });
+    run(&view, cx, "F_SELECTALL");
+    for _ in 0..60 {
+        cx.executor().advance_clock(Duration::from_millis(20));
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(text(&view, cx), "x\n");
+    assert_eq!(called(&view, cx), ["start"]);
+    finish(cx);
+}
+
+#[gpui::test]
+fn what_the_user_types_while_the_plugin_works_is_not_in_its_undo_step(cx: &mut TestAppContext) {
+    // The handler inserts and then goes on working; the user types meanwhile.
+    let place = Place::new(
+        true,
+        "Editor.InsText('    '); console.log('[inserted]'); \
+         const t = Date.now(); while (Date.now() - t < 400) {}",
+    );
+    let Some((view, cx)) = window(cx, &place, true) else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    cx.simulate_input("x");
+    type_char(&view, cx, '\r');
+    wait_until(&view, cx, "the insertion of the plugin", |v, cx| {
+        called(v, cx) == ["inserted"]
+    });
+    cx.simulate_input("u");
+    wait_until(&view, cx, "the end of the call", |v, cx| {
+        !v.read_with(cx, |v, app| v.plugin_in_call(app))
+    });
+    assert_eq!(text(&view, cx), "x\n    u");
+    // The first Undo takes what the user typed, the second the plugin's indentation.
+    run(&view, cx, "F_UNDO");
+    assert_eq!(text(&view, cx), "x\n    ");
+    run(&view, cx, "F_UNDO");
+    assert_eq!(text(&view, cx), "x\n");
     finish(cx);
 }
 
