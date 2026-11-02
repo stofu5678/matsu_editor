@@ -41,7 +41,7 @@ fn source(text: &str, folder: &str, name: &str, title: &str) -> WindowSource {
         folder: folder.to_owned(),
         name: name.to_owned(),
         title: title.to_owned(),
-        scanning_file: None,
+        scanning: None,
     }
 }
 

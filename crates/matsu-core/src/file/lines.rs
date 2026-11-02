@@ -106,6 +106,14 @@ impl LineReader {
     ///
     /// When the source cannot be read. The reader should not be used after that.
     pub fn next_line(&mut self) -> io::Result<Option<Line>> {
+        self.next_line_until(&mut || false)
+    }
+
+    /// Like [`next_line`](Self::next_line), asking `stop` before each read of the source: a line
+    /// of any length needs many reads, and a caller that can be stopped must be able to stop
+    /// inside one. When `stop` says so, the error has the kind [`io::ErrorKind::Interrupted`]
+    /// and nothing is lost: the next call goes on with the same line.
+    pub fn next_line_until(&mut self, stop: &mut dyn FnMut() -> bool) -> io::Result<Option<Line>> {
         loop {
             let at_eof = self.pos >= self.source.len();
             if let Some((off, kind)) =
@@ -143,6 +151,9 @@ impl LineReader {
                         self.codec
                             .boundary_at_or_after(&self.buf, self.scan_from, target);
                 }
+            }
+            if stop() {
+                return Err(io::Error::from(io::ErrorKind::Interrupted));
             }
             self.fill()?;
         }
@@ -193,6 +204,11 @@ impl LineStream {
     /// The reader behind the stream.
     pub fn reader(&self) -> &LineReader {
         &self.reader
+    }
+
+    /// The reader behind the stream, to read it with [`LineReader::next_line_until`].
+    pub fn into_reader(self) -> LineReader {
+        self.reader
     }
 }
 

@@ -75,6 +75,15 @@ impl SharedDocument {
         self.scan.as_ref().map(|s| s.id)
     }
 
+    /// The index of the running scan (a copy of what is scanned so far), whose source is the open
+    /// file behind the document; `None` when there is no scan or it has failed.
+    pub(crate) fn scan_index(&self) -> Option<matsu_core::buffer::BlockIndex> {
+        self.scan
+            .as_ref()
+            .filter(|s| s.failure.is_none())
+            .map(|s| s.job.index_snapshot())
+    }
+
     /// Whether the file is read by ranges (ADR-0020): a huge file, whose long lines are cut, whose
     /// lines far down are not colored from the top, and that has no outline.
     pub(crate) fn is_ranged(&self) -> bool {

@@ -457,17 +457,14 @@ impl EditorView {
             }
         };
         // While the scan of a huge file runs, the document has only the scanned start of it.
-        let scanning_file = shared
-            .is_scanning()
-            .then(|| shared.path().map(std::path::Path::to_path_buf))
-            .flatten();
+        let scanning = shared.scan_index();
         Some(WindowSource {
             document: shared.doc().clone(),
             encoding: shared.file().encoding,
             folder,
             name,
             title,
-            scanning_file,
+            scanning,
         })
     }
 

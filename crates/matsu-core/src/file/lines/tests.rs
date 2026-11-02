@@ -349,3 +349,26 @@ fn a_file_that_shrinks_while_it_is_read_is_an_error_not_a_crash() {
     }
     assert!(failed);
 }
+
+#[test]
+fn a_read_can_be_stopped_inside_a_long_line_and_goes_on_afterwards() {
+    let mut bytes = vec![b'x'; 1024 * 1024];
+    bytes.extend_from_slice(b"\nend");
+    let source = Counting::new(&bytes);
+    let mut r = reader(source.clone(), Encoding::Utf8, false, 4096);
+    let mut asked = 0;
+    let error = r
+        .next_line_until(&mut || {
+            asked += 1;
+            asked > 5
+        })
+        .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+    // five reads were made (the first, to see the start of the line, is asked about too)
+    assert!(source.total.load(Ordering::Relaxed) <= 6 * 4096);
+    // nothing is lost
+    let lines = read_all(&mut r);
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0].text.len(), 1024 * 1024);
+    assert_eq!(lines[1].text, "end");
+}

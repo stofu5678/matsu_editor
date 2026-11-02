@@ -52,8 +52,7 @@
 //! document taken when the search starts, read by lines like a file, so the unsaved changes and
 //! a document with no file are searched. A document of a huge file reads each line from its
 //! block index, not the whole text; while its scan is still running the snapshot has only the
-//! scanned start, so the file is read in order instead ([`WindowSource::scanning_file`]; the
-//! document cannot be edited meanwhile, so the file is its text).
+//! scanned start, so the file behind it is read in order instead ([`WindowSource::scanning`]).
 //!
 //! Differences from Sakura: `GetLongFileName` is not applied to the folders; the output to the
 //! standard output (`-GOPT=S`) is not here; a Grep 置換 of the text of a window is refused
@@ -63,15 +62,15 @@
 
 use std::borrow::Cow;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use matsu_core::buffer::{Document, Line};
+use matsu_core::buffer::{BlockIndex, Document, Line};
 use matsu_core::encoding::{DETECT_SAMPLE_LEN, DetectOptions, Encoding, detect};
 use matsu_core::file::{
-    DEFAULT_STREAM_CHUNK, FileError, LineStream, OpenOptions, TextFile, open_file_with,
+    DEFAULT_STREAM_CHUNK, FileError, LineReader, LineStream, OpenOptions, TextFile, open_file_with,
     open_line_stream,
 };
 use matsu_core::model::eol_text;
@@ -158,10 +157,11 @@ pub struct WindowSource {
     /// What the heading shows in `Window:[...]`.
     pub title: String,
     /// Set while the document still shows only the scanned start of its huge file (the scan of
-    /// the line endings is running): the file the document is over. The search reads it in order
-    /// instead of the snapshot, which would miss the rest. The document is read-only while the
-    /// scan runs, so the file has the same text.
-    pub scanning_file: Option<PathBuf>,
+    /// the line endings is running): the index of the scan. The search reads the file behind it
+    /// in order, through the same open file as the document ([`BlockIndex::source`]), instead of
+    /// the snapshot, which would miss the rest. The text is the document's even if another
+    /// program changes the file meanwhile (that is an error of the read).
+    pub scanning: Option<BlockIndex>,
 }
 
 /// The parts of a Grep 置換 that a Grep does not have (`cmGrepRep`, `bGrepPaste`, `bGrepBackup`).
@@ -265,8 +265,13 @@ pub fn chop_yen(folder: &str) -> String {
 /// Stopped by the user.
 struct Stopped;
 
-/// A line could not be read from a file or a document.
-struct ReadFailed;
+/// Why the next line could not be had from a file or a document.
+enum ReadStop {
+    /// It could not be read.
+    Failed,
+    /// The user stopped the search while the line was being read.
+    Cancelled,
+}
 
 /// The bytes one read of a file that is read in order asks for.
 fn stream_chunk() -> usize {
@@ -610,10 +615,10 @@ impl Runner<'_> {
         }
         // A huge file is read in order, a chunk at a time (ADR-0020, chapter 5).
         if let Some(from) = self.info.huge_file_len
-            && let Some(stream) = self.open_stream(paths.full, from, None)
+            && let Some(stream) = self.open_stream(paths.full, from)
         {
             let code_name = self.code_name(stream.encoding);
-            return self.search_stream(stream, paths, &code_name, state);
+            return self.search_stream(stream.into_reader(), paths, &code_name, state);
         }
         let Some(file) = self.open(paths.full)? else {
             return Ok(());
@@ -660,15 +665,16 @@ impl Runner<'_> {
             };
             self.file_name_only(&paths, &mut state, Some(name));
             Ok(())
-        } else if let Some(file) = &window.scanning_file
-            && let Some(stream) = self.open_stream(
-                &file.to_string_lossy(),
-                0,
-                Some((window.encoding, window.document.ext_eol())),
-            )
-        {
-            // The snapshot has only the scanned start of the file: read the file itself.
-            self.search_stream(stream, &paths, &code_name, &mut state)
+        } else if let Some(index) = &window.scanning {
+            // The snapshot has only the scanned start of the file: read the file itself, through
+            // the open file of the document.
+            let reader = LineReader::new(
+                index.source().clone(),
+                index.codec().clone(),
+                index.ext_eol(),
+                stream_chunk(),
+            );
+            self.search_stream(reader, &paths, &code_name, &mut state)
         } else {
             self.search_document(&window.document, &paths, &code_name, &mut state)
         };
@@ -692,23 +698,33 @@ impl Runner<'_> {
                 return Ok(None);
             }
             index += 1;
-            doc.line(index - 1).map_err(|_| ReadFailed)
+            doc.line(index - 1).map_err(|_| ReadStop::Failed)
         })
     }
 
-    /// The lines of a file that is read in order.
+    /// The lines of a file that is read in order. The stop is looked at before each read, so that
+    /// a line of any length can be stopped inside.
     fn search_stream(
         &mut self,
-        mut stream: LineStream,
+        mut reader: LineReader,
         paths: &FilePaths<'_>,
         code_name: &str,
         state: &mut PathInfoState,
     ) -> Result<(), Stopped> {
+        let cancel = self.cancel;
         let result = self.search_lines(paths, code_name, state, &mut || {
-            stream.next_line().map_err(|_| ReadFailed)
+            reader
+                .next_line_until(&mut || cancel.load(Ordering::Relaxed))
+                .map_err(|e| {
+                    if e.kind() == std::io::ErrorKind::Interrupted {
+                        ReadStop::Cancelled
+                    } else {
+                        ReadStop::Failed
+                    }
+                })
         });
         #[cfg(test)]
-        stream_probe::record(stream.reader());
+        stream_probe::record(&reader);
         result
     }
 
@@ -719,7 +735,7 @@ impl Runner<'_> {
         paths: &FilePaths<'_>,
         code_name: &str,
         state: &mut PathInfoState,
-        next: &mut dyn FnMut() -> Result<Option<Line>, ReadFailed>,
+        next: &mut dyn FnMut() -> Result<Option<Line>, ReadStop>,
     ) -> Result<(), Stopped> {
         let mut file_hits = 0usize;
         let mut index = 0usize;
@@ -730,7 +746,8 @@ impl Runner<'_> {
             let line = match next() {
                 Ok(Some(line)) => line,
                 Ok(None) => break,
-                Err(ReadFailed) => {
+                Err(ReadStop::Cancelled) => return Err(Stopped),
+                Err(ReadStop::Failed) => {
                     self.buffer.push_str(&format::file_read_error(paths.full));
                     break;
                 }
@@ -747,19 +764,13 @@ impl Runner<'_> {
         Ok(())
     }
 
-    /// Opens a file of `from` bytes or more to be read in order. `forced` is the encoding and
-    /// the setting of NEL, LS and PS of a document whose file is read instead of it. `None` when
-    /// the file is to be read whole (it is smaller, its encoding keeps a state, or it cannot be
-    /// opened, which the whole read then tells).
-    fn open_stream(
-        &self,
-        path: &str,
-        from: u64,
-        forced: Option<(Encoding, bool)>,
-    ) -> Option<LineStream> {
+    /// Opens a file of `from` bytes or more to be read in order. `None` when the file is to be
+    /// read whole (it is smaller, its encoding keeps a state, or it cannot be opened, which the
+    /// whole read then tells).
+    fn open_stream(&self, path: &str, from: u64) -> Option<LineStream> {
         let options = OpenOptions {
-            encoding: forced.map(|(encoding, _)| encoding).or(self.info.charset),
-            ext_eol: forced.map_or_else(|| matsu_commands::edit_options::get().ext_eol, |f| f.1),
+            encoding: self.info.charset,
+            ext_eol: matsu_commands::edit_options::get().ext_eol,
             huge_file_len: Some(from),
             ..OpenOptions::default()
         };

@@ -11,7 +11,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use matsu_core::buffer::{
-    BlockScanner, Document, EncodingCodec, MemorySource, ScanOptions, Source, scan_blocks,
+    BlockIndex, BlockScanner, Document, EncodingCodec, MemorySource, ScanOptions, Source,
+    scan_blocks,
 };
 use matsu_core::encoding::Encoding;
 
@@ -299,18 +300,14 @@ fn window_info(key: &str, window: WindowSource) -> GrepInfo {
     }
 }
 
-fn window(
-    document: Document,
-    name: &str,
-    scanning_file: Option<std::path::PathBuf>,
-) -> WindowSource {
+fn window(document: Document, name: &str, scanning: Option<BlockIndex>) -> WindowSource {
     WindowSource {
         document,
         encoding: Encoding::Utf8,
         folder: String::new(),
         name: name.to_owned(),
         title: name.to_owned(),
-        scanning_file,
+        scanning,
     }
 }
 
@@ -370,11 +367,8 @@ fn a_window_of_a_huge_file_is_searched_by_its_block_index_not_read_whole() {
 }
 
 #[test]
-fn a_window_still_being_scanned_is_searched_in_the_file_not_in_its_snapshot() {
+fn a_window_still_being_scanned_is_searched_in_its_file_not_in_its_snapshot() {
     let text = text_of_lines(3_000);
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("big.txt");
-    std::fs::write(&path, &text).unwrap();
     // The snapshot has only the first window of the scan.
     let source: Arc<dyn Source> = Arc::new(MemorySource::new(text.as_bytes().to_vec()));
     let mut scanner = BlockScanner::new(
@@ -385,14 +379,12 @@ fn a_window_still_being_scanned_is_searched_in_the_file_not_in_its_snapshot() {
     .unwrap();
     scanner.step().unwrap();
     assert!(!scanner.is_done());
-    let snapshot = Document::from_block_index(scanner.shared().lock().unwrap().clone()).unwrap();
+    let index = scanner.shared().lock().unwrap().clone();
+    let snapshot = Document::from_block_index(index.clone()).unwrap();
     assert!(snapshot.is_read_only());
 
-    let run_for = |scanning_file| {
-        let info = window_info(
-            "needle",
-            window(snapshot.clone(), ":HWND:[7]big", scanning_file),
-        );
+    let run_for = |scanning| {
+        let info = window_info("needle", window(snapshot.clone(), ":HWND:[7]big", scanning));
         let mut sink = Text(String::new());
         stream_probe::with_chunk(8192, || {
             let outcome = run(&info, &AtomicBool::new(false), &mut sink).unwrap();
@@ -402,7 +394,7 @@ fn a_window_still_being_scanned_is_searched_in_the_file_not_in_its_snapshot() {
     let ((partial, _), seen) = run_for(None);
     assert_eq!(seen.files, 0);
     assert!(partial < 3, "the snapshot has only the start: {partial}");
-    let ((all, out), seen) = run_for(Some(path));
+    let ((all, out), seen) = run_for(Some(index));
     assert_eq!(seen.files, 1);
     assert_eq!(all, 3, "{}", body(&out));
     assert!(seen.peak <= 8192 + 128);
