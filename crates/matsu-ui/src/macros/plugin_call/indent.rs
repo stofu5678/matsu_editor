@@ -136,10 +136,28 @@ impl EditorView {
         }
     }
 
-    /// The user does something while the call of the `SmartIndent` jack runs: its undo block is closed
-    /// now, so that one Undo takes the plugin's part and what the user does (typing, an IME
-    /// composition) is outside of it. The call is stopped on the next turn of its loop.
+    /// The user does something (a command, typed text, an IME composition) while the call of the
+    /// `SmartIndent` jack runs, on this view or on another that shows the document: the undo block of
+    /// the call is closed now, so that one Undo takes the plugin's part and what the user does is
+    /// outside of it. The call is stopped on the next turn of its loop.
     pub(crate) fn cut_indent_undo_step(&mut self, cx: &mut Context<Self>) {
+        // Only a call has an open undo block that the document shares; most of the time none runs.
+        if self.document.read(cx).plugin_busy() {
+            let me = cx.entity_id();
+            let others: Vec<_> = self
+                .document
+                .read(cx)
+                .views()
+                .filter(|other| other.entity_id() != me)
+                .collect();
+            for other in others {
+                other.update(cx, |view, cx| view.cut_own_indent_undo_step(cx));
+            }
+        }
+        self.cut_own_indent_undo_step(cx);
+    }
+
+    fn cut_own_indent_undo_step(&mut self, cx: &mut Context<Self>) {
         if self.macros.indent_guard.is_none() || self.macros.indent_closed {
             return;
         }

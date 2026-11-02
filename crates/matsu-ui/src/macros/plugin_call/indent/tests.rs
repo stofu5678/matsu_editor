@@ -405,6 +405,31 @@ fn what_the_user_types_while_the_plugin_works_is_not_in_its_undo_step(cx: &mut T
 }
 
 #[gpui::test]
+fn work_of_the_window_that_is_not_the_users_does_not_stop_the_plugin(cx: &mut TestAppContext) {
+    // The marks of the outline and of the diff are set through a context of the view, in the middle of
+    // a call: neither the text nor the caret changes, and the plugin goes on.
+    let place = Place::new(
+        true,
+        "console.log('[start]'); const t = Date.now(); while (Date.now() - t < 150) {} \
+         Editor.InsText('    ');",
+    );
+    let Some((view, cx)) = window(cx, &place, true) else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    cx.simulate_input("x");
+    type_char(&view, cx, '\r');
+    wait_until(&view, cx, "the handler to start", |v, cx| {
+        called(v, cx) == ["start"]
+    });
+    view.update(cx, |view, cx| view.run_with(cx, |_| ()));
+    wait_until(&view, cx, "the indentation of the plugin", |v, cx| {
+        text(v, cx) == "x\n    "
+    });
+    finish(cx);
+}
+
+#[gpui::test]
 fn a_plugin_that_is_not_resident_is_not_called(cx: &mut TestAppContext) {
     let place = Place::new(false, LOG);
     let Some((view, cx)) = window(cx, &place, true) else {

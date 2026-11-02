@@ -399,11 +399,6 @@ impl EditorView {
         cx: &mut Context<Self>,
         f: impl FnOnce(&mut CommandContext<'_>) -> R,
     ) -> R {
-        // A smart indent of a plugin runs: what the user does now is not part of its undo step. What a plugin
-        // asks of the window itself is suspended from the macros.
-        if !self.macros.is_suspended() {
-            self.cut_indent_undo_step(cx);
-        }
         let document = self.document.clone();
         // The macro that runs before a save is told the file it will be written to.
         let save_path = self.macros.save_path().map(std::path::Path::to_owned);
@@ -468,6 +463,8 @@ impl EditorView {
     ) -> bool {
         // Any function but F_AUTOSCROLL ends the auto scroll (`CViewCommander::HandleCommand`).
         self.autoscroll_exit();
+        // What the user does is not part of the undo step of a smart indent that runs.
+        self.cut_indent_undo_step(cx);
         self.interrupt_composition(cx);
         // Before the recording, as in `CViewCommander::HandleCommand`: the typed chars of the
         // incremental search are not edits, so a macro does not replay them as such.
