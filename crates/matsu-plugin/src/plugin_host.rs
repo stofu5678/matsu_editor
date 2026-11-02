@@ -584,7 +584,10 @@ pub trait PluginApi {
 /// The prefix of the calls that [`PluginApi`] answers.
 pub const PLUGIN_PREFIX: &str = "Plugin.";
 
-/// Answers a request of a plugin: a call of the `Plugin` object goes to `api`, any other call
+/// The prefix of the calls of the `Outline` object, which [`PluginApi`] answers too (the jack `Outline`).
+pub const OUTLINE_PREFIX: &str = "Outline.";
+
+/// Answers a request of a plugin: a call of the `Plugin` or `Outline` object goes to `api`, any other call
 /// (`Editor.*`) to `editor`. Returns the response line, `None` for a notification.
 pub fn respond(
     text: &str,
@@ -592,7 +595,7 @@ pub fn respond(
     editor: impl FnOnce(&str, &[Value]) -> Result<Value, RpcError>,
 ) -> Option<String> {
     api::respond(text, |method, params| {
-        if method.starts_with(PLUGIN_PREFIX) {
+        if method.starts_with(PLUGIN_PREFIX) || method.starts_with(OUTLINE_PREFIX) {
             api.call(method, params)
         } else {
             editor(method, params)

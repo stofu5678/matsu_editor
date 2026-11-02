@@ -226,6 +226,8 @@ pub(crate) fn open(
     // A renumbering of the keyword sets from before this sheet is not for its numbers.
     crate::common_settings::forget_keyword_renumbering();
     let profile = current_profile(cx);
+    // The outlines of the plugins that may run now are among the choices of the screen page.
+    crate::plugin_outline::refresh(cx);
     let sheet = sheet(&profile, index)?;
     let id = sheet.target.original.id;
     let title = "タイプ別設定";

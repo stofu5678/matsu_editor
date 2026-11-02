@@ -49,6 +49,8 @@ impl PluginApi for Api {
                 Ok(json!(true))
             }
             "Plugin.GetString" => Ok(json!(format!("string {}", params[0]))),
+            // The `Outline` object: the editor takes the calls as they are.
+            n if n.starts_with("Outline.") => Ok(json!(null)),
             other => Err(RpcError::new(-32601, format!("no such call: {other}"))),
         }
     }
@@ -184,6 +186,41 @@ console.log(Plugin.GetString(2));
         ]
     );
     assert_eq!(world.api.calls.len(), 6);
+}
+
+#[test]
+fn the_outline_object_sends_sakuras_calls_with_their_arguments() {
+    let code = r#"
+Outline.SetListType(100);
+Outline.SetTitle('題');
+Outline.AddFuncInfo(1, 2, 'a', 3);
+Outline.AddFuncInfo2(2, 1, 'b', 1);
+Outline.AddFuncInfo3(3, 1, 'c', 0, 'f.txt');
+Outline.AddFuncInfo4(4, 1, 'd', 2, 'g.txt');
+Outline.SetLabel(10, ' モジュール');
+console.log(Object.keys(Outline).join(','));
+"#;
+    let dir = plugin_dir(&[("outline.js", code)]);
+    let mut host = host(dir.path(), false);
+    let mut world = World::new("");
+    let report = world.call(&mut host, "outline.js", PATIENT);
+    assert_eq!(report.outcome, Outcome::Ok, "{:?}", report.output);
+    assert_eq!(
+        world.api.calls,
+        [
+            "Outline.SetListType",
+            "Outline.SetTitle",
+            "Outline.AddFuncInfo",
+            "Outline.AddFuncInfo2",
+            "Outline.AddFuncInfo3",
+            "Outline.AddFuncInfo4",
+            "Outline.SetLabel",
+        ]
+    );
+    assert_eq!(
+        stdout(&report),
+        ["AddFuncInfo,AddFuncInfo2,AddFuncInfo3,AddFuncInfo4,SetTitle,SetListType,SetLabel"]
+    );
 }
 
 #[test]

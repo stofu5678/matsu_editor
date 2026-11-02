@@ -21,7 +21,7 @@ use super::ids::*;
 use super::pages::color::STRING_TYPES;
 use super::pages::keyhelp::{RMENU_TYPES, dict_of, row_of};
 use super::pages::regex::{color_label, color_name};
-use super::pages::screen::{OUTLINE_FILE, OUTLINE_STANDARD, OUTLINES, WRAP_METHODS};
+use super::pages::screen::{OUTLINE_FILE, OUTLINE_STANDARD, WRAP_METHODS, outline_options};
 use super::pages::support::HOKAN_TYPES;
 use super::pages::window::{CODES, EOLS};
 use crate::common_settings::model::{Control, Kind, Value, Values};
@@ -288,7 +288,11 @@ pub(super) fn load(
             OUTLINE_STANDARD
         },
     );
-    n(&mut v, OUTLINE, in_list(t.default_outline, OUTLINES));
+    n(
+        &mut v,
+        OUTLINE,
+        in_list(t.default_outline, outline_options()),
+    );
     s(&mut v, OUTLINE_RULE_FILE, &t.outline_rule_filename);
     b(&mut v, USE_TYPE_FONT, t.use_type_font);
     v.set(TYPE_FONT, Value::Font(t.font.clone()));
@@ -506,6 +510,14 @@ pub(super) fn store(v: &Values, original: &TypeSettings) -> TypeSettings {
     t.indent_layout = v.int(INDENT_LAYOUT);
     t.default_outline = if v.int(OUTLINE_MODE) == OUTLINE_FILE {
         outline_type::FILE
+    } else if original.default_outline != outline_type::FILE
+        && v.int(OUTLINE) == in_list(original.default_outline, outline_options())
+    {
+        // A number the list does not have (an outline of a plugin that is off or gone) is shown as the
+        // first of the list (`SetData`, `nSelPos = 0`). Sakura would write that first one back; the
+        // number stays when the user did not choose another, so that turning the plugin on again
+        // brings the outline back (ADR-0026).
+        original.default_outline
     } else {
         v.int(OUTLINE)
     };

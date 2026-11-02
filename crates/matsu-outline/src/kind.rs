@@ -78,6 +78,31 @@ pub enum OutlineKind {
     Erlang,
     /// The rule file of the type (`OUTLINE_FILE`): a tree.
     RuleFile,
+    /// An outline made by a plugin (the jack `Outline`, ADR-0026). The number is the function code of
+    /// the plug that `nDefaultOutline` holds (`CPlug::GetOutlineType`). It is what was asked for; the
+    /// way the result is shown is one of the kinds below, which the plugin chooses with
+    /// `Outline.SetListType`.
+    Plugin(i32),
+    /// `OUTLINE_TREE` (100): a tree of the items by their depth. A plugin's.
+    Tree,
+    /// `OUTLINE_TREE_TAGJUMP` (101): as [`Self::Tree`], and the text for the clipboard can be followed
+    /// by the tag jump. A plugin's.
+    TreeTagJump,
+    /// `OUTLINE_CLSTREE` (200): the tree of classes and members. A plugin's.
+    ClassTree,
+    /// `OUTLINE_LIST` (300): a list of the lines. A plugin's.
+    List,
+}
+
+/// `OUTLINE_TREE`, `OUTLINE_TREE_TAGJUMP`, `OUTLINE_CLSTREE`, `OUTLINE_LIST` and `OUTLINE_PLUGIN`
+/// (`sakura_core/types/CType.h`): the list types that a plugin chooses with `Outline.SetListType`,
+/// and the one it has before it chooses.
+pub mod list_type {
+    pub const TREE: i32 = 100;
+    pub const TREE_TAGJUMP: i32 = 101;
+    pub const CLASS_TREE: i32 = 200;
+    pub const LIST: i32 = 300;
+    pub const PLUGIN: i32 = 19;
 }
 
 /// How a result is shown (`VIEWTYPE_LIST`, `VIEWTYPE_TREE`).
@@ -91,7 +116,14 @@ impl OutlineKind {
     /// The kind for `nDefaultOutline` of a document type. A value that Sakura does not know
     /// falls to the text topics, as `Command_FUNCLIST` does (`default:`).
     pub fn from_setting(value: i32) -> Self {
-        match value {
+        Self::known_setting(value).unwrap_or(Self::Text)
+    }
+
+    /// The kind for a value of `nDefaultOutline` that Sakura's own analyzers serve. `None` for
+    /// any other: Sakura then asks the plugins for an outline with that number and, finding none, makes
+    /// the text topics (`Command_FUNCLIST`, the `default:` branch).
+    pub fn known_setting(value: i32) -> Option<Self> {
+        Some(match value {
             outline_type::C => Self::C,
             outline_type::C_CPP => Self::CCpp,
             outline_type::CPP => Self::Cpp,
@@ -109,7 +141,20 @@ impl OutlineKind {
             outline_type::TEX => Self::Tex,
             outline_type::FILE => Self::RuleFile,
             outline_type::ERLANG => Self::Erlang,
-            _ => Self::Text,
+            _ => return None,
+        })
+    }
+
+    /// The way to show the result for the list type a plugin set (`CDlgFuncList::SetData`): the
+    /// numbers of the kinds Sakura has, [`list_type`] for the general ones, and a list for any other.
+    pub fn from_list_type(value: i32) -> Self {
+        match value {
+            list_type::TREE => Self::Tree,
+            list_type::TREE_TAGJUMP => Self::TreeTagJump,
+            list_type::CLASS_TREE => Self::ClassTree,
+            list_type::LIST => Self::List,
+            // (`OUTLINE_BOOKMARK` and `OUTLINE_FILETREE` are not for a plugin to ask for: a list.)
+            other => Self::known_setting(other).unwrap_or(Self::List),
         }
     }
 
@@ -122,7 +167,9 @@ impl OutlineKind {
             | Self::PlSql
             | Self::Asm
             | Self::Erlang
-            | Self::Bookmark => ViewType::List,
+            | Self::Bookmark
+            | Self::List
+            | Self::Plugin(_) => ViewType::List,
             _ => ViewType::Tree,
         }
     }
@@ -150,6 +197,9 @@ impl OutlineKind {
             Self::Tex => "TeX",
             Self::RuleFile => "ルールファイル",
             Self::Erlang => "Erlang 関数一覧",
+            // `SetWindowText( GetHwnd(), L"" )` for the general kinds: the plugin sets a title
+            // (`Outline.SetTitle`) or there is none.
+            Self::Plugin(_) | Self::Tree | Self::TreeTagJump | Self::ClassTree | Self::List => "",
         }
     }
 }
@@ -236,6 +286,12 @@ pub fn analyze(src: &dyn LineSource, request: &Request<'_>) -> Analysis {
         ),
         // `case OUTLINE_FILETREE: /* 特に何もしない*/` (`Command_FUNCLIST`)
         OutlineKind::FileTree => FuncInfoArr::new(),
+        // The plugins make these (`matsu-ui` runs them); there is nothing to analyze here.
+        OutlineKind::Plugin(_)
+        | OutlineKind::Tree
+        | OutlineKind::TreeTagJump
+        | OutlineKind::ClassTree
+        | OutlineKind::List => FuncInfoArr::new(),
         OutlineKind::Tex => crate::tex::make_topic_list_tex(src),
         OutlineKind::Erlang => crate::erlang::make_func_list_erlang(src),
         OutlineKind::RuleFile => {

@@ -7,7 +7,8 @@
 // - info: the `initialize` params without `script`;
 // - write(fd, text): writes to the standard output (1) or error (2) and flushes at once;
 // - plugin: null for a macro; for a plugin host, { id, dir, raw, names } with one Rust function per
-//   name of the `Plugin` object (the editor answers them), and the id and folder of the plugin.
+//   name of the `Plugin` object (the editor answers them), and the id and folder of the plugin;
+//   `outlineRaw` and `outlineNames` are the same for the `Outline` object.
 //
 // It puts `Editor`, `EditorError` and `console` in the global scope, as boot.cjs does for Node.js,
 // and answers an object for Rust:
@@ -109,6 +110,22 @@
         throw error;
       };
     }
+    // The `Outline` object (Sakura's `COutlineIfObj`); the editor accepts its calls in an `Outline` plug.
+    const Outline = {};
+    for (const name of plugin.outlineNames) {
+      const call = plugin.outlineRaw[name];
+      Outline[name] = function (...args) {
+        while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+        const answer = call(args);
+        if (answer[0]) return answer[1];
+        const error = new EditorError(answer[1], answer[2]);
+        if (typeof Error.captureStackTrace === 'function') {
+          Error.captureStackTrace(error, Outline[name]);
+        }
+        throw error;
+      };
+    }
+    globalThis.Outline = Outline;
     Plugin.id = plugin.id;
     Plugin.dir = plugin.dir;
     Plugin.jack = '';

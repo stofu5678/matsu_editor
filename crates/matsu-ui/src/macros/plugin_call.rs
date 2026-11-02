@@ -36,6 +36,7 @@ use matsu_plugin::session::{Engine, Language, Stream};
 use matsu_plugin::{Value, json};
 
 use super::output::Kind;
+use crate::plugin_outline::{Collected, Ending};
 use crate::view::EditorView;
 
 thread_local! {
@@ -111,6 +112,9 @@ pub(crate) struct DefApi {
     /// The slot of the plugin in the plugin table, which `Plugin.AddCommand` needs for the code of the
     /// command it adds (`None`: the plugin is not in the table, as in a test of the object alone).
     slot: Option<usize>,
+    /// What the `Outline` object is given, in a call of the jack `Outline` (`None`: no other call may
+    /// use the object).
+    outline: Option<Rc<RefCell<Collected>>>,
 }
 
 impl DefApi {
@@ -126,6 +130,7 @@ impl DefApi {
             def,
             command_no,
             slot: None,
+            outline: None,
         }
     }
 
@@ -276,6 +281,11 @@ impl PluginApi for DefApi {
                 Ok(Value::Null)
             }
             "Plugin.AddCommand" => self.add_command(params),
+            // The `Outline` object (`COutlineIfObj`): in a plug of the jack `Outline` only.
+            other if other.starts_with("Outline.") => match &self.outline {
+                Some(collected) => collected.borrow_mut().call(other, params),
+                None => Err(crate::plugin_outline::not_in_an_outline(other)),
+            },
             // `F_PL_GETCOMMANDNO`
             "Plugin.GetCommandNo" => Ok(json!(self.command_no)),
             // `F_PL_GETSTRING`: 0 is the language; `S[n]` of `plugin.def` for 1 to 99.
@@ -319,6 +329,8 @@ pub(crate) struct Prepared {
     /// An event jack (ADR-0026, PR 6): it runs quietly when it goes well, and the caller may wait for
     /// it ([`EditorView::plugin_event_running`]).
     event: bool,
+    /// The result of a call of the jack `Outline`, which the call ends in ([`prepare_outline`]).
+    outline: Option<Rc<RefCell<Collected>>>,
     /// The folder of the plugin and, for an event, the plug: what [`Prepared::refresh`] prepares again.
     folder: String,
     plug: Option<(Jack, String)>,
@@ -403,6 +415,32 @@ pub(crate) fn prepare_function(
             handler: Some(info.handler),
         },
     )
+}
+
+/// The call of the plug of the jack `Outline` with the handler `handler` of the plugin in `folder`
+/// (`Command_FUNCLIST`). What the plug gives to the `Outline` object goes to `collected`, and the call
+/// ends it ([`Collected::ending`]). Like an event, it says nothing when it goes well, and is told in the
+/// output panel when it does not. `Err`: why it cannot run.
+pub(crate) fn prepare_outline(
+    cx: &mut App,
+    dirs: &SearchDirs,
+    folder: &str,
+    handler: &str,
+    collected: Rc<RefCell<Collected>>,
+) -> Result<Prepared, String> {
+    let mut prepared = prepare(
+        cx,
+        dirs,
+        folder,
+        Target::Event {
+            jack: Jack::Outline,
+            handler: handler.to_owned(),
+        },
+    )?;
+    collected.borrow_mut().label = prepared.label.clone();
+    prepared.api.outline = Some(collected.clone());
+    prepared.outline = Some(collected);
+    Ok(prepared)
 }
 
 /// The calls of the plugin in `folder` for the event jack `jack`, one for each of its plugs, in the order
@@ -560,6 +598,7 @@ fn prepare(
         },
         api: DefApi::new(dirs, folder, def, command).in_slot(slot),
         event,
+        outline: None,
         folder: folder.to_owned(),
         plug: event_plug,
     })
@@ -572,6 +611,16 @@ thread_local! {
 
 fn test_interpreter() -> Option<PathBuf> {
     TEST_INTERPRETER.with(|path| path.borrow().clone())
+}
+
+thread_local! {
+    /// A time limit that replaces the one of the jack in a test (a test cannot wait for 10 seconds).
+    static TEST_LIMIT: std::cell::Cell<Option<Duration>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+pub(crate) fn set_test_limit(limit: Option<Duration>) {
+    TEST_LIMIT.with(|cell| cell.set(limit));
 }
 
 #[cfg(test)]
@@ -756,7 +805,7 @@ fn replaced_reply(text: &str) -> Option<String> {
 }
 
 /// The words for how a call ended, for the output panel.
-fn describe(outcome: &Outcome, limit: Duration) -> String {
+pub(crate) fn describe(outcome: &Outcome, limit: Duration) -> String {
     match outcome {
         Outcome::Ok => "正常に終了しました".to_owned(),
         Outcome::Failed(_) => "エラーで終了しました".to_owned(),
@@ -783,9 +832,21 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
         args,
         mut api,
         event,
+        outline,
         ..
     } = prepared;
-    let limit = limit_of(jack);
+    let limit = TEST_LIMIT
+        .with(std::cell::Cell::get)
+        .unwrap_or_else(|| limit_of(jack));
+    // The call of the jack `Outline` ends in its result (the pane waits for it).
+    let end = {
+        let outline = outline.clone();
+        move |ending: Ending| {
+            if let Some(collected) = &outline {
+                collected.borrow_mut().ending = Some(ending);
+            }
+        }
+    };
     let commands_before = plugin_commands::commands().len();
     // One plugin at a time on a window: the calls would share the undo block of the document, and
     // a macro that runs has the window already.
@@ -810,6 +871,7 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
         return false;
     }
     if let Err(error) = host.borrow_mut().begin(jack, &handler, args, limit) {
+        end(Ending::Refused(error.to_string()));
         // A plugin that three failures stopped has said so already.
         if !(event && matches!(error, plugin_host::BeginError::Stopped)) {
             let message = format!("プラグイン {label}: {error}");
@@ -861,6 +923,7 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                 if weak.upgrade().is_none() {
                     host.borrow_mut().cancel();
                     release_document(&document, depth, generation, cx);
+                    end(Ending::Done(Outcome::Cancelled));
                     break;
                 }
                 // The window loaded another document: a plugin that computes without asking
@@ -973,6 +1036,7 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                     if plugin_commands::commands().len() != commands_before {
                         cx.update(crate::plugin_commands::commands_changed);
                     }
+                    end(Ending::Done(outcome));
                     break;
                 }
             };
@@ -980,6 +1044,7 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                 // The window is gone: the call ends with it (and so does the claim on it).
                 host.borrow_mut().cancel();
                 release_document(&document, depth, generation, cx);
+                end(Ending::Done(Outcome::Cancelled));
                 break;
             }
         }

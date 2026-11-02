@@ -64,6 +64,7 @@ use matsu_outline::{
 };
 
 mod dock_ops;
+mod plugin;
 
 use super::dock::DockPlace;
 use super::file_tree::model::FileTreeModel;
@@ -330,6 +331,18 @@ impl OutlinePane {
         }
         self.file_tree = None;
 
+        // The outline of a plugin: the plug is called once, now (the jack `Outline`, ADR-0026)
+        if let OutlineKind::Plugin(code) = self.outline_type {
+            let file_path = self
+                .document
+                .read(cx)
+                .path()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            self.analyze_plugin(code, generation, version, file_path, cx);
+            return;
+        }
+
         let kind = self.outline_type;
         let options = cx
             .try_global::<OutlineOptions>()
@@ -451,7 +464,11 @@ impl OutlinePane {
         let view_type = kind.view();
         let java_tree = matches!(
             kind,
-            OutlineKind::CCpp | OutlineKind::Cpp | OutlineKind::Java | OutlineKind::Cobol
+            OutlineKind::CCpp
+                | OutlineKind::Cpp
+                | OutlineKind::Java
+                | OutlineKind::Cobol
+                | OutlineKind::ClassTree
         );
         let mut tree = Vec::new();
         let clip_text;
@@ -463,7 +480,8 @@ impl OutlinePane {
         } else if view_type == ViewType::Tree {
             tree = build_tree(&analysis.items);
             // Python writes lines the tag jump can follow (SetTree with tagjump)
-            clip_text = clip_text_tree(&analysis.items, &file_path, kind == OutlineKind::Python);
+            let tag_jump = matches!(kind, OutlineKind::Python | OutlineKind::TreeTagJump);
+            clip_text = clip_text_tree(&analysis.items, &file_path, tag_jump);
         } else if kind == OutlineKind::VisualBasic {
             clip_text = clip_text_vb(&analysis.items, &file_path);
         } else {

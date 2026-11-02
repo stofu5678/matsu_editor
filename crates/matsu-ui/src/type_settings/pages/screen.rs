@@ -61,6 +61,13 @@ pub(in crate::type_settings) const OUTLINES: &[(&str, i32)] = &[
     ("テキスト", outline_type::TEXT),
 ];
 
+/// `OUTLINES` and, after them, the outlines of the plugins that may run (`CJackManager::RegisterPlug`
+/// adds them with `CPropTypesScreen::AddOutlineMethod`: the label of the plug, and the function code
+/// of the plug as the number). The plugins are those the sheet was opened with.
+pub(in crate::type_settings) fn outline_options() -> &'static [(&'static str, i32)] {
+    crate::plugin_outline::with_extra(OUTLINES, &crate::plugin_outline::choices())
+}
+
 /// The outline is the rule of the list (0) or a rule file (1).
 pub(in crate::type_settings) const OUTLINE_STANDARD: i32 = 0;
 pub(in crate::type_settings) const OUTLINE_FILE: i32 = 1;
@@ -263,7 +270,7 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                         )
                         .on_change(outline_mode_changed)
                         .into(),
-                        Control::choice(OUTLINE, "", "", OUTLINES[0].1, OUTLINES)
+                        Control::choice(OUTLINE, "", "", OUTLINES[0].1, outline_options())
                             .named("標準ルールの種類")
                             .when(outline_is_standard)
                             .into(),

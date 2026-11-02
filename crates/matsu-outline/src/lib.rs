@@ -74,6 +74,6 @@ mod tests;
 mod tests_tex_erlang_rule;
 
 pub use info::{FuncInfo, FuncInfoArr, NO_CLIP_TEXT, func_obj};
-pub use kind::{Analysis, OutlineKind, Request, ViewType, analyze};
+pub use kind::{Analysis, OutlineKind, Request, ViewType, analyze, list_type};
 pub use source::{LineSource, VecSource};
 pub use tree::{ListColumn, ListSort, SortType, TreeNode};

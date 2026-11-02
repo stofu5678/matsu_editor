@@ -66,6 +66,18 @@ pub fn function_code(slot: usize, plug: usize) -> Option<u16> {
     u16::try_from(code).ok()
 }
 
+/// `CPlug::GetFunctionCode` of a plug of a jack other than `Command`: the same formula, with the plug
+/// numbered from 0 (`Outline` is plug 0, `Outline[1]` is plug 1). The outline type that
+/// `nDefaultOutline` holds for a plugin's outline is this code (`CPlug::GetOutlineType`). `None` for a
+/// slot or a plug number out of range.
+pub fn plug_code(slot: usize, plug: usize) -> Option<u16> {
+    if slot >= MAX_PLUGIN || plug >= MAX_PLUG_CMD {
+        return None;
+    }
+    let code = slot % 20 * 100 + slot / 20 * 50 + plug + usize::from(FIRST);
+    u16::try_from(code).ok()
+}
+
 /// `CPlug::GetPluginId` and `GetPlugId`: the slot and the command number of a function code.
 /// `None` for a code that is not a plugin command. (Sakura stops below `F_PLUGCOMMAND_LAST`, which
 /// leaves the 49th command of the 40th plugin, whose code is `F_PLUGCOMMAND_LAST`, with no plugin:

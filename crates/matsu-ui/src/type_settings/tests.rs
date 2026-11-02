@@ -988,6 +988,7 @@ mod colors;
 mod input;
 mod lists;
 mod moved;
+mod plugin_outline;
 mod screen_layout;
 mod transfer;
 
