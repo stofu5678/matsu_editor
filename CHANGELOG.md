@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.7.0](https://github.com/stofu5678/matsu_editor/compare/v0.6.0...v0.7.0) (2026-11-02)
+
+
+### Features
+
+* **commands:** handle box selections in trim, indent and word delete like Sakura ([#308](https://github.com/stofu5678/matsu_editor/issues/308)) ([755fee0](https://github.com/stofu5678/matsu_editor/commit/755fee0169ea23208baa5170951632d3fff27a8a))
+* **grep:** search the text being edited and keep the histories of the Grep boxes ([#323](https://github.com/stofu5678/matsu_editor/issues/323)) ([9153724](https://github.com/stofu5678/matsu_editor/commit/91537242b25fa6d114fd024074434c7d5a8162ec))
+* **layout:** add kinsoku, wrapped-line indent and the tab marks of the type screen ([#307](https://github.com/stofu5678/matsu_editor/issues/307)) ([16b4028](https://github.com/stofu5678/matsu_editor/commit/16b402848e80d7926911bc8e7ba73c2b3f5e9eae))
+* **outline:** dock the outline on any side and keep its place and width ([#314](https://github.com/stofu5678/matsu_editor/issues/314)) ([73f9d88](https://github.com/stofu5678/matsu_editor/commit/73f9d889cf12c3cbda71821c6e4a16d4b9a5ebd1))
+* **plugins:** edit plugin options in a dialog (ADR-0026) ([#309](https://github.com/stofu5678/matsu_editor/issues/309)) ([1a05119](https://github.com/stofu5678/matsu_editor/commit/1a051199075a030f354b9e779d6fab315002dd53))
+* **plugins:** run plugin commands from menus, keys and toolbars (ADR-0026) ([#311](https://github.com/stofu5678/matsu_editor/issues/311)) ([6696945](https://github.com/stofu5678/matsu_editor/commit/6696945119ced7e027e3492713c8bf4391cd0c33))
+* **print:** print in color and fill the rest of the header variables ([#322](https://github.com/stofu5678/matsu_editor/issues/322)) ([0a41dc4](https://github.com/stofu5678/matsu_editor/commit/0a41dc4b79f8353a6e011d4fb517895b7e9ed7b2))
+* **settings:** add the window size dialog and make the small common options work ([#315](https://github.com/stofu5678/matsu_editor/issues/315)) ([52dbed3](https://github.com/stofu5678/matsu_editor/commit/52dbed32322ad4c640689d92addc5bd54c525de8))
+* **settings:** make the indent and input options of the type screen work ([#310](https://github.com/stofu5678/matsu_editor/issues/310)) ([742b0b7](https://github.com/stofu5678/matsu_editor/commit/742b0b7773879c1d42fc9b45c33ad54c557f43c8))
+* **settings:** unify colors and choose keyword sets 2 to 10 in the type colors ([#313](https://github.com/stofu5678/matsu_editor/issues/313)) ([7593a11](https://github.com/stofu5678/matsu_editor/commit/7593a1115cc919e408f641e60e83d77376443ada))
+* **view:** draw the wrap column line, line number separators and search colors in the HTML copy ([#318](https://github.com/stofu5678/matsu_editor/issues/318)) ([4c37612](https://github.com/stofu5678/matsu_editor/commit/4c376126442abf71388cbe4d201a6b4692cdd173))
+
 ## [0.6.0](https://github.com/stofu5678/matsu_editor/compare/v0.5.2...v0.6.0) (2026-11-01)
 
 
