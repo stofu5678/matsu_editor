@@ -47,6 +47,82 @@ loop_pid() {
   printf '%s\n' "$pid"
 }
 
+# An ssh session cannot open the login keychain, even while the user is logged in to the Mac's screen: security
+# exits 36 ("User interaction is not allowed"). Such a session runs the command again as a launchd job in the
+# logged-in session, which can read the token, and relays the job's output and exit status. The token stays there.
+SESSION_LABEL=io.github.stofu5678.matsu-mac-runner.command
+
+keychain_locked_here() {
+  [ -z "${MATSU_MAC_RUNNER_IN_SESSION:-}" ] || return 1
+  with_limit 20 security find-generic-password -s "$KEYCHAIN_SERVICE" -w > /dev/null 2>&1
+  [ $? -eq 36 ]
+}
+
+# True when a launchd job has run and is not running any more, or is gone. (Here-strings, not `printf | grep -q`:
+# under pipefail, grep's early exit fails the pipeline once the long output of launchctl no longer fits the pipe.)
+session_job_ended() { # service-target
+  local info
+  info=$(launchctl print "$1" 2> /dev/null) || return 0
+  grep -q $'^\tstate = running' <<< "$info" && return 1
+  grep -Eq $'^\truns = [1-9]' <<< "$info"
+}
+
+# Runs "$0 <args>" in the logged-in session and waits for it. Interrupting this stops only the waiting: the command
+# goes on there (down, for one, keeps its stop request).
+in_login_session() { # args
+  local domain base label plist out status_file shown=0 size result f
+  domain="gui/$(id -u)"
+  launchctl print "$domain" > /dev/null 2>&1 ||
+    die "this session cannot open the keychain, and nobody is logged in to the Mac's screen (README.md)"
+  mkdir -p "$STATE_DIR"
+  chmod 700 "$STATE_DIR"
+  # Forget the commands that finished after their waiting was interrupted.
+  for f in "$STATE_DIR"/command.*.status; do
+    [ -e "$f" ] || continue
+    base=${f%.status}
+    launchctl bootout "$domain/$SESSION_LABEL.${base##*.}" > /dev/null 2>&1
+    rm -f "$base.plist" "$base.out" "$f"
+  done
+  base="$STATE_DIR/command.$$"
+  label="$SESSION_LABEL.$$"
+  plist="$base.plist"
+  out="$base.out"
+  status_file="$base.status"
+  rm -f "$plist" "$out" "$status_file"
+  # AbandonProcessGroup: the loop that `up` starts outlives the job.
+  plutil -create xml1 "$plist" &&
+    plutil -insert Label -string "$label" "$plist" &&
+    plutil -insert ProgramArguments -json "$(/usr/bin/jq -cn '$ARGS.positional' --args -- /bin/bash -c \
+      'status_file=$1; shift; "$0" "$@"; echo $? > "$status_file"' "$here/mac-runner" "$status_file" "$@")" "$plist" &&
+    plutil -insert EnvironmentVariables -json "$(/usr/bin/jq -cn --arg path "$PATH" \
+      '{PATH: $path, MATSU_MAC_RUNNER_IN_SESSION: "1"}')" "$plist" &&
+    plutil -insert StandardOutPath -string "$out" "$plist" &&
+    plutil -insert StandardErrorPath -string "$out" "$plist" &&
+    plutil -insert RunAtLoad -bool true "$plist" &&
+    plutil -insert AbandonProcessGroup -bool true "$plist" ||
+    die "could not write $plist"
+  launchctl bootstrap "$domain" "$plist" || die "could not start the command in the logged-in session"
+  while :; do
+    size=$(stat -f %z "$out" 2> /dev/null || echo 0)
+    if [ "$size" -gt "$shown" ]; then
+      tail -c "+$((shown + 1))" "$out" | head -c "$((size - shown))"
+      shown=$size
+    fi
+    [ -s "$status_file" ] && break
+    if session_job_ended "$domain/$label"; then
+      [ -s "$status_file" ] && continue
+      echo "the command in the logged-in session ended without an exit status (log: $LOG)" >&2
+      break
+    fi
+    sleep 1
+  done
+  result=$(cat "$status_file" 2> /dev/null)
+  launchctl bootout "$domain/$label" > /dev/null 2>&1
+  rm -f "$plist" "$out" "$status_file"
+  case "$result" in '' | *[!0-9]*) return 1 ;; esac
+  return "$result"
+}
+
 # Deletes a runner registration (GitHub deletes a just-in-time runner itself after its job; this is for a VM that
 # ended before or without one). A registration that cannot be deleted now is kept for the next try.
 unregister() { # runner-id
@@ -348,6 +424,15 @@ cmd_status() {
     /usr/bin/jq -r '.runners[]? | "runner \(.id) \(.name) \(.status) busy=\(.busy)"' || true
   tail -n 5 "$LOG" 2> /dev/null || true
 }
+
+case "${1:-}" in
+  up | down | status)
+    if keychain_locked_here; then
+      in_login_session "$@"
+      exit $?
+    fi
+    ;;
+esac
 
 case "${1:-}" in
   up) cmd_up ;;

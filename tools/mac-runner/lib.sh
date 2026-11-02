@@ -18,7 +18,7 @@ VM_DISK_GB=100
 
 # The keychain item that holds the fine-grained token (this repository only; Administration and Variables, read and
 # write). The user puts it there; the scripts never write it to a file or a log.
-KEYCHAIN_SERVICE=matsu-mac-runner
+KEYCHAIN_SERVICE=matsu-mac-runner01
 
 STATE_DIR="$HOME/Library/Application Support/matsu-mac-runner"
 LOG="$STATE_DIR/runner.log"
@@ -51,10 +51,8 @@ require_tools() {
   [ -x /usr/bin/jq ] || die "/usr/bin/jq not found (macOS 15 or later has it)"
   # Softnet must run as root: owned by root with the setuid bit (ADR-0027, decision 3).
   [ -u "$SOFTNET" ] && [ "$(stat -f %u "$SOFTNET")" = 0 ] || die "$SOFTNET is not installed as setuid root (see README.md)"
-  case ":$PATH:" in
-    *:/usr/local/bin:*) ;;
-    *) PATH="/usr/local/bin:$PATH" ;;
-  esac
+  # Tart runs the softnet that it finds first on the PATH: this one.
+  PATH="/usr/local/bin:$PATH"
   export PATH
 }
 
@@ -65,8 +63,10 @@ require_tools() {
 # 0/1 and 128/1 routes of WireGuard's wg-quick, the routes of a split tunnel. The Mac's own utun interfaces carry
 # no IPv4 routes.
 vpn_active() {
-  local routes
-  scutil --nc list 2> /dev/null | grep -q '(Connected)' && return 0
+  local services routes
+  # Read first, then match: under pipefail, a `| grep -q` that stops reading early can fail the whole pipeline.
+  services=$(scutil --nc list 2> /dev/null)
+  case "$services" in *'(Connected)'*) return 0 ;; esac
   routes=$(netstat -rn -f inet 2> /dev/null) || return 0
   [ -n "$routes" ] || return 0
   printf '%s\n' "$routes" | awk '$4 ~ /^(utun|ipsec|ppp|tun|tap|gif|stf)[0-9]/ {found = 1} END {exit !found}' && return 0
@@ -145,9 +145,9 @@ put_file() { # vm path
   with_limit 60 "$TART" exec -i "$1" /bin/sh -c "umask 077; cat > '$2.tmp' && mv '$2.tmp' '$2'"
 }
 
-# The token from the keychain. Never printed.
+# The token from the keychain. Never printed. Within 20 seconds: a locked keychain may wait for its password.
 token() {
-  security find-generic-password -s "$KEYCHAIN_SERVICE" -w 2> /dev/null
+  with_limit 20 security find-generic-password -s "$KEYCHAIN_SERVICE" -w 2> /dev/null
 }
 
 # A call of GitHub's REST API with the token. The token goes to curl through stdin (-H @-), not the command line.

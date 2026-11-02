@@ -10,7 +10,7 @@ CI の `test (macos-arm64)` を、GitHub の macOS の実行機のかわりに�
 
 | ファイル | 動く所 | 内容 |
 |---|---|---|
-| `mac-runner` | Mac | `up`・`down`・`status`。VM を 1 つずつ作り、ジョブを 1 つ渡し、消す |
+| `mac-runner` | Mac | `up`・`down`・`status`。VM を 1 つずつ作り、ジョブを 1 つ渡し、消す。ssh から呼ぶと、ログイン中のセッションで動かし直す |
 | `build-golden` | Mac | 型の VM を作る（30 分ほど） |
 | `relocate-recovery.py` | Mac | 型の VM のディスクを広げるため、止めた VM のディスクのイメージの中で、macOS の復旧用の区画を末尾へ移す（diskutil は SIP のため動かせない） |
 | `lib.sh` | Mac | 上の 2 つが使う設定（リポジトリ、VM の大きさ、時間の上限、Softnet の規則）と関数 |
@@ -58,8 +58,9 @@ CI の `test (macos-arm64)` を、GitHub の macOS の実行機のかわりに�
    Softnet のバイナリには Apple の開発者の署名がない（ad-hoc の署名だけ。Homebrew で入れても同じファイル）。ハッシュは GitHub のリリースと同じことを確かめて入れた。
 
 3. トークンを作って、Mac のキーチェーンに入れる
-   - GitHub の Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token。名前 `matsu-mac-runner`、期限 1 年、Repository access は `stofu5678/matsu_editor` だけ、Repository permissions は Administration と Variables を Read and write（Metadata の Read-only は自動で付く）
-   - Mac の前で（WSL や ssh を通さずに）: `security add-generic-password -a "$USER" -s matsu-mac-runner -w`（2 回聞かれるので、2 回とも貼り付ける）
+   - GitHub の Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token。名前 `matsu-mac-runner01`、期限 1 年、Repository access は `stofu5678/matsu_editor` だけ、Repository permissions は Administration と Variables を Read and write（Metadata の Read-only は自動で付く）
+   - Mac の前で（WSL や ssh を通さずに）: `security add-generic-password -a "$USER" -s matsu-mac-runner01 -w`（2 回聞かれるので、2 回とも貼り付ける）。項目の名前は `lib.sh` の `KEYCHAIN_SERVICE`
+   - 期限が切れる前に作り直したら、同じ項目を入れ替える: `security add-generic-password -U -a "$USER" -s matsu-mac-runner01 -w`
 4. 型の VM を作る: `tools/mac-runner/build-golden`
 
 ## 使い方
@@ -75,6 +76,7 @@ tools/mac-runner/mac-runner down --now # すぐやめる（動いているジョ
 - Mac の側の上限: ジョブは 3 時間、ジョブの来ない VM は 6 時間で作り直す。VM が何も答えなくなっても、9 時間で止めて消す。ディスクの空きが 60 GB より少ないときは VM を作らない
 - 旅行などで Mac を使えないとき: `down` しておく。忘れても、Mac が止まって 15 分たつと、CI は GitHub の実行機で動く。ただし、止まる直前に Mac を選んだジョブは待ったままになる（調整役が取り消して流し直す）
 - Mac の外から切り替える: GitHub の画面（Settings → Secrets and variables → Actions → Variables の `MAC_RUNNER`）か、`gh variable set MAC_RUNNER --body github`
+- ssh から使うとき: ssh のセッションでは、ログインのキーチェーンが開かない（Mac の画面にログインしていても、`security` が「User interaction is not allowed」で断る）。そのときの `up`・`down`・`status` は、自分を launchd のジョブとして、Mac の画面にログインしているセッションで動かし直し、その出力と終了コードを ssh の側に写す（トークンはそのセッションの外に出ない）。だれも画面にログインしていないと動かない。ssh の側で Ctrl+C を押しても、止まるのは写すことだけで、コマンド（`down` の止める頼みなど）はそのまま続く
 - 記録: `~/Library/Application Support/matsu-mac-runner/runner.log`
 - Mac の Sandbox の VM と合わせて、macOS の VM は同時に 2 つまで（利用許諾）。メモリが 16 GB なので、Sandbox を使う間は `down` しておく
 
@@ -92,7 +94,7 @@ tools/mac-runner/mac-runner down --now # すぐやめる（動いているジョ
 tools/mac-runner/mac-runner down
 tart delete matsu-ci-golden
 sudo rm /usr/local/bin/softnet
-security delete-generic-password -s matsu-mac-runner
+security delete-generic-password -s matsu-mac-runner01
 rm -rf ~/Library/Application\ Support/matsu-mac-runner
 ```
 
