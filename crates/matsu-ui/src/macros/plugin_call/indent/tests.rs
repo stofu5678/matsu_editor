@@ -431,63 +431,63 @@ fn work_of_the_window_that_is_not_the_users_does_not_stop_the_plugin(cx: &mut Te
 
 #[gpui::test]
 fn a_mouse_drop_while_the_plugin_works_is_not_in_its_undo_step(cx: &mut TestAppContext) {
+    use gpui::{Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, point, px};
+    use matsu_core::buffer::Pos;
     let place = Place::new(
         true,
         "Editor.InsText('    '); console.log('[inserted]'); \
-         const t = Date.now(); while (Date.now() - t < 400) {}",
+         const t = Date.now(); while (Date.now() - t < 600) {}",
     );
     let Some((view, cx)) = window(cx, &place, true) else {
         eprintln!("SKIP: matsu-script is not built next to the tests");
         return;
     };
-    cx.simulate_input("ab");
-    view.update(cx, |v, cx| {
-        v.run_with(cx, |c| {
-            c.move_caret(matsu_core::buffer::Pos::new(0, 0), false)
-        })
-        .ok();
-        v.run_with(cx, |c| {
-            c.move_caret(matsu_core::buffer::Pos::new(0, 1), true)
-        })
-        .ok();
-    });
-    // the selection `a` is dragged behind `b` while the plugin works
-    view.update(cx, |v, cx| {
-        v.run_with(cx, |c| {
-            c.move_caret(matsu_core::buffer::Pos::new(0, 2), false)
-        })
-        .ok();
-    });
+    cx.simulate_input("abcdef ghi");
+    // the window has to be painted for the mouse to hit the text
+    cx.run_until_parked();
     type_char(&view, cx, '\r');
     wait_until(&view, cx, "the insertion of the plugin", |v, cx| {
         called(v, cx) == ["inserted"]
     });
+    // A selection that the plugin's place follows (it is the user's, but not yet a change the plugin
+    // has seen), so that only the drop ends the call.
     view.update(cx, |v, cx| {
-        v.run_with(cx, |c| {
-            c.move_caret(matsu_core::buffer::Pos::new(0, 0), false)
-        })
-        .ok();
-        v.run_with(cx, |c| {
-            c.move_caret(matsu_core::buffer::Pos::new(0, 1), true)
-        })
-        .ok();
+        v.run_with(cx, |c| c.select_range(Pos::new(0, 0), Pos::new(0, 3)))
+            .unwrap();
+        v.indent_guard_follow(cx);
     });
-    view.update(cx, |v, cx| {
-        v.cut_indent_undo_step(cx);
-        v.run_with(cx, |c| {
-            c.mouse_drop_selection(matsu_core::buffer::Pos::new(0, 2), false)
+    let at = |view: &Entity<EditorView>, cx: &mut VisualTestContext, col: usize| {
+        view.read_with(cx, |v, _| {
+            let paint = v.paint.expect("the window was painted");
+            let m = v.metrics;
+            point(
+                px(paint.origin_x + (col as f32 + 0.1) * m.cell_width),
+                px(paint.origin_y + 0.5 * m.line_height - v.scroll_y),
+            )
         })
-        .ok();
+    };
+    let (inside, target) = (at(&view, cx, 1), at(&view, cx, 8));
+    cx.simulate_event(MouseDownEvent {
+        button: MouseButton::Left,
+        position: inside,
+        modifiers: Modifiers::default(),
+        click_count: 1,
+        first_mouse: false,
     });
+    cx.simulate_mouse_move(target, MouseButton::Left, Modifiers::default());
+    cx.simulate_event(MouseUpEvent {
+        button: MouseButton::Left,
+        position: target,
+        modifiers: Modifiers::default(),
+        click_count: 1,
+    });
+    assert_eq!(lines(&view, cx)[0], "def gabchi");
     wait_until(&view, cx, "the end of the call", |v, cx| {
         !v.read_with(cx, |v, app| v.plugin_in_call(app))
     });
-    // one Undo takes the drop only; the indentation stays
-    let before = text(&view, cx);
+    // One Undo takes the drop only; the plugin's indentation stays.
     run(&view, cx, "F_UNDO");
-    let after = text(&view, cx);
-    assert_ne!(before, after);
-    assert!(after.ends_with("    "), "{after:?}");
+    assert_eq!(text(&view, cx), "abcdef ghi\n    ");
     finish(cx);
 }
 
