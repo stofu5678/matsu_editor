@@ -207,7 +207,11 @@ fn close_given_up(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) {
 
 /// [`close_tab_or_window`] after the plugins of `DocumentClose`, and of `EditorEnd` when the window goes
 /// (`MYWM_CLOSE`, `CEditWnd::DispatchEvent`). The question was asked already.
-async fn close_with_events(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) -> bool {
+async fn close_with_events(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    by_copy: bool,
+) -> bool {
     view.update(cx, |view, cx| view.begin_edit_watch(cx)).ok();
     fire_and_wait(view, cx, Jack::DocumentClose).await;
     let ends = match view.upgrade() {
@@ -219,8 +223,18 @@ async fn close_with_events(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowCo
     if ends {
         fire_and_wait(view, cx, Jack::EditorEnd).await;
     }
-    if user_changed_text(view, cx) {
+    // The question was left out because this close ended the editor and the copy of the document is kept
+    // (`KeepUnsavedNoAsk`). A window that opened while the plugins ran makes it an ordinary close: then the
+    // question is due, and the next close asks it.
+    let not_the_end = by_copy
+        && !cx
+            .update(|_, app| closing_ends_the_editor(app, view))
+            .unwrap_or(false);
+    if user_changed_text(view, cx) || not_the_end {
         close_given_up(view, cx);
+        if by_copy && let Some(entity) = view.upgrade() {
+            forget_left_out(&[entity], cx);
+        }
         return false;
     }
     close_tab_or_window(view, cx)
@@ -335,10 +349,12 @@ pub(crate) async fn confirm_and_close_window(
     if hot {
         crate::unsaved::settle(cx).await;
     }
-    if !confirm_discard_ending(view, cx, &|app| closing_ends_the_editor(app, view)).await {
+    let (go_on, by_copy) =
+        confirm_discard_ending_by(view, cx, &|app| closing_ends_the_editor(app, view)).await;
+    if !go_on {
         return false;
     }
-    close_with_events(view, cx).await
+    close_with_events(view, cx, by_copy).await
 }
 
 /// `F_FILESAVECLOSE`: saves and closes the window. An unmodified document is only closed
@@ -365,7 +381,7 @@ pub(crate) async fn save_and_close_window(
         crate::unsaved::mark_close(view, this, cx);
     })
     .ok();
-    close_with_events(view, cx).await
+    close_with_events(view, cx, false).await
 }
 
 /// `F_FILECLOSE`: closes the file and leaves an untitled document in the window.

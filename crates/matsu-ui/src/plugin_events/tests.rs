@@ -803,3 +803,95 @@ fn a_window_that_begins_with_a_file_reads_it_before_editor_start(cx: &mut TestAp
     assert!(output.contains("in.txt"), "{output}");
     finish(&mut vcx);
 }
+
+/// The last window, `KeepUnsavedNoAsk` on, a modified document whose copy is kept, a slow `DocumentClose`
+/// handler: another window opens while the handler runs, and `close` is how the close was asked for.
+/// Returns whether the first window is still there and whether it asks.
+fn a_window_opens_during_close_handlers(
+    cx: &mut TestAppContext,
+    close: impl FnOnce(&mut TestAppContext, gpui::AnyWindowHandle, &Entity<EditorView>),
+) -> Option<(bool, bool)> {
+    let Some((place, _files)) = begin(cx, &[("DocumentClose", BUSY)]) else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return None;
+    };
+    cx.update(gpui_component::init);
+    cx.update(|app| {
+        app.set_global(crate::unsaved::prefs::KeepPrefs {
+            no_ask: true,
+            ..crate::unsaved::prefs::KeepPrefs::default()
+        })
+    });
+    let handle = cx
+        .update(|app| {
+            crate::file_ops::windows::open_editor_window(app, SharedDocument::empty(), None)
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let view = cx.update(|app| {
+        crate::file_ops::windows::editors(app)
+            .into_iter()
+            .find(|(h, _)| *h == handle)
+            .map(|(_, view)| view)
+            .unwrap()
+    });
+    {
+        let vcx = VisualTestContext::from_window(handle, cx).into_mut();
+        place.enable(vcx);
+        vcx.simulate_input("typed");
+    }
+    close(cx, handle, &view);
+    let mut vcx = VisualTestContext::from_window(handle, cx);
+    spin(&mut vcx, "the handler did not start", |cx| {
+        running(&view, cx)
+    });
+    // The window opens while the handler runs: this close is not the end of the editor any more.
+    vcx.update(|_, app| {
+        crate::file_ops::windows::open_editor_window(app, SharedDocument::empty(), None).unwrap();
+    });
+    spin(&mut vcx, "the handler did not end", |cx| {
+        !running(&view, cx)
+    });
+    for _ in 0..50 {
+        vcx.executor().advance_clock(Duration::from_millis(20));
+        vcx.run_until_parked();
+    }
+    let there = vcx.update(|_, app| app.windows().contains(&handle));
+    let asks = vcx.has_pending_prompt();
+    finish(&mut vcx);
+    Some((there, asks))
+}
+
+#[gpui::test]
+fn a_window_that_opens_during_close_handlers_brings_back_the_question_of_the_close_button(
+    cx: &mut TestAppContext,
+) {
+    let Some((there, asks)) = a_window_opens_during_close_handlers(cx, |cx, handle, _| {
+        let window = VisualTestContext::from_window(handle, cx).into_mut();
+        assert!(!window.simulate_close());
+    }) else {
+        return;
+    };
+    assert!(there, "the window is not closed without a word");
+    assert!(asks, "the question about the document is asked");
+}
+
+#[gpui::test]
+fn a_window_that_opens_during_close_handlers_stops_the_close_command(cx: &mut TestAppContext) {
+    let Some((there, _)) = a_window_opens_during_close_handlers(cx, |cx, handle, view| {
+        let code = FUNCTIONS
+            .iter()
+            .find(|f| f.name == "F_WINCLOSE")
+            .unwrap()
+            .code;
+        handle
+            .update(cx, |_, window, app| {
+                view.update(app, |view, cx| view.run_function(code, &[], window, cx))
+            })
+            .unwrap();
+        cx.run_until_parked();
+    }) else {
+        return;
+    };
+    assert!(there, "the window is not closed without a word");
+}

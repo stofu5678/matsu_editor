@@ -385,6 +385,18 @@ async fn close_after_questions(
                     tabs.len() == views.len() && tabs.iter().zip(&views).all(|(a, b)| a == b)
                 })
                 .unwrap_or(false);
+            // A window that opened meanwhile makes this close an ordinary one: what was left out for the
+            // copies is asked about now.
+            let still_ends = cx
+                .update(|_, app| {
+                    crate::unsaved::hot_exit_enabled(app) && workspaces(app).len() == 1
+                })
+                .unwrap_or(false);
+            if !by_copy_only.is_empty() && !still_ends {
+                asked.retain(|(id, _)| !by_copy_only.contains(id));
+                by_copy_only.clear();
+                continue;
+            }
             if !edited && same_tabs {
                 cx.update(|window, app| {
                     for view in &views {
