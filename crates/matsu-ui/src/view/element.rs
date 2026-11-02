@@ -752,6 +752,16 @@ impl Element for EditorElement {
             .flat_map(|(from, to)| [from, to])
             .filter_map(|pos| layout.pos_to_row(doc, pos).ok().map(|at| at.column))
             .chain(options.free_cursor.then_some(caret_total_column).flatten())
+            // A box selection can end right of the text: its corners have columns of their own.
+            .chain(
+                [
+                    editor.cursor.box_anchor_col(),
+                    editor.cursor.box_caret_col(),
+                ]
+                .into_iter()
+                .flatten()
+                .map(|c| u32::try_from(c).unwrap_or(u32::MAX)),
+            )
             .max()
             .unwrap_or(0);
 
