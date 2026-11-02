@@ -96,3 +96,27 @@ fn a_selection_keeps_the_window_where_it_is_until_it_is_dropped(cx: &mut TestApp
     assert_ne!(window_of(cx, &view), Some(window));
     std::fs::remove_dir_all(dir).ok();
 }
+
+#[gpui::test]
+fn a_jump_with_the_selection_lock_waits_and_the_place_left_is_in_the_jump_list(
+    cx: &mut TestAppContext,
+) {
+    let (handle, dir) = opened(cx, "big.txt", big_text().as_bytes());
+    let view = active_view(cx, handle);
+    view.update(cx, |v, cx| v.run_command("jump", &[Arg::Int(3)], cx));
+    // With the lock the jump extends the selection: it waits, as the jumps that select do.
+    view.update(cx, |v, _| v.cursor.set_selecting_lock(true));
+    run(cx, handle, "F_GOFILEEND");
+    assert!(window_of(cx, &view).is_none());
+    view.update(cx, |v, _| {
+        v.cursor.set_selecting_lock(false);
+        v.pending_scan_jump = None;
+    });
+    // Without it the jump shows the end at once, and the place it left is recorded.
+    run(cx, handle, "F_GOFILEEND");
+    assert!(window_of(cx, &view).is_some());
+    super::huge_tests::wait_for_scan(cx, &view);
+    run(cx, handle, "F_JUMPHIST_PREV");
+    assert_eq!(super::huge_tests::caret_line(cx, &view), 2);
+    std::fs::remove_dir_all(dir).ok();
+}

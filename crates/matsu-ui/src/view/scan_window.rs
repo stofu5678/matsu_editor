@@ -346,7 +346,8 @@ impl EditorView {
         args: &[Arg],
         cx: &mut Context<Self>,
     ) -> bool {
-        if self.is_macro_running() {
+        // A selection lock makes the jumps extend the selection, which a window cannot hold: wait.
+        if self.is_macro_running() || self.cursor.selecting_lock() {
             return false;
         }
         let shared = self.document.read(cx);
@@ -385,9 +386,15 @@ impl EditorView {
                 None => return false,
             },
         };
+        // The place the jump leaves goes to the jump history (`AddCurrentLineToHistory`), if it
+        // is a place of the file: the lines of a window are not, and are not recorded.
+        let departure = (!windowed).then(|| self.cursor.caret());
         if !self.cover_scan_byte(byte, cx) {
             // No window can be cut there: the jump waits for the scan after all.
             return false;
+        }
+        if let Some(from) = departure {
+            self.cursor.jump_history_mut().add(from);
         }
         // Recorded in its place among the commands, as the jump that waits is. It replaces a
         // move that waited for the scan.
