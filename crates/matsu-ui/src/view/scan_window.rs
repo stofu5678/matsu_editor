@@ -140,6 +140,14 @@ impl EditorView {
 
     /// While the layout of a new document is made (a window, or the whole file), keeps the top of
     /// the view on the line it was moved to; the user's own scroll ends it.
+    /// The scroll was clamped to the new document by the view itself: it is not the user's.
+    pub(super) fn rebase_frame_top(&mut self) {
+        let scroll = self.scroll_y;
+        if let Some(top) = self.frame_top.as_mut() {
+            top.set = scroll;
+        }
+    }
+
     pub(crate) fn hold_frame_top(&mut self, cx: &App) {
         let Some(top) = self.frame_top.take() else {
             return;

@@ -686,6 +686,7 @@ impl EditorView {
         // the candidates were made for the old text
         self.support.completion = None;
         self.clamp_scroll();
+        self.rebase_frame_top();
         cx.notify();
         self.run_pending_scan_jump(cx);
         self.apply_scan_restore(cx);

@@ -120,3 +120,19 @@ fn a_jump_with_the_selection_lock_waits_and_the_place_left_is_in_the_jump_list(
     assert_eq!(super::huge_tests::caret_line(cx, &view), 2);
     std::fs::remove_dir_all(dir).ok();
 }
+
+#[gpui::test]
+fn the_jump_list_waits_for_the_scan_while_a_window_is_shown(cx: &mut TestAppContext) {
+    let (handle, dir) = opened(cx, "big.txt", big_text().as_bytes());
+    let view = active_view(cx, handle);
+    view.update(cx, |v, cx| v.run_command("jump", &[Arg::Int(3)], cx));
+    run(cx, handle, "F_GOFILEEND");
+    assert!(window_of(cx, &view).is_some());
+    let at = view.read_with(cx, |v, _| v.cursor.caret());
+    // The place in the list is a line of the file, not of the window.
+    run(cx, handle, "F_JUMPHIST_PREV");
+    assert_eq!(view.read_with(cx, |v, _| v.cursor.caret()), at);
+    super::huge_tests::wait_for_scan(cx, &view);
+    assert_eq!(super::huge_tests::caret_line(cx, &view), 2);
+    std::fs::remove_dir_all(dir).ok();
+}

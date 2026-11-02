@@ -153,6 +153,10 @@ impl EditorView {
             // top of the file.
             "F_GOFILETOP" | "F_GOFILETOP_SEL" | "F_GOFILETOP_BOX" => shared.scan_window().is_some(),
             "F_JUMP" if shared.scan_window().is_some() => true,
+            // The jump list holds places of the file; the positions of a window are others.
+            "F_JUMPHIST_PREV" | "F_JUMPHIST_NEXT" | "F_JUMPHIST_SET" => {
+                shared.scan_window().is_some()
+            }
             "F_JUMP" => {
                 let (line, option) = jump_args(args);
                 // Only the plain count of lines (option 1) is the number of a scanned line; the
