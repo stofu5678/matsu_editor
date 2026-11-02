@@ -317,8 +317,9 @@ pub(crate) async fn start_editor_if_due(
 /// there ([`restart_ended`]) takes the `EditorEnd` back with an `EditorStart`.
 #[derive(Default)]
 pub(crate) struct CloseLog {
-    /// The views that were told `DocumentClose`.
-    closed: HashSet<EntityId>,
+    /// The documents that were told `DocumentClose`: a tab and the generation of the document it shows (a
+    /// document that replaces another in the tab is another one).
+    closed: HashSet<(EntityId, u64)>,
     /// The windows that were told `EditorEnd`.
     ended: Vec<EndedWindow>,
 }
@@ -337,6 +338,11 @@ struct EndedWindow {
 /// is due) and `DocumentOpen` (`CNormalProcess`: `DoGrep`, then `PP_EDITOR_START`, then `PP_DOCUMENT_OPEN`). The
 /// search does not block the window as it does in Sakura, so this waits for it.
 pub(crate) async fn start_after_grep(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) {
+    // The document of the window when the launch began: a file that the user opens meanwhile has its own
+    // `DocumentOpen`.
+    let generation = view
+        .read_with(cx, |view, app| view.document().read(app).generation())
+        .ok();
     while view
         .read_with(cx, |view, _| view.grep_busy())
         .unwrap_or(false)
@@ -344,7 +350,7 @@ pub(crate) async fn start_after_grep(view: &WeakEntity<EditorView>, cx: &mut Asy
         cx.background_executor().timer(TICK).await;
     }
     start_editor_if_due(view, cx).await;
-    fire_and_wait(view, cx, Jack::DocumentOpen).await;
+    fire_and_wait_for(view, cx, Jack::DocumentOpen, generation).await;
 }
 
 /// `DocumentClose` for each of `views`, and `EditorEnd` on the first of them: a window is about to go
@@ -371,9 +377,14 @@ pub(crate) async fn windows_closing(
     }
     for views in windows {
         for view in views {
+            let generation = view
+                .read_with(cx, |view, app| view.document().read(app).generation())
+                .ok();
             // Told already by an earlier round of this flow: not told twice.
-            if log.closed.insert(view.entity_id()) {
-                fire_and_wait(view, cx, Jack::DocumentClose).await;
+            if let Some(generation) = generation
+                && log.closed.insert((view.entity_id(), generation))
+            {
+                fire_and_wait_for(view, cx, Jack::DocumentClose, Some(generation)).await;
             }
         }
         if let Some(first) = views.first() {
