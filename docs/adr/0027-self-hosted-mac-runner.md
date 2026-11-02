@@ -1,6 +1,6 @@
 # ADR-0027: macOS の CI を、Mac の上の VM で動く自前の実行機で動かす
 
-- 状態: 提案（方向は 2026-11-02 にユーザーが決めた。細部は「判断してほしいこと」）
+- 状態: 決定（2026-11-02 に、ユーザーが #328 をマージし、「判断してほしいこと」の 8 項目を推奨どおりに決めた）
 - 日付: 2026-11-02
 
 ## 背景
@@ -121,6 +121,14 @@
 6. 実行機を動かしている間は、Mac で、社内などの網につなぐ VPN を使わないこと
 7. 第 1 段（`test (macos-arm64)` だけ）から始め、E2E は第 2 段にすること
 8. 1 度に動かす VM は 1 つから始めること
+
+## 決めたこと（2026-11-02）
+
+上の「判断してほしいこと」の 8 項目は、すべて推奨どおり。決めたあとに分かったことと、済んだこと。
+
+- 2: リポジトリの設定を「Require approval for all external contributors」にした（調整役が API で設定。`GET /repos/stofu5678/matsu_editor/actions/permissions/fork-pr-contributor-approval` が `all_external_contributors` を返す）
+- 4: ユーザーの Mac は macOS 27.0.1（`.claude/handoff/mac-sandbox.md` の記録）なので、Softnet の条件（macOS 26 以降）を満たす。macOS の更新は要らない
+- 1・3: ユーザーの作業（トークンを作ってキーチェーンに入れる、Softnet を root で動かす設定）は、Mac で確かめてから行う
 
 ## 調整役が確かめること（Mac がつながってから）
 
