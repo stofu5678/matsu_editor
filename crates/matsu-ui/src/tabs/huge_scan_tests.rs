@@ -25,7 +25,10 @@ use crate::view::EditorView;
 const ABOUT: usize = 40;
 
 /// The window on the file that the document is, if it is one.
-fn window_of(cx: &mut TestAppContext, view: &Entity<EditorView>) -> Option<ScanWindowInfo> {
+pub(super) fn window_of(
+    cx: &mut TestAppContext,
+    view: &Entity<EditorView>,
+) -> Option<ScanWindowInfo> {
     view.read_with(cx, |v, cx| v.document().read(cx).scan_window())
 }
 

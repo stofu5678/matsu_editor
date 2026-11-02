@@ -140,7 +140,7 @@ impl EditorView {
 
     /// While the layout of a new document is made (a window, or the whole file), keeps the top of
     /// the view on the line it was moved to; the user's own scroll ends it.
-    pub(super) fn hold_frame_top(&mut self, cx: &App) {
+    pub(crate) fn hold_frame_top(&mut self, cx: &App) {
         let Some(top) = self.frame_top.take() else {
             return;
         };
@@ -236,6 +236,15 @@ impl EditorView {
         self.scroll_past_end = false;
         self.scroll_y = row as f32 * self.metrics.line_height;
         self.clamp_scroll();
+        // The user scrolled: the view does not go back to the caret while the layout is made.
+        self.prefs.reveal_caret = false;
+        // The layout of a new document is not complete (wrapped lines have more rows than it
+        // counts yet): the top is put again as it goes on.
+        self.frame_top = (!self.layout.is_complete()).then_some(FrameTop {
+            pos,
+            row_offset: 0.0,
+            set: self.scroll_y,
+        });
     }
 
     // ---- the window ----
@@ -273,7 +282,8 @@ impl EditorView {
     pub(crate) fn queue_scan_window_shift(&mut self, focused: bool, cx: &mut Context<Self>) {
         // Only the pane that has the focus moves the window: the panes of a document share it, and
         // two that asked for different places would move it back and forth.
-        if self.scan_shift_queued || !focused {
+        // A selection is held in the positions of this window: a new window would drop it.
+        if self.scan_shift_queued || !focused || self.cursor.has_selection() {
             return;
         }
         let shared = self.document.read(cx);
@@ -406,6 +416,10 @@ impl EditorView {
             }
             _ => self.ensure_caret_visible(cx),
         }
+        // The place of the jump stays on the screen while the layout of the window is made
+        // (a wrapped line has more rows than the layout counts at first).
+        self.frame_top = None;
+        self.prefs.reveal_caret = true;
         self.notice = None;
         cx.notify();
         true

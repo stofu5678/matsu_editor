@@ -27,6 +27,8 @@ mod drop_tests;
 mod file_tests;
 pub(crate) mod flows;
 #[cfg(test)]
+mod huge_scan_layout_tests;
+#[cfg(test)]
 mod huge_scan_tests;
 #[cfg(test)]
 mod huge_tests;
