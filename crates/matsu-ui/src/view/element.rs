@@ -553,14 +553,20 @@ impl Element for EditorElement {
         // `DetectWidthOfLineNumberArea_calculate`: the digits of the last number, at least
         // `nLineNumWidth`, and a blank before them. The last number counts the lines of the text,
         // or the rows of the wrapped view (the empty row after the last line ending is no line).
+        // In a window on a huge file the numbers count from the start of the file, "about"
+        // (`~`, one column more) while the scan has not passed the window (ADR-0020, chapter 2).
+        let line_base = editor.document.read(cx).line_base();
+        let before = usize::try_from(line_base.lines_before).unwrap_or(usize::MAX / 2);
         let numbers_by_line = settings.outline.line_num_is_crlf;
         let eof_row = usize::from(layout.has_eof_row());
         let last_number = if numbers_by_line {
             doc.line_count().saturating_sub(eof_row)
         } else {
             layout.row_count().saturating_sub(eof_row)
-        };
-        let digits = lines::line_number_columns(last_number, settings.line_num_width);
+        }
+        .saturating_add(before);
+        let digits = lines::line_number_columns(last_number, settings.line_num_width)
+            + usize::from(line_base.approx);
         // The text starts `nLineNumberRightSpace` pixels after the line numbers
         // (`CTextArea::DetectWidthOfLineNumberArea`: `nViewAlignLeftNew += GetLeftYohaku()`).
         let gutter_width = settings.line_number_right_space as f32
@@ -630,7 +636,12 @@ impl Element for EditorElement {
                 .then(|| lines::line_number(numbers_by_line, row.row, row.line, row.row_in_line))
                 .flatten();
             let numbers = if let Some(number) = number {
-                let text = format!("{number:>digits$}");
+                let number = number.saturating_add(before);
+                let text = if line_base.approx {
+                    format!("{:>digits$}", format!("~{number}"))
+                } else {
+                    format!("{number:>digits$}")
+                };
                 if spaced {
                     text.chars()
                         .enumerate()
@@ -1160,7 +1171,10 @@ impl Element for EditorElement {
             view_width: (f32::from(bounds.size.width) - p.gutter_width - SCROLLBAR_WIDTH).max(1.0),
             view_height: (f32::from(bounds.size.height) - p.top_margin - p.hbar_height).max(1.0),
         };
-        let bar = Scrollbar::new(&metrics, p.total_rows, scroll_y);
+        // While a huge file is scanned the bar covers the whole file, by bytes.
+        let bar = editor
+            .scan_scrollbar(&metrics, cx)
+            .unwrap_or_else(|| Scrollbar::new(&metrics, p.total_rows, scroll_y));
 
         let lh = px(p.line_height);
         let body_top = bounds.top() + px(p.top_margin);

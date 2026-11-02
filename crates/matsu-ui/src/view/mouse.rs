@@ -216,12 +216,20 @@ impl EditorView {
             return;
         }
         if f32::from(event.position.x) >= paint.scrollbar_left {
-            let bar = Scrollbar::new(&self.metrics, rows, self.scroll_y);
+            // The bar of a file that is still scanned covers the whole file (`scan_window.rs`).
+            let scan_bar = self.scan_scrollbar(&self.metrics, cx);
+            let bar =
+                scan_bar.unwrap_or_else(|| Scrollbar::new(&self.metrics, rows, self.scroll_y));
             let y = f32::from(event.position.y) - paint.origin_y;
             if y >= bar.thumb_top && y <= bar.thumb_top + bar.thumb_height {
                 self.drag = Drag::Thumb {
                     start_y: f32::from(event.position.y),
-                    start_scroll: clamp_scroll_y(&self.metrics, rows, self.scroll_y),
+                    // (for the bar of a scan: where the thumb was)
+                    start_scroll: if scan_bar.is_some() {
+                        bar.thumb_top
+                    } else {
+                        clamp_scroll_y(&self.metrics, rows, self.scroll_y)
+                    },
                 };
             } else {
                 // Clicking the track pages up or down, as on Windows.
@@ -583,9 +591,13 @@ impl EditorView {
                 start_y,
                 start_scroll,
             } => {
+                let dy = f32::from(event.position.y) - start_y;
+                if let Some(bar) = self.scan_scrollbar(&self.metrics, cx) {
+                    self.drag_scan_thumb(&bar, start_scroll + dy, cx);
+                    return;
+                }
                 let rows = self.layout.row_count();
                 let bar = Scrollbar::new(&self.metrics, rows, self.scroll_y);
-                let dy = f32::from(event.position.y) - start_y;
                 self.scroll_past_end = false;
                 self.scroll_y = bar.scroll_for_drag(&self.metrics, rows, start_scroll, dy);
                 cx.notify();

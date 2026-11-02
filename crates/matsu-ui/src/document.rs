@@ -30,6 +30,8 @@ mod scan;
 
 pub(crate) use scan::ScanTick;
 use scan::ScanWatch;
+#[cfg(test)]
+pub(crate) use scan::ScanWindowInfo;
 
 /// `m_nNonameSequences`: how many numbers were given to untitled windows.
 #[cfg(not(test))]
@@ -129,6 +131,9 @@ pub struct SharedDocument {
     scan: Option<ScanWatch>,
     /// The number of the scan that ended with the complete document (`document/scan.rs`).
     scan_done: Option<u64>,
+    /// The document the positions of the views are in, while a file is scanned
+    /// (`document/scan.rs`).
+    frame: scan::ScanFrame,
     /// The file is read by ranges (ADR-0020): it stays open behind the document.
     ranged: bool,
     /// The stops of the TSV or CSV mode, counted once for all the panes of the document (see
@@ -189,6 +194,7 @@ impl SharedDocument {
             restored_check: None,
             scan: None,
             scan_done: None,
+            frame: Default::default(),
             ranged: false,
             tsv: Default::default(),
         }
@@ -286,6 +292,7 @@ impl SharedDocument {
             restored_check: None,
             scan: None,
             scan_done: None,
+            frame: Default::default(),
             ranged,
             tsv: Default::default(),
         };
