@@ -168,7 +168,7 @@ fn wait_for_jacks(
     cx: &mut VisualTestContext,
     count: usize,
 ) -> Vec<String> {
-    for _ in 0..1000 {
+    for _ in 0..3000 {
         cx.executor().advance_clock(Duration::from_millis(20));
         cx.run_until_parked();
         let ran = jacks(view, cx);
@@ -469,7 +469,7 @@ fn spin(
     what: &str,
     mut done: impl FnMut(&mut VisualTestContext) -> bool,
 ) {
-    for _ in 0..1000 {
+    for _ in 0..3000 {
         cx.executor().advance_clock(Duration::from_millis(20));
         cx.run_until_parked();
         if done(cx) {
@@ -598,7 +598,10 @@ fn close_with(
     script: &str,
     during: impl FnOnce(&mut VisualTestContext),
 ) -> Option<(bool, Option<String>)> {
-    let Some((place, files)) = begin(cx, &[("DocumentClose", script)]) else {
+    // The handler says when it begins: `running` alone may be the handler of DocumentOpen of the file that
+    // was just opened, which is over before the close begins.
+    let script = format!("console.log('[DocumentClose]'); {script}");
+    let Some((place, files)) = begin(cx, &[("DocumentClose", &script)]) else {
         eprintln!("SKIP: matsu-script is not built next to the tests");
         return None;
     };
@@ -614,14 +617,24 @@ fn close_with(
     spin(cx, "not open", |cx| {
         view.read_with(cx, |v, app| v.document().read(app).path().is_some())
     });
+    // The handler of DocumentOpen is over before the close begins.
+    spin(cx, "DocumentOpen did not run", |cx| {
+        jacks(&view, cx).contains(&"DocumentOpen".to_owned()) && !running(&view, cx)
+    });
     run(&view, cx, "F_FILECLOSE", &[]);
-    spin(cx, "the handler did not start", |cx| running(&view, cx));
+    spin(cx, "the close handler did not start", |cx| {
+        jacks(&view, cx).contains(&"DocumentClose".to_owned())
+    });
     during(cx);
-    spin(cx, "the handler did not end", |cx| !running(&view, cx));
-    for _ in 0..30 {
-        cx.executor().advance_clock(Duration::from_millis(20));
-        cx.run_until_parked();
-    }
+    // The close is over when the file is gone or the close was given up with its notice.
+    spin(cx, "the close did not end", |cx| {
+        view.read_with(cx, |v, app| {
+            v.document().read(app).path().is_none()
+                || v.notice
+                    .as_deref()
+                    .is_some_and(|n| n.contains("閉じるのをやめた"))
+        })
+    });
     let closed = view.read_with(cx, |v, app| v.document().read(app).path().is_none());
     let notice = view.read_with(cx, |v, _| v.notice.clone());
     finish(cx);
@@ -809,6 +822,7 @@ fn a_window_that_begins_with_a_file_reads_it_before_editor_start(cx: &mut TestAp
 /// Returns whether the first window is still there and whether it asks.
 fn a_window_opens_during_close_handlers(
     cx: &mut TestAppContext,
+    wait_for_the_question: bool,
     close: impl FnOnce(&mut TestAppContext, gpui::AnyWindowHandle, &Entity<EditorView>),
 ) -> Option<(bool, bool)> {
     let Some((place, _files)) = begin(cx, &[("DocumentClose", BUSY)]) else {
@@ -852,9 +866,16 @@ fn a_window_opens_during_close_handlers(
     spin(&mut vcx, "the handler did not end", |cx| {
         !running(&view, cx)
     });
-    for _ in 0..50 {
-        vcx.executor().advance_clock(Duration::from_millis(20));
-        vcx.run_until_parked();
+    if wait_for_the_question {
+        spin(&mut vcx, "the question did not come", |cx| {
+            cx.has_pending_prompt()
+        });
+    } else {
+        // Nothing to wait for: the window stays. Give the close flow time to do the wrong thing.
+        for _ in 0..50 {
+            vcx.executor().advance_clock(Duration::from_millis(20));
+            vcx.run_until_parked();
+        }
     }
     let there = vcx.update(|_, app| app.windows().contains(&handle));
     let asks = vcx.has_pending_prompt();
@@ -866,7 +887,7 @@ fn a_window_opens_during_close_handlers(
 fn a_window_that_opens_during_close_handlers_brings_back_the_question_of_the_close_button(
     cx: &mut TestAppContext,
 ) {
-    let Some((there, asks)) = a_window_opens_during_close_handlers(cx, |cx, handle, _| {
+    let Some((there, asks)) = a_window_opens_during_close_handlers(cx, true, |cx, handle, _| {
         let window = VisualTestContext::from_window(handle, cx).into_mut();
         assert!(!window.simulate_close());
     }) else {
@@ -878,7 +899,7 @@ fn a_window_that_opens_during_close_handlers_brings_back_the_question_of_the_clo
 
 #[gpui::test]
 fn a_window_that_opens_during_close_handlers_stops_the_close_command(cx: &mut TestAppContext) {
-    let Some((there, _)) = a_window_opens_during_close_handlers(cx, |cx, handle, view| {
+    let Some((there, _)) = a_window_opens_during_close_handlers(cx, false, |cx, handle, view| {
         let code = FUNCTIONS
             .iter()
             .find(|f| f.name == "F_WINCLOSE")
