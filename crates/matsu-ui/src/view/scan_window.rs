@@ -281,6 +281,11 @@ impl EditorView {
             return;
         };
         let (top, bottom) = self.visible_bytes(&self.metrics, cx);
+        // A view that fills more than half of the window (very long lines) cannot be given the
+        // room at both edges that a new window would have: it would be moved without end.
+        if bottom.saturating_sub(top) >= (window.end - window.start) / 2 {
+            return;
+        }
         let near_top = window.start > 0 && top < window.start + EDGE;
         let near_bottom = window.end < total && bottom + EDGE > window.end;
         if !(near_top || near_bottom) || self.scan_shift_gave_up == Some(top) {
@@ -363,8 +368,10 @@ impl EditorView {
             // No window can be cut there: the jump waits for the scan after all.
             return false;
         }
-        // Recorded in its place among the commands, as the jump that waits is.
+        // Recorded in its place among the commands, as the jump that waits is. It replaces a
+        // move that waited for the scan.
         self.record_call(reg.sakura, args);
+        self.pending_scan_jump = None;
         let shared = self.document.read(cx);
         let doc = shared.doc();
         let pos = match goal {
