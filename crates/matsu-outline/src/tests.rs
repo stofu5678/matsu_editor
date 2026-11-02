@@ -1064,7 +1064,7 @@ fn the_item_for_the_caret_passes_over_the_items_of_another_file() {
     });
     assert_eq!(item_at(&arr, 3, 1), Some(1));
     assert_eq!(
-        crate::tree::item_at_where(&arr, 3, 1, |i| i.file.is_empty()),
+        crate::tree::item_at_where(&arr, 3, 1, |_, i| i.file.is_empty()),
         Some(0)
     );
 }

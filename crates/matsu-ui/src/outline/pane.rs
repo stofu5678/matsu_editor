@@ -101,6 +101,9 @@ pub(crate) struct Row {
 /// What an analysis gave, ready to show.
 struct Shown {
     analysis: Analysis,
+    /// For each item: it is in another file than the document (a plugin's `AddFuncInfo3`), so it is no
+    /// place in this document. Worked out once, when the analysis is installed (it asks the file system).
+    foreign: Vec<bool>,
     /// The title of the pane: the one of the kind, or the one the rule file sets.
     title: String,
     view: ViewType,
@@ -428,6 +431,7 @@ impl OutlinePane {
         self.analyzing = false;
         self.stale = false;
         let kind = analysis.kind;
+        let foreign = self.foreign_items(&analysis.items, cx);
         let line_num_is_crlf = self
             .view
             .upgrade()
@@ -445,8 +449,9 @@ impl OutlinePane {
                 // Only the items of this document: an item a plugin put in another file
                 // (`AddFuncInfo3`) has no line here. Sakura marks the line of every item
                 // (`SetDocLineFuncList`, `CDlgFuncList.cpp:1505-1527`); that is a fault of its own.
-                .filter(|i| i.line > 0 && !self.is_in_another_file(&i.file, cx))
-                .map(|i| i.line - 1)
+                .zip(&foreign)
+                .filter(|(i, foreign)| i.line > 0 && !**foreign)
+                .map(|(i, _)| i.line - 1)
                 .collect();
             view.update(cx, |view, cx| {
                 view.run_with(cx, |c| c.set_funclist_marks(lines));
@@ -459,9 +464,10 @@ impl OutlinePane {
                     .items
                     .items()
                     .iter()
-                    .map(|i| {
+                    .zip(&foreign)
+                    .map(|(i, foreign)| {
                         // the line of an item of another file is that file's
-                        if self.is_in_another_file(&i.file, cx) {
+                        if *foreign {
                             i.line
                         } else {
                             view.layout().first_row_of_line(i.line.saturating_sub(1)) + 1
@@ -504,6 +510,7 @@ impl OutlinePane {
             self.expanded.extend(tree.iter().map(|n| n.order));
         }
         self.shown = Some(Shown {
+            foreign,
             title: analysis
                 .title
                 .clone()
@@ -622,11 +629,12 @@ impl OutlinePane {
             .doc()
             .utf16_col(caret.line, caret.col);
         // (an item of another file is no place in this document)
-        let Some(index) =
-            item_at_where(&shown.analysis.items, caret.line + 1, caret_col + 1, |i| {
-                !self.is_in_another_file(&i.file, cx)
-            })
-        else {
+        let Some(index) = item_at_where(
+            &shown.analysis.items,
+            caret.line + 1,
+            caret_col + 1,
+            |i, _| !shown.foreign.get(i).copied().unwrap_or(false),
+        ) else {
             self.selected = None;
             return;
         };

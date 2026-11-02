@@ -41,6 +41,25 @@ impl OutlinePane {
         })
     }
 
+    /// For each item of `items`: whether it is in another file than the document. Each file name is
+    /// looked at once.
+    pub(super) fn foreign_items(
+        &self,
+        items: &matsu_outline::FuncInfoArr,
+        cx: &gpui::App,
+    ) -> Vec<bool> {
+        let mut known: std::collections::HashMap<&str, bool> = std::collections::HashMap::new();
+        items
+            .items()
+            .iter()
+            .map(|item| {
+                *known
+                    .entry(item.file.as_str())
+                    .or_insert_with(|| self.is_in_another_file(&item.file, cx))
+            })
+            .collect()
+    }
+
     /// The place of an item whose line and column are counted from 1, the column in the UTF-16 units of
     /// the line (`AddFuncInfo`; the same count as `Editor.MoveCursor`). The analyzers of MATSU give
     /// column 1.
