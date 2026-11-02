@@ -418,6 +418,9 @@ fn peak_rss_mb() -> u64 {
 /// Not a test: the time and the memory of a Grep of a big file, for the PR. Run it in a release
 /// build with the file in `MATSU_GREP_MEASURE_FILE`:
 /// `cargo test -p matsu-ui --release --lib measure_a_big_file -- --ignored --nocapture`.
+/// `MATSU_GREP_MEASURE_STEP` (`order`, `window` or `whole`) runs one step only: the peak memory
+/// is of the whole process, so the steps are measured one by one. `whole` is the read of the
+/// file into memory that a Grep did before.
 #[test]
 #[ignore = "measures the file in MATSU_GREP_MEASURE_FILE; run in a release build"]
 fn measure_a_big_file() {
@@ -429,23 +432,33 @@ fn measure_a_big_file() {
     let len = std::fs::metadata(&path).unwrap().len();
     let mb = len as f64 / (1024.0 * 1024.0);
     println!("file {} MB, memory before {} MB", mb as u64, peak_rss_mb());
+    let step = std::env::var("MATSU_GREP_MEASURE_STEP").unwrap_or_default();
+    let wanted = |name: &str| step.is_empty() || step == name;
 
-    // the file, read in order
+    // the file, read in order (or whole, as before: `huge_file_len` is not set)
     let dir = tempfile::tempdir().unwrap();
     let mut info = info(&dir, &key);
     info.folder = path.parent().unwrap().to_string_lossy().into_owned();
     info.file = path.file_name().unwrap().to_string_lossy().into_owned();
-    info.huge_file_len = Some(256 * 1024 * 1024);
-    let started = std::time::Instant::now();
-    let mut sink = Text(String::new());
-    let outcome = run(&info, &AtomicBool::new(false), &mut sink).unwrap();
-    let secs = started.elapsed().as_secs_f64();
-    println!(
-        "grep in order: {} hits, {secs:.2} s, {:.0} MB/s, peak memory {} MB",
-        outcome.hits,
-        mb / secs,
-        peak_rss_mb()
-    );
+    for (name, huge) in [("order", Some(256 * 1024 * 1024)), ("whole", None)] {
+        if !wanted(name) || (step.is_empty() && name == "whole") {
+            continue;
+        }
+        info.huge_file_len = huge;
+        let started = std::time::Instant::now();
+        let mut sink = Text(String::new());
+        let outcome = run(&info, &AtomicBool::new(false), &mut sink).unwrap();
+        let secs = started.elapsed().as_secs_f64();
+        println!(
+            "grep ({name}): {} hits, {secs:.2} s, {:.0} MB/s, peak memory {} MB",
+            outcome.hits,
+            mb / secs,
+            peak_rss_mb()
+        );
+    }
+    if !wanted("window") {
+        return;
+    }
 
     // the window of the same file, once its scan is done: the lines come from the block index
     let options = matsu_core::file::OpenOptions {
