@@ -78,12 +78,6 @@ impl EditorView {
 
     /// The scan is done: the document can be edited now.
     fn scan_ended(&mut self, tick: ScanTick, cx: &mut Context<Self>) {
-        // The stops of the TSV and CSV modes were worked out from the part that was scanned when
-        // the file was opened; they are worked out again from the whole text (Sakura reads the
-        // whole file before it works them out: `CLoadAgent::OnLoad`).
-        if tick == ScanTick::Finished {
-            self.relayout(true, cx);
-        }
         self.notice = if tick == ScanTick::Finished {
             let lines = self.document.read(cx).doc().line_count();
             Some(format!("改行位置を調べ終えました ({lines} 行)"))

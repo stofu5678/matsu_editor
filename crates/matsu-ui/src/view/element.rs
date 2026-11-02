@@ -1500,7 +1500,7 @@ fn overwrite_caret_cells(
     }
     // The width of the char itself, not the distance to the next position: at the end of a
     // wrapped row the next position is on the next row.
-    layout.config().columns_of(c, 0).max(1)
+    layout.config().width.columns(c).max(1)
 }
 
 #[cfg(test)]
@@ -1544,6 +1544,21 @@ mod tests {
         assert_eq!(cells("abc", Pos::new(0, 1)), 1);
         assert_eq!(cells("a日c", Pos::new(0, 1)), 2);
         assert_eq!(cells("a😀c", Pos::new(0, 1)), 2);
+    }
+
+    #[test]
+    fn the_block_over_a_csv_comma_is_the_width_of_the_comma() {
+        let doc = Document::from_utf8(b"abc,d\n".to_vec()).unwrap();
+        let config = matsu_layout::LayoutConfig {
+            tsv: matsu_layout::TsvStops::from_lines(
+                matsu_layout::TsvMode::Csv,
+                &matsu_layout::WidthRule::default(),
+                ["abcdefgh,d"],
+            ),
+            ..Default::default()
+        };
+        let layout = DocumentLayout::laid_out(&doc, config).unwrap();
+        assert_eq!(overwrite_caret_cells(&doc, &layout, Pos::new(0, 3)), 1);
     }
 
     #[test]

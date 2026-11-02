@@ -230,6 +230,7 @@ impl EditorView {
         if config.tsv.mode() != tsv_mode || (rescan && tsv_mode != TsvMode::None) {
             let doc = self.document.read(cx).doc();
             config.tsv = TsvStops::scan(doc, tsv_mode, &config.width).unwrap_or_default();
+            self.tsv_partial = self.document.read(cx).is_scanning();
         }
         if config == *self.layout.config() {
             return false;
