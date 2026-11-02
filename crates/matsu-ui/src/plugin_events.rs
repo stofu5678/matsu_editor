@@ -47,6 +47,7 @@ use gpui::{App, AsyncApp, AsyncWindowContext, Entity, EntityId, WeakEntity};
 use matsu_config::plugins::def::Jack;
 use matsu_config::plugins::{DEFAULT_LANGUAGE, PluginSettings, PluginState};
 
+use crate::app::Workspace;
 use crate::macros::plugin_call::{self, Prepared, Turn};
 use crate::view::EditorView;
 
@@ -318,8 +319,18 @@ pub(crate) async fn start_editor_if_due(
 pub(crate) struct CloseLog {
     /// The views that were told `DocumentClose`.
     closed: HashSet<EntityId>,
-    /// The first view of each window that was told `EditorEnd`.
-    ended: Vec<WeakEntity<EditorView>>,
+    /// The windows that were told `EditorEnd`.
+    ended: Vec<EndedWindow>,
+}
+
+/// A window that was told `EditorEnd`. The window is known by its workspace, not by a tab: the tabs can move
+/// and change places while the handlers run.
+struct EndedWindow {
+    /// The workspace, or the tab when it has none.
+    key: EntityId,
+    workspace: Option<WeakEntity<Workspace>>,
+    /// The tab that the event went to.
+    first: WeakEntity<EditorView>,
 }
 
 /// The events of a window that began with a Grep (`-GREPMODE`): when the search is over, `EditorStart` (if it
@@ -365,11 +376,22 @@ pub(crate) async fn windows_closing(
                 fire_and_wait(view, cx, Jack::DocumentClose).await;
             }
         }
-        if let Some(first) = views.first()
-            && !log.ended.iter().any(|v| v.entity_id() == first.entity_id())
-        {
-            log.ended.push(first.clone());
-            fire_and_wait(first, cx, Jack::EditorEnd).await;
+        if let Some(first) = views.first() {
+            let workspace = first
+                .read_with(cx, |view, _| view.split_host.clone())
+                .ok()
+                .flatten();
+            let key = workspace
+                .as_ref()
+                .map_or_else(|| first.entity_id(), |workspace| workspace.entity_id());
+            if !log.ended.iter().any(|ended| ended.key == key) {
+                log.ended.push(EndedWindow {
+                    key,
+                    workspace,
+                    first: first.clone(),
+                });
+                fire_and_wait(first, cx, Jack::EditorEnd).await;
+            }
         }
     }
     let mut changed = false;
@@ -386,8 +408,17 @@ pub(crate) async fn windows_closing(
 /// typed meanwhile, a window that opened). The log starts over.
 pub(crate) async fn restart_ended(log: &mut CloseLog, cx: &mut AsyncWindowContext) {
     log.closed.clear();
-    for view in std::mem::take(&mut log.ended) {
-        fire_and_wait(&view, cx, Jack::EditorStart).await;
+    for ended in std::mem::take(&mut log.ended) {
+        // The tab that shows now, if the tab of the event went away or to another window.
+        let shown = ended
+            .workspace
+            .and_then(|workspace| {
+                cx.update(|_, app| Some(workspace.upgrade()?.read(app).editor().downgrade()))
+                    .ok()
+                    .flatten()
+            })
+            .unwrap_or(ended.first);
+        fire_and_wait(&shown, cx, Jack::EditorStart).await;
     }
 }
 

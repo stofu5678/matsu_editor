@@ -504,6 +504,37 @@ pub(crate) enum ExitKind {
 ///
 /// `kind` tells which question comes first (see [`ExitKind`]).
 pub(crate) async fn exit_all(cx: &mut AsyncWindowContext, kind: ExitKind) {
+    // One exit at a time: a second ask (the key pressed again) while the first waits for a question or for a
+    // plugin would run the events twice, and its answer would not stop the first.
+    let Some(_running) = cx.update(|_, app| ExitRunning::begin(app)).ok().flatten() else {
+        return;
+    };
+    exit_all_flow(cx, kind).await;
+}
+
+/// Whether an exit is going on. Taken by [`ExitRunning::begin`], let go when the flow ends or is dropped (the
+/// window that runs it may be closed meanwhile).
+#[derive(Default)]
+struct ExitInProgress(std::rc::Rc<std::cell::Cell<bool>>);
+
+impl gpui::Global for ExitInProgress {}
+
+struct ExitRunning(std::rc::Rc<std::cell::Cell<bool>>);
+
+impl ExitRunning {
+    fn begin(app: &mut App) -> Option<Self> {
+        let flag = app.default_global::<ExitInProgress>().0.clone();
+        (!flag.replace(true)).then_some(Self(flag))
+    }
+}
+
+impl Drop for ExitRunning {
+    fn drop(&mut self) {
+        self.0.set(false);
+    }
+}
+
+async fn exit_all_flow(cx: &mut AsyncWindowContext, kind: ExitKind) {
     let (count, confirm) = cx
         .update(|_, app| {
             (

@@ -242,6 +242,27 @@ fn quitting_tells_close_and_then_editor_end_for_each_window(cx: &mut TestAppCont
     finish(cx);
 }
 
+#[gpui::test]
+fn a_second_quit_while_the_first_waits_for_a_plugin_does_not_tell_the_close_again(
+    cx: &mut TestAppContext,
+) {
+    let script = format!("console.log('[DocumentClose]'); {BUSY}");
+    let Some((place, _files)) = begin(cx, &[("DocumentClose", &script)]) else {
+        eprintln!("{SKIP}");
+        return;
+    };
+    let wins = windows(cx, &place, 1);
+    let (_, view) = wins[0].clone();
+    cx.update(crate::file_ops::close::quit);
+    wait(cx, "the handler did not start", |cx| running(&view, cx));
+    // The key is pressed again while the handler runs.
+    cx.update(crate::file_ops::close::quit);
+    wait(cx, "the application did not quit", |_| quits() > 0);
+    assert_eq!(quits(), 1);
+    assert_eq!(told(&view, cx), TOLD_CLOSE_AND_END);
+    finish(cx);
+}
+
 /// A window, `DocumentClose` slow; an exit begins, the user types while the handler runs, and the question
 /// that comes back is answered with `answer`.
 fn exit_with_typing(cx: &mut TestAppContext, answer: &str) -> Option<(Place, Window)> {
