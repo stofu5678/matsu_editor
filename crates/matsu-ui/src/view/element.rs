@@ -394,7 +394,9 @@ fn place(
                 }
                 (Some(_), Some(last))
                     if last.line.is_none()
-                        && last.underline.is_some_and(|(n, _)| last.col + n == col) =>
+                        && last.underline.is_some_and(|(n, color)| {
+                            last.col + n == col && color == style.text
+                        }) =>
                 {
                     last.underline = last.underline.map(|(n, color)| (n + cols, color));
                     col += cols;
@@ -729,9 +731,12 @@ impl Element for EditorElement {
                     Label::FullWidthSpace => FULL_WIDTH_SPACE_MARK,
                 };
                 // The width of each character of the label in columns: the characters of text
-                // have their own, the marks of a tab and of a space are a column each.
+                // have their own, and so do those of a custom tab mark; the arrows and the mark of a
+                // space are a column each.
                 let width_of = |c: char| match item.label {
                     Label::Text(_) => widths.columns(c),
+                    // the arrows are a column each, whatever the width rule says of them
+                    Label::Tab(_) if !matches!(c, '\u{2192}' | '\u{2500}') => widths.columns(c),
                     _ => 1,
                 };
                 if let Some(selected_style) = &item.selected {
