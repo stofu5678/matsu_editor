@@ -28,6 +28,9 @@ JOB_LIMIT_SECONDS=10800      # 3 hours from the start of the job
 IDLE_LIMIT_SECONDS=21600     # a VM that got no job in 6 hours is replaced by a fresh one
 MIN_FREE_GB=60               # free space needed before a clone
 HEARTBEAT_SECONDS=300        # MAC_RUNNER_SEEN; CI falls back to GitHub's runner after 15 minutes without it
+# The longest a VM may live, whatever the guest says (it may not answer at all): no job for the idle limit, then a
+# job for the job limit.
+MAX_VM_SECONDS=$((IDLE_LIMIT_SECONDS + JOB_LIMIT_SECONDS))
 
 SOFTNET=/usr/local/bin/softnet
 TART=$(command -v tart 2> /dev/null || true)
@@ -55,6 +58,17 @@ require_tools() {
   export PATH
 }
 
+# True while this Mac uses a VPN: a connected VPN service, or a default route through a tunnel. Softnet lets the VM
+# reach any globally routable address, which can include the services of the network behind a VPN, and with a full
+# tunnel public_ip below would find the VPN's address instead of the home network's (ADR-0027, decision 6).
+vpn_active() {
+  scutil --nc list 2> /dev/null | grep -q '(Connected)' && return 0
+  case "$(route -n get default 2> /dev/null | awk '/interface:/ {print $2}')" in
+    utun* | ipsec* | ppp* | tun* | tap*) return 0 ;;
+  esac
+  return 1
+}
+
 # The public IPv4 address of the home network, from Cloudflare (the VM's DNS too). Empty when it cannot be found.
 public_ip() {
   curl -fsS -m 10 https://1.1.1.1/cdn-cgi/trace 2> /dev/null | sed -n 's/^ip=\([0-9][0-9.]*\)$/\1/p' | head -n 1
@@ -64,6 +78,8 @@ public_ip() {
 # host in both directions (its SSH, DNS and Bonjour announcements), multicast, and the public address of the home
 # network (a router may forward it to the home network). Fails when the public address cannot be found.
 job_block_rules() {
+  local ip
+  vpn_active && return 1
   ip=$(public_ip)
   [ -n "$ip" ] || return 1
   printf 'out @host,in @host,224.0.0.0/4,%s/32' "$ip"
@@ -77,15 +93,30 @@ vm_exists() {
   "$TART" get "$1" --format json > /dev/null 2>&1
 }
 
-# Waits until the guest agent answers (tart exec), up to $2 seconds (default 180). A VM that is still not running
-# 30 seconds after the start (tart run failed) ends the wait early.
+# Runs a command with a time limit (seconds). macOS has no timeout(1); perl's alarm ends the command with SIGALRM.
+with_limit() { # seconds command...
+  local seconds=$1
+  shift
+  /usr/bin/perl -e 'alarm shift @ARGV; exec @ARGV or exit 127' "$seconds" "$@"
+}
+
+# A command in the VM through the guest agent, with a time limit: a job could stop the agent, and tart exec itself
+# has no deadline, so the host must not wait for the guest without one.
+guest() { # vm seconds command...
+  local vm=$1 seconds=$2
+  shift 2
+  with_limit "$seconds" "$TART" exec "$vm" "$@"
+}
+
+# Waits until the guest agent answers, up to $2 seconds (default 180). A VM that is still not running 30 seconds
+# after the start (tart run failed) ends the wait early.
 wait_agent() {
   local limit=${2:-180} start elapsed
   start=$(date +%s)
   while :; do
     elapsed=$(($(date +%s) - start))
     [ "$elapsed" -lt "$limit" ] || return 1
-    "$TART" exec "$1" true > /dev/null 2>&1 && return 0
+    guest "$1" 20 true > /dev/null 2>&1 && return 0
     if [ "$elapsed" -ge 30 ] && ! vm_running "$1"; then
       return 1
     fi
@@ -95,7 +126,7 @@ wait_agent() {
 
 # Waits until the VM has stopped, up to $2 seconds (default 120).
 wait_stopped() {
-  limit=${2:-120}
+  local limit=${2:-120} start
   start=$(date +%s)
   while [ $(($(date +%s) - start)) -lt "$limit" ]; do
     vm_running "$1" || return 0
@@ -104,9 +135,9 @@ wait_stopped() {
   return 1
 }
 
-# Writes stdin to a file in the VM through the guest agent (no network), atomically.
+# Writes stdin to a file in the VM through the guest agent (no network), atomically, within 60 seconds.
 put_file() { # vm path
-  "$TART" exec -i "$1" /bin/sh -c "umask 077; cat > '$2.tmp' && mv '$2.tmp' '$2'"
+  with_limit 60 "$TART" exec -i "$1" /bin/sh -c "umask 077; cat > '$2.tmp' && mv '$2.tmp' '$2'"
 }
 
 # The token from the keychain. Never printed.
@@ -117,9 +148,7 @@ token() {
 # A call of GitHub's REST API with the token. The token goes to curl through stdin (-H @-), not the command line.
 #   api METHOD PATH [JSON-BODY-FILE]
 api() {
-  method=$1
-  path=$2
-  body=${3:-}
+  local method=$1 path=$2 body=${3:-} t
   t=$(token) || return 1
   [ -n "$t" ] || return 1
   if [ -n "$body" ]; then
@@ -133,6 +162,7 @@ api() {
 
 # Sets a repository variable of Actions, creating it when it does not exist.
 set_variable() { # name value
+  local f status
   f=$(mktemp "$STATE_DIR/var.XXXXXX")
   /usr/bin/jq -n --arg n "$1" --arg v "$2" '{name: $n, value: $v}' > "$f"
   api PATCH "/repos/$REPOSITORY/actions/variables/$1" "$f" > /dev/null 2>&1 ||

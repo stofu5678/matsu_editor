@@ -65,6 +65,22 @@ def write_header(f, header, entries_crc):
     f.write(raw)
 
 
+def check_geometry(primary, backup, sectors):
+    """Refuses a GPT whose layout this script does not expect, before anything is written."""
+    for name in ("first_usable", "last_usable", "entry_count", "entry_size"):
+        if primary[name] != backup[name]:
+            fail(f"the two GPT headers disagree on {name}")
+    if primary["entry_size"] != 128 or not 1 <= primary["entry_count"] <= 1024:
+        fail("unexpected size or number of partition entries")
+    table = -(-primary["entry_count"] * primary["entry_size"] // SECTOR)  # sectors, rounded up
+    if primary["entries_lba"] != 2 or primary["entries_lba"] + table > primary["first_usable"]:
+        fail("the primary partition table is not where it should be")
+    if backup["entries_lba"] + table != sectors - 1 or primary["last_usable"] >= backup["entries_lba"]:
+        fail("the backup partition table is not where it should be")
+    if not 2 < primary["first_usable"] <= primary["last_usable"] < sectors:
+        fail("the usable part of the disk is out of bounds")
+
+
 def main():
     if len(sys.argv) != 2:
         print(__doc__.strip().splitlines()[0])
@@ -78,6 +94,7 @@ def main():
         backup = read_header(f, primary["alternate_lba"])
         if backup["my_lba"] != sectors - 1 or backup["alternate_lba"] != 1:
             fail("the backup GPT header does not point back to the primary one")
+        check_geometry(primary, backup, sectors)
         size = primary["entry_count"] * primary["entry_size"]
         f.seek(primary["entries_lba"] * SECTOR)
         entries = bytearray(f.read(size))
@@ -95,6 +112,13 @@ def main():
                 continue
             first, last = struct.unpack_from("<QQ", entries, offset + 32)
             used.append((i, kind, first, last))
+        for _i, _kind, first, last in used:
+            if not (primary["first_usable"] <= first <= last <= primary["last_usable"]):
+                fail("a partition lies outside the usable part of the disk")
+        spans = sorted((e[2], e[3]) for e in used)
+        for (_a_first, a_last), (b_first, _b_last) in zip(spans, spans[1:]):
+            if b_first <= a_last:
+                fail("partitions overlap")
         recovery = [e for e in used if e[1] == RECOVERY_TYPE]
         if len(recovery) != 1:
             fail(f"expected one recovery partition, found {len(recovery)}")
@@ -109,6 +133,8 @@ def main():
         new_first = end - length + 1
         if new_first <= last:
             fail("not enough free space after the recovery partition to move it")
+        if new_first < primary["first_usable"] or end >= backup["entries_lba"]:
+            fail("the new place of the recovery partition would cover the partition tables")
 
         # Copy the contents first, then point the entry at the copy: if anything stops halfway, the old entry still
         # points at the untouched original.
@@ -131,12 +157,14 @@ def main():
 
         struct.pack_into("<QQ", entries, index * primary["entry_size"] + 32, new_first, end)
         crc = zlib.crc32(entries)
-        for header in (primary, backup):
+        # One complete copy at a time, each synced before the other is touched: the backup first, then the primary.
+        # If anything stops in between, one of the two copies is whole and valid.
+        for header in (backup, primary):
             f.seek(header["entries_lba"] * SECTOR)
             f.write(entries)
             write_header(f, header, crc)
-        f.flush()
-        os.fsync(f.fileno())
+            f.flush()
+            os.fsync(f.fileno())
         print(f"moved the recovery partition from LBA {first}-{last} to {new_first}-{end}")
 
 

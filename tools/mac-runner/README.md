@@ -12,6 +12,7 @@ CI の `test (macos-arm64)` を、GitHub の macOS の実行機のかわりに�
 |---|---|---|
 | `mac-runner` | Mac | `up`・`down`・`status`。VM を 1 つずつ作り、ジョブを 1 つ渡し、消す |
 | `build-golden` | Mac | 型の VM を作る（30 分ほど） |
+| `relocate-recovery.py` | Mac | 型の VM のディスクを広げるため、止めた VM のディスクのイメージの中で、macOS の復旧用の区画を末尾へ移す（diskutil は SIP のため動かせない） |
 | `lib.sh` | Mac | 上の 2 つが使う設定（リポジトリ、VM の大きさ、時間の上限、Softnet の規則）と関数 |
 | `guest/admit.sh` | VM | そのジョブを動かしてよいかを決める |
 | `guest/job-started.sh` | VM | 実行機の「ジョブの前の確かめ」。`admit.sh` が断ったら、その場で VM の電源を切る |
@@ -36,6 +37,10 @@ CI の `test (macos-arm64)` を、GitHub の macOS の実行機のかわりに�
 | 前のジョブの残り | ジョブごとに複製を消す | － |
 
 守れないもの: インターネットへの通信は家の回線から出る。VM から抜け出す macOS の仮想化の不具合は防げない（Mac の macOS と Tart を新しく保つ）。
+
+- **VPN をつないでいる間は動かさない**（ADR-0027 の決めたことの 6）。VPN の先の網には、インターネットの宛先に見えるアドレスがあり、Softnet は通してしまう。全部の通信を VPN に流す形では、家の公開のアドレスも分からなくなる。スクリプトは、VPN がつながっている（`scutil --nc list` が Connected、または既定の経路がトンネル）と、VM を起動しない
+- VM の中のジョブは、その VM の実行機の資格（1 つのジョブ用）を読める。資格はそのジョブが終わると使えなくなり、Mac のトークンは VM に入らない
+- 断ったジョブは、VM の電源が切れるので、GitHub の上では 10 分ほどたってから「実行機との通信が切れた」として失敗になる
 
 ## 用意（1 回だけ）
 
@@ -66,6 +71,8 @@ tools/mac-runner/mac-runner down       # やめる（動いているジョブは
 tools/mac-runner/mac-runner down --now # すぐやめる（動いているジョブは失敗する）
 ```
 
+- `up` は、最初の VM の実行機が GitHub に「online」と出てから、`MAC_RUNNER` を `self-hosted` にする。それまでの CI は GitHub の実行機で動く
+- Mac の側の上限: ジョブは 3 時間、ジョブの来ない VM は 6 時間で作り直す。VM が何も答えなくなっても、9 時間で止めて消す。ディスクの空きが 60 GB より少ないときは VM を作らない
 - 旅行などで Mac を使えないとき: `down` しておく。忘れても、Mac が止まって 15 分たつと、CI は GitHub の実行機で動く。ただし、止まる直前に Mac を選んだジョブは待ったままになる（調整役が取り消して流し直す）
 - Mac の外から切り替える: GitHub の画面（Settings → Secrets and variables → Actions → Variables の `MAC_RUNNER`）か、`gh variable set MAC_RUNNER --body github`
 - 記録: `~/Library/Application Support/matsu-mac-runner/runner.log`
