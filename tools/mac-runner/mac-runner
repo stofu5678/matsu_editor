@@ -58,13 +58,13 @@ keychain_locked_here() {
   [ $? -eq 36 ]
 }
 
-# True when a launchd job has run and is not running any more, or is gone. (Here-strings, not `printf | grep -q`:
-# under pipefail, grep's early exit fails the pipeline once the long output of launchctl no longer fits the pipe.)
+# True when a launchd job has run and is not running any more, or is gone. Right after the bootstrap, the state can
+# be neither (xpcproxy, while launchd spawns it). (Here-strings, not `printf | grep -q`: under pipefail, grep's early
+# exit fails the pipeline once the long output of launchctl no longer fits the pipe.)
 session_job_ended() { # service-target
   local info
   info=$(launchctl print "$1" 2> /dev/null) || return 0
-  grep -q $'^\tstate = running' <<< "$info" && return 1
-  grep -Eq $'^\truns = [1-9]' <<< "$info"
+  grep -q $'^\tstate = not running$' <<< "$info" && grep -Eq $'^\truns = [1-9]' <<< "$info"
 }
 
 # Runs "$0 <args>" in the logged-in session and waits for it. Interrupting this stops only the waiting: the command
