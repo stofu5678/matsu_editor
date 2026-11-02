@@ -996,11 +996,12 @@ impl Render for EditorView {
         }
         self.show_pending_message_boxes(window, cx);
         self.follow_window_width(cx);
-        self.advance_layout(window, cx);
-        self.advance_text_width(window, cx);
+        // First: a complete count changes the layout, which the next two then go on with.
         if !self.step_tsv_stops(hscroll::WIDTH_BUDGET, cx) {
             window.request_animation_frame();
         }
+        self.advance_layout(window, cx);
+        self.advance_text_width(window, cx);
         self.advance_colors(window, cx);
         self.settle_caret(cx);
         // macOS: whatever changed the view (a key, the mouse, a function) repaints it; the marks of
