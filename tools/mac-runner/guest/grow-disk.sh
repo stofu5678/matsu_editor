@@ -13,9 +13,9 @@ listing=$(diskutil list disk0)
 # The line right after the system's container: the recovery partition while it is in the way, or the free space
 # once relocate-recovery.py has moved it to the end.
 after=$(printf '%s\n' "$listing" | awk -v c="$container" 'found {print; exit} $NF == c {found = 1}')
-if ! printf '%s\n' "$listing" | grep -q '(free space)'; then
+if ! grep -q '(free space)' <<< "$listing"; then
   echo "no free space on disk0: $container already fills the disk"
-elif printf '%s' "$after" | grep -q Apple_APFS_Recovery; then
+elif grep -q Apple_APFS_Recovery <<< "$after"; then
   echo "the recovery partition is right after $container; relocate-recovery.py moves it after this boot"
 else
   sudo diskutil apfs resizeContainer "$container" 0 2>&1 | tail -n 1 || true
