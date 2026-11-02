@@ -24,7 +24,7 @@ use matsu_coloring::ColorRules;
 use matsu_config::Profile;
 use matsu_config::location::Os;
 use matsu_config::settings::color::{ColorEntry, ColorRef, names};
-use matsu_config::settings::types::{LINE_SPACE_MAX, tab_arrow, wrap_method};
+use matsu_config::settings::types::{COLUMN_SPACE_MAX, LINE_SPACE_MAX, tab_arrow, wrap_method};
 use matsu_config::settings::{DocumentTypes, ViewFont};
 use matsu_layout::{
     CharSet, Kinsoku, LayoutConfig, MAX_LINE_COLUMNS, MIN_LINE_COLUMNS, TsvMode, Wrap, WrapIndent,
@@ -348,9 +348,6 @@ pub struct OutlineSettings {
 }
 
 /// `m_nRulerHeight` of a new `CommonSetting` (`sakura_core/env/CShareData.cpp`).
-/// `COLUMNSPACE_MAX` (`sakura_core/config/app_constants.h`).
-pub const COLUMN_SPACE_MAX: i32 = 64;
-
 const DEFAULT_RULER_HEIGHT: u32 = 13;
 
 /// `m_nVertLineOffset` of a new `CommonSetting`.

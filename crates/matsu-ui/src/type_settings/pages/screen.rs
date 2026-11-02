@@ -1,22 +1,19 @@
 //! 「スクリーン」: `IDD_PROP_SCREEN` (`sakura_core/sakura_rc.rc`), `CPropTypesScreen`
 //! (`sakura_core/typeprop/CPropTypesScreen.cpp`).
 //!
-//! Live: everything but the space between characters and lines and TSV mode, which are not
-//! available yet: the layout (the wrap, the TAB width and mark, the hanging and the line breaking
-//! rules, the wrapped line indent), the outline rule, the font of the type, and the indent of what
+//! Live: the layout (the wrap, the space between characters and lines, the TAB width and mark, the
+//! TSV and CSV modes, the hanging and the line breaking rules, the wrapped line indent), the
+//! outline rule, the font of the type, and the indent of what
 //! is typed (the Tab key that inserts spaces, auto indent with the ideographic space, smart indent,
 //! the other indent chars, the trailing spaces of the line a line break leaves).
 
 use matsu_config::settings::type_rules::outline_type;
+use matsu_config::settings::types::{COLUMN_SPACE_MAX, LINE_SPACE_MAX};
 
 use super::super::ids::*;
 use crate::common_settings::CommonSettingsDialog;
 use crate::common_settings::model::{Control, Item, Value, Values};
 
-/// `COLUMNSPACE_MAX` (`sakura_core/config/app_constants.h`).
-pub(in crate::type_settings) const COLUMN_SPACE_MAX: i32 = 64;
-/// `LINESPACE_MAX`.
-pub(in crate::type_settings) const LINE_SPACE_MAX: i32 = 128;
 /// `TABSPACE_MAX`, and the least TAB width of `GetData` (`t_max(1, t_min(64, ...))`).
 pub(in crate::type_settings) const TAB_SPACE_RANGE: (i32, i32) = (1, 64);
 /// `MINLINEKETAS` and `MAXLINEKETAS`.
