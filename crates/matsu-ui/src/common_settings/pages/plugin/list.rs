@@ -588,7 +588,9 @@ pub(super) fn run_test(
         return;
     };
     match crate::macros::plugin_call::prepare_command(cx, &dirs, &folder, 1) {
-        Ok(prepared) => crate::macros::plugin_call::run(editor, prepared, cx),
+        Ok(prepared) => {
+            crate::macros::plugin_call::run(editor, prepared, cx);
+        }
         Err(message) => notice(window, cx, &message),
     }
 }

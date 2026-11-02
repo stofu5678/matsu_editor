@@ -35,7 +35,9 @@ use super::ask::{
 use super::save_as_dialog::{SaveChoice, ask_options};
 use crate::file_dialog::save_fields::SaveFields;
 use crate::file_dialog::{self, Ask};
+use crate::plugin_events::{fire_and_wait, fire_and_wait_for};
 use crate::view::EditorView;
+use matsu_config::plugins::def::Jack;
 
 /// What to save and how. The default is a plain save (`F_FILESAVE`).
 #[derive(Clone, Debug)]
@@ -162,6 +164,9 @@ pub(crate) async fn save(
     cx: &mut AsyncWindowContext,
     request: SaveRequest,
 ) -> SaveOutcome {
+    let generation = view
+        .read_with(cx, |view, app| view.document().read(app).generation())
+        .ok();
     let Ok((current, modified)) = view.read_with(cx, |view, app| {
         let shared = view.document().read(app);
         (
@@ -364,6 +369,29 @@ pub(crate) async fn save(
         .read_with(cx, |view, app| view.document().read(app).version())
         .ok();
     crate::macros::run_before_save(view, cx, &path).await;
+    let same_document = |view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext| {
+        view.read_with(cx, |view, app| view.document().read(app).generation())
+            .ok()
+            == generation
+    };
+    if !same_document(view, cx) {
+        return SaveOutcome::Cancelled;
+    }
+    // The plugins of DocumentBeforeSave (`DoSaveFlow`), after the macro. Under a name the document that
+    // was is closed first (`!bOverwriteMode`). A plugin that fails or is slow does not stop the save.
+    let named = from_dialog || request.path.is_some();
+    // The window can be used while the plugins run: if its document was replaced since the save began
+    // (the file was closed), this save is not for the new document.
+    fire_and_wait(view, cx, Jack::DocumentBeforeSave).await;
+    if !same_document(view, cx) {
+        return SaveOutcome::Cancelled;
+    }
+    if named {
+        fire_and_wait(view, cx, Jack::DocumentClose).await;
+        if !same_document(view, cx) {
+            return SaveOutcome::Cancelled;
+        }
+    }
     let changed = view
         .read_with(cx, |view, app| view.document().read(app).version())
         .ok()
@@ -392,9 +420,23 @@ pub(crate) async fn save(
                 cx.notify();
             })
             .ok();
-            if from_dialog || request.path.is_some() {
-                // `FileSaveAs` runs the macro of オープン後 after a save under a name.
+            view.update(cx, |view, cx| view.begin_edit_watch(cx)).ok();
+            fire_and_wait_for(view, cx, Jack::DocumentAfterSave, generation).await;
+            if named {
+                // `FileSaveAs` runs the macro of オープン後 after a save under a name, and then the
+                // plugins of DocumentOpen.
+                if !same_document(view, cx) {
+                    super::close::user_changed_text(view, cx);
+                    return SaveOutcome::Cancelled;
+                }
                 crate::macros::run_opened(view, cx).await;
+                fire_and_wait_for(view, cx, Jack::DocumentOpen, generation).await;
+            }
+            // Text the user typed while the plugins ran is not in the file: a caller that closes after the
+            // save must not take the document for saved. What a plugin wrote does not count (the file is
+            // written, as in Sakura).
+            if super::close::user_changed_text(view, cx) {
+                return SaveOutcome::Cancelled;
             }
             SaveOutcome::Saved
         }

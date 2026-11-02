@@ -27,6 +27,7 @@ use std::path::{Path, PathBuf};
 use gpui::{App, AsyncWindowContext, Context, Window};
 use matsu_commands::command::Arg;
 use matsu_commands::key_macro::{KeyMacro, Step};
+use matsu_config::plugins::def::Jack;
 use matsu_config::settings::macros::RegisteredMacros;
 
 use super::{FileKind, file_kind};
@@ -286,7 +287,27 @@ fn run_auto(
 
 /// Waits until the macro that this window runs has ended (the button 中止 of the panel stops one
 /// that does not).
-async fn wait_for_the_macro(view: &gpui::WeakEntity<EditorView>, cx: &mut AsyncWindowContext) {
+/// Waits until the event calls of plugins on this window are over (`EditorStart` may still run when a file is
+/// read): an automatic macro does not start while a plugin has the window, so it would be skipped.
+pub(crate) async fn wait_for_the_events(
+    view: &gpui::WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+) {
+    // Every call has its time limit, so the batches end; a window that goes away ends the wait too.
+    while view
+        .read_with(cx, |view, _| view.event_batches_pending())
+        .unwrap_or(false)
+    {
+        cx.background_executor()
+            .timer(std::time::Duration::from_millis(20))
+            .await;
+    }
+}
+
+pub(crate) async fn wait_for_the_macro(
+    view: &gpui::WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+) {
     while view
         .read_with(cx, |view, _| view.macros.is_suspended())
         .unwrap_or(false)
@@ -305,6 +326,7 @@ pub(crate) async fn run_before_save(
     cx: &mut AsyncWindowContext,
     path: &Path,
 ) {
+    wait_for_the_events(view, cx).await;
     if run_auto(view, cx, Auto::BeforeSave, Some(path)) {
         wait_for_the_macro(view, cx).await;
     }
@@ -318,6 +340,7 @@ pub(crate) async fn run_before_save(
 /// type, and `CEditDoc::OnChangeType`, which runs that macro, is called only by `F_CHANGETYPE` and by
 /// the start of a Grep (`sakura_core/cmd/CViewCommander_Settings.cpp`, `CViewCommander_Grep.cpp`).
 pub(crate) async fn run_opened(view: &gpui::WeakEntity<EditorView>, cx: &mut AsyncWindowContext) {
+    wait_for_the_events(view, cx).await;
     if run_auto(view, cx, Auto::Opened, None) {
         wait_for_the_macro(view, cx).await;
     }
@@ -327,6 +350,59 @@ pub(crate) async fn run_opened(view: &gpui::WeakEntity<EditorView>, cx: &mut Asy
 /// window, or a file that was closed). `then` runs when the macro has ended (at once when none
 /// started), so that the macro of the command line (`-M=`) that follows is not refused.
 pub(crate) fn run_auto_in(
+    handle: gpui::AnyWindowHandle,
+    view: &gpui::Entity<EditorView>,
+    when: Auto,
+    cx: &mut App,
+    then: impl FnOnce(&mut App) + 'static,
+) {
+    let view_for_plugins = view.clone();
+    // The document this start is for: events and macros are not run against one that replaced it.
+    let generation = view.read(cx).document().read(cx).generation();
+    // The plugins of DocumentOpen follow the macro of オープン後 (`CNormalProcess`, `FileLoad`), and
+    // `then` follows them.
+    let then = move |cx: &mut App| {
+        // `then` applies the options of the launch and starts the macro of `-M=`: DocumentOpen comes after
+        // them (`CNormalProcess`).
+        then(cx);
+        if when == Auto::Opened && crate::plugin_events::has_plugs(cx, &[Jack::DocumentOpen]) {
+            let view = view_for_plugins;
+            cx.spawn(async move |cx| {
+                while view.read_with(cx, |view, _| view.macro_suspended()) {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_millis(50))
+                        .await;
+                }
+                cx.update(|cx| {
+                    crate::plugin_events::fire_for(cx, &view, Jack::DocumentOpen, generation);
+                });
+            })
+            .detach();
+        }
+    };
+    // Event calls of plugins (`EditorStart`) have the window first: the macro waits for them.
+    if view.read(cx).event_batches_pending() {
+        let view = view.clone();
+        cx.spawn(async move |cx| {
+            while view.read_with(cx, |view, _| view.event_batches_pending()) {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(20))
+                    .await;
+            }
+            cx.update(|cx| {
+                if view.read(cx).document().read(cx).generation() == generation {
+                    run_auto_now(handle, &view, when, cx, then);
+                }
+            });
+        })
+        .detach();
+        return;
+    }
+    run_auto_now(handle, view, when, cx, then);
+}
+
+/// The macro of `when`, now; `then` runs when it has ended.
+fn run_auto_now(
     handle: gpui::AnyWindowHandle,
     view: &gpui::Entity<EditorView>,
     when: Auto,

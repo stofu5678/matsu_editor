@@ -17,7 +17,9 @@ use crate::document::SharedDocument;
 use crate::file_dialog::{self, Ask};
 use crate::history::view::{code_change_message, encoding_of, remembered};
 use crate::open::{HugeOpen, open_text_file_with};
+use crate::plugin_events::fire_and_wait_for;
 use crate::view::EditorView;
+use matsu_config::plugins::def::Jack;
 
 /// Files at least this big show their progress in the status bar. Smaller ones are read before
 /// the user could see anything.
@@ -196,6 +198,19 @@ pub(crate) async fn load_here(
     encoding: Option<Encoding>,
     restore: Option<Pos>,
 ) -> bool {
+    let opened = load_here_inner(view, cx, path, encoding, restore).await;
+    // A window that began with a file calls EditorStart whatever came of the read (declined, failed).
+    crate::plugin_events::start_editor_if_due(view, cx).await;
+    opened
+}
+
+async fn load_here_inner(
+    view: &WeakEntity<EditorView>,
+    cx: &mut AsyncWindowContext,
+    path: &Path,
+    encoding: Option<Encoding>,
+    restore: Option<Pos>,
+) -> bool {
     // The version of the document when the read starts. The window stays usable while a big file
     // is read; if the document changed meanwhile (typing, or another load), the result is
     // dropped instead of replacing what the user did.
@@ -278,6 +293,15 @@ pub(crate) async fn load_here(
                 true
             });
             let replaced = replaced.unwrap_or(false);
+            let mut open_event = false;
+            // The document this read made: the flow below does not go on for another one.
+            let loaded = view
+                .read_with(cx, |view, app| view.document().read(app).generation())
+                .ok();
+            // The plugins of EditorStart see the file that the window began with (`CNormalProcess`: the
+            // load comes first, then EditorStart, the macro of オープン後, the macro of `-M=`, then
+            // DocumentOpen).
+            crate::plugin_events::start_editor_if_due(view, cx).await;
             if replaced {
                 // `CDocLocker::OnAfterLoad` locked the new document.
                 super::lock::report_failure(view, cx).await;
@@ -302,15 +326,40 @@ pub(crate) async fn load_here(
                     return true;
                 }
                 // The file is open: the macro of オープン後 (`FileLoad`).
-                crate::macros::run_opened(view, cx).await;
+                let same = view
+                    .read_with(cx, |view, app| view.document().read(app).generation())
+                    .ok()
+                    == loaded;
+                if same {
+                    crate::macros::run_opened(view, cx).await;
+                    open_event = true;
+                }
             } else if unlocked {
                 super::lock::relock_quietly(view, cx);
             }
             // the options of a launch (`-X=` `-Y=` `-TYPE=` `-M=`...)
+            // A macro that opened this file is waiting for the load to end: it is not waited for here.
+            let caller_macro = view
+                .read_with(cx, |view, _| view.macro_suspended())
+                .unwrap_or(false);
             super::start_options::after_load(view, cx, path, replaced);
+            if open_event
+                && view
+                    .read_with(cx, |view, app| view.document().read(app).generation())
+                    .ok()
+                    == loaded
+            {
+                // ... and then the plugins of DocumentOpen, after the macro of `-M=` that
+                // `CNormalProcess` runs before them (`FileLoad`).
+                if !caller_macro {
+                    crate::macros::wait_for_the_macro(view, cx).await;
+                }
+                fire_and_wait_for(view, cx, Jack::DocumentOpen, loaded).await;
+            }
             replaced
         }
         Err(error) => {
+            crate::plugin_events::start_editor_if_due(view, cx).await;
             // a request for view mode is for this read only
             cx.update(|_, app| super::view_mode_request::take(app, path))
                 .ok();
@@ -464,6 +513,10 @@ pub(crate) async fn drop_files(
     if reading || (!accepts && !super::close::confirm_discard(view, cx).await) {
         return;
     }
+    // The document that goes is closed for the plugins first (`FileCloseOpen`); text typed while they ran is kept.
+    if !accepts && !super::close::close_event_keeps_the_text(view, cx).await {
+        return;
+    }
     load_here(view, cx, &path, None, None).await;
 }
 
@@ -521,6 +574,26 @@ pub(crate) async fn reopen(
         return false;
     };
     let encoding = encoding.unwrap_or(current);
+    // The question comes first, then the plugins of DocumentClose (`ReloadCurrentFile` begins with
+    // them, also for a document without a file).
+    if let (Some(path), true, false) = (&path, modified, no_confirm) {
+        let title = document_title(Some(path), None);
+        if path.is_file()
+            && !confirm(
+                cx,
+                &reload_message(&title),
+                None,
+                ["再読み込みする", "キャンセル"],
+            )
+            .await
+        {
+            return false;
+        }
+    }
+    // Text entered while the plugins ran would be lost by the read: the reload is given up.
+    if !super::close::close_event_keeps_the_text(view, cx).await {
+        return false;
+    }
     let Some(path) = path.filter(|p| p.is_file()) else {
         // Sakura only sets the encoding when there is no file (`ReloadCurrentFile`).
         view.update(cx, |view, cx| {
@@ -533,18 +606,5 @@ pub(crate) async fn reopen(
         .ok();
         return true;
     };
-    if !no_confirm && modified {
-        let title = document_title(Some(&path), None);
-        if !confirm(
-            cx,
-            &reload_message(&title),
-            None,
-            ["再読み込みする", "キャンセル"],
-        )
-        .await
-        {
-            return false;
-        }
-    }
     load_here(view, cx, &path, Some(encoding), Some(caret)).await
 }
