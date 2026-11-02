@@ -299,11 +299,38 @@ fn a_plugin_can_have_49_commands_and_no_more(cx: &mut TestAppContext) {
     let dirs = place.dirs();
     let def = dirs.load_def("HelloCommands", DEFAULT_LANGUAGE).unwrap();
     let mut api = DefApi::new(&dirs, "HelloCommands", def, 2).in_slot(SLOT);
-    for _ in 3..=49 {
-        api.call("Plugin.AddCommand", &[json!("added.js")]).unwrap();
+    for number in 3..=49 {
+        // The same handler under another name is another command.
+        api.call(
+            "Plugin.AddCommand",
+            &[json!("added.js"), json!(format!("Added {number}"))],
+        )
+        .unwrap();
     }
     assert_eq!(codes().len(), 49);
-    assert!(api.call("Plugin.AddCommand", &[json!("added.js")]).is_err());
+    assert!(
+        api.call("Plugin.AddCommand", &[json!("added.js"), json!("One more")])
+            .is_err()
+    );
+}
+
+#[gpui::test]
+fn a_plugin_that_adds_its_command_at_each_window_start_adds_it_once(cx: &mut TestAppContext) {
+    let place = Place::new();
+    install(cx, &place, &Setup::ON);
+    let dirs = place.dirs();
+    let def = dirs.load_def("HelloCommands", DEFAULT_LANGUAGE).unwrap();
+    let before = codes().len();
+    // EditorStart runs for each window of the one process.
+    for _ in 0..3 {
+        let mut api = DefApi::new(&dirs, "HelloCommands", def.clone(), 0).in_slot(SLOT);
+        api.call(
+            "Plugin.AddCommand",
+            &[json!("added.js"), json!("Added at the start")],
+        )
+        .unwrap();
+    }
+    assert_eq!(codes().len(), before + 1);
 }
 
 const PLUGIN_SECTIONS: &str = "[CustMenu]\r\nnCMIN[03]=3\r\nnCMIF[03][00]=30102\r\n\

@@ -1,0 +1,24 @@
+; Sample plugin for the event jacks (ADR-0026, PR 6). Its handlers run on the QuickJS of matsu-script.
+; Put the folder HelloEvents in the folder "plugins" next to matsu.ini, add and enable it in
+; 共通設定 > プラグイン. Each handler writes the name of its jack to the output panel; EditorStart also
+; adds a command (Plugin.AddCommand), whose saved key and toolbar button work right after the start.
+[Plugin]
+Id=io.github.stofu5678.matsu-editor.sample.events
+Name=Events (JavaScript)
+Description=Writes the name of each event jack to the output panel, and adds a command at the start.
+Author=MATSU Editor
+Version=1.0.0.0
+Url=https://github.com/stofu5678/matsu_editor
+Type=wsh
+
+[Plug]
+EditorStart=start.js
+EditorEnd=end.js
+DocumentOpen=open.js
+DocumentClose=close.js
+DocumentBeforeSave=before_save.js
+DocumentAfterSave=after_save.js
+
+; The host stays between two calls (resident), which is what the memory of a plugin is measured with.
+[Wsh]
+UseCache=1

@@ -68,6 +68,7 @@ pub(crate) use output::{JumpContext, Kind, Output, Place};
 pub(crate) use registered::table as registered_table;
 pub(crate) use registered::{
     Auto, MacroList, run_auto_in, run_before_save, run_opened, run_opened_in_new, title_of,
+    wait_for_the_macro,
 };
 pub(crate) use wait::{FlowGuard, follow, keep_box, track};
 
@@ -227,6 +228,21 @@ pub(crate) struct MacroState {
     running: Option<Running>,
     /// A plugin is in a call on this window (`plugin_call`): the calls of plugins go one at a time.
     plugin_running: bool,
+    /// The call of the plugin is an event jack (`DocumentOpen`...), not a command: another event may
+    /// wait for it; a command's own events are not given (ADR-0026, chapter 2).
+    plugin_event: bool,
+    /// The batches of event calls of this window take a ticket each and run in the order of the
+    /// tickets (`plugin_events`): `event_next` is the next ticket, `event_serving` the one that runs.
+    event_next: u64,
+    event_serving: u64,
+    /// A flow that waits for event calls watches the text (`plugin_call`): `watch_seen` is the version
+    /// the last request of a plugin left, and `watch_user` says that the text changed in between, which
+    /// only the user can do.
+    watching: u32,
+    /// `EditorStart` waits for the file that the window began with (`plugin_events::start_editor_if_due`).
+    editor_start_due: bool,
+    watch_seen: u64,
+    watch_user: bool,
     /// The file that holds the code of a script given as text (`F_EXECEXTMACRO` with a type); it is
     /// removed when the script ends.
     temp_script: Option<TempScript>,
@@ -367,6 +383,16 @@ impl EditorView {
     /// A key macro or a script is running.
     pub fn is_macro_running(&self) -> bool {
         self.macros.busy()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn close_output_panel_for_test(&mut self) {
+        self.macros.output.close();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn output_panel_is_open_for_test(&self) -> bool {
+        self.macros.output.is_open()
     }
 
     /// What the output panel shows, one line each.

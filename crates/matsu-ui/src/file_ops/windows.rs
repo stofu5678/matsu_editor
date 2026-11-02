@@ -14,6 +14,7 @@ use gpui::{
     WindowBounds, WindowOptions, px, size,
 };
 use gpui_component::Root;
+use matsu_config::plugins::def::Jack;
 use matsu_core::encoding::Encoding;
 
 use crate::app::Workspace;
@@ -90,6 +91,8 @@ pub(crate) fn open_editor_window(
                 load.path.clone(),
             );
             editor.update(cx, |view, cx| {
+                // `EditorStart` comes after the file is read, as in Sakura (`CNormalProcess`).
+                view.mark_editor_start_due();
                 view.load_path_here(load.path, load.encoding, window, cx);
             });
         }
@@ -176,6 +179,14 @@ fn open_window_with(
         window.defer(cx, move |window, cx| {
             restore.update(cx, |workspace, cx| workspace.restore_outline(window, cx));
         });
+        // The plugins of EditorStart, once the window is there (`CNormalProcess`). A plugin that adds
+        // commands (`Plugin.AddCommand`) makes the saved keys and buttons of them work from here.
+        // The place in the line is taken now, before a macro of the launch can start: it waits for EditorStart.
+        let editor = workspace.read(cx).editor().clone();
+        // A window that began with a file calls it after the file is read.
+        if !editor.read(cx).editor_start_due() {
+            crate::plugin_events::fire(cx, &editor, Jack::EditorStart);
+        }
         // The windows keep their size and position when the settings say so (`OnSize`, `OnMove`).
         workspace.update(cx, |_, workspace_cx| {
             workspace_cx
@@ -251,15 +262,36 @@ fn install(window: &mut Window, cx: &mut App, workspace: &Entity<Workspace>) {
             });
             return false;
         }
-        let needs_question = |view: &Entity<EditorView>, cx: &App| {
-            let shared = view.read(cx).document().read(cx);
-            // a changed encoding is asked about too (`CDocFile::IsChgCodeSet`)
-            !view.read(cx).is_grep_window()
-                && (shared.model().is_modified() || shared.format_changed())
-        };
         if !views.iter().any(|v| needs_question(v, cx)) {
             for view in &views {
                 view.update(cx, |view, cx| view.record_history(cx));
+            }
+            // The plugins of DocumentClose and EditorEnd run first, and then the window goes.
+            if crate::plugin_events::has_plugs(cx, &[Jack::DocumentClose, Jack::EditorEnd]) {
+                if !asking.replace(true) {
+                    let asking = asking.clone();
+                    let workspace = workspace.downgrade();
+                    window
+                        .spawn(cx, async move |cx| {
+                            let weak: Vec<_> = views.iter().map(Entity::downgrade).collect();
+                            let edited = crate::plugin_events::window_closing(&weak, cx).await;
+                            asking.set(false);
+                            // The window stayed usable meanwhile: a tab that the user edited (or moved
+                            // here) is asked about by the next close, not thrown away.
+                            let same = workspace
+                                .read_with(cx, |ws, _| {
+                                    let tabs = ws.tab_editors();
+                                    tabs.len() == views.len()
+                                        && tabs.iter().zip(&views).all(|(a, b)| a == b)
+                                })
+                                .unwrap_or(false);
+                            if same && !edited {
+                                cx.update(|window, _| window.remove_window()).ok();
+                            }
+                        })
+                        .detach();
+                }
+                return false;
             }
             return true;
         }
@@ -322,13 +354,16 @@ async fn close_after_questions(
             let version = view.read_with(cx, |v, app| v.document().read(app).version());
             asked.push((view.entity_id(), version));
         }
-        let unchanged = workspace
-            .read_with(cx, |ws, app| {
-                ws.tab_editors().iter().all(|v| {
-                    asked.contains(&(v.entity_id(), v.read(app).document().read(app).version()))
+        let all_asked = |cx: &mut gpui::AsyncWindowContext| {
+            workspace
+                .read_with(cx, |ws, app| {
+                    ws.tab_editors().iter().all(|v| {
+                        asked.contains(&(v.entity_id(), v.read(app).document().read(app).version()))
+                    })
                 })
-            })
-            .unwrap_or(true);
+                .unwrap_or(true)
+        };
+        let unchanged = all_asked(cx);
         // Another window opened while a later question was open: closing this one is not the end of the editor
         // any more, and the tabs that were not asked about are asked now.
         let still_ends = cx
@@ -340,16 +375,48 @@ async fn close_after_questions(
             continue;
         }
         if unchanged {
-            cx.update(|window, app| {
-                for view in &views {
-                    crate::unsaved::apply_close(view, app);
-                }
-                window.remove_window();
-            })
-            .ok();
-            return;
+            let weak: Vec<_> = views.iter().map(Entity::downgrade).collect();
+            let edited = crate::plugin_events::window_closing(&weak, cx).await;
+            // The plugins took time: what the user changed meanwhile is asked about, not thrown away. The
+            // copies of what the user threw away go only when the window really goes.
+            let same_tabs = workspace
+                .read_with(cx, |ws, _| {
+                    let tabs = ws.tab_editors();
+                    tabs.len() == views.len() && tabs.iter().zip(&views).all(|(a, b)| a == b)
+                })
+                .unwrap_or(false);
+            // A window that opened meanwhile makes this close an ordinary one: what was left out for the
+            // copies is asked about now.
+            let still_ends = cx
+                .update(|_, app| {
+                    crate::unsaved::hot_exit_enabled(app) && workspaces(app).len() == 1
+                })
+                .unwrap_or(false);
+            if !by_copy_only.is_empty() && !still_ends {
+                asked.retain(|(id, _)| !by_copy_only.contains(id));
+                by_copy_only.clear();
+                continue;
+            }
+            if !edited && same_tabs {
+                cx.update(|window, app| {
+                    for view in &views {
+                        crate::unsaved::apply_close(view, app);
+                    }
+                    window.remove_window();
+                })
+                .ok();
+                return;
+            }
+            continue;
         }
     }
+}
+
+/// Whether closing the window needs the question about the changes of `view`: it is modified, or only its
+/// encoding changed (`CDocFile::IsChgCodeSet`). A Grep window is closed without it.
+fn needs_question(view: &Entity<EditorView>, cx: &App) -> bool {
+    let shared = view.read(cx).document().read(cx);
+    !view.read(cx).is_grep_window() && (shared.model().is_modified() || shared.format_changed())
 }
 
 /// The windows that are open with their workspaces, oldest first.
