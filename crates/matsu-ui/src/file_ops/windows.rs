@@ -136,6 +136,8 @@ fn open_window_with(
     let count = window_count(cx);
     // `-SX=` `-SY=` `-WX=` `-WY=` of the launch that opens this window.
     let placement = super::start_options::take_next_placement(cx);
+    // A launch that searches (`-GREPMODE`) gives the window its `EditorStart` after the search.
+    let defer_start = start_options::take_deferred_editor_start(cx);
     // The size and the position that the windows kept (`CEditWnd::_GetWindowRectForInit`); the
     // command line wins over them.
     let saved = crate::saved_state::window::state(cx);
@@ -184,6 +186,9 @@ fn open_window_with(
         // The place in the line is taken now, before a macro of the launch can start: it waits for EditorStart.
         let editor = workspace.read(cx).editor().clone();
         // A window that began with a file calls it after the file is read.
+        if defer_start {
+            editor.update(cx, |view, _| view.mark_editor_start_due());
+        }
         if !editor.read(cx).editor_start_due() {
             crate::plugin_events::fire(cx, &editor, Jack::EditorStart);
         }
@@ -274,7 +279,9 @@ fn install(window: &mut Window, cx: &mut App, workspace: &Entity<Workspace>) {
                     window
                         .spawn(cx, async move |cx| {
                             let weak: Vec<_> = views.iter().map(Entity::downgrade).collect();
-                            let edited = crate::plugin_events::window_closing(&weak, cx).await;
+                            let mut log = crate::plugin_events::CloseLog::default();
+                            let edited =
+                                crate::plugin_events::window_closing(&weak, &mut log, cx).await;
                             asking.set(false);
                             // The window stayed usable meanwhile: a tab that the user edited (or moved
                             // here) is asked about by the next close, not thrown away.
@@ -287,6 +294,9 @@ fn install(window: &mut Window, cx: &mut App, workspace: &Entity<Workspace>) {
                                 .unwrap_or(false);
                             if same && !edited {
                                 cx.update(|window, _| window.remove_window()).ok();
+                            } else {
+                                // The window stays after `EditorEnd`: the plugins are told it goes on.
+                                crate::plugin_events::restart_ended(&mut log, cx).await;
                             }
                         })
                         .detach();
@@ -316,6 +326,19 @@ async fn close_after_questions(
     workspace: &WeakEntity<Workspace>,
     cx: &mut gpui::AsyncWindowContext,
 ) {
+    let mut log = crate::plugin_events::CloseLog::default();
+    if !close_after_questions_with(workspace, cx, &mut log).await {
+        // The window stays: what it was told of the close (`EditorEnd`) is taken back.
+        crate::plugin_events::restart_ended(&mut log, cx).await;
+    }
+}
+
+/// [`close_after_questions`] with the log of what the plugins were told. `true` when the window went.
+async fn close_after_questions_with(
+    workspace: &WeakEntity<Workspace>,
+    cx: &mut gpui::AsyncWindowContext,
+    log: &mut crate::plugin_events::CloseLog,
+) -> bool {
     let mut asked: Vec<(gpui::EntityId, u64)> = Vec::new();
     // The tabs whose question was left out because their copy is kept.
     let mut by_copy_only: Vec<gpui::EntityId> = Vec::new();
@@ -329,7 +352,7 @@ async fn close_after_questions(
             crate::unsaved::settle(cx).await;
         }
         let Ok(views) = workspace.read_with(cx, |ws, _| ws.tab_editors()) else {
-            return;
+            return true;
         };
         for view in &views {
             let version = view.read_with(cx, |v, app| v.document().read(app).version());
@@ -344,7 +367,7 @@ async fn close_after_questions(
             if !go_on {
                 // The flow is over: what it left out for the copies is taken back.
                 close::forget_left_out(&views, cx);
-                return;
+                return false;
             }
             if by_copy {
                 by_copy_only.push(view.entity_id());
@@ -376,7 +399,7 @@ async fn close_after_questions(
         }
         if unchanged {
             let weak: Vec<_> = views.iter().map(Entity::downgrade).collect();
-            let edited = crate::plugin_events::window_closing(&weak, cx).await;
+            let edited = crate::plugin_events::window_closing(&weak, log, cx).await;
             // The plugins took time: what the user changed meanwhile is asked about, not thrown away. The
             // copies of what the user threw away go only when the window really goes.
             let same_tabs = workspace
@@ -405,7 +428,7 @@ async fn close_after_questions(
                     window.remove_window();
                 })
                 .ok();
-                return;
+                return true;
             }
             continue;
         }
@@ -637,9 +660,19 @@ pub(crate) fn open_from_outside_with(
     };
     if launch.is_grep() {
         // `-GREPMODE`: a window for the result; the files are not opened.
-        let (handle, view) = open(cx, None, launch.placement())?;
+        let at_start = launch.greps_at_start();
+        if at_start {
+            start_options::defer_editor_start(cx);
+        }
+        let opened = open(cx, None, launch.placement());
+        // A tab does not take the place of a window, nor the deferral of its `EditorStart`.
+        start_options::take_deferred_editor_start(cx);
+        let (handle, view) = opened?;
         if let Some(view) = view {
             launch.start_grep(handle, &view, cx);
+            if at_start {
+                launch.events_after_grep(handle, &view, cx);
+            }
         }
         return Ok(());
     }

@@ -241,6 +241,11 @@ impl EditorView {
         self.grep.is_running()
     }
 
+    /// A Grep runs in the window, or is about to (a macro of the type change goes first).
+    pub(crate) fn grep_busy(&self) -> bool {
+        self.grep.is_running() || self.grep.starting
+    }
+
     /// The key the window searched for, or none for a window that is not a Grep window.
     pub(crate) fn grep_key(&self) -> Option<String> {
         self.grep.key.clone()
