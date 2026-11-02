@@ -28,18 +28,16 @@ const HOST_BUSY_TICK: Duration = Duration::from_millis(50);
 
 impl OutlinePane {
     /// Whether an item with the file name `file` is in a file other than the document of the pane
-    /// (`CDlgFuncList::OnJump`: an item with a file name jumps to that file). The names are compared
-    /// without regard to case, as Sakura compares them (`wmemicmp`).
+    /// (`CDlgFuncList::OnJump`: an item with a file name jumps to that file). The files are compared
+    /// the way the windows are (`same_file`: the real paths, so case matters only where the file
+    /// system says so).
     pub(super) fn is_in_another_file(&self, file: &str, cx: &gpui::App) -> bool {
         if file.is_empty() {
             return false;
         }
         let this = self.document.read(cx).path();
         this.is_none_or(|path| {
-            !path
-                .to_string_lossy()
-                .to_lowercase()
-                .eq(&file.to_lowercase())
+            !crate::file_ops::windows::same_file(path, std::path::Path::new(file))
         })
     }
 
