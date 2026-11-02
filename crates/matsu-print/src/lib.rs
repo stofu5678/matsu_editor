@@ -37,7 +37,10 @@
 //!
 //! # Not done here
 //!
-//! - Color printing (`color_print`) and the colors of the text. A page holds plain text.
+//! - The coloring itself. With `color_print` on, [`Layout::page_styled`] asks a [`LineStyler`] for
+//!   the runs of each line and gives each piece of text its [`TextStyle`]; the caller makes the
+//!   styler from `matsu-coloring`, the code that colors the screen. Sakura prints the text
+//!   color, bold and underline of the entries, not their backgrounds.
 //! - The printer: the paper comes from the caller, and so does the unprintable margin of the
 //!   printer, which Sakura takes off every position. The range of pages is picked in the OS
 //!   print dialog (Sakura passes `PD_NOSELECTION`: it never prints the selection), so a page
@@ -55,10 +58,11 @@ mod layout;
 mod page;
 mod setting;
 mod source;
+mod style;
 
 pub use header::{HeaderContext, PageInfo, WindowKind, WriteState, expand_parameter};
 pub use layout::{LINENUMWIDTH_MIN, Layout, LineTerm, PrintError, TypeOptions, line_number_cells};
-pub use page::{FontKind, HAlign, Page, PlacedText, Rule};
+pub use page::{FontKind, HAlign, Page, PlacedText, Rgb, Rule, TextStyle};
 pub use setting::{
     DMPAPER_A3, DMPAPER_A4, DMPAPER_A4SMALL, DMPAPER_A5, DMPAPER_B4, DMPAPER_B5, DMPAPER_EXECUTIVE,
     DMPAPER_FOLIO, DMPAPER_LEDGER, DMPAPER_LEGAL, DMPAPER_LETTER, DMPAPER_LETTERSMALL,
@@ -66,6 +70,7 @@ pub use setting::{
     PAPER_INFO, POS_CENTER, POS_LEFT, POS_RIGHT, Paper, PaperInfo, PrintSetting, find_paper_info,
 };
 pub use source::LineSource;
+pub use style::{LineStyler, StyleRun};
 
 #[cfg(test)]
 mod tests;

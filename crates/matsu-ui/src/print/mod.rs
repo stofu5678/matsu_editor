@@ -7,6 +7,7 @@
 //! of the OS; printing closes the preview, and cancelling the dialog leaves it open.
 
 pub mod preview;
+mod styler;
 
 use gpui::{App, AppContext as _, Context, Entity, Focusable as _, Subscription, Window};
 use matsu_core::buffer::Document;
@@ -64,6 +65,12 @@ impl EditorView {
             // `$R`, `$N` and the rest as the title of the window has them.
             header: self.header_context(cx),
             title,
+            // The colors of the type, for a setting that prints in color. The preview can turn
+            // `color_print` on after the job was made, so it is always there.
+            styler: Some(std::sync::Arc::new(styler::DocStyler::new(
+                shared.doc().clone(),
+                self.prefs.settings.coloring.clone(),
+            ))),
         }
     }
 

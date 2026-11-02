@@ -787,6 +787,7 @@ fn grid_positions() {
         text: "aあb".into(),
         font: FontKind::Han,
         align: HAlign::Left,
+        style: None,
     };
     let xs: Vec<_> = text
         .positions(12, WidthRule::default())
@@ -812,4 +813,131 @@ fn a_line_of_many_pages() {
     // 2 characters in each of 3 rows, then 2 rows of 2 characters on the last page.
     assert_eq!(texts(&all[0]), ["ああ"; 3]);
     assert_eq!(texts(&all[6]), ["ああ"; 2]);
+}
+
+/// Colors the characters `r` red and bold, `u` underlined blue, the rest in the plain style.
+struct Fake;
+
+const PLAIN: TextStyle = TextStyle {
+    color: 0x111111,
+    bold: false,
+    underline: false,
+};
+
+impl LineStyler for Fake {
+    fn plain(&self) -> TextStyle {
+        PLAIN
+    }
+
+    fn style_line(&self, _line: usize, text: &str, _has_eol: bool, out: &mut Vec<StyleRun>) {
+        out.clear();
+        for (i, ch) in text.char_indices() {
+            let style = match ch {
+                'r' => TextStyle {
+                    color: 0xff0000,
+                    bold: true,
+                    underline: false,
+                },
+                'u' => TextStyle {
+                    color: 0x0000ff,
+                    bold: false,
+                    underline: true,
+                },
+                _ => continue,
+            };
+            out.push(StyleRun {
+                range: i..i + 1,
+                style,
+            });
+        }
+    }
+}
+
+fn styled_pieces(page: &Page) -> Vec<(&str, Option<u32>)> {
+    page.texts
+        .iter()
+        .map(|t| (t.text.as_str(), t.style.map(|s| s.color)))
+        .collect()
+}
+
+#[test]
+fn color_print_gives_the_pieces_the_colors_of_the_runs() {
+    let s = PrintSetting {
+        color_print: true,
+        ..no_header_footer()
+    };
+    let lines = ["abrcu", "x\ty", ""];
+    let l = layout(&lines, &s, Paper::A4);
+    let p = l
+        .page_styled(0, &lines, &HeaderContext::default(), &Fake)
+        .unwrap();
+    // The text between runs is in the plain style; a tab splits the text and prints nothing.
+    assert_eq!(
+        styled_pieces(&p),
+        [
+            ("ab", Some(0x111111)),
+            ("r", Some(0xff0000)),
+            ("c", Some(0x111111)),
+            ("u", Some(0x0000ff)),
+            ("x", Some(0x111111)),
+            ("y", Some(0x111111)),
+        ]
+    );
+    assert!(p.texts[1].style.unwrap().bold);
+    assert!(p.texts[3].style.unwrap().underline);
+}
+
+#[test]
+fn without_color_print_the_styler_is_not_asked() {
+    struct Never;
+    impl LineStyler for Never {
+        fn plain(&self) -> TextStyle {
+            unreachable!()
+        }
+        fn style_line(&self, _: usize, _: &str, _: bool, _: &mut Vec<StyleRun>) {
+            unreachable!()
+        }
+    }
+    let s = no_header_footer();
+    assert!(!s.color_print);
+    let lines = ["abrcu", ""];
+    let l = layout(&lines, &s, Paper::A4);
+    let p = l
+        .page_styled(0, &lines, &HeaderContext::default(), &Never)
+        .unwrap();
+    assert!(p.texts.iter().all(|t| t.style.is_none()));
+    assert_eq!(p, page(&l, 0, &lines));
+}
+
+#[test]
+fn the_header_the_footer_and_the_line_numbers_have_the_text_color() {
+    // Sakura leaves the DC in the text color of the type after each line.
+    let s = PrintSetting {
+        color_print: true,
+        print_line_number: true,
+        ..PrintSetting::default()
+    };
+    let lines = ["x", ""];
+    let l = layout(&lines, &s, Paper::A4);
+    let p = l
+        .page_styled(0, &lines, &HeaderContext::default(), &Fake)
+        .unwrap();
+    assert!(p.texts.len() > 2);
+    assert!(p.texts.iter().all(|t| t.style == Some(PLAIN)));
+}
+
+#[test]
+fn a_wrapped_line_is_colored_across_its_rows() {
+    // 4 cells a row: "aabbrr" wraps after "aabb"; the styles are those of the bytes of the line.
+    let (mut s, paper) = narrow(4);
+    s.color_print = true;
+    let lines = ["aabbrr", ""];
+    let l = layout(&lines, &s, paper);
+    let p = l
+        .page_styled(0, &lines, &HeaderContext::default(), &Fake)
+        .unwrap();
+    assert_eq!(
+        styled_pieces(&p),
+        [("aabb", Some(0x111111)), ("rr", Some(0xff0000))]
+    );
 }

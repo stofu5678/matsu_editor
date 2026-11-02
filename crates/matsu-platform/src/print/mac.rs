@@ -27,7 +27,7 @@ use objc2_core_foundation::{
     CFAttributedString, CFDictionary, CFIndex, CFNumber, CFRange, CFRetained, CFString, CFType,
     CGAffineTransform, CGFloat, CGPoint,
 };
-use objc2_core_graphics::{CGContext, CGGlyph};
+use objc2_core_graphics::{CGContext, CGGlyph, CGTextDrawingMode};
 use objc2_core_text::{CTFont, CTLine, CTRun, kCTFontAttributeName, kCTLigatureAttributeName};
 use objc2_foundation::{NSCopying, NSInteger, NSPoint, NSRange, NSRect, NSSize, NSString};
 
@@ -35,7 +35,7 @@ use matsu_print::{FontKind, Layout, Page, Paper, PlacedText};
 use raw_window_handle::RawWindowHandle;
 
 use super::PrintJob;
-use super::draw::{cell_positions, font_spec, on_grid};
+use super::draw::{DrawOp, cell_positions, font_spec, on_grid, underline_of};
 
 /// 0.1 mm in points (1/72 inch), the unit of Core Graphics.
 fn points(tenth_mm: i32) -> CGFloat {
@@ -187,7 +187,7 @@ define_class!(
             let last = ((dirty.origin.y + dirty.size.height) / height).ceil() as usize;
             let fonts = Fonts::new(layout);
             for index in first..last.min(layout.page_count()) {
-                let Some(page) = layout.page(index, &*state.job.source, &state.job.header) else {
+                let Some(page) = state.job.page(layout, index) else {
                     continue;
                 };
                 CGContext::save_g_state(Some(&context));
@@ -335,12 +335,44 @@ fn draw_page(context: &CGContext, page: &Page, layout: &Layout, fonts: &Fonts) {
     }
 }
 
+/// Draws a piece of text in the color of its style: the color is the fill (and the stroke, for
+/// bold), bold is the text drawn as fill and stroke (Core Graphics has no synthetic bold of its
+/// own), and an underline is a line under the cells, in the color of the text.
+fn draw_text(context: &CGContext, text: &PlacedText, layout: &Layout, fonts: &Fonts) {
+    CGContext::save_g_state(Some(context));
+    let (red, green, blue) = text.style.map_or((0., 0., 0.), |s| {
+        let part = |shift: u32| CGFloat::from((s.color >> shift) & 0xff) / 255.;
+        (part(16), part(8), part(0))
+    });
+    CGContext::set_rgb_fill_color(Some(context), red, green, blue, 1.);
+    CGContext::set_rgb_stroke_color(Some(context), red, green, blue, 1.);
+    if text.style.is_some_and(|s| s.bold) {
+        // A thin outline of a fortieth of the em thickens the strokes.
+        CGContext::set_line_width(
+            Some(context),
+            points(font_spec(layout.setting(), text.font).height) / 40.,
+        );
+        CGContext::set_text_drawing_mode(Some(context), CGTextDrawingMode::FillStroke);
+    }
+    draw_glyphs(context, text, layout, fonts);
+    if let Some(DrawOp::Underline { from, to, .. }) = underline_of(text, layout) {
+        CGContext::set_line_width(Some(context), 0.5);
+        let line = [
+            CGPoint::new(points(from.0), points(from.1)),
+            CGPoint::new(points(to.0), points(to.1)),
+        ];
+        // SAFETY: two points, one segment.
+        unsafe { CGContext::stroke_line_segments(Some(context), line.as_ptr(), line.len()) };
+    }
+    CGContext::restore_g_state(Some(context));
+}
+
 /// Draws text on its grid: Core Text shapes it, picking fallback fonts for characters that the
 /// font lacks, and each glyph goes to the cell of its character.
 ///
 /// A header or a footer in a font of its own is not on the grid: it goes from its `x` with the
 /// advances of the font, always from the left (centering needs its width; a follow-up).
-fn draw_text(context: &CGContext, text: &PlacedText, layout: &Layout, fonts: &Fonts) {
+fn draw_glyphs(context: &CGContext, text: &PlacedText, layout: &Layout, fonts: &Fonts) {
     // The x of each UTF-16 unit of the text, which is how Core Text counts the characters.
     let grid = on_grid(text.font);
     let mut xs = Vec::new();
