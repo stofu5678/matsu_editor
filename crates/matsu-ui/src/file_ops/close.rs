@@ -524,7 +524,12 @@ struct ExitRunning(std::rc::Rc<std::cell::Cell<bool>>);
 impl ExitRunning {
     fn begin(app: &mut App) -> Option<Self> {
         let flag = app.default_global::<ExitInProgress>().0.clone();
-        (!flag.replace(true)).then_some(Self(flag))
+        // Not `then_some`: a guard that is made and thrown away would let the flag go.
+        if flag.replace(true) {
+            None
+        } else {
+            Some(Self(flag))
+        }
     }
 }
 

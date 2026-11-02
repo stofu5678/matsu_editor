@@ -255,7 +255,8 @@ fn a_second_quit_while_the_first_waits_for_a_plugin_does_not_tell_the_close_agai
     let (_, view) = wins[0].clone();
     cx.update(crate::file_ops::close::quit);
     wait(cx, "the handler did not start", |cx| running(&view, cx));
-    // The key is pressed again while the handler runs.
+    // The key is pressed again, twice, while the handler runs: a refused ask must not let the first go.
+    cx.update(crate::file_ops::close::quit);
     cx.update(crate::file_ops::close::quit);
     wait(cx, "the application did not quit", |_| quits() > 0);
     assert_eq!(quits(), 1);
@@ -390,14 +391,13 @@ fn a_tab_that_opens_while_editor_end_runs_is_told_editor_start_after_the_close_b
     }) else {
         return;
     };
-    // The window stays with both tabs; the first one is told that the editor starts again.
+    // The window stays with both tabs; the tab that shows (the new one) is told that the editor starts again.
+    let shown = tab_views(cx, handle).remove(1);
     wait(cx, "EditorStart did not come", |cx| {
-        told(&first, cx).len() >= 3 && !running(&first, cx)
+        told(&shown, cx).contains(&"EditorStart".to_owned()) && !running(&shown, cx)
     });
-    assert_eq!(
-        told(&first, cx),
-        ["DocumentClose", "EditorEnd", "EditorStart"]
-    );
+    assert_eq!(told(&first, cx), TOLD_CLOSE_AND_END);
+    assert_eq!(told(&shown, cx), ["EditorStart"]);
     assert_eq!(tab_views(cx, handle).len(), 2);
     assert!(window_is_open(cx, handle));
     finish(cx);
