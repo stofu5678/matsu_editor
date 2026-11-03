@@ -20,11 +20,11 @@ use crate::macros::plugin_call::{set_test_interpreter, shutdown};
 use crate::settings::UserSettings;
 use crate::view::EditorView;
 
-const ID: &str = "test.events";
+pub(super) const ID: &str = "test.events";
 
 /// A folder with the settings file and a plugin `Events` that has the six jacks. Each handler writes
 /// `[<jack>]`; `script` can replace a handler.
-struct Place {
+pub(super) struct Place {
     dir: tempfile::TempDir,
 }
 
@@ -82,7 +82,7 @@ impl Place {
     }
 
     /// The user turned plugins on and agreed to this one.
-    fn enable(&self, cx: &mut VisualTestContext) {
+    pub(super) fn enable(&self, cx: &mut VisualTestContext) {
         let dirs = self.dirs();
         let def = dirs.load_def("Events", DEFAULT_LANGUAGE).unwrap();
         assert_eq!(def.plugs.len(), 6);
@@ -105,7 +105,7 @@ impl Place {
     }
 }
 
-struct Files(PathBuf);
+pub(super) struct Files(PathBuf);
 
 impl Files {
     fn new() -> Self {
@@ -113,7 +113,7 @@ impl Files {
         Self(dir)
     }
 
-    fn write(&self, name: &str, bytes: &[u8]) -> PathBuf {
+    pub(super) fn write(&self, name: &str, bytes: &[u8]) -> PathBuf {
         let path = self.0.join(name);
         fs::write(&path, bytes).unwrap();
         path
@@ -130,7 +130,7 @@ impl Drop for Files {
     }
 }
 
-fn setup(cx: &mut TestAppContext) -> (Entity<EditorView>, &mut VisualTestContext) {
+pub(super) fn setup(cx: &mut TestAppContext) -> (Entity<EditorView>, &mut VisualTestContext) {
     cx.update(gpui_component::init);
     let shared = cx.new(|_| SharedDocument::empty());
     let (view, vcx) = cx.add_window_view(move |window, cx| {
@@ -151,7 +151,7 @@ fn run(view: &Entity<EditorView>, cx: &mut VisualTestContext, function: &str, ar
 }
 
 /// The jacks that have run, in order, from the lines `[<jack>]` in the output panel.
-fn jacks(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> Vec<String> {
+pub(super) fn jacks(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> Vec<String> {
     let output = view.read_with(cx, |v, _| v.macro_output_text());
     output
         .lines()
@@ -194,7 +194,7 @@ fn text_of(path: &Path) -> String {
     fs::read_to_string(path).unwrap()
 }
 
-fn begin(cx: &mut TestAppContext, scripts: &[(&str, &str)]) -> Option<(Place, Files)> {
+pub(super) fn begin(cx: &mut TestAppContext, scripts: &[(&str, &str)]) -> Option<(Place, Files)> {
     let host = script_host()?;
     set_test_interpreter(Some(host));
     let _ = cx;
@@ -355,7 +355,7 @@ fn a_window_that_closes_calls_close_and_then_editor_end(cx: &mut TestAppContext)
     cx.update(|window, app| {
         window
             .spawn(app, async move |cx| {
-                super::window_closing(&[weak], cx).await;
+                super::window_closing(&[weak], &mut super::CloseLog::default(), cx).await;
             })
             .detach();
     });
@@ -461,10 +461,10 @@ fn two_windows_that_fire_at_once_both_get_the_event_though_the_host_is_shared(
     finish(cx);
 }
 
-const BUSY: &str = "var t = Date.now(); while (Date.now() - t < 700) {}";
+pub(super) const BUSY: &str = "var t = Date.now(); while (Date.now() - t < 700) {}";
 
 /// Lets the window and the plugin process run until `done` says yes.
-fn spin(
+pub(super) fn spin(
     cx: &mut VisualTestContext,
     what: &str,
     mut done: impl FnMut(&mut VisualTestContext) -> bool,
@@ -480,7 +480,7 @@ fn spin(
     panic!("{what}");
 }
 
-fn running(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> bool {
+pub(super) fn running(view: &Entity<EditorView>, cx: &mut VisualTestContext) -> bool {
     view.read_with(cx, |v, _| v.plugin_call_running())
 }
 
@@ -676,7 +676,8 @@ fn closing_window(
     cx.update(|window, app| {
         window
             .spawn(app, async move |cx| {
-                let edited = super::window_closing(&[weak], cx).await;
+                let edited =
+                    super::window_closing(&[weak], &mut super::CloseLog::default(), cx).await;
                 slot.set(Some(edited));
             })
             .detach();
