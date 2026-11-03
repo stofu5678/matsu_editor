@@ -110,7 +110,45 @@ pub(crate) fn remember(cx: &mut App, options: SearchOptions, replace: Option<&Re
         consecutive_all: replace.map_or(old.consecutive_all, |r| r.consecutive_all),
         selected_area: replace.map_or(old.selected_area, |r| r.in_selection),
     };
-    if now == old && cx.has_global::<SavedSearch>() {
+    store(cx, now);
+}
+
+/// The Grep dialog and `-GREPDLG` set the three options of the pattern (`m_sSearchOption`: the
+/// regular expression, the case and the word) that the find dialog shares; the rest stays.
+pub(crate) fn remember_pattern_options(
+    cx: &mut App,
+    regex: bool,
+    match_case: bool,
+    whole_word: bool,
+) {
+    let old = saved(cx);
+    store(
+        cx,
+        SavedSearch {
+            regex,
+            match_case,
+            whole_word,
+            ..old
+        },
+    );
+}
+
+/// The DIFF dialog's OK keeps its two search options (`CDlgDiff::GetData`: 見つからないときメッセージ
+/// を表示 and 先頭（末尾）から再検索), even when it has no other side to compare.
+pub(crate) fn remember_notify_and_wrap(cx: &mut App, notify_not_found: bool, wrap: bool) {
+    let old = saved(cx);
+    store(
+        cx,
+        SavedSearch {
+            notify_not_found,
+            wrap,
+            ..old
+        },
+    );
+}
+
+fn store(cx: &mut App, now: SavedSearch) {
+    if now == saved(cx) && cx.has_global::<SavedSearch>() {
         return;
     }
     cx.set_global(now);

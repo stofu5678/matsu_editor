@@ -460,11 +460,7 @@ fn the_folder_history_wins_over_the_file_unless_the_option_is_on(cx: &mut TestAp
     assert_eq!(boxes(cx, &panel)[1], "C:\\history");
     panel.update_in(cx, |p, window, cx| p.cancel(window, cx));
     // フォルダーの初期値をカレントフォルダーにする
-    cx.update(|_, app| {
-        let mut settings = super::window::remembered(app);
-        settings.default_folder = true;
-        super::window::remember(app, settings);
-    });
+    cx.update(|_, app| crate::saved_state::grep::remember_default_folder(app, true));
     let panel = f.open(cx, "F_GREP_DIALOG");
     assert_eq!(boxes(cx, &panel)[1], dir.path().to_string_lossy());
 }
