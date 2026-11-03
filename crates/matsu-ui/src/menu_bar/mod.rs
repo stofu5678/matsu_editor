@@ -206,10 +206,22 @@ impl MenuBar {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.set_selected_index_restoring(ix, true, window, cx);
+    }
+
+    /// `set_selected_index`; with `restore_focus` false, closing the menu leaves the focus where
+    /// it is (a command of the menu has moved it already: see `handle_dismiss`).
+    fn set_selected_index_restoring(
+        &mut self,
+        ix: Option<usize>,
+        restore_focus: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.selected_index.is_none() && ix.is_some() {
             self.action_context = window.focused(cx);
         } else if ix.is_none() {
-            if let Some(action_context) = self.action_context.as_ref() {
+            if restore_focus && let Some(action_context) = self.action_context.as_ref() {
                 action_context.focus(window, cx);
             }
             self.action_context = None;
@@ -243,6 +255,13 @@ impl Render for MenuBar {
             .lock_scroll_axis()
             .children(self.menus.clone())
     }
+}
+
+/// Whether the focus is in the window but outside `popup`, once the popup announced that it is
+/// dismissed: an item has run and moved the focus on (into a dialog it opened). The code that
+/// closes a popup gives the focus back to the text only when this is false.
+pub(crate) fn focus_left_popup(popup: &Entity<PopupMenu>, window: &Window, cx: &App) -> bool {
+    window.focused(cx).is_some() && !popup.read(cx).focus_handle(cx).contains_focused(window, cx)
 }
 
 pub(crate) fn fill(
@@ -433,15 +452,22 @@ impl BarMenu {
 
     fn handle_dismiss(
         &mut self,
-        _: &Entity<PopupMenu>,
+        popup: &Entity<PopupMenu>,
         _: &DismissEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // The popup announces its dismissal after the item has run. A command that opened a
+        // dialog drawn in the window (search, Grep, jump, ...) has moved the focus into it by
+        // now; giving the focus back to the text then would leave the dialog without it, and the
+        // keys typed next would go into the document. The focus goes back only when it is still
+        // in the menu (or nowhere): Escape, a click outside, a command that moves nothing.
+        let moved_away = window.focused(cx).is_some()
+            && !popup.read(cx).focus_handle(cx).contains_focused(window, cx);
         self._subscription.take();
         self.popup_menu.take();
         self.menu_bar.update(cx, |state, cx| {
-            state.on_cancel(&Cancel, window, cx);
+            state.set_selected_index_restoring(None, !moved_away, window, cx);
         });
     }
 
