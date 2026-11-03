@@ -319,10 +319,14 @@ fn the_input_while_the_plugin_works_is_kept_and_the_plugin_stops(cx: &mut TestAp
 
 #[gpui::test]
 fn a_plugin_is_stopped_when_the_user_typed_on_and_adds_nothing(cx: &mut TestAppContext) {
-    // It asks first, works for a while, and then inserts: the user has typed by then.
+    // It asks again and again, and inserts only at the end: it never gets there, because the first
+    // request after the user typed is refused (or, on a machine so slow that the user is late by more
+    // than the limit of the jack, the time limit ends it). The order does not depend on how long
+    // anything takes: a request is answered on the window, one at a time, so it comes before or after
+    // the typing, and an insertion is never answered after it.
     let place = Place::new(
         true,
-        "Editor.GetLineCount(0); const t = Date.now(); while (Date.now() - t < 300) {} \
+        "for (let i = 0; i < 1000000; i++) Editor.GetLineCount(0); \
          Editor.InsText('PLUGIN'); console.log('[inserted]');",
     );
     let Some((view, cx)) = window(cx, &place, true) else {
@@ -348,10 +352,11 @@ fn a_plugin_is_stopped_when_the_user_selected_the_text_and_replaces_nothing(
     cx: &mut TestAppContext,
 ) {
     // The caret does not move and the text does not change, but the selection does: an insertion
-    // would replace the selected text.
+    // would replace the selected text. The handler asks again and again and inserts only at the end,
+    // so it cannot get past the user whatever the speed of the machine (see the test above).
     let place = Place::new(
         true,
-        "console.log('[start]'); const t = Date.now(); while (Date.now() - t < 300) {} \
+        "console.log('[start]'); for (let i = 0; i < 1000000; i++) Editor.GetLineCount(0); \
          Editor.InsText('PLUGIN'); console.log('[inserted]');",
     );
     let Some((view, cx)) = window(cx, &place, true) else {
