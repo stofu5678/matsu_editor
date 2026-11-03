@@ -6,7 +6,7 @@
 //! * [`load`]: reads and decodes the file once, when the type of a view is chosen or its settings
 //!   change (`CEditDoc::SetBackgroundImage`), not when the view is painted. The picture is kept
 //!   for as long as a view uses it, so views of the same type share one;
-//! * [`placement`]: the tiles of the picture in the view (`CEditView::DrawBackImage`).
+//! * `placement`: the tiles of the picture in the view (`CEditView::DrawBackImage`).
 //!
 //! The file is only read. A file that cannot be read, or is not a picture the decoder knows,
 //! gives no image and no message, as in Sakura (`SetBackgroundImage` returns).
@@ -79,6 +79,10 @@ impl BackImageSpec {
 /// and 8192 is what every one of them has; a bigger file gives no image.
 pub const MAX_SIDE: u32 = 8192;
 
+/// A file bigger than this is not read (it would be read whole into memory before the decoder
+/// can look at the size of the picture).
+const MAX_FILE_LEN: u64 = 256 * 1024 * 1024;
+
 /// A repeating picture smaller than this (in either direction) is made into copies of itself, so
 /// that painting it takes a few tiles and not thousands.
 const LEAST_TILE: u32 = 256;
@@ -92,7 +96,7 @@ pub struct Decoded {
     /// the type in it (the renderer blends `alpha` of the source over the window, which is what
     /// `AlphaBlend` does with `SourceConstantAlpha`).
     pub bgra: Vec<u8>,
-    /// How many copies of the file's picture there are across and down (see [`LEAST_TILE`]).
+    /// How many copies of the file's picture there are across and down (see `LEAST_TILE`).
     pub copies: (u32, u32),
 }
 
@@ -210,7 +214,7 @@ static LOADED: Mutex<Vec<(Key, Weak<BackBitmap>)>> = Mutex::new(Vec::new());
 /// that changed on disk is read again (the next time the settings are applied).
 pub fn load(spec: &BackImageSpec) -> Option<Arc<BackBitmap>> {
     let meta = std::fs::metadata(&spec.path).ok()?;
-    if !meta.is_file() {
+    if !meta.is_file() || meta.len() > MAX_FILE_LEN {
         return None;
     }
     let key = Key {
