@@ -175,6 +175,30 @@ pub fn wrap_line_x(max_columns: u32, cell: f32, scroll_x: f32, view_width: f32) 
     (x > 0.0 && x < view_width).then_some(x)
 }
 
+/// The columns of the line number area without the separator: the blank before the numbers and
+/// their digits, which are those of the last number (`last_number`, 0 when there is none) and at
+/// least `least` (`nLineNumWidth`, `CTextArea::DetectWidthOfLineNumberArea_calculate`).
+pub fn line_number_columns(last_number: usize, least: u32) -> usize {
+    let mut digits = 0;
+    let mut rest = last_number;
+    while rest > 0 {
+        digits += 1;
+        rest /= 10;
+    }
+    digits.max(least as usize) + 1
+}
+
+/// The number a row shows in the line number area, if it has one (`DispLineNumber`). Numbered by
+/// the lines of the text (`bLineNumIsCRLF`), a wrapped row after the first has none (it shows a
+/// blank); numbered by the rows, every row has its row number. `row` and `line` count from 0.
+pub fn line_number(by_line: bool, row: usize, line: usize, row_in_line: usize) -> Option<usize> {
+    if by_line {
+        (row_in_line == 0).then_some(line + 1)
+    } else {
+        Some(row + 1)
+    }
+}
+
 /// The x of the vertical line that follows the line numbers (行番号区切り 縦線,
 /// `DispLineNumber`: `rc.left = nLineNumAreaWidth - 2`, one pixel wide), from the left of the
 /// window; `number_area_width` is the width of the line number area without the space before the
@@ -211,6 +235,42 @@ pub fn exor_color(dest: u32, pen: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_line_number_area_has_the_last_numbers_width_and_at_least_the_least_width() {
+        // `DetectWidthOfLineNumberArea_calculate`: the figures of the last number, at least
+        // `nLineNumWidth`, and one more column for the blank before them.
+        assert_eq!(line_number_columns(0, 2), 3, "an empty document");
+        assert_eq!(line_number_columns(9, 2), 3);
+        assert_eq!(line_number_columns(99, 2), 3);
+        assert_eq!(line_number_columns(100, 2), 4);
+        assert_eq!(line_number_columns(12345, 2), 6);
+        assert_eq!(line_number_columns(5, 5), 6, "the least width");
+        assert_eq!(
+            line_number_columns(123_456, 5),
+            7,
+            "the figures win when more"
+        );
+        assert_eq!(line_number_columns(1, 11), 12, "the widest setting");
+    }
+
+    #[test]
+    fn the_lines_are_numbered_by_the_text_or_by_the_rows() {
+        // a line of three rows, the second line of the text starts at row 3
+        let rows = [(0, 0, 0), (1, 0, 1), (2, 0, 2), (3, 1, 0)];
+        // `bLineNumIsCRLF`: only the first row of a line has its number
+        let by_line: Vec<_> = rows
+            .iter()
+            .map(|&(row, line, in_line)| line_number(true, row, line, in_line))
+            .collect();
+        assert_eq!(by_line, [Some(1), None, None, Some(2)]);
+        // else every row has the number of the row
+        let by_row: Vec<_> = rows
+            .iter()
+            .map(|&(row, line, in_line)| line_number(false, row, line, in_line))
+            .collect();
+        assert_eq!(by_row, [Some(1), Some(2), Some(3), Some(4)]);
+    }
 
     #[test]
     fn a_plain_column_is_a_line_when_it_is_on_the_screen() {

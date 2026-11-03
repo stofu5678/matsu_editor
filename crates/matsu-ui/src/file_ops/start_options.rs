@@ -300,6 +300,7 @@ impl LaunchOptions {
                         bom: encoding.bom_default_on(),
                         eol: Eol::CrLf,
                         mime_decode: defaults.mime_decode,
+                        prefer_cesu8: defaults.prefer_cesu8,
                     }
                 };
                 view.document()

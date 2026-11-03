@@ -682,6 +682,7 @@ impl Render for Workspace {
         } else {
             title
         });
+        crate::doc_window::sync(window, editor, cx);
         let status = self.content.panel().status(cx);
         let show_status_bar = editor.status_bar_shown();
         let macro_panel = if preview.is_some() {

@@ -41,7 +41,7 @@
 //! differs from the built-in types in the file ([`DocumentTypes::from_profile`]), so an operation that changes
 //! the number of a type first reads the types as the file means them, changes the list, and writes the
 //! sections from the first changed number on in full. Keys that [`TypeSettings`] does not know stay with
-//! their type, and the new-file keys (`eDefaultCodetype`, `eDefaultEoltype`, `bDefaultBom`) that the file
+//! their type, and the new-file keys (`eDefaultCodetype`, `eDefaultEoltype`, `bDefaultBom`, `bPriorCesu8`) that the file
 //! does not set stay unset (the line ending follows the OS then). Nothing new is added to the file: the
 //! number of types is `nTypesCount` of `[Other]`, and every type is `Types(N)`.
 //!
@@ -64,7 +64,12 @@ pub(crate) const FIRST_IMPLIED: usize = super::builtin_types::BUILTIN_TYPE_COUNT
 const NAME_UNITS: usize = 63;
 
 /// The new-file keys. They are kept as the file has them, so that "not set" stays "not set".
-pub(crate) const NEW_FILE_KEYS: [&str; 3] = ["eDefaultCodetype", "eDefaultEoltype", "bDefaultBom"];
+pub(crate) const NEW_FILE_KEYS: [&str; 4] = [
+    "eDefaultCodetype",
+    "eDefaultEoltype",
+    "bDefaultBom",
+    "bPriorCesu8",
+];
 
 /// Why an operation was not done.
 #[derive(Debug, Clone, PartialEq, Eq)]

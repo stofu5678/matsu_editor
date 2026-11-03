@@ -178,6 +178,11 @@ pub struct TypeSettings {
     pub line_term_char: char,
     /// `bPriorCesu8`.
     pub prior_cesu8: bool,
+    /// `nImeState`: the IME at the start. The low two bits are the on/off state (0 as it is,
+    /// 1 on, 2 off); the bits above are the input mode (`>> 2`, 0 to 4).
+    pub ime_state: i32,
+    /// `bUseDocumentIcon`: the icon of the window is the icon of the file's type.
+    pub use_document_icon: bool,
     /// `eDefaultCodetype` ([`code_type`]): the encoding of a new file.
     pub default_codetype: i32,
     /// `eDefaultEoltype` ([`eol_type`]): the line ending of a new file.
@@ -310,6 +315,9 @@ impl Default for TypeSettings {
             indent_chars: String::new(),
             line_term_char: ':',
             prior_cesu8: false,
+            // `IME_CMODE_NOCONVERSION` (`CType.cpp`): the page shows it as "as it is" and "default".
+            ime_state: 0x0100,
+            use_document_icon: false,
             default_codetype: code_type::UTF8,
             default_eoltype: eol_type::CRLF,
             default_bom: false,
@@ -400,6 +408,8 @@ pub struct NewFileKeys {
     pub eoltype: Option<i32>,
     /// `bDefaultBom`.
     pub bom: Option<bool>,
+    /// `bPriorCesu8`.
+    pub prior_cesu8: Option<bool>,
 }
 
 impl TypeSettings {
@@ -488,6 +498,8 @@ impl TypeSettings {
             self.line_term_char = c;
         }
         read_bool(profile, s, "bPriorCesu8", &mut self.prior_cesu8);
+        read_i32(profile, s, "nImeState", &mut self.ime_state);
+        read_bool(profile, s, "bUseDocumentIcon", &mut self.use_document_icon);
         read_i32(profile, s, "eDefaultCodetype", &mut self.default_codetype);
         read_i32(profile, s, "eDefaultEoltype", &mut self.default_eoltype);
         read_bool(profile, s, "bDefaultBom", &mut self.default_bom);
@@ -734,6 +746,7 @@ impl TypeSettings {
             codetype: profile.get_i32(&s, "eDefaultCodetype"),
             eoltype: profile.get_i32(&s, "eDefaultEoltype"),
             bom: profile.get_bool(&s, "bDefaultBom"),
+            prior_cesu8: profile.get_bool(&s, "bPriorCesu8"),
         }
     }
 
@@ -808,6 +821,8 @@ impl TypeSettings {
         profile.set_string(s, "szIndentChars", &self.indent_chars)?;
         profile.set_wchar(s, "cLineTermChar", self.line_term_char)?;
         profile.set_bool(s, "bPriorCesu8", self.prior_cesu8)?;
+        profile.set_i32(s, "nImeState", self.ime_state)?;
+        profile.set_bool(s, "bUseDocumentIcon", self.use_document_icon)?;
         profile.set_i32(s, "eDefaultCodetype", self.default_codetype)?;
         profile.set_i32(s, "eDefaultEoltype", self.default_eoltype)?;
         profile.set_bool(s, "bDefaultBom", self.default_bom)?;
@@ -1057,6 +1072,27 @@ mod tests {
     }
 
     #[test]
+    fn the_ime_state_and_the_document_icon_are_read_and_written() {
+        // `CType.cpp`: IME_CMODE_NOCONVERSION, no document icon
+        let t = TypeSettings::default();
+        assert_eq!(t.ime_state, 0x0100);
+        assert!(!t.use_document_icon);
+        assert!(!t.prior_cesu8);
+        let p = Profile::from_bytes(
+            b"[Types(0)]\r\nnImeState=9\r\nbUseDocumentIcon=1\r\nbPriorCesu8=1\r\n",
+        );
+        let t = TypeSettings::read(&p, 0);
+        assert_eq!(t.ime_state, 9);
+        assert!(t.use_document_icon && t.prior_cesu8);
+        let mut out = Profile::new();
+        t.write(&mut out, 0).unwrap();
+        assert_eq!(out.get("Types(0)", "nImeState"), Some("9"));
+        assert_eq!(out.get("Types(0)", "bUseDocumentIcon"), Some("1"));
+        assert_eq!(out.get("Types(0)", "bPriorCesu8"), Some("1"));
+        assert_eq!(TypeSettings::read(&out, 0).ime_state, 9);
+    }
+
+    #[test]
     fn missing_section_gives_the_defaults() {
         let p = Profile::new();
         assert_eq!(TypeSettings::read(&p, 0), TypeSettings::basic());
@@ -1114,6 +1150,7 @@ mod tests {
                 codetype: None,
                 eoltype: Some(eol_type::LF),
                 bom: Some(false),
+                prior_cesu8: None,
             }
         );
         assert_eq!(
