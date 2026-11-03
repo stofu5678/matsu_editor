@@ -636,12 +636,11 @@ impl Element for EditorElement {
                 .then(|| lines::line_number(numbers_by_line, row.row, row.line, row.row_in_line))
                 .flatten();
             let numbers = if let Some(number) = number {
-                let number = number.saturating_add(before);
-                let text = if line_base.approx {
-                    format!("{:>digits$}", format!("~{number}"))
-                } else {
-                    format!("{number:>digits$}")
-                };
+                let text = lines::line_number_text(
+                    number.saturating_add(before),
+                    digits,
+                    line_base.approx,
+                );
                 if spaced {
                     text.chars()
                         .enumerate()
