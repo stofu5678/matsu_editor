@@ -58,40 +58,51 @@ fn the_outlines_of_the_plugins_that_run_come_after_the_standard_ones_with_the_co
 }
 
 #[test]
-fn the_outline_of_a_plugin_that_is_off_is_shown_as_the_first_choice_and_its_number_stays() {
+fn the_outline_of_a_plugin_that_is_off_is_listed_as_unusable_and_its_number_stays() {
     let place = Place::new("sheet-off", "");
     let code = Place::code();
-    // the switch of the plugins is off: the list has the standard outlines only
+    // the switch of the plugins is off: the list has the standard outlines, and the number the type has
     let user = place.user(code, false, true);
-    plugin_outline::refresh_for(&user);
-    assert_eq!(outline_options(), OUTLINES);
-    // `SetData`: a number the list does not have selects the first (`nSelPos = 0`)
     let sheet = sheet_of(&user);
-    assert_eq!(sheet.values.int(OUTLINE), OUTLINES[0].1);
+    let options = outline_options();
+    assert_eq!(&options[..OUTLINES.len()], OUTLINES);
+    assert_eq!(options.len(), OUTLINES.len() + 1);
+    let label = format!("（使えないプラグイン {code}）");
+    assert_eq!(options.last(), Some(&(label.as_str(), code)));
+    // the page shows it, and OK without a choice keeps the number
+    assert_eq!(sheet.values.int(OUTLINE), code);
     assert_eq!(sheet.values.int(OUTLINE_MODE), 0);
-    assert_eq!(sheet.target.original.default_outline, code);
-    // OK without a choice keeps the number, so that the outline is back when the plugin is
     assert_eq!(
         store(&sheet.values, &sheet.target.original).default_outline,
         code
     );
-    // a choice the user made is written, the first of the list too
+    // another choice is written
     let mut values = sheet.values.clone();
     choose(&sheet, &mut values, outline_type::TEXT);
     assert_eq!(
         store(&values, &sheet.target.original).default_outline,
         outline_type::TEXT
     );
+    // and the first of the list too
+    choose(&sheet, &mut values, OUTLINES[0].1);
+    assert_eq!(
+        store(&values, &sheet.target.original).default_outline,
+        OUTLINES[0].1
+    );
 }
 
 #[test]
-fn a_number_nobody_knows_stays_too_and_a_rule_file_can_still_be_left() {
+fn a_number_nobody_knows_is_listed_as_unusable_and_stays_too_and_a_rule_file_can_still_be_left() {
     let place = Place::new("sheet-other", "");
     // 17 is no outline of Sakura (`OUTLINE_CODEMAX`) and of no plugin
     let user = place.user(17, true, true);
     plugin_outline::refresh_for(&user);
     let sheet = sheet_of(&user);
-    assert_eq!(sheet.values.int(OUTLINE), OUTLINES[0].1);
+    assert_eq!(sheet.values.int(OUTLINE), 17);
+    assert_eq!(
+        outline_options().last(),
+        Some(&("（使えないプラグイン 17）", 17))
+    );
     assert_eq!(
         store(&sheet.values, &sheet.target.original).default_outline,
         17
@@ -109,22 +120,6 @@ fn a_number_nobody_knows_stays_too_and_a_rule_file_can_still_be_left() {
     let mut values = sheet.values.clone();
     values.set(OUTLINE_MODE, Value::Int(0));
     (control(&sheet, OUTLINE_MODE).changed)(&mut values, OUTLINE_MODE);
-    assert_eq!(
-        store(&values, &sheet.target.original).default_outline,
-        OUTLINES[0].1
-    );
-}
-
-#[test]
-fn choosing_the_first_of_the_list_after_another_is_a_choice_and_replaces_the_number_that_stayed() {
-    let place = Place::new("sheet-first", "");
-    let user = place.user(Place::code(), false, true);
-    plugin_outline::refresh_for(&user);
-    let sheet = sheet_of(&user);
-    // another rule and then the first one again: the user chose, whatever the list showed before
-    let mut values = sheet.values.clone();
-    choose(&sheet, &mut values, outline_type::TEXT);
-    choose(&sheet, &mut values, OUTLINES[0].1);
     assert_eq!(
         store(&values, &sheet.target.original).default_outline,
         OUTLINES[0].1

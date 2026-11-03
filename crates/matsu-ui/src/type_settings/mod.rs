@@ -169,6 +169,8 @@ pub(crate) fn keyword_names(types: &DocumentTypes) -> Vec<String> {
 pub(crate) fn sheet(profile: &Profile, index: usize) -> Option<TypeSheet> {
     let types = DocumentTypes::from_profile(profile);
     let original = values::shown_type(&types, profile, index)?;
+    // The number the type has is a choice of the outline list, also when no plugin has it.
+    crate::plugin_outline::set_stored(original.default_outline);
     let pages = pages::pages(index);
     let controls: Vec<Control> = pages
         .iter()

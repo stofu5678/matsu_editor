@@ -510,15 +510,6 @@ pub(super) fn store(v: &Values, original: &TypeSettings) -> TypeSettings {
     t.indent_layout = v.int(INDENT_LAYOUT);
     t.default_outline = if v.int(OUTLINE_MODE) == OUTLINE_FILE {
         outline_type::FILE
-    } else if original.default_outline != outline_type::FILE
-        && !v.bool(OUTLINE_CHOSEN)
-        && v.int(OUTLINE) == in_list(original.default_outline, outline_options())
-    {
-        // A number the list does not have (an outline of a plugin that is off or gone) is shown as the
-        // first of the list (`SetData`, `nSelPos = 0`). Sakura would write that first one back; the
-        // number stays while the user chose nothing, so that turning the plugin on again brings the
-        // outline back (ADR-0026).
-        original.default_outline
     } else {
         v.int(OUTLINE)
     };

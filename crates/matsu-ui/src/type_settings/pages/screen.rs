@@ -63,9 +63,21 @@ pub(in crate::type_settings) const OUTLINES: &[(&str, i32)] = &[
 
 /// `OUTLINES` and, after them, the outlines of the plugins that may run (`CJackManager::RegisterPlug`
 /// adds them with `CPropTypesScreen::AddOutlineMethod`: the label of the plug, and the function code
-/// of the plug as the number). The plugins are those the sheet was opened with.
+/// of the plug as the number). The plugins are those the sheet was opened with. A number the type has
+/// that no choice has (its plugin is off or gone) is listed last as 「（使えないプラグイン N）」: the page
+/// shows it and OK keeps it (the user decided so on 2026-11-03; Sakura shows the first choice and
+/// writes it).
 pub(in crate::type_settings) fn outline_options() -> &'static [(&'static str, i32)] {
-    crate::plugin_outline::with_extra(OUTLINES, &crate::plugin_outline::choices())
+    let mut extra = crate::plugin_outline::choices();
+    let now = crate::plugin_outline::stored();
+    let known = |value: i32| {
+        OUTLINES.iter().any(|(_, v)| *v == value) || extra.iter().any(|(_, v)| *v == value)
+    };
+    // (a rule file is the other radio button, not a choice of this list)
+    if now != outline_type::FILE && !known(now) {
+        extra.push((format!("（使えないプラグイン {now}）"), now));
+    }
+    crate::plugin_outline::with_extra(OUTLINES, &extra)
 }
 
 /// The outline is the rule of the list (0) or a rule file (1).
@@ -157,20 +169,6 @@ fn outline_mode_changed(values: &mut Values, id: &'static str) {
         values.set(
             OUTLINE,
             crate::common_settings::model::Value::Int(OUTLINES[0].1),
-        );
-        values.set(
-            OUTLINE_CHOSEN,
-            crate::common_settings::model::Value::Bool(true),
-        );
-    }
-}
-
-/// The user chose a rule of the list (see [`OUTLINE_CHOSEN`]).
-fn outline_chosen(values: &mut Values, id: &'static str) {
-    if id == OUTLINE {
-        values.set(
-            OUTLINE_CHOSEN,
-            crate::common_settings::model::Value::Bool(true),
         );
     }
 }
@@ -286,7 +284,6 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                         .into(),
                         Control::choice(OUTLINE, "", "", OUTLINES[0].1, outline_options())
                             .named("標準ルールの種類")
-                            .on_change(outline_chosen)
                             .when(outline_is_standard)
                             .into(),
                         Control::radio(

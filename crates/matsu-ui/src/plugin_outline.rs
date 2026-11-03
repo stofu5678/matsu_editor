@@ -120,6 +120,9 @@ thread_local! {
     /// outline plug. The UI thread keeps it up to date ([`refresh_for`]).
     static CHOICES: RefCell<Vec<(String, i32)>> = const { RefCell::new(Vec::new()) };
 
+    /// The `nDefaultOutline` of the type whose sheet is made ([`set_stored`]).
+    static STORED: std::cell::Cell<i32> = const { std::cell::Cell::new(0) };
+
     /// The windows (their editors) in which an `Outline` call is going: Sakura does not analyze again
     /// while a plug runs (`bIsProcessing`, "アウトラインプラグイン内でのEditor.Outline呼び出しによる再入を禁止する").
     /// Sakura has a process for each window; here only the window of the call is held back.
@@ -140,6 +143,15 @@ pub(crate) fn refresh_for(user: &UserSettings) {
 /// [`refresh_for`] for the settings of the application.
 pub(crate) fn refresh(cx: &App) {
     crate::doc_types::with_user(cx, refresh_for);
+}
+
+/// The number of the outline the type being set has (`nDefaultOutline`), for the list of the sheet.
+pub(crate) fn set_stored(value: i32) {
+    STORED.with(|cell| cell.set(value));
+}
+
+pub(crate) fn stored() -> i32 {
+    STORED.with(std::cell::Cell::get)
 }
 
 /// The outlines of the plugins as the type settings list them: the label and the number.

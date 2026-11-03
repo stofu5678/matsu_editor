@@ -23,9 +23,6 @@ pub(super) const INDENT_LAYOUT: &str = "indent_layout";
 pub(super) const RTRIM_PREV_LINE: &str = "rtrim_prev_line";
 pub(super) const OUTLINE_MODE: &str = "outline_mode";
 pub(super) const OUTLINE: &str = "outline";
-/// Not a control: set when the user chose a rule of the list (or the standard rule), so that a number
-/// the list does not have (an outline of a plugin that is off) is kept only while nobody chose.
-pub(super) const OUTLINE_CHOSEN: &str = "outline_chosen";
 pub(super) const OUTLINE_RULE_FILE: &str = "outline_rule_file";
 pub(super) const OUTLINE_RULE_BROWSE: &str = "outline_rule_browse";
 pub(super) const USE_TYPE_FONT: &str = "use_type_font";
