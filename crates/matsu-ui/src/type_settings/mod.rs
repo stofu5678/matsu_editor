@@ -34,6 +34,8 @@ mod plugin_choices;
 mod values;
 
 pub(crate) use plugin_choices::plugin_choices;
+#[cfg(test)]
+pub(crate) use plugin_choices::plugin_choices_for;
 
 #[cfg(test)]
 mod tests;

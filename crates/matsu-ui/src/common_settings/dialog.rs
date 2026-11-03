@@ -188,7 +188,7 @@ impl CommonSettingsDialog {
             target,
         } = sheet;
         let page = page.min(pages.len().saturating_sub(1));
-        let plugin_choices = crate::type_settings::plugin_choices(cx);
+        let plugin_choices = crate::type_settings::plugin_choices(cx, &values);
         let mut dialog = Self::build(
             page,
             pages,

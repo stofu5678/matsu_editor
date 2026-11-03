@@ -24,10 +24,24 @@ use super::ids::SMART_INDENT;
 /// nothing is not a surprise.
 const NOT_RESIDENT: &str = "（常駐が必要: UseCache=1）";
 
-/// The choices of the plugins for the controls of the type settings, by control id.
-pub(crate) fn plugin_choices(cx: &App) -> HashMap<&'static str, Vec<(String, i32)>> {
+/// The choices of the plugins for the controls of the type settings, by control id. `values` are the
+/// values of the sheet: when the smart indent is a plug that cannot run (its plugin is off, gone or
+/// changed) it is listed as `（使えないプラグイン N）`, so that the page shows it and OK keeps it.
+pub(crate) fn plugin_choices(
+    cx: &App,
+    values: &crate::common_settings::model::Values,
+) -> HashMap<&'static str, Vec<(String, i32)>> {
+    plugin_choices_for(cx, values.int(SMART_INDENT))
+}
+
+/// [`plugin_choices`] for the smart indent `now`.
+pub(crate) fn plugin_choices_for(cx: &App, now: i32) -> HashMap<&'static str, Vec<(String, i32)>> {
     let mut choices = HashMap::new();
-    let smart_indent = smart_indent_choices(cx);
+    let mut smart_indent = smart_indent_choices(cx);
+    // 0 and 1 are the choices of the page itself (なし, C/C++).
+    if now > 1 && !smart_indent.iter().any(|(_, value)| *value == now) {
+        smart_indent.push((format!("（使えないプラグイン {now}）"), now));
+    }
     if !smart_indent.is_empty() {
         choices.insert(SMART_INDENT, smart_indent);
     }

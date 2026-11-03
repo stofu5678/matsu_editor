@@ -532,19 +532,31 @@ fn the_type_settings_list_the_plugs_of_the_plugins_that_can_run(cx: &mut TestApp
         eprintln!("SKIP: matsu-script is not built next to the tests");
         return;
     };
-    let choices = vcx.update(|_, app| crate::type_settings::plugin_choices(app));
+    let choices = vcx.update(|_, app| crate::type_settings::plugin_choices_for(app, 0));
     assert_eq!(
         choices.get("smart_indent"),
         Some(&vec![("Test indent".to_owned(), i32::from(CODE))])
     );
     // Not agreed to any more: not listed.
     fs::remove_file(place.dirs().consent_file()).unwrap();
-    let choices = vcx.update(|_, app| crate::type_settings::plugin_choices(app));
+    let choices = vcx.update(|_, app| crate::type_settings::plugin_choices_for(app, 0));
     assert!(choices.is_empty());
     // Plugins off.
     place.enable(vcx, false);
-    let choices = vcx.update(|_, app| crate::type_settings::plugin_choices(app));
+    let choices = vcx.update(|_, app| crate::type_settings::plugin_choices_for(app, 0));
     assert!(choices.is_empty());
+    // A type that has the plug keeps it, and the page shows it as a plugin that cannot be used.
+    let choices =
+        vcx.update(|_, app| crate::type_settings::plugin_choices_for(app, i32::from(CODE)));
+    assert_eq!(
+        choices.get("smart_indent"),
+        Some(&vec![("（使えないプラグイン 20000）".to_owned(), 20_000)])
+    );
+    // The built-in choices are not plugins that cannot be used.
+    for builtin in [0, 1] {
+        let choices = vcx.update(|_, app| crate::type_settings::plugin_choices_for(app, builtin));
+        assert!(choices.is_empty());
+    }
     finish(vcx);
 }
 
@@ -555,7 +567,7 @@ fn a_plugin_that_is_not_resident_is_listed_with_the_reason(cx: &mut TestAppConte
         eprintln!("SKIP: matsu-script is not built next to the tests");
         return;
     };
-    let choices = vcx.update(|_, app| crate::type_settings::plugin_choices(app));
+    let choices = vcx.update(|_, app| crate::type_settings::plugin_choices_for(app, 0));
     let list = &choices["smart_indent"];
     assert_eq!(list.len(), 1);
     assert!(list[0].0.starts_with("Test indent"));

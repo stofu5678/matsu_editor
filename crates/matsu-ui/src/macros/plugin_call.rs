@@ -470,7 +470,9 @@ fn prepare(
         return Err(crate::common_settings::plugin_unsupported_text(&why));
     }
     let plugin_dir = dirs.plugin_dir(folder);
-    match ConsentFile::load(&dirs.consent_file()).consent_for_dir(&def.id, plugin_dir.as_deref()) {
+    match ConsentFile::load(&dirs.consent_file())
+        .consent_for_dir_cached(&def.id, plugin_dir.as_deref())
+    {
         Consent::On => {}
         Consent::Off => {
             return Err(
