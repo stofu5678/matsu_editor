@@ -307,6 +307,15 @@ fn install<'js>(
             )?;
             object.set("id", json_to_js(ctx, &plugin["id"])?)?;
             object.set("dir", json_to_js(ctx, &plugin["dir"])?)?;
+            // The `Complement` object: only `AddList` needs the editor, which keeps the list.
+            let complement = Object::new(ctx.clone())?;
+            for name in COMPLEMENT_CALLS {
+                complement.set(
+                    name.trim_start_matches("Complement."),
+                    bind(ctx, name, None, editor.clone())?,
+                )?;
+            }
+            object.set("complement", complement)?;
             object.into_value()
         }
     };
@@ -326,6 +335,11 @@ pub const PLUGIN_CALLS: &[&str] = &[
     "Plugin.GetCommandNo",
     "Plugin.AddCommand",
 ];
+
+/// The calls of the `Complement` object that the editor answers (Sakura's `CComplementIfObj`,
+/// `sakura_core/plugin/CComplementIfObj.h`). `GetCurrentWord` and `GetOption` need nothing from the
+/// editor: the word and the option come with the invoke (`Plugin.args`).
+pub const COMPLEMENT_CALLS: &[&str] = &["Complement.AddList"];
 
 /// One function of the macro API (or a call of the `Plugin` object, which has no entry) as a Rust
 /// function for JavaScript. It takes the array of the arguments and answers `[true, result]` or

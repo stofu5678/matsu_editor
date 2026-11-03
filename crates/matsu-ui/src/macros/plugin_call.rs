@@ -111,6 +111,8 @@ pub(crate) struct DefApi {
     /// The slot of the plugin in the plugin table, which `Plugin.AddCommand` needs for the code of the
     /// command it adds (`None`: the plugin is not in the table, as in a test of the object alone).
     slot: Option<usize>,
+    /// The list that `Complement.AddList` fills, while the call is one of a completion jack.
+    complement: Option<crate::plugin_complement::Shared>,
 }
 
 impl DefApi {
@@ -126,6 +128,7 @@ impl DefApi {
             def,
             command_no,
             slot: None,
+            complement: None,
         }
     }
 
@@ -276,6 +279,23 @@ impl PluginApi for DefApi {
                 Ok(Value::Null)
             }
             "Plugin.AddCommand" => self.add_command(params),
+            // `F_CM_ADDLIST` (`CComplementIfObj`): the number of candidates now, or -1 if the list
+            // has the word already.
+            "Complement.AddList" => {
+                let Some(list) = &self.complement else {
+                    return Err(RpcError::new(
+                        plugin_host_error(),
+                        format!("{name}: this call is not one of a completion"),
+                    ));
+                };
+                let word = text_at(params, 0, name)?;
+                if word.is_empty() {
+                    return Err(RpcError::invalid_params(format!(
+                        "{name}: the candidate must not be empty"
+                    )));
+                }
+                Ok(json!(list.borrow_mut().add(&word)))
+            }
             // `F_PL_GETCOMMANDNO`
             "Plugin.GetCommandNo" => Ok(json!(self.command_no)),
             // `F_PL_GETSTRING`: 0 is the language; `S[n]` of `plugin.def` for 1 to 99.
@@ -322,17 +342,44 @@ pub(crate) struct Prepared {
     /// The folder of the plugin and, for an event, the plug: what [`Prepared::refresh`] prepares again.
     folder: String,
     plug: Option<(Jack, String)>,
+    /// A call of a completion jack: the session of the list it fills, and the list.
+    complement: Option<(u64, crate::plugin_complement::Shared)>,
 }
 
 impl Prepared {
+    /// Makes this the call of a completion jack for the word `word`: `Complement.GetCurrentWord`
+    /// gives the word, `GetOption` the option, and `AddList` adds to `list`. The window shows what is
+    /// added while the call runs (`session` names the list).
+    pub(crate) fn for_complement(
+        mut self,
+        session: u64,
+        word: &str,
+        option: i64,
+        list: crate::plugin_complement::Shared,
+    ) -> Self {
+        self.args = json!({"word": word, "option": option});
+        self.api.complement = Some(list.clone());
+        self.complement = Some((session, list));
+        self
+    }
+
     /// An event call that waited for its turn is checked again right before it begins: the plugin may
     /// have been switched off, taken away or changed meanwhile, and the agreement of the user is of the
     /// files as they are at the moment the handler runs (ADR-0026). `None`: it must not run.
     pub(crate) fn refresh(self, cx: &mut App, dirs: &SearchDirs) -> Option<Prepared> {
         let (jack, handler) = self.plug?;
-        let fresh = prepare(cx, dirs, &self.folder, Target::Event { jack, handler }).ok()?;
+        let mut fresh = prepare(cx, dirs, &self.folder, Target::Event { jack, handler }).ok()?;
         // The same plugin as the one the call was made for (the folder may hold another one now).
-        (fresh.id == self.id).then_some(fresh)
+        if fresh.id != self.id {
+            return None;
+        }
+        // A call of a completion jack keeps its word, its option and its list.
+        if let Some((session, list)) = self.complement {
+            fresh.args = self.args;
+            fresh.api.complement = Some(list.clone());
+            fresh.complement = Some((session, list));
+        }
+        Some(fresh)
     }
 
     /// The host of the plugin has a call going (on another window): `run` would be refused.
@@ -435,6 +482,26 @@ pub(crate) fn prepare_event(
         .collect()
 }
 
+/// The call of the plug of `jack` with the handler `handler` in the plugin in `folder` (a completion
+/// jack picks its plug by the number).
+pub(crate) fn prepare_plug(
+    cx: &mut App,
+    dirs: &SearchDirs,
+    folder: &str,
+    jack: Jack,
+    handler: &str,
+) -> Result<Prepared, String> {
+    prepare(
+        cx,
+        dirs,
+        folder,
+        Target::Event {
+            jack,
+            handler: handler.to_owned(),
+        },
+    )
+}
+
 fn prepare(
     cx: &mut App,
     dirs: &SearchDirs,
@@ -497,6 +564,13 @@ fn prepare(
                 .any(|plug| plug.jack == jack && plug.handler == handler)
             {
                 return Err("このプラグインは、このジャックを使わなくなりました".into());
+            }
+            // A key calls this jack: only a plugin that stays can have it (ADR-0026, chapter 2).
+            if jack.needs_resident() && !def.use_cache {
+                return Err(
+                    "このジャックは、常駐するプラグイン（plugin.def の [Wsh] に UseCache=1）だけが使えます"
+                        .into(),
+                );
             }
             event_plug = Some((jack, handler.clone()));
             (jack.name(), handler, 0, true)
@@ -562,6 +636,7 @@ fn prepare(
         event,
         folder: folder.to_owned(),
         plug: event_plug,
+        complement: None,
     })
 }
 
@@ -738,6 +813,26 @@ fn release_document(
     });
 }
 
+/// Whether the request is a call of an object of the plugin itself (`Plugin.*`, `Complement.*`): they read
+/// the definition and the options, or fill the list of a completion, and never touch the document.
+pub(crate) fn is_plugin_object_call(text: &str) -> bool {
+    matsu_plugin::protocol::parse_request(text).is_ok_and(|request| {
+        plugin_host::PLUGIN_PREFIXES
+            .iter()
+            .any(|prefix| request.method.starts_with(prefix))
+    })
+}
+
+/// Answers a call of an object of the plugin itself without the editor window.
+pub(crate) fn answer_plugin_object_call(text: &str, api: &mut dyn PluginApi) -> Option<String> {
+    plugin_host::respond(text, api, |method, _| {
+        Err(RpcError::new(
+            matsu_plugin::protocol::METHOD_NOT_FOUND,
+            format!("no such call: {method}"),
+        ))
+    })
+}
+
 /// The answer to a request of a plugin whose document was replaced.
 fn replaced_reply(text: &str) -> Option<String> {
     use matsu_plugin::protocol::{self, RpcError};
@@ -783,6 +878,7 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
         args,
         mut api,
         event,
+        complement,
         ..
     } = prepared;
     let limit = limit_of(jack);
@@ -841,7 +937,10 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
             .update(cx, |shared, _| shared.set_plugin_busy(true));
         let depth = view.enter_undo_block(cx);
         // Everything the plugin does is one step of undo: the block is open until the call ends.
-        if depth.is_some() {
+        // A completion call opens none: it finds candidates, and the user may type while it runs. The
+        // depth is kept all the same, so that a block the handler itself opens (`AddRefUndoBuffer`) and
+        // does not close is closed when the call ends.
+        if depth.is_some() && complement.is_none() {
             view.open_undo_block(cx);
         }
         (depth, view.document.read(cx).generation())
@@ -907,6 +1006,12 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                         if view.document.read(cx).generation() != generation {
                             return (replaced_reply(&text), true);
                         }
+                        // A call of an object of the plugin itself (`Plugin.GetOption`, `Complement.AddList`)
+                        // does not touch the document: it must not touch the window either (an IME
+                        // composition of the user goes on).
+                        if is_plugin_object_call(&text) {
+                            return (answer_plugin_object_call(&text, &mut api), false);
+                        }
                         (view.answer_plugin_request(&text, &mut api, cx), false)
                     });
                     match reply {
@@ -916,6 +1021,13 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                             }
                             if replaced {
                                 host.borrow_mut().shutdown();
+                            }
+                            // The candidates that came with this request are shown at once.
+                            if let Some((session, list)) = &complement {
+                                weak.update(cx, |view, cx| {
+                                    view.complement_arrived(*session, list, cx);
+                                })
+                                .ok();
                             }
                             true
                         }
@@ -931,7 +1043,11 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                         // Only the document the call began on: a replaced one is not ours to free.
                         if view.document.read(cx).generation() == generation {
                             view.document.update(cx, |shared, _| shared.set_plugin_busy(false));
-                            view.leave_undo_block(depth, cx);
+                            // A composition that the user began meanwhile has a block of its own, which
+                            // closing to the depth from before the call would end.
+                            if complement.is_none() || !view.composing {
+                                view.leave_undo_block(depth, cx);
+                            }
                         }
                         // An event that went well leaves no trace.
                         if event && outcome == Outcome::Ok && !stopped {

@@ -67,6 +67,7 @@ pub mod open;
 mod outline;
 mod panes;
 pub(crate) mod plugin_commands;
+pub(crate) mod plugin_complement;
 pub(crate) mod plugin_events;
 mod plugin_options;
 pub(crate) mod preview;
