@@ -41,6 +41,7 @@ fn source(text: &str, folder: &str, name: &str, title: &str) -> WindowSource {
         folder: folder.to_owned(),
         name: name.to_owned(),
         title: title.to_owned(),
+        scanning: None,
     }
 }
 
@@ -58,6 +59,7 @@ fn info(key: &str, window: WindowSource) -> GrepInfo {
         except_file_regex: false,
         replace: None,
         mime_decode: false,
+        huge_file_len: None,
         window: Some(window),
         window_gone: false,
     }

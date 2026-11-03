@@ -270,6 +270,7 @@ impl GrepSettings {
             except_file_regex: self.except_file_regex,
             replace: None,
             mime_decode: false,
+            huge_file_len: None,
             window: None,
             window_gone: false,
         }

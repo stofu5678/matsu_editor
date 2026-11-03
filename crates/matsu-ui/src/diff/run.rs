@@ -8,6 +8,14 @@
 //!
 //! The text and the difference are worked on in a task, and the marks are set when it is done,
 //! if the document has not changed meanwhile (the marks would be on the wrong lines).
+//!
+//! A huge text is not compared (ADR-0020, chapter 5). The difference needs both texts at once:
+//! the Myers algorithm walks back and forth over every line of both, and the lines are compared as
+//! strings, so a text is held about three times (the lines with their endings, the keys with the
+//! options applied, and the hunks). Sakura has no limit of its own: it writes the two texts to
+//! temporary files and `diff.exe` reads them into its memory, and when that fails it says
+//! 「差分コマンド実行は失敗しました」. A text of [`diff_limit`] bytes or more is refused here, with
+//! the reason in that message, before anything is read (ADR-0018, type C).
 
 use std::path::Path;
 
@@ -31,6 +39,48 @@ pub(crate) const NO_DIFFERENCE: &str = "DIFF差分は見つかりませんでし
 /// `STR_DIFF_FAILED`, with the reason after it (`STR_ERR_DLGEDITVWDIFF3`).
 fn failed(reason: &str) -> String {
     format!("差分コマンド実行は失敗しました。\n\n{reason}")
+}
+
+/// The most bytes of text one side of a comparison may have: a text of the size from which a file
+/// is opened by ranges (`nHugeFileSizeMB`), but never more than 256 MiB.
+const DIFF_MAX_BYTES: u64 = 256 * 1024 * 1024;
+
+/// The size from which a text is not compared.
+pub(crate) fn diff_limit(cx: &gpui::App) -> u64 {
+    crate::file_ops::prefs::prefs(cx)
+        .huge_file_len()
+        .min(DIFF_MAX_BYTES)
+}
+
+fn megabytes(bytes: u64) -> u64 {
+    bytes.div_ceil(1024 * 1024)
+}
+
+/// Why a text of `bytes` bytes is not compared, if it is not. `scanning`: the document shows only
+/// the scanned start of a huge file, so the rest of the text is not there yet.
+pub(crate) fn too_big(what: &str, bytes: u64, scanning: bool, limit: u64) -> Option<String> {
+    if scanning {
+        return Some(format!(
+            "{what}はまだ改行位置を調べている途中なので、DIFF差分を行えません。調べ終わってからやり直してください。"
+        ));
+    }
+    (bytes >= limit).then(|| {
+        format!(
+            "{what}が大きすぎる（{} MB。上限は {} MB）ので、DIFF差分を行えません。差分を求めるには両方のテキスト全体をメモリに読む必要があります。",
+            megabytes(bytes),
+            megabytes(limit)
+        )
+    })
+}
+
+/// [`too_big`] for a document.
+pub(crate) fn document_too_big(what: &str, doc: &Document, limit: u64) -> Option<String> {
+    too_big(
+        what,
+        doc.raw_len() as u64,
+        doc.is_ranged() && doc.is_read_only(),
+        limit,
+    )
 }
 
 /// The lines of a document with their line endings, which is what the comparison looks at
@@ -105,9 +155,30 @@ impl EditorView {
         self.run_with(cx, |c| c.clear_diff_marks());
         let epoch = self.document.read(cx).model().diff_marks().epoch();
         let version = (version, epoch);
+        // Nothing of a huge text is read: the check is on the sizes (see the module documentation).
+        let limit = diff_limit(cx);
+        if let Some(reason) = document_too_big(
+            "このウィンドウのテキスト",
+            self.document.read(cx).doc(),
+            limit,
+        ) {
+            self.warning_box(&failed(&reason), window, cx);
+            return;
+        }
         match target {
             Target::Window(doc) => {
                 let this = cx.entity_id();
+                let too_big = find_document(cx, this, doc).and_then(|(_, view)| {
+                    document_too_big(
+                        "比較する相手のテキスト",
+                        view.read(cx).document().read(cx).doc(),
+                        limit,
+                    )
+                });
+                if let Some(reason) = too_big {
+                    self.warning_box(&failed(&reason), window, cx);
+                    return;
+                }
                 let other = find_document(cx, this, doc)
                     .map(|(_, view)| document_lines(view.read(cx).document().read(cx).doc()));
                 match other {
@@ -123,6 +194,12 @@ impl EditorView {
                 // `IsFileExists( szDiffFile2, true )`
                 if !path.is_file() {
                     self.warning_box(FILE_NOT_FOUND, window, cx);
+                    return;
+                }
+                let size = std::fs::metadata(&path).map_or(0, |m| m.len());
+                if let Some(reason) = too_big("比較する相手のファイル", size, false, limit)
+                {
+                    self.warning_box(&failed(&reason), window, cx);
                     return;
                 }
                 let mut tracked = crate::macros::track(cx);

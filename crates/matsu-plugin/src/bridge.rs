@@ -99,6 +99,9 @@ pub fn call_with(
     let row = macro_names::by_name(method)
         .ok_or_else(|| RpcError::new(METHOD_NOT_FOUND, format!("unknown method: {method}")))?;
     let args = convert_arguments(row, params)?;
+    if let Some(error) = huge_read_error(cx, row.name, params) {
+        return Err(error);
+    }
     let in_funcs = api::FUNCS.iter().any(|f| f.name == row.name);
     if row.result.is_none()
         && let Some(command) = registry.get_by_code(row.code)
@@ -136,6 +139,65 @@ pub fn call_with(
             }
         ),
     ))
+}
+
+/// The most bytes of text `GetSelectedString` returns: the limit that ADR-0020 (chapter 5, the
+/// copy of a selection) sets for a text handed out whole. A bigger selection is an error, not a
+/// string of that size in the macro's memory.
+pub const MAX_SELECTED_TEXT: usize = 256 * 1024 * 1024;
+
+/// The functions that read the document and cannot answer for a huge file (ADR-0020), or `None`.
+///
+/// * While the scan of the line endings of a file read by ranges is running, the document has
+///   only the scanned start: `GetLineCount` would give a count that is too small, and `GetLineStr`
+///   would give an empty string past the scanned part, as if the file ended there. They fail
+///   instead (ADR-0018, type C; Sakura has no such state). Lines inside the scanned part are
+///   exact. The calls that open the file make the macro wait until the scan is done.
+/// * `GetSelectedString` of a selection of [`MAX_SELECTED_TEXT`] bytes or more (after `SelectAll`
+///   in a huge file) fails, without reading the text.
+fn huge_read_error(cx: &CommandContext<'_>, name: &str, params: &[Value]) -> Option<RpcError> {
+    let doc = cx.doc();
+    let scanning = doc.is_ranged() && doc.is_read_only();
+    match name {
+        "GetLineCount" if scanning => Some(still_scanning(name)),
+        "GetLineStr" if scanning => {
+            // 0 is the line of the cursor, which is in the scanned part. The last line of the
+            // scanned part may be cut in the middle, so only a line with its ending is exact.
+            let line = usize::try_from(params.first().and_then(Value::as_i64)?).ok()?;
+            (line > doc.row_count() - 1).then(|| still_scanning(name))
+        }
+        "GetSelectedString" => selection_too_big(cx, MAX_SELECTED_TEXT),
+        _ => None,
+    }
+}
+
+/// `GetSelectedString` fails when the selection has `limit` bytes or more.
+fn selection_too_big(cx: &CommandContext<'_>, limit: usize) -> Option<RpcError> {
+    let (from, to) = cx.selection()?;
+    if cx.cursor().box_corners().is_some() {
+        return None;
+    }
+    let bytes = cx.doc().raw_len_between(from, to).ok()?;
+    (bytes >= limit).then(|| {
+        RpcError::new(
+            UNAVAILABLE,
+            format!(
+                "GetSelectedString: the selection is too big ({} MB; the limit is {} MB)",
+                bytes.div_ceil(1024 * 1024),
+                limit.div_ceil(1024 * 1024)
+            ),
+        )
+    })
+}
+
+fn still_scanning(name: &str) -> RpcError {
+    RpcError::new(
+        UNAVAILABLE,
+        format!(
+            "{name}: the file is still being scanned for its line endings, so the lines past \
+             the scanned part are not known yet; try again when the scan is done"
+        ),
+    )
 }
 
 /// Checks the JSON arguments against the types in Sakura's table and converts them. A macro may
