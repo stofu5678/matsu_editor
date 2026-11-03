@@ -24,7 +24,8 @@ use super::pages::regex::{color_label, color_name};
 use super::pages::screen::{OUTLINE_FILE, OUTLINE_STANDARD, OUTLINES, WRAP_METHODS};
 use super::pages::support::HOKAN_TYPES;
 use super::pages::window::{
-    CODES, EOLS, IME_STATES, IME_SWITCHES, LINE_NUM_WIDTH_RANGE, NUMBER_LINES, NUMBER_ROWS,
+    CODES, EOLS, IMAGE_POSITIONS, IME_STATES, IME_SWITCHES, LINE_NUM_WIDTH_RANGE, NUMBER_LINES,
+    NUMBER_ROWS,
 };
 use crate::common_settings::model::{Control, Kind, Value, Values};
 
@@ -133,23 +134,6 @@ fn in_list(value: i32, options: &[(&str, i32)]) -> i32 {
     }
 }
 
-/// The `[Types(N)]` keys of what is not in a [`TypeSettings`] but is on a page (shown, not
-/// written).
-fn raw_i32(profile: &Profile, index: usize, key: &str, default: i32) -> i32 {
-    let section = TypeSettings::section_name(i32::try_from(index).unwrap_or(0));
-    profile.get_i32(&section, key).unwrap_or(default)
-}
-
-fn raw_bool(profile: &Profile, index: usize, key: &str, default: bool) -> bool {
-    let section = TypeSettings::section_name(i32::try_from(index).unwrap_or(0));
-    profile.get_bool(&section, key).unwrap_or(default)
-}
-
-fn raw_text(profile: &Profile, index: usize, key: &str) -> String {
-    let section = TypeSettings::section_name(i32::try_from(index).unwrap_or(0));
-    profile.get_string(&section, key).unwrap_or_default()
-}
-
 /// The text of the vertical lines (`CPropTypesColor::SetData`): `10,20` for single lines and
 /// `5(10,50)` for a line every 5 columns from 10 to 50.
 pub(super) fn format_vert_lines(columns: &[i32; MAX_VERT_LINES]) -> String {
@@ -248,7 +232,6 @@ pub(super) fn parse_vert_lines(text: &str) -> [i32; MAX_VERT_LINES] {
 pub(super) fn load(
     controls: &[Control],
     t: &TypeSettings,
-    profile: &Profile,
     index: usize,
     keyword_names: &[String],
 ) -> Values {
@@ -383,43 +366,16 @@ pub(super) fn load(
         t.line_term_char.to_string()
     };
     s(&mut v, LINE_TERM_CHAR, &term_char);
-    s(&mut v, BG_PATH, &raw_text(profile, index, "bgImgPath"));
-    n(&mut v, BG_POS, raw_i32(profile, index, "bgImgPos", 0));
-    n(
-        &mut v,
-        BG_OFFSET_X,
-        raw_i32(profile, index, "bgImgPosOffsetX", 0),
-    );
-    n(
-        &mut v,
-        BG_OFFSET_Y,
-        raw_i32(profile, index, "bgImgPosOffsetY", 0),
-    );
-    b(
-        &mut v,
-        BG_REPEAT_X,
-        raw_bool(profile, index, "bgImgRepeartX", true),
-    );
-    b(
-        &mut v,
-        BG_REPEAT_Y,
-        raw_bool(profile, index, "bgImgRepeartY", true),
-    );
-    b(
-        &mut v,
-        BG_SCROLL_X,
-        raw_bool(profile, index, "bgImgScrollX", true),
-    );
-    b(
-        &mut v,
-        BG_SCROLL_Y,
-        raw_bool(profile, index, "bgImgScrollY", true),
-    );
-    n(
-        &mut v,
-        BG_TRANSPARENCY,
-        255 - raw_i32(profile, index, "bgImgOpacity", 255).clamp(0, 255),
-    );
+    s(&mut v, BG_PATH, &t.back_img_path);
+    n(&mut v, BG_POS, in_list(t.back_img_pos, IMAGE_POSITIONS));
+    n(&mut v, BG_OFFSET_X, t.back_img_offset_x);
+    n(&mut v, BG_OFFSET_Y, t.back_img_offset_y);
+    b(&mut v, BG_REPEAT_X, t.back_img_repeat_x);
+    b(&mut v, BG_REPEAT_Y, t.back_img_repeat_y);
+    b(&mut v, BG_SCROLL_X, t.back_img_scroll_x);
+    b(&mut v, BG_SCROLL_Y, t.back_img_scroll_y);
+    // `SetData`: the page shows the transparency, `255 - m_backImgOpacity`.
+    n(&mut v, BG_TRANSPARENCY, 255 - i32::from(t.back_img_opacity));
 
     // 支援
     s(&mut v, HOKAN_FILE, &t.hokan_file);
@@ -592,6 +548,20 @@ pub(super) fn store(v: &Values, original: &TypeSettings) -> TypeSettings {
     t.line_term_type = v.int(LINE_TERM_TYPE);
     // `szLineTermChar[0]`: the first character, or none.
     t.line_term_char = v.text(LINE_TERM_CHAR).chars().next().unwrap_or('\0');
+    // 背景画像 (`GetData`). A position the list does not have stays as the file has it until the
+    // user chooses one.
+    t.back_img_path = fit(v.text(BG_PATH), PATH_BUFFER);
+    if in_list(original.back_img_pos, IMAGE_POSITIONS) != v.int(BG_POS) {
+        t.back_img_pos = v.int(BG_POS);
+    }
+    t.back_img_repeat_x = v.bool(BG_REPEAT_X);
+    t.back_img_repeat_y = v.bool(BG_REPEAT_Y);
+    t.back_img_scroll_x = v.bool(BG_SCROLL_X);
+    t.back_img_scroll_y = v.bool(BG_SCROLL_Y);
+    t.back_img_offset_x = v.int(BG_OFFSET_X);
+    t.back_img_offset_y = v.int(BG_OFFSET_Y);
+    // `m_backImgOpacity = 255 - min(255, transparency)`
+    t.back_img_opacity = u8::try_from(255 - v.int(BG_TRANSPARENCY).clamp(0, 255)).unwrap_or(255);
 
     // 支援 (`CPropTypesSupport::GetData`)
     t.hokan_file = fit(v.text(HOKAN_FILE), PATH_BUFFER);
@@ -698,6 +668,15 @@ pub(super) fn merge(base: &TypeSettings, old: &TypeSettings, new: &TypeSettings)
         line_num_width,
         line_term_type,
         line_term_char,
+        back_img_path,
+        back_img_pos,
+        back_img_repeat_x,
+        back_img_repeat_y,
+        back_img_scroll_x,
+        back_img_scroll_y,
+        back_img_offset_x,
+        back_img_offset_y,
+        back_img_opacity,
         hokan_file,
         ext_help,
         ext_html_help,

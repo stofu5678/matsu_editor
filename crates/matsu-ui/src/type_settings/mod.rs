@@ -175,7 +175,7 @@ pub(crate) fn sheet(profile: &Profile, index: usize) -> Option<TypeSheet> {
         .filter_map(|page| page.items.as_deref())
         .flat_map(model::controls)
         .collect();
-    let values = values::load(&controls, &original, profile, index, &keyword_names(&types));
+    let values = values::load(&controls, &original, index, &keyword_names(&types));
     Some(TypeSheet {
         pages,
         controls,

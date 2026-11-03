@@ -346,6 +346,8 @@ pub(super) struct Prepaint {
     hbar_height: f32,
     /// The right end of the selection in columns, for the range of the horizontal scroll bar.
     selection_edge: u32,
+    /// The background image of the type, if it has one that is read and not fully transparent.
+    back_image: Option<super::back_paint::BackPaint>,
 }
 
 impl IntoElement for EditorElement {
@@ -1130,6 +1132,12 @@ impl Element for EditorElement {
             total_rows: layout.row_count(),
             hbar_height,
             selection_edge,
+            back_image: editor
+                .back_bitmap
+                .clone()
+                .zip(settings.back_image.clone())
+                .filter(|(_, spec)| spec.is_visible())
+                .map(|(bitmap, spec)| super::back_paint::BackPaint { bitmap, spec }),
         }
     }
 
@@ -1175,24 +1183,48 @@ impl Element for EditorElement {
         let x_of = |col: u32| origin_x + px(col as f32 * p.cell - scroll_x);
 
         window.paint_quad(fill(bounds, rgb(p.colors.background)));
-        window.paint_quad(fill(
-            Bounds::new(
-                point(bounds.left(), bounds.top() + px(p.ruler_px)),
-                size(
-                    px(p.gutter_width),
-                    (bounds.size.height - px(p.ruler_px)).max(px(0.)),
+        // The background image, under everything that follows (`OnPaint`: `DrawBackImage` first).
+        // A part with the background of the text is then left unpainted, so that the image shows.
+        let back_frame = super::back_paint::Frame {
+            bounds,
+            gutter_width: p.gutter_width,
+            top_margin: p.top_margin,
+            ruler_px: p.ruler_px,
+            right_bar: SCROLLBAR_WIDTH,
+            bottom_bar: p.hbar_height,
+            scroll: (scroll_x, scroll_y),
+            scale: window.scale_factor(),
+        };
+        let paint_back = |window: &mut Window, clip: Bounds<Pixels>| {
+            if let Some(back) = &p.back_image {
+                super::back_paint::paint(window, back, &back_frame, clip);
+            }
+        };
+        paint_back(window, Bounds::new(point(px(0.), px(0.)), bounds.size));
+        let gutter_back = if p.show_line_numbers {
+            p.colors.line_number_background
+        } else {
+            p.colors.background
+        };
+        // `CTextDrawer::DispLineNumber`: the line numbers have no background of their own over
+        // the image when it is the background of the text.
+        let shows_through = |color: u32| p.back_image.is_some() && color == p.colors.background;
+        if !shows_through(gutter_back) {
+            window.paint_quad(fill(
+                Bounds::new(
+                    point(bounds.left(), bounds.top() + px(p.ruler_px)),
+                    size(
+                        px(p.gutter_width),
+                        (bounds.size.height - px(p.ruler_px)).max(px(0.)),
+                    ),
                 ),
-            ),
-            rgb(if p.show_line_numbers {
-                p.colors.line_number_background
-            } else {
-                p.colors.background
-            }),
-        ));
+                rgb(gutter_back),
+            ));
+        }
 
         for (i, row) in p.rows.iter().enumerate() {
             let y = body_top + px(p.y_offset) + lh * i as f32;
-            if let Some(background) = row.gutter_background {
+            if let Some(background) = row.gutter_background.filter(|&b| !shows_through(b)) {
                 window.paint_quad(fill(
                     Bounds::new(point(bounds.left(), y), size(px(p.gutter_width), lh)),
                     rgb(background),
@@ -1491,7 +1523,16 @@ impl Element for EditorElement {
                 )
             };
             window.paint_quad(fill(band(0.0, p.top_margin), rgb(p.colors.background)));
-            if p.show_line_numbers {
+            // The image goes on over it, so that the first row does not reach up into the
+            // margin (without an image the band is the background).
+            paint_back(
+                window,
+                Bounds::new(
+                    point(px(0.), px(0.)),
+                    size(bounds.size.width - px(SCROLLBAR_WIDTH), px(p.top_margin)),
+                ),
+            );
+            if p.show_line_numbers && !shows_through(p.colors.line_number_background) {
                 window.paint_quad(fill(
                     Bounds::new(
                         point(bounds.left(), bounds.top() + px(p.ruler_px)),

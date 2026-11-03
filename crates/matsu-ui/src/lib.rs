@@ -24,6 +24,7 @@
 mod a11y;
 pub mod app;
 mod app_icon;
+pub mod back_image;
 mod bars;
 mod boxes;
 mod clipboard;

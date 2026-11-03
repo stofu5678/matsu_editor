@@ -105,6 +105,19 @@ pub mod tab_arrow {
     pub const LONG_ARROW: i32 = 2;
 }
 
+/// `EBackgroundImagePos` (`sakura_core/types/CType.h`) as stored in `bgImgPos`.
+pub mod back_img_pos {
+    pub const TOP_LEFT: i32 = 0;
+    pub const TOP_RIGHT: i32 = 1;
+    pub const BOTTOM_LEFT: i32 = 2;
+    pub const BOTTOM_RIGHT: i32 = 3;
+    pub const CENTER: i32 = 4;
+    pub const TOP_CENTER: i32 = 5;
+    pub const BOTTOM_CENTER: i32 = 6;
+    pub const CENTER_LEFT: i32 = 7;
+    pub const CENTER_RIGHT: i32 = 8;
+}
+
 /// `nTextWrapMethod` (`sakura_core/_main/global.h`).
 pub mod wrap_method {
     /// Do not wrap.
@@ -183,6 +196,26 @@ pub struct TypeSettings {
     pub ime_state: i32,
     /// `bUseDocumentIcon`: the icon of the window is the icon of the file's type.
     pub use_document_icon: bool,
+    /// `bgImgPath` (`m_szBackImgPath`): the background image. A relative path is looked for under
+    /// the folder of the settings file, then under the folder of the program.
+    pub back_img_path: String,
+    /// `bgImgPos` (`m_backImgPos`, [`back_img_pos`]). Kept as the file has it.
+    pub back_img_pos: i32,
+    /// `bgImgRepeartX` (the key has Sakura's spelling): the image repeats to the left and right.
+    pub back_img_repeat_x: bool,
+    /// `bgImgRepeartY`: the image repeats up and down.
+    pub back_img_repeat_y: bool,
+    /// `bgImgScrollX`: the image moves with the text when it scrolls sideways.
+    pub back_img_scroll_x: bool,
+    /// `bgImgScrollY`: the image moves with the text when it scrolls up and down.
+    pub back_img_scroll_y: bool,
+    /// `bgImgPosOffsetX`: how far the image is moved right, in pixels.
+    pub back_img_offset_x: i32,
+    /// `bgImgPosOffsetY`: how far the image is moved down, in pixels.
+    pub back_img_offset_y: i32,
+    /// `bgImgOpacity` (`m_backImgOpacity`, a `BYTE`): 255 is opaque; 0 shows no image. The page
+    /// shows `255 - opacity` as 透明度.
+    pub back_img_opacity: u8,
     /// `eDefaultCodetype` ([`code_type`]): the encoding of a new file.
     pub default_codetype: i32,
     /// `eDefaultEoltype` ([`eol_type`]): the line ending of a new file.
@@ -318,6 +351,15 @@ impl Default for TypeSettings {
             // `IME_CMODE_NOCONVERSION` (`CType.cpp`): the page shows it as "as it is" and "default".
             ime_state: 0x0100,
             use_document_icon: false,
+            back_img_path: String::new(),
+            back_img_pos: back_img_pos::TOP_LEFT,
+            back_img_repeat_x: true,
+            back_img_repeat_y: true,
+            back_img_scroll_x: true,
+            back_img_scroll_y: true,
+            back_img_offset_x: 0,
+            back_img_offset_y: 0,
+            back_img_opacity: 0xFF,
             default_codetype: code_type::UTF8,
             default_eoltype: eol_type::CRLF,
             default_bom: false,
@@ -391,6 +433,12 @@ impl Default for TypeSettings {
             smart_indent: smart_indent::NONE,
         }
     }
+}
+
+/// `m_backImgOpacity` is a `BYTE` read with `wcstoul`: a number outside 0..=255 reads as its low
+/// eight bits (`sakura_core/env/CDataProfile.h`, `TryParse`).
+fn opacity_of(value: i32) -> u8 {
+    value.to_le_bytes()[0]
 }
 
 fn clamp_to(value: i32, min: i32, max: i32) -> i32 {
@@ -500,6 +548,17 @@ impl TypeSettings {
         read_bool(profile, s, "bPriorCesu8", &mut self.prior_cesu8);
         read_i32(profile, s, "nImeState", &mut self.ime_state);
         read_bool(profile, s, "bUseDocumentIcon", &mut self.use_document_icon);
+        read_string(profile, s, "bgImgPath", &mut self.back_img_path, MAX_PATH);
+        read_i32(profile, s, "bgImgPos", &mut self.back_img_pos);
+        read_bool(profile, s, "bgImgScrollX", &mut self.back_img_scroll_x);
+        read_bool(profile, s, "bgImgScrollY", &mut self.back_img_scroll_y);
+        read_bool(profile, s, "bgImgRepeartX", &mut self.back_img_repeat_x);
+        read_bool(profile, s, "bgImgRepeartY", &mut self.back_img_repeat_y);
+        read_i32(profile, s, "bgImgPosOffsetX", &mut self.back_img_offset_x);
+        read_i32(profile, s, "bgImgPosOffsetY", &mut self.back_img_offset_y);
+        if let Some(v) = profile.get_i32(s, "bgImgOpacity") {
+            self.back_img_opacity = opacity_of(v);
+        }
         read_i32(profile, s, "eDefaultCodetype", &mut self.default_codetype);
         read_i32(profile, s, "eDefaultEoltype", &mut self.default_eoltype);
         read_bool(profile, s, "bDefaultBom", &mut self.default_bom);
@@ -823,6 +882,18 @@ impl TypeSettings {
         profile.set_bool(s, "bPriorCesu8", self.prior_cesu8)?;
         profile.set_i32(s, "nImeState", self.ime_state)?;
         profile.set_bool(s, "bUseDocumentIcon", self.use_document_icon)?;
+        profile.set_string(s, "bgImgPath", &self.back_img_path)?;
+        profile.set_i32(s, "bgImgPos", self.back_img_pos)?;
+        profile.set_bool(s, "bgImgScrollX", self.back_img_scroll_x)?;
+        profile.set_bool(s, "bgImgScrollY", self.back_img_scroll_y)?;
+        profile.set_bool(s, "bgImgRepeartX", self.back_img_repeat_x)?;
+        profile.set_bool(s, "bgImgRepeartY", self.back_img_repeat_y)?;
+        profile.set_i32(s, "bgImgPosOffsetX", self.back_img_offset_x)?;
+        profile.set_i32(s, "bgImgPosOffsetY", self.back_img_offset_y)?;
+        // A file value that is not a byte reads as its low byte; leave it when it reads the same.
+        if profile.get_i32(s, "bgImgOpacity").map(opacity_of) != Some(self.back_img_opacity) {
+            profile.set_i32(s, "bgImgOpacity", i32::from(self.back_img_opacity))?;
+        }
         profile.set_i32(s, "eDefaultCodetype", self.default_codetype)?;
         profile.set_i32(s, "eDefaultEoltype", self.default_eoltype)?;
         profile.set_bool(s, "bDefaultBom", self.default_bom)?;
@@ -1090,6 +1161,70 @@ mod tests {
         assert_eq!(out.get("Types(0)", "bUseDocumentIcon"), Some("1"));
         assert_eq!(out.get("Types(0)", "bPriorCesu8"), Some("1"));
         assert_eq!(TypeSettings::read(&out, 0).ime_state, 9);
+    }
+
+    #[test]
+    fn the_background_image_keys_have_sakuras_names_and_defaults() {
+        // `CType.cpp` (`_DefaultConfig`) and `CShareData_IO.cpp` (`ShareData_IO_Type_One`).
+        let none = TypeSettings::read(&Profile::new(), 0);
+        assert_eq!(none.back_img_path, "");
+        assert_eq!(none.back_img_pos, back_img_pos::TOP_LEFT);
+        assert!(none.back_img_repeat_x && none.back_img_repeat_y);
+        assert!(none.back_img_scroll_x && none.back_img_scroll_y);
+        assert_eq!((none.back_img_offset_x, none.back_img_offset_y), (0, 0));
+        assert_eq!(none.back_img_opacity, 255);
+
+        let p = Profile::from_bytes(
+            b"[Types(0)]\r\nbgImgPath=img\\a.png\r\nbgImgPos=8\r\nbgImgScrollX=0\r\nbgImgScrollY=0\r\nbgImgRepeartX=0\r\nbgImgRepeartY=0\r\nbgImgPosOffsetX=-12\r\nbgImgPosOffsetY=34\r\nbgImgOpacity=100\r\n",
+        );
+        let t = TypeSettings::read(&p, 0);
+        assert_eq!(t.back_img_path, "img\\a.png");
+        assert_eq!(t.back_img_pos, back_img_pos::CENTER_RIGHT);
+        assert!(!t.back_img_scroll_x && !t.back_img_scroll_y);
+        assert!(!t.back_img_repeat_x && !t.back_img_repeat_y);
+        assert_eq!((t.back_img_offset_x, t.back_img_offset_y), (-12, 34));
+        assert_eq!(t.back_img_opacity, 100);
+        let mut out = Profile::new();
+        t.write(&mut out, 0).unwrap();
+        for (key, value) in [
+            ("bgImgPath", "img\\a.png"),
+            ("bgImgPos", "8"),
+            ("bgImgScrollX", "0"),
+            ("bgImgScrollY", "0"),
+            ("bgImgRepeartX", "0"),
+            ("bgImgRepeartY", "0"),
+            ("bgImgPosOffsetX", "-12"),
+            ("bgImgPosOffsetY", "34"),
+            ("bgImgOpacity", "100"),
+        ] {
+            assert_eq!(out.get("Types(0)", key), Some(value), "{key}");
+        }
+        assert_eq!(TypeSettings::read(&out, 0), t);
+    }
+
+    #[test]
+    fn the_opacity_is_a_byte_like_sakuras() {
+        // `BYTE` read by `wcstoul`: 256 is 0, 300 is 44, -1 is 255.
+        for (text, byte) in [("256", 0), ("300", 44), ("-1", 255), ("0", 0)] {
+            let p =
+                Profile::from_bytes(format!("[Types(0)]\r\nbgImgOpacity={text}\r\n").as_bytes());
+            let t = TypeSettings::read(&p, 0);
+            assert_eq!(t.back_img_opacity, byte, "{text}");
+            // The value of the file is left as it is when it reads the same.
+            let mut again = p.clone();
+            t.write(&mut again, 0).unwrap();
+            assert_eq!(again.get("Types(0)", "bgImgOpacity"), Some(text));
+        }
+    }
+
+    #[test]
+    fn a_path_that_does_not_fit_the_buffer_is_ignored() {
+        let long = "a".repeat(260);
+        let p = Profile::from_bytes(format!("[Types(0)]\r\nbgImgPath={long}\r\n").as_bytes());
+        assert_eq!(TypeSettings::read(&p, 0).back_img_path, "");
+        let fits = "a".repeat(259);
+        let p = Profile::from_bytes(format!("[Types(0)]\r\nbgImgPath={fits}\r\n").as_bytes());
+        assert_eq!(TypeSettings::read(&p, 0).back_img_path, fits);
     }
 
     #[test]

@@ -16,6 +16,7 @@
 
 mod a11y_text;
 pub(crate) mod autoscroll;
+mod back_paint;
 mod bracket_marks;
 mod caret_shape;
 mod colors;
@@ -239,6 +240,9 @@ pub struct EditorView {
     pub(crate) pending_scan_restore: Option<scan::ScanRestore>,
     /// The settings of the file and the temporary changes (`view/settings.rs`).
     pub(crate) prefs: ViewPrefs,
+    /// The background image of the type, read when the type was chosen or its settings changed
+    /// (`CEditDoc::m_hBackImg`). `None`: the type has none, or the file could not be read.
+    pub(crate) back_bitmap: Option<std::sync::Arc<crate::back_image::BackBitmap>>,
     /// The size of the selection counted last (`status_info.rs`).
     selection_count: status_info::SelectionCountCache,
     /// The print preview and the print dialog (`crate::print`).
@@ -332,6 +336,7 @@ impl EditorView {
             replaying_scan_jump: false,
             pending_scan_restore: None,
             prefs: ViewPrefs::new(Default::default()),
+            back_bitmap: None,
             selection_count: Default::default(),
             print: Default::default(),
             search: SearchState::default(),
