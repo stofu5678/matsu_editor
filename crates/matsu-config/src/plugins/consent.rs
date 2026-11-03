@@ -133,6 +133,9 @@ pub fn fingerprint(dir: &Path) -> io::Result<Vec<FileHash>> {
     Ok(files)
 }
 
+/// A file changed less long ago than this is not trusted to look different if it changes again.
+const RECENT: std::time::Duration = std::time::Duration::from_secs(3);
+
 /// What a file looks like from outside, without reading it: its path from the folder, its size and
 /// its time of change.
 type Stat = (String, u64, Option<std::time::SystemTime>);
@@ -186,7 +189,21 @@ pub fn fingerprint_cached(dir: &Path) -> io::Result<Vec<FileHash>> {
     }
     // The stats were taken before the hashes: a change in between is seen at the next call.
     let hashes = fingerprint(dir)?;
-    remembered.insert(dir.to_path_buf(), (stats, hashes.clone()));
+    // A file changed a moment ago could change again within the same tick of the clock of the file
+    // system, with the same size: such hashes are not kept (the way a version control system treats a
+    // file it cannot tell apart yet).
+    let settled = std::time::SystemTime::now()
+        .checked_sub(RECENT)
+        .is_some_and(|limit| {
+            stats
+                .iter()
+                .all(|(_, _, time)| time.is_some_and(|t| t <= limit))
+        });
+    if settled {
+        remembered.insert(dir.to_path_buf(), (stats, hashes.clone()));
+    } else {
+        remembered.remove(dir);
+    }
     Ok(hashes)
 }
 

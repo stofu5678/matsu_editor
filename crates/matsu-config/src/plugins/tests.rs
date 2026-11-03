@@ -627,6 +627,11 @@ mod remembered {
         let dir = root.path().join("p");
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("a.js"), "aaaa").unwrap();
+        // not changed a moment ago: the hashes of a file that is that new are not remembered
+        set_time(
+            &dir.join("a.js"),
+            SystemTime::now() - Duration::from_secs(3600),
+        );
         (root, dir)
     }
 
@@ -665,6 +670,7 @@ mod remembered {
         assert_eq!(third, fingerprint(&dir).unwrap());
         // a file added, then taken away
         fs::write(dir.join("b.js"), "b").unwrap();
+        set_time(&dir.join("b.js"), time);
         assert_eq!(fingerprint_cached(&dir).unwrap().len(), 2);
         fs::remove_file(dir.join("b.js")).unwrap();
         assert_eq!(fingerprint_cached(&dir).unwrap(), third);
@@ -672,6 +678,23 @@ mod remembered {
         fs::create_dir_all(dir.join("sub")).unwrap();
         fs::write(dir.join("sub").join("c.js"), "c").unwrap();
         assert_eq!(fingerprint_cached(&dir).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn hashes_of_a_file_that_changed_a_moment_ago_are_not_kept() {
+        let (_root, dir) = folder();
+        let file = dir.join("a.js");
+        fs::write(&file, "bbbb").unwrap();
+        let first = fingerprint_cached(&dir).unwrap();
+        // the file is changed again in the same tick, with the same size and time of change
+        let time = fs::metadata(&file).unwrap().modified().unwrap();
+        fs::write(&file, "cccc").unwrap();
+        set_time(&file, time);
+        assert_eq!(
+            fingerprint_cached(&dir).unwrap(),
+            fingerprint(&dir).unwrap()
+        );
+        assert_ne!(fingerprint_cached(&dir).unwrap(), first);
     }
 
     #[test]
