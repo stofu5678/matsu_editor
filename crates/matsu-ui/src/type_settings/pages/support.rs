@@ -8,8 +8,11 @@
 //! Also live: the external help files of the type (`F_EXTHELP1`, `F_EXTHTMLHELP` take them before
 //! the ones of the common settings, `crate::support::help`).
 //!
-//! Not available yet: the plugin that adds candidates (the list has only なし), the warning about
-//! mixed line endings on saving (`CCodeChecker::OnCheckSave`), the C/C++ smart indent options
+//! The kind of the input completion (`nHokanType`) lists なし and the plugins that complete
+//! (`crate::plugin_complement`). The value is kept when its plugin is not there (disabled, taken
+//! away): Sakura shows なし then and writes 0 on OK, MATSU Editor keeps what the file says.
+//!
+//! Not available yet: the warning about mixed line endings on saving (`CCodeChecker::OnCheckSave`), the C/C++ smart indent options
 //! (MATSU Editor has no smart indent) and the detection of the indentation style on loading
 //! (`CDocEditor::OnAfterLoad`).
 
@@ -18,8 +21,16 @@ use crate::common_settings::CommonSettingsDialog;
 use crate::common_settings::model::{Control, Item};
 
 /// `GetHokanMethodList`: the plugins that complete are added to the list after なし
-/// (`STR_SMART_INDENT_NONE`); MATSU Editor has no plugins that complete.
-pub(in crate::type_settings) const HOKAN_TYPES: &[(&str, i32)] = &[("なし", 0)];
+/// (`STR_SMART_INDENT_NONE`). `now` is the value the type has: if no choice has it (its plugin is
+/// disabled or gone), it is listed too, so that the page shows it and OK keeps it.
+pub(in crate::type_settings) fn hokan_types(cx: &gpui::App, now: i32) -> Vec<(String, i32)> {
+    let mut list = vec![("なし".to_owned(), 0)];
+    list.extend(crate::plugin_complement::choices(cx));
+    if !list.iter().any(|(_, value)| *value == now) {
+        list.push((format!("（使えないプラグイン {now}）"), now));
+    }
+    list
+}
 
 #[cfg(test)]
 pub(in crate::type_settings) use crate::support::browse::path_for_box;
@@ -67,9 +78,8 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                     Control::button(HOKAN_FILE_BROWSE, "(&1)...", browse_word_file)
                         .named("単語ファイルを参照")
                         .into(),
-                    Control::choice(HOKAN_TYPE, "", "", 0, HOKAN_TYPES)
+                    Control::dynamic_choice(HOKAN_TYPE, "", "", 0, hokan_types)
                         .named("入力補完機能の種類")
-                        .unavailable()
                         .into(),
                 ]),
                 Item::Row(vec![

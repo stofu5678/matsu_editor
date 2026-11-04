@@ -69,6 +69,9 @@ pub(crate) fn always(_: &Values) -> bool {
     true
 }
 
+/// The choices of a [`Kind::Dynamic`] control, from the value it has now.
+pub(crate) type DynamicOptions = fn(&gpui::App, i32) -> Vec<(String, i32)>;
+
 /// How a [`Kind::Numbers`] control reads its list from the settings file.
 pub(crate) type LoadNumbers = fn(&Profile) -> Vec<i32>;
 
@@ -95,6 +98,10 @@ pub(crate) enum Kind {
     Choice {
         options: &'static [(&'static str, i32)],
     },
+    /// A drop-down list whose choices depend on the state of the application when the page is drawn
+    /// (the plugins that complete). The function gets the value now and gives the label and the number
+    /// of each choice; the value is kept even when no choice has it, so it gives a choice for it too.
+    Dynamic { options: DynamicOptions },
     /// A list box of choices that shows all of them (the color items of the type settings): the
     /// label and the number of each. The value is the number of the chosen one.
     List {
@@ -259,6 +266,17 @@ impl Control {
         options: &'static [(&'static str, i32)],
     ) -> Self {
         Self::new(id, label, key, Def::Int(default), Kind::Choice { options })
+    }
+
+    /// A drop-down list whose choices are made when the page is drawn.
+    pub(crate) const fn dynamic_choice(
+        id: &'static str,
+        label: &'static str,
+        key: &'static str,
+        default: i32,
+        options: DynamicOptions,
+    ) -> Self {
+        Self::new(id, label, key, Def::Int(default), Kind::Dynamic { options })
     }
 
     /// A list box that shows every choice.
@@ -571,6 +589,7 @@ impl Values {
                     }
                     Kind::Radio { .. }
                     | Kind::Choice { .. }
+                    | Kind::Dynamic { .. }
                     | Kind::List { .. }
                     | Kind::Color
                     | Kind::Number { .. } => profile

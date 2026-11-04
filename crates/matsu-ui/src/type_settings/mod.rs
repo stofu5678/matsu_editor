@@ -197,6 +197,7 @@ pub(crate) fn open(
     page: Option<usize>,
     opener: Option<AnyWindowHandle>,
 ) -> Option<Entity<CommonSettingsDialog>> {
+    crate::plugin_complement::forget_choices();
     if let Some(dialog) = current_dialog(cx) {
         let (window, open_id) = {
             let open = cx.global::<OpenSheet>();

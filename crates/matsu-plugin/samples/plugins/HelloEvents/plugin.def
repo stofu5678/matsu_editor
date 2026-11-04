@@ -1,4 +1,4 @@
-; Sample plugin for the event jacks (ADR-0026, PR 6). Its handlers run on the QuickJS of matsu-script.
+﻿; Sample plugin for the event jacks (ADR-0026, PR 6). Its handlers run on the QuickJS of matsu-script.
 ; Put the folder HelloEvents in the folder "plugins" next to matsu.ini, add and enable it in
 ; 共通設定 > プラグイン. Each handler writes the name of its jack to the output panel; EditorStart also
 ; adds a command (Plugin.AddCommand), whose saved key and toolbar button work right after the start.
