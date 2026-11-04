@@ -533,14 +533,29 @@ pub fn item_at_where(
     found
 }
 
+/// The file a line of the copy text names: the file of an item that a plugin put in another file
+/// (`AddFuncInfo3`, `m_cmemFileName`), else the file analyzed. Sakura does this in `SetTree` only
+/// (`CDlgFuncList.cpp:1460-1475`) and writes `m_szFilePath` in the list, the tree of Java and the list
+/// of Visual Basic (636, 651, 1141, 1349), which would send a tag jump to the wrong file.
+fn file_of<'a>(item: &'a crate::FuncInfo, analyzed: &'a str) -> &'a str {
+    if item.file.is_empty() {
+        analyzed
+    } else {
+        &item.file
+    }
+}
+
 /// The text of the copy button for a list (`SetData`): `file(line,col): name(remark)` lines.
 pub fn clip_text_list(arr: &FuncInfoArr, file_path: &str) -> String {
     let mut text = String::new();
     for item in arr.items() {
         let remark = list_remark(item.info_value());
         text.push_str(&format!(
-            "{file_path}({},{}): {}",
-            item.line, item.col, item.name
+            "{}({},{}): {}",
+            file_of(item, file_path),
+            item.line,
+            item.col,
+            item.name
         ));
         if !remark.is_empty() {
             text.push_str(&format!("({remark})"));
@@ -556,8 +571,11 @@ pub fn clip_text_vb(arr: &FuncInfoArr, file_path: &str) -> String {
     for item in arr.items() {
         let remark = vb_remark(item.info);
         text.push_str(&format!(
-            "{file_path}({},{}): {}",
-            item.line, item.col, item.name
+            "{}({},{}): {}",
+            file_of(item, file_path),
+            item.line,
+            item.col,
+            item.name
         ));
         if !remark.is_empty() {
             text.push_str(&format!("({remark})"));
@@ -579,11 +597,7 @@ pub fn clip_text_tree(arr: &FuncInfoArr, file_path: &str, tag_jump: bool) -> Str
         }
         if tag_jump {
             // an item a plugin put in another file names it (`m_cmemFileName`)
-            text.push_str(if item.file.is_empty() {
-                file_path
-            } else {
-                &item.file
-            });
+            text.push_str(file_of(item, file_path));
             if item.line > 0 {
                 text.push_str(&format!("({},{}): ", item.line, item.col));
             }
@@ -603,8 +617,11 @@ pub fn clip_text_java(arr: &FuncInfoArr, file_path: &str) -> String {
     let mut text = String::new();
     for item in arr.items() {
         text.push_str(&format!(
-            "{file_path}({},{}): {}",
-            item.line, item.col, item.name
+            "{}({},{}): {}",
+            file_of(item, file_path),
+            item.line,
+            item.col,
+            item.name
         ));
         if item.info == func_obj::DECLARE {
             text.push_str(arr.append_text(func_obj::DECLARE));

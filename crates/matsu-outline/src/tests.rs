@@ -465,6 +465,30 @@ fn the_tag_jump_text_of_a_tree_names_the_file_of_an_item_that_has_one() {
     );
 }
 
+#[test]
+fn every_copy_text_names_the_file_of_an_item_that_has_one() {
+    let mut arr = crate::FuncInfoArr::new();
+    arr.push(3, "here", 0, 0);
+    arr.push_item(crate::FuncInfo {
+        line: 7,
+        col: 2,
+        name: "there".into(),
+        depth: 0,
+        info: 0,
+        file: "b.txt".into(),
+    });
+    for text in [
+        clip_text_list(&arr, "a.txt"),
+        crate::tree::clip_text_vb(&arr, "a.txt"),
+        crate::tree::clip_text_java(&arr, "a.txt"),
+        clip_text_tree(&arr, "a.txt", true),
+    ] {
+        assert!(text.contains("a.txt(3,1): "), "{text}");
+        assert!(text.contains("b.txt(7,2): "), "{text}");
+        assert!(!text.contains("a.txt(7,2)"), "{text}");
+    }
+}
+
 // ---- HTML and XML (MakeTopicList_html) ----
 
 #[test]
