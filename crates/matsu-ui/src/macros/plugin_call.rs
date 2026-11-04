@@ -864,7 +864,11 @@ fn release_document(
             return;
         }
         shared.set_plugin_busy(false);
-        if let Some(depth) = depth {
+        // The undo block of the call was closed when the user did something, and what is open now may
+        // be the user's own (an IME composition in another pane).
+        let closed = shared.plugin_block_closed();
+        shared.set_plugin_block_closed(false);
+        if let (Some(depth), false) = (depth, closed) {
             shared
                 .parts_mut()
                 .0
@@ -1020,6 +1024,8 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
         if view.macros.indent_guard.is_some() {
             view.macros.indent_undo_depth = depth;
             view.macros.indent_closed = false;
+            view.document
+                .update(cx, |shared, _| shared.set_plugin_block_closed(false));
         }
         (depth, view.document.read(cx).generation())
     });
@@ -1136,10 +1142,15 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                         view.macros.plugin_event = false;
                         view.macros.indent_guard = None;
                         // Only the document the call began on: a replaced one is not ours to free.
-                        let closed = std::mem::take(&mut view.macros.indent_closed);
+                        let mut closed = std::mem::take(&mut view.macros.indent_closed);
                         view.macros.indent_undo_depth = None;
                         if view.document.read(cx).generation() == generation {
-                            view.document.update(cx, |shared, _| shared.set_plugin_busy(false));
+                            // Whoever cut the call off says so on the document (`release_document` reads it too).
+                            closed |= view.document.read(cx).plugin_block_closed();
+                            view.document.update(cx, |shared, _| {
+                                shared.set_plugin_busy(false);
+                                shared.set_plugin_block_closed(false);
+                            });
                             // The undo block of a smart indent that the user cut off is closed already,
                             // and what is open now is the user's own. A composition that the user began
                             // meanwhile has a block of its own, which closing to the depth from before

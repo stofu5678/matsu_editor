@@ -163,6 +163,9 @@ impl EditorView {
             return;
         }
         self.macros.indent_closed = true;
+        // The document keeps it too: the pane may be gone when the call ends.
+        self.document
+            .update(cx, |shared, _| shared.set_plugin_block_closed(true));
         if let Some(depth) = self.macros.indent_undo_depth.take() {
             self.leave_undo_block(Some(depth), cx);
         }

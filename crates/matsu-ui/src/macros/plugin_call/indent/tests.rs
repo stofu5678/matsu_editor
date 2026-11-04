@@ -5,7 +5,7 @@
 use std::fs;
 use std::time::Duration;
 
-use gpui::{AppContext as _, Entity, TestAppContext, VisualTestContext};
+use gpui::{AppContext as _, Entity, EntityInputHandler as _, TestAppContext, VisualTestContext};
 use matsu_commands::input_options::SmartIndent;
 use matsu_commands::plugin_commands;
 use matsu_commands::sakura::FUNCTIONS;
@@ -494,6 +494,62 @@ fn a_mouse_drop_while_the_plugin_works_is_not_in_its_undo_step(cx: &mut TestAppC
     run(&view, cx, "F_UNDO");
     assert_eq!(text(&view, cx), "abcdef ghi\n    ");
     finish(cx);
+}
+
+#[gpui::test]
+fn a_composition_in_another_pane_is_not_cut_when_the_pane_of_the_call_goes(
+    cx: &mut TestAppContext,
+) {
+    let place = Place::new(
+        true,
+        "Editor.InsText('    '); console.log('[inserted]'); \
+         const t = Date.now(); while (Date.now() - t < 400) {}",
+    );
+    let Some((view, cx)) = window(cx, &place, true) else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    let first = cx.update(|window, _| window.window_handle());
+    let shared = view.read_with(cx, |v, _| v.document.clone());
+    cx.simulate_input("x");
+    type_char(&view, cx, '\r');
+    wait_until(&view, cx, "the insertion of the plugin", |v, cx| {
+        called(v, cx) == ["inserted"]
+    });
+    // The document is shown in a second pane.
+    let other = shared.clone();
+    let (second, cx2) = cx.add_window_view(move |window, cx| {
+        let view = EditorView::new(other, cx);
+        window.focus(&view.focus_handle, cx);
+        view
+    });
+    cx2.executor().allow_parking();
+    // The user starts an IME composition in the second pane: the undo block of the call is closed.
+    second.update_in(cx2, |v, window, cx| {
+        v.replace_and_mark_text_in_range(None, "に", Some(1..1), window, cx);
+    });
+    let depth = |cx: &mut VisualTestContext| {
+        shared.read_with(cx, |shared, _| shared.model().history().depth())
+    };
+    assert_eq!(depth(cx2), 1, "the block of the composition");
+    // The pane that made the call goes before the call ends.
+    drop(view);
+    cx2.update(|_, app| {
+        app.update_window(first, |_, window, _| window.remove_window())
+            .ok();
+    });
+    for _ in 0..60 {
+        cx2.executor().advance_clock(Duration::from_millis(20));
+        cx2.run_until_parked();
+        std::thread::sleep(Duration::from_millis(10));
+        if !shared.read_with(cx2, |s, _| s.plugin_busy()) {
+            break;
+        }
+    }
+    assert!(!shared.read_with(cx2, |s, _| s.plugin_busy()));
+    // Letting go of the document does not close the block of the composition.
+    assert_eq!(depth(cx2), 1, "the block of the composition is still open");
+    finish(cx2);
 }
 
 #[gpui::test]
