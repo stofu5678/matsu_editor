@@ -17,10 +17,11 @@ use std::rc::Rc;
 use gpui::{
     AnyElement, Bounds, Context, CursorStyle, Entity, InteractiveElement as _, IntoElement as _,
     MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement as _, Pixels,
-    Styled as _, Window, canvas, div, px, relative, rgb,
+    Styled as _, Window, canvas, div, px, rgb,
 };
 
-use super::dock::{DOCK_MIN_SIZE, DockSide};
+use super::dock::{self, DOCK_MIN_SIZE, DockSide, FloatRect};
+use super::drop;
 use super::pane::OutlinePane;
 use crate::app::Workspace;
 use crate::minimap::panel::MiniMap;
@@ -33,7 +34,52 @@ const BAR: f32 = 5.0;
 #[derive(Default)]
 pub(crate) struct OutlineLayout {
     area: Rc<Cell<Bounds<Pixels>>>,
+    /// The bar of a docked pane, or the left bar of the floating one, is held.
     dragging: bool,
+    /// The bottom bar of the floating pane is held.
+    dragging_bottom: bool,
+    /// The title of the pane is held (`CDlgFuncList::Track`).
+    track: Option<Track>,
+}
+
+/// The drag of the title of the pane.
+struct Track {
+    /// Where the title was taken hold of.
+    grab: gpui::Point<Pixels>,
+    /// The pointer has moved far enough for the drag to begin.
+    started: bool,
+    /// The place and the rectangle (in the coordinates of the window) the pane takes if it is let
+    /// go now: the frame is drawn there.
+    drop: Option<(DockSide, drop::Rect)>,
+}
+
+/// `GetIdealStretch`'s clamp for the floating pane: the pane (with its bars) as the area allows
+/// it. `stored` is the position and the size that were set; without a size the pane is at the
+/// right, with the width of a pane docked there and 70% of the height.
+pub(crate) fn fit_float(
+    stored: Option<FloatRect>,
+    area_w: f32,
+    area_h: f32,
+    default_pane_w: f32,
+) -> FloatRect {
+    let least = DOCK_MIN_SIZE + BAR;
+    let (x, y, w, h) = match stored.filter(FloatRect::has_size) {
+        Some(r) => (r.x as f32, r.y as f32, r.w as f32, r.h as f32),
+        None => {
+            let w = default_pane_w + BAR;
+            (area_w - w, 0.0, w, area_h * 0.7)
+        }
+    };
+    let w = w.min(area_w).max(least.min(area_w));
+    let h = h.min(area_h).max(least.min(area_h));
+    let x = x.min(area_w - w).max(0.0);
+    let y = y.min(area_h - h).max(0.0);
+    FloatRect {
+        x: x.round() as i32,
+        y: y.round() as i32,
+        w: w.round() as i32,
+        h: h.round() as i32,
+    }
 }
 
 /// `GetIdealStretch`: the size of a pane whose kept size is `kept` (0: not set, a third of the
@@ -91,6 +137,8 @@ impl Workspace {
             .children(minimap);
         let Some(pane) = outline else {
             self.outline_layout.dragging = false;
+            self.outline_layout.dragging_bottom = false;
+            self.outline_layout.track = None;
             return text.into_any_element();
         };
         let place = pane.read(cx).place(cx);
@@ -111,6 +159,7 @@ impl Workspace {
                 f32::from(window.viewport_size().height)
             }
         };
+        pane.read(cx).note_drawn(side);
         let size_side = side.size_side();
         let size = ideal_size(place.size_of(size_side), max_of(size_side.is_vertical()));
         let measure = canvas(
@@ -154,6 +203,7 @@ impl Workspace {
                 MouseButton::Left,
                 cx.listener(|this, _: &MouseDownEvent, _, cx| {
                     this.outline_layout.dragging = true;
+                    cx.notify();
                     cx.stop_propagation();
                 }),
             );
@@ -169,83 +219,353 @@ impl Workspace {
                 boxed.h(px(size)).w_full()
             }
         };
-        match side {
-            DockSide::Float | DockSide::Undockable => container
-                .child(text.size_full())
-                .child(
-                    // over the text, at the right: a bar at its left edge sizes it
-                    // (it hides what it covers from the mouse: a click is the pane's)
+        // The place the pane takes if the title that is dragged is let go now (`Track` draws the
+        // rectangle of `GetDropRect`).
+        let frame = self
+            .outline_layout
+            .track
+            .as_ref()
+            .filter(|track| track.started)
+            .and_then(|track| track.drop)
+            .map(|(side, r)| {
+                let thickness = if side.is_docked() {
+                    drop::FRAME_DOCK
+                } else {
+                    drop::FRAME_FLOAT
+                };
+                div()
+                    .id("outline-drop-frame")
+                    .debug_selector(|| "outline-drop-frame".to_owned())
+                    .absolute()
+                    .left(px(r.left - f32::from(measured.origin.x)))
+                    .top(px(r.top - f32::from(measured.origin.y)))
+                    .w(px(r.width()))
+                    .h(px(r.height()))
+                    .border(px(thickness))
+                    .border_color(rgb(0x5a7fd0))
+                    .opacity(0.8)
+            });
+        let container = match side {
+            DockSide::Float | DockSide::Undockable => {
+                // over the text: a bar at its left edge and one at its bottom edge size it
+                // (it hides what it covers from the mouse: a click is the pane's)
+                let rect = fit_float(
+                    pane.read(cx).float_rect(),
+                    max_of(true),
+                    max_of(false),
+                    size,
+                );
+                pane.read(cx).set_float_shown(rect);
+                let bottom = div()
+                    .id("outline-float-bottom")
+                    .debug_selector(|| "outline-float-bottom".to_owned())
+                    .flex_none()
+                    .w_full()
+                    .h(px(BAR))
+                    .bg(rgb(0xd8d8d8))
+                    .cursor(CursorStyle::ResizeUpDown)
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                            this.outline_layout.dragging_bottom = true;
+                            cx.notify();
+                            cx.stop_propagation();
+                        }),
+                    );
+                container.child(text.size_full()).child(
                     div()
+                        .id("outline-float")
+                        .debug_selector(|| "outline-float".to_owned())
                         .absolute()
                         .occlude()
-                        .top(px(0.))
-                        .right(px(0.))
-                        .w(px(size + BAR))
-                        .h(relative(0.7))
+                        .left(px(rect.x as f32))
+                        .top(px(rect.y as f32))
+                        .w(px(rect.w as f32))
+                        .h(px(rect.h as f32))
                         .flex()
+                        .flex_col()
                         .shadow_lg()
-                        .child(bar.w(px(BAR)).h_full().cursor(CursorStyle::ResizeLeftRight))
-                        .child(pane_box(true)),
+                        .child(
+                            div()
+                                .flex()
+                                .flex_1()
+                                .min_h(px(0.))
+                                .child(bar.w(px(BAR)).h_full().cursor(CursorStyle::ResizeLeftRight))
+                                .child(
+                                    div()
+                                        .id("outline-pane-box")
+                                        .flex_none()
+                                        .debug_selector(|| "outline-pane-box".to_owned())
+                                        .w(px(rect.w as f32 - BAR))
+                                        .h_full()
+                                        .child(pane.clone()),
+                                ),
+                        )
+                        .child(bottom),
                 )
-                .into_any_element(),
+            }
             DockSide::Left => container
                 .flex_row()
                 .child(pane_box(true))
                 .child(bar.w(px(BAR)).h_full().cursor(CursorStyle::ResizeLeftRight))
-                .child(text.h_full())
-                .into_any_element(),
+                .child(text.h_full()),
             DockSide::Right => container
                 .flex_row()
                 .child(text.h_full())
                 .child(bar.w(px(BAR)).h_full().cursor(CursorStyle::ResizeLeftRight))
-                .child(pane_box(true))
-                .into_any_element(),
+                .child(pane_box(true)),
             DockSide::Top => container
                 .flex_col()
                 .child(pane_box(false))
                 .child(bar.h(px(BAR)).w_full().cursor(CursorStyle::ResizeUpDown))
-                .child(text.w_full())
-                .into_any_element(),
+                .child(text.w_full()),
             DockSide::Bottom => container
                 .flex_col()
                 .child(text.w_full())
                 .child(bar.h(px(BAR)).w_full().cursor(CursorStyle::ResizeUpDown))
-                .child(pane_box(false))
-                .into_any_element(),
-        }
+                .child(pane_box(false)),
+        };
+        // While the title is held the whole area takes the pointer, as `SetCapture` does, so the
+        // pane under it does not keep the release.
+        let capture = (self.outline_layout.track.is_some()
+            || self.outline_layout.dragging
+            || self.outline_layout.dragging_bottom)
+            .then(|| {
+            div()
+                .id("outline-capture")
+                .absolute()
+                .size_full()
+                .occlude()
+                .on_mouse_move(
+                    cx.listener(|this, e: &MouseMoveEvent, _, cx| this.outline_drag_to(e, cx)),
+                )
+                .on_mouse_up(
+                    MouseButton::Left,
+                    cx.listener(|this, e: &MouseUpEvent, _, cx| this.outline_end_drag(e, cx)),
+                )
+                .on_mouse_up_out(
+                    MouseButton::Left,
+                    cx.listener(|this, e: &MouseUpEvent, _, cx| this.outline_end_drag(e, cx)),
+                )
+                .on_mouse_down(
+                    MouseButton::Right,
+                    cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                        this.outline_track_cancel(cx);
+                    }),
+                )
+        });
+        container
+            .children(capture)
+            .children(frame)
+            .into_any_element()
     }
 
-    /// The bar is dragged: the pane takes the size that puts the bar under the pointer.
+    /// The pointer moves while a bar or the title is held.
     fn outline_drag_to(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
-        if !self.outline_layout.dragging {
+        if self.outline_layout.track.is_some() {
+            self.outline_track_to(event, cx);
+            return;
+        }
+        if !self.outline_layout.dragging && !self.outline_layout.dragging_bottom {
             return;
         }
         if !event.dragging() {
             self.outline_layout.dragging = false;
+            self.outline_layout.dragging_bottom = false;
+            cx.notify();
             return;
         }
         self.outline_resize(event.position, cx);
     }
 
+    /// A bar is dragged: the pane takes the size that puts the bar under the pointer.
     fn outline_resize(&mut self, pointer: gpui::Point<Pixels>, cx: &mut Context<Self>) {
         let Some(pane) = self.outline.clone() else {
             return;
         };
         let side = pane.read(cx).place(cx).side;
+        if !side.is_docked() {
+            self.float_resize(&pane, pointer, cx);
+            return;
+        }
         let size = size_for_pointer(side, self.outline_layout.area.get(), pointer);
         pane.update(cx, |pane, cx| pane.resize(size.round() as i32, cx));
     }
 
-    /// The bar is let go: the size is kept.
+    /// The bars of the floating pane: the left one moves the left edge, the bottom one the bottom
+    /// edge; the pane keeps [`DOCK_MIN_SIZE`] and stays inside the area.
+    fn float_resize(
+        &mut self,
+        pane: &Entity<OutlinePane>,
+        pointer: gpui::Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(mut rect) = pane.read(cx).float_shown() else {
+            return;
+        };
+        let area = self.outline_layout.area.get();
+        let least = (DOCK_MIN_SIZE + BAR) as i32;
+        if self.outline_layout.dragging {
+            let right = rect.x + rect.w;
+            let x = (f32::from(pointer.x - area.left()) - BAR / 2.0).round() as i32;
+            rect.x = x.clamp(0, (right - least).max(0));
+            rect.w = right - rect.x;
+        }
+        if self.outline_layout.dragging_bottom {
+            let bottom = (f32::from(pointer.y - area.top()) + BAR / 2.0).round() as i32;
+            let most = (f32::from(area.size.height).round() as i32 - rect.y).max(least);
+            rect.h = (bottom - rect.y).clamp(least, most);
+        }
+        pane.update(cx, |pane, cx| pane.set_float(rect, cx));
+    }
+
+    /// A bar is let go: the size is kept.
     fn outline_end_drag(&mut self, event: &MouseUpEvent, cx: &mut Context<Self>) {
-        if !self.outline_layout.dragging {
+        if self.outline_layout.track.is_some() {
+            self.outline_track_end(event, cx);
+            return;
+        }
+        if !self.outline_layout.dragging && !self.outline_layout.dragging_bottom {
             return;
         }
         // The release can be outside the area, where no move reached us.
         self.outline_resize(event.position, cx);
         self.outline_layout.dragging = false;
+        self.outline_layout.dragging_bottom = false;
+        cx.notify();
         if let Some(pane) = self.outline.clone() {
             pane.update(cx, |pane, cx| pane.finish_resize(cx));
         }
+    }
+
+    /// The title of the pane is taken hold of (`OnNcLButtonDown`): the drag begins when the pointer
+    /// has moved a little.
+    pub(crate) fn outline_track_begin(&mut self, at: gpui::Point<Pixels>, cx: &mut Context<Self>) {
+        self.outline_layout.track = Some(Track {
+            grab: at,
+            started: false,
+            drop: None,
+        });
+        cx.notify();
+    }
+
+    /// Esc or the right button: the drag is given up (`Track`). Returns whether there was one.
+    pub(crate) fn outline_track_cancel(&mut self, cx: &mut Context<Self>) -> bool {
+        let was = self.outline_layout.track.take().is_some_and(|t| t.started);
+        cx.notify();
+        was
+    }
+
+    /// What `GetDropRect` needs to know now; `None` while the pane has not been drawn.
+    fn drop_context(&self, cx: &Context<Self>) -> Option<drop::DropContext> {
+        let pane = self.outline.as_ref()?.read(cx);
+        let place = pane.place(cx);
+        let area = self.outline_layout.area.get();
+        let (ax, ay) = (f32::from(area.origin.x), f32::from(area.origin.y));
+        let (aw, ah) = (f32::from(area.size.width), f32::from(area.size.height));
+        let rect = drop::Rect::new(ax, ay, aw, ah);
+        let pane_rect = match place.side {
+            DockSide::Left => {
+                let s = ideal_size(place.left, aw) + BAR;
+                drop::Rect::new(ax, ay, s, ah)
+            }
+            DockSide::Right => {
+                let s = ideal_size(place.right, aw) + BAR;
+                drop::Rect::new(ax + aw - s, ay, s, ah)
+            }
+            DockSide::Top => {
+                let s = ideal_size(place.top, ah) + BAR;
+                drop::Rect::new(ax, ay, aw, s)
+            }
+            DockSide::Bottom => {
+                let s = ideal_size(place.bottom, ah) + BAR;
+                drop::Rect::new(ax, ay + ah - s, aw, s)
+            }
+            DockSide::Float | DockSide::Undockable => {
+                let r = pane.float_shown()?;
+                drop::Rect::new(ax + r.x as f32, ay + r.y as f32, r.w as f32, r.h as f32)
+            }
+        };
+        let remembered = dock::current(cx).float_if_remembered();
+        let float_size = match remembered {
+            Some(r) => (r.w as f32, r.h as f32),
+            None => (ideal_size(place.right, aw) + BAR, ah * 0.7),
+        };
+        Some(drop::DropContext {
+            area: rect,
+            pane: pane_rect,
+            side: place.side,
+            kept: place,
+            float_size,
+            float_size_remembered: remembered.is_some(),
+        })
+    }
+
+    fn outline_track_to(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
+        if !event.dragging() {
+            self.outline_layout.track = None;
+            cx.notify();
+            return;
+        }
+        let Some(ctx) = self.drop_context(cx) else {
+            return;
+        };
+        let Some(track) = self.outline_layout.track.as_mut() else {
+            return;
+        };
+        let moved = event.position - track.grab;
+        if !track.started
+            && f32::from(moved.x).abs() < drop::DRAG_START
+            && f32::from(moved.y).abs() < drop::DRAG_START
+        {
+            return;
+        }
+        track.started = true;
+        // a pane that cannot dock (ドッキング禁止) is only moved
+        let force = event.modifiers.control || ctx.side == DockSide::Undockable;
+        track.drop = Some(drop::drop_rect(
+            &ctx,
+            point_of(track.grab),
+            point_of(event.position),
+            force,
+        ));
+        cx.notify();
+    }
+
+    /// The title is let go: the pane takes the place the frame shows (`Track`, `WM_LBUTTONUP`).
+    fn outline_track_end(&mut self, event: &MouseUpEvent, cx: &mut Context<Self>) {
+        let Some(track) = self.outline_layout.track.take() else {
+            return;
+        };
+        // the frame and the area that took the pointer go
+        cx.notify();
+        if !track.started {
+            return;
+        }
+        let (Some(ctx), Some(pane)) = (self.drop_context(cx), self.outline.clone()) else {
+            return;
+        };
+        let force = event.modifiers.control || ctx.side == DockSide::Undockable;
+        let (side, rect) =
+            drop::drop_rect(&ctx, point_of(track.grab), point_of(event.position), force);
+        if side.is_docked() && side == ctx.side && rect == ctx.pane {
+            // let go on the pane where it is: nothing moves
+            return;
+        }
+        let area = self.outline_layout.area.get();
+        let rel = FloatRect {
+            x: (rect.left - f32::from(area.origin.x)).round() as i32,
+            y: (rect.top - f32::from(area.origin.y)).round() as i32,
+            w: rect.width().round() as i32,
+            h: rect.height().round() as i32,
+        };
+        pane.update(cx, |pane, cx| pane.drop_at(side, rel, cx));
+    }
+}
+
+fn point_of(p: gpui::Point<Pixels>) -> drop::Point {
+    drop::Point {
+        x: f32::from(p.x),
+        y: f32::from(p.y),
     }
 }

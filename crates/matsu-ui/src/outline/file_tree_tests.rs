@@ -166,6 +166,34 @@ fn the_command_shows_the_tree_and_a_folder_is_listed_when_it_is_opened(cx: &mut 
 }
 
 #[gpui::test]
+fn expand_all_opens_the_file_tree_to_the_bottom_and_collapse_all_closes_it(
+    cx: &mut TestAppContext,
+) {
+    use super::layout_tests::pane_command;
+    use super::menu::MenuCommand;
+    // `TreeView_ExpandAll` opens an item before it asks for its children, so the folders that
+    // are listed by the opening are opened too
+    let dir = folder(&[
+        "a.txt",
+        "sub/c.txt",
+        "sub/deep/d.txt",
+        "sub/deep/more/e.txt",
+    ]);
+    let handle = window(cx, None, &one_grep(dir.path(), "*.*"));
+    run_with(cx, handle, "F_FILETREE", &[]);
+    pane_command(cx, handle, MenuCommand::ExpandAll);
+    cx.run_until_parked();
+    assert_eq!(
+        labels(cx, handle),
+        [
+            "Project", "sub", "deep", "more", "e.txt", "d.txt", "c.txt", "a.txt"
+        ]
+    );
+    pane_command(cx, handle, MenuCommand::CollapseAll);
+    assert_eq!(labels(cx, handle), ["Project"]);
+}
+
+#[gpui::test]
 fn the_keyboard_opens_and_closes_folders_and_opens_files(cx: &mut TestAppContext) {
     let dir = folder(&["a.txt", "sub/c.txt"]);
     let handle = window(cx, None, &one_grep(dir.path(), "*.*"));

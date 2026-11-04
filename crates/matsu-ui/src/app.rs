@@ -509,6 +509,9 @@ pub struct Workspace {
     pub(crate) outline_restore_type: Option<usize>,
     /// The outline is being opened again for a new window: that is not the user's choice.
     pub(crate) outline_restoring: bool,
+    /// The tab and the type the pane was last laid out for: when either changes the settings are
+    /// applied again (`CDlgFuncList::ChangeLayout` for a changed file).
+    pub(crate) outline_seen: Option<(gpui::EntityId, usize)>,
     pub(crate) menu_bar: Entity<MenuBar>,
     /// The search box of the toolbar (`F_SEARCH_BOX`), shown where the toolbar has it.
     pub(crate) search_box: Entity<crate::bars::search_box::SearchBox>,
@@ -543,6 +546,7 @@ impl Workspace {
             outline_layout: Default::default(),
             outline_restore_type: None,
             outline_restoring: false,
+            outline_seen: None,
             menu_bar: MenuBar::new(cx),
             search_box: crate::bars::search_box::SearchBox::new(cx.weak_entity(), window, cx),
             minimap: cx.new(crate::minimap::panel::MiniMap::new),
@@ -668,7 +672,7 @@ impl Workspace {
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.sync_outline(cx);
+        self.sync_outline(window, cx);
         let active = self.panes().active().clone();
         let editor = active.read(cx);
         // A preview (ADR-0024) draws its own view; the bars of the editor are not shown with it.

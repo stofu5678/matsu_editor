@@ -66,7 +66,7 @@ use matsu_outline::{
 mod dock_ops;
 mod plugin;
 
-use super::dock::DockPlace;
+use super::dock::{self, DockPlace, FloatRect};
 use super::file_tree::model::FileTreeModel;
 use super::file_tree::source::{Inputs, load_dialog_setting, load_setting};
 use super::{OutlineOptions, Requested, Show};
@@ -77,6 +77,8 @@ use crate::view::EditorView;
 /// What the pane says about a file that is read by ranges (ADR-0020, 9.11).
 pub(crate) const HUGE_FILE_MESSAGE: &str = "巨大なファイルなので、アウトライン解析は使えません";
 
+/// `ApiWrap::TreeView_ExpandAll( hwndTree, true, 64 )`: how deep すべて展開 goes.
+const EXPAND_ALL_DEPTH: usize = 64;
 const TEXT: u32 = 0x1e1e1e;
 const SELECTED_BG: u32 = 0x2f6fd0;
 const STALE_TEXT: u32 = 0x777777;
@@ -145,6 +147,13 @@ pub(crate) struct OutlinePane {
     /// (`bOutlineDockSync` is off) it stays, whatever the other windows do; the settings are
     /// taken again when the type changes (`ChangeLayout` for a changed file).
     shown_place: std::cell::Cell<Option<DockPlace>>,
+    /// The position and the size of the floating pane that were set (by moving it, by sizing it,
+    /// or the remembered ones): `None` is the default place. Relative to the area of the pane.
+    float_rect: std::cell::Cell<Option<FloatRect>>,
+    /// The position and the size the floating pane was drawn with at the last paint.
+    float_shown: std::cell::Cell<Option<FloatRect>>,
+    /// The side the pane was drawn at last (what `m_eDockSide` of the dialog says).
+    drawn_side: std::cell::Cell<Option<super::dock::DockSide>>,
     /// The right-click menu, while it is open.
     menu: Option<dock_ops::OpenMenu>,
     _subscriptions: Vec<Subscription>,
@@ -179,10 +188,14 @@ impl OutlinePane {
             focus: cx.focus_handle(),
             scroll: UniformListScrollHandle::new(),
             shown_place: std::cell::Cell::new(None),
+            float_rect: std::cell::Cell::new(None),
+            float_shown: std::cell::Cell::new(None),
+            drawn_side: std::cell::Cell::new(None),
             menu: None,
             _subscriptions: Vec::new(),
         };
         pane.listen(view, cx);
+        pane.reset_float(cx);
         pane
     }
 
@@ -762,7 +775,7 @@ impl OutlinePane {
         if !self.expanded.remove(&key) {
             self.expanded.insert(key);
             // `TVN_ITEMEXPANDING`: a folder of the file tree is listed when it is opened
-            self.start_load(key, cx);
+            self.start_load(key, None, cx);
         }
         self.rebuild_rows();
         cx.notify();
@@ -948,7 +961,10 @@ impl OutlinePane {
             }
             // IDCANCEL of a docked dialog: the focus goes back to the text
             "escape" if plain => {
-                if let Some(view) = self.view.upgrade() {
+                // while the title is dragged it only gives the drag up (`Track`)
+                if !self.cancel_track(cx)
+                    && let Some(view) = self.view.upgrade()
+                {
                     view.update(cx, |view, cx| window.focus(&view.focus_handle, cx));
                 }
             }
@@ -1095,14 +1111,17 @@ impl OutlinePane {
         self.rebuild_rows();
         // `SetTreeFileSub` for each Grep item, at once
         for root in roots {
-            self.start_load(root, cx);
+            self.start_load(root, None, cx);
         }
         cx.notify();
     }
 
     /// Lists the folder of a node in the background, if it is still to be listed, and puts the
     /// entries below the node when they are there.
-    fn start_load(&mut self, node: usize, cx: &mut Context<Self>) {
+    ///
+    /// `deep` is the depth reached by すべて展開, which goes on down: the folders found below the
+    /// node open and are listed too, to the depth of `TreeView_ExpandAll` (64 levels).
+    fn start_load(&mut self, node: usize, deep: Option<usize>, cx: &mut Context<Self>) {
         let Some(job) = self
             .file_tree
             .as_mut()
@@ -1120,8 +1139,21 @@ impl OutlinePane {
                 if this.generation != generation {
                     return;
                 }
+                let mut below = Vec::new();
                 if let Some(tree) = &mut this.file_tree {
                     tree.finish_load(node, listing);
+                    if deep.is_some_and(|depth| depth < EXPAND_ALL_DEPTH) {
+                        below = tree.nodes[node]
+                            .children
+                            .iter()
+                            .copied()
+                            .filter(|&child| tree.nodes[child].has_children())
+                            .collect();
+                    }
+                }
+                for child in below {
+                    this.expanded.insert(child);
+                    this.start_load(child, deep.map(|depth| depth + 1), cx);
                 }
                 this.rebuild_rows();
                 cx.notify();
@@ -1252,6 +1284,8 @@ impl Render for OutlinePane {
         let side = self.place(cx).side;
         let button = |id: &'static str, text: &'static str| {
             crate::a11y::button(div().id(id), text)
+                // a press on a button does not take hold of the title
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .px_2()
                 .h(px(24.))
                 .flex()
@@ -1273,12 +1307,24 @@ impl Render for OutlinePane {
         } else {
             self.title().to_owned()
         };
+        let host = self.host.clone();
+        let focus = self.focus.clone();
         let header = div()
+            .id("outline-header")
+            .debug_selector(|| "outline-header".to_owned())
             .flex()
             .items_center()
             .justify_between()
             .px_2()
             .py_1()
+            // the title takes the pane to dock it at another side, or to move it (`OnNcLButtonDown`)
+            .on_mouse_down(MouseButton::Left, move |event, window, cx| {
+                window.focus(&focus, cx);
+                host.update(cx, |workspace, cx| {
+                    workspace.outline_track_begin(event.position, cx)
+                })
+                .ok();
+            })
             .child(
                 crate::a11y::text(div().id("outline-title"), &title)
                     .font_weight(gpui::FontWeight::BOLD)
@@ -1446,6 +1492,20 @@ impl Render for OutlinePane {
                     .text_color(rgb(STALE_TEXT))
                     .cursor_default()
             })
+            // `IDC_BUTTON_WINSIZE`: a button that stays pressed while the floating pane keeps its
+            // position and size
+            .children(side.is_floating().then(|| {
+                let on = dock::current(cx).remember;
+                button("outline-remember", if on { "■" } else { "□" })
+                    .debug_selector(|| "outline-remember".to_owned())
+                    .aria_label("位置と大きさを記憶する")
+                    .aria_toggled(if on {
+                        gpui::Toggled::True
+                    } else {
+                        gpui::Toggled::False
+                    })
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_remember(cx)))
+            }))
             .when_bookmark(is_bookmark, |this| {
                 let on = cx
                     .try_global::<OutlineOptions>()
@@ -1490,7 +1550,10 @@ impl Render for OutlinePane {
             .on_mouse_down(
                 MouseButton::Right,
                 cx.listener(|this, event: &MouseDownEvent, window, cx| {
-                    this.open_menu(event.position, window, cx);
+                    // the right button gives a drag of the title up (`Track`)
+                    if !this.cancel_track(cx) {
+                        this.open_menu(event.position, window, cx);
+                    }
                     cx.stop_propagation();
                 }),
             )
