@@ -673,3 +673,49 @@ fn the_pane_that_can_still_be_split_keeps_its_box(cx: &mut TestAppContext) {
         assert_eq!(boxes(cx, i), (false, false), "pane {i}");
     }
 }
+
+#[gpui::test]
+fn a_held_scroll_arrow_ends_when_the_window_loses_the_activation(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, &long_text());
+    painted(cx);
+    let (x, y) = f.pane(cx, 0).read_with(cx, |v, _| {
+        let paint = v.paint.expect("painted");
+        (
+            paint.scrollbar_left + 3.0,
+            paint.vbar_top + paint.vbar_len - 5.0,
+        )
+    });
+    let at = gpui::point(gpui::px(x), gpui::px(y));
+    down(cx, at, 1);
+    let top = |cx: &mut VisualTestContext| f.pane(cx, 0).read_with(cx, |v, _| v.scroll_y());
+    let first = top(cx);
+    assert!(first > 0.0);
+    // The release happens in another program and never arrives.
+    cx.deactivate_window();
+    cx.run_until_parked();
+    assert!(
+        f.pane(cx, 0)
+            .read_with(cx, |v, _| v.scroll_repeat.is_none())
+    );
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(500));
+    cx.run_until_parked();
+    assert_eq!(top(cx), first);
+}
+
+#[gpui::test]
+fn a_split_box_drag_ends_without_a_split_when_the_window_loses_the_activation(
+    cx: &mut TestAppContext,
+) {
+    let (f, cx) = setup(cx, &long_text());
+    painted(cx);
+    let start = box_center(&f, cx, 0, false);
+    down(cx, start, 1);
+    cx.run_until_parked();
+    drag_to(cx, gpui::point(gpui::px(400.0), start.y));
+    cx.deactivate_window();
+    cx.run_until_parked();
+    up(cx, gpui::point(gpui::px(400.0), start.y));
+    cx.run_until_parked();
+    assert_eq!(f.grid(cx), (1, 1));
+}

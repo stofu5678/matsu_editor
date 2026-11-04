@@ -112,4 +112,14 @@ impl EditorView {
         self.held_buttons = HeldButtons::default();
         self.wheel_used_buttons = HeldButtons::default();
     }
+
+    /// The window lost the activation while an arrow or the track of a scroll bar was held: the
+    /// release does not arrive, so the press ends (the system bar ends it when it loses the
+    /// capture, `WM_CAPTURECHANGED`).
+    pub(crate) fn cancel_scroll_press(&mut self) {
+        if self.drag == super::Drag::Repeat {
+            self.drag = super::Drag::None;
+        }
+        self.end_scroll_repeat();
+    }
 }

@@ -95,6 +95,12 @@ impl PaneSet {
         }
     }
 
+    /// The window lost the activation: a bar that is dragged is let go where it was, without a
+    /// split.
+    pub(crate) fn cancel_split_drag(&mut self) {
+        self.dragging = None;
+    }
+
     pub(crate) fn active(&self) -> &Entity<EditorView> {
         self.slots[self.active]
             .as_ref()
