@@ -308,7 +308,7 @@ fn compute_choices(cx: &App) -> Vec<(String, i32)> {
         let Some(def) = dirs.load_def(&rec.name, DEFAULT_LANGUAGE) else {
             continue;
         };
-        if def.id != rec.id || def.unsupported().is_some() || !def.use_cache {
+        if def.id != rec.id || def.unsupported().is_some() || !def.resident {
             continue;
         }
         let dir = dirs.plugin_dir(&rec.name);

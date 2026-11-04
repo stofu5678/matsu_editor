@@ -48,6 +48,26 @@ fn the_controls_of_the_input_side_can_be_used(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn the_smart_indent_of_a_plugin_that_is_not_there_is_kept(cx: &mut TestAppContext) {
+    // 20100 is the code of the plug of the second plugin slot (`CPlug::GetPluginFunctionCode`): no
+    // plugin is on here, so no choice stands for it. Nothing is chosen, and OK writes it back as it is.
+    let text = "[Types(0)]\r\nnSmartIndent=20100\r\n";
+    let (ini, a) = setup(cx, text);
+    let before = ini.bytes();
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    assert_eq!(value(cx, SMART_INDENT), Value::Int(20100));
+    ok(cx);
+    assert_eq!(ini.bytes(), before);
+    // The view reads it as the plug, and the plugin has to run for it to do anything.
+    let view = view_of(cx, a);
+    let kind = view.read_with(cx, |v, _| v.prefs.settings.input.smart_indent);
+    assert_eq!(
+        kind,
+        matsu_commands::input_options::SmartIndent::Plugin(20100)
+    );
+}
+
+#[gpui::test]
 fn ok_writes_sakuras_keys_and_the_window_takes_the_options(cx: &mut TestAppContext) {
     let (ini, a) = setup(cx, "");
     run(cx, a, "F_OPTION_TYPE", &[]);

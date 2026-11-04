@@ -90,6 +90,11 @@ pub struct SharedDocument {
     /// A call of a plugin is running on this document (every pane that shows it shares the undo
     /// history, so one call at a time).
     plugin_busy: bool,
+    /// The undo block of the running call was closed already, because the user did something (a smart
+    /// indent that was cut off, `plugin_call::indent`): whoever ends the call must not close blocks
+    /// again, one of them may be the user's (an IME composition in another pane). It is the document's,
+    /// not a pane's, so that it is still there when the pane that began the call is gone.
+    plugin_block_closed: bool,
     /// The views that show this document, to ask them whether a macro runs in one of them (the
     /// state of a macro is the view's; a view that is gone no longer counts).
     views: Vec<gpui::WeakEntity<crate::view::EditorView>>,
@@ -185,6 +190,7 @@ impl SharedDocument {
             version: 0,
             generation: 0,
             plugin_busy: false,
+            plugin_block_closed: false,
             views: Vec::new(),
             overwrite: false,
             view_mode: false,
@@ -294,6 +300,7 @@ impl SharedDocument {
             version: 0,
             generation: 0,
             plugin_busy: false,
+            plugin_block_closed: false,
             views: Vec::new(),
             overwrite: false,
             view_mode: false,
@@ -723,6 +730,15 @@ impl SharedDocument {
     /// window, reloading it). Not changed by an edit.
     pub fn plugin_busy(&self) -> bool {
         self.plugin_busy
+    }
+
+    /// See the field.
+    pub fn plugin_block_closed(&self) -> bool {
+        self.plugin_block_closed
+    }
+
+    pub fn set_plugin_block_closed(&mut self, closed: bool) {
+        self.plugin_block_closed = closed;
     }
 
     pub fn set_plugin_busy(&mut self, busy: bool) {

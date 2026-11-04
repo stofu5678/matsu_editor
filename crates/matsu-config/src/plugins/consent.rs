@@ -133,6 +133,80 @@ pub fn fingerprint(dir: &Path) -> io::Result<Vec<FileHash>> {
     Ok(files)
 }
 
+/// A file changed less long ago than this is not trusted to look different if it changes again.
+const RECENT: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// What a file looks like from outside, without reading it: its path from the folder, its size and
+/// its time of change.
+type Stat = (String, u64, Option<std::time::SystemTime>);
+
+/// The hashes made last for a folder, with the stats of the files they were made from.
+type Remembered = (Vec<Stat>, Vec<FileHash>);
+
+static REMEMBERED: std::sync::Mutex<BTreeMap<PathBuf, Remembered>> =
+    std::sync::Mutex::new(BTreeMap::new());
+
+fn stat_walk(root: &Path, dir: &Path, out: &mut Vec<Stat>) -> io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let path = entry?.path();
+        let meta = std::fs::symlink_metadata(&path)?;
+        if meta.is_dir() {
+            stat_walk(root, &path, out)?;
+        } else if meta.is_file() {
+            let relative = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .into_owned();
+            out.push((relative, meta.len(), meta.modified().ok()));
+        } else {
+            // a link or something else: [`fingerprint`] decides what it means
+            return Err(io::Error::other("not a plain file"));
+        }
+        if out.len() > MAX_FILES {
+            return Err(io::Error::other("too many files"));
+        }
+    }
+    Ok(())
+}
+
+/// [`fingerprint`] that does not read the files again while they look the same: the list of the
+/// files with their sizes and times of change is the same as when the hashes were made last. Only the
+/// hashes are remembered; what the user agreed to is set against them at each call
+/// ([`ConsentFile::consent_for_dir_cached`]). A file rewritten with the same size and the same time of
+/// change is not seen (it takes the right to write the user's files to do that).
+pub fn fingerprint_cached(dir: &Path) -> io::Result<Vec<FileHash>> {
+    let mut stats = Vec::new();
+    if stat_walk(dir, dir, &mut stats).is_err() {
+        return fingerprint(dir);
+    }
+    stats.sort();
+    let mut remembered = REMEMBERED.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((then, hashes)) = remembered.get(dir)
+        && *then == stats
+    {
+        return Ok(hashes.clone());
+    }
+    // The stats were taken before the hashes: a change in between is seen at the next call.
+    let hashes = fingerprint(dir)?;
+    // A file changed a moment ago could change again within the same tick of the clock of the file
+    // system, with the same size: such hashes are not kept (the way a version control system treats a
+    // file it cannot tell apart yet).
+    let settled = std::time::SystemTime::now()
+        .checked_sub(RECENT)
+        .is_some_and(|limit| {
+            stats
+                .iter()
+                .all(|(_, _, time)| time.is_some_and(|t| t <= limit))
+        });
+    if settled {
+        remembered.insert(dir.to_path_buf(), (stats, hashes.clone()));
+    } else {
+        remembered.remove(dir);
+    }
+    Ok(hashes)
+}
+
 /// The files as lines `<sha256> <path>` (for a place that holds only text).
 pub fn manifest_text(files: &[FileHash]) -> String {
     files
@@ -326,6 +400,20 @@ impl ConsentFile {
             return Consent::Off;
         };
         match dir.and_then(|dir| fingerprint(dir).ok()) {
+            None => Consent::Changed(compare(&record.files, &[])),
+            Some(now) => self.consent(id, &now),
+        }
+    }
+}
+
+impl ConsentFile {
+    /// [`consent_for_dir`](Self::consent_for_dir) with [`fingerprint_cached`]: for what a key press
+    /// asks, where the folder is not read each time.
+    pub fn consent_for_dir_cached(&self, id: &str, dir: Option<&Path>) -> Consent {
+        let Some(record) = self.record(id) else {
+            return Consent::Off;
+        };
+        match dir.and_then(|dir| fingerprint_cached(dir).ok()) {
             None => Consent::Changed(compare(&record.files, &[])),
             Some(now) => self.consent(id, &now),
         }

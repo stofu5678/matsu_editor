@@ -231,6 +231,18 @@ pub(crate) struct MacroState {
     /// The call of the plugin is an event jack (`DocumentOpen`...), not a command: another event may
     /// wait for it; a command's own events are not given (ADR-0026, chapter 2).
     plugin_event: bool,
+    /// A call of the `SmartIndent` jack is on: the version of the text and the cursor (caret and
+    /// selection) as the call left them. If the user changes any, the plugin has lost its place and is
+    /// stopped (`plugin_call::indent`).
+    indent_guard: Option<(u64, matsu_core::cursor::Cursor)>,
+    /// The call of the `SmartIndent` jack was stopped because the user went on: its end says nothing.
+    indent_stopped: bool,
+    /// The depth of the undo block before the call of the `SmartIndent` jack opened its own, to put
+    /// back when the user does something while it runs (`cut_indent_undo_step`).
+    indent_undo_depth: Option<usize>,
+    /// The undo block of the call was closed already, because the user went on: the call is stopped,
+    /// and its end leaves the undo blocks alone.
+    indent_closed: bool,
     /// The batches of event calls of this window take a ticket each and run in the order of the
     /// tickets (`plugin_events`): `event_next` is the next ticket, `event_serving` the one that runs.
     event_next: u64,
