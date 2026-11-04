@@ -154,6 +154,8 @@ impl EditorView {
             }
         }
         self.cursor.set_selecting_lock(lock);
+        // Where a search began is a position of the document that was: it is not kept.
+        self.search.set_start_pos(None);
         if moved.caret_lost {
             self.cursor.set_free_col(None);
         }
@@ -312,7 +314,12 @@ impl EditorView {
     fn open_scan_window(&mut self, byte: u64, cx: &mut Context<Self>) -> bool {
         // The view that asks has its positions in the document as it is now (a document loaded
         // into this window has a number that the view has not seen yet).
-        self.frame_seen = self.document.read(cx).frame_seq();
+        let current = self.document.read(cx).frame_seq();
+        if self.frame_seen != current {
+            // Another document was loaded since: what was put aside is not its.
+            self.jumps_stash = None;
+        }
+        self.frame_seen = current;
         let opened = self.document.update(cx, |shared, cx| {
             shared.open_window_at(byte, cx).then(|| shared.version())
         });
