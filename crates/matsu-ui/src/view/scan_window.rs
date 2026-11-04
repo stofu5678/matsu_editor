@@ -465,12 +465,15 @@ impl EditorView {
         // The place the jump leaves goes to the jump history (`AddCurrentLineToHistory`), if it
         // is a place of the file: the lines of a window are not, and are not recorded.
         // (Before the window: the list of the file is put aside with it.)
+        let before = self.cursor.jump_history().clone();
         if !windowed {
             let from = self.cursor.caret();
             self.cursor.jump_history_mut().add(from);
         }
         if !self.cover_scan_byte(byte, cx) {
-            // No window can be cut there: the jump waits for the scan after all.
+            // No window can be cut there: the jump waits for the scan after all, and adds the
+            // place then.
+            *self.cursor.jump_history_mut() = before;
             return false;
         }
         // Recorded in its place among the commands, as the jump that waits is. It replaces a

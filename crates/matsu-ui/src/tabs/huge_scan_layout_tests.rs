@@ -210,6 +210,24 @@ fn with_a_wrap_numbered_by_rows_a_window_is_numbered_by_lines(cx: &mut TestAppCo
 }
 
 #[gpui::test]
+fn a_jump_that_waits_because_no_window_can_be_cut_leaves_the_jump_list_alone(
+    cx: &mut TestAppContext,
+) {
+    // One line of 3 MiB: no line start near the end to cut a window from.
+    let text = "0123456789abcdef".repeat(3 * 1024 * 1024 / 16);
+    let (handle, dir) = opened(cx, "one.txt", text.as_bytes());
+    let view = active_view(cx, handle);
+    run(cx, handle, "F_GOFILEEND");
+    assert!(window_of(cx, &view).is_none());
+    assert_eq!(
+        super::huge_tests::notice(cx, &view).as_deref(),
+        Some("改行位置を調べ終えてから移動します")
+    );
+    assert_eq!(view.read_with(cx, |v, _| v.cursor.jump_history().len()), 0);
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[gpui::test]
 fn an_empty_box_selection_keeps_its_mode_when_the_scan_is_done(cx: &mut TestAppContext) {
     let (handle, dir) = opened(cx, "big.txt", big_text().as_bytes());
     let view = active_view(cx, handle);
