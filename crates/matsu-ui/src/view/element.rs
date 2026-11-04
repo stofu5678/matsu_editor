@@ -1308,6 +1308,33 @@ impl Element for EditorElement {
             }
         }
 
+        // The dotted vertical lines of one row: one pixel in two, on the same pixel rows in every
+        // row of text. `within` keeps the lines inside the columns of a cell (`DispVerticalLines`
+        // with a range, as `DrawBracketPair` calls it).
+        let paint_dots = |window: &mut Window, y: Pixels, within: Option<(Pixels, Pixels)>| {
+            if !p.lines.vertical_dotted {
+                return;
+            }
+            for &x in &p.lines.vertical {
+                let x = origin_x + px(x);
+                if within.is_some_and(|(left, right)| x < left || x >= right) {
+                    continue;
+                }
+                let row_top = f32::from(y - bounds.top());
+                let row_bottom = row_top + p.line_height;
+                let mut dot = row_top.ceil();
+                if dot % 2.0 != 0.0 {
+                    dot += 1.0;
+                }
+                while dot < row_bottom {
+                    window.paint_quad(fill(
+                        Bounds::new(point(x, bounds.top() + px(dot)), size(px(1.), px(1.))),
+                        rgb(p.lines.vertical_color),
+                    ));
+                    dot += 2.0;
+                }
+            }
+        };
         window.with_content_mask(
             Some(ContentMask {
                 bounds: text_bounds,
@@ -1354,28 +1381,7 @@ impl Element for EditorElement {
                             rgb(color),
                         ));
                     }
-                    if p.lines.vertical_dotted {
-                        for &x in &p.lines.vertical {
-                            let x = origin_x + px(x);
-                            // One pixel in two, on the same pixel rows in every row of text.
-                            let row_top = f32::from(y - bounds.top());
-                            let row_bottom = row_top + p.line_height;
-                            let mut dot = row_top.ceil();
-                            if dot % 2.0 != 0.0 {
-                                dot += 1.0;
-                            }
-                            while dot < row_bottom {
-                                window.paint_quad(fill(
-                                    Bounds::new(
-                                        point(x, bounds.top() + px(dot)),
-                                        size(px(1.), px(1.)),
-                                    ),
-                                    rgb(p.lines.vertical_color),
-                                ));
-                                dot += 2.0;
-                            }
-                        }
-                    }
+                    paint_dots(window, y, None);
                     for &(from, to, color) in &row.underlines {
                         window.paint_quad(fill(
                             Bounds::from_corners(
@@ -1455,19 +1461,21 @@ impl Element for EditorElement {
                                     ),
                                 ),
                             );
-                            // The note line crossed the cell (`DispNoteLine` again).
-                            if let Some((offset, color)) = p.lines.note {
-                                window.paint_quad(fill(
-                                    Bounds::from_corners(
-                                        point(cell.left(), y + px(offset)),
-                                        point(cell.right(), y + px(offset + 1.)),
-                                    ),
-                                    rgb(color),
-                                ));
-                            }
                         } else {
                             window.paint_quad(fill(cell, rgb(bracket.back)));
                         }
+                        // `DispNoteLine` and `DispVerticalLines` again over the cell, whatever
+                        // its background (the cell was painted over them).
+                        if let Some((offset, color)) = p.lines.note {
+                            window.paint_quad(fill(
+                                Bounds::from_corners(
+                                    point(cell.left(), y + px(offset)),
+                                    point(cell.right(), y + px(offset + 1.)),
+                                ),
+                                rgb(color),
+                            ));
+                        }
+                        paint_dots(window, y, Some((cell.left(), cell.right())));
                         bracket
                             .text
                             .paint(

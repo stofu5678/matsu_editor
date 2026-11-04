@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 
-use gpui::{App, Bounds, Corners, Global, Pixels, RenderImage, Window, WindowId, point, px, size};
+use gpui::{App, Bounds, Corners, Global, Pixels, RenderImage, Window, WindowId, point, px};
 
 use crate::back_image::placement::{self, Layout, Rect};
 use crate::back_image::{BackBitmap, BackImageSpec};
@@ -91,8 +91,13 @@ pub(super) struct Frame {
 }
 
 /// Where the tiles are (in device pixels from the top left of the view) for `clip`, a part of
-/// the view relative to its top left.
-pub(super) fn tiles(back: &BackPaint, frame: &Frame, clip: Bounds<Pixels>) -> Vec<Rect> {
+/// the view relative to its top left; and the part of the view that is painted, cut to whole
+/// device pixels.
+///
+/// Every number is a whole device pixel, whatever the clip is: a cell cut out of the view gets
+/// the same picture as the same pixels of the whole view (the clip of a cell starts between two
+/// pixels, but the picture must not move with it).
+pub(super) fn plan(back: &BackPaint, frame: &Frame, clip: Bounds<Pixels>) -> (Vec<Rect>, Rect) {
     let dev = |v: f32| (v * frame.scale).round() as i64;
     let width = f32::from(frame.bounds.size.width);
     let height = f32::from(frame.bounds.size.height);
@@ -111,10 +116,10 @@ pub(super) fn tiles(back: &BackPaint, frame: &Frame, clip: Bounds<Pixels>) -> Ve
         dev(f32::from(clip.bottom())).min(painted.bottom),
     );
     if clip.width() <= 0 || clip.height() <= 0 {
-        return Vec::new();
+        return (Vec::new(), clip);
     }
     let (w, h) = back.bitmap.size;
-    placement::tiles(&Layout {
+    let tiles = placement::tiles(&Layout {
         area,
         clip,
         image: (i64::from(w), i64::from(h)),
@@ -127,43 +132,39 @@ pub(super) fn tiles(back: &BackPaint, frame: &Frame, clip: Bounds<Pixels>) -> Ve
         repeat: back.spec.repeat,
         scroll: back.spec.scroll,
         scrolled: (dev(frame.scroll.0), dev(frame.scroll.1)),
-    })
+    });
+    (tiles, clip)
+}
+
+/// [`plan`]'s tiles.
+#[cfg(test)]
+pub(super) fn tiles(back: &BackPaint, frame: &Frame, clip: Bounds<Pixels>) -> Vec<Rect> {
+    plan(back, frame, clip).0
 }
 
 /// Paints the image in the part `clip` of the view (relative to its top left). The background
 /// color is painted by the caller, under this.
 pub(super) fn paint(window: &mut Window, back: &BackPaint, frame: &Frame, clip: Bounds<Pixels>) {
-    let tiles = tiles(back, frame, clip);
+    let (tiles, painted) = plan(back, frame, clip);
     let scale = frame.scale;
-    let origin = frame.bounds.origin;
-    // The visible part is the clip inside the area the image is painted in.
+    // The view starts at a whole device pixel (as the pictures are placed from it).
+    let origin = point(
+        px((f32::from(frame.bounds.origin.x) * scale).round() / scale),
+        px((f32::from(frame.bounds.origin.y) * scale).round() / scale),
+    );
+    let at = |x: i64, y: i64| {
+        point(
+            origin.x + px(x as f32 / scale),
+            origin.y + px(y as f32 / scale),
+        )
+    };
     let visible = Bounds::from_corners(
-        point(
-            origin.x + clip.left(),
-            origin.y + clip.top().max(px(frame.ruler_px)),
-        ),
-        point(
-            origin.x
-                + clip
-                    .right()
-                    .min(frame.bounds.size.width - px(frame.right_bar)),
-            origin.y
-                + clip
-                    .bottom()
-                    .min(frame.bounds.size.height - px(frame.bottom_bar)),
-        ),
+        at(painted.left, painted.top),
+        at(painted.right, painted.bottom),
     );
     for tile in tiles {
-        let image_bounds = Bounds::new(
-            point(
-                origin.x + px(tile.left as f32 / scale),
-                origin.y + px(tile.top as f32 / scale),
-            ),
-            size(
-                px(tile.width() as f32 / scale),
-                px(tile.height() as f32 / scale),
-            ),
-        );
+        let image_bounds =
+            Bounds::from_corners(at(tile.left, tile.top), at(tile.right, tile.bottom));
         window
             .paint_image(
                 visible,
@@ -180,6 +181,7 @@ pub(super) fn paint(window: &mut Window, back: &BackPaint, frame: &Frame, clip: 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gpui::size;
     use matsu_config::settings::types::back_img_pos;
 
     fn back(position: i32, repeat: (bool, bool), scroll: (bool, bool)) -> BackPaint {
@@ -295,6 +297,63 @@ mod tests {
             whole(&f),
         );
         assert_eq!(t, [Rect::new(80, 40, 180, 90)]);
+    }
+
+    /// Which pixel of the picture is at (x, y) of the view, by the tiles.
+    fn source_pixel(tiles: &[Rect], x: i64, y: i64, size: (i64, i64)) -> Option<(i64, i64)> {
+        tiles
+            .iter()
+            .find(|t| t.left <= x && x < t.right && t.top <= y && y < t.bottom)
+            .map(|t| {
+                (
+                    (x - t.left).rem_euclid(size.0),
+                    (y - t.top).rem_euclid(size.1),
+                )
+            })
+    }
+
+    #[test]
+    fn a_cell_gets_the_same_picture_as_the_same_pixels_of_the_whole_view() {
+        // The cell of a bracket starts between two pixels and the text is scrolled by a part of a
+        // pixel: the picture in the cell must be where it is in the whole view.
+        let picture = (100, 50);
+        let positions = [
+            back_img_pos::TOP_LEFT,
+            back_img_pos::CENTER,
+            back_img_pos::BOTTOM_RIGHT,
+        ];
+        let flags = [(false, false), (true, true), (true, false), (false, true)];
+        let cells = [(87.4, 63.6), (130.2, 40.9), (41.5, 20.5), (300.7, 200.1)];
+        for scale in [1.0, 1.25, 2.0] {
+            for repeat in flags {
+                for scroll in flags {
+                    for position in positions {
+                        for scrolled in [(0.0, 0.0), (37.3, 91.7), (250.5, 12.25), (0.5, 400.0)] {
+                            let b = back(position, repeat, scroll);
+                            let mut f = frame(scale);
+                            f.scroll = scrolled;
+                            let (all, _) = plan(&b, &f, whole(&f));
+                            for (x, y) in cells {
+                                let cell =
+                                    Bounds::new(point(px(x), px(y)), size(px(8.4), px(18.3)));
+                                let (cut, rect) = plan(&b, &f, cell);
+                                for py in rect.top..rect.bottom {
+                                    for pxl in rect.left..rect.right {
+                                        assert_eq!(
+                                            source_pixel(&cut, pxl, py, picture),
+                                            source_pixel(&all, pxl, py, picture),
+                                            "scale {scale} repeat {repeat:?} scroll {scroll:?} \
+                                             position {position} scrolled {scrolled:?} \
+                                             cell ({x}, {y}) pixel ({pxl}, {py})"
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]
