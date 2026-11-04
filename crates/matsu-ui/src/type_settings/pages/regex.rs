@@ -9,8 +9,10 @@
 //! The rules of the buttons are those of the list (`CPropFileName` and `CPropTypesRegex` are the
 //! same); a keyword is checked before it is put in (`CheckKeywordList`): it must be framed as
 //! `/.../k` (`RegexKeyCheckSyntax`) and must not be there already. Sakura also compiles the
-//! pattern and asks whether to keep a keyword that does not compile; MATSU Editor keeps it, and the
-//! coloring leaves out what does not compile.
+//! pattern (with MATSU's engine, [`matsu_coloring::keyword_compiles`]) and asks whether to register
+//! a keyword that does not compile, the answer being no at first (`STR_PROPTYPEREGEX_INVALID`); the
+//! coloring leaves out what does not compile. Sakura shows the message of the engine only for the
+//! other callers of the check, not here.
 //!
 //! The color is typed in an edit box here (Sakura has a drop-down list): a name that is not in
 //! the list of colors a keyword may have becomes 正規表現キーワード1.
@@ -60,6 +62,7 @@ pub(in crate::type_settings) static LIST: TableSpec = TableSpec {
     // `STR_PROPTYPEREGEX_NOREG`
     full_message: "これ以上登録できません。",
     prepare: Some(prepare),
+    confirm: Some(confirm),
 };
 
 /// `STR_PROPTYPEREGEX_KAKOMI`
@@ -89,6 +92,15 @@ fn prepare(
         row[1] = color_label("RK1").to_owned();
     }
     Ok(())
+}
+
+/// `STR_PROPTYPEREGEX_INVALID`
+const NOT_COMPILED: &str =
+    "書式が正しくないか、正規表現ライブラリが見つかりません。\n\n登録しますか？";
+
+/// `CheckKeywordList`: a keyword that does not compile is put in only when the user says so.
+fn confirm(row: &Row) -> Option<&'static str> {
+    (!matsu_coloring::keyword_compiles(&row[0])).then_some(NOT_COMPILED)
 }
 
 /// The colors a keyword may have: the items that have both a text color and a background

@@ -87,6 +87,7 @@ pub(in crate::type_settings) static LIST: TableSpec = TableSpec {
     // `STR_PROPTYPKEYHELP_ERR_REG1`
     full_message: "これ以上登録できません。",
     prepare: Some(prepare),
+    confirm: None,
 };
 
 /// The row of a dictionary.

@@ -11,8 +11,10 @@
 //!
 //! The settings that Sakura keeps in its common settings are kept in [`TagJumpPrefs`] for now: the
 //! two check boxes of the keyword dialog, the recent keywords, the two modes 「タグジャンプモード」
-//! (what to do about the next tags file), and the options of 「タグファイルの作成」. They live while
-//! the application runs; the common settings dialog is to read and write them.
+//! (what to do about the next tags file), and the options of 「タグファイルの作成」. The two modes are
+//! read and written by the common settings dialog; the check boxes and the options of the tags
+//! file are read from the settings file when the application starts and written when the dialog
+//! says so ([`crate::saved_state::other`]).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -245,8 +247,11 @@ pub(crate) async fn make_tags(view: &WeakEntity<EditorView>, cx: &mut AsyncWindo
     };
     // `GetData` keeps the options whatever comes next.
     let options = choice.options.clone();
-    cx.update(|_, app| remember_prefs(app, move |p| p.make = options))
-        .ok();
+    cx.update(|_, app| {
+        crate::saved_state::other::remember_tags_make(app, &options);
+        remember_prefs(app, move |p| p.make = options)
+    })
+    .ok();
 
     let dirs = cx
         .update(|_, app| prefs(app).ctags_dirs)

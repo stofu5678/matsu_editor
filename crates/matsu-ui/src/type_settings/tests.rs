@@ -1012,6 +1012,7 @@ mod colors;
 mod input;
 mod lists;
 mod moved;
+mod plugin_outline;
 mod screen_layout;
 mod transfer;
 
@@ -1083,8 +1084,8 @@ fn the_support_page_shows_sakuras_defaults_and_what_the_file_says(cx: &mut TestA
     assert_eq!(value(cx, HOKAN_LO_HI_CASE), Value::Bool(true));
     assert_eq!(value(cx, HOKAN_BY_FILE), Value::Bool(false));
     assert_eq!(value(cx, HOKAN_BY_KEYWORD), Value::Bool(false));
-    // A plugin the list does not have shows as なし (`SetData` selects the first).
-    assert_eq!(value(cx, HOKAN_TYPE), Value::Int(0));
+    // A plugin the list does not have is kept (Sakura shows なし and writes 0 on OK; see the page).
+    assert_eq!(value(cx, HOKAN_TYPE), Value::Int(5));
     assert_eq!(value(cx, EXT_HELP), Value::Text("ext.chm".to_owned()));
     assert_eq!(value(cx, HTML_HELP_SINGLE), Value::Bool(false));
     // What the file does not say is Sakura's default (`CType.cpp`).
@@ -1096,13 +1097,14 @@ fn the_support_page_shows_sakuras_defaults_and_what_the_file_says(cx: &mut TestA
 }
 
 #[gpui::test]
-fn the_support_page_is_live_except_the_completion_plugin(cx: &mut TestAppContext) {
+fn the_support_page_is_live(cx: &mut TestAppContext) {
     let (_ini, a) = setup(cx, "");
     run(cx, a, "F_OPTION_TYPE", &[]);
     with_dialog(cx, |d, _, dcx| d.select_index(3, dcx));
     for id in [
         HOKAN_FILE,
         HOKAN_FILE_BROWSE,
+        HOKAN_TYPE,
         HOKAN_LO_HI_CASE,
         HOKAN_BY_FILE,
         HOKAN_BY_KEYWORD,
@@ -1119,8 +1121,6 @@ fn the_support_page_is_live_except_the_completion_plugin(cx: &mut TestAppContext
     ] {
         assert!(usable(cx, id), "{id}");
     }
-    // The completion plugins need the completion jack of ADR-0026.
-    assert!(!usable(cx, HOKAN_TYPE));
     cancel(cx);
 }
 
@@ -1580,4 +1580,134 @@ fn the_cesu8_preference_a_type_takes_from_the_basic_type_is_shown_and_kept(
     type_in(cx, TAB_SPACE, "3");
     ok(cx);
     assert_eq!(ini.get("Types(2)", "bPriorCesu8"), None);
+}
+
+/// Puts the plugin `Comp` (a completion plug without a number, and it stays) in `plugins` next to the
+/// settings file of `ini`, and the agreement of the user to it. Returns the text of a settings file that
+/// has it in slot 0 with the switch on.
+fn complement_plugin_ini(dir: &std::path::Path, agree: bool) -> String {
+    use matsu_config::plugins::consent::{ConsentFile, fingerprint};
+    use matsu_config::plugins::{DEFAULT_LANGUAGE, PluginRec, PluginSettings, PluginState};
+    let settings = dir.join("matsu.ini");
+    let plugin = dir.join("plugins").join("Comp");
+    std::fs::create_dir_all(&plugin).unwrap();
+    std::fs::write(
+        plugin.join("plugin.def"),
+        "[Plugin]\nId=test.comp\nName=Comp\nType=wsh\n\n[Plug]\nComplement=typed.js\n\
+         Complement.Label=Typed words\n\n[Wsh]\nUseCache=1\n",
+    )
+    .unwrap();
+    std::fs::write(plugin.join("typed.js"), "").unwrap();
+    let dirs = matsu_config::plugins::SearchDirs::new(&settings, None);
+    if agree {
+        let def = dirs.load_def("Comp", DEFAULT_LANGUAGE).unwrap();
+        let files = fingerprint(&dirs.plugin_dir("Comp").unwrap()).unwrap();
+        let mut consent = ConsentFile::default();
+        consent
+            .enable(&def.id, "Comp", &files, "2026-11-02")
+            .unwrap();
+        consent.save(&dirs.consent_file()).unwrap();
+    }
+    let mut plugins = PluginSettings {
+        enabled: true,
+        ..PluginSettings::default()
+    };
+    plugins.table[0] = PluginRec {
+        id: "test.comp".into(),
+        name: "Comp".into(),
+        cmd_num: 0,
+        state: PluginState::Stopped,
+    };
+    let mut profile = Profile::new();
+    plugins.store(&mut profile).unwrap();
+    String::from_utf8_lossy(&profile.to_bytes())
+        .trim_start_matches('\u{feff}')
+        .to_owned()
+}
+
+/// A settings file with `extra` and the plugin `Comp`, and its window.
+fn setup_with_complement_plugin(
+    cx: &mut TestAppContext,
+    extra: &str,
+    agree: bool,
+) -> (Ini, AnyWindowHandle) {
+    // The folder is made here so that the plugin can be put in it before the settings are read.
+    let dir = TempDir::new();
+    let text = format!(
+        "{}\r\n{extra}",
+        complement_plugin_ini(&dir.0, agree).replace('\n', "\r\n")
+    );
+    cx.update(gpui_component::init);
+    let path = dir.0.join("matsu.ini");
+    std::fs::write(&path, with_bom(&text)).unwrap();
+    cx.update(|cx| {
+        let user = UserSettings::load_from(std::slice::from_ref(&path));
+        cx.set_global(HistoryState::on_disk(
+            HistoryStore::new(path.clone(), false),
+            HistoryOptions::default(),
+        ));
+        crate::tabs::settings::install(cx, &user);
+        cx.set_global(user);
+    });
+    let handle = open_window(cx);
+    (Ini { _dir: dir, path }, handle)
+}
+
+#[gpui::test]
+fn the_completion_choice_lists_the_enabled_plugins_and_keeps_the_value_nobody_has(
+    cx: &mut TestAppContext,
+) {
+    use super::pages::support::hokan_types;
+    let (_ini, _a) = setup_with_complement_plugin(cx, "[Types(0)]\r\nnHokanType=7\r\n", true);
+    // なし, the plugin by the label of its plug and Sakura's number, and the value that nothing has.
+    assert_eq!(
+        cx.update(|app| hokan_types(app, 7)),
+        [
+            ("なし".to_owned(), 0),
+            ("Typed words".to_owned(), 20_000),
+            ("（使えないプラグイン 7）".to_owned(), 7),
+        ]
+    );
+    assert_eq!(cx.update(|app| hokan_types(app, 20_000)).len(), 2);
+}
+
+#[gpui::test]
+fn a_plugin_the_user_has_not_agreed_to_is_not_offered_and_its_stored_choice_stays(
+    cx: &mut TestAppContext,
+) {
+    use super::pages::support::hokan_types;
+    let (ini, a) = setup_with_complement_plugin(cx, "[Types(0)]\r\nnHokanType=20000\r\n", false);
+    assert_eq!(
+        cx.update(|app| hokan_types(app, 20_000)),
+        [
+            ("なし".to_owned(), 0),
+            ("（使えないプラグイン 20000）".to_owned(), 20_000),
+        ]
+    );
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    with_dialog(cx, |d, _, dcx| d.select_index(3, dcx));
+    assert_eq!(value(cx, HOKAN_TYPE), Value::Int(20_000));
+    // OK with another change on the page keeps the number.
+    check(cx, HOKAN_LO_HI_CASE, true);
+    ok(cx);
+    assert_eq!(ini.get("Types(0)", "nHokanType").as_deref(), Some("20000"));
+    assert_eq!(ini.get("Types(0)", "bHokanLoHiCase").as_deref(), Some("1"));
+}
+
+#[gpui::test]
+fn ok_writes_the_plugin_that_completes_as_sakura_numbers_it(cx: &mut TestAppContext) {
+    let (ini, a) = setup_with_complement_plugin(cx, "", true);
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    with_dialog(cx, |d, _, dcx| d.select_index(3, dcx));
+    assert_eq!(value(cx, HOKAN_TYPE), Value::Int(0));
+    choose(cx, HOKAN_TYPE, 20_000);
+    ok(cx);
+    assert_eq!(ini.get("Types(0)", "nHokanType").as_deref(), Some("20000"));
+    // Back to なし.
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    with_dialog(cx, |d, _, dcx| d.select_index(3, dcx));
+    assert_eq!(value(cx, HOKAN_TYPE), Value::Int(20_000));
+    choose(cx, HOKAN_TYPE, 0);
+    ok(cx);
+    assert_eq!(ini.get("Types(0)", "nHokanType").as_deref(), Some("0"));
 }

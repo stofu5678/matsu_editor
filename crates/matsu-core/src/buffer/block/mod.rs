@@ -35,6 +35,9 @@ mod long;
 mod scan;
 #[cfg(test)]
 mod tests;
+mod window;
+#[cfg(test)]
+mod window_tests;
 
 use std::collections::HashMap;
 use std::fmt;
@@ -46,6 +49,7 @@ pub use scan::{
     BlockScanner, DEFAULT_LONG_LINE, ScanError, ScanFailure, ScanJob, ScanOptions, ScanProgress,
     ScanState, scan_blocks,
 };
+pub use window::{ScanWindow, WINDOW_BYTES};
 
 use super::codec::{self, Codec, Eol};
 use super::storage::{Entry, EolIndex, Source};

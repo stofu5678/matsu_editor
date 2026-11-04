@@ -65,6 +65,11 @@ impl EditorView {
         }
         let shared = self.document().read(cx);
         let path = path_text(shared.path()?);
+        // In a window on a huge file the lines are counted from the window, and the true numbers
+        // are not known before the scan has passed it: what the history has stays.
+        if shared.scan_window().is_some() {
+            return super::current(cx).and_then(|h| h.file(&path).cloned());
+        }
         let doc = shared.doc();
         let caret = self.cursor().caret();
         let x = doc.utf16_col(caret.line, caret.col);

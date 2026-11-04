@@ -32,6 +32,7 @@ pub(crate) mod paging;
 pub(crate) mod pane;
 mod ruler;
 mod scan;
+mod scan_window;
 mod settings;
 #[cfg(test)]
 mod settings_tests;
@@ -238,6 +239,19 @@ pub struct EditorView {
     /// The caret and the history of a file that was opened while it is scanned, to restore when
     /// the scan is done (`view/scan.rs`).
     pub(crate) pending_scan_restore: Option<scan::ScanRestore>,
+    /// The document the caret and the scroll are in, while a file is scanned: see
+    /// `SharedDocument::frame_seq` (`view/scan_window.rs`).
+    frame_seen: u64,
+    /// A move of the window on a huge file is asked for and has not run (`view/scan_window.rs`).
+    scan_shift_queued: bool,
+    /// The jump list of the file, put aside while a window is shown (`view/scan_window.rs`).
+    jumps_stash: Option<matsu_core::jump_history::JumpHistory>,
+    /// The top of the view in a new document whose layout is made (`view/scan_window.rs`).
+    frame_top: Option<scan_window::FrameTop>,
+    /// The thumb that is dragged is the bar of a scan (`view/scan_window.rs`).
+    scan_thumb_drag: bool,
+    /// The top of the view for which no window could be cut (a line too long).
+    scan_shift_gave_up: Option<u64>,
     /// The settings of the file and the temporary changes (`view/settings.rs`).
     pub(crate) prefs: ViewPrefs,
     /// The background image of the type, read when the type was chosen or its settings changed
@@ -290,6 +304,7 @@ impl EditorView {
             .unwrap_or_else(|_| empty_layout());
         let _ = layout.layout_for(document.read(cx).doc(), LAYOUT_BUDGET);
         let layout_version = document.read(cx).version();
+        let frame_seen = document.read(cx).frame_seq();
         let subscription = cx.subscribe(&document, |this, _, event, cx| match *event {
             DocumentEvent::Changed { version } => this.document_changed(version, cx),
             DocumentEvent::TypeChanged { index } => this.follow_document_type(index, cx),
@@ -335,6 +350,12 @@ impl EditorView {
             refused_edit: false,
             replaying_scan_jump: false,
             pending_scan_restore: None,
+            frame_seen,
+            scan_shift_queued: false,
+            jumps_stash: None,
+            frame_top: None,
+            scan_thumb_drag: false,
+            scan_shift_gave_up: None,
             prefs: ViewPrefs::new(Default::default()),
             back_bitmap: None,
             selection_count: Default::default(),
@@ -468,8 +489,9 @@ impl EditorView {
         if self.isearch_intercept(reg.sakura, args, cx) {
             return true;
         }
-        // While the file is scanned, a jump to a place it has not reached waits.
-        if self.defer_for_scan(reg, args, cx) {
+        // While the file is scanned, a jump to a place it has not reached shows a window on the
+        // file there, or waits for the scan.
+        if self.jump_in_scan(reg, args, cx) || self.defer_for_scan(reg, args, cx) {
             return true;
         }
         // A jump that waited for the scan was recorded when it was asked for.
@@ -649,6 +671,9 @@ impl EditorView {
         if version == self.layout_version {
             return; // our own change, already laid out
         }
+        // A window on a huge file, or the whole file after the scan: the caret and the top of the
+        // view move to the same place of the new document (`view/scan_window.rs`).
+        let moved = self.take_frame_move(cx);
         let doc = self.document.read(cx).doc();
         let _ = self.layout.resync(doc);
         let _ = self.layout.layout_for(doc, LAYOUT_BUDGET);
@@ -657,6 +682,10 @@ impl EditorView {
         if self.tsv_stops_changed(cx) {
             self.relayout_in(cx);
         }
+        if let Some(moved) = moved {
+            self.apply_frame_move(moved, cx);
+        }
+        let doc = self.document.read(cx).doc();
         let _ = self.cursor.clamp_if_outside(doc);
         // The text of the line may have grown under a caret that stood right of its end.
         self.cursor.set_free_col(None);
@@ -665,6 +694,7 @@ impl EditorView {
         // the candidates were made for the old text
         self.support.completion = None;
         self.clamp_scroll();
+        self.rebase_frame_top();
         cx.notify();
         self.run_pending_scan_jump(cx);
         self.apply_scan_restore(cx);
@@ -744,12 +774,16 @@ impl EditorView {
         let shared = self.document.read(cx);
         let options = crate::status_options::current(cx);
         let (line, column) = self.status_position(&options, cx);
+        // In a window on a huge file the lines are counted from the start of the file, "about"
+        // while the scan has not passed the window (`view/scan_window.rs`).
+        let base = shared.line_base();
         StatusInfo {
-            line,
+            line: line + usize::try_from(base.lines_before).unwrap_or(usize::MAX - line),
+            line_approx: base.approx,
             column,
             char_code: self.caret_char_code(&options, cx),
             selection: self.selection_message(&options, cx),
-            lines: shared.doc().line_count().max(1),
+            lines: self.status_line_count(cx),
             modified: shared.model().is_modified(),
             overwrite: shared.overwrite(),
             charset: crate::status::charset_label(shared.file().encoding, shared.file().bom),
@@ -781,7 +815,23 @@ impl EditorView {
     /// `ExpandParameter` of a title or caption `format` for this document: the title of the
     /// window and the caption of the tab (`file_names::title`).
     pub(crate) fn expand_format(&self, format: &str, cx: &App) -> String {
-        matsu_print::expand_parameter(format, &self.header_context_for(Some(format), cx), None)
+        let context = self.header_context_for(Some(format), cx);
+        // `$p` and `$P` are the page and the number of pages while the print preview is open
+        // (`m_pPrintPreview->GetCurPageNum() + 1`, `GetAllPageNum()`); otherwise they are the
+        // notice that they are for the preview only.
+        match self.print_preview().map(|preview| preview.read(cx)) {
+            Some(preview) => {
+                let (page, _) = preview.state();
+                let setting = preview.job().setting.name.as_str();
+                let info = matsu_print::PageInfo {
+                    number: page + 1,
+                    total: preview.page_count(),
+                    setting_name: setting,
+                };
+                matsu_print::expand_parameter(format, &context, Some(&info))
+            }
+            None => matsu_print::expand_parameter(format, &context, None),
+        }
     }
 
     /// What `ExpandParameter` reads from this window: the file, the marks, the caret and the
@@ -1006,9 +1056,12 @@ impl Render for EditorView {
             window.request_animation_frame();
         }
         self.advance_layout(window, cx);
+        self.hold_frame_top(cx);
         self.advance_text_width(window, cx);
         self.advance_colors(window, cx);
         self.settle_caret(cx);
+        let focused = self.focus_handle.is_focused(window);
+        self.queue_scan_window_shift(focused, cx);
         // macOS: whatever changed the view (a key, the mouse, a function) repaints it; the marks of
         // the native menu follow, if they differ from what it shows.
         crate::app::defer_refresh_menu_states(cx, false);

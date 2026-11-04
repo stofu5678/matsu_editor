@@ -277,6 +277,71 @@ mod tests {
         assert!((points(2100) - 595.28).abs() < 0.01); // A4 is 595.28 pt wide
     }
 
+    /// Underlines the tabs in blue.
+    struct BlueTabs;
+
+    impl matsu_print::LineStyler for BlueTabs {
+        fn plain(&self) -> TextStyle {
+            TextStyle {
+                color: 0,
+                bold: false,
+                underline: false,
+            }
+        }
+
+        fn style_line(&self, _: usize, text: &str, _: bool, out: &mut Vec<matsu_print::StyleRun>) {
+            out.clear();
+            for (i, ch) in text.char_indices() {
+                if ch == '\t' {
+                    out.push(matsu_print::StyleRun {
+                        range: i..i + 1,
+                        style: TextStyle {
+                            color: 0x0000ff,
+                            bold: false,
+                            underline: true,
+                        },
+                    });
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn an_underlined_tab_is_an_underline_under_its_cells() {
+        let setting = PrintSetting {
+            color_print: true,
+            ..PrintSetting::default()
+        };
+        let lines = ["a\tb", ""];
+        let layout = layout_of(&lines, &setting);
+        let page = layout
+            .page_styled(0, &lines, &HeaderContext::default(), &BlueTabs)
+            .unwrap();
+        let ops = page_ops(&layout, &page);
+        let cell = setting.print_font_width;
+        let underlines: Vec<_> = ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::Underline { from, to, color } => Some((from.0, to.0, *color)),
+                _ => None,
+            })
+            .collect();
+        // From the right edge of "a" to the next tab stop (4 cells), and nothing else: "a" and
+        // "b" have no underline.
+        let left = setting.print_margin_lx;
+        assert_eq!(
+            underlines,
+            [(left + cell, left + 4 * cell, 0x0000ff)],
+            "the tab of 3 cells"
+        );
+        // The blanks of the tab are drawn in blue too.
+        let blue = ops
+            .iter()
+            .filter(|op| matches!(op, DrawOp::Char { ch: ' ', style: Some(s), .. } if s.color == 0x0000ff))
+            .count();
+        assert_eq!(blue, 3);
+    }
+
     struct Red;
 
     impl matsu_print::LineStyler for Red {

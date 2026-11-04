@@ -22,7 +22,6 @@ use super::pages::color::STRING_TYPES;
 use super::pages::keyhelp::{RMENU_TYPES, dict_of, row_of};
 use super::pages::regex::{color_label, color_name};
 use super::pages::screen::{OUTLINE_FILE, OUTLINE_STANDARD, OUTLINES, WRAP_METHODS};
-use super::pages::support::HOKAN_TYPES;
 use super::pages::window::{
     CODES, EOLS, IMAGE_POSITIONS, IME_STATES, IME_SWITCHES, LINE_NUM_WIDTH_RANGE, NUMBER_LINES,
     NUMBER_ROWS,
@@ -274,7 +273,17 @@ pub(super) fn load(
             OUTLINE_STANDARD
         },
     );
-    n(&mut v, OUTLINE, in_list(t.default_outline, OUTLINES));
+    // (a rule file is the other radio button: the list shows its first choice then; any other number is
+    // a choice of the list, an unusable plugin's as 「（使えないプラグイン N）」)
+    n(
+        &mut v,
+        OUTLINE,
+        if file_rule {
+            OUTLINES[0].1
+        } else {
+            t.default_outline
+        },
+    );
     s(&mut v, OUTLINE_RULE_FILE, &t.outline_rule_filename);
     b(&mut v, USE_TYPE_FONT, t.use_type_font);
     v.set(TYPE_FONT, Value::Font(t.font.clone()));
@@ -380,7 +389,8 @@ pub(super) fn load(
     // 支援
     s(&mut v, HOKAN_FILE, &t.hokan_file);
     // A plugin the list does not have shows as なし, as `SetData` does (nothing is written back).
-    n(&mut v, HOKAN_TYPE, in_list(t.hokan_type, HOKAN_TYPES));
+    // Kept as it is even when no plugin has it (the choice lists it).
+    n(&mut v, HOKAN_TYPE, t.hokan_type);
     b(&mut v, HOKAN_LO_HI_CASE, t.hokan_lo_hi_case);
     b(&mut v, HOKAN_BY_FILE, t.use_hokan_by_file);
     b(&mut v, HOKAN_BY_KEYWORD, t.use_hokan_by_keyword);
@@ -565,6 +575,7 @@ pub(super) fn store(v: &Values, original: &TypeSettings) -> TypeSettings {
 
     // 支援 (`CPropTypesSupport::GetData`)
     t.hokan_file = fit(v.text(HOKAN_FILE), PATH_BUFFER);
+    t.hokan_type = v.int(HOKAN_TYPE);
     t.hokan_lo_hi_case = v.bool(HOKAN_LO_HI_CASE);
     t.use_hokan_by_file = v.bool(HOKAN_BY_FILE);
     t.use_hokan_by_keyword = v.bool(HOKAN_BY_KEYWORD);
@@ -678,6 +689,7 @@ pub(super) fn merge(base: &TypeSettings, old: &TypeSettings, new: &TypeSettings)
         back_img_offset_y,
         back_img_opacity,
         hokan_file,
+        hokan_type,
         ext_help,
         ext_html_help,
         html_help_is_single,

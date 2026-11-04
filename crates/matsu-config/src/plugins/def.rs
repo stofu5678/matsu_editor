@@ -71,6 +71,16 @@ impl Jack {
             Jack::ComplementGlobal => "ComplementGlobal",
         }
     }
+
+    /// Whether a key press calls the jack (ADR-0026, chapter 2). The start of a process takes
+    /// 20 to 700 ms, too long for a key, so only a plugin that stays (`UseCache=1`) can have
+    /// such a jack.
+    pub fn needs_resident(self) -> bool {
+        matches!(
+            self,
+            Jack::SmartIndent | Jack::Complement | Jack::ComplementGlobal
+        )
+    }
 }
 
 /// The `Type` of `[Plugin]` (`CPluginManager::LoadPlugin`, compared without regard to case).

@@ -6,7 +6,7 @@
 //! rows, 12,196 pages for a million lines). Sakura has no unit tests for printing.
 
 use super::*;
-use matsu_layout::{CharSet, WidthRule, WrapIndent};
+use matsu_layout::{CharSet, TsvMode, WidthRule, WrapIndent};
 
 fn no_header_footer() -> PrintSetting {
     PrintSetting {
@@ -940,4 +940,245 @@ fn a_wrapped_line_is_colored_across_its_rows() {
         styled_pieces(&p),
         [("aabb", Some(0x111111)), ("rr", Some(0xff0000))]
     );
+}
+
+/// Underlines the tabs, the way a color entry with an underline does; the rest is plain.
+struct UnderlineTabs;
+
+const UNDERLINE: TextStyle = TextStyle {
+    color: 0x00aa00,
+    bold: false,
+    underline: true,
+};
+
+impl LineStyler for UnderlineTabs {
+    fn plain(&self) -> TextStyle {
+        PLAIN
+    }
+
+    fn style_line(&self, _line: usize, text: &str, _has_eol: bool, out: &mut Vec<StyleRun>) {
+        out.clear();
+        for (i, ch) in text.char_indices() {
+            if ch == '\t' {
+                out.push(StyleRun {
+                    range: i..i + 1,
+                    style: UNDERLINE,
+                });
+            }
+        }
+    }
+}
+
+fn color_setting() -> PrintSetting {
+    PrintSetting {
+        color_print: true,
+        ..no_header_footer()
+    }
+}
+
+#[test]
+fn an_underlined_tab_prints_as_underlined_blanks_in_color() {
+    let s = color_setting();
+    let lines = ["a\tb", "abc\td", "abcd\te"];
+    let l = layout(&lines, &s, Paper::A4);
+    let p = l
+        .page_styled(0, &lines, &HeaderContext::default(), &UnderlineTabs)
+        .unwrap();
+    let pieces: Vec<_> = p
+        .texts
+        .iter()
+        .map(|t| {
+            (
+                t.text.as_str(),
+                t.x,
+                t.style.map(|s| (s.color, s.underline)),
+            )
+        })
+        .collect();
+    let plain = Some((0x111111, false));
+    let under = Some((0x00aa00, true));
+    assert_eq!(
+        pieces,
+        [
+            // The tab goes to the next stop of 4 cells: 3 cells, then 1, then the whole 4.
+            ("a", 200, plain),
+            ("   ", 212, under),
+            ("b", 248, plain),
+            ("abc", 200, plain),
+            (" ", 236, under),
+            ("d", 248, plain),
+            ("abcd", 200, plain),
+            ("    ", 248, under),
+            ("e", 296, plain),
+        ]
+    );
+    // No piece holds a tab: the drawers get the blanks and underline their cells.
+    assert!(p.texts.iter().all(|t| !t.text.contains('\t')));
+}
+
+#[test]
+fn a_tab_without_an_underline_and_a_print_without_color_print_nothing() {
+    let s = color_setting();
+    let lines = ["a\tb"];
+    let l = layout(&lines, &s, Paper::A4);
+    // `Fake` has no underline at a tab.
+    let p = l
+        .page_styled(0, &lines, &HeaderContext::default(), &Fake)
+        .unwrap();
+    assert_eq!(texts(&p), ["ab"]);
+    // Not in color: the styler is not asked and a tab is not printed.
+    let s = no_header_footer();
+    let l = layout(&lines, &s, Paper::A4);
+    let p = page(&l, 0, &lines);
+    assert_eq!(texts(&p), ["ab"]);
+}
+
+#[test]
+fn a_tab_takes_the_underline_of_the_body_style_when_no_run_covers_it() {
+    struct Underlined;
+    impl LineStyler for Underlined {
+        fn plain(&self) -> TextStyle {
+            PLAIN
+        }
+        fn body(&self) -> TextStyle {
+            UNDERLINE
+        }
+        fn style_line(&self, _: usize, _: &str, _: bool, out: &mut Vec<StyleRun>) {
+            out.clear();
+        }
+    }
+    let s = color_setting();
+    let lines = ["a\tb"];
+    let l = layout(&lines, &s, Paper::A4);
+    let p = l
+        .page_styled(0, &lines, &HeaderContext::default(), &Underlined)
+        .unwrap();
+    assert_eq!(texts(&p).concat(), "a   b");
+    assert!(p.texts.iter().all(|t| t.style.unwrap().underline));
+    assert_eq!(p.texts[1].text, "   ");
+}
+
+#[test]
+fn a_tab_in_a_header_is_not_underlined() {
+    let s = PrintSetting {
+        header_form: ["a\tb".into(), String::new(), String::new()],
+        ..color_setting()
+    };
+    let lines = ["x"];
+    let l = layout(&lines, &s, Paper::A4);
+    let p = l
+        .page_styled(0, &lines, &HeaderContext::default(), &UnderlineTabs)
+        .unwrap();
+    assert!(p.texts.iter().all(|t| !t.style.unwrap().underline));
+}
+
+fn tsv_options(mode: TsvMode) -> TypeOptions {
+    TypeOptions {
+        tsv_mode: mode,
+        ..TypeOptions::default()
+    }
+}
+
+#[test]
+fn the_tsv_mode_lines_up_the_fields_as_on_the_screen() {
+    let (s, paper) = narrow(40);
+    let lines = ["a\tbbb\tc", "aaaa\tb\tc"];
+    let l = Layout::new(&lines, &s, paper, &tsv_options(TsvMode::Tsv)).unwrap();
+    let p = page(&l, 0, &lines);
+    let placed: Vec<_> = p.texts.iter().map(|t| (t.x, t.text.as_str())).collect();
+    // The fields end at 4 + 2 = 6 and 6 + 3 + 2 = 11 columns of 12 (0.1 mm), from x = 200.
+    assert_eq!(
+        placed,
+        [
+            (200, "a"),
+            (200 + 6 * 12, "bbb"),
+            (200 + 11 * 12, "c"),
+            (200, "aaaa"),
+            (200 + 6 * 12, "b"),
+            (200 + 11 * 12, "c"),
+        ]
+    );
+    // Without the mode a tab goes to the stops of the tab width.
+    let l = layout(&lines, &s, paper);
+    assert_eq!(page(&l, 0, &lines).texts[1].x, 200 + 4 * 12);
+}
+
+#[test]
+fn the_csv_mode_moves_the_text_after_a_comma_to_the_end_of_the_field() {
+    let (s, paper) = narrow(40);
+    let lines = ["ab,c", "abcd,e"];
+    let l = Layout::new(&lines, &s, paper, &tsv_options(TsvMode::Csv)).unwrap();
+    let p = page(&l, 0, &lines);
+    let placed: Vec<_> = p.texts.iter().map(|t| (t.x, t.text.as_str())).collect();
+    // The first field ends at 4 + 2 = 6 columns; the comma is printed at its own column.
+    assert_eq!(
+        placed,
+        [
+            (200, "ab,"),
+            (200 + 6 * 12, "c"),
+            (200, "abcd,"),
+            (200 + 6 * 12, "e"),
+        ]
+    );
+}
+
+#[test]
+fn an_underlined_tab_in_the_tsv_mode_covers_the_field_gap() {
+    let (mut s, paper) = narrow(40);
+    s.color_print = true;
+    let lines = ["a\tb", "aaaa\tb"];
+    let options = tsv_options(TsvMode::Tsv);
+    let l = Layout::new(&lines, &s, paper, &options).unwrap();
+    let p = l
+        .page_styled(0, &lines, &HeaderContext::default(), &UnderlineTabs)
+        .unwrap();
+    // The gap of the first line is from column 1 to 6.
+    assert_eq!((p.texts[1].x, p.texts[1].text.as_str()), (212, "     "));
+}
+
+#[test]
+fn the_tsv_mode_changes_where_the_rows_wrap() {
+    let (s, paper) = narrow(8);
+    // A tab on a stop of 4 cells takes 4 cells, so "b" does not fit in 8; in the TSV mode the
+    // delimiter after "aaaa" ends at 4 + 2 = 6, and "b" does.
+    let lines = ["aaaa\tb"];
+    assert_eq!(layout(&lines, &s, paper).row_count(), 2);
+    let tsv = Layout::new(&lines, &s, paper, &tsv_options(TsvMode::Tsv)).unwrap();
+    assert_eq!(tsv.row_count(), 1);
+}
+
+#[test]
+fn the_header_and_the_footer_do_not_use_the_stops_of_the_tsv_modes() {
+    let s = PrintSetting {
+        header_form: ["a,b\tc".into(), "a,b\tc".into(), "a,b\tc".into()],
+        footer_form: ["x,y".into(), "x,y".into(), "x,y".into()],
+        print_line_number: true,
+        ..PrintSetting::default()
+    };
+    let lines = ["abcd,e\tf", "abcdefgh\tx"];
+    let plain = layout(&lines, &s, Paper::A4);
+    let want = page(&plain, 0, &lines);
+    // Everything that is not the document's text: the header and the footer (the left, the
+    // middle and the right) and the line numbers.
+    let outside = |p: &Page| -> Vec<_> {
+        p.texts
+            .iter()
+            .filter(|t| {
+                t.baseline < 150 || t.baseline > 2700 || t.text.chars().all(|c| c.is_ascii_digit())
+            })
+            .map(|t| (t.x, t.baseline, t.text.clone()))
+            .collect()
+    };
+    for mode in [TsvMode::Csv, TsvMode::Tsv] {
+        let l = Layout::new(&lines, &s, Paper::A4, &tsv_options(mode)).unwrap();
+        let got = page(&l, 0, &lines);
+        assert_eq!(outside(&got), outside(&want), "{mode:?}");
+    }
+    // "a,b" in the left part: one piece, "b" in the third cell and not at the end of a field.
+    let (mut s, paper) = narrow(40);
+    s.header_form = ["a,b".into(), String::new(), String::new()];
+    let lines = ["abcd,e"];
+    let l = Layout::new(&lines, &s, paper, &tsv_options(TsvMode::Csv)).unwrap();
+    let p = page(&l, 0, &lines);
+    assert_eq!((p.texts[0].x, p.texts[0].text.as_str()), (205, "a,b"));
 }

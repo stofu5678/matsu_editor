@@ -30,6 +30,8 @@ mod scan;
 
 pub(crate) use scan::ScanTick;
 use scan::ScanWatch;
+#[cfg(test)]
+pub(crate) use scan::ScanWindowInfo;
 
 /// `m_nNonameSequences`: how many numbers were given to untitled windows.
 #[cfg(not(test))]
@@ -129,11 +131,19 @@ pub struct SharedDocument {
     scan: Option<ScanWatch>,
     /// The number of the scan that ended with the complete document (`document/scan.rs`).
     scan_done: Option<u64>,
+    /// The document the positions of the views are in, while a file is scanned
+    /// (`document/scan.rs`).
+    frame: scan::ScanFrame,
     /// The file is read by ranges (ADR-0020): it stays open behind the document.
     ranged: bool,
     /// The stops of the TSV or CSV mode, counted once for all the panes of the document (see
     /// [`tsv_stops`](Self::tsv_stops)).
     tsv: std::cell::RefCell<TsvState>,
+    /// The tab width and the use of spaces the views of this document have now: the type's, or what
+    /// the detection on load and `F_CHGTABWIDTH` / `F_CHGINSSPACE` made of them. Sakura keeps them
+    /// in the document and the layout, so a view made later (the source tab that comes back from
+    /// the preview) takes them from here. `None` until a view says.
+    indent: Option<(u32, bool)>,
 }
 
 /// The count of the stops of the TSV or CSV mode and its last result.
@@ -189,9 +199,21 @@ impl SharedDocument {
             restored_check: None,
             scan: None,
             scan_done: None,
+            frame: Default::default(),
             ranged: false,
             tsv: Default::default(),
+            indent: None,
         }
+    }
+
+    /// The tab width and the use of spaces of the document (see the field `indent`).
+    pub(crate) fn indent(&self) -> Option<(u32, bool)> {
+        self.indent
+    }
+
+    /// Records the tab width and the use of spaces the views have now.
+    pub(crate) fn set_indent(&mut self, tab_width: u32, ins_space: bool) {
+        self.indent = Some((tab_width, ins_space));
     }
 
     /// The stops of `mode` for the text of this document, for the layout of every pane: the last
@@ -286,8 +308,10 @@ impl SharedDocument {
             restored_check: None,
             scan: None,
             scan_done: None,
+            frame: Default::default(),
             ranged,
             tsv: Default::default(),
+            indent: None,
         };
         if let Some(job) = scan {
             shared.attach_scan(job);

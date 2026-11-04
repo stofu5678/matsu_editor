@@ -67,6 +67,8 @@ pub(crate) mod menu;
 mod menu_tests;
 pub(crate) mod pane;
 #[cfg(test)]
+mod plugin_tests;
+#[cfg(test)]
 mod tests;
 
 use gpui::{AppContext as _, Context, Entity, Global, Window};
@@ -141,7 +143,16 @@ pub(crate) fn resolve_kind<T: 'static>(
         Requested::Default => {}
     }
     let view = view.read(cx);
-    let kind = OutlineKind::from_setting(view.view_settings().outline.kind);
+    let setting = view.view_settings().outline.kind;
+    // A number Sakura's analyzers do not serve is asked of the plugins, and without one it is the text
+    // topics (`Command_FUNCLIST`, the `default:` branch).
+    let kind = match OutlineKind::known_setting(setting) {
+        Some(kind) => kind,
+        None if crate::plugin_outline::find(cx, setting).is_some() => {
+            return OutlineKind::Plugin(setting);
+        }
+        None => OutlineKind::Text,
+    };
     if kind == OutlineKind::CCpp {
         let path = view
             .document()
@@ -167,6 +178,12 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let view = self.panes().active().clone();
+        // No analysis begins in this window while a plug of a plugin makes one (a plug that asks for
+        // the outline would start itself again: `bIsProcessing` of `Command_FUNCLIST`). Another window
+        // is not held back.
+        if crate::plugin_outline::is_running_in(view.entity_id()) {
+            return;
+        }
         let kind = resolve_kind(requested, &view, cx);
         if let Some(pane) = self.outline.clone()
             && show != Show::Reload

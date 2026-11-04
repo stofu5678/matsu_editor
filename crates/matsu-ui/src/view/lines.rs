@@ -199,6 +199,17 @@ pub fn line_number(by_line: bool, row: usize, line: usize, row_in_line: usize) -
     }
 }
 
+/// The text of a number in the line number area, right aligned in `digits` columns. In a window on
+/// a huge file whose lines are not counted yet, the number is "about" and has a `~` before it
+/// (ADR-0020, chapter 2).
+pub fn line_number_text(number: usize, digits: usize, approx: bool) -> String {
+    if approx {
+        format!("{:>digits$}", format!("~{number}"))
+    } else {
+        format!("{number:>digits$}")
+    }
+}
+
 /// The x of the vertical line that follows the line numbers (行番号区切り 縦線,
 /// `DispLineNumber`: `rc.left = nLineNumAreaWidth - 2`, one pixel wide), from the left of the
 /// window; `number_area_width` is the width of the line number area without the space before the
@@ -225,6 +236,42 @@ pub fn gutter_note_from(opaque_numbers: bool, number_area_width: f32) -> f32 {
     }
 }
 
+/// How many rows below the last row of the document the body shows: the rows that Sakura draws
+/// with no layout (`DrawLayoutLine` with `pcLayout == nullptr`, one after the other up to the
+/// bottom of the view). They have the note lines (the line number area too, from its left edge:
+/// `bDispLineNumTrans`), the vertical lines and the wrap line, like the rows of text.
+/// `y_offset` is where the first row starts (0 or less, the scroll inside a row); `shown` is how
+/// many rows of the document and its end mark are drawn.
+pub fn rows_below_the_end(
+    body_height: f32,
+    y_offset: f32,
+    line_height: f32,
+    shown: usize,
+) -> usize {
+    if line_height <= 0.0 || body_height <= y_offset {
+        return 0;
+    }
+    let all = ((body_height - y_offset) / line_height).ceil() as usize;
+    all.saturating_sub(shown)
+}
+
+/// The y of the dots of a dotted vertical line inside the row that starts at `row_top` (from the
+/// top of the element): one pixel in two, on the same pixel rows in every row
+/// (`DispVerticalLines`: `bDot`).
+pub fn dotted_ys(row_top: f32, line_height: f32) -> Vec<f32> {
+    let row_bottom = row_top + line_height;
+    let mut out = Vec::new();
+    let mut dot = row_top.ceil();
+    if dot % 2.0 != 0.0 {
+        dot += 1.0;
+    }
+    while dot < row_bottom {
+        out.push(dot);
+        dot += 2.0;
+    }
+    out
+}
+
 /// `R2_NOTXORPEN` with `pen` over `dest`: the color of a line drawn with a color equal to the
 /// background of the text, so that it shows (`bExorPen` in `DispVerticalLines`). Colors are
 /// `0xRRGGBB`.
@@ -235,6 +282,20 @@ pub fn exor_color(dest: u32, pen: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_about_number_of_a_window_has_a_tilde_and_one_more_column_than_the_least_width() {
+        // The width rule of the type settings (`nLineNumWidth`) and the `~` of a window together:
+        // the area is one column wider, and the number is right aligned after the tilde.
+        let digits = line_number_columns(70_000, 7) + 1;
+        assert_eq!(digits, 9);
+        assert_eq!(line_number_text(70_000, digits, true), "   ~70000");
+        assert_eq!(line_number_text(70_000, digits - 1, false), "   70000");
+        // By rows or by lines, the number is the one given, counted from the window's start.
+        assert_eq!(line_number(true, 5, 2, 0).map(|n| n + 10), Some(13));
+        assert_eq!(line_number(false, 5, 2, 1).map(|n| n + 10), Some(16));
+        assert_eq!(line_number(true, 5, 2, 1), None);
+    }
 
     #[test]
     fn the_line_number_area_has_the_last_numbers_width_and_at_least_the_least_width() {
@@ -420,6 +481,27 @@ mod tests {
         assert_eq!(term_line_x(width), 34.0);
         // the character is in the column right of the 3 digits, which start at 2
         assert_eq!(term_char_x(3, 8.0), 26.0);
+    }
+
+    #[test]
+    fn the_rows_below_the_end_fill_the_body_to_its_bottom() {
+        // 100 px of body, rows of 20 px: 5 rows, 2 of them have text
+        assert_eq!(rows_below_the_end(100.0, 0.0, 20.0, 2), 3);
+        // a row that is only partly in the view counts
+        assert_eq!(rows_below_the_end(110.0, 0.0, 20.0, 2), 4);
+        // scrolled up inside the first row by 5 px
+        assert_eq!(rows_below_the_end(100.0, -5.0, 20.0, 2), 4);
+        // the text goes to the bottom already
+        assert_eq!(rows_below_the_end(100.0, 0.0, 20.0, 6), 0);
+        assert_eq!(rows_below_the_end(0.0, 0.0, 20.0, 0), 0);
+    }
+
+    #[test]
+    fn dots_are_on_even_pixel_rows_in_every_row() {
+        assert_eq!(dotted_ys(0.0, 6.0), vec![0.0, 2.0, 4.0]);
+        // a row that starts on an odd pixel row starts its dots one below
+        assert_eq!(dotted_ys(7.0, 6.0), vec![8.0, 10.0, 12.0]);
+        assert_eq!(dotted_ys(6.5, 6.0), vec![8.0, 10.0, 12.0]);
     }
 
     #[test]

@@ -555,14 +555,20 @@ impl Element for EditorElement {
         // `DetectWidthOfLineNumberArea_calculate`: the digits of the last number, at least
         // `nLineNumWidth`, and a blank before them. The last number counts the lines of the text,
         // or the rows of the wrapped view (the empty row after the last line ending is no line).
-        let numbers_by_line = settings.outline.line_num_is_crlf;
+        // In a window on a huge file the numbers count from the start of the file, "about"
+        // (`~`, one column more) while the scan has not passed the window (ADR-0020, chapter 2).
+        let line_base = editor.document.read(cx).line_base();
+        let before = usize::try_from(line_base.lines_before).unwrap_or(usize::MAX / 2);
+        let numbers_by_line = settings.outline.line_num_is_crlf || line_base.windowed;
         let eof_row = usize::from(layout.has_eof_row());
         let last_number = if numbers_by_line {
             doc.line_count().saturating_sub(eof_row)
         } else {
             layout.row_count().saturating_sub(eof_row)
-        };
-        let digits = lines::line_number_columns(last_number, settings.line_num_width);
+        }
+        .saturating_add(before);
+        let digits = lines::line_number_columns(last_number, settings.line_num_width)
+            + usize::from(line_base.approx);
         // The text starts `nLineNumberRightSpace` pixels after the line numbers
         // (`CTextArea::DetectWidthOfLineNumberArea`: `nViewAlignLeftNew += GetLeftYohaku()`).
         let gutter_width = settings.line_number_right_space as f32
@@ -632,7 +638,11 @@ impl Element for EditorElement {
                 .then(|| lines::line_number(numbers_by_line, row.row, row.line, row.row_in_line))
                 .flatten();
             let numbers = if let Some(number) = number {
-                let text = format!("{number:>digits$}");
+                let text = lines::line_number_text(
+                    number.saturating_add(before),
+                    digits,
+                    line_base.approx,
+                );
                 if spaced {
                     text.chars()
                         .enumerate()
@@ -1168,7 +1178,10 @@ impl Element for EditorElement {
             view_width: (f32::from(bounds.size.width) - p.gutter_width - SCROLLBAR_WIDTH).max(1.0),
             view_height: (f32::from(bounds.size.height) - p.top_margin - p.hbar_height).max(1.0),
         };
-        let bar = Scrollbar::new(&metrics, p.total_rows, scroll_y);
+        // While a huge file is scanned the bar covers the whole file, by bytes.
+        let bar = editor
+            .scan_scrollbar(&metrics, cx)
+            .unwrap_or_else(|| Scrollbar::new(&metrics, p.total_rows, scroll_y));
 
         let lh = px(p.line_height);
         let body_top = bounds.top() + px(p.top_margin);
@@ -1311,10 +1324,9 @@ impl Element for EditorElement {
             }
         }
 
-        // The dotted vertical lines of one row: one pixel in two, on the same pixel rows in every
-        // row of text. `within` keeps the lines inside the columns of a cell (`DispVerticalLines`
-        // with a range, as `DrawBracketPair` calls it).
-        let paint_dots = |window: &mut Window, y: Pixels, within: Option<(Pixels, Pixels)>| {
+        // The dotted vertical lines of one row. `within` keeps the lines inside the columns of a
+        // cell (`DispVerticalLines` with a range, as `DrawBracketPair` calls it).
+        let paint_row_dots = |window: &mut Window, y: Pixels, within: Option<(Pixels, Pixels)>| {
             if !p.lines.vertical_dotted {
                 return;
             }
@@ -1323,21 +1335,31 @@ impl Element for EditorElement {
                 if within.is_some_and(|(left, right)| x < left || x >= right) {
                     continue;
                 }
-                let row_top = f32::from(y - bounds.top());
-                let row_bottom = row_top + p.line_height;
-                let mut dot = row_top.ceil();
-                if dot % 2.0 != 0.0 {
-                    dot += 1.0;
-                }
-                while dot < row_bottom {
-                    window.paint_quad(fill(
-                        Bounds::new(point(x, bounds.top() + px(dot)), size(px(1.), px(1.))),
-                        rgb(p.lines.vertical_color),
-                    ));
-                    dot += 2.0;
-                }
+                paint_dots(window, x, y, bounds.top(), p);
             }
         };
+        // The rows below the end of the document have no layout in Sakura, and are drawn like the
+        // rows of text: the note line from the left edge, through the line number area, and the
+        // vertical lines.
+        let below = lines::rows_below_the_end(
+            f32::from(text_bounds.size.height),
+            p.y_offset,
+            p.line_height,
+            p.rows.len(),
+        );
+        if let Some((offset, color)) = p.lines.note {
+            for i in p.rows.len()..p.rows.len() + below {
+                let y = body_top + px(p.y_offset) + lh * i as f32;
+                window.paint_quad(fill(
+                    Bounds::from_corners(
+                        point(bounds.left(), y + px(offset)),
+                        point(bounds.left() + px(p.gutter_width), y + px(offset + 1.)),
+                    ),
+                    rgb(color),
+                ));
+            }
+        }
+
         window.with_content_mask(
             Some(ContentMask {
                 bounds: text_bounds,
@@ -1384,7 +1406,7 @@ impl Element for EditorElement {
                             rgb(color),
                         ));
                     }
-                    paint_dots(window, y, None);
+                    paint_row_dots(window, y, None);
                     for &(from, to, color) in &row.underlines {
                         window.paint_quad(fill(
                             Bounds::from_corners(
@@ -1478,7 +1500,7 @@ impl Element for EditorElement {
                                 rgb(color),
                             ));
                         }
-                        paint_dots(window, y, Some((cell.left(), cell.right())));
+                        paint_row_dots(window, y, Some((cell.left(), cell.right())));
                         bracket
                             .text
                             .paint(
@@ -1490,6 +1512,24 @@ impl Element for EditorElement {
                                 cx,
                             )
                             .ok();
+                    }
+                }
+                for i in p.rows.len()..p.rows.len() + below {
+                    let y = body_top + px(p.y_offset) + lh * i as f32;
+                    if let Some((offset, color)) = p.lines.note {
+                        let line_y = y + px(offset);
+                        window.paint_quad(fill(
+                            Bounds::from_corners(
+                                point(text_bounds.left(), line_y),
+                                point(text_bounds.right(), line_y + px(1.)),
+                            ),
+                            rgb(color),
+                        ));
+                    }
+                    if p.lines.vertical_dotted {
+                        for &x in &p.lines.vertical {
+                            paint_dots(window, origin_x + px(x), y, bounds.top(), p);
+                        }
                     }
                 }
                 // The vertical lines at given columns, whole (not row by row), over the text as
@@ -1726,6 +1766,17 @@ impl Element for EditorElement {
             let dragging = matches!(editor.drag, super::Drag::HThumb { .. });
             paint_hscrollbar(window, &bar, at, dragging);
         }
+    }
+}
+
+/// The dots of a dotted vertical line at `x` in the row that starts at `y`: one pixel in two, on the
+/// same pixel rows in every row of text (`DispVerticalLines`).
+fn paint_dots(window: &mut Window, x: Pixels, y: Pixels, top: Pixels, p: &Prepaint) {
+    for dot in lines::dotted_ys(f32::from(y - top), p.line_height) {
+        window.paint_quad(fill(
+            Bounds::new(point(x, top + px(dot)), size(px(1.), px(1.))),
+            rgb(p.lines.vertical_color),
+        ));
     }
 }
 

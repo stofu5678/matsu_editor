@@ -273,9 +273,14 @@ impl OutlinePane {
             build(popup, window, cx)
         });
         popup_keys::register(&popup, keys, fill_again, cx);
-        let dismiss = cx.subscribe_in(&popup, window, |this, _, _: &DismissEvent, window, cx| {
-            this.close_menu(window, cx)
-        });
+        let dismiss = cx.subscribe_in(
+            &popup,
+            window,
+            |this, popup, _: &DismissEvent, window, cx| {
+                let moved = crate::menu_bar::focus_left_popup(popup, window, cx);
+                this.close_menu_keeping_focus(moved, window, cx)
+            },
+        );
         popup.read(cx).focus_handle(cx).focus(window, cx);
         self.menu = Some(OpenMenu {
             popup,
@@ -291,9 +296,18 @@ impl OutlinePane {
         self.menu.is_some()
     }
 
-    fn close_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Closes the menu and gives the focus back to the pane, unless `keep_focus`: an item has
+    /// moved it into a dialog it opened.
+    fn close_menu_keeping_focus(
+        &mut self,
+        keep_focus: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.menu.take().is_some() {
-            window.focus(&self.focus, cx);
+            if !keep_focus {
+                window.focus(&self.focus, cx);
+            }
             cx.notify();
         }
     }

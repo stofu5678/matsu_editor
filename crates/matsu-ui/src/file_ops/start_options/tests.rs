@@ -509,6 +509,68 @@ fn the_grep_dialog_opens_filled_in(cx: &mut TestAppContext) {
     assert!(settings.sub_folder && settings.options.match_case && settings.options.regex);
 }
 
+#[gpui::test]
+fn only_the_grep_dialog_launch_keeps_its_options(cx: &mut TestAppContext) {
+    use crate::saved_state::{grep::SavedGrep, search::SavedSearch};
+    init(cx);
+    let dir = TempDir::new();
+    grep_project(&dir);
+    // `-GREPMODE` without the dialog runs the search and keeps nothing
+    // (`CNormalProcess::InitializeProcess` writes the shared data only for `-GREPDLG`)
+    launch(
+        cx,
+        &dir,
+        &[
+            "-GREPMODE",
+            "-GKEY=needle",
+            "-GFILE=*.txt",
+            "-GFOLDER=src",
+            "-GOPT=SLRWN3",
+            "-GCODE=4",
+        ],
+    );
+    for _ in 0..200 {
+        cx.run_until_parked();
+    }
+    assert_eq!(
+        cx.update(|app| crate::saved_state::grep::saved(app)),
+        SavedGrep::default()
+    );
+    assert_eq!(
+        cx.update(|app| crate::saved_state::search::saved(app)),
+        SavedSearch::default()
+    );
+    // with the dialog, the options are the choices of the dialog, whatever becomes of it
+    launch(
+        cx,
+        &dir,
+        &[
+            "-GREPMODE",
+            "-GREPDLG",
+            "-GKEY=needle",
+            "-GFILE=*.txt",
+            "-GFOLDER=src",
+            "-GOPT=SLRWN3",
+            "-GCODE=4",
+        ],
+    );
+    let grep = cx.update(|app| crate::saved_state::grep::saved(app));
+    assert!(grep.sub_folder);
+    assert_eq!(grep.line_type, LineType::NoHitLine);
+    assert_eq!(grep.style, OutputStyle::ResultOnly);
+    assert_eq!(grep.charset, Some(Encoding::Utf8));
+    // the check boxes of the output are not on the command line
+    assert!(!grep.file_only && !grep.base_folder && !grep.separate_folder);
+    let search = cx.update(|app| crate::saved_state::search::saved(app));
+    assert!(search.regex && search.match_case && search.whole_word);
+    // and the dialog that opened has them
+    let view = cx.update(editors).pop().unwrap().1;
+    let panel = view.read_with(cx, |v, _| v.grep.panel.clone().unwrap());
+    let settings = panel.read_with(cx, |p, _| p.settings.clone());
+    assert_eq!(settings.charset, Some(Encoding::Utf8));
+    assert_eq!(settings.style, OutputStyle::ResultOnly);
+}
+
 #[test]
 fn grep_info_follows_the_command_line() {
     let args = crate::command_line::parse(&[

@@ -187,6 +187,90 @@ fn the_source_is_opened_again_when_its_tab_was_closed(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn the_source_made_again_keeps_the_tab_width_and_the_spaces_of_the_document(
+    cx: &mut TestAppContext,
+) {
+    let handle = window(cx, true);
+    // The settings file is there, so that the new view applies the type to the document.
+    cx.update(|app| app.set_global(crate::settings::UserSettings::default()));
+    let ws = workspace(cx, handle);
+    // What the detection on load or `F_CHGTABWIDTH` made of them (the type's are 4 and tabs).
+    let source = ws.read_with(cx, |ws, _| ws.tab_editors()[0].clone());
+    source.update(cx, |v, cx| v.share_indent(Some(7), Some(true), cx));
+    open(cx, handle);
+    handle
+        .update(cx, |_, window, app| {
+            ws.update(app, |ws, cx| ws.close_tab_now(0, window, cx))
+        })
+        .unwrap();
+    drop(source);
+    cx.run_until_parked();
+    handle
+        .update(cx, |_, window, app| {
+            ws.update(app, |ws, cx| ws.preview_to_source(window, cx))
+        })
+        .unwrap();
+    let made = ws.read_with(cx, |ws, _| ws.tab_editors()[0].clone());
+    made.read_with(cx, |v, _| {
+        assert_eq!(v.view_settings().tab_width, 7);
+        assert!(v.view_settings().ins_space);
+    });
+}
+
+#[gpui::test]
+fn the_indent_of_a_document_of_another_type_survives_the_source_made_again_twice(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_component::init);
+    cx.update(|app| app.set_global(crate::settings::UserSettings::default()));
+    // A C file: not the first type, which a new view starts with.
+    let model = matsu_core::model::DocumentModel::empty();
+    let document = SharedDocument::new(model, Some(std::path::PathBuf::from("a.c")));
+    super::tests::tab_mode(cx, true, true);
+    let handle = cx
+        .update(|app| open_editor_window(app, document, None))
+        .unwrap();
+    cx.run_until_parked();
+    let ws = workspace(cx, handle);
+    let source = ws.read_with(cx, |ws, _| ws.tab_editors()[0].clone());
+    assert_ne!(source.read_with(cx, |v, _| v.view_settings().type_index), 0);
+    source.update(cx, |v, cx| v.share_indent(Some(7), Some(true), cx));
+    drop(source);
+    for round in 0..2 {
+        // The source tab is the one that is not the preview; open the preview from it.
+        handle
+            .update(cx, |_, window, app| {
+                ws.update(app, |ws, cx| ws.activate_tab(0, window, cx))
+            })
+            .unwrap();
+        open(cx, handle);
+        handle
+            .update(cx, |_, window, app| {
+                ws.update(app, |ws, cx| ws.close_tab_now(0, window, cx))
+            })
+            .unwrap();
+        cx.run_until_parked();
+        handle
+            .update(cx, |_, window, app| {
+                ws.update(app, |ws, cx| ws.preview_to_source(window, cx))
+            })
+            .unwrap();
+        cx.run_until_parked();
+        let made = ws.read_with(cx, |ws, _| ws.tab_editors()[0].clone());
+        made.read_with(cx, |v, _| {
+            assert_eq!(v.view_settings().tab_width, 7, "round {round}");
+            assert!(v.view_settings().ins_space, "round {round}");
+        });
+        let document = made.read_with(cx, |v, _| v.document().clone());
+        assert_eq!(
+            document.read_with(cx, |d, _| d.indent()),
+            Some((7, true)),
+            "round {round}"
+        );
+    }
+}
+
+#[gpui::test]
 fn a_preview_does_not_move_to_another_window(cx: &mut TestAppContext) {
     let handle = window(cx, true);
     open(cx, handle);

@@ -43,6 +43,20 @@ impl ScanRestore {
     }
 }
 
+/// The line number and the option (1, the plain count of lines, if none is given) of the
+/// arguments of `F_JUMP`.
+pub(super) fn jump_args(args: &[Arg]) -> (Option<i64>, Option<i64>) {
+    let number = |arg: Option<&Arg>| match arg {
+        Some(Arg::Int(n)) => Some(*n),
+        Some(Arg::Text(text)) => text.trim().parse::<i64>().ok(),
+        _ => None,
+    };
+    (
+        number(args.first()),
+        args.get(1).map_or(Some(1), |a| number(Some(a))),
+    )
+}
+
 impl EditorView {
     /// Starts the task that follows the scan of the document's file, if it has one: it shows the
     /// scanned part as it grows and the complete document at the end. The task ends when the
@@ -135,18 +149,21 @@ impl EditorView {
         }
         let beyond = match reg.sakura {
             "F_GOFILEEND" | "F_GOFILEEND_SEL" | "F_GOFILEEND_BOX" => true,
+            // In a window on the file (`view/scan_window.rs`) the top of the document is not the
+            // top of the file.
+            "F_GOFILETOP" | "F_GOFILETOP_SEL" | "F_GOFILETOP_BOX" => shared.scan_window().is_some(),
+            "F_JUMP" if shared.scan_window().is_some() => true,
+            // The jump list holds places of the file; the positions of a window are others.
+            "F_JUMPHIST_PREV" | "F_JUMPHIST_NEXT" | "F_JUMPHIST_SET" => {
+                shared.scan_window().is_some()
+            }
             "F_JUMP" => {
-                let number = |arg: Option<&Arg>| match arg {
-                    Some(Arg::Int(n)) => Some(*n),
-                    Some(Arg::Text(text)) => text.trim().parse::<i64>().ok(),
-                    _ => None,
-                };
-                let option = args.get(1).map_or(Some(1), |a| number(Some(a)));
+                let (line, option) = jump_args(args);
                 // Only the plain count of lines (option 1) is the number of a scanned line; the
                 // others count rows or the valid lines of PL/SQL, which no prefix can place.
                 // The last line that is scanned may be cut short: it counts as not reached.
                 option != Some(1)
-                    || number(args.first()).is_some_and(|n| {
+                    || line.is_some_and(|n| {
                         usize::try_from(n).is_ok_and(|n| n >= shared.doc().line_count())
                     })
             }

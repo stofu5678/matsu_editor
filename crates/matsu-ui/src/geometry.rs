@@ -138,6 +138,30 @@ impl Scrollbar {
         }
     }
 
+    /// A scroll bar that covers a whole file the scan has not finished (ADR-0020, chapter 2):
+    /// the thumb is `visible` (0 to 1) of the track long and sits `top` (0 to 1) of the way down,
+    /// both worked out from byte positions rather than rows.
+    pub fn spanning(m: &Metrics, visible: f32, top: f32) -> Self {
+        let track = m.view_height;
+        let thumb_height = (track * visible.clamp(0.0, 1.0)).max(24.0).min(track);
+        Self {
+            track_height: track,
+            thumb_top: (track - thumb_height) * top.clamp(0.0, 1.0),
+            thumb_height,
+        }
+    }
+
+    /// How far down the file (0 to 1) a thumb is whose top is `thumb_top` pixels from the top of
+    /// the track: the inverse of the `top` of [`Scrollbar::spanning`].
+    pub fn position_of(&self, thumb_top: f32) -> f32 {
+        let travel = self.track_height - self.thumb_height;
+        if travel <= 0.0 {
+            0.0
+        } else {
+            (thumb_top / travel).clamp(0.0, 1.0)
+        }
+    }
+
     /// The scroll offset for a thumb dragged by `dy` pixels from where it was at `start_scroll`.
     pub fn scroll_for_drag(
         &self,
@@ -318,6 +342,22 @@ mod tests {
         assert_eq!(row_at(&m, 0.0, 9999.0, 10), 9);
         assert_eq!(column_at(&m, 25.0), (2, 0.5));
         assert_eq!(column_at(&m, -3.0), (0, 0.0));
+    }
+
+    #[test]
+    fn a_bar_over_a_whole_file_maps_the_thumb_to_a_position_and_back() {
+        let m = m();
+        let bar = Scrollbar::spanning(&m, 0.001, 0.5);
+        // a thumb that would be a sliver keeps its least length
+        assert_eq!(bar.thumb_height, 24.0);
+        assert!((bar.thumb_top - 38.0).abs() < 1e-3);
+        assert!((bar.position_of(bar.thumb_top) - 0.5).abs() < 1e-5);
+        assert_eq!(bar.position_of(-5.0), 0.0);
+        assert_eq!(bar.position_of(1e6), 1.0);
+        let top = Scrollbar::spanning(&m, 0.2, 0.0);
+        assert_eq!((top.thumb_top, top.thumb_height), (0.0, 24.0f32.max(20.0)));
+        let end = Scrollbar::spanning(&m, 0.2, 1.0);
+        assert!((end.thumb_top + end.thumb_height - 100.0).abs() < 1e-3);
     }
 
     #[test]

@@ -32,6 +32,7 @@ static LIST: TableSpec = TableSpec {
     storage: Storage::Custom { load, store },
     full_message: "",
     prepare: None,
+    confirm: None,
 };
 
 const fn column(title: &'static str, width: u32) -> Column {

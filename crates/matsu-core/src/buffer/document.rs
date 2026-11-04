@@ -317,6 +317,24 @@ impl Document {
         }))
     }
 
+    /// The same document with edits refused (a window on a file, [`ScanWindow`](super::ScanWindow)).
+    pub(crate) fn into_read_only(mut self) -> Self {
+        self.read_only = true;
+        self
+    }
+
+    /// The offset in the text of the document, in bytes of the pieces, of `pos`. For a document
+    /// that was not edited these are the bytes of the source it was made over.
+    pub fn pos_to_offset(&self, pos: Pos) -> Result<usize> {
+        self.pos_to_raw(pos)
+    }
+
+    /// The position at offset `offset` of the text of the document ([`Document::pos_to_offset`]);
+    /// an offset past the end gives the end.
+    pub fn offset_to_pos(&self, offset: usize) -> Result<Pos> {
+        self.raw_to_pos(offset.min(self.total()))
+    }
+
     /// Whether edits are refused: the document shows the scanned start of a file that is still
     /// being scanned ([`Document::from_block_index`]).
     pub fn is_read_only(&self) -> bool {

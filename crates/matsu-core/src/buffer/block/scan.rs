@@ -137,6 +137,29 @@ impl ScanProgress {
         (u128::from(self.breaks) * u128::from(self.total) / u128::from(self.scanned)) as u64
     }
 
+    /// The number of line endings before byte `byte`, estimated from the scanned part: the line
+    /// endings found so far are taken to be spread evenly over the bytes scanned. Exact only
+    /// for a `byte` the scan has passed; use [`ScanJob::exact_lines_before`] for that.
+    pub fn estimated_breaks_before(&self, byte: u64) -> u64 {
+        if self.scanned == 0 {
+            return 0;
+        }
+        (u128::from(self.breaks) * u128::from(byte.min(self.total)) / u128::from(self.scanned))
+            as u64
+    }
+
+    /// The byte where line `line` (0-based) starts, estimated the same way (the inverse of
+    /// [`ScanProgress::estimated_breaks_before`]). With no line ending found yet, the scanned part
+    /// is one line and the lines are taken to be 80 bytes.
+    pub fn estimated_byte_of_line(&self, line: u64) -> u64 {
+        let byte = if self.breaks == 0 {
+            u128::from(line) * 80
+        } else {
+            u128::from(line) * u128::from(self.scanned) / u128::from(self.breaks)
+        };
+        byte.min(u128::from(self.total)) as u64
+    }
+
     /// The share scanned, 0 to 100 (100 for an empty file).
     pub fn percent(&self) -> u8 {
         if self.total == 0 {
@@ -653,12 +676,13 @@ fn run(
             return Err(ScanError::Cancelled);
         }
         scanner.step()?;
-        if let Some(delay) = delay {
-            std::thread::sleep(delay);
-        }
         let progress = scanner.progress();
         shared.breaks.store(progress.breaks, Ordering::Release);
         shared.scanned.store(progress.scanned, Ordering::Release);
+        // After the progress is told, so that the window just read is seen while the scan waits.
+        if let Some(delay) = delay {
+            std::thread::sleep(delay);
+        }
     }
     Ok(())
 }

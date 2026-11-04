@@ -101,7 +101,13 @@ impl EditorView {
         let by_text = self.prefs.settings.outline.line_num_is_crlf;
         let at = self.caret_row(cx);
         let info = self.layout.row(doc, at.row).ok();
-        let line = if by_text { caret.line } else { at.row } + 1;
+        // In a window on a huge file the rows before it are not known: the lines are counted.
+        let windowed = self.document.read(cx).scan_window().is_some();
+        let line = if by_text || windowed {
+            caret.line
+        } else {
+            at.row
+        } + 1;
         let Some(info) = info else {
             return (line, self.caret_column(cx) + 1);
         };

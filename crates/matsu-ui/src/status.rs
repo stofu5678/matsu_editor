@@ -13,6 +13,9 @@ use matsu_core::encoding::Encoding;
 pub struct StatusInfo {
     /// The line of the caret, counted from 1 (the logical line, not the screen row).
     pub line: usize,
+    /// The line is "about" (「約」): counted from an estimate, in a window on a huge file that the
+    /// scan has not reached.
+    pub line_approx: bool,
     /// The display column of the caret on its row, counted from 1.
     pub column: u32,
     /// The number of lines of the document.
@@ -41,6 +44,7 @@ impl Default for StatusInfo {
     fn default() -> Self {
         Self {
             line: 0,
+            line_approx: false,
             column: 0,
             lines: 0,
             modified: false,
@@ -124,7 +128,12 @@ impl StatusInfo {
 
     /// `STR_STATUS_ROW_COL`: "%5d 行 %4d 桁".
     pub fn position_text(&self) -> String {
-        format!("{:>5} 行 {:>4} 桁", self.line, self.column)
+        let line = if self.line_approx {
+            format!("約{}", self.line)
+        } else {
+            self.line.to_string()
+        };
+        format!("{line:>5} 行 {:>4} 桁", self.column)
     }
 
     /// `STR_INS_MODE_INS` and `STR_INS_MODE_OVR`.

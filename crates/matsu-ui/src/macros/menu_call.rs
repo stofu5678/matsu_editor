@@ -160,9 +160,10 @@ impl EditorView {
             let dismiss = cx.subscribe_in(
                 &popup,
                 window,
-                move |this, _, _: &DismissEvent, window, cx| {
+                move |this, popup, _: &DismissEvent, window, cx| {
                     let _ = closed.try_send(0);
-                    this.close_custom_menu(window, cx);
+                    let moved = crate::menu_bar::focus_left_popup(popup, window, cx);
+                    this.close_custom_menu_keeping_focus(moved, window, cx);
                 },
             );
             popup.read(cx).focus_handle(cx).focus(window, cx);
