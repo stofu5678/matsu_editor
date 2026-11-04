@@ -8,9 +8,10 @@
 //! text; any other background (the line of the caret, the even lines, the selection, a keyword's
 //! own background, the colors of a bookmark) is painted over the image.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Weak};
 
-use gpui::{Bounds, Corners, Pixels, Window, point, px, size};
+use gpui::{App, Bounds, Corners, Global, Pixels, RenderImage, Window, WindowId, point, px, size};
 
 use crate::back_image::placement::{self, Layout, Rect};
 use crate::back_image::{BackBitmap, BackImageSpec};
@@ -20,6 +21,52 @@ use crate::back_image::{BackBitmap, BackImageSpec};
 pub(super) struct BackPaint {
     pub bitmap: Arc<BackBitmap>,
     pub spec: BackImageSpec,
+}
+
+/// The pictures a window has drawn, so that the ones no view uses any more are taken out of the
+/// window's sprite atlas. GPUI keeps a drawn picture in the atlas until `Window::drop_image`
+/// (letting go of the `Arc` does not), so a picture that the settings have replaced would stay in
+/// the graphics memory until the window closed.
+#[derive(Default)]
+struct Drawn(HashMap<WindowId, Vec<DrawnImage>>);
+
+impl Global for Drawn {}
+
+struct DrawnImage {
+    /// Kept to be able to drop it from the atlas (the key is its id).
+    render: Arc<RenderImage>,
+    /// The views hold the picture; this does not, so it tells when no view does.
+    bitmap: Weak<BackBitmap>,
+}
+
+/// Call it once for each paint of a view with the image it is going to draw (`None` if it draws
+/// none): notes the picture for this window, and drops from the atlas the pictures of this window
+/// that no view holds any more. The pictures of windows that are closed are forgotten.
+pub(super) fn track(window: &mut Window, cx: &mut App, current: Option<&BackPaint>) {
+    let id = window.window_handle().window_id();
+    let open: Vec<WindowId> = cx.windows().iter().map(|w| w.window_id()).collect();
+    let drawn = cx.default_global::<Drawn>();
+    drawn
+        .0
+        .retain(|window_id, _| *window_id == id || open.contains(window_id));
+    let mine = drawn.0.entry(id).or_default();
+    if let Some(back) = current
+        && !mine
+            .iter()
+            .any(|d| Arc::ptr_eq(&d.render, &back.bitmap.render))
+    {
+        mine.push(DrawnImage {
+            render: back.bitmap.render.clone(),
+            bitmap: Arc::downgrade(&back.bitmap),
+        });
+    }
+    mine.retain(|d| {
+        let used = d.bitmap.strong_count() > 0;
+        if !used {
+            window.drop_image(d.render.clone()).ok();
+        }
+        used
+    });
 }
 
 /// The view the image is placed in, in GPUI pixels.
@@ -248,5 +295,95 @@ mod tests {
             whole(&f),
         );
         assert_eq!(t, [Rect::new(80, 40, 180, 90)]);
+    }
+
+    fn write_png(path: &std::path::Path, side: u32, shade: u8) {
+        let mut img = image::RgbaImage::new(side, side);
+        for (x, y, p) in img.enumerate_pixels_mut() {
+            *p = image::Rgba([shade, x as u8, y as u8, 255]);
+        }
+        img.save_with_format(path, image::ImageFormat::Png).unwrap();
+    }
+
+    fn paint_again(cx: &mut gpui::VisualTestContext) {
+        cx.update(|window, cx| {
+            window.refresh();
+            window.draw(cx).clear(cx);
+        });
+    }
+
+    fn use_picture(
+        view: &gpui::Entity<super::super::EditorView>,
+        cx: &mut gpui::VisualTestContext,
+        path: Option<&std::path::Path>,
+    ) {
+        view.update(cx, |v, cx| {
+            let mut settings = v.view_settings().clone();
+            settings.back_image = path.map(|path| BackImageSpec {
+                path: path.to_owned(),
+                position: 0,
+                offset: (0, 0),
+                repeat: (false, false),
+                scroll: (true, true),
+                opacity: 255,
+            });
+            v.apply_settings(settings, cx);
+        });
+    }
+
+    #[gpui::test]
+    fn a_picture_the_settings_replaced_leaves_the_atlas(cx: &mut gpui::TestAppContext) {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b) = (dir.path().join("a.png"), dir.path().join("b.png"));
+        write_png(&a, 8, 10);
+        write_png(&b, 9, 20);
+        let (f, vcx) = super::super::tests::setup(cx, "text");
+        use_picture(&f.view, vcx, Some(&a));
+        paint_again(vcx);
+        let first = f.view.read_with(vcx, |v, _| v.back_bitmap.clone().unwrap());
+        let in_atlas = |vcx: &mut gpui::VisualTestContext, bitmap: &Arc<BackBitmap>| {
+            vcx.update(|window, _| window.has_image_atlas_entry(&bitmap.render))
+        };
+        assert!(in_atlas(vcx, &first), "the picture was drawn");
+
+        // Another view of the window holds the first picture (`first` is its hold): it stays in
+        // the atlas when this view takes another picture.
+        use_picture(&f.view, vcx, Some(&b));
+        paint_again(vcx);
+        let second = f.view.read_with(vcx, |v, _| v.back_bitmap.clone().unwrap());
+        assert!(!Arc::ptr_eq(&first, &second));
+        assert!(in_atlas(vcx, &first), "a view still uses the first picture");
+        assert!(in_atlas(vcx, &second));
+
+        // When no view uses it, the next paint takes it out.
+        let first_render = first.render.clone();
+        drop(first);
+        paint_again(vcx);
+        assert!(!vcx.update(|window, _| window.has_image_atlas_entry(&first_render)));
+        assert!(in_atlas(vcx, &second));
+
+        // A type without an image leaves nothing of the second either.
+        let second_render = second.render.clone();
+        drop(second);
+        use_picture(&f.view, vcx, None);
+        paint_again(vcx);
+        assert!(!vcx.update(|window, _| window.has_image_atlas_entry(&second_render)));
+    }
+
+    #[gpui::test]
+    fn the_same_picture_is_drawn_again_without_a_second_atlas_entry(cx: &mut gpui::TestAppContext) {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.png");
+        write_png(&a, 8, 10);
+        let (f, vcx) = super::super::tests::setup(cx, "text");
+        use_picture(&f.view, vcx, Some(&a));
+        paint_again(vcx);
+        let first = f.view.read_with(vcx, |v, _| v.back_bitmap.clone().unwrap());
+        // The settings are applied again with the same file: the same picture is used.
+        use_picture(&f.view, vcx, Some(&a));
+        paint_again(vcx);
+        let again = f.view.read_with(vcx, |v, _| v.back_bitmap.clone().unwrap());
+        assert!(Arc::ptr_eq(&first, &again));
+        assert!(vcx.update(|window, _| window.has_image_atlas_entry(&first.render)));
     }
 }

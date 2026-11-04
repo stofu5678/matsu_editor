@@ -1200,6 +1200,7 @@ impl Element for EditorElement {
                 super::back_paint::paint(window, back, &back_frame, clip);
             }
         };
+        super::back_paint::track(window, cx, p.back_image.as_ref());
         paint_back(window, Bounds::new(point(px(0.), px(0.)), bounds.size));
         let gutter_back = if p.show_line_numbers {
             p.colors.line_number_background
