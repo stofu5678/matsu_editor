@@ -1225,11 +1225,22 @@ impl Element for EditorElement {
 
         for (i, row) in p.rows.iter().enumerate() {
             let y = body_top + px(p.y_offset) + lh * i as f32;
-            if let Some(background) = row.gutter_background.filter(|&b| !shows_through(b)) {
-                window.paint_quad(fill(
-                    Bounds::new(point(bounds.left(), y), size(px(p.gutter_width), lh)),
-                    rgb(background),
-                ));
+            if let Some(background) = row.gutter_background {
+                let cell = Bounds::new(point(bounds.left(), y), size(px(p.gutter_width), lh));
+                if shows_through(background) {
+                    // The row's line number area has the background of the text while the rest
+                    // of the area does not (`DispLineNumber`: `bTrans`): the image is under it.
+                    // Where the area is the text's too, the image is there already.
+                    if !shows_through(gutter_back) {
+                        window.paint_quad(fill(cell, rgb(p.colors.background)));
+                        paint_back(
+                            window,
+                            Bounds::new(point(px(0.), y - bounds.top()), cell.size),
+                        );
+                    }
+                } else {
+                    window.paint_quad(fill(cell, rgb(background)));
+                }
             }
             match gutter_mark(row.bookmarked, p.bookmark_colored, p.show_line_numbers) {
                 GutterMark::None | GutterMark::Background => {}
