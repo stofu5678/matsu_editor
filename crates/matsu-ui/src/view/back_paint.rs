@@ -297,6 +297,22 @@ mod tests {
         assert_eq!(t, [Rect::new(80, 40, 180, 90)]);
     }
 
+    #[test]
+    fn one_cell_of_the_view_gets_the_part_of_the_image_under_it() {
+        // `DrawBracketPair` paints the image again in the cell of a bracket.
+        let f = frame(1.0);
+        let b = back(back_img_pos::TOP_LEFT, (false, false), (true, true));
+        let cell = |x: f32, y: f32| Bounds::new(point(px(x), px(y)), size(px(9.), px(18.)));
+        // inside the image (it covers x 40..140, y 20..70 of the view)
+        assert_eq!(tiles(&b, &f, cell(60., 30.)), [Rect::new(40, 20, 140, 70)]);
+        // a cell the image does not reach has no tile
+        assert!(tiles(&b, &f, cell(200., 30.)).is_empty());
+        assert!(tiles(&b, &f, cell(60., 120.)).is_empty());
+        // and a repeating image is under every cell
+        let r = back(back_img_pos::TOP_LEFT, (true, true), (true, true));
+        assert_eq!(tiles(&r, &f, cell(200., 120.)).len(), 1);
+    }
+
     fn write_png(path: &std::path::Path, side: u32, shade: u8) {
         let mut img = image::RgbaImage::new(side, side);
         for (x, y, p) in img.enumerate_pixels_mut() {

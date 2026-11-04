@@ -1424,14 +1424,38 @@ impl Element for EditorElement {
                     }
                     // The brackets of the pair: the character again, in the color of `BRC`.
                     for bracket in p.brackets.iter().filter(|b| b.row == i) {
-                        if !shows_through(bracket.back) {
-                            window.paint_quad(fill(
+                        let cell = Bounds::from_corners(
+                            point(x_of(bracket.col), y),
+                            point(x_of(bracket.col + bracket.cols), y + lh),
+                        );
+                        if shows_through(bracket.back) {
+                            // `DrawBracketPair`: the cell gets the image again, under the
+                            // character, so that the first one (drawn with the row, in the
+                            // colors of the syntax) is gone. (`DrawBackImage` paints the
+                            // background of the text first.)
+                            window.paint_quad(fill(cell, rgb(p.colors.background)));
+                            paint_back(
+                                window,
                                 Bounds::from_corners(
-                                    point(x_of(bracket.col), y),
-                                    point(x_of(bracket.col + bracket.cols), y + lh),
+                                    point(cell.left() - bounds.left(), cell.top() - bounds.top()),
+                                    point(
+                                        cell.right() - bounds.left(),
+                                        cell.bottom() - bounds.top(),
+                                    ),
                                 ),
-                                rgb(bracket.back),
-                            ));
+                            );
+                            // The note line crossed the cell (`DispNoteLine` again).
+                            if let Some((offset, color)) = p.lines.note {
+                                window.paint_quad(fill(
+                                    Bounds::from_corners(
+                                        point(cell.left(), y + px(offset)),
+                                        point(cell.right(), y + px(offset + 1.)),
+                                    ),
+                                    rgb(color),
+                                ));
+                            }
+                        } else {
+                            window.paint_quad(fill(cell, rgb(bracket.back)));
                         }
                         bracket
                             .text
