@@ -128,7 +128,9 @@ fn find_stretch(
     // before the target: there is no window around it.
     Ok(last
         .map(|e| (start, start + e as u64))
-        .filter(|&(start, end)| (start..=end).contains(&target.min(len))))
+        // `end` is not the end of the file here: the target must be before it (a target at the
+        // very start of a long line is not in the window that ends where the line begins).
+        .filter(|&(start, end)| (start..end).contains(&target.min(len))))
 }
 
 impl BlockIndex {

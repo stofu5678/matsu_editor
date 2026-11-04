@@ -294,6 +294,13 @@ fn no_window_is_made_when_a_long_line_crosses_the_target_and_the_edge_of_the_win
     .unwrap();
     let target = (long_start + 100 * 1024) as u64;
     assert!(job.open_window(target, 64 * 1024).unwrap().is_none());
+    // The very start of the long line: the window would end where the line begins, with none of
+    // the line in it (a jump there would show the empty end instead of the line).
+    assert!(
+        job.open_window(long_start as u64, 64 * 1024)
+            .unwrap()
+            .is_none()
+    );
     // Short lines before the long line have a window.
     assert!(
         job.open_window(long_start as u64 - 1000, 64 * 1024)
