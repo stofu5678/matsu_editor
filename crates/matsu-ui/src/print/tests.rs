@@ -281,3 +281,26 @@ fn the_title_expands_only_what_it_asks_for(cx: &mut TestAppContext) {
     let title = view.read_with(cx, |v, cx| v.expand_format("[$C][$x]", cx));
     assert_eq!(title, "[word][2]");
 }
+
+#[gpui::test]
+fn the_title_has_the_page_and_the_page_count_while_the_preview_is_open(cx: &mut TestAppContext) {
+    let (view, cx) = setup(cx, &many_lines(200), None);
+    let expand = |view: &Entity<EditorView>, cx: &mut VisualTestContext| {
+        view.read_with(cx, |v, cx| v.expand_format("$p/$P", cx))
+    };
+    // Without the preview Sakura says that the codes are for the preview only.
+    let only = "(印刷プレビューでのみ使用できます)";
+    assert_eq!(expand(&view, cx), format!("{only}/{only}"));
+    run(&view, F_PRINT_PREVIEW, cx);
+    let preview = view
+        .read_with(cx, |v, _| v.print_preview().cloned())
+        .unwrap();
+    let pages = preview.read_with(cx, |p, _| p.page_count());
+    assert!(pages >= 3);
+    assert_eq!(expand(&view, cx), format!("1/{pages}"));
+    // The page follows the preview; the tab caption has the same expansion.
+    cx.simulate_keystrokes("pagedown");
+    assert_eq!(expand(&view, cx), format!("2/{pages}"));
+    cx.simulate_keystrokes("escape");
+    assert_eq!(expand(&view, cx), format!("{only}/{only}"));
+}
