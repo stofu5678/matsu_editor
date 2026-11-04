@@ -327,7 +327,7 @@ fn nothing_changes_when_the_values_are_not_touched() {
     let types = DocumentTypes::from_profile(&profile);
     for (index, t) in types.iter().enumerate() {
         let sheet = sheet(&profile, index).unwrap();
-        let values = load(&sheet.controls, t, &profile, index, &[]);
+        let values = load(&sheet.controls, t, index, &[]);
         assert_eq!(&store(&values, t), t, "{} ({index})", t.type_name);
     }
 }
@@ -916,28 +916,55 @@ fn the_rules_of_the_coloring_are_changed_on_the_color_page(cx: &mut TestAppConte
 
 #[gpui::test]
 fn a_control_that_is_not_available_is_never_written(cx: &mut TestAppContext) {
-    // The file has a background image for the type; the page shows it greyed out, and OK leaves
-    // it as it is.
-    let ini_text =
-        "[Types(0)]\r\nnImeState=9\r\nbgImgPath=C:\\a.png\r\nbgImgOpacity=100\r\nnLineSpace=7\r\n";
+    // The file has the IME state; where the page greys it out, OK leaves it as it is.
+    let ini_text = "[Types(0)]\r\nnImeState=9\r\nnLineSpace=7\r\n";
     let (ini, a) = setup(cx, ini_text);
     run(cx, a, "F_OPTION_TYPE", &[]);
     with_dialog(cx, |d, _, dcx| d.select_index(2, dcx));
-    assert_eq!(value(cx, BG_PATH), Value::Text("C:\\a.png".to_owned()));
-    assert_eq!(value(cx, BG_TRANSPARENCY), Value::Int(155));
     // Choosing it does nothing.
-    type_in(cx, BG_PATH, "other");
     check(cx, WORD_WRAP, true);
     with_dialog(cx, |d, _, dcx| d.select_index(0, dcx));
     check(cx, WORD_WRAP, true);
     ok(cx);
     assert_eq!(ini.get("Types(0)", "nImeState").as_deref(), Some("9"));
-    assert_eq!(
-        ini.get("Types(0)", "bgImgPath").as_deref(),
-        Some("C:\\a.png")
-    );
     assert_eq!(ini.get("Types(0)", "nLineSpace").as_deref(), Some("7"));
     assert_eq!(ints(&ini, 0)[9], 1, "the English word wrap is in nInts");
+}
+
+#[gpui::test]
+fn the_background_image_controls_show_and_write_sakuras_keys(cx: &mut TestAppContext) {
+    let ini_text = "[Types(0)]\r\nbgImgPath=C:\\a.png\r\nbgImgPos=3\r\nbgImgOpacity=100\r\nbgImgPosOffsetX=-5\r\nbgImgRepeartY=0\r\n";
+    let (ini, a) = setup(cx, ini_text);
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    with_dialog(cx, |d, _, dcx| d.select_index(2, dcx));
+    assert_eq!(value(cx, BG_PATH), Value::Text("C:\\a.png".to_owned()));
+    assert_eq!(value(cx, BG_POS), Value::Int(3));
+    assert_eq!(value(cx, BG_TRANSPARENCY), Value::Int(155));
+    assert_eq!(value(cx, BG_OFFSET_X), Value::Int(-5));
+    assert_eq!(value(cx, BG_REPEAT_X), Value::Bool(true));
+    assert_eq!(value(cx, BG_REPEAT_Y), Value::Bool(false));
+    assert!(usable(cx, BG_PATH) && usable(cx, BG_POS) && usable(cx, BG_TRANSPARENCY));
+    type_in(cx, BG_PATH, "img\\b.bmp");
+    type_in(cx, BG_TRANSPARENCY, "55");
+    check(cx, BG_SCROLL_X, false);
+    ok(cx);
+    let get = |key: &str| ini.get("Types(0)", key);
+    assert_eq!(get("bgImgPath").as_deref(), Some("img\\b.bmp"));
+    assert_eq!(get("bgImgOpacity").as_deref(), Some("200"));
+    assert_eq!(get("bgImgScrollX").as_deref(), Some("0"));
+    assert_eq!(get("bgImgPos").as_deref(), Some("3"));
+    assert_eq!(get("bgImgPosOffsetX").as_deref(), Some("-5"));
+    assert_eq!(get("bgImgRepeartY").as_deref(), Some("0"));
+    let view = view_of(cx, a);
+    let spec = view.read_with(cx, |v, _| v.view_settings().back_image.clone());
+    let spec = spec.expect("the view has the image of the type");
+    assert_eq!(spec.opacity, 200);
+    assert_eq!(spec.scroll, (false, true));
+    assert!(spec.path.ends_with(if cfg!(windows) {
+        "img\\b.bmp"
+    } else {
+        "img/b.bmp"
+    }));
 }
 
 #[gpui::test]
@@ -1479,7 +1506,7 @@ fn the_ime_and_icon_values_are_read_and_written_as_sakura_does() {
         let profile = Profile::from_bytes(text.as_bytes());
         let original = TypeSettings::read(&profile, 0);
         let sheet = sheet(&profile, 0).unwrap();
-        let mut values = load(&sheet.controls, &original, &profile, 0, &[]);
+        let mut values = load(&sheet.controls, &original, 0, &[]);
         change(&mut values);
         (values.clone(), store(&values, &original))
     };

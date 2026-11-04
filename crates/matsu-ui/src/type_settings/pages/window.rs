@@ -6,8 +6,9 @@
 //! the line number unit, the least width and the separator of the line numbers
 //! (`ViewSettings`, `view/element.rs`), and on Windows the IME at start (IMM32,
 //! `matsu_platform::ime_mode`) and the icon of the document (`crate::doc_icon`). macOS and Linux
-//! keep those two greyed out with the reason beside them (ADR-0018 type B). Not available yet:
-//! the background image.
+//! keep those two greyed out with the reason beside them (ADR-0018 type B). The background image
+//! (the file, the position, the offset, the repeat, the scroll and the transparency) is drawn by
+//! the view (`crate::view::back_image`).
 
 use std::sync::OnceLock;
 
@@ -52,7 +53,7 @@ pub(in crate::type_settings) const IME_STATES: &[(&str, i32)] = &[
 ];
 
 /// `STR_IMAGE_POS1` to `STR_IMAGE_POS9`: where the background image is.
-const IMAGE_POSITIONS: &[(&str, i32)] = &[
+pub(in crate::type_settings) const IMAGE_POSITIONS: &[(&str, i32)] = &[
     ("左上", 0),
     ("右上", 1),
     ("左下", 2),
@@ -110,6 +111,26 @@ const IME_NOTE: &str = "この OS では、アプリから IME のオン・オ�
 /// The reason the document icon is greyed out where the OS does not allow it.
 const DOC_ICON_NOTE: &str = "この OS では、ウィンドウのアイコンを文書ごとに変えられないため、使えません。\
     (タブのアイコンは、「タブバー」の「アイコン表示」で決まります。)";
+
+/// `IDC_BUTTON_BACKIMG_PATH_SEL`: chooses the image (`SelectFile` with `*.bmp;*.jpg;*.jpeg;*.png`).
+/// The title of the dialog is MATSU Editor's own wording (ADR-0018 type F: Sakura has none).
+fn browse_background_image(
+    dialog: &mut crate::common_settings::CommonSettingsDialog,
+    window: &mut gpui::Window,
+    cx: &mut gpui::Context<crate::common_settings::CommonSettingsDialog>,
+) {
+    crate::support::browse::browse_into_filtered(
+        dialog,
+        window,
+        cx,
+        BG_PATH,
+        "背景画像ファイルの選択",
+        Some(BACKGROUND_IMAGE_WILDCARD),
+    );
+}
+
+/// The files the browse button lists (`CPropTypesWindow.cpp`, `IDC_BUTTON_BACKIMG_PATH_SEL`).
+const BACKGROUND_IMAGE_WILDCARD: &str = "*.bmp;*.jpg;*.jpeg;*.png";
 
 /// The control, or the control greyed out where the OS does not have what it needs.
 fn windows_only(control: Control) -> Control {
@@ -277,45 +298,27 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                     Item::Row(vec![
                         Control::text(BG_PATH, "", "", "")
                             .named("背景画像のファイル")
-                            .unavailable()
                             .into(),
-                        Control::button(BG_BROWSE, "...", |_, _, _| {})
+                        Control::button(BG_BROWSE, "...", browse_background_image)
                             .named("背景画像のファイルを参照")
-                            .unavailable()
                             .into(),
                     ]),
                     Item::Row(vec![
-                        Control::choice(BG_POS, "表示位置", "", 0, IMAGE_POSITIONS)
-                            .unavailable()
-                            .into(),
+                        Control::choice(BG_POS, "表示位置", "", 0, IMAGE_POSITIONS).into(),
                     ]),
                     Item::Row(vec![
-                        Control::number(BG_OFFSET_X, "Offset X", "", 0, -99999, 99999)
-                            .unavailable()
-                            .into(),
-                        Control::number(BG_OFFSET_Y, "Offset Y", "", 0, -99999, 99999)
-                            .unavailable()
-                            .into(),
+                        Control::number(BG_OFFSET_X, "Offset X", "", 0, -99999, 99999).into(),
+                        Control::number(BG_OFFSET_Y, "Offset Y", "", 0, -99999, 99999).into(),
                     ]),
                     Item::Row(vec![
-                        Control::check(BG_REPEAT_X, "Repeat X", "", true)
-                            .unavailable()
-                            .into(),
-                        Control::check(BG_REPEAT_Y, "Repeat Y", "", true)
-                            .unavailable()
-                            .into(),
+                        Control::check(BG_REPEAT_X, "Repeat X", "", true).into(),
+                        Control::check(BG_REPEAT_Y, "Repeat Y", "", true).into(),
                     ]),
                     Item::Row(vec![
-                        Control::check(BG_SCROLL_X, "Scroll X", "", true)
-                            .unavailable()
-                            .into(),
-                        Control::check(BG_SCROLL_Y, "Scroll Y", "", true)
-                            .unavailable()
-                            .into(),
+                        Control::check(BG_SCROLL_X, "Scroll X", "", true).into(),
+                        Control::check(BG_SCROLL_Y, "Scroll Y", "", true).into(),
                     ]),
-                    Control::number(BG_TRANSPARENCY, "透明度", "", 0, 0, 255)
-                        .unavailable()
-                        .into(),
+                    Control::number(BG_TRANSPARENCY, "透明度", "", 0, 0, 255).into(),
                 ],
             )],
         ]),

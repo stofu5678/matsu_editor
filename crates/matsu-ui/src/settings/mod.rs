@@ -245,7 +245,15 @@ impl UserSettings {
                 &empty
             }
         };
-        ViewSettings::from_types(&self.types, index, profile, Os::current())
+        let mut settings = ViewSettings::from_types(&self.types, index, profile, Os::current());
+        // `CEditDoc::SetBackgroundImage`: a relative path is under the folder of the settings
+        // file, or else under the folder of the program (`GetInidirOrExedir`).
+        if let Some(image) = settings.back_image.take() {
+            let ini_dir = self.path.as_deref().and_then(Path::parent);
+            settings.back_image =
+                Some(image.resolved(ini_dir, crate::support::help::exe_dir().as_deref()));
+        }
+        settings
     }
 
     /// The key map for `platform`: Sakura's table read the way `[MATSU]` `nMacKeyLayout` says

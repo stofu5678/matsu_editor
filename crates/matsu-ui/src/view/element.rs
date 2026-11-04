@@ -346,6 +346,8 @@ pub(super) struct Prepaint {
     hbar_height: f32,
     /// The right end of the selection in columns, for the range of the horizontal scroll bar.
     selection_edge: u32,
+    /// The background image of the type, if it has one that is read and not fully transparent.
+    back_image: Option<super::back_paint::BackPaint>,
 }
 
 impl IntoElement for EditorElement {
@@ -1140,6 +1142,12 @@ impl Element for EditorElement {
             total_rows: layout.row_count(),
             hbar_height,
             selection_edge,
+            back_image: editor
+                .back_bitmap
+                .clone()
+                .zip(settings.back_image.clone())
+                .filter(|(_, spec)| spec.is_visible())
+                .map(|(bitmap, spec)| super::back_paint::BackPaint { bitmap, spec }),
         }
     }
 
@@ -1188,28 +1196,67 @@ impl Element for EditorElement {
         let x_of = |col: u32| origin_x + px(col as f32 * p.cell - scroll_x);
 
         window.paint_quad(fill(bounds, rgb(p.colors.background)));
-        window.paint_quad(fill(
-            Bounds::new(
-                point(bounds.left(), bounds.top() + px(p.ruler_px)),
-                size(
-                    px(p.gutter_width),
-                    (bounds.size.height - px(p.ruler_px)).max(px(0.)),
+        // The background image, under everything that follows (`OnPaint`: `DrawBackImage` first).
+        // A part with the background of the text is then left unpainted, so that the image shows.
+        let back_frame = super::back_paint::Frame {
+            bounds,
+            gutter_width: p.gutter_width,
+            top_margin: p.top_margin,
+            ruler_px: p.ruler_px,
+            right_bar: SCROLLBAR_WIDTH,
+            bottom_bar: p.hbar_height,
+            scroll: (scroll_x, scroll_y),
+            scale: window.scale_factor(),
+        };
+        let paint_back = |window: &mut Window, clip: Bounds<Pixels>| {
+            if let Some(back) = &p.back_image {
+                super::back_paint::paint(window, back, &back_frame, clip);
+            }
+        };
+        super::back_paint::track(window, cx, p.back_image.as_ref());
+        paint_back(window, bounds);
+        let gutter_back = if p.show_line_numbers {
+            p.colors.line_number_background
+        } else {
+            p.colors.background
+        };
+        // `CTextDrawer::DispLineNumber`: the line numbers have no background of their own over
+        // the image when it is the background of the text.
+        let shows_through = |color: u32| p.back_image.is_some() && color == p.colors.background;
+        if !shows_through(gutter_back) {
+            window.paint_quad(fill(
+                Bounds::new(
+                    point(bounds.left(), bounds.top() + px(p.ruler_px)),
+                    size(
+                        px(p.gutter_width),
+                        (bounds.size.height - px(p.ruler_px)).max(px(0.)),
+                    ),
                 ),
-            ),
-            rgb(if p.show_line_numbers {
-                p.colors.line_number_background
-            } else {
-                p.colors.background
-            }),
-        ));
+                rgb(gutter_back),
+            ));
+        }
 
         for (i, row) in p.rows.iter().enumerate() {
             let y = body_top + px(p.y_offset) + lh * i as f32;
             if let Some(background) = row.gutter_background {
-                window.paint_quad(fill(
-                    Bounds::new(point(bounds.left(), y), size(px(p.gutter_width), lh)),
-                    rgb(background),
-                ));
+                let cell = Bounds::new(point(bounds.left(), y), size(px(p.gutter_width), lh));
+                // The background and the image are given the same device pixels.
+                let cell = if shows_through(background) {
+                    super::back_paint::snapped(cell, back_frame.scale)
+                } else {
+                    cell
+                };
+                if shows_through(background) {
+                    // The row's line number area has the background of the text while the rest
+                    // of the area does not (`DispLineNumber`: `bTrans`): the image is under it.
+                    // Where the area is the text's too, the image is there already.
+                    if !shows_through(gutter_back) {
+                        window.paint_quad(fill(cell, rgb(p.colors.background)));
+                        paint_back(window, cell);
+                    }
+                } else {
+                    window.paint_quad(fill(cell, rgb(background)));
+                }
             }
             match gutter_mark(row.bookmarked, p.bookmark_colored, p.show_line_numbers) {
                 GutterMark::None | GutterMark::Background => {}
@@ -1277,6 +1324,20 @@ impl Element for EditorElement {
             }
         }
 
+        // The dotted vertical lines of one row. `within` keeps the lines inside the columns of a
+        // cell (`DispVerticalLines` with a range, as `DrawBracketPair` calls it).
+        let paint_row_dots = |window: &mut Window, y: Pixels, within: Option<(Pixels, Pixels)>| {
+            if !p.lines.vertical_dotted {
+                return;
+            }
+            for &x in &p.lines.vertical {
+                let x = origin_x + px(x);
+                if within.is_some_and(|(left, right)| x < left || x >= right) {
+                    continue;
+                }
+                paint_dots(window, x, y, bounds.top(), p);
+            }
+        };
         // The rows below the end of the document have no layout in Sakura, and are drawn like the
         // rows of text: the note line from the left edge, through the line number area, and the
         // vertical lines.
@@ -1315,7 +1376,7 @@ impl Element for EditorElement {
                             rgb(back),
                         ));
                     }
-                    for &(from, to, color) in &row.backs {
+                    for &(from, to, color) in row.backs.iter().filter(|b| !shows_through(b.2)) {
                         window.paint_quad(fill(
                             Bounds::from_corners(point(x_of(from), y), point(x_of(to), y + lh)),
                             rgb(color),
@@ -1345,11 +1406,7 @@ impl Element for EditorElement {
                             rgb(color),
                         ));
                     }
-                    if p.lines.vertical_dotted {
-                        for &x in &p.lines.vertical {
-                            paint_dots(window, origin_x + px(x), y, bounds.top(), p);
-                        }
-                    }
+                    paint_row_dots(window, y, None);
                     for &(from, to, color) in &row.underlines {
                         window.paint_quad(fill(
                             Bounds::from_corners(
@@ -1409,13 +1466,41 @@ impl Element for EditorElement {
                     }
                     // The brackets of the pair: the character again, in the color of `BRC`.
                     for bracket in p.brackets.iter().filter(|b| b.row == i) {
-                        window.paint_quad(fill(
-                            Bounds::from_corners(
-                                point(x_of(bracket.col), y),
-                                point(x_of(bracket.col + bracket.cols), y + lh),
-                            ),
-                            rgb(bracket.back),
-                        ));
+                        let cell = Bounds::from_corners(
+                            point(x_of(bracket.col), y),
+                            point(x_of(bracket.col + bracket.cols), y + lh),
+                        );
+                        // The rectangle that clears the cell and the image painted in it are
+                        // given the same whole device pixels: GPUI paints the edge of a
+                        // rectangle that is between two pixels partly, which the image (cut to
+                        // whole pixels) would not cover.
+                        let cell = if shows_through(bracket.back) {
+                            super::back_paint::snapped(cell, back_frame.scale)
+                        } else {
+                            cell
+                        };
+                        if shows_through(bracket.back) {
+                            // `DrawBracketPair`: the cell gets the image again, under the
+                            // character, so that the first one (drawn with the row, in the
+                            // colors of the syntax) is gone. (`DrawBackImage` paints the
+                            // background of the text first.)
+                            window.paint_quad(fill(cell, rgb(p.colors.background)));
+                            paint_back(window, cell);
+                        } else {
+                            window.paint_quad(fill(cell, rgb(bracket.back)));
+                        }
+                        // `DispNoteLine` and `DispVerticalLines` again over the cell, whatever
+                        // its background (the cell was painted over them).
+                        if let Some((offset, color)) = p.lines.note {
+                            window.paint_quad(fill(
+                                Bounds::from_corners(
+                                    point(cell.left(), y + px(offset)),
+                                    point(cell.right(), y + px(offset + 1.)),
+                                ),
+                                rgb(color),
+                            ));
+                        }
+                        paint_row_dots(window, y, Some((cell.left(), cell.right())));
                         bracket
                             .text
                             .paint(
@@ -1527,7 +1612,16 @@ impl Element for EditorElement {
                 )
             };
             window.paint_quad(fill(band(0.0, p.top_margin), rgb(p.colors.background)));
-            if p.show_line_numbers {
+            // The image goes on over it, so that the first row does not reach up into the
+            // margin (without an image the band is the background).
+            paint_back(
+                window,
+                Bounds::new(
+                    bounds.origin,
+                    size(bounds.size.width - px(SCROLLBAR_WIDTH), px(p.top_margin)),
+                ),
+            );
+            if p.show_line_numbers && !shows_through(p.colors.line_number_background) {
                 window.paint_quad(fill(
                     Bounds::new(
                         point(bounds.left(), bounds.top() + px(p.ruler_px)),

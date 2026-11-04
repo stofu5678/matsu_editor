@@ -337,6 +337,10 @@ pub struct ViewSettings {
     pub ime_state: i32,
     /// `bUseDocumentIcon` of the type: the window has the icon of the file (`crate::doc_window`).
     pub use_document_icon: bool,
+    /// The background image of the type (`bgImg*`), if it names a file. The path is as typed
+    /// until [`UserSettings::view_settings_of_type`](super::UserSettings::view_settings_of_type)
+    /// looks for the file.
+    pub back_image: Option<crate::back_image::BackImageSpec>,
     /// What the outline of the type is made of.
     pub outline: OutlineSettings,
 }
@@ -695,6 +699,7 @@ impl ViewSettings {
             line_num_width: u32::try_from(t.line_num_width).unwrap_or(2),
             ime_state: t.ime_state,
             use_document_icon: t.use_document_icon,
+            back_image: crate::back_image::BackImageSpec::from_type(t),
             outline: OutlineSettings {
                 kind: t.default_outline,
                 line_num_is_crlf: t.line_num_is_crlf,

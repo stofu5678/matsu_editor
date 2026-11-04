@@ -28,6 +28,19 @@ pub(crate) fn browse_into(
     id: &'static str,
     title: &'static str,
 ) {
+    browse_into_filtered(dialog, window, cx, id, title, None);
+}
+
+/// [`browse_into`] with the one list of file types the dialog shows (`SelectFile`'s `filter`,
+/// for example `*.bmp;*.jpg;*.jpeg;*.png`). `None`: the dialog's own.
+pub(crate) fn browse_into_filtered(
+    dialog: &mut CommonSettingsDialog,
+    window: &mut gpui::Window,
+    cx: &mut gpui::Context<CommonSettingsDialog>,
+    id: &'static str,
+    title: &'static str,
+    wildcard: Option<&str>,
+) {
     let text = dialog.input_text(id, cx).unwrap_or_default();
     let ini_dir: Option<PathBuf> = crate::doc_types::with_user(cx, |user| {
         crate::settings::history_file(user).and_then(|path| path.parent().map(Path::to_owned))
@@ -46,14 +59,18 @@ pub(crate) fn browse_into(
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .filter(|_| !text.is_empty());
-    let receiver = file_dialog::ask(
-        window,
-        cx,
-        Ask::open(false)
-            .start(start)
-            .name(name)
-            .titled(title, "選択"),
-    );
+    let mut ask = Ask::open(false)
+        .start(start)
+        .name(name)
+        .titled(title, "選択");
+    if let Some(wildcard) = wildcard {
+        // `EFITER_NONE`: the list has this one entry and no "all files".
+        ask = ask.file_types(vec![matsu_platform::dialog::FileFilter {
+            name: wildcard.to_owned(),
+            patterns: wildcard.split(';').map(str::to_owned).collect(),
+        }]);
+    }
+    let receiver = file_dialog::ask(window, cx, ask);
     cx.spawn_in(window, async move |this, cx| {
         let chosen = receiver.await.ok().flatten();
         if let Some(path) = chosen.and_then(|paths| paths.into_iter().next()) {

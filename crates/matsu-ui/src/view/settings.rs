@@ -132,6 +132,7 @@ impl EditorView {
             self.font_family = super::FONT_FAMILY.into();
         }
         self.prefs = ViewPrefs::new(settings);
+        self.load_back_image();
         if let Some((method, columns)) = keep.wrap {
             self.prefs.wrap_method = method;
             self.prefs.wrap_columns = columns;
@@ -152,6 +153,20 @@ impl EditorView {
         self.remember_indent(cx);
         self.relayout_in(cx);
         cx.notify();
+    }
+
+    /// Reads the background image of the type, now that the type or its settings have changed
+    /// (`CEditDoc::SetBackgroundImage`): painting only draws what is read here. A picture that
+    /// is already read, for this view or another, is not read again.
+    fn load_back_image(&mut self) {
+        let loaded = self
+            .prefs
+            .settings
+            .back_image
+            .as_ref()
+            .filter(|spec| spec.is_visible())
+            .and_then(crate::back_image::load);
+        self.back_bitmap = loaded;
     }
 
     /// Tells the document the tab width and the use of spaces of this view, for a view made later.
