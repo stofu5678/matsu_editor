@@ -210,6 +210,35 @@ fn with_a_wrap_numbered_by_rows_a_window_is_numbered_by_lines(cx: &mut TestAppCo
 }
 
 #[gpui::test]
+fn an_empty_box_selection_keeps_its_mode_when_the_scan_is_done(cx: &mut TestAppContext) {
+    let (handle, dir) = opened(cx, "big.txt", big_text().as_bytes());
+    let view = active_view(cx, handle);
+    run(cx, handle, "F_GOFILEEND");
+    view.update(cx, |v, _| {
+        v.cursor.move_to(Pos::new(10, 1), false);
+        v.cursor.begin_box(1, true);
+    });
+    super::huge_tests::wait_for_scan(cx, &view);
+    assert!(view.read_with(cx, |v, _| v.cursor.is_box() && v.cursor.selecting_lock()));
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[gpui::test]
+fn a_line_beyond_the_end_goes_to_the_empty_row_after_the_last_line_ending(cx: &mut TestAppContext) {
+    let (handle, dir) = opened(cx, "big.txt", big_text().as_bytes());
+    let view = active_view(cx, handle);
+    // The file has 100 000 lines and ends with a line ending: a line far beyond is the end.
+    view.update(cx, |v, cx| v.run_command("jump", &[Arg::Int(900_000)], cx));
+    assert!(window_of(cx, &view).is_some());
+    super::huge_tests::wait_for_scan(cx, &view);
+    assert_eq!(
+        view.read_with(cx, |v, _| v.cursor.caret()),
+        Pos::new(100_000, 0)
+    );
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[gpui::test]
 fn a_box_selection_in_a_window_is_kept_when_the_scan_is_done(cx: &mut TestAppContext) {
     let (handle, dir) = opened(cx, "big.txt", big_text().as_bytes());
     let view = active_view(cx, handle);

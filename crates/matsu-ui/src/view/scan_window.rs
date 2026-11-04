@@ -146,15 +146,19 @@ impl EditorView {
             (false, None) => {}
         }
         self.cursor.move_to(moved.caret, false);
-        if let Some(anchor) = moved.anchor.filter(|a| *a != moved.caret) {
-            match moved.box_cols {
-                // A box selection keeps its corners and its columns (the text is the same).
-                Some((anchor_col, caret_col, lock)) => {
-                    self.cursor.move_to(anchor, false);
-                    self.cursor.begin_box(anchor_col, lock);
-                    self.cursor.move_box_to(moved.caret, caret_col);
+        match moved.box_cols {
+            // A box selection keeps its corners and its columns (the text is the same), also an
+            // empty one: its mode and its columns are all it has.
+            Some((anchor_col, caret_col, lock)) if !moved.caret_lost => {
+                self.cursor
+                    .move_to(moved.anchor.unwrap_or(moved.caret), false);
+                self.cursor.begin_box(anchor_col, lock);
+                self.cursor.move_box_to(moved.caret, caret_col);
+            }
+            _ => {
+                if let Some(anchor) = moved.anchor.filter(|a| *a != moved.caret) {
+                    self.cursor.select(anchor, moved.caret);
                 }
-                None => self.cursor.select(anchor, moved.caret),
             }
         }
         self.cursor.set_selecting_lock(lock);
@@ -481,7 +485,8 @@ impl EditorView {
                 // Counted from the estimate the window starts at: the gutter shows `n` there.
                 let before = shared.scan_window().map_or(0, |w| w.lines_before);
                 let local = (n - 1).saturating_sub(before) as usize;
-                Pos::new(local.min(doc.line_count().saturating_sub(1)), 0)
+                // (The empty row after a last line ending is a row too: a line beyond the end goes there.)
+                Pos::new(local.min(doc.row_count().saturating_sub(1)), 0)
             }
             _ => doc
                 .offset_to_pos(byte.saturating_sub(shared.frame_start()) as usize)
