@@ -23,8 +23,9 @@ use std::time::Duration;
 use gpui::{App, Context, Global};
 use matsu_layout::LayoutConfig;
 
+use super::scroll_repeat::Axis;
 use super::{Drag, EditorView};
-use crate::geometry::{HSCROLL_ARROW, HSCROLL_LINE_COLUMNS, HScrollbar, max_left_col};
+use crate::geometry::{BarPart, HSCROLL_LINE_COLUMNS, HScrollbar, max_left_col};
 use crate::settings::view_settings::WrapMethod;
 
 /// `m_bScrollBarHorz`: whether the views have a horizontal scroll bar. Sakura's default is on.
@@ -221,34 +222,50 @@ impl EditorView {
         }
     }
 
+    /// The part of the bar at `pos` pixels from its left end, if the view has one.
+    pub(crate) fn h_part_at(&self, pos: f32) -> Option<BarPart> {
+        let (bar, _) = self.h_scrollbar()?;
+        Some(bar.part_at(pos))
+    }
+
     /// A press at `window_x` on the bar.
     pub(crate) fn h_scroll_press(&mut self, window_x: f32, cx: &mut Context<Self>) {
         let Some((bar, paint)) = self.h_scrollbar() else {
             return;
         };
         let x = window_x - paint.left;
-        let left_col = (self.scroll_x / self.metrics.cell_width).round();
-        // `OnHScroll`: SB_LINELEFT / SB_LINERIGHT / SB_PAGELEFT / SB_PAGERIGHT.
-        if x < HSCROLL_ARROW {
-            self.scroll_to_col(left_col - HSCROLL_LINE_COLUMNS);
-        } else if x >= paint.width - HSCROLL_ARROW {
-            self.scroll_to_col(left_col + HSCROLL_LINE_COLUMNS);
-        } else if !bar.enabled() {
-            // Nothing to scroll.
-        } else {
-            let on_track = x - HSCROLL_ARROW;
-            if on_track >= bar.thumb_left && on_track <= bar.thumb_left + bar.thumb_width {
+        let part = bar.part_at(x);
+        if part == BarPart::Thumb {
+            // A disabled bar has no thumb to take.
+            if bar.enabled() {
                 self.drag = Drag::HThumb {
                     start_x: window_x,
                     start_col: bar.pos,
                 };
-            } else if on_track < bar.thumb_left {
-                self.scroll_to_col(left_col - bar.page as f32);
-            } else {
-                self.scroll_to_col(left_col + bar.page as f32);
             }
+        } else if matches!(part, BarPart::PageBack | BarPart::PageForward) && !bar.enabled() {
+            // Nothing to scroll.
+        } else {
+            self.h_scroll_step(part);
+            self.start_scroll_repeat(Axis::Horizontal, part, x, cx);
         }
         cx.notify();
+    }
+
+    /// What an arrow or a click on the track does, once (`OnHScroll`: `SB_LINELEFT`,
+    /// `SB_LINERIGHT`, `SB_PAGELEFT` and `SB_PAGERIGHT`).
+    pub(crate) fn h_scroll_step(&mut self, part: BarPart) {
+        let Some((bar, _)) = self.h_scrollbar() else {
+            return;
+        };
+        let left_col = (self.scroll_x / self.metrics.cell_width).round();
+        match part {
+            BarPart::LineBack => self.scroll_to_col(left_col - HSCROLL_LINE_COLUMNS),
+            BarPart::LineForward => self.scroll_to_col(left_col + HSCROLL_LINE_COLUMNS),
+            BarPart::PageBack if bar.enabled() => self.scroll_to_col(left_col - bar.page as f32),
+            BarPart::PageForward if bar.enabled() => self.scroll_to_col(left_col + bar.page as f32),
+            _ => {}
+        }
     }
 
     /// The pointer moves while the thumb is held (`SB_THUMBTRACK`).

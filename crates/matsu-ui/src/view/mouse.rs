@@ -205,41 +205,33 @@ impl EditorView {
         let Some(paint) = self.paint else {
             return;
         };
-        let rows = self.layout.row_count();
-        // The horizontal scroll bar, and the corner right of it where Sakura has the size box.
+        // The horizontal scroll bar, the split box left of it, and the corner right of it where
+        // Sakura has the size box.
         if let Some(hbar) = paint.hbar
             && f32::from(event.position.y) >= hbar.top
         {
-            if f32::from(event.position.x) < paint.scrollbar_left {
-                self.h_scroll_press(f32::from(event.position.x), cx);
+            let (x, y) = (f32::from(event.position.x), f32::from(event.position.y));
+            if let Some(hbox) = paint.hbox
+                && hbox.contains(x, y)
+            {
+                self.press_split_box(super::split_box::BoxKind::Horizontal, event, window, cx);
+            } else if x < paint.scrollbar_left {
+                self.h_scroll_press(x, cx);
             }
             return;
         }
         if f32::from(event.position.x) >= paint.scrollbar_left {
-            // The bar of a file that is still scanned covers the whole file (`scan_window.rs`).
-            let scan_bar = self.scan_scrollbar(&self.metrics, cx);
-            self.scan_thumb_drag = scan_bar.is_some();
-            let bar =
-                scan_bar.unwrap_or_else(|| Scrollbar::new(&self.metrics, rows, self.scroll_y));
-            let y = f32::from(event.position.y) - paint.origin_y;
-            if y >= bar.thumb_top && y <= bar.thumb_top + bar.thumb_height {
-                self.drag = Drag::Thumb {
-                    start_y: f32::from(event.position.y),
-                    // (for the bar of a scan: where the thumb was)
-                    start_scroll: if scan_bar.is_some() {
-                        bar.thumb_top
-                    } else {
-                        clamp_scroll_y(&self.metrics, rows, self.scroll_y)
-                    },
-                };
-            } else {
-                // Clicking the track pages up or down, as on Windows.
-                let page = self.metrics.line_height * (self.metrics.visible_rows() as f32 - 1.0);
-                let page = if y < bar.thumb_top { -page } else { page };
-                self.scroll_past_end = false;
-                self.scroll_y = clamp_scroll_y(&self.metrics, rows, self.scroll_y + page);
+            let (x, y) = (f32::from(event.position.x), f32::from(event.position.y));
+            if let Some(vbox) = paint.vbox
+                && vbox.contains(x, y)
+            {
+                self.press_split_box(super::split_box::BoxKind::Vertical, event, window, cx);
+                return;
             }
-            cx.notify();
+            // Below the bar is the corner square, which does nothing.
+            if y >= paint.vbar_top && y < paint.vbar_top + paint.vbar_len {
+                self.v_scroll_press(y, cx);
+            }
             return;
         }
         // The ruler and the gap under it do nothing: `OnLBUTTONDOWN` returns for `y < AreaTop`
@@ -585,6 +577,12 @@ impl EditorView {
                 }
             }
             Drag::Drop => self.move_drop_caret(event.position, cx),
+            Drag::Repeat => {
+                self.scroll_repeat_pointer(
+                    f32::from(event.position.x),
+                    f32::from(event.position.y),
+                );
+            }
             Drag::HThumb { start_x, start_col } => {
                 self.h_scroll_drag(f32::from(event.position.x), start_x, start_col, cx);
             }
@@ -651,6 +649,7 @@ impl EditorView {
             _ => {}
         }
         self.drop_caret = None;
+        self.end_scroll_repeat();
         if self.drag != Drag::None {
             self.drag = Drag::None;
             cx.notify();
