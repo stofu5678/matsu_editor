@@ -4,8 +4,6 @@
 //! The file is text: the line `// 正規表現キーワード Ver1`, then a line `RxKey[NNN]=color,keyword` for each
 //! keyword, the color by its name (`TXT` ...; `GetColorNameByIndex`). Importing replaces the list of the
 //! page; nothing is written to the settings file until OK.
-//!
-//! Not built: the limit on the size of the whole list (`MAX_REGEX_KEYWORDLISTLEN`, `STR_IMPEXP_REGEX2`).
 
 use std::path::Path;
 
@@ -29,6 +27,10 @@ const HEAD: &str = "// 正規表現キーワード Ver1";
 const MAX_KEYWORD_LEN: usize = 1000;
 /// `STR_IMPEXP_REGEX1`
 const TOO_MANY: &str = "キーワード数が上限に達したため切り捨てました。";
+/// `MAX_REGEX_KEYWORDLISTLEN`: the size of the whole list in UTF-16 units, each keyword and its NUL.
+const MAX_LIST_LEN: usize = MAX_REGEX_KEYWORDS * 100 + 1;
+/// `STR_IMPEXP_REGEX2`
+const LIST_FULL: &str = "キーワード領域がいっぱいなため切り捨てました。";
 /// `STR_IMPEXP_REGEX3`
 const INVALID: &str = "不正なキーワードを無視しました。";
 /// `STR_IMPEXP_REGEX4`
@@ -73,6 +75,7 @@ fn decode(bytes: &[u8]) -> String {
 pub(in crate::type_settings) fn parse(bytes: &[u8]) -> Imported {
     let mut rows = Vec::new();
     let mut message = None;
+    let mut list_len = 0usize;
     // `CTextInputStream::ReadLineW`: CR LF, LF and CR all end a line.
     let text = decode(bytes).replace("\r\n", "\n").replace('\r', "\n");
     for line in text.split('\n') {
@@ -100,10 +103,16 @@ pub(in crate::type_settings) fn parse(bytes: &[u8]) -> Imported {
             message = Some(TOO_MANY);
             break;
         }
-        if keyword.chars().count() >= MAX_KEYWORD_LEN {
+        let len = keyword.encode_utf16().count();
+        if len >= MAX_KEYWORD_LEN {
             message = Some(TOO_LONG);
             continue;
         }
+        if list_len + len + 1 >= MAX_LIST_LEN {
+            message = Some(LIST_FULL);
+            continue;
+        }
+        list_len += len + 1;
         rows.push(vec![keyword, label.to_owned()]);
     }
     Imported { rows, message }
@@ -276,6 +285,19 @@ mod tests {
         let imported = parse(&utf8(&long));
         assert_eq!(imported.rows, rows(&[("/b/k", color_label("RK1"))]));
         assert_eq!(imported.message, Some(TOO_LONG));
+    }
+
+    #[test]
+    fn a_keyword_that_does_not_fit_the_list_area_is_left_out() {
+        // Each keyword takes 999 units and its NUL: ten fill 10000 of the 10001 units.
+        let mut text = String::new();
+        for i in 0..11 {
+            text.push_str(&format!("RxKey[{i:03}]=RK1,/{i:0>996}/k\n"));
+        }
+        text.push_str("RxKey[011]=RK1,/z/k\n");
+        let imported = parse(&utf8(&text));
+        assert_eq!(imported.rows.len(), 10);
+        assert_eq!(imported.message, Some(LIST_FULL));
     }
 
     #[test]

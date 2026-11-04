@@ -118,7 +118,14 @@ pub(crate) struct TableSpec {
     /// A page that checks (and completes) a row before 挿入, 追加 and 更新 put it in, as
     /// `CPropTypesRegex::CheckKeywordList` and the 挿入/更新 of `CPropTypesKeyHelp` do.
     pub prepare: Option<Prepare>,
+    /// A question to ask, after every check has passed, before 挿入, 追加 and 更新 put the row in
+    /// (`CPropTypesRegex::CheckKeywordList` asks whether to register a pattern that does not
+    /// compile). The row is the one that would be put in. Only a yes puts it in.
+    pub confirm: Option<Confirm>,
 }
+
+/// The question to ask about the row about to be put in, if any.
+pub(crate) type Confirm = fn(row: &Row) -> Option<&'static str>;
 
 /// Checks the row about to be put in. It may complete the row. `rows` are the rows now, and
 /// `updating` the row that the row replaces (`None` for a row that is added). `base` is the folder
@@ -389,6 +396,7 @@ mod tests {
         },
         full_message: "これ以上登録できません。",
         prepare: None,
+        confirm: None,
     };
 
     fn rows(list: &[&str]) -> Vec<Row> {
@@ -429,6 +437,7 @@ mod tests {
     fn the_check_of_a_page_refuses_or_completes_a_row_before_it_is_put_in() {
         let spec = TableSpec {
             prepare: Some(check),
+            confirm: None,
             ..SPEC
         };
         let mut r = rows(&["a"]);
