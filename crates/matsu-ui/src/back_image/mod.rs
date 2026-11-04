@@ -1,3 +1,45 @@
+// Ported from Sakura Editor and modified for MATSU Editor (Rust rewrite, changed from the C++ original).
+//
+// Original file:
+//   sakura_core/doc/CEditDoc.cpp (CEditDoc::SetBackgroundImage)
+//
+// Original copyright notice of those files:
+//   Copyright (C) 1998-2001, Norio Nakatani
+//   Copyright (C) 2000, genta
+//   Copyright (C) 2001, genta, YAZAKI, jepro, novice, asa-o, MIK,
+//   Copyright (C) 2002, YAZAKI, hor, genta, aroka, frozen, Moca, MIK
+//   Copyright (C) 2003, MIK, genta, ryoji, Moca, zenryaku, naoh, wmlhq
+//   Copyright (C) 2004, genta, novice, Moca, MIK, zenryaku
+//   Copyright (C) 2005, genta, naoh, FILE, Moca, ryoji, D.S.Koba, aroka
+//   Copyright (C) 2006, genta, ryoji, aroka
+//   Copyright (C) 2007, ryoji, maru
+//   Copyright (C) 2008, ryoji, nasukoji
+//   Copyright (C) 2009, nasukoji
+//   Copyright (C) 2011, ryoji
+//   Copyright (C) 2013, Uchi
+//   Copyright (C) 2018-2022, Sakura Editor Organization
+//   SPDX-License-Identifier: Zlib
+//
+// zlib License
+//
+// Copyright (C) 1998-2001, Norio Nakatani; and the others named above; 2018-2022, Sakura Editor Organization
+//
+// This software is provided 'as-is', without any express or implied
+// warranty.  In no event will the authors be held liable for any damages
+// arising from the use of this software.
+//
+// Permission is granted to anyone to use this software for any purpose,
+// including commercial applications, and to alter it and redistribute it
+// freely, subject to the following restrictions:
+//
+// 1. The origin of this software must not be misrepresented; you must not
+//    claim that you wrote the original software. If you use this software
+//    in a product, an acknowledgment in the product documentation would be
+//    appreciated but is not required.
+// 2. Altered source versions must be plainly marked as such, and must not be
+//    misrepresented as being the original software.
+// 3. This notice may not be removed or altered from any source distribution.
+
 //! The background image of a document type (`bgImg*` of `[Types(N)]`; 背景画像 of the type
 //! settings, 「ウィンドウ」).
 //!
