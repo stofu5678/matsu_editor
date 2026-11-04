@@ -229,7 +229,12 @@ impl EditorView {
     }
 
     /// A press at `window_x` on the bar.
-    pub(crate) fn h_scroll_press(&mut self, window_x: f32, cx: &mut Context<Self>) {
+    pub(crate) fn h_scroll_press(
+        &mut self,
+        window_x: f32,
+        window: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some((bar, paint)) = self.h_scrollbar() else {
             return;
         };
@@ -247,7 +252,7 @@ impl EditorView {
             // Nothing to scroll.
         } else {
             self.h_scroll_step(part);
-            self.start_scroll_repeat(Axis::Horizontal, part, x, cx);
+            self.start_scroll_repeat(Axis::Horizontal, part, x, window, cx);
         }
         cx.notify();
     }

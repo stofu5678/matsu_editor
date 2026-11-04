@@ -216,7 +216,7 @@ impl EditorView {
             {
                 self.press_split_box(super::split_box::BoxKind::Horizontal, event, window, cx);
             } else if x < paint.scrollbar_left {
-                self.h_scroll_press(x, cx);
+                self.h_scroll_press(x, window, cx);
             }
             return;
         }
@@ -230,7 +230,7 @@ impl EditorView {
             }
             // Below the bar is the corner square, which does nothing.
             if y >= paint.vbar_top && y < paint.vbar_top + paint.vbar_len {
-                self.v_scroll_press(y, cx);
+                self.v_scroll_press(y, window, cx);
             }
             return;
         }

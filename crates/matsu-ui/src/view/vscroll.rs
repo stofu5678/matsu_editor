@@ -34,7 +34,12 @@ impl EditorView {
     }
 
     /// A press at `window_y` on the bar.
-    pub(crate) fn v_scroll_press(&mut self, window_y: f32, cx: &mut Context<Self>) {
+    pub(crate) fn v_scroll_press(
+        &mut self,
+        window_y: f32,
+        window: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(paint) = self.paint else {
             return;
         };
@@ -55,7 +60,7 @@ impl EditorView {
             };
         } else {
             self.v_scroll_step(part, cx);
-            self.start_scroll_repeat(Axis::Vertical, part, pos, cx);
+            self.start_scroll_repeat(Axis::Vertical, part, pos, window, cx);
         }
         cx.notify();
     }

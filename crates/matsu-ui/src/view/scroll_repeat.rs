@@ -12,7 +12,7 @@
 
 use std::time::Duration;
 
-use gpui::Context;
+use gpui::{Context, Window};
 
 use super::{Drag, EditorView};
 use crate::geometry::BarPart;
@@ -59,6 +59,7 @@ impl EditorView {
         axis: Axis,
         part: BarPart,
         pointer: f32,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let id = self.scroll_repeat.map_or(0, |r| r.id) + 1;
@@ -69,12 +70,18 @@ impl EditorView {
             pointer: Some(pointer),
             id,
         });
-        self.scroll_repeat_task = Some(cx.spawn(async move |this, cx| {
+        // The pointer is asked of the window at each repeat: a move to somewhere outside the view
+        // (the status bar, another window) never reaches the listener of the view.
+        self.scroll_repeat_task = Some(cx.spawn_in(window, async move |this, cx| {
             let mut n = 0;
             loop {
                 cx.background_executor().timer(delay_before(n)).await;
                 n += 1;
-                match this.update(cx, |view, cx| view.scroll_repeat_tick(id, cx)) {
+                match this.update_in(cx, |view, window, cx| {
+                    let at = window.mouse_position();
+                    view.scroll_repeat_pointer(f32::from(at.x), f32::from(at.y));
+                    view.scroll_repeat_tick(id, cx)
+                }) {
                     Ok(true) => {}
                     _ => break,
                 }
@@ -82,7 +89,7 @@ impl EditorView {
         }));
     }
 
-    /// The pointer moves while the press is held.
+    /// The pointer is at `(x, y)` in the window while the press is held.
     pub(crate) fn scroll_repeat_pointer(&mut self, x: f32, y: f32) {
         let Some(paint) = self.paint else {
             return;
