@@ -1227,6 +1227,12 @@ impl Element for EditorElement {
             let y = body_top + px(p.y_offset) + lh * i as f32;
             if let Some(background) = row.gutter_background {
                 let cell = Bounds::new(point(bounds.left(), y), size(px(p.gutter_width), lh));
+                // The background and the image are given the same device pixels.
+                let cell = if shows_through(background) {
+                    super::back_paint::snapped(cell, back_frame.scale)
+                } else {
+                    cell
+                };
                 if shows_through(background) {
                     // The row's line number area has the background of the text while the rest
                     // of the area does not (`DispLineNumber`: `bTrans`): the image is under it.
@@ -1442,6 +1448,15 @@ impl Element for EditorElement {
                             point(x_of(bracket.col), y),
                             point(x_of(bracket.col + bracket.cols), y + lh),
                         );
+                        // The rectangle that clears the cell and the image painted in it are
+                        // given the same whole device pixels: GPUI paints the edge of a
+                        // rectangle that is between two pixels partly, which the image (cut to
+                        // whole pixels) would not cover.
+                        let cell = if shows_through(bracket.back) {
+                            super::back_paint::snapped(cell, back_frame.scale)
+                        } else {
+                            cell
+                        };
                         if shows_through(bracket.back) {
                             // `DrawBracketPair`: the cell gets the image again, under the
                             // character, so that the first one (drawn with the row, in the

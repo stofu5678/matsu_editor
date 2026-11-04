@@ -101,6 +101,17 @@ pub(super) fn track(window: &mut Window, cx: &mut App, current: Option<&BackPain
     });
 }
 
+/// `bounds` with each edge on a whole device pixel (rounded in the window, as `plan` and GPUI
+/// round the edges of an image). A rectangle given such bounds is painted whole, without the
+/// partly painted edge row that GPUI gives a rectangle whose edge is between two pixels.
+pub(super) fn snapped(bounds: Bounds<Pixels>, scale: f32) -> Bounds<Pixels> {
+    let round = |v: Pixels| px((f32::from(v) * scale).round() / scale);
+    Bounds::from_corners(
+        point(round(bounds.left()), round(bounds.top())),
+        point(round(bounds.right()), round(bounds.bottom())),
+    )
+}
+
 /// The view the image is placed in, in GPUI pixels.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Frame {
@@ -401,6 +412,58 @@ mod tests {
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_rectangle_and_the_image_of_a_cell_have_the_same_whole_pixels() {
+        // The rectangle that clears a cell and the clip of the image painted in it are given
+        // `snapped` bounds: the same device pixels, with no edge between two pixels.
+        let b = back(back_img_pos::TOP_LEFT, (true, true), (true, true));
+        for scale in [1.0_f32, 1.25, 1.5, 2.0] {
+            let mut f = frame(scale);
+            f.bounds = Bounds::new(point(px(10.3), px(10.7)), f.bounds.size);
+            for (x, y) in [(87.4_f32, 956.5_f32), (130.2, 63.6), (41.5, 50.5)] {
+                let cell = Bounds::new(point(px(x), px(y)), size(px(8.4), px(18.3)));
+                let snapped = snapped(cell, scale);
+                for edge in [
+                    snapped.left(),
+                    snapped.top(),
+                    snapped.right(),
+                    snapped.bottom(),
+                ] {
+                    let device = f32::from(edge) * scale;
+                    assert!(
+                        (device - device.round()).abs() < 1e-3,
+                        "{device} at {scale}"
+                    );
+                }
+                // `plan` of the snapped cell is the pixels of the snapped rectangle.
+                let (_, clip) = plan(&b, &f, snapped);
+                let dev = |v: Pixels| (f32::from(v) * scale).round() as i64;
+                let (ox, oy) = (
+                    (f32::from(f.bounds.origin.x) * scale).round() as i64,
+                    (f32::from(f.bounds.origin.y) * scale).round() as i64,
+                );
+                // (the area of the view cuts the clip: only compare a cell inside it)
+                if clip.width() > 0 && clip.height() > 0 && y < 300.0 {
+                    assert_eq!(
+                        (
+                            clip.left + ox,
+                            clip.top + oy,
+                            clip.right + ox,
+                            clip.bottom + oy
+                        ),
+                        (
+                            dev(snapped.left()),
+                            dev(snapped.top()),
+                            dev(snapped.right()),
+                            dev(snapped.bottom())
+                        ),
+                        "scale {scale} cell ({x}, {y})"
+                    );
                 }
             }
         }
