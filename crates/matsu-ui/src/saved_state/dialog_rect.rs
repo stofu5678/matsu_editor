@@ -151,7 +151,10 @@ impl Rect {
         }
         if right > area.right {
             if width > area.width() {
-                // Sakura adds the height here, which is a typo: the width is kept.
+                // Sakura writes `rc.left = rc.left` and adds the height here, which are typos
+                // for `rcWork.left` and the width (the branch of the height above): start at
+                // the left of the area and keep the width.
+                left = area.left;
                 right = left + width;
             } else {
                 left = area.right - width;
@@ -301,6 +304,13 @@ mod tests {
         let r = rect(-50, -50, 2500, 1500).fitted(&[SCREEN]);
         assert_eq!((r.left, r.top), (1, 1));
         assert_eq!((r.width(), r.height()), (2550, 1550));
+    }
+
+    #[test]
+    fn a_wide_rectangle_off_the_right_starts_at_the_left_of_the_area() {
+        let r = rect(5000, 100, 7500, 500).fitted(&[SCREEN]);
+        assert_eq!((r.left, r.right), (1, 2501));
+        assert_eq!((r.top, r.bottom), (100, 500));
     }
 
     #[test]
