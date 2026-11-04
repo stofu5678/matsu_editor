@@ -36,6 +36,8 @@ pub(crate) struct PaneSeed {
     font_size: f32,
     metrics: Metrics,
     search: SearchState,
+    /// The jump list of the file that a window on it puts aside (`view/scan_window.rs`).
+    jumps_stash: Option<matsu_core::jump_history::JumpHistory>,
 }
 
 /// What belongs to the window and so goes to the pane the user works in.
@@ -63,6 +65,7 @@ impl EditorView {
         view.split_host = Some(host);
         view.relayout_in(cx);
         view.apply_view_status(seed.status);
+        view.jumps_stash = seed.jumps_stash;
         view
     }
 
@@ -75,6 +78,7 @@ impl EditorView {
             font_size: self.font_size,
             metrics: self.metrics,
             search: self.search.clone(),
+            jumps_stash: self.jumps_stash.clone(),
         }
     }
 
