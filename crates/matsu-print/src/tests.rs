@@ -1146,3 +1146,39 @@ fn the_tsv_mode_changes_where_the_rows_wrap() {
     let tsv = Layout::new(&lines, &s, paper, &tsv_options(TsvMode::Tsv)).unwrap();
     assert_eq!(tsv.row_count(), 1);
 }
+
+#[test]
+fn the_header_and_the_footer_do_not_use_the_stops_of_the_tsv_modes() {
+    let s = PrintSetting {
+        header_form: ["a,b\tc".into(), "a,b\tc".into(), "a,b\tc".into()],
+        footer_form: ["x,y".into(), "x,y".into(), "x,y".into()],
+        print_line_number: true,
+        ..PrintSetting::default()
+    };
+    let lines = ["abcd,e\tf", "abcdefgh\tx"];
+    let plain = layout(&lines, &s, Paper::A4);
+    let want = page(&plain, 0, &lines);
+    // Everything that is not the document's text: the header and the footer (the left, the
+    // middle and the right) and the line numbers.
+    let outside = |p: &Page| -> Vec<_> {
+        p.texts
+            .iter()
+            .filter(|t| {
+                t.baseline < 150 || t.baseline > 2700 || t.text.chars().all(|c| c.is_ascii_digit())
+            })
+            .map(|t| (t.x, t.baseline, t.text.clone()))
+            .collect()
+    };
+    for mode in [TsvMode::Csv, TsvMode::Tsv] {
+        let l = Layout::new(&lines, &s, Paper::A4, &tsv_options(mode)).unwrap();
+        let got = page(&l, 0, &lines);
+        assert_eq!(outside(&got), outside(&want), "{mode:?}");
+    }
+    // "a,b" in the left part: one piece, "b" in the third cell and not at the end of a field.
+    let (mut s, paper) = narrow(40);
+    s.header_form = ["a,b".into(), String::new(), String::new()];
+    let lines = ["abcd,e"];
+    let l = Layout::new(&lines, &s, paper, &tsv_options(TsvMode::Csv)).unwrap();
+    let p = page(&l, 0, &lines);
+    assert_eq!((p.texts[0].x, p.texts[0].text.as_str()), (205, "a,b"));
+}

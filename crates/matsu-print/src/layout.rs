@@ -152,6 +152,10 @@ pub struct Layout {
     options: TypeOptions,
     paper: Paper,
     config: LayoutConfig,
+    /// `config` without the TSV and CSV stops, for the text that is not the document's: the line
+    /// numbers, the header and the footer (`Print_DrawLine` with no layout moves a tab by the
+    /// tab width and treats a comma as an ordinary character).
+    plain_config: LayoutConfig,
     /// Cells for the text in a row (`m_bPreview_EnableColumns`).
     cells: u32,
     /// Rows in a column (`m_bPreview_EnableLines`).
@@ -226,6 +230,10 @@ impl Layout {
                     setting: s.clone(),
                     options: options.clone(),
                     paper,
+                    plain_config: LayoutConfig {
+                        tsv: TsvStops::none(),
+                        ..config.clone()
+                    },
                     config,
                     cells: cells as u32,
                     rows: rows as usize,
@@ -517,7 +525,7 @@ impl Layout {
                     x,
                     baseline,
                     cell,
-                    config: &self.config,
+                    config: &self.plain_config,
                 },
                 drawn,
                 0,
@@ -592,7 +600,7 @@ impl Layout {
                         x,
                         baseline,
                         cell: fw,
-                        config: &self.config,
+                        config: &self.plain_config,
                     },
                     &text,
                     0,
