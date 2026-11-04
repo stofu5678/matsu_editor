@@ -346,7 +346,8 @@ async fn jump_to(target: &TagTarget, cx: &mut AsyncWindowContext) -> bool {
             })
             .unwrap_or(true);
         if !modified {
-            super::close::close_tab_or_window(&editor, &mut window_cx);
+            // The window had its `EditorStart`: it ends with `EditorEnd`.
+            super::close::close_with_events(&editor, &mut window_cx, false).await;
         }
         return false;
     }
