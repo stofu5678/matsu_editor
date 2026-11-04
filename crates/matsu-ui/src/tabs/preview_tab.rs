@@ -48,6 +48,11 @@ impl Workspace {
         }
         let host = cx.weak_entity();
         let hidden = cx.new(|cx| EditorView::new(document.clone(), cx));
+        // It has the type of the document, so that a later announcement of the type (when the
+        // source is made again) does not make it apply the type and end the indentation of the
+        // document that the views keep.
+        let type_index = editor.read(cx).view_settings().type_index;
+        hidden.update(cx, |view, _| view.follow_type_index(type_index));
         // The functions of the bar (next and previous window, the list of the tabs, close) run on
         // this view and reach the window through it.
         hidden.update(cx, |view, _| view.split_host = Some(host.clone()));

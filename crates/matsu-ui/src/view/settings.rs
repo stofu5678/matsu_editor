@@ -161,6 +161,14 @@ impl EditorView {
             .update(cx, |shared, _| shared.set_indent(width, ins_space));
     }
 
+    /// Makes this view a follower of document type `index` without taking its settings, for the
+    /// hidden view of a preview (it shows nothing). A view of another type applies the type when
+    /// the document announces it (`follow_document_type`) and then tells the document its tab
+    /// width and use of spaces, which would end those of the document.
+    pub(crate) fn follow_type_index(&mut self, index: usize) {
+        self.prefs.settings.type_index = index;
+    }
+
     /// Reads the settings file for this view: the values for the file it shows, and the user's
     /// key bindings. The first problem in the file goes to the status bar.
     pub fn apply_user_settings(&mut self, user: &UserSettings, cx: &mut Context<Self>) {
