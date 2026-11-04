@@ -229,3 +229,37 @@ fn a_very_long_line_of_a_file_read_by_ranges_has_no_colors(cx: &mut TestAppConte
     assert_eq!(long_line.next, Some(ColorState::Normal));
     assert!(!runs_of(cx, 1, Some(skip - 1)).runs.is_empty());
 }
+
+/// The text of line `line` of the document of the view.
+fn line_text(view: &Entity<EditorView>, cx: &mut VisualTestContext, line: usize) -> String {
+    view.read_with(cx, |v, cx| {
+        let doc = v.document.read(cx).doc();
+        doc.line(line).unwrap().map(|l| l.text).unwrap_or_default()
+    })
+}
+
+#[gpui::test]
+fn the_cpp_smart_indent_knows_a_comment_that_goes_on_from_the_lines_before(
+    cx: &mut TestAppContext,
+) {
+    // The `}` is typed in a block comment that began two lines up: it is only a char there, and the
+    // indentation stays (Sakura asks `GetColorTypePrev` of the line).
+    let (view, cx) = setup(cx, "void f() {\n\t/* a\n\t\t", "a.c");
+    cx.run_until_parked();
+    view.update(cx, |v, cx| v.run_command("go_file_end", &[], cx));
+    cx.simulate_input("}");
+    assert_eq!(line_text(&view, cx, 2), "\t\t}");
+    // After a line comment the line is code: the `}` goes back to the level of its `{`.
+    let (view, cx) = setup(cx, "void f() {\n\t// a\n\t\t", "a.c");
+    cx.run_until_parked();
+    view.update(cx, |v, cx| v.run_command("go_file_end", &[], cx));
+    cx.simulate_input("}");
+    assert_eq!(line_text(&view, cx, 2), "}");
+    // The `}` is in the comment too, so it closes nothing and the line break after the code is
+    // indented from the `{` of the function.
+    let (view, cx) = setup(cx, "void f() {\n\t/* a\n\t } */ g();", "a.c");
+    cx.run_until_parked();
+    view.update(cx, |v, cx| v.run_command("go_file_end", &[], cx));
+    cx.simulate_input("\r");
+    assert_eq!(line_text(&view, cx, 3), "\t");
+}

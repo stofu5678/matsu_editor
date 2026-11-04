@@ -640,6 +640,8 @@ impl EditorView {
                 if let Some(at) = self.drop_caret {
                     // Ctrl copies (`TranslateDropEffect`).
                     let copy = event.modifiers.control;
+                    // The drop edits the text: not inside the undo step of a smart indent that runs.
+                    self.cut_indent_undo_step(cx);
                     self.run_with(cx, |command_cx| command_cx.mouse_drop_selection(at, copy))
                         .ok();
                 }

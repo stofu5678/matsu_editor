@@ -38,8 +38,9 @@
 //! or the spaces up to the next tab stop if the type inserts spaces for the Tab key
 //! (`m_bInsSpace`).
 //!
-//! Not done: the state at the start of a line that earlier lines leave (`GetColorTypePrev`: a
-//! `/* ... */` comment that goes on from the line before); the line is scanned from its start.
+//! The state a line starts in is what the lines before it leave (`CLayout::GetColorTypePrev`): a
+//! `/* ... */` comment, a string or a char literal that goes on from an earlier line. The window
+//! tells it through [`LineStartColors`]; a context without one scans every line from outside.
 //!
 //! The three options of the "支援" page come with the input options
 //! ([`InputOptions`](crate::input_options::InputOptions)): `m_bIndentCppStringIgnore` and
@@ -50,6 +51,7 @@ use matsu_core::buffer::Pos;
 
 use super::CommandContext;
 use crate::command::Result;
+use crate::input_options::LineStart;
 
 /// The line ending of a line stands for itself as one char: Sakura's line strings end with it
 /// (`GetDocLineStrWithEOL`).
@@ -83,12 +85,23 @@ enum Scan {
 
 /// The ranges of a line that are inside a string, a char literal or a comment (`SCommentBlock`):
 /// both ends are included. `strings` and `comments` are `m_bIndentCppStringIgnore` and
-/// `m_bIndentCppCommentIgnore`: what is off is not looked for (`SmartIndent_CPP`).
-fn comment_blocks(line: &[char], strings: bool, comments: bool) -> Vec<(usize, usize)> {
+/// `m_bIndentCppCommentIgnore`: what is off is not looked for (`SmartIndent_CPP`). `start` is the
+/// state the line starts in; one that is off is not looked for either.
+fn comment_blocks(
+    line: &[char],
+    strings: bool,
+    comments: bool,
+    start: LineStart,
+) -> Vec<(usize, usize)> {
     let len = line.len();
     let mut blocks = Vec::new();
-    let mut mode = Scan::Code;
-    let mut begin: isize = -1;
+    let mut mode = match start {
+        LineStart::DoubleQuote if strings => Scan::String,
+        LineStart::SingleQuote if strings => Scan::CharLiteral,
+        LineStart::BlockComment if comments => Scan::BlockComment,
+        _ => Scan::Code,
+    };
+    let mut begin: isize = if mode == Scan::Code { -1 } else { 0 };
     let mut n = 0;
     while n < len {
         let c = line[n];
@@ -261,7 +274,10 @@ impl CommandContext<'_> {
             }
             // With both options off the line is not scanned (`bCommentStringCheck`).
             let blocks = if string_ignore || comment_ignore {
-                comment_blocks(&other, string_ignore, comment_ignore)
+                let start = self.line_colors.map_or(LineStart::Normal, |colors| {
+                    colors.at_line_start(self.doc(), row)
+                });
+                comment_blocks(&other, string_ignore, comment_ignore, start)
             } else {
                 Vec::new()
             };

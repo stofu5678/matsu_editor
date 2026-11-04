@@ -48,7 +48,7 @@ use matsu_core::model::DocumentModel;
 
 use crate::clipboard::Clipboard;
 use crate::command::{CommandError, Result};
-use crate::input_options::InputOptions;
+use crate::input_options::{InputOptions, LineStartColors, SmartIndentCall};
 use crate::layout::Layout;
 
 pub use bookmarks::BookmarkJump;
@@ -136,6 +136,9 @@ pub struct Changes {
     /// A message box that the command wants shown, with an OK button (Sakura: `InfoMessage` and
     /// `TopOkMessage`). Sakura shows it also while a macro runs.
     pub message_box: Option<String>,
+    /// A typed char whose type has a plugin for the smart indent: `matsu-ui` calls the plugin when
+    /// the command is over ([`SmartIndentCall`]).
+    pub smart_indent_plugin: Option<SmartIndentCall>,
 }
 
 impl Changes {
@@ -166,6 +169,9 @@ pub struct CommandContext<'a> {
     ins_space: bool,
     /// The indent options of the type. See [`with_input_options`](Self::with_input_options).
     input: InputOptions,
+    /// The states the lines start in, if the caller has them. See
+    /// [`with_line_start_colors`](Self::with_line_start_colors).
+    line_colors: Option<&'a dyn LineStartColors>,
     /// View mode: every edit is refused. See [`with_view_mode`](Self::with_view_mode).
     view_mode: bool,
     /// The quote string of `F_COPYLINESASPASSAGE`. See [`with_quote_string`](Self::with_quote_string).
@@ -208,6 +214,7 @@ impl<'a> CommandContext<'a> {
             overwrite: false,
             ins_space: false,
             input: InputOptions::default(),
+            line_colors: None,
             view_mode: false,
             quote: QUOTE.to_owned(),
         }
@@ -249,6 +256,21 @@ impl<'a> CommandContext<'a> {
     /// The indent options of the type.
     pub fn input_options(&self) -> &InputOptions {
         &self.input
+    }
+
+    /// Attaches what tells the state a line starts in (a string or a block comment that goes on
+    /// from the lines before). The C/C++ smart indent reads it
+    /// (`CLayout::GetColorTypePrev`); without it every line starts outside of them.
+    #[must_use]
+    pub fn with_line_start_colors(mut self, colors: &'a dyn LineStartColors) -> Self {
+        self.line_colors = Some(colors);
+        self
+    }
+
+    /// Asks for the plugin of the type to be called once the command is over
+    /// ([`Changes::smart_indent_plugin`]).
+    pub(crate) fn request_smart_indent_plugin(&mut self, call: SmartIndentCall) {
+        self.changes.smart_indent_plugin = Some(call);
     }
 
     /// Sets view mode before the command runs (the default is off). While it is on, the text

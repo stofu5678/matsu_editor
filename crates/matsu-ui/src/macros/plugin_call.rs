@@ -39,6 +39,8 @@ use super::output::Kind;
 use crate::plugin_outline::{Collected, Ending};
 use crate::view::EditorView;
 
+mod indent;
+
 thread_local! {
     /// The plugins that three failures in a row stopped, for the list of the settings page (which
     /// has no window to ask). Only the UI thread uses it.
@@ -394,6 +396,12 @@ impl Prepared {
         Some(fresh)
     }
 
+    /// The arguments the handler gets in `Plugin.args` (the `SmartIndent` jack passes the typed char).
+    pub(crate) fn with_args(mut self, args: Value) -> Self {
+        self.args = args;
+        self
+    }
+
     /// The host of the plugin has a call going (on another window): `run` would be refused.
     pub(crate) fn host_busy(&self) -> bool {
         self.host.borrow().current_jack().is_some()
@@ -567,7 +575,9 @@ fn prepare(
         return Err(crate::common_settings::plugin_unsupported_text(&why));
     }
     let plugin_dir = dirs.plugin_dir(folder);
-    match ConsentFile::load(&dirs.consent_file()).consent_for_dir(&def.id, plugin_dir.as_deref()) {
+    match ConsentFile::load(&dirs.consent_file())
+        .consent_for_dir_cached(&def.id, plugin_dir.as_deref())
+    {
         Consent::On => {}
         Consent::Off => {
             return Err(
@@ -604,9 +614,9 @@ fn prepare(
                 return Err("このプラグインは、このジャックを使わなくなりました".into());
             }
             // A key calls this jack: only a plugin that stays can have it (ADR-0026, chapter 2).
-            if jack.needs_resident() && !def.use_cache {
+            if jack.needs_resident() && !def.resident {
                 return Err(
-                    "このジャックは、常駐するプラグイン（plugin.def の [Wsh] に UseCache=1）だけが使えます"
+                    "このジャックは、常駐するプラグイン（plugin.def の [Wsh] に UseCache=1、または [Matsu] に Resident=1）だけが使えます"
                         .into(),
                 );
             }
@@ -620,7 +630,7 @@ fn prepare(
         ));
     }
     let runtime = cx.default_global::<Runtime>();
-    let want_resident = def.use_cache;
+    let want_resident = def.resident;
     let reuse = runtime
         .hosts
         .get(&def.id)
@@ -834,6 +844,7 @@ impl EditorView {
         if self.macros.watching > 0 {
             self.macros.watch_seen = self.document.read(cx).version();
         }
+        self.indent_guard_follow(cx);
         reply
     }
 }
@@ -853,7 +864,11 @@ fn release_document(
             return;
         }
         shared.set_plugin_busy(false);
-        if let Some(depth) = depth {
+        // The undo block of the call was closed when the user did something, and what is open now may
+        // be the user's own (an IME composition in another pane).
+        let closed = shared.plugin_block_closed();
+        shared.set_plugin_block_closed(false);
+        if let (Some(depth), false) = (depth, closed) {
             shared
                 .parts_mut()
                 .0
@@ -1005,6 +1020,13 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
         if depth.is_some() && complement.is_none() {
             view.open_undo_block(cx);
         }
+        // A smart indent is cut off from the user's input when the user does something (`indent`).
+        if view.macros.indent_guard.is_some() {
+            view.macros.indent_undo_depth = depth;
+            view.macros.indent_closed = false;
+            view.document
+                .update(cx, |shared, _| shared.set_plugin_block_closed(false));
+        }
         (depth, view.document.read(cx).generation())
     });
     let (depth, generation) = depth;
@@ -1031,6 +1053,15 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                     .update(cx, |view, cx| view.document.read(cx).generation() != generation)
                     .unwrap_or(false);
                 if replaced {
+                    host.borrow_mut().shutdown();
+                    continue;
+                }
+                // A smart indent whose place is gone (the user typed on or moved) is stopped now, so that
+                // the undo block of the call ends and the input after it is not in it.
+                let moved = weak
+                    .update(cx, |view, cx| view.stop_indent_if_moved(cx))
+                    .unwrap_or(false);
+                if moved {
                     host.borrow_mut().shutdown();
                     continue;
                 }
@@ -1069,6 +1100,12 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                         if view.document.read(cx).generation() != generation {
                             return (replaced_reply(&text), true);
                         }
+                        // A smart indent is for the place where the char was typed: the user went on
+                        // typing or moved the caret, so the plugin is stopped. What the user typed
+                        // is in the text; nothing of the plugin's is added to it.
+                        if view.stop_indent_if_moved(cx) {
+                            return (replaced_reply(&text), true);
+                        }
                         // A call of an object of the plugin itself (`Plugin.GetOption`, `Complement.AddList`)
                         // does not touch the document: it must not touch the window either (an IME
                         // composition of the user goes on).
@@ -1103,14 +1140,31 @@ pub(crate) fn run(editor: Entity<EditorView>, prepared: Prepared, cx: &mut App) 
                     let ended = weak.update(cx, |view, cx| {
                         view.macros.plugin_running = false;
                         view.macros.plugin_event = false;
+                        view.macros.indent_guard = None;
                         // Only the document the call began on: a replaced one is not ours to free.
+                        let mut closed = std::mem::take(&mut view.macros.indent_closed);
+                        view.macros.indent_undo_depth = None;
                         if view.document.read(cx).generation() == generation {
-                            view.document.update(cx, |shared, _| shared.set_plugin_busy(false));
-                            // A composition that the user began meanwhile has a block of its own, which
-                            // closing to the depth from before the call would end.
-                            if complement.is_none() || !view.composing {
+                            // Whoever cut the call off says so on the document (`release_document` reads it too).
+                            closed |= view.document.read(cx).plugin_block_closed();
+                            view.document.update(cx, |shared, _| {
+                                shared.set_plugin_busy(false);
+                                shared.set_plugin_block_closed(false);
+                            });
+                            // The undo block of a smart indent that the user cut off is closed already,
+                            // and what is open now is the user's own. A composition that the user began
+                            // meanwhile has a block of its own, which closing to the depth from before
+                            // the call would end.
+                            if !closed && (complement.is_none() || !view.composing) {
                                 view.leave_undo_block(depth, cx);
                             }
+                        }
+                        // A smart indent that was stopped because the user went on says nothing.
+                        if std::mem::take(&mut view.macros.indent_stopped)
+                            && outcome == Outcome::Cancelled
+                        {
+                            cx.notify();
+                            return;
                         }
                         // An event that went well leaves no trace.
                         if event && outcome == Outcome::Ok && !stopped {
