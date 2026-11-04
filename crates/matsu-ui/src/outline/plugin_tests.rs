@@ -181,6 +181,42 @@ fn the_labels_of_a_class_tree_are_the_ones_the_plug_set(cx: &mut TestAppContext)
 }
 
 #[gpui::test]
+fn the_tree_of_a_plug_has_expand_all_and_can_be_docked_by_the_menu(cx: &mut TestAppContext) {
+    use super::layout_tests::pane_command;
+    use super::menu::MenuCommand;
+    let Some(place) = begin(
+        "expand",
+        "Outline.SetListType(200);\n\
+         Outline.AddFuncInfo(1, 1, 'Foo', 10);\n\
+         Outline.AddFuncInfo(3, 1, 'Foo::Bar::Hoge', 2);\n\
+         Outline.AddFuncInfo(5, 1, 'Foo::Bar::Fuga', 2);\n",
+    ) else {
+        eprintln!("SKIP: matsu-script is not built next to the tests");
+        return;
+    };
+    let handle = window_with(
+        cx,
+        "a\nb\nc\nd\ne\n",
+        "a.zzz",
+        place.user(Place::code(), true, true),
+    );
+    open_outline(cx, handle);
+    pane_command(cx, handle, MenuCommand::CollapseAll);
+    let closed = rows(cx, handle).len();
+    pane_command(cx, handle, MenuCommand::ExpandAll);
+    let open = rows(cx, handle);
+    assert!(open.len() > closed, "{open:?}");
+    assert!(open.iter().any(|r| r.depth >= 2));
+    // the pane of a plug goes to a side like any other
+    pane_command(cx, handle, MenuCommand::Side(super::dock::DockSide::Left));
+    assert_eq!(
+        super::layout_tests::current_place(cx, handle).side,
+        super::dock::DockSide::Left
+    );
+    finish(cx);
+}
+
+#[gpui::test]
 fn the_plug_is_called_when_the_outline_is_analyzed_and_not_for_a_key(cx: &mut TestAppContext) {
     let Some(place) = begin(
         "calls",
