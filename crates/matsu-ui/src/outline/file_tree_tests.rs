@@ -194,6 +194,36 @@ fn expand_all_opens_the_file_tree_to_the_bottom_and_collapse_all_closes_it(
 }
 
 #[gpui::test]
+fn collapse_all_ends_an_expand_all_that_is_still_listing_and_a_second_one_goes_on(
+    cx: &mut TestAppContext,
+) {
+    let dir = folder(&["sub/deep/d.txt", "sub/c.txt"]);
+    let handle = window(cx, None, &one_grep(dir.path(), "*.*"));
+    run_with(cx, handle, "F_FILETREE", &[]);
+    let p = pane(cx, handle).unwrap();
+    // 縮小 right after 展開: the listings that come back open nothing
+    p.update(cx, |p, cx| {
+        p.expand_all(true, cx);
+        p.expand_all(false, cx);
+    });
+    cx.run_until_parked();
+    assert_eq!(labels(cx, handle), ["Project"]);
+    toggle(cx, handle, 0);
+    assert_eq!(labels(cx, handle), ["Project", "sub"]);
+    // 展開 twice in a row: the second is not lost for the folders the first is listing
+    p.update(cx, |p, cx| {
+        p.expand_all(false, cx);
+        p.expand_all(true, cx);
+        p.expand_all(true, cx);
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        labels(cx, handle),
+        ["Project", "sub", "deep", "d.txt", "c.txt"]
+    );
+}
+
+#[gpui::test]
 fn the_keyboard_opens_and_closes_folders_and_opens_files(cx: &mut TestAppContext) {
     let dir = folder(&["a.txt", "sub/c.txt"]);
     let handle = window(cx, None, &one_grep(dir.path(), "*.*"));

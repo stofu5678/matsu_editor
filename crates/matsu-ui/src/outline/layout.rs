@@ -331,29 +331,29 @@ impl Workspace {
             || self.outline_layout.dragging
             || self.outline_layout.dragging_bottom)
             .then(|| {
-            div()
-                .id("outline-capture")
-                .absolute()
-                .size_full()
-                .occlude()
-                .on_mouse_move(
-                    cx.listener(|this, e: &MouseMoveEvent, _, cx| this.outline_drag_to(e, cx)),
-                )
-                .on_mouse_up(
-                    MouseButton::Left,
-                    cx.listener(|this, e: &MouseUpEvent, _, cx| this.outline_end_drag(e, cx)),
-                )
-                .on_mouse_up_out(
-                    MouseButton::Left,
-                    cx.listener(|this, e: &MouseUpEvent, _, cx| this.outline_end_drag(e, cx)),
-                )
-                .on_mouse_down(
-                    MouseButton::Right,
-                    cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                        this.outline_track_cancel(cx);
-                    }),
-                )
-        });
+                div()
+                    .id("outline-capture")
+                    .absolute()
+                    .size_full()
+                    .occlude()
+                    .on_mouse_move(
+                        cx.listener(|this, e: &MouseMoveEvent, _, cx| this.outline_drag_to(e, cx)),
+                    )
+                    .on_mouse_up(
+                        MouseButton::Left,
+                        cx.listener(|this, e: &MouseUpEvent, _, cx| this.outline_end_drag(e, cx)),
+                    )
+                    .on_mouse_up_out(
+                        MouseButton::Left,
+                        cx.listener(|this, e: &MouseUpEvent, _, cx| this.outline_end_drag(e, cx)),
+                    )
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                            this.outline_track_cancel(cx);
+                        }),
+                    )
+            });
         container
             .children(capture)
             .children(frame)

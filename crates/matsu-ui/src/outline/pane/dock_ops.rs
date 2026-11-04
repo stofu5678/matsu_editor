@@ -19,6 +19,7 @@ use matsu_outline::{
 use super::OutlinePane;
 use crate::menu_bar::popup_keys::{self, KeyList, Rebuild};
 use crate::outline::dock::{self, DockPlace, DockSide, FloatRect, OutlineDock};
+use crate::outline::file_tree::model::Load;
 use crate::outline::menu::{self, MenuCommand, MenuEntry, MenuState};
 
 /// The right-click menu that is open.
@@ -509,9 +510,15 @@ impl OutlinePane {
     /// to 64 levels (`ApiWrap::TreeView_ExpandAll` opens an item before it asks for its children,
     /// so a file tree is opened to the bottom).
     pub(crate) fn expand_all(&mut self, open: bool, cx: &mut Context<Self>) {
+        // an expansion that is still going on down the file tree is over
+        self.expanding = None;
+        self.expand_inflight.clear();
         if !open {
             self.expanded.clear();
         } else if self.outline_type == OutlineKind::FileTree {
+            self.expand_counter += 1;
+            let token = self.expand_counter;
+            self.expanding = Some(token);
             let ids: Vec<usize> = self.file_tree.as_ref().map_or_else(Vec::new, |tree| {
                 (0..tree.nodes.len())
                     .filter(|&id| tree.nodes[id].has_children())
@@ -519,7 +526,16 @@ impl OutlinePane {
             });
             for id in ids {
                 self.expanded.insert(id);
-                self.start_load(id, Some(0), cx);
+                let listing = self
+                    .file_tree
+                    .as_ref()
+                    .is_some_and(|tree| tree.nodes[id].load == Load::Loading);
+                if listing {
+                    // it goes on down when its listing is there
+                    self.expand_inflight.insert(id);
+                } else {
+                    self.start_load(id, Some((0, token)), cx);
+                }
             }
         } else if let Some(shown) = &self.shown {
             fn collect(nodes: &[TreeNode], into: &mut Vec<usize>) {

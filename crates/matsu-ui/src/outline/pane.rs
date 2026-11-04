@@ -138,6 +138,12 @@ pub(crate) struct OutlinePane {
     list_sort: ListSort,
     sort_type: SortType,
     expanded: HashSet<usize>,
+    /// The すべて展開 that goes on down the file tree as the folders are listed (its number), until
+    /// the next one or すべて縮小.
+    expanding: Option<u64>,
+    /// The folders that were being listed when すべて展開 was chosen: they go on down when listed.
+    expand_inflight: HashSet<usize>,
+    expand_counter: u64,
     rows: Vec<Row>,
     selected: Option<usize>,
     last_caret: Option<Pos>,
@@ -182,6 +188,9 @@ impl OutlinePane {
             list_sort: ListSort::default(),
             sort_type: SortType::default(),
             expanded: HashSet::new(),
+            expanding: None,
+            expand_inflight: HashSet::new(),
+            expand_counter: 0,
             rows: Vec::new(),
             selected: None,
             last_caret: None,
@@ -1105,6 +1114,8 @@ impl OutlinePane {
         self.analyzing = false;
         self.stale = false;
         self.expanded.clear();
+        self.expanding = None;
+        self.expand_inflight.clear();
         self.selected = None;
         let roots = model.pending_roots();
         self.file_tree = Some(model);
@@ -1121,7 +1132,7 @@ impl OutlinePane {
     ///
     /// `deep` is the depth reached by すべて展開, which goes on down: the folders found below the
     /// node open and are listed too, to the depth of `TreeView_ExpandAll` (64 levels).
-    fn start_load(&mut self, node: usize, deep: Option<usize>, cx: &mut Context<Self>) {
+    fn start_load(&mut self, node: usize, deep: Option<(usize, u64)>, cx: &mut Context<Self>) {
         let Some(job) = self
             .file_tree
             .as_mut()
@@ -1140,9 +1151,18 @@ impl OutlinePane {
                     return;
                 }
                 let mut below = Vec::new();
+                // the expansion this folder belongs to, if it is still the one that goes on
+                let cascade = match deep {
+                    Some((depth, token)) if this.expanding == Some(token) => Some((depth, token)),
+                    _ => this
+                        .expand_inflight
+                        .remove(&node)
+                        .then(|| this.expanding.map(|token| (0, token)))
+                        .flatten(),
+                };
                 if let Some(tree) = &mut this.file_tree {
                     tree.finish_load(node, listing);
-                    if deep.is_some_and(|depth| depth < EXPAND_ALL_DEPTH) {
+                    if cascade.is_some_and(|(depth, _)| depth < EXPAND_ALL_DEPTH) {
                         below = tree.nodes[node]
                             .children
                             .iter()
@@ -1151,9 +1171,11 @@ impl OutlinePane {
                             .collect();
                     }
                 }
-                for child in below {
-                    this.expanded.insert(child);
-                    this.start_load(child, deep.map(|depth| depth + 1), cx);
+                if let Some((depth, token)) = cascade {
+                    for child in below {
+                        this.expanded.insert(child);
+                        this.start_load(child, Some((depth + 1, token)), cx);
+                    }
                 }
                 this.rebuild_rows();
                 cx.notify();
