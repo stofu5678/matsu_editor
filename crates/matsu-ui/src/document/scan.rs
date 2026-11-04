@@ -39,6 +39,9 @@ pub(crate) struct ScanWindowInfo {
 pub(crate) struct LineBase {
     pub lines_before: u64,
     pub approx: bool,
+    /// The document is a window on the file: its rows are not counted before it, so the lines
+    /// are numbered by lines of the text, whatever the type settings say.
+    pub windowed: bool,
 }
 
 /// The document the positions of the views are in: it changes when a window replaces the
@@ -349,6 +352,7 @@ impl SharedDocument {
             .map_or_else(LineBase::default, |w| LineBase {
                 lines_before: w.lines_before,
                 approx: !w.exact,
+                windowed: true,
             })
     }
 

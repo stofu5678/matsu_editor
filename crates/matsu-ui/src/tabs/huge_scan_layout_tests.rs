@@ -176,6 +176,40 @@ fn a_window_does_not_put_its_own_positions_in_the_jump_list(cx: &mut TestAppCont
 }
 
 #[gpui::test]
+fn the_jump_list_put_aside_goes_when_another_document_is_loaded(cx: &mut TestAppContext) {
+    let (handle, dir) = opened(cx, "big.txt", big_text().as_bytes());
+    let view = active_view(cx, handle);
+    run(cx, handle, "F_GOFILEEND");
+    assert!(view.read_with(cx, |v, _| v.has_stashed_jumps()));
+    view.update(cx, |v, cx| {
+        let new =
+            crate::document::SharedDocument::new(matsu_core::model::DocumentModel::empty(), None);
+        v.load_document(new, None, cx);
+    });
+    assert!(
+        !view.read_with(cx, |v, _| v.has_stashed_jumps()),
+        "the list of the old document is not the new one's"
+    );
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[gpui::test]
+fn with_a_wrap_numbered_by_rows_a_window_is_numbered_by_lines(cx: &mut TestAppContext) {
+    let (handle, dir) = opened(cx, "big.txt", big_text().as_bytes());
+    let view = active_view(cx, handle);
+    wrap_at_four(cx, &view);
+    // The type settings number the rows (`bLineNumIsCRLF` off): the rows before a window are not
+    // known, so the window is numbered by the lines, as the lines before it are counted.
+    view.update(cx, |v, _| v.prefs.settings.outline.line_num_is_crlf = false);
+    view.update(cx, |v, cx| v.run_command("jump", &[Arg::Int(70_000)], cx));
+    settle_layout(cx, &view);
+    assert!(window_of(cx, &view).is_some());
+    let (line, _) = super::huge_scan_tests::status_line(cx, &view);
+    assert_eq!(line, 70_000);
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[gpui::test]
 fn a_box_selection_in_a_window_is_kept_when_the_scan_is_done(cx: &mut TestAppContext) {
     let (handle, dir) = opened(cx, "big.txt", big_text().as_bytes());
     let view = active_view(cx, handle);

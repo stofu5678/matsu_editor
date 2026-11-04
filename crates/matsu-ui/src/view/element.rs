@@ -557,7 +557,7 @@ impl Element for EditorElement {
         // (`~`, one column more) while the scan has not passed the window (ADR-0020, chapter 2).
         let line_base = editor.document.read(cx).line_base();
         let before = usize::try_from(line_base.lines_before).unwrap_or(usize::MAX / 2);
-        let numbers_by_line = settings.outline.line_num_is_crlf;
+        let numbers_by_line = settings.outline.line_num_is_crlf || line_base.windowed;
         let eof_row = usize::from(layout.has_eof_row());
         let last_number = if numbers_by_line {
             doc.line_count().saturating_sub(eof_row)

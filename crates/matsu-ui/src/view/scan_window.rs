@@ -68,7 +68,11 @@ impl EditorView {
             return None;
         }
         let seen = std::mem::replace(&mut self.frame_seen, seq);
-        let change = shared.frame_change().filter(|c| c.from_seq == seen)?;
+        let Some(change) = shared.frame_change().filter(|c| c.from_seq == seen) else {
+            // Another document took the place: what was put aside is not its.
+            self.jumps_stash = None;
+            return None;
+        };
         let (new_doc, new_start) = (shared.doc(), shared.frame_start());
         let new_end = new_start + new_doc.raw_len() as u64;
         // The byte of the file that a position of the old document stands for.
@@ -201,6 +205,21 @@ impl EditorView {
                 ..top
             });
         }
+    }
+
+    /// A document was loaded into the view (a reload, another file): the state of the window on
+    /// the one that was goes.
+    pub(crate) fn forget_scan_window(&mut self, cx: &App) {
+        self.jumps_stash = None;
+        self.frame_top = None;
+        self.scan_shift_gave_up = None;
+        self.frame_seen = self.document.read(cx).frame_seq();
+    }
+
+    /// Whether the jump list of the file is put aside (for the tests).
+    #[cfg(test)]
+    pub(crate) fn has_stashed_jumps(&self) -> bool {
+        self.jumps_stash.is_some()
     }
 
     /// The number of lines for the status bar: in a window, the lines of the file as far as they

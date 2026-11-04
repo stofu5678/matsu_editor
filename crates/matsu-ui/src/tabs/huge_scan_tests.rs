@@ -33,7 +33,7 @@ pub(super) fn window_of(
 }
 
 /// The line of the status bar, and whether it is "about".
-fn status_line(cx: &mut TestAppContext, view: &Entity<EditorView>) -> (usize, bool) {
+pub(super) fn status_line(cx: &mut TestAppContext, view: &Entity<EditorView>) -> (usize, bool) {
     view.read_with(cx, |v, cx| {
         let status = v.status(cx);
         (status.line, status.line_approx)
