@@ -70,6 +70,7 @@ pub(crate) mod plugin_commands;
 pub(crate) mod plugin_complement;
 pub(crate) mod plugin_events;
 mod plugin_options;
+pub(crate) mod plugin_outline;
 pub(crate) mod preview;
 pub mod print;
 pub mod print_setting;

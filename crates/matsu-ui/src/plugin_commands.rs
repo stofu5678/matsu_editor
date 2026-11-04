@@ -26,7 +26,7 @@ pub(crate) fn search_dirs(cx: &App) -> Option<SearchDirs> {
     crate::doc_types::with_user(cx, dirs_of)
 }
 
-fn dirs_of(user: &UserSettings) -> Option<SearchDirs> {
+pub(crate) fn dirs_of(user: &UserSettings) -> Option<SearchDirs> {
     let settings = crate::settings::history_file(user)?;
     Some(SearchDirs::new(
         &settings,
@@ -118,6 +118,8 @@ pub(crate) fn refresh_for(user: &UserSettings) -> bool {
         .collect();
     commands.extend(added);
     plugin_commands::set_commands(commands);
+    // The outlines of the plugins in the type settings change with the same things.
+    crate::plugin_outline::refresh_for(user);
     plugin_commands::commands() != before
 }
 

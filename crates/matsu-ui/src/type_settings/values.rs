@@ -290,7 +290,17 @@ pub(super) fn load(
             OUTLINE_STANDARD
         },
     );
-    n(&mut v, OUTLINE, in_list(t.default_outline, OUTLINES));
+    // (a rule file is the other radio button: the list shows its first choice then; any other number is
+    // a choice of the list, an unusable plugin's as 「（使えないプラグイン N）」)
+    n(
+        &mut v,
+        OUTLINE,
+        if file_rule {
+            OUTLINES[0].1
+        } else {
+            t.default_outline
+        },
+    );
     s(&mut v, OUTLINE_RULE_FILE, &t.outline_rule_filename);
     b(&mut v, USE_TYPE_FONT, t.use_type_font);
     v.set(TYPE_FONT, Value::Font(t.font.clone()));

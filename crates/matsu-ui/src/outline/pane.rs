@@ -57,13 +57,14 @@ use matsu_commands::keymap::Resolved;
 use matsu_core::buffer::Pos;
 use matsu_outline::tree::{
     build_java_tree, build_tree, clip_text_java, clip_text_list, clip_text_tree, clip_text_vb,
-    item_at, list_order, list_remark, prepare_append_texts, sort_tree, vb_remark,
+    item_at_where, list_order, list_remark, prepare_append_texts, sort_tree, vb_remark,
 };
 use matsu_outline::{
     Analysis, ListColumn, ListSort, OutlineKind, Request, SortType, TreeNode, ViewType, analyze,
 };
 
 mod dock_ops;
+mod plugin;
 
 use super::dock::DockPlace;
 use super::file_tree::model::FileTreeModel;
@@ -100,6 +101,9 @@ pub(crate) struct Row {
 /// What an analysis gave, ready to show.
 struct Shown {
     analysis: Analysis,
+    /// For each item: it is in another file than the document (a plugin's `AddFuncInfo3`), so it is no
+    /// place in this document. Worked out once, when the analysis is installed (it asks the file system).
+    foreign: Vec<bool>,
     /// The title of the pane: the one of the kind, or the one the rule file sets.
     title: String,
     view: ViewType,
@@ -330,6 +334,18 @@ impl OutlinePane {
         }
         self.file_tree = None;
 
+        // The outline of a plugin: the plug is called once, now (the jack `Outline`, ADR-0026)
+        if let OutlineKind::Plugin(code) = self.outline_type {
+            let file_path = self
+                .document
+                .read(cx)
+                .path()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            self.analyze_plugin(code, generation, version, file_path, cx);
+            return;
+        }
+
         let kind = self.outline_type;
         let options = cx
             .try_global::<OutlineOptions>()
@@ -415,6 +431,7 @@ impl OutlinePane {
         self.analyzing = false;
         self.stale = false;
         let kind = analysis.kind;
+        let foreign = self.foreign_items(&analysis.items, cx);
         let line_num_is_crlf = self
             .view
             .upgrade()
@@ -429,8 +446,12 @@ impl OutlinePane {
                 .items
                 .items()
                 .iter()
-                .filter(|i| i.line > 0)
-                .map(|i| i.line - 1)
+                // Only the items of this document: an item a plugin put in another file
+                // (`AddFuncInfo3`) has no line here. Sakura marks the line of every item
+                // (`SetDocLineFuncList`, `CDlgFuncList.cpp:1505-1527`); that is a fault of its own.
+                .zip(&foreign)
+                .filter(|(i, foreign)| i.line > 0 && !**foreign)
+                .map(|(i, _)| i.line - 1)
                 .collect();
             view.update(cx, |view, cx| {
                 view.run_with(cx, |c| c.set_funclist_marks(lines));
@@ -443,7 +464,15 @@ impl OutlinePane {
                     .items
                     .items()
                     .iter()
-                    .map(|i| view.layout().first_row_of_line(i.line.saturating_sub(1)) + 1)
+                    .zip(&foreign)
+                    .map(|(i, foreign)| {
+                        // the line of an item of another file is that file's
+                        if *foreign {
+                            i.line
+                        } else {
+                            view.layout().first_row_of_line(i.line.saturating_sub(1)) + 1
+                        }
+                    })
                     .collect()
             }
             _ => analysis.items.items().iter().map(|i| i.line).collect(),
@@ -451,7 +480,11 @@ impl OutlinePane {
         let view_type = kind.view();
         let java_tree = matches!(
             kind,
-            OutlineKind::CCpp | OutlineKind::Cpp | OutlineKind::Java | OutlineKind::Cobol
+            OutlineKind::CCpp
+                | OutlineKind::Cpp
+                | OutlineKind::Java
+                | OutlineKind::Cobol
+                | OutlineKind::ClassTree
         );
         let mut tree = Vec::new();
         let clip_text;
@@ -463,7 +496,8 @@ impl OutlinePane {
         } else if view_type == ViewType::Tree {
             tree = build_tree(&analysis.items);
             // Python writes lines the tag jump can follow (SetTree with tagjump)
-            clip_text = clip_text_tree(&analysis.items, &file_path, kind == OutlineKind::Python);
+            let tag_jump = matches!(kind, OutlineKind::Python | OutlineKind::TreeTagJump);
+            clip_text = clip_text_tree(&analysis.items, &file_path, tag_jump);
         } else if kind == OutlineKind::VisualBasic {
             clip_text = clip_text_vb(&analysis.items, &file_path);
         } else {
@@ -476,6 +510,7 @@ impl OutlinePane {
             self.expanded.extend(tree.iter().map(|n| n.order));
         }
         self.shown = Some(Shown {
+            foreign,
             title: analysis
                 .title
                 .clone()
@@ -587,7 +622,19 @@ impl OutlinePane {
             return;
         };
         let mut opened = false;
-        let Some(index) = item_at(&shown.analysis.items, caret.line + 1, caret.col + 1) else {
+        // The columns of the items are in UTF-16 units (a plugin's `AddFuncInfo`), the caret's in bytes.
+        let caret_col = self
+            .document
+            .read(cx)
+            .doc()
+            .utf16_col(caret.line, caret.col);
+        // (an item of another file is no place in this document)
+        let Some(index) = item_at_where(
+            &shown.analysis.items,
+            caret.line + 1,
+            caret_col + 1,
+            |i, _| !shown.foreign.get(i).copied().unwrap_or(false),
+        ) else {
             self.selected = None;
             return;
         };
@@ -657,11 +704,11 @@ impl OutlinePane {
         let Some(item) = self.rows.get(row).and_then(|r| r.item) else {
             return;
         };
-        let Some(line) = self
+        let Some((line, col, file)) = self
             .shown
             .as_ref()
             .and_then(|s| s.analysis.items.get(item))
-            .map(|i| i.line)
+            .map(|i| (i.line, i.col, i.file.clone()))
         else {
             return;
         };
@@ -669,9 +716,27 @@ impl OutlinePane {
         let Some(view) = self.view.upgrade() else {
             return;
         };
-        // MYWM_SETCARETPOS with PM_SETCARETPOS_KEEPSELECT: the caret goes to the start of the
-        // line (the column of every item is 1) and a locked selection is extended
-        let target = Pos::new(line.saturating_sub(1), 0);
+        // An item a plugin put in another file (`AddFuncInfo3`): the same jump as a tag jump
+        // (`TagJumpTimer`), which opens the file if need be and moves to the line and the column.
+        if self.is_in_another_file(&file, cx) {
+            let target = matsu_core::tag_jump::TagTarget {
+                path: PathBuf::from(file),
+                window: None,
+                line: (line > 0).then_some(line),
+                column: (col > 0).then_some(col),
+            };
+            view.update(cx, |_, cx| {
+                crate::file_ops::start(window, cx, async move |view, cx| {
+                    crate::file_ops::tag_jump::jump_to_target(&view, cx, &target, false).await;
+                });
+            });
+            cx.notify();
+            return;
+        }
+        // MYWM_SETCARETPOS with PM_SETCARETPOS_KEEPSELECT: the caret goes to the place of the
+        // item (the column of the analyzers is 1, so the start of the line) and a locked selection
+        // is extended
+        let target = self.item_position(line, col, cx);
         view.update(cx, |view, cx| {
             view.run_with(cx, |c| {
                 let extend = c.extends(false);
@@ -1108,6 +1173,17 @@ impl OutlinePane {
             return;
         };
         self.selected = Some(key);
+        self.open_path(path, focus_text, window, cx);
+    }
+
+    /// Opens `path` the way the open command does (see [`Self::open_file_row`]).
+    fn open_path(
+        &mut self,
+        path: PathBuf,
+        focus_text: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(view) = self.view.upgrade() else {
             return;
         };

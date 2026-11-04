@@ -305,6 +305,22 @@ fn install<'js>(
                     .map(|n| n.trim_start_matches("Plugin."))
                     .collect::<Vec<_>>(),
             )?;
+            // The `Outline` object (the jack `Outline`): the editor collects what it is given.
+            let outline_raw = Object::new(ctx.clone())?;
+            for name in OUTLINE_CALLS {
+                outline_raw.set(
+                    name.trim_start_matches("Outline."),
+                    bind(ctx, name, None, editor.clone())?,
+                )?;
+            }
+            object.set("outlineRaw", outline_raw)?;
+            object.set(
+                "outlineNames",
+                OUTLINE_CALLS
+                    .iter()
+                    .map(|n| n.trim_start_matches("Outline."))
+                    .collect::<Vec<_>>(),
+            )?;
             object.set("id", json_to_js(ctx, &plugin["id"])?)?;
             object.set("dir", json_to_js(ctx, &plugin["dir"])?)?;
             // The `Complement` object: only `AddList` needs the editor, which keeps the list.
@@ -336,6 +352,18 @@ pub const PLUGIN_CALLS: &[&str] = &[
     "Plugin.AddCommand",
 ];
 
+/// The calls of the `Outline` object (Sakura's `COutlineIfObj`, `sakura_core/plugin/COutlineIfObj.h`;
+/// `help/plugin/Text/implementation02.html`). The editor answers them, and only while an `Outline`
+/// plug runs.
+pub const OUTLINE_CALLS: &[&str] = &[
+    "Outline.AddFuncInfo",
+    "Outline.AddFuncInfo2",
+    "Outline.AddFuncInfo3",
+    "Outline.AddFuncInfo4",
+    "Outline.SetTitle",
+    "Outline.SetListType",
+    "Outline.SetLabel",
+];
 /// The calls of the `Complement` object that the editor answers (Sakura's `CComplementIfObj`,
 /// `sakura_core/plugin/CComplementIfObj.h`). `GetCurrentWord` and `GetOption` need nothing from the
 /// editor: the word and the option come with the invoke (`Plugin.args`).

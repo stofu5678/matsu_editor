@@ -66,6 +66,18 @@ pub fn function_code(slot: usize, plug: usize) -> Option<u16> {
     u16::try_from(code).ok()
 }
 
+/// `CPlug::GetFunctionCode` of a plug of a jack other than `Command`: the same formula, with the plug
+/// numbered from 0 (`Outline` is plug 0, `Outline[1]` is plug 1). The outline type that
+/// `nDefaultOutline` holds for a plugin's outline is this code (`CPlug::GetOutlineType`). `None` for a
+/// slot or a plug number out of range.
+pub fn plug_code(slot: usize, plug: usize) -> Option<u16> {
+    if slot >= MAX_PLUGIN || plug >= MAX_PLUG_CMD {
+        return None;
+    }
+    let code = slot % 20 * 100 + slot / 20 * 50 + plug + usize::from(FIRST);
+    u16::try_from(code).ok()
+}
+
 /// The code that the type settings store to name the plugin that completes (`nHokanType`):
 /// `CPlug::GetPluginFunctionCode(id, 0)` (`CJackManager::RegisterPlug`, `PP_COMPLEMENT`). It is
 /// the code of plug 0, whatever number the plug has. `None` for a slot out of range.

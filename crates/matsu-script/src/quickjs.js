@@ -7,7 +7,8 @@
 // - info: the `initialize` params without `script`;
 // - write(fd, text): writes to the standard output (1) or error (2) and flushes at once;
 // - plugin: null for a macro; for a plugin host, { id, dir, raw, names } with one Rust function per
-//   name of the `Plugin` object (the editor answers them), and the id and folder of the plugin.
+//   name of the `Plugin` object (the editor answers them), and the id and folder of the plugin;
+//   `outlineRaw` and `outlineNames` are the same for the `Outline` object.
 //
 // It puts `Editor`, `EditorError` and `console` in the global scope, as boot.cjs does for Node.js,
 // and answers an object for Rust:
@@ -93,22 +94,32 @@
   globalThis.Editor = Editor;
   globalThis.EditorError = EditorError;
 
-  // The `Plugin` object of a plugin (Sakura's `CPluginIfObj`): the editor answers the calls.
-  const Plugin = {};
-  if (plugin !== null) {
-    for (const name of plugin.names) {
-      const call = plugin.raw[name];
-      Plugin[name] = function (...args) {
+  // Puts on `target` one function for each of `names`, which asks the editor through `raw[name]`
+  // ([true, result] or [false, code, message]; a failure is an `EditorError`).
+  function bindCalls(target, raw, names) {
+    for (const name of names) {
+      const call = raw[name];
+      target[name] = function (...args) {
         while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
         const answer = call(args);
         if (answer[0]) return answer[1];
         const error = new EditorError(answer[1], answer[2]);
         if (typeof Error.captureStackTrace === 'function') {
-          Error.captureStackTrace(error, Plugin[name]);
+          Error.captureStackTrace(error, target[name]);
         }
         throw error;
       };
     }
+  }
+
+  // The `Plugin` object of a plugin (Sakura's `CPluginIfObj`): the editor answers the calls.
+  const Plugin = {};
+  if (plugin !== null) {
+    bindCalls(Plugin, plugin.raw, plugin.names);
+    // The `Outline` object (Sakura's `COutlineIfObj`); the editor accepts its calls in an `Outline` plug.
+    const Outline = {};
+    bindCalls(Outline, plugin.outlineRaw, plugin.outlineNames);
+    globalThis.Outline = Outline;
     Plugin.id = plugin.id;
     Plugin.dir = plugin.dir;
     Plugin.jack = '';

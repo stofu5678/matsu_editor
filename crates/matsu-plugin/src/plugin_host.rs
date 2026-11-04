@@ -581,11 +581,11 @@ pub trait PluginApi {
     fn call(&mut self, name: &str, params: &[Value]) -> Result<Value, RpcError>;
 }
 
-/// The prefixes of the calls that [`PluginApi`] answers: the `Plugin` object, and the `Complement`
-/// object of the completion jacks.
-pub const PLUGIN_PREFIXES: &[&str] = &["Plugin.", "Complement."];
+/// The prefixes of the calls that [`PluginApi`] answers: the `Plugin` object, the `Complement`
+/// object of the completion jacks, and the `Outline` object of the jack `Outline`.
+pub const PLUGIN_PREFIXES: &[&str] = &["Plugin.", "Complement.", "Outline."];
 
-/// Answers a request of a plugin: a call of the `Plugin` object goes to `api`, any other call
+/// Answers a request of a plugin: a call of the `Plugin` or `Outline` object goes to `api`, any other call
 /// (`Editor.*`) to `editor`. Returns the response line, `None` for a notification.
 pub fn respond(
     text: &str,

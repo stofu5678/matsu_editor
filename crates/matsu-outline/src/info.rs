@@ -74,6 +74,9 @@ pub struct FuncInfo {
     /// Extra information (`m_nInfo`): [`func_obj`] for C/C++ and Java, the flags of a procedure
     /// for Visual Basic, the kind of the heading elsewhere. [`NO_CLIP_TEXT`] may be set.
     pub info: u32,
+    /// The file the item is in (`m_cmemFileName`): empty for the document analyzed. A plugin gives one
+    /// with `Outline.AddFuncInfo3` and `AddFuncInfo4`.
+    pub file: String,
 }
 
 impl FuncInfo {
@@ -109,7 +112,14 @@ impl FuncInfoArr {
             name: name.into(),
             depth,
             info,
+            file: String::new(),
         });
+    }
+
+    /// `AppendData` with the position, the depth and the file given: what a plugin adds
+    /// (`COutlineIfObj::HandleCommand`).
+    pub fn push_item(&mut self, item: FuncInfo) {
+        self.items.push(item);
     }
 
     pub fn items(&self) -> &[FuncInfo] {
