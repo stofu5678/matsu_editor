@@ -91,12 +91,14 @@ pub(super) struct Frame {
 }
 
 /// Where the tiles are (in device pixels from the top left of the view) for `clip`, a part of
-/// the view relative to its top left; and the part of the view that is painted, cut to whole
-/// device pixels.
+/// the window (in window coordinates, like the rectangles the caller paints); and the part of the
+/// view that is painted, cut to whole device pixels (from the top left of the view).
 ///
 /// Every number is a whole device pixel, whatever the clip is: a cell cut out of the view gets
 /// the same picture as the same pixels of the whole view (the clip of a cell starts between two
-/// pixels, but the picture must not move with it).
+/// pixels, but the picture must not move with it). The edges of the clip are rounded as GPUI
+/// rounds the edges of a rectangle (each edge by itself, in the window), so that the clip is
+/// the same device pixels as a rectangle painted over the same `Bounds`.
 pub(super) fn plan(back: &BackPaint, frame: &Frame, clip: Bounds<Pixels>) -> (Vec<Rect>, Rect) {
     let dev = |v: f32| (v * frame.scale).round() as i64;
     let width = f32::from(frame.bounds.size.width);
@@ -109,11 +111,15 @@ pub(super) fn plan(back: &BackPaint, frame: &Frame, clip: Bounds<Pixels>) -> (Ve
     );
     // `rc.top = max(rc.top, ruler height)`: the ruler is not painted over.
     let painted = Rect::new(0, dev(frame.ruler_px), area.right, area.bottom);
+    let origin = (
+        dev(f32::from(frame.bounds.origin.x)),
+        dev(f32::from(frame.bounds.origin.y)),
+    );
     let clip = Rect::new(
-        dev(f32::from(clip.left())).max(painted.left),
-        dev(f32::from(clip.top())).max(painted.top),
-        dev(f32::from(clip.right())).min(painted.right),
-        dev(f32::from(clip.bottom())).min(painted.bottom),
+        (dev(f32::from(clip.left())) - origin.0).max(painted.left),
+        (dev(f32::from(clip.top())) - origin.1).max(painted.top),
+        (dev(f32::from(clip.right())) - origin.0).min(painted.right),
+        (dev(f32::from(clip.bottom())) - origin.1).min(painted.bottom),
     );
     if clip.width() <= 0 || clip.height() <= 0 {
         return (Vec::new(), clip);
@@ -136,14 +142,26 @@ pub(super) fn plan(back: &BackPaint, frame: &Frame, clip: Bounds<Pixels>) -> (Ve
     (tiles, clip)
 }
 
-/// [`plan`]'s tiles.
+/// [`plan`]'s tiles, for a clip given from the top left of the view.
 #[cfg(test)]
 pub(super) fn tiles(back: &BackPaint, frame: &Frame, clip: Bounds<Pixels>) -> Vec<Rect> {
-    plan(back, frame, clip).0
+    plan(back, frame, shifted(frame, clip)).0
 }
 
-/// Paints the image in the part `clip` of the view (relative to its top left). The background
-/// color is painted by the caller, under this.
+/// `clip`, from the top left of the view, in window coordinates.
+#[cfg(test)]
+fn shifted(frame: &Frame, clip: Bounds<Pixels>) -> Bounds<Pixels> {
+    Bounds::new(
+        point(
+            frame.bounds.origin.x + clip.origin.x,
+            frame.bounds.origin.y + clip.origin.y,
+        ),
+        clip.size,
+    )
+}
+
+/// Paints the image in the part `clip` of the window (the `Bounds` of the rectangle the caller
+/// paints the background in). The background color is painted by the caller, under this.
 pub(super) fn paint(window: &mut Window, back: &BackPaint, frame: &Frame, clip: Bounds<Pixels>) {
     let (tiles, painted) = plan(back, frame, clip);
     let scale = frame.scale;
@@ -332,11 +350,11 @@ mod tests {
                             let b = back(position, repeat, scroll);
                             let mut f = frame(scale);
                             f.scroll = scrolled;
-                            let (all, _) = plan(&b, &f, whole(&f));
+                            let (all, _) = plan(&b, &f, shifted(&f, whole(&f)));
                             for (x, y) in cells {
                                 let cell =
                                     Bounds::new(point(px(x), px(y)), size(px(8.4), px(18.3)));
-                                let (cut, rect) = plan(&b, &f, cell);
+                                let (cut, rect) = plan(&b, &f, shifted(&f, cell));
                                 for py in rect.top..rect.bottom {
                                     for pxl in rect.left..rect.right {
                                         assert_eq!(
@@ -351,6 +369,49 @@ mod tests {
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_clip_is_the_device_pixels_of_the_rectangle_painted_under_it() {
+        // The view does not start at a whole device pixel and neither does the cell: the clip of
+        // the image has the pixels GPUI gives a rectangle of the same bounds (each edge rounded
+        // in the window), not the sum of two roundings.
+        let b = back(back_img_pos::TOP_LEFT, (true, true), (true, true));
+        for scale in [1.25_f32, 1.5, 2.0] {
+            for origin in [(10.0_f32, 10.0_f32), (10.3, 10.7), (0.4, 0.6)] {
+                let mut f = frame(scale);
+                f.bounds = Bounds::new(point(px(origin.0), px(origin.1)), f.bounds.size);
+                for (rx, ry) in [
+                    (63.6_f32, 63.6_f32),
+                    (87.4, 40.9),
+                    (130.2, 100.1),
+                    (41.5, 20.5),
+                ] {
+                    let cell = Bounds::new(
+                        point(px(origin.0 + rx), px(origin.1 + ry)),
+                        size(px(8.4), px(18.3)),
+                    );
+                    let (_, clip) = plan(&b, &f, cell);
+                    let device = |v: f32| (v * scale).round() as i64;
+                    let view = (device(origin.0), device(origin.1));
+                    assert_eq!(
+                        (
+                            view.0 + clip.left,
+                            view.1 + clip.top,
+                            view.0 + clip.right,
+                            view.1 + clip.bottom
+                        ),
+                        (
+                            device(origin.0 + rx),
+                            device(origin.1 + ry),
+                            device(origin.0 + rx + 8.4),
+                            device(origin.1 + ry + 18.3)
+                        ),
+                        "scale {scale} origin {origin:?} cell ({rx}, {ry})"
+                    );
                 }
             }
         }

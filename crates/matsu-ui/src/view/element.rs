@@ -1201,7 +1201,7 @@ impl Element for EditorElement {
             }
         };
         super::back_paint::track(window, cx, p.back_image.as_ref());
-        paint_back(window, Bounds::new(point(px(0.), px(0.)), bounds.size));
+        paint_back(window, bounds);
         let gutter_back = if p.show_line_numbers {
             p.colors.line_number_background
         } else {
@@ -1233,10 +1233,7 @@ impl Element for EditorElement {
                     // Where the area is the text's too, the image is there already.
                     if !shows_through(gutter_back) {
                         window.paint_quad(fill(cell, rgb(p.colors.background)));
-                        paint_back(
-                            window,
-                            Bounds::new(point(px(0.), y - bounds.top()), cell.size),
-                        );
+                        paint_back(window, cell);
                     }
                 } else {
                     window.paint_quad(fill(cell, rgb(background)));
@@ -1451,16 +1448,7 @@ impl Element for EditorElement {
                             // colors of the syntax) is gone. (`DrawBackImage` paints the
                             // background of the text first.)
                             window.paint_quad(fill(cell, rgb(p.colors.background)));
-                            paint_back(
-                                window,
-                                Bounds::from_corners(
-                                    point(cell.left() - bounds.left(), cell.top() - bounds.top()),
-                                    point(
-                                        cell.right() - bounds.left(),
-                                        cell.bottom() - bounds.top(),
-                                    ),
-                                ),
-                            );
+                            paint_back(window, cell);
                         } else {
                             window.paint_quad(fill(cell, rgb(bracket.back)));
                         }
@@ -1574,7 +1562,7 @@ impl Element for EditorElement {
             paint_back(
                 window,
                 Bounds::new(
-                    point(px(0.), px(0.)),
+                    bounds.origin,
                     size(bounds.size.width - px(SCROLLBAR_WIDTH), px(p.top_margin)),
                 ),
             );
