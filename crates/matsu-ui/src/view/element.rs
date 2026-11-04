@@ -1313,7 +1313,7 @@ impl Element for EditorElement {
                             rgb(back),
                         ));
                     }
-                    for &(from, to, color) in &row.backs {
+                    for &(from, to, color) in row.backs.iter().filter(|b| !shows_through(b.2)) {
                         window.paint_quad(fill(
                             Bounds::from_corners(point(x_of(from), y), point(x_of(to), y + lh)),
                             rgb(color),
@@ -1424,13 +1424,15 @@ impl Element for EditorElement {
                     }
                     // The brackets of the pair: the character again, in the color of `BRC`.
                     for bracket in p.brackets.iter().filter(|b| b.row == i) {
-                        window.paint_quad(fill(
-                            Bounds::from_corners(
-                                point(x_of(bracket.col), y),
-                                point(x_of(bracket.col + bracket.cols), y + lh),
-                            ),
-                            rgb(bracket.back),
-                        ));
+                        if !shows_through(bracket.back) {
+                            window.paint_quad(fill(
+                                Bounds::from_corners(
+                                    point(x_of(bracket.col), y),
+                                    point(x_of(bracket.col + bracket.cols), y + lh),
+                                ),
+                                rgb(bracket.back),
+                            ));
+                        }
                         bracket
                             .text
                             .paint(

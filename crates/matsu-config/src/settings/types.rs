@@ -437,7 +437,7 @@ impl Default for TypeSettings {
 
 /// `m_backImgOpacity` is a `BYTE` read with `wcstoul`: a number outside 0..=255 reads as its low
 /// eight bits (`sakura_core/env/CDataProfile.h`, `TryParse`).
-fn opacity_of(value: i32) -> u8 {
+fn opacity_of(value: u32) -> u8 {
     value.to_le_bytes()[0]
 }
 
@@ -556,7 +556,7 @@ impl TypeSettings {
         read_bool(profile, s, "bgImgRepeartY", &mut self.back_img_repeat_y);
         read_i32(profile, s, "bgImgPosOffsetX", &mut self.back_img_offset_x);
         read_i32(profile, s, "bgImgPosOffsetY", &mut self.back_img_offset_y);
-        if let Some(v) = profile.get_i32(s, "bgImgOpacity") {
+        if let Some(v) = profile.get_u32(s, "bgImgOpacity") {
             self.back_img_opacity = opacity_of(v);
         }
         read_i32(profile, s, "eDefaultCodetype", &mut self.default_codetype);
@@ -891,7 +891,7 @@ impl TypeSettings {
         profile.set_i32(s, "bgImgPosOffsetX", self.back_img_offset_x)?;
         profile.set_i32(s, "bgImgPosOffsetY", self.back_img_offset_y)?;
         // A file value that is not a byte reads as its low byte; leave it when it reads the same.
-        if profile.get_i32(s, "bgImgOpacity").map(opacity_of) != Some(self.back_img_opacity) {
+        if profile.get_u32(s, "bgImgOpacity").map(opacity_of) != Some(self.back_img_opacity) {
             profile.set_i32(s, "bgImgOpacity", i32::from(self.back_img_opacity))?;
         }
         profile.set_i32(s, "eDefaultCodetype", self.default_codetype)?;
@@ -1205,7 +1205,14 @@ mod tests {
     #[test]
     fn the_opacity_is_a_byte_like_sakuras() {
         // `BYTE` read by `wcstoul`: 256 is 0, 300 is 44, -1 is 255.
-        for (text, byte) in [("256", 0), ("300", 44), ("-1", 255), ("0", 0)] {
+        for (text, byte) in [
+            ("256", 0),
+            ("300", 44),
+            ("-1", 255),
+            ("0", 0),
+            ("2147483648", 0),
+            ("4294967295", 255),
+        ] {
             let p =
                 Profile::from_bytes(format!("[Types(0)]\r\nbgImgOpacity={text}\r\n").as_bytes());
             let t = TypeSettings::read(&p, 0);
