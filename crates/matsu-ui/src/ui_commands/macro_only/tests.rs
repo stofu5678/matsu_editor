@@ -487,6 +487,45 @@ fn a_failed_write_is_shown_and_the_macro_goes_on(cx: &mut TestAppContext) {
     assert!(!out.exists());
 }
 
+#[gpui::test]
+fn a_failed_write_of_the_selection_is_a_box_and_the_macro_goes_on(cx: &mut TestAppContext) {
+    let dir = tempfile::tempdir().unwrap();
+    let (f, cx) = setup(cx, "abc");
+    f.select(cx, Pos::new(0, 0), Pos::new(0, 2));
+    // the folder is not there: the file cannot be opened (`STR_SAVEAGENT_OTHER_APP`)
+    let out = dir.path().join("no").join("such").join("out.txt");
+    assert!(f.run(cx, "F_PUTFILE", &[path_arg(&out), Arg::Int(4), Arg::Int(1)]));
+    let (_, message) = cx.pending_prompt().expect("the box of the failure");
+    assert!(message.contains("out.txt"), "{message}");
+    assert!(message.contains("ファイルを保存できません"), "{message}");
+    cx.simulate_prompt_answer("OK");
+    assert!(!out.exists());
+    // the whole document shows no box in Sakura
+    assert!(f.run(cx, "F_PUTFILE", &[path_arg(&out), Arg::Int(4)]));
+    assert!(!cx.has_pending_prompt());
+}
+
+#[test]
+fn a_write_that_fails_is_nw11_and_a_read_that_fails_is_nw12() {
+    use matsu_core::file::FileError;
+    let path = Path::new("x.txt");
+    let full = FileError::Io(std::io::Error::new(std::io::ErrorKind::WriteZero, "full"));
+    assert_eq!(
+        super::putfile::selection_error(path, &full),
+        "ファイルの書き込み中にエラーが発生しました。"
+    );
+    assert!(super::putfile::selection_error(path, &FileError::ReadOnly).contains("x.txt"));
+    let bad = FileError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, "bad"));
+    assert_eq!(
+        super::insfile::open_error(path, &bad),
+        "ファイルの読み込み中にエラーが発生しました。"
+    );
+    assert_eq!(
+        super::insfile::open_error(path, &FileError::ReadOnly),
+        "file open error [x.txt]"
+    );
+}
+
 // ---- InsFile ----
 
 #[gpui::test]
@@ -592,12 +631,15 @@ fn ins_file_of_a_missing_file_is_shown_and_the_macro_goes_on(cx: &mut TestAppCon
     let (f, cx) = setup(cx, "ab");
     let missing = dir.path().join("missing.txt");
     assert!(f.run(cx, "F_INSFILE", &[path_arg(&missing), Arg::Int(4)]));
-    assert!(f.output(cx).contains("missing.txt"), "{}", f.output(cx));
+    // `WarningMessage( nullptr, LS(STR_GREP_ERR_FILEOPEN), filename )`
+    let (_, message) = cx.pending_prompt().expect("the box of the failure");
+    assert!(message.starts_with("file open error ["), "{message}");
+    assert!(message.contains("missing.txt"), "{message}");
+    cx.simulate_prompt_answer("OK");
     assert_eq!(f.text(cx), "ab");
     // an empty name is nothing at all
-    let before = f.output(cx);
     assert!(f.run(cx, "F_INSFILE", &[text("")]));
-    assert_eq!(f.output(cx), before);
+    assert!(!cx.has_pending_prompt());
     assert!(!f.run(cx, "F_INSFILE", &[]));
 }
 

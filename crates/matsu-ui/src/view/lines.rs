@@ -225,6 +225,42 @@ pub fn gutter_note_from(opaque_numbers: bool, number_area_width: f32) -> f32 {
     }
 }
 
+/// How many rows below the last row of the document the body shows: the rows that Sakura draws
+/// with no layout (`DrawLayoutLine` with `pcLayout == nullptr`, one after the other up to the
+/// bottom of the view). They have the note lines (the line number area too, from its left edge:
+/// `bDispLineNumTrans`), the vertical lines and the wrap line, like the rows of text.
+/// `y_offset` is where the first row starts (0 or less, the scroll inside a row); `shown` is how
+/// many rows of the document and its end mark are drawn.
+pub fn rows_below_the_end(
+    body_height: f32,
+    y_offset: f32,
+    line_height: f32,
+    shown: usize,
+) -> usize {
+    if line_height <= 0.0 || body_height <= y_offset {
+        return 0;
+    }
+    let all = ((body_height - y_offset) / line_height).ceil() as usize;
+    all.saturating_sub(shown)
+}
+
+/// The y of the dots of a dotted vertical line inside the row that starts at `row_top` (from the
+/// top of the element): one pixel in two, on the same pixel rows in every row
+/// (`DispVerticalLines`: `bDot`).
+pub fn dotted_ys(row_top: f32, line_height: f32) -> Vec<f32> {
+    let row_bottom = row_top + line_height;
+    let mut out = Vec::new();
+    let mut dot = row_top.ceil();
+    if dot % 2.0 != 0.0 {
+        dot += 1.0;
+    }
+    while dot < row_bottom {
+        out.push(dot);
+        dot += 2.0;
+    }
+    out
+}
+
 /// `R2_NOTXORPEN` with `pen` over `dest`: the color of a line drawn with a color equal to the
 /// background of the text, so that it shows (`bExorPen` in `DispVerticalLines`). Colors are
 /// `0xRRGGBB`.
@@ -420,6 +456,27 @@ mod tests {
         assert_eq!(term_line_x(width), 34.0);
         // the character is in the column right of the 3 digits, which start at 2
         assert_eq!(term_char_x(3, 8.0), 26.0);
+    }
+
+    #[test]
+    fn the_rows_below_the_end_fill_the_body_to_its_bottom() {
+        // 100 px of body, rows of 20 px: 5 rows, 2 of them have text
+        assert_eq!(rows_below_the_end(100.0, 0.0, 20.0, 2), 3);
+        // a row that is only partly in the view counts
+        assert_eq!(rows_below_the_end(110.0, 0.0, 20.0, 2), 4);
+        // scrolled up inside the first row by 5 px
+        assert_eq!(rows_below_the_end(100.0, -5.0, 20.0, 2), 4);
+        // the text goes to the bottom already
+        assert_eq!(rows_below_the_end(100.0, 0.0, 20.0, 6), 0);
+        assert_eq!(rows_below_the_end(0.0, 0.0, 20.0, 0), 0);
+    }
+
+    #[test]
+    fn dots_are_on_even_pixel_rows_in_every_row() {
+        assert_eq!(dotted_ys(0.0, 6.0), vec![0.0, 2.0, 4.0]);
+        // a row that starts on an odd pixel row starts its dots one below
+        assert_eq!(dotted_ys(7.0, 6.0), vec![8.0, 10.0, 12.0]);
+        assert_eq!(dotted_ys(6.5, 6.0), vec![8.0, 10.0, 12.0]);
     }
 
     #[test]
