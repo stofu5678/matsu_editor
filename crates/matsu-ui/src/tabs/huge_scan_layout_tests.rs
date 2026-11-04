@@ -122,6 +122,60 @@ fn a_jump_with_the_selection_lock_waits_and_the_place_left_is_in_the_jump_list(
 }
 
 #[gpui::test]
+fn the_selection_lock_of_a_window_is_kept_when_the_window_is_replaced(cx: &mut TestAppContext) {
+    let (handle, dir) = opened(cx, "big.txt", big_text().as_bytes());
+    let view = active_view(cx, handle);
+    run(cx, handle, "F_GOFILEEND");
+    assert!(window_of(cx, &view).is_some());
+    // A lock with nothing selected yet.
+    view.update(cx, |v, _| v.cursor.set_selecting_lock(true));
+    super::huge_tests::wait_for_scan(cx, &view);
+    assert!(window_of(cx, &view).is_none());
+    assert!(
+        view.read_with(cx, |v, _| v.cursor.selecting_lock()),
+        "the lock is still on when the whole file replaces the window"
+    );
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[gpui::test]
+fn the_selection_lock_with_a_selection_is_kept_when_the_window_moves(cx: &mut TestAppContext) {
+    let (handle, dir) = opened(cx, "big.txt", big_text().as_bytes());
+    let view = active_view(cx, handle);
+    run(cx, handle, "F_GOFILEEND");
+    let window = window_of(cx, &view).expect("a window was made");
+    let a = view.read_with(cx, |v, _| v.cursor.caret());
+    view.update(cx, |v, _| {
+        v.cursor.select(Pos::new(a.line.saturating_sub(5), 0), a);
+        v.cursor.set_selecting_lock(true);
+    });
+    // A drag of the thumb moves the window (a selection does not stop that); the selection and
+    // its lock go with it.
+    let top = view.read_with(cx, |v, cx| v.scan_scrollbar(&v.metrics, cx).unwrap());
+    view.update(cx, |v, cx| v.drag_scan_thumb(&top, 0.0, cx));
+    assert_ne!(window_of(cx, &view), Some(window));
+    assert!(view.read_with(cx, |v, _| v.cursor.selecting_lock()));
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[gpui::test]
+fn a_window_does_not_put_its_own_positions_in_the_jump_list(cx: &mut TestAppContext) {
+    let (handle, dir) = opened(cx, "big.txt", big_text().as_bytes());
+    let view = active_view(cx, handle);
+    view.update(cx, |v, cx| v.run_command("jump", &[Arg::Int(3)], cx));
+    run(cx, handle, "F_GOFILEEND");
+    assert!(window_of(cx, &view).is_some());
+    let len = |cx: &mut TestAppContext| view.read_with(cx, |v, _| v.cursor.jump_history().len());
+    // The places the jumps left are in the list; a command that records its own place (select all)
+    // would put a position of the window in it, which is not a line of the file.
+    run(cx, handle, "F_SELECTALL");
+    super::huge_tests::wait_for_scan(cx, &view);
+    // The two jumps of the test left one place each; select all left none.
+    assert_eq!(len(cx), 2, "only the places that the two jumps left");
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[gpui::test]
 fn a_box_selection_in_a_window_is_kept_when_the_scan_is_done(cx: &mut TestAppContext) {
     let (handle, dir) = opened(cx, "big.txt", big_text().as_bytes());
     let view = active_view(cx, handle);

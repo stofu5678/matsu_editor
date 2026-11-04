@@ -243,6 +243,8 @@ pub struct EditorView {
     frame_seen: u64,
     /// A move of the window on a huge file is asked for and has not run (`view/scan_window.rs`).
     scan_shift_queued: bool,
+    /// The jump list of the file, put aside while a window is shown (`view/scan_window.rs`).
+    jumps_stash: Option<matsu_core::jump_history::JumpHistory>,
     /// The top of the view in a new document whose layout is made (`view/scan_window.rs`).
     frame_top: Option<scan_window::FrameTop>,
     /// The thumb that is dragged is the bar of a scan (`view/scan_window.rs`).
@@ -346,6 +348,7 @@ impl EditorView {
             pending_scan_restore: None,
             frame_seen,
             scan_shift_queued: false,
+            jumps_stash: None,
             frame_top: None,
             scan_thumb_drag: false,
             scan_shift_gave_up: None,

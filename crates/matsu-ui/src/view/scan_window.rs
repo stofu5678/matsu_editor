@@ -124,7 +124,23 @@ impl EditorView {
     /// Puts the caret and the top of the view where [`take_frame_move`](Self::take_frame_move) said,
     /// after the layout of the new document is made.
     pub(super) fn apply_frame_move(&mut self, moved: FrameMove, cx: &App) {
-        let doc = self.document.read(cx).doc();
+        let shared = self.document.read(cx);
+        let doc = shared.doc();
+        // Moving the cursor ends a selection lock: it is put back as it was, whatever is selected.
+        let lock = self.cursor.selecting_lock();
+        // The jump list holds places of the file; the positions of a window are others. The
+        // list of the file waits while a window is shown, and comes back with the whole file.
+        match (shared.scan_window().is_some(), self.jumps_stash.take()) {
+            (true, None) => {
+                self.jumps_stash = Some(std::mem::take(self.cursor.jump_history_mut()));
+            }
+            (true, stash) => {
+                self.jumps_stash = stash;
+                *self.cursor.jump_history_mut() = Default::default();
+            }
+            (false, Some(stash)) => *self.cursor.jump_history_mut() = stash,
+            (false, None) => {}
+        }
         self.cursor.move_to(moved.caret, false);
         if let Some(anchor) = moved.anchor.filter(|a| *a != moved.caret) {
             match moved.box_cols {
@@ -137,6 +153,7 @@ impl EditorView {
                 None => self.cursor.select(anchor, moved.caret),
             }
         }
+        self.cursor.set_selecting_lock(lock);
         if moved.caret_lost {
             self.cursor.set_free_col(None);
         }
@@ -414,13 +431,14 @@ impl EditorView {
         };
         // The place the jump leaves goes to the jump history (`AddCurrentLineToHistory`), if it
         // is a place of the file: the lines of a window are not, and are not recorded.
-        let departure = (!windowed).then(|| self.cursor.caret());
+        // (Before the window: the list of the file is put aside with it.)
+        if !windowed {
+            let from = self.cursor.caret();
+            self.cursor.jump_history_mut().add(from);
+        }
         if !self.cover_scan_byte(byte, cx) {
             // No window can be cut there: the jump waits for the scan after all.
             return false;
-        }
-        if let Some(from) = departure {
-            self.cursor.jump_history_mut().add(from);
         }
         // Recorded in its place among the commands, as the jump that waits is. It replaces a
         // move that waited for the scan.
