@@ -643,6 +643,16 @@ impl Document {
         self.decode_range(a.min(b), a.max(b))
     }
 
+    /// The number of bytes of the document between two positions, as the document holds them
+    /// (the original data in its own encoding, added text in UTF-8). The positions may be given
+    /// in either order and are clamped. It reads the line index and, for a column, the start of
+    /// the line it is in; never the text between the positions. A caller that is about to read
+    /// the range uses it to refuse a range that is too big.
+    pub fn raw_len_between(&self, a: Pos, b: Pos) -> Result<usize> {
+        let (a, b) = (self.pos_to_raw(a)?, self.pos_to_raw(b)?);
+        Ok(a.max(b) - a.min(b))
+    }
+
     /// Clamps a position into the document: a line past the end becomes the end of the document, a
     /// column past the end of the line becomes the end of the text of the line, and a column inside
     /// a character moves back to the start of the character.

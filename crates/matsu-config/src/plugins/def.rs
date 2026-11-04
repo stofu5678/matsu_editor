@@ -55,12 +55,6 @@ impl Jack {
         Jack::ComplementGlobal,
     ];
 
-    /// Whether a plugin must be resident to take this jack: the jacks that a key press calls
-    /// cannot wait for a process to start (ADR-0026, chapter 2).
-    pub fn needs_resident(self) -> bool {
-        matches!(self, Jack::SmartIndent)
-    }
-
     /// The name in `[Plug]`.
     pub fn name(self) -> &'static str {
         match self {
@@ -76,6 +70,16 @@ impl Jack {
             Jack::Complement => "Complement",
             Jack::ComplementGlobal => "ComplementGlobal",
         }
+    }
+
+    /// Whether a key press calls the jack (ADR-0026, chapter 2). The start of a process takes
+    /// 20 to 700 ms, too long for a key, so only a plugin that stays (`UseCache=1`) can have
+    /// such a jack.
+    pub fn needs_resident(self) -> bool {
+        matches!(
+            self,
+            Jack::SmartIndent | Jack::Complement | Jack::ComplementGlobal
+        )
     }
 }
 

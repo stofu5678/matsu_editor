@@ -66,16 +66,26 @@ pub fn function_code(slot: usize, plug: usize) -> Option<u16> {
     u16::try_from(code).ok()
 }
 
-/// `CPlug::GetPluginFunctionCode` for a plug of any jack: the number `plug` counts from 0 (the key
-/// `SmartIndent` is 0, `SmartIndent[1]` is 1), where the commands count from 1. The type settings
-/// store this code to name the plug that serves the type (`nSmartIndent`). `None` for a slot or a
-/// plug number out of range.
+/// `CPlug::GetFunctionCode` of a plug of a jack other than `Command`: the same formula, with the plug
+/// numbered from 0 (`Outline` is plug 0, `Outline[1]` is plug 1). The outline type that
+/// `nDefaultOutline` holds for a plugin's outline is this code (`CPlug::GetOutlineType`). `None` for a
+/// slot or a plug number out of range.
 pub fn plug_code(slot: usize, plug: usize) -> Option<u16> {
     if slot >= MAX_PLUGIN || plug >= MAX_PLUG_CMD {
         return None;
     }
     let code = slot % 20 * 100 + slot / 20 * 50 + plug + usize::from(FIRST);
     u16::try_from(code).ok()
+}
+
+/// The code that the type settings store to name the plugin that completes (`nHokanType`):
+/// `CPlug::GetPluginFunctionCode(id, 0)` (`CJackManager::RegisterPlug`, `PP_COMPLEMENT`). It is
+/// the code of plug 0, whatever number the plug has. `None` for a slot out of range.
+pub fn slot_code(slot: usize) -> Option<u16> {
+    if slot >= MAX_PLUGIN {
+        return None;
+    }
+    u16::try_from(slot % 20 * 100 + slot / 20 * 50 + usize::from(FIRST)).ok()
 }
 
 /// `CPlug::GetPluginId` and `GetPlugId`: the slot and the command number of a function code.
@@ -235,6 +245,19 @@ mod tests {
         assert_eq!(function_code(0, 0), None);
         assert_eq!(function_code(0, MAX_PLUG_CMD), None);
         assert_eq!(function_code(MAX_PLUGIN, 1), None);
+    }
+
+    #[test]
+    fn the_completion_of_a_plugin_is_named_by_the_code_of_its_plug_0() {
+        // `CJackManager::RegisterPlug`: `GetPluginFunctionCode(id, 0)`.
+        assert_eq!(slot_code(0), Some(20000));
+        assert_eq!(slot_code(1), Some(20100));
+        assert_eq!(slot_code(20), Some(20050));
+        assert_eq!(slot_code(39), Some(21950));
+        assert_eq!(slot_code(MAX_PLUGIN), None);
+        for slot in 0..MAX_PLUGIN {
+            assert_eq!(decode(slot_code(slot).unwrap()), Some((slot, 0)));
+        }
     }
 
     #[test]

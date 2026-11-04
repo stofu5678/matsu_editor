@@ -581,10 +581,11 @@ pub trait PluginApi {
     fn call(&mut self, name: &str, params: &[Value]) -> Result<Value, RpcError>;
 }
 
-/// The prefix of the calls that [`PluginApi`] answers.
-pub const PLUGIN_PREFIX: &str = "Plugin.";
+/// The prefixes of the calls that [`PluginApi`] answers: the `Plugin` object, the `Complement`
+/// object of the completion jacks, and the `Outline` object of the jack `Outline`.
+pub const PLUGIN_PREFIXES: &[&str] = &["Plugin.", "Complement.", "Outline."];
 
-/// Answers a request of a plugin: a call of the `Plugin` object goes to `api`, any other call
+/// Answers a request of a plugin: a call of the `Plugin` or `Outline` object goes to `api`, any other call
 /// (`Editor.*`) to `editor`. Returns the response line, `None` for a notification.
 pub fn respond(
     text: &str,
@@ -592,7 +593,7 @@ pub fn respond(
     editor: impl FnOnce(&str, &[Value]) -> Result<Value, RpcError>,
 ) -> Option<String> {
     api::respond(text, |method, params| {
-        if method.starts_with(PLUGIN_PREFIX) {
+        if PLUGIN_PREFIXES.iter().any(|p| method.starts_with(p)) {
             api.call(method, params)
         } else {
             editor(method, params)
@@ -725,6 +726,10 @@ mod tests {
         let line = respond(text, &mut Api, |_, _| panic!("not the editor's")).unwrap();
         let value: Value = serde_json::from_str(&line).unwrap();
         assert_eq!(value["result"], json!(["Plugin.GetOption", ["S", "K"]]));
+        let text = r#"{"jsonrpc":"2.0","id":5,"method":"Complement.AddList","params":["w"]}"#;
+        let line = respond(text, &mut Api, |_, _| panic!("not the editor's")).unwrap();
+        let value: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(value["result"], json!(["Complement.AddList", ["w"]]));
         let text = r#"{"jsonrpc":"2.0","id":4,"method":"InsText","params":["a"]}"#;
         let line = respond(text, &mut Api, |m, p| Ok(json!([m, p]))).unwrap();
         let value: Value = serde_json::from_str(&line).unwrap();

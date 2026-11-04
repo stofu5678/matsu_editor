@@ -197,7 +197,7 @@ pub(crate) fn run(
         cx.set_global(user);
         cx.set_global(MenuKeyMap(keymap.clone()));
         set_menus(cx, &keymap);
-        cx.on_action(|_: &Exit, cx| cx.quit());
+        cx.on_action(|_: &Exit, cx| crate::file_ops::close::quit(cx));
         // The files that are open go into the history, with the caret they have now.
         cx.on_app_quit(|cx| {
             // The processes of the plugins end first: none is left running behind the editor.
@@ -682,6 +682,7 @@ impl Render for Workspace {
         } else {
             title
         });
+        crate::doc_window::sync(window, editor, cx);
         let status = self.content.panel().status(cx);
         let show_status_bar = editor.status_bar_shown();
         let macro_panel = if preview.is_some() {

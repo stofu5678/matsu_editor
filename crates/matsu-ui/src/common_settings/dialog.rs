@@ -91,9 +91,6 @@ pub(crate) struct CommonSettingsDialog {
     focused: bool,
     /// The scroll position of the page body; the scroll bar draws from it.
     pub(crate) body_scroll: ScrollHandle,
-    /// The choices that plugins add to a list of the sheet, by control id: shown after the choices
-    /// the page lists itself (`crate::type_settings::plugin_choices`).
-    plugin_choices: HashMap<&'static str, Vec<(String, i32)>>,
     /// The scale factor of the window, as of the last paint (pictures in a page are made sharp
     /// for it).
     scale_factor: f32,
@@ -188,8 +185,7 @@ impl CommonSettingsDialog {
             target,
         } = sheet;
         let page = page.min(pages.len().saturating_sub(1));
-        let plugin_choices = crate::type_settings::plugin_choices(cx, &values);
-        let mut dialog = Self::build(
+        Self::build(
             page,
             pages,
             controls,
@@ -198,9 +194,7 @@ impl CommonSettingsDialog {
             opener,
             window,
             cx,
-        );
-        dialog.plugin_choices = plugin_choices;
-        dialog
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -309,7 +303,6 @@ impl CommonSettingsDialog {
             focus: cx.focus_handle(),
             focused: false,
             body_scroll: ScrollHandle::default(),
-            plugin_choices: HashMap::new(),
             scale_factor: 1.0,
             _subscriptions: subscriptions,
         }
@@ -676,10 +669,35 @@ impl CommonSettingsDialog {
         });
         match table::apply_in(spec, &mut rows, &mut selected, op, &fields, base.as_deref()) {
             Ok(true) => {
-                self.values.set(id, Value::Rows(rows));
-                self.table_selected.insert(id, selected);
-                self.show_row(id, selected, window, cx);
-                cx.notify();
+                let question = spec
+                    .confirm
+                    .filter(|_| matches!(op, Op::Insert | Op::Add | Op::Update))
+                    .and_then(|confirm| selected.and_then(|at| rows.get(at)).and_then(confirm));
+                match question {
+                    None => self.put_rows(id, rows, selected, window, cx),
+                    Some(question) => {
+                        // GPUI has no default-button setting: its box makes the first button the
+                        // default (Enter), so いいえ comes first (`MB_DEFBUTTON2`). GPUI has no
+                        // question icon either; the information icon is the nearest.
+                        let answer = crate::boxes::prompt(
+                            window,
+                            PromptLevel::Info,
+                            question,
+                            None,
+                            &["いいえ(&N)", "はい(&Y)"],
+                            cx,
+                        );
+                        cx.spawn_in(window, async move |this, cx| {
+                            if let Ok(1) = answer.await {
+                                this.update_in(cx, |this, window, cx| {
+                                    this.put_rows(id, rows, selected, window, cx)
+                                })
+                                .ok();
+                            }
+                        })
+                        .detach();
+                    }
+                }
             }
             Ok(false) => {}
             Err(Refused::Full) => {
@@ -690,6 +708,21 @@ impl CommonSettingsDialog {
                 crate::boxes::tell(window, PromptLevel::Info, &message, None, cx);
             }
         }
+    }
+
+    /// Takes the rows a button of an editable list made, and shows the selected one.
+    fn put_rows(
+        &mut self,
+        id: &'static str,
+        rows: Vec<table::Row>,
+        selected: Option<usize>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.values.set(id, Value::Rows(rows));
+        self.table_selected.insert(id, selected);
+        self.show_row(id, selected, window, cx);
+        cx.notify();
     }
 
     /// Alt with the letter of a button or of an edit box under an editable list.
@@ -884,20 +917,17 @@ impl CommonSettingsDialog {
             Kind::Radio { value } => self.set_int(control.id, value, cx),
             Kind::Choice { options } | Kind::List { options } => {
                 let now = self.values.int(control.id);
-                let values: Vec<i32> = options
-                    .iter()
-                    .map(|(_, v)| *v)
-                    .chain(
-                        self.plugin_choices
-                            .get(control.id)
-                            .into_iter()
-                            .flatten()
-                            .map(|(_, v)| *v),
-                    )
-                    .collect();
-                let at = values.iter().position(|v| *v == now).unwrap_or(0);
-                let next = values[(at + 1) % values.len()];
+                let at = options.iter().position(|(_, v)| *v == now).unwrap_or(0);
+                let next = options[(at + 1) % options.len()].1;
                 self.set_int(control.id, next, cx);
+            }
+            Kind::Dynamic { options } => {
+                let now = self.values.int(control.id);
+                let options = options(cx, now);
+                let at = options.iter().position(|(_, v)| *v == now).unwrap_or(0);
+                if let Some((_, next)) = options.get((at + 1) % options.len().max(1)) {
+                    self.set_int(control.id, *next, cx);
+                }
             }
             Kind::Number { .. } | Kind::Text => {
                 if let Some(input) = self.inputs.get(control.id).cloned() {
@@ -1111,26 +1141,32 @@ impl CommonSettingsDialog {
                 .children(note)
                 .into_any_element()
             }
-            Kind::Choice { options } => {
+            Kind::Choice { .. } | Kind::Dynamic { .. } => {
                 let current = self.values.int(id);
-                let added = self.plugin_choices.get(id).into_iter().flatten();
-                let choices = options
-                    .iter()
-                    .map(|(text, value)| (SharedString::from(*text), *value))
-                    .chain(added.map(|(text, value)| (SharedString::from(text.clone()), *value)))
-                    .map(|(text, value)| {
-                        Button::new(Self::element_id(&Control {
-                            kind: Kind::Radio { value },
-                            ..*control
-                        }))
-                        .label(text)
-                        .selected(current == value)
-                        // A choice is a radio button of the group (the chosen one is checked).
-                        .role(Role::RadioButton)
-                        .toggled(current == value)
-                        .disabled(!usable)
-                        .on_click(cx.listener(move |this, _, _, cx| this.set_int(id, value, cx)))
-                    });
+                let options: Vec<(SharedString, i32)> = match control.kind {
+                    Kind::Dynamic { options } => options(cx, current)
+                        .into_iter()
+                        .map(|(text, value)| (SharedString::from(text), value))
+                        .collect(),
+                    Kind::Choice { options } => options
+                        .iter()
+                        .map(|(text, value)| (SharedString::from(*text), *value))
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                let choices = options.into_iter().map(|(text, value)| {
+                    Button::new(Self::element_id(&Control {
+                        kind: Kind::Radio { value },
+                        ..*control
+                    }))
+                    .label(text)
+                    .selected(current == value)
+                    // A choice is a radio button of the group (the chosen one is checked).
+                    .role(Role::RadioButton)
+                    .toggled(current == value)
+                    .disabled(!usable)
+                    .on_click(cx.listener(move |this, _, _, cx| this.set_int(id, value, cx)))
+                });
                 v_flex()
                     .gap_1()
                     .when(!label.is_empty(), |this| this.child(label.clone()))

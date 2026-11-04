@@ -86,6 +86,7 @@ impl Project {
             file_only: false,
             except_file_regex: false,
             mime_decode: false,
+            huge_file_len: None,
             window: None,
             window_gone: false,
             replace: Some(ReplaceInfo {

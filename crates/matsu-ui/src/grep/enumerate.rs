@@ -493,17 +493,19 @@ mod tests {
 
     #[test]
     fn excluded_regular_expressions_match_the_full_path() {
-        let dir = tree(&["a.rs", "gen/b.rs", "gen/c.rs"]);
-        let keys = GrepKeys::parse(r"*.rs;!gen", true).unwrap();
+        // The folder is named with an underscore: the random name of the temporary folder holds
+        // only letters and digits, so it can never match the regular expression by itself.
+        let dir = tree(&["a.rs", "gen_dir/b.rs", "gen_dir/c.rs"]);
+        let keys = GrepKeys::parse(r"*.rs;!gen_dir", true).unwrap();
         let regex = matsu_regex::RegexMatcher::new(
-            "gen",
+            "gen_dir",
             matsu_regex::RegexSearchOptions { match_case: false },
         )
         .unwrap();
         let mut w = Walker::new(keys, vec![Arc::new(regex)]);
         let b = base(&dir);
         assert_eq!(w.files_in(&b), vec!["a.rs"]);
-        assert!(w.files_in(&join_path(&b, "gen")).is_empty());
+        assert!(w.files_in(&join_path(&b, "gen_dir")).is_empty());
     }
 
     #[test]

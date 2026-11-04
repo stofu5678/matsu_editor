@@ -446,6 +446,49 @@ fn text_with_levels_adds_untitled_items_for_skipped_levels() {
     );
 }
 
+#[test]
+fn the_tag_jump_text_of_a_tree_names_the_file_of_an_item_that_has_one() {
+    // an item a plugin put in another file (`AddFuncInfo4`) names it (`m_cmemFileName`)
+    let mut arr = crate::FuncInfoArr::new();
+    arr.push(3, "here", 0, 0);
+    arr.push_item(crate::FuncInfo {
+        line: 7,
+        col: 2,
+        name: "there".into(),
+        depth: 1,
+        info: 0,
+        file: "b.txt".into(),
+    });
+    assert_eq!(
+        clip_text_tree(&arr, "a.txt", true),
+        "a.txt(3,1):  here\r\nb.txt(7,2):    there\r\n"
+    );
+}
+
+#[test]
+fn every_copy_text_names_the_file_of_an_item_that_has_one() {
+    let mut arr = crate::FuncInfoArr::new();
+    arr.push(3, "here", 0, 0);
+    arr.push_item(crate::FuncInfo {
+        line: 7,
+        col: 2,
+        name: "there".into(),
+        depth: 0,
+        info: 0,
+        file: "b.txt".into(),
+    });
+    for text in [
+        clip_text_list(&arr, "a.txt"),
+        crate::tree::clip_text_vb(&arr, "a.txt"),
+        crate::tree::clip_text_java(&arr, "a.txt"),
+        clip_text_tree(&arr, "a.txt", true),
+    ] {
+        assert!(text.contains("a.txt(3,1): "), "{text}");
+        assert!(text.contains("b.txt(7,2): "), "{text}");
+        assert!(!text.contains("a.txt(7,2)"), "{text}");
+    }
+}
+
 // ---- HTML and XML (MakeTopicList_html) ----
 
 #[test]
@@ -1029,4 +1072,23 @@ fn asm_japanese_names_and_a_full_width_blank() {
 fn asm_a_nul_ends_the_line() {
     assert_eq!(asm("a:\0b: c\n"), "1:0:51:a");
     assert_eq!(asm("x PROC\n"), "1:0:50:x");
+}
+
+#[test]
+fn the_item_for_the_caret_passes_over_the_items_of_another_file() {
+    let mut arr = crate::FuncInfoArr::new();
+    arr.push(2, "local", 0, 0);
+    arr.push_item(crate::FuncInfo {
+        line: 3,
+        col: 1,
+        name: "elsewhere".into(),
+        depth: 0,
+        info: 0,
+        file: "b.txt".into(),
+    });
+    assert_eq!(item_at(&arr, 3, 1), Some(1));
+    assert_eq!(
+        crate::tree::item_at_where(&arr, 3, 1, |_, i| i.file.is_empty()),
+        Some(0)
+    );
 }

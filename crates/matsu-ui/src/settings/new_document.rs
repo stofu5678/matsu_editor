@@ -28,6 +28,9 @@ pub struct NewDocumentDefaults {
     /// the document type: `crate::settings::new_document_defaults` takes it from the common
     /// settings; here it is off.
     pub mime_decode: bool,
+    /// `bPriorCesu8`: when the detection finds a file equally UTF-8 and CESU-8, it is CESU-8
+    /// (`CESI::GuessUtf8OrCesu8`).
+    pub prefer_cesu8: bool,
 }
 
 impl Default for NewDocumentDefaults {
@@ -38,6 +41,7 @@ impl Default for NewDocumentDefaults {
             bom: false,
             eol: Eol::platform_default(),
             mime_decode: false,
+            prefer_cesu8: false,
         }
     }
 }
@@ -84,11 +88,14 @@ impl NewDocumentDefaults {
             .and_then(eol_of)
             .or(basic.eoltype.and_then(eol_of))
             .unwrap_or(fallback.eol);
+        // Like the others: the type's own value, else the basic type's, else off.
+        let prefer_cesu8 = own.prior_cesu8.or(basic.prior_cesu8).unwrap_or(false);
         Self {
             encoding,
             bom,
             eol,
             mime_decode: false,
+            prefer_cesu8,
         }
     }
 }
@@ -219,6 +226,17 @@ mod tests {
         assert_eq!(d.encoding, Encoding::CodePage(gbk));
         // a code page cannot hold a BOM
         assert!(!d.bom);
+    }
+
+    #[test]
+    fn the_cesu8_preference_is_the_types_then_the_basic_types() {
+        assert!(!NewDocumentDefaults::from_profile(&profile(""), None).prefer_cesu8);
+        let p = profile("[Types(0)]\r\nbPriorCesu8=1\r\n");
+        assert!(NewDocumentDefaults::from_profile(&p, None).prefer_cesu8);
+        // a type that does not say takes the basic type's; one that says has its own
+        assert!(NewDocumentDefaults::for_type(&p, 3).prefer_cesu8);
+        let p = profile("[Types(0)]\r\nbPriorCesu8=1\r\n[Types(3)]\r\nbPriorCesu8=0\r\n");
+        assert!(!NewDocumentDefaults::for_type(&p, 3).prefer_cesu8);
     }
 
     #[test]

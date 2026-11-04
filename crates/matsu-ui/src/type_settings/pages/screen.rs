@@ -61,6 +61,41 @@ pub(in crate::type_settings) const OUTLINES: &[(&str, i32)] = &[
     ("テキスト", outline_type::TEXT),
 ];
 
+/// `SMART_INDENTS` and, after them, the plugs of the `SmartIndent` jack of the plugins that may run
+/// (`CJackManager::RegisterPlug` adds them with `CPropTypesScreen::AddSIndentMethod`: the label of the
+/// plug, and the function code of the plug as the number). `now` is the number the type has: if no
+/// choice has it (its plugin is off or gone), it is listed last as 「（使えないプラグイン N）」, so that
+/// the page shows it and OK keeps it (the user decided so on 2026-11-03; Sakura shows the first choice
+/// and writes it).
+pub(in crate::type_settings) fn smart_indent_types(cx: &gpui::App, now: i32) -> Vec<(String, i32)> {
+    let mut list: Vec<(String, i32)> = SMART_INDENTS
+        .iter()
+        .map(|(label, value)| ((*label).to_owned(), *value))
+        .collect();
+    list.extend(super::super::plugin_choices::smart_indent_plugs(cx));
+    if !list.iter().any(|(_, value)| *value == now) {
+        list.push((format!("（使えないプラグイン {now}）"), now));
+    }
+    list
+}
+
+/// `OUTLINES` and, after them, the outlines of the plugins that may run (`CJackManager::RegisterPlug`
+/// adds them with `CPropTypesScreen::AddOutlineMethod`: the label of the plug, and the function code
+/// of the plug as the number). `now` is the number the type has: if no choice has it (its plugin is off
+/// or gone), it is listed last as 「（使えないプラグイン N）」, so that the page shows it and OK keeps it
+/// (the user decided so on 2026-11-03; Sakura shows the first choice and writes it).
+pub(in crate::type_settings) fn outline_types(_: &gpui::App, now: i32) -> Vec<(String, i32)> {
+    let mut list: Vec<(String, i32)> = OUTLINES
+        .iter()
+        .map(|(label, value)| ((*label).to_owned(), *value))
+        .collect();
+    list.extend(crate::plugin_outline::choices());
+    if !list.iter().any(|(_, value)| *value == now) {
+        list.push((format!("（使えないプラグイン {now}）"), now));
+    }
+    list
+}
+
 /// The outline is the rule of the list (0) or a rule file (1).
 pub(in crate::type_settings) const OUTLINE_STANDARD: i32 = 0;
 pub(in crate::type_settings) const OUTLINE_FILE: i32 = 1;
@@ -227,12 +262,12 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                             Control::check(AUTO_INDENT, "自動インデント(&U)", "", true).into(),
                             Control::check(AUTO_INDENT_ZENSPACE, "全角空白も(&Z)", "", true).into(),
                         ]),
-                        Control::choice(
+                        Control::dynamic_choice(
                             SMART_INDENT,
                             "スマートインデント(&S)",
                             "",
                             0,
-                            SMART_INDENTS,
+                            smart_indent_types,
                         )
                         .into(),
                         Control::text(INDENT_CHARS, "その他のインデント対象文字(&I)", "", "")
@@ -263,7 +298,7 @@ pub(in crate::type_settings) fn items() -> Vec<Item> {
                         )
                         .on_change(outline_mode_changed)
                         .into(),
-                        Control::choice(OUTLINE, "", "", OUTLINES[0].1, OUTLINES)
+                        Control::dynamic_choice(OUTLINE, "", "", OUTLINES[0].1, outline_types)
                             .named("標準ルールの種類")
                             .when(outline_is_standard)
                             .into(),

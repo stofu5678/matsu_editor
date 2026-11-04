@@ -27,6 +27,8 @@ pub(crate) mod prefs;
 pub(crate) struct Support {
     /// The completion list, while it is shown.
     pub completion: Option<completion::Completion>,
+    /// The plugins' candidates of the completion list (`crate::plugin_complement`).
+    pub complement: crate::plugin_complement::ComplementState,
     /// The command list, while it is open.
     pub command_list: Option<Entity<command_list::CommandList>>,
     /// The version dialog, while it is open.

@@ -175,6 +175,30 @@ pub fn wrap_line_x(max_columns: u32, cell: f32, scroll_x: f32, view_width: f32) 
     (x > 0.0 && x < view_width).then_some(x)
 }
 
+/// The columns of the line number area without the separator: the blank before the numbers and
+/// their digits, which are those of the last number (`last_number`, 0 when there is none) and at
+/// least `least` (`nLineNumWidth`, `CTextArea::DetectWidthOfLineNumberArea_calculate`).
+pub fn line_number_columns(last_number: usize, least: u32) -> usize {
+    let mut digits = 0;
+    let mut rest = last_number;
+    while rest > 0 {
+        digits += 1;
+        rest /= 10;
+    }
+    digits.max(least as usize) + 1
+}
+
+/// The number a row shows in the line number area, if it has one (`DispLineNumber`). Numbered by
+/// the lines of the text (`bLineNumIsCRLF`), a wrapped row after the first has none (it shows a
+/// blank); numbered by the rows, every row has its row number. `row` and `line` count from 0.
+pub fn line_number(by_line: bool, row: usize, line: usize, row_in_line: usize) -> Option<usize> {
+    if by_line {
+        (row_in_line == 0).then_some(line + 1)
+    } else {
+        Some(row + 1)
+    }
+}
+
 /// The x of the vertical line that follows the line numbers (行番号区切り 縦線,
 /// `DispLineNumber`: `rc.left = nLineNumAreaWidth - 2`, one pixel wide), from the left of the
 /// window; `number_area_width` is the width of the line number area without the space before the
@@ -201,6 +225,42 @@ pub fn gutter_note_from(opaque_numbers: bool, number_area_width: f32) -> f32 {
     }
 }
 
+/// How many rows below the last row of the document the body shows: the rows that Sakura draws
+/// with no layout (`DrawLayoutLine` with `pcLayout == nullptr`, one after the other up to the
+/// bottom of the view). They have the note lines (the line number area too, from its left edge:
+/// `bDispLineNumTrans`), the vertical lines and the wrap line, like the rows of text.
+/// `y_offset` is where the first row starts (0 or less, the scroll inside a row); `shown` is how
+/// many rows of the document and its end mark are drawn.
+pub fn rows_below_the_end(
+    body_height: f32,
+    y_offset: f32,
+    line_height: f32,
+    shown: usize,
+) -> usize {
+    if line_height <= 0.0 || body_height <= y_offset {
+        return 0;
+    }
+    let all = ((body_height - y_offset) / line_height).ceil() as usize;
+    all.saturating_sub(shown)
+}
+
+/// The y of the dots of a dotted vertical line inside the row that starts at `row_top` (from the
+/// top of the element): one pixel in two, on the same pixel rows in every row
+/// (`DispVerticalLines`: `bDot`).
+pub fn dotted_ys(row_top: f32, line_height: f32) -> Vec<f32> {
+    let row_bottom = row_top + line_height;
+    let mut out = Vec::new();
+    let mut dot = row_top.ceil();
+    if dot % 2.0 != 0.0 {
+        dot += 1.0;
+    }
+    while dot < row_bottom {
+        out.push(dot);
+        dot += 2.0;
+    }
+    out
+}
+
 /// `R2_NOTXORPEN` with `pen` over `dest`: the color of a line drawn with a color equal to the
 /// background of the text, so that it shows (`bExorPen` in `DispVerticalLines`). Colors are
 /// `0xRRGGBB`.
@@ -211,6 +271,42 @@ pub fn exor_color(dest: u32, pen: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_line_number_area_has_the_last_numbers_width_and_at_least_the_least_width() {
+        // `DetectWidthOfLineNumberArea_calculate`: the figures of the last number, at least
+        // `nLineNumWidth`, and one more column for the blank before them.
+        assert_eq!(line_number_columns(0, 2), 3, "an empty document");
+        assert_eq!(line_number_columns(9, 2), 3);
+        assert_eq!(line_number_columns(99, 2), 3);
+        assert_eq!(line_number_columns(100, 2), 4);
+        assert_eq!(line_number_columns(12345, 2), 6);
+        assert_eq!(line_number_columns(5, 5), 6, "the least width");
+        assert_eq!(
+            line_number_columns(123_456, 5),
+            7,
+            "the figures win when more"
+        );
+        assert_eq!(line_number_columns(1, 11), 12, "the widest setting");
+    }
+
+    #[test]
+    fn the_lines_are_numbered_by_the_text_or_by_the_rows() {
+        // a line of three rows, the second line of the text starts at row 3
+        let rows = [(0, 0, 0), (1, 0, 1), (2, 0, 2), (3, 1, 0)];
+        // `bLineNumIsCRLF`: only the first row of a line has its number
+        let by_line: Vec<_> = rows
+            .iter()
+            .map(|&(row, line, in_line)| line_number(true, row, line, in_line))
+            .collect();
+        assert_eq!(by_line, [Some(1), None, None, Some(2)]);
+        // else every row has the number of the row
+        let by_row: Vec<_> = rows
+            .iter()
+            .map(|&(row, line, in_line)| line_number(false, row, line, in_line))
+            .collect();
+        assert_eq!(by_row, [Some(1), Some(2), Some(3), Some(4)]);
+    }
 
     #[test]
     fn a_plain_column_is_a_line_when_it_is_on_the_screen() {
@@ -360,6 +456,27 @@ mod tests {
         assert_eq!(term_line_x(width), 34.0);
         // the character is in the column right of the 3 digits, which start at 2
         assert_eq!(term_char_x(3, 8.0), 26.0);
+    }
+
+    #[test]
+    fn the_rows_below_the_end_fill_the_body_to_its_bottom() {
+        // 100 px of body, rows of 20 px: 5 rows, 2 of them have text
+        assert_eq!(rows_below_the_end(100.0, 0.0, 20.0, 2), 3);
+        // a row that is only partly in the view counts
+        assert_eq!(rows_below_the_end(110.0, 0.0, 20.0, 2), 4);
+        // scrolled up inside the first row by 5 px
+        assert_eq!(rows_below_the_end(100.0, -5.0, 20.0, 2), 4);
+        // the text goes to the bottom already
+        assert_eq!(rows_below_the_end(100.0, 0.0, 20.0, 6), 0);
+        assert_eq!(rows_below_the_end(0.0, 0.0, 20.0, 0), 0);
+    }
+
+    #[test]
+    fn dots_are_on_even_pixel_rows_in_every_row() {
+        assert_eq!(dotted_ys(0.0, 6.0), vec![0.0, 2.0, 4.0]);
+        // a row that starts on an odd pixel row starts its dots one below
+        assert_eq!(dotted_ys(7.0, 6.0), vec![8.0, 10.0, 12.0]);
+        assert_eq!(dotted_ys(6.5, 6.0), vec![8.0, 10.0, 12.0]);
     }
 
     #[test]

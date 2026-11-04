@@ -207,7 +207,11 @@ fn close_given_up(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) {
 
 /// [`close_tab_or_window`] after the plugins of `DocumentClose`, and of `EditorEnd` when the window goes
 /// (`MYWM_CLOSE`, `CEditWnd::DispatchEvent`). The question was asked already.
-async fn close_with_events(
+///
+/// A window that was told `EditorEnd` and then stays (the user typed, or another window or a tab opened
+/// while the handlers ran) is told `EditorStart` again: Sakura has one document in a window, so it never
+/// meets the case, and here the plugins would otherwise see an editor that ended and goes on.
+pub(super) async fn close_with_events(
     view: &WeakEntity<EditorView>,
     cx: &mut AsyncWindowContext,
     by_copy: bool,
@@ -220,6 +224,13 @@ async fn close_with_events(
             .unwrap_or(false),
         None => false,
     };
+    // The window of the tab, for the `EditorStart` that may follow: the tab itself may be gone by then.
+    let host = view
+        .read_with(cx, |view, _| {
+            view.split_host.as_ref().and_then(|h| h.upgrade())
+        })
+        .ok()
+        .flatten();
     if ends {
         fire_and_wait(view, cx, Jack::EditorEnd).await;
     }
@@ -231,13 +242,32 @@ async fn close_with_events(
             .update(|_, app| closing_ends_the_editor(app, view))
             .unwrap_or(false);
     if user_changed_text(view, cx) || not_the_end {
+        if ends {
+            fire_and_wait(view, cx, Jack::EditorStart).await;
+        }
         close_given_up(view, cx);
         if by_copy && let Some(entity) = view.upgrade() {
             forget_left_out(&[entity], cx);
         }
         return false;
     }
-    close_tab_or_window(view, cx)
+    // A tab came to the window while its handlers ran: only the tab closes, and the window goes on.
+    let stays = ends
+        && match view.upgrade() {
+            Some(entity) => cx
+                .update(|_, app| !closes_window(&entity, app))
+                .unwrap_or(false),
+            None => false,
+        };
+    let closed = close_tab_or_window(view, cx);
+    if stays && closed {
+        let editor =
+            host.and_then(|host| cx.update(|_, app| host.read(app).editor().downgrade()).ok());
+        if let Some(editor) = editor {
+            fire_and_wait(&editor, cx, Jack::EditorStart).await;
+        }
+    }
+    closed
 }
 
 /// Closes the tab of `view` in `window`, which shows it, or the window if it has no other tab.
@@ -474,6 +504,42 @@ pub(crate) enum ExitKind {
 ///
 /// `kind` tells which question comes first (see [`ExitKind`]).
 pub(crate) async fn exit_all(cx: &mut AsyncWindowContext, kind: ExitKind) {
+    // One exit at a time: a second ask (the key pressed again) while the first waits for a question or for a
+    // plugin would run the events twice, and its answer would not stop the first.
+    let Some(_running) = cx.update(|_, app| ExitRunning::begin(app)).ok().flatten() else {
+        return;
+    };
+    exit_all_flow(cx, kind).await;
+}
+
+/// Whether an exit is going on. Taken by [`ExitRunning::begin`], let go when the flow ends or is dropped (the
+/// window that runs it may be closed meanwhile).
+#[derive(Default)]
+struct ExitInProgress(std::rc::Rc<std::cell::Cell<bool>>);
+
+impl gpui::Global for ExitInProgress {}
+
+struct ExitRunning(std::rc::Rc<std::cell::Cell<bool>>);
+
+impl ExitRunning {
+    fn begin(app: &mut App) -> Option<Self> {
+        let flag = app.default_global::<ExitInProgress>().0.clone();
+        // Not `then_some`: a guard that is made and thrown away would let the flag go.
+        if flag.replace(true) {
+            None
+        } else {
+            Some(Self(flag))
+        }
+    }
+}
+
+impl Drop for ExitRunning {
+    fn drop(&mut self) {
+        self.0.set(false);
+    }
+}
+
+async fn exit_all_flow(cx: &mut AsyncWindowContext, kind: ExitKind) {
     let (count, confirm) = cx
         .update(|_, app| {
             (
@@ -510,6 +576,8 @@ pub(crate) async fn exit_all(cx: &mut AsyncWindowContext, kind: ExitKind) {
     let hot = cx
         .update(|_, app| crate::unsaved::hot_exit_enabled(app))
         .unwrap_or(false);
+    // What the plugins were told about the close: a round that starts over does not tell it twice.
+    let mut log = crate::plugin_events::CloseLog::default();
     loop {
         if hot {
             // The latest content of every document is written before the questions, and again when a round
@@ -533,6 +601,8 @@ pub(crate) async fn exit_all(cx: &mut AsyncWindowContext, kind: ExitKind) {
                 // The flow is over: what it left out for the copies is taken back.
                 let views: Vec<_> = editors.iter().map(|(_, v)| v.clone()).collect();
                 forget_left_out(&views, cx);
+                // A window that was told `EditorEnd` in an earlier round stays: it is told it starts again.
+                crate::plugin_events::restart_ended(&mut log, cx).await;
                 return;
             }
             let version = weak
@@ -557,7 +627,7 @@ pub(crate) async fn exit_all(cx: &mut AsyncWindowContext, kind: ExitKind) {
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
-            let edited = crate::plugin_events::windows_closing(&windows, cx).await;
+            let edited = crate::plugin_events::windows_closing(&windows, &mut log, cx).await;
             // The plugins took time: a window that opened, or a document that the user changed meanwhile,
             // is asked about again. What the plugins wrote does not count.
             let now: Vec<_> = snapshot(cx).into_iter().map(|(id, _)| id).collect();
@@ -568,10 +638,48 @@ pub(crate) async fn exit_all(cx: &mut AsyncWindowContext, kind: ExitKind) {
             cx.update(|_, app| {
                 // Every question is answered: what the user threw away leaves no copy.
                 crate::unsaved::apply_all_closes(app);
-                app.quit();
+                quit_application(app);
             })
             .ok();
             return;
         }
     }
+}
+
+/// Quits the application (`Exit`: Cmd+Q and the application menu of macOS) the way `F_EXITALL` does: the
+/// questions about unsaved changes, the plugins of `DocumentClose` and `EditorEnd`, and then the end.
+/// Without an editor window there is nothing to ask or tell, and the application ends at once.
+pub(crate) fn quit(cx: &mut App) {
+    let Some((handle, _)) = super::windows::workspaces(cx).into_iter().next() else {
+        quit_application(cx);
+        return;
+    };
+    let started = handle.update(cx, |_, window, app| {
+        window
+            .spawn(app, async move |cx| {
+                exit_all(cx, ExitKind::Application).await;
+            })
+            .detach();
+    });
+    if started.is_err() {
+        quit_application(cx);
+    }
+}
+
+/// The end of the application. The tests of the platform do not end, so they count the calls instead.
+fn quit_application(app: &mut App) {
+    #[cfg(test)]
+    QUITS.with(|quits| quits.set(quits.get() + 1));
+    app.quit();
+}
+
+#[cfg(test)]
+thread_local! {
+    static QUITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many times the application was asked to end, in this test.
+#[cfg(test)]
+pub(crate) fn quits() -> usize {
+    QUITS.with(std::cell::Cell::get)
 }

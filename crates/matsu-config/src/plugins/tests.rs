@@ -63,7 +63,7 @@ fn smart_indent_chars_are_the_data_of_the_matsu_section() {
 }
 
 #[test]
-fn only_the_smart_indent_jack_needs_a_resident_plugin_so_far() {
+fn the_jacks_that_a_key_press_calls_need_a_resident_plugin() {
     assert!(Jack::SmartIndent.needs_resident());
     assert!(!Jack::Command.needs_resident());
     assert!(!Jack::DocumentOpen.needs_resident());

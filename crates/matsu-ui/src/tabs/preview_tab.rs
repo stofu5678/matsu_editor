@@ -48,6 +48,11 @@ impl Workspace {
         }
         let host = cx.weak_entity();
         let hidden = cx.new(|cx| EditorView::new(document.clone(), cx));
+        // It has the type of the document, so that a later announcement of the type (when the
+        // source is made again) does not make it apply the type and end the indentation of the
+        // document that the views keep.
+        let type_index = editor.read(cx).view_settings().type_index;
+        hidden.update(cx, |view, _| view.follow_type_index(type_index));
         // The functions of the bar (next and previous window, the list of the tabs, close) run on
         // this view and reach the window through it.
         hidden.update(cx, |view, _| view.split_host = Some(host.clone()));
@@ -125,9 +130,19 @@ impl Workspace {
             }
             None => {
                 let user = cx.try_global::<crate::settings::UserSettings>().cloned();
+                // Read before the settings are applied: that gives every view of the document the
+                // values of the type (`TypeChanged`), and the document takes them from the views.
+                let kept = document.read(cx).indent();
                 let editor = cx.new(|cx| EditorView::new(document, cx));
                 if let Some(user) = &user {
                     editor.update(cx, |view, cx| view.apply_user_settings(user, cx));
+                }
+                // The tab width and the use of spaces are the document's, not the type's: the
+                // detected indentation and `F_CHGTABWIDTH` stay.
+                if let Some((width, ins_space)) = kept {
+                    editor.update(cx, |view, cx| {
+                        view.share_indent(Some(width), Some(ins_space), cx)
+                    });
                 }
                 self.insert_tab(PaneSet::new(editor), active + 1, true, window, cx);
             }

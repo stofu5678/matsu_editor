@@ -141,6 +141,77 @@ mod window_keys {
         assert_eq!(text(&shared, cx), "yabc");
     }
 
+    /// The dialogs of the Search menu that are drawn inside the window: the access keys of find, replace,
+    /// Grep and jump.
+    const SEARCH_DIALOGS: [&str; 4] = ["f", "r", "g", "j"];
+
+    /// A dialog opened from the menu has the keyboard focus, as one opened by its key does: the
+    /// next typed text goes into the dialog and the document stays as it was.
+    fn assert_dialog_has_the_focus(
+        shared: &Entity<SharedDocument>,
+        cx: &mut gpui::VisualTestContext,
+        what: &str,
+    ) {
+        cx.simulate_input("q");
+        assert_eq!(
+            text(shared, cx),
+            "abc",
+            "{what}: the text went into the document"
+        );
+    }
+
+    #[gpui::test]
+    pub(super) fn a_dialog_opened_with_an_access_key_of_the_menu_has_the_focus(
+        cx: &mut TestAppContext,
+    ) {
+        for key in SEARCH_DIALOGS {
+            let (workspace, shared, cx) = window(cx, KeyMap::default());
+            let bar = bar_of(&workspace, cx);
+            cx.simulate_keystrokes("alt-s");
+            cx.simulate_keystrokes(key);
+            assert_eq!(open_menu_name(&bar, cx), None, "{key}: the menu closes");
+            assert_dialog_has_the_focus(&shared, cx, key);
+        }
+    }
+
+    #[gpui::test]
+    pub(super) fn a_dialog_opened_with_enter_in_the_menu_has_the_focus(cx: &mut TestAppContext) {
+        // Enter (and a click) run the item through the popup menu, which announces that it is
+        // dismissed after the command has moved the focus into the dialog. The items of the
+        // Search menu, by the number of presses of Down (the arrows skip the gray ones): the
+        // dialogs among them (find, replace, Grep, jump, ...) take what is typed next; the
+        // others (10, 11 and 14 presses: the commands that open no dialog) leave it to the text.
+        let mut dialogs = 0;
+        for downs in 1..=14 {
+            let (workspace, shared, cx) = window(cx, KeyMap::default());
+            let bar = bar_of(&workspace, cx);
+            cx.simulate_keystrokes("alt-s");
+            for _ in 0..downs {
+                cx.simulate_keystrokes("down");
+            }
+            cx.simulate_keystrokes("enter");
+            if open_menu_name(&bar, cx).is_some() {
+                continue; // a submenu opened
+            }
+            if matches!(downs, 10 | 11 | 14) {
+                continue;
+            }
+            dialogs += 1;
+            assert_dialog_has_the_focus(&shared, cx, &format!("{downs} presses of Down"));
+        }
+        assert_eq!(dialogs, 9);
+    }
+
+    #[gpui::test]
+    pub(super) fn escape_gives_the_focus_back_to_the_text(cx: &mut TestAppContext) {
+        let (workspace, shared, cx) = window(cx, KeyMap::default());
+        let bar = bar_of(&workspace, cx);
+        cx.simulate_keystrokes("alt-s escape");
+        assert_eq!(open_menu_name(&bar, cx), None);
+        cx.simulate_input("q");
+        assert_eq!(text(&shared, cx), "qabc");
+    }
+
     #[gpui::test]
     pub(super) fn a_letter_that_no_item_has_does_nothing(cx: &mut TestAppContext) {
         let (workspace, shared, cx) = window(cx, KeyMap::default());

@@ -331,6 +331,12 @@ pub struct ViewSettings {
     pub vert_lines: Vec<i32>,
     /// `nLineTermType` and `cLineTermChar` of the type: what follows the line numbers (行番号区切り).
     pub line_term: LineTerm,
+    /// `nLineNumWidth` of the type: the least number of digits of the line numbers (2 to 11).
+    pub line_num_width: u32,
+    /// `nImeState` of the type: the IME at the start (`crate::doc_window`).
+    pub ime_state: i32,
+    /// `bUseDocumentIcon` of the type: the window has the icon of the file (`crate::doc_window`).
+    pub use_document_icon: bool,
     /// What the outline of the type is made of.
     pub outline: OutlineSettings,
 }
@@ -686,6 +692,9 @@ impl ViewSettings {
                 2 => LineTerm::Char(t.line_term_char),
                 _ => LineTerm::None,
             },
+            line_num_width: u32::try_from(t.line_num_width).unwrap_or(2),
+            ime_state: t.ime_state,
+            use_document_icon: t.use_document_icon,
             outline: OutlineSettings {
                 kind: t.default_outline,
                 line_num_is_crlf: t.line_num_is_crlf,

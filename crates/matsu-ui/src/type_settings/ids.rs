@@ -84,6 +84,7 @@ pub(super) const DEFAULT_EOL: &str = "default_eol";
 pub(super) const DEFAULT_BOM: &str = "default_bom";
 pub(super) const DEFAULT_CODE: &str = "default_code";
 pub(super) const CODE_PAGE: &str = "code_page";
+pub(super) const CODE_PAGE_NUMBER: &str = "code_page_number";
 pub(super) const PRIOR_CESU8: &str = "prior_cesu8";
 pub(super) const IME_SWITCH: &str = "ime_switch";
 pub(super) const IME_STATE: &str = "ime_state";

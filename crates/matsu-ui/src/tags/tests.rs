@@ -567,3 +567,146 @@ fn enter_waits_for_the_list_of_the_new_keyword(cx: &mut TestAppContext) {
     assert_eq!(windows(cx), 2);
     assert_eq!(newest(cx).caret(cx), Pos::new(4, 0));
 }
+
+// ---- the choices that the settings file keeps (`ShareData_IO_Other`) ----
+
+/// A settings file with `text`, read as the application reads it, with the file as the place the
+/// choices are written to.
+fn with_ini(cx: &mut TestAppContext, text: &str) -> (tempfile::TempDir, PathBuf) {
+    cx.update(gpui_component::init);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("matsu.ini");
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(text.as_bytes());
+    std::fs::write(&path, bytes).unwrap();
+    cx.update(|app| {
+        let user = crate::settings::UserSettings::load_from(std::slice::from_ref(&path));
+        app.set_global(crate::history::HistoryState::on_disk(
+            matsu_config::history::HistoryStore::new(path.clone(), false),
+            crate::history::HistoryOptions::default(),
+        ));
+        crate::saved_state::install(app, &user);
+        app.set_global(user);
+    });
+    (dir, path)
+}
+
+fn in_other(path: &Path, key: &str) -> Option<String> {
+    matsu_config::Profile::load(path)
+        .unwrap()
+        .get("Other", key)
+        .map(str::to_owned)
+}
+
+/// The keys of the tag dialogs in `[Other]` (the rest of the file changes with the history).
+fn tag_choices(path: &Path) -> Vec<Option<String>> {
+    [
+        "m_bTagJumpICase",
+        "m_bTagJumpAnyWhere",
+        "nTagsOpt",
+        "szTagsCmdLine",
+    ]
+    .map(|key| in_other(path, key))
+    .to_vec()
+}
+
+const TAG_CHOICES: &str = "[Other]\r\nm_bTagJumpICase=1\r\nm_bTagJumpAnyWhere=1\r\nnTagsOpt=1\r\n\
+    szTagsCmdLine=--languages=C\r\n";
+
+#[gpui::test]
+fn the_keys_of_the_file_are_the_choices_of_the_dialogs(cx: &mut TestAppContext) {
+    let (_ini_dir, _ini) = with_ini(cx, TAG_CHOICES);
+    let kept = cx.update(|app| prefs(app));
+    assert!(kept.ignore_case && kept.partial && kept.make.recursive);
+    assert_eq!(kept.make.command_line, "--languages=C");
+    // the keyword dialog starts with the check boxes: both are on, so "OBA" matches "foobar"
+    let (_dir, main) = project("x\n");
+    let w = open(cx, &main);
+    w.run_with(cx, "F_TAGJUMP_KEYWORD", &[Arg::Text("OBA".into())]);
+    settle(cx, SHORT_DELAY);
+    assert_eq!(w.list(cx).unwrap().0, ["foobar"]);
+}
+
+#[gpui::test]
+fn without_the_keys_the_choices_are_sakuras_defaults(cx: &mut TestAppContext) {
+    let (_ini_dir, _ini) = with_ini(cx, "[Other]\r\nnExecFlgOpt=1\r\n");
+    let kept = cx.update(|app| prefs(app));
+    assert!(!kept.ignore_case && !kept.partial && !kept.make.recursive);
+    assert_eq!(kept.make.command_line, "");
+}
+
+#[gpui::test]
+fn the_keyword_dialog_writes_its_check_boxes_where_sakura_does(cx: &mut TestAppContext) {
+    let (_ini_dir, ini) = with_ini(cx, TAG_CHOICES);
+    let (_dir, main) = project("x\n");
+    let w = open(cx, &main);
+    let set = |cx: &mut TestAppContext, ignore_case: bool, partial: bool| {
+        w.view.update(cx, |v, cx| {
+            v.support
+                .tag_list
+                .as_ref()
+                .unwrap()
+                .update(cx, |l, cx| l.set_options(ignore_case, partial, cx))
+        });
+        settle(cx, SHORT_DELAY);
+    };
+    let before = tag_choices(&ini);
+    // キャンセル writes nothing
+    w.run_with(cx, "F_TAGJUMP_KEYWORD", &[Arg::Text("OBA".into())]);
+    set(cx, false, false);
+    w.cx(cx).simulate_keystrokes("escape");
+    cx.run_until_parked();
+    assert_eq!(tag_choices(&ini), before);
+    // the direct form has no check boxes and writes nothing
+    let (_dir2, main2) = project("dup\n");
+    let w2 = open(cx, &main2);
+    w2.run(cx, "F_DIRECT_TAGJUMP");
+    assert!(w2.list(cx).is_some());
+    w2.cx(cx).simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert_eq!(tag_choices(&ini), before);
+    // ジャンプ writes them, also when nothing is found
+    w.run_with(cx, "F_TAGJUMP_KEYWORD", &[Arg::Text("OBA".into())]);
+    set(cx, false, true);
+    w.cx(cx).simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert_eq!(in_other(&ini, "m_bTagJumpICase").as_deref(), Some("0"));
+    assert_eq!(in_other(&ini, "m_bTagJumpAnyWhere").as_deref(), Some("1"));
+}
+
+#[gpui::test]
+fn the_tags_file_dialog_writes_its_options_on_ok_only(cx: &mut TestAppContext) {
+    let (_ini_dir, ini) = with_ini(cx, TAG_CHOICES);
+    let (dir, main) = project("x\n");
+    std::fs::remove_file(dir.path().join("tags")).unwrap();
+    let w = open(cx, &main);
+    use_ctags_in(cx, Vec::new());
+    let before = tag_choices(&ini);
+    let uncheck = |cx: &mut TestAppContext| {
+        w.view.update(cx, |v, cx| {
+            v.support
+                .tags_make
+                .as_ref()
+                .unwrap()
+                .update(cx, |d, cx| d.set_recursive(false, cx))
+        });
+    };
+    // キャンセル
+    w.run(cx, "F_TAGS_MAKE");
+    uncheck(cx);
+    w.cx(cx).simulate_keystrokes("escape");
+    cx.run_until_parked();
+    assert_eq!(tag_choices(&ini), before);
+    // 作成: the box of the command line started with the line of the file, and it is written back
+    w.run(cx, "F_TAGS_MAKE");
+    uncheck(cx);
+    press_make(&w, cx);
+    assert!(prompt(&w, cx).is_some(), "no ctags: the refusal");
+    w.cx(cx).simulate_prompt_answer("OK");
+    cx.run_until_parked();
+    assert_eq!(in_other(&ini, "nTagsOpt").as_deref(), Some("0"));
+    assert_eq!(
+        in_other(&ini, "szTagsCmdLine").as_deref(),
+        Some("--languages=C")
+    );
+}

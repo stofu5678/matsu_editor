@@ -11,7 +11,9 @@
 //! check boxes in the dialog and applies them when it is closed or before a delete, which comes
 //! to the same.
 //!
-//! The dialog is a window of its own, as in Sakura, with the window of the editor behind it.
+//! The dialog is a window of its own, as in Sakura, with the window of the editor behind it. Its
+//! place and size are kept when it is closed and used by the next one (`rcFavoriteDialog`,
+//! [`crate::saved_state::dialog_rect`]).
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -27,6 +29,9 @@ use gpui_component::Root;
 use matsu_config::history::{History, Recent};
 
 use crate::file_ops::windows::editors;
+use crate::saved_state::dialog_rect::{
+    Rect, favorite as saved_rect, remember_favorite, work_areas,
+};
 
 /// The histories the dialog manages.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -200,6 +205,24 @@ pub(crate) struct FavoriteDialog {
     anchor: usize,
     focus: FocusHandle,
     scroll: ScrollHandle,
+    /// Where the window is, kept for the next dialog when this one is closed
+    /// (`CDlgFavorite::OnDestroy`).
+    rect: Rect,
+}
+
+/// The rectangle of the window as the dialog opens it: the restored one when it is maximized,
+/// the size of its content on macOS (the frame there has the title bar in it, and a window opens
+/// from the size of its content).
+fn window_rect(window: &Window) -> Rect {
+    let bounds = if cfg!(target_os = "macos") {
+        crate::saved_state::window::with_content_size(
+            window.window_bounds(),
+            window.viewport_size(),
+        )
+    } else {
+        window.window_bounds()
+    };
+    Rect::of_bounds(bounds.get_bounds())
 }
 
 impl FavoriteDialog {
@@ -223,6 +246,11 @@ impl FavoriteDialog {
             }
         })
         .detach();
+        cx.observe_window_bounds(window, |this, window, _| this.rect = window_rect(window))
+            .detach();
+        // Whichever way the dialog is closed, its place is kept (`OnDestroy`).
+        cx.on_release(|this, cx| remember_favorite(cx, this.rect))
+            .detach();
         Self {
             tab: Tab::Files,
             history,
@@ -231,6 +259,7 @@ impl FavoriteDialog {
             anchor: 0,
             focus: cx.focus_handle(),
             scroll: ScrollHandle::new(),
+            rect: window_rect(window),
         }
     }
 
@@ -668,7 +697,13 @@ pub(crate) fn open(cx: &mut App) {
     }
     let history =
         super::current(cx).unwrap_or_else(|| History::new(15, 15, super::CASE_INSENSITIVE));
-    let bounds = Bounds::centered(None, size(px(760.), px(460.)), cx);
+    // The place the last dialog was closed at, brought inside the screen (`OnInitDialog`).
+    let saved = saved_rect(cx);
+    let bounds = if saved.is_set() && saved.width() > 0 && saved.height() > 0 {
+        saved.fitted(&work_areas(cx)).bounds()
+    } else {
+        Bounds::centered(None, size(px(760.), px(460.)), cx)
+    };
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
         icon: crate::app_icon::window_icon(),

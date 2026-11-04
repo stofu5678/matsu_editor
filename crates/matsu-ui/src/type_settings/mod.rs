@@ -33,9 +33,13 @@ mod pages;
 mod plugin_choices;
 mod values;
 
-pub(crate) use plugin_choices::plugin_choices;
+pub(crate) use plugin_choices::forget_smart_indent_plugs;
+
+/// The smart indent choices of the page, for the tests of the plugins.
 #[cfg(test)]
-pub(crate) use plugin_choices::plugin_choices_for;
+pub(crate) fn smart_indent_types(cx: &gpui::App, now: i32) -> Vec<(String, i32)> {
+    pages::screen::smart_indent_types(cx, now)
+}
 
 #[cfg(test)]
 mod tests;
@@ -202,6 +206,8 @@ pub(crate) fn open(
     page: Option<usize>,
     opener: Option<AnyWindowHandle>,
 ) -> Option<Entity<CommonSettingsDialog>> {
+    crate::plugin_complement::forget_choices();
+    forget_smart_indent_plugs();
     if let Some(dialog) = current_dialog(cx) {
         let (window, open_id) = {
             let open = cx.global::<OpenSheet>();
@@ -231,6 +237,8 @@ pub(crate) fn open(
     // A renumbering of the keyword sets from before this sheet is not for its numbers.
     crate::common_settings::forget_keyword_renumbering();
     let profile = current_profile(cx);
+    // The outlines of the plugins that may run now are among the choices of the screen page.
+    crate::plugin_outline::refresh(cx);
     let sheet = sheet(&profile, index)?;
     let id = sheet.target.original.id;
     let title = "タイプ別設定";
@@ -375,7 +383,7 @@ fn write_by_id(
 
 /// Writes what the user changed into type `number` of `profile`, over the type as `profile` has it
 /// now (another window or process may have changed it since the sheet opened), except that the
-/// new-file keys (`eDefaultCodetype`, `eDefaultEoltype`, `bDefaultBom`) the user did not change
+/// new-file keys (`eDefaultCodetype`, `eDefaultEoltype`, `bDefaultBom`, `bPriorCesu8`) the user did not change
 /// and the file does not set stay unset, so that the line ending still follows the OS. A type of
 /// MATSU Editor's own (ADR-0017) is written with all its keys.
 fn write_type(
@@ -410,6 +418,11 @@ fn write_type(
             merged.default_bom == base.default_bom
                 && merged.default_codetype == base.default_codetype,
             raw("bDefaultBom"),
+        ),
+        (
+            "bPriorCesu8",
+            merged.prior_cesu8 == base.prior_cesu8,
+            raw("bPriorCesu8"),
         ),
     ];
     merged.write(profile, number)?;

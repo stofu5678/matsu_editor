@@ -232,9 +232,15 @@ impl EditorView {
         let popup = PopupMenu::build(window, cx, move |menu, window, cx| build(menu, window, cx));
         // The letters of the access keys run the items (`WM_MENUCHAR`).
         popup_keys::register(&popup, keys, fill_again, cx);
-        let dismiss = cx.subscribe_in(&popup, window, |this, _, _: &DismissEvent, window, cx| {
-            this.close_custom_menu(window, cx)
-        });
+        let dismiss = cx.subscribe_in(
+            &popup,
+            window,
+            |this, popup, _: &DismissEvent, window, cx| {
+                // An item that opened a dialog has moved the focus into it: leave it there.
+                let moved = crate::menu_bar::focus_left_popup(popup, window, cx);
+                this.close_custom_menu_keeping_focus(moved, window, cx)
+            },
+        );
         popup.read(cx).focus_handle(cx).focus(window, cx);
         self.custom_menu.open = Some(OpenPopup {
             popup,
@@ -270,8 +276,20 @@ impl EditorView {
 
     /// Closes the popup and gives the focus back to the text.
     pub(crate) fn close_custom_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.close_custom_menu_keeping_focus(false, window, cx);
+    }
+
+    /// `close_custom_menu`; with `keep_focus` the focus stays where it is (see `focus_left_popup`).
+    pub(crate) fn close_custom_menu_keeping_focus(
+        &mut self,
+        keep_focus: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.custom_menu.open.take().is_some() {
-            window.focus(&self.focus_handle, cx);
+            if !keep_focus {
+                window.focus(&self.focus_handle, cx);
+            }
             cx.notify();
         }
     }

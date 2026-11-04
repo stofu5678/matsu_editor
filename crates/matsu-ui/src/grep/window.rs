@@ -77,8 +77,9 @@ const HELD_LIMIT: usize = 1 << 20;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(50);
 
 /// What the dialog remembers from one Grep to the next, for every window
-/// (`DllShareData::m_Common.m_sSearch` and `m_sSearchKeywords`). It lives as long as the program;
-/// it is not saved in a file yet.
+/// (the members of `CDlgGrep` and `CDlgGrepReplace`). It lives as long as the program. The
+/// choices that Sakura keeps in the shared data (`m_Common.m_sSearch`) and writes to its file are
+/// not taken from here when a dialog opens but from [`crate::saved_state::grep`].
 ///
 /// The second value is the document that the last search read when it was a search of the text of
 /// a window: `F_GREP` without arguments repeats it, as Sakura's dialog keeps `:HWND:` in its file
@@ -239,6 +240,11 @@ impl EditorView {
     /// Whether a Grep is running in the window.
     pub fn is_grep_running(&self) -> bool {
         self.grep.is_running()
+    }
+
+    /// A Grep runs in the window, or is about to (a macro of the type change goes first).
+    pub(crate) fn grep_busy(&self) -> bool {
+        self.grep.is_running() || self.grep.starting
     }
 
     /// The key the window searched for, or none for a window that is not a Grep window.
@@ -456,12 +462,15 @@ impl EditorView {
                 )
             }
         };
+        // While the scan of a huge file runs, the document has only the scanned start of it.
+        let scanning = shared.scan_index();
         Some(WindowSource {
             document: shared.doc().clone(),
             encoding: shared.file().encoding,
             folder,
             name,
             title,
+            scanning,
         })
     }
 
@@ -566,7 +575,10 @@ impl EditorView {
     /// Starts the search with the result in this window. The search runs on a background task;
     /// the window gets the pieces of the result as they come.
     pub(crate) fn begin_grep(&mut self, mut info: GrepInfo, cx: &mut Context<Self>) {
-        info.mime_decode = crate::file_ops::prefs::prefs(cx).auto_mime_decode;
+        let prefs = crate::file_ops::prefs::prefs(cx);
+        info.mime_decode = prefs.auto_mime_decode;
+        // A file as big as this is opened by ranges, so Grep reads it in order too (ADR-0020).
+        info.huge_file_len = Some(prefs.huge_file_len());
         // The key is marked in the result (`m_strCurSearchKey`, `m_bCurSrchKeyMark`).
         self.search.set_options(info.options);
         self.search.set_pattern(&info.key);

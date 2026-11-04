@@ -28,7 +28,8 @@
 //! (`bHokanKey_RETURN`, `bHokanKey_TAB`, `bHokanKey_RIGHT`, [`super::prefs`]). The meaning of the
 //! chosen candidate in the keyword help dictionaries is shown beside the list ([`crate::key_help`]).
 //!
-//! Not done: the plugins as a source of candidates.
+//! The plugins are a source after the others ([`crate::plugin_complement`]): `F_HOKAN` asks them once,
+//! when it opens the list, and the typing that narrows the list uses the candidates they gave.
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -69,6 +70,9 @@ pub(crate) struct Completion {
     pub selected: usize,
     /// The first row shown.
     pub top: usize,
+    /// The plugins are still being asked ([`crate::plugin_complement`]). A list with fewer than two
+    /// candidates is not shown meanwhile ([`Completion::is_shown`]).
+    pub pending: bool,
 }
 
 impl Completion {
@@ -78,7 +82,14 @@ impl Completion {
             items,
             selected: 0,
             top: 0,
+            pending: false,
         }
+    }
+
+    /// Whether the list is on the screen and takes keys. While the plugins are asked, a list with fewer
+    /// than two candidates waits: with none, or with one that is inserted at once, Sakura shows nothing.
+    pub(crate) fn is_shown(&self) -> bool {
+        !self.pending || self.items.len() >= 2
     }
 
     /// Chooses row `to` (clamped), scrolling it into view.
@@ -258,12 +269,21 @@ impl EditorView {
                 complete::keyword_candidates(sources.keywords(), &key, sources.ignore_case);
             items = complete::merge_candidates(items, keywords, None);
         }
+        // The candidates the plugins gave when the list opened, narrowed to the word as it is now (the
+        // plugins are not asked again).
+        let plugin_words = complete::keyword_candidates(
+            self.support.complement.words().iter().map(String::as_str),
+            &key,
+            sources.ignore_case,
+        );
+        items = complete::merge_candidates(items, plugin_words, None);
         Some(Completion::new(key, items))
     }
 
     /// `F_HOKAN` (`Command_HOKAN` and `ShowHokanMgr` with `bAutoDecided`).
     pub(crate) fn start_completion(&mut self, cx: &mut Context<Self>) {
         self.support.completion = None;
+        self.support.complement.clear();
         // The meanings beside the list of the last session may be old (the dictionaries change).
         self.support.key_help.forget_beside_list();
         let Some(found) = self.completion_for_caret(cx) else {
@@ -271,6 +291,16 @@ impl EditorView {
             cx.notify();
             return;
         };
+        // The plugins come after the sources above (`CHokanMgr::Search`). If any is asked, the list
+        // opens with what it has and gets their candidates as they arrive.
+        let sources = Sources::of(self.type_index(), cx);
+        if self.start_complement(&found, sources.ignore_case, sources.by_file, cx) {
+            let mut found = found;
+            found.pending = true;
+            self.support.completion = Some(found);
+            cx.notify();
+            return;
+        }
         match found.items.len() {
             // no candidate: nothing is shown (Sakura beeps only if the list was open)
             0 => {}
@@ -283,7 +313,7 @@ impl EditorView {
 
     /// Replaces the word before the caret with `word`, as one undo step (`CHokanMgr::DoHokan`:
     /// `F_WordDeleteToStart`, then `F_INSTEXT_W`).
-    fn insert_completion(&mut self, word: &str, cx: &mut Context<Self>) {
+    pub(crate) fn insert_completion(&mut self, word: &str, cx: &mut Context<Self>) {
         // A click can come while an IME composition is open: end it, as any command does.
         self.interrupt_composition(cx);
         // What a key macro records (`HandleCommand` records both commands in Sakura). The text
@@ -308,6 +338,7 @@ impl EditorView {
     pub(crate) fn completion_before_command(&mut self, sakura: &str) {
         if !KEEPING.contains(&sakura) {
             self.support.completion = None;
+            self.support.complement.stop();
         }
     }
 
@@ -319,17 +350,23 @@ impl EditorView {
             return;
         }
         if changes.text_changed() {
+            // What the plugins add to a text that changed would not fit the word (ADR-0026).
+            self.stop_complement();
+            if self.support.completion.is_none() {
+                return;
+            }
             self.support.completion = self
                 .completion_for_caret(cx)
                 .filter(|found| !found.items.is_empty());
         } else if changes.caret_moved || changes.selection_changed {
             self.support.completion = None;
+            self.support.complement.stop();
         }
     }
 
     /// A key while the list is shown (`CHokanMgr::KeyProc`). Returns `true` if the list took it.
     pub(crate) fn completion_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) -> bool {
-        let Some(list) = self.support.completion.as_mut() else {
+        let Some(list) = self.support.completion.as_mut().filter(|l| l.is_shown()) else {
             return false;
         };
         let Some(key) = list_key(&event.keystroke.key, &super::prefs::current(cx)) else {
@@ -369,7 +406,7 @@ impl EditorView {
 
     /// The list, below the start of the word before the caret.
     pub(crate) fn render_completion(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let list = self.support.completion.as_ref()?;
+        let list = self.support.completion.as_ref().filter(|l| l.is_shown())?;
         let caret = self.cursor.caret();
         let start = Pos::new(caret.line, caret.col.saturating_sub(list.key.len()));
         let at = self.point_of(start, cx)?;

@@ -984,3 +984,108 @@ fn a_box_selection_is_2_and_its_text_is_the_rows_of_the_box() {
     f.cursor.select(Pos::new(0, 0), Pos::new(0, 2));
     assert_eq!(f.call("IsTextSelected", json!([])).unwrap(), json!(1));
 }
+
+// ---- huge files (ADR-0020) ----
+
+/// A document over a file of `text` that is read by ranges, with the first block scanned only.
+fn scanning_document(text: &str) -> Document {
+    use matsu_core::buffer::{BlockScanner, EncodingCodec, MemorySource, ScanOptions, Source};
+    use matsu_core::encoding::Encoding;
+    use std::sync::Arc;
+
+    let source: Arc<dyn Source> = Arc::new(MemorySource::new(text.as_bytes().to_vec()));
+    let options = ScanOptions {
+        block_size: 16,
+        window_blocks: 1,
+        ..ScanOptions::default()
+    };
+    let mut scanner =
+        BlockScanner::new(source, Arc::new(EncodingCodec(Encoding::Utf8)), options).unwrap();
+    scanner.step().unwrap();
+    assert!(!scanner.is_done(), "the text is longer than one block");
+    let index = scanner.shared().lock().unwrap().clone();
+    let doc = Document::from_block_index(index).unwrap();
+    assert!(doc.is_ranged() && doc.is_read_only());
+    doc
+}
+
+fn fixture_over(doc: Document) -> Fixture {
+    Fixture {
+        model: DocumentModel::new(doc),
+        cursor: Cursor::default(),
+        layout: PlainLayout::default(),
+        path: None,
+    }
+}
+
+#[test]
+fn the_line_count_of_a_file_still_being_scanned_is_not_given() {
+    let text = "0123456789abc\n".repeat(20);
+    let mut f = fixture_over(scanning_document(&text));
+    let error = f.call("GetLineCount", json!([0])).unwrap_err();
+    assert_eq!(error.code, UNAVAILABLE);
+    assert!(
+        error.message.contains("still being scanned"),
+        "{}",
+        error.message
+    );
+    // a line that has its ending in the scanned part is exact
+    assert_eq!(
+        f.call("GetLineStr", json!([1])).unwrap(),
+        json!("0123456789abc\n")
+    );
+    // the line of the cursor is
+    assert!(f.call("GetLineStr", json!([0])).is_ok());
+    // a line past the scanned part is not "an empty string": the file does not end there
+    let error = f.call("GetLineStr", json!([200])).unwrap_err();
+    assert_eq!(error.code, UNAVAILABLE);
+}
+
+#[test]
+fn the_lines_of_a_scanned_huge_file_are_given() {
+    use matsu_core::buffer::{EncodingCodec, MemorySource, ScanOptions, Source, scan_blocks};
+    use matsu_core::encoding::Encoding;
+    use std::ops::ControlFlow;
+    use std::sync::Arc;
+
+    let text = "0123456789abc\n".repeat(20);
+    let source: Arc<dyn Source> = Arc::new(MemorySource::new(text.as_bytes().to_vec()));
+    let options = ScanOptions {
+        block_size: 16,
+        window_blocks: 1,
+        ..ScanOptions::default()
+    };
+    let index = scan_blocks(
+        source,
+        Arc::new(EncodingCodec(Encoding::Utf8)),
+        options,
+        |_| ControlFlow::Continue(()),
+    )
+    .unwrap();
+    let mut f = fixture_over(Document::from_block_index(index).unwrap());
+    assert_eq!(f.call("GetLineCount", json!([0])).unwrap(), json!(20));
+    // (the last line of a document is given without its ending, as for any document)
+    assert_eq!(
+        f.call("GetLineStr", json!([20])).unwrap(),
+        json!("0123456789abc")
+    );
+    assert_eq!(f.call("GetLineStr", json!([21])).unwrap(), json!(""));
+}
+
+#[test]
+fn a_selection_over_the_limit_is_not_read() {
+    let mut f = Fixture::new("0123456789\nabcdefghij\nxyz");
+    f.cursor.select(Pos::new(0, 0), Pos::new(1, 5));
+    // 16 bytes: under a limit of 17, over a limit of 16
+    assert!(selection_too_big(&f.cx(), 17).is_none());
+    let error = selection_too_big(&f.cx(), 16).unwrap();
+    assert_eq!(error.code, UNAVAILABLE);
+    assert!(error.message.contains("too big"), "{}", error.message);
+    // the real limit is far above this text
+    assert_eq!(
+        f.call("GetSelectedString", json!([0])).unwrap(),
+        json!("0123456789\nabcde")
+    );
+    f.cursor.move_to(Pos::new(0, 0), false);
+    assert!(selection_too_big(&f.cx(), 0).is_none(), "no selection");
+}

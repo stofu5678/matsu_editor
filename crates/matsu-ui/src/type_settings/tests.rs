@@ -265,7 +265,8 @@ fn the_pages_have_every_control_that_sakura_has() {
     assert_eq!(count(0), 34);
     // (the list of the first keyword set is drawn by the page, not a control)
     assert_eq!(count(1), 29);
-    assert_eq!(count(2), 25);
+    // (and the list of the code pages that C&P gives the combo box of the encoding)
+    assert_eq!(count(2), 26);
     // 支援: the word file with its button and the plugin list, the three check boxes of the
     // input completion, the two help files with their buttons and the viewer box, the warning on
     // saving, the three options of the C/C++ indent and the detection of the indentation style.
@@ -915,20 +916,16 @@ fn the_rules_of_the_coloring_are_changed_on_the_color_page(cx: &mut TestAppConte
 
 #[gpui::test]
 fn a_control_that_is_not_available_is_never_written(cx: &mut TestAppContext) {
-    // The file has an IME state and a background image for the type; the page shows them
-    // greyed out, and OK leaves them as they are.
+    // The file has a background image for the type; the page shows it greyed out, and OK leaves
+    // it as it is.
     let ini_text =
         "[Types(0)]\r\nnImeState=9\r\nbgImgPath=C:\\a.png\r\nbgImgOpacity=100\r\nnLineSpace=7\r\n";
     let (ini, a) = setup(cx, ini_text);
     run(cx, a, "F_OPTION_TYPE", &[]);
     with_dialog(cx, |d, _, dcx| d.select_index(2, dcx));
-    assert_eq!(value(cx, IME_SWITCH), Value::Int(1));
-    assert_eq!(value(cx, IME_STATE), Value::Int(2));
     assert_eq!(value(cx, BG_PATH), Value::Text("C:\\a.png".to_owned()));
     assert_eq!(value(cx, BG_TRANSPARENCY), Value::Int(155));
     // Choosing it does nothing.
-    choose(cx, IME_SWITCH, 2);
-    assert_eq!(value(cx, IME_SWITCH), Value::Int(1));
     type_in(cx, BG_PATH, "other");
     check(cx, WORD_WRAP, true);
     with_dialog(cx, |d, _, dcx| d.select_index(0, dcx));
@@ -988,6 +985,7 @@ mod colors;
 mod input;
 mod lists;
 mod moved;
+mod plugin_outline;
 mod screen_layout;
 mod transfer;
 
@@ -1059,8 +1057,8 @@ fn the_support_page_shows_sakuras_defaults_and_what_the_file_says(cx: &mut TestA
     assert_eq!(value(cx, HOKAN_LO_HI_CASE), Value::Bool(true));
     assert_eq!(value(cx, HOKAN_BY_FILE), Value::Bool(false));
     assert_eq!(value(cx, HOKAN_BY_KEYWORD), Value::Bool(false));
-    // A plugin the list does not have shows as なし (`SetData` selects the first).
-    assert_eq!(value(cx, HOKAN_TYPE), Value::Int(0));
+    // A plugin the list does not have is kept (Sakura shows なし and writes 0 on OK; see the page).
+    assert_eq!(value(cx, HOKAN_TYPE), Value::Int(5));
     assert_eq!(value(cx, EXT_HELP), Value::Text("ext.chm".to_owned()));
     assert_eq!(value(cx, HTML_HELP_SINGLE), Value::Bool(false));
     // What the file does not say is Sakura's default (`CType.cpp`).
@@ -1072,13 +1070,14 @@ fn the_support_page_shows_sakuras_defaults_and_what_the_file_says(cx: &mut TestA
 }
 
 #[gpui::test]
-fn the_support_page_is_live_except_the_completion_plugin(cx: &mut TestAppContext) {
+fn the_support_page_is_live(cx: &mut TestAppContext) {
     let (_ini, a) = setup(cx, "");
     run(cx, a, "F_OPTION_TYPE", &[]);
     with_dialog(cx, |d, _, dcx| d.select_index(3, dcx));
     for id in [
         HOKAN_FILE,
         HOKAN_FILE_BROWSE,
+        HOKAN_TYPE,
         HOKAN_LO_HI_CASE,
         HOKAN_BY_FILE,
         HOKAN_BY_KEYWORD,
@@ -1095,8 +1094,6 @@ fn the_support_page_is_live_except_the_completion_plugin(cx: &mut TestAppContext
     ] {
         assert!(usable(cx, id), "{id}");
     }
-    // The completion plugins need the completion jack of ADR-0026.
-    assert!(!usable(cx, HOKAN_TYPE));
     cancel(cx);
 }
 
@@ -1310,4 +1307,380 @@ fn the_spacing_and_the_tsv_mode_are_usable_and_the_windows_of_the_type_take_them
     ok(cx);
     assert_eq!(ints(&ini, 0)[2], 64);
     assert_eq!(ini.get("Types(0)", "nLineSpace").as_deref(), Some("-128"));
+}
+
+// ---- the window page: line numbers, code pages, IME and icon ----
+
+/// The window page of the sheet.
+fn window_page(cx: &mut TestAppContext) {
+    with_dialog(cx, |d, _, dcx| d.select_index(2, dcx));
+}
+
+#[gpui::test]
+fn the_line_number_settings_are_read_and_written_as_sakura_does(cx: &mut TestAppContext) {
+    // `nInts`: ..., `bLineNumIsCRLF` 0, `nLineTermType` 2, ...
+    let ini_text = "[Types(0)]\r\nnInts=0,10240,0,4,-1,-1,0,0,2,0,0,0\r\nnLineNumWidth=6\r\ncLineTermChar=|\r\n";
+    let (ini, a) = setup(cx, ini_text);
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    window_page(cx);
+    assert_eq!(value(cx, LINE_NUM_MODE), Value::Int(0), "折り返し単位");
+    assert_eq!(value(cx, LINE_NUM_WIDTH), Value::Int(6));
+    assert_eq!(value(cx, LINE_TERM_TYPE), Value::Int(2), "任意");
+    assert_eq!(value(cx, LINE_TERM_CHAR), Value::Text("|".to_owned()));
+    // The boxes are not greyed out (the character box only for 任意).
+    assert!(usable(cx, LINE_NUM_MODE));
+    assert!(usable(cx, LINE_NUM_WIDTH));
+    assert!(usable(cx, LINE_TERM_CHAR));
+    choose(cx, LINE_TERM_TYPE, 1);
+    assert!(
+        !usable(cx, LINE_TERM_CHAR),
+        "the character is for 任意 only"
+    );
+
+    choose(cx, LINE_NUM_MODE, 1);
+    type_in(cx, LINE_NUM_WIDTH, "99");
+    choose(cx, LINE_TERM_TYPE, 2);
+    type_in(cx, LINE_TERM_CHAR, ">");
+    ok(cx);
+    let nints = ints(&ini, 0);
+    assert_eq!((nints[7], nints[8]), (1, 2));
+    assert_eq!(
+        ini.get("Types(0)", "nLineNumWidth").as_deref(),
+        Some("11"),
+        "the width is put into 2 to 11"
+    );
+    let view = view_of(cx, a);
+    let settings = view.read_with(cx, |v, _| v.view_settings().clone());
+    assert_eq!(settings.line_term, matsu_print::LineTerm::Char('>'));
+    assert_eq!(settings.line_num_width, 11);
+    assert!(settings.outline.line_num_is_crlf);
+}
+
+#[gpui::test]
+fn no_separator_character_is_written_as_none(cx: &mut TestAppContext) {
+    let (_ini, a) = setup(cx, "");
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    window_page(cx);
+    // Default: 縦線 and ':'.
+    assert_eq!(value(cx, LINE_TERM_TYPE), Value::Int(1));
+    assert_eq!(value(cx, LINE_TERM_CHAR), Value::Text(":".to_owned()));
+    choose(cx, LINE_TERM_TYPE, 2);
+    type_in(cx, LINE_TERM_CHAR, "");
+    ok(cx);
+    let view = view_of(cx, a);
+    // `szLineTermChar[0]` is 0: nothing follows the numbers.
+    assert_eq!(
+        view.read_with(cx, |v, _| v.view_settings().line_term),
+        matsu_print::LineTerm::Char('\0')
+    );
+}
+
+#[gpui::test]
+fn a_code_page_is_chosen_with_cp_and_written_by_its_number(cx: &mut TestAppContext) {
+    let (ini, a) = setup(cx, "");
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    window_page(cx);
+    assert_eq!(value(cx, CODE_PAGE), Value::Bool(false));
+    assert!(
+        !usable(cx, CODE_PAGE_NUMBER),
+        "the code pages come with C&P"
+    );
+    check(cx, CODE_PAGE, true);
+    assert!(usable(cx, CODE_PAGE_NUMBER));
+    assert!(!usable(cx, CODE_PAGE), "C&P cannot be taken back");
+    choose(cx, CODE_PAGE_NUMBER, 936);
+    assert_eq!(value(cx, DEFAULT_CODE), Value::Int(936));
+    ok(cx);
+    assert_eq!(
+        ini.get("Types(0)", "eDefaultCodetype").as_deref(),
+        Some("936")
+    );
+    // a code page has no BOM, and another encoding than the type had is the user's choice
+    assert_eq!(ini.get("Types(0)", "bDefaultBom").as_deref(), Some("0"));
+
+    // The next time the box is checked, with the code page chosen, and it can go back to the
+    // encodings of the list.
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    window_page(cx);
+    assert_eq!(value(cx, CODE_PAGE), Value::Bool(true));
+    assert_eq!(value(cx, CODE_PAGE_NUMBER), Value::Int(936));
+    choose(cx, DEFAULT_CODE, 0);
+    ok(cx);
+    assert_eq!(
+        ini.get("Types(0)", "eDefaultCodetype").as_deref(),
+        Some("0")
+    );
+}
+
+#[gpui::test]
+fn a_code_page_without_a_table_stays_as_the_file_has_it(cx: &mut TestAppContext) {
+    // 437 is not among the code pages MATSU Editor has; it cannot be chosen, and is not lost. The
+    // sheet shows the encoding a new file really gets (UTF-8, as for any value MATSU Editor
+    // cannot use), and what the user did not change stays as the file has it.
+    let (ini, a) = setup(cx, "[Types(0)]\r\neDefaultCodetype=437\r\n");
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    window_page(cx);
+    assert_eq!(value(cx, DEFAULT_CODE), Value::Int(4));
+    assert_eq!(value(cx, CODE_PAGE), Value::Bool(false));
+    with_dialog(cx, |d, _, dcx| d.select_index(0, dcx));
+    type_in(cx, TAB_SPACE, "5");
+    ok(cx);
+    assert_eq!(
+        ini.get("Types(0)", "eDefaultCodetype").as_deref(),
+        Some("437")
+    );
+}
+
+#[test]
+fn the_code_pages_to_choose_are_those_with_a_table() {
+    let options = super::pages::window::code_page_options();
+    let has = |n: i32| options.iter().any(|(_, c)| *c == n);
+    for n in [936, 949, 950, 1251, 12000, 12001, 28592, 54936] {
+        assert!(has(n), "{n}");
+    }
+    // The fixed encodings are in the other box, and 932 is Shift_JIS.
+    for n in [0, 4, 932, 1252, 65001, 437, 850] {
+        assert!(!has(n), "{n}");
+    }
+    assert!(options.windows(2).all(|w| w[0].1 < w[1].1), "by number");
+    // every one of them is an encoding a new file can have
+    for (_, c) in options {
+        assert!(
+            matsu_core::encoding::Encoding::from_sakura_code(*c)
+                .is_some_and(|e| e.can_be_default()),
+            "{c}"
+        );
+    }
+}
+
+#[gpui::test]
+fn the_cesu8_preference_is_read_and_written(cx: &mut TestAppContext) {
+    let (ini, a) = setup(cx, "");
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    window_page(cx);
+    assert_eq!(value(cx, PRIOR_CESU8), Value::Bool(false));
+    check(cx, PRIOR_CESU8, true);
+    ok(cx);
+    assert_eq!(ini.get("Types(0)", "bPriorCesu8").as_deref(), Some("1"));
+
+    let (ini, a) = setup(cx, "[Types(0)]\r\nbPriorCesu8=1\r\n");
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    window_page(cx);
+    assert_eq!(value(cx, PRIOR_CESU8), Value::Bool(true));
+    check(cx, PRIOR_CESU8, false);
+    ok(cx);
+    assert_eq!(ini.get("Types(0)", "bPriorCesu8").as_deref(), Some("0"));
+}
+
+#[test]
+fn the_ime_and_icon_values_are_read_and_written_as_sakura_does() {
+    // `nImeState` = input mode << 2 | on/off; the page does not need the OS to read and write it.
+    let load_store = |text: &str, change: &dyn Fn(&mut crate::common_settings::model::Values)| {
+        let profile = Profile::from_bytes(text.as_bytes());
+        let original = TypeSettings::read(&profile, 0);
+        let sheet = sheet(&profile, 0).unwrap();
+        let mut values = load(&sheet.controls, &original, &profile, 0, &[]);
+        change(&mut values);
+        (values.clone(), store(&values, &original))
+    };
+    // 2 (full-width hiragana) << 2 | 1 (on) = 9
+    let (values, stored) = load_store("[Types(0)]\nnImeState=9\nbUseDocumentIcon=1\n", &|_| {});
+    assert_eq!(values.int(IME_SWITCH), 1);
+    assert_eq!(values.int(IME_STATE), 2);
+    assert!(values.bool(USE_DOC_ICON));
+    assert_eq!((stored.ime_state, stored.use_document_icon), (9, true));
+
+    // The file's default (IME_CMODE_NOCONVERSION) shows as the first items, and stays when the
+    // user does not touch the boxes.
+    let (values, stored) = load_store("[Types(0)]\n", &|_| {});
+    assert_eq!((values.int(IME_SWITCH), values.int(IME_STATE)), (0, 0));
+    assert_eq!(stored.ime_state, 0x0100);
+    assert!(!stored.use_document_icon);
+
+    // A change makes the number of the page: 3 (full-width katakana) << 2 | 2 (off) = 14.
+    let (_, stored) = load_store("[Types(0)]\n", &|v| {
+        v.set(IME_SWITCH, Value::Int(2));
+        v.set(IME_STATE, Value::Int(3));
+        v.set(USE_DOC_ICON, Value::Bool(true));
+    });
+    assert_eq!((stored.ime_state, stored.use_document_icon), (14, true));
+
+    // and it is written with Sakura's keys
+    let mut profile = Profile::new();
+    stored.write(&mut profile, 0).unwrap();
+    assert_eq!(profile.get("Types(0)", "nImeState"), Some("14"));
+    assert_eq!(profile.get("Types(0)", "bUseDocumentIcon"), Some("1"));
+}
+
+#[gpui::test]
+fn the_ime_and_icon_boxes_are_live_where_the_os_has_them(cx: &mut TestAppContext) {
+    let (ini, a) = setup(cx, "");
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    window_page(cx);
+    // Windows has IMM32 and the icon of the shell; macOS and Linux keep the boxes greyed out.
+    for id in [IME_SWITCH, IME_STATE, USE_DOC_ICON] {
+        assert_eq!(usable(cx, id), cfg!(windows), "{id}");
+    }
+    if cfg!(windows) {
+        choose(cx, IME_SWITCH, 1);
+        choose(cx, IME_STATE, 4);
+        check(cx, USE_DOC_ICON, true);
+        ok(cx);
+        assert_eq!(ini.get("Types(0)", "nImeState").as_deref(), Some("17"));
+        assert_eq!(
+            ini.get("Types(0)", "bUseDocumentIcon").as_deref(),
+            Some("1")
+        );
+    }
+}
+
+#[gpui::test]
+fn the_cesu8_preference_a_type_takes_from_the_basic_type_is_shown_and_kept(
+    cx: &mut TestAppContext,
+) {
+    // Type 2 (C/C++) does not say; it takes the basic type's. Opening files uses that value, so
+    // the sheet shows it, and an unrelated change does not write `bPriorCesu8=0` for the type.
+    let (ini, _a) = setup(cx, "[Types(0)]\r\nbPriorCesu8=1\r\n");
+    cx.update(|app| open(app, 2, None, None)).unwrap();
+    cx.run_until_parked();
+    window_page(cx);
+    assert_eq!(
+        value(cx, PRIOR_CESU8),
+        Value::Bool(true),
+        "the basic type's"
+    );
+    with_dialog(cx, |d, _, dcx| d.select_index(0, dcx));
+    type_in(cx, TAB_SPACE, "3");
+    ok(cx);
+    assert_eq!(ini.get("Types(2)", "bPriorCesu8"), None);
+}
+
+/// Puts the plugin `Comp` (a completion plug without a number, and it stays) in `plugins` next to the
+/// settings file of `ini`, and the agreement of the user to it. Returns the text of a settings file that
+/// has it in slot 0 with the switch on.
+fn complement_plugin_ini(dir: &std::path::Path, agree: bool) -> String {
+    use matsu_config::plugins::consent::{ConsentFile, fingerprint};
+    use matsu_config::plugins::{DEFAULT_LANGUAGE, PluginRec, PluginSettings, PluginState};
+    let settings = dir.join("matsu.ini");
+    let plugin = dir.join("plugins").join("Comp");
+    std::fs::create_dir_all(&plugin).unwrap();
+    std::fs::write(
+        plugin.join("plugin.def"),
+        "[Plugin]\nId=test.comp\nName=Comp\nType=wsh\n\n[Plug]\nComplement=typed.js\n\
+         Complement.Label=Typed words\n\n[Wsh]\nUseCache=1\n",
+    )
+    .unwrap();
+    std::fs::write(plugin.join("typed.js"), "").unwrap();
+    let dirs = matsu_config::plugins::SearchDirs::new(&settings, None);
+    if agree {
+        let def = dirs.load_def("Comp", DEFAULT_LANGUAGE).unwrap();
+        let files = fingerprint(&dirs.plugin_dir("Comp").unwrap()).unwrap();
+        let mut consent = ConsentFile::default();
+        consent
+            .enable(&def.id, "Comp", &files, "2026-11-02")
+            .unwrap();
+        consent.save(&dirs.consent_file()).unwrap();
+    }
+    let mut plugins = PluginSettings {
+        enabled: true,
+        ..PluginSettings::default()
+    };
+    plugins.table[0] = PluginRec {
+        id: "test.comp".into(),
+        name: "Comp".into(),
+        cmd_num: 0,
+        state: PluginState::Stopped,
+    };
+    let mut profile = Profile::new();
+    plugins.store(&mut profile).unwrap();
+    String::from_utf8_lossy(&profile.to_bytes())
+        .trim_start_matches('\u{feff}')
+        .to_owned()
+}
+
+/// A settings file with `extra` and the plugin `Comp`, and its window.
+fn setup_with_complement_plugin(
+    cx: &mut TestAppContext,
+    extra: &str,
+    agree: bool,
+) -> (Ini, AnyWindowHandle) {
+    // The folder is made here so that the plugin can be put in it before the settings are read.
+    let dir = TempDir::new();
+    let text = format!(
+        "{}\r\n{extra}",
+        complement_plugin_ini(&dir.0, agree).replace('\n', "\r\n")
+    );
+    cx.update(gpui_component::init);
+    let path = dir.0.join("matsu.ini");
+    std::fs::write(&path, with_bom(&text)).unwrap();
+    cx.update(|cx| {
+        let user = UserSettings::load_from(std::slice::from_ref(&path));
+        cx.set_global(HistoryState::on_disk(
+            HistoryStore::new(path.clone(), false),
+            HistoryOptions::default(),
+        ));
+        crate::tabs::settings::install(cx, &user);
+        cx.set_global(user);
+    });
+    let handle = open_window(cx);
+    (Ini { _dir: dir, path }, handle)
+}
+
+#[gpui::test]
+fn the_completion_choice_lists_the_enabled_plugins_and_keeps_the_value_nobody_has(
+    cx: &mut TestAppContext,
+) {
+    use super::pages::support::hokan_types;
+    let (_ini, _a) = setup_with_complement_plugin(cx, "[Types(0)]\r\nnHokanType=7\r\n", true);
+    // なし, the plugin by the label of its plug and Sakura's number, and the value that nothing has.
+    assert_eq!(
+        cx.update(|app| hokan_types(app, 7)),
+        [
+            ("なし".to_owned(), 0),
+            ("Typed words".to_owned(), 20_000),
+            ("（使えないプラグイン 7）".to_owned(), 7),
+        ]
+    );
+    assert_eq!(cx.update(|app| hokan_types(app, 20_000)).len(), 2);
+}
+
+#[gpui::test]
+fn a_plugin_the_user_has_not_agreed_to_is_not_offered_and_its_stored_choice_stays(
+    cx: &mut TestAppContext,
+) {
+    use super::pages::support::hokan_types;
+    let (ini, a) = setup_with_complement_plugin(cx, "[Types(0)]\r\nnHokanType=20000\r\n", false);
+    assert_eq!(
+        cx.update(|app| hokan_types(app, 20_000)),
+        [
+            ("なし".to_owned(), 0),
+            ("（使えないプラグイン 20000）".to_owned(), 20_000),
+        ]
+    );
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    with_dialog(cx, |d, _, dcx| d.select_index(3, dcx));
+    assert_eq!(value(cx, HOKAN_TYPE), Value::Int(20_000));
+    // OK with another change on the page keeps the number.
+    check(cx, HOKAN_LO_HI_CASE, true);
+    ok(cx);
+    assert_eq!(ini.get("Types(0)", "nHokanType").as_deref(), Some("20000"));
+    assert_eq!(ini.get("Types(0)", "bHokanLoHiCase").as_deref(), Some("1"));
+}
+
+#[gpui::test]
+fn ok_writes_the_plugin_that_completes_as_sakura_numbers_it(cx: &mut TestAppContext) {
+    let (ini, a) = setup_with_complement_plugin(cx, "", true);
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    with_dialog(cx, |d, _, dcx| d.select_index(3, dcx));
+    assert_eq!(value(cx, HOKAN_TYPE), Value::Int(0));
+    choose(cx, HOKAN_TYPE, 20_000);
+    ok(cx);
+    assert_eq!(ini.get("Types(0)", "nHokanType").as_deref(), Some("20000"));
+    // Back to なし.
+    run(cx, a, "F_OPTION_TYPE", &[]);
+    with_dialog(cx, |d, _, dcx| d.select_index(3, dcx));
+    assert_eq!(value(cx, HOKAN_TYPE), Value::Int(20_000));
+    choose(cx, HOKAN_TYPE, 0);
+    ok(cx);
+    assert_eq!(ini.get("Types(0)", "nHokanType").as_deref(), Some("0"));
 }

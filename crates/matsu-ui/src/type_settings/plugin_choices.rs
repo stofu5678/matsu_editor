@@ -1,4 +1,4 @@
-//! The choices that the plugins add to the lists of the type settings (ADR-0026, chapter 1).
+//! The smart indent choices that the plugins add to the list of the type settings (ADR-0026, chapter 1).
 //!
 //! Sakura adds the label of a plug to the list of its jack when the plugin is loaded
 //! (`CJackManager::RegisterPlug`: `CPropTypesScreen::AddSIndentMethod` for `SmartIndent`) and stores
@@ -7,49 +7,43 @@
 //!
 //! Here the choices are those of the plugins that can run now: plugins are switched on, the plugin is
 //! in the table, supported, and the user agreed to its files as they are. They are made when the
-//! sheet opens. A value that no choice stands for (the plugin was switched off, removed or changed)
-//! is kept as it is: nothing is chosen in the list and OK writes the same value back, so switching a
-//! plugin off for a while does not change the types that use it.
+//! sheet opens ([`forget_smart_indent_plugs`]) and kept while it is open: the page asks at every draw.
+//! A value that no choice stands for (the plugin was switched off, removed or changed) is listed as
+//! 「（使えないプラグイン N）」 by the page (`pages::screen::smart_indent_types`), and OK writes it back as
+//! it is, so switching a plugin off for a while does not change the types that use it.
 
-use std::collections::HashMap;
+use std::cell::RefCell;
 
 use gpui::App;
 use matsu_commands::plugin_commands;
 use matsu_config::plugins::consent::{Consent, ConsentFile};
 use matsu_config::plugins::{DEFAULT_LANGUAGE, Jack, PluginSettings, PluginState};
 
-use super::ids::SMART_INDENT;
-
 /// The label of a choice whose plugin has to be resident and is not, so that the choice that does
 /// nothing is not a surprise.
 const NOT_RESIDENT: &str = "（常駐が必要: UseCache=1）";
 
-/// The choices of the plugins for the controls of the type settings, by control id. `values` are the
-/// values of the sheet: when the smart indent is a plug that cannot run (its plugin is off, gone or
-/// changed) it is listed as `（使えないプラグイン N）`, so that the page shows it and OK keeps it.
-pub(crate) fn plugin_choices(
-    cx: &App,
-    values: &crate::common_settings::model::Values,
-) -> HashMap<&'static str, Vec<(String, i32)>> {
-    plugin_choices_for(cx, values.int(SMART_INDENT))
+thread_local! {
+    /// The plugs made last. Making them reads the definitions and checks the files of the plugins.
+    static PLUGS: RefCell<Option<Vec<(String, i32)>>> = const { RefCell::new(None) };
 }
 
-/// [`plugin_choices`] for the smart indent `now`.
-pub(crate) fn plugin_choices_for(cx: &App, now: i32) -> HashMap<&'static str, Vec<(String, i32)>> {
-    let mut choices = HashMap::new();
-    let mut smart_indent = smart_indent_choices(cx);
-    // 0 and 1 are the choices of the page itself (なし, C/C++).
-    if now > 1 && !smart_indent.iter().any(|(_, value)| *value == now) {
-        smart_indent.push((format!("（使えないプラグイン {now}）"), now));
-    }
-    if !smart_indent.is_empty() {
-        choices.insert(SMART_INDENT, smart_indent);
-    }
-    choices
+/// Forgets the plugs made last: the next ask makes them again.
+pub(crate) fn forget_smart_indent_plugs() {
+    PLUGS.with(|plugs| *plugs.borrow_mut() = None);
 }
 
 /// The plugs of the `SmartIndent` jack of the plugins that can run, with their function codes.
-fn smart_indent_choices(cx: &App) -> Vec<(String, i32)> {
+pub(crate) fn smart_indent_plugs(cx: &App) -> Vec<(String, i32)> {
+    if let Some(list) = PLUGS.with(|plugs| plugs.borrow().clone()) {
+        return list;
+    }
+    let list = make_smart_indent_plugs(cx);
+    PLUGS.with(|plugs| *plugs.borrow_mut() = Some(list.clone()));
+    list
+}
+
+fn make_smart_indent_plugs(cx: &App) -> Vec<(String, i32)> {
     let Some(dirs) = crate::plugin_commands::search_dirs(cx) else {
         return Vec::new();
     };
@@ -75,7 +69,7 @@ fn smart_indent_choices(cx: &App) -> Vec<(String, i32)> {
         }
         let dir = dirs.plugin_dir(&rec.name);
         if !matches!(
-            consent.consent_for_dir(&def.id, dir.as_deref()),
+            consent.consent_for_dir_cached(&def.id, dir.as_deref()),
             Consent::On
         ) {
             continue;
