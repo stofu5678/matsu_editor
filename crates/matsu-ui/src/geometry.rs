@@ -15,6 +15,13 @@ pub const HSCROLL_LINE_COLUMNS: f32 = 4.0;
 /// The width of an arrow button of the horizontal scroll bar.
 pub const HSCROLL_ARROW: f32 = HSCROLLBAR_HEIGHT;
 
+/// The height of an arrow button of the vertical scroll bar (`SM_CYVSCROLL`).
+pub const VSCROLL_ARROW: f32 = SCROLLBAR_WIDTH;
+
+/// The width of a split box (`CSplitBoxWnd`: `cxEdge * 2 + cxBorder * 3`, with the 2 and 1 pixel
+/// edges of 100% scaling), and the room it takes from the bar it sits on.
+pub const SPLIT_BOX: f32 = 7.0;
+
 /// What the last paint measured. Before the first paint [`Metrics::default`] stands in, so that
 /// keys and the mouse work (and tests run) without a window that has been drawn.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -25,6 +32,10 @@ pub struct Metrics {
     /// The size of the text area: the view without the line numbers and the scroll bar.
     pub view_width: f32,
     pub view_height: f32,
+    /// The room under the vertical scroll bar that is not the text area: the corner square when
+    /// the view has no horizontal bar (`CEditView::OnSize` puts the vertical bar `nCyVScroll`
+    /// short of the bottom whatever the horizontal bar does).
+    pub vbar_gap: f32,
 }
 
 impl Default for Metrics {
@@ -34,6 +45,7 @@ impl Default for Metrics {
             line_height: 20.0,
             view_width: 800.0,
             view_height: 600.0,
+            vbar_gap: 0.0,
         }
     }
 }
@@ -109,8 +121,42 @@ pub fn column_at(m: &Metrics, x: f32) -> (u32, f32) {
     (cells.floor() as u32, cells.fract())
 }
 
-/// The vertical scroll bar: the track is the full height of the view and the thumb shows how much
-/// of the document is in view.
+/// The parts of a scroll bar that a press can land on, in the order along the bar (`SB_LINEUP`,
+/// `SB_PAGEUP`, the thumb, `SB_PAGEDOWN`, `SB_LINEDOWN`; the left and right ones of the horizontal
+/// bar are the same with `LEFT` and `RIGHT`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BarPart {
+    LineBack,
+    PageBack,
+    Thumb,
+    PageForward,
+    LineForward,
+}
+
+impl BarPart {
+    /// The part at `pos` pixels from the start of a bar `len` long whose arrows are `arrow` long,
+    /// with the thumb at `thumb_start` for `thumb_len` along the track between the arrows.
+    pub fn at(pos: f32, len: f32, arrow: f32, thumb_start: f32, thumb_len: f32) -> BarPart {
+        if pos < arrow {
+            return BarPart::LineBack;
+        }
+        if pos >= len - arrow {
+            return BarPart::LineForward;
+        }
+        let on_track = pos - arrow;
+        if on_track < thumb_start {
+            BarPart::PageBack
+        } else if on_track <= thumb_start + thumb_len {
+            BarPart::Thumb
+        } else {
+            BarPart::PageForward
+        }
+    }
+}
+
+/// The vertical scroll bar: an arrow button at each end, between them the track, and on it the
+/// thumb that shows how much of the document is in view. The track is the bar without its two
+/// arrows, and `thumb_top` is counted from its top.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Scrollbar {
     pub track_height: f32,
@@ -119,8 +165,28 @@ pub struct Scrollbar {
 }
 
 impl Scrollbar {
+    /// The length of the whole bar, the arrows included.
+    pub fn bar_length(m: &Metrics) -> f32 {
+        (m.view_height - m.vbar_gap).max(0.0)
+    }
+
+    fn track_for(m: &Metrics) -> f32 {
+        (Self::bar_length(m) - 2.0 * VSCROLL_ARROW).max(0.0)
+    }
+
+    /// The part of the bar at `pos` pixels from its top.
+    pub fn part_at(&self, m: &Metrics, pos: f32) -> BarPart {
+        BarPart::at(
+            pos,
+            Self::bar_length(m),
+            VSCROLL_ARROW,
+            self.thumb_top,
+            self.thumb_height,
+        )
+    }
+
     pub fn new(m: &Metrics, total_rows: usize, scroll_y: f32) -> Self {
-        let track = m.view_height;
+        let track = Self::track_for(m);
         let max = max_scroll_y(m, total_rows);
         let thumb_height = (track * (m.view_height / (max + m.view_height)))
             .max(24.0)
@@ -142,7 +208,7 @@ impl Scrollbar {
     /// the thumb is `visible` (0 to 1) of the track long and sits `top` (0 to 1) of the way down,
     /// both worked out from byte positions rather than rows.
     pub fn spanning(m: &Metrics, visible: f32, top: f32) -> Self {
-        let track = m.view_height;
+        let track = Self::track_for(m);
         let thumb_height = (track * visible.clamp(0.0, 1.0)).max(24.0).min(track);
         Self {
             track_height: track,
@@ -237,6 +303,17 @@ impl HScrollbar {
         self.page < self.range
     }
 
+    /// The part of the bar at `pos` pixels from its left end.
+    pub fn part_at(&self, pos: f32) -> BarPart {
+        BarPart::at(
+            pos,
+            self.track_width + 2.0 * HSCROLL_ARROW,
+            HSCROLL_ARROW,
+            self.thumb_left,
+            self.thumb_width,
+        )
+    }
+
     /// The left column for a thumb dragged by `dx` pixels from where it was at `start_col`
     /// (`SB_THUMBTRACK`: a whole column).
     pub fn col_for_drag(&self, start_col: f32, dx: f32) -> f32 {
@@ -267,6 +344,7 @@ mod tests {
             line_height: 20.0,
             view_width: 200.0,
             view_height: 100.0, // 5 rows
+            vbar_gap: 0.0,
         }
     }
 
@@ -350,14 +428,14 @@ mod tests {
         let bar = Scrollbar::spanning(&m, 0.001, 0.5);
         // a thumb that would be a sliver keeps its least length
         assert_eq!(bar.thumb_height, 24.0);
-        assert!((bar.thumb_top - 38.0).abs() < 1e-3);
+        assert!((bar.thumb_top - (bar.track_height - 24.0) / 2.0).abs() < 1e-3);
         assert!((bar.position_of(bar.thumb_top) - 0.5).abs() < 1e-5);
         assert_eq!(bar.position_of(-5.0), 0.0);
         assert_eq!(bar.position_of(1e6), 1.0);
         let top = Scrollbar::spanning(&m, 0.2, 0.0);
         assert_eq!((top.thumb_top, top.thumb_height), (0.0, 24.0f32.max(20.0)));
         let end = Scrollbar::spanning(&m, 0.2, 1.0);
-        assert!((end.thumb_top + end.thumb_height - 100.0).abs() < 1e-3);
+        assert!((end.thumb_top + end.thumb_height - end.track_height).abs() < 1e-3);
     }
 
     #[test]
@@ -367,13 +445,13 @@ mod tests {
         assert_eq!(top.thumb_top, 0.0);
         let max = max_scroll_y(&m, 100);
         let bottom = Scrollbar::new(&m, 100, max);
-        assert!((bottom.thumb_top + bottom.thumb_height - 100.0).abs() < 1e-3);
+        assert!((bottom.thumb_top + bottom.thumb_height - bottom.track_height).abs() < 1e-3);
         assert_eq!(top.thumb_height, 24.0f32.max(top.thumb_height));
         // dragging the thumb all the way down scrolls to the end
         assert!((top.scroll_for_drag(&m, 100, 0.0, 1e6) - max).abs() < 1e-3);
         // a document that fits has a thumb as long as the track
         let fit = Scrollbar::new(&m, 3, 0.0);
-        assert_eq!(fit.thumb_height, 100.0);
+        assert_eq!(fit.thumb_height, fit.track_height);
         assert_eq!(fit.scroll_for_drag(&m, 3, 0.0, 50.0), 0.0);
     }
 
@@ -415,5 +493,44 @@ mod tests {
         // ScrollAtH: right edge + overhang - columns in view.
         assert_eq!(max_left_col(100, 3, 40), 63.0);
         assert_eq!(max_left_col(30, 3, 40), 0.0);
+    }
+    #[test]
+    fn the_vertical_bar_has_an_arrow_at_each_end() {
+        let m = m();
+        let bar = Scrollbar::new(&m, 100, 0.0);
+        // 100 pixels of bar: 14 for each arrow and 72 of track.
+        assert_eq!(Scrollbar::bar_length(&m), 100.0);
+        assert_eq!(bar.track_height, 72.0);
+        assert_eq!(bar.part_at(&m, 0.0), BarPart::LineBack);
+        assert_eq!(bar.part_at(&m, 13.9), BarPart::LineBack);
+        // the thumb is at the top of the track
+        assert_eq!(bar.part_at(&m, 14.0), BarPart::Thumb);
+        assert_eq!(
+            bar.part_at(&m, 14.0 + bar.thumb_height + 1.0),
+            BarPart::PageForward
+        );
+        assert_eq!(bar.part_at(&m, 85.9), BarPart::PageForward);
+        assert_eq!(bar.part_at(&m, 86.0), BarPart::LineForward);
+        let at_end = Scrollbar::new(&m, 100, max_scroll_y(&m, 100));
+        assert_eq!(at_end.part_at(&m, 20.0), BarPart::PageBack);
+    }
+
+    #[test]
+    fn the_corner_takes_the_end_of_the_vertical_bar_without_a_horizontal_bar() {
+        let with_corner = Metrics {
+            vbar_gap: HSCROLLBAR_HEIGHT,
+            ..m()
+        };
+        assert_eq!(Scrollbar::bar_length(&with_corner), 86.0);
+        assert_eq!(Scrollbar::new(&with_corner, 100, 0.0).track_height, 58.0);
+    }
+
+    #[test]
+    fn the_horizontal_bar_has_the_same_parts() {
+        let bar = HScrollbar::new(100, 40, 0.0, 300.0);
+        assert_eq!(bar.part_at(5.0), BarPart::LineBack);
+        assert_eq!(bar.part_at(HSCROLL_ARROW + 1.0), BarPart::Thumb);
+        assert_eq!(bar.part_at(HSCROLL_ARROW + 200.0), BarPart::PageForward);
+        assert_eq!(bar.part_at(299.0), BarPart::LineForward);
     }
 }

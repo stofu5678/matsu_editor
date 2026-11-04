@@ -33,11 +33,14 @@ pub(crate) mod pane;
 mod ruler;
 mod scan;
 mod scan_window;
+pub(crate) mod scroll_repeat;
 mod settings;
 #[cfg(test)]
 mod settings_tests;
+pub(crate) mod split_box;
 mod status_info;
 mod syntax;
+pub(crate) mod vscroll;
 
 use std::ops::Range;
 
@@ -158,6 +161,8 @@ pub(crate) enum Drag {
         start_x: f32,
         start_col: f32,
     },
+    /// An arrow or the track of a scroll bar is held: it repeats (`scroll_repeat.rs`).
+    Repeat,
 }
 
 /// Where the last paint put the text, in window coordinates.
@@ -170,6 +175,14 @@ pub(crate) struct PaintInfo {
     pub scrollbar_left: f32,
     /// The horizontal scroll bar, if the view has one.
     pub hbar: Option<hscroll::BarPaint>,
+    /// Where the vertical scroll bar starts (below its split box, if it has one), and how long it
+    /// is, the arrows included.
+    pub vbar_top: f32,
+    pub vbar_len: f32,
+    /// The split boxes (`CSplitBoxWnd`): the one above the vertical bar and the one left of the
+    /// horizontal bar.
+    pub vbox: Option<split_box::BoxRect>,
+    pub hbox: Option<split_box::BoxRect>,
 }
 
 pub struct EditorView {
@@ -291,6 +304,12 @@ pub struct EditorView {
     pub(crate) custom_menu: crate::custom_menu::CustomMenuState,
     /// The window that holds this view among its panes (`crate::panes`).
     pub(crate) split_host: Option<gpui::WeakEntity<crate::app::Workspace>>,
+    /// Whether the pane has the split boxes at the ends of its scroll bars (`SplitBoxOnOff`), the
+    /// vertical one and the horizontal one; the window says so when it splits.
+    pub(crate) split_boxes: split_box::Boxes,
+    /// The arrow or the track that is held, and the task that repeats it.
+    pub(crate) scroll_repeat: Option<scroll_repeat::ScrollRepeat>,
+    scroll_repeat_task: Option<gpui::Task<()>>,
     font_family: SharedString,
     font_size: f32,
     /// This view's own id, to tell it from the other views of its document.
@@ -375,6 +394,9 @@ impl EditorView {
             doc_type: Default::default(),
             custom_menu: Default::default(),
             split_host: None,
+            split_boxes: split_box::Boxes::ALL,
+            scroll_repeat: None,
+            scroll_repeat_task: None,
             font_family: FONT_FAMILY.into(),
             font_size: crate::settings::ViewSettings::default().font_px(),
             _subscription: subscription,
@@ -1198,6 +1220,8 @@ mod ruler_tests;
 mod status_info_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod vscroll_tests;
 
 /// A time stamp as a wall clock time of the computer, for `$D` and `$T`.
 fn local_time_of(stamp: std::time::SystemTime) -> matsu_commands::convert::datetime::LocalTime {

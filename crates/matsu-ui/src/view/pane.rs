@@ -163,3 +163,38 @@ impl EditorView {
         Ok(())
     }
 }
+
+impl EditorView {
+    /// The left button goes down on a split box (`CSplitBoxWnd::OnLButtonDown`): the window takes
+    /// the drag from here, and splits where the box is let go. A double click splits in the middle
+    /// (`OnLButtonDblClk`).
+    pub(crate) fn press_split_box(
+        &mut self,
+        kind: super::split_box::BoxKind,
+        event: &gpui::MouseDownEvent,
+        window: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) {
+        use super::split_box::BoxKind;
+        let Some(host) = self.split_host.clone() else {
+            return;
+        };
+        self.drag = super::Drag::None;
+        let split = match kind {
+            BoxKind::Vertical => crate::panes::SplitKind::Vertical,
+            BoxKind::Horizontal => crate::panes::SplitKind::Horizontal,
+        };
+        let position = event.position;
+        let double = event.click_count >= 2;
+        window.defer(cx, move |window, cx| {
+            host.update(cx, |workspace, cx| {
+                if double {
+                    workspace.split(split, window, cx);
+                } else {
+                    workspace.begin_split_drag(split, position, cx);
+                }
+            })
+            .ok();
+        });
+    }
+}

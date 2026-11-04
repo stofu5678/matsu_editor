@@ -329,6 +329,7 @@ fn the_rows_the_window_shows_are_marked(cx: &mut TestAppContext) {
             line_height: 20.0,
             view_width: 800.0,
             view_height: 200.0,
+            vbar_gap: 0.0,
         });
         v.scroll_by(0.0, -100.0);
     });
@@ -350,6 +351,7 @@ fn a_click_moves_the_caret_to_the_start_of_the_row_and_the_window_follows(cx: &m
             line_height: 20.0,
             view_width: 800.0,
             view_height: 200.0,
+            vbar_gap: 0.0,
         })
     });
     let at = fixture.point_of(cx, 40, 30.0);

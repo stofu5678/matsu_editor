@@ -422,7 +422,7 @@ fn dragging_the_thumb_starts_from_where_it_is_drawn(cx: &mut TestAppContext) {
             crate::geometry::Scrollbar::new(v.metrics(), v.layout().row_count(), v.scroll_y());
         (
             paint.scrollbar_left + 1.0,
-            paint.origin_y + bar.thumb_top + 1.0,
+            paint.vbar_top + crate::geometry::VSCROLL_ARROW + bar.thumb_top + 1.0,
             max_scroll_y(v.metrics(), v.layout().row_count()),
         )
     });

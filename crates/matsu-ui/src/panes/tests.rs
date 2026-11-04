@@ -527,3 +527,195 @@ fn releasing_a_bar_outside_the_area_removes_the_split(cx: &mut TestAppContext) {
     });
     assert_eq!(f.grid(cx), (1, 1));
 }
+
+// ---- the split boxes ----
+
+fn painted(cx: &mut VisualTestContext) {
+    cx.run_until_parked();
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+}
+
+/// The middle of a pane's split box.
+fn box_center(
+    f: &Fixture,
+    cx: &mut VisualTestContext,
+    index: usize,
+    vertical: bool,
+) -> gpui::Point<gpui::Pixels> {
+    let rect = f
+        .pane(cx, index)
+        .read_with(cx, |v, _| {
+            let paint = v.paint.expect("painted");
+            if vertical { paint.vbox } else { paint.hbox }
+        })
+        .unwrap_or_else(|| panic!("pane {index} has no such box"));
+    gpui::point(
+        gpui::px(rect.left + rect.width / 2.0),
+        gpui::px(rect.top + rect.height / 2.0),
+    )
+}
+
+fn down(cx: &mut VisualTestContext, at: gpui::Point<gpui::Pixels>, clicks: usize) {
+    cx.simulate_event(gpui::MouseDownEvent {
+        button: gpui::MouseButton::Left,
+        position: at,
+        modifiers: gpui::Modifiers::default(),
+        click_count: clicks,
+        first_mouse: false,
+    });
+}
+
+fn up(cx: &mut VisualTestContext, at: gpui::Point<gpui::Pixels>) {
+    cx.simulate_event(gpui::MouseUpEvent {
+        button: gpui::MouseButton::Left,
+        position: at,
+        modifiers: gpui::Modifiers::default(),
+        click_count: 1,
+    });
+}
+
+fn drag_to(cx: &mut VisualTestContext, at: gpui::Point<gpui::Pixels>) {
+    cx.simulate_mouse_move(at, gpui::MouseButton::Left, gpui::Modifiers::default());
+}
+
+#[gpui::test]
+fn dragging_the_box_left_of_the_horizontal_bar_splits_into_columns(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, &long_text());
+    painted(cx);
+    let start = box_center(&f, cx, 0, false);
+    down(cx, start, 1);
+    cx.run_until_parked();
+    let to = gpui::point(gpui::px(400.0), start.y);
+    drag_to(cx, to);
+    // Nothing is split while the bar is dragged; the window follows the pointer.
+    assert_eq!(f.grid(cx), (1, 1));
+    up(cx, to);
+    cx.run_until_parked();
+    assert_eq!(f.grid(cx), (1, 2));
+    let at = f.workspace.read_with(cx, |w, _| w.panes().h);
+    assert!(at > 0.2 && at < 0.7, "{at}");
+}
+
+#[gpui::test]
+fn dragging_the_box_above_the_vertical_bar_splits_into_rows(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, &long_text());
+    painted(cx);
+    let start = box_center(&f, cx, 0, true);
+    down(cx, start, 1);
+    cx.run_until_parked();
+    let to = gpui::point(start.x, gpui::px(300.0));
+    drag_to(cx, to);
+    up(cx, to);
+    cx.run_until_parked();
+    assert_eq!(f.grid(cx), (2, 1));
+}
+
+#[gpui::test]
+fn a_box_let_go_near_the_edge_does_not_split(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, &long_text());
+    painted(cx);
+    let start = box_center(&f, cx, 0, false);
+    // A press and a release in place, and a drag that stays within the limit of 32 pixels.
+    down(cx, start, 1);
+    cx.run_until_parked();
+    up(cx, start);
+    cx.run_until_parked();
+    assert_eq!(f.grid(cx), (1, 1));
+    down(cx, start, 1);
+    cx.run_until_parked();
+    let to = gpui::point(gpui::px(20.0), start.y);
+    drag_to(cx, to);
+    up(cx, to);
+    cx.run_until_parked();
+    assert_eq!(f.grid(cx), (1, 1));
+}
+
+#[gpui::test]
+fn a_double_click_on_a_box_splits_in_the_middle(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, &long_text());
+    painted(cx);
+    let at = box_center(&f, cx, 0, false);
+    down(cx, at, 1);
+    up(cx, at);
+    down(cx, at, 2);
+    up(cx, at);
+    cx.run_until_parked();
+    assert_eq!(f.grid(cx), (1, 2));
+    let h = f.workspace.read_with(cx, |w, _| w.panes().h);
+    assert!((h - 0.5).abs() < 0.01, "{h}");
+}
+
+#[gpui::test]
+fn the_pane_that_can_still_be_split_keeps_its_box(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, &long_text());
+    f.run(cx, F_SPLIT_V);
+    painted(cx);
+    let boxes = |cx: &mut VisualTestContext, i: usize| {
+        f.pane(cx, i).read_with(cx, |v, _| {
+            let paint = v.paint.expect("painted");
+            (paint.vbox.is_some(), paint.hbox.is_some())
+        })
+    };
+    assert_eq!(boxes(cx, 0), (false, false));
+    assert_eq!(boxes(cx, 2), (false, true));
+    // Dragging the box of the lower pane adds the columns, and keeps the rows.
+    let start = box_center(&f, cx, 2, false);
+    down(cx, start, 1);
+    cx.run_until_parked();
+    let to = gpui::point(gpui::px(400.0), start.y);
+    drag_to(cx, to);
+    up(cx, to);
+    cx.run_until_parked();
+    assert_eq!(f.grid(cx), (2, 2));
+    painted(cx);
+    for i in 0..4 {
+        assert_eq!(boxes(cx, i), (false, false), "pane {i}");
+    }
+}
+
+#[gpui::test]
+fn a_held_scroll_arrow_ends_when_the_window_loses_the_activation(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, &long_text());
+    painted(cx);
+    let (x, y) = f.pane(cx, 0).read_with(cx, |v, _| {
+        let paint = v.paint.expect("painted");
+        (
+            paint.scrollbar_left + 3.0,
+            paint.vbar_top + paint.vbar_len - 5.0,
+        )
+    });
+    let at = gpui::point(gpui::px(x), gpui::px(y));
+    down(cx, at, 1);
+    let top = |cx: &mut VisualTestContext| f.pane(cx, 0).read_with(cx, |v, _| v.scroll_y());
+    let first = top(cx);
+    assert!(first > 0.0);
+    // The release happens in another program and never arrives.
+    cx.deactivate_window();
+    cx.run_until_parked();
+    assert!(
+        f.pane(cx, 0)
+            .read_with(cx, |v, _| v.scroll_repeat.is_none())
+    );
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(500));
+    cx.run_until_parked();
+    assert_eq!(top(cx), first);
+}
+
+#[gpui::test]
+fn a_split_box_drag_ends_without_a_split_when_the_window_loses_the_activation(
+    cx: &mut TestAppContext,
+) {
+    let (f, cx) = setup(cx, &long_text());
+    painted(cx);
+    let start = box_center(&f, cx, 0, false);
+    down(cx, start, 1);
+    cx.run_until_parked();
+    drag_to(cx, gpui::point(gpui::px(400.0), start.y));
+    cx.deactivate_window();
+    cx.run_until_parked();
+    up(cx, gpui::point(gpui::px(400.0), start.y));
+    cx.run_until_parked();
+    assert_eq!(f.grid(cx), (1, 1));
+}

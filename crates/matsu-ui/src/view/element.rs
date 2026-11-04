@@ -29,8 +29,8 @@ use super::colors::LineColorRequest;
 use super::syntax::{self, Label, Style as TextStyle};
 use super::{EditorView, PaintInfo, a11y_text, bracket_marks, diff_mark, lines, ruler};
 use crate::geometry::{
-    HSCROLL_ARROW, HSCROLLBAR_HEIGHT, HScrollbar, Metrics, SCROLLBAR_WIDTH, Scrollbar,
-    column_width, row_height,
+    HSCROLL_ARROW, HSCROLLBAR_HEIGHT, HScrollbar, Metrics, SCROLLBAR_WIDTH, SPLIT_BOX, Scrollbar,
+    VSCROLL_ARROW, column_width, row_height,
 };
 use crate::hit::selected_columns;
 use crate::search::highlight::{highlight_columns, slot_of};
@@ -1172,11 +1172,26 @@ impl Element for EditorElement {
         let scroll_x = editor.scroll_x;
         let scroll_y = editor.scroll_y;
         let dragging = matches!(editor.drag, super::Drag::Thumb { .. });
+        // The split boxes: the pane has them when it is in a window that can split
+        // (`SplitBoxOnOff`); the horizontal one is on the horizontal bar.
+        let has_vbox = editor.split_host.is_some() && editor.split_boxes.vertical;
+        let has_hbox =
+            editor.split_host.is_some() && editor.split_boxes.horizontal && p.hbar_height > 0.0;
+        let vbox_height = if has_vbox { SPLIT_BOX } else { 0.0 };
+        let hbox_width = if has_hbox { SPLIT_BOX } else { 0.0 };
+        // Without a horizontal bar the corner square is still under the vertical bar
+        // (`CEditView::OnSize`: the bar is `nCyVScroll` short whatever the other bar does).
+        let corner_gap = if p.hbar_height > 0.0 {
+            0.0
+        } else {
+            HSCROLLBAR_HEIGHT
+        };
         let metrics = Metrics {
             cell_width: p.cell,
             line_height: p.line_height,
             view_width: (f32::from(bounds.size.width) - p.gutter_width - SCROLLBAR_WIDTH).max(1.0),
             view_height: (f32::from(bounds.size.height) - p.top_margin - p.hbar_height).max(1.0),
+            vbar_gap: corner_gap + vbox_height,
         };
         // While a huge file is scanned the bar covers the whole file, by bytes.
         let bar = editor
@@ -1692,39 +1707,59 @@ impl Element for EditorElement {
             });
         }
 
-        let track = Bounds::new(
-            point(bounds.right() - px(SCROLLBAR_WIDTH), body_top),
-            size(
-                px(SCROLLBAR_WIDTH),
-                (bounds.size.height - px(p.top_margin) - px(p.hbar_height)).max(px(0.)),
-            ),
+        let bar_left = bounds.right() - px(SCROLLBAR_WIDTH);
+        let vbar_top = f32::from(body_top) + vbox_height;
+        let vbar_len = Scrollbar::bar_length(&metrics);
+        paint_vscrollbar(
+            window,
+            &bar,
+            (f32::from(bar_left), vbar_top, vbar_len),
+            dragging,
         );
-        window.paint_quad(fill(track, rgb(0xf3f3f3)));
-        window.paint_quad(
-            fill(
-                Bounds::new(
-                    point(track.left() + px(3.), track.top() + px(bar.thumb_top)),
-                    size(px(SCROLLBAR_WIDTH - 6.), px(bar.thumb_height)),
-                ),
-                if dragging {
-                    rgb(0x8c8c8c)
-                } else {
-                    rgb(0xc2c2c2)
-                },
-            )
-            .corner_radii(px(4.)),
-        );
-
-        let hbar_paint = (p.hbar_height > 0.0).then(|| super::hscroll::BarPaint {
+        let vbox = has_vbox.then(|| super::split_box::BoxRect {
+            left: f32::from(bar_left),
+            top: f32::from(body_top),
+            width: SCROLLBAR_WIDTH,
+            height: SPLIT_BOX,
+        });
+        let hbox = has_hbox.then(|| super::split_box::BoxRect {
             left: f32::from(bounds.left()),
             top: f32::from(bounds.bottom()) - p.hbar_height,
-            width: (f32::from(bounds.size.width) - SCROLLBAR_WIDTH).max(0.0),
+            width: SPLIT_BOX,
+            height: HSCROLLBAR_HEIGHT,
+        });
+        for (rect, kind) in [
+            (vbox, super::split_box::BoxKind::Vertical),
+            (hbox, super::split_box::BoxKind::Horizontal),
+        ] {
+            if let Some(rect) = rect {
+                paint_split_box(window, &rect, kind);
+            }
+        }
+        // The corner where the bars meet, which Sakura fills with a placeholder (the size box when
+        // there is a place for one, which this window has none of).
+        window.paint_quad(fill(
+            Bounds::new(
+                point(bar_left, bounds.bottom() - px(HSCROLLBAR_HEIGHT)),
+                size(px(SCROLLBAR_WIDTH), px(HSCROLLBAR_HEIGHT)),
+            ),
+            rgb(super::split_box::FACE),
+        ));
+
+        let hbar_paint = (p.hbar_height > 0.0).then(|| super::hscroll::BarPaint {
+            left: f32::from(bounds.left()) + hbox_width,
+            top: f32::from(bounds.bottom()) - p.hbar_height,
+            width: (f32::from(bounds.size.width) - SCROLLBAR_WIDTH - hbox_width).max(0.0),
         });
         let paint_info = PaintInfo {
             origin_x: f32::from(origin_x),
             origin_y: f32::from(body_top),
-            scrollbar_left: f32::from(track.left()),
+            scrollbar_left: f32::from(bar_left),
             hbar: hbar_paint,
+            vbar_top,
+            vbar_len,
+            vbox,
+            hbox,
         };
         let widest = p.widest;
         let selection_edge = p.selection_edge;
@@ -1780,8 +1815,69 @@ fn paint_dots(window: &mut Window, x: Pixels, y: Pixels, top: Pixels, p: &Prepai
     }
 }
 
-/// The horizontal scroll bar: the arrow buttons and the track, the thumb when there is something
-/// to scroll to, and the square right of it where the vertical bar ends (Sakura's size box).
+/// The vertical scroll bar at `(left, top, length)`: the arrow buttons and the track, and the thumb
+/// when there is something to scroll to.
+fn paint_vscrollbar(window: &mut Window, bar: &Scrollbar, at: (f32, f32, f32), dragging: bool) {
+    const TRACK: u32 = 0xf3f3f3;
+    let (left, top, len) = at;
+    window.paint_quad(fill(
+        Bounds::new(point(px(left), px(top)), size(px(SCROLLBAR_WIDTH), px(len))),
+        rgb(TRACK),
+    ));
+    let enabled = bar.thumb_height < bar.track_height - 0.5;
+    let glyph = if enabled { 0x606060 } else { 0xbfbfbf };
+    // A small triangle in each arrow button, made of strips one pixel high.
+    for (button_top, toward_top) in [(top, true), (top + len - VSCROLL_ARROW, false)] {
+        let center_x = left + SCROLLBAR_WIDTH / 2.0;
+        let center_y = button_top + VSCROLL_ARROW / 2.0;
+        for j in 0..4 {
+            let wide = 1.0 + 2.0 * j as f32;
+            let y = if toward_top {
+                center_y - 2.0 + j as f32
+            } else {
+                center_y + 1.0 - j as f32
+            };
+            window.paint_quad(fill(
+                Bounds::new(
+                    point(px(center_x - wide / 2.0), px(y)),
+                    size(px(wide), px(1.)),
+                ),
+                rgb(glyph),
+            ));
+        }
+    }
+    window.paint_quad(
+        fill(
+            Bounds::new(
+                point(px(left + 3.), px(top + VSCROLL_ARROW + bar.thumb_top)),
+                size(px(SCROLLBAR_WIDTH - 6.), px(bar.thumb_height)),
+            ),
+            if dragging {
+                rgb(0x8c8c8c)
+            } else {
+                rgb(0xc2c2c2)
+            },
+        )
+        .corner_radii(px(4.)),
+    );
+}
+
+/// A split box (`CSplitBoxWnd::OnPaint`).
+fn paint_split_box(
+    window: &mut Window,
+    at: &super::split_box::BoxRect,
+    kind: super::split_box::BoxKind,
+) {
+    for (x, y, w, h, color) in super::split_box::parts(kind) {
+        window.paint_quad(fill(
+            Bounds::new(point(px(at.left + x), px(at.top + y)), size(px(w), px(h))),
+            rgb(color),
+        ));
+    }
+}
+
+/// The horizontal scroll bar: the arrow buttons and the track, and the thumb when there is
+/// something to scroll to.
 fn paint_hscrollbar(
     window: &mut Window,
     bar: &HScrollbar,
@@ -1792,10 +1888,7 @@ fn paint_hscrollbar(
     let (left, top) = (px(at.left), px(at.top));
     let height = px(HSCROLLBAR_HEIGHT);
     window.paint_quad(fill(
-        Bounds::new(
-            point(left, top),
-            size(px(at.width + SCROLLBAR_WIDTH), height),
-        ),
+        Bounds::new(point(left, top), size(px(at.width), height)),
         rgb(TRACK),
     ));
     let glyph = if bar.enabled() { 0x606060 } else { 0xbfbfbf };

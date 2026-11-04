@@ -598,6 +598,13 @@ impl Workspace {
                     .active()
                     .clone()
                     .update(cx, |view, _| view.forget_held_buttons());
+                // So does a scroll bar arrow or a split box that was held: it ends without a split
+                // (`CSplitBoxWnd::OnMouseMove` and `OnLButtonUp` do nothing once the capture is
+                // lost).
+                for (_, pane) in this.panes().numbered() {
+                    pane.update(cx, |view, _| view.cancel_scroll_press());
+                }
+                this.panes_mut().cancel_split_drag();
                 // An Alt let go in another program (Alt+Tab) is not a lone Alt tap here.
                 this.menu_bar.update(cx, |bar, cx| bar.mouse_down(cx));
             }
