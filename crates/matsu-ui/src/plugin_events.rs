@@ -24,15 +24,30 @@
 //! plugin in the order of its `[Plug]`. An event that comes while a command of a plugin runs is not given
 //! (the handler's own actions do not call the plugins again); one that comes while another event runs waits
 //! for its turn, so that `EditorStart` is over before the first `DocumentOpen`.
+//!
+//! A macro (a key macro or a script) that saves or reads a file gets no events for it, though Sakura calls the
+//! plugins there. The event call takes the state of the window that a running macro holds (the flag of a
+//! plugin call, the block of undo, `Turn::Taken`), and the macro waits for the very flow whose events would
+//! need it; letting both in needs a state of its own for the event calls, which no foundation has yet.
+//!
+//! Sakura has one document in a window and never meets a window that was told `EditorEnd` and stays. Here a
+//! tab can open, or the user can type, while the handlers of `EditorEnd` run: the window then is told
+//! `EditorStart` again ([`restart_ended`]), and a flow that starts over (the exit of all windows, the close
+//! of a window) tells each close once ([`CloseLog`]).
+//!
+//! A window that begins with a Grep (`-GREPMODE`) gets `EditorStart` and `DocumentOpen` after the search, as in
+//! `CNormalProcess` ([`start_after_grep`]).
 
 use std::cell::Cell;
+use std::collections::HashSet;
 use std::rc::Rc;
 use std::time::Duration;
 
-use gpui::{App, AsyncApp, AsyncWindowContext, Entity, WeakEntity};
+use gpui::{App, AsyncApp, AsyncWindowContext, Entity, EntityId, WeakEntity};
 use matsu_config::plugins::def::Jack;
 use matsu_config::plugins::{DEFAULT_LANGUAGE, PluginSettings, PluginState};
 
+use crate::app::Workspace;
 use crate::macros::plugin_call::{self, Prepared, Turn};
 use crate::view::EditorView;
 
@@ -296,21 +311,65 @@ pub(crate) async fn start_editor_if_due(
     }
 }
 
+/// What the plugins were told about a close that is not over yet. A flow that asks again, or looks again
+/// after the handlers, keeps one log for all its rounds: a view is told `DocumentClose` once and a window
+/// `EditorEnd` once, however many times the round starts over; and a flow that ends with the windows still
+/// there ([`restart_ended`]) takes the `EditorEnd` back with an `EditorStart`.
+#[derive(Default)]
+pub(crate) struct CloseLog {
+    /// The documents that were told `DocumentClose`: a tab and the generation of the document it shows (a
+    /// document that replaces another in the tab is another one).
+    closed: HashSet<(EntityId, u64)>,
+    /// The windows that were told `EditorEnd`.
+    ended: Vec<EndedWindow>,
+}
+
+/// A window that was told `EditorEnd`. The window is known by its workspace, not by a tab: the tabs can move
+/// and change places while the handlers run.
+struct EndedWindow {
+    /// The workspace, or the tab when it has none.
+    key: EntityId,
+    workspace: Option<WeakEntity<Workspace>>,
+    /// The tab that the event went to.
+    first: WeakEntity<EditorView>,
+}
+
+/// The events of a window that began with a Grep (`-GREPMODE`): when the search is over, `EditorStart` (if it
+/// is due) and `DocumentOpen` (`CNormalProcess`: `DoGrep`, then `PP_EDITOR_START`, then `PP_DOCUMENT_OPEN`). The
+/// search does not block the window as it does in Sakura, so this waits for it.
+pub(crate) async fn start_after_grep(view: &WeakEntity<EditorView>, cx: &mut AsyncWindowContext) {
+    // The document of the window when the launch began: a file that the user opens meanwhile has its own
+    // `DocumentOpen`.
+    let generation = view
+        .read_with(cx, |view, app| view.document().read(app).generation())
+        .ok();
+    while view
+        .read_with(cx, |view, _| view.grep_busy())
+        .unwrap_or(false)
+    {
+        cx.background_executor().timer(TICK).await;
+    }
+    start_editor_if_due(view, cx).await;
+    fire_and_wait_for(view, cx, Jack::DocumentOpen, generation).await;
+}
+
 /// `DocumentClose` for each of `views`, and `EditorEnd` on the first of them: a window is about to go
 /// (`MYWM_CLOSE` in `CEditWnd::DispatchEvent`). Returns when they are over, and whether the user changed
 /// the text of a tab meanwhile (what the plugins wrote does not count: Sakura closes after the events
-/// whatever they did).
+/// whatever they did). The caller says [`restart_ended`] if the window does not go after all.
 pub(crate) async fn window_closing(
     views: &[WeakEntity<EditorView>],
+    log: &mut CloseLog,
     cx: &mut AsyncWindowContext,
 ) -> bool {
-    windows_closing(&[views.to_vec()], cx).await
+    windows_closing(&[views.to_vec()], log, cx).await
 }
 
 /// [`window_closing`] for several windows that go together (quitting): every tab is watched from before the
 /// first handler runs until after the last one, so that an edit in a window that was done already is seen.
 pub(crate) async fn windows_closing(
     windows: &[Vec<WeakEntity<EditorView>>],
+    log: &mut CloseLog,
     cx: &mut AsyncWindowContext,
 ) -> bool {
     for view in windows.iter().flatten() {
@@ -318,10 +377,32 @@ pub(crate) async fn windows_closing(
     }
     for views in windows {
         for view in views {
-            fire_and_wait(view, cx, Jack::DocumentClose).await;
+            let generation = view
+                .read_with(cx, |view, app| view.document().read(app).generation())
+                .ok();
+            // Told already by an earlier round of this flow: not told twice.
+            if let Some(generation) = generation
+                && log.closed.insert((view.entity_id(), generation))
+            {
+                fire_and_wait_for(view, cx, Jack::DocumentClose, Some(generation)).await;
+            }
         }
         if let Some(first) = views.first() {
-            fire_and_wait(first, cx, Jack::EditorEnd).await;
+            let workspace = first
+                .read_with(cx, |view, _| view.split_host.clone())
+                .ok()
+                .flatten();
+            let key = workspace
+                .as_ref()
+                .map_or_else(|| first.entity_id(), |workspace| workspace.entity_id());
+            if !log.ended.iter().any(|ended| ended.key == key) {
+                log.ended.push(EndedWindow {
+                    key,
+                    workspace,
+                    first: first.clone(),
+                });
+                fire_and_wait(first, cx, Jack::EditorEnd).await;
+            }
         }
     }
     let mut changed = false;
@@ -333,5 +414,26 @@ pub(crate) async fn windows_closing(
     changed
 }
 
+/// The flow gave up, or the window stayed: every window that was told `EditorEnd` and is still there is
+/// told `EditorStart` again, so that the plugins see the editor that goes on (a tab opened meanwhile, text
+/// typed meanwhile, a window that opened). The log starts over.
+pub(crate) async fn restart_ended(log: &mut CloseLog, cx: &mut AsyncWindowContext) {
+    log.closed.clear();
+    for ended in std::mem::take(&mut log.ended) {
+        // The tab that shows now, if the tab of the event went away or to another window.
+        let shown = ended
+            .workspace
+            .and_then(|workspace| {
+                cx.update(|_, app| Some(workspace.upgrade()?.read(app).editor().downgrade()))
+                    .ok()
+                    .flatten()
+            })
+            .unwrap_or(ended.first);
+        fire_and_wait(&shown, cx, Jack::EditorStart).await;
+    }
+}
+
+#[cfg(test)]
+mod close_path_tests;
 #[cfg(test)]
 mod tests;
