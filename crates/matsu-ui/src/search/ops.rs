@@ -523,11 +523,13 @@ impl EditorView {
     /// (Sakura's default, `m_bLineNumIsCRLF_ForJump`).
     pub fn go_to_line(&mut self, number: usize, cx: &mut Context<Self>) {
         let number = i64::try_from(number).unwrap_or(i64::MAX);
-        // A line the scan of a huge file has not reached waits for it, as `F_JUMP` does.
-        if let Some(reg) = matsu_commands::registry::Registry::global().get("jump")
-            && self.defer_for_scan(reg, &[matsu_commands::command::Arg::Int(number)], cx)
-        {
-            return;
+        // A line the scan of a huge file has not reached is shown from a window on the file,
+        // or waits for the scan, as `F_JUMP` does.
+        if let Some(reg) = matsu_commands::registry::Registry::global().get("jump") {
+            let args = [matsu_commands::command::Arg::Int(number)];
+            if self.jump_in_scan(reg, &args, cx) || self.defer_for_scan(reg, &args, cx) {
+                return;
+            }
         }
         self.run_with(cx, |c| jump_to_line(c, number, DEFAULT_OPTION))
             .ok();

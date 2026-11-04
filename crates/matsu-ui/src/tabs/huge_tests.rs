@@ -4,8 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use gpui::{AnyWindowHandle, AppContext as _, Entity, TestAppContext};
-use matsu_commands::command::Arg;
+use gpui::{AnyWindowHandle, Entity, TestAppContext};
 use matsu_core::buffer::ScanOptions;
 
 use super::file_tests::{open_file, temp_dir};
@@ -14,7 +13,7 @@ use crate::file_ops::prefs::FilePrefs;
 use crate::view::EditorView;
 
 /// A file of about 1.2 MiB: 100 000 lines, `line 000000` and so on.
-fn big_text() -> String {
+pub(super) fn big_text() -> String {
     (0..100_000).map(|i| format!("line {i:06}\n")).collect()
 }
 
@@ -41,24 +40,24 @@ fn slow_scan(cx: &mut TestAppContext) {
     });
 }
 
-fn scanning(cx: &mut TestAppContext, view: &Entity<EditorView>) -> bool {
+pub(super) fn scanning(cx: &mut TestAppContext, view: &Entity<EditorView>) -> bool {
     view.read_with(cx, |v, cx| v.document().read(cx).is_scanning())
 }
 
-fn notice(cx: &mut TestAppContext, view: &Entity<EditorView>) -> Option<String> {
+pub(super) fn notice(cx: &mut TestAppContext, view: &Entity<EditorView>) -> Option<String> {
     view.read_with(cx, |v, cx| v.status(cx).notice)
 }
 
-fn line_count(cx: &mut TestAppContext, view: &Entity<EditorView>) -> usize {
+pub(super) fn line_count(cx: &mut TestAppContext, view: &Entity<EditorView>) -> usize {
     view.read_with(cx, |v, cx| v.document().read(cx).doc().line_count())
 }
 
-fn caret_line(cx: &mut TestAppContext, view: &Entity<EditorView>) -> usize {
+pub(super) fn caret_line(cx: &mut TestAppContext, view: &Entity<EditorView>) -> usize {
     view.read_with(cx, |v, _| v.cursor.caret().line)
 }
 
 /// Lets the scan thread and the task of the view go on until the scan is done.
-fn wait_for_scan(cx: &mut TestAppContext, view: &Entity<EditorView>) {
+pub(super) fn wait_for_scan(cx: &mut TestAppContext, view: &Entity<EditorView>) {
     for _ in 0..6000 {
         if !scanning(cx, view) {
             return;
@@ -70,7 +69,11 @@ fn wait_for_scan(cx: &mut TestAppContext, view: &Entity<EditorView>) {
     panic!("the scan did not end");
 }
 
-fn opened(cx: &mut TestAppContext, name: &str, bytes: &[u8]) -> (AnyWindowHandle, PathBuf) {
+pub(super) fn opened(
+    cx: &mut TestAppContext,
+    name: &str,
+    bytes: &[u8],
+) -> (AnyWindowHandle, PathBuf) {
     opened_with(cx, name, bytes, |_, _| {})
 }
 
@@ -158,47 +161,6 @@ fn the_document_can_be_edited_when_the_scan_is_done(cx: &mut TestAppContext) {
             .text
     });
     assert_eq!(last, "line 099999");
-    std::fs::remove_dir_all(dir).ok();
-}
-
-#[gpui::test]
-fn a_jump_to_the_end_waits_for_the_scan(cx: &mut TestAppContext) {
-    let (handle, dir) = opened(cx, "big.txt", big_text().as_bytes());
-    let view = active_view(cx, handle);
-    run(cx, handle, "F_GOFILEEND");
-    assert_eq!(
-        caret_line(cx, &view),
-        0,
-        "the caret stays while the scan runs"
-    );
-    assert_eq!(
-        notice(cx, &view).as_deref(),
-        Some("改行位置を調べ終えてから移動します")
-    );
-    // A line the scan has reached is a jump as usual.
-    view.update(cx, |v, cx| v.run_command("jump", &[Arg::Int(2)], cx));
-    assert_eq!(caret_line(cx, &view), 1);
-    // The PL/SQL count and the count of rows cannot be placed in a start of the file: they wait.
-    view.update(cx, |v, cx| {
-        v.run_command("jump", &[Arg::Int(3), Arg::Int(2)], cx)
-    });
-    assert_eq!(caret_line(cx, &view), 1);
-    assert_eq!(
-        notice(cx, &view).as_deref(),
-        Some("改行位置を調べ終えてから移動します")
-    );
-    // A line it has not reached waits too.
-    view.update(cx, |v, cx| v.run_command("jump", &[Arg::Int(70_000)], cx));
-    assert_eq!(caret_line(cx, &view), 1);
-    wait_for_scan(cx, &view);
-    // The last request waited, and ran when the scan was done.
-    assert_eq!(caret_line(cx, &view), 69_999);
-    run(cx, handle, "F_GOFILEEND");
-    assert_eq!(
-        caret_line(cx, &view),
-        100_000,
-        "the end of the text, after the last line"
-    );
     std::fs::remove_dir_all(dir).ok();
 }
 
@@ -307,32 +269,6 @@ fn a_no_to_the_question_opens_nothing_and_tells_no_error(cx: &mut TestAppContext
     assert!(!visual(cx, handle).has_pending_prompt());
     let view = active_view(cx, handle);
     assert_eq!(line_count(cx, &view), 0);
-    std::fs::remove_dir_all(dir).ok();
-}
-
-#[gpui::test]
-fn the_go_to_line_dialog_waits_for_the_scan_too(cx: &mut TestAppContext) {
-    let (handle, dir) = opened(cx, "big.txt", big_text().as_bytes());
-    let view = active_view(cx, handle);
-    view.update(cx, |v, cx| v.go_to_line(90_000, cx));
-    assert_eq!(caret_line(cx, &view), 0);
-    wait_for_scan(cx, &view);
-    assert_eq!(caret_line(cx, &view), 89_999);
-    std::fs::remove_dir_all(dir).ok();
-}
-
-#[gpui::test]
-fn another_pane_of_the_document_runs_its_own_waiting_jump(cx: &mut TestAppContext) {
-    let (handle, dir) = opened(cx, "big.txt", big_text().as_bytes());
-    let view = active_view(cx, handle);
-    // A second view of the same document, as a split pane is.
-    let document = view.read_with(cx, |v, _| v.document().clone());
-    let pane = cx.new(|cx| EditorView::new(document.clone(), cx));
-    pane.update(cx, |v, cx| v.go_to_line(95_000, cx));
-    assert_eq!(caret_line(cx, &pane), 0);
-    wait_for_scan(cx, &view);
-    cx.run_until_parked();
-    assert_eq!(caret_line(cx, &pane), 94_999);
     std::fs::remove_dir_all(dir).ok();
 }
 

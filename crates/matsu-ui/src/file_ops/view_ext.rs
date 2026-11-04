@@ -44,6 +44,7 @@ impl EditorView {
         let version = self
             .document
             .update(cx, |shared, cx| shared.replace_with(new, cx));
+        self.forget_scan_window(cx);
         // `CDocLocker::OnAfterLoad`: the old document let go of its file with `replace_with`.
         let share_mode = super::prefs::prefs(cx).file_share_mode;
         self.document

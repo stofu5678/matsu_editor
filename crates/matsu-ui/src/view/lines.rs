@@ -199,6 +199,17 @@ pub fn line_number(by_line: bool, row: usize, line: usize, row_in_line: usize) -
     }
 }
 
+/// The text of a number in the line number area, right aligned in `digits` columns. In a window on
+/// a huge file whose lines are not counted yet, the number is "about" and has a `~` before it
+/// (ADR-0020, chapter 2).
+pub fn line_number_text(number: usize, digits: usize, approx: bool) -> String {
+    if approx {
+        format!("{:>digits$}", format!("~{number}"))
+    } else {
+        format!("{number:>digits$}")
+    }
+}
+
 /// The x of the vertical line that follows the line numbers (行番号区切り 縦線,
 /// `DispLineNumber`: `rc.left = nLineNumAreaWidth - 2`, one pixel wide), from the left of the
 /// window; `number_area_width` is the width of the line number area without the space before the
@@ -271,6 +282,20 @@ pub fn exor_color(dest: u32, pen: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_about_number_of_a_window_has_a_tilde_and_one_more_column_than_the_least_width() {
+        // The width rule of the type settings (`nLineNumWidth`) and the `~` of a window together:
+        // the area is one column wider, and the number is right aligned after the tilde.
+        let digits = line_number_columns(70_000, 7) + 1;
+        assert_eq!(digits, 9);
+        assert_eq!(line_number_text(70_000, digits, true), "   ~70000");
+        assert_eq!(line_number_text(70_000, digits - 1, false), "   70000");
+        // By rows or by lines, the number is the one given, counted from the window's start.
+        assert_eq!(line_number(true, 5, 2, 0).map(|n| n + 10), Some(13));
+        assert_eq!(line_number(false, 5, 2, 1).map(|n| n + 10), Some(16));
+        assert_eq!(line_number(true, 5, 2, 1), None);
+    }
 
     #[test]
     fn the_line_number_area_has_the_last_numbers_width_and_at_least_the_least_width() {
