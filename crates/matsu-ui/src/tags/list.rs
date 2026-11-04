@@ -21,7 +21,10 @@
 //! The keyword has the history that `CRecentTagjumpKeyword` keeps ([`crate::search::history`]): the
 //! newest is filled in and a list under the box shows the others.
 //!
-//! Not done: the size and position that the dialog remembers, the help button.
+//! The two check boxes of the keyword form are kept in the settings file (`m_bTagJumpICase`,
+//! `m_bTagJumpAnyWhere` of `[Other]`, [`crate::saved_state::other`]). Not done: the size and position
+//! that Sakura's dialog remembers (`rcTagJumpDialog`; a panel in the editor window has none), the
+//! help button.
 
 use crate::dialog_focus::KeepTabInside as _;
 use std::path::PathBuf;
@@ -303,6 +306,7 @@ impl TagList {
                 p.ignore_case = ignore_case;
                 p.partial = partial;
             });
+            crate::saved_state::other::remember_tag_jump_options(cx, ignore_case, partial);
             // `CRecentTagjumpKeyword::AppendItem`: kept in the settings file with the other
             // histories.
             if let Some(keyword) = keyword {

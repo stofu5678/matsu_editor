@@ -90,6 +90,18 @@ impl DiffPanel {
         self.options.flags()
     }
 
+    /// The two search options of the dialog (for the tests).
+    #[cfg(test)]
+    pub(crate) fn search_flags(&self) -> (bool, bool) {
+        (self.notify_not_found, self.wrap)
+    }
+
+    /// Sets the options as the check boxes would (for the tests).
+    #[cfg(test)]
+    pub(crate) fn set_flags(&mut self, flags: u32) {
+        self.options = DiffOptions::from_flags(flags);
+    }
+
     /// The other side the dialog has now, if it has one (`CDlgDiff::GetData` fails without it).
     pub(crate) fn target(&self, cx: &App) -> Option<Target> {
         if self.use_file {
@@ -125,7 +137,11 @@ impl DiffPanel {
         let flags = self.flags();
         let previous = remembered(cx);
         remember(cx, Remembered { flags, ..previous });
+        // `GetData` keeps all three before it looks for the other side, so a dialog that has
+        // none keeps them too. キャンセル keeps nothing; the macro `Diff` has its own flags.
+        crate::saved_state::other::remember_diff_flags(cx, flags);
         let (notify_not_found, wrap) = (self.notify_not_found, self.wrap);
+        crate::saved_state::search::remember_notify_and_wrap(cx, notify_not_found, wrap);
         let Some(editor) = self.editor.upgrade() else {
             return;
         };
@@ -457,7 +473,9 @@ impl EditorView {
             modified,
             encoding,
         );
-        let search = self.search.options();
+        // The two search options start as the last dialog of any window left them
+        // (`CDlgDiff::SetData` reads the shared data).
+        let search = crate::saved_state::search::saved(cx).options(self.search.options());
         let editor = cx.weak_entity();
         match &self.diff.panel {
             Some(panel) => panel.update(cx, |panel, cx| panel.focus_file(window, cx)),

@@ -406,6 +406,8 @@ mod tests_names;
 #[cfg(test)]
 mod tests_polish;
 #[cfg(test)]
+mod tests_saved_dialogs;
+#[cfg(test)]
 mod tests_small;
 #[cfg(test)]
 mod tests_table;

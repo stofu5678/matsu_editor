@@ -379,7 +379,20 @@ impl LaunchOptions {
                 },
             );
             let remembered = crate::grep::window::remembered(cx);
-            let settings = grep_dialog_settings(&grep.args, &self.cwd, remembered);
+            let mut settings = grep_dialog_settings(&grep.args, &self.cwd, remembered);
+            // The command line is kept as the choices of the dialog, whether the dialog is
+            // closed with OK or not (`CNormalProcess::InitializeProcess` writes the shared data);
+            // `DoModal` then takes the shared data. `-GREP` and the macro `Grep` do not use the
+            // dialog and keep nothing.
+            crate::saved_state::search::remember_pattern_options(
+                cx,
+                settings.options.regex,
+                settings.options.match_case,
+                settings.options.whole_word,
+            );
+            crate::saved_state::grep::remember_command_line(cx, &settings);
+            crate::saved_state::grep::saved(cx).apply(&mut settings, false);
+            settings.options = crate::saved_state::search::saved(cx).options(settings.options);
             handle
                 .update(cx, |_, window, cx| {
                     view.update(cx, |view, cx| {

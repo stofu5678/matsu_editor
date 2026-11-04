@@ -77,8 +77,9 @@ const HELD_LIMIT: usize = 1 << 20;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(50);
 
 /// What the dialog remembers from one Grep to the next, for every window
-/// (`DllShareData::m_Common.m_sSearch` and `m_sSearchKeywords`). It lives as long as the program;
-/// it is not saved in a file yet.
+/// (the members of `CDlgGrep` and `CDlgGrepReplace`). It lives as long as the program. The
+/// choices that Sakura keeps in the shared data (`m_Common.m_sSearch`) and writes to its file are
+/// not taken from here when a dialog opens but from [`crate::saved_state::grep`].
 ///
 /// The second value is the document that the last search read when it was a search of the text of
 /// a window: `F_GREP` without arguments repeats it, as Sakura's dialog keeps `:HWND:` in its file

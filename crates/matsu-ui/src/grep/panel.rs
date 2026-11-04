@@ -390,6 +390,38 @@ impl GrepPanel {
         focus_selecting(&self.key, window, cx);
     }
 
+    /// What `GetData` keeps before it checks anything: the character set, the form of the result
+    /// and the check boxes of the output, 除外ファイルを正規表現で指定する, and for Grep 置換, once
+    /// it has a condition, バックアップ作成 (`CDlgGrepReplace::GetData`).
+    fn write_before_checks(&self, cx: &mut App) {
+        if self.replace_mode {
+            if self.settings.key.is_empty() {
+                return;
+            }
+            crate::saved_state::grep::remember_backup(cx, self.settings.backup);
+        }
+        crate::saved_state::grep::remember_output(cx, &self.settings);
+    }
+
+    /// What `GetData` keeps once the boxes are accepted: the options of the pattern when there is
+    /// a pattern that is short enough to be put in the history, and サブフォルダーからも検索する
+    /// unless the text of the window is what is searched.
+    fn write_after_checks(&self, cx: &mut App) {
+        let s = &self.settings;
+        // `_MAX_PATH`
+        if !s.key.is_empty() && s.key.encode_utf16().count() < 260 {
+            crate::saved_state::search::remember_pattern_options(
+                cx,
+                s.options.regex,
+                s.options.match_case,
+                s.options.whole_word,
+            );
+        }
+        if !s.from_this_text {
+            crate::saved_state::grep::remember_sub_folder(cx, s.sub_folder);
+        }
+    }
+
     /// The OK button (検索, 置換 for Grep 置換): checks the boxes, and starts the search.
     pub(crate) fn ok(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.read_boxes(cx);
@@ -399,6 +431,7 @@ impl GrepPanel {
             .read_with(cx, |editor, _| editor.document().entity_id().as_u64())
             .ok();
         let checked = if let (true, Some(document)) = (self.settings.from_this_text, document) {
+            self.write_before_checks(cx);
             self.settings.check_from_this_text(document)
         } else if self.replace_mode {
             // `CDlgGrepReplace::OnBnClicked`: pasting needs something on the clipboard.
@@ -421,8 +454,10 @@ impl GrepPanel {
             } else {
                 None
             };
+            self.write_before_checks(cx);
             self.settings.check_replace(clipboard)
         } else {
+            self.write_before_checks(cx);
             self.settings.check()
         };
         let info = match checked {
@@ -433,6 +468,7 @@ impl GrepPanel {
             }
         };
         let from_this_text = self.settings.from_this_text;
+        self.write_after_checks(cx);
         if !from_this_text {
             // `GetData` writes the folders back as they are checked.
             self.show_settings(window, cx);
@@ -896,13 +932,17 @@ impl Render for GrepPanel {
                 )
                 .disabled(this_text),
             )
-            .child(self.check_box(
-                "grep-default-folder",
-                "フォルダーの初期値をカレントフォルダーにする(F)",
-                s.default_folder,
-                |s, v| s.default_folder = v,
-                cx,
-            ));
+            .child(
+                // Written to the settings as soon as it is clicked (`CDlgGrep::OnBnClicked`).
+                Checkbox::new("grep-default-folder")
+                    .labelled("フォルダーの初期値をカレントフォルダーにする(F)")
+                    .checked(s.default_folder)
+                    .on_click(cx.listener(|this, value: &bool, _, cx| {
+                        let value = *value;
+                        this.change(|s| s.default_folder = value, cx);
+                        crate::saved_state::grep::remember_default_folder(cx, value);
+                    })),
+            );
         if self.replace_mode {
             options = options
                 .child(self.check_box(
@@ -1151,6 +1191,10 @@ impl EditorView {
 
     fn open_grep_panel_as(&mut self, replace: bool, window: &mut Window, cx: &mut Context<Self>) {
         let mut settings = remembered(cx);
+        // The choices the file keeps (`DoModal`): the dialog starts with them, not with what a
+        // dialog that was cancelled held.
+        crate::saved_state::grep::saved(cx).apply(&mut settings, replace);
+        settings.options = crate::saved_state::search::saved(cx).options(settings.options);
         settings.paste = false;
         // The check box starts off (`m_bFromThisText` is FALSE in a new dialog).
         settings.from_this_text = false;
