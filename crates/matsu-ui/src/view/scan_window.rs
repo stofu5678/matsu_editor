@@ -310,6 +310,9 @@ impl EditorView {
 
     /// Shows a window on the file around `byte`, and brings the view and the caret along.
     fn open_scan_window(&mut self, byte: u64, cx: &mut Context<Self>) -> bool {
+        // The view that asks has its positions in the document as it is now (a document loaded
+        // into this window has a number that the view has not seen yet).
+        self.frame_seen = self.document.read(cx).frame_seq();
         let opened = self.document.update(cx, |shared, cx| {
             shared.open_window_at(byte, cx).then(|| shared.version())
         });
