@@ -40,8 +40,9 @@ pub(crate) struct ScrollRepeat {
     pub axis: Axis,
     /// What was pressed: an arrow or a side of the track.
     pub part: BarPart,
-    /// Where the pointer is now, in pixels from the start of the bar along it.
-    pub pointer: f32,
+    /// Where the pointer is now, in pixels from the start of the bar along it; `None` when it is
+    /// off the bar (beside it or past either end).
+    pub pointer: Option<f32>,
     /// Tells this press from the one before, for a task that is still waiting.
     pub id: u64,
 }
@@ -65,7 +66,7 @@ impl EditorView {
         self.scroll_repeat = Some(ScrollRepeat {
             axis,
             part,
-            pointer,
+            pointer: Some(pointer),
             id,
         });
         self.scroll_repeat_task = Some(cx.spawn(async move |this, cx| {
@@ -87,10 +88,34 @@ impl EditorView {
             return;
         };
         if let Some(repeat) = &mut self.scroll_repeat {
-            repeat.pointer = match repeat.axis {
-                Axis::Vertical => y - paint.vbar_top,
-                Axis::Horizontal => x - paint.hbar.map_or(0.0, |bar| bar.left),
+            // The whole bar is the place: a pointer beside it or past its ends is off it.
+            let (along, across, len, thick, across_start) = match repeat.axis {
+                Axis::Vertical => (
+                    y - paint.vbar_top,
+                    x,
+                    paint.vbar_len,
+                    crate::geometry::SCROLLBAR_WIDTH,
+                    paint.scrollbar_left,
+                ),
+                Axis::Horizontal => {
+                    let Some(bar) = paint.hbar else {
+                        repeat.pointer = None;
+                        return;
+                    };
+                    (
+                        x - bar.left,
+                        y,
+                        bar.width,
+                        crate::geometry::HSCROLLBAR_HEIGHT,
+                        bar.top,
+                    )
+                }
             };
+            let on_bar = along >= 0.0
+                && along < len
+                && across >= across_start
+                && across < across_start + thick;
+            repeat.pointer = on_bar.then_some(along);
         }
     }
 
@@ -102,10 +127,10 @@ impl EditorView {
         if repeat.id != id || self.drag != Drag::Repeat {
             return false;
         }
-        let under = match repeat.axis {
-            Axis::Vertical => self.v_part_at(repeat.pointer, cx),
-            Axis::Horizontal => self.h_part_at(repeat.pointer),
-        };
+        let under = repeat.pointer.and_then(|pointer| match repeat.axis {
+            Axis::Vertical => self.v_part_at(pointer, cx),
+            Axis::Horizontal => self.h_part_at(pointer),
+        });
         if under.is_some_and(|under| goes_on(repeat.part, under)) {
             match repeat.axis {
                 Axis::Vertical => self.v_scroll_step(repeat.part, cx),

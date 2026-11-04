@@ -249,3 +249,28 @@ fn the_horizontal_arrows_and_track_repeat_too(cx: &mut TestAppContext) {
     assert_eq!(f.view.read_with(cx, |v, _| v.scroll_x), held);
     release(cx, px_, py);
 }
+
+#[gpui::test]
+fn a_held_arrow_pauses_when_the_pointer_goes_beside_the_bar(cx: &mut TestAppContext) {
+    let (f, cx) = setup(cx, &long_text());
+    settle(cx);
+    let step = rows_per_arrow(cx) * line_height(&f, cx);
+    let (x, down) = on_vbar(&f, cx, -VSCROLL_ARROW / 2.0);
+    press(cx, x, down);
+    // Level with the arrow, but in the text.
+    cx.simulate_mouse_move(
+        point(px(x - 100.0), px(down)),
+        MouseButton::Left,
+        Modifiers::default(),
+    );
+    wait(cx, FIRST_DELAY + INTERVAL * 3);
+    assert_eq!(scroll_y(&f, cx), step);
+    cx.simulate_mouse_move(
+        point(px(x), px(down)),
+        MouseButton::Left,
+        Modifiers::default(),
+    );
+    wait(cx, INTERVAL);
+    assert_eq!(scroll_y(&f, cx), 2.0 * step);
+    release(cx, x, down);
+}
